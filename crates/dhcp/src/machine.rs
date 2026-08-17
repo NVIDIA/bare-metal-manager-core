@@ -134,7 +134,7 @@ pub extern "C" fn machine_get_interface_router(ctx: *mut Machine) -> u32 {
         .unwrap_or_else(|| {
             log::warn!(
                 "No gateway provided for machine interface: {:?}",
-                &machine.inner.machine_interface_id
+                machine.inner.machine_interface_id
             );
             &default_router
         })
@@ -274,14 +274,14 @@ pub extern "C" fn machine_get_filename(ctx: *mut Machine) -> *const libc::c_char
             BiosX86 => {
                 log::error!(
                     "Matched an HTTP client on a Legacy BIOS client, cannot provide HTTP boot URL {:?}",
-                    &machine
+                    machine
                 );
                 return ptr::null();
             }
             Unknown => {
                 log::error!(
                     "Matched an unknown architecture, cannot provide HTTP boot URL {:?}",
-                    &machine
+                    machine
                 );
                 return ptr::null();
             }

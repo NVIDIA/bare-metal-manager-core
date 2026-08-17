@@ -24,6 +24,7 @@ mod generic_ami;
 mod generic_supermicro_explore;
 mod hpe_proliant_dl380a_gen11_explore;
 mod lenovo_gb300_explore;
+mod network_adapter_port_explore;
 mod nvidia_switch_explore;
 mod powershelf_explore;
 mod supermicro_gb300_explore;

@@ -40,7 +40,7 @@ For the optional site-local monitoring stack (metrics + logs + traces: Prometheu
 
 ## Directory structure
 
-```
+```text
 helm-prereqs/
 ├── setup.sh                    # Main deployment script - runs all phases sequentially
 ├── preflight.sh                # Pre-flight validation (also run automatically by setup.sh)
@@ -435,9 +435,10 @@ handful of legacy hostnames in the `.forge` zone:
 | `otel-receiver.forge` | 443 | otel-collector sidecars — gRPC/TLS | otel receiver VIP |
 | `socks.forge` | 1888 | DPU extension services (hardcoded in agent binary) | socks VIP |
 
-Per the [dual-deployment-compat POR](../docs/internal/POR-dual-deployment-compat.md),
-these names stay hardcoded in the binary for now. The deployment is responsible
-for resolving them. Two ways to do that:
+Per the
+[dual-deployment compatibility plan](../helm/README.md#migrating-from-kustomize),
+these names stay hardcoded in the binary for now. The deployment is
+responsible for resolving them. Two ways to do that:
 
 ### Option A — built-in unbound (recommended for new sites)
 
@@ -485,10 +486,10 @@ rotated on the usual cert-manager schedule.
 
 If you're migrating from an existing forged-kustomize site and want the
 DPUs already in the field (which have certs in the `forge.local` trust
-domain) to keep authenticating, also override
-`global.spiffe.trustDomain` to `forge.local` in your values. See the
-[dual-deployment-compat POR](../docs/internal/POR-dual-deployment-compat.md)
-for the in-place upgrade caveats.
+domain) to keep authenticating, also override `global.spiffe.trustDomain` to
+`forge.local` in your values. See the
+[upgrading guidance](../helm/README.md#upgrading) for the in-place upgrade
+caveats.
 
 ## Health check
 
@@ -519,8 +520,29 @@ probes are reported without failing the run.
 
 ## Teardown
 
+> **This destroys Vault and PostgreSQL data.** `reclaimPolicy: Retain` protects
+> those volumes from pod restarts and scaling, not from `clean.sh` — teardown
+> deletes the PVs either way, and the final step makes the on-disk state match.
+> There is no undo. `SKIP_HOSTPATH_SWEEP=true` leaves `Retain` volume data on
+> disk but still deletes the PVs. Check `kubectl config current-context` first.
+
 ```bash
 ./clean.sh
 ```
 
-Removes all components in reverse dependency order: NICo REST → NICo Core → helmfile releases → CRDs → namespaces → PVs → local-path-provisioner.
+Removes all components in reverse dependency order: NICo REST → NICo Core → helmfile releases → CRDs → namespaces → PVs → local-path-provisioner → host-directory sweep.
+
+The final step reclaims the on-disk PV data under `/opt/local-path-provisioner`
+on every node. `local-path-persistent` PVs use `reclaimPolicy: Retain`, so their
+directories are not removed automatically; `clean.sh` flips them to `Delete` and
+lets the provisioner reclaim them, then sweeps directories orphaned by earlier
+runs. The sweep schedules one short-lived pod per node in `kube-system` and
+removes a `pvc-*` directory only when the namespace encoded in its name belongs
+to this stack *and* no live PV matches it — directories for PVs that still exist,
+and anything else on the shared host path, are left alone. Tune with:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `CLEAN_SWEEP_IMAGE` | `busybox:1.36` | Sweep pod image — set to a mirrored image on air-gapped clusters |
+| `SKIP_HOSTPATH_SWEEP` | `false` | Set to `true` to leave the host directories of `Retain` volumes on disk. The PVs are still deleted. It cannot preserve `Delete`-policy volumes (the plain `local-path` class): those are reclaimed by the provisioner when their namespace goes away, before this step runs |
+| `LOCAL_PATH_DIR` | read from the cluster | Provisioner host path. Normally taken from the `local-path-config` ConfigMap, or a surviving PV; set this when re-running against a cluster where the provisioner is already gone and nodes use a non-default `nodePathMap` |

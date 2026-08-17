@@ -144,6 +144,8 @@ pub struct InstanceSnapshotPgJson {
     pub operating_system_id: Option<uuid::Uuid>,
     instance_type_id: Option<InstanceTypeId>,
     network_security_group_id: Option<NetworkSecurityGroupId>,
+    #[serde(default)]
+    power_profile: Option<String>,
     extension_services_config: InstanceExtensionServicesConfig,
     extension_services_config_version: String,
     requested: DateTime<Utc>,
@@ -182,6 +184,7 @@ pub fn from_pg_json_and_os(
         nvlink: value.nvlink_config,
         network_security_group_id: value.network_security_group_id,
         extension_services: value.extension_services_config,
+        power_profile: value.power_profile,
     };
 
     Ok(InstanceSnapshot {
@@ -297,6 +300,7 @@ impl TryFrom<InstanceSnapshotPgJson> for InstanceSnapshot {
             network_security_group_id: value.network_security_group_id,
             extension_services: value.extension_services_config,
             spxconfig: value.spx_config,
+            power_profile: value.power_profile,
         };
 
         Ok(InstanceSnapshot {
@@ -412,6 +416,7 @@ mod tests {
             operating_system_id: None,
             instance_type_id: None,
             network_security_group_id: None,
+            power_profile: None,
             extension_services_config: InstanceExtensionServicesConfig::default(),
             extension_services_config_version: version,
             requested: Utc::now(),
@@ -426,6 +431,7 @@ mod tests {
     fn test_from_pg_json_and_os_uses_provided_os() {
         let mut pg_json = minimal_pg_json();
         pg_json.operating_system_id = Some(Uuid::nil());
+        pg_json.power_profile = Some("balanced".to_string());
         let os = OperatingSystem {
             user_data: Some("user-data".to_string()),
             variant: OperatingSystemVariant::Ipxe(InlineIpxe {
@@ -438,6 +444,7 @@ mod tests {
         assert_eq!(snapshot.config.os.variant, os.variant);
         assert_eq!(snapshot.config.os.user_data, os.user_data);
         assert_eq!(snapshot.config.os.phone_home_enabled, os.phone_home_enabled);
+        assert_eq!(snapshot.config.power_profile.as_deref(), Some("balanced"));
         if let OperatingSystemVariant::Ipxe(ipxe) = &snapshot.config.os.variant {
             assert_eq!(ipxe.ipxe_script, "script-from-os");
         } else {
@@ -448,7 +455,8 @@ mod tests {
     /// `InstanceSnapshot::try_from` derives the OS variant from the legacy
     /// instance columns (priority: operating_system_id > os_image_id > inline
     /// iPXE). Each row mutates a minimal pg-json row, then projects the converted
-    /// snapshot to the fields under test: (os variant, user_data, phone_home).
+    /// snapshot to the fields under test: (os variant, user_data, phone_home,
+    /// power_profile).
     #[test]
     fn test_try_from_derives_os_from_instance_columns() {
         let image_uuid = uuid::uuid!("a1b2c3d4-e5f6-4780-a123-456789abcdef");
@@ -467,6 +475,7 @@ mod tests {
                             snapshot.config.os.variant,
                             snapshot.config.os.user_data,
                             snapshot.config.os.phone_home_enabled,
+                            snapshot.config.power_profile,
                         )
                     })
                     .map_err(drop)
@@ -478,12 +487,14 @@ mod tests {
                     pg.os_ipxe_script = "legacy-inline-script".to_string();
                     pg.os_user_data = Some("legacy-user-data".to_string());
                     pg.os_phone_home_enabled = true;
+                    pg.power_profile = Some("balanced".to_string());
                 }) as Box<dyn Fn(&mut InstanceSnapshotPgJson)> => Yields((
                     OperatingSystemVariant::Ipxe(InlineIpxe {
                         ipxe_script: "legacy-inline-script".to_string(),
                     }),
                     Some("legacy-user-data".to_string()),
                     true,
+                    Some("balanced".to_string()),
                 )),
             }
 
@@ -492,7 +503,7 @@ mod tests {
                     pg.operating_system_id = None;
                     pg.os_image_id = Some(image_uuid);
                     pg.os_ipxe_script = "ignored".to_string();
-                }) => Yields((OperatingSystemVariant::OsImage(image_uuid), None, false)),
+                }) => Yields((OperatingSystemVariant::OsImage(image_uuid), None, false, None)),
             }
 
             "operating_system_id takes priority over image and iPXE" {
@@ -504,6 +515,7 @@ mod tests {
                     OperatingSystemVariant::OperatingSystemId(os_uuid),
                     None,
                     false,
+                    None,
                 )),
             }
         );

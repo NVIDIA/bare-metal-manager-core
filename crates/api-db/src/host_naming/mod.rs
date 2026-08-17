@@ -407,10 +407,10 @@ fn ip_or_dormant(ctx: &NamingContext<'_>) -> DatabaseResult<String> {
     }
 }
 
-/// Builds the IP-derived hostname: IPv4 dotted-quad with dashes (`10.1.2.3` ->
-/// `10-1-2-3`); IPv6 fully-expanded hex segments with dashes. Validates the
-/// result is a legal DNS name.
-pub(crate) fn address_to_hostname(address: &IpAddr) -> DatabaseResult<String> {
+/// `address_to_hostname` builds the IP-derived hostname: IPv4 dotted-quad with
+/// dashes (`10.1.2.3` -> `10-1-2-3`); IPv6 fully-expanded hex segments with
+/// dashes. It validates the result as a legal DNS name before returning it.
+pub fn address_to_hostname(address: &IpAddr) -> DatabaseResult<String> {
     let hostname = match address {
         IpAddr::V4(_) => address.to_string().replace('.', "-"),
         IpAddr::V6(v6) => v6

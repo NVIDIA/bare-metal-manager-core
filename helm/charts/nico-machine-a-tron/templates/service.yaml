@@ -4,7 +4,7 @@
 
 {{- range $podName, $podConfig := .Values.pods }}
 {{/*
-Skip pods without machines or a full config override
+Skip unconfigured pods
 */}}
 {{- if not (include "nico-machine-a-tron.podIsActive" (dict "root" $root "podName" $podName "podConfig" $podConfig)) }}
 {{- continue }}

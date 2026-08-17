@@ -190,50 +190,12 @@ pub(crate) struct OtlpExportFailed {
     pub endpoint: String,
 }
 
-#[allow(clippy::all)]
-pub mod opentelemetry {
-    pub mod proto {
-        pub mod common {
-            pub mod v1 {
-                tonic::include_proto!("opentelemetry.proto.common.v1");
-            }
-        }
-        pub mod resource {
-            pub mod v1 {
-                tonic::include_proto!("opentelemetry.proto.resource.v1");
-            }
-        }
-        pub mod logs {
-            pub mod v1 {
-                tonic::include_proto!("opentelemetry.proto.logs.v1");
-            }
-        }
-        pub mod metrics {
-            pub mod v1 {
-                tonic::include_proto!("opentelemetry.proto.metrics.v1");
-            }
-        }
-        pub mod collector {
-            pub mod logs {
-                pub mod v1 {
-                    tonic::include_proto!("opentelemetry.proto.collector.logs.v1");
-                }
-            }
-            pub mod metrics {
-                pub mod v1 {
-                    tonic::include_proto!("opentelemetry.proto.collector.metrics.v1");
-                }
-            }
-        }
-    }
-}
-
-pub use opentelemetry::proto::collector::logs::v1 as collector_logs;
-pub use opentelemetry::proto::collector::metrics::v1 as collector_metrics;
-pub use opentelemetry::proto::common::v1 as common;
-pub use opentelemetry::proto::logs::v1 as logs;
-pub use opentelemetry::proto::metrics::v1 as metrics;
-pub use opentelemetry::proto::resource::v1 as resource;
+pub use opentelemetry_proto::tonic::collector::logs::v1 as collector_logs;
+pub use opentelemetry_proto::tonic::collector::metrics::v1 as collector_metrics;
+pub use opentelemetry_proto::tonic::common::v1 as common;
+pub use opentelemetry_proto::tonic::logs::v1 as logs;
+pub use opentelemetry_proto::tonic::metrics::v1 as metrics;
+pub use opentelemetry_proto::tonic::resource::v1 as resource;
 
 #[cfg(test)]
 mod tests {

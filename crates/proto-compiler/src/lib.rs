@@ -51,8 +51,15 @@
 //! exits; generated Rust and the `forge.bin` reflection descriptor remain in
 //! Cargo's `OUT_DIR`.
 
+mod codegen;
 mod compiler;
+mod error;
+mod extern_paths;
 mod schema;
 
-pub use compiler::{CompilerConfig, Error, compile};
+pub use codegen::{Codegen, TonicBuilderCodegenExt};
+pub use compiler::{CompilerConfig, compile};
+pub use error::Error;
+pub use extern_paths::{ExternPathSearchIndex, ExternPaths, TonicBuilderExternPathsExt};
 pub use schema::Schema;
+pub use syn;

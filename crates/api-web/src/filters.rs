@@ -20,6 +20,11 @@
  * Askama makes all these functions accessible as template filters.
  */
 
+#![allow(
+    unreachable_pub,
+    reason = "askama::filter_fn emits public helper items inside this template-filter module"
+)]
+
 use std::collections::BTreeSet;
 use std::fmt::{Display, Write};
 use std::str::FromStr;
@@ -133,7 +138,7 @@ pub(super) fn label_list_fmt(
         let truncated_key = if truncate && label.key.len() > MAX_LABEL_LENGTH {
             &format!(
                 "{}...",
-                &label.key.chars().take(MAX_LABEL_LENGTH).collect::<String>()
+                label.key.chars().take(MAX_LABEL_LENGTH).collect::<String>()
             )
         } else {
             &label.key
@@ -146,7 +151,7 @@ pub(super) fn label_list_fmt(
             let truncated_value = if truncate && value.len() > MAX_LABEL_LENGTH {
                 &format!(
                     "{}...",
-                    &value.chars().take(MAX_LABEL_LENGTH).collect::<String>()
+                    value.chars().take(MAX_LABEL_LENGTH).collect::<String>()
                 )
             } else {
                 value
@@ -428,7 +433,7 @@ pub(super) fn controller_state_reason_fmt(
     }
 
     if let Some(source_ref) = reason.source_ref.as_ref() {
-        const GITHUB_REPO: &str = "https://github.com/NVIDIA/ncx-infra-controller-core";
+        const GITHUB_REPO: &str = "https://github.com/NVIDIA/infra-controller";
 
         // TODO: carbide_version::v!(git_sha) should work here - however it returns an
         // outdated commit ID.

@@ -81,6 +81,7 @@ impl NvidiaSwitchNd5200Ld<'_> {
                 log_services: None,
                 storage: Some(vec![]),
                 processors: None,
+                memory: None,
                 base_bios: None,
                 serial_console: None,
                 secure_boot_available: false,
@@ -184,6 +185,7 @@ impl NvidiaSwitchNd5200Ld<'_> {
     pub(crate) fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
         redfish::update_service::UpdateServiceConfig {
             firmware_inventory: vec![],
+            ..Default::default()
         }
     }
 }

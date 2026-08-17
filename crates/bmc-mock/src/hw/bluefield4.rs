@@ -392,6 +392,7 @@ impl Bluefield4<'_> {
                 })),
                 storage: Some(vec![]),
                 processors: Some(vec![]),
+                memory: None,
                 serial_console: None,
                 secure_boot_available: true,
             }],
@@ -421,6 +422,7 @@ impl Bluefield4<'_> {
     pub(crate) fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
         redfish::update_service::UpdateServiceConfig {
             firmware_inventory: vec![],
+            ..Default::default()
         }
     }
 

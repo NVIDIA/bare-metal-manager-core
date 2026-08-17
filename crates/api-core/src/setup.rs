@@ -73,6 +73,7 @@ use db::resource_pool::DefineResourcePoolError;
 use db::work_lock_manager::WorkLockManagerHandle;
 use eyre::WrapErr;
 use futures_util::TryFutureExt;
+use itertools::Itertools;
 use librms::RackManagerClientPool;
 use model::attestation::spdm::VerifierImpl;
 use model::expected_machine::ExpectedMachine;
@@ -93,7 +94,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::api::Api;
 use crate::api::metrics::ApiMetricsEmitter;
-use crate::cfg::file::{CarbideConfig, InitialObjectsConfig, ListenMode};
+use crate::cfg::file::{CarbideConfig, InitialObjectsConfig, ListenMode, VmaasConfig};
 use crate::cfg::load::all_configuration_files;
 use crate::dpa::handler::start_dpa_handler;
 use crate::dynamic_settings::DynamicSettings;
@@ -204,14 +205,6 @@ pub(crate) async fn start_runtime(
     admin_ui_routes_builder: Option<AdminUiRoutesBuilder>,
     cancel_token: CancellationToken,
 ) -> eyre::Result<SocketAddr> {
-    eyre::ensure!(
-        !matches!(
-            (carbide_config.dpf.enabled, &carbide_config.vmaas_config),
-            (true, Some(_))
-        ),
-        "cannot enable both VMaaS and DPF; disable one in the configuration"
-    );
-
     let shared_redfish_pool = create_redfish_pool(&carbide_config, credential_manager.clone())?;
     let shared_nv_redfish_pool =
         carbide_redfish::nv_redfish::new_pool(carbide_config.site_explorer.bmc_proxy.clone());
@@ -297,6 +290,17 @@ pub(crate) async fn start_runtime(
         db::site_prefix::reconcile_configured(&mut txn, &carbide_config.site_fabric_prefixes)
             .await?;
 
+        if !carbide_config.site_fabric_prefixes.is_empty() {
+            let lineage =
+                db::site_prefix::backfill_vpc_prefix_site_prefix_lineage(&mut txn).await?;
+            eyre::ensure!(
+                lineage.unresolved_vpc_prefix_count() == 0,
+                "VpcPrefix SitePrefix lineage preflight failed: missing VpcPrefix IDs: {:?}; ambiguous VpcPrefixes: {:?}",
+                lineage.missing_vpc_prefix_ids,
+                lineage.ambiguous,
+            );
+        }
+
         txn.commit().await?;
 
         // Idempotently seed the dedicated site-wide lockdown IKM (v0) from the
@@ -309,6 +313,19 @@ pub(crate) async fn start_runtime(
         // `*_credential_rotation_backfill` data migration (see its header for the
         // ordering invariants), not seeded here.
     };
+
+    // A listen-only replica trusts another instance to reconcile configuration,
+    // but it still must not serve a configured-root site with unresolved
+    // VpcPrefix lineage.
+    if carbide_config.listen_only && !carbide_config.site_fabric_prefixes.is_empty() {
+        let unassigned =
+            db::site_prefix::find_unassigned_vpc_prefix_site_prefix_ids(&db_pool).await?;
+        eyre::ensure!(
+            unassigned.is_empty(),
+            "VpcPrefix SitePrefix lineage preflight failed: unassigned VpcPrefix IDs: {:?}",
+            unassigned,
+        );
+    }
 
     let common_pools =
         db::resource_pool::create_common_pools(db_pool.clone(), ib_fabric_ids).await?;
@@ -406,6 +423,36 @@ pub(crate) async fn start_runtime(
         .map_err(|e| eyre::eyre!("failed to build NMX-C client pool: {e}"))?;
     let shared_nmxc_pool: Arc<dyn libnmxc::NmxcPool> = Arc::new(nmxc_client_pool);
 
+    // Node-auth (Scout / DPU-agent bearer JWT, #355) preflight. Run before any
+    // DPF resource creation below, so a misconfiguration (the
+    // enabled=false + mtls_enabled=false lockout, bearer-over-plaintext, or an
+    // unreadable trust anchor) fails startup before it mutates cluster state.
+    // Validate unconditionally; when explicitly enabled, missing prerequisites
+    // fail rather than silently degrading.
+    carbide_config.node_auth.validate()?;
+    let node_jwt_validator = if carbide_config.node_auth.enabled {
+        // Bearer tokens must never be accepted over plaintext, and the
+        // validator trusts the same roots the TLS listener uses for client
+        // certificates — so a TLS listener is required on both counts.
+        if !matches!(carbide_config.listen_mode, ListenMode::Tls) {
+            return Err(eyre::eyre!(
+                "[node_auth] is enabled but listen_mode is not \"tls\"; bearer tokens must not be accepted over plaintext"
+            ));
+        }
+        let tls_ref = carbide_config
+            .tls
+            .as_ref()
+            .ok_or_else(|| eyre::eyre!("[node_auth] is enabled but [tls] is unset"))?;
+        Some(Arc::new(
+            crate::node_auth::NodeJwtValidator::from_root_ca_file(
+                &tls_ref.root_cafile_path,
+                &carbide_config.node_auth,
+            )?,
+        ))
+    } else {
+        None
+    };
+
     let dpf_sdk = initialize_dpf_sdk(
         &carbide_config,
         credential_manager.clone(),
@@ -465,6 +512,7 @@ pub(crate) async fn start_runtime(
         certificate_provider,
         common_pools,
         credential_manager,
+        node_jwt_validator,
         database_connection: db_pool.clone(),
         dpu_health_log_limiter: LogLimiter::default(),
         dynamic_settings,
@@ -528,6 +576,53 @@ pub(crate) async fn start_runtime(
     Ok(listen_address)
 }
 
+/// Normalizes and validates DPF-only intercept-bridging topology without retaining legacy map keys.
+fn normalize_dpf_intercept_bridging(
+    config: Option<&VmaasConfig>,
+    num_of_vfs: u32,
+) -> eyre::Result<Option<carbide_dpf::DpfInterceptBridging>> {
+    // Only complete VMaaS absence selects static inventory; present invalid maps fail below.
+    let Some(config) = config else {
+        return Ok(None);
+    };
+    let entries = config
+        .bridging
+        .as_ref()
+        .map(|bridging| &bridging.host_representor_intercept_bridging);
+    let interfaces = entries
+        .into_iter()
+        .flatten()
+        // Legacy keys do not affect DPF output; sorting only stabilizes which invalid entry is
+        // reported first when multiple entries fail validation.
+        .sorted_by(|(left, _), (right, _)| left.cmp(right))
+        .map(|(legacy_key, interface)| {
+            eyre::ensure!(
+                !interface.skip_create,
+                "DPF intercept-bridging interface {legacy_key:?} cannot use skip_create=true"
+            );
+            let identity = interface.dpf_interface.ok_or_else(|| {
+                eyre::eyre!(
+                    "DPF intercept-bridging interface {legacy_key:?} is missing dpf_interface"
+                )
+            })?;
+            Ok(carbide_dpf::DpfInterceptBridge::new(
+                carbide_dpf::DpfInterfaceIdentity {
+                    controller_id: identity.controller_id,
+                    pf_id: identity.pf_id,
+                    vf_id: identity.vf_id,
+                },
+                &interface.bridge,
+                &interface.patch_port,
+            ))
+        })
+        .collect::<eyre::Result<Vec<_>>>()?;
+
+    // DPF-local validation owns typed identity and all rendered-name constraints.
+    carbide_dpf::DpfInterceptBridging::new(interfaces, num_of_vfs)
+        .map(Some)
+        .map_err(|error| eyre::eyre!("invalid DPF intercept-bridging configuration: {error}"))
+}
+
 /// Initialize the DPF SDK and create all required Kubernetes CRs.
 ///
 /// Returns `None` (with a deprecation warning) when DPF is disabled.
@@ -537,6 +632,11 @@ async fn initialize_dpf_sdk(
     db_pool: PgPool,
     join_set: &mut JoinSet<()>,
 ) -> eyre::Result<Option<Arc<dyn DpfOperations>>> {
+    // Astra is a BF4+CX9-only deployment with a distinct interface inventory.
+    // Reject unsafe global ServiceInterfaces even when DPF is disabled so a dormant Astra
+    // configuration cannot become unsafe merely by enabling DPF later.
+    carbide_config.dpf.validate_service_interface_scoping()?;
+
     if !carbide_config.dpf.enabled {
         tracing::warn!(
             removed_in = "v2.1",
@@ -560,6 +660,27 @@ async fn initialize_dpf_sdk(
         .dpu_agent_bootstrap_ca
         .validate()
         .map_err(|err| eyre::eyre!("invalid DPF bootstrap CA configuration: {err}"))?;
+
+    // Validate the complete site topology before constructing a repository or writing any CR.
+    let intercept_bridging = normalize_dpf_intercept_bridging(
+        carbide_config.vmaas_config.as_ref(),
+        carbide_config.dpu_config.num_of_vfs,
+    )?;
+    let effective_interfaces = carbide_dpf::build_effective_dpu_interfaces(
+        carbide_config.dpu_config.num_of_vfs,
+        intercept_bridging.as_ref(),
+    );
+
+    // SDK construction writes the shared BMC Secret, so capacity validation must remain on the
+    // pure configuration path and finish before Kubernetes repository construction.
+    carbide_dpf::calculate_pf_total_sf(
+        &effective_interfaces,
+        intercept_bridging.as_ref(),
+        carbide_config.dpf.pf_total_sf_reserved,
+    )
+    .map_err(|error| eyre::eyre!("invalid DPF SF configuration: {error}"))?;
+
+    let astra_interfaces = carbide_dpf::sdk::build_dpu_interfaces_vec();
 
     let repo = carbide_dpf::KubeRepository::new()
         .await
@@ -602,15 +723,33 @@ async fn initialize_dpf_sdk(
          deployment_type: DpuDeploymentType,
          bluefield_software: Option<carbide_dpf::BlueFieldSoftwareParams>| {
             let services = carbide_config.dpf.resolved_services_for(deployment);
+            let interfaces = match deployment_type {
+                DpuDeploymentType::Bf4Astra => &astra_interfaces,
+                DpuDeploymentType::Bf3 | DpuDeploymentType::Bf4Generic => &effective_interfaces,
+            };
             carbide_dpf::InitDpfResourcesConfig {
                 bfb_url: deployment.bfb_url.clone().unwrap_or_default(),
                 bluefield_software,
                 flavor_name: deployment.flavor_name.clone(),
                 deployment_name: deployment.deployment_name.clone(),
+                deployment_scoped_service_interfaces: carbide_config
+                    .dpf
+                    .deployment_scoped_service_interfaces,
                 services: crate::dpf_services::mandatory_services(
                     &services,
                     &carbide_config.dpf.dpu_agent_bootstrap_ca,
+                    interfaces,
+                    &carbide_config.node_auth,
                 ),
+                num_of_vfs: carbide_config.dpu_config.num_of_vfs,
+                pf_total_sf_reserved: carbide_config.dpf.pf_total_sf_reserved,
+                intercept_bridging: match deployment_type {
+                    DpuDeploymentType::Bf4Astra => None,
+                    DpuDeploymentType::Bf3 | DpuDeploymentType::Bf4Generic => {
+                        intercept_bridging.clone()
+                    }
+                },
+                interfaces: interfaces.clone(),
                 proxy: carbide_config.dpf.proxy.clone(),
                 deployment_type,
             }
@@ -684,7 +823,7 @@ fn build_deployment_type_labels(
     let make_labels = |key: &str| {
         std::collections::BTreeMap::from([
             (
-                "feature.node.kubernetes.io/dpu-enabled".to_string(),
+                carbide_dpf::DPU_ENABLED_NODE_LABEL.to_string(),
                 "true".to_string(),
             ),
             (key.to_string(), "true".to_string()),
@@ -1762,8 +1901,141 @@ mod tests {
     use model::resource_pool::define::ResourcePoolDef;
 
     use super::*;
-    use crate::cfg::file::{CarbideConfig, InitialObjectsConfig};
+    use crate::cfg::file::{
+        CarbideConfig, DpfInterfaceIdentity, HostInterceptBridging, HostRepresentorBridgingConfig,
+        InitialObjectsConfig, VmaasConfig, default_hbn_bridge,
+    };
     use crate::cfg::load::{merged_carbide_config_figment, parse_carbide_config};
+
+    /// Provides one intercept-bridging config entry for DPF normalization tests.
+    fn test_intercept_config(interface: HostInterceptBridging) -> VmaasConfig {
+        VmaasConfig {
+            allow_instance_vf: true,
+            hbn_reps: Some("legacy-only-value".to_string()),
+            bridging: Some(HostRepresentorBridgingConfig {
+                hbn_bridge: default_hbn_bridge(),
+                host_representor_intercept_bridging: HashMap::from([(
+                    "legacy-map-key".to_string(),
+                    interface,
+                )]),
+            }),
+        }
+    }
+
+    /// Provides one typed PF or VF identity for DPF normalization tests.
+    fn test_dpf_identity(vf_id: Option<u8>) -> DpfInterfaceIdentity {
+        DpfInterfaceIdentity {
+            controller_id: 2,
+            pf_id: 3,
+            vf_id,
+        }
+    }
+
+    /// Verifies static inventory remains available without VMaaS configuration while every
+    /// configured DPF replacement topology contains the PF required by single-interface FMDS.
+    #[test]
+    fn dpf_intercept_bridging_normalization_requires_configured_pf() {
+        // Absence retains the SDK's static PF/VF inventory mode.
+        assert!(
+            normalize_dpf_intercept_bridging(None, 16)
+                .unwrap()
+                .is_none()
+        );
+
+        value_scenarios!(
+            run = |config| normalize_dpf_intercept_bridging(Some(&config), 16).is_err();
+            "missing bridging block" {
+                // A configured DPF replacement inventory must expose the PF used by FMDS.
+                VmaasConfig {
+                    allow_instance_vf: false,
+                    hbn_reps: None,
+                    bridging: None,
+                } => true,
+            }
+
+            "empty bridging map" {
+                // Fixed physical uplinks cannot replace the required host PF FMDS endpoint.
+                VmaasConfig {
+                    allow_instance_vf: false,
+                    hbn_reps: None,
+                    bridging: Some(HostRepresentorBridgingConfig {
+                        hbn_bridge: default_hbn_bridge(),
+                        host_representor_intercept_bridging: HashMap::new(),
+                    }),
+                } => true,
+            }
+
+            "VF-only bridging map" {
+                // VFs share the selected parent but cannot supply FMDS's PF interface.
+                test_intercept_config(HostInterceptBridging {
+                    bridge: "br-vf3".to_string(),
+                    patch_port: "p-vf3".to_string(),
+                    skip_create: false,
+                    dpf_interface: Some(test_dpf_identity(Some(3))),
+                }) => true,
+            }
+        );
+    }
+
+    /// Verifies DPF normalization uses typed identity and ignores legacy-only values.
+    #[test]
+    fn dpf_intercept_bridging_normalization_ignores_legacy_identity_and_hbn_reps() {
+        // Build two configs differing only in legacy map key and HBN selection.
+        let interface = HostInterceptBridging {
+            bridge: "br-pf3".to_string(),
+            patch_port: "p-pf3".to_string(),
+            skip_create: false,
+            dpf_interface: Some(test_dpf_identity(None)),
+        };
+        let first = test_intercept_config(interface.clone());
+        let mut second = test_intercept_config(interface);
+        second.hbn_reps = Some("different-legacy-value".to_string());
+        let bridging = second.bridging.as_mut().unwrap();
+        let entry = bridging
+            .host_representor_intercept_bridging
+            .remove("legacy-map-key")
+            .unwrap();
+        bridging
+            .host_representor_intercept_bridging
+            .insert("unrelated-key".to_string(), entry);
+
+        // Only typed identity and normalized topology values may affect DPF output.
+        assert_eq!(
+            normalize_dpf_intercept_bridging(Some(&first), 16).unwrap(),
+            normalize_dpf_intercept_bridging(Some(&second), 16).unwrap()
+        );
+    }
+
+    /// Verifies incomplete or skipped entries are rejected only at the DPF boundary.
+    #[test]
+    fn dpf_intercept_bridging_normalization_rejects_missing_identity_and_skip_create() {
+        value_scenarios!(
+            // The table evaluates `is_err`, so `true` means normalization rejected the entry.
+            run = |interface| normalize_dpf_intercept_bridging(
+                Some(&test_intercept_config(interface)),
+                16,
+            ).is_err();
+            "missing typed identity" {
+                // Legacy-only entries cannot select a DPF PF or VF safely.
+                HostInterceptBridging {
+                    bridge: "br-host".to_string(),
+                    patch_port: "p-host".to_string(),
+                    skip_create: false,
+                    dpf_interface: None,
+                } => true,
+            }
+
+            "skipped entry" {
+                // Startup topology is declarative under DPF, so skipped entries are unsupported.
+                HostInterceptBridging {
+                    bridge: "br-host".to_string(),
+                    patch_port: "p-host".to_string(),
+                    skip_create: true,
+                    dpf_interface: Some(test_dpf_identity(None)),
+                } => true,
+            }
+        );
+    }
 
     #[test]
     fn firmware_object_redirects_require_same_origin() {
@@ -1912,6 +2184,7 @@ mod tests {
             mtu,
             reserve_first: 0,
             allocation_strategy: Default::default(),
+            infer_slaac_eui64_addresses: false,
             vpc_name: None,
         }
     }

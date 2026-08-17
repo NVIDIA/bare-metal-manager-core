@@ -7,9 +7,13 @@
 {{- fail "multi-pod machine-a-tron deployments require mat-k8s-controller.enabled=true" }}
 {{- end }}
 
+{{- if not .Values.startupProbe }}
+{{- fail "startupProbe must be configured — without it liveness fires immediately and can kill MAT during registration (issue #4298)" }}
+{{- end }}
+
 {{- range $podName, $podConfig := .Values.pods }}
 {{/*
-Skip pods without machines or a full config override
+Skip unconfigured pods
 */}}
 {{- if not (include "nico-machine-a-tron.podIsActive" (dict "root" $root "podName" $podName "podConfig" $podConfig)) }}
 {{- continue }}
@@ -58,15 +62,32 @@ spec:
             {{- toYaml $root.Values.command | nindent 12 }}
           args:
             - "/app/mat.toml"
+          {{- if $root.Values.ufmMock.enabled }}
+          env:
+            - name: UFM_MOCK_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $root.Values.ufmMock.existingAuthSecret | default (printf "%s-ufm-mock-auth" $baseName) | quote }}
+                  key: token
+          {{- end }}
           ports:
             - name: redfish
               containerPort: {{ $root.Values.service.bmcMock.port }}
               protocol: TCP
+            {{- if $root.Values.ufmMock.enabled }}
+            - name: metrics
+              containerPort: {{ $root.Values.service.metrics.port }}
+              protocol: TCP
+            {{- end }}
             {{- if $root.Values.machineATron.mockBmcSshServer }}
             - name: ssh
               containerPort: {{ $root.Values.machineATron.mockBmcSshPort }}
               protocol: TCP
             {{- end }}
+          {{- with $root.Values.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- with $root.Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}

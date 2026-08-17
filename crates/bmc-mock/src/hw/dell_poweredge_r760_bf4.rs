@@ -126,6 +126,7 @@ impl DellPowerEdgeR760Bf4<'_> {
                 // failure.
                 storage: Some(vec![]),
                 processors: None,
+                memory: None,
                 serial_console: None,
                 secure_boot_available: true,
                 base_bios: Some(redfish::bios::builder(&redfish::bios::resource(system_id))
@@ -223,6 +224,8 @@ impl DellPowerEdgeR760Bf4<'_> {
     pub(crate) fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
         redfish::update_service::UpdateServiceConfig {
             firmware_inventory: vec![],
+            advertise_multipart_push_uri: false,
+            ..Default::default()
         }
     }
 }

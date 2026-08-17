@@ -51,6 +51,8 @@ spec:
               protocol: TCP
           readinessProbe:
             {{- toYaml .Values.readinessProbe | nindent 12 }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
           resources: {}
           volumeMounts:
             # Mount config at both paths so the binary finds it regardless of nico/carbide image variant.

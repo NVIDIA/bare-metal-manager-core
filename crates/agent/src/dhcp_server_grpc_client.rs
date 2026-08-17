@@ -16,6 +16,11 @@
  */
 
 mod proto {
+    #![allow(
+        unreachable_pub,
+        reason = "tonic_prost_build emits public items for this crate-internal protocol module"
+    )]
+
     tonic::include_proto!("dhcp_server_control");
 }
 
@@ -76,8 +81,8 @@ impl From<ModelInterfaceInfoV6> for proto::InterfaceInfoV6 {
 impl From<ModelInterfaceInfo> for proto::InterfaceInfo {
     fn from(i: ModelInterfaceInfo) -> Self {
         proto::InterfaceInfo {
-            address: i.address.to_string(),
-            gateway: i.gateway.to_string(),
+            address: i.address.map(|address| address.to_string()),
+            gateway: i.gateway.map(|gateway| gateway.to_string()),
             prefix: i.prefix,
             fqdn: i.fqdn,
             booturl: i.booturl,

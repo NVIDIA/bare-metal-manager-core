@@ -121,7 +121,8 @@ impl TestApiBuilder {
         }
     }
 
-    pub fn with_eth_data(self, eth_data: EthVirtData) -> Self {
+    #[cfg(test)]
+    pub(crate) fn with_eth_data(self, eth_data: EthVirtData) -> Self {
         Self {
             eth_data: Some(eth_data),
             ..self
@@ -289,6 +290,7 @@ impl TestApiBuilder {
             bmc_session_manager,
             bms_client: std::sync::OnceLock::new(),
             secrets_context: self.secrets_context,
+            node_jwt_validator: None,
         }
     }
 }

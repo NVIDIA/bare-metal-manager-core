@@ -28,6 +28,11 @@ use rpc::forge::forge_server::Forge;
 use super::Base;
 
 mod filters {
+    #![allow(
+        unreachable_pub,
+        reason = "askama::filter_fn emits public helper items inside this template-filter module"
+    )]
+
     #[askama::filter_fn]
     pub(super) fn resource_pool_allocated_fmt(
         pool: &super::forgerpc::ResourcePool,

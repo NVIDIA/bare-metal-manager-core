@@ -14,6 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+// It's too cumbersome for tests to adhere to these, which are less important in testing anyway.
+#![allow(txn_held_across_await, txn_without_commit)]
 
 // Keep the suites in one executable: sqlx-testing's migrated template is process-local.
 mod env;

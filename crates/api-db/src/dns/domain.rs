@@ -176,11 +176,42 @@ pub async fn find_all_by<'a, C: ColumnInfo<'a, TableType = Domain>>(
         .map_err(|e| DatabaseError::query(query.sql(), e))
 }
 
+/// Finds live domains named `name`.
+///
+/// Reverse-zone names compare case-insensitively without a trailing dot
+/// because those spellings identify the same DNS zone. Forward-domain names
+/// retain their exact-match behavior.
 pub async fn find_by_name(
     txn: impl DbReader<'_>,
     name: &str,
 ) -> Result<Vec<Domain>, DatabaseError> {
-    find_by(txn, ObjectColumnFilter::One(NameColumn, &name)).await
+    if let Some(reverse_zone_name) = super::normalize_reverse_zone_name(name) {
+        find_reverse_zone_by_normalized_name(txn, &reverse_zone_name).await
+    } else {
+        find_by(txn, ObjectColumnFilter::One(NameColumn, &name)).await
+    }
+}
+
+/// Finds the live reverse-zone identity represented by `name`, treating a
+/// trailing dot as presentation rather than part of the identity.
+pub async fn find_reverse_zone_by_normalized_name(
+    txn: impl DbReader<'_>,
+    name: &str,
+) -> Result<Vec<Domain>, DatabaseError> {
+    let query = "SELECT * FROM domains
+                 WHERE lower(rtrim(name, '.')) = $1
+                   AND deleted IS NULL
+                   AND (
+                       lower(rtrim(name, '.')) LIKE '%.in-addr.arpa'
+                       OR lower(rtrim(name, '.')) LIKE '%.ip6.arpa'
+                   )";
+    let name = super::normalize_domain(name);
+    sqlx::query_as::<_, DbDomain>(query)
+        .bind(name)
+        .fetch_all(txn)
+        .await
+        .map(|domains| domains.into_iter().map(Domain::from).collect())
+        .map_err(|error| DatabaseError::query(query, error))
 }
 
 /// Find the domain with the given ID, even if it is deleted.
@@ -210,29 +241,64 @@ pub async fn find_by_uuids(
         .map(|domains| domains.into_iter().map(|d| (d.id, d)).collect())
 }
 
+/// Soft-deletes a domain while its update timestamp still matches the snapshot
+/// whose reverse-zone lock the caller acquired. A zero-row update means that
+/// snapshot is stale, including when another writer updated or deleted the
+/// domain or the row no longer exists.
 pub async fn delete(value: Domain, txn: &mut PgConnection) -> Result<Domain, DatabaseError> {
-    let query = "UPDATE domains SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *";
+    // PostgreSQL evaluates both assignments from the pre-update row. Reusing
+    // this expression gives `updated` and `deleted` the same monotonic value,
+    // so the returned row has one timestamp for the deletion version.
+    let query = "UPDATE domains
+                 SET updated = GREATEST(statement_timestamp(), updated + interval '1 microsecond'),
+                     deleted = GREATEST(statement_timestamp(), updated + interval '1 microsecond')
+                 WHERE id = $1
+                   AND updated = $2
+                 RETURNING *";
     sqlx::query_as::<_, DbDomain>(query)
         .bind(value.id)
+        .bind(value.updated)
         .fetch_one(txn)
         .await
         .map(Domain::from)
-        .map_err(|e| DatabaseError::query(query, e))
+        .map_err(|error| match error {
+            sqlx::Error::RowNotFound => {
+                DatabaseError::ConcurrentModificationError("domain", value.updated.to_rfc3339())
+            }
+            error => DatabaseError::query(query, error),
+        })
 }
 
-pub async fn update(value: &mut Domain, txn: &mut PgConnection) -> Result<Domain, DatabaseError> {
+/// Updates a domain while its update timestamp still matches the snapshot whose
+/// reverse-zone locks the caller acquired. A zero-row update also covers a row
+/// that no longer exists. The new timestamp always advances, including for
+/// multiple updates in one transaction, so a later writer cannot reuse the same
+/// snapshot.
+pub async fn update(value: &Domain, txn: &mut PgConnection) -> Result<Domain, DatabaseError> {
     validate_domain_name(&value.name)?;
 
-    let query = "UPDATE domains SET name=$1, updated=NOW(), soa=$2 WHERE id=$3 RETURNING *";
+    let query = "UPDATE domains
+                 SET name = $1,
+                     updated = GREATEST(statement_timestamp(), updated + interval '1 microsecond'),
+                     soa = $2
+                 WHERE id = $3
+                   AND updated = $4
+                 RETURNING *";
 
     sqlx::query_as::<_, DbDomain>(query)
         .bind(&value.name)
         .bind(sqlx::types::Json(&value.soa))
         .bind(value.id)
+        .bind(value.updated)
         .fetch_one(txn)
         .await
         .map(Domain::from)
-        .map_err(|e| DatabaseError::query(query, e))
+        .map_err(|error| match error {
+            sqlx::Error::RowNotFound => {
+                DatabaseError::ConcurrentModificationError("domain", value.updated.to_rfc3339())
+            }
+            error => DatabaseError::query(query, error),
+        })
 }
 
 #[cfg(test)]

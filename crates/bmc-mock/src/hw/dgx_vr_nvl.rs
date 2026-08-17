@@ -122,6 +122,7 @@ impl DgxVrNvl<'_> {
                     serial_number: None,
                     storage: None,
                     processors: None,
+                    memory: None,
                 },
                 redfish::computer_system::SingleSystemConfig {
                     base_bios: Some(base_bios(system_id)),
@@ -141,6 +142,7 @@ impl DgxVrNvl<'_> {
                     serial_number: Some(self.system_0_serial_number.to_string().into()),
                     storage: None,
                     processors: None,
+                    memory: None,
                 },
             ],
         }
@@ -236,6 +238,7 @@ impl DgxVrNvl<'_> {
     pub(crate) fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
         redfish::update_service::UpdateServiceConfig {
             firmware_inventory: vec![],
+            ..Default::default()
         }
     }
 }

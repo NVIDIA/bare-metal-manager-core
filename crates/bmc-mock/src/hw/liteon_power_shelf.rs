@@ -82,6 +82,7 @@ impl LiteOnPowerShelf<'_> {
                 log_services: None,
                 storage: None,
                 processors: None,
+                memory: None,
                 base_bios: Some(
                     redfish::bios::builder(&redfish::bios::resource(system_id)).build(),
                 ),
@@ -129,6 +130,7 @@ impl LiteOnPowerShelf<'_> {
     pub(crate) fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
         redfish::update_service::UpdateServiceConfig {
             firmware_inventory: vec![],
+            ..Default::default()
         }
     }
 }

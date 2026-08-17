@@ -119,6 +119,12 @@ pub struct ForgeSystemConfig {
     pub client_cert: String,
     #[serde(default = "default_client_key")]
     pub client_key: String,
+    /// Unix socket where the agent serves its local API (node tokens for
+    /// co-located services, issue #355). Works the same containerized (DPF)
+    /// and as a plain service on DPU OS; override when `/opt/forge` is not
+    /// the shared credential directory in a deployment.
+    #[serde(default = "default_local_api_socket")]
+    pub local_api_socket: String,
 }
 
 // Called if no `[forge-system]` is provided at all.
@@ -130,6 +136,7 @@ impl Default for ForgeSystemConfig {
             root_ca: default_root_ca(),
             client_cert: default_client_cert(),
             client_key: default_client_key(),
+            local_api_socket: default_local_api_socket(),
         }
     }
 }
@@ -148,6 +155,10 @@ pub fn default_client_cert() -> String {
 
 pub fn default_client_key() -> String {
     tls_default::default_client_key().to_string()
+}
+
+pub fn default_local_api_socket() -> String {
+    ::rpc::node_token_socket::DEFAULT_AGENT_LOCAL_SOCKET.to_string()
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -189,6 +189,7 @@ impl NvidiaDgxH100<'_> {
                     log_services: None,
                     storage: None,
                     processors: None,
+                    memory: None,
                     serial_console: None,
                     secure_boot_available: true,
                 },
@@ -208,6 +209,7 @@ impl NvidiaDgxH100<'_> {
                     log_services: None,
                     storage: None,
                     processors: None,
+                    memory: None,
                     serial_console: None,
                     secure_boot_available: false,
                 },
@@ -359,6 +361,9 @@ impl NvidiaDgxH100<'_> {
                 .build()
             })
             .collect(),
+            host_bmc_inventory_id: Some("HostBMC_0".to_string()),
+            host_uefi_inventory_id: Some("HostBIOS_0".to_string()),
+            ..Default::default()
         }
     }
 }

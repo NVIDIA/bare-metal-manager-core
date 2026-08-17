@@ -18,11 +18,14 @@
 use std::collections::HashMap;
 use std::time::SystemTime;
 
+use opentelemetry::logs::AnyValue;
+use opentelemetry::{Key, KeyValue};
+use opentelemetry_proto::transform::common::tonic::Attributes;
 use serde::Serialize;
 
 use super::collector_logs::ExportLogsServiceRequest;
 use super::collector_metrics::ExportMetricsServiceRequest;
-use super::common::{AnyValue, KeyValue, any_value};
+use super::common::KeyValue as OtlpKeyValue;
 use super::logs::{LogRecord as OtlpLogRecord, ResourceLogs, ScopeLogs, SeverityNumber};
 use super::metrics::{
     Gauge as OtlpGauge, Metric as OtlpMetric, NumberDataPoint, ResourceMetrics, ScopeMetrics,
@@ -30,7 +33,10 @@ use super::metrics::{
 };
 use super::resource::Resource;
 use crate::endpoint::SwitchEndpointRole;
-use crate::sink::{CollectorEvent, EventContext, HealthReportAlert, MetricSample};
+use crate::sink::{
+    CollectorEvent, EventContext, HealthReport, HealthReportAlert, HealthReportSuccess,
+    LogSeverity, MetricSample,
+};
 
 /// Maximum alerts serialized into the `health_report.alerts` attribute.
 ///
@@ -40,41 +46,26 @@ use crate::sink::{CollectorEvent, EventContext, HealthReportAlert, MetricSample}
 /// keeps one degraded endpoint from taking unrelated records down with it.
 const MAX_SERIALIZED_ALERTS: usize = 64;
 
-fn severity_text_to_number(severity: &str) -> i32 {
-    match severity.to_uppercase().as_str() {
-        "TRACE" => SeverityNumber::Trace as i32,
-        "DEBUG" => SeverityNumber::Debug as i32,
-        "INFO" | "INFORMATIONAL" | "OK" => SeverityNumber::Info as i32,
-        "WARN" | "WARNING" => SeverityNumber::Warn as i32,
-        "ERROR" | "ERR" => SeverityNumber::Error as i32,
-        "FATAL" | "CRITICAL" => SeverityNumber::Fatal as i32,
-        _ => SeverityNumber::Unspecified as i32,
-    }
-}
+const HEALTH_REPORT_SCHEMA_VERSION: &str = "v1";
+const HEALTH_REPORT_SCHEMA_VERSION_KEY: &str = "health_report.schema_version";
+const HEALTH_REPORT_SOURCE_KEY: &str = "health_report.source";
+const HEALTH_REPORT_TARGET_KEY: &str = "health_report.target";
+const HEALTH_REPORT_OBSERVED_AT_KEY: &str = "health_report.observed_at";
+const HEALTH_REPORT_SUCCESS_COUNT_KEY: &str = "health_report.success_count";
+const HEALTH_REPORT_ALERT_COUNT_KEY: &str = "health_report.alert_count";
+const HEALTH_REPORT_SUCCESSES_KEY: &str = "health_report.successes";
+const HEALTH_REPORT_SUCCESS_PROBE_ID_KEY: &str = "probe_id";
+const HEALTH_REPORT_SUCCESS_TARGET_KEY: &str = "target";
 
-fn string_value(s: String) -> Option<AnyValue> {
-    Some(AnyValue {
-        value: Some(any_value::Value::StringValue(s)),
-    })
-}
-
-fn int_value(value: i64) -> Option<AnyValue> {
-    Some(AnyValue {
-        value: Some(any_value::Value::IntValue(value)),
-    })
-}
-
-fn kv(key: &str, val: String) -> KeyValue {
-    KeyValue {
-        key: key.to_string(),
-        value: string_value(val),
-    }
-}
-
-fn int_kv(key: &str, value: i64) -> KeyValue {
-    KeyValue {
-        key: key.to_string(),
-        value: int_value(value),
+fn severity_number(severity: LogSeverity) -> i32 {
+    match severity {
+        LogSeverity::Unspecified => SeverityNumber::Unspecified as i32,
+        LogSeverity::Trace => SeverityNumber::Trace as i32,
+        LogSeverity::Debug => SeverityNumber::Debug as i32,
+        LogSeverity::Info => SeverityNumber::Info as i32,
+        LogSeverity::Warn => SeverityNumber::Warn as i32,
+        LogSeverity::Error => SeverityNumber::Error as i32,
+        LogSeverity::Fatal => SeverityNumber::Fatal as i32,
     }
 }
 
@@ -82,78 +73,84 @@ fn resource_group_key(context: &EventContext) -> String {
     format!("{}|{}", context.endpoint_key, context.collector_type)
 }
 
+/// Lowers [`KeyValue`] attributes onto the wire.
+///
+/// [`Attributes`] is opentelemetry-proto's newtype over the OTLP attribute list;
+/// it owns the [`KeyValue`] conversion, so this only unwraps it.
+fn otlp_attributes(attributes: impl IntoIterator<Item = KeyValue>) -> Vec<OtlpKeyValue> {
+    Attributes::from(attributes).0
+}
+
 fn resource_attributes(context: &EventContext) -> Vec<KeyValue> {
     let mut attrs = Vec::new();
     match context.switch_endpoint_role() {
         Some(SwitchEndpointRole::Host) => {
-            attrs.push(kv("switch.endpoint", context.endpoint_key.clone()));
-            attrs.push(kv("switch.ip", context.addr.ip.to_string()));
+            attrs.push(KeyValue::new(
+                "switch.endpoint",
+                context.endpoint_key.clone(),
+            ));
+            attrs.push(KeyValue::new("switch.ip", context.addr.ip.to_string()));
         }
         _ => {
-            attrs.push(kv("bmc.endpoint", context.endpoint_key.clone()));
-            attrs.push(kv("bmc.ip", context.addr.ip.to_string()));
+            attrs.push(KeyValue::new("bmc.endpoint", context.endpoint_key.clone()));
+            attrs.push(KeyValue::new("bmc.ip", context.addr.ip.to_string()));
         }
     }
-    attrs.push(kv("collector.type", context.collector_type.to_string()));
+    attrs.push(KeyValue::new("collector.type", context.collector_type));
     if let Some(machine_id) = context.machine_id() {
-        attrs.push(kv("machine.id", machine_id.to_string()));
+        attrs.push(KeyValue::new("machine.id", machine_id.to_string()));
     }
     if let Some(system_uuid) = context.system_uuid() {
-        attrs.push(kv("system.uuid", system_uuid.to_string()));
+        attrs.push(KeyValue::new("system.uuid", system_uuid.to_string()));
     }
     if let Some(machine_serial) = context.machine_serial() {
-        attrs.push(kv("machine.serial", machine_serial.to_string()));
+        attrs.push(KeyValue::new("machine.serial", machine_serial.to_string()));
     }
     if let Some(driver_version) = context.driver_version() {
-        attrs.push(kv("driver.version", driver_version.to_string()));
+        attrs.push(KeyValue::new("driver.version", driver_version.to_string()));
     }
     if let Some(component_type) = context.component_type() {
-        attrs.push(kv("component.type", component_type.to_string()));
+        attrs.push(KeyValue::new("component.type", component_type.to_string()));
     }
     if let Some(switch_id) = context.switch_id() {
-        attrs.push(kv("switch.id", switch_id.to_string()));
+        attrs.push(KeyValue::new("switch.id", switch_id.to_string()));
     }
     if let Some(serial) = context.switch_serial() {
-        attrs.push(kv("switch.serial_number", serial.to_string()));
+        attrs.push(KeyValue::new("switch.serial_number", serial.to_string()));
     }
     if let Some(role) = context.switch_endpoint_role() {
         let endpoint_role = match role {
             SwitchEndpointRole::Bmc => "bmc",
             SwitchEndpointRole::Host => "host",
         };
-        attrs.push(kv("switch.endpoint_role", endpoint_role.to_string()));
+        attrs.push(KeyValue::new("switch.endpoint_role", endpoint_role));
     }
     if let Some(is_primary) = context.switch_is_primary() {
-        attrs.push(KeyValue {
-            key: "switch.is_primary".to_string(),
-            value: Some(AnyValue {
-                value: Some(any_value::Value::BoolValue(is_primary)),
-            }),
-        });
+        attrs.push(KeyValue::new("switch.is_primary", is_primary));
     }
     if let Some(rack_id) = context.rack_id() {
-        attrs.push(kv("rack.id", rack_id.to_string()));
+        attrs.push(KeyValue::new("rack.id", rack_id.to_string()));
     }
     if let Some(slot) = context.slot_number() {
-        attrs.push(int_kv("machine.slot_number", i64::from(slot)));
+        attrs.push(KeyValue::new("machine.slot_number", i64::from(slot)));
     }
     if let Some(tray) = context.tray_index() {
-        attrs.push(int_kv("machine.tray_index", i64::from(tray)));
+        attrs.push(KeyValue::new("machine.tray_index", i64::from(tray)));
     }
     if let Some(domain) = context.nvlink_domain_uuid() {
-        attrs.push(kv("nvlink.domain.uuid", domain.to_string()));
+        attrs.push(KeyValue::new("nvlink.domain.uuid", domain.to_string()));
     }
     if let Some(slot) = context.switch_slot_number() {
-        attrs.push(int_kv("switch.slot_number", i64::from(slot)));
+        attrs.push(KeyValue::new("switch.slot_number", i64::from(slot)));
     }
     if let Some(tray) = context.switch_tray_index() {
-        attrs.push(int_kv("switch.tray_index", i64::from(tray)));
+        attrs.push(KeyValue::new("switch.tray_index", i64::from(tray)));
     }
     attrs.extend(
         context
             .labels()
             .iter()
-            .map(|(name, value)| kv(name, value.clone())),
+            .map(|(name, value)| KeyValue::new(name.to_owned(), value.clone())),
     );
     attrs
 }
@@ -162,18 +159,91 @@ fn convert_log(log: &crate::sink::LogRecord, observed_nanos: u64) -> OtlpLogReco
     let attributes = log
         .attributes
         .iter()
-        .map(|(k, v)| kv(k, v.clone()))
-        .collect();
+        .map(|(k, v)| KeyValue::new(k.to_string(), v.clone()));
 
     OtlpLogRecord {
         time_unix_nano: observed_nanos,
         observed_time_unix_nano: observed_nanos,
-        severity_number: severity_text_to_number(&log.severity),
-        severity_text: log.severity.clone(),
-        body: string_value(log.body.clone()),
-        attributes,
+        severity_number: severity_number(log.severity),
+        severity_text: log.severity.as_str().to_string(),
+        body: Some(AnyValue::from(log.body.clone()).into()),
+        attributes: otlp_attributes(attributes),
         ..Default::default()
     }
+}
+
+/// One passing probe, as a nested kvlist under `health_report.successes`.
+fn health_report_success_value(success: &HealthReportSuccess) -> AnyValue {
+    let mut entries = HashMap::from([(
+        Key::from_static_str(HEALTH_REPORT_SUCCESS_PROBE_ID_KEY),
+        AnyValue::from(success.probe_id.as_str()),
+    )]);
+    if let Some(target) = &success.target {
+        entries.insert(
+            Key::from_static_str(HEALTH_REPORT_SUCCESS_TARGET_KEY),
+            AnyValue::from(target.clone()),
+        );
+    }
+
+    AnyValue::Map(Box::new(entries))
+}
+
+/// The versioned `health_report.*` attribute contract.
+///
+/// Scalar routing fields let a consumer filter without parsing the summary body;
+/// `health_report.successes` carries the passing probes as nested kvlists.
+fn health_report_attributes(report: &HealthReport) -> Vec<(&'static str, AnyValue)> {
+    let successes = report
+        .successes
+        .iter()
+        .map(health_report_success_value)
+        .collect();
+
+    let mut attributes = vec![
+        ("event.type", AnyValue::from("health_report")),
+        (
+            HEALTH_REPORT_SCHEMA_VERSION_KEY,
+            AnyValue::from(HEALTH_REPORT_SCHEMA_VERSION),
+        ),
+        (
+            HEALTH_REPORT_SOURCE_KEY,
+            AnyValue::from(report.source.as_str()),
+        ),
+        (
+            HEALTH_REPORT_SUCCESS_COUNT_KEY,
+            AnyValue::from(i64::try_from(report.successes.len()).unwrap_or(i64::MAX)),
+        ),
+        (
+            HEALTH_REPORT_ALERT_COUNT_KEY,
+            AnyValue::from(i64::try_from(report.alerts.len()).unwrap_or(i64::MAX)),
+        ),
+        (
+            HEALTH_REPORT_SUCCESSES_KEY,
+            AnyValue::ListAny(Box::new(successes)),
+        ),
+    ];
+    if let Some(target) = report.target {
+        attributes.push((HEALTH_REPORT_TARGET_KEY, AnyValue::from(target.as_str())));
+    }
+    if let Some(observed_at) = &report.observed_at {
+        attributes.push((
+            HEALTH_REPORT_OBSERVED_AT_KEY,
+            AnyValue::from(observed_at.to_rfc3339_opts(chrono::SecondsFormat::Nanos, true)),
+        ));
+    }
+
+    attributes
+}
+
+/// When the report was observed, falling back to the export time for reports
+/// without an observation time or dated before the Unix epoch.
+fn health_report_event_time(report: &HealthReport, fallback_nanos: u64) -> u64 {
+    report
+        .observed_at
+        .as_ref()
+        .and_then(chrono::DateTime::timestamp_nanos_opt)
+        .and_then(|nanos| u64::try_from(nanos).ok())
+        .unwrap_or(fallback_nanos)
 }
 
 /// Alert detail as it appears inside the `health_report.alerts` JSON array.
@@ -195,7 +265,7 @@ struct AlertDetail<'a> {
 ///
 /// Returns no attributes when serialization fails so a malformed report costs
 /// only the detail, not the record.
-fn alert_detail_attributes(alerts: &[HealthReportAlert]) -> Vec<KeyValue> {
+fn alert_detail_attributes(alerts: &[HealthReportAlert]) -> Vec<(&'static str, AnyValue)> {
     let details: Vec<AlertDetail<'_>> = alerts
         .iter()
         .take(MAX_SERIALIZED_ALERTS)
@@ -224,13 +294,13 @@ fn alert_detail_attributes(alerts: &[HealthReportAlert]) -> Vec<KeyValue> {
         }
     };
 
-    let mut attributes = vec![kv("health_report.alerts", json)];
+    let mut attributes = vec![("health_report.alerts", AnyValue::from(json))];
     let dropped = alerts.len().saturating_sub(MAX_SERIALIZED_ALERTS);
 
     if dropped > 0 {
-        attributes.push(int_kv(
+        attributes.push((
             "health_report.alerts.dropped",
-            i64::try_from(dropped).unwrap_or(i64::MAX),
+            AnyValue::from(i64::try_from(dropped).unwrap_or(i64::MAX)),
         ));
     }
 
@@ -252,24 +322,24 @@ fn convert_event(
                 report.source,
             );
             let severity = if report.alerts.is_empty() {
-                "INFO"
+                LogSeverity::Info
             } else {
-                "WARN"
+                LogSeverity::Warn
             };
 
-            let mut attributes = vec![kv("event.type", "health_report".to_string())];
+            let mut attributes = health_report_attributes(report);
 
             if include_alert_details && !report.alerts.is_empty() {
                 attributes.extend(alert_detail_attributes(&report.alerts));
             }
 
             Some(OtlpLogRecord {
-                time_unix_nano: observed_nanos,
+                time_unix_nano: health_report_event_time(report, observed_nanos),
                 observed_time_unix_nano: observed_nanos,
-                severity_number: severity_text_to_number(severity),
-                severity_text: severity.to_string(),
-                body: string_value(body),
-                attributes,
+                severity_number: severity_number(severity),
+                severity_text: severity.as_str().to_string(),
+                body: Some(AnyValue::from(body).into()),
+                attributes: attributes.into_iter().collect::<Attributes>().0,
                 ..Default::default()
             })
         }
@@ -278,10 +348,10 @@ fn convert_event(
             Some(OtlpLogRecord {
                 time_unix_nano: observed_nanos,
                 observed_time_unix_nano: observed_nanos,
-                severity_number: SeverityNumber::Info as i32,
-                severity_text: "INFO".to_string(),
-                body: string_value(body),
-                attributes: vec![kv("event.type", "firmware".to_string())],
+                severity_number: severity_number(LogSeverity::Info),
+                severity_text: LogSeverity::Info.as_str().to_string(),
+                body: Some(AnyValue::from(body).into()),
+                attributes: otlp_attributes([KeyValue::new("event.type", "firmware")]),
                 ..Default::default()
             })
         }
@@ -322,8 +392,8 @@ pub fn build_export_request(
         .into_values()
         .map(|(attrs, records)| ResourceLogs {
             resource: Some(Resource {
-                attributes: attrs,
-                dropped_attributes_count: 0,
+                attributes: otlp_attributes(attrs),
+                ..Default::default()
             }),
             scope_logs: vec![ScopeLogs {
                 scope: None,
@@ -357,14 +427,13 @@ pub fn build_metrics_export_request(
         // switch.serial_number, switch.ip). VictoriaMetrics flattens resource
         // attributes onto every series, so promoting them onto the datapoint too
         // only duplicates the same value under a second (underscore) label name.
-        let attributes: Vec<KeyValue> = sample
+        let attributes = sample
             .labels
             .iter()
-            .map(|(k, v)| kv(k, v.clone()))
-            .collect();
+            .map(|(k, v)| KeyValue::new(k.to_string(), v.clone()));
 
         let data_point = NumberDataPoint {
-            attributes,
+            attributes: otlp_attributes(attributes),
             time_unix_nano: observed_nanos,
             value: Some(number_data_point::Value::AsDouble(sample.value)),
             ..Default::default()
@@ -396,8 +465,8 @@ pub fn build_metrics_export_request(
         .into_values()
         .map(|(attrs, metrics)| ResourceMetrics {
             resource: Some(Resource {
-                attributes: attrs,
-                dropped_attributes_count: 0,
+                attributes: otlp_attributes(attrs),
+                ..Default::default()
             }),
             scope_metrics: vec![ScopeMetrics {
                 scope: None,
@@ -417,10 +486,12 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;
 
+    use carbide_test_support::value_scenarios;
     use carbide_uuid::nvlink::NvLinkDomainId;
     use carbide_uuid::power_shelf::PowerShelfId;
     use carbide_uuid::rack::RackId;
     use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
+    use chrono::{TimeZone, Utc};
     use mac_address::MacAddress;
 
     use super::*;
@@ -428,8 +499,10 @@ mod tests {
         BmcAddr, EndpointMetadata, MachineData, PowerShelfData, SharedSystemUuid, SwitchData,
         SwitchEndpointRole,
     };
+    use crate::otlp::common::{AnyValue as OtlpAnyValue, any_value};
     use crate::sink::{
-        Classification, HealthReport, HealthReportAlert, LogRecord, Probe, ReportSource,
+        Classification, HealthReport, HealthReportAlert, HealthReportSuccess, HealthReportTarget,
+        LogRecord, Probe, ReportSource,
     };
 
     fn test_context() -> EventContext {
@@ -454,7 +527,13 @@ mod tests {
         SwitchId::new(SwitchIdSource::Tpm, hash, SwitchType::NvLink)
     }
 
-    fn attr_value<'a>(attrs: &'a [KeyValue], key: &str) -> Option<&'a str> {
+    /// Resource attributes as an export carries them, so assertions read the
+    /// same wire form the collector receives.
+    fn otlp_resource_attributes(context: &EventContext) -> Vec<OtlpKeyValue> {
+        otlp_attributes(resource_attributes(context))
+    }
+
+    fn attr_value<'a>(attrs: &'a [OtlpKeyValue], key: &str) -> Option<&'a str> {
         attrs
             .iter()
             .find(|attr| attr.key == key)
@@ -465,7 +544,7 @@ mod tests {
             })
     }
 
-    fn attr_int_value(attrs: &[KeyValue], key: &str) -> Option<i64> {
+    fn attr_int_value(attrs: &[OtlpKeyValue], key: &str) -> Option<i64> {
         attrs
             .iter()
             .find(|attr| attr.key == key)
@@ -476,7 +555,7 @@ mod tests {
             })
     }
 
-    fn attr_bool_value(attrs: &[KeyValue], key: &str) -> Option<bool> {
+    fn attr_bool_value(attrs: &[OtlpKeyValue], key: &str) -> Option<bool> {
         attrs
             .iter()
             .find(|attr| attr.key == key)
@@ -485,6 +564,37 @@ mod tests {
                 any_value::Value::BoolValue(value) => Some(*value),
                 _ => None,
             })
+    }
+
+    /// The record's body when it is a string, the only body shape the health
+    /// crate emits.
+    fn body_value(record: &OtlpLogRecord) -> Option<&str> {
+        match record.body.as_ref()?.value.as_ref()? {
+            any_value::Value::StringValue(value) => Some(value.as_str()),
+            _ => None,
+        }
+    }
+
+    fn any_array_value(value: &OtlpAnyValue) -> Option<&[OtlpAnyValue]> {
+        match value.value.as_ref()? {
+            any_value::Value::ArrayValue(value) => Some(value.values.as_slice()),
+            _ => None,
+        }
+    }
+
+    fn any_kvlist_value(value: &OtlpAnyValue) -> Option<&[OtlpKeyValue]> {
+        match value.value.as_ref()? {
+            any_value::Value::KvlistValue(value) => Some(value.values.as_slice()),
+            _ => None,
+        }
+    }
+
+    fn attr_array_value<'a>(attrs: &'a [OtlpKeyValue], key: &str) -> Option<&'a [OtlpAnyValue]> {
+        attrs
+            .iter()
+            .find(|attr| attr.key == key)
+            .and_then(|attr| attr.value.as_ref())
+            .and_then(any_array_value)
     }
 
     #[test]
@@ -518,7 +628,7 @@ mod tests {
             rack_id: Some(RackId::new("RACK_1")),
         };
 
-        let attrs = resource_attributes(&context);
+        let attrs = otlp_resource_attributes(&context);
 
         assert_eq!(attr_value(&attrs, "rack.id"), Some("RACK_1"));
         assert_eq!(attr_value(&attrs, "site"), Some("rno-dev7"));
@@ -561,7 +671,7 @@ mod tests {
             rack_id: None,
         };
 
-        let attrs = resource_attributes(&context);
+        let attrs = otlp_resource_attributes(&context);
 
         assert_eq!(attr_value(&attrs, "machine.id"), None);
         assert_eq!(attr_value(&attrs, "component.type"), Some("compute_node"));
@@ -601,7 +711,7 @@ mod tests {
             rack_id: Some(RackId::new("RACK_2")),
         };
 
-        let attrs = resource_attributes(&context);
+        let attrs = otlp_resource_attributes(&context);
 
         assert_eq!(
             attr_value(&attrs, "switch.id"),
@@ -645,7 +755,7 @@ mod tests {
             rack_id: Some(RackId::new("RACK_2")),
         };
 
-        let attrs = resource_attributes(&context);
+        let attrs = otlp_resource_attributes(&context);
 
         assert_eq!(attr_value(&attrs, "bmc.endpoint"), None);
         assert_eq!(attr_value(&attrs, "bmc.ip"), None);
@@ -673,9 +783,11 @@ mod tests {
     }
 
     #[test]
-    fn switch_bmc_resource_keeps_bmc_endpoint_identity_and_switch_metadata() {
+    fn switch_bmc_log_resource_keeps_endpoint_identity_and_switch_metadata() {
         let switch_id = test_switch_id("switch-bmc");
         let switch_id_attr = switch_id.to_string();
+        let nvlink_domain_uuid = NvLinkDomainId::new();
+        let nvlink_domain_uuid_attr = nvlink_domain_uuid.to_string();
         let context = EventContext {
             endpoint_key: "22:33:44:55:66:77".to_string(),
             addr: BmcAddr {
@@ -683,14 +795,14 @@ mod tests {
                 port: Some(443),
                 mac: MacAddress::from_str("22:33:44:55:66:77").expect("valid mac"),
             },
-            collector_type: "sensor_collector",
+            collector_type: "logs_collector",
             labels: Default::default(),
             metadata: Some(EndpointMetadata::Switch(SwitchData {
                 id: Some(switch_id),
                 serial: "SN-SWITCH-BMC-001".to_string(),
                 slot_number: Some(8),
                 tray_index: Some(4),
-                nvlink_domain_uuid: None,
+                nvlink_domain_uuid: Some(nvlink_domain_uuid),
                 endpoint_role: SwitchEndpointRole::Bmc,
                 is_primary: false,
                 nmxc_enabled: false,
@@ -698,28 +810,97 @@ mod tests {
             })),
             rack_id: Some(RackId::new("RACK_3")),
         };
+        let event = CollectorEvent::Log(Box::new(LogRecord {
+            body: "switch BMC event".to_string(),
+            severity: LogSeverity::Info,
+            attributes: Vec::new(),
+            diagnostic_record: None,
+        }));
 
-        let attrs = resource_attributes(&context);
+        let request = build_export_request(&[(context, event)], false);
+        let attrs = &request.resource_logs[0]
+            .resource
+            .as_ref()
+            .expect("log resource metadata")
+            .attributes;
 
+        assert_eq!(attr_value(attrs, "bmc.endpoint"), Some("22:33:44:55:66:77"));
+        assert_eq!(attr_value(attrs, "bmc.ip"), Some("10.0.2.1"));
+        assert_eq!(attr_value(attrs, "switch.endpoint"), None);
+        assert_eq!(attr_value(attrs, "switch.ip"), None);
         assert_eq!(
-            attr_value(&attrs, "bmc.endpoint"),
-            Some("22:33:44:55:66:77")
-        );
-        assert_eq!(attr_value(&attrs, "bmc.ip"), Some("10.0.2.1"));
-        assert_eq!(attr_value(&attrs, "switch.endpoint"), None);
-        assert_eq!(attr_value(&attrs, "switch.ip"), None);
-        assert_eq!(
-            attr_value(&attrs, "switch.id"),
+            attr_value(attrs, "switch.id"),
             Some(switch_id_attr.as_str())
         );
         assert_eq!(
-            attr_value(&attrs, "switch.serial_number"),
+            attr_value(attrs, "switch.serial_number"),
             Some("SN-SWITCH-BMC-001")
         );
-        assert_eq!(attr_value(&attrs, "switch.endpoint_role"), Some("bmc"));
-        assert_eq!(attr_bool_value(&attrs, "switch.is_primary"), Some(false));
-        assert_eq!(attr_value(&attrs, "nvlink.domain.uuid"), None);
-        assert_eq!(attr_value(&attrs, "component.type"), Some("nvlink_switch"));
+        assert_eq!(attr_value(attrs, "switch.endpoint_role"), Some("bmc"));
+        assert_eq!(attr_bool_value(attrs, "switch.is_primary"), Some(false));
+        assert_eq!(attr_int_value(attrs, "switch.slot_number"), Some(8));
+        assert_eq!(attr_int_value(attrs, "switch.tray_index"), Some(4));
+        assert_eq!(attr_value(attrs, "rack.id"), Some("RACK_3"));
+        assert_eq!(attr_value(attrs, "collector.type"), Some("logs_collector"));
+        assert_eq!(
+            attr_value(attrs, "nvlink.domain.uuid"),
+            Some(nvlink_domain_uuid_attr.as_str())
+        );
+        assert_eq!(attr_value(attrs, "component.type"), Some("nvlink_switch"));
+    }
+
+    #[test]
+    fn switch_bmc_log_resource_omits_unavailable_optional_metadata() {
+        let context = EventContext {
+            endpoint_key: "33:44:55:66:77:88".to_string(),
+            addr: BmcAddr {
+                ip: IpAddr::V4(Ipv4Addr::new(10, 0, 2, 2)),
+                port: Some(443),
+                mac: MacAddress::from_str("33:44:55:66:77:88").expect("valid mac"),
+            },
+            collector_type: "logs_collector",
+            labels: Default::default(),
+            metadata: Some(EndpointMetadata::Switch(SwitchData {
+                id: None,
+                serial: "SN-SWITCH-BMC-002".to_string(),
+                slot_number: None,
+                tray_index: None,
+                nvlink_domain_uuid: None,
+                endpoint_role: SwitchEndpointRole::Bmc,
+                is_primary: true,
+                nmxc_enabled: false,
+                nmxt_enabled: false,
+            })),
+            rack_id: None,
+        };
+        let event = CollectorEvent::Log(Box::new(LogRecord {
+            body: "switch BMC event".to_string(),
+            severity: LogSeverity::Info,
+            attributes: Vec::new(),
+            diagnostic_record: None,
+        }));
+
+        let request = build_export_request(&[(context, event)], false);
+        let attrs = &request.resource_logs[0]
+            .resource
+            .as_ref()
+            .expect("log resource metadata")
+            .attributes;
+
+        assert_eq!(attr_value(attrs, "bmc.endpoint"), Some("33:44:55:66:77:88"));
+        assert_eq!(attr_value(attrs, "bmc.ip"), Some("10.0.2.2"));
+        assert_eq!(
+            attr_value(attrs, "switch.serial_number"),
+            Some("SN-SWITCH-BMC-002")
+        );
+        assert_eq!(attr_value(attrs, "switch.endpoint_role"), Some("bmc"));
+        assert_eq!(attr_bool_value(attrs, "switch.is_primary"), Some(true));
+        assert_eq!(attr_value(attrs, "component.type"), Some("nvlink_switch"));
+        assert_eq!(attr_value(attrs, "switch.id"), None);
+        assert_eq!(attr_int_value(attrs, "switch.slot_number"), None);
+        assert_eq!(attr_int_value(attrs, "switch.tray_index"), None);
+        assert_eq!(attr_value(attrs, "nvlink.domain.uuid"), None);
+        assert_eq!(attr_value(attrs, "rack.id"), None);
     }
 
     #[test]
@@ -743,7 +924,7 @@ mod tests {
             rack_id: Some(RackId::new("RACK_4")),
         };
 
-        let attrs = resource_attributes(&context);
+        let attrs = otlp_resource_attributes(&context);
 
         assert_eq!(attr_value(&attrs, "component.type"), Some("power_shelf"));
         assert_eq!(attr_value(&attrs, "rack.id"), Some("RACK_4"));
@@ -754,7 +935,7 @@ mod tests {
         let ctx = test_context();
         let log = CollectorEvent::Log(Box::new(LogRecord {
             body: "something happened".to_string(),
-            severity: "WARNING".to_string(),
+            severity: LogSeverity::Warn,
             attributes: vec![(Cow::Borrowed("entry_id"), "42".to_string())],
             diagnostic_record: None,
         }));
@@ -764,8 +945,44 @@ mod tests {
 
         let records = &request.resource_logs[0].scope_logs[0].log_records;
         assert_eq!(records.len(), 1);
-        assert_eq!(records[0].severity_text, "WARNING");
+        assert_eq!(records[0].severity_text, "WARN");
         assert_eq!(records[0].severity_number, SeverityNumber::Warn as i32);
+    }
+
+    #[test]
+    fn unspecified_log_severity_remains_unspecified_in_otlp() {
+        let log = CollectorEvent::Log(Box::new(LogRecord {
+            body: "severity unavailable".to_string(),
+            severity: LogSeverity::Unspecified,
+            attributes: Vec::new(),
+            diagnostic_record: None,
+        }));
+
+        let request = build_export_request(&[(test_context(), log)], false);
+        let record = &request.resource_logs[0].scope_logs[0].log_records[0];
+
+        assert_eq!(record.severity_text, "UNSPECIFIED");
+        assert_eq!(record.severity_number, SeverityNumber::Unspecified as i32);
+    }
+
+    #[test]
+    fn empty_log_body_is_exported_as_empty_string() {
+        let log = CollectorEvent::Log(Box::new(LogRecord {
+            body: String::new(),
+            severity: LogSeverity::Fatal,
+            attributes: Vec::new(),
+            diagnostic_record: None,
+        }));
+
+        let request = build_export_request(&[(test_context(), log)], false);
+        let record = &request.resource_logs[0].scope_logs[0].log_records[0];
+
+        assert_eq!(record.severity_text, "FATAL");
+        assert_eq!(record.severity_number, SeverityNumber::Fatal as i32);
+        assert_eq!(
+            record.body.as_ref().and_then(|body| body.value.as_ref()),
+            Some(&any_value::Value::StringValue(String::new()))
+        );
     }
 
     /// Verifies OTLP conversion preserves an already-emitted diagnostic log.
@@ -782,7 +999,7 @@ mod tests {
 
         let log = CollectorEvent::Log(Box::new(LogRecord {
             body: body.to_string(),
-            severity: "WARN".to_string(),
+            severity: LogSeverity::Warn,
             attributes: vec![
                 (
                     Cow::Borrowed("redfish.diagnostic_data.type"),
@@ -801,10 +1018,7 @@ mod tests {
         let records = &request.resource_logs[0].scope_logs[0].log_records;
         let record = &records[0];
 
-        assert_eq!(
-            record.body.as_ref().and_then(|body| body.value.as_ref()),
-            Some(&any_value::Value::StringValue(body.to_string()))
-        );
+        assert_eq!(body_value(record), Some(body));
         assert_eq!(
             attr_value(&record.attributes, "redfish.diagnostic_data.type"),
             Some("cper")
@@ -824,6 +1038,34 @@ mod tests {
         ];
         let request = build_export_request(&batch, false);
         assert!(request.resource_logs.is_empty());
+    }
+
+    #[test]
+    fn health_report_attribute_keys_are_stable() {
+        assert_eq!(
+            [
+                HEALTH_REPORT_SCHEMA_VERSION_KEY,
+                HEALTH_REPORT_SOURCE_KEY,
+                HEALTH_REPORT_TARGET_KEY,
+                HEALTH_REPORT_OBSERVED_AT_KEY,
+                HEALTH_REPORT_SUCCESS_COUNT_KEY,
+                HEALTH_REPORT_ALERT_COUNT_KEY,
+                HEALTH_REPORT_SUCCESSES_KEY,
+                HEALTH_REPORT_SUCCESS_PROBE_ID_KEY,
+                HEALTH_REPORT_SUCCESS_TARGET_KEY,
+            ],
+            [
+                "health_report.schema_version",
+                "health_report.source",
+                "health_report.target",
+                "health_report.observed_at",
+                "health_report.success_count",
+                "health_report.alert_count",
+                "health_report.successes",
+                "probe_id",
+                "target",
+            ]
+        );
     }
 
     fn sensor_alert() -> HealthReportAlert {
@@ -873,15 +1115,28 @@ mod tests {
         assert_eq!(record.severity_text, "WARN");
     }
 
-    /// Guards the flag-off record against any change from the alert detail work.
+    /// Guards the per-target policy: scalar evidence remains available while
+    /// free-form alert detail stays absent when the flag is disabled.
     #[test]
     fn health_report_omits_alert_details_when_disabled() {
         let record = health_report_record(vec![sensor_alert()], false);
 
-        assert_eq!(record.attributes.len(), 1);
         assert_eq!(
             attr_value(&record.attributes, "event.type"),
             Some("health_report")
+        );
+        assert_eq!(
+            attr_value(&record.attributes, HEALTH_REPORT_SCHEMA_VERSION_KEY),
+            Some("v1")
+        );
+        assert_eq!(
+            attr_int_value(&record.attributes, HEALTH_REPORT_ALERT_COUNT_KEY),
+            Some(1)
+        );
+        assert_eq!(attr_value(&record.attributes, "health_report.alerts"), None);
+        assert_eq!(
+            attr_int_value(&record.attributes, "health_report.alerts.dropped"),
+            None
         );
     }
 
@@ -906,10 +1161,8 @@ mod tests {
         assert_eq!(record.severity_text, "WARN");
         assert_eq!(record.severity_number, SeverityNumber::Warn as i32);
         assert_eq!(
-            record.body.as_ref().and_then(|body| body.value.as_ref()),
-            Some(&any_value::Value::StringValue(
-                "health report: 2 alerts, 0 ok (source: BmcSensors)".to_string()
-            ))
+            body_value(&record),
+            Some("health report: 2 alerts, 0 ok (source: BmcSensors)")
         );
         assert_eq!(
             attr_value(&record.attributes, "event.type"),
@@ -951,8 +1204,11 @@ mod tests {
     fn health_report_without_alerts_omits_alert_details() {
         let record = health_report_record(vec![], true);
 
-        assert_eq!(record.attributes.len(), 1);
         assert_eq!(attr_value(&record.attributes, "health_report.alerts"), None);
+        assert_eq!(
+            attr_int_value(&record.attributes, HEALTH_REPORT_ALERT_COUNT_KEY),
+            Some(0)
+        );
     }
 
     #[test]
@@ -993,6 +1249,167 @@ mod tests {
     }
 
     #[test]
+    fn health_report_converts_with_structured_evidence() {
+        let ctx = test_context();
+        let observed_at = Utc
+            .with_ymd_and_hms(2026, 7, 31, 12, 34, 56)
+            .single()
+            .expect("valid timestamp");
+        let report = CollectorEvent::HealthReport(
+            HealthReport {
+                source: ReportSource::NvueLeakage,
+                target: Some(HealthReportTarget::Switch),
+                observed_at: Some(observed_at),
+                successes: vec![HealthReportSuccess {
+                    probe_id: Probe::NvueLeakage,
+                    target: Some("LEAK1".to_string()),
+                }],
+                alerts: vec![HealthReportAlert {
+                    probe_id: Probe::NvueLeakage,
+                    target: Some("LEAK2".to_string()),
+                    message: "NVUE leakage sensor LEAK2 reports leak".to_string(),
+                    classifications: vec![Classification::Leak, Classification::SensorFailure],
+                }],
+            }
+            .into(),
+        );
+
+        let request = build_export_request(&[(ctx, report)], true);
+        let records = &request.resource_logs[0].scope_logs[0].log_records;
+        let record = &records[0];
+        let attrs = record.attributes.as_slice();
+
+        assert_eq!(record.severity_text, "WARN");
+        assert_eq!(
+            body_value(record),
+            Some("health report: 1 alerts, 1 ok (source: NvueLeakage)")
+        );
+        assert_eq!(attr_value(attrs, "event.type"), Some("health_report"));
+        assert_eq!(
+            record.time_unix_nano,
+            u64::try_from(
+                observed_at
+                    .timestamp_nanos_opt()
+                    .expect("timestamp has nanoseconds")
+            )
+            .expect("timestamp is after the Unix epoch")
+        );
+        assert_eq!(
+            attr_value(attrs, HEALTH_REPORT_SCHEMA_VERSION_KEY),
+            Some("v1")
+        );
+        assert_eq!(
+            attr_value(attrs, HEALTH_REPORT_SOURCE_KEY),
+            Some("nvue-leakage")
+        );
+        assert_eq!(attr_value(attrs, HEALTH_REPORT_TARGET_KEY), Some("switch"));
+        assert_eq!(
+            attr_value(attrs, HEALTH_REPORT_OBSERVED_AT_KEY),
+            Some("2026-07-31T12:34:56.000000000Z")
+        );
+        assert_eq!(
+            attr_int_value(attrs, HEALTH_REPORT_SUCCESS_COUNT_KEY),
+            Some(1)
+        );
+        assert_eq!(
+            attr_int_value(attrs, HEALTH_REPORT_ALERT_COUNT_KEY),
+            Some(1)
+        );
+
+        let successes =
+            attr_array_value(attrs, HEALTH_REPORT_SUCCESSES_KEY).expect("success array");
+        let success = any_kvlist_value(&successes[0]).expect("structured success");
+        assert_eq!(
+            attr_value(success, HEALTH_REPORT_SUCCESS_PROBE_ID_KEY),
+            Some("NvueLeakage")
+        );
+        assert_eq!(
+            attr_value(success, HEALTH_REPORT_SUCCESS_TARGET_KEY),
+            Some("LEAK1")
+        );
+
+        let alerts = alert_details(record);
+        let alert = &alerts[0];
+        assert_eq!(alert["probe_id"], "NvueLeakage");
+        assert_eq!(alert["target"], "LEAK2");
+        assert_eq!(alert["message"], "NVUE leakage sensor LEAK2 reports leak");
+        assert_eq!(
+            alert["classifications"],
+            serde_json::json!(["Leak", "SensorFailure"])
+        );
+        assert_eq!(attr_int_value(attrs, "health_report.alerts.dropped"), None);
+    }
+
+    /// Export timestamp handed to `convert_event` so timestamp expectations stay
+    /// independent of the wall clock.
+    const EXPORT_NANOS: u64 = 1_784_500_000_000_000_000;
+
+    #[derive(Debug, PartialEq)]
+    struct RecordTimestamps {
+        time_unix_nano: u64,
+        observed_time_unix_nano: u64,
+    }
+
+    fn health_report_timestamps(observed_at: Option<chrono::DateTime<Utc>>) -> RecordTimestamps {
+        let event = CollectorEvent::HealthReport(
+            HealthReport {
+                source: ReportSource::BmcSensors,
+                target: Some(HealthReportTarget::Machine),
+                observed_at,
+                successes: vec![HealthReportSuccess {
+                    probe_id: Probe::Sensor,
+                    target: Some("Temp1".to_string()),
+                }],
+                alerts: vec![],
+            }
+            .into(),
+        );
+        let record = convert_event(&event, EXPORT_NANOS, false).expect("health report converts");
+
+        RecordTimestamps {
+            time_unix_nano: record.time_unix_nano,
+            observed_time_unix_nano: record.observed_time_unix_nano,
+        }
+    }
+
+    #[test]
+    fn health_report_event_time_prefers_the_observation_time() {
+        let observed_at = Utc
+            .with_ymd_and_hms(2026, 7, 31, 12, 34, 56)
+            .single()
+            .expect("valid timestamp");
+        let observed_nanos = u64::try_from(
+            observed_at
+                .timestamp_nanos_opt()
+                .expect("timestamp has nanoseconds"),
+        )
+        .expect("timestamp is after the Unix epoch");
+
+        value_scenarios!(health_report_timestamps:
+            "observation time present" {
+                Some(observed_at) => RecordTimestamps {
+                    time_unix_nano: observed_nanos,
+                    observed_time_unix_nano: EXPORT_NANOS,
+                },
+            }
+
+            "observation time absent" {
+                None => RecordTimestamps {
+                    time_unix_nano: EXPORT_NANOS,
+                    observed_time_unix_nano: EXPORT_NANOS,
+                },
+            }
+
+            "observation time before the Unix epoch" {
+                Utc.with_ymd_and_hms(1969, 12, 31, 23, 59, 59).single() => RecordTimestamps {
+                    time_unix_nano: EXPORT_NANOS,
+                    observed_time_unix_nano: EXPORT_NANOS,
+                },
+            }
+        );
+    }
+
+    #[test]
     fn events_grouped_by_endpoint() {
         let ctx1 = EventContext {
             endpoint_key: "endpoint-a".to_string(),
@@ -1016,7 +1433,7 @@ mod tests {
                 ctx,
                 CollectorEvent::Log(Box::new(LogRecord {
                     body: "x".to_string(),
-                    severity: "INFO".to_string(),
+                    severity: LogSeverity::Info,
                     attributes: vec![],
                     diagnostic_record: None,
                 })),

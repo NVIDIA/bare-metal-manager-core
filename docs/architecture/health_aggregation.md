@@ -284,6 +284,56 @@ The publishing sinks expose that inventory context using the conventions of the 
 - `[sinks.otlp]` adds the string resource attributes `collector.type` and either `bmc.endpoint` and `bmc.ip`, or `switch.endpoint` and `switch.ip` for host-side switch collection. Typed inventory adds the strings `component.type` and, when present, `rack.id`. _Machine_ metadata attributes are the strings `machine.id`, `system.uuid`, `machine.serial`, `driver.version`, and `nvlink.domain.uuid`, plus the integers `machine.slot_number` and `machine.tray_index`. _Switch_ metadata attributes are the strings `switch.id`, `switch.serial_number`, `switch.endpoint_role`, and `nvlink.domain.uuid`, the boolean `switch.is_primary`, and the integers `switch.slot_number` and `switch.tray_index`. Static endpoint custom labels are string resource attributes and keep their configured names.
 - `[sinks.health_report]`, `[sinks.rack_health_report]`, `[sinks.switch_health_report]`, and `[sinks.power_shelf_health_report]` use the same event context when submitting assessed health reports back to NICo API. The persisted `HealthReport` and `HealthProbeAlert` schemas remain the probe success/alert model described above.
 
+#### OTLP health-report log contract
+
+OTLP health-report logs keep the existing human-readable summary body and add a
+versioned structured attribute contract. Match `health_report.schema_version`
+against `v1` before decoding `health_report.successes`. Per-alert detail keeps
+the existing opt-in JSON representation controlled by the target's
+`include_alert_details` setting, which defaults to `false`; consequently,
+`health_report.alerts` and `health_report.alerts.dropped` are absent unless
+details are enabled. If the schema version is missing or unsupported, consumers
+retain the human-readable summary body, ignore the structured `health_report.*`
+attributes, and do not reject the record. This fallback emits no warning. 
+Additional fields may be present besides the minimum ones listed below.
+
+| Attribute | OTLP type | Presence | Value |
+| --------- | --------- | -------- | ----- |
+| `event.type` | string | Always | Always `health_report`. |
+| `health_report.alerts` | string | Conditional | JSON array containing the first 64 alert objects in report order. Present only when `include_alert_details = true` and the report has alerts. |
+| `health_report.alerts.dropped` | int | Conditional | Number of alerts after the first 64 that were omitted from `health_report.alerts`; present only when details are enabled and the report has more than 64 alerts. |
+| `health_report.alert_count` | `int_value` (signed 64-bit) | Always | Number of alerts in the report, including any omitted from `health_report.alerts`, bounded to `0..=i64::MAX`. |
+| `health_report.observed_at` | string | Optional | Observation time as RFC 3339 UTC with nanosecond precision, for example `2026-07-31T12:34:56.000000000Z`. Omitted when the report carries no observation time. |
+| `health_report.schema_version` | string | Always | `v1` for the contract documented here. |
+| `health_report.source` | string | Always | The collector that assessed the report: `bmc-sensors`, `bmc-events`, `bmc-leak-detectors`, `tray-leak-detection`, `rack-leak-detection`, `nvue-leakage`, or `gpu-inventory`. |
+| `health_report.success_count` | `int_value` (signed 64-bit) | Always | Number of entries in `health_report.successes`, bounded to `0..=i64::MAX`. |
+| `health_report.successes` | array of `kvlist` | Always | One entry per succeeded probe, empty when the report has none. |
+| `health_report.target` | string | Optional | The kind of inventory object assessed: `machine`, `power-shelf`, `rack`, or `switch`. Omitted when the report names no target. |
+
+`health_report.success_count` equals the length of `health_report.successes`
+while that length is representable as `i64`, and otherwise saturates at
+`i64::MAX`. `health_report.alert_count` applies the same bound and is available
+regardless of the alert-detail setting. For representable counts, when
+`health_report.alerts` is present, the alert count equals the JSON array length
+plus `health_report.alerts.dropped`, treating an absent dropped count as zero.
+
+Every `health_report.successes` entry carries at least these fields:
+
+| Field | OTLP type | Presence | Value |
+| --------- | --------- | -------- | ----- |
+| `probe_id` | string | Always | The probe that ran: `BmcSensor`, `IntrusionSensorTriggered`, `BmcLeakDetection`, `NvueLeakage`, or `SkuValidation`. See [Health probe IDs](health/health_probe_ids.md) for the shared probe-ID catalogue. |
+| `target` | string | Optional | The probed component, such as a sensor or leak-detector ID. Omitted when the probe ID fully describes what was tested. |
+
+When `health_report.alerts` is present, every JSON object carries the same
+`probe_id` and optional `target` fields, plus at least these fields:
+
+| Field | JSON type | Presence | Value |
+| --------- | --------- | -------- | ----- |
+| `message` | string | Always | Human-readable description of the alert. |
+| `classifications` | array of string | Always | Zero or more of `SensorOk`, `SensorWarning`, `SensorCritical`, `SensorFatal`, `SensorFailure`, `PreventAllocations`, `Leak`, and `LeakDetector`. Refer to [Health alert classifications](health/health_alert_classifications.md) for the classifications NICo interprets. Unlike reports for the NICo API, this array carries only the classifications the collector raised, without the `Hardware` marker. |
+
+The two record timestamps are set by different clocks. `time_unix_nano` is never zero: it is the report's own observation time if it is representable as Unix nanoseconds, and otherwise the export time. `observed_time_unix_nano` is always the export time. These keep export order recoverable for reports whose observation time is older or absent.
+
 ### BMC inventory monitoring
 
 The Site Explorer process within NICo Core periodically queries all Host and DPU BMCs in order to record certain BMC properties (e.g. components within a host and firmware versions).

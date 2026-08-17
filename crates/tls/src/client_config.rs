@@ -52,19 +52,30 @@ pub struct FileConfig {
 pub fn get_api_url(api_url: Option<String>, file_config: Option<&FileConfig>) -> String {
     // First from command line, second env var.
     if let Some(api) = api_url {
-        return api;
+        return ensure_url_has_scheme(&api);
     }
 
     // Third config file
     if let Some(file_config) = file_config
         && let Some(api_url) = file_config.api_url.as_ref()
     {
-        return api_url.clone();
+        return ensure_url_has_scheme(api_url);
     }
 
     // TODO configurable default api_url
     // Otherwise we assume the admin-cli is called from inside a kubernetes pod
     "https://carbide-api.forge-system.svc.cluster.local:1079".to_string()
+}
+
+/// Ensures a URL has an HTTP(S) scheme, defaulting to `https://` if missing
+fn ensure_url_has_scheme(url: &str) -> String {
+    let url = url.trim();
+    let lower = url.to_ascii_lowercase();
+    if lower.starts_with("http://") || lower.starts_with("https://") {
+        url.to_string()
+    } else {
+        format!("https://{url}")
+    }
 }
 
 pub fn get_client_cert_info(
@@ -556,6 +567,35 @@ mod tests {
         remove_env("HOME");
 
         assert!(get_config_from_file().is_none());
+    }
+
+    #[test]
+    fn ensure_url_has_scheme_adds_https_when_missing() {
+        use super::ensure_url_has_scheme;
+
+        assert_eq!(
+            ensure_url_has_scheme("https://example.com:1079"),
+            "https://example.com:1079"
+        );
+        assert_eq!(
+            ensure_url_has_scheme("http://localhost:8080"),
+            "http://localhost:8080"
+        );
+
+        assert_eq!(
+            ensure_url_has_scheme("localhost:1079"),
+            "https://localhost:1079"
+        );
+
+        assert_eq!(
+            ensure_url_has_scheme("HTTPS://example.com"),
+            "HTTPS://example.com"
+        );
+
+        assert_eq!(
+            ensure_url_has_scheme("  localhost:1079  "),
+            "https://localhost:1079"
+        );
     }
 
     #[test]

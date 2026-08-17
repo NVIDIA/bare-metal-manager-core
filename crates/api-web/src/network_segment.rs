@@ -241,6 +241,7 @@ struct NetworkSegmentDetail {
     domain_id: String,
     domain_name: String,
     segment_type: String,
+    infer_slaac_eui64_addresses: bool,
     prefixes: Vec<NetworkSegmentPrefix>,
     history: Vec<NetworkSegmentHistory>,
 }
@@ -307,6 +308,7 @@ impl TryFrom<forgerpc::NetworkSegment> for NetworkSegmentDetail {
                 "{:?}",
                 forgerpc::NetworkSegmentType::try_from(config.segment_type).unwrap_or_default()
             ),
+            infer_slaac_eui64_addresses: config.infer_slaac_eui64_addresses,
             prefixes,
             // History is fetched separately via FindNetworkSegmentStateHistories
             // and set on the template after conversion.

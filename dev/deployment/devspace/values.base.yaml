@@ -2,6 +2,10 @@ nico-api:
   # Disable legacy forge-system namespace alias for local dev
   legacyAlias:
     enabled: false
+  # Vault's local admin-CLI certificates are issued by CN=local-vault-ca.
+  auth:
+    additionalIssuerCns:
+      - "local-vault-ca"
   resources:
     limits:
       cpu: "16"
@@ -77,7 +81,7 @@ nico-api:
       spiffe_trust_domain = "nico.local"
       spiffe_service_base_paths = ["/nico-system/sa/", "/default/sa/"]
       spiffe_machine_base_path = "/nico-system/machine/"
-      additional_issuer_cns = []
+      additional_issuer_cns = ["local-vault-ca"]
 
       [host_health]
       hardware_health_reports = "MonitorOnly"
@@ -137,7 +141,7 @@ nico-bmc-proxy:
         "/default/sa/",
       ]
       spiffe_machine_base_path = "/nico-system/machine/"
-      additional_issuer_cns = []
+      additional_issuer_cns = ["local-vault-ca"]
 
       [auth.acls]
       "trusted-certificate" = ["/**"]

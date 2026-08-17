@@ -23,18 +23,20 @@
 //! imports. [`Config::root_files`] independently selects the protobuf files
 //! whose services receive wrapper methods and convenience converters.
 
+use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
+use carbide_proto_compiler::ExternPathSearchIndex;
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use proc_macro2::{LexError, TokenStream};
 use prost_types::field_descriptor_proto::Label;
 use prost_types::{FileDescriptorProto, FileDescriptorSet, MethodDescriptorProto};
 use quote::{TokenStreamExt, quote};
 
-use crate::utils::{base_types, field_is_optional, resolve_field_primitive_type};
+use crate::utils::{base_type, field_is_optional, resolve_field_primitive_type};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -60,7 +62,7 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Configures code generation of a tonic client wrapper.
-pub struct Config {
+pub struct Config<'a> {
     /// The name of the generated tonic client wrapper.
     pub wrapper_name: String,
     /// The fully qualified type of the tonic client this wrapper will call.
@@ -84,11 +86,11 @@ pub struct Config {
 
     /// List of protobuf types to override with specific Rust types. This should mirror any types
     /// customized through `tonic_prost_build::Builder::extern_path` so the generated code matches.
-    pub extern_paths: Vec<(ProtobufType, RustType)>,
+    pub extern_paths: ExternPathSearchIndex<'a>,
 }
 
 pub type ProtobufType = &'static str;
-pub type RustType = &'static str;
+pub type RustType = syn::Type;
 
 /// A wrapper backend borrowing a complete protobuf schema.
 ///
@@ -100,7 +102,7 @@ pub struct CodeGenerator<'a> {
     root_files: Vec<&'a FileDescriptorProto>,
     generated_types_path_within_crate: TokenStream,
     message_types: HashMap<String, MessageWithPackage<'a>>,
-    extern_paths: HashMap<ProtobufType, RustType>,
+    extern_paths: ExternPathSearchIndex<'a>,
 }
 
 impl<'a> CodeGenerator<'a> {
@@ -109,7 +111,7 @@ impl<'a> CodeGenerator<'a> {
     /// [`Config::root_files`] chooses service roots within `descriptor_set`;
     /// imported and otherwise unselected files remain available for resolving
     /// method types.
-    pub fn new(config: Config, descriptor_set: &'a FileDescriptorSet) -> Result<Self> {
+    pub fn new(config: Config<'a>, descriptor_set: &'a FileDescriptorSet) -> Result<Self> {
         let inner_rpc_client_type =
             config
                 .inner_rpc_client_type
@@ -173,15 +175,13 @@ impl<'a> CodeGenerator<'a> {
             })
             .collect();
 
-        let extern_paths = config.extern_paths.into_iter().collect();
-
         Ok(Self {
             inner_rpc_client_type,
             wrapper_name,
             root_files,
             generated_types_path_within_crate,
             message_types,
-            extern_paths,
+            extern_paths: config.extern_paths,
         })
     }
 
@@ -329,7 +329,7 @@ impl<'a> CodeGenerator<'a> {
             return Ok(None);
         }
 
-        if base_types.contains_key(&qualified_name) {
+        if base_type(&qualified_name).is_some() {
             // Except we can't create convenience converters for primitives
             return Ok(None);
         }
@@ -352,9 +352,8 @@ impl<'a> CodeGenerator<'a> {
         // Define the template values used in the generated code...
 
         // The type of the message itself being converted *to*
-        let message_type: TokenStream = self
-            .convert_protobuf_type_to_rust_type(&message_with_package.qualified_name())?
-            .parse()?;
+        let message_type =
+            self.convert_protobuf_type_to_rust_type(&message_with_package.qualified_name())?;
 
         // The name of the single field we're going to be populating from the From<> type
         let field_name = if let Some(oneof_index) = field.oneof_index {
@@ -367,8 +366,8 @@ impl<'a> CodeGenerator<'a> {
 
         // The type of the single field
         let field_type: TokenStream = {
-            let type_str = if let Some(t) = resolve_field_primitive_type(field) {
-                t
+            let typename = if let Some(t) = resolve_field_primitive_type(field) {
+                Cow::Owned(t)
             } else if let Some(type_name) = &field.type_name {
                 self.convert_protobuf_type_to_rust_type(type_name)?
             } else {
@@ -377,42 +376,37 @@ impl<'a> CodeGenerator<'a> {
             };
 
             if is_repeated {
-                format!("Vec<{type_str}>").parse()?
+                quote! { Vec<#typename> }
             } else {
-                type_str.parse()?
+                quote! { #typename }
             }
         };
 
         // The value we're setting the single field to
-        let value: TokenStream =
-            if field.oneof_index.is_some() && field.proto3_optional.is_none_or(|o| !o) {
-                // If it's a `oneof`, it's going to be seen by rust as an Enum with an associated
-                // value. The enum package is going to be the message name in snake-case, the enum's
-                // type is the name of the oneof field, and each arm of the enum is going to be one
-                // of the oneof arms (which we've ensured there is only one.)
-                //
-                // Note about proto3_optional: If proto3_optional is set, it generally means that
-                // this is a "synthetic" oneof, which is a sort of hack used by prost-types to make
-                // the field show up as optional for proto3. We *don't* want to treat these cases as
-                // enums, because they don't show up in rust as real enums.
-                self.convert_protobuf_type_to_rust_type(&format!(
-                    "{}.{}",
-                    message_with_package.qualified_name(), // this will be snake_cased
-                    message.oneof_decl[field.oneof_index() as usize].name() // this will be CamelCased
-                ))
-                .map(|s| {
-                    format!(
-                        "Some({}::{}(t.into()))",
-                        s,
-                        field.name().to_upper_camel_case()
-                    )
-                })?
-                .parse()?
-            } else if is_optional {
-                "Some(t.into())".parse()?
-            } else {
-                "t.into()".parse()?
-            };
+        let value = if field.oneof_index.is_some() && field.proto3_optional.is_none_or(|o| !o) {
+            // If it's a `oneof`, it's going to be seen by rust as an Enum with an associated
+            // value. The enum package is going to be the message name in snake-case, the enum's
+            // type is the name of the oneof field, and each arm of the enum is going to be one
+            // of the oneof arms (which we've ensured there is only one.)
+            //
+            // Note about proto3_optional: If proto3_optional is set, it generally means that
+            // this is a "synthetic" oneof, which is a sort of hack used by prost-types to make
+            // the field show up as optional for proto3. We *don't* want to treat these cases as
+            // enums, because they don't show up in rust as real enums.
+            self.convert_protobuf_type_to_rust_type(&format!(
+                "{}.{}",
+                message_with_package.qualified_name(), // this will be snake_cased
+                message.oneof_decl[field.oneof_index() as usize].name()  // this will be CamelCased
+            ))
+            .and_then(|s| {
+                let name: syn::TypePath = syn::parse_str(&field.name().to_upper_camel_case())?;
+                Ok(quote! { Some(#s::#name(t.into())) })
+            })?
+        } else if is_optional {
+            quote! { Some(t.into()) }
+        } else {
+            quote! { t.into() }
+        };
 
         Ok(Some(quote! {
             impl<T: Into<#field_type>> From<T> for #message_type {
@@ -429,9 +423,8 @@ impl<'a> CodeGenerator<'a> {
         &self,
         message_with_package: &MessageWithPackage<'_>,
     ) -> Result<TokenStream> {
-        let message_type: TokenStream = self
-            .convert_protobuf_type_to_rust_type(&message_with_package.qualified_name())?
-            .parse()?;
+        let message_type =
+            self.convert_protobuf_type_to_rust_type(&message_with_package.qualified_name())?;
 
         Ok(quote! {
             impl From<()> for #message_type {
@@ -451,11 +444,8 @@ impl<'a> CodeGenerator<'a> {
         // Compile-time literals from the proto: the bounded `backend` and
         // `operation` labels for the outbound-call RED metric.
         let operation_label = method.name().to_snake_case();
-        let input_type_str = self.convert_protobuf_type_to_rust_type(method.input_type())?;
-        let input_type: TokenStream = input_type_str.parse()?;
-        let output_type: TokenStream = self
-            .convert_protobuf_type_to_rust_type(method.output_type())?
-            .parse()?;
+        let input_type = self.convert_protobuf_type_to_rust_type(method.input_type())?;
+        let output_type = self.convert_protobuf_type_to_rust_type(method.output_type())?;
 
         let is_client_streaming = method.client_streaming.unwrap_or(false);
         let is_server_streaming = method.server_streaming.unwrap_or(false);
@@ -493,8 +483,9 @@ impl<'a> CodeGenerator<'a> {
                 })
             }
             (false, true) => {
+                let unit: syn::Type = syn::parse_quote!(());
                 // Server streaming.
-                let token_stream = if input_type_str == "()" {
+                let token_stream = if input_type.as_ref() == &unit {
                     quote! {
                         pub async fn #method_name(&self) -> Result<tonic::codec::Streaming<#output_type>, tonic::Status> {
                                 ::carbide_instrument::red::instrumented(#service_label, #operation_label, async move {
@@ -546,7 +537,8 @@ impl<'a> CodeGenerator<'a> {
             }
             (false, false) => {
                 // Unary - your existing code.
-                let token_stream = if input_type_str == "()" {
+                let unit = syn::parse_quote!(());
+                let token_stream = if input_type.as_ref() == &unit {
                     quote! {
                         pub async fn #method_name(&self) -> Result<#output_type, tonic::Status> {
                                 ::carbide_instrument::red::instrumented(#service_label, #operation_label, async move {
@@ -612,13 +604,16 @@ impl<'a> CodeGenerator<'a> {
     /// - Joining the components with `::` instead of `.`
     /// - Prefixing the type with `crate::<generated_types_path_within_crate>::`, to make it a fully
     ///   qualified path.
-    pub(crate) fn convert_protobuf_type_to_rust_type(&self, t: &str) -> Result<String> {
-        if let Some(base_type) = base_types.get(t) {
-            return Ok(base_type.to_owned());
+    pub(crate) fn convert_protobuf_type_to_rust_type(
+        &'a self,
+        t: &str,
+    ) -> Result<Cow<'a, syn::Type>> {
+        if let Some(base_type) = base_type(t) {
+            return Ok(Cow::Owned(base_type));
         }
 
         if let Some(extern_type) = self.extern_paths.get(t) {
-            return Ok(extern_type.to_string());
+            return Ok(Cow::Borrowed(extern_type));
         }
 
         let components = t
@@ -640,10 +635,10 @@ impl<'a> CodeGenerator<'a> {
             return Err(Error::InvalidProtobufType(t.to_string()));
         };
 
-        Ok(format!(
+        Ok(Cow::Owned(syn::parse_str(&format!(
             "crate::{}::{}",
             self.generated_types_path_within_crate, result
-        ))
+        ))?))
     }
 }
 
@@ -683,6 +678,8 @@ fn write_token_stream_if_not_up_to_date<T: AsRef<Path>>(
 
 #[cfg(test)]
 mod tests {
+    use carbide_proto_compiler::ExternPaths;
+
     use super::*;
 
     fn descriptor_set(proto_files: &[(&str, &str)]) -> FileDescriptorSet {
@@ -702,19 +699,29 @@ mod tests {
             .expect("Could not compile test descriptors")
     }
 
-    fn test_config(root_files: Vec<String>) -> Config {
+    fn extern_paths() -> ExternPaths {
+        ExternPaths::new([(".ExternType", syn::parse_quote!(crate::CustomExternType))].into_iter())
+    }
+
+    fn test_config<'a>(root_files: Vec<String>, extern_paths: &'a ExternPaths) -> Config<'a> {
         Config {
             wrapper_name: "TestWrapper".to_string(),
             inner_rpc_client_type: "TestInnerClient".to_string(),
             generated_types_path_within_crate: "test".to_string(),
             root_files,
-            extern_paths: vec![(".ExternType", "crate::CustomExternType")],
+            extern_paths: extern_paths.build_index(),
         }
     }
 
-    fn test_generator(descriptor_set: &FileDescriptorSet) -> CodeGenerator<'_> {
-        CodeGenerator::new(test_config(vec!["test.proto".to_string()]), descriptor_set)
-            .expect("Could not build CodeGenerator")
+    fn test_generator<'a>(
+        descriptor_set: &'a FileDescriptorSet,
+        extern_paths: &'a ExternPaths,
+    ) -> CodeGenerator<'a> {
+        CodeGenerator::new(
+            test_config(vec!["test.proto".to_string()], extern_paths),
+            descriptor_set,
+        )
+        .expect("Could not build CodeGenerator")
     }
 
     #[test]
@@ -722,8 +729,9 @@ mod tests {
         let descriptor_set =
             descriptor_set(&[("test.proto", include_str!("test_fixtures/test.proto"))]);
 
+        let extern_paths = extern_paths();
         match CodeGenerator::new(
-            test_config(vec!["missing.proto".to_string()]),
+            test_config(vec!["missing.proto".to_string()], &extern_paths),
             &descriptor_set,
         ) {
             Err(Error::MissingRootFile(root_file)) => assert_eq!(root_file, "missing.proto"),
@@ -732,7 +740,10 @@ mod tests {
         }
 
         match CodeGenerator::new(
-            test_config(vec!["test.proto".to_string(), "test.proto".to_string()]),
+            test_config(
+                vec!["test.proto".to_string(), "test.proto".to_string()],
+                &extern_paths,
+            ),
             &descriptor_set,
         ) {
             Err(Error::DuplicateRootFile(root_file)) => assert_eq!(root_file, "test.proto"),
@@ -745,7 +756,7 @@ mod tests {
             .file
             .push(descriptor_set.file[0].clone());
         match CodeGenerator::new(
-            test_config(vec!["test.proto".to_string()]),
+            test_config(vec!["test.proto".to_string()], &extern_paths),
             &duplicate_descriptor_set,
         ) {
             Err(Error::DuplicateRootFile(root_file)) => assert_eq!(root_file, "test.proto"),
@@ -800,8 +811,9 @@ mod tests {
                 "#,
             ),
         ]);
+        let extern_paths = extern_paths();
         let generator = CodeGenerator::new(
-            test_config(vec!["selected.proto".to_string()]),
+            test_config(vec!["selected.proto".to_string()], &extern_paths),
             &descriptor_set,
         )
         .expect("Could not build CodeGenerator");
@@ -829,9 +841,10 @@ mod tests {
 
     #[test]
     fn generated_files_match_golden() {
+        let extern_paths = extern_paths();
         let descriptor_set =
             descriptor_set(&[("test.proto", include_str!("test_fixtures/golden.proto"))]);
-        let generator = test_generator(&descriptor_set);
+        let generator = test_generator(&descriptor_set, &extern_paths);
         let output_dir = temp_dir::TempDir::new().expect("Could not create temporary directory");
         let wrapper_path = output_dir.path().join("wrapper.rs");
         let converters_path = output_dir.path().join("converters.rs");
@@ -857,7 +870,8 @@ mod tests {
     fn test_rpc_wrapper_method() {
         let descriptor_set =
             descriptor_set(&[("test.proto", include_str!("test_fixtures/test.proto"))]);
-        let generator = test_generator(&descriptor_set);
+        let extern_paths = extern_paths();
+        let generator = test_generator(&descriptor_set, &extern_paths);
 
         let methods = generator
             .root_files
@@ -1016,7 +1030,8 @@ mod tests {
     fn test_convenience_wrapper_method() {
         let descriptor_set =
             descriptor_set(&[("test.proto", include_str!("test_fixtures/test.proto"))]);
-        let generator = test_generator(&descriptor_set);
+        let extern_paths = extern_paths();
+        let generator = test_generator(&descriptor_set, &extern_paths);
 
         {
             let message_with_package = generator.message_types.get(".VoidRequest").unwrap();

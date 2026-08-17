@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#![cfg_attr(not(test), deny(dead_code_pub_in_binary))]
 
 use carbide_dsx_exchange_consumer::{Config, DsxConsumerError};
 use tracing::level_filters::LevelFilter;

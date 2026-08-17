@@ -2,8 +2,7 @@ syntax = "proto3";
 
 package forge;
 
-// Don't forget to update build.rs to add the Serialize annotation for any new
-// message types!
+import "codegen/v1/derive.proto";
 
 import "common.proto";
 import "dns.proto";
@@ -1032,6 +1031,7 @@ service Forge {
 
 // Indicates the lifecycle state of a resource that is controlled by a state controller
 message LifecycleStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // The current state of the resource
   string state = 1;
   // The state version. This version number is incremented each time the resource transitions into a new state
@@ -1050,6 +1050,7 @@ enum SpdmAttestationStatus{
 }
 
 message SpdmMachineAttestationStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.MachineId machine_id = 1;
   SpdmAttestationStatus attestation_status = 2;
 }
@@ -1060,6 +1061,7 @@ message SpdmMachineAttestationTriggerResponse {
 }
 
 message SpdmAttestationDetails{
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.MachineId machine_id = 1;
   string device_id = 2;
   string state = 3;
@@ -1070,6 +1072,7 @@ message SpdmAttestationDetails{
 }
 
 message SpdmGetAttestationMachineResponse {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated SpdmAttestationDetails attestations_details = 1;
 }
 
@@ -1091,6 +1094,7 @@ message SpdmListAttestationMachinesRequest {
 }
 
 message SpdmListAttestationMachinesResponse {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated SpdmMachineAttestationStatus statuses = 1;
 }
 
@@ -1157,6 +1161,8 @@ message TenantIdentityConfigResponse {
 // Token delegation config (per-org token exchange for machine identity).
 // The structure used when CREATING or UPDATING a secret
 message ClientSecretBasic {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   string client_id = 1;
   string client_secret = 2;  // Required for input, never returned
 }
@@ -1279,15 +1285,21 @@ message MachineIngestionStateResponse{
 }
 
 message TpmCaAddedCaStatus{
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   TpmCaCertId id = 1;
   int32 matched_ek_certs = 2;
 }
 
 message TpmCaCertId{
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   int32 ca_cert_id = 1;
 }
 
 message TpmEkCertStatus{
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string serial_num = 1;
   common.MachineId machine_id = 2;
   string issuer = 3;
@@ -1295,6 +1307,8 @@ message TpmEkCertStatus{
 }
 
 message TpmEkCertStatusCollection{
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated TpmEkCertStatus tpm_ek_cert_statuses = 1;
 }
 
@@ -1304,6 +1318,8 @@ message TpmCaCert{
 }
 
 message TpmCaCertDetail{
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   int32 ca_cert_id = 1;
   string not_valid_before = 2;
   string not_valid_after = 3;
@@ -1311,6 +1327,8 @@ message TpmCaCertDetail{
 }
 
 message TpmCaCertDetailCollection{
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated TpmCaCertDetail tpm_ca_cert_details = 1;
 }
 
@@ -1389,6 +1407,8 @@ message CredentialDeletionResult {
 // CredentialType because rotation is version-addressed and operates per family,
 // not per individual vault path.
 enum RotationCredentialType {
+  option (carbide.codegen.v1.enum_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.enum_derive) = "serde::Deserialize";
   // Unset sentinel. The server rejects this with InvalidArgument so a caller
   // that forgets to set the family never falls through to a destructive
   // default (proto3 zero value); rotation is too sensitive to guess a target.
@@ -1411,6 +1431,8 @@ message RotateCredentialRequest {
 }
 
 message RotateCredentialResult {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   RotationCredentialType credential_type = 1;
   // The newly published site-wide target version devices will converge to.
   uint32 target_version = 2;
@@ -1430,6 +1452,8 @@ message CredentialRotationStatusRequest {
 // Per-device convergence detail, populated on the result only when the request
 // targeted a specific device by MAC.
 message DeviceCredentialRotationStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   // The device this status describes.
   string device_mac = 1;
   // Credential version currently live on the hardware (the convergence marker).
@@ -1454,6 +1478,8 @@ message DeviceCredentialRotationStatus {
 }
 
 message CredentialRotationStatusResult {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   // Current site-wide target version for this family.
   uint32 target_version = 1;
   // Devices whose recorded version is at or beyond the target. When the request
@@ -1482,6 +1508,8 @@ message VersionRequest {
 }
 
 message BuildInfo {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string build_version = 1; // v2023.06-rc2-1-gc5c05de3
   string build_date = 2; // 2023-06-05
   string git_sha = 3; // c5c05de3
@@ -1493,6 +1521,8 @@ message BuildInfo {
 }
 
 message RuntimeConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string listen = 1;
   string metrics_endpoint = 2;
   reserved 3; // Was: string otlp_endpoint
@@ -1670,6 +1700,7 @@ message TenantSearchQuery {
 
 // A presence-aware list of prefix-filter entries.
 message PrefixFilterPolicyEntries {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated PrefixFilterPolicyEntry values = 1;
 }
 
@@ -1678,6 +1709,7 @@ message PrefixFilterPolicyEntries {
 // `internal` and `access_tier` are intentionally not exposed because allocation
 // and access controls must always come from the named base profile.
 message VpcRoutingProfileOverrides {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   optional common.RouteTargets route_target_imports = 1;
   optional common.RouteTargets route_targets_on_exports = 2;
   optional bool leak_default_route_from_underlay = 3;
@@ -1691,6 +1723,7 @@ message VpcRoutingProfileOverrides {
 // Unlike VpcRoutingProfileOverrides, this includes the protected properties
 // inherited from the named base profile and has no presence-aware fields.
 message VpcEffectiveRoutingProfile {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated common.RouteTarget route_target_imports = 1;
   repeated common.RouteTarget route_targets_on_exports = 2;
   bool leak_default_route_from_underlay = 3;
@@ -1703,6 +1736,7 @@ message VpcEffectiveRoutingProfile {
 }
 
 message VpcConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string tenant_organization_id = 1;
   optional string tenant_keyset_id = 2;
   optional VpcVirtualizationType network_virtualization_type = 3;
@@ -1712,9 +1746,14 @@ message VpcConfig {
   optional uint32 vni = 6;
   optional string routing_profile_type = 7;
   optional VpcRoutingProfileOverrides routing_profile_overrides = 8;
+  // Resource group managed by the external power provisioning service. Unset
+  // means that the VPC has no associated resource group; empty values are not
+  // persisted.
+  optional string power_resource_group = 9;
 }
 
 message VpcStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // The actual VNI allocated to the VPC. If a VNI had been
   // explicitly requested, we'd expect this to match config.vni.
   // If not explicitly requested, we'd expect config.vni to be unset.
@@ -1726,6 +1765,7 @@ message VpcStatus {
 }
 
 message Vpc {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.VpcId id = 1;
   reserved 2;  // was: string name, replaced with metadata.name
   // Deprecated: use config.tenant_organization_id
@@ -1815,6 +1855,9 @@ message VpcCreationRequest {
   // Properties to overlay on the selected named routing profile. Properties
   // left unset inherit from the base profile.
   optional VpcRoutingProfileOverrides routing_profile_overrides = 18;
+  // Resource group managed by the external power provisioning service. During
+  // creation, omission or an empty value creates no association.
+  optional string power_resource_group = 19;
 }
 
 enum VpcVirtualizationType {
@@ -1869,6 +1912,10 @@ message VpcUpdateRequest {
   // previous inline definition. Omit this field to preserve the current
   // definition; send an empty message to restore inheritance for every property.
   optional VpcRoutingProfileOverrides routing_profile_overrides = 19;
+  // External power provisioning resource group update. Omit this field to
+  // preserve the current association, send an empty string to remove it, or
+  // send a non-empty value to replace it.
+  optional string power_resource_group = 20;
 }
 
 message VpcUpdateResult {
@@ -1903,6 +1950,7 @@ message VpcDeletionResult {
 }
 
 message VpcList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated Vpc vpcs = 1;
 }
 
@@ -1919,6 +1967,7 @@ enum PrefixMatchType {
 }
 
 message VpcPrefix {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.VpcPrefixId id = 1;
   string prefix = 2; // Deprecated, use config instead
   reserved 3; // was string name, replaced with metadata instead
@@ -1930,14 +1979,18 @@ message VpcPrefix {
   VpcPrefixConfig config = 8;
   VpcPrefixStatus status = 9;
   Metadata metadata = 10;
+  // The SitePrefix that contains this VPC prefix.
+  common.SitePrefixId site_prefix_id = 11;
 }
 
 message VpcPrefixConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // IPv4 or IPv6 prefix in CIDR notation
   string prefix = 1;
 }
 
 message VpcPrefixStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   uint32 total_31_segments = 1;
   uint32 available_31_segments = 2;
   uint64 total_linknet_segments = 3;
@@ -1957,6 +2010,8 @@ message VpcPrefixCreationRequest {
   reserved 5; // tenant_prefix_id
   VpcPrefixConfig config = 6;
   Metadata metadata = 7;
+  // Optional for compatibility with callers that predate SitePrefix identity.
+  common.SitePrefixId site_prefix_id = 8;
 }
 
 message VpcPrefixSearchQuery {
@@ -1971,6 +2026,7 @@ message VpcPrefixSearchQuery {
   optional PrefixMatchType prefix_match_type = 5;
   // Controls whether soft-deleted VPC prefixes are included. Defaults to EXCLUDE.
   DeletedFilter deleted = 6;
+  optional common.SitePrefixId site_prefix_id = 7;
 }
 
 message VpcPrefixGetRequest {
@@ -2007,10 +2063,12 @@ message VpcPrefixDeletionResult {
 }
 
 message VpcPrefixStateHistoriesRequest {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated common.VpcPrefixId vpc_prefix_ids = 1;
 }
 
 message VpcPeering {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.VpcPeeringId id = 1;
   common.VpcId vpc_id = 2;
   common.VpcId peer_vpc_id = 3;
@@ -2021,6 +2079,7 @@ message VpcPeeringIdList {
 }
 
 message VpcPeeringList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated VpcPeering vpc_peerings = 1;
 }
 
@@ -2087,6 +2146,7 @@ enum TenantState {
 
 // Describe the desired configuration of an IBPartition
 message IBPartitionConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // Deprecated: use Metadata instead  - the name of IBPartition.
   string name = 1;
   // The ID of tenant that IBPartition belong to
@@ -2101,6 +2161,7 @@ message IBPartitionConfig {
 
 // Describe the status and applied configuration of an IBPartition
 message IBPartitionStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // Provisioning state of this partition
   TenantState state = 1;
   // The result of last state controller run - its outcome and an optional reason for that outcome
@@ -2124,6 +2185,7 @@ message IBPartitionStatus {
 
 // Describe an Infiniband based Partition configuration and status
 message IBPartition {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.IBPartitionId id = 1;
 
   IBPartitionConfig config = 2;
@@ -2135,6 +2197,7 @@ message IBPartition {
 }
 
 message IBPartitionList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated IBPartition ib_partitions = 1;
 }
 
@@ -2177,11 +2240,13 @@ message IBPartitionsByIdsRequest {
 }
 
 message IBPartitionIdList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated common.IBPartitionId ib_partition_ids = 1;
 }
 
 // Describe the desired configuration of a PowerShelf
 message PowerShelfConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // The name of PowerShelf.
   string name = 1;
   // Power capacity in watts
@@ -2193,6 +2258,7 @@ message PowerShelfConfig {
 
 // Describe the status and applied configuration of a PowerShelf
 message PowerShelfStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // The result of last state controller run - its outcome and an optional reason for that outcome
   // deprecated: Use lifecycle field
   optional ControllerStateReason state_reason = 1;
@@ -2217,6 +2283,7 @@ message PowerShelfStatus {
 
 // Describe a PowerShelf configuration and status
 message PowerShelf {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.PowerShelfId id = 1;
 
   PowerShelfConfig config = 2;
@@ -2244,6 +2311,7 @@ message PowerShelf {
 }
 
 message PowerShelfList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated PowerShelf power_shelves = 1;
 }
 
@@ -2315,6 +2383,7 @@ message PowerShelvesByIdsRequest {
 }
 
 message ExpectedPowerShelf {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string bmc_mac_address = 1;
   string bmc_username = 2;
   string bmc_password = 3;
@@ -2338,6 +2407,7 @@ message ExpectedPowerShelfRequest {
 }
 
 message ExpectedPowerShelfList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated ExpectedPowerShelf expected_power_shelves = 1;
 }
 
@@ -2356,6 +2426,7 @@ message LinkedExpectedPowerShelf {
 
 // Describe the desired configuration of a Switch
 message SwitchConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // The name of Switch.
   string name = 1;
   bool enable_nmxc = 2;
@@ -2365,6 +2436,7 @@ message SwitchConfig {
 
 // Describe the desired configuration of Fabric Manager
 message FabricManagerConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   map<string, string> config_map = 1;
 }
 
@@ -2376,6 +2448,7 @@ enum FabricManagerState {
 }
 
 message FabricManagerStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   FabricManagerState fabric_manager_state = 1;
   optional string addition_info = 2;
   optional string reason = 3;
@@ -2384,6 +2457,7 @@ message FabricManagerStatus {
 
 // Describe the status and applied configuration of a Switch
 message SwitchStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // The result of last state controller run - its outcome and an optional reason for that outcome
   // deprecated: Use lifecycle field
   optional ControllerStateReason state_reason = 1;
@@ -2409,12 +2483,14 @@ message SwitchStatus {
 }
 
 message PlacementInRack {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   optional int32 slot_number = 1;
   optional int32 tray_index = 2;
 }
 
 // Describe a Switch configuration and status
 message Switch {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.SwitchId id = 1;
 
   SwitchConfig config = 2;
@@ -2449,6 +2525,7 @@ message Switch {
 }
 
 message SwitchList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated Switch switches = 1;
 }
 
@@ -2471,6 +2548,7 @@ message SwitchDeletionResult {
 
 // The state that a object/resource had at a certain point in time
 message StateHistoryRecord {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string state = 1;
   string version = 2;
   google.protobuf.Timestamp time = 3;
@@ -2513,6 +2591,7 @@ message SwitchesByIdsRequest {
 }
 
 message ExpectedSwitch {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string bmc_mac_address = 1;
   string bmc_username = 2;
   string bmc_password = 3;
@@ -2542,6 +2621,7 @@ message ExpectedSwitchRequest {
 }
 
 message ExpectedSwitchList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated ExpectedSwitch expected_switches = 1;
 }
 
@@ -2559,6 +2639,7 @@ message LinkedExpectedSwitch {
 }
 
 message ExpectedRack {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // The rack identifier. Same rack_id referenced by expected machines, switches, and power shelves.
   optional common.RackId rack_id = 1;
   // The rack profile ID. Determines expected counts of compute trays, switches, and power shelves.
@@ -2574,6 +2655,7 @@ message ExpectedRackRequest {
 }
 
 message ExpectedRackList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated ExpectedRack expected_racks = 1;
 }
 
@@ -2586,6 +2668,7 @@ message IBFabricIdList {
 
 // Deprecated: use FindNetworkSegmentStateHistories RPC instead
 message NetworkSegmentStateHistory {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string state = 1;
   string version = 2;
   google.protobuf.Timestamp time = 3;
@@ -2613,6 +2696,7 @@ enum NetworkSegmentFlag {
 }
 
 message NetworkSegmentConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.VpcId vpc_id = 1;
 
   optional common.DomainId subdomain_id = 2;
@@ -2621,9 +2705,17 @@ message NetworkSegmentConfig {
   NetworkSegmentType segment_type = 4;
 
   repeated NetworkPrefix prefixes = 5;
+
+  // Allows NICo to infer modified EUI-64 SLAAC addresses for clients making
+  // stateless DHCPv6 requests and add them to interface address state. False by
+  // default. Inference also requires dynamic allocation, exactly one IPv6 /64,
+  // and an interface without an existing IPv6 address. Set this only when
+  // clients derive SLAAC addresses from their MAC addresses using modified EUI-64.
+  bool infer_slaac_eui64_addresses = 6;
 }
 
 message NetworkSegmentStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // Derived from can_stretch; not accepted as user input.
   repeated NetworkSegmentFlag flags = 1;
 
@@ -2635,6 +2727,7 @@ message NetworkSegmentStatus {
 }
 
 message NetworkSegment {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.NetworkSegmentId id = 1;
 
   // Deprecated: use config.vpc_id
@@ -2690,6 +2783,13 @@ message NetworkSegmentCreationRequest {
   // a random ID.
   // The Network Segment ID must be unique within the Forge site.
   optional common.NetworkSegmentId id = 8;
+
+  // Allows NICo to infer modified EUI-64 SLAAC addresses for clients making
+  // stateless DHCPv6 requests and add them to interface address state. False by
+  // default. Inference also requires dynamic allocation, exactly one IPv6 /64,
+  // and an interface without an existing IPv6 address. Set this only when
+  // clients derive SLAAC addresses from their MAC addresses using modified EUI-64.
+  bool infer_slaac_eui64_addresses = 9;
 }
 
 message NetworkSegmentDeletionRequest {
@@ -2697,6 +2797,7 @@ message NetworkSegmentDeletionRequest {
 }
 
 message AttachNetworkSegmentToVpcRequest {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.NetworkSegmentId network_segment_id = 1;
   common.VpcId vpc_id = 2;
   bool allow_replace = 3;
@@ -2730,6 +2831,7 @@ message NetworkSegmentsByIdsRequest {
 }
 
 message NetworkPrefix {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.NetworkPrefixId id = 1;
   string prefix = 2;
   optional string gateway = 3;
@@ -2753,6 +2855,7 @@ message NetworkPrefix {
 }
 
 message MachineState {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string state = 1;
 }
 
@@ -2790,15 +2893,21 @@ message InstancePowerResult {
 }
 
 message InstanceList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated Instance instances = 1;
 }
 
 message Label {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   string key = 1;
   optional string value = 2;
 }
 
 message Metadata {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "Eq";
   string name = 1;
   string description = 2;
   repeated Label labels = 3;
@@ -2821,6 +2930,7 @@ message InstancesByIdsRequest {
 }
 
 message InstanceAllocationRequest {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // The Machine on top of which we create an Instance
   // If we go towards "we already have instances model", this would become more of a
   // AssignInstanceToTenant request, and the ID would be the instance_id
@@ -2864,12 +2974,16 @@ message BatchInstanceAllocationResponse {
 // Can be used to replace variables in iPXE templates or add parameters to kernel command line
 // Some are "well known" like 'console', others can be custom defined by users
 message IpxeTemplateParameter {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string name = 1;   // Name of the parameter (used as variable in template)
   string value = 2;  // Value of the parameter
 }
 
 // Artifact cache strategy
 enum IpxeTemplateArtifactCacheStrategy {
+  option (carbide.codegen.v1.enum_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.enum_derive) = "serde::Serialize";
   CACHE_AS_NEEDED = 0;   // Download and cache artifact locally if possible
   LOCAL_ONLY = 1;        // Artifact URL provided is only usable locally: site specific, no caching applicable.
   CACHED_ONLY = 2;       // Artifact URL must be cached locally or is unusable
@@ -2879,6 +2993,8 @@ enum IpxeTemplateArtifactCacheStrategy {
 // Remote artifact to be cached locally before booting
 // Examples: kernel, initrd, rootfs, qcow-imager.efi, OS image, ...
 message IpxeTemplateArtifact {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string name = 1;                          // Name of the artifact (can be used as variable in template)
   string url = 2;                           // Original URL for the artifact
   optional string sha = 3;                  // Optional SHA256 checksum for the artifact
@@ -2896,6 +3012,8 @@ enum IpxeTemplateVisibility {
 
 // Template management messages
 message IpxeTemplate {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string name = 1;
   string template = 2;
   repeated string required_params = 3;  // Error if these params are not provided or empty
@@ -2911,6 +3029,7 @@ message IpxeTemplate {
 // Tenant related configuration that is set once the instance is allocated
 // by a tenant
 message TenantConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // Identifies the tenant that uses this instance
   string tenant_organization_id = 1;
 
@@ -2926,6 +3045,8 @@ message TenantConfig {
 }
 
 message InstanceOperatingSystemConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // Contains the operating system definition based on the variant of operating system
   oneof variant {
     InlineIpxe ipxe = 1;
@@ -2963,6 +3084,8 @@ message InstanceOperatingSystemConfig {
 }
 
 message InlineIpxe {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // The iPXE script which is booted into
   string ipxe_script = 1;
   // Optional user-data that is associated with the iPXE script
@@ -2972,6 +3095,7 @@ message InlineIpxe {
 
 // Desired configuration for an instance
 message InstanceConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // Tenant related configuration.
   // This field can be absent if the instance has not yet been allocated by
   // a tenant. On assignment, the config changes once. Due to the one-time
@@ -3003,10 +3127,18 @@ message InstanceConfig {
   InstanceNVLinkConfig nvlink = 24;
 
   InstanceSpxConfig spxconfig = 25;
+
+  // Power profile managed by the external power provisioning service. During
+  // creation, omission or an empty value creates no association. In an
+  // InstanceConfigUpdateRequest, omission preserves the current profile for
+  // compatibility with older clients, an empty string explicitly clears it,
+  // and a non-empty value replaces it.
+  optional string power_profile = 26;
 }
 
 // Desired network configuration for an instance
 message InstanceNetworkConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // Configures how instance network interfaces are set up.
   // Mutually exclusive with `auto`: when `auto` is true, this
   // MUST be empty, When `auto` is false, this lists the explicit
@@ -3035,6 +3167,7 @@ message InstanceNetworkConfig {
 }
 
 message InstanceNetworkAutoConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // For Flat zero-DPU deployments, multiple VPCs may share the same
   // HostInband network segment, so VPC ownership is carried by the
   // instance address rather than by the segment.
@@ -3043,26 +3176,34 @@ message InstanceNetworkAutoConfig {
 
 // Desired infiniband configuration for an instance
 message InstanceInfinibandConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // Configures how instance infiniband interfaces are set up
   repeated InstanceIBInterfaceConfig ib_interfaces = 1;
 }
 
 message InstanceDpuExtensionServiceConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string service_id = 1;
   string version = 2;
 }
 
 // Extension services configuration for an instance
 message InstanceDpuExtensionServicesConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated InstanceDpuExtensionServiceConfig service_configs = 1;
 }
 // Desired nvlink configuration for an instance
 message InstanceNVLinkConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // Configures how instance nvlink gpus are set up
   repeated InstanceNVLinkGpuConfig gpu_configs = 1;
 }
 
 message InstanceSpxConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated InstanceSpxAttachment spx_attachments = 1;
 }
 
@@ -3073,6 +3214,8 @@ enum SpxAttachmentType {
 }
 
 message InstanceSpxAttachment {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string device = 1;
   uint32 device_instance = 2;
   common.SpxPartitionId spx_partition_id = 3;
@@ -3129,9 +3272,11 @@ message InstanceConfigUpdateRequest {
   // a `ConcurrentModificationError`.
   optional string if_version_match = 2;
 
-  // Complete desired configuration replacing the current configuration. The
-  // server does not merge omitted fields. Read-modify-write clients must
-  // preserve fields and oneof variants they do not intend to change.
+  // Complete desired configuration replacing the current configuration. With
+  // the exception of power_profile (whose compatibility semantics are
+  // documented on that field), the server does not merge omitted fields.
+  // Read-modify-write clients must preserve fields and oneof variants they do
+  // not intend to change.
   InstanceConfig config = 3;
   // New Metadata to be utilized by the instance
   Metadata metadata = 4;
@@ -3139,6 +3284,7 @@ message InstanceConfigUpdateRequest {
 
 // Current status of an instance
 message InstanceStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // Status that is related to the tenant of the instance.
   // In case no tenant has been assigned to this instance, the field would be absent.
   optional InstanceTenantStatus tenant = 1;
@@ -3173,11 +3319,13 @@ message InstanceStatus {
 }
 
 message InstanceSpxStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated InstanceSpxAttachmentStatus attachment_statuses = 1;
   SyncState configs_synced = 101;
 }
 
 message InstanceSpxAttachmentStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   optional string mac_addr = 1;
   uint32 virtual_function_id = 2;
   optional string ip_address = 3;
@@ -3187,6 +3335,7 @@ message InstanceSpxAttachmentStatus {
 
 // State of the networking subsystem of an instance
 message InstanceNetworkStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // Status for each configured interface
   //
   // For non-auto configs: each entry in this status array maps to its
@@ -3222,6 +3371,7 @@ message InstanceNetworkStatus {
 
 // State of the infiniband subsystem of an instance
 message InstanceInfinibandStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // Status for each configured interface
   //
   // Each entry in this status array maps to its corresponding entry in the
@@ -3242,6 +3392,8 @@ message InstanceInfinibandStatus {
 }
 
 message DpuExtensionServiceStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   common.MachineId dpu_machine_id = 1;
   DpuExtensionServiceDeploymentStatus status = 2;
   optional string error_message = 3;
@@ -3249,6 +3401,7 @@ message DpuExtensionServiceStatus {
 }
 
 message InstanceDpuExtensionServiceStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string service_id = 1;
   string version = 2;
   DpuExtensionServiceDeploymentStatus deployment_status = 3;
@@ -3258,11 +3411,13 @@ message InstanceDpuExtensionServiceStatus {
 
 // Status of extension services subsystem of an instance
 message InstanceDpuExtensionServicesStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated InstanceDpuExtensionServiceStatus dpu_extension_services = 1;
   SyncState configs_synced = 101;
 }
 
 message InstanceNVLinkStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated InstanceNVLinkGpuStatus gpu_statuses = 1;
   SyncState configs_synced = 101;
 }
@@ -3270,6 +3425,7 @@ message InstanceNVLinkStatus {
 // Contains all information about an actively running instance
 // This entails both the instance configuration, as well as the current state of the instance
 message Instance {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // Instance ID
   common.InstanceId id = 1;
   // The ID of the host machine which is utilized for this Instance (host_machine_id)
@@ -3320,6 +3476,7 @@ message Instance {
 }
 
 message InstanceUpdateStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   enum Module {
     Dpu = 0;
   }
@@ -3333,6 +3490,7 @@ message InstanceUpdateStatus {
 
 // The configuration that a customer desires for an instances network interface
 message InstanceInterfaceConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // Whether the user wants to create a physical or virtual function
   InterfaceFunctionType function_type = 1;
 
@@ -3393,6 +3551,7 @@ message InstanceInterfaceConfig {
 
 // Automatic VPC-backed network selection for one instance interface.
 message InstanceInterfaceVpcSelection {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // The single logical VPC this interface belongs to.
   common.VpcId vpc_id = 1;
   // The address families Core must allocate. Unspecified is invalid.
@@ -3400,9 +3559,6 @@ message InstanceInterfaceVpcSelection {
 }
 
 // Address families requested for automatic VPC prefix and address selection.
-//
-// Core models and persists every mode. External IPv6-only and dual-stack
-// requests are temporarily rejected until downstream DPU support is complete.
 enum InstanceInterfaceIpFamilyMode {
   // Invalid for an automatic VPC selection request.
   INSTANCE_INTERFACE_IP_FAMILY_MODE_UNSPECIFIED = 0;
@@ -3416,6 +3572,8 @@ enum InstanceInterfaceIpFamilyMode {
 
 // IPv6 configuration for a dual-stack instance interface.
 message InstanceInterfaceIpv6Config {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   // The IPv6 VPC prefix to allocate from. The primary vpc_prefix_id creates
   // the segment, and this prefix is added to it.
   common.VpcPrefixId vpc_prefix_id = 1;
@@ -3425,6 +3583,7 @@ message InstanceInterfaceIpv6Config {
 
 // Routing-profile options API callers may narrow on an instance interface.
 message InstanceInterfaceRoutingProfile {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // IP prefixes this interface is allowed to announce as anycast routes.
   // Every entry must be contained by an allowed_anycast_prefixes entry on the
   // owning VPC's routing profile.
@@ -3433,6 +3592,8 @@ message InstanceInterfaceRoutingProfile {
 
 // The configuration that a customer desires for an instances IB interface
 message InstanceIBInterfaceConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // The name of the device that gets configured
   string device = 1;
 
@@ -3466,12 +3627,14 @@ message InstanceIBInterfaceConfig {
 
 // VPC prefixes Core resolved for an instance interface, keyed by family.
 message InstanceInterfaceResolvedVpcPrefixes {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   optional common.VpcPrefixId ipv4_vpc_prefix_id = 1;
   optional common.VpcPrefixId ipv6_vpc_prefix_id = 2;
 }
 
 // The actual status of a single network interface of an instance
 message InstanceInterfaceStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // If the interface is defined as a virtual function (associated
   // `InstanceInterfaceConfig.function_type == InterfaceFunctionType::VIRTUAL_FUNCTION`,
   // then this value is set and specifies the virtual function ID that is configured
@@ -3485,18 +3648,23 @@ message InstanceInterfaceStatus {
 
   // The list of IP addresses that had been assigned to this interface,
   // based on the requested subnet.
+  // IPv4 precedes IPv6 when both families are assigned.
   // The list will be empty if interface configuration hasn't been completed
   repeated string addresses = 3;
 
-  // The list of gateways, in CIDR notation, one for each address in `addresses`.
+  // The explicitly configured gateways, in CIDR notation. There is at most one
+  // gateway per address family, associated with the same-family address and
+  // prefix. A family without an explicit gateway is omitted, so this list can
+  // be shorter than `addresses` and is not positionally aligned. IPv4 precedes
+  // IPv6 when both gateways are explicitly configured.
   repeated string gateways = 4;
 
   // The list of IP prefixes that have been assigned to this interface
   // out of the requested subnet (where the prefix allocated to the interface
   // may be a /30 in the case of FNN, or just a /32 in the case of ETV).
   //
-  // This is similar to `gateways`, in that there is one `prefix` for each
-  // address in `addresses`.
+  // There is one prefix for each entry in `addresses`, in the same
+  // IPv4-before-IPv6 order.
   repeated string prefixes = 5;
 
   optional string device = 6;
@@ -3511,6 +3679,7 @@ message InstanceInterfaceStatus {
 
 // The actual status of a single IB interface of an instance
 message InstanceIBInterfaceStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // The GUID of the hardware device that this interface is attached to
   optional string pf_guid = 1;
 
@@ -3534,6 +3703,7 @@ message InstanceIBInterfaceStatus {
 
 // The actual status of a single gpu of an instance
 message InstanceNVLinkGpuStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   /// fabric guid of this GPU
   optional string gpu_guid = 1;
 
@@ -3547,6 +3717,8 @@ message InstanceNVLinkGpuStatus {
 
 // The configuration that a customer desires for an instances NVLink GPUs
 message InstanceNVLinkGpuConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   uint32 device_instance = 1;
 
   // logical partition gpu is part of
@@ -3554,10 +3726,12 @@ message InstanceNVLinkGpuConfig {
 }
 
 message InstancePhoneHomeLastContactRequest {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.InstanceId instance_id = 1;
 }
 
 message InstancePhoneHomeLastContactResponse {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   google.protobuf.Timestamp timestamp = 1;
 }
 
@@ -3675,6 +3849,7 @@ message TenantSearchFilter {
 }
 
 message TenantList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated Tenant tenants= 1;
 }
 
@@ -3683,10 +3858,12 @@ message TenantOrganizationIdList {
 }
 
 message InterfaceList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated MachineInterface interfaces = 1;
 }
 
 message MachineList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated Machine machines = 1;
 }
 
@@ -3765,6 +3942,8 @@ enum MachineType {
 }
 
 message BmcInfo {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   optional string ip = 1;
   optional string mac = 2;
   optional string version = 3;
@@ -3774,12 +3953,14 @@ message BmcInfo {
 }
 
 message SwitchNvosInfo {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   optional string ip = 1;
   optional string mac = 2;
   optional uint32 port = 3;
 }
 
 message MachineConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // Maintenance annotation set by the operator.
   optional string maintenance_reference = 1;
   optional google.protobuf.Timestamp maintenance_start_time = 2;
@@ -3799,6 +3980,7 @@ message MachineConfig {
 }
 
 message MachineStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // Deprecated Machine.interfaces is superseded by this field.
   repeated MachineInterface interfaces = 1;
   optional machine_discovery.DiscoveryInfo discovery_info = 2;
@@ -3827,6 +4009,7 @@ message MachineStatus {
 }
 
 message Machine {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // Uniquely identifies a Forge machine.
   // The value of this field is globally unique.
   common.MachineId id = 1;
@@ -4006,11 +4189,15 @@ message Machine {
 }
 
 message DpfMachineState {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   bool enabled = 1;
   bool used_for_ingestion = 2;
 }
 
 message InstanceNetworkRestrictions {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // Describes how instances machine can connect to network segments. See [`NetworkSegmentMembershipType`] for details.
   InstanceNetworkSegmentMembershipType network_segment_membership_type = 1;
   // If network_segment_membership_type is `STATIC`, this spells out what network segment ID's are available on the
@@ -4093,10 +4280,12 @@ message DpuAgentInventoryReport {
 }
 
 message MachineInventory {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated MachineInventorySoftwareComponent components = 1;
 }
 
 message MachineInventorySoftwareComponent {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string name = 1;
   string version = 2;
   string url = 3;
@@ -4104,12 +4293,16 @@ message MachineInventorySoftwareComponent {
 
 // Summary of a health report source: its mode and source identifier.
 message HealthSourceOrigin {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   HealthReportApplyMode mode = 1;
   string source = 2;
 }
 
 // Result of last state handler invocation
 message ControllerStateReason {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // Return value of last state handler invocation
   ControllerStateOutcome outcome = 1;
   // Message associated with the return value of the last state handler invocation
@@ -4128,11 +4321,14 @@ enum ControllerStateOutcome {
 
 // Location in the Source Code that lead to the specific state handling outcome
 message ControllerStateSourceReference {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string file = 1;
   int32 line = 2;
 }
 
 message StateSla {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // The SLA for the current state
   // This field will be absent if there is no SLA defined for a field
   // A value of 0 (instead of absent) will indicate the `time_in_state` will always
@@ -4146,6 +4342,7 @@ message StateSla {
 
 // The most recent tenant related status
 message InstanceTenantStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // The current state of the instance from the point of view of the assigned tenant
   TenantState state = 1;
   // An optional message which can contain details about the state
@@ -4160,11 +4357,13 @@ enum SyncState {
 }
 
 enum MachineArchitecture {
+  option (carbide.codegen.v1.enum_derive) = "serde::Serialize";
   ARM = 0;
   X86 = 1;
 }
 
 message MachineEvent {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   reserved 1; // previously int64 id = 1;
   reserved 2; // previously common.MachineId machine_id = 2;
 
@@ -4189,6 +4388,7 @@ enum InterfaceType {
 }
 
 message MachineInterface {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.MachineInterfaceId id = 1;
   optional common.MachineId attached_dpu_machine_id = 2;
   common.MachineId machine_id = 3;
@@ -4217,6 +4417,7 @@ message MachineInterface {
 
 // Infiniband interface status description
 message InfinibandStatusObservation {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // The actual/observed state of all InfiniBand interfaces in Machine
   repeated MachineIbInterface ib_interfaces = 1;
   // When the IB status was last observed
@@ -4226,6 +4427,7 @@ message InfinibandStatusObservation {
 // Observed state of a single IB interface
 // This is the information that Carbide collects from UFM
 message MachineIbInterface {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // The GUID of the hardware device that this interface is attached to
   optional string pf_guid = 1;
 
@@ -4261,6 +4463,8 @@ message MachineIbInterface {
 }
 
 message DhcpDiscovery {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string mac_address = 1;
   string relay_address = 2;
   optional string vendor_string = 3;
@@ -4289,16 +4493,13 @@ message DhcpDiscovery {
   optional bytes duid = 10;
 }
 
-// DHCP protocol family used to validate DhcpDiscovery.message_kind and duid.
-// Field absence means legacy inference; *_UNSPECIFIED means an explicit invalid
-// value and is rejected when supplied.
+// IP address family.
 enum AddressFamily {
-  // Invalid when explicitly supplied. Omit DhcpDiscovery.address_family instead
-  // when using legacy family inference.
+  // No address family selected. Invalid in fields that require an explicit family.
   ADDRESS_FAMILY_UNSPECIFIED = 0;
-  // DHCPv4. Compatible only with MESSAGE_KIND_V4_DISCOVER and no DUID.
+  // IPv4.
   ADDRESS_FAMILY_V4 = 1;
-  // DHCPv6. Compatible only with V6 MessageKind values and requires a DUID.
+  // IPv6.
   ADDRESS_FAMILY_V6 = 2;
 }
 
@@ -4368,6 +4569,7 @@ message DhcpRecord {
 }
 
 message NetworkSegmentList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated NetworkSegment network_segments = 1;
 }
 
@@ -4377,6 +4579,8 @@ message SSHKeyValidationRequest {
 }
 
 enum UserRoles {
+  option (carbide.codegen.v1.enum_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.enum_derive) = "serde::Serialize";
   USER = 0;
   ADMINISTRATOR = 1;
   OPERATOR = 2;
@@ -4389,10 +4593,12 @@ message SSHKeyValidationResponse {
 }
 
 message GetBmcCredentialsRequest {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string mac_addr = 1;
 }
 
 message GetSwitchNvosCredentialsRequest {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.SwitchId switch_id = 1;
 }
 
@@ -4504,6 +4710,7 @@ message ManagedHostNetworkConfigRequest {
 }
 
 message ManagedHostNetworkConfigResponse {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   reserved 1; // previously is_production_mode
 
   // ASN and DHCP servers are not versioned, they are fixed on process start
@@ -4662,6 +4869,7 @@ message ManagedHostNetworkConfigResponse {
 }
 
 message ManagedHostDpuExtensionServiceConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string service_id = 1;
   string version = 2;
   string name = 3;
@@ -4673,11 +4881,15 @@ message ManagedHostDpuExtensionServiceConfig {
 }
 
 message ManagedHostQuarantineState {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   ManagedHostQuarantineMode mode = 1;
   optional string reason = 2;
 }
 
 enum ManagedHostQuarantineMode {
+  option (carbide.codegen.v1.enum_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.enum_derive) = "serde::Serialize";
   BLOCK_ALL_TRAFFIC = 0;
   // other modes may come later
 }
@@ -4715,6 +4927,7 @@ message ClearManagedHostQuarantineStateResponse {
 
 // Network configuration for a managed host (host + DPU pair) managed by Forge
 message ManagedHostNetworkConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // DPU loopback IP
   string loopback_ip = 1;
   optional ManagedHostQuarantineState quarantine_state = 2;
@@ -4723,6 +4936,7 @@ message ManagedHostNetworkConfig {
 }
 
 message FlatInterfaceConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   InterfaceFunctionType function_type = 1;
   // aka circuit_id
   uint32 vlan_id = 2;
@@ -4739,16 +4953,19 @@ message FlatInterfaceConfig {
   // isn't going to overflow once it gets to HBN.
   uint32 vni = 3;
 
-  // in CIDR notation
-  string gateway = 4;
-  // host admin ip for admin network, host ip for tenant
-  string ip = 5;
+  // Deprecated: use addresses.
+  // In CIDR notation.
+  string gateway = 4 [deprecated = true];
+  // Deprecated: use addresses.
+  // Host admin IP for admin network, host IP for tenant.
+  string ip = 5 [deprecated = true];
+  // Deprecated: use addresses.
   // The interface-specific prefix allocation (which may be a /32 for
   // just the host IP, or a larger allocation, like a /30, for FNN). The
   // `ip` as configured above will be contained within the `interface_prefix`
   // provided here, and the `interface_prefix` will be contained within
   // the `prefix` below (field 8).
-  string interface_prefix = 11;
+  string interface_prefix = 11 [deprecated = true];
   // If the interface is defined as a virtual function (associated
   // `function_type == InterfaceFunctionType::VIRTUAL_FUNCTION`,
   // then this value is set and specifies the virtual function ID that is configured
@@ -4758,6 +4975,7 @@ message FlatInterfaceConfig {
   // the prefix from the network segment this interface is attached to (which
   // could be independently derived from the `gateway` field).
   repeated string vpc_prefixes = 7;
+  // Deprecated: use addresses.
   // Prefix for the network segment this interface lives in,
   // which is what is referred to as a subnet in the UI. This
   // is not to be confused with the instance_prefix, which is
@@ -4769,7 +4987,7 @@ message FlatInterfaceConfig {
   // ultimately do want a DPU-specific prefix allocation to be its
   // own prefix entry in the `network_prefixes` table (or something
   // similar).
-  string prefix = 8;
+  string prefix = 8 [deprecated = true];
   // FQDN
   string fqdn = 9;
   // boot_url
@@ -4782,12 +5000,13 @@ message FlatInterfaceConfig {
   // unique per VPC.
   uint32 vpc_vni = 12;
 
+  // Deprecated: use addresses.
   // svi_ip (also known as the gateway IP), is the local DPU-hosted
   // gateway to be used by an instance in an FNN-L3 configuration (as
   // in the host actually sets this IP as its gateway). This is the 3rd
   // IP allocated from the /30, where the /30 is broken into two /31s,
   // and the SVI IP is the first IP in the second /31.
-  optional string svi_ip = 13;
+  optional string svi_ip = 13 [deprecated = true];
 
   // tenant_vrf_loopback_ip is an administrative IP assigned from
   // the FNN L3 allocated /30 DPU prefix. The tenant is not expected
@@ -4804,7 +5023,7 @@ message FlatInterfaceConfig {
   // MTU size
   optional uint32 mtu = 18;
 
-  // IPv6 configuration for dual-stack FNN interfaces.
+  // IPv6 configuration for FNN interfaces that include IPv6.
   optional FlatInterfaceIpv6Config ipv6_interface_config = 19;
 
   // Route imports and tagging details for exports used by FNN configs.
@@ -4814,6 +5033,13 @@ message FlatInterfaceConfig {
   // Interface-local routing profile details. These narrow the VPC routing
   // profile for this interface.
   optional FlatInterfaceRoutingProfile interface_routing_profile = 21;
+
+  // Family-neutral replacement for gateway, ip, interface_prefix, prefix, svi_ip,
+  // and ipv6_interface_config. An empty list identifies a legacy payload. Writers
+  // must emit at most one entry per family, ordered V4 before V6. A family absent
+  // from this list has empty deprecated compatibility fields. Readers must select
+  // entries by address_family rather than position.
+  repeated InterfaceAddressConfig addresses = 22;
 
   // The details of the network security group associated with
   // either the instance or its parent VPC.
@@ -4830,12 +5056,14 @@ message FlatInterfaceConfig {
 }
 
 message FlatInterfaceRoutingProfile {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated PrefixFilterPolicyEntry allowed_anycast_prefixes = 1;
 }
 
-// IPv6 configuration for a dual-stack FNN interface, sent from the API to
-// the DPU agent as part of FlatInterfaceConfig.
+// IPv6 configuration for an FNN interface that includes IPv6, sent from the
+// API to the DPU agent as part of FlatInterfaceConfig.
 message FlatInterfaceIpv6Config {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // Host IPv6 address (e.g. "2001:db8::1").
   string ip = 1;
   // Interface-specific prefix allocation (e.g. "2001:db8::/127").
@@ -4846,6 +5074,8 @@ message FlatInterfaceIpv6Config {
 }
 
 message FlatInterfaceNetworkSecurityGroupConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string id                                       = 1;
   string version                                  = 2;
   NetworkSecurityGroupSource source               = 3;
@@ -4890,6 +5120,7 @@ message DpuAgentUpgradePolicyResponse {
 }
 
 message AdminForceDeleteMachineRequest {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // UUID, IP address, host name or MAC address of either the host or DPU to force delete
   string host_query = 1;
 
@@ -4911,6 +5142,7 @@ message AdminForceDeleteMachineRequest {
 // Response to AdminForceDeleteMachine call
 // Describes which resources have been released
 message AdminForceDeleteMachineResponse {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   bool all_done = 1;
 
   string managed_host_machine_id = 11;
@@ -5037,6 +5269,8 @@ message IsInfiniteBootEnabledResponse {
 }
 
 enum BMCRequestType {
+  option (carbide.codegen.v1.enum_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.enum_derive) = "serde::Deserialize";
   IPMI = 0;
   REDFISH = 1;
 }
@@ -5208,6 +5442,8 @@ enum MachineDiscoveryReporter {
 }
 
 message MachineDiscoveryInfo {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.MachineInterfaceId machine_interface_id = 1;
   oneof discovery_data {
     machine_discovery.DiscoveryInfo info = 2;
@@ -5384,6 +5620,7 @@ enum InterfaceFunctionType {
 
 // What forge-dpu-agent reports. Will grow over time.
 message DpuNetworkStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.MachineId dpu_machine_id = 1;
   google.protobuf.Timestamp observed_at = 2;
   // Legacy mechanism to indicate DPU health.
@@ -5411,12 +5648,15 @@ message DpuNetworkStatus {
 }
 
 message LastDhcpRequest {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.MachineInterfaceId host_interface_id = 1;
   string timestamp = 2;
 }
 
 // DPU extension service status
 message DpuExtensionServiceStatusObservation {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   string service_id = 1;
   DpuExtensionServiceType service_type = 2;
   string service_name = 3;
@@ -5428,6 +5668,8 @@ message DpuExtensionServiceStatusObservation {
 }
 
 message DpuExtensionServiceComponent {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   string name = 1;
   string version = 2;
   string url = 3;
@@ -5450,6 +5692,7 @@ enum HealthReportApplyMode {
 }
 
 message HealthReportEntry {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   health.HealthReport report = 1;
   HealthReportApplyMode mode = 2;
 }
@@ -5540,6 +5783,7 @@ message RemoveNVLinkDomainHealthReportRequest {
 
 // Observed status of a single network interface of an instance
 message InstanceInterfaceStatusObservation {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // Whether the interface is a physical or virtual function
   // In the case of a virtual function the associated
   // `virtual_function_id` describes the ID of the interface
@@ -5558,18 +5802,23 @@ message InstanceInterfaceStatusObservation {
 
   // The list of IP addresses that had been assigned to this interface,
   // based on the requested subnet.
+  // IPv4 precedes IPv6 when both families are assigned.
   // The list will be empty if interface configuration hasn't been completed
   repeated string addresses = 4;
 
-  // The list of gateways, in CIDR notation, one for each address in `addresses`.
+  // The explicitly configured gateways, in CIDR notation. There is at most one
+  // gateway per address family, associated with the same-family address and
+  // prefix. A family without an explicit gateway is omitted, so this list can
+  // be shorter than `addresses` and is not positionally aligned. IPv4 precedes
+  // IPv6 when both gateways are explicitly configured.
   repeated string gateways = 5;
 
   // The list of IP prefixes that have been assigned to this interface
   // out of the requested subnet (where the prefix allocated to the interface
   // may be a /30 in the case of FNN, or just a /32 in the case of ETV).
   //
-  // This is similar to `gateways`, in that there is one `prefix` for each
-  // address in `addresses`.
+  // There is one prefix for each entry in `addresses`, in the same
+  // IPv4-before-IPv6 order.
   repeated string prefixes = 6;
 
   // The NSG details for the observed NSG of the interface
@@ -5583,6 +5832,7 @@ message InstanceInterfaceStatusObservation {
 // Describes observational data for a network interface associated with a
 // network fabric (e.g. a DPU's uplinks to the underlay network).
 message FabricInterfaceData {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string interface_name = 1;
 
   LinkData link_data = 2;
@@ -5590,6 +5840,7 @@ message FabricInterfaceData {
 
 // Link attributes from rtnetlink or equivalent.
 message LinkData {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   optional string link_type = 1;
   optional string state = 2;
   optional bool carrier_up = 3;
@@ -5599,6 +5850,7 @@ message LinkData {
 }
 
 message Tenant {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string organization_id = 1;
   Metadata metadata = 2;
   // this string is used to verify that the client has the most updated "view" of a keyset when attempting to modify it
@@ -5644,6 +5896,7 @@ message FindTenantResponse {
 }
 
 message TenantKeysetIdentifier {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // the organization_id of the associated tenant, required to be non-null and globally unique
   string organization_id = 1;
   // the id of the key, provided by the tenant.  Must be unique within the tenant's organization.
@@ -5652,15 +5905,18 @@ message TenantKeysetIdentifier {
 }
 
 message TenantPublicKey {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string public_key = 1;
   optional string comment = 2;
 }
 
 message TenantKeysetContent {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated TenantPublicKey public_keys = 1;
 }
 
 message TenantKeyset {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   TenantKeysetIdentifier keyset_identifier = 1;
   TenantKeysetContent keyset_content = 2;
   // this version will be used to determine if a client has the most updated "view" of a tenant when attempting to modify it
@@ -5681,6 +5937,7 @@ message CreateTenantKeysetResponse {
 }
 
 message TenantKeySetList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated TenantKeyset keyset = 1;
 }
 
@@ -5744,6 +6001,7 @@ message ResourcePools {
 }
 
 message ResourcePool {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string name = 1;
   string min = 2;
   string max = 3;
@@ -6046,6 +6304,7 @@ enum IpType {
 }
 
 message MachineBootOverride {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.MachineInterfaceId machine_interface_id = 1;
   optional string custom_pxe = 2;
   optional string custom_user_data = 3;
@@ -6053,6 +6312,7 @@ message MachineBootOverride {
 
 // A connected device is described by DPU and local port.
 message ConnectedDevice {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.MachineId id = 1;
   string local_port = 2;
   string remote_port = 3;
@@ -6087,6 +6347,7 @@ message MachineIdBmcIp {
 
 // NetworkDevice and Switch are used interchangeably.
 message NetworkDevice {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string id = 1;
   string name = 2;
   optional string description = 3;
@@ -6106,6 +6367,7 @@ message NetworkDeviceIdList {
 }
 
 message NetworkTopologyData {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated NetworkDevice network_devices = 1;
 }
 
@@ -6129,6 +6391,7 @@ message RouteServers {
 }
 
 message RouteServerEntries {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated RouteServer route_servers = 1;
 }
 
@@ -6136,6 +6399,7 @@ message RouteServerEntries {
 // code, which models a route_servers record
 // in the database.
 message RouteServer {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string address = 1;
   RouteServerSourceType source_type = 2;
 }
@@ -6197,6 +6461,7 @@ enum OsImageStatus {
 }
 
 message OsImageAttributes {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // needs to be generated by the caller (cloud) during CreateOsImage call
   common.UUID id = 1;
   string source_url = 2;
@@ -6218,6 +6483,7 @@ message OsImageAttributes {
 }
 
 message OsImage {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   OsImageAttributes attributes = 1;
   OsImageStatus status = 2;
   optional string status_message = 3;
@@ -6227,14 +6493,17 @@ message OsImage {
 }
 
 message ListOsImageRequest {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   optional string tenantOrganizationId = 1; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
 }
 
 message ListOsImageResponse {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated OsImage images = 1;
 }
 
 message DeleteOsImageRequest {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.UUID id = 1;
   string tenantOrganizationId = 2; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
 }
@@ -6257,6 +6526,8 @@ message IpxeTemplateList {
 
 
 message ExpectedHostNic {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   string mac_address = 1;
   // Legacy free-form segment hint (bf3, onboard, oob, ...). Kept for backward
   // compatibility; declare `network_segment_type` instead, which wins.
@@ -6316,6 +6587,8 @@ message ExpectedHostNic {
 // comes from `[site_explorer] dpu_policy` (and falls back to `Manage` when
 // that's unset).
 enum DpuMode {
+  option (carbide.codegen.v1.enum_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.enum_derive) = "serde::Deserialize";
   DPU_MODE_UNSPECIFIED = 0;
   DPU_MODE = 1;
   NIC_MODE = 2;
@@ -6329,8 +6602,8 @@ enum DpuMode {
 //   a configured address is treated as FIXED, no address is treated as RETAINED.
 // - BMC_IP_ALLOCATION_TYPE_DYNAMIC: a normal DHCP lease that may expire and change.
 // - BMC_IP_ALLOCATION_TYPE_FIXED: the operator-specified `bmc_ip_address` (static).
-// - BMC_IP_ALLOCATION_TYPE_RETAINED: an auto-allocated address pinned as Static
-//   (never expires).
+// - BMC_IP_ALLOCATION_TYPE_RETAINED: an auto-allocated DHCP address that stays
+//   static for the lifetime of its machine-interface record.
 //
 // On create, omission and `BMC_IP_ALLOCATION_TYPE_UNSPECIFIED` mean AUTO. On
 // single and batch update, omission preserves the effective Host BMC policy,
@@ -6338,6 +6611,8 @@ enum DpuMode {
 // replace-all, omission resets a legacy-only row to AUTO but preserves an
 // existing nested HostBmc policy that an older client cannot send.
 enum BmcIpAllocationType {
+  option (carbide.codegen.v1.enum_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.enum_derive) = "serde::Deserialize";
   BMC_IP_ALLOCATION_TYPE_UNSPECIFIED = 0;
   BMC_IP_ALLOCATION_TYPE_AUTO = 1;
   BMC_IP_ALLOCATION_TYPE_DYNAMIC = 2;
@@ -6349,12 +6624,15 @@ enum BmcIpAllocationType {
 // When the outer field is unset on ExpectedMachine, the server preserves the
 // existing DB value (patch semantics).
 message HostLifecycleProfile {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   // If true, do not lock down the server as part of host lifecycle management. If unset or false, preserve
   // the default behavior of locking down the server after configuring the BIOS.
   optional bool disable_lockdown = 1;
 }
 
 message ExpectedMachine {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string bmc_mac_address = 1;
   string bmc_username = 2;
   string bmc_password = 3;
@@ -6413,6 +6691,7 @@ message ExpectedMachineRequest {
 }
 
 message ExpectedMachineList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated ExpectedMachine expected_machines = 1;
 }
 
@@ -6497,6 +6776,7 @@ message MachineValidationCompletedResponse {
 }
 
 message MachineValidationResult {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string name = 1;
   string description = 2;
   string command = 3;
@@ -6516,6 +6796,7 @@ message MachineValidationResultPostRequest {
 }
 
 message MachineValidationResultList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated MachineValidationResult results = 1;
 }
 
@@ -6526,6 +6807,7 @@ message MachineValidationGetRequest {
 }
 
 message MachineValidationStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
 
   enum MachineValidationStarted {
     Started = 0;
@@ -6551,6 +6833,7 @@ message MachineValidationStatus {
   uint32 completed_tests = 5;
 }
 message MachineValidationRun {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.MachineValidationId validation_id = 1;
   common.MachineId machine_id = 2;
   google.protobuf.Timestamp start_time = 3;
@@ -6581,6 +6864,7 @@ message GetMachineValidationExternalConfigRequest {
   string name = 1;
 }
 message MachineValidationExternalConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string name = 1;
   optional string description = 2;
   bytes config = 3;
@@ -6622,6 +6906,7 @@ message MachineValidationOnDemandRequest {
 
 message MachineValidationOnDemandResponse {
   common.MachineValidationId validation_id = 1;
+  MachineValidationRun run = 2;
 }
 
 message FirmwareUpgradeActivity {
@@ -6735,6 +7020,7 @@ message GetRedfishJobStateResponse {
 }
 
 message MachineValidationRunList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated MachineValidationRun runs = 1;
 }
 
@@ -6748,6 +7034,7 @@ message MachineValidationRunItemSearchFilter {
 }
 
 message MachineValidationRunItemIdList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated common.UUID run_item_ids = 1;
 }
 
@@ -6756,10 +7043,12 @@ message MachineValidationRunItemsByIdsRequest {
 }
 
 message MachineValidationRunItemList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated MachineValidationRunItem run_items = 1;
 }
 
 message MachineValidationRunItem {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.UUID run_item_id = 1;
   common.MachineValidationId validation_id = 2;
   string test_id = 3;
@@ -6785,6 +7074,7 @@ message MachineValidationAttemptGetRequest {
 }
 
 message MachineValidationAttempt {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.UUID attempt_id = 1;
   common.UUID run_item_id = 2;
   uint32 attempt_number = 3;
@@ -6823,6 +7113,8 @@ message BmcCredentialStatusResponse {
   bool have_credentials = 1;
 }
 message MachineValidationTestsGetRequest {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated string supported_platforms = 1;
   repeated string contexts = 2;
   optional string test_id = 3;
@@ -6833,6 +7125,8 @@ message MachineValidationTestsGetRequest {
   optional bool verified = 8;
 }
 message MachineValidationTestUpdateRequest {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   message Payload {
     optional string name = 1;
     optional string description = 2;
@@ -6859,6 +7153,8 @@ message MachineValidationTestUpdateRequest {
 }
 
 message MachineValidationTestAddRequest {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string name = 1;
   optional string description = 2;
   repeated string contexts = 3;
@@ -6895,6 +7191,8 @@ message MachineValidationTestVerfiedResponse {
   string message = 1;
 }
 message MachineValidationTest {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string test_id = 1;
   string name = 2;
   optional string description = 3;
@@ -6954,6 +7252,7 @@ enum MachineCapabilityDeviceType {
 }
 
 message MachineCapabilityAttributesCpu {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string name               = 1;
   uint32 count              = 2;
   optional string vendor    = 3;
@@ -6963,6 +7262,7 @@ message MachineCapabilityAttributesCpu {
 }
 
 message MachineCapabilityAttributesGpu {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string name                     = 1;
   uint32 count                    = 2;
   optional string vendor          = 3;
@@ -6974,6 +7274,7 @@ message MachineCapabilityAttributesGpu {
 }
 
 message MachineCapabilityAttributesMemory {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string name                       = 1;
   uint32 count                      = 2;
   optional string vendor            = 3;
@@ -6981,6 +7282,7 @@ message MachineCapabilityAttributesMemory {
 }
 
 message MachineCapabilityAttributesStorage {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string name                       = 1;
   uint32 count                      = 2;
   optional string vendor            = 3;
@@ -6988,6 +7290,7 @@ message MachineCapabilityAttributesStorage {
 }
 
 message MachineCapabilityAttributesNetwork {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string name                                                   = 1;
   uint32 count                                                  = 2;
   optional string vendor                                        = 3;
@@ -6995,6 +7298,7 @@ message MachineCapabilityAttributesNetwork {
 }
 
 message MachineCapabilityAttributesInfiniband {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string name                       = 1;
   uint32 count                      = 2;
   optional string vendor            = 3;
@@ -7009,12 +7313,14 @@ message MachineCapabilityAttributesInfiniband {
 }
 
 message MachineCapabilityAttributesDpu {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string name                       = 1;
   uint32 count                      = 2;
   optional string hardware_revision = 3;
 }
 
 message MachineCapabilitiesSet {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated MachineCapabilityAttributesCpu cpu               = 1;
   repeated MachineCapabilityAttributesGpu gpu               = 2;
   repeated MachineCapabilityAttributesMemory memory         = 3;
@@ -7025,6 +7331,8 @@ message MachineCapabilitiesSet {
 }
 
 message InstanceTypeAttributes {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // The minimum set of capabilities that a machine
   // must have before it can be link with the specified
   // instance type.
@@ -7037,6 +7345,8 @@ message InstanceTypeAttributes {
 // as a pool, and the desired capabilities of an InstanceType
 // define which machines are allowed in the pool.
 message InstanceType {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string id                                             = 1;
   InstanceTypeAttributes attributes                     = 2;
   string version                                        = 3;
@@ -7066,6 +7376,8 @@ enum MachineCapabilityType {
 // an InstanceType with that capability, the machine must also
 // have a capability that matches those properties.
 message InstanceTypeMachineCapabilityFilterAttributes {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   MachineCapabilityType capability_type                   = 1;
   optional string name                                    = 2; // Intel Xeon, Samsung SSD, etc.
   optional string frequency                               = 3; // E.g., 2.4GHz, 1024MHz, etc
@@ -7154,6 +7466,8 @@ message RedfishBrowseRequest {
 }
 
 message RedfishBrowseResponse {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // Response in JSON String
   string text = 1;
   map<string, string> headers = 2;
@@ -7237,6 +7551,8 @@ message UfmBrowseResponse {
 }
 
 message NetworkSecurityGroupAttributes {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated NetworkSecurityGroupRuleAttributes rules = 1;
 
   // Whether egress rules should be stateful.
@@ -7244,6 +7560,8 @@ message NetworkSecurityGroupAttributes {
 }
 
 message NetworkSecurityGroup {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string id                                 = 1;
   string tenant_organization_id             = 2;
   Metadata metadata                         = 3;
@@ -7304,6 +7622,8 @@ message DeleteNetworkSecurityGroupResponse {
 }
 
 enum NetworkSecurityGroupSource {
+  option (carbide.codegen.v1.enum_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.enum_derive) = "serde::Serialize";
   NSG_SOURCE_INVALID  = 0; // Should be rejected.  There is no default NSG source, and the reporter should be explicit about the source.
   NSG_SOURCE_NONE     = 1; // No NSG is applied: neither VPC, Instance, nor interface has an NSG configured.
   NSG_SOURCE_VPC      = 2; // NSG sourced from NSG configured on VPC.
@@ -7311,6 +7631,8 @@ enum NetworkSecurityGroupSource {
 }
 
 message NetworkSecurityGroupStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   NetworkSecurityGroupSource source = 1;
   string id                         = 2;
   string version                    = 3;
@@ -7325,6 +7647,8 @@ enum NetworkSecurityGroupPropagationStatus {
 }
 
 message NetworkSecurityGroupPropagationObjectStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // The UUID of the VPC or instance.  If we decide to allow
   // per-interface NSG application later, this _could_ be used to
   // hold the interface index number, and an optional
@@ -7380,12 +7704,16 @@ message GetNetworkSecurityGroupPropagationStatusRequest {
 }
 
 enum NetworkSecurityGroupRuleDirection {
+  option (carbide.codegen.v1.enum_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.enum_derive) = "serde::Serialize";
   NSG_RULE_DIRECTION_INVALID = 0; // Must be rejected
   NSG_RULE_DIRECTION_INGRESS = 1;
   NSG_RULE_DIRECTION_EGRESS  = 2;
 }
 
 enum NetworkSecurityGroupRuleProtocol {
+  option (carbide.codegen.v1.enum_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.enum_derive) = "serde::Serialize";
   NSG_RULE_PROTO_INVALID = 0; // Must be rejected
   NSG_RULE_PROTO_ANY     = 1;
   NSG_RULE_PROTO_ICMP    = 2;
@@ -7395,12 +7723,16 @@ enum NetworkSecurityGroupRuleProtocol {
 }
 
 enum NetworkSecurityGroupRuleAction {
+  option (carbide.codegen.v1.enum_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.enum_derive) = "serde::Serialize";
   NSG_RULE_ACTION_INVALID = 0; // Must be rejected
   NSG_RULE_ACTION_DENY    = 1;
   NSG_RULE_ACTION_PERMIT  = 2;
 }
 
 message NetworkSecurityGroupRuleAttributes {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
 
   // Optionally sent in; otherwise, generated on creation.
   // Facilitates metrics/logging in the future.
@@ -7432,6 +7764,8 @@ message NetworkSecurityGroupRuleAttributes {
 // with that VPC.  This is the message that is
 // actually used by the DPU to generate its NVUE config.
 message ResolvedNetworkSecurityGroupRule {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   NetworkSecurityGroupRuleAttributes rule = 1;
   repeated string src_prefixes            = 2;
   repeated string dst_prefixes            = 3;
@@ -7444,6 +7778,8 @@ message GetNetworkSecurityGroupAttachmentsRequest {
 }
 
 message NetworkSecurityGroupAttachments {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string network_security_group_id = 1;
   repeated string vpc_ids          = 2;
   repeated string instance_ids     = 3;
@@ -7467,12 +7803,16 @@ message DesiredFirmwareVersionEntry {
 }
 
 message SkuComponentChassis {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   string vendor = 1;
   string model = 2;
   string architecture = 3;
 }
 
 message SkuComponentCpu {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   string vendor = 1;
   string model = 2;
   uint32 thread_count = 3;
@@ -7480,6 +7820,8 @@ message SkuComponentCpu {
 }
 
 message SkuComponentGpu {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   string vendor = 1;
   string model = 2;
   uint32 count = 3;
@@ -7487,6 +7829,8 @@ message SkuComponentGpu {
 }
 
 message SkuComponentEthernetDevices {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   string vendor = 1;
   string model = 2;
   bool is_connected = 3;
@@ -7494,6 +7838,8 @@ message SkuComponentEthernetDevices {
 }
 
 message SkuComponentInfinibandDevices {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   // The Vendor of the InfiniBand device. E.g. `Mellanox`
   string vendor = 1;
   // The Device Name of the InfiniBand device. E.g. `MT2910 Family [ConnectX-7]`
@@ -7512,6 +7858,8 @@ message SkuComponentInfinibandDevices {
 }
 
 message SkuComponentStorage {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   string vendor = 1;
   string model = 2;
   uint32 count = 3;
@@ -7528,17 +7876,23 @@ message SkuComponentStorageController {
 }
 
 message SkuComponentMemory {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   string memory_type = 1;
   uint32 capacity_mb = 2;
   uint32 count = 3;
 }
 
 message SkuComponentTpm {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   string vendor = 1;
   string version = 2;
 }
 
 message SkuComponents {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   SkuComponentChassis chassis = 1;
   repeated SkuComponentCpu cpus = 2;
   repeated SkuComponentGpu gpus = 3;
@@ -7550,6 +7904,8 @@ message SkuComponents {
 }
 
 message Sku {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   string id = 1;
   optional string description = 2;
   optional google.protobuf.Timestamp created = 3;
@@ -7572,6 +7928,8 @@ message RemoveSkuRequest {
 }
 
 message SkuList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   repeated Sku skus = 1;
 }
 
@@ -7580,6 +7938,8 @@ message SkuIdList {
 }
 
 message SkuStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   optional google.protobuf.Timestamp verify_request_time = 1;
   optional google.protobuf.Timestamp last_match_attempt = 2;
   optional google.protobuf.Timestamp last_generate_attempt = 3;
@@ -7593,6 +7953,7 @@ message SkuSearchFilter {
 }
 
 message DpaInterface {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.DpaInterfaceId id = 1;
   common.MachineId machine_id = 2;
   string mac_addr = 3;
@@ -7660,6 +8021,7 @@ message DpaInterfacesByIdsRequest {
 }
 
 message DpaInterfaceList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated DpaInterface interfaces = 1;
 }
 
@@ -7696,6 +8058,8 @@ message PowerOptionUpdateRequest {
 }
 
 message PowerOptions {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   PowerState desired_state = 1;
   google.protobuf.Timestamp desired_state_updated_at = 2;
   PowerState actual_state = 3;
@@ -7710,12 +8074,15 @@ message PowerOptions {
 }
 
 message PowerOptionResponse {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated PowerOptions response = 1;
 }
 
 
 
-message ComputeAllocationAttributes {   
+message ComputeAllocationAttributes {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string instance_type_id = 1; // The source of the compute resources
   
   // The number of instances for this requested instance type allocated
@@ -7729,6 +8096,7 @@ message ComputeAllocationAttributes {
 
 
 message ComputeAllocation {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.ComputeAllocationId id          = 1;
   string tenant_organization_id          = 2;
   ComputeAllocationAttributes attributes = 3;
@@ -7803,6 +8171,8 @@ message DeleteComputeAllocationResponse {
 // to include allocation stats when requested in
 // FindInstanceTypesByIdsRequest 
 message InstanceTypeAllocationStats {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // The sum of all allocations for the instance type
   uint32 max_allocatable = 1;
 
@@ -7828,6 +8198,7 @@ message GetRackResponse {
 }
 
 message RackList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated Rack racks = 1;
 }
 
@@ -7845,6 +8216,7 @@ message RacksByIdsRequest {
 }
 
 message Rack {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.RackId id = 1;
   // deprecated: Use status.lifecycle field
   string rack_state = 2;
@@ -7866,10 +8238,13 @@ message Rack {
 }
 
 message RackConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
 
 }
 
 message RackStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   health.HealthReport health = 7;
   repeated HealthSourceOrigin health_sources = 8;
   // Lifecycle related status
@@ -7921,6 +8296,7 @@ enum RackHardwareClass {
 }
 
 message RackCapabilityCompute {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   optional string name = 1;
   uint32 count = 2;
   optional string vendor = 3;
@@ -7928,6 +8304,7 @@ message RackCapabilityCompute {
 }
 
 message RackCapabilitySwitch {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   optional string name = 1;
   uint32 count = 2;
   optional string vendor = 3;
@@ -7935,6 +8312,7 @@ message RackCapabilitySwitch {
 }
 
 message RackCapabilityPowerShelf {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   optional string name = 1;
   uint32 count = 2;
   optional string vendor = 3;
@@ -7942,12 +8320,14 @@ message RackCapabilityPowerShelf {
 }
 
 message RackCapabilitiesSet {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   RackCapabilityCompute compute = 1;
   RackCapabilitySwitch switch = 2;
   RackCapabilityPowerShelf power_shelf = 3;
 }
 
 message RackProfile {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.RackHardwareType rack_hardware_type = 1;
   RackHardwareTopology rack_hardware_topology = 2;
   RackHardwareClass rack_hardware_class = 3;
@@ -7960,17 +8340,20 @@ message GetRackProfileRequest {
 }
 
 message GetRackProfileResponse {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.RackId rack_id = 1;
   common.RackProfileId rack_profile_id = 2;
   RackProfile profile = 3;
 }
 
 message ConfiguredRackProfile {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.RackProfileId rack_profile_id = 1;
   RackProfile profile = 2;
 }
 
 message ListRackProfilesResponse {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated ConfiguredRackProfile rack_profiles = 1;
 }
 
@@ -7995,6 +8378,7 @@ message RackManagerForgeResponse {
   optional string json_result = 1;
 }
 message MachineNVLinkInfo {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.NVLinkDomainId domain_uuid = 1;
   repeated NVLinkGpu gpus = 2;
   string chassis_serial = 3;
@@ -8006,11 +8390,13 @@ message UpdateMachineNvLinkInfoRequest {
 }
 
 message MachineSpxStatusObservation {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated MachineSpxAttachmentStatusObservation attachment_status = 1;
   optional google.protobuf.Timestamp observed_at = 2;
 }
 
 message MachineSpxAttachmentStatusObservation {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string mac_address = 1;
   optional common.SpxPartitionId partition_id = 2;
   optional SpxAttachmentType attachment_type = 3;
@@ -8019,10 +8405,12 @@ message MachineSpxAttachmentStatusObservation {
 }
 
 message AstraConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated AstraAttachment astra_attachments = 1;
 }
 
 message AstraAttachment {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string mac_address = 1;
   uint32 vni = 2;
   string subnet_ipv4 = 3;
@@ -8034,10 +8422,12 @@ message AstraAttachment {
 }
 
 message AstraConfigStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated AstraAttachmentStatus astra_attachments_status = 1;
 }
 
 message AstraAttachmentStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string mac_address = 1;
   int32 vni = 2;
   string subnet_ipv4 = 3;
@@ -8050,6 +8440,7 @@ message AstraAttachmentStatus {
 }
 
 enum AstraPhase {
+  option (carbide.codegen.v1.enum_derive) = "serde::Serialize";
   // PHASE_UNSPECIFIED represents an unspecified phase.
   PHASE_UNSPECIFIED = 0;
   // PHASE_PENDING represents a pending phase. it means the object was created but has not been processed.
@@ -8062,12 +8453,14 @@ enum AstraPhase {
   PHASE_ERROR = 4;
 }
 message AstraStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   AstraPhase phase = 1;
   string reason = 2;
   string message = 3;
 }
 
 message NVLinkGpu {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   reserved 1;
   reserved "nmx_m_id";
   int32 tray_index = 2;
@@ -8077,10 +8470,12 @@ message NVLinkGpu {
 }
 
 message MachineNVLinkStatusObservation {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated MachineNVLinkGpuStatusObservation gpu_status = 1;
 }
 
 message MachineNVLinkGpuStatusObservation {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string gpu_id = 1;
   optional common.NVLinkPartitionId partition_id = 2;
   optional common.NVLinkLogicalPartitionId logical_partition_id = 3;
@@ -8125,6 +8520,7 @@ message NmxcBrowseResponse {
 
 // Describe an NVLink based Partition configuration and status
 message NVLinkPartition {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.NVLinkPartitionId id = 1;
   string name = 2;
   string nmx_m_id = 3;
@@ -8133,6 +8529,7 @@ message NVLinkPartition {
 }
 
 message NVLinkPartitionList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated NVLinkPartition partitions = 1;
 }
 
@@ -8164,6 +8561,7 @@ message NVLinkFabricSearchFilter {
 
 // Describe the desired configuration of an Logical Partition
 message NVLinkLogicalPartitionConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   Metadata metadata = 1;
   // The ID of tenant that NVLPartition belong to
   string tenant_organization_id = 2;
@@ -8171,12 +8569,14 @@ message NVLinkLogicalPartitionConfig {
 
 // Describe the status and applied configuration of an Logical Partition
 message NVLinkLogicalPartitionStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // Provisioning state of this partition
   TenantState state = 1;
 }
 
 // Describe a Logical Partition configuration and status
 message NVLinkLogicalPartition {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.NVLinkLogicalPartitionId id = 1;
   NVLinkLogicalPartitionConfig config = 2;
 
@@ -8188,6 +8588,7 @@ message NVLinkLogicalPartition {
 }
 
 message NVLinkLogicalPartitionList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated NVLinkLogicalPartition partitions = 1;
 }
 
@@ -8384,15 +8785,21 @@ message TrimTableResponse{
 }
 
 message NvlinkNmxcEndpoint {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   string chassis_serial = 1;
   string endpoint = 2;
 }
 
 message NvlinkNmxcEndpointList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   repeated NvlinkNmxcEndpoint entries = 1;
 }
 
 message DeleteNvlinkNmxcEndpointRequest {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   string chassis_serial = 1;
 }
 
@@ -8409,10 +8816,14 @@ message RemediationIdList {
   repeated common.RemediationId remediation_ids = 1;
 }
 message RemediationList {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated Remediation remediations = 1;
 }
 
 message Remediation {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.RemediationId id = 1;
   Metadata metadata = 2;
   google.protobuf.Timestamp creation_time = 3;
@@ -8443,6 +8854,8 @@ message FindAppliedRemediationIdsRequest {
   optional common.MachineId dpu_machine_id = 2;
 }
 message AppliedRemediationIdList {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated common.RemediationId remediation_ids = 1;
   repeated common.MachineId dpu_machine_ids = 2;
 }
@@ -8451,6 +8864,8 @@ message FindAppliedRemediationsRequest {
   common.MachineId dpu_machine_id = 2;
 }
 message AppliedRemediation {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.RemediationId remediation_id = 1;
   common.MachineId dpu_machine_id = 2;
   int32 attempt = 3;
@@ -8459,6 +8874,8 @@ message AppliedRemediation {
   Metadata metadata = 6; // only the labels will be populated.
 }
 message AppliedRemediationList {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated AppliedRemediation applied_remediations = 1;
 }
 
@@ -8502,11 +8919,15 @@ message SetPrimaryInterfaceRequest {
 
 // DPU Extension Service Types and Messages
 enum DpuExtensionServiceType {
+  option (carbide.codegen.v1.enum_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.enum_derive) = "serde::Deserialize";
   KUBERNETES_POD = 0;
   // Add supported service types in the future
 }
 
 message UsernamePassword {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   string username = 1;
   string password = 2;
 }
@@ -8516,6 +8937,8 @@ message SessionToken {
 }
 
 message DpuExtensionServiceCredential {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   string registry_url = 1;
 
   oneof type {
@@ -8525,6 +8948,8 @@ message DpuExtensionServiceCredential {
 }
 
 message DpuExtensionServiceVersionInfo {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   string version = 1;
   string data = 2;
   bool has_credential = 3;
@@ -8533,6 +8958,8 @@ message DpuExtensionServiceVersionInfo {
 }
 
 message DpuExtensionService {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   string service_id = 1;
 
   DpuExtensionServiceType service_type = 2;
@@ -8614,6 +9041,8 @@ message DpuExtensionServiceSearchFilter {
 }
 
 message DpuExtensionServiceIdList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   repeated string service_ids = 1;
 }
 
@@ -8662,15 +9091,21 @@ message InstanceDpuExtensionServiceInfo {
 }
 
 message DpuExtensionServiceObservabilityConfigPrometheus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   uint32 scrape_interval_seconds = 1;
   string endpoint                = 2;
 }
 
 message DpuExtensionServiceObservabilityConfigLogging {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   string path = 1;
 }
 
 message DpuExtensionServiceObservabilityConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   // The name of service being monitored OR the name of
   // the portion of the service being monitored.
   // This will default to the name of the service.
@@ -8684,6 +9119,8 @@ message DpuExtensionServiceObservabilityConfig {
 
 
 message DpuExtensionServiceObservability {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   repeated DpuExtensionServiceObservabilityConfig configs = 1;
 }
 
@@ -8843,10 +9280,12 @@ enum ScoutStreamErrorStatus {
 // We can change that with additional fields on this struct
 // if necessary in the future.
 message PrefixFilterPolicyEntry {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string prefix = 1;
 }
 
 message RoutingProfile {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated common.RouteTarget route_target_imports             = 1;
   repeated common.RouteTarget route_targets_on_exports         = 2;
   bool leak_default_route_from_underlay                        = 3;
@@ -9212,6 +9651,7 @@ message SpxPartitionCreationRequest {
 }
 
 message SpxPartition {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   Metadata metadata = 1;
   common.SpxPartitionId id = 2;
   uint32 vni = 3;
@@ -9219,6 +9659,7 @@ message SpxPartition {
 }
 
 message SpxPartitionIdList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated common.SpxPartitionId spx_partition_ids = 1;
 }
 
@@ -9236,6 +9677,7 @@ message SpxPartitionSearchFilter {
 }
 
 message SpxPartitionList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated SpxPartition spx_partitions = 1;
 }
 
@@ -9278,6 +9720,8 @@ message AdminForceDeletePowerShelfResponse {
 // Operating system definition (CRUD resource, table operating_systems).
 // Type of Operating System variant
 enum OperatingSystemType {
+  option (carbide.codegen.v1.enum_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.enum_derive) = "serde::Deserialize";
   OS_TYPE_UNSPECIFIED = 0;
   OS_TYPE_IPXE = 1;              // Raw inline iPXE script
   OS_TYPE_TEMPLATED_IPXE = 2; // iPXE OS using an iPXE template
@@ -9333,6 +9777,8 @@ enum ExpectedInterfaceIpAllocation {
 }
 
 message OperatingSystem {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   common.OperatingSystemId id = 1;
   string name = 2;
   optional string description = 3;
@@ -9421,6 +9867,8 @@ message OperatingSystemsByIdsRequest {
 }
 
 message OperatingSystemList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   repeated OperatingSystem operating_systems = 1;
 }
 
@@ -9482,6 +9930,7 @@ message GetMachineBootInterfacesRequest {
 // captured yet still reports its MAC (the model type requires both halves,
 // which the `TryFrom` conversion enforces).
 message MachineBootInterface {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string mac_address = 1;
   optional string interface_id = 2;
 }
@@ -9490,6 +9939,7 @@ message MachineBootInterface {
 // owned machine. `primary_interface` is the designation `pick_boot_interface`
 // keys on.
 message MachineInterfaceBootInterface {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string mac_address = 1;
   bool primary_interface = 2;
   // Vendor-named Redfish EthernetInterface.Id, absent until site-explorer has
@@ -9505,6 +9955,7 @@ message MachineInterfaceBootInterface {
 // A `predicted_machine_interfaces` row's boot interface: the candidate a host
 // offers in the window before its first DHCP lease creates an owned row.
 message PredictedBootInterface {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string mac_address = 1;
   bool primary_interface = 2;
   optional string boot_interface_id = 3;
@@ -9515,6 +9966,7 @@ message PredictedBootInterface {
 // An `explored_endpoints` row's boot interface: site-explorer's per-cycle
 // automatic pick for a BMC endpoint, used only for endpoints no machine owns.
 message ExploredBootInterface {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // BMC endpoint address this explored default was recorded against.
   string address = 1;
   optional string boot_interface_mac = 2;
@@ -9525,12 +9977,14 @@ message ExploredBootInterface {
 // interface deletion, keyed by MAC. `recorded_at` is included so the view can
 // show stale records (ones aged past the retention window).
 message RetainedBootInterface {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   string mac_address = 1;
   string boot_interface_id = 2;
   google.protobuf.Timestamp recorded_at = 3;
 }
 
 message GetMachineBootInterfacesResponse {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // The desired boot-interface generation, its latest persisted observation,
   // and any machine-controller work currently reconciling it.
   message Reconciliation {
@@ -9617,10 +10071,14 @@ message GetMachineBootInterfacesResponse {
 }
 
 message GetContainerRegistryCredentialRequest {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   string registry = 1;
 }
 
 message GetContainerRegistryCredentialResponse {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   string username = 1;
   string password = 2;
 }
@@ -9633,6 +10091,7 @@ message SetContainerRegistryCredentialRequest {
 
 // Identifies the lifecycle authority responsible for a site prefix.
 enum SitePrefixAuthority {
+  option (carbide.codegen.v1.enum_derive) = "serde::Serialize";
   option allow_alias = true;
 
   SITE_PREFIX_AUTHORITY_UNSPECIFIED = 0;
@@ -9643,12 +10102,14 @@ enum SitePrefixAuthority {
 
 // Describes where a site prefix may be routed.
 enum SitePrefixRoutingScope {
+  option (carbide.codegen.v1.enum_derive) = "serde::Serialize";
   SITE_PREFIX_ROUTING_SCOPE_UNSPECIFIED = 0;
   SITE_PREFIX_ROUTING_SCOPE_DATACENTER_ONLY = 1;
 }
 
 // Describes the current lifecycle state of a site prefix.
 enum SitePrefixLifecycleState {
+  option (carbide.codegen.v1.enum_derive) = "serde::Serialize";
   SITE_PREFIX_LIFECYCLE_STATE_UNSPECIFIED = 0;
   SITE_PREFIX_LIFECYCLE_STATE_PROVISIONING = 1;
   SITE_PREFIX_LIFECYCLE_STATE_READY = 2;
@@ -9658,6 +10119,7 @@ enum SitePrefixLifecycleState {
 
 // A site-level prefix that may contain VPC address space.
 message SitePrefix {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.SitePrefixId id = 1;
   SitePrefixConfig config = 2;
   SitePrefixStatus status = 3;
@@ -9668,6 +10130,7 @@ message SitePrefix {
 }
 
 message SitePrefixConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // IPv4 or IPv6 prefix in canonical CIDR notation.
   string prefix = 1;
   // Present only for tenant-managed site prefixes.
@@ -9676,6 +10139,7 @@ message SitePrefixConfig {
 }
 
 message SitePrefixStatus {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   SitePrefixAuthority authority = 1;
   SitePrefixLifecycleState lifecycle_state = 2;
   // Tenant-wide point-in-time use for the owning tenant. Present only for
@@ -9685,6 +10149,7 @@ message SitePrefixStatus {
 }
 
 message SitePrefixQuotaUsage {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   uint32 used = 1;
   uint32 limit = 2;
 }
@@ -9744,9 +10209,30 @@ message SitePrefixesByIdsRequest {
 }
 
 message SitePrefixIdList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated common.SitePrefixId site_prefix_ids = 1;
 }
 
 message SitePrefixList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated SitePrefix site_prefixes = 1;
+}
+
+// Family-specific address configuration for a managed-host interface.
+message InterfaceAddressConfig {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+
+  // Family shared by every address and prefix in this entry. Must be V4 or V6.
+  AddressFamily address_family = 1;
+  // IPv4 gateway CIDR. For IPv6, the DPU-side port/linknet CIDR used as
+  // gateway_cidr, matching FlatInterfaceIpv6Config.interface_prefix.
+  string gateway = 2;
+  // Host address, without a prefix length.
+  string ip = 3;
+  // Prefix allocated to this interface, such as an FNN linknet or host route.
+  string interface_prefix = 4;
+  // Prefix for the network segment that contains this interface.
+  string prefix = 5;
+  // DPU-hosted SVI address used as the host gateway when configured.
+  optional string svi_ip = 6;
 }

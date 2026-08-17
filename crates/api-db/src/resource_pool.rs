@@ -1974,7 +1974,6 @@ mod tests {
 
     // `capture_logs_async` wraps only `release`, whose await uses this
     // connection. No unrelated work runs while the connection is held.
-    #[allow(txn_held_across_await)]
     #[crate::sqlx_test]
     async fn release_database_failure_emits_at_database_boundary(
         pool: sqlx::PgPool,

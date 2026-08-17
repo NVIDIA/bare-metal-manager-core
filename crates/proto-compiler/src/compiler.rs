@@ -21,7 +21,7 @@ use std::path::PathBuf;
 
 use prost_reflect::DescriptorPool;
 
-use crate::schema::Schema;
+use crate::{Error, Schema};
 
 /// Inputs to one protobuf frontend invocation.
 #[derive(Clone, Debug, Default)]
@@ -90,42 +90,4 @@ pub fn compile(config: &CompilerConfig) -> Result<Schema, Error> {
         file_descriptor_set,
         descriptor_pool,
     })
-}
-
-/// Failure while compiling or loading protobuf descriptors.
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    /// Temporary storage for the descriptor output could not be created.
-    #[error("failed to create temporary protobuf descriptor storage")]
-    CreateTemporaryDescriptor {
-        /// Underlying filesystem error.
-        #[source]
-        source: std::io::Error,
-    },
-
-    /// The protobuf frontend failed.
-    #[error("failed to compile protobuf descriptors")]
-    CompileProtobuf {
-        /// Error reported by prost-build or `protoc`.
-        #[source]
-        source: std::io::Error,
-    },
-
-    /// The raw descriptor set emitted by `protoc` could not be read.
-    #[error("failed to read protobuf descriptor set from `{path}`")]
-    ReadDescriptorSet {
-        /// Descriptor output path.
-        path: PathBuf,
-        /// Underlying filesystem error.
-        #[source]
-        source: std::io::Error,
-    },
-
-    /// The raw descriptor bytes could not be decoded into a descriptor pool.
-    #[error("failed to decode protobuf descriptor pool")]
-    DecodeDescriptorPool {
-        /// Descriptor decoding error.
-        #[source]
-        source: prost_reflect::DescriptorError,
-    },
 }

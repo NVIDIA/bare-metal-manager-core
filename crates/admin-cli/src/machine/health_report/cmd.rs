@@ -34,11 +34,11 @@ pub(crate) fn get_empty_template() -> HealthReport {
         triggered_by: None,
         observed_at: Some(Utc::now()),
         successes: vec![HealthProbeSuccess {
-            id: HealthProbeId::from_str("test").unwrap(),
+            id: HealthProbeId::from_str("test").expect("should be valid HealthProbeId"),
             target: Some("".to_string()),
         }],
         alerts: vec![HealthProbeAlert {
-            id: HealthProbeId::from_str("test").unwrap(),
+            id: HealthProbeId::from_str("test").expect("should be valid HealthProbeId"),
             target: None,
             in_alert_since: None,
             message: "".to_string(),
@@ -62,7 +62,7 @@ pub(crate) fn get_health_report(
         observed_at: Some(Utc::now()),
         successes: vec![],
         alerts: vec![HealthProbeAlert {
-            id: HealthProbeId::from_str("Maintenance").unwrap(),
+            id: HealthProbeId::from_str("Maintenance").expect("should be valid HealthProbeId"),
             target: None,
             in_alert_since: None,
             message: message.unwrap_or_default(),
@@ -77,7 +77,8 @@ pub(crate) fn get_health_report(
     match template {
         HealthReportTemplates::HostUpdate => {
             report.source = "host-update".to_string();
-            report.alerts[0].id = HealthProbeId::from_str("HostUpdateInProgress").unwrap();
+            report.alerts[0].id = HealthProbeId::from_str("HostUpdateInProgress")
+                .expect("should be valid HealthProbeId");
             report.alerts[0].target = Some("admin-cli".to_string());
         }
         HealthReportTemplates::InternalMaintenance => {
@@ -186,7 +187,7 @@ pub(super) async fn handle_health_report(
             )?;
 
             if options.print_only {
-                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+                println!("{}", serde_json::to_string_pretty(&report)?);
                 return Ok(());
             }
 

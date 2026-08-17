@@ -23,12 +23,14 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use carbide_dpf::types::{DpuServiceVersion, HostDpfSnapshot, ServiceTemplateVersion};
 use carbide_dpf::{
-    BmcPasswordProvider, DpfError, DpfSdk, DpuDeploymentType, DpuDeviceInfo, DpuNodeInfo, DpuPhase,
-    DpuWatcher, KubeRepository, ResourceLabeler, node_id_from_dpu_node_cr_name,
+    BmcPasswordProvider, DPU_ENABLED_NODE_LABEL, DpfError, DpfSdk, DpuDeploymentType,
+    DpuDeviceInfo, DpuNodeInfo, DpuPhase, DpuWatcher, KubeRepository, ResourceLabeler,
+    node_id_from_dpu_node_cr_name,
 };
 use carbide_uuid::machine::MachineId;
 use model::dpu_machine_update::OutdatedDpfDpu;
 use model::machine::{Machine, ManagedHostStateSnapshot};
+use model::machine_pending_action::{MachinePendingAction, MachinePendingActionKind};
 use sqlx::PgPool;
 use state_controller::controller::Enqueuer;
 use tokio::task::JoinSet;
@@ -43,6 +45,9 @@ const DPU_MACHINE_ID_LABEL: &str = "carbide.nvidia.com/dpu-machine-id";
 /// Label key used by [`CarbideDPFLabeler`] to mark a DPU device as
 /// carbide-controlled. Propagates to the DPU CR.
 const CONTROLLED_DEVICE_LABEL: &str = "carbide.nvidia.com/controlled.device";
+
+/// Label populated with the host BMC address on both DPUDevice and DPUNode resources.
+pub const HOST_BMC_IP_LABEL: &str = "carbide.nvidia.com/host-bmc-ip";
 
 /// Trait for DPF SDK operations used by Carbide.
 ///
@@ -90,7 +95,11 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
     /// Returns `Err` when the part number is absent or does not match any known
     /// generation, so unrecognized hardware never silently routes to a wrong
     /// deployment.
-    fn deployment_type_for_dpu(&self, dpu: &Machine) -> Result<DpuDeploymentType, DpfError>;
+    fn deployment_type_for_dpu(
+        &self,
+        dpu: &Machine,
+        astra_nics: bool,
+    ) -> Result<DpuDeploymentType, DpfError>;
 
     /// Check that a DPUNode's labels match the current expected labels.
     /// Returns `false` when the node exists but has stale labels.
@@ -128,6 +137,13 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
     /// from carbide config — see [`DpfSdk::find_outdated_dpus_dpf`] for
     /// details.
     async fn find_outdated_dpus_dpf(&self) -> Result<Vec<OutdatedDpfDpu>, DpfError>;
+
+    /// Whether one DPU still differs from its owning DPUDeployment, i.e. a
+    /// reprovision is still coming for it.
+    ///
+    /// Reports `true` for a DPU it cannot evaluate, so callers gated on "this
+    /// DPU is already up to date" fail closed.
+    async fn is_dpu_outdated(&self, dpu_name: &str) -> Result<bool, DpfError>;
 }
 
 /// Check whether the DPUNode and DPUDevice CRs are missing for the given host.
@@ -212,10 +228,7 @@ impl ResourceLabeler for CarbideDPFLabeler {
     fn device_labels(&self, info: &DpuDeviceInfo) -> BTreeMap<String, String> {
         BTreeMap::from([
             (CONTROLLED_DEVICE_LABEL.to_string(), "true".to_string()),
-            (
-                "carbide.nvidia.com/host-bmc-ip".to_string(),
-                info.host_bmc_ip.to_string(),
-            ),
+            (HOST_BMC_IP_LABEL.to_string(), info.host_bmc_ip.to_string()),
             (
                 "carbide.nvidia.com/is-primary-dpu".to_string(),
                 info.is_primary.to_string(),
@@ -230,10 +243,7 @@ impl ResourceLabeler for CarbideDPFLabeler {
     fn node_labels(&self) -> BTreeMap<String, String> {
         BTreeMap::from([
             (self.node_label_key.clone(), "true".to_string()),
-            (
-                "feature.node.kubernetes.io/dpu-enabled".to_string(),
-                "true".to_string(),
-            ),
+            (DPU_ENABLED_NODE_LABEL.to_string(), "true".to_string()),
         ])
     }
 
@@ -252,10 +262,7 @@ impl ResourceLabeler for CarbideDPFLabeler {
     }
 
     fn node_context_labels(&self, info: &DpuNodeInfo) -> BTreeMap<String, String> {
-        BTreeMap::from([(
-            "carbide.nvidia.com/host-bmc-ip".to_string(),
-            info.host_bmc_ip.to_string(),
-        )])
+        BTreeMap::from([(HOST_BMC_IP_LABEL.to_string(), info.host_bmc_ip.to_string())])
     }
 
     fn dpu_label_selector(&self) -> Option<String> {
@@ -381,7 +388,7 @@ impl DpfSdkOps {
                             host_bmc_ip_address = %event.host_bmc_ip,
                             "DPF reboot required"
                         );
-                        enqueue_host(&db_pool, &event.node_name, "reboot").await
+                        enqueue_host(&db_pool, &event.node_name, "reboot", None).await
                     }
                 }
             })
@@ -396,7 +403,7 @@ impl DpfSdkOps {
                             node = %event.node_name,
                             "DPF DPU ready"
                         );
-                        enqueue_host(&db_pool, &event.node_name, "ready").await
+                        enqueue_host(&db_pool, &event.node_name, "ready", None).await
                     }
                 }
             })
@@ -409,7 +416,16 @@ impl DpfSdkOps {
                             node = %event.node_name,
                             "DPF maintenance needed (NodeEffect phase)"
                         );
-                        enqueue_host(&db_pool, &event.node_name, "maintenance").await
+                        // A DPUService change is one of the things that drives a
+                        // DPU here, and rolling it out needs carbide to release
+                        // the hold once the DPU is confirmed up to date.
+                        enqueue_host(
+                            &db_pool,
+                            &event.node_name,
+                            "maintenance",
+                            Some(MachinePendingActionKind::DpuServiceSync),
+                        )
+                        .await
                     }
                 }
             })
@@ -423,7 +439,7 @@ impl DpfSdkOps {
                             node = %event.node_name,
                             "DPF DPU entered error phase"
                         );
-                        enqueue_host(&db_pool, &event.node_name, "error").await
+                        enqueue_host(&db_pool, &event.node_name, "error", None).await
                     }
                 }
             })
@@ -437,10 +453,38 @@ impl DpfSdkOps {
     }
 }
 
+/// Records that a host owes `kind`, returning the stored action.
+async fn record_pending_action(
+    db_pool: &PgPool,
+    host_machine_id: &MachineId,
+    kind: MachinePendingActionKind,
+) -> Result<MachinePendingAction, DpfError> {
+    let mut conn = db_pool.acquire().await.map_err(|e| {
+        DpfError::InvalidState(format!("Failed to acquire database connection: {e}"))
+    })?;
+    db::machine_pending_action::request(&mut conn, host_machine_id, kind)
+        .await
+        .map_err(|e| {
+            DpfError::InvalidState(format!(
+                "DB error recording pending action for machine {host_machine_id}: {e}"
+            ))
+        })
+}
+
 /// Look up a host by DPUNode CR name and enqueue it for state handling.
 /// CR name format: `node-{dpf_id}`, where `dpf_id` is the host's BMC MAC
 /// address with colons replaced by hyphens.
-async fn enqueue_host(db_pool: &PgPool, node_name: &str, reason: &str) -> Result<(), DpfError> {
+///
+/// `pending_action` records durable work the host owes before it is enqueued.
+/// The queue itself cannot carry that signal: it stores only an object id and
+/// coalesces duplicates, so this enqueue is indistinguishable from the periodic
+/// sweep's and is dropped outright if the sweep queued the host first.
+async fn enqueue_host(
+    db_pool: &PgPool,
+    node_name: &str,
+    reason: &str,
+    pending_action: Option<MachinePendingActionKind>,
+) -> Result<(), DpfError> {
     let bmc_mac_id = node_id_from_dpu_node_cr_name(node_name);
     let bmc_mac: mac_address::MacAddress = bmc_mac_id
         .replace('-', ":")
@@ -463,33 +507,51 @@ async fn enqueue_host(db_pool: &PgPool, node_name: &str, reason: &str) -> Result
         return Ok(());
     };
 
-    let host = {
-        let mut conn = db_pool.acquire().await.map_err(|e| {
-            DpfError::InvalidState(format!("Failed to acquire database connection: {e}"))
-        })?;
-        db::machine::find_one(
-            &mut *conn,
-            &host_machine_id,
-            model::machine::machine_search_config::MachineSearchConfig::default(),
-        )
-        .await
-        .map_err(|e| DpfError::InvalidState(format!("DB error looking up host: {e}")))?
-    };
-
-    let Some(host) = host else {
-        tracing::warn!(node = %node_name, reason, "Could not find host for DPF node");
-        return Ok(());
+    // Written before the enqueue so a processor cannot reach the host's handler
+    // while the marker is still missing.
+    //
+    // A failure here must not suppress the enqueue: this callback's wake-up is
+    // what the DPF provisioning handler relies on to release a node's hold, and
+    // that is older and more important than the marker. The error is carried
+    // past the enqueue and returned instead, so the watcher retries this event
+    // (~30s) rather than leaving the marker to the next hourly resync.
+    let marker_error = match pending_action {
+        Some(kind) => match record_pending_action(db_pool, &host_machine_id, kind).await {
+            Ok(action) => {
+                tracing::info!(
+                    node = %node_name,
+                    machine_id = %host_machine_id,
+                    requested_at = %action.requested_at,
+                    "Recorded pending DPF action for host"
+                );
+                None
+            }
+            Err(error) => {
+                tracing::warn!(
+                    node = %node_name,
+                    machine_id = %host_machine_id,
+                    %error,
+                    "Could not record pending DPF action; enqueueing the host before retrying"
+                );
+                Some(error)
+            }
+        },
+        None => None,
     };
 
     Enqueuer::<MachineStateControllerIO>::new(db_pool.clone())
-        .enqueue_object(&host.id)
+        .enqueue_object(&host_machine_id)
         .await
         .map_err(|e| {
-            DpfError::InvalidState(format!("Failed to enqueue machine {}: {e}", host.id))
+            DpfError::InvalidState(format!("Failed to enqueue machine {host_machine_id}: {e}"))
         })?;
 
-    tracing::info!(node = %node_name, machine_id = %host.id, reason, "Enqueued host for DPF state handling");
-    Ok(())
+    tracing::info!(node = %node_name, machine_id = %host_machine_id, reason, "Enqueued host for DPF state handling");
+
+    match marker_error {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
 }
 
 impl std::fmt::Debug for DpfSdkOps {
@@ -545,7 +607,11 @@ impl DpfOperations for DpfSdkOps {
         self.sdk.reboot_complete(node_name).await
     }
 
-    fn deployment_type_for_dpu(&self, dpu: &Machine) -> Result<DpuDeploymentType, DpfError> {
+    fn deployment_type_for_dpu(
+        &self,
+        dpu: &Machine,
+        astra_nics: bool,
+    ) -> Result<DpuDeploymentType, DpfError> {
         let product_name = dpu
             .status
             .hardware_info
@@ -563,13 +629,17 @@ impl DpfOperations for DpfSdkOps {
 
         // Only a BF3 or BF4 DPU can reach here.
         let deployment_type = if is_bf4_dmi_product(product_name) {
-            DpuDeploymentType::Bf4Generic
+            if astra_nics {
+                DpuDeploymentType::Bf4Astra
+            } else {
+                DpuDeploymentType::Bf4Generic
+            }
         } else {
             DpuDeploymentType::Bf3
         };
 
         tracing::info!(
-            "selected deployment type {deployment_type:?} for {product_name}, machine_id: {}",
+            "selected deployment type {deployment_type:?} for {product_name}, machine_id: {}, astra_nics: {astra_nics}",
             dpu.id
         );
 
@@ -588,6 +658,10 @@ impl DpfOperations for DpfSdkOps {
 
     async fn snapshot_host(&self, node_name: &str) -> Result<HostDpfSnapshot, DpfError> {
         self.sdk.snapshot_host(node_name).await
+    }
+
+    async fn is_dpu_outdated(&self, dpu_name: &str) -> Result<bool, DpfError> {
+        self.sdk.is_dpu_outdated(dpu_name).await
     }
 
     async fn list_service_template_versions(
@@ -635,7 +709,7 @@ impl DpfOperations for DpfSdkOps {
             };
             out.push(OutdatedDpfDpu {
                 dpu_machine_id,
-                target_bfb: m.target_bfb,
+                target_source: m.target_source,
             });
         }
         Ok(out)

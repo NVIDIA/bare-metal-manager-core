@@ -54,6 +54,10 @@ helm-prereqs/values/nico-core.yaml.dpf.bak
 # Claude specific
 .claude/
 
+# Python bytecode
+__pycache__/
+*.py[cod]
+
 # Devenv
 .devenv*
 devenv.local.nix
@@ -64,3 +68,8 @@ devenv.local.yaml
 
 # pre-commit
 .pre-commit-config.yaml
+
+# Trust anchor the dpu-agent mirrors for key-less consumers (issue #355). The
+# agent tests point `[forge-system] root-ca` at dev/certs/forge_root.pem, so
+# running them publishes a copy beside it. Runtime artifact, never committed.
+dev/certs/pub/

@@ -125,6 +125,76 @@ async fn test_ip_finder(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     Ok(())
 }
 
+/// `FindIpAddress` returns every instance owner when isolated VPCs use the
+/// same overlay address. Each match also names its VPC and segment so an
+/// operator can tell the otherwise-identical allocations apart.
+#[crate::sqlx_test]
+async fn test_ip_finder_returns_every_duplicate_overlay_address_owner(
+    db_pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
+    let env = create_test_env(db_pool.clone()).await;
+    let address = "10.20.30.40".parse().unwrap();
+
+    let mut txn = db_pool.begin().await?;
+    let owners = [
+        common::overlay_address::seed_overlay_address_owner(
+            txn.as_mut(),
+            "finder-owner-a",
+            address,
+        )
+        .await,
+        common::overlay_address::seed_overlay_address_owner(
+            txn.as_mut(),
+            "finder-owner-b",
+            address,
+        )
+        .await,
+    ];
+    txn.commit().await?;
+
+    let response = env
+        .api
+        .find_ip_address(tonic::Request::new(rpc::forge::FindIpAddressRequest {
+            ip: address.to_string(),
+        }))
+        .await?
+        .into_inner();
+    assert!(response.errors.is_empty(), "finder returned lookup errors");
+
+    let instance_matches = response
+        .matches
+        .iter()
+        .filter(|ip_match| ip_match.ip_type == IpType::InstanceAddress as i32)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        instance_matches.len(),
+        owners.len(),
+        "finder should return one match for each overlay address owner"
+    );
+
+    for owner in owners {
+        let instance_id = owner.instance_id.to_string();
+        let ip_match = instance_matches
+            .iter()
+            .find(|ip_match| ip_match.owner_id.as_deref() == Some(instance_id.as_str()))
+            .unwrap_or_else(|| panic!("finder omitted instance {instance_id}"));
+        assert!(
+            ip_match.message.contains(&owner.vpc_id.to_string()),
+            "finder match should identify VPC {}: {}",
+            owner.vpc_id,
+            ip_match.message,
+        );
+        assert!(
+            ip_match.message.contains(&owner.segment_id.to_string()),
+            "finder match should identify segment {}: {}",
+            owner.segment_id,
+            ip_match.message,
+        );
+    }
+
+    Ok(())
+}
+
 async fn test_not_found(env: &TestEnv) {
     let req = rpc::forge::FindIpAddressRequest {
         ip: "10.0.0.1".to_string(),

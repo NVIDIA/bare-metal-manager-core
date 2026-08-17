@@ -50,12 +50,15 @@ app.kubernetes.io/component: machine-a-tron
 {{- end }}
 
 {{/*
-Return true when a pod has generated machine groups or a full config override.
+Return true when a pod has generated machine groups, generated racks, or a full config override.
 */}}
 {{- define "nico-machine-a-tron.podIsActive" -}}
 {{- $matConfigs := .root.Values.configFiles.matConfigs | default dict -}}
 {{- $matConfig := index $matConfigs .podName -}}
-{{- if or (and .podConfig .podConfig.machines (gt (len .podConfig.machines) 0)) $matConfig -}}
+{{- $podConfig := .podConfig | default dict -}}
+{{- $machines := $podConfig.machines | default dict -}}
+{{- $racks := $podConfig.racks | default dict -}}
+{{- if or (gt (len $machines) 0) (gt (len $racks) 0) $matConfig -}}
 true
 {{- end -}}
 {{- end }}
