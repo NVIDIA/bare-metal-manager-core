@@ -339,7 +339,12 @@ elif confirm "Delete Vault credentials seeded/rotated for machine-a-tron (site r
   | grep -v "^site" \
   | xargs -r -P 32 -I@ sh -c "vault kv metadata delete secrets/machines/bmc/@/root >/dev/null 2>&1"'
     VAULT_CMD_TIMEOUT=600 vault_cmd "$_purge" >/dev/null 2>&1 || true
-    _left="$(vault_cmd 'vault kv list -format=yaml secrets/machines/bmc 2>/dev/null | grep -vc "^- site"' || echo unknown)"
+    # `grep -c` exits 1 when it counts zero, so a SUCCESSFUL purge made the `||`
+    # fire and reported "incomplete" on a clean result. Count with awk, which
+    # exits 0 whatever the total, and default to `unknown` only if vault_cmd
+    # itself produced nothing.
+    _left="$(vault_cmd 'vault kv list -format=yaml secrets/machines/bmc 2>/dev/null | grep -v "^- site" | awk "END{print NR}"')"
+    _left="${_left:-unknown}"
     if [[ "$_left" == "0" ]]; then
         ok "purged per-MAC rotated creds"
     else
