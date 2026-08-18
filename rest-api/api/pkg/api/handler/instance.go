@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -3489,38 +3488,31 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 			}
 			newdbIfcs = []cdbm.Interface{}
 		case len(apiRequest.Interfaces) > 0:
-			reusedIfcIDs := make(map[uuid.UUID]struct{})
-			for _, dbifc := range dbInterfaces {
-				var reusedIfc *cdbm.Interface
-				for existingIfcIndex := range existingIfcs {
-					existingIfc := &existingIfcs[existingIfcIndex]
-					if existingIfc.Status == cdbm.InterfaceStatusDeleting {
-						continue
-					}
-
-					if _, reused := reusedIfcIDs[existingIfc.ID]; reused {
-						continue
-					}
-
-					networkMatches := reflect.DeepEqual(existingIfc.SubnetID, dbifc.SubnetID) &&
-						reflect.DeepEqual(existingIfc.VpcID, dbifc.VpcID) &&
-						reflect.DeepEqual(existingIfc.VpcIPFamilyMode, dbifc.VpcIPFamilyMode) &&
-						(dbifc.VpcID != nil || reflect.DeepEqual(existingIfc.VpcPrefixID, dbifc.VpcPrefixID))
-					if networkMatches &&
-						existingIfc.IsPhysical == dbifc.IsPhysical &&
-						reflect.DeepEqual(existingIfc.Device, dbifc.Device) &&
-						reflect.DeepEqual(existingIfc.DeviceInstance, dbifc.DeviceInstance) &&
-						reflect.DeepEqual(existingIfc.VirtualFunctionID, dbifc.VirtualFunctionID) &&
-						reflect.DeepEqual(existingIfc.RequestedIpAddress, dbifc.RequestedIpAddress) &&
-						reflect.DeepEqual(existingIfc.InlineRoutingProfile, dbifc.InlineRoutingProfile) {
-						reusedIfc = existingIfc
-						break
-					}
+			existingIfcMap := make(map[cdbm.EthernetInterfaceKey][]cdbm.Interface)
+			for existingIfcIndex := range existingIfcs {
+				if existingIfcs[existingIfcIndex].Status == cdbm.InterfaceStatusDeleting {
+					continue
 				}
 
-				if reusedIfc != nil {
+				key := existingIfcs[existingIfcIndex].EthernetKey()
+				existingIfcMap[key] = append(existingIfcMap[key], existingIfcs[existingIfcIndex])
+			}
+
+			reusedIfcIDs := make(map[uuid.UUID]struct{})
+			for _, dbifc := range dbInterfaces {
+				key := dbifc.EthernetKey()
+				existingIfcsForKey := existingIfcMap[key]
+
+				if len(existingIfcsForKey) > 0 {
+					reusedIfc := existingIfcsForKey[0]
+					if len(existingIfcsForKey) == 1 {
+						delete(existingIfcMap, key)
+					} else {
+						existingIfcMap[key] = existingIfcsForKey[1:]
+					}
+
 					reusedIfcIDs[reusedIfc.ID] = struct{}{}
-					newdbIfcs = append(newdbIfcs, *reusedIfc)
+					newdbIfcs = append(newdbIfcs, reusedIfc)
 					continue
 				}
 

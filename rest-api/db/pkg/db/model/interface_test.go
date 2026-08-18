@@ -112,6 +112,42 @@ func TestInterfaceInlineRoutingProfile_ToProtoFromProto(t *testing.T) {
 	assert.Equal(t, []string{"198.51.100.0/24", "2001:db8:1::/64"}, fromProto.AllowedAnycastPrefixes)
 }
 
+func TestInterface_EthernetKey(t *testing.T) {
+	vpcID := uuid.New()
+	familyMode := InterfaceVpcIPFamilyModeIPv4Only
+	deviceInstance := 0
+
+	var base Interface
+	base.VpcID = &vpcID
+	base.VpcIPFamilyMode = &familyMode
+	base.Device = cutil.GetPtr("device")
+	base.DeviceInstance = &deviceInstance
+	base.IsPhysical = true
+
+	sameVpcID := vpcID
+	sameFamilyMode := familyMode
+	sameDeviceInstance := deviceInstance
+	same := base
+	same.VpcID = &sameVpcID
+	same.VpcIPFamilyMode = &sameFamilyMode
+	same.Device = cutil.GetPtr("device")
+	same.DeviceInstance = &sameDeviceInstance
+	same.VpcPrefixID = cutil.GetPtr(uuid.New())
+	assert.Equal(t, base.EthernetKey(), same.EthernetKey(), "resolved prefixes must not change VPC-selector identity")
+
+	missingDeviceInstance := base
+	missingDeviceInstance.DeviceInstance = nil
+	assert.NotEqual(t, base.EthernetKey(), missingDeviceInstance.EthernetKey())
+
+	emptyProfile := base
+	emptyProfile.InlineRoutingProfile = &InterfaceInlineRoutingProfile{}
+	assert.NotEqual(t, base.EthernetKey(), emptyProfile.EthernetKey())
+
+	differentVpc := base
+	differentVpc.VpcID = cutil.GetPtr(uuid.New())
+	assert.NotEqual(t, base.EthernetKey(), differentVpc.EthernetKey())
+}
+
 func TestInterfaceSQLDAO_Create(t *testing.T) {
 	ctx := context.Background()
 	dbSession := testInstanceInitDB(t)
