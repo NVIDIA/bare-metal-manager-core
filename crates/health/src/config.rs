@@ -541,6 +541,15 @@ pub struct OtlpTargetConfig {
     #[serde(default = "OtlpTargetConfig::default_batch_size")]
     pub batch_size: usize,
 
+    /// Maximum number of entries waiting in each signal queue for this target.
+    ///
+    /// Logs and metrics have independent queues of this size. When a queue is
+    /// full, inserting a new identity drops its oldest entry. The active export
+    /// batch is bounded separately by `batch_size`. Defaults to 32,768 and must
+    /// be greater than zero.
+    #[serde(default = "OtlpTargetConfig::default_queue_capacity")]
+    pub queue_capacity: usize,
+
     /// Maximum time to wait before flushing a non-empty batch for either
     /// signal. Defaults to two seconds.
     #[serde(
@@ -569,8 +578,14 @@ pub struct OtlpTargetConfig {
 }
 
 impl OtlpTargetConfig {
+    pub(crate) const DEFAULT_QUEUE_CAPACITY: usize = 32_768;
+
     fn default_batch_size() -> usize {
         512
+    }
+
+    fn default_queue_capacity() -> usize {
+        Self::DEFAULT_QUEUE_CAPACITY
     }
 
     fn default_flush_interval() -> std::time::Duration {
@@ -582,6 +597,10 @@ impl OtlpTargetConfig {
 
         if self.batch_size == 0 {
             return Err(format!("{path}.batch_size must be greater than 0"));
+        }
+
+        if self.queue_capacity == 0 {
+            return Err(format!("{path}.queue_capacity must be greater than 0"));
         }
 
         if self.flush_interval.is_zero() {
@@ -2249,6 +2268,7 @@ mod tests {
             endpoint: endpoint.to_string(),
             tls: None,
             batch_size: 512,
+            queue_capacity: OtlpTargetConfig::DEFAULT_QUEUE_CAPACITY,
             flush_interval: Duration::from_secs(2),
             include_diagnostics: false,
             include_alert_details: false,
@@ -2993,6 +3013,7 @@ endpoint = "https://site.example:4317"
 [[targets]]
 endpoint = "https://central.example:4317"
 batch_size = 1024
+queue_capacity = 2048
 flush_interval = "5s"
 include_diagnostics = true
 include_alert_details = true
@@ -3013,8 +3034,15 @@ reload_interval = "30s"
         assert_eq!(targets.len(), 2);
         assert!(targets[0].tls.is_none());
         assert_eq!(targets[0].batch_size, 512);
+
+        assert_eq!(
+            targets[0].queue_capacity,
+            OtlpTargetConfig::DEFAULT_QUEUE_CAPACITY
+        );
+
         assert_eq!(targets[0].flush_interval, Duration::from_secs(2));
         assert_eq!(targets[1].batch_size, 1024);
+        assert_eq!(targets[1].queue_capacity, 2048);
         assert_eq!(targets[1].flush_interval, Duration::from_secs(5));
         assert!(targets[1].include_diagnostics);
         assert!(!targets[0].include_alert_details);
@@ -3078,6 +3106,16 @@ reload_interval = "30s"
                     },
                 } => FailsWith(
                     "sinks.otlp.targets[2].batch_size must be greater than 0".to_string()
+                ),
+
+                IndexedOtlpTarget {
+                    index: 2,
+                    target: OtlpTargetConfig {
+                        queue_capacity: 0,
+                        ..otlp_target("http://site.example:4317")
+                    },
+                } => FailsWith(
+                    "sinks.otlp.targets[2].queue_capacity must be greater than 0".to_string()
                 ),
 
                 IndexedOtlpTarget {
@@ -3252,6 +3290,7 @@ reload_interval = "30s"
                         targets: vec![OtlpTargetConfig {
                             endpoint: "http://localhost:4317".to_string(),
                             batch_size: 512,
+                            queue_capacity: OtlpTargetConfig::DEFAULT_QUEUE_CAPACITY,
                             flush_interval: Duration::from_secs(2),
                             include_diagnostics: false,
                             include_alert_details: false,
@@ -3290,6 +3329,7 @@ reload_interval = "30s"
                         targets: vec![OtlpTargetConfig {
                             endpoint: "http://localhost:4317".to_string(),
                             batch_size: 512,
+                            queue_capacity: OtlpTargetConfig::DEFAULT_QUEUE_CAPACITY,
                             flush_interval: Duration::from_secs(2),
                             include_diagnostics: true,
                             include_alert_details: false,
@@ -3308,6 +3348,7 @@ reload_interval = "30s"
                             OtlpTargetConfig {
                                 endpoint: "http://site.example:4317".to_string(),
                                 batch_size: 512,
+                                queue_capacity: OtlpTargetConfig::DEFAULT_QUEUE_CAPACITY,
                                 flush_interval: Duration::from_secs(2),
                                 include_diagnostics: false,
                                 include_alert_details: false,
@@ -3316,6 +3357,7 @@ reload_interval = "30s"
                             OtlpTargetConfig {
                                 endpoint: "http://central.example:4317".to_string(),
                                 batch_size: 512,
+                                queue_capacity: OtlpTargetConfig::DEFAULT_QUEUE_CAPACITY,
                                 flush_interval: Duration::from_secs(2),
                                 include_diagnostics: true,
                                 include_alert_details: false,
@@ -3362,6 +3404,7 @@ reload_interval = "30s"
                         targets: vec![OtlpTargetConfig {
                             endpoint: "http://localhost:4317".to_string(),
                             batch_size: 512,
+                            queue_capacity: OtlpTargetConfig::DEFAULT_QUEUE_CAPACITY,
                             flush_interval: Duration::from_secs(2),
                             include_diagnostics: false,
                             include_alert_details: false,
