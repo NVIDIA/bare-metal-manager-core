@@ -1102,6 +1102,17 @@ mod rbac_rule_tests {
     }
 
     #[test]
+    fn anonymous_rules_allow_certless_callers() {
+        // Certless callers must be allowed when a rule lists Anonymous among other principals.
+        for method in ["GetJWKS", "GetOpenIDConfiguration"] {
+            assert!(
+                InternalRBACRules::allowed_from_static(method, &[]),
+                "{method}"
+            );
+        }
+    }
+
+    #[test]
     fn rbac_rule_tests() -> Result<(), eyre::Report> {
         assert!(InternalRBACRules::allowed_from_static(
             "Version",
