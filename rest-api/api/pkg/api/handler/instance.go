@@ -710,6 +710,7 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 
 			dbInterfaces = append(dbInterfaces, cdbm.Interface{
 				SubnetID:           &subnetID,
+				Subnet:             subnet,
 				IsPhysical:         ifc.IsPhysical,
 				RequestedIpAddress: nil, // RequestedIpAddress requires a VPC prefix, and model validation enforces this.
 				Status:             cdbm.InterfaceStatusPending,
@@ -2763,6 +2764,7 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 
 			dbInterfaces = append(dbInterfaces, cdbm.Interface{
 				SubnetID:           &subnetID,
+				Subnet:             subnet,
 				IsPhysical:         ifc.IsPhysical,
 				RequestedIpAddress: nil, // RequestedIpAddress requires a VPC prefix, and model validation enforces this.
 				Status:             cdbm.InterfaceStatusPending,

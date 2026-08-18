@@ -146,6 +146,15 @@ func TestInterface_EthernetKey(t *testing.T) {
 	differentVpc := base
 	differentVpc.VpcID = cutil.GetPtr(uuid.New())
 	assert.NotEqual(t, base.EthernetKey(), differentVpc.EthernetKey())
+
+	virtualFunction := base
+	virtualFunction.IsPhysical = false
+	virtualFunction.VirtualFunctionID = cutil.GetPtr(1)
+	assert.NotEqual(t, base.EthernetKey(), virtualFunction.EthernetKey(), "a virtual function must not match a physical function")
+
+	otherVirtualFunction := virtualFunction
+	otherVirtualFunction.VirtualFunctionID = cutil.GetPtr(2)
+	assert.NotEqual(t, virtualFunction.EthernetKey(), otherVirtualFunction.EthernetKey())
 }
 
 func TestInterfaceSQLDAO_Create(t *testing.T) {
