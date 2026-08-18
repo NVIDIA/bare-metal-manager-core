@@ -4074,4 +4074,67 @@ mod tests {
         assert_eq!(resolved.resolved.endpoints[0].bmc_ip, bmc_ip);
         assert_eq!(resolved.resolved.ip_to_machine_id.get(&bmc_ip), Some(&id));
     }
+
+    /// Verify that the result mapping used by the MachineIds firmware-status
+    /// path converts `bmc_ip` back to the machine ID and propagates the state
+    /// and target version returned by the CM backend.
+    #[tokio::test]
+    async fn compute_tray_firmware_status_result_mapped_to_machine_id() {
+        use component_manager::mock::MockComputeTrayManager;
+
+        let id = host_machine_id();
+        let machine = standalone_machine();
+        let bmc_ip = machine.status.bmc_info.ip.expect("fixture has BMC IP");
+        let machines = HashMap::from([(id, machine)]);
+        let creds = TestCredentialManager::new(Credentials::UsernamePassword {
+            username: "root".into(),
+            password: "secret".into(),
+        });
+
+        let resolved =
+            resolve_compute_tray_endpoints_from_machines(&creds, &machines, &[id]).await;
+        assert!(resolved.unresolved.is_empty());
+
+        let cm = MockComputeTrayManager;
+        let backend_statuses = cm
+            .get_firmware_status(&resolved.resolved.endpoints)
+            .await
+            .expect("mock CM must not fail");
+
+        let statuses: Vec<rpc::FirmwareUpdateStatus> = backend_statuses
+            .into_iter()
+            .map(|s| {
+                let component_id = resolved
+                    .resolved
+                    .ip_to_machine_id
+                    .get(&s.bmc_ip)
+                    .map(|mid| mid.to_string())
+                    .unwrap_or_else(|| s.bmc_ip.to_string());
+                rpc::FirmwareUpdateStatus {
+                    result: Some(if s.error.is_none() {
+                        success_result(&component_id)
+                    } else {
+                        error_result(&component_id, s.error.unwrap_or_default())
+                    }),
+                    state: map_fw_state(s.state),
+                    target_version: s.target_version,
+                    updated_at: None,
+                }
+            })
+            .collect();
+
+        assert_eq!(statuses.len(), 1);
+        let status = &statuses[0];
+        // The component ID must be the machine ID, not the raw BMC IP.
+        assert_eq!(
+            status.result.as_ref().map(|r| r.component_id.as_str()),
+            Some(id.to_string().as_str()),
+            "component_id should be the machine ID, not {bmc_ip}"
+        );
+        assert_eq!(
+            status.state,
+            rpc::FirmwareUpdateState::FwStateCompleted as i32
+        );
+        assert_eq!(status.target_version, "mock-1.0.0");
+    }
 }
