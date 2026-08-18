@@ -126,13 +126,19 @@ images-all-validate: images-validate
 	$(call check-arches,$(DPU_ARCHES),DPU_ARCHES)
 	$(require-nico-amd64)
 
-images: images-validate images-core images-rest ## Build the deployable service stack (NICo Core + REST images)
+images: ## Build the deployable service stack (NICo Core + REST images)
+	# Ensure validation runs before building even with parallel builds.
+	$(MAKE) images-validate
+	$(MAKE) images-core images-rest
 	@echo ""
 	@echo "Deployable multi-arch images pushed under $(IMAGE_REGISTRY) (tag: $(IMAGE_TAG)):"
 	@echo "  $(IMAGE_REGISTRY)/nico:$(IMAGE_TAG)   (NICo Core)"
 	@echo "  $(IMAGE_REGISTRY)/nico-rest-*:$(IMAGE_TAG)       (REST services)"
 
-images-all: images-all-validate images images-machine-validation images-boot-artifacts images-bfb ## Build every image (stack + machine validation + boot artifacts; needs an mkosi build host)
+images-all: ## Build every image (stack + machine validation + boot artifacts; needs an mkosi build host)
+	# Ensure validation runs before building even with parallel builds.
+	$(MAKE) images-all-validate
+	$(MAKE) images images-machine-validation images-boot-artifacts images-bfb
 
 images-registry:
 	@if [ "$(IMAGE_REGISTRY)" = "localhost:5000" ] && ! curl -fsS http://localhost:5000/v2/ >/dev/null 2>&1; then \
@@ -143,8 +149,9 @@ images-registry:
 		fi; \
 	fi
 
-images-base: images-registry ## Build and push the Core base containers (NICO_ARCHES="amd64 arm64")
+images-base: ## Build and push the Core base containers (NICO_ARCHES="amd64 arm64")
 	$(call check-arches,$(NICO_ARCHES),NICO_ARCHES)
+	$(MAKE) images-registry
 	@set -e; \
 	for arch in $(NICO_ARCHES); do \
 		case $$arch in \
@@ -157,8 +164,9 @@ images-base: images-registry ## Build and push the Core base containers (NICO_AR
 		docker buildx build --platform linux/$$arch --push --file $$runtime_file -t $$runtime_tag . ; \
 	done
 
-images-core: images-base ## Build the NICo Core image (nico) (NICO_ARCHES="amd64 arm64")
+images-core: ## Build the NICo Core image (nico) (NICO_ARCHES="amd64 arm64")
 	$(call check-arches,$(NICO_ARCHES),NICO_ARCHES)
+	$(MAKE) images-base
 	@set -e; \
 	tags=""; \
 	for arch in $(NICO_ARCHES); do \
@@ -177,13 +185,15 @@ images-core: images-base ## Build the NICo Core image (nico) (NICO_ARCHES="amd64
 	done; \
 	docker buildx imagetools create -t $(IMAGE_REGISTRY)/nico:$(IMAGE_TAG) $$tags
 
-images-rest: images-registry ## Build the REST service images (api, workflow, site-manager, site-agent, db, cert-manager, flow, psm, nsm) (NICO_ARCHES="amd64 arm64")
+images-rest: ## Build the REST service images (api, workflow, site-manager, site-agent, db, cert-manager, flow, psm, nsm) (NICO_ARCHES="amd64 arm64")
 	$(call check-arches,$(NICO_ARCHES),NICO_ARCHES)
+	$(MAKE) images-registry
 	$(MAKE) -C rest-api docker-build IMAGE_REGISTRY=$(IMAGE_REGISTRY) IMAGE_TAG=$(IMAGE_TAG) DOCKER_ARCHES="$(NICO_ARCHES)"
 
-images-machine-validation: images-base ## Build the machine-validation runner + config images (NICO_ARCHES="amd64 arm64"; must include amd64)
+images-machine-validation: ## Build the machine-validation runner + config images (NICO_ARCHES="amd64 arm64"; must include amd64)
 	$(call check-arches,$(NICO_ARCHES),NICO_ARCHES)
 	$(require-nico-amd64)
+	$(MAKE) images-base
 	docker buildx build --platform linux/amd64 --load --build-arg CONTAINER_RUNTIME_X86_64=$(CORE_RUNTIME_CONTAINER_AMD64) \
 		-t machine-validation-runner:$(IMAGE_TAG) \
 		--file dev/docker/Dockerfile.machine-validation-runner .
@@ -204,8 +214,9 @@ images-machine-validation: images-base ## Build the machine-validation runner + 
 	done; \
 	docker buildx imagetools create -t $(IMAGE_REGISTRY)/machine-validation:$(IMAGE_TAG) $$tags
 
-images-boot-artifacts: images-registry ## Build the x86 boot-artifact image (BOOT_ARTIFACTS_ARCHES="amd64 arm64"; requires mkosi + rust toolchain on the host)
+images-boot-artifacts: ## Build the x86 boot-artifact image (BOOT_ARTIFACTS_ARCHES="amd64 arm64"; requires mkosi + rust toolchain on the host)
 	$(call check-arches,$(BOOT_ARTIFACTS_ARCHES),BOOT_ARTIFACTS_ARCHES)
+	$(MAKE) images-registry
 	cargo make --cwd pxe --env SA_ENABLEMENT=1 build-boot-artifacts-x86-host-sa
 	@set -e; \
 	tags=""; \
@@ -217,8 +228,9 @@ images-boot-artifacts: images-registry ## Build the x86 boot-artifact image (BOO
 	done; \
 	docker buildx imagetools create -t $(IMAGE_REGISTRY)/boot-artifacts-x86_64:$(IMAGE_TAG) $$tags
 
-images-bfb: images-registry ## Build the aarch64 DPU BFB boot-artifact image (DPU_ARCHES="amd64 arm64"; cross-arch; requires mkosi + aarch64 toolchain)
+images-bfb: ## Build the aarch64 DPU BFB boot-artifact image (DPU_ARCHES="amd64 arm64"; cross-arch; requires mkosi + aarch64 toolchain)
 	$(call check-arches,$(DPU_ARCHES),DPU_ARCHES)
+	$(MAKE) images-registry
 	cargo make --cwd pxe --env SA_ENABLEMENT=1 build-boot-artifacts-bfb-sa
 	@set -e; \
 	tags=""; \
