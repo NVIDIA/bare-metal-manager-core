@@ -1708,6 +1708,19 @@ jobs:
           lint: 'true'
           template: 'true'
 
+      # Subcharts (nico-flow, nico-machine-a-tron, unbound, etc) disabled by default
+      # must be listed explicitly - umbrella chart tests skip them.
+      - name: Run Helm unit tests
+        uses: d3adb5/helm-unittest-action@v2
+        with:
+          unittest-version: ~1
+          charts: >-
+            helm
+            helm/charts/nico-flow
+            helm/charts/nico-machine-a-tron
+            helm/charts/nico-machine-a-tron/charts/mat-k8s-controller
+            helm/charts/unbound
+
   build-push-helm-chart:
     needs:
       - prepare
