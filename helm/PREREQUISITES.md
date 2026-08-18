@@ -62,7 +62,7 @@ namespace first and configure the sidecar to search it. See
 
 An SSL-enabled PostgreSQL instance is required by `nico-api` for persistent storage.
 
-- **Recommended:** Use a PostgreSQL operator such as Crunchy PGO or Zalando Postgres Operator to manage the database lifecycle.
+- **Recommended:** Use a PostgreSQL operator such as CloudNativePG or Crunchy PGO to manage the database lifecycle. The reference deployment uses CloudNativePG.
 - **Database name:** `nico` (configurable via values).
 - **Schema creation:** The migration job included in the `nico-api` subchart handles schema creation and migrations automatically. You do not need to run migrations manually.
 - **Connection details:** Provided to the chart via a ConfigMap and a Secret (see Sections 3 and 4 below).

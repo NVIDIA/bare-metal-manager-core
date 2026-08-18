@@ -31,8 +31,8 @@ repositories:
     url: https://helm.releases.hashicorp.com
   - name: external-secrets
     url: https://charts.external-secrets.io
-  - name: postgres-operator
-    url: https://opensource.zalando.com/postgres-operator/charts/postgres-operator
+  - name: cnpg
+    url: https://cloudnative-pg.github.io/charts
   - name: metallb
     url: https://metallb.github.io/metallb
   - name: argo
@@ -60,23 +60,20 @@ releases:
       - operators/values/metallb.yaml
 
   # ---------------------------------------------------------------------------
-  # Zalando postgres-operator — manages nico-pg-cluster HA Patroni cluster.
+  # CloudNativePG — manages the nico-pg-cluster HA PostgreSQL cluster.
   # Installed before cert-manager (no TLS dependency). Must be up before
-  # nico-prereqs so the postgresql.acid.zalan.do CRD exists when the chart
-  # creates the postgresql resource.
+  # nico-prereqs so the postgresql.cnpg.io CRDs exist when the chart creates
+  # the Cluster, Database, and managed-role resources.
   # ---------------------------------------------------------------------------
-  - name: postgres-operator
-    namespace: postgres
+  - name: cnpg
+    namespace: cnpg-system
     createNamespace: true
-    chart: postgres-operator/postgres-operator
-    # NOTE: chart versions below 1.11.0 are no longer published in Zalando's chart
-    # repository. The CRD API (acid.zalan.do/v1) is unchanged across this bump, and
-    # nico-pg-cluster pins postgresql.version explicitly, so the database is unaffected.
-    version: "1.11.0"
+    chart: cnpg/cloudnative-pg
+    version: "0.29.0"
     wait: true
     timeout: 600
     values:
-      - operators/values/postgres-operator.yaml
+      - operators/values/cloudnative-pg.yaml
 
   # ---------------------------------------------------------------------------
   # cert-manager — certificate issuance and ClusterIssuers
@@ -222,6 +219,24 @@ releases:
       - values.yaml
       - values/nico-prereqs-dynamic.yaml.gotmpl
     hooks:
+      - events: ["preSync"]
+        command: "bash"
+        args:
+          - -c
+          - |
+            set -euo pipefail
+            if kubectl get postgresql.acid.zalan.do nico-pg-cluster \
+                -n postgres >/dev/null 2>&1; then
+              echo "ERROR: refusing to replace the legacy nico-pg-cluster resource in place." >&2
+              echo "Existing-site data migration is not automated; see helm-prereqs/README.md." >&2
+              exit 1
+            fi
+            if helm status postgres-operator -n postgres >/dev/null 2>&1; then
+              echo "ERROR: remove the legacy postgres-operator Helm release only after its database cutover is verified." >&2
+              exit 1
+            fi
+            kubectl get namespace postgres >/dev/null 2>&1 \
+                || kubectl create namespace postgres
       - events: ["postSync"]
         command: "bash"
         args:

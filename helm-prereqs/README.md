@@ -56,7 +56,8 @@ helm-prereqs/
 │   ├── nico-site-agent.yaml     # Site-agent deployment values (DB config, gRPC settings)
 │   └── metallb-config.yaml     # MetalLB IP pools, BGP peers, and advertisements
 ├── templates/                  # nico-prereqs Helm chart templates (PKI, ESO, PostgreSQL)
-├── operators/                  # Raw manifests and operator values (local-path, MetalLB, cert-manager, Vault, ESO)
+├── operators/                  # Raw manifests and operator values (local-path, CloudNativePG, MetalLB, cert-manager, Vault, ESO)
+│   ├── values/cloudnative-pg.yaml # CloudNativePG operator values
 │   └── dpf/                    # DPF manifests/templates (DPF installs by default; --skip-dpf to opt out)
 ├── keycloak/                   # Dev Keycloak deployment and token helper scripts
 └── observability/              # Optional monitoring stack (Loki, Tempo, OTEL, Prometheus, Grafana)
@@ -153,9 +154,43 @@ The tables below summarize the keys that must be set per site.
 | `vault.nicoCliClientRole.name` | `"nico-cli-client"` | No | Vault role name, and the certificate `SubjectOU` when `ou` is empty. |
 | `vault.nicoCliClientRole.ou` | `""` | No | Certificate `SubjectOU` stamped on issued CLI client certs; empty means use `name`. nico-api maps the OU to the ExternalUser group, but admin-CLI authorization is gated by the issuer CN (`auth.additionalIssuerCns`), not the OU value. Do not set `"Invalid"`. |
 | `vault.nicoCliClientRole.organization` | `""` | No | Optional certificate `SubjectO` value for deployments that want an additional identity marker. |
+| `postgresql.enabled` | `true` | No for `setup.sh` | Chart-level switch for custom deployments. The reference setup workflow requires its managed CloudNativePG cluster. |
 | `postgresql.instances` | `3` | No | Number of PostgreSQL replicas |
+| `postgresql.synchronousMode` | `true` | For one instance | Enables required synchronous replication. Set to `false` when `postgresql.instances` is `1`. |
+| `postgresql.imageName` | `"ghcr.io/cloudnative-pg/postgresql:15.18-standard-trixie"` | For an air gap | PostgreSQL operand image. Override with the tested mirror image before installation. |
+| `postgresql.imagePullSecrets` | `[]` | For an authenticated mirror | Names of pull Secrets that already exist in the `postgres` namespace. |
 | `postgresql.volumeSize` | `"10Gi"` | No | PVC size per PostgreSQL replica |
 | `postgresql.storageClass` | `"local-path-persistent"` | No | StorageClass for the nico-prereqs PostgreSQL PVCs. Override through Helm values when using a non-local StorageClass. |
+
+### CloudNativePG database contract
+
+The reference workflow installs `cnpg/cloudnative-pg` chart `0.29.0`
+(operator `1.30.0`) in `cnpg-system`. The `nico-pg-cluster` `Cluster` and its
+`Database` resources run in `postgres` with the PostgreSQL `15.18` standard
+image. Database clients must use the writable service
+`nico-pg-cluster-rw.postgres.svc.cluster.local:5432`.
+
+The chart declares the NICo roles and databases; the `nico_rest` `Database`
+declares the `btree_gin` and `pg_trgm` extensions. CloudNativePG reads
+passwords from `nico-system-db-user`, `nico-rest-db-user`, `flow-db-user`,
+`psm-db-user`, and `nsm-db-user` in `postgres`; optional-role Secrets exist only
+when their component is enabled. External Secrets projects those source Secrets
+to the existing application-facing names; consumers do not read them directly.
+
+The reference chart does not configure database backups. Before production
+use, configure CloudNativePG object-store or volume-snapshot backups, or an
+external PostgreSQL backup system, and test restoration.
+
+CloudNativePG does not adopt another operator's PostgreSQL Pods or PVCs. This
+change supports clean installations; it does not provide an existing-site data
+migration or Helm-adoption workflow. `setup.sh` and the Helmfile pre-sync hook
+therefore fail while the legacy cluster resource or Helm release is present.
+Keep the previous operator and storage intact until a separately reviewed
+migration and cutover plan has completed.
+
+The Helmfile workflow creates the `postgres` namespace. For a direct chart
+install, create that namespace first. An authenticated PostgreSQL image mirror
+also requires its pull Secret in that namespace before installation.
 
 ### `values/nico-core.yaml`
 
@@ -191,8 +226,8 @@ The tables below summarize the keys that must be set per site.
 
 | Key | Default | Must change? | Description |
 |-----|---------|-------------|-------------|
-| `envConfig.DB_ADDR` | `"postgres.postgres.svc.cluster.local"` | For prod | PostgreSQL host address |
-| `envConfig.DB_DATABASE` | `"elektratest"` | For prod | Database name |
+| `envConfig.DB_ADDR` | `"nico-pg-cluster-rw.postgres.svc.cluster.local"` | No | CloudNativePG writable service |
+| `envConfig.DB_DATABASE` | `"nico_rest"` | No | NICo REST database name |
 | `envConfig.DEV_MODE` | `"true"` | For prod | Set to `"false"` in production |
 | `envConfig.NICO_SEC_OPT` | `"2"` | No | Security mode: 0=insecure, 1=TLS, 2=mTLS (required) |
 | `CLUSTER_ID` | — | No (auto) | Site UUID. Set automatically by `setup.sh` via `--set` from `NICO_SITE_UUID`. |
@@ -252,7 +287,7 @@ unreachable registry host skips the image checks entirely
 ```text
 local-path-provisioner     (raw manifest - StorageClasses for Vault + PostgreSQL PVCs)
 metallb                    (metallb/metallb 0.14.5 - LoadBalancer IPs via BGP or L2)
-postgres-operator          (zalando/postgres-operator 1.10.1 - manages nico-pg-cluster)
+cloudnative-pg             (cnpg/cloudnative-pg 0.29.0 - operator 1.30.0)
 cert-manager               (jetstack/cert-manager v1.17.1)
 vault                      (hashicorp/vault 0.25.0, 3-node HA Raft, TLS)
 external-secrets           (external-secrets/external-secrets 0.14.3)

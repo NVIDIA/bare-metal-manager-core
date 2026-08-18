@@ -22,11 +22,11 @@
 #   1. nico core        (separate helm release, if installed)
 #   1b. DPF stack          (DPF CRs, dpf-operator helm release — if installed)
 #   2. helmfile releases   (nico-prereqs, external-secrets, vault, cert-manager,
-#                           postgres-operator, DPF prereqs when installed)
+#                           CloudNativePG, DPF prereqs when installed)
 #   3. cluster-scoped hook resources (ClusterIssuers, ClusterSecretStore, etc.)
 #   4. vault init secrets  (vault-cluster-keys, vaultunsealkeys, vaultroottoken)
 #   5. namespaces          (nico-system, cert-manager, vault, external-secrets,
-#                           postgres, dpf-operator-system)
+#                           postgres, cnpg-system, dpf-operator-system)
 #   6. local-path-persistent PVs owned by this stack (Retain policy — not deleted with namespace;
 #                           flipped to Delete first so the provisioner reclaims the host directory)
 #   7. local-path-provisioner + StorageClass (applied via kubectl, not helm-managed)
@@ -164,7 +164,7 @@ fi
 # ---------------------------------------------------------------------------
 # 2. All helmfile releases in reverse dependency order:
 #    nico-prereqs → node-feature-discovery → maintenance-operator → kamaji →
-#    argo-cd → external-secrets → vault → cert-manager → metallb
+#    argo-cd → external-secrets → vault → cert-manager → CloudNativePG → metallb
 # ---------------------------------------------------------------------------
 echo "=== [2/8] Destroying helmfile releases ==="
 
@@ -179,6 +179,19 @@ kubectl delete bgppeer --all \
 kubectl delete ipaddresspool --all \
     -n metallb-system --ignore-not-found 2>/dev/null || true
 
+# Delete CNPG resources while their finalizers can still be reconciled.
+echo "Removing a legacy PostgreSQL cluster, if this site has not completed its operator cleanup..."
+kubectl delete postgresql.acid.zalan.do nico-pg-cluster -n postgres \
+    --ignore-not-found --timeout=180s 2>/dev/null || true
+helm uninstall postgres-operator -n postgres --wait --timeout=120s \
+    2>/dev/null || true
+
+echo "Removing CloudNativePG databases and cluster..."
+kubectl delete databases.postgresql.cnpg.io --all -n postgres \
+    --ignore-not-found --timeout=120s 2>/dev/null || true
+kubectl delete clusters.postgresql.cnpg.io nico-pg-cluster -n postgres \
+    --ignore-not-found --timeout=180s 2>/dev/null || true
+
 helmfile destroy 2>/dev/null || true
 
 # MetalLB CRDs — helm does not delete CRDs on uninstall.
@@ -187,10 +200,16 @@ kubectl get crd -o name | grep metallb.io \
     | xargs kubectl delete --ignore-not-found 2>/dev/null || true
 
 # Helm does NOT delete CRDs on uninstall (to prevent accidental data loss).
-# Delete postgres-operator CRDs explicitly so a subsequent setup.sh can
-# reinstall them cleanly — especially important when they were previously
-# managed by a different field manager (e.g. ArgoCD) which causes SSA conflicts.
-echo "Removing postgres-operator CRDs and cluster-scoped RBAC..."
+# Helm does not delete CloudNativePG CRDs.
+echo "Removing CloudNativePG CRDs and cluster-scoped RBAC..."
+kubectl get crd -o name 2>/dev/null \
+    | grep '\.postgresql\.cnpg\.io$' \
+    | xargs kubectl delete --ignore-not-found 2>/dev/null || true
+kubectl get clusterrole,clusterrolebinding -o name \
+    -l app.kubernetes.io/name=cloudnative-pg 2>/dev/null \
+    | xargs kubectl delete --ignore-not-found 2>/dev/null || true
+
+# Transitional cleanup for sites that previously ran the legacy operator.
 kubectl delete crd \
     operatorconfigurations.acid.zalan.do \
     postgresqls.acid.zalan.do \
@@ -311,12 +330,12 @@ kubectl delete secret vault-cluster-keys vaultunsealkeys vaultroottoken \
 #    conflict with setup.sh's helmfile install into the external-secrets ns.
 # ---------------------------------------------------------------------------
 echo "=== [5/8] Deleting namespaces ==="
-kubectl delete ns nico-system cert-manager vault external-secrets postgres metallb-system dpf-operator-system \
+kubectl delete ns nico-system cert-manager vault external-secrets postgres cnpg-system metallb-system dpf-operator-system \
     --wait=false --ignore-not-found 2>/dev/null || true
 
 echo "Waiting for namespaces to terminate..."
 kubectl wait --for=delete \
-    ns/nico-system ns/cert-manager ns/vault ns/external-secrets ns/postgres ns/metallb-system ns/dpf-operator-system \
+    ns/nico-system ns/cert-manager ns/vault ns/external-secrets ns/postgres ns/cnpg-system ns/metallb-system ns/dpf-operator-system \
     --timeout=180s 2>/dev/null || true
 
 echo "Purging default namespace (ESO and other non-kubespray resources)..."
@@ -437,7 +456,7 @@ fi
 # which is the bug this file exists to fix. loki and tempo in particular hold
 # real data. flow is included for the same reason even though it predated this
 # list: step 0 deletes that namespace.
-_STACK_NS="nico-system cert-manager vault external-secrets postgres \
+_STACK_NS="nico-system cert-manager vault external-secrets postgres cnpg-system \
 metallb-system dpf-operator-system nico-rest temporal flow \
 loki tempo monitoring otel"
 _STACK_NS="$(printf '%s' "${_STACK_NS}" | tr -s '[:space:]' ' ')"

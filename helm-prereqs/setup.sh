@@ -194,6 +194,24 @@ esac
 # shellcheck source=preflight.sh
 source "${SCRIPT_DIR}/preflight.sh"
 
+# Refuse an in-place conversion before setup changes the cluster.
+if kubectl get postgresql.acid.zalan.do nico-pg-cluster \
+        -n postgres >/dev/null 2>&1; then
+    echo "ERROR: detected the legacy nico-pg-cluster PostgreSQL resource in namespace postgres." >&2
+    echo "       setup.sh will not perform an in-place operator or PVC conversion." >&2
+    echo "       Existing-site data migration is not automated by this repository." >&2
+    echo "       Keep the existing operator and storage until an approved migration is complete." >&2
+    echo "       See helm-prereqs/README.md#cloudnativepg-database-contract." >&2
+    exit 1
+fi
+if helm status postgres-operator -n postgres >/dev/null 2>&1; then
+    echo "ERROR: detected the legacy postgres-operator Helm release in namespace postgres." >&2
+    echo "       Existing-site data migration is not automated by this repository." >&2
+    echo "       After an approved migration, confirm that it manages no clusters:" >&2
+    echo "         kubectl get postgresqls.acid.zalan.do -A" >&2
+    exit 1
+fi
+
 VAULT_NS="${VAULT_NS:-vault}"
 CERT_MANAGER_NS="${CERT_MANAGER_NS:-cert-manager}"
 NICO_MANAGE_DEFAULT_STORAGE_CLASS="${NICO_MANAGE_DEFAULT_STORAGE_CLASS:-true}"
@@ -302,6 +320,36 @@ _on_failure() {
     fi
 }
 trap '_on_failure' EXIT
+
+_wait_for_synced_db_secret() {
+    local source_name="$1" source_ns="$2" target_name="$3" target_ns="$4"
+    local source_user source_password target_user target_password attempt
+
+    for attempt in $(seq 1 24); do
+        source_user="$(kubectl get secret "${source_name}" -n "${source_ns}" \
+            -o jsonpath='{.data.username}' 2>/dev/null || true)"
+        source_password="$(kubectl get secret "${source_name}" -n "${source_ns}" \
+            -o jsonpath='{.data.password}' 2>/dev/null || true)"
+        target_user="$(kubectl get secret "${target_name}" -n "${target_ns}" \
+            -o jsonpath='{.data.username}' 2>/dev/null || true)"
+        target_password="$(kubectl get secret "${target_name}" -n "${target_ns}" \
+            -o jsonpath='{.data.password}' 2>/dev/null || true)"
+
+        if [[ -n "${source_user}" && -n "${source_password}" && \
+              "${target_user}" == "${source_user}" && \
+              "${target_password}" == "${source_password}" ]]; then
+            echo "  ${target_ns}/${target_name} matches ${source_ns}/${source_name}"
+            return 0
+        fi
+
+        echo "  Waiting for ${target_ns}/${target_name} to match ${source_ns}/${source_name} (${attempt}/24)..."
+        sleep 5
+    done
+
+    echo "ERROR: ${target_ns}/${target_name} did not match ${source_ns}/${source_name} within 120s." >&2
+    echo "       Check the corresponding ClusterExternalSecret and postgres-ns-secretstore." >&2
+    return 1
+}
 
 # ---------------------------------------------------------------------------
 # Ensure helmfile is installed
@@ -426,13 +474,13 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 1b. postgres-operator — Zalando operator must be up (CRD registered) before
-#     the NICo prereqs chart creates the postgresql resource in Phase 5.
+# 1b. CloudNativePG — the operator must be up (CRDs registered) before the
+#     NICo prereqs chart creates its Cluster and Database resources in Phase 5.
 #     No TLS dependency — install early.
 # ---------------------------------------------------------------------------
-_SETUP_PHASE="[1b] postgres-operator"
-echo "=== [1b] postgres-operator ==="
-helmfile sync -l name=postgres-operator
+_SETUP_PHASE="[1b] CloudNativePG"
+echo "=== [1b] CloudNativePG ==="
+helmfile sync -l name=cnpg
 
 # ---------------------------------------------------------------------------
 # 1c. MetalLB — LoadBalancer service provider (BGP or L2 mode).
@@ -615,55 +663,26 @@ helmfile sync -l name=external-secrets
 helmfile sync -l name=nico-prereqs
 
 # ---------------------------------------------------------------------------
-# Wait for postgres-operator to provision the cluster and ESO to sync creds
+# Wait for CloudNativePG to provision the cluster and ESO to sync credentials
 # before NICo Core starts (the NICo Core API needs the DB credentials Secret).
 # ---------------------------------------------------------------------------
-echo "Waiting for nico-pg-cluster to reach Running state..."
-until kubectl get postgresql nico-pg-cluster -n postgres \
-    -o jsonpath='{.status.PostgresClusterStatus}' 2>/dev/null | grep -q "Running"; do
-    STATUS="$(kubectl get postgresql nico-pg-cluster -n postgres \
-        -o jsonpath='{.status.PostgresClusterStatus}' 2>/dev/null || echo 'unknown')"
-    echo "  nico-pg-cluster status: ${STATUS} — retrying in 10s..."
-    sleep 10
-done
-echo "nico-pg-cluster is Running"
+echo "Waiting for nico-pg-cluster to become ready..."
+kubectl wait --for=condition=Ready cluster/nico-pg-cluster \
+    -n postgres --timeout=600s
+echo "nico-pg-cluster is ready"
 
-# Install pg_trgm on nico_rest (needed by the nico-rest-db GIN index migration).
-# Zalando's preparedDatabases conflicts with the databases section, so we install
-# the extension directly after the cluster is ready. Idempotent: IF NOT EXISTS.
-# Wait up to 120s for the Zalando operator to create the nico_rest database.
-_pg_trgm_installed=false
-for _pg_i in $(seq 1 24); do
-    _PG_PRIMARY="$(kubectl get pods -n postgres -l application=spilo \
-        -o jsonpath='{range .items[*]}{.metadata.name} {.metadata.labels.spilo-role}{"\n"}{end}' \
-        2>/dev/null | awk '$2=="master"{print $1}' | head -1)"
-    if [[ -z "${_PG_PRIMARY}" ]]; then
-        echo "  pg_trgm: no Patroni primary yet (${_pg_i}/24) — retrying in 5s..."
-        sleep 5
-        continue
-    fi
-    if kubectl exec -n postgres "${_PG_PRIMARY}" -- \
-        su postgres -c "psql -d nico_rest -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm;'" \
-        2>/dev/null; then
-        echo "pg_trgm ready"
-        _pg_trgm_installed=true
-        break
-    fi
-    echo "  pg_trgm: nico_rest not yet created by operator (${_pg_i}/24) — retrying in 5s..."
-    sleep 5
-done
-if [[ "${_pg_trgm_installed}" == "false" ]]; then
-    echo "  pg_trgm: nico_rest unavailable after 120s."
-    echo "    → If rest.enabled=false in nico-prereqs, the nico_rest database is not created — this is expected."
-    echo "    → If rest.enabled=true, the nico-rest-db migration will fail on the GIN index step."
-fi
+while IFS= read -r _database; do
+    [[ -z "${_database}" ]] && continue
+    echo "Waiting for ${_database} to be applied..."
+    kubectl wait --for=jsonpath='{.status.applied}'=true "${_database}" \
+        -n postgres --timeout=120s
+done < <(kubectl get database.postgresql.cnpg.io -n postgres \
+    -l nico.nvidia.com/postgresql-cluster=nico-pg-cluster -o name)
 
 echo "Waiting for DB credentials to be synced by ESO..."
-until kubectl get secret nico-system.nico.nico-pg-cluster.credentials \
-    -n nico-system &>/dev/null; do
-    echo "  credentials not yet synced — retrying in 5s..."
-    sleep 5
-done
+_wait_for_synced_db_secret \
+    nico-system-db-user postgres \
+    nico-system.nico.nico-pg-cluster.credentials nico-system
 echo "DB credentials ready"
 
 echo "Waiting for Vault AppRole credentials to be synced by ESO..."
@@ -1643,24 +1662,14 @@ echo "Temporal namespaces ready"
 
 _SETUP_PHASE="[7g/7] NICo REST helm chart"
 # --- 7g. NICo REST helm chart -------------------------------------------------
-# Wait for ESO to sync the Zalando-generated REST DB credentials into nico-rest.
+# Wait for ESO to sync the CNPG-managed REST DB credentials into nico-rest.
 # nico-rest-db-eso ClusterExternalSecret creates nico-rest-pg-creds once the
 # nico-rest namespace (created in 7a) is visible to ESO. The nico-rest-db
 # pre-install hook will fail immediately if the secret is missing.
 echo "Waiting for REST DB credentials to be synced by ESO (nico-rest-pg-creds in nico-rest)..."
-for _rdc_i in $(seq 1 24); do
-    if kubectl get secret nico-rest-pg-creds -n nico-rest &>/dev/null; then
-        break
-    fi
-    if [[ "${_rdc_i}" -eq 24 ]]; then
-        echo "ERROR: nico-rest-pg-creds not synced after 120s." >&2
-        echo "  Check: kubectl describe clusterexternalsecret nico-rest-db-eso" >&2
-        echo "  Ensure the nico-rest namespace exists and rest.enabled=true in nico-prereqs." >&2
-        exit 1
-    fi
-    echo "  nico-rest-pg-creds not yet synced (${_rdc_i}/24) — retrying in 5s..."
-    sleep 5
-done
+_wait_for_synced_db_secret \
+    nico-rest-db-user postgres \
+    nico-rest-pg-creds nico-rest
 echo "REST DB credentials ready"
 
 # Write credentials to a temp file rather than --set so they are not visible
@@ -1671,14 +1680,6 @@ printf 'nico-rest-common:\n  secrets:\n    dbCreds:\n      username: "%s"\n     
     "$(kubectl get secret nico-rest-pg-creds -n nico-rest -o jsonpath='{.data.username}' | base64 -d)" \
     "$(kubectl get secret nico-rest-pg-creds -n nico-rest -o jsonpath='{.data.password}' | base64 -d)" \
     > "${_NICO_REST_CREDS_FILE}"
-# The workflow workers missed the nico-pg-cluster consolidation (#3081): the
-# subchart defaults still point at the legacy postgres.postgres/nico database
-# (zero tables), so every DB activity fails with SQLSTATE 42P01 (relation
-# "site" does not exist) and no site can ever leave Pending. Align the worker
-# DB target with nico-rest-api at install time (password comes from the
-# db-creds Secret the nico-rest-common hook creates from the values above).
-printf 'nico-rest-workflow:\n  secrets:\n    dbCreds: "db-creds"\n  config:\n    db:\n      host: "nico-pg-cluster.postgres.svc.cluster.local"\n      name: "nico_rest"\n      user: "nico-rest.nico"\n' \
-    >> "${_NICO_REST_CREDS_FILE}"
 
 NICO_HELM_CHART="${NICO_REST_HELM_DIR}/nico-rest"
 NICO_REST_CMD=(
@@ -1854,11 +1855,10 @@ else
     done
 
     echo "Waiting for flow/psm/nsm DB credentials..."
-    for _s in flow.nico.nico-pg-cluster.credentials \
-             psm.nico.nico-pg-cluster.credentials \
-             nsm.nico.nico-pg-cluster.credentials; do
-        _wait_for_secret "${_s}" "${NICO_FLOW_NAMESPACE}" \
-            "Synced by the flow-db-eso/psm-db-eso/nsm-db-eso ClusterExternalSecrets in nico-prereqs. Check 'kubectl describe clusterexternalsecret -A | grep flow' and confirm helm-prereqs/values.yaml::flow.enabled=true."
+    for _svc in flow psm nsm; do
+        _wait_for_synced_db_secret \
+            "${_svc}-db-user" postgres \
+            "${_svc}.nico.nico-pg-cluster.credentials" "${NICO_FLOW_NAMESPACE}"
     done
 
     echo "Installing flow helm chart..."
@@ -1887,8 +1887,6 @@ fi
 #      no FailedMount window. Do NOT pre-create the secret — that would trigger
 #      the Job's idempotency check and skip the real bootstrap.
 #
-# The site-agent binary also needs DB credentials for its local elektratest DB.
-# All of this is wired via --set flags so nico-rest.yaml stays registry-agnostic.
 NICO_SITE_AGENT_CHART="${NICO_REST_HELM_DIR}/nico-rest-site-agent"
 
 # ---------------------------------------------------------------------------
@@ -1923,12 +1921,12 @@ fi
 
 # || true: under set -euo pipefail a kubectl failure here would kill the
 # script before the emptiness check that makes seeding optional.
-_REST_PG_PRIMARY="$(kubectl get pods -n postgres -l application=spilo \
-    -o jsonpath='{range .items[*]}{.metadata.name} {.metadata.labels.spilo-role}{"\n"}{end}' \
-    2>/dev/null | awk '$2=="master"{print $1}' | head -1 || true)"
-_rest_sql() {   # runs SQL against the nico_rest DB on the Patroni primary
-    kubectl exec -n postgres "${_REST_PG_PRIMARY}" -- \
-        su postgres -c "psql -d nico_rest -v ON_ERROR_STOP=1 -tAc \"$1\"" 2>/dev/null
+_REST_PG_PRIMARY="$(kubectl get pods -n postgres \
+    -l 'cnpg.io/cluster=nico-pg-cluster,cnpg.io/instanceRole=primary' \
+    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+_rest_sql() {   # runs SQL against nico_rest on the CNPG primary
+    kubectl exec -n postgres "${_REST_PG_PRIMARY}" -c postgres -- \
+        psql -U postgres -d nico_rest -v ON_ERROR_STOP=1 -tAc "$1" 2>/dev/null
 }
 
 # CLUSTER_ID reaches the agent via envFrom -> the nico-rest-site-agent-config
@@ -1992,7 +1990,7 @@ if [[ -n "${_REST_PG_PRIMARY}" ]]; then
         || echo "WARNING: could not seed the site status_detail row (non-fatal)" >&2
     echo "REST site record ready: '${NICO_SITE_NAME}' (${NICO_SITE_UUID}, org ${NICO_ORG})"
 else
-    echo "WARNING: no Patroni primary found — skipping REST site seeding (site-agent inventory will be dropped until the site exists)" >&2
+    echo "WARNING: no CNPG primary found — skipping REST site seeding (site-agent inventory will be dropped until the site exists)" >&2
 fi
 
 # If a previous bootstrap bound the site-registration secret to a DIFFERENT

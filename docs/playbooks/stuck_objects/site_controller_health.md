@@ -34,16 +34,20 @@ kubectl get pods -n vault
 | Symptom | What to check |
 |---|---|
 | `nico-api` crash loop | config TOML, database connectivity, TLS, required site fields. |
-| DB connection failures | Postgres health, pool exhaustion, deadlocks, Patroni member state. |
+| DB connection failures | PostgreSQL health, pool exhaustion, deadlocks, and CloudNativePG `Cluster` status. |
 | DHCP or PXE endpoint down | `nico-dhcp`, `nico-pxe`, LoadBalancer IPs, MetalLB. |
 | API TLS probe failure | certificate, LoadBalancer routing, DNS. |
 | DNS down | DNS pods, upstream resolver, endpoint probes. |
 | SSH console unreachable | SSH console pod and service routing. |
 
-Postgres health needs more than `kubectl get pods`:
+PostgreSQL health needs more than `kubectl get pods`. Check the CloudNativePG
+control-plane status, the writable service, and every database instance:
 
 ```bash
-kubectl -n postgres exec pod/<postgres-pod> -c postgres -- patronictl list
+kubectl -n postgres get cluster nico-pg-cluster
+kubectl -n postgres describe cluster nico-pg-cluster
+kubectl -n postgres get service nico-pg-cluster-rw
+kubectl -n postgres get pods -l cnpg.io/cluster=nico-pg-cluster
 ```
 
 ## Control-Plane Networking

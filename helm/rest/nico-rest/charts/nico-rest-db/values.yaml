@@ -15,7 +15,7 @@ waitForPostgres:
   image: postgres:14.4-alpine
 
 db:
-  host: nico-pg-cluster.postgres.svc.cluster.local
+  host: nico-pg-cluster-rw.postgres.svc.cluster.local
   port: "5432"
   name: nico_rest
   user: nico-rest.nico

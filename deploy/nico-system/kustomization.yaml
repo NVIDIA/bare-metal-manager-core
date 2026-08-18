@@ -38,10 +38,10 @@ configMapGenerator:
       - "NICO_API=https://nico-api.nico-system.svc.cluster.local:1079"
   - name: nico-system-nico-database-config
     literals:
-      - DB_HOST=nico-pg-cluster.postgres.svc.cluster.local
+      - DB_HOST=nico-pg-cluster-rw.postgres.svc.cluster.local
       - DB_PORT=5432
       - DB_NAME=nico_system_nico
-      - SECRET_REF=nico-system.nico.nico-pg-cluster.credentials.postgresql.acid.zalan.do
+      - SECRET_REF=nico-system.nico.nico-pg-cluster.credentials
   - name: vault-cluster-info
     literals:
       - VAULT_SERVICE=https://vault.vault.svc.cluster.local:8200
@@ -135,13 +135,3 @@ patches:
       version: v1
       kind: Certificate
       name: nico-ssh-console-rs-certificate
-  - patch: |-
-      apiVersion: acid.zalan.do/v1
-      kind: postgresql
-      metadata:
-        name: nico-pg-cluster
-    target:
-      group: acid.zalan.do
-      version: v1
-      kind: postgresql
-      name: nico-pg-cluster

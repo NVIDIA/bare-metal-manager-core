@@ -37,7 +37,7 @@ change something, you are touching one of these:
 | **1. Umbrella + subchart Helm values** | `helm/values.yaml` and `helm/charts/<chart>/values.yaml`, overridden by `helm-prereqs/values/nico-core.yaml` | Which subcharts are enabled, image references, replica counts, per-service LoadBalancer VIPs, ServiceMonitor toggles, certificate parameters. |
 | **2. `nico-api` siteConfig (TOML)** | `nico-api.siteConfig.nicoApiSiteConfig` block inside `helm-prereqs/values/nico-core.yaml`. Mounted into the `nico-api` pod as `nico-api-config.toml`. | All site-policy decisions: identity, pools, networks, tenant isolation, IB, NvLink, firmware updates, host health thresholds, state-controller timing, optional features (DSX, DPA, FNN, SPDM, attestation, ...). |
 | **3. Environment variables + secrets** | Container env in chart templates, Kubernetes Secrets, ConfigMaps. Injected by `setup.sh` (`NICO_IMAGE_REGISTRY`, `NICO_CORE_IMAGE_TAG`, `REGISTRY_PULL_SECRET`, ...) or ESO-synced from Vault. | Image registry/tag, registry pull credentials, database credentials, Vault tokens, SPIFFE trust domain overrides. |
-| **4. External-system config** | Vault PKI roles, Postgres-operator `postgresql` CRDs, MetalLB `IPAddressPool` / `BGPPeer` / `BGPAdvertisement` CRDs, MQTT brokers, Loki endpoints. | Anything outside NICo's own charts that NICo depends on. Wired by `helm-prereqs`, owned by the operator. |
+| **4. External-system config** | Vault PKI roles, CloudNativePG `Cluster` / `Database` CRs, MetalLB `IPAddressPool` / `BGPPeer` / `BGPAdvertisement` CRDs, MQTT brokers, Loki endpoints. | Anything outside NICo's own charts that NICo depends on. Wired by `helm-prereqs`, owned by the operator. |
 
 The rule of thumb: if you can change it with `helm upgrade`, it is layer 1
 or layer 3. If it requires editing the TOML block, it is layer 2. If it
@@ -812,7 +812,7 @@ through Kubernetes Secrets and ConfigMaps wired by `helm-prereqs`:
 
 | Secret / ConfigMap | Type | Provisioned by | Consumed by |
 |--------------------|------|----------------|-------------|
-| `nico-system.nico.nico-pg-cluster.credentials` | Secret | postgres-operator | `nico-api` (`DATASTORE_*` env) |
+| `nico-system.nico.nico-pg-cluster.credentials` | Secret | ESO, from the CloudNativePG role Secret `nico-system-db-user` | `nico-api` (`DATASTORE_*` env) |
 | `nico-system-nico-database-config` | ConfigMap | `helm-prereqs` | `nico-api` (`DATASTORE_HOST/PORT/NAME` env) |
 | `nico-vault-token` | Secret | Vault unseal job | `nico-api` (`VAULT_TOKEN` env) |
 | `nico-vault-approle-tokens` | Secret | Vault unseal job | Long-running token refresher (`VAULT_ROLE_ID`, `VAULT_SECRET_ID`) |
@@ -850,17 +850,37 @@ The Vault deployment itself uses [`helm-prereqs/operators/values/vault.yaml`](..
 
 ### PostgreSQL
 
-Deployed by the Zalando postgres-operator as a HA cluster named
-`nico-pg-cluster`. Configurable surface:
+The reference deployment installs the `cnpg/cloudnative-pg` chart `0.29.0`
+(CloudNativePG operator `1.30.0`) in `cnpg-system`. A `Cluster` named
+`nico-pg-cluster` and its `Database` resources run in the `postgres` namespace
+using the standard PostgreSQL `15.18` image. Clients use the writable service
+`nico-pg-cluster-rw.postgres.svc.cluster.local`.
 
-- `helm-prereqs/values.yaml` → `postgresql.instances` (replicas), `postgresql.volumeSize` (PVC size per replica).
-- Postgres-operator chart values: [`helm-prereqs/operators/values/postgres-operator.yaml`](../../../helm-prereqs/operators/values/postgres-operator.yaml).
+Roles, databases, and required extensions such as `pg_trgm` are declared in
+CloudNativePG resources. Passwords originate in these `postgres`-namespace
+role Secrets:
+`nico-system-db-user`, `nico-rest-db-user`, `flow-db-user`, `psm-db-user`, and
+`nsm-db-user`; optional-role Secrets exist only when their component is enabled.
+ESO projects them to the existing application-facing Secret names, so NICo
+workload configuration does not change.
+
+Configurable surface:
+
+- `helm-prereqs/values.yaml` → `postgresql.instances` (replicas),
+  `postgresql.synchronousMode` (required synchronous replication; disable for
+  a single instance),
+  `postgresql.imageName` (PostgreSQL operand image),
+  `postgresql.imagePullSecrets` (pre-created pull Secrets in `postgres`), and
+  `postgresql.volumeSize` (PVC size per replica).
+- CloudNativePG release and version: [`helm-prereqs/helmfile.yaml`](../../../helm-prereqs/helmfile.yaml); operator values: [`helm-prereqs/operators/values/cloudnative-pg.yaml`](../../../helm-prereqs/operators/values/cloudnative-pg.yaml).
 - Connection string is composed by `nico-api` from the
   `nico-system.nico.nico-pg-cluster.credentials` Secret plus the
   `nico-system-nico-database-config` ConfigMap.
 
 For external Postgres deployments, point `nico-api`'s `database_url` at the
-external instance and skip the postgres-operator install.
+external instance and compose the prerequisite chart directly with
+`postgresql.enabled: false`. The reference `setup.sh` workflow assumes its
+managed CloudNativePG cluster and requires `postgresql.enabled: true`.
 
 ### MetalLB
 
@@ -1099,8 +1119,8 @@ override:
 
 | Key | Default | Purpose |
 |-----|---------|---------|
-| `envConfig.DB_ADDR` | `postgres.postgres.svc.cluster.local` | Postgres host (the REST-side cluster, separate from NICo Core's). |
-| `envConfig.DB_DATABASE` | `elektratest` | Database name. |
+| `envConfig.DB_ADDR` | `nico-pg-cluster-rw.postgres.svc.cluster.local` | CloudNativePG writable service shared with NICo Core. |
+| `envConfig.DB_DATABASE` | `nico_rest` | NICo REST database name. |
 | `envConfig.DEV_MODE` | `"true"` | **Production must set to `"false"`.** |
 | `envConfig.NICO_SEC_OPT` | `"2"` | Security mode: `0` insecure, `1` TLS, `2` mTLS. Production requires `2`. |
 | `CLUSTER_ID` | — (set by `setup.sh`) | Site UUID (`NICO_SITE_UUID`). |
@@ -1108,10 +1128,10 @@ override:
 
 ### REST-side PostgreSQL
 
-NICo REST runs its own simple StatefulSet Postgres in the `nico-rest`
-namespace (not the HA Patroni cluster used by NICo Core). It hosts the
-Temporal, Keycloak (when enabled), and site-manager databases. The
-StatefulSet is templated by `setup.sh` and configurable via `nico-rest.yaml`.
+NICo REST application data uses the declarative `nico_rest` database in the
+shared CloudNativePG cluster. The setup workflow also deploys a separate,
+simple PostgreSQL StatefulSet for Temporal and Keycloak; that StatefulSet is
+not part of `nico-pg-cluster`.
 
 ### Temporal
 
@@ -1252,7 +1272,11 @@ the cluster for a clean reinstall.
 
 - Set `PREFLIGHT_CHECK_IMAGE` to a locally-mirrored busybox tag (default `busybox:1.36` pulls from Docker Hub).
 - Mirror every chart's image into the air-gapped registry; override each chart's `image.repository` to point at the mirror.
-- Mirror the helmfile-managed operator charts (cert-manager, vault, postgres-operator, external-secrets, MetalLB, postgres-operator) — set `imagePullSecrets` in `helm-prereqs/operators/values/*.yaml`.
+- Mirror the helmfile-managed operator charts (cert-manager, Vault, CloudNativePG, External Secrets, and MetalLB) and their images. Set `imagePullSecrets` in the corresponding `helm-prereqs/operators/values/*.yaml` files.
+- Mirror `postgresql.imageName` separately because it is the CloudNativePG
+  operand image, not the operator image. For an authenticated mirror, create
+  the referenced pull Secret in `postgres` before setup and list it under
+  `postgresql.imagePullSecrets`.
 - The `dockurr/chrony` image used by `nico-ntp` is on Docker Hub by default; mirror to your registry and override `nico-ntp.image.repository` for air-gapped sites.
 
 ### Values precedence (override patterns)
@@ -1276,9 +1300,10 @@ helm template nico ./helm -f helm-prereqs/values/nico-core.yaml --set global.ima
 
 - **`nico-api`**: stateless Deployment; scale replicas via `nico-api.replicas` (default 1). The state controllers use leader election when more than one replica runs.
 - **`nico-dns` / `nico-ntp`**: StatefulSets with per-pod LoadBalancer VIPs (default 3 replicas). Pod anti-affinity is enabled by default — replicas spread across nodes.
-- **PostgreSQL (NICo Core)**: Zalando HA Patroni cluster; `helm-prereqs/values.yaml` → `postgresql.instances` (default 3).
+- **PostgreSQL (NICo Core)**: CloudNativePG cluster; `helm-prereqs/values.yaml` → `postgresql.instances` (default 3).
 - **Vault**: 3-node HA Raft (set in `helm-prereqs/operators/values/vault.yaml`).
-- **PostgreSQL (NICo REST)**: single StatefulSet by default — not HA. For production, point `nico-site-agent.envConfig.DB_ADDR` at an external HA Postgres.
+- **PostgreSQL (NICo REST application)**: the `nico_rest` database shares the CloudNativePG cluster's instance count and failover behavior.
+- **PostgreSQL (Temporal and Keycloak)**: separate single StatefulSet by default — not HA.
 
 ### Logging and observability
 
@@ -1290,9 +1315,10 @@ helm template nico ./helm -f helm-prereqs/values/nico-core.yaml --set global.ima
 
 ### Backup and restore
 
-- **NICo Core Postgres**: backed by Zalando postgres-operator's wal-g integration. Configure backup destinations in `helm-prereqs/operators/values/postgres-operator.yaml`. Operator docs are upstream.
+- **NICo Core Postgres**: the reference chart does not configure backups. Configure CloudNativePG object-store or volume-snapshot backups, or use an external PostgreSQL backup system, before treating the deployment as recoverable.
 - **Vault**: 3-node HA Raft with disk persistence. Snapshots via `vault operator raft snapshot save`. For disaster recovery, the unseal keys are stored as the `vaultunsealkeys` Kubernetes Secret and the root token as `vaultroottoken` — preserve these out-of-band.
-- **NICo REST Postgres**: single-replica StatefulSet — back up the underlying PVC or migrate to an external HA Postgres.
+- **NICo REST application data**: included in the shared CloudNativePG backup plan; the reference chart does not provide one by default.
+- **Temporal and Keycloak Postgres**: single-replica StatefulSet — back up the underlying PVC or migrate to an external HA Postgres.
 - **Vault PKI roots**: cert-manager re-issues child certs automatically, but the Vault PKI mount's root CA must be backed up if you need to restore signing capability.
 
 ### Helm hooks and pre-install Jobs
@@ -1376,7 +1402,7 @@ for a 100-host site:
 | `nico-pxe` | `200m / 500m` | `512Mi / 1Gi` | Boot artifact serving. |
 | `nico-ssh-console-rs` | `200m / 500m` | `256Mi / 512Mi` | |
 | `nico-hardware-health` | `500m / 2` | `1Gi / 4Gi` | Scales with sensor poll rate. |
-| Postgres (per replica) | `1 / 4` | `4Gi / 16Gi` | Zalando default tuning. |
+| Postgres (per instance) | `1 / 4` | `4Gi / 16Gi` | CloudNativePG instance resources. |
 | Vault (per replica) | `500m / 2` | `512Mi / 2Gi` | |
 
 PVC sizing:
