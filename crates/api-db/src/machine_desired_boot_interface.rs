@@ -1022,7 +1022,6 @@ mod tests {
     }
 
     #[crate::sqlx_test]
-    #[allow(txn_held_across_await)] // Intentionally hold a row lock while exercising concurrency.
     async fn concurrent_set_and_mark_verified_use_parent_first_lock_order(
         pool: PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {

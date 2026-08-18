@@ -27,6 +27,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use carbide_utils::managed_loop::{self, LoopManager};
 pub use context::DiscoveryLoopContext;
+pub(crate) use context::load_nmxc_schema_override;
 pub use iteration::run_discovery_iteration;
 
 use crate::HealthError;

@@ -221,7 +221,6 @@ func (o *UpdateRuleRequest) UnmarshalJSON(data []byte) (err error) {
 	varUpdateRuleRequest := _UpdateRuleRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varUpdateRuleRequest)
 
 	if err != nil {

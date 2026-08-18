@@ -19,5 +19,5 @@ pub mod client;
 pub mod config;
 pub mod types;
 
-pub use client::NvueClient;
+pub use client::{FieldFilter, NvueClient};
 pub use config::NvueConfig;

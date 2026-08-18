@@ -5,6 +5,18 @@ configuration file, which is deserialized into `NicoConfig` (defined in
 `file.rs`). Fields are listed in declaration order. Defaults are noted where
 applicable.
 
+Unknown fields are reported after the base file, optional site override, and
+`CARBIDE_API_` environment values are merged. They produce warnings by default
+so configuration can be deployed ahead of the supporting binary. Set
+`deny_unknown_fields = true` to reject them during startup. Diagnostics include
+the invalid key's full section path and source. Names inside intentionally
+dynamic maps, such as pool names and rack-profile IDs, remain user-defined;
+fields within each map value must still match the documented schema.
+
+The removed `force_dpu_nic_mode` key is explicitly recognized at the top level
+and under `[site_explorer]`, ignored, and reported as a deprecation warning.
+Use `site_explorer.dpu_policy` instead.
+
 ---
 
 ## `NicoConfig` (top-level)
@@ -17,6 +29,7 @@ applicable.
 | `alt_metric_prefix` | `Option<String>` | — | `integrations` | Alternative metric prefix emitted alongside `nico_` for dashboard migration. |
 | `database_url` | `String` | **required** | `server` | Postgres connection string for all persistent state. |
 | `max_database_connections` | `u32` | `1000` | `server` | Maximum database connection pool size. |
+| `deny_unknown_fields` | `bool` | `false` | `server` | Reject unknown configuration fields instead of logging warnings and continuing. |
 | `database_pool_acquire_timeout` | `Duration` | `30s` | `server` | How long a caller may wait for a connection from the pool before the attempt fails (sqlx's own default); trips on a stalled database or a saturated pool alike. Must be greater than zero (startup rejects `0`). |
 | `database_pool_idle_timeout` | `Duration` | `10m` | `server` | Idle time after which the pool closes a connection, keeping the pool's own reaping well inside the Postgres server's 60-minute idle-session reaper. Must be greater than zero (startup rejects `0`). |
 | `database_pool_max_lifetime` | `Duration` | `30m` | `server` | Maximum age of a pooled connection before it is recycled, so the pool re-balances onto the current primary after a database failover. Must be greater than zero (startup rejects `0`). |
@@ -55,6 +68,7 @@ applicable.
 | `attestation_enabled` | `bool` | `false` | `security` | Enables TPM-based machine attestation (adds `Measuring` state before `Ready`). |
 | `bmc_rotation_enabled` | `bool` | `false` | `security` | Site-wide kill-switch for passive BMC credential rotation. When `false` (default), a Ready host never auto-enters `RotatingBmc`; the force-converge escape hatch bypasses it. |
 | `uefi_rotation_enabled` | `bool` | `false` | `security` | Site-wide kill-switch for passive UEFI credential rotation (host and DPU). When `false` (default), a Ready host never auto-enters `RotatingHostUefi` nor drives its DPUs into `RotatingDpuUefi`; the per-machine force-converge escape hatch bypasses it. |
+| `bmc_factory_reset_on_instance_termination_enabled` | `bool` | `false` | `security` | Site-wide opt-in for factory-resetting the host BMC during tenant release. When `false` (default), tenant release proceeds directly to `PowerCycle`; when `true`, the release flow factory-resets the BMC, waits for it to return, restores the device's previous per-device credential, then continues with the existing power-cycle / boot-order repair. |
 | `tpm_required` | `bool` | `true` | `security` | Require TPM module for machine registration. **Testing only** when `false`. |
 | `machine_state_controller` | `MachineStateControllerConfig` | *(see below)* | `machines` | Machine state controller timing (see [MachineStateControllerConfig](#machinestatecontrollerconfig)). |
 | `network_segment_state_controller` | `NetworkSegmentStateControllerConfig` | *(see below)* | `networking` | Network segment state controller timing. |
@@ -117,12 +131,14 @@ applicable.
 | `initial_objects_file` | `Option<PathBuf>` | — | `server` | Path to the `initial_objects.toml` file for seeding the database. |
 | `enable_admin_ui` | `bool` | `true` | `server` | Whether to serve the admin web UI (the HTML pages under `/admin`). Set to `false` to run only the gRPC API; the gRPC service is unaffected either way. |
 | `web_ui_sidebar_tools` | `Vec<ToolLink>` | `[]` | `server` | External tool links surfaced in the admin web UI's "Tools" sidebar. Each entry's `name` must be unique; the section is hidden when the list is empty. |
+| `web_ui_logs_link_template` | `String` | `""` | `server` | URL template for the "Logs" link on machine and endpoint detail pages. The placeholder `{search}` is replaced with the machine ID or BMC IP. When empty, the link is hidden. |
 | `log_history` | `LogHistoryConfig` | *(default)* | `integrations` | In-memory log history for the admin web live log viewer at `/admin/logs` (see [LogHistoryConfig](#loghistoryconfig)). |
 | `tracing` | `TracingConfig` | *(default)* | `integrations` | OTLP trace export settings (see [TracingConfig](#tracingconfig)). |
 | `secrets` | `Option<SecretsConfig>` | — | `security` | Secrets backend configuration. When present, the credential reader chain and write target are operator-configured (see [SecretsConfig](#secretsconfig)). |
 | `dhcp_lease_expiry_handling` | `bool` | `false` | `networking` | Enables IP cleanup when a DHCP lease expires. |
 | `certificates` | `CertificatesConfig` | *(default)* | `security` | Certificate vending backend, selected independently of the credential store; the default shares the credential Vault (see [CertificatesConfig](#certificatesconfig)). |
 | `allow_insecure_discovery` | `bool` | `false` | `machines` | Allows machines to submit discovery without enforcing the request comes from the expected IP address. Needed for *Integration tests only*, should otherwise not be used. |
+| `node_auth` | `NodeAuthConfig` | *(default)* | `security` | How Scout and the DPU-agent authenticate: bearer JWTs, machine mTLS client certificates, or both during a migration (see [NodeAuthConfig](#nodeauthconfig)). |
 
 ---
 
@@ -315,6 +331,27 @@ extracted identifier contains characters such as `/` or `.`.
 | `identity_pemfile_path` | `String` | `""` | Server identity certificate PEM. |
 | `identity_keyfile_path` | `String` | `""` | Server identity private key. |
 | `admin_root_cafile_path` | `String` | `""` | Admin root CA for admin client validation. |
+
+### `NodeAuthConfig`
+
+Node (Scout / DPU-agent) authentication. Bearer tokens are off by default, so
+the default is machine mTLS exactly as before. See
+`docs/design/machine-identity/node-auth-jwt.md`.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | `bool` | `false` | Accept `Authorization: Bearer` node JWTs. Nodes self-sign these with their existing mTLS client-certificate key and carry the certificate in the token's `x5c` header; the API verifies it against `[tls] root_cafile_path`. Requires a TLS listener -- the API refuses to accept bearer tokens over plaintext. |
+| `mtls_enabled` | `bool` | `true` | Accept machine mTLS client certificates as node identity. Turn off only once the fleet presents bearer tokens; startup fails if this and `enabled` are both false. Scoped to machine certificates -- service and admin-CLI certificates are unaffected. Requires a TLS listener to mean anything: a plaintext `listen_mode` presents no peer certificates, so this silently authenticates nobody. |
+| `max_token_ttl_sec` | `u32` | `900` | Longest accepted token lifetime, in seconds. Clients mint 300 s tokens; this caps how far a client may push `exp`. Must be greater than zero and at most 86400. |
+| `fmds_use_node_tokens` | `Option<bool>` | *(unset)* | Whether DPF-deployed fmds is rendered in token mode. Unset follows `enabled`, which is what almost every site wants. Set it to `false` while `enabled` is still `true` to move fmds back to client certificates *first* -- the supported way to stage a disable, since the API stops accepting tokens the moment it restarts while fmds keeps presenting them until DPF has rolled every DaemonSet. `true` with `enabled = false` is refused at startup. |
+
+Both mechanisms need `listen_mode = "tls"`. Bearer tokens are refused over
+plaintext explicitly, at startup; machine mTLS simply has no certificates to
+inspect, because a plaintext listener hands the middleware an empty peer-cert
+list. The `enabled = false` + `mtls_enabled = false` lockout check therefore
+guarantees a working node-auth path *only on a TLS listener* -- on plaintext,
+`mtls_enabled = true` satisfies the check while authenticating nobody. No
+shipped configuration selects a plaintext mode.
 
 ### `AuthConfig`
 

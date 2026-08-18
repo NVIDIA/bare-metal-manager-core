@@ -121,17 +121,115 @@ func TestSpecValid(t *testing.T) {
 	}
 	assert.True(t, specValid(base), "complete spec should be valid")
 
-	for name, mutate := range map[string]func(*expectedComponentSpec){
-		"missing manufacturer": func(s *expectedComponentSpec) { s.Manufacturer = "" },
-		"missing serial":       func(s *expectedComponentSpec) { s.SerialNumber = "" },
-		"missing bmc mac":      func(s *expectedComponentSpec) { s.BMC.MACAddress = "" },
+	for name, tc := range map[string]struct {
+		mutate func(*expectedComponentSpec)
+		want   bool
+	}{
+		"missing manufacturer": {mutate: func(s *expectedComponentSpec) { s.Manufacturer = "" }, want: true},
+		"missing serial":       {mutate: func(s *expectedComponentSpec) { s.SerialNumber = "" }, want: true},
+		"missing both labels": {mutate: func(s *expectedComponentSpec) {
+			s.Manufacturer = ""
+			s.SerialNumber = ""
+		}, want: true},
+		"missing bmc mac": {mutate: func(s *expectedComponentSpec) { s.BMC.MACAddress = "" }, want: false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := base
-			mutate(&s)
-			assert.False(t, specValid(s))
+			tc.mutate(&s)
+			assert.Equal(t, tc.want, specValid(s))
 		})
 	}
+}
+
+func TestHostBMCMACs(t *testing.T) {
+	hostType := devicetypes.BMCTypeToString(devicetypes.BMCTypeHost)
+
+	t.Run("returns the normalised MAC of every host BMC", func(t *testing.T) {
+		c := &model.Component{BMCs: []model.BMC{
+			{MacAddress: "AA:BB:CC:DD:EE:FF", Type: hostType},
+			{MacAddress: "aa:bb:cc:dd:ee:01", Type: hostType},
+		}}
+		assert.Equal(t, []string{"aa:bb:cc:dd:ee:ff", "aa:bb:cc:dd:ee:01"}, hostBMCMACs(c))
+	})
+
+	t.Run("non-host BMCs are ignored", func(t *testing.T) {
+		c := &model.Component{BMCs: []model.BMC{
+			{MacAddress: "aa:bb:cc:dd:ee:ff", Type: devicetypes.BMCTypeToString(devicetypes.BMCTypeDPU)},
+		}}
+		assert.Empty(t, hostBMCMACs(c))
+	})
+
+	t.Run("a component with no BMC at all yields nothing", func(t *testing.T) {
+		assert.Empty(t, hostBMCMACs(&model.Component{}))
+	})
+}
+
+func TestStillReportedByCore(t *testing.T) {
+	seenMACs := map[string]struct{}{"aa:bb:cc:dd:ee:ff": {}}
+	seenNaturalKeys := map[string]struct{}{naturalKey("Foxconn", "SN-1"): {}}
+
+	tests := []struct {
+		name       string
+		macs       []string
+		naturalKey string
+		want       bool
+	}{
+		{name: "MAC still reported", macs: []string{"aa:bb:cc:dd:ee:ff"}, want: true},
+		{
+			name:       "BMC board swapped, chassis pair still reported",
+			macs:       []string{"aa:bb:cc:dd:ee:02"},
+			naturalKey: naturalKey("Foxconn", "SN-1"),
+			want:       true,
+		},
+		{
+			name:       "chassis relabelled, MAC still reported",
+			macs:       []string{"aa:bb:cc:dd:ee:ff"},
+			naturalKey: naturalKey("Wistron", "SN-9"),
+			want:       true,
+		},
+		{name: "neither is reported", macs: []string{"aa:bb:cc:dd:ee:02"}, naturalKey: naturalKey("Wistron", "SN-9")},
+		{name: "no MAC and no pair", want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, stillReportedByCore(tc.macs, tc.naturalKey, seenMACs, seenNaturalKeys))
+		})
+	}
+}
+
+func TestClearComponentLabelsIfSlotTaken(t *testing.T) {
+	owner := &model.Component{ID: uuid.New(), Manufacturer: "Foxconn", SerialNumber: "SN-1"}
+	flowByNaturalKey := map[string]*model.Component{
+		naturalKey("Foxconn", "SN-1"): owner,
+	}
+
+	t.Run("labels held by another component are dropped", func(t *testing.T) {
+		desired := model.Component{Manufacturer: "Foxconn", SerialNumber: "SN-1"}
+		clearComponentLabelsIfSlotTaken(&desired, flowByNaturalKey, uuid.New(), "Compute")
+		assert.Empty(t, desired.Manufacturer)
+		assert.Empty(t, desired.SerialNumber)
+	})
+
+	t.Run("the component already holding the pair keeps it", func(t *testing.T) {
+		desired := model.Component{Manufacturer: "Foxconn", SerialNumber: "SN-1"}
+		clearComponentLabelsIfSlotTaken(&desired, flowByNaturalKey, owner.ID, "Compute")
+		assert.Equal(t, "Foxconn", desired.Manufacturer)
+		assert.Equal(t, "SN-1", desired.SerialNumber)
+	})
+
+	t.Run("an unclaimed pair is kept", func(t *testing.T) {
+		desired := model.Component{Manufacturer: "Wistron", SerialNumber: "SN-9"}
+		clearComponentLabelsIfSlotTaken(&desired, flowByNaturalKey, uuid.Nil, "Compute")
+		assert.Equal(t, "Wistron", desired.Manufacturer)
+		assert.Equal(t, "SN-9", desired.SerialNumber)
+	})
+
+	t.Run("a half-populated pair occupies no slot and is left alone", func(t *testing.T) {
+		desired := model.Component{SerialNumber: "SN-1"}
+		clearComponentLabelsIfSlotTaken(&desired, flowByNaturalKey, uuid.Nil, "Compute")
+		assert.Equal(t, "SN-1", desired.SerialNumber)
+	})
 }
 
 func TestResolveRackID(t *testing.T) {

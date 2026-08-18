@@ -16,6 +16,7 @@
  */
 
 use std::borrow::Cow;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -94,7 +95,10 @@ struct SensorProjection {
 pub struct SensorCollectorConfig<B: Bmc> {
     pub data_sink: Option<Arc<dyn DataSink>>,
     pub(crate) shared: SharedInventory<B>,
-    pub sensor_fetch_concurrency: usize,
+
+    /// Bounds local fan-out to the endpoint Redfish operation limit.
+    pub request_concurrency: NonZeroUsize,
+
     pub include_sensor_thresholds: bool,
 }
 
@@ -104,7 +108,7 @@ pub struct SensorCollector<B: Bmc> {
     event_context: EventContext,
     shared: SharedInventory<B>,
     data_sink: Option<Arc<dyn DataSink>>,
-    sensor_fetch_concurrency: usize,
+    request_concurrency: usize,
     include_sensor_thresholds: bool,
 }
 
@@ -122,7 +126,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for SensorCollector<B> {
             event_context,
             shared: config.shared,
             data_sink: config.data_sink,
-            sensor_fetch_concurrency: config.sensor_fetch_concurrency.max(1),
+            request_concurrency: config.request_concurrency.get(),
             include_sensor_thresholds: config.include_sensor_thresholds,
         })
     }
@@ -202,7 +206,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for SensorCollector<B> {
         let futures: Vec<_> = fetches.take(sensor_limit.unwrap_or(usize::MAX)).collect();
 
         let processed: usize = stream::iter(futures)
-            .buffer_unordered(self.sensor_fetch_concurrency)
+            .buffer_unordered(self.request_concurrency)
             .collect::<Vec<usize>>()
             .await
             .into_iter()
@@ -495,7 +499,6 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::*;
-    use crate::bmc::BmcClient;
     use crate::collectors::inventory::EntityInventory;
     use crate::endpoint::test_support::{mac, test_endpoint};
 
@@ -1070,39 +1073,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn fetch_concurrency_cases() {
-        check_values(
-            [
-                Check {
-                    scenario: "zero concurrency is normalized",
-                    input: 0,
-                    expect: 1,
-                },
-                Check {
-                    scenario: "configured concurrency is retained",
-                    input: 8,
-                    expect: 8,
-                },
-            ],
-            |sensor_fetch_concurrency| {
-                let endpoint = Arc::new(test_endpoint(mac("00:11:22:33:44:55")));
-                let collector = SensorCollector::<BmcClient>::new_runner(
-                    endpoint.bmc().clone(),
-                    endpoint,
-                    SensorCollectorConfig {
-                        data_sink: None,
-                        shared: Arc::new(ArcSwapOption::empty()),
-                        sensor_fetch_concurrency,
-                        include_sensor_thresholds: false,
-                    },
-                )
-                .expect("sensor collector");
-                collector.sensor_fetch_concurrency
-            },
-        );
-    }
-
     #[derive(Clone, Copy)]
     enum CollectionCase {
         MissingInventory,
@@ -1175,7 +1145,7 @@ mod tests {
             event_context: EventContext::from_endpoint(endpoint.as_ref(), "sensor_collector"),
             shared: shared.clone(),
             data_sink: Some(sink.clone()),
-            sensor_fetch_concurrency: 2,
+            request_concurrency: 2,
             include_sensor_thresholds: true,
         };
 

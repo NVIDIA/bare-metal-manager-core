@@ -188,7 +188,6 @@ func (o *SshKeyCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	varSshKeyCreateRequest := _SshKeyCreateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varSshKeyCreateRequest)
 
 	if err != nil {

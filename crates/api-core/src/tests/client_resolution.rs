@@ -128,6 +128,7 @@ async fn test_resolve_machine_interface_via_instance_address(pool: sqlx::PgPool)
         dpu_extension_services: None,
         nvlink: None,
         spxconfig: None,
+        power_profile: None,
     };
     let tinstance = mh.instance_builer(&env).config(config).build().await;
 
@@ -366,6 +367,7 @@ async fn test_zero_dpu_cloud_init_prefers_instance_when_ip_matches_host_interfac
                 dpu_extension_services: None,
                 nvlink: None,
                 spxconfig: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,

@@ -41,3 +41,6 @@ mqttea = { path = "../mqttea" }
 
 [build-dependencies]
 prost-build = "0.14"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"

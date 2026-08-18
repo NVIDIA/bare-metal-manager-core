@@ -7,10 +7,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/executor"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/target"
 	inventoryresolver "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/resolver"
 )
 
@@ -19,8 +19,8 @@ type Processor struct {
 	inventory  *inventoryresolver.Resolver
 	rules      RuleResolver
 	executions eventrule.ExecutionStore
+	targets    target.Resolver
 	executor   executor.Executor
-	now        func() time.Time
 }
 
 // New constructs an event processor.
@@ -33,8 +33,8 @@ func New(config Config) (*Processor, error) {
 		inventory:  inventoryresolver.New(config.Inventory),
 		rules:      config.Rules,
 		executions: config.Executions,
+		targets:    config.Targets,
 		executor:   config.Executor,
-		now:        config.clock(),
 	}, nil
 }
 

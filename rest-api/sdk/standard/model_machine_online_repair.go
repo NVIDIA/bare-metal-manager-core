@@ -185,7 +185,6 @@ func (o *MachineOnlineRepair) UnmarshalJSON(data []byte) (err error) {
 	varMachineOnlineRepair := _MachineOnlineRepair{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varMachineOnlineRepair)
 
 	if err != nil {

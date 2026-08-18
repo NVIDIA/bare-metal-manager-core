@@ -123,6 +123,32 @@ pub async fn clear_host_reprovisioning_request(
     Ok(())
 }
 
+/// Clears a rack-owned host reprovisioning request if the machine has not left `Ready`.
+///
+/// Returns whether the request was cleared. A concurrent transition out of `Ready`, or a
+/// request from another initiator, leaves the request untouched so its owning controller can
+/// unwind it.
+pub async fn clear_ready_host_reprovisioning_request(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    initiator: &str,
+) -> Result<bool, DatabaseError> {
+    let query = r#"UPDATE machines
+        SET host_reprovisioning_requested = NULL
+        WHERE id = $1
+          AND controller_state->>'state' = 'ready'
+          AND host_reprovisioning_requested->>'initiator' = $2
+        RETURNING id"#;
+    let cleared = sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .bind(initiator)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(cleared.is_some())
+}
+
 pub async fn reset_host_reprovisioning_request(
     txn: &mut PgConnection,
     machine_id: &MachineId,

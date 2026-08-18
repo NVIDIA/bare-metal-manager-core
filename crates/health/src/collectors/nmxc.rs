@@ -36,7 +36,7 @@ use crate::HealthError;
 use crate::collectors::runtime::{StreamingCollector, StreamingConnectResult};
 use crate::config::{MtlsProfileConfig, NmxcCollectorConfig as NmxcCollectorOptions};
 use crate::endpoint::BmcEndpoint;
-use crate::sink::{CollectorEvent, LogRecord};
+use crate::sink::{CollectorEvent, LogRecord, LogSeverity};
 
 const NMX_C_HTTP2_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(300);
 const NMX_C_HTTP2_KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -235,20 +235,20 @@ fn hello_request(gateway_id: &str) -> ClientHello {
 }
 
 /// Builds the switch-host gRPC endpoint URL, including IPv6 bracket formatting.
-fn nmxc_endpoint_url(host: &str, port: u16, tls_enabled: bool) -> String {
+pub(super) fn nmxc_endpoint_url(host: &str, port: u16, tls_enabled: bool) -> String {
     let scheme = if tls_enabled { "https" } else { "http" };
     format!("{scheme}://{host}:{port}")
 }
 
-/// Creates a tonic NMX-C client with transport settings scoped to the collector.
+/// Creates a tonic NMX-C channel with transport settings scoped to the collector.
 ///
 /// When an mTLS profile is configured, certificate files are read while
 /// building the channel, so reconnects pick up rotated material.
-async fn nmxc_client(
+pub(super) async fn nmxc_channel(
     endpoint_url: &str,
     connect_timeout: Duration,
     tls_config: Option<&MtlsProfileConfig>,
-) -> Result<NmxcClient, HealthError> {
+) -> Result<Channel, HealthError> {
     let mut endpoint = Endpoint::from_shared(endpoint_url.to_string())
         .map_err(|error| nmxc_transport_error(endpoint_url, "parse endpoint", error))?
         .connect_timeout(connect_timeout)
@@ -266,12 +266,20 @@ async fn nmxc_client(
             .map_err(|error| nmxc_transport_error(endpoint_url, "configure TLS", error))?;
     }
 
-    let channel = endpoint
+    endpoint
         .connect()
         .await
-        .map_err(|error| nmxc_transport_error(endpoint_url, "connect", error))?;
+        .map_err(|error| nmxc_transport_error(endpoint_url, "connect", error))
+}
 
-    Ok(NmxControllerClient::new(channel))
+async fn nmxc_client(
+    endpoint_url: &str,
+    connect_timeout: Duration,
+    tls_config: Option<&MtlsProfileConfig>,
+) -> Result<NmxcClient, HealthError> {
+    nmxc_channel(endpoint_url, connect_timeout, tls_config)
+        .await
+        .map(NmxControllerClient::new)
 }
 
 /// Converts tonic transport failures into collector status errors with endpoint context.
@@ -286,7 +294,7 @@ fn nmxc_transport_error(
 }
 
 /// Creates a deadline-exceeded status for bounded NMX-C RPC phases.
-fn nmxc_timeout_error(operation: &str, timeout: Duration) -> HealthError {
+pub(super) fn nmxc_timeout_error(operation: &str, timeout: Duration) -> HealthError {
     HealthError::NmxcStatus(tonic::Status::deadline_exceeded(format!(
         "NMX-C {operation} timed out after {timeout:?}"
     )))
@@ -308,7 +316,7 @@ fn notification_to_events(
         Some(Notification::DomainStateInfo(info)) => domain_state_info_to_events(&info),
         Some(notification) => vec![Ok(notification_to_log(&notification))],
         None => vec![Ok(log_record(
-            "WARN",
+            LogSeverity::Warn,
             "NMX-C stream notification omitted its payload",
             vec![(Cow::Borrowed("notification"), "missing".to_string())],
         ))],
@@ -374,7 +382,7 @@ fn notification_to_log(notification: &Notification) -> CollectorEvent {
 
     push_attribute(&mut attributes, "body", &body);
 
-    log_record("INFO", body, attributes)
+    log_record(LogSeverity::Info, body, attributes)
 }
 
 /// Builds a log event for Subscribe acknowledgements, including rejection details.
@@ -395,9 +403,9 @@ fn subscription_response_to_log(response: &SubscriptionResponse) -> CollectorEve
 
     let severity =
         if check_server_header_success(response.server_header.as_ref(), "Subscribe").is_ok() {
-            "INFO"
+            LogSeverity::Info
         } else {
-            "ERROR"
+            LogSeverity::Error
         };
 
     log_record(severity, body, attributes)
@@ -615,14 +623,14 @@ fn domain_state_info_to_events(info: &DomainStateInfo) -> Vec<Result<CollectorEv
 }
 
 /// Builds a sink log event with the supplied severity, body, and attributes.
-fn log_record(
-    severity: &str,
+pub(super) fn log_record(
+    severity: LogSeverity,
     body: impl Into<String>,
     attributes: Vec<(Cow<'static, str>, String)>,
 ) -> CollectorEvent {
     CollectorEvent::Log(Box::new(LogRecord {
         body: body.into(),
-        severity: severity.to_string(),
+        severity,
         attributes,
         diagnostic_record: None,
     }))
@@ -921,7 +929,7 @@ mod tests {
         assert!(record.body.contains("notification_payload="));
         assert!(payload.contains("SubscriptionResponse"));
         assert!(payload.contains("domain-subscribe"));
-        assert_eq!(record.severity, "INFO");
+        assert_eq!(record.severity, LogSeverity::Info);
         assert_eq!(log_attribute(&record, "body"), Some(record.body.as_str()));
     }
 
@@ -1033,7 +1041,7 @@ mod tests {
 
         assert!(payload.contains("SubscriptionResponse"));
         assert!(payload.contains("domain-rejected"));
-        assert_eq!(record.severity, "ERROR");
+        assert_eq!(record.severity, LogSeverity::Error);
     }
 
     #[test]

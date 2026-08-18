@@ -90,6 +90,10 @@ pub struct Api {
     pub(crate) component_manager: Option<component_manager::component_manager::ComponentManager>,
     pub(crate) bms_client: OnceLock<Arc<BmsDsxExchangeHandle>>,
     pub(crate) secrets_context: Option<crate::secrets::SecretsContext>,
+    /// Validator for node-auth bearer JWTs (issue #355). `Some` only when
+    /// `[node_auth] enabled`; installed into the authn middleware by the
+    /// listener.
+    pub(crate) node_jwt_validator: Option<Arc<crate::node_auth::NodeJwtValidator>>,
 }
 
 pub(crate) type ScoutStreamType =
@@ -3298,6 +3302,35 @@ impl Forge for Api {
         request: Request<rpc::GetDpfServiceVersionsRequest>,
     ) -> Result<Response<rpc::DpfServiceVersionsResponse>, Status> {
         crate::handlers::dpf::get_dpf_service_versions(self, request).await
+    }
+
+    async fn find_pending_dpu_service_sync_ids(
+        &self,
+        request: Request<rpc::FindPendingDpuServiceSyncIdsRequest>,
+    ) -> Result<Response<::rpc::common::MachineIdList>, Status> {
+        crate::handlers::dpu_service_sync::find_pending_dpu_service_sync_ids(self, request).await
+    }
+
+    async fn find_pending_dpu_service_syncs_by_ids(
+        &self,
+        request: Request<rpc::FindPendingDpuServiceSyncsByIdsRequest>,
+    ) -> Result<Response<rpc::ListPendingDpuServiceSyncsResponse>, Status> {
+        crate::handlers::dpu_service_sync::find_pending_dpu_service_syncs_by_ids(self, request)
+            .await
+    }
+
+    async fn list_dpu_service_sync_history(
+        &self,
+        request: Request<rpc::ListDpuServiceSyncHistoryRequest>,
+    ) -> Result<Response<rpc::ListPendingDpuServiceSyncsResponse>, Status> {
+        crate::handlers::dpu_service_sync::list_dpu_service_sync_history(self, request).await
+    }
+
+    async fn release_dpu_service_sync_hold(
+        &self,
+        request: Request<rpc::ReleaseDpuServiceSyncHoldRequest>,
+    ) -> Result<Response<rpc::ReleaseDpuServiceSyncHoldResponse>, Status> {
+        crate::handlers::dpu_service_sync::release_dpu_service_sync_hold(self, request).await
     }
 
     // scout_stream handles the bidirectional streaming connection from scout agents.

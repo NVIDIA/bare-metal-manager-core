@@ -148,6 +148,9 @@ fn machine_router_inner(
     let update_service_state = Arc::new(
         crate::redfish::update_service::UpdateServiceState::from_config(update_service_config),
     );
+    // Desired firmware versions arrive via UpdateServiceConfig.pending_upgrades and
+    // are stored in UpdateServiceState at construction time via from_config().
+    // No separate pre-staging call is needed here.
     let account_service_state = Arc::new(
         crate::redfish::account_service::AccountServiceState::new(factory_default_account),
     );

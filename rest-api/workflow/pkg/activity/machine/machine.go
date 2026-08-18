@@ -218,6 +218,8 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 		}
 
 		controllerMachine := machineInfo.Machine
+		controllerMachineConfig := controllerMachine.GetConfig()
+		controllerMachineStatus := controllerMachine.GetStatus()
 
 		controllerMachineID := controllerMachine.Id.Id
 		if controllerMachineID == "" {
@@ -237,9 +239,9 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 		// Populate machine health information
 		var machineHealth map[string]interface{}
 
-		if controllerMachine.Health != nil {
+		if controllerMachineStatus.GetHealth() != nil {
 			// Populate machine health
-			machineHealthJSON, serr := json.Marshal(controllerMachine.Health)
+			machineHealthJSON, serr := json.Marshal(controllerMachineStatus.GetHealth())
 			if serr != nil {
 				slogger.Error().Err(serr).Msg("failed to marshal controller Machine Health data")
 			}
@@ -251,7 +253,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 		}
 
 		// Extract information from discovery data
-		discoveryInfo := controllerMachine.DiscoveryInfo
+		discoveryInfo := controllerMachineStatus.GetDiscoveryInfo()
 
 		// Extract general Machine type
 		controllerMachineType := DefaultControllerMachineType
@@ -280,21 +282,22 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 		var isInMaintenance, isNetworkDegraded bool
 		var maintenanceMessage, networkHealthMessage *string
 
-		if controllerMachine.MaintenanceStartTime != nil {
+		if controllerMachineConfig.GetMaintenanceStartTime() != nil {
 			isInMaintenance = true
-			maintenanceMessage = controllerMachine.MaintenanceReference
+			maintenanceMessage = controllerMachineConfig.MaintenanceReference
 		}
 
 		// Extract Machine Hostname
 		var hostname *string
-		if len(controllerMachine.Interfaces) > 0 {
-			hostname = cwutil.GetPtr(controllerMachine.Interfaces[0].Hostname)
+		controllerMachineInterfaces := controllerMachineStatus.GetInterfaces()
+		if len(controllerMachineInterfaces) > 0 {
+			hostname = cwutil.GetPtr(controllerMachineInterfaces[0].Hostname)
 		}
 
 		var controllerInstanceTypeID *uuid.UUID
 
-		if controllerMachine.InstanceTypeId != nil {
-			id, serr := uuid.Parse(*controllerMachine.InstanceTypeId)
+		if controllerMachineConfig != nil && controllerMachineConfig.InstanceTypeId != nil {
+			id, serr := uuid.Parse(*controllerMachineConfig.InstanceTypeId)
 			if serr != nil {
 				slogger.Error().Err(serr).Msg("failed to parse InstanceType ID in Machine data")
 				continue
@@ -315,6 +318,11 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 			}
 		}
 
+		var hwSkuDeviceType *string
+		if controllerMachineStatus != nil {
+			hwSkuDeviceType = controllerMachineStatus.HwSkuDeviceType
+		}
+
 		var machine *cdbm.Machine
 
 		if !found {
@@ -332,7 +340,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 				SiteID:                   site.ID,
 				ControllerMachineID:      controllerMachineID,
 				ControllerMachineType:    &controllerMachineType,
-				HwSkuDeviceType:          controllerMachine.HwSkuDeviceType,
+				HwSkuDeviceType:          hwSkuDeviceType,
 				InstanceTypeID:           controllerInstanceTypeID,
 				Vendor:                   vendor,
 				ProductName:              productName,
@@ -377,7 +385,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 				logger.Error().Err(serr).Msg("error creating Status Detail DB entry")
 			}
 
-			for _, controllerMachineInterface := range controllerMachine.Interfaces {
+			for _, controllerMachineInterface := range controllerMachineStatus.GetInterfaces() {
 				controllerInterfaceID, serr := uuid.Parse(controllerMachineInterface.Id.Value)
 				if serr != nil {
 					slogger.Error().Err(serr).Msg("failed to parse Controller Interface ID, possible bad data")
@@ -447,7 +455,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 			updateInput := cdbm.MachineUpdateInput{
 				MachineID:             existingCloudMachine.ID,
 				ControllerMachineType: &controllerMachineType,
-				HwSkuDeviceType:       controllerMachine.HwSkuDeviceType,
+				HwSkuDeviceType:       hwSkuDeviceType,
 				Vendor:                vendor,
 				ProductName:           productName,
 				SerialNumber:          serialNumber,
@@ -592,7 +600,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 			}
 
 			// Reported machine interfaces for a machine
-			for _, controllerMachineInterface := range controllerMachine.Interfaces {
+			for _, controllerMachineInterface := range controllerMachineStatus.GetInterfaces() {
 				controllerInterfaceID, serr := uuid.Parse(controllerMachineInterface.Id.Value)
 				if serr != nil {
 					slogger.Error().Err(serr).Msg("failed to parse Controller Interface ID, possible bad data")
@@ -756,13 +764,15 @@ func processMachineCapabilities(ctx context.Context, logger zerolog.Logger, dbSe
 		return err
 	}
 
-	controllerCapsCpu := controllerMachine.GetCapabilities().GetCpu()
-	controllerCapsGpu := controllerMachine.GetCapabilities().GetGpu()
-	controllerCapsDpu := controllerMachine.GetCapabilities().GetDpu()
-	controllerCapsMemory := controllerMachine.GetCapabilities().GetMemory()
-	controllerCapsInfiniband := controllerMachine.GetCapabilities().GetInfiniband()
-	controllerCapsNetwork := controllerMachine.GetCapabilities().GetNetwork()
-	controllerCapsStorage := controllerMachine.GetCapabilities().GetStorage()
+	controllerCaps := controllerMachine.GetStatus().GetCapabilities()
+
+	controllerCapsCpu := controllerCaps.GetCpu()
+	controllerCapsGpu := controllerCaps.GetGpu()
+	controllerCapsDpu := controllerCaps.GetDpu()
+	controllerCapsMemory := controllerCaps.GetMemory()
+	controllerCapsInfiniband := controllerCaps.GetInfiniband()
+	controllerCapsNetwork := controllerCaps.GetNetwork()
+	controllerCapsStorage := controllerCaps.GetStorage()
 
 	siteCapMap := make(map[string]*cdbm.MachineCapability)
 
@@ -996,6 +1006,8 @@ func getNICoMachineStatus(controllerMachine *corev1.Machine, logger zerolog.Logg
 		logger.Warn().Msg("Received empty Machine state from Site Controller")
 		return cdbm.MachineStatusUnknown, "Machine status is not known", false
 	}
+	controllerMachineConfig := controllerMachine.GetConfig()
+	controllerMachineStatus := controllerMachine.GetStatus()
 
 	// Parse state to get prefix and substate
 	controllerMachineWrapped := &cdbm.SiteControllerMachine{Machine: controllerMachine}
@@ -1014,24 +1026,22 @@ func getNICoMachineStatus(controllerMachine *corev1.Machine, logger zerolog.Logg
 	hasMaintenanceDegraded := false
 	hasDPUFirmwareUpdateInProgress := false
 
-	if controllerMachine.Health != nil && controllerMachine.Health.Alerts != nil {
-		for _, alert := range controllerMachine.Health.Alerts {
-			// Check for Prevent alerts
-			for _, clf := range alert.Classifications {
-				if clf == MachinePreventAllocations {
-					hasPreventAlerts = true
-					break
-				}
+	for _, alert := range controllerMachineStatus.GetHealth().GetAlerts() {
+		// Check for Prevent alerts
+		for _, clf := range alert.Classifications {
+			if clf == MachinePreventAllocations {
+				hasPreventAlerts = true
+				break
 			}
-			// Check for Maintenance+Degraded alert
-			if alert.Id == "Maintenance" && alert.Target != nil && *alert.Target == "Degraded" {
-				hasMaintenanceDegraded = true
-			}
-			if alert.Id == MachineDPUFirmwareUpdateAlertID &&
-				alert.Target != nil &&
-				*alert.Target == MachineDPUFirmwareUpdateAlertTarget {
-				hasDPUFirmwareUpdateInProgress = true
-			}
+		}
+		// Check for Maintenance+Degraded alert
+		if alert.Id == "Maintenance" && alert.Target != nil && *alert.Target == "Degraded" {
+			hasMaintenanceDegraded = true
+		}
+		if alert.Id == MachineDPUFirmwareUpdateAlertID &&
+			alert.Target != nil &&
+			*alert.Target == MachineDPUFirmwareUpdateAlertTarget {
+			hasDPUFirmwareUpdateInProgress = true
 		}
 	}
 
@@ -1040,11 +1050,12 @@ func getNICoMachineStatus(controllerMachine *corev1.Machine, logger zerolog.Logg
 	var statusMessage string
 
 	// Check maintenance mode first
-	if controllerMachine.MaintenanceStartTime != nil {
+	if controllerMachineConfig.GetMaintenanceStartTime() != nil {
 		machineStatus = cdbm.MachineStatusMaintenance
 		statusMessage = "Machine is in maintenance mode"
-		if controllerMachine.MaintenanceReference != nil {
-			statusMessage = fmt.Sprintf("%s: %s", statusMessage, *controllerMachine.MaintenanceReference)
+		maintenanceReference := controllerMachineConfig.MaintenanceReference
+		if maintenanceReference != nil {
+			statusMessage = fmt.Sprintf("%s: %s", statusMessage, *maintenanceReference)
 		}
 	} else if hasDPUFirmwareUpdateInProgress {
 		machineStatus = cdbm.MachineStatusInitializing

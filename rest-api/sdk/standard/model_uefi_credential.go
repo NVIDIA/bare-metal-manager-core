@@ -140,7 +140,6 @@ func (o *UEFICredential) UnmarshalJSON(data []byte) (err error) {
 	varUEFICredential := _UEFICredential{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varUEFICredential)
 
 	if err != nil {

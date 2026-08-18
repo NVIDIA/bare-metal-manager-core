@@ -72,8 +72,12 @@ spec:
     nsm: nsm.nico
     {{- end }}
   patroni:
-    synchronous_mode: true
-    synchronous_mode_strict: true
+    # Templated (no `| default`): Go templates treat an explicit `false` as empty,
+    # so a default here would silently re-enable sync mode. Default lives in values.yaml.
+    # Single-instance clusters must set synchronousMode=false or Patroni strict sync
+    # blocks all writes (including the operator's own CREATE DATABASE).
+    synchronous_mode: {{ .Values.postgresql.synchronousMode }}
+    synchronous_mode_strict: {{ .Values.postgresql.synchronousMode }}
     synchronous_node_count: 1
   postgresql:
     version: "15"

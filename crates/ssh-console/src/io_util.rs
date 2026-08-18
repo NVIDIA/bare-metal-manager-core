@@ -80,8 +80,9 @@ pub(crate) fn set_controlling_terminal_on_exec(
     command: &mut tokio::process::Command,
     pty_slave: RawFd,
 ) {
-    // SAFETY: the pre_exec closure runs in the forked process before exec, where setsid() and
-    // setting TIOCSCTTY are commonly allowed things.
+    // SAFETY: the closure captures only a copied descriptor that remains owned through `spawn`
+    // and makes direct `setsid` and `TIOCSCTTY` syscalls without allocating, locking, or accessing
+    // shared Rust state between `fork` and `exec`.
     unsafe {
         command.pre_exec(move || {
             unistd::setsid()?;

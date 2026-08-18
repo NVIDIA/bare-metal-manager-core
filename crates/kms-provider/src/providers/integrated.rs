@@ -307,6 +307,9 @@ mod tests {
     #[serial]
     fn from_config_env_source() {
         let key = make_test_key(1);
+        // SAFETY: Initial lint enablement: `#[serial]` excludes other participating
+        // tests, but it does not prove Unix process-wide exclusion from environment
+        // readers. This needs owner review.
         unsafe { std::env::set_var("TEST_KMS_KEY_1", encode_key(&key)) };
 
         let mut key_map = HashMap::new();
@@ -320,6 +323,9 @@ mod tests {
         let provider = IntegratedKmsProvider::from_config(&key_map).expect("from_config");
         assert!(provider.can_decrypt_kek("my-key"));
 
+        // SAFETY: Initial lint enablement: `#[serial]` excludes other participating
+        // tests, but it does not prove Unix process-wide exclusion from environment
+        // readers. This needs owner review.
         unsafe { std::env::remove_var("TEST_KMS_KEY_1") };
     }
 

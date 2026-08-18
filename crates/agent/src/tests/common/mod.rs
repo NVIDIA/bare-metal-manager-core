@@ -81,6 +81,10 @@ pub(super) fn setup_agent_run_env(
     };
     let root_dir = PathBuf::from(repo_root);
 
+    // SAFETY: Initial lint enablement: these test settings are installed before the
+    // in-process agent starts, but the parallel test harness and Tokio runtimes may
+    // already have other threads. Unix process-wide exclusion from environment readers
+    // is not proven; this needs owner review.
     unsafe {
         env::set_var("DISABLE_TLS_ENFORCEMENT", "true");
         env::set_var("IGNORE_MGMT_VRF", "true");

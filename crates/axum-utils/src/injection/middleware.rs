@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::body::Body;
-use axum::extract::{Request, State};
+use axum::extract::{OriginalUri, Request, State};
 use axum::response::Response;
 use axum::routing::any;
 
@@ -35,7 +35,14 @@ pub fn injection_router(inner: Router, store: Arc<InjectionStore>) -> Router {
 
 async fn process(State(mut state): State<InjectionMiddleware>, request: Request<Body>) -> Response {
     let method = request.method().clone();
-    let path = request.uri().path().to_string();
+    // Axum strips the mounting prefix from `request.uri()` inside a nested router and preserves
+    // the client-visible URI in `OriginalUri`. Injection selectors describe external paths, so
+    // prefer the original path when the two differ and fall back for non-nested routers.
+    let path = request
+        .extensions()
+        .get::<OriginalUri>()
+        .map_or_else(|| request.uri().path(), |uri| uri.0.path())
+        .to_string();
     if let Some(response) = state.store.pre_handle(&method, &path).await {
         return response;
     }

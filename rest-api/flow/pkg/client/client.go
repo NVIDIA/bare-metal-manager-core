@@ -399,6 +399,71 @@ func (c *Client) UpgradeFirmwareByRackNames(
 	}, nil
 }
 
+// UpgradeFirmwareByNVLDomainIDs upgrades firmware for components in the given NVLink domains.
+func (c *Client) UpgradeFirmwareByNVLDomainIDs(
+	ctx context.Context,
+	domainIDs []uuid.UUID,
+	componentType types.ComponentType,
+	startTime, endTime *time.Time,
+) (*UpgradeFirmwareResult, error) {
+	targets := make([]*pb.NVLDomainTarget, 0, len(domainIDs))
+	for _, id := range domainIDs {
+		targets = append(targets, &pb.NVLDomainTarget{
+			Identifier:     &pb.NVLDomainTarget_Id{Id: uuidToProto(id)},
+			ComponentTypes: componentTypesFilter(componentType),
+		})
+	}
+
+	return c.upgradeFirmwareByNVLDomains(ctx, targets, startTime, endTime)
+}
+
+// UpgradeFirmwareByNVLDomainNames upgrades firmware for components in the given NVLink domains.
+func (c *Client) UpgradeFirmwareByNVLDomainNames(
+	ctx context.Context,
+	domainNames []string,
+	componentType types.ComponentType,
+	startTime, endTime *time.Time,
+) (*UpgradeFirmwareResult, error) {
+	targets := make([]*pb.NVLDomainTarget, 0, len(domainNames))
+	for _, name := range domainNames {
+		targets = append(targets, &pb.NVLDomainTarget{
+			Identifier:     &pb.NVLDomainTarget_Name{Name: name},
+			ComponentTypes: componentTypesFilter(componentType),
+		})
+	}
+
+	return c.upgradeFirmwareByNVLDomains(ctx, targets, startTime, endTime)
+}
+
+func (c *Client) upgradeFirmwareByNVLDomains(
+	ctx context.Context,
+	targets []*pb.NVLDomainTarget,
+	startTime, endTime *time.Time,
+) (*UpgradeFirmwareResult, error) {
+	req := &pb.UpgradeFirmwareRequest{
+		TargetSpec: &pb.OperationTargetSpec{
+			Targets: &pb.OperationTargetSpec_NvlDomains{
+				NvlDomains: &pb.NVLDomainTargets{Targets: targets},
+			},
+		},
+	}
+	if startTime != nil {
+		req.StartTime = timestamppb.New(*startTime)
+	}
+	if endTime != nil {
+		req.EndTime = timestamppb.New(*endTime)
+	}
+
+	rsp, err := c.client.UpgradeFirmware(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	return &UpgradeFirmwareResult{
+		TaskIDs: uuidsFromProto(rsp.GetTaskIds()),
+	}, nil
+}
+
 // UpgradeFirmwareByMachineIDs upgrades firmware for the given machine IDs (external component IDs).
 func (c *Client) UpgradeFirmwareByMachineIDs(
 	ctx context.Context,
@@ -487,6 +552,50 @@ func (c *Client) PowerControlByRackNames(
 	}
 
 	return c.executePowerControl(ctx, targetSpec, op)
+}
+
+// PowerControlByNVLDomainIDs performs power control in the given NVLink domains.
+func (c *Client) PowerControlByNVLDomainIDs(
+	ctx context.Context,
+	domainIDs []uuid.UUID,
+	componentType types.ComponentType,
+	op types.PowerControlOp,
+) (*PowerControlResult, error) {
+	targets := make([]*pb.NVLDomainTarget, 0, len(domainIDs))
+	for _, id := range domainIDs {
+		targets = append(targets, &pb.NVLDomainTarget{
+			Identifier:     &pb.NVLDomainTarget_Id{Id: uuidToProto(id)},
+			ComponentTypes: componentTypesFilter(componentType),
+		})
+	}
+
+	return c.executePowerControl(ctx, nvlDomainTargetSpec(targets), op)
+}
+
+// PowerControlByNVLDomainNames performs power control in the given NVLink domains.
+func (c *Client) PowerControlByNVLDomainNames(
+	ctx context.Context,
+	domainNames []string,
+	componentType types.ComponentType,
+	op types.PowerControlOp,
+) (*PowerControlResult, error) {
+	targets := make([]*pb.NVLDomainTarget, 0, len(domainNames))
+	for _, name := range domainNames {
+		targets = append(targets, &pb.NVLDomainTarget{
+			Identifier:     &pb.NVLDomainTarget_Name{Name: name},
+			ComponentTypes: componentTypesFilter(componentType),
+		})
+	}
+
+	return c.executePowerControl(ctx, nvlDomainTargetSpec(targets), op)
+}
+
+func nvlDomainTargetSpec(targets []*pb.NVLDomainTarget) *pb.OperationTargetSpec {
+	return &pb.OperationTargetSpec{
+		Targets: &pb.OperationTargetSpec_NvlDomains{
+			NvlDomains: &pb.NVLDomainTargets{Targets: targets},
+		},
+	}
 }
 
 // PowerControlByMachineIDs performs power control on the given machine IDs.

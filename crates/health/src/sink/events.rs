@@ -237,14 +237,45 @@ pub struct MetricSample {
     pub context: Option<SensorThresholdContext>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LogSeverity {
+    Unspecified,
+    Trace,
+    Debug,
+    Info,
+    Warn,
+    Error,
+    Fatal,
+}
+
+impl LogSeverity {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Unspecified => "UNSPECIFIED",
+            Self::Trace => "TRACE",
+            Self::Debug => "DEBUG",
+            Self::Info => "INFO",
+            Self::Warn => "WARN",
+            Self::Error => "ERROR",
+            Self::Fatal => "FATAL",
+        }
+    }
+}
+
+impl std::fmt::Display for LogSeverity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// Log event emitted by collectors and consumed by sinks.
 #[derive(Clone, Debug)]
 pub struct LogRecord {
     /// Human-readable log message or emitted structured body.
     pub body: String,
 
-    /// Source-provided severity text.
-    pub severity: String,
+    /// Severity, decoded by the collector from its source's own vocabulary.
+    pub severity: LogSeverity,
 
     /// Sink-visible metadata used for filtering, grouping, and correlation.
     pub attributes: Vec<MetricLabel>,
@@ -254,6 +285,8 @@ pub struct LogRecord {
 }
 
 impl LogRecord {
+    pub(crate) const DECODED_PROTOBUF_PAYLOAD_ATTRIBUTE: &'static str = "protobuf.decoded_payload";
+
     /// Converts the collector-internal log record into the record a sink emits.
     ///
     /// Diagnostic payloads stay in a separate carrier until this boundary so
@@ -308,9 +341,32 @@ impl LogRecord {
 
         Cow::Owned(Self {
             body,
-            severity: self.severity.clone(),
+            severity: self.severity,
             attributes,
             diagnostic_record: None,
+        })
+    }
+
+    /// Removes decoded protobuf JSON while preserving all other log content.
+    pub(crate) fn without_decoded_protobuf_payload(&self) -> Cow<'_, Self> {
+        if !self
+            .attributes
+            .iter()
+            .any(|(key, _)| key.as_ref() == Self::DECODED_PROTOBUF_PAYLOAD_ATTRIBUTE)
+        {
+            return Cow::Borrowed(self);
+        }
+
+        Cow::Owned(Self {
+            body: self.body.clone(),
+            severity: self.severity,
+            attributes: self
+                .attributes
+                .iter()
+                .filter(|(key, _)| key.as_ref() != Self::DECODED_PROTOBUF_PAYLOAD_ATTRIBUTE)
+                .cloned()
+                .collect(),
+            diagnostic_record: self.diagnostic_record.clone(),
         })
     }
 }

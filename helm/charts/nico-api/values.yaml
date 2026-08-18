@@ -52,10 +52,13 @@ namespaceOverride: ""
 ## expansion (which would otherwise try `carbide-api.forge-system.svc.
 ## cluster.local.<pod-search-domain>` first and get NXDOMAIN).
 legacyAlias:
-  # On by default to match the chart's cert SAN posture (the `nico-api`
-  # Certificate already includes `carbide-api.forge-system.svc.cluster.local`
-  # as a SAN). Flip to false on all-modern fleets where no client uses the
-  # legacy hostname.
+  # On by default so DNS resolution of the legacy hostname keeps working
+  # for existing pre-rename clients. Note this only covers name
+  # resolution -- the `nico-api` Certificate's SAN list does not include
+  # `carbide-api.forge-system.svc.cluster.local`, so any client actually
+  # dialing that hostname over TLS still fails certificate verification.
+  # Flip to false on all-modern fleets where no client uses the legacy
+  # hostname.
   enabled: true
   aliases:
     - name: carbide-api
@@ -143,6 +146,8 @@ certificate:
   extraDnsNames:
     - carbide-api.forge
   extraUris: []
+  # Dev/sim only: IP SANs for direct-IP TLS (e.g. API VIP). Leave empty in production.
+  ipAddresses: []
 
 migrationJob:
   sslMode: require

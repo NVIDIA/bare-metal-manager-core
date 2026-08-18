@@ -639,7 +639,7 @@ impl DpfOperations for DpfSdkOps {
         };
 
         tracing::info!(
-            "selected deployment type {deployment_type:?} for {product_name}, machine_id: {}",
+            "selected deployment type {deployment_type:?} for {product_name}, machine_id: {}, astra_nics: {astra_nics}",
             dpu.id
         );
 

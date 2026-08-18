@@ -23,6 +23,7 @@ pub(crate) mod inventory;
 mod leak_detector;
 mod logs;
 mod nmxc;
+mod nmxc_schema_override;
 mod nmxt;
 mod nvue;
 #[cfg(test)]
@@ -44,6 +45,9 @@ pub use logs::{
     SseLogCollector, SseLogCollectorConfig,
 };
 pub use nmxc::{NmxcCollector, NmxcCollectorConfig};
+pub(crate) use nmxc_schema_override::{
+    NmxcSchemaOverride, NmxcSchemaOverrideCollector, NmxcSchemaOverrideCollectorConfig,
+};
 pub(crate) use nmxt::NMXT_PORT;
 pub use nmxt::{NmxtCollector, NmxtCollectorConfig};
 pub(crate) use nvue::gnmi::subscriber::spawn_gnmi_collector;

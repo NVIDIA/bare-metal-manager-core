@@ -9,6 +9,7 @@ use crate::nv_switch_manager::Backend as NvSwitchBackend;
 use crate::power_shelf_manager::Backend as PowerShelfBackend;
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ComponentManagerConfig {
     #[serde(default)]
     pub nv_switch_backend: NvSwitchBackend,
@@ -128,6 +129,7 @@ pub fn effective_nmx_cluster_switch_mtls_services(
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct BackendEndpointConfig {
     pub url: String,
     #[serde(default)]
@@ -140,6 +142,7 @@ pub struct BackendEndpointConfig {
 /// containing `ca.crt`, `tls.crt`, and `tls.key`. Alternatively, each
 /// path can be set individually.
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct BackendTlsConfig {
     /// Directory containing `ca.crt`, `tls.crt`, `tls.key`.
     /// Individual path fields override files from this directory.

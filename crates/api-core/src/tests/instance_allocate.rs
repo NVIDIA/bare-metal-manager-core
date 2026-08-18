@@ -299,6 +299,7 @@ async fn test_allocate_instance_rejects_interface_anycast_prefix_outside_vpc_pro
                 dpu_extension_services: None,
                 nvlink: None,
                 spxconfig: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,
@@ -375,6 +376,7 @@ async fn test_zero_dpu_instance_allocation_rejects_explicit_interfaces(
                 dpu_extension_services: None,
                 nvlink: None,
                 spxconfig: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,
@@ -479,6 +481,7 @@ async fn test_zero_dpu_instance_allocation_auto(
                 dpu_extension_services: None,
                 nvlink: None,
                 spxconfig: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,
@@ -615,6 +618,7 @@ async fn test_zero_dpu_auto_update_rejects_host_inband_segment_bound_to_differen
                 dpu_extension_services: None,
                 nvlink: None,
                 spxconfig: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: Some(Metadata {
@@ -703,6 +707,7 @@ async fn test_zero_dpu_instance_allocation_rejects_missing_auto(
                 spxconfig: None,
                 network_security_group_id: None,
                 dpu_extension_services: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,
@@ -761,6 +766,7 @@ async fn test_zero_dpu_instance_allocation_rejects_missing_vpc_id(
                 spxconfig: None,
                 network_security_group_id: None,
                 dpu_extension_services: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,
@@ -823,6 +829,7 @@ async fn test_zero_dpu_instance_allocation_rejects_non_flat_vpc_id(
                 spxconfig: None,
                 network_security_group_id: None,
                 dpu_extension_services: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,
@@ -923,6 +930,7 @@ async fn test_zero_dpu_instance_allocation_auto_multi_segment(
                 spxconfig: None,
                 network_security_group_id: None,
                 dpu_extension_services: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,
@@ -1033,6 +1041,13 @@ async fn test_zero_dpu_instance_allocation_auto_multi_segment(
                     && prefix_id.eq(&host_inband_segment_1.prefixes[0].id)
             )
     );
+    assert_eq!(
+        interface_in_segment_1
+            .interface_prefixes
+            .get(&host_inband_segment_1.prefixes[0].id),
+        Some(&host_inband_segment_1.prefixes[0].prefix),
+        "HostInband allocation should persist the interface's segment prefix",
+    );
 
     assert!(
         interface_in_segment_2
@@ -1042,6 +1057,13 @@ async fn test_zero_dpu_instance_allocation_auto_multi_segment(
                 |(prefix_id, addr)| host_inband_segment_2.prefixes[0].prefix.contains(*addr)
                     && prefix_id.eq(&host_inband_segment_2.prefixes[0].id)
             )
+    );
+    assert_eq!(
+        interface_in_segment_2
+            .interface_prefixes
+            .get(&host_inband_segment_2.prefixes[0].id),
+        Some(&host_inband_segment_2.prefixes[0].prefix),
+        "HostInband allocation should persist the interface's segment prefix",
     );
 
     let mut txn = env.db_txn().await;
@@ -1148,6 +1170,7 @@ async fn test_zero_dpu_auto_update_absorbs_added_host_inband_segment(
                 spxconfig: None,
                 network_security_group_id: None,
                 dpu_extension_services: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: Some(Metadata {
@@ -1317,6 +1340,7 @@ async fn test_reject_single_dpu_instance_allocation_no_network_config(
                 spxconfig: None,
                 network_security_group_id: None,
                 dpu_extension_services: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,
@@ -1393,6 +1417,7 @@ async fn test_reject_single_dpu_instance_allocation_host_inband_network_config(
                 infiniband: None,
                 nvlink: None,
                 spxconfig: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,
@@ -1556,6 +1581,7 @@ async fn test_reject_zero_dpu_instance_allocation_multiple_vpcs(
                 dpu_extension_services: None,
                 nvlink: None,
                 spxconfig: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,
@@ -1633,6 +1659,7 @@ async fn test_single_dpu_instance_allocation(
                 spxconfig: None,
                 network_security_group_id: None,
                 dpu_extension_services: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,
@@ -1787,6 +1814,7 @@ async fn test_reject_zero_dpu_instance_with_tenant_network_segment(
                 dpu_extension_services: None,
                 nvlink: None,
                 spxconfig: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,
@@ -1864,6 +1892,7 @@ async fn test_zero_dpu_instance_surfaces_underlay_ip_in_status(
                 dpu_extension_services: None,
                 nvlink: None,
                 spxconfig: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,
@@ -1996,6 +2025,7 @@ async fn test_reject_zero_dpu_instance_with_extension_services(
                 }),
                 nvlink: None,
                 spxconfig: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,
@@ -2073,6 +2103,7 @@ async fn test_instance_allocation_rejects_auto_with_explicit_interfaces(
                 dpu_extension_services: None,
                 nvlink: None,
                 spxconfig: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,
@@ -2139,6 +2170,7 @@ async fn test_instance_allocation_rejects_auto_on_dpu_host(
                 dpu_extension_services: None,
                 nvlink: None,
                 spxconfig: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: None,

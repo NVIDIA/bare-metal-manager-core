@@ -109,7 +109,9 @@ pub(crate) async fn activate_sol(port: u16) -> eyre::Result<ActiveSolSession> {
         .kill_on_drop(true);
 
     let pty_slave_fd = pty.slave.as_raw_fd();
-    // SAFETY: this runs in the child between fork and exec to give interactive ipmitool a terminal.
+    // SAFETY: the closure captures only a copied descriptor that remains owned through `spawn`
+    // and makes direct `setsid` and `TIOCSCTTY` syscalls without allocating, locking, or accessing
+    // shared Rust state between `fork` and `exec`.
     unsafe {
         command.pre_exec(move || {
             unistd::setsid()?;

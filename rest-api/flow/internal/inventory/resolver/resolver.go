@@ -123,7 +123,9 @@ func selectComponent(
 	return nil, unresolvableError("%d matching components", len(matches))
 }
 
-// RackByID returns the canonical rack for one Flow UUID.
+// RackByID returns the canonical rack for one Flow UUID. A nil rack, unknown
+// rack, or malformed canonical identity returns an error; successful calls
+// always return a non-nil rack whose ID matches id.
 func (r *Resolver) RackByID(
 	ctx context.Context,
 	id uuid.UUID,
@@ -182,6 +184,14 @@ func (r *Resolver) rackByIdentifier(
 			"%s resolved to rack id %s",
 			reference,
 			resolved.Info.ID,
+		)
+	}
+	if err := resolved.ValidateComponentIDs(); err != nil {
+		return nil, fmt.Errorf(
+			"%w: %s has invalid components: %w",
+			ErrUnresolvable,
+			reference,
+			err,
 		)
 	}
 

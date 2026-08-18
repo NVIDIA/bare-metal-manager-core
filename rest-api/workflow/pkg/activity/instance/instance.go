@@ -43,6 +43,18 @@ type ManageInstance struct {
 	cfg            *config.Config
 }
 
+// primaryResolvedVpcPrefixID preserves the scalar REST cache contract: IPv4 is
+// primary for dual-stack selections, while IPv6 is primary for IPv6-only selections.
+func primaryResolvedVpcPrefixID(prefixes *corev1.InstanceInterfaceResolvedVpcPrefixes) *corev1.VpcPrefixId {
+	if prefixes == nil {
+		return nil
+	}
+	if prefixes.Ipv4VpcPrefixId != nil {
+		return prefixes.Ipv4VpcPrefixId
+	}
+	return prefixes.Ipv6VpcPrefixId
+}
+
 // Activity functions
 
 // UpdateInstancesInDB is a Temporal activity that takes a collection of Instance data pushed by Site Agent and updates the DB
@@ -469,18 +481,18 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 					}
 
 					// A VPC selector remains the desired intent; synchronize Core's
-					// resolved IPv4 prefix from the aligned status.
+					// primary resolved prefix from the aligned status.
 					var vpcPrefixID *uuid.UUID
 					clearResolvedVpcPrefix := false
 					if usesVpcSelection {
-						if interfaceStatus.ResolvedVpcPrefixes == nil ||
-							interfaceStatus.ResolvedVpcPrefixes.Ipv4VpcPrefixId == nil {
+						resolvedPrefix := primaryResolvedVpcPrefixID(interfaceStatus.ResolvedVpcPrefixes)
+						if resolvedPrefix == nil {
 							clearResolvedVpcPrefix = controllerInstance.Status.Network.ConfigsSynced == corev1.SyncState_SYNCED &&
 								ifc.VpcPrefixID != nil
 						} else {
-							resolvedPrefixID, prefixErr := uuid.Parse(interfaceStatus.ResolvedVpcPrefixes.Ipv4VpcPrefixId.Value)
+							resolvedPrefixID, prefixErr := uuid.Parse(resolvedPrefix.Value)
 							if prefixErr != nil {
-								slogger.Error().Err(prefixErr).Str("Interface ID", ifc.ID.String()).Msg("failed to parse resolved IPv4 VPC Prefix ID")
+								slogger.Error().Err(prefixErr).Str("Interface ID", ifc.ID.String()).Msg("failed to parse resolved VPC Prefix ID")
 							} else {
 								vpcPrefixID = &resolvedPrefixID
 							}

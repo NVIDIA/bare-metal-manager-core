@@ -169,7 +169,6 @@ func (o *MachineValidationStatus) UnmarshalJSON(data []byte) (err error) {
 	varMachineValidationStatus := _MachineValidationStatus{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varMachineValidationStatus)
 
 	if err != nil {

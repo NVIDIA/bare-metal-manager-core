@@ -47,14 +47,14 @@ const TEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// Counters for the two calls this handler is responsible for, so a test can
 /// assert what happened *after* provisioning rather than in total.
 #[derive(Default)]
-struct Calls {
-    outdated_checks: AtomicUsize,
-    hold_releases: AtomicUsize,
+pub(super) struct Calls {
+    pub(super) outdated_checks: AtomicUsize,
+    pub(super) hold_releases: AtomicUsize,
 }
 
 /// `outdated` drives what `is_dpu_outdated` reports; `release_fails` makes the
 /// hold release return an error so the marker's survival can be checked.
-fn mock(
+pub(super) fn mock(
     calls: Arc<Calls>,
     outdated: Arc<AtomicBool>,
     release_fails: Arc<AtomicBool>,
@@ -66,7 +66,7 @@ fn mock(
     mock.expect_get_dpu_phase()
         .returning(|_, _| Ok(DpuPhase::Ready));
     mock.expect_deployment_type_for_dpu()
-        .returning(|_| Ok(DpuDeploymentType::Bf3));
+        .returning(|_, _| Ok(DpuDeploymentType::Bf3));
     mock.expect_verify_node_labels().returning(|_, _| Ok(true));
 
     let outdated_calls = calls.clone();
@@ -88,16 +88,16 @@ fn mock(
     mock
 }
 
-struct Fixture {
-    env: TestEnv,
-    mh: TestManagedHost,
-    calls: Arc<Calls>,
-    pool: sqlx::PgPool,
+pub(super) struct Fixture {
+    pub(super) env: TestEnv,
+    pub(super) mh: TestManagedHost,
+    pub(super) calls: Arc<Calls>,
+    pub(super) pool: sqlx::PgPool,
 }
 
 /// Provisions a DPF host and returns it sitting in `Ready`, with the call
 /// counters zeroed so only post-provisioning activity is measured.
-async fn provisioned(
+pub(super) async fn provisioned(
     pool: sqlx::PgPool,
     outdated: Arc<AtomicBool>,
     release_fails: Arc<AtomicBool>,
@@ -105,7 +105,7 @@ async fn provisioned(
     provisioned_with_sync(pool, outdated, release_fails, true).await
 }
 
-async fn provisioned_with_sync(
+pub(super) async fn provisioned_with_sync(
     pool: sqlx::PgPool,
     outdated: Arc<AtomicBool>,
     release_fails: Arc<AtomicBool>,
@@ -139,14 +139,14 @@ async fn provisioned_with_sync(
     }
 }
 
-async fn request_sync(pool: &sqlx::PgPool, host_id: &MachineId) {
+pub(super) async fn request_sync(pool: &sqlx::PgPool, host_id: &MachineId) {
     let mut conn = pool.acquire().await.unwrap();
     db::machine_pending_action::request(&mut conn, host_id, DpuServiceSync)
         .await
         .expect("recorded pending action");
 }
 
-async fn is_outstanding(pool: &sqlx::PgPool, host_id: &MachineId) -> bool {
+pub(super) async fn is_outstanding(pool: &sqlx::PgPool, host_id: &MachineId) -> bool {
     db::machine_pending_action::is_outstanding(pool, host_id, DpuServiceSync)
         .await
         .expect("read pending action")
@@ -154,7 +154,7 @@ async fn is_outstanding(pool: &sqlx::PgPool, host_id: &MachineId) -> bool {
 
 /// Puts one DPU back into the DPF `WaitingForReady` substate so the provisioning
 /// handler runs again without replaying the whole operator workflow.
-async fn reset_host_to_waiting_for_ready(
+pub(super) async fn reset_host_to_waiting_for_ready(
     pool: &sqlx::PgPool,
     host_id: &MachineId,
     dpu_id: &MachineId,

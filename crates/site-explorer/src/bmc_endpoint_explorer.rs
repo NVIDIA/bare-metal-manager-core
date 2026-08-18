@@ -1757,6 +1757,7 @@ mod tests {
     use std::net::TcpListener;
 
     use arc_swap::ArcSwap;
+    use axum::Router;
     use bmc_mock::{CombinedServer, ListenerOrAddress};
     use carbide_instrument::Outcome;
     use carbide_instrument::testing::{CapturedLog, MetricsCapture, capture_logs};
@@ -1789,20 +1790,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn default_nvredfish_mode_does_not_apply_lenovo_fallback_to_generic_ami() {
-        let (router, _state) = bmc_mock::test_support::
-            generic_ami_router_with_network_adapter_port_and_disabled_system_mac(
-                serde_json::json!({
-                "@odata.id": "/redfish/v1/Chassis/Self/NetworkAdapters/1/Ports/1",
-                "@odata.type": "#Port.v1_6_0.Port",
-                "Id": "1",
-                "Name": "Port 1",
-                "Oem": {
-                    "Lenovo": { "PhysicalPortMacAddress": "946DAE53CB9B" }
-                }
-                }),
-            );
+    async fn explore_router_in_default_mode(router: Router) -> EndpointExplorationReport {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let bmc_ip_address = listener.local_addr().unwrap();
         let _server = CombinedServer::run_router(
@@ -1825,7 +1813,7 @@ mod tests {
             None,
         );
 
-        let report = explorer
+        explorer
             .generate_exploration_report(
                 bmc_ip_address,
                 Credentials::new("root", "password"),
@@ -1833,7 +1821,24 @@ mod tests {
                 None,
             )
             .await
-            .unwrap();
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn default_nvredfish_mode_does_not_apply_lenovo_fallback_to_generic_ami() {
+        let (router, _state) = bmc_mock::test_support::
+            generic_ami_router_with_network_adapter_port_and_disabled_system_mac(
+                serde_json::json!({
+                "@odata.id": "/redfish/v1/Chassis/Self/NetworkAdapters/1/Ports/1",
+                "@odata.type": "#Port.v1_6_0.Port",
+                "Id": "1",
+                "Name": "Port 1",
+                "Oem": {
+                    "Lenovo": { "PhysicalPortMacAddress": "946DAE53CB9B" }
+                }
+                }),
+            );
+        let report = explore_router_in_default_mode(router).await;
 
         assert!(report.all_mac_addresses().is_empty());
         assert!(
@@ -1849,6 +1854,41 @@ mod tests {
                     interface.id.as_deref() == Some("disabled") && interface.mac_address.is_none()
                 })
         );
+    }
+
+    #[tokio::test]
+    async fn default_nvredfish_mode_discovers_lenovo_port_mac_with_partial_system_inventory() {
+        let report = explore_router_in_default_mode(
+            bmc_mock::test_support::lenovo_xcc_router_with_partial_system_network_inventory(),
+        )
+        .await;
+        let port_mac_address = "94:6d:ae:53:cb:9b".parse().unwrap();
+        let adapter = report
+            .chassis
+            .iter()
+            .flat_map(|chassis| &chassis.network_adapters)
+            .find(|adapter| adapter.id == "slot-15")
+            .expect("ConnectX-7 adapter must be explored");
+
+        assert_eq!(adapter.port_mac_addresses, vec![port_mac_address]);
+        assert_eq!(report.systems[0].ethernet_interfaces.len(), 5);
+        assert!(
+            report.systems[0]
+                .ethernet_interfaces
+                .iter()
+                .all(|interface| {
+                    interface.interface_enabled == Some(true) && interface.mac_address.is_some()
+                }),
+            "the System interface inventory must remain usable",
+        );
+        assert!(
+            report.systems[0]
+                .ethernet_interfaces
+                .iter()
+                .all(|interface| interface.mac_address != Some(port_mac_address)),
+            "adapter Port inventory must not be synthesized into the System interface collection",
+        );
+        assert_eq!(report.find_interface_id_for_mac(port_mac_address), None);
     }
 
     #[test]

@@ -30,13 +30,13 @@ func (d *Dedupe) Clone() *Dedupe {
 }
 
 // WithinWindow reports whether an observation falls within the deduplication
-// window anchored at the execution's first claim time.
-func (d *Dedupe) WithinWindow(firstClaimedAt, observedAt time.Time) bool {
+// window anchored at the action execution's creation time.
+func (d *Dedupe) WithinWindow(createdAt, observedAt time.Time) bool {
 	if d == nil {
 		return false
 	}
-	return !observedAt.Before(firstClaimedAt) &&
-		observedAt.Sub(firstClaimedAt) < d.Window
+	return !observedAt.Before(createdAt) &&
+		observedAt.Sub(createdAt) < d.Window
 }
 
 // Clone returns an independent copy of the policy and its mutable data.
