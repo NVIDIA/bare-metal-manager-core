@@ -387,7 +387,9 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             RoutingProfile: interface_routing_profile.unwrap_or_default(),
             IsPhy: network.is_phy,
             L2VNI: network.vni.map(|x| x.to_string()).unwrap_or("".to_string()),
-            IPs: vec![network.gateway_cidr.clone()],
+            IPs: std::iter::once(network.gateway_cidr.clone())
+                .filter(|address| !address.is_empty())
+                .collect(),
             IPsIpv6: network
                 .ipv6_port_config
                 .as_ref()
@@ -1262,7 +1264,7 @@ pub struct PortConfig {
     pub vni: Option<u32>, // In FNN, admin network has both an l2vni and an l3vni
     pub l3_vni: Option<u32>,
     pub gateway_cidr: String,
-    /// Optional IPv6 configuration for dual-stack interfaces.
+    /// Optional IPv6 configuration for interfaces that include IPv6.
     pub ipv6_port_config: Option<Ipv6PortConfig>,
     pub vpc_prefixes: Vec<String>,
     pub vpc_peer_prefixes: Vec<String>,
@@ -1554,7 +1556,7 @@ struct TmplVpc {
 struct TmplHostInterfaces {
     ID: u32,
     HostIP: String,
-    /// IPv6 host address (if dual-stack).
+    /// IPv6 host address, when configured.
     HostIPv6: Option<String>,
 
     // HostRoute in the context of FNN-L3 is the /31 prefix allocation.
@@ -2314,6 +2316,40 @@ mod tests {
             conf,
             include_str!("../templates/tests/nvue_build_fnn_dual_stack.yaml.expected"),
         );
+    }
+
+    #[test]
+    fn test_build_fnn_ipv6_only_interface() {
+        let mut conf = dual_stack_fnn_config();
+        let port = conf
+            .ct_port_configs
+            .first_mut()
+            .expect("fixture should have a port");
+        port.host_ip.clear();
+        port.host_route.clear();
+        port.gateway_cidr.clear();
+        port.svi_ip = None;
+        port.vpc_prefixes
+            .retain(|prefix| matches!(prefix.parse::<IpNet>(), Ok(IpNet::V6(_))));
+
+        let vlan = conf
+            .ct_access_vlans
+            .first_mut()
+            .expect("fixture should have an access VLAN");
+        vlan.ip.clear();
+        vlan.network.clear();
+
+        let output = build(conf).expect("build should succeed");
+        let docs: serde_yaml::Value =
+            serde_yaml::from_str(&output).expect("output should be valid YAML");
+        let set = &docs.as_sequence().unwrap()[1]["set"];
+
+        assert_eq!(
+            yaml_mapping_keys(&set["interface"]["pf0vf0_if"]["ip"]["address"]),
+            address_set(&["2001:db8::0/127"]),
+        );
+        let neighbors = &set["vrf"]["vpc_100"]["router"]["bgp"]["neighbor"];
+        assert_eq!(yaml_mapping_keys(neighbors), address_set(&["2001:db8::1"]),);
     }
 
     #[test]

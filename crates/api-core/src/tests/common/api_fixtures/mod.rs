@@ -37,6 +37,7 @@ use carbide_machine_controller::handler::{
     MachineStateHandler, MachineStateHandlerBuilder, PowerOptionConfig, ReachabilityParams,
 };
 use carbide_machine_controller::io::MachineStateControllerIO;
+use carbide_network::virtualization::build_dual_stack_list;
 use carbide_network_segment_controller::context::NetworkSegmentStateHandlerServices;
 use carbide_network_segment_controller::handler::NetworkSegmentStateHandler;
 use carbide_network_segment_controller::io::NetworkSegmentStateControllerIO;
@@ -1749,6 +1750,7 @@ pub(in crate::tests) async fn create_test_env_with_overrides(
             switches_created_per_run: 1,
             rotate_switch_nvos_credentials: Arc::new(false.into()),
             dpu_policy: None,
+            deprecated_force_dpu_nic_mode: None,
             // Tests use MockEndpointExplorer. So this doesn't affect anything.
             explore_mode: SiteExplorerExploreMode::NvRedfish,
         },
@@ -2197,6 +2199,8 @@ pub(in crate::tests) async fn network_configured_with_health(
 
 /// Fake an iteration of forge-dpu-agent requesting network config, applying it, and reporting back.
 /// When reporting back, the health and extension services statuses reported by the DPU can be overrridden
+// This fixture reports the compatibility fields populated for older agents.
+#[allow(deprecated)]
 pub(in crate::tests) async fn network_configured_with_health_and_ext_services(
     env: &TestEnv,
     dpu_machine_id: &MachineId,
@@ -2252,9 +2256,18 @@ pub(in crate::tests) async fn network_configured_with_health_and_ext_services(
             function_type: iface.function_type,
             virtual_function_id: None,
             mac_address: None,
-            addresses: vec![iface.ip.clone()],
-            prefixes: vec![iface.interface_prefix.clone()],
-            gateways: vec![iface.gateway.clone()],
+            addresses: build_dual_stack_list(
+                iface.ip.clone(),
+                iface.ipv6_interface_config.as_ref().map(|v6| v6.ip.clone()),
+            ),
+            prefixes: build_dual_stack_list(
+                iface.interface_prefix.clone(),
+                iface
+                    .ipv6_interface_config
+                    .as_ref()
+                    .map(|v6| v6.interface_prefix.clone()),
+            ),
+            gateways: build_dual_stack_list(iface.gateway.clone(), None),
             network_security_group: None,
             internal_uuid: iface.internal_uuid.clone(),
         }]
@@ -2265,9 +2278,18 @@ pub(in crate::tests) async fn network_configured_with_health_and_ext_services(
                 function_type: iface.function_type,
                 virtual_function_id: iface.virtual_function_id,
                 mac_address: None,
-                addresses: vec![iface.ip.clone()],
-                prefixes: vec![iface.interface_prefix.clone()],
-                gateways: vec![iface.gateway.clone()],
+                addresses: build_dual_stack_list(
+                    iface.ip.clone(),
+                    iface.ipv6_interface_config.as_ref().map(|v6| v6.ip.clone()),
+                ),
+                prefixes: build_dual_stack_list(
+                    iface.interface_prefix.clone(),
+                    iface
+                        .ipv6_interface_config
+                        .as_ref()
+                        .map(|v6| v6.interface_prefix.clone()),
+                ),
+                gateways: build_dual_stack_list(iface.gateway.clone(), None),
                 network_security_group: None,
                 internal_uuid: iface.internal_uuid.clone(),
             });

@@ -28,6 +28,7 @@ type mockClient struct {
 	powerShelfRackIDs          map[string]string // power shelf ID → rack ID
 	switchControllerStates     map[string]string // switch ID → raw core controller_state
 	switchNvosIPs              map[string]string // switch ID → resolved NVOS host IP
+	nvLinkDomainMemberships    []NVLinkDomainMembership
 	powerShelfControllerStates map[string]string // shelf ID → raw core controller_state
 	hostMachinesByRackID       map[string][]string
 	// Detail tables for the GetAllExpected*Details RPCs (Flow's mirror sync).
@@ -260,6 +261,19 @@ func (c *mockClient) FindSwitchNvosIPs(_ context.Context, switchIds []string) (m
 		}
 	}
 	return out, nil
+}
+
+func (c *mockClient) GetObservedNVLinkDomainMemberships(_ context.Context) ([]NVLinkDomainMembership, error) {
+	out := make([]NVLinkDomainMembership, len(c.nvLinkDomainMemberships))
+	copy(out, c.nvLinkDomainMemberships)
+	return out, nil
+}
+
+// SetObservedNVLinkDomainMemberships replaces the Core domain observations
+// returned by the mock client.
+func (c *mockClient) SetObservedNVLinkDomainMemberships(memberships []NVLinkDomainMembership) {
+	c.nvLinkDomainMemberships = make([]NVLinkDomainMembership, len(memberships))
+	copy(c.nvLinkDomainMemberships, memberships)
 }
 
 func (c *mockClient) FindPowerShelfControllerStates(_ context.Context, shelfIds []string) (map[string]string, error) {

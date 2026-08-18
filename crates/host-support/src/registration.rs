@@ -312,7 +312,7 @@ pub async fn write_certs(
             ))?;
         tracing::info!(%client_cert, "Wrote new machine certificate PEM");
 
-        tokio::fs::write(client_key, machine_certificate.private_key.as_slice())
+        write_private_key(client_key, machine_certificate.private_key.as_slice())
             .await
             .wrap_err(format!(
                 "failed to write new machine certificate key to: {client_key}"
@@ -322,4 +322,115 @@ pub async fn write_certs(
     }
 
     Ok(())
+}
+
+/// Writes the machine private key owner-readable only (0600). The key is
+/// created with the restrictive mode from the first byte — not chmod'ed after
+/// the fact — so there is no window where it sits world-readable; a pre-existing
+/// key file from an older agent (written 0644 via plain `fs::write`) is
+/// tightened as well. Everything that legitimately reads the key (dpu-agent,
+/// scout, fmds, otelcol) runs as root, so 0600 root-owned loses nobody access.
+#[cfg(unix)]
+async fn write_private_key(path: &str, key: &[u8]) -> Result<(), std::io::Error> {
+    use std::os::unix::fs::PermissionsExt;
+
+    use tokio::io::AsyncWriteExt;
+
+    let mut file = tokio::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)
+        .await?;
+    // `mode` only applies at creation; tighten files that already existed.
+    file.set_permissions(std::fs::Permissions::from_mode(0o600))
+        .await?;
+    file.write_all(key).await?;
+    // `sync_all`, not `flush`: flushing only pushes the buffer into the kernel.
+    // The agent's very next act is to use this key, and a DPU losing power
+    // between the write and the writeback would leave a truncated or empty key
+    // behind a certificate that looks installed — a state the mismatch check in
+    // the minter reports as a failure but cannot repair without re-enrolment.
+    file.sync_all().await
+}
+
+#[cfg(not(unix))]
+async fn write_private_key(path: &str, key: &[u8]) -> Result<(), std::io::Error> {
+    tokio::fs::write(path, key).await
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::os::unix::fs::PermissionsExt;
+
+    use super::*;
+
+    /// `write_certs` concatenates and writes bytes without parsing them, so
+    /// these are opaque sentinels rather than PEM. Real-looking `-----BEGIN EC
+    /// PRIVATE KEY-----` markers would buy nothing here and trip secret
+    /// scanners, which match the marker and not its contents.
+    fn test_certificate() -> MachineCertificate {
+        MachineCertificate {
+            public_key: b"test-leaf-certificate-bytes".to_vec(),
+            issuing_ca: b"test-issuing-ca-bytes".to_vec(),
+            private_key: b"test-machine-private-key-bytes".to_vec(),
+        }
+    }
+
+    fn key_mode(path: &str) -> u32 {
+        std::fs::metadata(path)
+            .expect("key metadata")
+            .permissions()
+            .mode()
+            & 0o777
+    }
+
+    #[tokio::test]
+    async fn private_key_is_written_owner_only() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = ClientCert {
+            cert_path: dir.path().join("cert.pem").to_string_lossy().into_owned(),
+            key_path: dir.path().join("cert.key").to_string_lossy().into_owned(),
+        };
+
+        write_certs(Some(test_certificate()), Some(&paths))
+            .await
+            .expect("write_certs succeeds");
+
+        assert_eq!(key_mode(&paths.key_path), 0o600, "fresh key must be 0600");
+        let cert = std::fs::read_to_string(&paths.cert_path).expect("cert readable");
+        assert!(
+            cert.contains("leaf") && cert.contains("ca"),
+            "cert file carries leaf + chain"
+        );
+    }
+
+    #[tokio::test]
+    async fn pre_existing_loose_key_is_tightened_on_rewrite() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = ClientCert {
+            cert_path: dir.path().join("cert.pem").to_string_lossy().into_owned(),
+            key_path: dir.path().join("cert.key").to_string_lossy().into_owned(),
+        };
+        // A key written by an older agent via plain fs::write (umask default).
+        std::fs::write(&paths.key_path, b"old key").expect("seed old key");
+        std::fs::set_permissions(&paths.key_path, std::fs::Permissions::from_mode(0o644))
+            .expect("loosen");
+
+        write_certs(Some(test_certificate()), Some(&paths))
+            .await
+            .expect("write_certs succeeds");
+
+        assert_eq!(
+            key_mode(&paths.key_path),
+            0o600,
+            "renewal must tighten an old 0644 key"
+        );
+        let key = std::fs::read_to_string(&paths.key_path).expect("key readable by owner");
+        assert!(
+            key.contains("test-machine-private-key-bytes"),
+            "key content replaced"
+        );
+    }
 }

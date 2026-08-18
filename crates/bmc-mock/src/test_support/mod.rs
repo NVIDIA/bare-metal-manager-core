@@ -17,6 +17,8 @@
 
 use std::sync::{Arc, Mutex};
 
+use axum::routing::get;
+use axum::{Json, Router};
 use axum_http_client::AxumRouterHttpClient;
 use mac_address::MacAddress;
 use nv_redfish::bmc_http::{BmcCredentials, CacheSettings, HttpBmc};
@@ -328,6 +330,124 @@ pub async fn generic_ami_bmc() -> TestBmcHandle {
         MachineRouterOptions::default(),
     ))
     .await
+}
+
+/// Builds a router from the recorded Lenovo ThinkSystem SR670 Redfish tree.
+pub fn lenovo_thinksystem_sr670_router() -> Router {
+    let archive_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("lenovo_thinksystem_sr670.tar.gz");
+    crate::tar_router::tar_router(crate::tar_router::TarGzOption::Disk(&archive_path), None)
+        .expect("Lenovo ThinkSystem SR670 archive must be readable")
+}
+
+/// Builds the recorded Lenovo XCC router with five usable System interfaces
+/// and the ConnectX-7 MAC reported only through its linked adapter Port.
+pub fn lenovo_xcc_router_with_partial_system_network_inventory() -> Router {
+    const SYSTEM_INTERFACES: &str = "/redfish/v1/Systems/1/EthernetInterfaces";
+    const ADAPTERS: &str = "/redfish/v1/Chassis/1/NetworkAdapters";
+    const ADAPTER: &str = "/redfish/v1/Chassis/1/NetworkAdapters/slot-15";
+    const PORTS: &str = "/redfish/v1/Chassis/1/NetworkAdapters/slot-15/Ports";
+    const PORT: &str = "/redfish/v1/Chassis/1/NetworkAdapters/slot-15/Ports/2";
+
+    let interfaces = [
+        ("ToManager", "0a:8f:c3:a5:8a:41"),
+        ("NIC1", "00:62:0b:4c:28:a8"),
+        ("NIC2", "00:62:0b:4c:28:a9"),
+        ("NIC3", "00:62:0b:4c:28:aa"),
+        ("NIC4", "00:62:0b:4c:28:ab"),
+    ];
+    let interface_members = interfaces
+        .iter()
+        .map(|(id, _)| serde_json::json!({ "@odata.id": format!("{SYSTEM_INTERFACES}/{id}") }))
+        .collect::<Vec<_>>();
+    let mut router = Router::new().route(
+        SYSTEM_INTERFACES,
+        get(move || {
+            let interface_members = interface_members.clone();
+            async move {
+                Json(serde_json::json!({
+                    "@odata.id": SYSTEM_INTERFACES,
+                    "@odata.type": "#EthernetInterfaceCollection.EthernetInterfaceCollection",
+                    "Name": "Ethernet Interface Collection",
+                    "Members": interface_members,
+                }))
+            }
+        }),
+    );
+    for (id, mac_address) in interfaces {
+        let path = format!("{SYSTEM_INTERFACES}/{id}");
+        let interface_odata_id = path.clone();
+        router = router.route(
+            &path,
+            get(move || {
+                let interface_odata_id = interface_odata_id.clone();
+                async move {
+                    Json(serde_json::json!({
+                        "@odata.id": interface_odata_id,
+                        "@odata.type": "#EthernetInterface.v1_12_0.EthernetInterface",
+                        "Id": id,
+                        "Name": id,
+                        "InterfaceEnabled": true,
+                        "MACAddress": mac_address,
+                        "Status": { "State": "Enabled" },
+                    }))
+                }
+            }),
+        );
+    }
+
+    router
+        .route(
+            ADAPTERS,
+            get(|| async {
+                Json(serde_json::json!({
+                    "@odata.id": ADAPTERS,
+                    "@odata.type": "#NetworkAdapterCollection.NetworkAdapterCollection",
+                    "Name": "Network Adapter Collection",
+                    "Members": [{ "@odata.id": ADAPTER }],
+                }))
+            }),
+        )
+        .route(
+            ADAPTER,
+            get(|| async {
+                Json(serde_json::json!({
+                    "@odata.id": ADAPTER,
+                    "@odata.type": "#NetworkAdapter.v1_7_0.NetworkAdapter",
+                    "Id": "slot-15",
+                    "Name": "ConnectX-7",
+                    "Manufacturer": "NVIDIA",
+                    "Model": "ConnectX-7",
+                    "Ports": { "@odata.id": PORTS },
+                }))
+            }),
+        )
+        .route(
+            PORTS,
+            get(|| async {
+                Json(serde_json::json!({
+                    "@odata.id": PORTS,
+                    "@odata.type": "#PortCollection.PortCollection",
+                    "Name": "Port Collection",
+                    "Members": [{ "@odata.id": PORT }],
+                }))
+            }),
+        )
+        .route(
+            PORT,
+            get(|| async {
+                Json(serde_json::json!({
+                    "@odata.id": PORT,
+                    "@odata.type": "#Port.v1_6_0.Port",
+                    "Id": "2",
+                    "Name": "Port 2",
+                    "Oem": {
+                        "Lenovo": { "PhysicalPortMacAddress": "94:6d:ae:53:cb:9b" },
+                    },
+                }))
+            }),
+        )
+        .fallback_service(lenovo_thinksystem_sr670_router())
 }
 
 const TEST_ADAPTERS: &str = "/redfish/v1/Chassis/Self/NetworkAdapters";

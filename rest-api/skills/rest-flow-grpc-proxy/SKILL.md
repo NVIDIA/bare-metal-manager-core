@@ -36,8 +36,18 @@ endpoints that need to call on-site Flow through the generic Flow gRPC proxy.
 `ExecuteFlowGRPC` requires the caller to supply:
 
 1. `workflowID` — deterministic for read/list dedup, fresh UUID for creates.
-2. `conflictPolicy` — typically `WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING`
-   for Flow handlers that coalesce identical in-flight requests.
+2. `conflictPolicy` — the two travel together. A deterministic ID takes
+   `WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING` so identical in-flight requests
+   coalesce onto one Flow call; a fresh ID takes
+   `WORKFLOW_ID_CONFLICT_POLICY_UNSPECIFIED`, matching `ExecuteCoreGRPC`, whose
+   IDs are always fresh.
+
+Two helpers in `common` carry this for every migrated handler:
+`common.FlowWorkflowID` applies the transport namespace, and
+`common.ProxyFlowGRPC` dispatches and renders the failure as an Echo response.
+Use `ExecuteFlowGRPC` directly only in helpers that hand the error back to a
+caller instead of rendering a response, as `resolveTrayIDsBySlot` does; return
+the `*cutil.APIError` unwrapped so the status the proxy chose survives.
 
 Kinds of ID derivation that must stay in the handler, using the TaskRun
 endpoints as the worked example:
@@ -69,6 +79,14 @@ answers later than that cannot deliver its answer. Keep
 `api/internal/server` guards the outer bound. Raising the on-site budget means
 raising the server and load-balancer timeouts first.
 
+Because the workflow timeout sits inside the caller's context timeout, a timeout
+that Temporal itself reports comes from an execution that has closed. The ladder
+does not cover the other way a caller loses its result: `wfCtx` derives from the
+request context, so a client disconnect or a shorter upstream deadline can end
+the wait while the execution runs on. `wfCtx.Err()` is the only evidence that
+this happened, which is why a `context.DeadlineExceeded` in the workflow result
+alone does not classify as it — it can come from inside the execution.
+
 ## Before Coding
 
 Confirm these details before editing:
@@ -81,9 +99,17 @@ Confirm these details before editing:
 - Workflow ID derivation and conflict policy for this call.
 - Secret fields that must not appear in Temporal history (top-level protojson
   field names).
-- Whether timeout should terminate the workflow (`TerminateWorkflowOnTimeOut`)
-  when `ExecuteFlowGRPC` returns `504`, which is what the bespoke TaskRun
-  workflows do today.
+- Whether the call fits in the proxy's budget. The activity is cut off at
+  `grpcproxy.ActivityStartToCloseTimeout`, currently 40s. The bespoke workflows
+  declared 2 minutes, and bring-up and firmware 5 minutes, but every Flow caller
+  bounded itself with the 50s `cutil.WorkflowContextTimeout`, so no declared
+  budget was reachable. Migrating still narrows the window: a Flow call that took
+  41-49s used to succeed and now fails.
+- Whether the call tolerates losing an activity retry. `InvokeFlowGRPC` runs the
+  activity with `MaximumAttempts: 1`, so a transient Flow error surfaces to the
+  client instead of being retried. Bespoke workflows that allowed a second
+  attempt lose it on migration, and the retry policy lives in the site workflow,
+  so making it configurable takes another agent release to take effect.
 
 ## Implementation Workflow
 
@@ -94,8 +120,17 @@ Confirm these details before editing:
    respProtoOrNil, workflowID, conflictPolicy, siteIDSecretKey, secretFields...)`.
    Passing `secretFields` requires a non-empty `siteIDSecretKey`; the helper
    rejects the combination rather than send the fields unredacted.
-4. On `StatusGatewayTimeout`, call `TerminateWorkflowOnTimeOut` with the same
-   `workflowID` when matching existing TaskRun UX.
+4. Return `StatusGatewayTimeout` as it comes. Do not call
+   `TerminateWorkflowOnTimeOut`. When Temporal reports the timeout the execution
+   has already closed, and terminating a closed execution fails and reports a
+   data desync that did not happen. When the caller stopped waiting instead, the
+   execution may still be running, and terminating it still does not help: the
+   activity does not heartbeat, so Temporal cannot deliver cancellation while
+   its Flow RPC is in progress, and terminating only the workflow discards the
+   result without stopping that RPC. For a deterministic ID with `USE_EXISTING`
+   it also frees the ID, so a retried request starts a duplicate mutation
+   instead of attaching to the call already in flight. An abandoned execution
+   stays bounded by the 45s and 40s timeouts.
 5. Return a curated REST response. Do not expose Flow protobufs or secret
    fields directly unless the API contract already does.
 6. For a new public REST endpoint, register the route and update OpenAPI. For a
@@ -120,6 +155,6 @@ wait for every site to run that agent, and switch handlers in a later release.
 Retire the workflow a migration replaces in a third release, once no supported
 cloud release still submits it.
 
-No handler dispatches through `ExecuteFlowGRPC` yet;
-`rest-api/api/pkg/api/handler/taskrun.go` is the first migration and still uses
-its per-method workflows.
+When adding a Flow endpoint, reach for the proxy: there is no longer a bespoke
+Flow workflow to copy, and adding one would reintroduce the per-method
+registration this replaced.

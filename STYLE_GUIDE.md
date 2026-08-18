@@ -22,6 +22,108 @@ review. For example, a PR that lands protobuf changes but without any code using
 guesswork during review: If we can't see how the code will be used, we are just guessing at what the best API
 contract will be. Landing both changes together means we can look at it all holistically.
 
+## Documentation and comments
+
+Use documentation to make contracts available where readers look for them. Use comments to preserve reasoning that
+code cannot express.
+
+### Public contracts
+
+Document every new public declaration covered below. Use Rust documentation comments (`///` on declarations and `//!`
+for module or crate documentation) by default. When a change alters an existing public contract, add or update its
+documentation in the same change.
+
+Here, public means reachable from another crate through a public path or re-export. At minimum, document:
+
+- Crates and public modules
+- Public structs, enums, traits, and type aliases
+- Public functions, associated functions, methods, constants, statics, and exported macros
+- Public fields and enum variants, including the meaning of variant payloads
+- Public associated types and associated constants
+
+A public re-export may rely on the target declaration's documentation when rustdoc exposes it at the re-exported path.
+Document any additional contract introduced by an alias or new module placement.
+
+An `impl` block does not need its own documentation. Document public inherent methods individually. A trait
+implementation inherits the trait's shared contract; document any caller-visible behavior specific to the
+implementation on the implementing type or relevant method.
+
+Every declaration and member listed above needs at least one concise sentence stating its purpose, even when its name
+and type are descriptive. Keep that sentence brief; do not pad a simple contract with a line-by-line translation.
+
+Some derive macros consume declaration comments as interface text. For Clap-derived commands, arguments, or values,
+write `help` or `about` metadata as the public contract, or write the `///` comment as deliberate CLI help. Do not add
+duplicate rustdoc that silently changes rendered help.
+
+Document behavior that a signature cannot express:
+
+- Semantics, accepted values, formats, units, and bounds
+- Defaults and omission behavior
+- Invariants, state transitions, and mutation, ownership, or lifetime rules
+- Side effects and conditions that change the result or produce a meaningful error
+
+Do not hand-edit generated declarations. Put their contract in the generator-owned source and verify that it reaches
+the generated public surface. When a public wrapper is the supported interface, keep the raw generated declarations
+internal and document the wrapper instead.
+
+Treat this as the repository minimum. Component owners and reviewers can ask for documentation of additional internal
+declarations or more detail, but do not waive the public baseline.
+
+For commands, configuration, APIs, Helm values, and other operator-facing interfaces, put the contract in its
+authoritative source and make it available on the rendered surface readers use. Documentation near an implementation
+does not replace the interface's own CLI help, gRPC or REST API reference, Helm values, or operator documentation. The
+declaration itself can be authoritative when generation consumes it. Protobuf field comments, for example, own
+generated API documentation. Follow the repository's
+[documentation review checklist](AGENTS.md#documentation-review) to verify interface contracts and generated output.
+
+### Implementation rationale
+
+Add an ordinary `//` comment when safely changing the code depends on context that its names, types, and control flow do
+not reveal:
+
+- The invariant a block preserves
+- Why an `unsafe` block is sound, in an adjacent `// SAFETY:` comment
+- The protocol or compatibility constraint behind an unusual choice
+- An ordering dependency or non-local consequence that a reader would otherwise have to reconstruct across files or
+  systems
+- Why an apparently simpler alternative would violate the current contract
+
+Write comments for the code and contract as they exist. Put PR narration, former behavior, and approaches tried and
+abandoned in review or commit history. Do not preserve implementation prompts or review conversations in source
+comments.
+
+If a past decision still imposes a compatibility constraint, state the current constraint and its support boundary.
+Current limitations and deliberately unsupported behavior are part of the present contract; document them when readers
+need them to use or change the code safely. Explain a tempting alternative through the current invariant it would
+violate. Do not narrate what the code already says.
+
+### Commented-out code
+
+Delete commented-out executable code and obsolete local declarations by default.
+
+A commented-out field declaration is acceptable as a short schema inventory when a database, wire format, or similar
+external representation provides fields that the local type intentionally does not map:
+
+```rust
+#[derive(serde::Deserialize)]
+struct GetResponse {
+    id: String,
+    // Available from the API response but intentionally unmapped:
+    // modified_at: String,
+}
+```
+
+Keep the inventory beside the mapped fields. Verify each field name and type against the authoritative schema or an
+exercised payload. Do not use this exception for speculative fields, removed local fields, implementations, or control
+flow.
+
+Explain compatibility or staged-rollout boundaries in prose, including the support boundary or tracked work. If
+dormant code must land in phases, follow the exception under [A note on dead code](#a-note-on-dead-code). Do not leave
+executable code commented out.
+
+Apply this rule to new code. Clean up existing commented-out code when nearby work makes that change safe and
+reviewable.
+
 ## Lints and Warnings
 
 We enable all clippy lints by default, and treat all warnings as errors. If a warning or clippy lint is firing for
@@ -45,9 +147,19 @@ Other common places where we've seen `#[allow(dead_code)]` that are not necessar
   underscore to hint that it's not supposed to be read
 - If a field is only used if certain crate features are enabled, prefer `#[cfg(feature = "feature")]` to only
   include it when that feature is being used.
-- If a field isn't currently yet, but you want to leave it around as documentation on what fields could exist (like an
-  unused database column, or unused JSON field), comment it out.
+- If a database, wire format, or similar external representation provides fields that the type intentionally leaves
+  unmapped, use the [commented-out field inventory](#commented-out-code) exception instead of adding dead fields.
 - Otherwise, strongly consider deleting the code.
+
+For binaries, add the following to the beginning of your main.rs:
+
+```rust
+#![cfg_attr(not(test), deny(dead_code_pub_in_binary))]
+```
+
+This ensures that dead code is detected even if it's marked `pub` in a binary, since binaries cannot be used by other
+crates anyway (making `pub` meaningless in a binary crate.) We would prefer to put this in the workspace-wide cargo
+config, but it results in false positives for test targets, see [rust-lang/rust#159078].
 
 ## Visibility
 
@@ -460,6 +572,69 @@ your interface `async` just so you can use the tokio Mutex. That way callers can
 async themselves. Async work should generally be traceable to some I/O or timer that needs to be used, otherwise
 code should typically be synchronous.
 
+### External I/O deadlines
+
+Set an intentional client-side deadline for every external I/O attempt that is expected to finish, or document why the
+operation is deliberately long-lived. This applies to HTTP, gRPC, SQL, SSH, Redfish, DNS, command execution, and
+similar calls.
+
+Apply these rules to every external I/O attempt:
+
+- **Bound the attempt, not the workflow.** For work that should finish, bound the individual attempt rather than the
+  lifetime of a durable reconciliation workflow.
+- **Include prerequisite waits.** Treat rate-limit permits, connection-pool acquisition, and similar waits as part of
+  the attempt's deadline and cancellation contract.
+- **Define every timer.** When a client or protocol distinguishes connect, read, write, and overall attempt deadlines,
+  configure the relevant phases separately. State whether each phase timer applies per I/O operation, measures
+  inactivity, or is cumulative, and state when it resets.
+- **Keep bounds reviewable.** At the code, configuration, or interface boundary that owns each deadline or
+  liveness-detection bound, state its value, unit, scope, and relationship to any enclosing deadline.
+
+Do not assume that a request header, client default, or TCP liveness timeout provides the intended bound. Choose timeout
+values from protocol behavior and the service objective, not an arbitrary short duration. Test timeout behavior when it
+is part of the contract.
+
+### Long-lived streams
+
+A long-lived stream can intentionally omit a short overall deadline, but it still needs explicit cancellation and a
+finite bound on how long lost liveness can go undetected.
+
+- When liveness is lost, cancel the stream.
+- Then either surface a terminal failure to the caller or owning task, or reconnect under the
+  [retry and backoff](#retries-and-backoff) rules.
+- Reconnect a data-bearing stream only when its documented delivery contract makes resumption or restart safe with
+  respect to replay, loss, duplication, and ordering. Otherwise, surface a terminal failure.
+
+### Cancellation and lifecycle
+
+Make every in-flight attempt and retry backoff observe an enclosing caller or request cancellation signal. Stop the
+retry sequence when that signal arrives unless a documented owning task must deliberately continue. Work that
+deliberately outlives the caller must still observe the owning task's cancellation or terminal lifecycle boundary.
+
+When an attempt deadline expires or a cancellation signal arrives, define each outcome separately:
+
+- Whether and how the current operation stops or continues.
+- Whether and how the retry sequence continues with backoff.
+- How the outcome is mapped for the caller or owning task.
+- How repeated failures and exhausted retry budgets become observable when they matter operationally.
+
+### Retries and backoff
+
+Define which outcomes are eligible for automatic retry and what happens to outcomes that are not explicitly classified
+as retryable. Apply these additional rules:
+
+- **Retry safety.** Classify retry safety before retrying an ambiguous outcome. Do not automatically retry a
+  non-idempotent operation unless the protocol or request provides an idempotency mechanism.
+- **Caller-scoped work.** When the caller waits for a terminal result, bound the retry sequence by attempt count or
+  elapsed time. Fit the attempts, backoff, and result handling within any enclosing caller deadline, leaving time to
+  translate and return the terminal result.
+- **Durable reconciliation.** A workflow can keep trying across iterations, but each iteration needs a bounded retry
+  count or elapsed-time budget. Keep backoff bounded, and keep every attempt subject to its documented deadline and
+  cancellation-or-continuation behavior.
+
+At the owning boundary, keep each retry limit and maximum backoff visible with its value, unit, scope, and relationship
+to caller or owning-task lifecycle bounds.
+
 ## Database migrations
 
 Name new Core database migration files with a fully populated 14-digit timestamp:
@@ -478,10 +653,18 @@ connection, or a nested transaction derived from that transaction. Passing it on
 responsibility; it does not make unrelated work safe.
 
 Treat a production lint finding as a design problem: finish the transaction before awaiting unrelated work, or move
-that work outside the transaction. Do not add `#[allow(txn_held_across_await)]` merely to silence the lint. A narrowly
-reviewed infrastructure boundary may deliberately reserve a dedicated connection when that is the mechanism's purpose
-and its pool-capacity cost is fixed and documented; keep that proof next to the allowance. Tests may allow the lint
-when holding a transaction or row lock across an await is the behavior under test.
+that work outside the transaction. Do not add `#[allow(txn_held_across_await)]` merely to silence the lint.
+
+Test code is an exception to this rule, and so we allow these lints for test builds, since we don't have to worry about
+connection build-up like we do in production. Do not allow the lints individually for each test method and helper,
+instead allow the lints globally for test configurations, at the top of a crate's `lib.rs` or `main.rs`. For example:
+
+```rust
+#![cfg_attr(
+    any(test, feature = "test-support"),
+    allow(txn_held_across_await, txn_without_commit)
+)]
+```
 
 ### Concurrent updates
 
@@ -537,6 +720,13 @@ its own fencing, idempotency, or a reconciliation protocol proven safe when exec
 also does not replace atomic SQL, version predicates, or constraints for writers that do not participate in the same
 work key.
 
+### State-controller recovery boundaries
+
+Transactions cannot make external side effects atomic. State-controller work that crosses database and external system
+boundaries must persist a recovery point and avoid holding database transactions open across external I/O. Make repeated
+or overlapping external work safe through fencing, idempotency, or reconciliation. For controller-model background, see
+[Reliable State Handling](docs/architecture/state_handling.md).
+
 ## Database wrappers
 
 - Type definitions: The code in `crates/api-db` is intended to wrap database calls, whereas `crates/api-model` should
@@ -565,6 +755,58 @@ be cloned and re-used to cancel sub-tasks.
 
 A note on function naming: `start` or `spawn` should mean "spawns work in the background". `run` should mean "run
 forever".
+
+### Bound admitted work
+
+Bound work admitted from requests, packets, streams, database results, and external events. Account for work that is
+running, waiting to run, or waiting for capacity.
+
+The admission boundary has three independent layers:
+
+| Layer | Required bound |
+| --- | --- |
+| Active work | A concurrency limit, fixed worker count, or visible invariant |
+| Pending work | A finite queue, explicit no-queue policy, or visible invariant |
+| Producers waiting for capacity | A finite waiter limit, including zero, or visible invariant; each wait also follows the cancellation rules below |
+
+Count work retained for retry, including items in backoff or delayed-retry queues, as pending work. Alternatively, place
+it in a separately bounded retry scheduler with its own overload policy. A limit on one layer does not bound the others.
+Do not spawn an unbounded task for each item unless the input size is locally bounded.
+
+### Capacity outcomes and waits
+
+Choose an overload policy and define the item's lifecycle and producer-visible result, if any. Cover each applicable
+outcome:
+
+- **No capacity is available.** Wait with backpressure, reject, drop new work, coalesce it, or shed old work.
+- **A capacity wait is cancelled or expires.** Define what happens to the pending item and any reservation, what error
+  or fallback the producer observes, and whether it may retry.
+- **The owner stops.** Define whether queued work drains or is discarded and how blocked producers are released.
+
+Make every capacity wait cancellable. Give it either a finite deadline or a documented caller or owning-task lifecycle
+boundary. At the owning boundary:
+
+- **Finite deadline.** State its value, unit, scope, and relationship to any enclosing deadline.
+- **Lifecycle bound.** Name the cancellation source and terminal lifecycle boundary that bounds the wait.
+
+### Channel bounds
+
+Prefer bounded channels for work and data. An unbounded channel is acceptable only when:
+
+- A visible invariant places a hard bound on outstanding messages.
+- A nonblocking lifecycle or control path needs a synchronous sender that cannot wait.
+
+For a nonblocking lifecycle or control channel, bound the admitted work separately and document the ordering or
+lifecycle invariant that the unbounded path preserves. Do not assume the consumer can always keep up with its producers.
+
+### Capacity rationale and observability
+
+At the owning boundary, keep each limit's value, unit, scope, and rationale visible. Explain how multiple limits compose.
+If an invariant supplies a finite bound instead, state both the invariant and the bound it provides.
+
+When overload matters operationally, make the relevant queue depth, rejected, dropped, or coalesced work, saturated
+waiters, or latency observable. Use a plain log when diagnostic text is enough. Use a metric-backed event when the
+condition merits a count, rate, or duration. See [Instrumentation](#instrumentation).
 
 ### Cancelling background tasks
 
@@ -1047,7 +1289,9 @@ applicable, plus each wire, serde, or database representation the type uses.
 
 ### Prefer methods over free functions
 
-When a function operates primarily on a specific type, define it as a method on that type rather than a free-standing function. This keeps related behavior co-located with the type, makes it easier to discover via autocomplete, and reads more naturally at the call site.
+When a function operates primarily on a specific type, define it as a method on that type rather than a free-standing
+function. This keeps related behavior co-located with the type, makes it easier to discover via autocomplete, and reads
+more naturally at the call site.
 
 ```rust
 // Avoid — free function that operates on a specific type
@@ -1103,7 +1347,8 @@ impl MachineState {
 }
 ```
 
-Free functions are still appropriate when the logic genuinely spans multiple unrelated types, belongs in a module rather than a single type, or is a utility with no natural owner.
+Free functions are still appropriate when the logic genuinely spans multiple unrelated types, belongs in a module rather
+than a single type, or is a utility with no natural owner.
 
 ### Error message style
 
@@ -1134,3 +1379,4 @@ a `// xtask:allow-error-case` comment on, or directly above, the line. Rust sour
 `// This file is @generated by ...` banner are skipped because their messages are owned by the generator.
 
 [C-GOOD-ERR]: https://rust-lang.github.io/api-guidelines/interoperability.html#c-good-err
+[rust-lang/rust#159078]: https://github.com/rust-lang/rust/issues/159078

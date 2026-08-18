@@ -593,7 +593,7 @@ pub(crate) async fn set_maintenance(
                 if dpu_machine.reprovision_requested.is_some() {
                     return Err(CarbideError::InvalidArgument(format!(
                         "reprovisioning request is set on DPU: {}. clear it first",
-                        &dpu_machine.id
+                        dpu_machine.id
                     ))
                     .into());
                 }

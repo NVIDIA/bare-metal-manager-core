@@ -224,6 +224,8 @@ impl CarbideDhcpContext {
 /// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn carbide_set_config_api(api: *const c_char) {
+    // SAFETY: Kea supplies a non-null, NUL-terminated configuration string that
+    // remains readable until this synchronous setter copies it.
     unsafe {
         let config_api = CStr::from_ptr(api).to_str().unwrap().to_owned();
         CONFIG.write().unwrap().api_endpoint = config_api;
@@ -249,6 +251,8 @@ pub extern "C" fn carbide_set_config_next_server_ipv4(next_server: u32) {
 /// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn carbide_set_config_name_servers(nameservers: *const c_char) {
+    // SAFETY: Kea supplies a non-null, NUL-terminated configuration string that
+    // remains readable until this synchronous setter copies it.
     unsafe {
         let nameserver_str = CStr::from_ptr(nameservers).to_str().unwrap().to_owned();
         match parse_ipv4_list(&nameserver_str) {
@@ -267,6 +271,8 @@ pub unsafe extern "C" fn carbide_set_config_name_servers(nameservers: *const c_c
 /// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn carbide_set_config_mqtt_server(mqttserver: *const c_char) {
+    // SAFETY: Kea supplies a non-null, NUL-terminated configuration string that
+    // remains readable until this synchronous setter copies it.
     unsafe {
         let mqttserver_str = CStr::from_ptr(mqttserver).to_str().unwrap().to_owned();
         CONFIG.write().unwrap().mqtt_server = Some(mqttserver_str);
@@ -281,6 +287,8 @@ pub unsafe extern "C" fn carbide_set_config_mqtt_server(mqttserver: *const c_cha
 /// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn carbide_set_config_ntp(ntpservers: *const c_char) {
+    // SAFETY: Kea supplies a non-null, NUL-terminated configuration string that
+    // remains readable until this synchronous setter copies it.
     unsafe {
         let ntp_str = CStr::from_ptr(ntpservers).to_str().unwrap().to_owned();
         match parse_ipv4_list(&ntp_str) {
@@ -302,6 +310,8 @@ unsafe fn hook_parameter_string(value: *const c_char, name: &str) -> Option<Stri
         return None;
     }
 
+    // SAFETY: The null case was rejected above; the caller guarantees readable,
+    // NUL-terminated storage for the duration of this conversion.
     match unsafe { CStr::from_ptr(value) }.to_str() {
         Ok(value) => Some(value.to_owned()),
         Err(err) => {
@@ -318,6 +328,8 @@ unsafe fn hook_parameter_string(value: *const c_char, name: &str) -> Option<Stri
 /// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hook_set_config_dns_servers_ipv6(servers: *const c_char) -> bool {
+    // SAFETY: This forwards the exported function's C-string contract to the
+    // helper, which checks null and copies the value before returning.
     unsafe {
         let Some(servers_str) = hook_parameter_string(servers, "hook-dns-servers-ipv6") else {
             return false;
@@ -342,6 +354,8 @@ pub unsafe extern "C" fn hook_set_config_dns_servers_ipv6(servers: *const c_char
 /// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hook_set_config_ntp_servers_ipv6(servers: *const c_char) -> bool {
+    // SAFETY: This forwards the exported function's C-string contract to the
+    // helper, which checks null and copies the value before returning.
     unsafe {
         let Some(servers_str) = hook_parameter_string(servers, "hook-ntp-servers-ipv6") else {
             return false;
@@ -368,6 +382,8 @@ pub unsafe extern "C" fn hook_set_config_ntp_servers_ipv6(servers: *const c_char
 pub unsafe extern "C" fn hook_set_config_provisioning_server_ipv6(
     provisioning_server: *const c_char,
 ) -> bool {
+    // SAFETY: This forwards the exported function's C-string contract to the
+    // helper, which checks null and copies the value before returning.
     unsafe {
         let Some(provisioning_server_str) =
             hook_parameter_string(provisioning_server, "hook-provisioning-server-ipv6")
@@ -416,6 +432,8 @@ pub extern "C" fn hook_set_config_rapid_commit_v6(enabled: bool) {
 /// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn carbide_set_config_metrics_endpoint(endpoint: *const c_char) -> bool {
+    // SAFETY: This forwards the exported function's C-string contract to the
+    // helper, which checks null and copies the value before returning.
     unsafe {
         let Some(config_metrics_endpoint) =
             hook_parameter_string(endpoint, "carbide-metrics-endpoint")
@@ -469,6 +487,8 @@ pub unsafe extern "C" fn carbide_increment_dropped_requests(reason: *const c_cha
     let reason = if reason.is_null() {
         metrics::DropReason::Unknown
     } else {
+        // SAFETY: The C ABI caller keeps this non-null, NUL-terminated reason
+        // string readable for the synchronous label conversion.
         unsafe { CStr::from_ptr(reason) }
             .to_str()
             .map_or(metrics::DropReason::Unknown, metrics::DropReason::from)
@@ -512,6 +532,8 @@ pub unsafe extern "C" fn carbide_increment_dropped_v6_requests(reason: *const c_
     let reason = if reason.is_null() {
         metrics::V6DropReason::Unknown
     } else {
+        // SAFETY: The C ABI caller keeps this non-null, NUL-terminated reason
+        // string readable for the synchronous label conversion.
         unsafe { CStr::from_ptr(reason) }
             .to_str()
             .map_or(metrics::V6DropReason::Unknown, metrics::V6DropReason::from)
@@ -533,9 +555,13 @@ pub unsafe extern "C" fn carbide_invalidate_v6_lease_cache(
         return 0;
     }
 
+    // SAFETY: Both pointers passed the null guard and the caller keeps their
+    // NUL-terminated strings readable for this synchronous parse.
     let Ok(ip_address) = unsafe { CStr::from_ptr(ip_address) }.to_str() else {
         return 0;
     };
+    // SAFETY: Both pointers passed the null guard and the caller keeps their
+    // NUL-terminated strings readable for this synchronous parse.
     let Ok(mac_address) = unsafe { CStr::from_ptr(mac_address) }.to_str() else {
         return 0;
     };
@@ -569,9 +595,13 @@ pub unsafe extern "C" fn carbide_clear_v6_lease_cache_invalidation(
         return false;
     }
 
+    // SAFETY: Both pointers passed the null guard and the caller keeps their
+    // NUL-terminated strings readable for this synchronous parse.
     let Ok(ip_address) = unsafe { CStr::from_ptr(ip_address) }.to_str() else {
         return false;
     };
+    // SAFETY: Both pointers passed the null guard and the caller keeps their
+    // NUL-terminated strings readable for this synchronous parse.
     let Ok(mac_address) = unsafe { CStr::from_ptr(mac_address) }.to_str() else {
         return false;
     };
@@ -669,8 +699,17 @@ mod tests {
 
         // Invalid present hook values must fail Kea load instead of leaving
         // missing or stale DHCPv6 option state behind.
-        assert!(!unsafe { hook_set_config_dns_servers_ipv6(invalid_list.as_ptr()) });
-        assert!(!unsafe { hook_set_config_ntp_servers_ipv6(invalid_list.as_ptr()) });
-        assert!(!unsafe { hook_set_config_provisioning_server_ipv6(invalid_address.as_ptr()) });
+        // SAFETY: `invalid_list` remains live and NUL-terminated for this call.
+        let dns_result = unsafe { hook_set_config_dns_servers_ipv6(invalid_list.as_ptr()) };
+        // SAFETY: `invalid_list` remains live and NUL-terminated for this call.
+        let ntp_result = unsafe { hook_set_config_ntp_servers_ipv6(invalid_list.as_ptr()) };
+        // SAFETY: `invalid_address` remains live and NUL-terminated for this
+        // call.
+        let provisioning_result =
+            unsafe { hook_set_config_provisioning_server_ipv6(invalid_address.as_ptr()) };
+
+        assert!(!dns_result);
+        assert!(!ntp_result);
+        assert!(!provisioning_result);
     }
 }

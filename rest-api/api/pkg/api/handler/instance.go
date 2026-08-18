@@ -836,7 +836,7 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 			dbInterfaces = append(dbInterfaces, cdbm.Interface{
 				VpcID:                &interfaceVpcID,
 				Vpc:                  interfaceVpc,
-				VpcIPFamilyMode:      cutil.GetPtr(cdbm.InterfaceVpcIPFamilyModeIPv4Only),
+				VpcIPFamilyMode:      cutil.GetPtr(ifc.VpcIPFamilyMode()),
 				InlineRoutingProfile: ifc.InlineRoutingProfile.ToDB(),
 				Device:               ifc.Device,
 				DeviceInstance:       ifc.DeviceInstance,
@@ -2879,7 +2879,7 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 			dbInterfaces = append(dbInterfaces, cdbm.Interface{
 				VpcID:                &interfaceVpcID,
 				Vpc:                  interfaceVpc,
-				VpcIPFamilyMode:      cutil.GetPtr(cdbm.InterfaceVpcIPFamilyModeIPv4Only),
+				VpcIPFamilyMode:      cutil.GetPtr(ifc.VpcIPFamilyMode()),
 				InlineRoutingProfile: ifc.InlineRoutingProfile.ToDB(),
 				Device:               ifc.Device,
 				DeviceInstance:       ifc.DeviceInstance,

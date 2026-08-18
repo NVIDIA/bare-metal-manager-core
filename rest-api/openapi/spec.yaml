@@ -22,7 +22,7 @@ tags:
 
       ### Authentication
       The first step is to authenticate using a JWT bearer token. Organization structures and roles depend on the authentication configuration used. For details on authentication, please consult the
-      NICo REST `auth` module [README](https://github.com/NVIDIA/infra-controller/rest-api/tree/main/auth).
+      NICo REST `auth` module [README](https://github.com/NVIDIA/infra-controller/tree/main/rest-api/auth).
 
       ### API Version
       The next step is to be aware of the API version being used. The API version can be retrieved by calling the [Retrieve Metadata endpoint](#tag/Metadata/operation/get-metadata). In general, the API maintains backward
@@ -10889,6 +10889,8 @@ paths:
               description: Pagination result in JSON format
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/rack/{id}':
@@ -10967,6 +10969,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/rack/validation':
@@ -11062,6 +11066,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/rack/{id}/validation':
@@ -11150,6 +11156,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/rack/power':
@@ -11205,6 +11213,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/rack/{id}/power':
@@ -11266,6 +11276,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/rack/firmware':
@@ -11317,6 +11329,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/rack/{id}/firmware':
@@ -11371,6 +11385,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/rack/bringup':
@@ -11422,6 +11438,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/rack/{id}/bringup':
@@ -11476,6 +11494,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/task/{id}':
@@ -11532,6 +11552,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Task
   '/v2/org/{org}/nico/task/{id}/cancel':
@@ -11609,6 +11631,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Task
   '/v2/org/{org}/nico/task/rule':
@@ -11649,6 +11673,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rule
     get:
@@ -11705,6 +11731,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rule
   '/v2/org/{org}/nico/task/rule/{id}':
@@ -11752,6 +11780,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rule
     patch:
@@ -11782,6 +11812,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rule
     delete:
@@ -11812,6 +11844,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rule
   '/v2/org/{org}/nico/task/run':
@@ -11855,6 +11889,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Task Run
     get:
@@ -11931,6 +11967,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Task Run
   '/v2/org/{org}/nico/task/run/{id}':
@@ -11986,6 +12024,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Task Run
   '/v2/org/{org}/nico/task/run/{id}/target':
@@ -12087,6 +12127,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Task Run
   '/v2/org/{org}/nico/task/run/{id}/pause':
@@ -12136,6 +12178,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Task Run
   '/v2/org/{org}/nico/task/run/{id}/resume':
@@ -12185,6 +12229,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Task Run
   '/v2/org/{org}/nico/task/run/{id}/advance':
@@ -12235,6 +12281,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Task Run
   '/v2/org/{org}/nico/task/run/{id}/cancel':
@@ -12284,6 +12332,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Task Run
   '/v2/org/{org}/nico/rack/{id}/task':
@@ -12369,6 +12419,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/tray':
@@ -12504,6 +12556,8 @@ paths:
               description: Pagination result in JSON format
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Tray
   '/v2/org/{org}/nico/tray/{id}':
@@ -12565,6 +12619,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Tray
   '/v2/org/{org}/nico/tray/validation':
@@ -12664,6 +12720,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Tray
   '/v2/org/{org}/nico/tray/{id}/validation':
@@ -12718,6 +12776,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Tray
   '/v2/org/{org}/nico/tray/power':
@@ -12775,6 +12835,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Tray
   '/v2/org/{org}/nico/tray/{id}/power':
@@ -12836,6 +12898,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Tray
   '/v2/org/{org}/nico/tray/firmware':
@@ -12890,6 +12954,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Tray
   '/v2/org/{org}/nico/tray/{id}/firmware':
@@ -12944,6 +13010,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Tray
   '/v2/org/{org}/nico/tray/{id}/task':
@@ -13029,6 +13097,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Tray
   '/v2/org/{org}/nico/ipxe-template':
@@ -15595,6 +15665,8 @@ components:
             - PoweringOn
             - Paused
             - Unknown
+            - Hibernating
+            - Sleeping
         bootOrder:
           $ref: '#/components/schemas/ExploredBootOrder'
     ExploredComputerSystemAttributes:
@@ -21435,6 +21507,15 @@ components:
           ipFamilies:
             - IPv4
           isPhysical: true
+        - vpcId: 3d9d1608-a87e-4c84-a8b1-53b730e26e9b
+          ipFamilies:
+            - IPv6
+          isPhysical: true
+        - vpcId: 4f7b5b5a-d292-4c38-9e9a-58a5a874fa73
+          ipFamilies:
+            - IPv4
+            - IPv6
+          isPhysical: true
       description: |-
         Request data to create an Interface for an Instance by associating it with a Subnet, an explicit VPC Prefix, or a VPC from which the Controller selects a prefix. Exactly one of `subnetId`, `vpcPrefixId`, or `vpcId` must be specified.
 
@@ -21457,11 +21538,12 @@ components:
         ipFamilies:
           type: array
           minItems: 1
-          description: Address families requested for Controller prefix selection. Required with `vpcId` and prohibited otherwise. Only `IPv4` is currently accepted.
+          description: Address families requested for Controller prefix selection. Required with `vpcId` and prohibited otherwise. Specify `IPv4`, `IPv6`, or both for dual-stack allocation. Duplicate values are accepted and normalized in `IPv4`, then `IPv6` order.
           items:
             type: string
             enum:
               - IPv4
+              - IPv6
         ipAddress:
           type:
             - string
@@ -27862,7 +27944,7 @@ components:
                 supported for these origins.
 
             For details on issuer origins and configuration, see the NICo REST `auth`
-            module [README](https://github.com/NVIDIA/infra-controller/rest-api/tree/main/auth).
+            module [README](https://github.com/NVIDIA/infra-controller/tree/main/rest-api/auth).
         infrastructureProviderId:
           type:
             - string
@@ -28931,6 +29013,24 @@ components:
               value:
                 source: nico
                 message: Error handling API request
+                data: null
+    GatewayTimeoutError:
+      description: |-
+        The Site did not return a result within the request budget allocated to
+        Site communication within the request cycle. This can occur if the Site
+        Controller is down or under heavy request load.
+
+        Operations are in general safe to retry. In rare cases, operations that
+        create or update resources may succeed even if timeout is returned.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/NICoAPIError'
+          examples:
+            example-1:
+              value:
+                source: nico
+                message: Flow proxy request timed out
                 data: null
     NotFoundError:
       description: Error response when requested object is not found

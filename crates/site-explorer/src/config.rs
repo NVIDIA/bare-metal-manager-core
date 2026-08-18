@@ -29,39 +29,9 @@ use duration_str::{deserialize_duration, deserialize_duration_chrono};
 use model::expected_machine::HostDpuPolicy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Deserialize, Serialize)]
-struct HostDpuPolicyConfigFields {
-    #[serde(default)]
-    dpu_policy: Option<HostDpuPolicy>,
-    #[serde(default, skip_serializing)]
-    dpu_mode: Option<HostDpuPolicy>,
-}
-
-fn deserialize_host_dpu_policy<'de, D>(deserializer: D) -> Result<Option<HostDpuPolicy>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let fields = HostDpuPolicyConfigFields::deserialize(deserializer)?;
-
-    Ok(fields.dpu_policy.or(fields.dpu_mode))
-}
-
-fn serialize_host_dpu_policy<S>(
-    dpu_policy: &Option<HostDpuPolicy>,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    HostDpuPolicyConfigFields {
-        dpu_policy: *dpu_policy,
-        dpu_mode: None,
-    }
-    .serialize(serializer)
-}
-
 /// SiteExplorer related configuration for hardware discovery and ingestion.
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct SiteExplorerConfig {
     /// Whether SiteExplorer is enabled. Dynamically toggleable at runtime via SetDynamicConfig.
     #[serde(
@@ -203,12 +173,13 @@ pub struct SiteExplorerConfig {
     ///
     /// The legacy `dpu_mode` field and values remain accepted during
     /// deserialization.
-    #[serde(
-        flatten,
-        deserialize_with = "deserialize_host_dpu_policy",
-        serialize_with = "serialize_host_dpu_policy"
-    )]
+    #[serde(default, alias = "dpu_mode")]
     pub dpu_policy: Option<HostDpuPolicy>,
+
+    /// Deprecated compatibility key. This setting is ignored; use `dpu_policy`.
+    #[doc(hidden)]
+    #[serde(default, rename = "force_dpu_nic_mode", skip_serializing)]
+    pub deprecated_force_dpu_nic_mode: Option<bool>,
 
     /// Controls which Redfish client implementation is used
     /// for hardware discovery (LibRedfish, NvRedfish, or
@@ -239,6 +210,7 @@ impl Default for SiteExplorerConfig {
             switches_created_per_run: Self::default_switches_created_per_run(),
             rotate_switch_nvos_credentials: Self::default_rotate_switch_nvos_credentials(),
             dpu_policy: None,
+            deprecated_force_dpu_nic_mode: None,
             explore_mode: Self::default_explore_mode(),
         }
     }
@@ -268,6 +240,7 @@ impl PartialEq for SiteExplorerConfig {
             create_switches,
             switches_created_per_run,
             dpu_policy,
+            deprecated_force_dpu_nic_mode,
             explore_mode,
         } = self;
 
@@ -299,6 +272,7 @@ impl PartialEq for SiteExplorerConfig {
                 == other.create_switches.load(AtomicOrdering::Relaxed)
             && *switches_created_per_run == other.switches_created_per_run
             && *dpu_policy == other.dpu_policy
+            && *deprecated_force_dpu_nic_mode == other.deprecated_force_dpu_nic_mode
             && *explore_mode == other.explore_mode
     }
 }

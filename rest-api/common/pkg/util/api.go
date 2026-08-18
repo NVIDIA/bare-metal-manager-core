@@ -46,6 +46,21 @@ func (a *APIError) Error() string {
 	return a.Message
 }
 
+// Unwrap returns the internal error recorded in Data, so errors.Is and
+// errors.As reach the cause behind an APIError.
+func (a *APIError) Unwrap() error {
+	return a.Data
+}
+
+// Diagnosis returns the error worth logging: the internal cause, or a itself
+// when the cause was folded into Message and Unwrap is therefore nil.
+func (a *APIError) Diagnosis() error {
+	if cause := a.Unwrap(); cause != nil {
+		return cause
+	}
+	return a
+}
+
 // NewAPIError returns an API error given appropriate params
 func NewAPIError(code int, message string, data error) *APIError {
 	return &APIError{

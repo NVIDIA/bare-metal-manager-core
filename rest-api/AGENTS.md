@@ -181,6 +181,9 @@ verification expectations.
 - Linting uses `golangci-lint` (v2 config in `.golangci.yml`) with most
   linters enabled, plus `revive` (config in `.revive.toml`).
 - Use `testify` (assert/require) for test assertions.
+- When a test verifies a generated CLI command path, assert that the leaf
+  command has a non-nil `Action`; path presence alone does not prove the
+  command is runnable.
 - Tests that need a database use a PostgreSQL container (testcontainers-go
   or the Makefile-managed container).
 - Organize tests by the production function or method under test, not by individual
@@ -274,9 +277,11 @@ main patterns:
 - Flow-backed inventory and task APIs use Flow request/response protobufs in the
   API model layer and keep target-shape helpers next to the model or handler
   that owns the REST shape. Use Rack, Tray, Task, and Task Rule as references.
-  Thin unary Flow pass-throughs should use `handler/util/common.ExecuteFlowGRPC`
-  rather than a bespoke Temporal workflow per method. Switching an existing
-  endpoint over spans releases; see the skill for the required order.
+  Every Flow-backed endpoint dispatches through the generic proxy, so use
+  `handler/util/common.ProxyFlowGRPC` (or `ExecuteFlowGRPC` where the caller
+  must return a plain `error`) rather than adding a bespoke Temporal workflow
+  per method. Retiring the bespoke workflows spans releases; see the skill for
+  the required order.
 - Curated REST endpoints that call NICo Core `forge.Forge` unary methods should
   use `handler/util/common.ExecuteCoreGRPC` with a typed protobuf request. Do
   not create a bespoke Temporal workflow for a simple unary Core call. BMC

@@ -216,6 +216,7 @@ pub(in crate::tests) async fn create_instance<'a, 'b>(
         dpu_extension_services: None,
         nvlink: None,
         spxconfig: None,
+        power_profile: None,
     };
     mh.instance_builer(env).config(config).build().await
 }

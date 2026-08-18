@@ -110,6 +110,7 @@ impl NicoClient {
                     dpu_extension_services: None,
                     nvlink: None,
                     spxconfig: None,
+                    power_profile: None,
                 }),
                 instance_id: None,
                 instance_type_id: None,

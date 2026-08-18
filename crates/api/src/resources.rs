@@ -41,6 +41,10 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing_log::AsLog as _;
 
+// Currently WorkLockManager needs a dedicated, reserved connection so that we can release locks
+// properly even if the main pool is full.
+static RESERVED_CONNECTION_COUNT: usize = 1;
+
 pub(crate) struct RuntimeResources {
     pub credential_manager: Arc<dyn CredentialManager>,
     pub certificate_provider: Arc<dyn CertificateProvider>,
@@ -267,8 +271,17 @@ async fn connect_postgres(config: &CarbideConfig) -> eyre::Result<PgPool> {
             .ssl_root_cert(&tls_config.root_cafile_path);
     }
 
+    let max_connections = config
+        .max_database_connections
+        .saturating_sub(RESERVED_CONNECTION_COUNT as u32);
+    if max_connections == 0 {
+        eyre::bail!(
+            "config.max_database_connections is too small to accommodate reserved connections: must be greater than {RESERVED_CONNECTION_COUNT}"
+        );
+    }
+
     Ok(sqlx::pool::PoolOptions::new()
-        .max_connections(config.max_database_connections)
+        .max_connections(max_connections)
         // Lifecycle settings are operator-configurable; each `database_pool_*`
         // config field documents what it bounds. The defaults are sqlx's own,
         // so exposing them changes no behavior -- tuning belongs to the site.

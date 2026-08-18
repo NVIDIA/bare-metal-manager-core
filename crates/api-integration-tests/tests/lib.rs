@@ -1377,6 +1377,7 @@ where
             "config".to_string(),
             Arc::new(MachineConfig {
                 rack_id: None,
+                rack_placement: None,
                 hw_type,
                 host_count,
                 dpu_per_host_count,
@@ -1396,6 +1397,7 @@ where
                 network_virtualization_type: None,
                 dpus_in_nic_mode,
                 dpu_firmware_versions: None,
+                host_firmware_versions: None,
                 dpu_agent_version: None,
             }),
         )]),
@@ -1420,6 +1422,7 @@ where
         ipmi_reachable_port: None,
         hw_mac_address_ranges: None,
         mac_address_pool: None,
+        ufm_mock: Default::default(),
     };
 
     let (provisionable_handles, mat_handle) = api_test_helper::machine_a_tron::run_local(

@@ -158,6 +158,10 @@ pub unsafe extern "C" fn carbide_pkt6_receive(
     client_link_layer_len: usize,
     machine_ptr_out: *mut *mut Machine,
 ) -> V6HookResult {
+    // SAFETY: The C ABI contract keeps every non-null input buffer readable for
+    // its paired length and the non-null output slot writable for this call.
+    // Relay bytes are copied before return, and successful Box ownership moves
+    // to Kea through the output slot.
     unsafe {
         if machine_ptr_out.is_null() {
             return V6HookResult::InvalidMachinePointer;
@@ -276,6 +280,9 @@ fn fetch_machine_from_cache(
             ..
         }) => {
             if confirm_addresses_on_link(discovery, &machine) {
+                // SAFETY: Initial lint enablement: this call-graph invariant
+                // needs owner review. The validated FFI entrypoint supplies the
+                // still-live writable output slot used by this private helper.
                 unsafe {
                     *machine_ptr_out = Box::into_raw(machine);
                 }
@@ -346,6 +353,9 @@ fn fetch_machine_from_cache_any_vendor(
     }
 
     let machine = candidate?;
+    // SAFETY: Initial lint enablement: this call-graph invariant needs owner
+    // review. The validated FFI entrypoint supplies the still-live writable
+    // output slot used by this private helper.
     unsafe {
         *machine_ptr_out = Box::into_raw(machine);
     }
@@ -377,6 +387,9 @@ fn fetch_machine(discovery: V6Discovery, machine_ptr_out: *mut *mut Machine) -> 
                 log::info!(
                     "returning cached DHCPv6 response for ({selected_mac}, {link_address}, {circuit_id:?}, {vendor_id})."
                 );
+                // SAFETY: Initial lint enablement: this call-graph invariant
+                // needs owner review. The validated FFI entrypoint supplies the
+                // still-live writable output slot used by this private helper.
                 unsafe {
                     *machine_ptr_out = Box::into_raw(machine);
                 }
@@ -427,6 +440,9 @@ fn fetch_machine(discovery: V6Discovery, machine_ptr_out: *mut *mut Machine) -> 
                 &vendor_id,
                 cache::CacheEntryStatus::ValidEntry(Box::new(machine.clone())),
             );
+            // SAFETY: Initial lint enablement: this call-graph invariant needs
+            // owner review. The validated FFI entrypoint supplies the still-live
+            // writable output slot used by this private helper.
             unsafe {
                 *machine_ptr_out = Box::into_raw(Box::new(machine));
             }
@@ -470,6 +486,8 @@ fn handle_api_invalidation(machine: &Machine) {
             last_invalidation.to_rfc3339()
         );
         set_service_healthy(false);
+        // SAFETY: `getpid` returns the current process and SIGTERM is a valid
+        // signal value; no borrowed memory crosses this syscall boundary.
         unsafe {
             libc::kill(libc::getpid(), libc::SIGTERM);
         }
@@ -509,6 +527,8 @@ unsafe fn slice_from_ffi<'a>(ptr: *const u8, len: usize) -> Option<&'a [u8]> {
     if ptr.is_null() {
         (len == 0).then_some(&[])
     } else {
+        // SAFETY: The unsafe caller guarantees this non-null pointer is readable
+        // for `len` initialized bytes in one allocation for the returned borrow.
         Some(unsafe { std::slice::from_raw_parts(ptr, len) })
     }
 }
@@ -527,6 +547,8 @@ unsafe fn relay_context_from_ffi(
     client_link_layer_ptr: *const u8,
     client_link_layer_len: usize,
 ) -> Option<RelayContext> {
+    // SAFETY: The outer FFI contract covers this pointer/length pair, and the
+    // bytes are copied into the returned context before the C++ buffer expires.
     let relay_link = match unsafe { slice_from_ffi(relay_link_ptr, relay_link_len) }? {
         [] => None,
         bytes if bytes.len() == 16 => Some(Ipv6Addr::from(<[u8; 16]>::try_from(bytes).ok()?)),
@@ -537,11 +559,21 @@ unsafe fn relay_context_from_ffi(
         relay_count,
         hop_count,
         link_address: relay_link,
-        interface_id: non_empty_vec(unsafe { slice_from_ffi(interface_id_ptr, interface_id_len) }?),
-        remote_id: non_empty_vec(unsafe { slice_from_ffi(remote_id_ptr, remote_id_len) }?),
-        client_link_layer: non_empty_vec(unsafe {
-            slice_from_ffi(client_link_layer_ptr, client_link_layer_len)
-        }?),
+        interface_id: non_empty_vec(
+            // SAFETY: The outer FFI contract keeps this option buffer readable
+            // until it is copied into the returned context.
+            unsafe { slice_from_ffi(interface_id_ptr, interface_id_len) }?,
+        ),
+        remote_id: non_empty_vec(
+            // SAFETY: The outer FFI contract keeps this option buffer readable
+            // until it is copied into the returned context.
+            unsafe { slice_from_ffi(remote_id_ptr, remote_id_len) }?,
+        ),
+        client_link_layer: non_empty_vec(
+            // SAFETY: The outer FFI contract keeps this option buffer readable
+            // until it is copied into the returned context.
+            unsafe { slice_from_ffi(client_link_layer_ptr, client_link_layer_len) }?,
+        ),
     })
 }
 

@@ -19,6 +19,8 @@ use std::borrow::Cow;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
+use super::LogRecord;
+
 #[cfg(not(feature = "bench-hooks"))]
 pub(crate) trait RedfishEventMapper: Send + Sync {
     fn queue_key(&self, bmc_id: &str, attributes: &[(Cow<'static, str>, String)]) -> String;
@@ -59,6 +61,15 @@ impl OpenBmcEventMapper {
 
 impl RedfishEventMapper for OpenBmcEventMapper {
     fn queue_key(&self, bmc_id: &str, attributes: &[(Cow<'static, str>, String)]) -> String {
+        // The decoded protobuf represents the complete notification. Its hash
+        // keeps distinct notifications separate while retaining latest-wins
+        // replacement for exact duplicates.
+        if let Some(payload) =
+            Self::find_attr(attributes, LogRecord::DECODED_PROTOBUF_PAYLOAD_ATTRIBUTE)
+        {
+            return format!("{bmc_id}|protobuf|{}", Self::hash_string(payload));
+        }
+
         let message_id = Self::find_attr(attributes, "message_id").unwrap_or("");
 
         if message_id.is_empty() {

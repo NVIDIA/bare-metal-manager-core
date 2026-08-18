@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::num::NonZeroUsize;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -70,6 +71,24 @@ impl StaticEndpointSource {
         reqwest: &ReqwestClient,
         proxy_url: Option<&Url>,
         cache_size: usize,
+        bmc_latency_metrics: Option<Arc<BmcLatencyMetrics>>,
+    ) -> Self {
+        Self::from_config_with_request_concurrency(
+            configs,
+            reqwest,
+            proxy_url,
+            cache_size,
+            NonZeroUsize::MIN,
+            bmc_latency_metrics,
+        )
+    }
+
+    pub(crate) fn from_config_with_request_concurrency(
+        configs: &[StaticBmcEndpoint],
+        reqwest: &ReqwestClient,
+        proxy_url: Option<&Url>,
+        cache_size: usize,
+        bmc_request_concurrency: NonZeroUsize,
         bmc_latency_metrics: Option<Arc<BmcLatencyMetrics>>,
     ) -> Self {
         let mut endpoints = Vec::with_capacity(configs.len());
@@ -204,6 +223,7 @@ impl StaticEndpointSource {
                 provider,
                 proxy_url.cloned(),
                 cache_size,
+                bmc_request_concurrency,
                 bmc_latency_instrumentation,
             ) {
                 Ok(client) => Arc::new(client),

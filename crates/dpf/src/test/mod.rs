@@ -21,6 +21,7 @@ mod sdk_device_registration;
 mod sdk_initialization;
 mod sdk_join_set;
 mod sdk_maintenance_hold;
+mod sdk_outdated_dpu;
 mod sdk_provisioning_flow;
 mod sdk_reboot_annotation;
 mod watcher_combined;

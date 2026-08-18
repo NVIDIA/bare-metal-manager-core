@@ -110,6 +110,8 @@ const (
 	PowerStateOff
 	PowerStateOn
 	PowerStateDisabled
+	PowerStateHibernating
+	PowerStateSleeping
 )
 
 // MachinePowerState is information about current and desired power states
@@ -382,6 +384,15 @@ type ExpectedRackDetail struct {
 	Name          string
 	Description   string
 	Labels        map[string]string
+}
+
+// NVLinkDomainMembership is one valid rack-scoped NVLink domain observation
+// from Core's actual switch inventory. Core stores the last valid observation
+// on every active switch in a rack, so a snapshot may contain duplicate rows
+// for the same domain and rack.
+type NVLinkDomainMembership struct {
+	DomainID string
+	RackID   string
 }
 
 // ExpectedMachineDetail is the canonical expected-machine representation

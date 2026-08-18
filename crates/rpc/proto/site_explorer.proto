@@ -263,6 +263,8 @@ enum PowerState {
   PoweringOn = 3;
   Paused = 4;
   Unknown = 5;
+  Hibernating = 6;
+  Sleeping = 7;
 }
 
 // `Manager` definition. Matches redfish definition

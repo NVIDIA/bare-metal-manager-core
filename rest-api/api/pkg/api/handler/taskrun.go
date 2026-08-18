@@ -16,7 +16,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	temporalEnums "go.temporal.io/api/enums/v1"
 	tClient "go.temporal.io/sdk/client"
-	tp "go.temporal.io/sdk/temporal"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
@@ -28,7 +28,6 @@ import (
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	flowv1 "github.com/NVIDIA/infra-controller/rest-api/proto/flow/gen/v1"
-	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 )
 
 // prepareRunHandler runs the auth + site lookup + Flow-enabled check +
@@ -104,18 +103,6 @@ func prepareRunHandler(
 	return site, stc, nil
 }
 
-// runWorkflowOptions returns the standard site-queue workflow options for
-// a run action with the given deterministic workflow ID.
-func runWorkflowOptions(workflowID string) tClient.StartWorkflowOptions {
-	return tClient.StartWorkflowOptions{
-		ID:                       workflowID,
-		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
-		WorkflowIDConflictPolicy: temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-		TaskQueue:                queue.SiteTaskQueue,
-	}
-}
-
 // ~~~~~ Create Run Handler ~~~~~ //
 
 // CreateTaskRunHandler is the API Handler for creating a Run.
@@ -172,26 +159,17 @@ func (h CreateTaskRunHandler) Handle(c echo.Context) error {
 	flowRequest := apiRequest.ToProto()
 
 	// Dedicated workflow ID per request so Create is never deduped.
-	workflowID := fmt.Sprintf("task-run-create-%s", uuid.NewString())
-
-	wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
-
-	we, err := stc.ExecuteWorkflow(wfCtx, runWorkflowOptions(workflowID), "CreateTaskRun", flowRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to schedule CreateTaskRun workflow")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule Run creation workflow", nil)
-	}
+	workflowID := common.FlowWorkflowID(fmt.Sprintf("task-run-create-%s", uuid.NewString()))
 
 	var flowResponse flowv1.CreateOperationRunResponse
-	if err := we.Get(wfCtx, &flowResponse); err != nil {
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || wfCtx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Run", "CreateTaskRun")
-		}
-		code, unwrapErr := common.UnwrapWorkflowError(err)
-		logger.Error().Err(unwrapErr).Msg("failed to get result from CreateTaskRun workflow")
-		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Run creation workflow on Site: %s", unwrapErr), nil)
+	proxyErr := common.ProxyFlowGRPC(
+		ctx, c, logger, stc,
+		flowv1.Flow_CreateOperationRun_FullMethodName,
+		flowRequest, &flowResponse,
+		workflowID, temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_UNSPECIFIED,
+	)
+	if proxyErr != nil {
+		return proxyErr
 	}
 
 	// Flow's CreateOperationRun returns only the new run's ID. Echo the known
@@ -281,26 +259,17 @@ func (h GetTaskRunHandler) Handle(c echo.Context) error {
 	// IncludeStats is part of the workflow ID because the conflict policy
 	// attaches to an in-flight execution with the same ID, which would
 	// otherwise return a response whose stats presence contradicts the query.
-	workflowID := fmt.Sprintf("task-run-get-%s-%t", runID, apiRequest.IncludeStats)
-
-	wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
-
-	we, err := stc.ExecuteWorkflow(wfCtx, runWorkflowOptions(workflowID), "GetTaskRun", flowRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to schedule GetTaskRun workflow")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule Run retrieval workflow", nil)
-	}
+	workflowID := common.FlowWorkflowID(fmt.Sprintf("task-run-get-%s-%t", runID, apiRequest.IncludeStats))
 
 	var flowResponse flowv1.GetOperationRunResponse
-	if err := we.Get(wfCtx, &flowResponse); err != nil {
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || wfCtx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Run", "GetTaskRun")
-		}
-		code, unwrapErr := common.UnwrapWorkflowError(err)
-		logger.Error().Err(unwrapErr).Msg("failed to get result from GetTaskRun workflow")
-		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Run retrieval workflow on Site: %s", unwrapErr), nil)
+	proxyErr := common.ProxyFlowGRPC(
+		ctx, c, logger, stc,
+		flowv1.Flow_GetOperationRun_FullMethodName,
+		flowRequest, &flowResponse,
+		workflowID, temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+	)
+	if proxyErr != nil {
+		return proxyErr
 	}
 
 	run := flowResponse.GetOperationRun()
@@ -388,26 +357,17 @@ func (h GetAllTaskRunHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, ferr.Error(), nil)
 	}
 
-	workflowID := fmt.Sprintf("task-run-get-all-%s", common.QueryParamHash(apiRequest.QueryValues(pageRequest)))
-
-	wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
-
-	we, err := stc.ExecuteWorkflow(wfCtx, runWorkflowOptions(workflowID), "GetAllTaskRuns", flowRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to schedule GetAllTaskRuns workflow")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule Run list workflow", nil)
-	}
+	workflowID := common.FlowWorkflowID(fmt.Sprintf("task-run-get-all-%s", common.QueryParamHash(apiRequest.QueryValues(pageRequest))))
 
 	var flowResponse flowv1.ListOperationRunsResponse
-	if err := we.Get(wfCtx, &flowResponse); err != nil {
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || wfCtx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Run", "GetAllTaskRuns")
-		}
-		code, unwrapErr := common.UnwrapWorkflowError(err)
-		logger.Error().Err(unwrapErr).Msg("failed to get result from GetAllTaskRuns workflow")
-		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Run list workflow on Site: %s", unwrapErr), nil)
+	proxyErr := common.ProxyFlowGRPC(
+		ctx, c, logger, stc,
+		flowv1.Flow_ListOperationRuns_FullMethodName,
+		flowRequest, &flowResponse,
+		workflowID, temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+	)
+	if proxyErr != nil {
+		return proxyErr
 	}
 
 	apiRuns := make([]*model.APITaskRun, 0, len(flowResponse.GetOperationRuns()))
@@ -508,26 +468,17 @@ func (h GetAllTaskRunTargetHandler) Handle(c echo.Context) error {
 	}
 
 	flowRequest := apiRequest.ToProto(runID, pageRequest)
-	workflowID := fmt.Sprintf("task-run-target-get-all-%s-%s", runID, common.QueryParamHash(apiRequest.QueryValues(pageRequest)))
-
-	wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
-
-	we, err := stc.ExecuteWorkflow(wfCtx, runWorkflowOptions(workflowID), "GetAllTaskRunTargets", flowRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to schedule GetAllTaskRunTargets workflow")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule Run targets workflow", nil)
-	}
+	workflowID := common.FlowWorkflowID(fmt.Sprintf("task-run-target-get-all-%s-%s", runID, common.QueryParamHash(apiRequest.QueryValues(pageRequest))))
 
 	var flowResponse flowv1.ListOperationRunTargetsResponse
-	if err := we.Get(wfCtx, &flowResponse); err != nil {
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || wfCtx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Run", "GetAllTaskRunTargets")
-		}
-		code, unwrapErr := common.UnwrapWorkflowError(err)
-		logger.Error().Err(unwrapErr).Msg("failed to get result from GetAllTaskRunTargets workflow")
-		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Run targets workflow on Site: %s", unwrapErr), nil)
+	proxyErr := common.ProxyFlowGRPC(
+		ctx, c, logger, stc,
+		flowv1.Flow_ListOperationRunTargets_FullMethodName,
+		flowRequest, &flowResponse,
+		workflowID, temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+	)
+	if proxyErr != nil {
+		return proxyErr
 	}
 
 	apiTargets := make([]*model.APITaskRunTarget, 0, len(flowResponse.GetTargets()))
@@ -552,16 +503,16 @@ func (h GetAllTaskRunTargetHandler) Handle(c echo.Context) error {
 
 // ~~~~~ Lifecycle Handlers (pause/resume/advance/cancel) ~~~~~ //
 
-// executeRunLifecycleWorkflow executes one OperationRun-returning lifecycle workflow
-// and renders the resulting run. It centralizes the auth/site prep,
-// workflow execution, and error handling shared by pause/resume/advance/cancel.
-func executeRunLifecycleWorkflow(
+// executeRunLifecycleAction proxies one OperationRun-returning lifecycle call to
+// Flow and renders the resulting run. It centralizes the auth/site prep,
+// dispatch, and error handling shared by pause/resume/advance/cancel.
+func executeRunLifecycleAction(
 	c echo.Context,
 	dbSession *cdb.Session,
 	scp *sc.ClientPool,
 	dbUser *cdbm.User,
-	org, siteID, runID, action, workflowName string,
-	flowRequest any,
+	org, siteID, runID, action, fullMethod string,
+	flowRequest proto.Message,
 	logger zerolog.Logger,
 	ctx context.Context,
 ) error {
@@ -570,26 +521,17 @@ func executeRunLifecycleWorkflow(
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, apiErr.Data)
 	}
 
-	workflowID := fmt.Sprintf("task-run-%s-%s", action, runID)
-
-	wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
-
-	we, err := stc.ExecuteWorkflow(wfCtx, runWorkflowOptions(workflowID), workflowName, flowRequest)
-	if err != nil {
-		logger.Error().Err(err).Msgf("failed to schedule %s workflow", workflowName)
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("Failed to schedule Run %s workflow", action), nil)
-	}
+	workflowID := common.FlowWorkflowID(fmt.Sprintf("task-run-%s-%s", action, runID))
 
 	var flowResponse flowv1.OperationRun
-	if err := we.Get(wfCtx, &flowResponse); err != nil {
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || wfCtx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Run", workflowName)
-		}
-		code, unwrapErr := common.UnwrapWorkflowError(err)
-		logger.Error().Err(unwrapErr).Msgf("failed to get result from %s workflow", workflowName)
-		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Run %s workflow on Site: %s", action, unwrapErr), nil)
+	proxyErr := common.ProxyFlowGRPC(
+		ctx, c, logger, stc,
+		fullMethod,
+		flowRequest, &flowResponse,
+		workflowID, temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+	)
+	if proxyErr != nil {
+		return proxyErr
 	}
 
 	apiRun := &model.APITaskRun{}
@@ -651,7 +593,7 @@ func (h PauseTaskRunHandler) Handle(c echo.Context) error {
 	}
 
 	flowRequest := &flowv1.PauseOperationRunRequest{Id: &flowv1.UUID{Id: runID}}
-	return executeRunLifecycleWorkflow(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, runID, "pause", "PauseTaskRun", flowRequest, logger, ctx)
+	return executeRunLifecycleAction(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, runID, "pause", flowv1.Flow_PauseOperationRun_FullMethodName, flowRequest, logger, ctx)
 }
 
 // ResumeTaskRunHandler resumes an operator-paused Run.
@@ -707,7 +649,7 @@ func (h ResumeTaskRunHandler) Handle(c echo.Context) error {
 	}
 
 	flowRequest := &flowv1.ResumeOperationRunRequest{Id: &flowv1.UUID{Id: runID}}
-	return executeRunLifecycleWorkflow(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, runID, "resume", "ResumeTaskRun", flowRequest, logger, ctx)
+	return executeRunLifecycleAction(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, runID, "resume", flowv1.Flow_ResumeOperationRun_FullMethodName, flowRequest, logger, ctx)
 }
 
 // AdvanceTaskRunPhaseHandler opens the next phase of a phase-gated Run.
@@ -766,7 +708,7 @@ func (h AdvanceTaskRunPhaseHandler) Handle(c echo.Context) error {
 		Id:                 &flowv1.UUID{Id: runID},
 		ExpectedPhaseIndex: apiRequest.ExpectedPhaseIndex,
 	}
-	return executeRunLifecycleWorkflow(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, runID, "advance", "AdvanceTaskRunPhase", flowRequest, logger, ctx)
+	return executeRunLifecycleAction(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, runID, "advance", flowv1.Flow_AdvanceOperationRunPhase_FullMethodName, flowRequest, logger, ctx)
 }
 
 // CancelTaskRunHandler cancels a Run and its in-flight targets.
@@ -825,5 +767,5 @@ func (h CancelTaskRunHandler) Handle(c echo.Context) error {
 		Id:     &flowv1.UUID{Id: runID},
 		Reason: apiRequest.Reason,
 	}
-	return executeRunLifecycleWorkflow(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, runID, "cancel", "CancelTaskRun", flowRequest, logger, ctx)
+	return executeRunLifecycleAction(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, runID, "cancel", flowv1.Flow_CancelOperationRun_FullMethodName, flowRequest, logger, ctx)
 }
