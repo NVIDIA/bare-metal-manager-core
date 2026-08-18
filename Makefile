@@ -83,11 +83,13 @@ bootstrap: ## Set up an Ubuntu/Debian build host: apt deps, rustup, submodules, 
 #   make images-core   NICo Core image (nico) only
 #   make images-rest   REST service images only
 #
-# Images are pushed as amd64/arm64 manifests at
-# $(IMAGE_REGISTRY)/<name>:$(IMAGE_TAG). Override IMAGE_REGISTRY and IMAGE_TAG to
-# publish under your own registry/tag (defaults match rest-api/). Override
-# NICO_ARCHES, BOOT_ARTIFACTS_ARCHES, and/or DPU_ARCHES (each "amd64 arm64" by
-# default) to restrict which architectures a given image group builds, e.g.:
+# Images are pushed as manifests at $(IMAGE_REGISTRY)/<name>:$(IMAGE_TAG)
+# containing whichever architectures NICO_ARCHES, BOOT_ARTIFACTS_ARCHES, and
+# DPU_ARCHES select for that image's group (each "amd64 arm64" by default, so
+# manifests are multi-arch unless you narrow them). Override IMAGE_REGISTRY and
+# IMAGE_TAG to publish under your own registry/tag (defaults match rest-api/).
+# Override NICO_ARCHES / BOOT_ARTIFACTS_ARCHES / DPU_ARCHES to restrict which
+# architectures a given image group builds, e.g.:
 #   make images-all NICO_ARCHES=amd64 DPU_ARCHES=arm64
 
 IMAGE_REGISTRY ?= localhost:5000
