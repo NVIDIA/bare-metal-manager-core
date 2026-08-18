@@ -10112,6 +10112,31 @@ message RetainedBootInterface {
   google.protobuf.Timestamp recorded_at = 3;
 }
 
+// Why the current desired boot interface target was selected. The target
+// interface may belong to a DPU in DPU or NIC mode, or it may be an integrated
+// or onboard NIC. This records the selection mechanism or authority; it does
+// not describe reconciliation state.
+enum BootInterfaceSelectionSource {
+  // Wire sentinel for an omitted field or a server that does not report this
+  // contract. This is not a persisted selection source.
+  BOOT_INTERFACE_SELECTION_SOURCE_UNSPECIFIED = 0;
+  // An ExpectedMachine primary declaration selected the interface.
+  BOOT_INTERFACE_SELECTION_SOURCE_EXPECTED_MACHINE = 1;
+  // An operator selected the interface through an administrative write.
+  BOOT_INTERFACE_SELECTION_SOURCE_OPERATOR = 2;
+  // Redfish UEFI PCI path ordering selected the interface.
+  BOOT_INTERFACE_SELECTION_SOURCE_REDFISH_UEFI_PCI = 3;
+  // Redfish chassis identifier ordering selected the interface.
+  BOOT_INTERFACE_SELECTION_SOURCE_REDFISH_CHASSIS_ID = 4;
+  // Redfish DPU serial number ordering selected the interface.
+  BOOT_INTERFACE_SELECTION_SOURCE_REDFISH_SERIAL_NUMBER = 5;
+  // Host PCI data in a Scout report selected the interface.
+  BOOT_INTERFACE_SELECTION_SOURCE_SCOUT_REPORT_PCI = 6;
+  // Explicit persisted value for selections that predate source tracking or
+  // whose current source cannot be recovered.
+  BOOT_INTERFACE_SELECTION_SOURCE_LEGACY_UNKNOWN = 7;
+}
+
 message GetMachineBootInterfacesResponse {
   option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // The desired boot-interface generation, its latest persisted observation,
@@ -10157,6 +10182,14 @@ message GetMachineBootInterfacesResponse {
     optional string reconciling_version = 8;
     // Persisted terminal boot-reconciliation failure, when one exists.
     optional string failure = 9;
+    // Mechanism or authority that selected the current desired target. When
+    // omitted, the proto3 zero value `UNSPECIFIED` means the server reported no
+    // source; that wire sentinel is distinct from persisted `LEGACY_UNKNOWN`.
+    BootInterfaceSelectionSource selection_source = 10;
+    // Time the current target and source decision was established. Adding a
+    // Redfish interface ID for the same MAC preserves it. Absent for legacy
+    // rows whose selection history predates source tracking.
+    google.protobuf.Timestamp selection_updated_at = 11;
   }
 
   common.MachineId machine_id = 1;

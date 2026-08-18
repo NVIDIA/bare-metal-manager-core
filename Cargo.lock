@@ -1371,6 +1371,7 @@ dependencies = [
  "bmc-vendor",
  "carbide-api-core",
  "carbide-api-db",
+ "carbide-api-model",
  "carbide-api-test-helper",
  "carbide-kms-provider",
  "carbide-machine-a-tron",

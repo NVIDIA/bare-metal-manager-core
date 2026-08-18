@@ -496,6 +496,8 @@ struct BootInterfaceReconciliationDisplay {
     reconciliation_state: &'static str,
     desired_mac_address: String,
     desired_redfish_interface_id: String,
+    selection_source: String,
+    selection_updated_at: String,
     desired_version: String,
     verified_version: String,
     observed_at: String,
@@ -727,6 +729,7 @@ fn boot_interface_target_matches(
 
 impl From<BootInterfaceReconciliation> for BootInterfaceReconciliationDisplay {
     fn from(status: BootInterfaceReconciliation) -> Self {
+        let selection_source = status.selection_source().as_str().to_string();
         let desired_boot_interface = status.desired_boot_interface.unwrap_or_default();
         let reconciliation_state =
             match BootInterfaceReconciliationState::try_from(status.reconciliation_state)
@@ -753,6 +756,9 @@ impl From<BootInterfaceReconciliation> for BootInterfaceReconciliationDisplay {
             },
             desired_redfish_interface_id: desired_boot_interface
                 .interface_id
+                .unwrap_or_else(|| "-".to_string()),
+            selection_source,
+            selection_updated_at: to_time(status.selection_updated_at, None::<&str>)
                 .unwrap_or_else(|| "-".to_string()),
             desired_version: status.desired_version,
             verified_version: status.verified_version.unwrap_or_else(|| "-".to_string()),
@@ -1577,6 +1583,8 @@ impl<'a> super::Base for MachineDetail<'a> {}
 
 #[cfg(test)]
 mod boot_interface_display_tests {
+    use std::time::{Duration, UNIX_EPOCH};
+
     use carbide_test_support::value_scenarios;
 
     use super::*;
@@ -1651,6 +1659,49 @@ mod boot_interface_display_tests {
                         Some("NIC.Slot.1"),
                     )],
                 ) => None,
+            }
+        );
+    }
+
+    #[test]
+    fn selection_source_display_uses_typed_enum_names() {
+        value_scenarios!(run = |selection_source| {
+            BootInterfaceReconciliationDisplay::from(BootInterfaceReconciliation {
+                selection_source,
+                ..Default::default()
+            })
+            .selection_source
+        };
+            "wire sentinel" {
+                forgerpc::BootInterfaceSelectionSource::Unspecified as i32 => "Unspecified".to_string(),
+            }
+            "known selection source" {
+                forgerpc::BootInterfaceSelectionSource::RedfishChassisId as i32 => "RedfishChassisId".to_string(),
+            }
+            "persisted unknown source" {
+                forgerpc::BootInterfaceSelectionSource::LegacyUnknown as i32 => "LegacyUnknown".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn selection_updated_at_formats_present_values_and_marks_absence() {
+        value_scenarios!(run = |selection_updated_at| {
+            BootInterfaceReconciliationDisplay::from(BootInterfaceReconciliation {
+                selection_updated_at,
+                ..Default::default()
+            })
+            .selection_updated_at
+        };
+            "epoch" {
+                Some(UNIX_EPOCH.into()) => "1970-01-01 00:00:00 UTC".to_string(),
+            }
+            "nonzero timestamp" {
+                Some((UNIX_EPOCH + Duration::from_secs(1_700_000_000)).into())
+                    => "2023-11-14 22:13:20 UTC".to_string(),
+            }
+            "absent timestamp" {
+                None => "-".to_string(),
             }
         );
     }

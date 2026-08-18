@@ -65,7 +65,7 @@ use model::machine::{
     ReadyBootConfigState, ReadyBootConfigTerminalFailure, SecureEraseBossState, SetBootOrderInfo,
     SetBootOrderState, SetSecureBootState, SpdmMeasuringState, StateMachineArea, ValidationState,
 };
-use model::machine_boot_interface::MachineBootInterfaceTarget;
+use model::machine_boot_interface::{BootInterfaceSelectionSource, MachineBootInterfaceTarget};
 use model::machine_validation::MachineValidationState;
 use model::network_segment::NetworkSegmentType;
 use model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
@@ -3053,9 +3053,15 @@ async fn set_pending_boot_interface(
     };
     let replacement = MachineBootInterfaceTarget::MacOnly(replacement_mac);
 
-    let pending = db::machine_desired_boot_interface::set(txn.as_mut(), &host.id, &replacement)
-        .await
-        .expect("setting distinct boot-interface intent should persist a new version");
+    let pending = db::machine_desired_boot_interface::set(
+        txn.as_mut(),
+        &host.id,
+        &replacement,
+        BootInterfaceSelectionSource::Operator,
+    )
+    .await
+    .expect("setting distinct boot-interface intent should persist a new version")
+    .desired;
     assert_ne!(
         pending.version, current.version,
         "distinct intent must create a pending desired version"

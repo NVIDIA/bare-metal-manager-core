@@ -20,7 +20,8 @@ use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use model::machine::ManagedHostState;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine_boot_interface::{
-    MachineBootInterface, MachineBootInterfaceTarget, canonical_redfish_boot_interface_id,
+    BootInterfaceSelectionSource, MachineBootInterface, MachineBootInterfaceTarget,
+    canonical_redfish_boot_interface_id,
 };
 use model::network_segment::NetworkSegmentType;
 use tonic::{Request, Response, Status};
@@ -199,21 +200,39 @@ async fn set_primary_interface_core(
                 "interface {new_primary_interface_id} not found on host {host_machine_id}"
             ))
         })?;
+    let boot_target = boot_target_for_interface(
+        new_primary_interface.mac_address,
+        new_primary_interface.boot_interface_id.clone(),
+    );
     let primary_is_unchanged = new_primary_interface.primary_interface;
-    if primary_is_unchanged && !force_reconcile {
+    // Selecting the current primary can still record operator intent or
+    // refresh its Redfish interface ID. Reject the request only when the
+    // complete target and `Operator` source are already recorded. Forced
+    // reconciliation still opens a new desired generation.
+    let selected_target_is_already_operator = machine
+        .config
+        .boot_interface_selection
+        .is_some_and(|selection| selection.source == BootInterfaceSelectionSource::Operator)
+        && machine
+            .config
+            .desired_boot_interface
+            .as_ref()
+            .is_some_and(|desired| desired.value == boot_target);
+    if primary_is_unchanged && !force_reconcile && selected_target_is_already_operator {
         return Err(CarbideError::InvalidArgument(
-            "requested interface is already primary".to_string(),
+            "requested interface is already the operator-selected primary interface".to_string(),
         )
         .into());
     }
 
-    // On a DPU-managed host the primary interface must stay on the Admin segment:
-    // the host's admin DHCP address and DNS identity follow the primary, and
-    // `reconcile_admin_addresses_for_host` (below) errors if a host with
-    // DPU-backed admin interfaces is left with no primary admin interface.
-    // Promoting a non-admin interface would trip that *after* the BMC boot order
-    // was already changed, leaving the BMC and the database disagreeing. Zero-DPU
-    // hosts have no DPU-backed admin interface, so this never constrains them.
+    // A host with managed DPUs must keep its primary interface on the `Admin`
+    // segment. The host's admin DHCP address and DNS identity follow the
+    // primary, and `reconcile_admin_addresses_for_host` errors if a host with
+    // Admin interfaces backed by DPUs is left with no primary Admin interface.
+    // Promoting an interface outside Admin would trip that *after* the BMC boot
+    // order was already changed, leaving the BMC and database disagreeing.
+    // Hosts with no DPUs have no Admin interface backed by a DPU, so this does
+    // not constrain them.
     let host_has_dpu_backed_admin_interface = interface_snapshots.iter().any(|interface| {
         interface
             .attached_dpu_machine_id
@@ -230,12 +249,10 @@ async fn set_primary_interface_core(
         .into());
     }
 
-    let primary_interface_mac_address = new_primary_interface.mac_address;
-    let boot_interface_id = new_primary_interface.boot_interface_id.clone();
-    let boot_target = boot_target_for_interface(primary_interface_mac_address, boot_interface_id);
     let instance =
         db::instance::find_live_by_machine_id_for_update(&mut txn, &host_machine_id).await?;
-    let should_enqueue =
+    let reconciliation_is_pending = machine.pending_boot_interface_config_version().is_some();
+    let reconciliation_is_eligible =
         matches!(machine.current_state(), ManagedHostState::Ready) && instance.is_none();
 
     if !primary_is_unchanged {
@@ -291,15 +308,28 @@ async fn set_primary_interface_core(
         }
     }
 
-    if force_reconcile {
-        db::machine_desired_boot_interface::force_set(&mut txn, &host_machine_id, &boot_target)
-            .await?;
+    let outcome = if force_reconcile {
+        db::machine_desired_boot_interface::force_set(
+            &mut txn,
+            &host_machine_id,
+            &boot_target,
+            BootInterfaceSelectionSource::Operator,
+        )
+        .await?
     } else {
-        db::machine_desired_boot_interface::set(&mut txn, &host_machine_id, &boot_target).await?;
-    }
+        db::machine_desired_boot_interface::set(
+            &mut txn,
+            &host_machine_id,
+            &boot_target,
+            BootInterfaceSelectionSource::Operator,
+        )
+        .await?
+    };
 
     txn.commit().await?;
 
+    let should_enqueue =
+        reconciliation_is_eligible && (reconciliation_is_pending || outcome.desired_changed);
     enqueue_boot_interface_reconciliation(api, host_machine_id, should_enqueue).await;
 
     Ok(Response::new(()))
