@@ -140,12 +140,20 @@ images-all: ## Build every image (stack + machine validation + boot artifacts; n
 	$(MAKE) images-all-validate
 	$(MAKE) images images-machine-validation images-boot-artifacts images-bfb
 
+# Safe to call concurrently from multiple sibling targets (images-base,
+# images-rest, images-boot-artifacts, images-bfb each invoke this themselves).
 images-registry:
 	@if [ "$(IMAGE_REGISTRY)" = "localhost:5000" ] && ! curl -fsS http://localhost:5000/v2/ >/dev/null 2>&1; then \
-		if docker inspect $(LOCAL_REGISTRY_CONTAINER) >/dev/null 2>&1; then \
-			docker start $(LOCAL_REGISTRY_CONTAINER); \
-		else \
-			docker run -d --rm --name $(LOCAL_REGISTRY_CONTAINER) -p 5000:5000 registry:2; \
+		docker start $(LOCAL_REGISTRY_CONTAINER) >/dev/null 2>&1 || \
+			docker run -d --rm --name $(LOCAL_REGISTRY_CONTAINER) -p 5000:5000 registry:2 >/dev/null 2>&1 || true; \
+		ready=0; \
+		for i in 1 2 3 4 5 6 7 8 9 10; do \
+			if curl -fsS http://localhost:5000/v2/ >/dev/null 2>&1; then ready=1; break; fi; \
+			sleep 0.5; \
+		done; \
+		if [ "$$ready" != "1" ]; then \
+			echo "images-registry: local registry at localhost:5000 did not become ready after starting $(LOCAL_REGISTRY_CONTAINER)" >&2; \
+			exit 1; \
 		fi; \
 	fi
 
