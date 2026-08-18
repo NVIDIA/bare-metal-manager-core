@@ -124,6 +124,7 @@ impl Default for TxnHeldAcrossAwait {
             "sqlx_core::pool::connection::PoolConnection",
             "sqlx_postgres::PgTransaction",
             "db::Transaction",
+            "db::routing_graph_admission::GlobalLockedTransaction",
             "db::db_read::DbReader",
             "sqlx_postgres::connection::PgConnection",
             "sqlx_core::pool::connection::PoolConnection",

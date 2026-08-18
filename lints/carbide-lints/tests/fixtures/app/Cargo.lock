@@ -136,6 +136,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "db"
+version = "0.1.0"
+dependencies = [
+ "sqlx",
+]
+
+[[package]]
 name = "der"
 version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1178,6 +1185,7 @@ dependencies = [
 name = "sqlx_app"
 version = "0.1.0"
 dependencies = [
+ "db",
  "sqlx",
  "tokio",
 ]

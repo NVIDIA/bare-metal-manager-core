@@ -220,6 +220,29 @@ fn make_pgpoolconn() -> PoolConnection<Postgres> {
     todo!()
 }
 
+fn make_routing_graph_write_transaction()
+-> routing_db::routing_graph_admission::RoutingGraphWriteTransaction<'static> {
+    todo!()
+}
+
+async fn good_routing_graph_write_transaction() {
+    let mut txn = make_routing_graph_write_transaction();
+    db::actually_use_txn(txn.as_pgconn()).await;
+    txn.commit().await;
+}
+
+async fn bad_routing_graph_write_transaction_await() {
+    let mut txn = make_routing_graph_write_transaction();
+    unrelated_async_work("bad").await;
+    db::actually_use_txn(txn.as_pgconn()).await;
+    txn.commit().await;
+}
+
+fn bad_missing_routing_graph_write_transaction_commit() {
+    let _txn = make_routing_graph_write_transaction();
+    non_async_work();
+}
+
 async fn pgconn_calls() {
     let mut conn = make_pgconn();
     bad_pgconn_fn(&mut conn).await;
@@ -395,6 +418,9 @@ async fn main() {
     bad_call_bad_db_wrapper().await;
     call_methods().await;
     good_txn_as_receiver().await;
+    good_routing_graph_write_transaction().await;
+    bad_routing_graph_write_transaction_await().await;
+    bad_missing_routing_graph_write_transaction_commit();
     do_txn_by_value().await;
     pgconn_calls().await;
     good_direct_nested_transaction().await;
@@ -471,4 +497,10 @@ pub mod db_read {
     pub trait DbReader<'c>: sqlx::PgExecutor<'c> {}
 
     impl<'c> DbReader<'c> for &'c mut sqlx::PgConnection {}
+}
+
+#[allow(dead_code)]
+async fn good_routing_graph_write_transaction_rollback() {
+    let txn = make_routing_graph_write_transaction();
+    txn.rollback().await;
 }

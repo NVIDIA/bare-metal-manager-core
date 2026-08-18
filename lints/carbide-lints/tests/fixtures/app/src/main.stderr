@@ -97,126 +97,144 @@ note: Transaction declared here
     |                            ^^^^
 
 error: A sqlx::Transaction is being held across this 'await' point
-   --> src/main.rs:234:33
+   --> src/main.rs:236:33
     |
-234 |     unrelated_async_work("bad").await
+236 |     unrelated_async_work("bad").await;
     |                                 ^^^^^
     |
 note: Transaction declared here
-   --> src/main.rs:233:24
+   --> src/main.rs:235:9
     |
-233 | async fn bad_pgconn_fn(_conn: &mut PgConnection) {
+235 |     let mut txn = make_routing_graph_write_transaction();
+    |         ^^^^^^^
+
+error: A sqlx::Transaction is being held across this 'await' point
+   --> src/main.rs:257:33
+    |
+257 |     unrelated_async_work("bad").await
+    |                                 ^^^^^
+    |
+note: Transaction declared here
+   --> src/main.rs:256:24
+    |
+256 | async fn bad_pgconn_fn(_conn: &mut PgConnection) {
     |                        ^^^^^
 
 error: A sqlx::Transaction is being held across this 'await' point
-   --> src/main.rs:243:33
+   --> src/main.rs:266:33
     |
-243 |     unrelated_async_work("bad").await
+266 |     unrelated_async_work("bad").await
     |                                 ^^^^^
     |
 note: Transaction declared here
-   --> src/main.rs:242:28
+   --> src/main.rs:265:28
     |
-242 | async fn bad_pgpoolconn_fn(_conn: &mut PoolConnection<Postgres>) {
+265 | async fn bad_pgpoolconn_fn(_conn: &mut PoolConnection<Postgres>) {
     |                            ^^^^^
 
 error: A sqlx::Transaction is being held across this 'await' point
-   --> src/main.rs:288:33
+   --> src/main.rs:311:33
     |
-288 |     unrelated_async_work("bad").await;
+311 |     unrelated_async_work("bad").await;
     |                                 ^^^^^
     |
 note: Transaction declared here
-   --> src/main.rs:286:9
+   --> src/main.rs:309:9
     |
-286 |     let mut outer = make_transaction();
+309 |     let mut outer = make_transaction();
     |         ^^^^^^^^^
 
 error: A sqlx::Transaction is being held across this 'await' point
-   --> src/main.rs:288:33
+   --> src/main.rs:311:33
     |
-288 |     unrelated_async_work("bad").await;
+311 |     unrelated_async_work("bad").await;
     |                                 ^^^^^
     |
 note: Transaction declared here
-   --> src/main.rs:287:9
+   --> src/main.rs:310:9
     |
-287 |     let inner = db::Transaction::begin_inner(&mut outer).await;
+310 |     let inner = db::Transaction::begin_inner(&mut outer).await;
     |         ^^^^^
 
 error: A sqlx::Transaction is being held across this 'await' point
-   --> src/main.rs:298:45
+   --> src/main.rs:321:45
     |
-298 |     db::actually_use_txn(inner.deref_mut()).await;
+321 |     db::actually_use_txn(inner.deref_mut()).await;
     |                                             ^^^^^
     |
 note: Transaction declared here
-   --> src/main.rs:297:9
+   --> src/main.rs:320:9
     |
-297 |     let second = make_transaction();
+320 |     let second = make_transaction();
     |         ^^^^^^
 
 error: A sqlx::Transaction is being held across this 'await' point
-   --> src/main.rs:308:33
+   --> src/main.rs:331:33
     |
-308 |     unrelated_async_work("bad").await;
+331 |     unrelated_async_work("bad").await;
     |                                 ^^^^^
     |
 note: Transaction declared here
-   --> src/main.rs:305:9
+   --> src/main.rs:328:9
     |
-305 |     let mut outer = make_transaction();
+328 |     let mut outer = make_transaction();
     |         ^^^^^^^^^
 
 error: A sqlx::Transaction is being held across this 'await' point
-   --> src/main.rs:315:37
+   --> src/main.rs:338:37
     |
-315 |         unrelated_async_work("bad").await;
+338 |         unrelated_async_work("bad").await;
     |                                     ^^^^^
     |
 note: Transaction declared here
-   --> src/main.rs:313:9
+   --> src/main.rs:336:9
     |
-313 |     let txn = make_transaction();
+336 |     let txn = make_transaction();
     |         ^^^
 
 error: A sqlx::Transaction is being held across this 'await' point
-   --> src/main.rs:335:37
+   --> src/main.rs:358:37
     |
-335 |         unrelated_async_work("bad").await;
+358 |         unrelated_async_work("bad").await;
     |                                     ^^^^^
     |
 note: Transaction declared here
-   --> src/main.rs:334:13
+   --> src/main.rs:357:13
     |
-334 |         let txn = make_transaction();
+357 |         let txn = make_transaction();
     |             ^^^
 
 error: sqlx::Transaction is dropped by this function without commit()/rollback(), or being moved out
-   --> src/main.rs:357:9
+   --> src/main.rs:380:9
     |
-357 |     let txn = make_transaction();
+380 |     let txn = make_transaction();
     |         ^^^
     |
     = note: `-D txn-without-commit` implied by `-D warnings`
     = help: to override `-D warnings` add `#[allow(txn_without_commit)]`
 
 error: A sqlx::Transaction is being held across this 'await' point
-   --> src/main.rs:381:33
+   --> src/main.rs:404:33
     |
-381 |     unrelated_async_work("bad").await;
+404 |     unrelated_async_work("bad").await;
     |                                 ^^^^^
     |
 note: Transaction declared here
-   --> src/main.rs:377:40
+   --> src/main.rs:400:40
     |
-377 | async fn bad_takes_db_reader_inner<DB>(_db: &mut DB)
+400 | async fn bad_takes_db_reader_inner<DB>(_db: &mut DB)
     |                                        ^^^
 
 error: sqlx::Transaction is dropped by this function without commit()/rollback(), or being moved out
-   --> src/main.rs:362:29
+   --> src/main.rs:242:9
     |
-362 | fn bad_missing_commit_param(_txn: PgTransaction<'_>) {
+242 |     let _txn = make_routing_graph_write_transaction();
+    |         ^^^^
+
+error: sqlx::Transaction is dropped by this function without commit()/rollback(), or being moved out
+   --> src/main.rs:385:29
+    |
+385 | fn bad_missing_commit_param(_txn: PgTransaction<'_>) {
     |                             ^^^^
 
-error: could not compile `sqlx_app` (bin "sqlx_app") due to 19 previous errors
+error: could not compile `sqlx_app` (bin "sqlx_app") due to 21 previous errors

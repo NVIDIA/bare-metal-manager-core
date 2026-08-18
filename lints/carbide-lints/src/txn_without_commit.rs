@@ -63,6 +63,7 @@ impl Default for TxnWithoutCommit {
             "sqlx_core::transaction::Transaction",
             "sqlx_postgres::PgTransaction",
             "db::Transaction",
+            "db::routing_graph_admission::GlobalLockedTransaction",
         ]
         .into_iter()
         .map(|txn| {

@@ -86,6 +86,7 @@ pub mod redfish_actions;
 pub mod resource_pool;
 pub mod retained_boot_interface;
 pub mod route_servers;
+pub mod routing_graph_admission;
 pub mod secrets;
 pub mod site_exploration_report;
 pub mod site_explorer_run_status;
