@@ -193,6 +193,51 @@ async fn advances_on_completion(pool: PgPool) {
 }
 
 #[sqlx_test]
+async fn rack_reset_clears_host_reprovision_retry_count(pool: PgPool) {
+    let mut env = Env::builder(pool).build().await;
+    let host = managed_host(&env.test_harness).await;
+    prepare_rack_upgrade(
+        &env.test_harness,
+        &host,
+        ManagedHostState::HostReprovision {
+            reprovision_state: HostReprovisionState::CheckingFirmwareV2 {
+                firmware_type: None,
+                firmware_number: None,
+            },
+            retry_count: 3,
+        },
+        RackFirmwareUpgradeState::InProgress,
+        chrono::Duration::zero(),
+        None,
+    )
+    .await;
+
+    let mut txn = env.test_harness.db_txn().await;
+    db::host_machine_update::reset_host_reprovisioning_request(txn.as_mut(), &host.host.id, false)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    env.run_single_iteration().await;
+
+    let machine = host.host.machine().await;
+    assert!(matches!(
+        machine.current_state(),
+        ManagedHostState::HostReprovision {
+            reprovision_state: HostReprovisionState::WaitingForRackFirmwareUpgrade,
+            retry_count: 0,
+        }
+    ));
+    assert_eq!(
+        machine
+            .host_reprovision_requested
+            .as_ref()
+            .and_then(|request| request.request_reset),
+        Some(false)
+    );
+}
+
+#[sqlx_test]
 async fn assigned_host_bypasses_legacy_check_and_returns_ready_on_completion(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {

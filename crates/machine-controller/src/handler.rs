@@ -9376,7 +9376,7 @@ impl HostUpgradeState {
 
         // Treat Ready (but flagged to do updates) the same as HostReprovisionState/CheckingFirmware
         let original_state = &state.managed_state.clone();
-        let (mut host_reprovision_state, retry_count) = match &state.managed_state {
+        let (mut host_reprovision_state, mut retry_count) = match &state.managed_state {
             ManagedHostState::HostReprovision {
                 reprovision_state,
                 retry_count,
@@ -9421,6 +9421,7 @@ impl HostUpgradeState {
             })
         {
             tracing::info!(%machine_id, "Host firmware upgrade reset requested, returning to CheckingFirmwareRepeat");
+            retry_count = 0;
             host_reprovision_state = &HostReprovisionState::CheckingFirmwareRepeatV2 {
                 firmware_type: None,
                 firmware_number: None,
