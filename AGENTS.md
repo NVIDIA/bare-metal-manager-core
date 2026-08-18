@@ -117,6 +117,9 @@ or explicit cases (`check_cases` / `check_values`) is the easiest way to reach t
 conversions, and the like.
 For functions that map multiple booleans or enums to state and action outputs,
 enumerate every input combination in one table before requesting review.
+For user-visible CLI table changes, exercise the public command in a test and
+assert the rendered headers plus populated and empty cell values. Helper-only
+tests do not prove the table contract.
 
 Keep test rack-profile capability counts aligned with the inventory the fixture
 actually instantiates. Use zero for unsupported component types so tests do not

@@ -8,11 +8,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"sort"
 	"strings"
 	"testing"
 
+	appcli "github.com/NVIDIA/infra-controller/rest-api/cli/pkg"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -155,6 +158,17 @@ func TestFirstMachineIPAddress(t *testing.T) {
 			want: "198.51.100.20",
 		},
 		{
+			name: "skips malformed entries",
+			raw: map[string]interface{}{
+				"machineInterfaces": []interface{}{
+					"not an interface",
+					map[string]interface{}{"ipAddresses": []interface{}{123, "   "}},
+					map[string]interface{}{"ipAddresses": []interface{}{"203.0.113.7"}},
+				},
+			},
+			want: "203.0.113.7",
+		},
+		{
 			name: "no address",
 			raw: map[string]interface{}{
 				"machineInterfaces": []interface{}{
@@ -169,6 +183,54 @@ func TestFirstMachineIPAddress(t *testing.T) {
 			assert.Equal(t, test.want, firstMachineIPAddress(test.raw))
 		})
 	}
+}
+
+func TestCmdMachineListRendersIPAddresses(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v2/org/acme/nico/machine":
+			_, _ = io.WriteString(w, `[
+				{"id":"machine-with-ip","name":"with-ip","status":"Ready","siteId":"site-1","machineInterfaces":[{"ipAddresses":["192.0.2.10"]}]},
+				{"id":"machine-without-ip","name":"without-ip","status":"Ready","siteId":"site-1","machineInterfaces":[]}
+			]`)
+		case "/v2/org/acme/nico/vpc", "/v2/org/acme/nico/instance":
+			_, _ = io.WriteString(w, `[]`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	session := NewSession(appcli.NewClient(server.URL, "acme", "token", nil, false), "acme", "")
+	var runErr error
+	output := captureStdout(func() {
+		runErr = cmdMachineList(session, nil)
+	})
+	require.NoError(t, runErr)
+
+	lines := strings.Split(output, "\n")
+	var header, populated, blank string
+	for _, line := range lines {
+		switch {
+		case strings.HasPrefix(line, "NAME"):
+			header = line
+		case strings.HasPrefix(line, "machine-with-ip"):
+			populated = line
+		case strings.HasPrefix(line, "machine-without-ip"):
+			blank = line
+		}
+	}
+	require.NotEmpty(t, header)
+	require.NotEmpty(t, populated)
+	require.NotEmpty(t, blank)
+
+	ipAddressColumn := strings.Index(header, "IP ADDRESS")
+	statusColumn := strings.Index(header, "STATUS")
+	require.Greater(t, ipAddressColumn, 0)
+	require.Greater(t, statusColumn, ipAddressColumn)
+	assert.Equal(t, "192.0.2.10", strings.TrimSpace(populated[ipAddressColumn:statusColumn]))
+	assert.Empty(t, strings.TrimSpace(blank[ipAddressColumn:statusColumn]))
 }
 
 // --- VPC scope coverage tests ---
@@ -1299,7 +1361,9 @@ func captureStdout(f func()) string {
 	w.Close()
 	os.Stdout = old
 	var buf bytes.Buffer
-	io.Copy(&buf, r)
+	if _, err := io.Copy(&buf, r); err != nil {
+		panic(fmt.Sprintf("capture stdout: %v", err))
+	}
 	return buf.String()
 }
 
