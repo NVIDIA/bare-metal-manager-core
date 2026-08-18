@@ -1262,7 +1262,7 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			if tt.args.reqData.RoutingProfileOverrides != nil {
 				// Effective state returned without a VNI is cached and exposed to this privileged tenant.
 				require.NotNil(t, rst.EffectiveRoutingProfile)
-				assert.Equal(t, 6, rst.EffectiveRoutingProfile.AccessTier)
+				assert.Equal(t, uint32(6), rst.EffectiveRoutingProfile.AccessTier)
 				require.NotNil(t, persistedVpc.EffectiveRoutingProfile)
 				assert.Equal(t, uint32(6), persistedVpc.EffectiveRoutingProfile.AccessTier)
 			}
