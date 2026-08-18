@@ -104,13 +104,9 @@ NICO_ARCHES ?= amd64 arm64
 BOOT_ARTIFACTS_ARCHES ?= amd64 arm64
 DPU_ARCHES ?= amd64 arm64
 
-# $(call check-arches,$(SOME_ARCHES),SOME_ARCHES) aborts the build with a clear
-# error if SOME_ARCHES contains anything other than amd64/arm64.
 check-arches = $(if $(strip $(1)),,$(error $(2) must not be empty))$(if $(filter-out amd64 arm64,$(1)),$(error $(2) must be a subset of "amd64 arm64", got: $(1)))
 
-# $(call require-amd64,$(SOME_ARCHES),error-message) aborts the build if amd64 is
-# missing from SOME_ARCHES.
-require-amd64 = $(if $(filter amd64,$(1)),,$(error $(2)))
+require-nico-amd64 = $(if $(filter amd64,$(NICO_ARCHES)),,$(error NICO_ARCHES must include amd64: the machine-validation-runner intermediate image is always built for amd64 and depends on the amd64 Core runtime base container that images-base only pushes when amd64 is requested; got: $(NICO_ARCHES)))
 
 # Intermediate base containers the Core and machine-validation images build FROM.
 CORE_BUILD_CONTAINER_AMD64 ?= $(IMAGE_REGISTRY)/nico-buildcontainer:$(IMAGE_TAG)-amd64
@@ -118,16 +114,25 @@ CORE_BUILD_CONTAINER_ARM64 ?= $(IMAGE_REGISTRY)/nico-buildcontainer:$(IMAGE_TAG)
 CORE_RUNTIME_CONTAINER_AMD64 ?= $(IMAGE_REGISTRY)/nico-runtime-container:$(IMAGE_TAG)-amd64
 CORE_RUNTIME_CONTAINER_ARM64 ?= $(IMAGE_REGISTRY)/nico-runtime-container:$(IMAGE_TAG)-arm64
 
-.PHONY: images images-all images-registry images-base images-core images-rest \
-        images-machine-validation images-boot-artifacts images-bfb
+.PHONY: images images-all images-validate images-all-validate images-registry \
+        images-base images-core images-rest images-machine-validation \
+        images-boot-artifacts images-bfb
 
-images: images-core images-rest ## Build the deployable service stack (NICo Core + REST images)
+images-validate:
+	$(call check-arches,$(NICO_ARCHES),NICO_ARCHES)
+
+images-all-validate: images-validate
+	$(call check-arches,$(BOOT_ARTIFACTS_ARCHES),BOOT_ARTIFACTS_ARCHES)
+	$(call check-arches,$(DPU_ARCHES),DPU_ARCHES)
+	$(require-nico-amd64)
+
+images: images-validate images-core images-rest ## Build the deployable service stack (NICo Core + REST images)
 	@echo ""
 	@echo "Deployable multi-arch images pushed under $(IMAGE_REGISTRY) (tag: $(IMAGE_TAG)):"
 	@echo "  $(IMAGE_REGISTRY)/nico:$(IMAGE_TAG)   (NICo Core)"
 	@echo "  $(IMAGE_REGISTRY)/nico-rest-*:$(IMAGE_TAG)       (REST services)"
 
-images-all: images images-machine-validation images-boot-artifacts images-bfb ## Build every image (stack + machine validation + boot artifacts; needs an mkosi build host)
+images-all: images-all-validate images images-machine-validation images-boot-artifacts images-bfb ## Build every image (stack + machine validation + boot artifacts; needs an mkosi build host)
 
 images-registry:
 	@if [ "$(IMAGE_REGISTRY)" = "localhost:5000" ] && ! curl -fsS http://localhost:5000/v2/ >/dev/null 2>&1; then \
@@ -178,7 +183,7 @@ images-rest: images-registry ## Build the REST service images (api, workflow, si
 
 images-machine-validation: images-base ## Build the machine-validation runner + config images (NICO_ARCHES="amd64 arm64"; must include amd64)
 	$(call check-arches,$(NICO_ARCHES),NICO_ARCHES)
-	$(call require-amd64,$(NICO_ARCHES),NICO_ARCHES must include amd64: the machine-validation-runner intermediate image is always built for amd64 and depends on the amd64 Core runtime base container that images-base only pushes when amd64 is requested; got: $(NICO_ARCHES))
+	$(require-nico-amd64)
 	docker buildx build --platform linux/amd64 --load --build-arg CONTAINER_RUNTIME_X86_64=$(CORE_RUNTIME_CONTAINER_AMD64) \
 		-t machine-validation-runner:$(IMAGE_TAG) \
 		--file dev/docker/Dockerfile.machine-validation-runner .

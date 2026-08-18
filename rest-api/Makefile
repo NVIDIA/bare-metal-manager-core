@@ -24,8 +24,7 @@ BUILD_DIR := build/binaries
 IMAGE_REGISTRY := localhost:5000
 IMAGE_TAG := latest
 DOCKERFILE_DIR := docker/production
-# Architectures to build; override to restrict to one, e.g. DOCKER_ARCHES=amd64.
-DOCKER_ARCHES ?= amd64 arm64
+DOCKER_ARCHES := amd64 arm64
 LOCAL_REGISTRY_CONTAINER := nico-build-registry
 REST_IMAGES := nico-rest-api nico-rest-workflow nico-rest-site-manager \
 	nico-rest-site-agent nico-rest-db nico-rest-cert-manager nico-flow \
