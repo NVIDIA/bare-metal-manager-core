@@ -43,8 +43,12 @@ const (
 	controllerMachineStatePrefixFailed                = "Failed"
 	controllerMachineStatePrefixCreated               = "Created"
 	controllerMachineStatePrefixForceDeletion         = "ForceDeletion"
+	controllerMachineStatePrefixDecommissioning       = "Decommissioning"
 	controllerMachineStatePrefixBomValidating         = "BomValidating"
 	controllerMachineStatePrefixMachineValidation     = "MachineValidation"
+
+	// Decommissioning terminal substate (Core ManagedHostState::Decommissioning/Decommissioned)
+	controllerMachineDecommissioningSubstateDecommissioned = "Decommissioned"
 
 	// Special states used by Cloud
 	controllerMachineStateMissing = "Missing"
@@ -1063,7 +1067,7 @@ func getNICoMachineStatus(controllerMachine *corev1.Machine, logger zerolog.Logg
 			machineStatus = cdbm.MachineStatusInitializing
 			statusMessage = "Machine DPU is being configured"
 		case controllerMachineStatePrefixWaitingForCleanup:
-			machineStatus = cdbm.MachineStatusDecommissioned
+			machineStatus = cdbm.MachineStatusInitializing
 			statusMessage = "Machine is waiting for cleanup"
 		case controllerMachineStatePrefixMeasuring:
 			machineStatus = cdbm.MachineStatusInitializing
@@ -1105,8 +1109,19 @@ func getNICoMachineStatus(controllerMachine *corev1.Machine, logger zerolog.Logg
 			machineStatus = cdbm.MachineStatusReady
 			statusMessage = "Machine is ready for assignment"
 		case controllerMachineStatePrefixForceDeletion:
-			machineStatus = cdbm.MachineStatusDecommissioned
-			statusMessage = "Machine was decommissioned"
+			machineStatus = cdbm.MachineStatusInitializing
+			statusMessage = "Machine is being force deleted"
+		case controllerMachineStatePrefixDecommissioning:
+			if controllerMachineSubstate == controllerMachineDecommissioningSubstateDecommissioned {
+				machineStatus = cdbm.MachineStatusDecommissioned
+				statusMessage = "Machine was decommissioned"
+			} else {
+				machineStatus = cdbm.MachineStatusDecommissioning
+				statusMessage = "Machine is being decommissioned"
+				if controllerMachineSubstate != "" {
+					statusMessage = fmt.Sprintf("%s: %s", statusMessage, controllerMachineSubstate)
+				}
+			}
 		case controllerMachineStatePrefixFailed:
 			machineStatus = cdbm.MachineStatusError
 			if controllerMachineSubstate == controllerMachineFailedMeasurementsFailedSignatureCheck {

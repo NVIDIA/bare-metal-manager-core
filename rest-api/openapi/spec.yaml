@@ -16581,6 +16581,7 @@ components:
             assigned: 12
             ready: 5
             error: 2
+            decommissioning: 0
             decommissioned: 0
             unknown: 0
           ipBlock:
@@ -16616,6 +16617,7 @@ components:
           assigned: 12
           ready: 5
           error: 2
+          decommissioning: 0
           decommissioned: 0
           unknown: 0
       properties:
@@ -16637,6 +16639,9 @@ components:
         error:
           type: integer
           description: 'Number of Machines in Error status'
+        decommissioning:
+          type: integer
+          description: 'Number of Machines in Decommissioning status'
         decommissioned:
           type: integer
           description: 'Number of Machines in Decommissioned status'
@@ -17138,6 +17143,7 @@ components:
               Maintenance: 0
               InUse: 3
               Error: 5
+              Decommissioning: 0
               Decommissioned: 0
               Unknown: 0
             totalByHealth:
@@ -17162,6 +17168,9 @@ components:
               Error:
                 healthy: 2
                 unhealthy: 3
+              Decommissioning:
+                healthy: 0
+                unhealthy: 0
               Decommissioned:
                 healthy: 0
                 unhealthy: 0
@@ -17427,6 +17436,9 @@ components:
         Decommissioned:
           type: integer
           description: 'Number of Machines in Decommissioned status'
+        Decommissioning:
+          type: integer
+          description: 'Number of Machines in Decommissioning status'
         Error:
           type: integer
           description: 'Number of Machines in Error status'
@@ -17456,6 +17468,9 @@ components:
         Decommissioned:
           $ref: '#/components/schemas/SiteMachineStatsByHealth'
           description: 'Health breakdown for Machines in Decommissioned status'
+        Decommissioning:
+          $ref: '#/components/schemas/SiteMachineStatsByHealth'
+          description: 'Health breakdown for Machines in Decommissioning status'
         Error:
           $ref: '#/components/schemas/SiteMachineStatsByHealth'
           description: 'Health breakdown for Machines in Error status'
@@ -23852,6 +23867,7 @@ components:
         - Maintenance
         - InUse
         - Error
+        - Decommissioning
         - Decommissioned
         - Unknown
     MachineSummary:
