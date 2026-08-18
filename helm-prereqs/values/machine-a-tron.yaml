@@ -72,13 +72,12 @@ pods:
       rack-machines: null
       dell-hosts:
         hwType: dell_poweredge_r750
-        # SIZING: machine-a-tron allocates one OOB DHCP IP per BMC interface —
-        # 1 per host + 1 per DPU. Total = hostCount + hostCount*dpuPerHostCount.
-        # This MUST fit the usable addresses in the OOB/underlay DHCP pool of your
-        # nico-core site config, or discovery reports "No IP addresses left in
-        # prefix ..." and machines never register.
-        #   e.g. a /28 pool with a gateway and a few reserved addresses yields
-        #   ~10 usable → hostCount:3 * dpuPerHostCount:2 = 9 fits; 5*2=15 does not.
+        # SIZING: BMC DHCP needs hostCount*(1+dpuPerHostCount) addresses. DPU OS
+        # DHCP needs hostCount*dpuPerHostCount addresses from the Underlay pool.
+        # If both relay addresses select the same segment, add both demands.
+        # These totals MUST fit the usable addresses in the corresponding
+        # nico-core pools, or discovery reports "No IP addresses left in prefix
+        # ..." and machines never register.
         # setup-machine-a-tron.sh estimates the pool size and warns if you overflow.
         hostCount: 3
         dpuPerHostCount: 2
@@ -90,11 +89,11 @@ pods:
         runIntervalWorking: "1s"
         runIntervalIdle: "10s"
         networkStatusRunInterval: "20s"
-        # Set to the gateway of the OOB/underlay network in nico-core site config.
+        # Set to the gateway of the BMC network in nico-core site config.
         # (setup-machine-a-tron.sh fills this from the running nico-core config.)
-        oobDhcpRelayAddress: "FILL_IN"
-        # Set to the gateway of the admin network in nico-core site config.
-        adminDhcpRelayAddress: "FILL_IN"
+        bmcDhcpRelayAddress: "FILL_IN"
+        # Set to the gateway of the DPU OS Underlay network in nico-core site config.
+        underlayDhcpRelayAddress: "FILL_IN"
         networkVirtualizationType: ""
         dpusInNicMode: false
 

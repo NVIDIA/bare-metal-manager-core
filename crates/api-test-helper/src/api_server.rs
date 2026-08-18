@@ -14,17 +14,25 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 
 use carbide_secrets::CredentialConfig;
 use carbide_utils::HostPortPair;
+use ipnet::Ipv4Net;
 use tokio::sync::oneshot::Sender;
 use tokio_util::sync::CancellationToken;
 
 use crate::utils::LOCALHOST_CERTS;
 
 const DOMAIN_NAME: &str = "forge.integrationtest";
+
+/// BMC network used by API integration tests. The `/23` accommodates both 71-BMC rack fixtures
+/// while keeping the SQL allocator's candidate scan bounded.
+pub const TEST_BMC_NETWORK_PREFIX: Ipv4Net = Ipv4Net::new_assert(Ipv4Addr::new(127, 0, 0, 0), 23);
+
+/// DHCP relay address for [`TEST_BMC_NETWORK_PREFIX`].
+pub const TEST_BMC_DHCP_RELAY_ADDRESS: Ipv4Addr = Ipv4Addr::new(127, 0, 0, 10);
 
 // Use a struct for the args to start() so that callers can see argument names
 pub struct StartArgs {
@@ -185,8 +193,8 @@ pub async fn start(
 
         [networks.DEV1-C09-IPMI-01]
         type = "underlay"
-        prefix = "127.0.0.0/8"
-        gateway = "127.0.0.10"
+        prefix = "{TEST_BMC_NETWORK_PREFIX}"
+        gateway = "{TEST_BMC_DHCP_RELAY_ADDRESS}"
         mtu = 1490
         reserve_first = 0
 

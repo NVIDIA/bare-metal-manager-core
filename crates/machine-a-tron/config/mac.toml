@@ -93,12 +93,10 @@ host_reboot_delay = 10 # in units of seconds
 # carbide-api-site-config.toml. Nothing actually binds to these addresses, it is
 # only used for filling in gateway/relay fields in the DHCP request object
 # (which carbide uses to determine what network the request came from.)
-admin_dhcp_relay_address = "192.168.252.1"
 # Direct host DHCP for zero-DPU hosts and DPUs operating as plain NICs.
 host_inband_dhcp_relay_address = "192.168.253.1"
-oob_dhcp_relay_address = "192.168.2.1"
-# oob_dhcp_relay_address = "192.168.2.1"
-# admin_dhcp_relay_address = "192.164.0.1"
+bmc_dhcp_relay_address = "192.168.2.1"
+underlay_dhcp_relay_address = "192.168.2.1"
 
 # Set this to a hostname or IP If you want machine-a-tron to register its BMC-mock as the bmc_proxy host through the
 # dynamic configuration API. (this will be combined with bmc_mock_port to form a host:port pair.) This is useful if you

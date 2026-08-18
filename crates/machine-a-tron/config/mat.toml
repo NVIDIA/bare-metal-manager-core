@@ -92,8 +92,8 @@ enable_ipmi_simulation = false
 # ids = ["rack-001", "rack-002"]
 # dpu_reboot_delay = 20
 # host_reboot_delay = 10
-# oob_dhcp_relay_address = "192.168.192.1"
-# admin_dhcp_relay_address = "192.168.176.1"
+# bmc_dhcp_relay_address = "192.168.192.1"
+# underlay_dhcp_relay_address = "192.168.128.1"
 # host_inband_dhcp_relay_address = "192.168.177.1"
 
 [machines.config]
@@ -111,8 +111,8 @@ host_reboot_delay = 20 # in units of seconds
 # carbide-api-site-config.toml. Nothing actually binds to these addresses, it is
 # only used for filling in gateway/relay fields in the DHCP request object
 # (which carbide uses to determine what network the request came from.)
-oob_dhcp_relay_address = "192.168.2.1"
-admin_dhcp_relay_address = "192.164.0.1"
+bmc_dhcp_relay_address = "192.168.2.1"
+underlay_dhcp_relay_address = "192.168.2.1"
 # Direct host DHCP for zero-DPU hosts and DPUs operating as plain NICs.
 host_inband_dhcp_relay_address = "192.165.0.1"
 

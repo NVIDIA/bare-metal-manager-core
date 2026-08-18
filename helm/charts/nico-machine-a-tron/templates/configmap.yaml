@@ -174,8 +174,8 @@ data:
     dpu_reboot_delay = {{ $section.dpu_reboot_delay | default $defaults.dpuRebootDelay | int }}
     host_reboot_delay = {{ $section.host_reboot_delay | default $defaults.hostRebootDelay | int }}
     discovery_retry_interval = {{ $section.discovery_retry_interval | default $defaults.discoveryRetryInterval | default "60s" | quote }}
-    oob_dhcp_relay_address = {{ $section.oob_dhcp_relay_address | quote }}
-    admin_dhcp_relay_address = {{ $section.admin_dhcp_relay_address | quote }}
+    bmc_dhcp_relay_address = {{ required (printf "pods.%s.racks.%s.bmc_dhcp_relay_address is required" $podName $sectionName) $section.bmc_dhcp_relay_address | quote }}
+    underlay_dhcp_relay_address = {{ required (printf "pods.%s.racks.%s.underlay_dhcp_relay_address is required" $podName $sectionName) $section.underlay_dhcp_relay_address | quote }}
     {{- end }}
 
     {{- range $sectionName, $section := $machines }}
@@ -185,10 +185,15 @@ data:
     {{- if $section.hwType }}
     hw_type = {{ $section.hwType | quote }}
     {{- end }}
+    {{- $dpuPerHostCount := $section.dpuPerHostCount | default 0 }}
+    {{- $dpusInNicMode := $defaults.dpusInNicMode | default false }}
+    {{- if hasKey $section "dpusInNicMode" }}
+    {{- $dpusInNicMode = $section.dpusInNicMode }}
+    {{- end }}
     host_count = {{ $section.hostCount | default 1 }}
     vpc_count = {{ $section.vpcCount | default $defaults.vpcCount | default 0 }}
     subnets_per_vpc = {{ $section.subnetsPerVpc | default $defaults.subnetsPerVpc | default 0 }}
-    dpu_per_host_count = {{ $section.dpuPerHostCount | default 0 }}
+    dpu_per_host_count = {{ $dpuPerHostCount }}
     dpu_reboot_delay = {{ $section.dpuRebootDelay | default $defaults.dpuRebootDelay | default 1 }}
     host_reboot_delay = {{ $section.hostRebootDelay | default $defaults.hostRebootDelay | default 1 }}
     scout_run_interval = {{ $section.scoutRunInterval | default $defaults.scoutRunInterval | default "60s" | quote }}
@@ -196,13 +201,20 @@ data:
     run_interval_working = {{ $section.runIntervalWorking | default $defaults.runIntervalWorking | default "1s" | quote }}
     run_interval_idle = {{ $section.runIntervalIdle | default $defaults.runIntervalIdle | default "10s" | quote }}
     network_status_run_interval = {{ $section.networkStatusRunInterval | default $defaults.networkStatusRunInterval | default "20s" | quote }}
-    oob_dhcp_relay_address = {{ $section.oobDhcpRelayAddress | default "192.168.192.1" | quote }}
-    admin_dhcp_relay_address = {{ $section.adminDhcpRelayAddress | default "192.168.176.1" | quote }}
+    bmc_dhcp_relay_address = {{ $section.bmcDhcpRelayAddress | default "192.168.192.1" | quote }}
+    underlay_dhcp_relay_address = {{ required (printf "pods.%s.machines.%s.underlayDhcpRelayAddress is required" $podName $sectionName) $section.underlayDhcpRelayAddress | quote }}
+    {{- if or (eq (int $dpuPerHostCount) 0) $dpusInNicMode }}
+    host_inband_dhcp_relay_address = {{ required (printf "pods.%s.machines.%s.hostInbandDhcpRelayAddress is required when dpuPerHostCount is 0 or dpusInNicMode is true" $podName $sectionName) $section.hostInbandDhcpRelayAddress | quote }}
+    {{- else }}
+    {{- with $section.hostInbandDhcpRelayAddress }}
+    host_inband_dhcp_relay_address = {{ . | quote }}
+    {{- end }}
+    {{- end }}
     {{- $nvType := $section.networkVirtualizationType | default $defaults.networkVirtualizationType }}
     {{- if $nvType }}
     network_virtualization_type = {{ $nvType | quote }}
     {{- end }}
-    dpus_in_nic_mode = {{ $section.dpusInNicMode | default $defaults.dpusInNicMode | default false }}
+    dpus_in_nic_mode = {{ $dpusInNicMode }}
     {{- with $section.hostFirmwareVersions }}
 
     [machines.{{ $sectionName }}.host_firmware_versions]

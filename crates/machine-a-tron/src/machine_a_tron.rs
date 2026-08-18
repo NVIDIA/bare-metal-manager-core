@@ -88,18 +88,6 @@ impl MachineATron {
     pub async fn make_devices(&self, paused: bool) -> eyre::Result<SimulatorRegistry> {
         let resolved_configs = self.app_context.app_config.resolved_device_configs()?;
 
-        for (machine_group, machine) in &resolved_configs.machines {
-            if machine.missing_host_inband_relay_for_direct_host_dhcp() {
-                tracing::warn!(
-                    machine_group,
-                    dpu_per_host_count = machine.dpu_per_host_count,
-                    dpus_in_nic_mode = machine.dpus_in_nic_mode,
-                    admin_dhcp_relay_address = %machine.admin_dhcp_relay_address,
-                    "host_inband_dhcp_relay_address is not configured for a zero-DPU or NIC-mode host; direct host DHCP will fall back to admin_dhcp_relay_address"
-                );
-            }
-        }
-
         let mut persisted_devices = self
             .app_context
             .app_config

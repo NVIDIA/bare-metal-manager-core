@@ -194,15 +194,15 @@ nico-machine-a-tron:
             - rack-001
           dpu_reboot_delay: 20
           host_reboot_delay: 10
-          oob_dhcp_relay_address: 192.168.192.1
-          admin_dhcp_relay_address: 192.168.176.1
+          bmc_dhcp_relay_address: 192.168.192.1
+          underlay_dhcp_relay_address: 192.168.128.1
       machines:
         rack-machines:
           hwType: wiwynn_gb200_nvl
           hostCount: 2
           dpuPerHostCount: 2
-          oobDhcpRelayAddress: 192.168.192.1
-          adminDhcpRelayAddress: 192.168.176.1
+          bmcDhcpRelayAddress: 192.168.192.1
+          underlayDhcpRelayAddress: 192.168.128.1
 
 tilt:
   profiles: # Toggle optional stacks; required dependencies follow automatically.

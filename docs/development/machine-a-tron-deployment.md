@@ -228,9 +228,10 @@ Copy `helm-prereqs/values/machine-a-tron.yaml` and fill in the site-specific val
 | Field | Description |
 |-------|-------------|
 | `image.tag` | Tag produced by [building the container image](#building-the-container-image) (e.g. `8c35783af-amd64`) |
-| `machines.dell-hosts.oobDhcpRelayAddress` | Gateway of the OOB/underlay network from nico-core site config |
-| `machines.dell-hosts.adminDhcpRelayAddress` | Gateway of the admin network from nico-core site config |
-| `machines.dell-hosts.hostCount` | Must not exceed available OOB DHCP addresses (`hostCount + hostCount×dpuPerHostCount`) |
+| `pods.default.machines.dell-hosts.bmcDhcpRelayAddress` | Gateway used by BMC DHCP requests |
+| `pods.default.machines.dell-hosts.underlayDhcpRelayAddress` | Underlay gateway used by DPU OS DHCP requests |
+| `pods.default.machines.dell-hosts.hostInbandDhcpRelayAddress` | Host Inband gateway used for direct host DHCP; required when `dpuPerHostCount` is `0` or `dpusInNicMode` is `true`, and optional otherwise |
+| `pods.default.machines.dell-hosts.hostCount` | Must fit the BMC and DPU Underlay DHCP pools, plus the Host Inband pool when direct-host DHCP is enabled |
 
 ### SPIFFE URI override
 
@@ -329,7 +330,7 @@ with ClusterIP = BMC IP assigned by NICo DHCP. NICo dials each BMC IP directly
 Everything single-pod mode needs still applies (namespaces, CA copy, Vault
 seeds, SPIFFE URI). Multi-pod with controller adds the following requirements:
 
-1. **`oobDhcpRelayAddress` must be within Kubernetes ServiceCIDR.** All pods
+1. **`bmcDhcpRelayAddress` must be within Kubernetes ServiceCIDR.** All pods
    can share the same relay address — NICo assigns unique IPs from the network.
    Default ServiceCIDR ranges:
    - `10.96.0.0/12` - vanilla Kubernetes (kubeadm)
@@ -375,16 +376,16 @@ seeds, SPIFFE URI). Multi-pod with controller adds the following requirements:
             hwType: wiwynn_gb200_nvl
             hostCount: 100
             dpuPerHostCount: 2
-            oobDhcpRelayAddress: "10.96.64.1"  # All pods share same relay
-            adminDhcpRelayAddress: "192.168.176.1"
+            bmcDhcpRelayAddress: "10.96.64.1"  # All pods share same relay
+            underlayDhcpRelayAddress: "192.168.176.1"
       mat-1:
         machines:
           compute:
             hwType: wiwynn_gb200_nvl
             hostCount: 100
             dpuPerHostCount: 2
-            oobDhcpRelayAddress: "10.96.64.1"  # NICo assigns unique IPs
-            adminDhcpRelayAddress: "192.168.176.1"
+            bmcDhcpRelayAddress: "10.96.64.1"  # NICo assigns unique IPs
+            underlayDhcpRelayAddress: "192.168.176.1"
 
     macAddressPool:
       enabled: true
@@ -425,14 +426,21 @@ kubectl logs -n nico-system deployment/nico-api | grep "Request denied.*machine-
 
 ## DHCP Address Space
 
-machine-a-tron allocates one OOB IP per BMC interface (1 per host + 1 per DPU). With
-5 hosts and 2 DPUs each that is **15 IPs** (`5 + 5×2`). Ensure the OOB DHCP prefix in
-nico-core is large enough. Note the usable count is smaller than the raw CIDR: a
-`/28` (16 addresses) yields only ~10–13 usable after subtracting network,
-broadcast, gateway, and any reserved addresses — on dev6 a `/28` yielded 10, so
-`hostCount: 3 × 2 DPUs = 9` fit but `5 × 2 = 15` did not. Use at least a `/27`
-for the default counts, or reduce `hostCount` / `dpuPerHostCount`. Symptom of
-overflow: `No IP addresses left in prefix ...` and machines stuck in `BmcInit`.
+For a machine group with `H = hostCount` hosts and `D = dpuPerHostCount` DPUs per
+host, machine-a-tron needs:
+
+- `H×(1+D)` addresses from the BMC pool: one per host and DPU
+- `H×D` addresses from the DPU Underlay pool: one DPU OS address per DPU
+- `H` addresses from the Host Inband pool when `D` is `0` or `dpusInNicMode` is
+  `true`; otherwise none
+
+For 5 hosts with 2 DPUs each, the BMC pool needs **15 addresses** (`5 + 5×2`)
+and the DPU Underlay pool needs **10 addresses** (`5×2`). NIC mode additionally
+needs **5 Host Inband addresses**. When multiple relay addresses select the same
+network segment, add their demands. The usable count is smaller than the raw
+CIDR after subtracting the network, broadcast, gateway, and reserved addresses.
+An exhausted pool produces `No IP addresses left in prefix ...` and leaves
+machines stuck during discovery.
 
 If the prefix is exhausted from previous runs, do one of the following:
 
@@ -466,8 +474,8 @@ The `machine_dhcp_records` view inner-joins the singleton control row `machine_i
 | `git fetch ... (exit status: 127)` | `libredfish` is a git dependency, `git` not in slim image | Add `git` to builder stage |
 | Host BMCs 401 while DPUs explore fine | Host and DPU factory passwords differ (`factory_password` vs `0penBmc`); host factory cred missing or wrong | Seed `machines/all_hosts/factory_default/bmc-metadata-items/dell` = `root`/`factory_password` (lowercase `dell`) |
 | HTTP 403 on every gRPC call | machine-a-tron cert SPIFFE URI not in nico-api's `service_base_paths` | Set `certificate.uris: ["spiffe://nico.local/nico-system/sa/machine-a-tron"]` in values |
-| Machine creation fails `No IP addresses left in prefix <admin-cidr>` | Admin pool too small: creation needs one host-PF IP per DPU | Fit `hostCount×dpuPerHostCount` ≤ usable admin-pool IPs (the script auto-fits) |
-| `No IP addresses left in prefix ...`; machines stuck in `BmcInit` | OOB DHCP pool too small for host×DPU count | Sizing: `hostCount + hostCount×dpuPerHostCount` ≤ usable pool IPs; use ≥ /27 or reduce counts |
+| Machine creation fails `No IP addresses left in prefix <admin-cidr>` | Admin pool too small for host interface allocation | Fit `hostCount` ≤ usable admin-pool IPs (the script auto-fits) |
+| `No IP addresses left in prefix ...`; machines stuck during DHCP discovery | BMC, DPU Underlay, or Host Inband DHCP pool is too small | Size BMC as `hostCount×(1+dpuPerHostCount)`, DPU Underlay as `hostCount×dpuPerHostCount`, and Host Inband as `hostCount` for zero-DPU or NIC-mode groups; add demands when relays use one segment |
 | Redfish `connection refused` on every endpoint despite bmc_proxy set | Bare service name resolves against nico-system, not nico-mat | Use the cross-namespace FQDN in `bmc_proxy` |
 | Redfish redirect ignored; `endpoint_explorations=0` | Wrong config field (`override_target_host` is not real) | Use `bmc_proxy = "nico-machine-a-tron-bmc-mock.nico-mat.svc.cluster.local:1266"` under `[site_explorer]` |
 | `Refusing to create managed host, expected machines entry not found` | No `expected_machines` row for the discovered BMC MAC | Set `machineATron.registerExpectedMachines: true` (default) so machine-a-tron auto-registers them |

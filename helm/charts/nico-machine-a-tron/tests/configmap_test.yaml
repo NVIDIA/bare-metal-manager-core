@@ -40,6 +40,7 @@ tests:
               hwType: dell_poweredge_r750
               hostCount: 20
               dpuPerHostCount: 2
+              underlayDhcpRelayAddress: 192.168.176.1
     asserts:
       - matchRegex:
           path: data["mat.toml"]
@@ -72,11 +73,15 @@ tests:
             compute:
               hwType: supermicro_gb300_nvl
               hostCount: 10
+              underlayDhcpRelayAddress: 192.168.176.1
+              hostInbandDhcpRelayAddress: 192.168.177.1
         mat-1:
           machines:
             compute:
               hwType: supermicro_gb300_nvl
               hostCount: 20
+              underlayDhcpRelayAddress: 192.168.176.1
+              hostInbandDhcpRelayAddress: 192.168.177.1
     asserts:
       - hasDocuments:
           count: 2
@@ -95,8 +100,8 @@ tests:
                 - rack-001
               dpu_reboot_delay: 20
               host_reboot_delay: 10
-              oob_dhcp_relay_address: 10.96.64.1
-              admin_dhcp_relay_address: 192.168.176.1
+              bmc_dhcp_relay_address: 10.96.64.1
+              underlay_dhcp_relay_address: 192.168.176.1
     asserts:
       - matchRegex:
           path: data["mat.toml"]
@@ -123,8 +128,8 @@ tests:
                 - rack-001
               dpu_reboot_delay: 20
               host_reboot_delay: 10
-              oob_dhcp_relay_address: 10.96.64.1
-              admin_dhcp_relay_address: 192.168.176.1
+              bmc_dhcp_relay_address: 10.96.64.1
+              underlay_dhcp_relay_address: 192.168.176.1
     asserts:
       - matchRegex:
           path: data["mat.toml"]
@@ -132,6 +137,23 @@ tests:
       - matchRegex:
           path: data["mat.toml"]
           pattern: '\[machines\.rack-machines\]'
+
+  - it: should require a BMC relay for every rack
+    set:
+      pods:
+        mat-0:
+          machines:
+            rack-machines: null
+          racks:
+            gb200:
+              type: wiwynn_gb200_nvl72
+              rack_profile_id: NVL72
+              ids:
+                - rack-001
+              underlay_dhcp_relay_address: 192.168.176.1
+    asserts:
+      - failedTemplate:
+          errorMessage: "pods.mat-0.racks.gb200.bmc_dhcp_relay_address is required"
 
   - it: should use machineDefaults for all machine groups
     set:
@@ -145,6 +167,8 @@ tests:
             compute:
               hwType: supermicro_gb300_nvl
               hostCount: 5
+              underlayDhcpRelayAddress: 192.168.176.1
+              hostInbandDhcpRelayAddress: 192.168.177.1
     asserts:
       - matchRegex:
           path: data["mat.toml"]
@@ -155,6 +179,84 @@ tests:
       - matchRegex:
           path: data["mat.toml"]
           pattern: 'discovery_retry_interval = "7s"'
+
+  - it: should require an Underlay relay for every machine group
+    set:
+      pods:
+        mat-0:
+          machines:
+            rack-machines: null
+            compute:
+              hwType: supermicro_gb300_nvl
+              hostCount: 1
+    asserts:
+      - failedTemplate:
+          errorMessage: "pods.mat-0.machines.compute.underlayDhcpRelayAddress is required"
+
+  - it: should render a HostInband relay for a zero-DPU machine group
+    set:
+      pods:
+        mat-0:
+          machines:
+            rack-machines: null
+            compute:
+              hwType: supermicro_gb300_nvl
+              hostCount: 1
+              underlayDhcpRelayAddress: 192.168.176.1
+              hostInbandDhcpRelayAddress: 192.168.177.1
+    asserts:
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: 'host_inband_dhcp_relay_address = "192.168.177.1"'
+
+  - it: should require a HostInband relay for a zero-DPU machine group
+    set:
+      pods:
+        mat-0:
+          machines:
+            rack-machines: null
+            compute:
+              hwType: supermicro_gb300_nvl
+              hostCount: 1
+              underlayDhcpRelayAddress: 192.168.176.1
+    asserts:
+      - failedTemplate:
+          errorMessage: "pods.mat-0.machines.compute.hostInbandDhcpRelayAddress is required when dpuPerHostCount is 0 or dpusInNicMode is true"
+
+  - it: should require a HostInband relay for a NIC-mode machine group
+    set:
+      pods:
+        mat-0:
+          machines:
+            rack-machines: null
+            compute:
+              hwType: supermicro_gb300_nvl
+              hostCount: 1
+              dpuPerHostCount: 2
+              dpusInNicMode: true
+              underlayDhcpRelayAddress: 192.168.176.1
+    asserts:
+      - failedTemplate:
+          errorMessage: "pods.mat-0.machines.compute.hostInbandDhcpRelayAddress is required when dpuPerHostCount is 0 or dpusInNicMode is true"
+
+  - it: should preserve a false machine-group dpusInNicMode override
+    set:
+      machineDefaults:
+        dpusInNicMode: true
+      pods:
+        mat-0:
+          machines:
+            rack-machines: null
+            compute:
+              hwType: supermicro_gb300_nvl
+              hostCount: 1
+              dpuPerHostCount: 2
+              dpusInNicMode: false
+              underlayDhcpRelayAddress: 192.168.176.1
+    asserts:
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: 'dpus_in_nic_mode = false'
 
   - it: should not include enable_ipmi_simulation by default
     asserts:

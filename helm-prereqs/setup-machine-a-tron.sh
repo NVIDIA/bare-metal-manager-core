@@ -115,9 +115,10 @@
 #   BMC_PASSWORD           Site BMC root password (rotation target). MUST
 #                          differ from the mock factory defaults.
 #                          Default: NicoSiteRoot1
-#   OOB_DHCP_RELAY         OOB/underlay gateway (BMC DHCP relay). Auto-detected
-#                          from nico-core site config if unset.
-#   ADMIN_DHCP_RELAY       Admin network gateway. Auto-detected if unset.
+#   BMC_DHCP_RELAY         BMC DHCP relay address. Auto-detected from nico-core
+#                          site config if unset.
+#   UNDERLAY_DHCP_RELAY    Shared Underlay DHCP relay for DPU OOB boot and switch
+#                          NVOS discovery. Defaults to the BMC relay.
 #   HOST_COUNT             Override machines.dell-hosts.hostCount.
 #   DPU_PER_HOST           Override machines.dell-hosts.dpuPerHostCount.
 #   CHART_DIR              Path to the nico-machine-a-tron chart.
@@ -198,7 +199,7 @@ NICO_DB="nico_system_nico"
 #   NICo network covering the BMC IP range. See the chart README "Controller Mode".
 MAT_MODE="${MAT_MODE:-override}"
 # Network for scale mode — must be within Kubernetes ServiceCIDR and match the
-# scale values file (oobDhcpRelayAddress).
+# scale values file (bmcDhcpRelayAddress).
 SCALE_OOB_PREFIX="${SCALE_OOB_PREFIX:-10.96.64.0/18}";  SCALE_OOB_GW="${SCALE_OOB_GW:-10.96.64.1}"
 SCALE_ADMIN_PREFIX="${SCALE_ADMIN_PREFIX:-192.168.176.0/20}"; SCALE_ADMIN_GW="${SCALE_ADMIN_GW:-192.168.176.1}"
 SCALE_RESERVE=1
@@ -1007,8 +1008,9 @@ phase "Phase 6 — DHCP relays + pool sizing (${MAT_MODE})"
 if [[ "$MAT_MODE" == "scale" ]]; then
     # scale mode uses the SIMULATED networks added in Phase 5 — constants,
     # no live-config parsing needed.
-    OOB_PREFIX="$SCALE_OOB_PREFIX";   OOB_DHCP_RELAY="${OOB_DHCP_RELAY:-$SCALE_OOB_GW}"
-    ADMIN_PREFIX="$SCALE_ADMIN_PREFIX"; ADMIN_DHCP_RELAY="${ADMIN_DHCP_RELAY:-$SCALE_ADMIN_GW}"
+    OOB_PREFIX="$SCALE_OOB_PREFIX"; BMC_DHCP_RELAY="${BMC_DHCP_RELAY:-$SCALE_OOB_GW}"
+    UNDERLAY_DHCP_RELAY="${UNDERLAY_DHCP_RELAY:-$BMC_DHCP_RELAY}"
+    ADMIN_PREFIX="$SCALE_ADMIN_PREFIX"
     OOB_RESERVE="$SCALE_RESERVE"; ADMIN_RESERVE="$SCALE_RESERVE"
 else
     SITE_CFG="$(kubectl get cm nico-api-site-config-files -n "$NICO_SYSTEM_NS" \
@@ -1027,29 +1029,31 @@ else
     # admin segment is the FIRST prefix/gateway pair, OOB/underlay the LAST.
     ADMIN_PREFIX="$(printf '%s\n' "$PFX_LIST" | head -1)"
     OOB_PREFIX="$(printf '%s\n' "$PFX_LIST" | tail -1)"
-    OOB_DHCP_RELAY="${OOB_DHCP_RELAY:-$(printf '%s\n' "$GW_LIST" | tail -1)}"
-    ADMIN_DHCP_RELAY="${ADMIN_DHCP_RELAY:-$(printf '%s\n' "$GW_LIST" | head -1)}"
+    BMC_DHCP_RELAY="${BMC_DHCP_RELAY:-$(printf '%s\n' "$GW_LIST" | tail -1)}"
+    UNDERLAY_DHCP_RELAY="${UNDERLAY_DHCP_RELAY:-$BMC_DHCP_RELAY}"
     # Usable IPs per pool = 2^(32-mask) − reserve_first − 1 (broadcast).
     # reserve_first covers the network address, gateway, and operator-reserved
     # leading addresses — verified live: /28 with reserve_first=5 → 10 usable.
     ADMIN_RESERVE="$(printf '%s\n' "$RSV_LIST" | head -1)"; ADMIN_RESERVE="${ADMIN_RESERVE:-5}"
     OOB_RESERVE="$(printf '%s\n' "$RSV_LIST" | tail -1)"; OOB_RESERVE="${OOB_RESERVE:-5}"
 fi
-[[ -n "$OOB_DHCP_RELAY" && -n "$ADMIN_DHCP_RELAY" ]] \
-    || die "could not resolve DHCP relays; set OOB_DHCP_RELAY and ADMIN_DHCP_RELAY"
-ok "OOB:   relay ${OOB_DHCP_RELAY}   prefix ${OOB_PREFIX:-unknown}"
-ok "admin: relay ${ADMIN_DHCP_RELAY}   prefix ${ADMIN_PREFIX:-unknown}"
+[[ -n "$BMC_DHCP_RELAY" && -n "$UNDERLAY_DHCP_RELAY" ]] \
+    || die "could not resolve DHCP relays; set BMC_DHCP_RELAY and UNDERLAY_DHCP_RELAY"
+[[ "$UNDERLAY_DHCP_RELAY" == "$BMC_DHCP_RELAY" ]] \
+    || die "setup-machine-a-tron.sh only supports a shared BMC/DPU Underlay relay"
+ok "BMC: relay ${BMC_DHCP_RELAY}   prefix ${OOB_PREFIX:-unknown}"
+ok "DPU Underlay: relay ${UNDERLAY_DHCP_RELAY}"
+ok "admin pool: ${ADMIN_PREFIX:-unknown}"
 _usable() { local m="${1##*/}" r="$2"; local u=$(( (1 << (32 - m)) - r - 1 )); (( u < 0 )) && u=0; echo "$u"; }
 # Demand per pool (measured live):
-#   OOB   = hostCount*(1 + dpuPerHost)   — one BMC IP per host and per DPU
-#   admin = hostCount*(dpuPerHost + 1)   — one host-PF IP per DPU at DHCP time,
-#           PLUS one admin IP per host allocated by machine creation (creation
-#           fails with "No IP addresses left in prefix <admin>" without it)
+#   OOB/Underlay = hostCount*(1 + 2*dpuPerHost) — one host BMC IP plus a BMC
+#                  and DPU OS IP for every DPU
+#   admin         = hostCount — one host IP allocated by machine creation
 if [[ "${OOB_PREFIX:-}" == */* && "${ADMIN_PREFIX:-}" == */* ]]; then
     OOB_USABLE="$(_usable "$OOB_PREFIX" "$OOB_RESERVE")"; ADMIN_USABLE="$(_usable "$ADMIN_PREFIX" "$ADMIN_RESERVE")"
     # max hosts each pool supports, then take the min
-    FIT_OOB=$(( OOB_USABLE / (1 + DPU_PER_HOST) ))
-    FIT_ADMIN=$(( ADMIN_USABLE / (DPU_PER_HOST + 1) ))
+    FIT_OOB=$(( OOB_USABLE / (1 + 2 * DPU_PER_HOST) ))
+    FIT_ADMIN=$ADMIN_USABLE
     FIT=$(( FIT_OOB < FIT_ADMIN ? FIT_OOB : FIT_ADMIN ))
     info "pool fit: OOB ${OOB_PREFIX} ≈${OOB_USABLE} usable → ≤${FIT_OOB} hosts; admin ${ADMIN_PREFIX} ≈${ADMIN_USABLE} usable → ≤${FIT_ADMIN} hosts"
     if [[ "${MAT_MULTIPOD:-0}" == "1" ]]; then
@@ -1066,7 +1070,7 @@ values_file, default_prefix, default_reserve = sys.argv[1], sys.argv[2], sys.arg
 text = open(values_file).read()
 
 def groups_from_yaml(doc):
-    """Structural walk of a parsed values doc -> [{hosts,dpus,relay}]."""
+    """Structural walk of a parsed values doc into machine-group DHCP demand inputs."""
     out = []
     for pod in (doc.get("pods") or {}).values():
         if not isinstance(pod, dict):
@@ -1080,7 +1084,8 @@ def groups_from_yaml(doc):
             out.append({
                 "hosts": hosts,
                 "dpus": int(grp.get("dpuPerHostCount") or 0),
-                "relay": str(grp.get("oobDhcpRelayAddress") or "").strip(),
+                "bmc_relay": str(grp.get("bmcDhcpRelayAddress") or "").strip(),
+                "underlay_relay": str(grp.get("underlayDhcpRelayAddress") or "").strip(),
             })
     return out
 
@@ -1098,7 +1103,8 @@ except Exception as e:                      # malformed values file
 
 # Dependency-free scan: walk the values file line by line and close off a
 # machine group whenever a line appears at or above the group's indentation.
-# Each group contributes hostCount*(1+dpuPerHostCount) BMC IPs to its relay.
+# Each group contributes BMC IPs to its BMC relay and DPU OS IPs to its
+# Underlay relay. If both relays are the same, their demand is additive.
 groups, cur, cur_indent = [], None, None
 for raw in text.splitlines():
     if not raw.strip() or raw.lstrip().startswith("#"):
@@ -1114,12 +1120,19 @@ for raw in text.splitlines():
         groups.append(cur); cur, cur_indent = None, None
     if key == "hostCount":
         if cur is None:
-            cur, cur_indent = {"hosts": 0, "dpus": 0, "relay": ""}, indent
+            cur, cur_indent = {
+                "hosts": 0,
+                "dpus": 0,
+                "bmc_relay": "",
+                "underlay_relay": "",
+            }, indent
         cur["hosts"] = int(re.sub(r"\D", "", val) or 0)
     elif key == "dpuPerHostCount" and cur is not None:
         cur["dpus"] = int(re.sub(r"\D", "", val) or 0)
-    elif key == "oobDhcpRelayAddress" and cur is not None:
-        cur["relay"] = val.strip('"\'')
+    elif key == "bmcDhcpRelayAddress" and cur is not None:
+        cur["bmc_relay"] = val.strip('"\'')
+    elif key == "underlayDhcpRelayAddress" and cur is not None:
+        cur["underlay_relay"] = val.strip('"\'')
 if cur is not None:
     groups.append(cur)
 
@@ -1132,8 +1145,10 @@ if not groups:
 
 demand = {}
 for g in groups:
-    relay = g["relay"] or "<default>"
-    demand[relay] = demand.get(relay, 0) + g["hosts"] * (1 + g["dpus"])
+    bmc_relay = g["bmc_relay"] or "<default>"
+    underlay_relay = g["underlay_relay"] or bmc_relay
+    demand[bmc_relay] = demand.get(bmc_relay, 0) + g["hosts"] * (1 + g["dpus"])
+    demand[underlay_relay] = demand.get(underlay_relay, 0) + g["hosts"] * g["dpus"]
 
 def usable(cidr, reserve):
     net = ipaddress.ip_network(cidr, strict=False)
@@ -1272,8 +1287,8 @@ pods:
       dell-hosts:
         hostCount: ${HOST_COUNT}
         dpuPerHostCount: ${DPU_PER_HOST}
-        oobDhcpRelayAddress: "${OOB_DHCP_RELAY}"
-        adminDhcpRelayAddress: "${ADMIN_DHCP_RELAY}"
+        bmcDhcpRelayAddress: "${BMC_DHCP_RELAY}"
+        underlayDhcpRelayAddress: "${UNDERLAY_DHCP_RELAY}"
 EOF
 fi
 if [[ "$MAT_MODE" == "scale" ]]; then
@@ -1291,7 +1306,7 @@ machineATron:
   dpuBmcPassword: "${BMC_PASSWORD}"
 EOF
 fi
-info "values: image=${MAT_IMAGE_REPO}:${MAT_IMAGE_TAG} hosts=${HOST_COUNT} dpus=${DPU_PER_HOST} oob=${OOB_DHCP_RELAY} admin=${ADMIN_DHCP_RELAY}"
+info "values: image=${MAT_IMAGE_REPO}:${MAT_IMAGE_TAG} hosts=${HOST_COUNT} dpus=${DPU_PER_HOST} bmc=${BMC_DHCP_RELAY} underlay=${UNDERLAY_DHCP_RELAY}"
 confirm "Deploy ${RELEASE} to ${MAT_NAMESPACE}?" || die "aborted before deploy"
 # --qps/--burst-limit: scale mode creates one Service per BMC (hundreds to
 # thousands); helm's default burst (100 concurrent API calls) overwhelms

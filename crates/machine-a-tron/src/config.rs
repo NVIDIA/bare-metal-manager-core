@@ -44,6 +44,7 @@ use crate::api_client::ApiClient;
 use crate::api_throttler::ApiThrottler;
 use crate::machine_state_machine::OsImage;
 use crate::rack::{RackMemberRegistration, RackRegistration};
+use crate::status::DeviceKind;
 
 #[derive(Parser, Debug, Serialize, Deserialize)]
 #[clap(name = "machine-sim")]
@@ -101,10 +102,13 @@ pub struct MachineConfig {
         serialize_with = "as_std_duration"
     )]
     pub discovery_retry_interval: Duration,
-    pub oob_dhcp_relay_address: Ipv4Addr,
-    pub admin_dhcp_relay_address: Ipv4Addr,
+    /// Relay address for BMC DHCP traffic.
+    pub bmc_dhcp_relay_address: Ipv4Addr,
+    /// Underlay relay address for DPU OOB boot and switch NVOS DHCP traffic.
+    pub underlay_dhcp_relay_address: Ipv4Addr,
     /// Relay address used when a host DHCPs directly through a plain NIC rather than a managed DPU.
-    /// If omitted, direct host DHCP falls back to `admin_dhcp_relay_address` for compatibility.
+    /// Required for zero-DPU and NIC-mode compute hosts; ignored for managed-DPU hosts and
+    /// non-machine devices.
     #[serde(default)]
     pub host_inband_dhcp_relay_address: Option<Ipv4Addr>,
 
@@ -155,9 +159,15 @@ pub struct MachineConfig {
 }
 
 impl MachineConfig {
-    pub(crate) fn missing_host_inband_relay_for_direct_host_dhcp(&self) -> bool {
-        self.host_inband_dhcp_relay_address.is_none()
-            && (self.dpu_per_host_count == 0 || self.dpus_in_nic_mode)
+    fn validate(&self, machine_group: &str) -> eyre::Result<()> {
+        let requires_host_inband_relay = DeviceKind::from(self.hw_type) == DeviceKind::Machine
+            && (self.dpu_per_host_count == 0 || self.dpus_in_nic_mode);
+        eyre::ensure!(
+            self.host_inband_dhcp_relay_address.is_some() || !requires_host_inband_relay,
+            "machines.{machine_group}.host_inband_dhcp_relay_address is required when dpu_per_host_count is zero or dpus_in_nic_mode is true"
+        );
+
+        Ok(())
     }
 }
 
@@ -177,8 +187,11 @@ pub struct WiwynnGb200RackConfig {
         serialize_with = "as_std_duration"
     )]
     pub discovery_retry_interval: Duration,
-    pub oob_dhcp_relay_address: Ipv4Addr,
-    pub admin_dhcp_relay_address: Ipv4Addr,
+    /// Relay address for BMC DHCP traffic.
+    pub bmc_dhcp_relay_address: Ipv4Addr,
+    /// Underlay relay address for DPU OOB boot and switch NVOS DHCP traffic.
+    pub underlay_dhcp_relay_address: Ipv4Addr,
+    /// Relay address used when a host DHCPs directly through a plain NIC.
     #[serde(default)]
     pub host_inband_dhcp_relay_address: Option<Ipv4Addr>,
     #[serde(
@@ -229,8 +242,8 @@ impl WiwynnGb200RackConfig {
             host_reboot_delay: self.host_reboot_delay,
             scout_run_interval: self.scout_run_interval,
             discovery_retry_interval: self.discovery_retry_interval,
-            oob_dhcp_relay_address: self.oob_dhcp_relay_address,
-            admin_dhcp_relay_address: self.admin_dhcp_relay_address,
+            bmc_dhcp_relay_address: self.bmc_dhcp_relay_address,
+            underlay_dhcp_relay_address: self.underlay_dhcp_relay_address,
             host_inband_dhcp_relay_address: self.host_inband_dhcp_relay_address,
             run_interval_working: self.run_interval_working,
             run_interval_idle: self.run_interval_idle,
@@ -260,8 +273,11 @@ pub struct LenovoGb300RackConfig {
         serialize_with = "as_std_duration"
     )]
     pub discovery_retry_interval: Duration,
-    pub oob_dhcp_relay_address: Ipv4Addr,
-    pub admin_dhcp_relay_address: Ipv4Addr,
+    /// Relay address for BMC DHCP traffic.
+    pub bmc_dhcp_relay_address: Ipv4Addr,
+    /// Underlay relay address for DPU OOB boot and switch NVOS DHCP traffic.
+    pub underlay_dhcp_relay_address: Ipv4Addr,
+    /// Relay address used when a host DHCPs directly through a plain NIC.
     #[serde(default)]
     pub host_inband_dhcp_relay_address: Option<Ipv4Addr>,
     #[serde(
@@ -312,8 +328,8 @@ impl LenovoGb300RackConfig {
             host_reboot_delay: self.host_reboot_delay,
             scout_run_interval: self.scout_run_interval,
             discovery_retry_interval: self.discovery_retry_interval,
-            oob_dhcp_relay_address: self.oob_dhcp_relay_address,
-            admin_dhcp_relay_address: self.admin_dhcp_relay_address,
+            bmc_dhcp_relay_address: self.bmc_dhcp_relay_address,
+            underlay_dhcp_relay_address: self.underlay_dhcp_relay_address,
             host_inband_dhcp_relay_address: self.host_inband_dhcp_relay_address,
             run_interval_working: self.run_interval_working,
             run_interval_idle: self.run_interval_idle,
@@ -559,6 +575,10 @@ pub struct MachineATronConfig {
 
 impl MachineATronConfig {
     pub fn validate(&self) -> eyre::Result<()> {
+        self.resolved_device_configs().map(|_| ())
+    }
+
+    fn validate_unresolved(&self) -> eyre::Result<()> {
         if let Some(ufm_mock) = self.ufm_mock.as_ref() {
             ufm_mock.validate()?;
         }
@@ -623,6 +643,7 @@ impl MachineATronConfig {
         }
 
         for (machine_group, machine) in &self.machines {
+            machine.validate(machine_group)?;
             if let Some(rack_id) = machine.rack_id.as_ref() {
                 eyre::ensure!(
                     !simulated_rack_ids.contains(rack_id),
@@ -635,7 +656,7 @@ impl MachineATronConfig {
     }
 
     pub(crate) fn resolved_device_configs(&self) -> eyre::Result<ResolvedDeviceConfigs> {
-        self.validate()?;
+        self.validate_unresolved()?;
 
         let mut machines = self.machines.clone();
         let mut racks = Vec::new();
@@ -663,17 +684,16 @@ impl MachineATronConfig {
                     .fixed_number_of_dpu()
                     .expect("rack hardware must have a fixed number of DPUs")
                     .into();
+                let machine_config = rack.model.component_machine_config(
+                    rack_id.clone(),
+                    placement,
+                    unit.hardware_type,
+                    dpu_per_host_count,
+                );
+                machine_config.validate(&machine_config_section)?;
                 eyre::ensure!(
                     machines
-                        .insert(
-                            machine_config_section.clone(),
-                            Arc::new(rack.model.component_machine_config(
-                                rack_id.clone(),
-                                placement,
-                                unit.hardware_type,
-                                dpu_per_host_count,
-                            )),
-                        )
+                        .insert(machine_config_section.clone(), Arc::new(machine_config))
                         .is_none(),
                     "rack {rack_id} generated duplicate device identity {machine_config_section}"
                 );
@@ -1014,9 +1034,9 @@ dpu_per_host_count = 2
 dpu_reboot_delay = 1 # in units of seconds
 host_reboot_delay = 1 # in units of seconds
 vpc_count = 0
-admin_dhcp_relay_address = "192.168.176.1"
+underlay_dhcp_relay_address = "192.168.128.1"
 host_inband_dhcp_relay_address = "192.168.177.1"
-oob_dhcp_relay_address = "192.168.192.1"
+bmc_dhcp_relay_address = "192.168.192.1"
 subnets_per_vpc = 0
 run_interval_working = "100ms"
 run_interval_idle = "1s"
@@ -1033,8 +1053,8 @@ scout_run_interval = "5s"
             host_reboot_delay: machine.host_reboot_delay,
             scout_run_interval: machine.scout_run_interval,
             discovery_retry_interval: machine.discovery_retry_interval,
-            oob_dhcp_relay_address: machine.oob_dhcp_relay_address,
-            admin_dhcp_relay_address: machine.admin_dhcp_relay_address,
+            bmc_dhcp_relay_address: machine.bmc_dhcp_relay_address,
+            underlay_dhcp_relay_address: machine.underlay_dhcp_relay_address,
             host_inband_dhcp_relay_address: machine.host_inband_dhcp_relay_address,
             run_interval_working: machine.run_interval_working,
             run_interval_idle: machine.run_interval_idle,
@@ -1052,8 +1072,8 @@ scout_run_interval = "5s"
             host_reboot_delay: machine.host_reboot_delay,
             scout_run_interval: machine.scout_run_interval,
             discovery_retry_interval: machine.discovery_retry_interval,
-            oob_dhcp_relay_address: machine.oob_dhcp_relay_address,
-            admin_dhcp_relay_address: machine.admin_dhcp_relay_address,
+            bmc_dhcp_relay_address: machine.bmc_dhcp_relay_address,
+            underlay_dhcp_relay_address: machine.underlay_dhcp_relay_address,
             host_inband_dhcp_relay_address: machine.host_inband_dhcp_relay_address,
             run_interval_working: machine.run_interval_working,
             run_interval_idle: machine.run_interval_idle,
@@ -1524,7 +1544,7 @@ server_address = "127.0.0.1:6767""#,
     }
 
     #[test]
-    fn host_inband_dhcp_relay_is_optional() {
+    fn host_inband_dhcp_relay_may_be_omitted() {
         let mut serialized =
             toml::Value::try_from(rack_config()).expect("Could not serialize config");
         serialized["machines"]["config"]
@@ -1534,8 +1554,152 @@ server_address = "127.0.0.1:6767""#,
 
         let cfg: MachineATronConfig = serialized
             .try_into()
-            .expect("legacy config without host_inband_dhcp_relay_address should deserialize");
+            .expect("config without host_inband_dhcp_relay_address should deserialize");
         assert_eq!(cfg.machines["config"].host_inband_dhcp_relay_address, None);
+    }
+
+    #[test]
+    fn host_inband_dhcp_relay_requirement_is_validated() {
+        let host_inband = Ipv4Addr::new(192, 168, 177, 1);
+        let compute = HardwareType::DellPowerEdgeR750;
+
+        check_cases(
+            [
+                Case {
+                    scenario: "managed-DPU host without HostInband relay",
+                    input: (compute, 2, false, None),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "managed-DPU host with HostInband relay",
+                    input: (compute, 2, false, Some(host_inband)),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "zero-DPU host without HostInband relay",
+                    input: (compute, 0, false, None),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "zero-DPU host with HostInband relay",
+                    input: (compute, 0, false, Some(host_inband)),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "NIC-mode host without HostInband relay",
+                    input: (compute, 2, true, None),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "NIC-mode host with HostInband relay",
+                    input: (compute, 2, true, Some(host_inband)),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "zero-DPU NIC-mode host without HostInband relay",
+                    input: (compute, 0, true, None),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "zero-DPU NIC-mode host with HostInband relay",
+                    input: (compute, 0, true, Some(host_inband)),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "switch without HostInband relay",
+                    input: (HardwareType::NvidiaSwitchNd5200Ld, 0, false, None),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "power shelf without HostInband relay",
+                    input: (HardwareType::LiteOnPowerShelf, 0, false, None),
+                    expect: Yields(()),
+                },
+            ],
+            |(hw_type, dpu_per_host_count, dpus_in_nic_mode, host_inband_dhcp_relay_address)| {
+                let mut config = rack_config();
+                let machine = Arc::make_mut(config.machines.get_mut("config").unwrap());
+                machine.hw_type = hw_type;
+                machine.dpu_per_host_count = dpu_per_host_count;
+                machine.dpus_in_nic_mode = dpus_in_nic_mode;
+                machine.host_inband_dhcp_relay_address = host_inband_dhcp_relay_address;
+                config.validate().map_err(drop)
+            },
+        );
+    }
+
+    #[test]
+    fn rack_derived_host_inband_dhcp_relay_requirement_is_validated() {
+        let mut gb200 = gb200_rack_config();
+        let RackModelConfig::WiwynnGb200Nvl72 { simulation } =
+            &mut gb200.racks.get_mut("default").unwrap().model
+        else {
+            unreachable!("GB200 fixture must use the WIWYNN rack model")
+        };
+        simulation.host_inband_dhcp_relay_address = None;
+        let mut gb200_nic_mode = gb200.clone();
+        let RackModelConfig::WiwynnGb200Nvl72 { simulation } =
+            &mut gb200_nic_mode.racks.get_mut("default").unwrap().model
+        else {
+            unreachable!("GB200 fixture must use the WIWYNN rack model")
+        };
+        simulation.dpus_in_nic_mode = true;
+
+        let mut gb300 = gb300_rack_config();
+        let RackModelConfig::LenovoGb300Nvl72 { simulation } =
+            &mut gb300.racks.get_mut("default").unwrap().model
+        else {
+            unreachable!("GB300 fixture must use the Lenovo rack model")
+        };
+        simulation.host_inband_dhcp_relay_address = None;
+
+        check_cases(
+            [
+                Case {
+                    scenario: "WIWYNN GB200 rack without HostInband relay",
+                    input: gb200,
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "WIWYNN GB200 NIC-mode rack without HostInband relay",
+                    input: gb200_nic_mode,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "Lenovo GB300 rack without HostInband relay",
+                    input: gb300,
+                    expect: Yields(()),
+                },
+            ],
+            |config| config.validate().map_err(drop),
+        );
+    }
+
+    #[test]
+    fn bmc_and_underlay_dhcp_relays_are_required() {
+        check_cases(
+            [
+                Case {
+                    scenario: "missing BMC relay",
+                    input: "bmc_dhcp_relay_address",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "missing Underlay relay",
+                    input: "underlay_dhcp_relay_address",
+                    expect: Fails,
+                },
+            ],
+            |relay_key| {
+                let mut serialized =
+                    toml::Value::try_from(rack_config()).expect("Could not serialize config");
+                serialized["machines"]["config"]
+                    .as_table_mut()
+                    .expect("machine config should be a TOML table")
+                    .remove(relay_key);
+                serialized.try_into::<MachineATronConfig>().map_err(drop)
+            },
+        );
     }
 
     #[test]
@@ -1607,44 +1771,6 @@ server_address = "127.0.0.1:6767""#,
                 },
             ],
             |config| config.validate().map_err(drop),
-        );
-    }
-
-    #[test]
-    fn missing_host_inband_relay_warning_selection() {
-        let host_inband = Ipv4Addr::new(192, 168, 177, 1);
-
-        check_values(
-            [
-                Check {
-                    scenario: "zero-DPU host without HostInband",
-                    input: (0, false, None),
-                    expect: true,
-                },
-                Check {
-                    scenario: "NIC-mode host without HostInband",
-                    input: (1, true, None),
-                    expect: true,
-                },
-                Check {
-                    scenario: "managed-DPU host without HostInband",
-                    input: (1, false, None),
-                    expect: false,
-                },
-                Check {
-                    scenario: "zero-DPU host with HostInband",
-                    input: (0, false, Some(host_inband)),
-                    expect: false,
-                },
-            ],
-            |(dpu_per_host_count, dpus_in_nic_mode, host_inband_dhcp_relay_address)| {
-                let mut config = rack_config();
-                let machine = Arc::make_mut(config.machines.get_mut("config").unwrap());
-                machine.dpu_per_host_count = dpu_per_host_count;
-                machine.dpus_in_nic_mode = dpus_in_nic_mode;
-                machine.host_inband_dhcp_relay_address = host_inband_dhcp_relay_address;
-                machine.missing_host_inband_relay_for_direct_host_dhcp()
-            },
         );
     }
 }

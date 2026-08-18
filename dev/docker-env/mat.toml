@@ -74,7 +74,7 @@ subnets_per_vpc = 2
 # carbide-api-site-config.toml. Nothing actually binds to these addresses, it is
 # only used for filling in gateway/relay fields in the DHCP request object
 # (which carbide uses to determine what network the request came from.)
-oob_dhcp_relay_address = "172.21.0.1"
-admin_dhcp_relay_address = "172.20.0.1"
+bmc_dhcp_relay_address = "172.21.0.1"
+underlay_dhcp_relay_address = "172.21.0.1"
 # Direct host DHCP for zero-DPU hosts and DPUs operating as plain NICs.
 host_inband_dhcp_relay_address = "172.22.0.1"
