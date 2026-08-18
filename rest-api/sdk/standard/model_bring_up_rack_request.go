@@ -226,7 +226,6 @@ func (o *BringUpRackRequest) UnmarshalJSON(data []byte) (err error) {
 	varBringUpRackRequest := _BringUpRackRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varBringUpRackRequest)
 
 	if err != nil {

@@ -334,6 +334,8 @@ fn parse_managed_host_loopback_ips(
 
 /// Update the NVUE network config. Returns Ok(true) if the configuration changed, and
 /// Ok(false) if not.
+// The fetcher projects `addresses` into these compatibility fields before rendering.
+#[allow(deprecated)]
 pub(super) async fn update_nvue(
     vpc_virtualization_type: VpcVirtualizationType,
     update_flavor: NvueUpdateFlavor<'_>,
@@ -478,8 +480,8 @@ pub(super) async fn update_nvue(
                 }
             };
 
-            // For dual-stack FNN, the DPU-side IPv6 address is the network address
-            // of the /127 linknet (the ::0 end). The ::1 end is the host.
+            // For FNN interfaces with IPv6, the DPU-side address is the network
+            // address of the /127 linknet (the ::0 end). The ::1 end is the host.
             ifs.push(nvue::PortConfig {
                 interface_name: name,
                 is_phy: net.function_type == rpc::InterfaceFunctionType::Physical as i32,
@@ -1106,6 +1108,8 @@ pub(super) async fn update_dhcp(
 }
 
 /// Interfaces to report back to server
+// The fetcher projects `addresses` into these compatibility fields before status reporting.
+#[allow(deprecated)]
 pub(super) async fn interfaces(
     network_config: &rpc::ManagedHostNetworkConfigResponse,
     factory_mac_address: MacAddress,
@@ -1133,7 +1137,7 @@ pub(super) async fn interfaces(
             mac_address: Some(factory_mac_address.to_string()),
             addresses,
             prefixes,
-            gateways: vec![iface.gateway.clone()],
+            gateways: build_dual_stack_list(iface.gateway.clone(), None),
             network_security_group: None,
             internal_uuid: iface.internal_uuid.clone(),
         });
@@ -1220,7 +1224,7 @@ pub(super) async fn interfaces(
                 mac_address: mac,
                 addresses,
                 prefixes,
-                gateways: vec![iface.gateway.clone()],
+                gateways: build_dual_stack_list(iface.gateway.clone(), None),
                 network_security_group,
                 internal_uuid: iface.internal_uuid.clone(),
             });
@@ -1229,11 +1233,13 @@ pub(super) async fn interfaces(
     Ok(interfaces)
 }
 
+// The fetcher projects `addresses` into the compatibility IPv4 field before health checks.
+#[allow(deprecated)]
 pub(super) fn tenant_peers(network_config: &rpc::ManagedHostNetworkConfigResponse) -> Vec<&str> {
     network_config
         .tenant_interfaces
         .iter()
-        .map(|iface| iface.ip.as_str())
+        .filter_map(|iface| (!iface.ip.is_empty()).then_some(iface.ip.as_str()))
         .collect()
 }
 
@@ -1670,6 +1676,8 @@ fn read_limited<P: AsRef<Path>>(path: P) -> io::Result<String> {
 // two-word randomly generated name.
 fn hostname() -> eyre::Result<Hostname> {
     let mut buf = vec![0u8; 64 + 1]; // Linux HOST_NAME_MAX is 64
+    // SAFETY: `buf` is live and exclusively writable for all `buf.len()` bytes. `u8` and
+    // `c_char` have the same size and alignment, and `gethostname` writes at most that length.
     let res = unsafe { libc::gethostname(buf.as_mut_ptr() as *mut libc::c_char, buf.len()) };
     if res != 0 {
         return Err(io::Error::last_os_error().into());
@@ -1832,7 +1840,6 @@ mod tests {
     use ::rpc::{common as rpc_common, forge as rpc};
     use carbide_network::virtualization::{VpcVirtualizationType, get_svi_ip};
     use carbide_rpc_utils::dhcp::{DhcpConfig, HostConfig};
-    use carbide_utils::none_if_empty::NoneIfEmpty;
     use eyre::WrapErr;
     use ipnetwork::IpNetwork;
 
@@ -2483,6 +2490,8 @@ mod tests {
         Ok(())
     }
 
+    // Builds the deprecated compatibility shape consumed by these renderer tests.
+    #[allow(deprecated)]
     fn netconf(
         virtualization_type: VpcVirtualizationType,
         interface_prefix_length: u8,
@@ -3225,7 +3234,9 @@ mod tests {
         }
     }
 
+    // Exercises the DHCP renderer's deprecated compatibility input.
     #[test]
+    #[allow(deprecated)]
     fn test_with_tenant_dhcp_server() -> Result<(), Box<dyn std::error::Error>> {
         // The config we received from API server
         // Admin won't be used
@@ -3706,36 +3717,32 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_dual_stack_addresses_building() {
-        // Verify the iterator-based pattern used to build dual-stack address/prefix vectors.
-        let ip = "10.0.0.1".to_string();
-        let ip6 = Some("2001:db8::1".to_string());
-        let interface_prefix = "10.0.0.0/31".to_string();
-        let interface_prefix_v6 = Some("2001:db8::/127".to_string());
+    #[tokio::test]
+    #[allow(deprecated)]
+    async fn ipv6_only_status_omits_empty_ipv4_compatibility_values() {
+        let network_config = rpc::ManagedHostNetworkConfigResponse {
+            tenant_interfaces: vec![rpc::FlatInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::Physical.into(),
+                vlan_id: 100,
+                ipv6_interface_config: Some(rpc::FlatInterfaceIpv6Config {
+                    ip: "2001:db8::1".to_string(),
+                    interface_prefix: "2001:db8::/127".to_string(),
+                    svi_ip: None,
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
 
-        let addresses: Vec<String> = std::iter::once(ip.clone())
-            .chain(ip6.none_if_empty())
-            .collect();
-        assert_eq!(addresses, vec!["10.0.0.1", "2001:db8::1"]);
+        assert!(tenant_peers(&network_config).is_empty());
 
-        let prefixes: Vec<String> = std::iter::once(interface_prefix)
-            .chain(interface_prefix_v6.none_if_empty())
-            .collect();
-        assert_eq!(prefixes, vec!["10.0.0.0/31", "2001:db8::/127"]);
+        let observations = interfaces(&network_config, "02:00:00:00:00:01".parse().unwrap(), None)
+            .await
+            .unwrap();
 
-        // Verify empty ip6 is not included.
-        let empty_ip6: Option<String> = Some("".to_string());
-        let addresses2: Vec<String> = std::iter::once(ip)
-            .chain(empty_ip6.none_if_empty())
-            .collect();
-        assert_eq!(addresses2, vec!["10.0.0.1"]);
-
-        // Verify None ip6 is not included.
-        let none_ip6: Option<String> = None;
-        let addresses3: Vec<String> = std::iter::once("10.0.0.1".to_string())
-            .chain(none_ip6.none_if_empty())
-            .collect();
-        assert_eq!(addresses3, vec!["10.0.0.1"]);
+        assert_eq!(observations.len(), 1);
+        assert_eq!(observations[0].addresses, vec!["2001:db8::1"]);
+        assert_eq!(observations[0].prefixes, vec!["2001:db8::/127"]);
+        assert!(observations[0].gateways.is_empty());
     }
 }

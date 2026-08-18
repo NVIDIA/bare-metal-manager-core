@@ -311,7 +311,6 @@ func (o *BatchTrayFirmwareUpdateRequest) UnmarshalJSON(data []byte) (err error) 
 	varBatchTrayFirmwareUpdateRequest := _BatchTrayFirmwareUpdateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varBatchTrayFirmwareUpdateRequest)
 
 	if err != nil {

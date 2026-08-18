@@ -212,7 +212,6 @@ mod tests {
 
     // This test helper intentionally keeps the first transaction open while it verifies that the
     // per-object advisory lock blocks a concurrent writer.
-    #[allow(txn_held_across_await)]
     async fn assert_concurrent_retention(
         pool: &PgPool,
         table_id: StateHistoryTableId,

@@ -121,6 +121,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
         dpu_extension_services: None,
         nvlink: None,
         spxconfig: None,
+        power_profile: Some("baseline".to_string()),
     };
 
     let initial_metadata = rpc::Metadata {
@@ -162,6 +163,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
     };
     let mut updated_config_1 = initial_config.clone();
     updated_config_1.os = Some(updated_os_1);
+    updated_config_1.power_profile = Some("balanced".to_string());
     updated_config_1.tenant.as_mut().unwrap().tenant_keyset_ids =
         vec!["a".to_string(), "b".to_string()];
     let updated_metadata_1 = rpc::Metadata {
@@ -267,6 +269,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
     };
     let mut updated_config_2 = initial_config.clone();
     updated_config_2.os = Some(updated_os_2);
+    updated_config_2.power_profile = None;
     updated_config_2.tenant.as_mut().unwrap().tenant_keyset_ids = vec!["c".to_string()];
     let updated_metadata_2 = rpc::Metadata {
         name: "Name12".to_string(),
@@ -323,10 +326,37 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
         .unwrap()
         .into_inner();
 
-    assert_config_equals(instance.config.as_ref().unwrap(), &updated_config_2);
+    let mut expected_config_2 = updated_config_2.clone();
+    expected_config_2.power_profile = Some("balanced".to_string());
+    assert_config_equals(instance.config.as_ref().unwrap(), &expected_config_2);
     assert_metadata_equals(instance.metadata.as_ref().unwrap(), &updated_metadata_2);
     let updated_config_version = instance.config_version.parse::<ConfigVersion>().unwrap();
     assert_eq!(updated_config_version.version_nr(), 3);
+
+    let mut clear_power_profile_config = expected_config_2.clone();
+    clear_power_profile_config.power_profile = Some(String::new());
+    let instance = env
+        .api
+        .update_instance_config(tonic::Request::new(
+            rpc::forge::InstanceConfigUpdateRequest {
+                instance_id: Some(tinstance.id),
+                if_version_match: Some(updated_config_version.version_string()),
+                config: Some(clear_power_profile_config),
+                metadata: Some(updated_metadata_2.clone()),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(instance.config.unwrap().power_profile, None);
+    assert_eq!(
+        instance
+            .config_version
+            .parse::<ConfigVersion>()
+            .unwrap()
+            .version_nr(),
+        4
+    );
 
     // Try to update a non-existing instance
     let unknown_instance = uuid::Uuid::new_v4();
@@ -582,6 +612,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         dpu_extension_services: None,
         nvlink: None,
         spxconfig: None,
+        power_profile: None,
     };
 
     let initial_metadata = rpc::Metadata {
@@ -944,6 +975,7 @@ async fn test_update_instance_config_rejects_interface_anycast_prefix_outside_vp
                     spxconfig: None,
                     network_security_group_id: None,
                     dpu_extension_services: None,
+                    power_profile: None,
                 }),
                 instance_id: instance.rpc_id(),
                 metadata: Some(rpc::forge::Metadata {
@@ -1024,6 +1056,7 @@ async fn test_update_instance_config_vpc_prefix_no_network_update(
         dpu_extension_services: None,
         nvlink: None,
         spxconfig: None,
+        power_profile: None,
     };
 
     let initial_metadata = rpc::Metadata {
@@ -1567,6 +1600,7 @@ async fn test_update_explicit_vpc_prefix_to_automatic_vpc_reuses_active_resource
         dpu_extension_services: None,
         nvlink: None,
         spxconfig: None,
+        power_profile: None,
     };
     let tinstance = mh
         .instance_builer(&env)
@@ -1670,6 +1704,7 @@ async fn test_automatic_vpc_update_and_interface_removal_cleanup(
         dpu_extension_services: None,
         nvlink: None,
         spxconfig: None,
+        power_profile: None,
     };
 
     // Allocate a PF and VF from VPC A, then capture their active generated resources.
@@ -1914,6 +1949,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
         dpu_extension_services: None,
         nvlink: None,
         spxconfig: None,
+        power_profile: None,
     };
 
     let initial_metadata = rpc::Metadata {
@@ -2129,6 +2165,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
         dpu_extension_services: None,
         nvlink: None,
         spxconfig: None,
+        power_profile: None,
     };
 
     let initial_metadata = rpc::Metadata {
@@ -2292,6 +2329,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu(
         dpu_extension_services: None,
         nvlink: None,
         spxconfig: None,
+        power_profile: None,
     };
 
     let initial_metadata = rpc::Metadata {
@@ -2493,6 +2531,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
         dpu_extension_services: None,
         nvlink: None,
         spxconfig: None,
+        power_profile: None,
     };
 
     let initial_metadata = rpc::Metadata {
@@ -2674,6 +2713,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                     dpu_extension_services: None,
                     nvlink: None,
                     spxconfig: None,
+                    power_profile: None,
                 })
                 .metadata(rpc::Metadata {
                     name: "test_instance".to_string(),
@@ -2716,6 +2756,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                     dpu_extension_services: None,
                     nvlink: None,
                     spxconfig: None,
+                    power_profile: None,
                 })
                 .metadata(rpc::Metadata {
                     name: "test_instance".to_string(),
@@ -2760,6 +2801,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                     dpu_extension_services: None,
                     nvlink: None,
                     spxconfig: None,
+                    power_profile: None,
                 })
                 .metadata(rpc::Metadata {
                     name: "test_instance".to_string(),
@@ -2899,6 +2941,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                     dpu_extension_services: None,
                     nvlink: None,
                     spxconfig: None,
+                    power_profile: None,
                 })
                 .metadata(rpc::Metadata {
                     name: "test_instance".to_string(),
@@ -2959,6 +3002,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                     dpu_extension_services: None,
                     nvlink: None,
                     spxconfig: None,
+                    power_profile: None,
                 })
                 .metadata(rpc::Metadata {
                     name: "test_instance".to_string(),
@@ -3019,6 +3063,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                     dpu_extension_services: None,
                     nvlink: None,
                     spxconfig: None,
+                    power_profile: None,
                 })
                 .metadata(rpc::Metadata {
                     name: "test_instance".to_string(),

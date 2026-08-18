@@ -148,7 +148,6 @@ func (o *TenantAccountSiteCapability) UnmarshalJSON(data []byte) (err error) {
 	varTenantAccountSiteCapability := _TenantAccountSiteCapability{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varTenantAccountSiteCapability)
 
 	if err != nil {

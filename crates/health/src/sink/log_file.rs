@@ -65,6 +65,7 @@ impl DataSink for LogFileSink {
         // collector-only diagnostic carrier into the emitted body and
         // attributes before JSONL serialization.
         let record = record.emitted_log_record(self.include_diagnostics);
+        let record = record.without_decoded_protobuf_payload();
         let json_record = JsonLogRecord::from_log_record(context, record.as_ref());
 
         let line = match serde_json::to_string(&json_record) {
@@ -376,6 +377,41 @@ mod tests {
         assert_eq!(parsed["body"], "something happened");
         assert_eq!(parsed["severity"], "INFO");
         assert_eq!(parsed["endpoint"], "aa:bb:cc:dd:ee:ff");
+    }
+
+    #[test]
+    fn test_excludes_decoded_protobuf_from_jsonl() {
+        let dir = tempfile::tempdir().expect("tempdir");
+
+        let config = LogFileSinkConfig {
+            include_diagnostics: true,
+            output_dir: dir.path().to_string_lossy().into_owned(),
+            max_file_size: 1024 * 1024,
+            max_backups: 2,
+        };
+
+        let sink = LogFileSink::new(&config).expect("sink");
+
+        let event = CollectorEvent::Log(
+            LogRecord {
+                body: "protobuf event".to_string(),
+                severity: LogSeverity::Info,
+                attributes: vec![(
+                    Cow::Borrowed(LogRecord::DECODED_PROTOBUF_PAYLOAD_ATTRIBUTE),
+                    "decoded-payload-marker".to_string(),
+                )],
+                diagnostic_record: None,
+            }
+            .into(),
+        );
+
+        sink.handle_event(&test_context(), &event);
+
+        let contents =
+            fs::read_to_string(dir.path().join("health_logs.jsonl")).expect("read JSONL output");
+
+        assert!(!contents.contains("decoded-payload-marker"));
+        assert!(!contents.contains(LogRecord::DECODED_PROTOBUF_PAYLOAD_ATTRIBUTE));
     }
 
     /// Verifies log files embed diagnostics in the parent log body when enabled.

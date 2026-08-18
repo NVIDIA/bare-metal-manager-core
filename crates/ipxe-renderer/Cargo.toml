@@ -19,3 +19,6 @@ serde_yaml = { workspace = true }
 
 [dev-dependencies]
 carbide-test-support = { path = "../test-support" }
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"

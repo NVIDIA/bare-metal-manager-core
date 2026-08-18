@@ -435,6 +435,8 @@ async fn handle_version() -> impl IntoResponse {
     common::respond(resp)
 }
 
+// This mock omits `addresses` to exercise the rolling-upgrade fallback for older Core versions.
+#[allow(deprecated)]
 async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl IntoResponse {
     {
         state
@@ -828,7 +830,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
             dpu_extension_services: None,
             nvlink: None,
             spxconfig: None,
-
+            power_profile: None,
         }),
         status: Some(rpc::InstanceStatus {
             tenant: Some(rpc::InstanceTenantStatus {

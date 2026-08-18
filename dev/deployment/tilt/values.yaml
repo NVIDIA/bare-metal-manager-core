@@ -30,6 +30,10 @@ nico-api:
       value: "1"
   webAuth:
     mode: none
+  componentManager:
+    enabled: false
+  rms:
+    enabled: false
   siteConfig:
     enabled: true
     nicoApiSiteConfig: |
@@ -173,6 +177,8 @@ nico-machine-a-tron:
   enabled: true
   machineATron:
     nicoApiUrl: https://nico-api.nico-system.svc.cluster.local:1079
+  machineDefaults:
+    discoveryRetryInterval: "5s"
   persistence:
     enabled: true
   certificate:
@@ -199,10 +205,11 @@ nico-machine-a-tron:
           adminDhcpRelayAddress: 192.168.176.1
 
 tilt:
-  profiles: # Toggle REST, MCP, and DSX Exchange; required dependencies follow automatically.
+  profiles: # Toggle optional stacks; required dependencies follow automatically.
     rest: false
     mcp: false
     dsxExchange: false
+    observability: false
 
   certManager:
     crds:
@@ -321,6 +328,272 @@ tilt:
             vault kv put secrets/machines/all_dpus/site_default/uefi-metadata-items/auth - >/dev/null
           printf '%s' '{"UsernamePassword":{"username":"root","password":"vault-password"}}' | \
             vault kv put secrets/machines/all_hosts/site_default/uefi-metadata-items/auth - >/dev/null
+
+  observability:
+    prometheus:
+      fullnameOverride: prometheus-stack
+      crds:
+        enabled: true
+      defaultRules:
+        create: false
+      alertmanager:
+        enabled: false
+      grafana:
+        enabled: false
+        forceDeployDashboards: true
+      kubeControllerManager:
+        enabled: false
+      kubeEtcd:
+        enabled: false
+      kubeScheduler:
+        enabled: false
+      prometheus:
+        prometheusSpec:
+          retention: 24h
+          scrapeInterval: 30s
+          evaluationInterval: 30s
+          serviceMonitorSelectorNilUsesHelmValues: false
+          podMonitorSelectorNilUsesHelmValues: false
+          probeSelectorNilUsesHelmValues: false
+          ruleSelectorNilUsesHelmValues: false
+          additionalScrapeConfigs:
+            - job_name: nico-services
+              kubernetes_sd_configs:
+                - role: endpoints
+              relabel_configs:
+                - action: keep
+                  source_labels:
+                    - __meta_kubernetes_service_label_app_kubernetes_io_metrics
+                  regex: .+
+                - action: keep
+                  source_labels:
+                    - __meta_kubernetes_service_name
+                    - __meta_kubernetes_endpoint_port_name
+                  separator: ";"
+                  regex: (.+-metrics;.+)|(.+;metrics)
+                - source_labels:
+                    - __meta_kubernetes_service_label_app_kubernetes_io_metrics
+                  target_label: job
+                - source_labels:
+                    - __meta_kubernetes_namespace
+                  target_label: namespace
+                - source_labels:
+                    - __meta_kubernetes_service_name
+                  target_label: service
+                - source_labels:
+                    - __meta_kubernetes_pod_name
+                  target_label: pod
+                - source_labels:
+                    - __meta_kubernetes_pod_container_name
+                  target_label: container
+                - replacement: local-carbide
+                  target_label: cluster
+          walCompression: true
+          storageSpec:
+            volumeClaimTemplate:
+              spec:
+                accessModes:
+                  - ReadWriteOnce
+                resources:
+                  requests:
+                    storage: 2Gi
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      prometheusOperator:
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+
+    loki:
+      deploymentMode: Monolithic
+      loki:
+        auth_enabled: false
+        commonConfig:
+          path_prefix: /var/loki
+          replication_factor: 1
+        schemaConfig:
+          configs:
+            - from: "2024-04-01"
+              store: tsdb
+              object_store: filesystem
+              schema: v13
+              index:
+                prefix: index_
+                period: 24h
+        storage:
+          type: filesystem
+        limits_config:
+          retention_period: 24h
+        compactor:
+          retention_enabled: true
+          delete_request_store: filesystem
+      singleBinary:
+        replicas: 1
+        podDisruptionBudget:
+          enabled: false
+        persistence:
+          enabled: true
+          size: 2Gi
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: "1"
+            memory: 1Gi
+      read:
+        replicas: 0
+      write:
+        replicas: 0
+      backend:
+        replicas: 0
+      podDisruptionBudget:
+        enabled: false
+      gateway:
+        enabled: true
+        resources:
+          requests:
+            cpu: 20m
+            memory: 32Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+      chunksCache:
+        enabled: false
+      resultsCache:
+        enabled: false
+      lokiCanary:
+        enabled: false
+      test:
+        enabled: false
+
+    alloy:
+      crds:
+        create: false
+      alloy:
+        enableReporting: false
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        configMap:
+          content: |
+            logging {
+              level  = "info"
+              format = "logfmt"
+            }
+
+            discovery.kubernetes "pods" {
+              role = "pod"
+            }
+
+            discovery.relabel "pod_logs" {
+              targets = discovery.kubernetes.pods.targets
+
+              rule {
+                source_labels = ["__meta_kubernetes_namespace"]
+                target_label  = "namespace"
+              }
+              rule {
+                source_labels = ["__meta_kubernetes_pod_name"]
+                target_label  = "pod"
+              }
+              rule {
+                source_labels = ["__meta_kubernetes_pod_container_name"]
+                target_label  = "container"
+              }
+              rule {
+                source_labels = ["__meta_kubernetes_pod_controller_name"]
+                target_label  = "workload"
+              }
+              rule {
+                source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+                target_label  = "app"
+              }
+              rule {
+                replacement  = "local-carbide"
+                target_label = "cluster"
+              }
+            }
+
+            loki.source.kubernetes "pods" {
+              targets    = discovery.relabel.pod_logs.output
+              forward_to = [loki.write.local.receiver]
+            }
+
+            loki.write "local" {
+              endpoint {
+                url = "http://loki-gateway.observability.svc.cluster.local/loki/api/v1/push"
+              }
+            }
+      controller:
+        type: deployment
+        replicas: 1
+
+    grafana:
+      testFramework:
+        enabled: false
+      persistence:
+        enabled: false
+      grafana.ini:
+        analytics:
+          check_for_updates: false
+          reporting_enabled: false
+        auth:
+          disable_login_form: true
+        auth.anonymous:
+          enabled: true
+          org_role: Admin
+      datasources:
+        datasources.yaml:
+          apiVersion: 1
+          datasources:
+            - name: Prometheus
+              uid: prometheus
+              type: prometheus
+              access: proxy
+              url: http://prometheus-stack-prometheus.observability.svc.cluster.local:9090
+              isDefault: false
+              editable: false
+              jsonData:
+                httpMethod: POST
+                timeInterval: 30s
+            - name: Loki
+              uid: loki
+              type: loki
+              access: proxy
+              url: http://loki-gateway.observability.svc.cluster.local
+              isDefault: true
+              editable: false
+      sidecar:
+        dashboards:
+          enabled: true
+          label: grafana_dashboard
+          labelValue: "1"
+          searchNamespace: observability
+          folderAnnotation: grafana_folder
+          skipReload: true
+          provider:
+            foldersFromFilesStructure: true
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
 
   temporal:
     server:
@@ -460,6 +733,7 @@ tilt:
     coreNamespace: nico-system
     restNamespace: nico-rest
     temporalNamespace: temporal
+    observabilityNamespace: observability
     vault:
       service: http://nico-vault.nico-system.svc.cluster.local:8200
       mount: secrets

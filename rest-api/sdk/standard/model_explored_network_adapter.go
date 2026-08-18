@@ -298,7 +298,6 @@ func (o *ExploredNetworkAdapter) UnmarshalJSON(data []byte) (err error) {
 	varExploredNetworkAdapter := _ExploredNetworkAdapter{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varExploredNetworkAdapter)
 
 	if err != nil {

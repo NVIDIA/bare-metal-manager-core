@@ -147,7 +147,6 @@ func (o *ManagedHostNetworkConfig) UnmarshalJSON(data []byte) (err error) {
 	varManagedHostNetworkConfig := _ManagedHostNetworkConfig{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varManagedHostNetworkConfig)
 
 	if err != nil {

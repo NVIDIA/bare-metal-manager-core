@@ -817,6 +817,8 @@ mod tests {
             DiscoveryBuilderResult::TooManyFailuresError,
             DiscoveryBuilderResult::InvalidDesiredAddress,
         ] {
+            // SAFETY: The result function returns a pointer into a
+            // process-lifetime, explicitly NUL-terminated Rust string literal.
             let reason_str = unsafe { CStr::from_ptr(discovery_builder_result_as_str(result)) }
                 .to_str()
                 .unwrap();
@@ -991,6 +993,8 @@ mod tests {
         // Before initialization the gate keeps every counter still. (Nothing
         // else in this test binary sets `CONFIG.metrics`, so this phase is
         // deterministic.)
+        // SAFETY: Every reason argument is a static, NUL-terminated C string;
+        // the total-request function has no pointer preconditions.
         unsafe {
             crate::carbide_increment_total_requests();
             crate::carbide_increment_dropped_requests(c"NonRelayedPacket".as_ptr());
@@ -1030,6 +1034,8 @@ mod tests {
         let initialized = initialize_metrics(&mconf);
         CONFIG.write().expect("config lock poisoned").metrics = Some(initialized);
 
+        // SAFETY: Every reason argument is a static, NUL-terminated C string;
+        // the total-request function has no pointer preconditions.
         unsafe {
             crate::carbide_increment_total_requests();
             crate::carbide_increment_dropped_requests(c"NonRelayedPacket".as_ptr());

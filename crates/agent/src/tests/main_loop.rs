@@ -96,6 +96,9 @@ fn comparison_security_group_rule(
 
 /// Builds an interface that exercises every nested collection normalized
 /// by the fingerprint.
+///
+/// The deprecated scalar fields remain populated because Core dual-writes them for older agents.
+#[allow(deprecated)]
 fn comparison_interface(id: &str, vlan_id: u32, vni: u32) -> rpc::FlatInterfaceConfig {
     rpc::FlatInterfaceConfig {
         function_type: rpc::InterfaceFunctionType::Physical.into(),

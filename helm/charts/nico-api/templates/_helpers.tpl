@@ -177,6 +177,12 @@ dnsNames:
   - {{ . }}
 {{- end }}
 {{- end }}
+{{- if .cert.ipAddresses }}
+ipAddresses:
+{{- range .cert.ipAddresses }}
+  - {{ . }}
+{{- end }}
+{{- end }}
 uris:
 {{- if .cert.uris }}
 {{- range .cert.uris }}

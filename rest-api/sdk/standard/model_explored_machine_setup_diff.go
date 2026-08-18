@@ -166,7 +166,6 @@ func (o *ExploredMachineSetupDiff) UnmarshalJSON(data []byte) (err error) {
 	varExploredMachineSetupDiff := _ExploredMachineSetupDiff{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varExploredMachineSetupDiff)
 
 	if err != nil {

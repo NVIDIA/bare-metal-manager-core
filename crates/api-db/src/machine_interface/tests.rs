@@ -132,7 +132,6 @@ async fn create_managed_segment(
 }
 
 #[crate::sqlx_test]
-#[allow(txn_held_across_await)] // Intentionally hold interface locks while testing another writer.
 async fn find_by_machine_id_for_update_locks_non_bmc_interfaces_in_id_order(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {

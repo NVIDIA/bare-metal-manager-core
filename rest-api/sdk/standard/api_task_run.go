@@ -385,10 +385,10 @@ Create a Task Run: a phased, policy-gated execution of one operation across
 many Racks. The configuration is validated server-side by Flow; on
 validation failure no state changes.
 
-A Task Run executes exactly one operation (currently firmware) over a
-candidate set of Racks, narrowed by an optional `selector` and divided
-into phases by an optional `options.phasePolicy`. The response echoes the
-assigned `id`; the Task Run always starts in the `Pending` state. Poll
+A Task Run executes exactly one operation over a candidate set of Racks,
+narrowed by an optional `selector` and divided into phases by an
+optional `options.phasePolicy`. The response echoes the assigned `id`;
+the Task Run always starts in the `Pending` state. Poll
 `GET /task/run/{id}` for progress.
 
 Org must have an Infrastructure Provider entity. User must have

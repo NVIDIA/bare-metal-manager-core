@@ -176,7 +176,6 @@ func (o *HostFirmwareComponentConfig) UnmarshalJSON(data []byte) (err error) {
 	varHostFirmwareComponentConfig := _HostFirmwareComponentConfig{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varHostFirmwareComponentConfig)
 
 	if err != nil {

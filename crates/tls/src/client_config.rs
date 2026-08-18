@@ -311,12 +311,16 @@ mod tests {
     }
 
     fn set_env(key: &str, value: &str) {
-        // SAFETY: these tests hold ENV_LOCK while mutating process environment.
+        // SAFETY: Initial lint enablement: callers hold the module-local `ENV_LOCK`,
+        // which serializes these writers but does not prove Unix process-wide exclusion
+        // from environment readers. This needs owner review.
         unsafe { env::set_var(key, value) }
     }
 
     fn remove_env(key: &str) {
-        // SAFETY: these tests hold ENV_LOCK while mutating process environment.
+        // SAFETY: Initial lint enablement: callers hold the module-local `ENV_LOCK`,
+        // which serializes these writers but does not prove Unix process-wide exclusion
+        // from environment readers. This needs owner review.
         unsafe { env::remove_var(key) }
     }
 

@@ -22,7 +22,7 @@ import (
 // checks if the TaskRunOperation type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &TaskRunOperation{}
 
-// TaskRunOperation The operation the Task Run executes. Firmware is the only supported operation today.
+// TaskRunOperation The operation the Task Run executes. Firmware is the only supported operation.
 type TaskRunOperation struct {
 	Firmware TaskRunFirmwareOperation `json:"firmware"`
 	// Excludes Racks materialized by prior Task Runs from this Task Run's candidate scope.
@@ -147,7 +147,6 @@ func (o *TaskRunOperation) UnmarshalJSON(data []byte) (err error) {
 	varTaskRunOperation := _TaskRunOperation{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varTaskRunOperation)
 
 	if err != nil {

@@ -1003,6 +1003,26 @@ service Forge {
   // Helm/docker versions for the carbide DPF mandatory services, from both
   // the carbide config and the live DPUServiceTemplate CRs.
   rpc GetDPFServiceVersions(GetDPFServiceVersionsRequest) returns (DPFServiceVersionsResponse);
+  // Machines DPF is waiting on before a changed DPUService can roll out.
+  //
+  // Required rather than convenient: the release RPC has no fleet-wide form, so
+  // this is the only way to discover which machines to name. Split ids-then-
+  // details because a fleet-wide rollout can leave every host waiting at once,
+  // and the worklist must not become one unbounded response.
+  rpc FindPendingDPUServiceSyncIds(FindPendingDPUServiceSyncIdsRequest) returns (common.MachineIdList);
+  rpc FindPendingDPUServiceSyncsByIds(FindPendingDPUServiceSyncsByIdsRequest) returns (ListPendingDPUServiceSyncsResponse);
+  // One machine's recorded sync history, newest first. Needs no paging: the
+  // database caps retained history per machine.
+  rpc ListDPUServiceSyncHistory(ListDPUServiceSyncHistoryRequest) returns (ListPendingDPUServiceSyncsResponse);
+  // Release the DPF maintenance hold for named machines and complete their
+  // pending DPU service sync.
+  //
+  // Bypasses the host-state requirement carbide applies to itself -- that is
+  // what strands a host which can never reach Ready, and a site that has turned
+  // the automatic rollout off. It does not bypass the DPU currency check: new
+  // services must never land on a DPU whose OS is about to be replaced, and that
+  // holds however the release was asked for.
+  rpc ReleaseDPUServiceSyncHold(ReleaseDPUServiceSyncHoldRequest) returns (ReleaseDPUServiceSyncHoldResponse);
 
   // --- Component management (unified switch + power shelf operations) ---
   rpc ComponentPowerControl(ComponentPowerControlRequest) returns (ComponentPowerControlResponse);
@@ -1746,6 +1766,10 @@ message VpcConfig {
   optional uint32 vni = 6;
   optional string routing_profile_type = 7;
   optional VpcRoutingProfileOverrides routing_profile_overrides = 8;
+  // Resource group managed by the external power provisioning service. Unset
+  // means that the VPC has no associated resource group; empty values are not
+  // persisted.
+  optional string power_resource_group = 9;
 }
 
 message VpcStatus {
@@ -1851,6 +1875,9 @@ message VpcCreationRequest {
   // Properties to overlay on the selected named routing profile. Properties
   // left unset inherit from the base profile.
   optional VpcRoutingProfileOverrides routing_profile_overrides = 18;
+  // Resource group managed by the external power provisioning service. During
+  // creation, omission or an empty value creates no association.
+  optional string power_resource_group = 19;
 }
 
 enum VpcVirtualizationType {
@@ -1905,6 +1932,10 @@ message VpcUpdateRequest {
   // previous inline definition. Omit this field to preserve the current
   // definition; send an empty message to restore inheritance for every property.
   optional VpcRoutingProfileOverrides routing_profile_overrides = 19;
+  // External power provisioning resource group update. Omit this field to
+  // preserve the current association, send an empty string to remove it, or
+  // send a non-empty value to replace it.
+  optional string power_resource_group = 20;
 }
 
 message VpcUpdateResult {
@@ -3116,6 +3147,13 @@ message InstanceConfig {
   InstanceNVLinkConfig nvlink = 24;
 
   InstanceSpxConfig spxconfig = 25;
+
+  // Power profile managed by the external power provisioning service. During
+  // creation, omission or an empty value creates no association. In an
+  // InstanceConfigUpdateRequest, omission preserves the current profile for
+  // compatibility with older clients, an empty string explicitly clears it,
+  // and a non-empty value replaces it.
+  optional string power_profile = 26;
 }
 
 // Desired network configuration for an instance
@@ -3254,9 +3292,11 @@ message InstanceConfigUpdateRequest {
   // a `ConcurrentModificationError`.
   optional string if_version_match = 2;
 
-  // Complete desired configuration replacing the current configuration. The
-  // server does not merge omitted fields. Read-modify-write clients must
-  // preserve fields and oneof variants they do not intend to change.
+  // Complete desired configuration replacing the current configuration. With
+  // the exception of power_profile (whose compatibility semantics are
+  // documented on that field), the server does not merge omitted fields.
+  // Read-modify-write clients must preserve fields and oneof variants they do
+  // not intend to change.
   InstanceConfig config = 3;
   // New Metadata to be utilized by the instance
   Metadata metadata = 4;
@@ -3539,9 +3579,6 @@ message InstanceInterfaceVpcSelection {
 }
 
 // Address families requested for automatic VPC prefix and address selection.
-//
-// Core models and persists every mode. External IPv6-only and dual-stack
-// requests are temporarily rejected until downstream DPU support is complete.
 enum InstanceInterfaceIpFamilyMode {
   // Invalid for an automatic VPC selection request.
   INSTANCE_INTERFACE_IP_FAMILY_MODE_UNSPECIFIED = 0;
@@ -3631,18 +3668,23 @@ message InstanceInterfaceStatus {
 
   // The list of IP addresses that had been assigned to this interface,
   // based on the requested subnet.
+  // IPv4 precedes IPv6 when both families are assigned.
   // The list will be empty if interface configuration hasn't been completed
   repeated string addresses = 3;
 
-  // The list of gateways, in CIDR notation, one for each address in `addresses`.
+  // The explicitly configured gateways, in CIDR notation. There is at most one
+  // gateway per address family, associated with the same-family address and
+  // prefix. A family without an explicit gateway is omitted, so this list can
+  // be shorter than `addresses` and is not positionally aligned. IPv4 precedes
+  // IPv6 when both gateways are explicitly configured.
   repeated string gateways = 4;
 
   // The list of IP prefixes that have been assigned to this interface
   // out of the requested subnet (where the prefix allocated to the interface
   // may be a /30 in the case of FNN, or just a /32 in the case of ETV).
   //
-  // This is similar to `gateways`, in that there is one `prefix` for each
-  // address in `addresses`.
+  // There is one prefix for each entry in `addresses`, in the same
+  // IPv4-before-IPv6 order.
   repeated string prefixes = 5;
 
   optional string device = 6;
@@ -4931,16 +4973,19 @@ message FlatInterfaceConfig {
   // isn't going to overflow once it gets to HBN.
   uint32 vni = 3;
 
-  // in CIDR notation
-  string gateway = 4;
-  // host admin ip for admin network, host ip for tenant
-  string ip = 5;
+  // Deprecated: use addresses.
+  // In CIDR notation.
+  string gateway = 4 [deprecated = true];
+  // Deprecated: use addresses.
+  // Host admin IP for admin network, host IP for tenant.
+  string ip = 5 [deprecated = true];
+  // Deprecated: use addresses.
   // The interface-specific prefix allocation (which may be a /32 for
   // just the host IP, or a larger allocation, like a /30, for FNN). The
   // `ip` as configured above will be contained within the `interface_prefix`
   // provided here, and the `interface_prefix` will be contained within
   // the `prefix` below (field 8).
-  string interface_prefix = 11;
+  string interface_prefix = 11 [deprecated = true];
   // If the interface is defined as a virtual function (associated
   // `function_type == InterfaceFunctionType::VIRTUAL_FUNCTION`,
   // then this value is set and specifies the virtual function ID that is configured
@@ -4950,6 +4995,7 @@ message FlatInterfaceConfig {
   // the prefix from the network segment this interface is attached to (which
   // could be independently derived from the `gateway` field).
   repeated string vpc_prefixes = 7;
+  // Deprecated: use addresses.
   // Prefix for the network segment this interface lives in,
   // which is what is referred to as a subnet in the UI. This
   // is not to be confused with the instance_prefix, which is
@@ -4961,7 +5007,7 @@ message FlatInterfaceConfig {
   // ultimately do want a DPU-specific prefix allocation to be its
   // own prefix entry in the `network_prefixes` table (or something
   // similar).
-  string prefix = 8;
+  string prefix = 8 [deprecated = true];
   // FQDN
   string fqdn = 9;
   // boot_url
@@ -4974,12 +5020,13 @@ message FlatInterfaceConfig {
   // unique per VPC.
   uint32 vpc_vni = 12;
 
+  // Deprecated: use addresses.
   // svi_ip (also known as the gateway IP), is the local DPU-hosted
   // gateway to be used by an instance in an FNN-L3 configuration (as
   // in the host actually sets this IP as its gateway). This is the 3rd
   // IP allocated from the /30, where the /30 is broken into two /31s,
   // and the SVI IP is the first IP in the second /31.
-  optional string svi_ip = 13;
+  optional string svi_ip = 13 [deprecated = true];
 
   // tenant_vrf_loopback_ip is an administrative IP assigned from
   // the FNN L3 allocated /30 DPU prefix. The tenant is not expected
@@ -4996,7 +5043,7 @@ message FlatInterfaceConfig {
   // MTU size
   optional uint32 mtu = 18;
 
-  // IPv6 configuration for dual-stack FNN interfaces.
+  // IPv6 configuration for FNN interfaces that include IPv6.
   optional FlatInterfaceIpv6Config ipv6_interface_config = 19;
 
   // Route imports and tagging details for exports used by FNN configs.
@@ -5009,8 +5056,9 @@ message FlatInterfaceConfig {
 
   // Family-neutral replacement for gateway, ip, interface_prefix, prefix, svi_ip,
   // and ipv6_interface_config. An empty list identifies a legacy payload. Writers
-  // must emit at most one entry per family, ordered V4 before V6. Readers must
-  // select entries by address_family rather than position.
+  // must emit at most one entry per family, ordered V4 before V6. A family absent
+  // from this list has empty deprecated compatibility fields. Readers must select
+  // entries by address_family rather than position.
   repeated InterfaceAddressConfig addresses = 22;
 
   // The details of the network security group associated with
@@ -5032,8 +5080,8 @@ message FlatInterfaceRoutingProfile {
   repeated PrefixFilterPolicyEntry allowed_anycast_prefixes = 1;
 }
 
-// IPv6 configuration for a dual-stack FNN interface, sent from the API to
-// the DPU agent as part of FlatInterfaceConfig.
+// IPv6 configuration for an FNN interface that includes IPv6, sent from the
+// API to the DPU agent as part of FlatInterfaceConfig.
 message FlatInterfaceIpv6Config {
   option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // Host IPv6 address (e.g. "2001:db8::1").
@@ -5774,18 +5822,23 @@ message InstanceInterfaceStatusObservation {
 
   // The list of IP addresses that had been assigned to this interface,
   // based on the requested subnet.
+  // IPv4 precedes IPv6 when both families are assigned.
   // The list will be empty if interface configuration hasn't been completed
   repeated string addresses = 4;
 
-  // The list of gateways, in CIDR notation, one for each address in `addresses`.
+  // The explicitly configured gateways, in CIDR notation. There is at most one
+  // gateway per address family, associated with the same-family address and
+  // prefix. A family without an explicit gateway is omitted, so this list can
+  // be shorter than `addresses` and is not positionally aligned. IPv4 precedes
+  // IPv6 when both gateways are explicitly configured.
   repeated string gateways = 5;
 
   // The list of IP prefixes that have been assigned to this interface
   // out of the requested subnet (where the prefix allocated to the interface
   // may be a /30 in the case of FNN, or just a /32 in the case of ETV).
   //
-  // This is similar to `gateways`, in that there is one `prefix` for each
-  // address in `addresses`.
+  // There is one prefix for each entry in `addresses`, in the same
+  // IPv4-before-IPv6 order.
   repeated string prefixes = 6;
 
   // The NSG details for the observed NSG of the interface
@@ -9394,6 +9447,100 @@ message DPFServiceVersion {
 
 message DPFServiceVersionsResponse {
   repeated DPFServiceVersion services = 1;
+}
+
+// --- DPU service sync (operator-driven maintenance hold release) ---
+
+// Either a set of host machines, or one instance whose host is resolved
+// server-side.
+//
+// There is deliberately no "all". A fleet-wide release would bypass the pacing
+// the state controller applies to the automatic path and could restart DPU
+// services under every tenant at once.
+message ReleaseDPUServiceSyncHoldRequest {
+  oneof target {
+    // Host machines to release. DPU machine ids are rejected: the hold is per
+    // node, so accepting one would silently widen the request from a single DPU
+    // to every DPU on its host. Assigned hosts are declined -- name the instance
+    // instead.
+    common.MachineIdList machine_ids = 1;
+    // Release the hosts currently holding these instances, even though they are
+    // assigned. Naming an instance is the acknowledgement that its tenant will
+    // be disrupted, and each consent covers only the instance named: if a host
+    // has since been reallocated, that release is declined.
+    InstanceIdList instance_ids = 2;
+  }
+}
+
+enum DPUServiceSyncReleaseStatus {
+  // Explicit zero value so an omitted status cannot read as a success.
+  DPU_SERVICE_SYNC_RELEASE_STATUS_UNSPECIFIED = 0;
+  // The hold was released and the pending action completed.
+  DPU_SERVICE_SYNC_RELEASE_STATUS_RELEASED = 1;
+  // Nothing was owed for this machine. Also what a repeat call returns, which is
+  // what makes this RPC idempotent.
+  DPU_SERVICE_SYNC_RELEASE_STATUS_NOT_PENDING = 2;
+  // Declined: a DPU still differs from its DPUDeployment, so its OS is about to
+  // be replaced. The action stays outstanding. Retrying achieves nothing until
+  // that DPU has been reprovisioned.
+  DPU_SERVICE_SYNC_RELEASE_STATUS_DEFERRED_DPU_OUTDATED = 3;
+  // Declined: the host is assigned and was named by machine id. Name its
+  // instance instead. The action stays outstanding.
+  DPU_SERVICE_SYNC_RELEASE_STATUS_DEFERRED_HOST_ASSIGNED = 4;
+  // The attempt failed part-way. The action stays outstanding; retry.
+  DPU_SERVICE_SYNC_RELEASE_STATUS_FAILED = 5;
+  // Declined: a DPU could not be evaluated at all, usually because Kubernetes
+  // was unreachable. Unlike an outdated DPU this is worth retrying.
+  DPU_SERVICE_SYNC_RELEASE_STATUS_DEFERRED_UNKNOWN = 6;
+}
+
+message DPUServiceSyncReleaseResult {
+  common.MachineId machine_id = 1;
+  DPUServiceSyncReleaseStatus status = 2;
+  // Names the DPU or instance responsible on the deferred statuses, and the
+  // error on FAILED. Empty otherwise.
+  string detail = 3;
+}
+
+message ReleaseDPUServiceSyncHoldResponse {
+  // One result per host acted on, in request order. The instance form names the
+  // host each instance resolved to.
+  repeated DPUServiceSyncReleaseResult results = 1;
+}
+
+message FindPendingDPUServiceSyncIdsRequest {
+}
+
+message FindPendingDPUServiceSyncsByIdsRequest {
+  // Bounded by the server's `max_find_by_ids`, like every other by-ids call.
+  repeated common.MachineId machine_ids = 1;
+}
+
+message ListDPUServiceSyncHistoryRequest {
+  common.MachineId machine_id = 1;
+}
+
+// One recorded DPU service sync. Completed entries appear only in the history
+// form.
+message PendingDPUServiceSync {
+  common.MachineId machine_id = 1;
+  // First time DPF was seen waiting on this machine. Survives repeat requests,
+  // so it measures the whole wait rather than the last observation.
+  google.protobuf.Timestamp requested_at = 2;
+  // The host's managed state. Carbide only releases on its own from Ready, so
+  // this is the field that says why a machine is still waiting.
+  string state = 3;
+  // Set when the host is currently allocated, so tenant impact is visible before
+  // any machine is named.
+  optional common.InstanceId instance_id = 4;
+  optional google.protobuf.Timestamp completed_at = 5;
+  // Absent while outstanding. Note UpdateInitiator.AdminCli is zero, so this
+  // must never be sent as a default value.
+  optional UpdateInitiator completed_by = 6;
+}
+
+message ListPendingDPUServiceSyncsResponse {
+  repeated PendingDPUServiceSync pending = 1;
 }
 
 // ============================================================================

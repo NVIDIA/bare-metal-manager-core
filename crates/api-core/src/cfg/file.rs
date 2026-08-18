@@ -402,6 +402,16 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub uefi_rotation_enabled: bool,
 
+    /// Site-wide enable for factory-resetting the host BMC during tenant
+    /// release. When `false` (the default), tenant release skips the BMC
+    /// factory-reset sub-flow entirely and proceeds directly to `PowerCycle`.
+    /// When `true`, the release flow factory-resets the BMC, waits for it to
+    /// return, restores the device's previous per-device credential, then
+    /// continues with the existing power-cycle / boot-order repair. Opt-in
+    /// per site for rollout.
+    #[serde(default)]
+    pub bmc_factory_reset_on_instance_termination_enabled: bool,
+
     /// *** This mode is for testing purposes and is not widely supported right now ***
     /// Controls if machines allowed to be registered without TPM module,
     /// in this case for stable machine identifier api will use chasis serial.
@@ -528,6 +538,12 @@ pub struct CarbideConfig {
     /// Section `[machine_identity]`.
     #[serde(default)]
     pub machine_identity: MachineIdentityConfig,
+
+    /// Node-auth: bearer JWTs that Scout / DPU-agent self-sign with their
+    /// existing mTLS client-certificate key, accepted alongside (or instead
+    /// of) mTLS. Section `[node_auth]`.
+    #[serde(default)]
+    pub node_auth: NodeAuthConfig,
 
     /// Disables role-based access control enforcement.
     /// Intended for testing and development only.
@@ -1111,6 +1127,8 @@ impl CarbideConfig {
             spdm_enabled: self.spdm.enabled,
             bmc_rotation_enabled: self.bmc_rotation_enabled,
             uefi_rotation_enabled: self.uefi_rotation_enabled,
+            bmc_factory_reset_on_instance_termination_enabled: self
+                .bmc_factory_reset_on_instance_termination_enabled,
 
             dpu_enable_secure_boot: self.dpu_config.dpu_enable_secure_boot,
             restart_ovs_on_use_admin_network_change: self
@@ -2191,6 +2209,145 @@ impl Default for MachineIdentityConfig {
             trust_domain_allowlist: Vec::new(),
             token_endpoint_domain_allowlist: Vec::new(),
             signing_key_overlap_max_sec: machine_identity_default_signing_key_overlap_max_sec(),
+        }
+    }
+}
+
+/// Node-auth (Scout / DPU-agent bearer JWT) configuration.
+/// Loaded from `[node_auth]` section in config.
+///
+/// There is no server-side signing key: nodes self-sign tokens with their
+/// existing mTLS client-certificate key and the API validates the embedded
+/// `x5c` chain against the client-cert root CA (see
+/// `docs/design/machine-identity/node-auth-jwt.md`).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NodeAuthConfig {
+    /// Master switch. When false, no bearer authenticator is installed and
+    /// nodes keep authenticating via mTLS client certs only.
+    #[serde(default = "node_auth_default_enabled")]
+    pub enabled: bool,
+    /// Maximum accepted token lifetime, in seconds. Nodes mint 5-minute
+    /// tokens; this bounds how far a (compromised) client can stretch `exp`.
+    #[serde(default = "node_auth_default_max_token_ttl_sec")]
+    pub max_token_ttl_sec: u32,
+    /// Whether machine mTLS client certificates are accepted as node identity.
+    /// On by default. Scoped to MACHINE certs only — service and admin-CLI
+    /// client certs on the same listener are unaffected. Disable only once the
+    /// fleet presents bearer tokens.
+    #[serde(default = "node_auth_default_mtls_enabled")]
+    pub mtls_enabled: bool,
+    /// Whether DPF-deployed fmds is rendered in token mode, overriding the
+    /// value otherwise derived from [`enabled`](Self::enabled).
+    ///
+    /// Unset (the default) means "follow `enabled`", which is what a site
+    /// wants almost always. The override exists because the two halves of a
+    /// change do not land at the same time: the API stops accepting bearer
+    /// tokens the moment it restarts, while fmds keeps presenting them until
+    /// DPF has rolled every DaemonSet. Without a separate knob there is no way
+    /// to order those steps, so disabling node-auth necessarily opens a window
+    /// where fmds is authenticating with a credential the API no longer takes.
+    ///
+    /// Setting it to `false` while `enabled` is still `true` moves fmds back
+    /// to client certificates first; once that roll has landed, `enabled` can
+    /// be turned off with nothing depending on tokens. See "Disabling
+    /// node-auth" in `docs/design/machine-identity/node-auth-jwt.md`.
+    ///
+    /// `true` with `enabled = false` is rejected at startup: fmds would
+    /// present tokens to an API that refuses them, which is the outage the
+    /// override exists to prevent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fmds_use_node_tokens: Option<bool>,
+}
+
+/// Upper bound on accepted token lifetime. Node tokens are minted locally on
+/// demand, so anything beyond a day is almost certainly a misconfiguration.
+pub const NODE_AUTH_MAX_TOKEN_TTL_SEC: u32 = 86_400;
+
+impl NodeAuthConfig {
+    /// Whether DPF-deployed fmds should be rendered in token mode.
+    ///
+    /// The override when set, otherwise [`enabled`](Self::enabled). Call this
+    /// rather than reading `enabled` directly wherever fmds helm values are
+    /// built, so the staging path stays available.
+    #[must_use]
+    pub fn fmds_use_node_tokens(&self) -> bool {
+        self.fmds_use_node_tokens.unwrap_or(self.enabled)
+    }
+
+    /// Validates node-auth settings. Call unconditionally at startup: the
+    /// lockout check applies even when [`enabled`](Self::enabled) is false.
+    ///
+    /// That check assumes a TLS listener. On a plaintext `listen_mode` the
+    /// accept path yields no peer certificates, so `mtls_enabled = true`
+    /// satisfies it while authenticating nobody; only the bearer half of the
+    /// dependency is enforced here, because refusing plaintext outright would
+    /// break local development for a mode nothing ships.
+    pub fn validate(&self) -> eyre::Result<()> {
+        if !self.enabled && !self.mtls_enabled {
+            return Err(eyre::eyre!(
+                "[node_auth] enabled = false and mtls_enabled = false would leave nodes with no \
+                 way to authenticate; enable at least one of bearer tokens or machine mTLS"
+            ));
+        }
+        // Checked before the `enabled` early-return below: this combination is
+        // precisely the one where `enabled` is false, and it would deploy fmds
+        // to present tokens the API refuses.
+        if self.fmds_use_node_tokens == Some(true) && !self.enabled {
+            return Err(eyre::eyre!(
+                "[node_auth] fmds_use_node_tokens = true requires enabled = true; fmds would \
+                 present bearer tokens to an API that does not accept them"
+            ));
+        }
+        if !self.enabled {
+            // Remaining checks only constrain token validation.
+            return Ok(());
+        }
+        if self.max_token_ttl_sec == 0 {
+            return Err(eyre::eyre!(
+                "[node_auth] max_token_ttl_sec must be greater than zero"
+            ));
+        }
+        // A cap below what the shipped clients mint accepts at startup and then
+        // rejects every token the fleet presents -- and with mtls_enabled =
+        // false that is a total lockout, with nothing naming the setting. The
+        // clients mint a fixed lifetime, so the cap has to clear it.
+        if u64::from(self.max_token_ttl_sec) < ::rpc::node_jwt::NODE_JWT_TTL_SECS {
+            return Err(eyre::eyre!(
+                "[node_auth] max_token_ttl_sec {} is below the {} s lifetime node clients \
+                 mint, so every token they present would be rejected",
+                self.max_token_ttl_sec,
+                ::rpc::node_jwt::NODE_JWT_TTL_SECS
+            ));
+        }
+        if self.max_token_ttl_sec > NODE_AUTH_MAX_TOKEN_TTL_SEC {
+            return Err(eyre::eyre!(
+                "[node_auth] max_token_ttl_sec {} exceeds maximum {NODE_AUTH_MAX_TOKEN_TTL_SEC}",
+                self.max_token_ttl_sec
+            ));
+        }
+        Ok(())
+    }
+}
+
+fn node_auth_default_enabled() -> bool {
+    false
+}
+fn node_auth_default_max_token_ttl_sec() -> u32 {
+    900
+}
+fn node_auth_default_mtls_enabled() -> bool {
+    true
+}
+
+impl Default for NodeAuthConfig {
+    fn default() -> Self {
+        Self {
+            enabled: node_auth_default_enabled(),
+            max_token_ttl_sec: node_auth_default_max_token_ttl_sec(),
+            mtls_enabled: node_auth_default_mtls_enabled(),
+            // Unset: follow `enabled`. Only a site staging a change sets it.
+            fmds_use_node_tokens: None,
         }
     }
 }
@@ -3942,6 +4099,119 @@ mod tests {
     use super::*;
     use crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
 
+    /// Disabling both bearer tokens and machine mTLS would lock every node out
+    /// of the API; validation must refuse the combination, and each mechanism
+    /// alone must pass.
+    #[test]
+    fn node_auth_rejects_all_methods_disabled() {
+        let both_off = NodeAuthConfig {
+            enabled: false,
+            mtls_enabled: false,
+            ..NodeAuthConfig::default()
+        };
+        assert!(both_off.validate().is_err());
+
+        assert!(NodeAuthConfig::default().validate().is_ok());
+        let jwt_only = NodeAuthConfig {
+            enabled: true,
+            mtls_enabled: false,
+            ..NodeAuthConfig::default()
+        };
+        assert!(jwt_only.validate().is_ok());
+    }
+
+    #[test]
+    fn node_auth_rejects_the_removed_audience_setting() {
+        let error = toml::from_str::<NodeAuthConfig>("audience = \"nico-api-eu\"")
+            .expect_err("the node-auth audience is fixed");
+        assert!(error.to_string().contains("unknown field `audience`"));
+    }
+
+    /// A cap below the clients' fixed 300 s lifetime is accepted-looking and
+    /// fatal: every token the fleet mints exceeds it, so all of them are
+    /// rejected. Startup has to refuse rather than let the fleet discover it.
+    #[test]
+    fn max_token_ttl_below_the_client_lifetime_is_rejected() {
+        let too_small = NodeAuthConfig {
+            enabled: true,
+            max_token_ttl_sec: 60,
+            ..NodeAuthConfig::default()
+        };
+        let err = too_small
+            .validate()
+            .expect_err("a cap under the client TTL must be refused");
+        assert!(
+            err.to_string().contains("max_token_ttl_sec"),
+            "the error should name the setting, got: {err}"
+        );
+
+        // Exactly the client lifetime is the boundary, and is fine.
+        let exact = NodeAuthConfig {
+            enabled: true,
+            max_token_ttl_sec: u32::try_from(::rpc::node_jwt::NODE_JWT_TTL_SECS).expect("fits"),
+            ..NodeAuthConfig::default()
+        };
+        assert!(exact.validate().is_ok());
+
+        // Disabled: the cap is never consulted, so it must not block startup.
+        let disabled = NodeAuthConfig {
+            enabled: false,
+            max_token_ttl_sec: 60,
+            ..NodeAuthConfig::default()
+        };
+        assert!(disabled.validate().is_ok());
+    }
+
+    /// Unset means "follow `enabled`", which is what almost every site wants.
+    /// The override exists so a disable can be staged: fmds goes back to client
+    /// certificates while the API still accepts tokens.
+    #[test]
+    fn fmds_token_mode_follows_enabled_unless_overridden() {
+        let enabled = NodeAuthConfig {
+            enabled: true,
+            ..NodeAuthConfig::default()
+        };
+        assert!(enabled.fmds_use_node_tokens(), "unset follows enabled=true");
+
+        let disabled = NodeAuthConfig::default();
+        assert!(
+            !disabled.fmds_use_node_tokens(),
+            "unset follows enabled=false"
+        );
+
+        // The staging step: API still accepting tokens, fmds moved off them.
+        let staging = NodeAuthConfig {
+            enabled: true,
+            fmds_use_node_tokens: Some(false),
+            ..NodeAuthConfig::default()
+        };
+        assert!(!staging.fmds_use_node_tokens());
+        assert!(
+            staging.validate().is_ok(),
+            "moving fmds off tokens early is the supported path"
+        );
+    }
+
+    /// The inverse is the outage the override exists to prevent: fmds
+    /// presenting bearer tokens to an API that does not accept them. Refuse it
+    /// at startup rather than deploying it.
+    #[test]
+    fn fmds_token_mode_cannot_outrun_the_api() {
+        let ahead = NodeAuthConfig {
+            enabled: false,
+            mtls_enabled: true,
+            fmds_use_node_tokens: Some(true),
+            ..NodeAuthConfig::default()
+        };
+        let err = ahead
+            .validate()
+            .expect_err("fmds must not present tokens the API refuses");
+        assert!(
+            err.to_string().contains("fmds_use_node_tokens"),
+            "the error should name the setting, got: {err}"
+        );
+    }
+
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/cfg/test_data");
 
     /// Verifies legacy entries remain valid while typed DPF identities require and preserve their
@@ -4047,6 +4317,7 @@ mod tests {
             vni: None,
             routing_profile_type: routing_profile_type.map(str::to_string),
             routing_profile_overrides,
+            power_resource_group: None,
         }
     }
 

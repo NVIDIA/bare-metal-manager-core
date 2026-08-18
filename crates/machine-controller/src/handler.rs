@@ -75,17 +75,17 @@ use model::machine::nvlink::nvlink_config_synced;
 use model::machine::{
     AttestationMode, BomValidating, BomValidatingContext, CleanupContext, CleanupState,
     CreateBossVolumeContext, CreateBossVolumeState, DpuDiscoveringState, DpuInitNextStateResolver,
-    DpuInitState, FailureCause, FailureDetails, FailureSource, HostPlatformConfigurationState,
-    HostReprovisionState, InitialResetPhase, InstallDpuOsState, InstanceNextStateResolver,
-    InstanceState, LockdownInfo, LockdownState, MAX_FIRMWARE_UPGRADE_RETRIES, Machine,
-    MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineNextStateResolver,
-    MachineState, MachineValidationContext, ManagedHostState, ManagedHostStateSnapshot,
-    MeasuringState, NetworkConfigUpdateState, NextStateBFBSupport, PerformPowerOperation,
-    PowerDrainState, PowerState, ReadyBootConfigState, ReadyBootConfigTerminalFailure,
-    ReprovisionState, RetryInfo, SecureEraseBossContext, SecureEraseBossState, SetBootOrderInfo,
-    SetBootOrderState, SetSecureBootState, SpdmMeasuringState, StateMachineArea, UefiSetupInfo,
-    UefiSetupState, UnlockHostState, ValidationState, dpf_based_dpu_provisioning_possible,
-    get_display_ids,
+    DpuInitState, FactoryResetBmcState, FailureCause, FailureDetails, FailureSource,
+    HostPlatformConfigurationState, HostReprovisionState, InitialResetPhase, InstallDpuOsState,
+    InstanceNextStateResolver, InstanceState, LockdownInfo, LockdownState,
+    MAX_FIRMWARE_UPGRADE_RETRIES, Machine, MachineLastRebootRequested,
+    MachineLastRebootRequestedMode, MachineNextStateResolver, MachineState,
+    MachineValidationContext, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
+    NetworkConfigUpdateState, NextStateBFBSupport, PerformPowerOperation, PowerDrainState,
+    PowerState, ReadyBootConfigState, ReadyBootConfigTerminalFailure, ReprovisionState, RetryInfo,
+    SecureEraseBossContext, SecureEraseBossState, SetBootOrderInfo, SetBootOrderState,
+    SetSecureBootState, SpdmMeasuringState, StateMachineArea, UefiSetupInfo, UefiSetupState,
+    UnlockHostState, ValidationState, dpf_based_dpu_provisioning_possible, get_display_ids,
 };
 use model::machine_boot_interface::MachineBootInterfaceTarget;
 use model::power_manager::PowerHandlingOutcome;
@@ -124,6 +124,7 @@ mod boot_interface_observation;
 mod dpf;
 mod dpu_action_handler;
 mod dpu_uefi_rotation;
+mod factory_reset;
 mod firmware_artifact;
 mod helpers;
 mod host_boot_config;
@@ -1165,8 +1166,12 @@ impl MachineStateHandler {
                     .map(|e| e.device_mac)
                     .collect();
                 if matches!(
-                    site_explorer_pause::gate_before_rotation(&ctx.services.db_pool, &bmc_macs)
-                        .await?,
+                    site_explorer_pause::gate_before_credential_change(
+                        &ctx.services.db_pool,
+                        &bmc_macs,
+                        site_explorer_pause::ROTATION_SUPPRESSION_REASON,
+                    )
+                    .await?,
                     GateDecision::Wait
                 ) {
                     return Ok(StateHandlerOutcome::wait(
@@ -1213,7 +1218,12 @@ impl MachineStateHandler {
                         if matches!(step, RotationStep::Settled) {
                             rotation::clear_forced_bmc_requests(&mut txn, mh_snapshot).await?;
                         }
-                        site_explorer_pause::resume_after_rotation(&mut txn, &bmc_macs).await?;
+                        site_explorer_pause::resume_after_credential_change(
+                            &mut txn,
+                            &bmc_macs,
+                            site_explorer_pause::ROTATION_SUPPRESSION_REASON,
+                        )
+                        .await?;
                         Ok(StateHandlerOutcome::transition(ManagedHostState::Ready).with_txn(txn))
                     }
                     RotationStep::Retry { retry_count } => Ok(StateHandlerOutcome::transition(
@@ -2657,7 +2667,6 @@ impl StateHandler for MachineStateHandler {
         if !mh_snapshot.host_snapshot.config.dpf.used_for_ingestion {
             tracing::debug!(
                 machine_id = %host_machine_id,
-                removed_in = "v2.1",
                 docs = "https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup",
                 "iPXE provisioning strategy (internally) is deprecated; enable DPF management for DPUs to migrate"
             );
@@ -8002,22 +8011,19 @@ impl StateHandler for InstanceStateHandler {
                             );
                         }
 
-                        // For deletion, power cycle the host first. For everything else
-                        // (reprovision, firmware update, custom PXE), verify boot config first.
+                        // For deletion, sanitize the host BMC first (site-gated,
+                        // no-op pass-through to PowerCycle when disabled) via the
+                        // FactoryResetBmc sub-flow. The power-state read that used
+                        // to gate PowerCycle now happens when that sub-flow reaches
+                        // PowerCycle (see `handle_factory_reset_bmc`). For everything
+                        // else (reprovision, firmware update, custom PXE), verify
+                        // boot config first.
                         let next_state = if instance.deleted.is_some() {
-                            let redfish_client = ctx
-                                .services
-                                .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
-                                .await?;
-
-                            let power_state = host_power_state(redfish_client.as_ref()).await?;
-
                             ManagedHostState::Assigned {
                                 instance_state: InstanceState::HostPlatformConfiguration {
                                     platform_config_state:
-                                        HostPlatformConfigurationState::PowerCycle {
-                                            power_on: power_state == libredfish::PowerState::Off,
-                                            power_on_retry_count: 0,
+                                        HostPlatformConfigurationState::FactoryResetBmc {
+                                            reset_state: FactoryResetBmcState::CheckPreconditions,
                                         },
                                 },
                             }
@@ -8229,13 +8235,18 @@ impl StateHandler for InstanceStateHandler {
                         .host_reprovision_requested
                         .is_some()
                     {
+                        let reprovision_state = if is_rack_level_reprovisioning(mh_snapshot) {
+                            HostReprovisionState::WaitingForRackFirmwareUpgrade
+                        } else {
+                            HostReprovisionState::CheckingFirmwareV2 {
+                                firmware_type: None,
+                                firmware_number: None,
+                            }
+                        };
                         Ok(StateHandlerOutcome::transition(
                             ManagedHostState::Assigned {
                                 instance_state: InstanceState::HostReprovision {
-                                    reprovision_state: HostReprovisionState::CheckingFirmwareV2 {
-                                        firmware_type: None,
-                                        firmware_number: None,
-                                    },
+                                    reprovision_state,
                                 },
                             },
                         ))
@@ -9364,7 +9375,7 @@ impl HostUpgradeState {
 
         // Treat Ready (but flagged to do updates) the same as HostReprovisionState/CheckingFirmware
         let original_state = &state.managed_state.clone();
-        let (mut host_reprovision_state, retry_count) = match &state.managed_state {
+        let (mut host_reprovision_state, mut retry_count) = match &state.managed_state {
             ManagedHostState::HostReprovision {
                 reprovision_state,
                 retry_count,
@@ -9409,6 +9420,7 @@ impl HostUpgradeState {
             })
         {
             tracing::info!(%machine_id, "Host firmware upgrade reset requested, returning to CheckingFirmwareRepeat");
+            retry_count = 0;
             host_reprovision_state = &HostReprovisionState::CheckingFirmwareRepeatV2 {
                 firmware_type: None,
                 firmware_number: None,
@@ -9425,6 +9437,25 @@ impl HostUpgradeState {
                     machine_id: *machine_id,
                     clear_reset: true,
                 });
+        }
+
+        if is_rack_level_reprovisioning(state)
+            && matches!(
+                host_reprovision_state,
+                HostReprovisionState::CheckingFirmware
+                    | HostReprovisionState::CheckingFirmwareRepeat
+                    | HostReprovisionState::CheckingFirmwareV2 { .. }
+                    | HostReprovisionState::CheckingFirmwareRepeatV2 { .. }
+            )
+        {
+            tracing::info!(
+                %machine_id,
+                "Rack-level firmware upgrade bypassing legacy host firmware checks"
+            );
+            return Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
+                HostReprovisionState::WaitingForRackFirmwareUpgrade,
+                retry_count,
+            )));
         }
 
         match host_reprovision_state {
@@ -9670,13 +9701,7 @@ impl HostUpgradeState {
         }
 
         let next_state = match &rack_fw_status.status {
-            model::rack::RackFirmwareUpgradeState::Completed => scenario.actual_new_state(
-                HostReprovisionState::CheckingFirmwareRepeatV2 {
-                    firmware_type: None,
-                    firmware_number: None,
-                },
-                state.managed_state.get_host_repro_retry_count(),
-            ),
+            model::rack::RackFirmwareUpgradeState::Completed => scenario.complete_state(),
             model::rack::RackFirmwareUpgradeState::Failed { cause } => scenario.actual_new_state(
                 HostReprovisionState::FailedFirmwareUpgrade {
                     firmware_type: FirmwareComponentType::Unknown,
@@ -12453,6 +12478,17 @@ async fn handle_instance_host_platform_config(
     reachability_params: &ReachabilityParams,
     platform_config_state: HostPlatformConfigurationState,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    // The deletion-only BMC factory-reset sub-flow must be dispatched before the
+    // shared stored-credential client is built: during/after the reset the BMC
+    // is down or on factory credentials, so the unconditional authenticated
+    // client build below would fail before we reached the match. That handler
+    // builds exactly the client each of its sub-states needs.
+    if let HostPlatformConfigurationState::FactoryResetBmc { reset_state } = &platform_config_state
+    {
+        return factory_reset::handle_factory_reset_bmc(ctx, mh_snapshot, reset_state.clone())
+            .await;
+    }
+
     let redfish_client = ctx
         .services
         .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
@@ -12781,6 +12817,20 @@ async fn handle_instance_host_platform_config(
             }
 
             InstanceState::WaitingForDpusToUp
+        }
+        HostPlatformConfigurationState::FactoryResetBmc { .. } => {
+            // We should never get here. `FactoryResetBmc` is dispatched at the top
+            // of this function, before the shared authenticated client is built, and returns there.
+            // Reaching this arm means that early dispatch was removed or bypassed
+            // -- a logic bug.
+            tracing::error!(
+                machine_id = %mh_snapshot.host_snapshot.id,
+                "FactoryResetBmc reached the shared host-platform-config match; early dispatch to handle_factory_reset_bmc was bypassed"
+            );
+            return Err(StateHandlerError::InvalidState(format!(
+                "FactoryResetBmc must be dispatched by handle_factory_reset_bmc before the shared client build (machine {})",
+                mh_snapshot.host_snapshot.id
+            )));
         }
     };
 

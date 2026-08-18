@@ -1185,7 +1185,6 @@ func (o *DpuNetworkConfig) UnmarshalJSON(data []byte) (err error) {
 	varDpuNetworkConfig := _DpuNetworkConfig{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varDpuNetworkConfig)
 
 	if err != nil {

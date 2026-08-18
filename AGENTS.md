@@ -307,6 +307,8 @@ check before requesting review.
 
 - **Cross-surface drift:** Change a fact everywhere it appears or make one page canonical and link to the canonical page from the others.
 
+  - When a documentation objective names implementation or issue links, verify
+    that the final document retains those links at the exact review head.
   - Search every changed literal or behavior with
     `rg -n --fixed-strings '<literal>' README.md crates/ rest-api/ docs/ book/ helm/ helm-prereqs/ deploy/`;
     reconcile every conflicting hit or establish one canonical explanation and

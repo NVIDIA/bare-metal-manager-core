@@ -34,3 +34,6 @@ uuid = { workspace = true, features = ["v4"] }
 [dev-dependencies]
 assert-json-diff = { workspace = true }
 carbide-test-support = { path = "../test-support" }
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"

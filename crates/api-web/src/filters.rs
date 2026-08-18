@@ -433,7 +433,7 @@ pub(super) fn controller_state_reason_fmt(
     }
 
     if let Some(source_ref) = reason.source_ref.as_ref() {
-        const GITHUB_REPO: &str = "https://github.com/NVIDIA/ncx-infra-controller-core";
+        const GITHUB_REPO: &str = "https://github.com/NVIDIA/infra-controller";
 
         // TODO: carbide_version::v!(git_sha) should work here - however it returns an
         // outdated commit ID.

@@ -68,6 +68,7 @@ Use `site_explorer.dpu_policy` instead.
 | `attestation_enabled` | `bool` | `false` | `security` | Enables TPM-based machine attestation (adds `Measuring` state before `Ready`). |
 | `bmc_rotation_enabled` | `bool` | `false` | `security` | Site-wide kill-switch for passive BMC credential rotation. When `false` (default), a Ready host never auto-enters `RotatingBmc`; the force-converge escape hatch bypasses it. |
 | `uefi_rotation_enabled` | `bool` | `false` | `security` | Site-wide kill-switch for passive UEFI credential rotation (host and DPU). When `false` (default), a Ready host never auto-enters `RotatingHostUefi` nor drives its DPUs into `RotatingDpuUefi`; the per-machine force-converge escape hatch bypasses it. |
+| `bmc_factory_reset_on_instance_termination_enabled` | `bool` | `false` | `security` | Site-wide opt-in for factory-resetting the host BMC during tenant release. When `false` (default), tenant release proceeds directly to `PowerCycle`; when `true`, the release flow factory-resets the BMC, waits for it to return, restores the device's previous per-device credential, then continues with the existing power-cycle / boot-order repair. |
 | `tpm_required` | `bool` | `true` | `security` | Require TPM module for machine registration. **Testing only** when `false`. |
 | `machine_state_controller` | `MachineStateControllerConfig` | *(see below)* | `machines` | Machine state controller timing (see [MachineStateControllerConfig](#machinestatecontrollerconfig)). |
 | `network_segment_state_controller` | `NetworkSegmentStateControllerConfig` | *(see below)* | `networking` | Network segment state controller timing. |
@@ -137,6 +138,7 @@ Use `site_explorer.dpu_policy` instead.
 | `dhcp_lease_expiry_handling` | `bool` | `false` | `networking` | Enables IP cleanup when a DHCP lease expires. |
 | `certificates` | `CertificatesConfig` | *(default)* | `security` | Certificate vending backend, selected independently of the credential store; the default shares the credential Vault (see [CertificatesConfig](#certificatesconfig)). |
 | `allow_insecure_discovery` | `bool` | `false` | `machines` | Allows machines to submit discovery without enforcing the request comes from the expected IP address. Needed for *Integration tests only*, should otherwise not be used. |
+| `node_auth` | `NodeAuthConfig` | *(default)* | `security` | How Scout and the DPU-agent authenticate: bearer JWTs, machine mTLS client certificates, or both during a migration (see [NodeAuthConfig](#nodeauthconfig)). |
 
 ---
 
@@ -329,6 +331,27 @@ extracted identifier contains characters such as `/` or `.`.
 | `identity_pemfile_path` | `String` | `""` | Server identity certificate PEM. |
 | `identity_keyfile_path` | `String` | `""` | Server identity private key. |
 | `admin_root_cafile_path` | `String` | `""` | Admin root CA for admin client validation. |
+
+### `NodeAuthConfig`
+
+Node (Scout / DPU-agent) authentication. Bearer tokens are off by default, so
+the default is machine mTLS exactly as before. See
+`docs/design/machine-identity/node-auth-jwt.md`.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | `bool` | `false` | Accept `Authorization: Bearer` node JWTs. Nodes self-sign these with their existing mTLS client-certificate key and carry the certificate in the token's `x5c` header; the API verifies it against `[tls] root_cafile_path`. Requires a TLS listener -- the API refuses to accept bearer tokens over plaintext. |
+| `mtls_enabled` | `bool` | `true` | Accept machine mTLS client certificates as node identity. Turn off only once the fleet presents bearer tokens; startup fails if this and `enabled` are both false. Scoped to machine certificates -- service and admin-CLI certificates are unaffected. Requires a TLS listener to mean anything: a plaintext `listen_mode` presents no peer certificates, so this silently authenticates nobody. |
+| `max_token_ttl_sec` | `u32` | `900` | Longest accepted token lifetime, in seconds. Clients mint 300 s tokens; this caps how far a client may push `exp`. Must be greater than zero and at most 86400. |
+| `fmds_use_node_tokens` | `Option<bool>` | *(unset)* | Whether DPF-deployed fmds is rendered in token mode. Unset follows `enabled`, which is what almost every site wants. Set it to `false` while `enabled` is still `true` to move fmds back to client certificates *first* -- the supported way to stage a disable, since the API stops accepting tokens the moment it restarts while fmds keeps presenting them until DPF has rolled every DaemonSet. `true` with `enabled = false` is refused at startup. |
+
+Both mechanisms need `listen_mode = "tls"`. Bearer tokens are refused over
+plaintext explicitly, at startup; machine mTLS simply has no certificates to
+inspect, because a plaintext listener hands the middleware an empty peer-cert
+list. The `enabled = false` + `mtls_enabled = false` lockout check therefore
+guarantees a working node-auth path *only on a TLS listener* -- on plaintext,
+`mtls_enabled = true` satisfies the check while authenticating nobody. No
+shipped configuration selects a plaintext mode.
 
 ### `AuthConfig`
 

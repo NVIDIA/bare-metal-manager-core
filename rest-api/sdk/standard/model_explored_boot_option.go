@@ -232,7 +232,6 @@ func (o *ExploredBootOption) UnmarshalJSON(data []byte) (err error) {
 	varExploredBootOption := _ExploredBootOption{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varExploredBootOption)
 
 	if err != nil {

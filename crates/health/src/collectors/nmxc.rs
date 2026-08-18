@@ -235,20 +235,20 @@ fn hello_request(gateway_id: &str) -> ClientHello {
 }
 
 /// Builds the switch-host gRPC endpoint URL, including IPv6 bracket formatting.
-fn nmxc_endpoint_url(host: &str, port: u16, tls_enabled: bool) -> String {
+pub(super) fn nmxc_endpoint_url(host: &str, port: u16, tls_enabled: bool) -> String {
     let scheme = if tls_enabled { "https" } else { "http" };
     format!("{scheme}://{host}:{port}")
 }
 
-/// Creates a tonic NMX-C client with transport settings scoped to the collector.
+/// Creates a tonic NMX-C channel with transport settings scoped to the collector.
 ///
 /// When an mTLS profile is configured, certificate files are read while
 /// building the channel, so reconnects pick up rotated material.
-async fn nmxc_client(
+pub(super) async fn nmxc_channel(
     endpoint_url: &str,
     connect_timeout: Duration,
     tls_config: Option<&MtlsProfileConfig>,
-) -> Result<NmxcClient, HealthError> {
+) -> Result<Channel, HealthError> {
     let mut endpoint = Endpoint::from_shared(endpoint_url.to_string())
         .map_err(|error| nmxc_transport_error(endpoint_url, "parse endpoint", error))?
         .connect_timeout(connect_timeout)
@@ -266,12 +266,20 @@ async fn nmxc_client(
             .map_err(|error| nmxc_transport_error(endpoint_url, "configure TLS", error))?;
     }
 
-    let channel = endpoint
+    endpoint
         .connect()
         .await
-        .map_err(|error| nmxc_transport_error(endpoint_url, "connect", error))?;
+        .map_err(|error| nmxc_transport_error(endpoint_url, "connect", error))
+}
 
-    Ok(NmxControllerClient::new(channel))
+async fn nmxc_client(
+    endpoint_url: &str,
+    connect_timeout: Duration,
+    tls_config: Option<&MtlsProfileConfig>,
+) -> Result<NmxcClient, HealthError> {
+    nmxc_channel(endpoint_url, connect_timeout, tls_config)
+        .await
+        .map(NmxControllerClient::new)
 }
 
 /// Converts tonic transport failures into collector status errors with endpoint context.
@@ -286,7 +294,7 @@ fn nmxc_transport_error(
 }
 
 /// Creates a deadline-exceeded status for bounded NMX-C RPC phases.
-fn nmxc_timeout_error(operation: &str, timeout: Duration) -> HealthError {
+pub(super) fn nmxc_timeout_error(operation: &str, timeout: Duration) -> HealthError {
     HealthError::NmxcStatus(tonic::Status::deadline_exceeded(format!(
         "NMX-C {operation} timed out after {timeout:?}"
     )))
@@ -615,7 +623,7 @@ fn domain_state_info_to_events(info: &DomainStateInfo) -> Vec<Result<CollectorEv
 }
 
 /// Builds a sink log event with the supplied severity, body, and attributes.
-fn log_record(
+pub(super) fn log_record(
     severity: LogSeverity,
     body: impl Into<String>,
     attributes: Vec<(Cow<'static, str>, String)>,

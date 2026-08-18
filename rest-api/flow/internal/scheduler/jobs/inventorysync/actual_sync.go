@@ -17,18 +17,19 @@ import (
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
-// runActualSync runs every per-type actual-vs-expected drift detector,
-// concatenates their drifts, and logs a per-type "received from Core"
-// summary. Each type-specific function handles its own errors internally
-// and falls back to nil drifts; one type's RPC failure doesn't suppress the
-// others.
+// runActualSync runs every per-type actual-vs-expected drift detector, projects
+// observed NVLink domain topology, concatenates the component drifts, and logs
+// a per-type inventory summary. Each type-specific function handles its own
+// errors internally and falls back to nil drifts; one type's RPC failure
+// doesn't suppress the others.
 //
 // allRPCOK is true only when every type's drift-affecting RPCs succeeded. The
 // drift table is a full-table replace with no per-type discriminator, so the
 // caller must not overwrite it from a partial view: if any type's RPC failed,
 // the previously persisted drifts are kept rather than being wiped. The
-// returned drifts are not yet persisted — runInventoryOne owns the
-// table-replacement transaction.
+// observed-domain projection is best effort and does not affect allRPCOK
+// because it does not contribute component drifts. The returned drifts are not
+// yet persisted — runInventoryOne owns the table-replacement transaction.
 func runActualSync(
 	ctx context.Context,
 	pool *cdb.Session,
@@ -43,6 +44,10 @@ func runActualSync(
 	switchesReceived, nvSwitchDrifts, switchOK := syncNVSwitchesNICo(ctx, pool, nicoClient)
 	drifts = append(drifts, nvSwitchDrifts...)
 	allRPCOK = allRPCOK && switchOK
+
+	// Domain membership is observed topology rather than expected inventory.
+	// Project it after switch sync so this cycle's switch links are available.
+	syncObservedNVLinkDomainTopology(ctx, pool, nicoClient)
 
 	powershelvesReceived, powershelfDrifts, powershelfOK := syncPowershelvesNICo(ctx, pool, nicoClient)
 	drifts = append(drifts, powershelfDrifts...)

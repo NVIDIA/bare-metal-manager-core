@@ -886,6 +886,7 @@ dependencies = [
  "futures",
  "http-body-util",
  "hyper",
+ "indexmap 2.14.0",
  "itertools 0.14.0",
  "lazy_static",
  "mac_address",
@@ -1098,6 +1099,7 @@ dependencies = [
  "prost",
  "prost-types",
  "rand 0.10.1",
+ "rcgen",
  "regex",
  "reqwest 0.13.4",
  "resolv-conf",
@@ -1551,6 +1553,7 @@ dependencies = [
  "rcgen",
  "serde",
  "thiserror 2.0.18",
+ "tokio",
  "tonic",
  "tower",
  "tracing",
@@ -2100,6 +2103,7 @@ dependencies = [
  "opentelemetry-proto",
  "prometheus",
  "prost",
+ "prost-reflect",
  "prost-types",
  "rand 0.10.1",
  "rcgen",
@@ -2210,6 +2214,7 @@ name = "carbide-ib-fabric"
 version = "0.0.1"
 dependencies = [
  "async-trait",
+ "axum",
  "base64",
  "carbide-api-db",
  "carbide-api-model",
@@ -2219,6 +2224,7 @@ dependencies = [
  "carbide-secrets",
  "carbide-test-support",
  "carbide-tls",
+ "carbide-ufm-mock",
  "carbide-utils",
  "carbide-uuid",
  "chrono",
@@ -2432,6 +2438,7 @@ dependencies = [
  "carbide-rpc",
  "carbide-test-support",
  "carbide-tls",
+ "carbide-ufm-mock",
  "carbide-utils",
  "carbide-uuid",
  "carbide-version",
@@ -2444,7 +2451,9 @@ dependencies = [
  "figment",
  "futures",
  "lazy_static",
+ "logfmt",
  "mac_address",
+ "metrics-endpoint",
  "rand 0.10.1",
  "ratatui",
  "reqwest 0.13.4",
@@ -2951,13 +2960,16 @@ dependencies = [
  "hyper-util",
  "ipnetwork",
  "itertools 0.14.0",
+ "jsonwebtoken",
  "log",
  "mac_address",
  "nonempty",
  "once_cell",
+ "p256 0.14.0",
  "prettytable-rs",
  "prost",
  "prost-types",
+ "rcgen",
  "regex",
  "resolv-conf",
  "rustls",
@@ -2967,6 +2979,7 @@ dependencies = [
  "serde_yaml",
  "sha2 0.11.0",
  "sqlx",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tokio-stream",
@@ -3341,6 +3354,7 @@ dependencies = [
  "carbide-api-db",
  "carbide-api-model",
  "carbide-macros",
+ "carbide-network",
  "carbide-network-segment-controller",
  "carbide-site-explorer",
  "carbide-sqlx-testing",
@@ -3377,6 +3391,33 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tonic",
+]
+
+[[package]]
+name = "carbide-ufm-mock"
+version = "0.0.1"
+dependencies = [
+ "axum",
+ "axum-server",
+ "carbide-axum-utils",
+ "carbide-utils",
+ "clap",
+ "duration-str",
+ "eyre",
+ "figment",
+ "futures",
+ "metrics-endpoint",
+ "opentelemetry 0.32.0",
+ "reqwest 0.13.4",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+ "url",
 ]
 
 [[package]]
@@ -6885,7 +6926,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.46.6#8b0fc4384f82df962b085e6602bc78d348b2300c"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.46.7#97be4e1722e94a77d4278522d7664be5ba381d92"
 dependencies = [
  "chrono",
  "clap",
@@ -6915,7 +6956,7 @@ dependencies = [
 [[package]]
 name = "librms"
 version = "0.0.14"
-source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.10.1#4bbd502d3d9822fb1dcb8d205b7edaecabb497a6"
+source = "git+https://github.com/dsx-ai-factory/nv-rms-client.git?tag=v0.10.1#4bbd502d3d9822fb1dcb8d205b7edaecabb497a6"
 dependencies = [
  "async-trait",
  "chrono",
@@ -7857,6 +7898,7 @@ version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b2e07bc4a5ae977451c3a89314ddeb2418d5d5a92595a0b28bbfced0de5132b9"
 dependencies = [
+ "async-lock",
  "bytes",
  "futures-core",
  "futures-util",
@@ -7940,6 +7982,7 @@ dependencies = [
  "serde_yaml",
  "thiserror 2.0.18",
  "tokio",
+ "urlencoding",
 ]
 
 [[package]]
@@ -9018,8 +9061,11 @@ version = "0.16.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "01b80ea363c31af2de2b92e3c07ed1156628f7838c4afb4df75ee78a37fedbd1"
 dependencies = [
+ "base64",
  "prost",
  "prost-types",
+ "serde",
+ "serde-value",
 ]
 
 [[package]]
@@ -11966,7 +12012,7 @@ dependencies = [
 [[package]]
 name = "tonic-client-wrapper"
 version = "1.0.0"
-source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.10.1#4bbd502d3d9822fb1dcb8d205b7edaecabb497a6"
+source = "git+https://github.com/dsx-ai-factory/nv-rms-client.git?tag=v0.10.1#4bbd502d3d9822fb1dcb8d205b7edaecabb497a6"
 dependencies = [
  "async-trait",
  "heck",

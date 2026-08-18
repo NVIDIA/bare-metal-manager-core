@@ -49,3 +49,6 @@ rustls-pemfile = { workspace = true }
 [build-dependencies]
 carbide-version = { path = "../version" }
 tonic-prost-build = "0.14"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"

@@ -310,7 +310,6 @@ func (o *InstanceTypeCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	varInstanceTypeCreateRequest := _InstanceTypeCreateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varInstanceTypeCreateRequest)
 
 	if err != nil {

@@ -30,7 +30,7 @@ type ActionConfig struct {
 	Timeout *string `json:"timeout,omitempty"`
 	// Poll interval for actions that loop (e.g. `FirmwareControl`, `VerifyPowerStatus`) as a Go duration string.
 	PollInterval *string `json:"pollInterval,omitempty"`
-	// Action-specific parameters. Validated server-side against the action's schema. Examples:   - `Sleep`: `{ duration: \"30s\" }`   - `PowerControl`: `{ operation: \"on\" }`   - `VerifyPowerStatus`: `{ expected_status: \"on\" }`   - `VerifyReachability`: `{ component_types: [\"Compute\"], require_all: true }`   - `FirmwareControl`: `{ poll_interval: \"10s\", poll_timeout: \"30m\" }`
+	// Action-specific parameters. Validated server-side against the action's schema. Examples:   - `Sleep`: `{ duration: \"30s\" }`   - `PowerControl`: `{ operation: \"power_on\" }` — an operation code,     not a power state; optional within a `PowerControl` rule, where     the operation is taken from the Task   - `VerifyPowerStatus`: `{ expected_status: \"on\" }`   - `VerifyReachability`: `{ component_types: [\"Compute\"], require_all: true }`   - `FirmwareControl`: `{ poll_interval: \"10s\", poll_timeout: \"30m\" }`
 	Parameters map[string]interface{} `json:"parameters,omitempty"`
 }
 
@@ -222,7 +222,6 @@ func (o *ActionConfig) UnmarshalJSON(data []byte) (err error) {
 	varActionConfig := _ActionConfig{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varActionConfig)
 
 	if err != nil {

@@ -138,7 +138,6 @@ func (o *ExploredLockdownStatus) UnmarshalJSON(data []byte) (err error) {
 	varExploredLockdownStatus := _ExploredLockdownStatus{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varExploredLockdownStatus)
 
 	if err != nil {

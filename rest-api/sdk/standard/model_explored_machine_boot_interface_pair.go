@@ -138,7 +138,6 @@ func (o *ExploredMachineBootInterfacePair) UnmarshalJSON(data []byte) (err error
 	varExploredMachineBootInterfacePair := _ExploredMachineBootInterfacePair{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varExploredMachineBootInterfacePair)
 
 	if err != nil {

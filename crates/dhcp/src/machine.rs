@@ -122,7 +122,9 @@ impl Machine {
 #[unsafe(no_mangle)]
 pub extern "C" fn machine_get_interface_router(ctx: *mut Machine) -> u32 {
     assert!(!ctx.is_null());
-    let machine = unsafe { &mut *ctx };
+    // SAFETY: Initial lint enablement: this C ABI contract needs owner review.
+    // Kea retains this Rust-allocated Machine for the synchronous getter call.
+    let machine = unsafe { &*ctx };
 
     // todo(ajf): I guess??
     let default_router = "0.0.0.0".to_string();
@@ -166,7 +168,9 @@ pub extern "C" fn machine_get_interface_router(ctx: *mut Machine) -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn machine_get_interface_address(ctx: *mut Machine) -> u32 {
     assert!(!ctx.is_null());
-    let machine = unsafe { &mut *ctx };
+    // SAFETY: Initial lint enablement: this C ABI contract needs owner review.
+    // Kea retains this Rust-allocated Machine for the synchronous getter call.
+    let machine = unsafe { &*ctx };
 
     let maybe_address = machine.inner.address.parse::<IpAddr>();
 
@@ -201,9 +205,14 @@ pub unsafe extern "C" fn machine_get_interface_address_ipv6(
         return false;
     }
 
-    let machine = unsafe { &mut *ctx };
+    // SAFETY: The null checks above and the caller's C ABI contract guarantee a
+    // live Rust-allocated Machine for this synchronous read. The output buffer
+    // is disjoint from the Machine allocation.
+    let machine = unsafe { &*ctx };
     match machine.inner.address.parse::<IpAddr>() {
         Ok(IpAddr::V6(address)) => {
+            // SAFETY: `addr_out` is caller-provided writable storage for exactly
+            // 16 bytes and cannot overlap the local address octets.
             unsafe {
                 std::ptr::copy_nonoverlapping(address.octets().as_ptr(), addr_out, 16);
             }
@@ -227,7 +236,9 @@ pub unsafe extern "C" fn machine_get_interface_address_ipv6(
 #[unsafe(no_mangle)]
 pub extern "C" fn machine_get_interface_hostname(ctx: *mut Machine) -> *mut libc::c_char {
     assert!(!ctx.is_null());
-    let machine = unsafe { &mut *ctx };
+    // SAFETY: Initial lint enablement: this C ABI contract needs owner review.
+    // Kea retains this Rust-allocated Machine for the synchronous getter call.
+    let machine = unsafe { &*ctx };
 
     let fqdn = CString::new(&machine.inner.fqdn[..]).unwrap();
 
@@ -241,7 +252,9 @@ pub extern "C" fn machine_get_interface_hostname(ctx: *mut Machine) -> *mut libc
 #[unsafe(no_mangle)]
 pub extern "C" fn machine_get_filename(ctx: *mut Machine) -> *const libc::c_char {
     assert!(!ctx.is_null());
-    let machine = unsafe { &mut *ctx };
+    // SAFETY: Initial lint enablement: this C ABI contract needs owner review.
+    // Kea retains this Rust-allocated Machine for the synchronous getter call.
+    let machine = unsafe { &*ctx };
 
     // If the API sent us the URL we should boot from, just use it.
     let url = if let Some(url) = machine.booturl() {
@@ -327,6 +340,8 @@ pub extern "C" fn machine_get_nameservers(ctx: *mut Machine) -> *mut libc::c_cha
 pub extern "C" fn machine_get_ntpservers(ctx: *mut Machine) -> *mut libc::c_char {
     assert!(!ctx.is_null());
 
+    // SAFETY: Initial lint enablement: this C ABI contract needs owner review.
+    // Kea retains this Rust-allocated Machine for the synchronous getter call.
     let machine = unsafe { &*ctx };
 
     let ntp_csv = if !machine.inner.ntp_servers.is_empty() {
@@ -365,6 +380,8 @@ pub extern "C" fn machine_get_ntp_servers_ipv6(ctx: *mut Machine) -> DhcpByteBuf
 pub extern "C" fn machine_get_domain_search_ipv6(ctx: *mut Machine) -> DhcpByteBuffer {
     assert!(!ctx.is_null());
 
+    // SAFETY: Initial lint enablement: this C ABI contract needs owner review.
+    // Kea retains this Rust-allocated Machine for the synchronous getter call.
     let machine = unsafe { &*ctx };
     match parent_domain(&machine.inner.fqdn).and_then(encode_domain_name) {
         Some(bytes) => DhcpByteBuffer::from_vec(bytes),
@@ -377,6 +394,8 @@ pub extern "C" fn machine_get_domain_search_ipv6(ctx: *mut Machine) -> DhcpByteB
 pub extern "C" fn machine_get_client_fqdn_ipv6(ctx: *mut Machine) -> DhcpByteBuffer {
     assert!(!ctx.is_null());
 
+    // SAFETY: Initial lint enablement: this C ABI contract needs owner review.
+    // Kea retains this Rust-allocated Machine for the synchronous getter call.
     let machine = unsafe { &*ctx };
     match encode_domain_name(&machine.inner.fqdn) {
         Some(mut bytes) => {
@@ -416,6 +435,8 @@ pub unsafe extern "C" fn machine_get_provisioning_server_ipv6(
         return false;
     };
 
+    // SAFETY: The caller guarantees that `addr_out` identifies writable storage
+    // for the validated 16-byte length and cannot overlap the local octets.
     unsafe {
         std::ptr::copy_nonoverlapping(provisioning_server.octets().as_ptr(), addr_out, 16);
     }
@@ -441,7 +462,9 @@ pub extern "C" fn machine_get_mqtt_server(ctx: *mut Machine) -> *mut libc::c_cha
 #[unsafe(no_mangle)]
 pub extern "C" fn machine_get_client_type(ctx: *mut Machine) -> *mut libc::c_char {
     assert!(!ctx.is_null());
-    let machine = unsafe { &mut *ctx };
+    // SAFETY: Initial lint enablement: this C ABI contract needs owner review.
+    // Kea retains this Rust-allocated Machine for the synchronous getter call.
+    let machine = unsafe { &*ctx };
     let vendor_class = match &machine.vendor_class {
         None => CString::new("").unwrap(),
         Some(vc) => CString::new(vc.id.clone()).unwrap(),
@@ -456,7 +479,9 @@ pub extern "C" fn machine_get_discovery_mac(ctx: *mut Machine) -> *mut libc::c_c
         return ptr::null_mut();
     }
 
-    let machine = unsafe { &mut *ctx };
+    // SAFETY: Initial lint enablement: this C ABI contract needs owner review.
+    // Kea retains this Rust-allocated Machine for the synchronous getter call.
+    let machine = unsafe { &*ctx };
     CString::new(machine.discovery_info.mac_address.to_string())
         .unwrap()
         .into_raw()
@@ -469,7 +494,9 @@ pub extern "C" fn machine_is_invalidated_v6_lease(ctx: *mut Machine) -> bool {
         return false;
     }
 
-    let machine = unsafe { &mut *ctx };
+    // SAFETY: Initial lint enablement: this C ABI contract needs owner review.
+    // Kea retains this Rust-allocated Machine for the synchronous getter call.
+    let machine = unsafe { &*ctx };
     cache::machine_matches_invalidated_v6_lease(machine)
 }
 
@@ -480,7 +507,9 @@ pub extern "C" fn machine_is_invalidated_v6_lease(ctx: *mut Machine) -> bool {
 #[unsafe(no_mangle)]
 pub extern "C" fn machine_get_broadcast_address(ctx: *mut Machine) -> u32 {
     assert!(!ctx.is_null());
-    let machine = unsafe { &mut *ctx };
+    // SAFETY: Initial lint enablement: this C ABI contract needs owner review.
+    // Kea retains this Rust-allocated Machine for the synchronous getter call.
+    let machine = unsafe { &*ctx };
 
     let maybe_prefix = machine.inner.prefix.parse::<IpNetwork>();
 
@@ -501,6 +530,9 @@ pub extern "C" fn machine_get_broadcast_address(ctx: *mut Machine) -> u32 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn machine_free_filename(filename: *const libc::c_char) {
+    // SAFETY: Initial lint enablement: this ownership contract needs owner
+    // review. A non-null pointer is the unreclaimed `CString::into_raw` result
+    // from `machine_get_filename`, returned to the same Rust allocator once.
     unsafe {
         if filename.is_null() {
             return;
@@ -512,6 +544,9 @@ pub extern "C" fn machine_free_filename(filename: *const libc::c_char) {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn machine_free_client_type(client_type: *mut libc::c_char) {
+    // SAFETY: Initial lint enablement: this ownership contract needs owner
+    // review. A non-null pointer is the unreclaimed `CString::into_raw` result
+    // from `machine_get_client_type`, returned to the same Rust allocator once.
     unsafe {
         if client_type.is_null() {
             return;
@@ -524,6 +559,9 @@ pub extern "C" fn machine_free_client_type(client_type: *mut libc::c_char) {
 /// Free a discovery MAC string returned by [`machine_get_discovery_mac`].
 #[unsafe(no_mangle)]
 pub extern "C" fn machine_free_discovery_mac(mac_address: *mut libc::c_char) {
+    // SAFETY: Initial lint enablement: this ownership contract needs owner
+    // review. A non-null pointer is the unreclaimed `CString::into_raw` result
+    // from `machine_get_discovery_mac`, returned to the Rust allocator once.
     unsafe {
         if mac_address.is_null() {
             return;
@@ -535,6 +573,9 @@ pub extern "C" fn machine_free_discovery_mac(mac_address: *mut libc::c_char) {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn machine_free_fqdn(fqdn: *mut libc::c_char) {
+    // SAFETY: Initial lint enablement: this ownership contract needs owner
+    // review. A non-null pointer is the unreclaimed `CString::into_raw` result
+    // from `machine_get_interface_hostname`, returned to the allocator once.
     unsafe {
         if fqdn.is_null() {
             return;
@@ -546,6 +587,9 @@ pub extern "C" fn machine_free_fqdn(fqdn: *mut libc::c_char) {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn machine_free_nameservers(nameservers: *mut libc::c_char) {
+    // SAFETY: Initial lint enablement: this ownership contract needs owner
+    // review. A non-null pointer is an unreclaimed `CString::into_raw` result
+    // from a matching string getter, returned to the Rust allocator once.
     unsafe {
         if nameservers.is_null() {
             return;
@@ -565,6 +609,8 @@ pub unsafe extern "C" fn machine_free_dhcp_byte_buffer(buffer: DhcpByteBuffer) {
         return;
     }
 
+    // SAFETY: The caller returns the unchanged pointer and length produced from
+    // one nonempty boxed slice, exactly once and after its last C++ borrow.
     unsafe {
         drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(
             buffer.ptr, buffer.len,
@@ -583,7 +629,9 @@ pub unsafe extern "C" fn machine_free_dhcp_byte_buffer(buffer: DhcpByteBuffer) {
 #[unsafe(no_mangle)]
 pub extern "C" fn machine_get_interface_subnet_mask(ctx: *mut Machine) -> u32 {
     assert!(!ctx.is_null());
-    let machine = unsafe { &mut *ctx };
+    // SAFETY: Initial lint enablement: this C ABI contract needs owner review.
+    // Kea retains this Rust-allocated Machine for the synchronous getter call.
+    let machine = unsafe { &*ctx };
 
     let maybe_prefix = machine.inner.prefix.parse::<IpNetwork>();
 
@@ -606,6 +654,9 @@ pub extern "C" fn machine_get_interface_subnet_mask(ctx: *mut Machine) -> u32 {
 /// https://jirasw.nvidia.com/browse/FORGE-2443
 #[unsafe(no_mangle)]
 pub extern "C" fn machine_get_interface_mtu(ctx: *mut Machine) -> u16 {
+    // SAFETY: Initial lint enablement: this C ABI contract needs owner review.
+    // Kea passes a non-null, live Rust-allocated Machine for this synchronous
+    // getter, but that requirement is not encoded in the safe Rust signature.
     unsafe { (*ctx).inner.mtu as u16 }
 }
 
@@ -675,6 +726,10 @@ pub extern "C" fn machine_free(ctx: *mut Machine) {
         return;
     }
 
+    // SAFETY: Initial lint enablement: this ownership contract needs owner
+    // review. `ctx` is the unreclaimed Box-produced Machine pointer returned by
+    // discovery and is returned to the Rust allocator exactly once after all
+    // uses and borrows end.
     unsafe {
         drop(Box::from_raw(ctx));
     }
@@ -721,6 +776,8 @@ mod test {
 
         assert_ne!(out, std::ptr::null());
 
+        // SAFETY: `out` is the unreclaimed pointer returned by this test's
+        // `machine_get_filename` call and is converted back exactly once.
         let cstr = unsafe { CString::from_raw(out as *mut _) };
 
         assert_eq!(
@@ -757,6 +814,8 @@ mod test {
 
         assert_ne!(out, std::ptr::null());
 
+        // SAFETY: `out` is the unreclaimed pointer returned by this test's
+        // `machine_get_filename` call and is converted back exactly once.
         let cstr = unsafe { CString::from_raw(out as *mut _) };
 
         assert_eq!(cstr, CString::new("https://foobar").unwrap());
@@ -764,6 +823,8 @@ mod test {
 
     #[test]
     fn test_machine_get_ntpservers() {
+        // SAFETY: The local CString remains live and NUL-terminated for this
+        // synchronous configuration call.
         unsafe {
             let s = CString::new("10.0.0.1").unwrap();
             carbide_set_config_ntp(s.as_ptr());
@@ -789,10 +850,14 @@ mod test {
         });
 
         let raw = machine_get_ntpservers(&mut *machine);
+        // SAFETY: `raw` is the unreclaimed pointer returned by the getter above
+        // and is converted back into its CString exactly once.
         let cstr = unsafe { CString::from_raw(raw) };
         assert_eq!(cstr.to_str().unwrap(), "198.51.100.1,198.51.100.2");
 
         // Test with no ntp servers in the dhcp record
+        // SAFETY: The local CString remains live and NUL-terminated for this
+        // synchronous configuration call.
         unsafe {
             let s = CString::new("10.0.0.2,10.0.0.3").unwrap();
             carbide_set_config_ntp(s.as_ptr());
@@ -817,6 +882,8 @@ mod test {
         });
 
         let raw = machine_get_ntpservers(&mut *machine);
+        // SAFETY: `raw` is the unreclaimed pointer returned by the getter above
+        // and is converted back into its CString exactly once.
         let cstr = unsafe { CString::from_raw(raw) };
         assert_eq!(cstr.to_str().unwrap(), "10.0.0.2,10.0.0.3");
     }

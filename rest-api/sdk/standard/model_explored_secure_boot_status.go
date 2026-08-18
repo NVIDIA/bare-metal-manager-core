@@ -110,7 +110,6 @@ func (o *ExploredSecureBootStatus) UnmarshalJSON(data []byte) (err error) {
 	varExploredSecureBootStatus := _ExploredSecureBootStatus{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varExploredSecureBootStatus)
 
 	if err != nil {

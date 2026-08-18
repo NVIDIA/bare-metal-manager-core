@@ -19,7 +19,9 @@
 //! and a bounded history of the work already done.
 
 use carbide_uuid::machine::MachineId;
-use model::machine_pending_action::{MachinePendingAction, MachinePendingActionKind};
+use model::machine_pending_action::{
+    MachinePendingAction, MachinePendingActionActor, MachinePendingActionKind,
+};
 use sqlx::PgConnection;
 
 use crate::db_read::DbReader;
@@ -46,7 +48,7 @@ pub async fn request(
     ) VALUES ($1, $2)
     ON CONFLICT (machine_id, kind) WHERE completed_at IS NULL DO UPDATE SET
         kind = EXCLUDED.kind
-    RETURNING machine_id, kind, requested_at, completed_at";
+    RETURNING machine_id, kind, requested_at, completed_at, completed_by";
 
     sqlx::query_as(QUERY)
         .bind(machine_id)
@@ -86,17 +88,70 @@ pub async fn complete(
     txn: &mut PgConnection,
     machine_id: &MachineId,
     kind: MachinePendingActionKind,
+    actor: MachinePendingActionActor,
 ) -> DatabaseResult<bool> {
     const QUERY: &str = "UPDATE machine_pending_actions
-        SET completed_at = statement_timestamp()
+        SET completed_at = statement_timestamp(), completed_by = $3
         WHERE machine_id = $1 AND kind = $2 AND completed_at IS NULL";
 
     sqlx::query(QUERY)
         .bind(machine_id)
         .bind(kind)
+        .bind(actor)
         .execute(txn)
         .await
         .map(|result| result.rows_affected() > 0)
+        .map_err(|e| DatabaseError::query(QUERY, e))
+}
+
+/// Returns the machines with an outstanding action of `kind`, longest wait
+/// first.
+///
+/// Ids only: this is the worklist an operator releases from, and a fleet-wide
+/// rollout can leave every host on it at once. Callers fetch the detail for a
+/// bounded slice with [`find_outstanding_by_machine_ids`], the same way every
+/// other find-then-fetch pair in the API works.
+pub async fn find_outstanding_machine_ids(
+    db: impl DbReader<'_>,
+    kind: MachinePendingActionKind,
+) -> DatabaseResult<Vec<MachineId>> {
+    const QUERY: &str = "SELECT machine_id
+    FROM machine_pending_actions
+    WHERE kind = $1 AND completed_at IS NULL
+    ORDER BY requested_at ASC, machine_id ASC";
+
+    sqlx::query_scalar(QUERY)
+        .bind(kind)
+        .fetch_all(db)
+        .await
+        .map_err(|e| DatabaseError::query(QUERY, e))
+}
+
+/// The outstanding action of `kind` for each of `machine_ids`, longest wait
+/// first.
+///
+/// A machine with nothing owed simply does not appear, so a caller can pass ids
+/// from a worklist that has since been partly drained.
+pub async fn find_outstanding_by_machine_ids(
+    db: impl DbReader<'_>,
+    kind: MachinePendingActionKind,
+    machine_ids: &[MachineId],
+) -> DatabaseResult<Vec<MachinePendingAction>> {
+    const QUERY: &str = "SELECT
+        machine_id,
+        kind,
+        requested_at,
+        completed_at,
+        completed_by
+    FROM machine_pending_actions
+    WHERE kind = $1 AND completed_at IS NULL AND machine_id = ANY($2)
+    ORDER BY requested_at ASC, machine_id ASC";
+
+    sqlx::query_as(QUERY)
+        .bind(kind)
+        .bind(machine_ids)
+        .fetch_all(db)
+        .await
         .map_err(|e| DatabaseError::query(QUERY, e))
 }
 
@@ -112,7 +167,8 @@ pub async fn find_all_for_machine(
         machine_id,
         kind,
         requested_at,
-        completed_at
+        completed_at,
+        completed_by
     FROM machine_pending_actions
     WHERE machine_id = $1
     ORDER BY id DESC";
@@ -127,12 +183,16 @@ pub async fn find_all_for_machine(
 #[cfg(test)]
 mod tests {
     use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
-    use model::machine_pending_action::MachinePendingActionKind;
+    use model::machine_pending_action::{MachinePendingActionActor, MachinePendingActionKind};
     use sqlx::{PgConnection, PgPool};
 
-    use super::{complete, find_all_for_machine, is_outstanding, request};
+    use super::{
+        complete, find_all_for_machine, find_outstanding_by_machine_ids,
+        find_outstanding_machine_ids, is_outstanding, request,
+    };
 
     const DPU_SERVICE_SYNC: MachinePendingActionKind = MachinePendingActionKind::DpuServiceSync;
+    const AUTOMATIC: MachinePendingActionActor = MachinePendingActionActor::Automatic;
 
     fn machine_id(marker: u8) -> MachineId {
         let mut hardware_id = [0u8; 32];
@@ -186,6 +246,91 @@ mod tests {
         Ok(())
     }
 
+    /// Carbide releasing a hold on its own and an operator releasing one by hand
+    /// both complete the same row, so the history has to say which happened.
+    #[crate::sqlx_test]
+    async fn a_completion_records_who_performed_it(
+        pool: PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        let by_carbide = machine_id(1);
+        let by_operator = machine_id(2);
+        for id in [&by_carbide, &by_operator] {
+            seed_machine(txn.as_mut(), id).await?;
+            request(txn.as_mut(), id, DPU_SERVICE_SYNC).await?;
+        }
+
+        assert!(complete(txn.as_mut(), &by_carbide, DPU_SERVICE_SYNC, AUTOMATIC).await?);
+        assert!(
+            complete(
+                txn.as_mut(),
+                &by_operator,
+                DPU_SERVICE_SYNC,
+                MachinePendingActionActor::AdminCli
+            )
+            .await?
+        );
+
+        for (id, expected) in [
+            (&by_carbide, MachinePendingActionActor::Automatic),
+            (&by_operator, MachinePendingActionActor::AdminCli),
+        ] {
+            let history = find_all_for_machine(txn.as_mut(), id).await?;
+            assert_eq!(history.len(), 1);
+            assert_eq!(history[0].completed_by, Some(expected));
+        }
+
+        Ok(())
+    }
+
+    /// The operator worklist: only machines still owed work, longest wait first,
+    /// so the list reads as a queue rather than an arbitrary set.
+    #[crate::sqlx_test]
+    async fn the_worklist_holds_only_outstanding_actions_longest_wait_first(
+        pool: PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        assert!(
+            find_outstanding_machine_ids(txn.as_mut(), DPU_SERVICE_SYNC)
+                .await?
+                .is_empty()
+        );
+
+        let waiting_longest = machine_id(1);
+        let waiting_recently = machine_id(2);
+        let already_done = machine_id(3);
+        for id in [&waiting_longest, &waiting_recently, &already_done] {
+            seed_machine(txn.as_mut(), id).await?;
+        }
+
+        // Requested in order, so `requested_at` orders them.
+        for id in [&waiting_longest, &waiting_recently, &already_done] {
+            request(txn.as_mut(), id, DPU_SERVICE_SYNC).await?;
+        }
+        assert!(complete(txn.as_mut(), &already_done, DPU_SERVICE_SYNC, AUTOMATIC).await?);
+
+        assert_eq!(
+            find_outstanding_machine_ids(txn.as_mut(), DPU_SERVICE_SYNC).await?,
+            vec![waiting_longest, waiting_recently],
+            "a completed action is no longer owed and must not appear on the worklist"
+        );
+
+        // Fetching detail for a slice of the worklist, as a paging caller does.
+        let detail =
+            find_outstanding_by_machine_ids(txn.as_mut(), DPU_SERVICE_SYNC, &[waiting_recently])
+                .await?;
+        assert_eq!(detail.len(), 1);
+        assert_eq!(detail[0].machine_id, waiting_recently);
+        assert!(
+            find_outstanding_by_machine_ids(txn.as_mut(), DPU_SERVICE_SYNC, &[already_done])
+                .await?
+                .is_empty(),
+            "a machine drained since the worklist was read simply drops out"
+        );
+
+        Ok(())
+    }
+
     #[crate::sqlx_test]
     async fn re_requesting_outstanding_work_preserves_the_original_request_time(
         pool: PgPool,
@@ -217,15 +362,15 @@ mod tests {
         seed_machine(txn.as_mut(), &machine_id).await?;
 
         assert!(
-            !complete(txn.as_mut(), &machine_id, DPU_SERVICE_SYNC).await?,
+            !complete(txn.as_mut(), &machine_id, DPU_SERVICE_SYNC, AUTOMATIC).await?,
             "completing work that was never requested must not invent a record"
         );
 
         let requested = request(txn.as_mut(), &machine_id, DPU_SERVICE_SYNC).await?;
-        assert!(complete(txn.as_mut(), &machine_id, DPU_SERVICE_SYNC).await?);
+        assert!(complete(txn.as_mut(), &machine_id, DPU_SERVICE_SYNC, AUTOMATIC).await?);
         assert!(!is_outstanding(txn.as_mut(), &machine_id, DPU_SERVICE_SYNC).await?);
         assert!(
-            !complete(txn.as_mut(), &machine_id, DPU_SERVICE_SYNC).await?,
+            !complete(txn.as_mut(), &machine_id, DPU_SERVICE_SYNC, AUTOMATIC).await?,
             "completion is not repeatable"
         );
 
@@ -256,11 +401,11 @@ mod tests {
         seed_machine(txn.as_mut(), &quiet).await?;
 
         let quiet_first = request(txn.as_mut(), &quiet, DPU_SERVICE_SYNC).await?;
-        assert!(complete(txn.as_mut(), &quiet, DPU_SERVICE_SYNC).await?);
+        assert!(complete(txn.as_mut(), &quiet, DPU_SERVICE_SYNC, AUTOMATIC).await?);
 
         for _ in 0..25 {
             request(txn.as_mut(), &busy, DPU_SERVICE_SYNC).await?;
-            assert!(complete(txn.as_mut(), &busy, DPU_SERVICE_SYNC).await?);
+            assert!(complete(txn.as_mut(), &busy, DPU_SERVICE_SYNC, AUTOMATIC).await?);
         }
         // Outstanding again, on top of an already-full history.
         let outstanding = request(txn.as_mut(), &busy, DPU_SERVICE_SYNC).await?;

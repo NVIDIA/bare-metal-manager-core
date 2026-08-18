@@ -424,6 +424,7 @@ pub(super) async fn setup_and_run(
         has_logged_stable: false,
         version_check_time: std::time::Instant::now(),
         inventory_updater_time: std::time::Instant::now(),
+        ca_republish_time: std::time::Instant::now(),
         started_at: std::time::Instant::now(),
         inventory_updater_config,
         options,
@@ -462,6 +463,7 @@ struct MainLoop {
     started_at: std::time::Instant,
     version_check_time: std::time::Instant,
     inventory_updater_time: std::time::Instant,
+    ca_republish_time: std::time::Instant,
     inventory_updater_config: MachineInventoryUpdaterConfig,
     options: command_line::RunOptions,
     agent_config: AgentConfig,
@@ -896,6 +898,8 @@ impl MainLoop {
 
                 let instance_data = self.periodic_config_reader.meta_data_conf_reader();
 
+                // The fetcher projects `addresses` into the compatibility prefix before use.
+                #[allow(deprecated)]
                 let proposed_routes: Vec<_> = conf
                     .tenant_interfaces
                     .iter()
@@ -1141,7 +1145,15 @@ impl MainLoop {
                         })
                         .await
                     }
-                    Some(nvue_context) => health::nvue_api_health(&nvue_context.nvue_client).await,
+                    Some(nvue_context) => {
+                        health::nvue::NvueHealthCheck {
+                            nvue_client: &nvue_context.nvue_client,
+                            min_healthy_links: conf.min_dpu_functioning_links.unwrap_or(2) as usize,
+                            hbn_device_names: &self.hbn_device_names,
+                        }
+                        .health_check()
+                        .await
+                    }
                 };
                 is_healthy = !health_report.successes.is_empty() && health_report.alerts.is_empty();
                 self.is_hbn_up = health::is_up(&health_report);
@@ -1221,6 +1233,17 @@ impl MainLoop {
         self.client_cert_renewer
             .renew_certificates_if_necessary(None)
             .await;
+
+        // Beside renewal because the two revolve around the same files:
+        // renewal rewrites the credentials, and key-less consumers need the
+        // resulting trust anchor mirrored into `pub/` (issue #355). Driving it
+        // from here rather than a spawned task means it inherits the loop's
+        // shutdown handling, and a panic takes the agent down for a restart
+        // instead of silently leaving consumers on a stale anchor.
+        if now > self.ca_republish_time {
+            self.ca_republish_time = now.add(crate::CA_REPUBLISH_INTERVAL);
+            crate::republish_bootstrap_ca_if_changed(&self.agent_config.forge_system.root_ca);
+        }
 
         if now > self.inventory_updater_time {
             self.inventory_updater_time =

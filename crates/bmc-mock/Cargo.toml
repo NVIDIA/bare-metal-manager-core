@@ -38,6 +38,7 @@ form_urlencoded = { workspace = true }
 futures = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
+indexmap = { workspace = true }
 itertools = { workspace = true }
 lazy_static = { workspace = true }
 mac_address = { features = ["serde"], workspace = true }

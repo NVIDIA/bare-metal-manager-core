@@ -22,6 +22,108 @@ review. For example, a PR that lands protobuf changes but without any code using
 guesswork during review: If we can't see how the code will be used, we are just guessing at what the best API
 contract will be. Landing both changes together means we can look at it all holistically.
 
+## Documentation and comments
+
+Use documentation to make contracts available where readers look for them. Use comments to preserve reasoning that
+code cannot express.
+
+### Public contracts
+
+Document every new public declaration covered below. Use Rust documentation comments (`///` on declarations and `//!`
+for module or crate documentation) by default. When a change alters an existing public contract, add or update its
+documentation in the same change.
+
+Here, public means reachable from another crate through a public path or re-export. At minimum, document:
+
+- Crates and public modules
+- Public structs, enums, traits, and type aliases
+- Public functions, associated functions, methods, constants, statics, and exported macros
+- Public fields and enum variants, including the meaning of variant payloads
+- Public associated types and associated constants
+
+A public re-export may rely on the target declaration's documentation when rustdoc exposes it at the re-exported path.
+Document any additional contract introduced by an alias or new module placement.
+
+An `impl` block does not need its own documentation. Document public inherent methods individually. A trait
+implementation inherits the trait's shared contract; document any caller-visible behavior specific to the
+implementation on the implementing type or relevant method.
+
+Every declaration and member listed above needs at least one concise sentence stating its purpose, even when its name
+and type are descriptive. Keep that sentence brief; do not pad a simple contract with a line-by-line translation.
+
+Some derive macros consume declaration comments as interface text. For Clap-derived commands, arguments, or values,
+write `help` or `about` metadata as the public contract, or write the `///` comment as deliberate CLI help. Do not add
+duplicate rustdoc that silently changes rendered help.
+
+Document behavior that a signature cannot express:
+
+- Semantics, accepted values, formats, units, and bounds
+- Defaults and omission behavior
+- Invariants, state transitions, and mutation, ownership, or lifetime rules
+- Side effects and conditions that change the result or produce a meaningful error
+
+Do not hand-edit generated declarations. Put their contract in the generator-owned source and verify that it reaches
+the generated public surface. When a public wrapper is the supported interface, keep the raw generated declarations
+internal and document the wrapper instead.
+
+Treat this as the repository minimum. Component owners and reviewers can ask for documentation of additional internal
+declarations or more detail, but do not waive the public baseline.
+
+For commands, configuration, APIs, Helm values, and other operator-facing interfaces, put the contract in its
+authoritative source and make it available on the rendered surface readers use. Documentation near an implementation
+does not replace the interface's own CLI help, gRPC or REST API reference, Helm values, or operator documentation. The
+declaration itself can be authoritative when generation consumes it. Protobuf field comments, for example, own
+generated API documentation. Follow the repository's
+[documentation review checklist](AGENTS.md#documentation-review) to verify interface contracts and generated output.
+
+### Implementation rationale
+
+Add an ordinary `//` comment when safely changing the code depends on context that its names, types, and control flow do
+not reveal:
+
+- The invariant a block preserves
+- Why an `unsafe` block is sound, in an adjacent `// SAFETY:` comment
+- The protocol or compatibility constraint behind an unusual choice
+- An ordering dependency or non-local consequence that a reader would otherwise have to reconstruct across files or
+  systems
+- Why an apparently simpler alternative would violate the current contract
+
+Write comments for the code and contract as they exist. Put PR narration, former behavior, and approaches tried and
+abandoned in review or commit history. Do not preserve implementation prompts or review conversations in source
+comments.
+
+If a past decision still imposes a compatibility constraint, state the current constraint and its support boundary.
+Current limitations and deliberately unsupported behavior are part of the present contract; document them when readers
+need them to use or change the code safely. Explain a tempting alternative through the current invariant it would
+violate. Do not narrate what the code already says.
+
+### Commented-out code
+
+Delete commented-out executable code and obsolete local declarations by default.
+
+A commented-out field declaration is acceptable as a short schema inventory when a database, wire format, or similar
+external representation provides fields that the local type intentionally does not map:
+
+```rust
+#[derive(serde::Deserialize)]
+struct GetResponse {
+    id: String,
+    // Available from the API response but intentionally unmapped:
+    // modified_at: String,
+}
+```
+
+Keep the inventory beside the mapped fields. Verify each field name and type against the authoritative schema or an
+exercised payload. Do not use this exception for speculative fields, removed local fields, implementations, or control
+flow.
+
+Explain compatibility or staged-rollout boundaries in prose, including the support boundary or tracked work. If
+dormant code must land in phases, follow the exception under [A note on dead code](#a-note-on-dead-code). Do not leave
+executable code commented out.
+
+Apply this rule to new code. Clean up existing commented-out code when nearby work makes that change safe and
+reviewable.
+
 ## Lints and Warnings
 
 We enable all clippy lints by default, and treat all warnings as errors. If a warning or clippy lint is firing for
@@ -45,8 +147,8 @@ Other common places where we've seen `#[allow(dead_code)]` that are not necessar
   underscore to hint that it's not supposed to be read
 - If a field is only used if certain crate features are enabled, prefer `#[cfg(feature = "feature")]` to only
   include it when that feature is being used.
-- If a field isn't currently used, but you want to leave it around as documentation on what fields could exist (like an
-  unused database column, or unused JSON field), comment it out.
+- If a database, wire format, or similar external representation provides fields that the type intentionally leaves
+  unmapped, use the [commented-out field inventory](#commented-out-code) exception instead of adding dead fields.
 - Otherwise, strongly consider deleting the code.
 
 For binaries, add the following to the beginning of your main.rs:
@@ -551,10 +653,18 @@ connection, or a nested transaction derived from that transaction. Passing it on
 responsibility; it does not make unrelated work safe.
 
 Treat a production lint finding as a design problem: finish the transaction before awaiting unrelated work, or move
-that work outside the transaction. Do not add `#[allow(txn_held_across_await)]` merely to silence the lint. A narrowly
-reviewed infrastructure boundary may deliberately reserve a dedicated connection when that is the mechanism's purpose
-and its pool-capacity cost is fixed and documented; keep that proof next to the allowance. Tests may allow the lint
-when holding a transaction or row lock across an await is the behavior under test.
+that work outside the transaction. Do not add `#[allow(txn_held_across_await)]` merely to silence the lint.
+
+Test code is an exception to this rule, and so we allow these lints for test builds, since we don't have to worry about
+connection build-up like we do in production. Do not allow the lints individually for each test method and helper,
+instead allow the lints globally for test configurations, at the top of a crate's `lib.rs` or `main.rs`. For example:
+
+```rust
+#![cfg_attr(
+    any(test, feature = "test-support"),
+    allow(txn_held_across_await, txn_without_commit)
+)]
+```
 
 ### Concurrent updates
 

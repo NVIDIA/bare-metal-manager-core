@@ -177,7 +177,6 @@ func (o *TenantIdentityTokenDelegationCreateOrUpdateRequest) UnmarshalJSON(data 
 	varTenantIdentityTokenDelegationCreateOrUpdateRequest := _TenantIdentityTokenDelegationCreateOrUpdateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varTenantIdentityTokenDelegationCreateOrUpdateRequest)
 
 	if err != nil {

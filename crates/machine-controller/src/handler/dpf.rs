@@ -176,6 +176,7 @@ fn waiting_for_ready_exit_state(
 
 async fn create_and_register_dpudevices_and_dpunode(
     state: &ManagedHostStateSnapshot,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     dpf_sdk: &dyn DpfOperations,
 ) -> Result<(), StateHandlerError> {
     let primary_dpu_id = state
@@ -190,7 +191,7 @@ async fn create_and_register_dpudevices_and_dpunode(
             missing: "primary_dpu",
         })?;
 
-    let astra_nics = state.has_astra_nics();
+    let astra_nics = machine_has_astra_nics(state, ctx).await?;
 
     for dpu in &state.dpu_snapshots {
         let serial_number = dpu
@@ -229,6 +230,7 @@ async fn create_and_register_dpudevices_and_dpunode(
             object_id: state.host_snapshot.id.to_string(),
             missing: "primary_dpu_snapshot",
         })?;
+
     let deployment_type = dpf_sdk
         .deployment_type_for_dpu(primary_dpu, astra_nics)
         .map_err(dpf_error)?;
@@ -297,9 +299,10 @@ fn dpf_cr_creation_failed(
 /// transition all DPUs to WaitingForReady.
 async fn handle_dpf_provisioning(
     state: &ManagedHostStateSnapshot,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     dpf_sdk: &dyn DpfOperations,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-    if let Err(err) = create_and_register_dpudevices_and_dpunode(state, dpf_sdk).await {
+    if let Err(err) = create_and_register_dpudevices_and_dpunode(state, ctx, dpf_sdk).await {
         return Ok(dpf_cr_creation_failed(state, &err));
     }
 
@@ -575,7 +578,7 @@ async fn handle_dpf_reprovisioning(
             machine_id = %state.host_snapshot.id,
             "DPUDevice/DPUNode CRs do not exist, creating them before reprovisioning"
         );
-        if let Err(err) = create_and_register_dpudevices_and_dpunode(state, dpf_sdk).await {
+        if let Err(err) = create_and_register_dpudevices_and_dpunode(state, ctx, dpf_sdk).await {
             return Ok(dpf_cr_creation_failed(state, &err));
         }
         let next = transition_all_dpus_to_dpf_state(
@@ -603,6 +606,73 @@ async fn handle_dpf_reprovisioning(
     Ok(StateHandlerOutcome::transition(next))
 }
 
+// Early in machine ingestion, the dpa_intetrfaces objects for the host are not populated.
+// So we will have to check the expected_machine table for the given host to see if it has
+// any NICs of type CX9. If so, return true. Otherwise, return false.
+async fn machine_has_astra_nics(
+    state: &ManagedHostStateSnapshot,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+) -> Result<bool, StateHandlerError> {
+    // its unlikely we got here without a bmc mac
+    let Some(bmc_mac_address) = state.host_snapshot.status.bmc_info.mac else {
+        tracing::error!(
+            machine_id = %state.host_snapshot.id,
+            "machine_has_astra_nics: No BMC MAC address configured"
+        );
+        return Err(StateHandlerError::MissingData {
+            object_id: state.host_snapshot.id.to_string(),
+            missing: "bmc_mac_address",
+        });
+    };
+
+    let mut txn = ctx.services.db_pool.begin().await?;
+
+    // Retrieve the expected_machines table entry for this managed host.
+    let expected_machine = db::expected_machine::find_by_bmc_mac_address(
+        txn.as_mut(),
+        bmc_mac_address,
+    )
+    .await
+    .map_err(|err| {
+        tracing::error!(
+            machine_id = %state.host_snapshot.id,
+            %bmc_mac_address,
+            error = %err,
+            "machine_has_astra_nics: Failed to look up expected machine for Astra enablement"
+        );
+        StateHandlerError::DBError(Box::new(err))
+    })?;
+
+    txn.commit().await?;
+
+    // No expected-machine entry means there are no declared host NICs to act on.
+    let Some(expected_machine) = expected_machine else {
+        tracing::info!(
+            machine_id = %state.host_snapshot.id,
+            "machine_has_astra_nics: No expected-machine entry found"
+        );
+        return Ok(false);
+    };
+
+    let host_nics = expected_machine.data.interfaces;
+    if host_nics.is_empty() {
+        tracing::info!(
+            machine_id = %state.host_snapshot.id,
+            "machine_has_astra_nics: No host NICs found"
+        );
+        return Ok(false);
+    }
+
+    // At this point, we need to use Redfish to get all the CX cards in the host.
+    // The end point to explore is /redfish/v1/Chassis/CX_$i
+
+    let has_cx9 = host_nics
+        .iter()
+        .any(|nic| nic.nic_type.as_deref() == Some("CX9"));
+
+    Ok(has_cx9)
+}
+
 /// Handle DPF state transitions.
 ///
 /// Provisioning registers all DPUs at once and moves them to WaitingForReady
@@ -619,7 +689,7 @@ pub(super) async fn handle_dpf_state(
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let node_name = dpu_node_cr_name(&dpf_id(&state.host_snapshot)?);
 
-    let astra_nics = state.has_astra_nics();
+    let astra_nics = machine_has_astra_nics(state, ctx).await?;
 
     let deployment_type = dpf_sdk
         .deployment_type_for_dpu(dpu_snapshot, astra_nics)
@@ -652,7 +722,7 @@ pub(super) async fn handle_dpf_state(
     }
 
     match dpf_state {
-        DpfState::Provisioning => handle_dpf_provisioning(state, dpf_sdk).await,
+        DpfState::Provisioning => handle_dpf_provisioning(state, ctx, dpf_sdk).await,
         DpfState::WaitingForReady { phase_detail } => {
             handle_dpf_waiting_for_ready(state, dpu_snapshot, phase_detail, ctx, dpf_sdk).await
         }

@@ -110,6 +110,7 @@ async fn allocated_host_for_secure_discovery(
             dpu_extension_services: None,
             nvlink: None,
             spxconfig: None,
+            power_profile: None,
         })
         .build()
         .await;

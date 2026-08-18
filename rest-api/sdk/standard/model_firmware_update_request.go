@@ -274,7 +274,6 @@ func (o *FirmwareUpdateRequest) UnmarshalJSON(data []byte) (err error) {
 	varFirmwareUpdateRequest := _FirmwareUpdateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varFirmwareUpdateRequest)
 
 	if err != nil {

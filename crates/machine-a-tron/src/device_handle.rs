@@ -24,15 +24,14 @@ use carbide_uuid::machine::MachineId;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use crate::PersistedDevice;
 use crate::api_client::ApiClient;
 use crate::dpu_machine::DpuMachineHandle;
 use crate::host_machine::MachineHandle;
-use crate::machine_state_machine::InfinibandPortState;
 use crate::power_shelf_simulator::PowerShelfHandle;
 use crate::status::{DeviceKind, DeviceStatus, DeviceStatusConfig};
 use crate::switch_simulator::SwitchHandle;
 use crate::tui::UiUpdate;
+use crate::{Guid, InfinibandPortState, PersistedDevice};
 
 #[derive(Debug, Clone)]
 enum DeviceHandleInner {
@@ -157,7 +156,7 @@ impl DeviceHandle {
 
     pub fn set_infiniband_port_state(
         &self,
-        guid: &str,
+        guid: Guid,
         state: InfinibandPortState,
     ) -> eyre::Result<()> {
         match &self.0 {
