@@ -99,7 +99,18 @@ pods:
   default:
     machines:
       rack-machines: null
-      compute:
+      # MUST be keyed `dell-hosts`. setup-machine-a-tron.sh appends a second
+      # values file defining machines.dell-hosts with HOST_COUNT, and Helm
+      # deep-merges by KEY: a different key here (this was `compute`) makes Helm
+      # ADD a second group rather than override this one, so the fleet silently
+      # renders at twice the requested size -- 9,000 hosts / 27,000 machines
+      # instead of 4,500 / 13,500. The harness never notices, because its own
+      # sizing math is HOST_COUNT * (1 + DPU_PER_HOST) from the environment and
+      # never reads back what was rendered. That doubled the simulated address
+      # demand, exhausted the /18 pools, forced a /16, and the allocator's cost
+      # scales with subnet size -- which is how a values key cost ~4x ingestion
+      # throughput for a week. See the render gate in setup-machine-a-tron.sh.
+      dell-hosts:
         hwType: dell_poweredge_r750
         hostCount: 4500
         dpuPerHostCount: 2

@@ -1351,6 +1351,35 @@ info "machine_interfaces=${IFACES} (need ${NEED})  ips_allocated=${IPS}"
 (( IFACES >= NEED )) && ok "BMC interfaces registered + DHCP allocated" \
     || warn "fewer interfaces than expected — check pool sizing / bmc DHCP"
 
+# --- render gate: the fleet we asked for is the fleet we got ---------------
+# This script's sizing math is HOST_COUNT * (1 + DPU_PER_HOST), computed from
+# the environment and never checked against what Helm actually rendered. That
+# blind spot cost a week: the scale values file keyed its machine group
+# `compute` while this script appends `machines.dell-hosts`, and Helm merges by
+# key, so it ADDED a group instead of overriding one. Every run from Aug 15
+# built 9,000 hosts / 27,000 machines while logging "4500 hosts x 2 DPUs ->
+# 13500", which doubled address demand, exhausted the /18 pools, forced a /16,
+# and — because allocation cost scales with subnet size under a fleet-wide
+# lock — cut ingestion throughput roughly fourfold.
+#
+# Read the rendered config back and fail loudly on any mismatch. A wrong number
+# here invalidates every measurement taken afterwards, so it is worth stopping.
+_MAT_CM="$(kubectl get cm -n "$MAT_NAMESPACE" -o name 2>/dev/null \
+    | grep -- '-config-files' | head -1)"
+_MAT_TOML="$(kubectl get "$_MAT_CM" -n "$MAT_NAMESPACE" \
+    -o jsonpath='{.data.mat\.toml}' 2>/dev/null || true)"
+if [[ -n "$_MAT_TOML" ]]; then
+    _GROUPS="$(printf '%s\n' "$_MAT_TOML" | grep -c '^\[machines\.' || true)"
+    _HOSTS="$(printf '%s\n' "$_MAT_TOML" | awk -F'= *' '/^host_count/ {s+=$2} END {print s+0}')"
+    ok "rendered fleet: ${_GROUPS} machine group(s), ${_HOSTS} hosts total"
+    (( _GROUPS == 1 )) \
+        || die "rendered mat.toml has ${_GROUPS} [machines.*] groups, expected 1 — a values key mismatch is multiplying the fleet; check that the scale values file keys its group 'dell-hosts'"
+    (( _HOSTS == HOST_COUNT )) \
+        || die "rendered fleet is ${_HOSTS} hosts but HOST_COUNT=${HOST_COUNT} — every rate measured against this run would be wrong"
+else
+    warn "could not read rendered mat.toml — fleet size is UNVERIFIED for this run"
+fi
+
 # --- expected_machines: required for machine creation (matched by BMC MAC) ---
 # machine-a-tron auto-registers them (registerExpectedMachines: true), but on
 # nico-api builds without the Machineatron→AddExpectedMachine RBAC grant
