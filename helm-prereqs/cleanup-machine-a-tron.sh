@@ -326,9 +326,9 @@ elif confirm "Delete Vault credentials seeded/rotated for machine-a-tron (site r
     # Delete in PARALLEL and under a timeout. Each delete is a raft consensus
     # write, so serially this runs at roughly 40/min: a 4,500-host run leaves
     # ~13,500 entries and the loop then takes over five hours, silently, with
-    # no output until it finishes. It blocked one teardown for 32 minutes
-    # before being killed by hand. Every large run made the next teardown
-    # slower, which is exactly the wrong direction.
+    # no output until it finishes, so a large fleet can appear to hang for
+    # tens of minutes. The work scales with the PREVIOUS run's machine count,
+    # so every large run made the next teardown slower.
     #
     # The timeout matters as much as the parallelism: this is cleanup, so it
     # must never be able to wedge a run indefinitely. If it does expire, the

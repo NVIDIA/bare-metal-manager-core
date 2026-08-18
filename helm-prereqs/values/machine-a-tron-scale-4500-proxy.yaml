@@ -1,12 +1,10 @@
 # 4,500 hosts (13,500 machines) in SHARED-PROXY mode.
 #
 # Why this exists (#4732): controller mode gives every simulated BMC its own
-# ClusterIP Service. At 4,500 hosts that is ~13,500 Services, and the dev6
-# control plane does not survive it -- API list operations hit 10-35 s,
-# calico-node crash-loops (137-150 restarts on 2 of 3 nodes), CoreDNS resolution
-# goes intermittent, and nico-api can no longer open a database connection. The
-# cluster, not NICo, becomes the bottleneck, and any rate measured there is
-# meaningless.
+# ClusterIP Service. At 4,500 hosts that is ~13,500 Services, which is more than
+# a Kubernetes control plane comfortably handles -- API list latency climbs into
+# tens of seconds, CNI and DNS components start restarting, and the API server
+# becomes the bottleneck rather than the system under test.
 #
 # Shared-proxy mode needs ONE Service for the whole fleet: site-explorer dials
 # `bmc_proxy` and the Redfish client injects `Forwarded: host=<BMC IP>`, which
@@ -14,9 +12,9 @@
 # the simulated OOB prefix (SCALE_OOB_PREFIX), NOT from the Service CIDR.
 #
 # OOB demand is 3 addresses per host -- one per simulated BMC -- so 4,500 hosts
-# need 13,500 and a /18 fits. An earlier note here claimed ~6.6 per host and
-# demanded a /16; that measurement was taken while the fleet was rendering at
-# double size, and the widening it justified cost ~3x on every allocation.
+# need 13,500 and a /18 fits. Do not widen these prefixes casually: address
+# allocation cost scales with subnet size (see the note in
+# setup-machine-a-tron.sh), so an oversized prefix reduces throughput.
 #
 # Single pod on purpose: the chart emits one `-bmc-mock` Service per entry in
 # `pods`, so a single routable proxy host requires a single pod. Resources are
@@ -91,25 +89,21 @@ resources:
     cpu: "8"
     memory: 16Gi
 pods:
-  # The chart's own values.yaml ships a mat-0 pod; null it or this file's
-  # default pod makes the render multi-pod, which the chart rejects without
-  # mat-k8s-controller. (Regression guard: this line was lost once in a
-  # cherry-pick and broke every proxy-mode install.)
+  # The chart's own values.yaml ships a mat-0 pod. Null it, or this file's
+  # default pod makes the render multi-pod, which the chart rejects unless
+  # mat-k8s-controller is enabled. Removing this line breaks every
+  # proxy-mode install, so keep it.
   mat-0: null
   default:
     machines:
       rack-machines: null
       # MUST be keyed `dell-hosts`. setup-machine-a-tron.sh appends a second
       # values file defining machines.dell-hosts with HOST_COUNT, and Helm
-      # deep-merges by KEY: a different key here (this was `compute`) makes Helm
-      # ADD a second group rather than override this one, so the fleet silently
-      # renders at twice the requested size -- 9,000 hosts / 27,000 machines
-      # instead of 4,500 / 13,500. The harness never notices, because its own
-      # sizing math is HOST_COUNT * (1 + DPU_PER_HOST) from the environment and
-      # never reads back what was rendered. That doubled the simulated address
-      # demand, exhausted the /18 pools, forced a /16, and the allocator's cost
-      # scales with subnet size -- which is how a values key cost ~4x ingestion
-      # throughput for a week. See the render gate in setup-machine-a-tron.sh.
+      # deep-merges by KEY -- so a different key here makes Helm ADD a second
+      # machine group rather than override this one, and the fleet renders at
+      # twice the requested size. That doubles simulated address demand and can
+      # exhaust the configured prefixes. The render gate in
+      # setup-machine-a-tron.sh fails the run if it ever happens again.
       dell-hosts:
         hwType: dell_poweredge_r750
         hostCount: 4500

@@ -186,7 +186,7 @@ RELEASE="nico-machine-a-tron"
 # The chart names the Service <release>-<podKey>-bmc-mock; the single-pod proxy
 # config keys its pod "default". The old value omitted the pod key and resolved
 # to nothing -- exploration failed with ConnectionRefused on every endpoint
-# (this bit three separate runs before being fixed at the source here).
+# resolving to nothing, so every endpoint fails with ConnectionRefused.
 BMC_MOCK_SVC="${BMC_MOCK_SVC:-nico-machine-a-tron-default-bmc-mock}"
 BMC_MOCK_PORT="1266"
 # site-explorer runs in nico-system, so it CANNOT resolve the bare service name
@@ -247,7 +247,7 @@ _valid_cidr_gw "$SCALE_OOB_PREFIX"   "$SCALE_OOB_GW"   "SCALE_OOB"   || die "$(_
 _valid_cidr_gw "$SCALE_ADMIN_PREFIX" "$SCALE_ADMIN_GW" "SCALE_ADMIN" || die "$(_valid_cidr_gw "$SCALE_ADMIN_PREFIX" "$SCALE_ADMIN_GW" "SCALE_ADMIN" 2>&1)"
 # site_explorer throughput knobs applied in scale mode (defaults 30/90/4 make
 # 4500-host ingestion take ~9h; these bring it to ~1-2h).
-# Defaults are the values measured best at BOTH scales (Aug 2026 campaign):
+# Defaults are the values measured best at BOTH scales:
 # 1,000 hosts -> 186.8 machines/min (vs 138.5 under the old conc=200 tuning;
 # the old conc=400 "overshoot" to 68/min was a lock-contention artifact, fixed);
 # 4,500 hosts -> 80-100 machines/min, all 13,500 machines ready in ~3-3.5h.
@@ -257,7 +257,7 @@ SCALE_CONCURRENT_EXPLORATIONS="${SCALE_CONCURRENT_EXPLORATIONS:-400}"
 # only run at the END of a completed explore_site cycle — a huge per-run value
 # makes every cycle deep-scan hundreds of endpoints (dozens of Redfish calls
 # each) and cycles stop completing, so machines are never created. 360 is the
-# measured sweet spot of that trade-off (same Aug 2026 campaign as above);
+# measured sweet spot of that trade-off;
 # raise it further only with cycle-completion measurements in hand.
 SCALE_EXPLORATIONS_PER_RUN="${SCALE_EXPLORATIONS_PER_RUN:-360}"
 SCALE_MACHINES_CREATED_PER_RUN="${SCALE_MACHINES_CREATED_PER_RUN:-100}"
@@ -745,7 +745,7 @@ if env.get("KNOB_SE_RUN_INTERVAL"):
 # When the target section already exists in the site config, its managed keys
 # are rewritten IN PLACE (scoped, like [site_explorer]); a section that is
 # absent is emitted in a sentinel-delimited tail block regenerated each run.
-# Duplicating an existing table would be a TOML parse error — dev6's template
+# Duplicating an existing table would be a TOML parse error — a site template
 # ships both [firmware_global] and [machine_state_controller].
 TUNING_BEGIN = "# --- BEGIN scale tuning overrides (managed by setup-machine-a-tron.sh) ---"
 TUNING_END   = "# --- END scale tuning overrides ---"
@@ -787,7 +787,7 @@ mtu = 9000
 reserve_first = {env["SCALE_RESERVE"]}
 '''
 # Machine creation allocates one loopback IP per machine from pools.lo-ip —
-# site templates ship tiny ranges (dev6: 3 addresses) that exhaust instantly
+# site templates ship tiny ranges (often only a few addresses) that exhaust
 # ("Resource pool lo-ip is empty"). Pools DO reconcile at startup (unlike
 # networks), so appending a simulated range takes effect on restart.
 SIM_LO = ', { start = "10.103.0.1", end = "10.103.63.254" }]'
@@ -929,7 +929,7 @@ PY
     # rows. Pool DEFINITIONS are seed-once ("Declaration has drifted since
     # seed ... not re-applying", crates/api-db/src/resource_pool.rs), so config
     # changes to [pools.lo-ip] are IGNORED on established sites — rows must be
-    # inserted directly. Site templates ship tiny ranges (dev6: 3 addresses)
+    # inserted directly. Site templates ship tiny ranges (a few addresses)
     # that exhaust instantly ("Resource pool lo-ip is empty").
     _LO_FREE="$(psql_count "SELECT count(*) FROM resource_pool WHERE name='lo-ip' AND allocated IS NULL;")"
     if (( _LO_FREE < HOST_COUNT * (1 + DPU_PER_HOST) )); then
@@ -1352,7 +1352,7 @@ info "machine_interfaces=${IFACES} (need ${NEED})  ips_allocated=${IPS}"
 # --- render gate: the fleet we asked for is the fleet we got ---------------
 # This script's sizing math is HOST_COUNT * (1 + DPU_PER_HOST), computed from
 # the environment and never checked against what Helm actually rendered. That
-# blind spot cost a week: the scale values file keyed its machine group
+# blind spot is expensive: if the scale values file keys its machine group
 # `compute` while this script appends `machines.dell-hosts`, and Helm merges by
 # key, so it ADDED a group instead of overriding one. Every run from Aug 15
 # built 9,000 hosts / 27,000 machines while logging "4500 hosts x 2 DPUs ->
