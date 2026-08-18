@@ -36,3 +36,12 @@ app.kubernetes.io/component: api
 {{- fail "keycloak and issuers are mutually exclusive — enable only one" -}}
 {{- end -}}
 {{- end -}}
+
+{{- define "nico-rest-api.validateExposure" -}}
+{{- if and .Values.ingress.enabled .Values.nodePort.enabled -}}
+{{- fail "nico-rest-api: ingress and nodePort cannot both be enabled; disable nodePort to avoid exposing plaintext HTTP alongside TLS ingress" -}}
+{{- end -}}
+{{- if and .Values.ingress.enabled (not .Values.ingress.hosts) -}}
+{{- fail "nico-rest-api: ingress.enabled requires at least one entry in ingress.hosts" -}}
+{{- end -}}
+{{- end -}}
