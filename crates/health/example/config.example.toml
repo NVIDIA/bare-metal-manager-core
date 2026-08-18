@@ -112,6 +112,11 @@ enabled = false
 [[sinks.otlp.targets]]
 endpoint = "http://localhost:4317"
 batch_size = 512
+# Maximum entries waiting in each of this target's independent log and metric
+# queues. The oldest entry is dropped when a full queue receives a new event
+# identity. Must be greater than zero. Default: 32768. Changes require a service
+# restart.
+queue_capacity = 32768
 flush_interval = "2s"
 
 # Include Redfish diagnostic payload fields in OTLP logs for this target.
@@ -132,6 +137,7 @@ include_alert_details = false
 # [[sinks.otlp.targets]]
 # endpoint = "https://telemetry.example.com:4317"
 # batch_size = 1024
+# queue_capacity = 32768
 # flush_interval = "5s"
 # include_diagnostics = true
 # include_alert_details = true

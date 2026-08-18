@@ -2460,6 +2460,13 @@ impl Forge for Api {
         crate::handlers::rack::on_demand_rack_maintenance(self, request).await
     }
 
+    async fn terminate_rack_maintenance(
+        &self,
+        request: Request<rpc::RackMaintenanceTerminateRequest>,
+    ) -> Result<Response<rpc::RackMaintenanceTerminateResponse>, Status> {
+        crate::handlers::rack::terminate_rack_maintenance(self, request).await
+    }
+
     async fn tpm_add_ca_cert(
         &self,
         request: Request<rpc::TpmCaCert>,

@@ -23487,7 +23487,10 @@ components:
     TaskRunEqualPhases:
       title: TaskRunEqualPhases
       type: object
-      description: Splits targets into `phaseCount` roughly equal phases.
+      description: |-
+        Splits targets into `phaseCount` roughly equal phases. The request is
+        rejected when `phaseCount` exceeds the number of selected targets,
+        because every configured phase must contain at least one target.
       required:
         - phaseCount
       properties:
@@ -23498,7 +23501,10 @@ components:
     TaskRunPercentagePhases:
       title: TaskRunPercentagePhases
       type: object
-      description: Splits targets by percentage. Values must sum to 100.
+      description: |-
+        Splits targets by percentage. Values must sum to 100. A configured
+        phase must resolve to at least one selected target after rounding or
+        the request is rejected.
       required:
         - phases
       properties:

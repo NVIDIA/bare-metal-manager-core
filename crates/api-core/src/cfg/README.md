@@ -75,9 +75,9 @@ Use `site_explorer.dpu_policy` instead.
 | `vpc_prefix_state_controller` | `VpcPrefixStateControllerConfig` | *(see below)* | `networking` | VPC prefix state controller timing. |
 | `ib_partition_state_controller` | `IbPartitionStateControllerConfig` | *(see below)* | `hardware` | IB partition state controller timing. |
 | `dpa_interface_state_controller` | `DpaInterfaceStateControllerConfig` | *(see below)* | `networking` | DPA interface state controller timing. |
-| `rack_state_controller` | `RackStateControllerConfig` | *(see below)* | `hardware` | Rack state controller timing and optional firmware update during ingestion. |
+| `rack_state_controller` | `RackStateControllerConfig` | *(see below)* | `hardware` | Rack state controller timing, optional ingestion firmware update, and primary-switch mTLS service selection. |
 | `power_shelf_state_controller` | `PowerShelfStateControllerConfig` | *(see below)* | `hardware` | Power shelf state controller timing and optional rack firmware reprovisioning. |
-| `switch_state_controller` | `SwitchStateControllerConfig` | *(see below)* | `hardware` | Switch state controller timing. |
+| `switch_state_controller` | `SwitchStateControllerConfig` | *(see below)* | `hardware` | Switch state controller timing and per-switch mTLS service selection. |
 | `spdm_state_controller` | `SpdmStateControllerConfig` | *(see below)* | `security` | SPDM state controller timing. |
 | `host_models` | `HashMap<String, Firmware>` | `{}` | `machines` | Maps host model identifiers to firmware definitions. |
 | `firmware_global` | `FirmwareGlobal` | *(see below)* | `machines` | Global firmware update settings (see [FirmwareGlobal](#firmwareglobal)). |
@@ -439,6 +439,37 @@ partition, DPA interface, rack, power shelf, switch, SPDM).
 | `processor_log_interval` | `Duration` | `60s` | How often the processor emits log messages. |
 | `metric_emission_interval` | `Duration` | `60s` | How often aggregate metrics are recalculated. |
 | `metric_hold_time` | `Duration` | `5m` | How long per-object metrics are held before eviction. |
+
+### `RackStateControllerConfig`
+
+TOML section: `[rack_state_controller]`.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `controller` | `StateControllerConfig` | *(default)* | Common state controller timing (see [StateControllerConfig](#statecontrollerconfig)). |
+| `nmx_cluster_switch_mtls_services` | `Vec<SwitchMtlsService>` | `scale_up_fabric_manager`, `scale_up_fabric_telemetry_interface` | mTLS certificate bindings applied to the primary switch before NMX cluster setup. A non-empty list replaces the default. Omission and `[]` both use the default. |
+
+### `SwitchStateControllerConfig`
+
+TOML section: `[switch_state_controller]`.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `controller` | `StateControllerConfig` | *(default)* | Common state controller timing (see [StateControllerConfig](#statecontrollerconfig)). |
+| `switch_mtls_services` | `Vec<SwitchMtlsService>` | all four values below | mTLS certificate bindings applied by the per-switch certificate workflow. A non-empty list replaces the default. Omission and `[]` both use the default. |
+
+Both settings accept the same service names:
+
+| Value | Switch endpoint |
+|-------|-----------------|
+| `nvue_api` | NVUE REST API |
+| `scale_up_fabric_telemetry` | NMX-T cluster application (`nmx-telemetry`) |
+| `scale_up_fabric_manager` | NMX-C cluster application (`nmx-controller`) |
+| `scale_up_fabric_telemetry_interface` | NVOS gNMI server mTLS configuration |
+
+These lists select server-side certificate bindings. They do not enable the
+underlying service. For workflow scope, see
+[Switch Certificate Configuration](../../../../docs/architecture/state_machines/switch_configure_certificate.md).
 
 ### `ObservabilityConfig`
 

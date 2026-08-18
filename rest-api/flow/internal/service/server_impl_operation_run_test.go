@@ -89,19 +89,38 @@ func TestCreateOperationRunReturnsManagerError(t *testing.T) {
 }
 
 func TestCreateOperationRunMapsManagerInvalidArgumentErrors(t *testing.T) {
-	manager := &mockOperationRunManager{
-		createErr: operationrunmanager.ErrNoPlannedTargets,
+	tests := []struct {
+		name    string
+		err     error
+		message string
+	}{
+		{
+			name:    "no planned targets",
+			err:     operationrunmanager.ErrNoPlannedTargets,
+			message: "operation run has no planned targets",
+		},
+		{
+			name:    "phase has no targets",
+			err:     operationrunmanager.ErrOperationRunInvalidPlan,
+			message: "operation run plan is invalid",
+		},
 	}
-	server := &FlowServerImpl{operationRunManager: manager}
 
-	resp, err := server.CreateOperationRun(
-		context.Background(),
-		validCreateOperationRunRequest(),
-	)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manager := &mockOperationRunManager{createErr: tt.err}
+			server := &FlowServerImpl{operationRunManager: manager}
 
-	require.Nil(t, resp)
-	require.Equal(t, codes.InvalidArgument, status.Code(err))
-	require.ErrorContains(t, err, "operation run has no planned targets")
+			resp, err := server.CreateOperationRun(
+				context.Background(),
+				validCreateOperationRunRequest(),
+			)
+
+			require.Nil(t, resp)
+			require.Equal(t, codes.InvalidArgument, status.Code(err))
+			require.ErrorContains(t, err, tt.message)
+		})
+	}
 }
 
 func TestCreateOperationRunPreservesManagerStatusError(t *testing.T) {

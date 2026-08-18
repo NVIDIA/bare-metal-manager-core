@@ -21,8 +21,8 @@ func TestNewTargetPhaseSummaryCombinesAggregateAndCurrentStats(t *testing.T) {
 	}
 	summary := NewTargetPhaseSummary(
 		1,
+		4,
 		TargetPhaseAggregate{
-			TotalPhases: 3,
 			CompletedPhaseStats: PhaseStats{
 				PhaseIndex:      0,
 				SelectedTargets: 2,
@@ -67,7 +67,6 @@ func TestTargetPhaseSummaryTerminalRunStatus(t *testing.T) {
 		{
 			name: "still active",
 			summary: TargetPhaseSummary{
-				TotalPhases: 2,
 				CurrentPhaseStats: PhaseStats{
 					PhaseIndex:      1,
 					SelectedTargets: 1,
@@ -79,9 +78,21 @@ func TestTargetPhaseSummaryTerminalRunStatus(t *testing.T) {
 			summary: TargetPhaseSummary{},
 		},
 		{
+			name: "current phase completed with later materialized phase",
+			summary: TargetPhaseSummary{
+				TotalPhases: 4,
+				CurrentPhaseStats: PhaseStats{
+					PhaseIndex:      1,
+					SelectedTargets: 1,
+					StatusCounts: TargetStatusCounts{
+						Completed: 1,
+					},
+				},
+			},
+		},
+		{
 			name: "all completed",
 			summary: TargetPhaseSummary{
-				TotalPhases: 1,
 				CurrentPhaseStats: PhaseStats{
 					SelectedTargets: 2,
 					StatusCounts: TargetStatusCounts{
@@ -95,7 +106,6 @@ func TestTargetPhaseSummaryTerminalRunStatus(t *testing.T) {
 		{
 			name: "completed with failures",
 			summary: TargetPhaseSummary{
-				TotalPhases: 1,
 				CurrentPhaseStats: PhaseStats{
 					SelectedTargets: 2,
 					StatusCounts: TargetStatusCounts{
@@ -110,7 +120,6 @@ func TestTargetPhaseSummaryTerminalRunStatus(t *testing.T) {
 		{
 			name: "all failed",
 			summary: TargetPhaseSummary{
-				TotalPhases: 1,
 				CurrentPhaseStats: PhaseStats{
 					SelectedTargets: 2,
 					StatusCounts: TargetStatusCounts{
@@ -190,10 +199,40 @@ func TestTargetPhaseSummaryCurrentPhaseNotStarted(t *testing.T) {
 	}
 }
 
+func TestTargetPhaseSummaryCurrentPhaseEmpty(t *testing.T) {
+	tests := []struct {
+		name    string
+		targets []*OperationRunTarget
+		want    bool
+	}{
+		{name: "empty", want: true},
+		{
+			name: "has target",
+			targets: []*OperationRunTarget{
+				{Status: OperationRunTargetStatusPending},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			summary := NewTargetPhaseSummary(
+				1,
+				2,
+				TargetPhaseAggregate{},
+				tt.targets,
+			)
+
+			require.Equal(t, tt.want, summary.CurrentPhaseEmpty())
+		})
+	}
+}
+
 func TestEvaluateSafetyGatesReturnsFirstTrippedGate(t *testing.T) {
 	summary := NewTargetPhaseSummary(
 		1,
-		TargetPhaseAggregate{TotalPhases: 2},
+		2,
+		TargetPhaseAggregate{},
 		[]*OperationRunTarget{
 			{
 				PhaseIndex: 1,

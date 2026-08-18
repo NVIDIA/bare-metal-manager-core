@@ -42,6 +42,7 @@ Print help (see a summary with -h)
 | Subcommand | Description |
 |---|---|
 | [`start`](./rack-maintenance-start.md) | Start on-demand rack maintenance (full rack or partial) |
+| [`terminate`](./rack-maintenance-terminate.md) | Terminate active rack maintenance and transition the rack to Error |
 
 ---
 

@@ -484,6 +484,32 @@ pub async fn clear_power_shelf_reprovisioning_requested(
     Ok(())
 }
 
+/// Clears a rack-owned reprovisioning request before the power shelf leaves
+/// `Ready`.
+///
+/// Returns whether the request was cleared. Once the power-shelf controller
+/// has started reprovisioning, it owns the request and unwinds it after
+/// observing the parent rack in `Error`.
+pub async fn clear_ready_power_shelf_reprovisioning_requested(
+    txn: &mut PgConnection,
+    power_shelf_id: PowerShelfId,
+    initiator: &str,
+) -> DatabaseResult<bool> {
+    let query = r#"UPDATE power_shelves
+        SET power_shelf_reprovisioning_requested = NULL
+        WHERE id = $1
+          AND controller_state->>'state' = 'ready'
+          AND power_shelf_reprovisioning_requested->>'initiator' = $2
+        RETURNING id"#;
+    let cleared = sqlx::query_as::<_, PowerShelfId>(query)
+        .bind(power_shelf_id)
+        .bind(initiator)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::new("clear_ready_power_shelf_reprovisioning_requested", e))?;
+    Ok(cleared.is_some())
+}
+
 /// Sets `firmware_upgrade_status` on the power shelf. Call from rack maintenance
 /// to report upgrade progress. `WaitingForRackFirmwareUpgrade` reads this:
 /// Completed → Ready, Failed → Error.
