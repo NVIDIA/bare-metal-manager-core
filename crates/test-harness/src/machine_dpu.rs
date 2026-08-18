@@ -162,27 +162,28 @@ async fn record_dpu_network_status(api: &Api, dpu_machine_id: MachineId) {
         network_config
             .tenant_interfaces
             .iter()
-            .map(
-                |iface| crate::rpc::forge::InstanceInterfaceStatusObservation {
+            .map(|iface| {
+                let observed_ipv6 = iface
+                    .ipv6_interface_config
+                    .as_ref()
+                    .filter(|ipv6| !ipv6.ip.is_empty());
+                crate::rpc::forge::InstanceInterfaceStatusObservation {
                     function_type: iface.function_type,
                     virtual_function_id: iface.virtual_function_id,
                     mac_address: None,
                     addresses: build_dual_stack_list(
                         iface.ip.clone(),
-                        iface.ipv6_interface_config.as_ref().map(|v6| v6.ip.clone()),
+                        observed_ipv6.map(|v6| v6.ip.clone()),
                     ),
                     prefixes: build_dual_stack_list(
                         iface.interface_prefix.clone(),
-                        iface
-                            .ipv6_interface_config
-                            .as_ref()
-                            .map(|v6| v6.interface_prefix.clone()),
+                        observed_ipv6.map(|v6| v6.interface_prefix.clone()),
                     ),
                     gateways: build_dual_stack_list(iface.gateway.clone(), None),
                     network_security_group: None,
                     internal_uuid: iface.internal_uuid.clone(),
-                },
-            )
+                }
+            })
             .collect()
     };
 

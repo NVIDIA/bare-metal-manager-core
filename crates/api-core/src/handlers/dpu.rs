@@ -26,6 +26,7 @@ use carbide_dpf::dpu_cr_name;
 use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_secrets::credentials::{BgpCredentialType, CredentialKey, Credentials};
 use carbide_utils::arch::CpuArchitecture;
+use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineId;
 use db::vpc_prefix::VpcId;
 use db::{
@@ -125,15 +126,21 @@ fn preferred_physical_ip(ip_addresses: impl IntoIterator<Item = IpAddr>) -> Opti
 
 /// `tenant_interface_fqdn` keeps the tenant's hostname intact when one was
 /// provided. Otherwise, the physical address becomes a valid DNS label through
-/// the same formatter used by IP-based host naming.
+/// the same formatter used by IP-based host naming. The caller passes no
+/// physical address only when the interface has a prefix but no address;
+/// `tenant_interface_fqdn` then uses the stable instance UUID.
 fn tenant_interface_fqdn(
     tenant_hostname: Option<&str>,
-    physical_ip: &IpAddr,
+    physical_ip: Option<&IpAddr>,
+    instance_id: &InstanceId,
     domain: &str,
 ) -> Result<String, DatabaseError> {
-    let hostname = match tenant_hostname {
-        Some(hostname) => hostname.to_string(),
-        None => db::host_naming::address_to_hostname(physical_ip)?,
+    let hostname = if let Some(hostname) = tenant_hostname {
+        hostname.to_string()
+    } else if let Some(physical_ip) = physical_ip {
+        db::host_naming::address_to_hostname(physical_ip)?
+    } else {
+        instance_id.to_string()
     };
 
     Ok(format!("{hostname}.{domain}"))
@@ -383,14 +390,15 @@ async fn get_managed_host_network_config_inner(
                 .into());
             };
 
-            let Some(physical_ip) =
-                preferred_physical_ip(physical_iface.ip_addrs.values().copied())
-            else {
+            let physical_ip = preferred_physical_ip(physical_iface.ip_addrs.values().copied());
+            let prefix_only =
+                physical_iface.ip_addrs.is_empty() && !physical_iface.interface_prefixes.is_empty();
+            if physical_ip.is_none() && !prefix_only {
                 return Err(CarbideError::internal(String::from(
                     "physical IP address not found",
                 ))
                 .into());
-            };
+            }
 
             // All interfaces have the segment id allocated. It is already validated during
             // instance creation.
@@ -479,7 +487,8 @@ async fn get_managed_host_network_config_inner(
                 };
                 let fqdn = tenant_interface_fqdn(
                     instance.config.tenant.hostname.as_deref(),
-                    &physical_ip,
+                    physical_ip.as_ref(),
+                    &instance.id,
                     &domain,
                 )?;
 
@@ -1537,7 +1546,7 @@ mod deny_prefix_tests {
 
 #[cfg(test)]
 mod tenant_fqdn_tests {
-    use carbide_test_support::Outcome::Yields;
+    use carbide_test_support::Outcome::*;
     use carbide_test_support::{scenarios, value_scenarios};
 
     use super::*;
@@ -1571,37 +1580,54 @@ mod tenant_fqdn_tests {
     fn tenant_fqdn_uses_the_configured_name_or_physical_address() {
         struct FqdnCase {
             tenant_hostname: Option<&'static str>,
-            physical_ip: IpAddr,
+            physical_ip: Option<IpAddr>,
         }
 
         let ipv4: IpAddr = "192.0.2.10".parse().unwrap();
         let ipv6: IpAddr = "2001:db8::10".parse().unwrap();
+        let instance_id = InstanceId::new();
 
         scenarios!(
             run = |FqdnCase {
                 tenant_hostname,
                 physical_ip,
-            }| tenant_interface_fqdn(tenant_hostname, &physical_ip, "tenant.example").map_err(drop);
-            "tenant-supplied hostname" {
+            }| tenant_interface_fqdn(
+                tenant_hostname,
+                physical_ip.as_ref(),
+                &instance_id,
+                "tenant.example",
+            ).map_err(drop);
+            "tenant-supplied hostname takes precedence over the address" {
                 FqdnCase {
                     tenant_hostname: Some("customer-host"),
-                    physical_ip: ipv6,
+                    physical_ip: Some(ipv6),
+                } => Yields("customer-host.tenant.example".to_string()),
+                FqdnCase {
+                    tenant_hostname: Some("customer-host"),
+                    physical_ip: None,
                 } => Yields("customer-host.tenant.example".to_string()),
             }
 
             "address-derived hostname" {
                 FqdnCase {
                     tenant_hostname: None,
-                    physical_ip: ipv4,
+                    physical_ip: Some(ipv4),
                 } => Yields("192-0-2-10.tenant.example".to_string()),
                 FqdnCase {
                     tenant_hostname: None,
-                    physical_ip: ipv6,
+                    physical_ip: Some(ipv6),
                 } => Yields(concat!(
                     "2001-0db8-0000-0000-0000-0000-0000-0010",
                     ".tenant.example"
                 )
                 .to_string()),
+            }
+
+            "stable instance fallback without a hostname or address" {
+                FqdnCase {
+                    tenant_hostname: None,
+                    physical_ip: None,
+                } => Yields(format!("{instance_id}.tenant.example")),
             }
         );
     }

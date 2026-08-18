@@ -403,9 +403,9 @@ struct NetworkAllocationTarget<'a> {
 
 /// Owned discovery results used by synchronous allocation planning.
 ///
-/// Candidate IDs are frozen before planning. Planning uses discovery-time VPC
-/// and explicit-prefix values; execution re-reads each selected prefix under
-/// lock before allocating from it.
+/// Candidate IDs are frozen before planning. Planning uses the VPCs and
+/// explicitly selected prefixes found during discovery; execution reads each
+/// selected prefix again under lock before allocating from it.
 struct PrefixAllocationContext {
     // Explicit selections verified to exist and be active at discovery time.
     explicit_prefixes: HashMap<VpcPrefixId, VpcPrefix>,
@@ -448,14 +448,17 @@ fn requested_families(mode: &InstanceInterfaceIpFamilyMode) -> &'static [Allocat
     }
 }
 
-/// Returns whether an interface still needs generated prefix-backed resources.
+/// Returns whether an interface still needs resources generated from a network
+/// prefix.
 fn interface_needs_prefix_allocation(
     interface: &model::instance::config::network::InstanceInterfaceConfig,
 ) -> bool {
-    // Preserve the existing update contract: allocated addresses identify a
-    // reused interface, while an unallocated prefix-backed interface must be
-    // resolved even if a caller supplied a stale network_segment_id value.
-    interface.ip_addrs.is_empty()
+    // Preserve the existing update contract: durable allocation results identify
+    // a reused interface, while an interface whose prefix is unresolved must
+    // be allocated even if a caller supplied a stale network_segment_id value.
+    // SLAAC intentionally has no IPv6 address, so its retained interface prefix
+    // is the durable resolution marker.
+    interface.ip_addrs.is_empty() && interface.interface_prefixes.is_empty()
 }
 
 /// Checks the owning VPC's declared support for an address family.
@@ -984,6 +987,15 @@ fn plan_prefix_allocations(
                     "requested IP address `{requested_ip_addr}` does not match VPC prefix `{primary_prefix_id}`",
                 )));
             }
+            if primary_vpc.config.slaac_enabled
+                && primary_family == AllocationAddressFamily::Ipv6
+                && let Some(requested_ip_addr) = interface.requested_ip_addr
+            {
+                return Err(CarbideError::InvalidArgument(format!(
+                    "requested IPv6 address `{requested_ip_addr}` is invalid because VPC `{}` has SLAAC enabled",
+                    primary_vpc.id,
+                )));
+            }
 
             let secondary_prefix = if let Some(ipv6) = &interface.ipv6_interface_config {
                 if primary_family != AllocationAddressFamily::Ipv4 {
@@ -1013,6 +1025,14 @@ fn plan_prefix_allocations(
                             primary_prefix.vpc_id, ipv6.vpc_prefix_id, prefix.vpc_id,
                         )),
                     ));
+                }
+                if primary_vpc.config.slaac_enabled
+                    && let Some(requested_ip_addr) = ipv6.requested_ip_addr
+                {
+                    return Err(CarbideError::InvalidArgument(format!(
+                        "requested IPv6 address `{requested_ip_addr}` is invalid because VPC `{}` has SLAAC enabled",
+                        primary_vpc.id,
+                    )));
                 }
                 Some(prefix)
             } else {
@@ -1079,7 +1099,7 @@ fn plan_prefix_allocations(
         {
             return Err(CarbideError::InvalidConfiguration(
                 ConfigValidationError::InvalidValue(format!(
-                    "interface config contains prefix-backed interfaces from multiple VPCs, which is only supported when all VPCs use FNN: {:?}",
+                    "interface config selects prefixes from multiple VPCs, which is only supported when all VPCs use FNN: {:?}",
                     target_vpc_ids
                         .iter()
                         .filter_map(|vpc_id| {
@@ -1240,7 +1260,8 @@ async fn execute_prefix_allocations(
     Ok(())
 }
 
-/// Validates and allocates every prefix-backed target in one canonical lock order.
+/// Validates and allocates every target that uses a network prefix in one
+/// canonical lock order.
 ///
 /// The function flattens batch work before any generated resource is created so
 /// caller order cannot influence the order in which prefix rows are locked.
@@ -1797,8 +1818,9 @@ pub(crate) async fn batch_allocate_instances(
         )
         .await?;
 
-    // Resolve every prefix-backed interface in canonical prefix-lock order while
-    // preserving caller order for the remaining per-instance processing.
+    // Resolve every interface that uses a network prefix in canonical prefix
+    // lock order while preserving caller order for the remaining processing
+    // for each instance.
     {
         let mut network_allocation_targets = requests
             .iter_mut()
@@ -2384,9 +2406,84 @@ pub(crate) fn allocate_spx_port_mac(
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases, value_scenarios};
+    use carbide_test_support::{Case, Check, check_cases, check_values, value_scenarios};
 
     use super::*;
+
+    #[test]
+    fn interface_needs_prefix_allocation_only_without_durable_results() {
+        struct AllocationState {
+            has_ip_address: bool,
+            has_interface_prefix: bool,
+        }
+
+        check_values(
+            [
+                Check {
+                    scenario: "no address or interface prefix needs allocation",
+                    input: AllocationState {
+                        has_ip_address: false,
+                        has_interface_prefix: false,
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "an allocated address is durable",
+                    input: AllocationState {
+                        has_ip_address: true,
+                        has_interface_prefix: false,
+                    },
+                    expect: false,
+                },
+                Check {
+                    scenario: "an allocated interface prefix is durable",
+                    input: AllocationState {
+                        has_ip_address: false,
+                        has_interface_prefix: true,
+                    },
+                    expect: false,
+                },
+                Check {
+                    scenario: "an allocated address and interface prefix are durable",
+                    input: AllocationState {
+                        has_ip_address: true,
+                        has_interface_prefix: true,
+                    },
+                    expect: false,
+                },
+            ],
+            |AllocationState {
+                 has_ip_address,
+                 has_interface_prefix,
+             }| {
+                let mut interface =
+                    InstanceNetworkConfig::for_vpc_prefix_id(VpcPrefixId::new(), None)
+                        .interfaces
+                        .into_iter()
+                        .next()
+                        .unwrap();
+                let network_prefix_id = carbide_uuid::network::NetworkPrefixId::new();
+
+                if has_ip_address {
+                    interface
+                        .ip_addrs
+                        .insert(network_prefix_id, "192.0.2.10".parse().unwrap());
+                }
+                if has_interface_prefix {
+                    let interface_prefix = if has_ip_address {
+                        "192.0.2.10/32"
+                    } else {
+                        "2001:db8::/127"
+                    };
+                    interface
+                        .interface_prefixes
+                        .insert(network_prefix_id, interface_prefix.parse().unwrap());
+                }
+
+                interface_needs_prefix_allocation(&interface)
+            },
+        );
+    }
 
     #[test]
     fn instance_creation_power_profile_semantics() {

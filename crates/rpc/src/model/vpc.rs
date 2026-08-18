@@ -83,6 +83,7 @@ impl From<Vpc> for rpc::forge::Vpc {
                 routing_profile_type: src.config.routing_profile_type.clone(),
                 routing_profile_overrides,
                 power_resource_group: src.config.power_resource_group.clone(),
+                slaac_enabled: Some(src.config.slaac_enabled),
             }),
             status: Some(rpc::forge::VpcStatus::from(src.status)),
 
@@ -271,6 +272,7 @@ impl TryFrom<rpc::forge::VpcCreationRequest> for NewVpc {
             power_resource_group: value
                 .power_resource_group
                 .filter(|resource_group| !resource_group.is_empty()),
+            slaac_enabled: value.slaac_enabled.unwrap_or(false),
             network_virtualization_type: virt_type,
             metadata,
         })
@@ -408,6 +410,7 @@ mod tests {
                 routing_profile_type: Some("EXTERNAL".to_string()),
                 routing_profile_overrides: None,
                 power_resource_group: Some("tenant-1".to_string()),
+                slaac_enabled: true,
             },
             status: VpcStatus { vni: Some(100) },
             metadata: Metadata::new_with_default_name(),
@@ -429,6 +432,7 @@ mod tests {
         assert_eq!(config.vni, Some(42));
         assert_eq!(config.routing_profile_type.as_deref(), Some("EXTERNAL"));
         assert_eq!(config.power_resource_group.as_deref(), Some("tenant-1"));
+        assert_eq!(config.slaac_enabled, Some(true));
         assert_eq!(
             config.network_virtualization_type,
             Some(rpc::forge::VpcVirtualizationType::Fnn as i32)
@@ -447,6 +451,26 @@ mod tests {
             Some(rpc::forge::VpcVirtualizationType::Fnn as i32)
         );
         assert_eq!(status.vni, rpc_vpc.deprecated_vni);
+    }
+
+    #[test]
+    fn vpc_to_rpc_reports_slaac_presence() {
+        value_scenarios!(
+            run = |slaac_enabled| {
+                let mut vpc = sample_vpc();
+                vpc.config.slaac_enabled = slaac_enabled;
+                rpc::forge::Vpc::from(vpc)
+                    .config
+                    .expect("config must be set")
+                    .slaac_enabled
+            };
+            "enabled" {
+                true => Some(true),
+            }
+            "disabled" {
+                false => Some(false),
+            }
+        );
     }
 
     fn vpc_update_request(power_resource_group: Option<&str>) -> rpc::forge::VpcUpdateRequest {
@@ -502,6 +526,30 @@ mod tests {
             }
             "omitted resource group remains unset" {
                 None => None,
+            }
+        );
+    }
+
+    #[test]
+    fn vpc_creation_slaac_presence_semantics() {
+        value_scenarios!(
+            run = |slaac_enabled| {
+                NewVpc::try_from(rpc::forge::VpcCreationRequest {
+                    tenant_organization_id: "tenant-1".to_string(),
+                    slaac_enabled,
+                    ..Default::default()
+                })
+                .expect("creation request should be valid")
+                .slaac_enabled
+            };
+            "enabled explicitly" {
+                Some(true) => true,
+            }
+            "disabled explicitly" {
+                Some(false) => false,
+            }
+            "omission defaults to disabled" {
+                None => false,
             }
         );
     }
