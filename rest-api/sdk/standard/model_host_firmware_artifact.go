@@ -148,7 +148,6 @@ func (o *HostFirmwareArtifact) UnmarshalJSON(data []byte) (err error) {
 	varHostFirmwareArtifact := _HostFirmwareArtifact{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varHostFirmwareArtifact)
 
 	if err != nil {

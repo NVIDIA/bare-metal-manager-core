@@ -222,7 +222,6 @@ func (o *ActionConfig) UnmarshalJSON(data []byte) (err error) {
 	varActionConfig := _ActionConfig{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varActionConfig)
 
 	if err != nil {

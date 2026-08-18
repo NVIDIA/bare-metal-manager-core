@@ -237,7 +237,6 @@ func (o *TaskRunFirmwareOperation) UnmarshalJSON(data []byte) (err error) {
 	varTaskRunFirmwareOperation := _TaskRunFirmwareOperation{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varTaskRunFirmwareOperation)
 
 	if err != nil {

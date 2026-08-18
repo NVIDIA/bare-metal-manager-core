@@ -313,7 +313,6 @@ func (o *SubnetCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	varSubnetCreateRequest := _SubnetCreateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varSubnetCreateRequest)
 
 	if err != nil {

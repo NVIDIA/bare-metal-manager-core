@@ -389,7 +389,6 @@ func (o *SequenceStep) UnmarshalJSON(data []byte) (err error) {
 	varSequenceStep := _SequenceStep{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varSequenceStep)
 
 	if err != nil {

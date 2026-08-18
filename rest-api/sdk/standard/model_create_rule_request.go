@@ -263,7 +263,6 @@ func (o *CreateRuleRequest) UnmarshalJSON(data []byte) (err error) {
 	varCreateRuleRequest := _CreateRuleRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varCreateRuleRequest)
 
 	if err != nil {

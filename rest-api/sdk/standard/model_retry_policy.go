@@ -206,7 +206,6 @@ func (o *RetryPolicy) UnmarshalJSON(data []byte) (err error) {
 	varRetryPolicy := _RetryPolicy{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varRetryPolicy)
 
 	if err != nil {

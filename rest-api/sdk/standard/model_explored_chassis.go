@@ -334,7 +334,6 @@ func (o *ExploredChassis) UnmarshalJSON(data []byte) (err error) {
 	varExploredChassis := _ExploredChassis{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varExploredChassis)
 
 	if err != nil {

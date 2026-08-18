@@ -336,7 +336,6 @@ func (o *NetworkSecurityGroupCreateRequest) UnmarshalJSON(data []byte) (err erro
 	varNetworkSecurityGroupCreateRequest := _NetworkSecurityGroupCreateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varNetworkSecurityGroupCreateRequest)
 
 	if err != nil {

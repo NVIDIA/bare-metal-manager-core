@@ -188,7 +188,6 @@ func (o *NVLinkLogicalPartitionCreateRequest) UnmarshalJSON(data []byte) (err er
 	varNVLinkLogicalPartitionCreateRequest := _NVLinkLogicalPartitionCreateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varNVLinkLogicalPartitionCreateRequest)
 
 	if err != nil {

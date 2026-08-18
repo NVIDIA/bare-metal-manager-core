@@ -147,7 +147,6 @@ func (o *TaskRunOperation) UnmarshalJSON(data []byte) (err error) {
 	varTaskRunOperation := _TaskRunOperation{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varTaskRunOperation)
 
 	if err != nil {

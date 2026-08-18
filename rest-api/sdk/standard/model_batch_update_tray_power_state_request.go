@@ -255,7 +255,6 @@ func (o *BatchUpdateTrayPowerStateRequest) UnmarshalJSON(data []byte) (err error
 	varBatchUpdateTrayPowerStateRequest := _BatchUpdateTrayPowerStateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varBatchUpdateTrayPowerStateRequest)
 
 	if err != nil {

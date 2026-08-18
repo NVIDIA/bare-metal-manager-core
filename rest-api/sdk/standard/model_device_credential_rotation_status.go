@@ -439,7 +439,6 @@ func (o *DeviceCredentialRotationStatus) UnmarshalJSON(data []byte) (err error) 
 	varDeviceCredentialRotationStatus := _DeviceCredentialRotationStatus{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varDeviceCredentialRotationStatus)
 
 	if err != nil {

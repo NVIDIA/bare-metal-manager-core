@@ -351,7 +351,6 @@ func (o *OperationRule) UnmarshalJSON(data []byte) (err error) {
 	varOperationRule := _OperationRule{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varOperationRule)
 
 	if err != nil {

@@ -111,7 +111,6 @@ func (o *DpuExtensionServiceObservabilityLogging) UnmarshalJSON(data []byte) (er
 	varDpuExtensionServiceObservabilityLogging := _DpuExtensionServiceObservabilityLogging{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varDpuExtensionServiceObservabilityLogging)
 
 	if err != nil {

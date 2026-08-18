@@ -320,7 +320,6 @@ func (o *DpuExtensionServiceCreateRequest) UnmarshalJSON(data []byte) (err error
 	varDpuExtensionServiceCreateRequest := _DpuExtensionServiceCreateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varDpuExtensionServiceCreateRequest)
 
 	if err != nil {

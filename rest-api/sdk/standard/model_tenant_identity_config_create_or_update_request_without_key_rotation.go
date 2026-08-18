@@ -325,7 +325,6 @@ func (o *TenantIdentityConfigCreateOrUpdateRequestWithoutKeyRotation) UnmarshalJ
 	varTenantIdentityConfigCreateOrUpdateRequestWithoutKeyRotation := _TenantIdentityConfigCreateOrUpdateRequestWithoutKeyRotation{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varTenantIdentityConfigCreateOrUpdateRequestWithoutKeyRotation)
 
 	if err != nil {
