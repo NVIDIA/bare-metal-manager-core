@@ -6,6 +6,7 @@ package nicoapi
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,8 +19,12 @@ import (
 type recordingForgeClient struct {
 	corev1.ForgeClient
 
+	mu              sync.Mutex
 	runtimeConfig   *corev1.RuntimeConfig
 	versionErr      error
+	versionErrors   []error
+	versionDelay    time.Duration
+	switchDelay     time.Duration
 	versionRequests []*corev1.VersionRequest
 	machineIDs      []string
 	machineBatches  [][]string
@@ -30,15 +35,32 @@ type recordingForgeClient struct {
 }
 
 func (c *recordingForgeClient) Version(
-	_ context.Context,
+	ctx context.Context,
 	request *corev1.VersionRequest,
 	_ ...grpc.CallOption,
 ) (*corev1.BuildInfo, error) {
+	c.mu.Lock()
 	c.versionRequests = append(c.versionRequests, request)
-	if c.versionErr != nil {
-		return nil, c.versionErr
+	call := len(c.versionRequests)
+	err := c.versionErr
+	if call <= len(c.versionErrors) {
+		err = c.versionErrors[call-1]
 	}
-	return &corev1.BuildInfo{BuildVersion: "test", RuntimeConfig: c.runtimeConfig}, nil
+	delay := c.versionDelay
+	config := c.runtimeConfig
+	c.mu.Unlock()
+
+	if delay > 0 {
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &corev1.BuildInfo{BuildVersion: "test", RuntimeConfig: config}, nil
 }
 
 func (c *recordingForgeClient) FindMachineIds(
@@ -54,15 +76,19 @@ func (c *recordingForgeClient) FindMachinesByIds(
 	request *corev1.MachinesByIdsRequest,
 	_ ...grpc.CallOption,
 ) (*corev1.MachineList, error) {
-	batch := machineIDsToStrings(request.GetMachineIds())
+	batch := protoIDsToStrings(request.GetMachineIds())
+	c.mu.Lock()
 	c.machineBatches = append(c.machineBatches, batch)
-	if c.failCall == len(c.machineBatches) {
+	failed := c.failCall == len(c.machineBatches)
+	omitID := c.omitID
+	c.mu.Unlock()
+	if failed {
 		return nil, errors.New("injected machine lookup failure")
 	}
 
 	machines := make([]*corev1.Machine, 0, len(batch))
 	for _, id := range batch {
-		if id != c.omitID {
+		if id != omitID {
 			machines = append(machines, &corev1.Machine{Id: &corev1.MachineId{Id: id}})
 		}
 	}
@@ -70,19 +96,31 @@ func (c *recordingForgeClient) FindMachinesByIds(
 }
 
 func (c *recordingForgeClient) FindSwitchesByIds(
-	_ context.Context,
+	ctx context.Context,
 	request *corev1.SwitchesByIdsRequest,
 	_ ...grpc.CallOption,
 ) (*corev1.SwitchList, error) {
-	batch := switchIDsToStrings(request.GetSwitchIds())
+	batch := protoIDsToStrings(request.GetSwitchIds())
+	c.mu.Lock()
 	c.switchBatches = append(c.switchBatches, batch)
-	if c.failCall == len(c.switchBatches) {
+	failed := c.failCall == len(c.switchBatches)
+	omitID := c.omitID
+	delay := c.switchDelay
+	c.mu.Unlock()
+	if delay > 0 {
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	if failed {
 		return nil, errors.New("injected switch lookup failure")
 	}
 
 	switches := make([]*corev1.Switch, 0, len(batch))
 	for _, id := range batch {
-		if id != c.omitID {
+		if id != omitID {
 			nvosIP := "ip-" + id
 			switches = append(switches, &corev1.Switch{
 				Id:              &corev1.SwitchId{Id: id},
@@ -100,15 +138,19 @@ func (c *recordingForgeClient) FindPowerShelvesByIds(
 	request *corev1.PowerShelvesByIdsRequest,
 	_ ...grpc.CallOption,
 ) (*corev1.PowerShelfList, error) {
-	batch := powerShelfIDsToStrings(request.GetPowerShelfIds())
+	batch := protoIDsToStrings(request.GetPowerShelfIds())
+	c.mu.Lock()
 	c.shelfBatches = append(c.shelfBatches, batch)
-	if c.failCall == len(c.shelfBatches) {
+	failed := c.failCall == len(c.shelfBatches)
+	omitID := c.omitID
+	c.mu.Unlock()
+	if failed {
 		return nil, errors.New("injected power shelf lookup failure")
 	}
 
 	shelves := make([]*corev1.PowerShelf, 0, len(batch))
 	for _, id := range batch {
-		if id != c.omitID {
+		if id != omitID {
 			shelves = append(shelves, &corev1.PowerShelf{
 				Id:              &corev1.PowerShelfId{Id: id},
 				RackId:          &corev1.RackId{Id: "rack-" + id},
@@ -284,4 +326,87 @@ func TestGrpcClient_ByIDLookupsRejectPartialResults(t *testing.T) {
 			assert.Nil(t, result)
 		})
 	}
+}
+
+func TestGrpcClient_ByIDLookupsCacheSuccessfulCoreLimit(t *testing.T) {
+	fake := &recordingForgeClient{
+		runtimeConfig: &corev1.RuntimeConfig{MaxFindByIds: 2},
+	}
+	client := newRecordingGRPCClient(fake)
+
+	_, err := client.FindSwitchRackIDs(context.Background(), []string{"s1", "s2", "s3"})
+	require.NoError(t, err)
+	_, err = client.FindPowerShelfRackIDs(context.Background(), []string{"p1", "p2", "p3"})
+	require.NoError(t, err)
+
+	require.Len(t, fake.versionRequests, 1, "all resource lookups must share the cached Core limit")
+}
+
+func TestGrpcClient_ByIDLookupsRetryFailedCoreLimitLoad(t *testing.T) {
+	fake := &recordingForgeClient{
+		runtimeConfig: &corev1.RuntimeConfig{MaxFindByIds: 2},
+		versionErrors: []error{
+			errors.New("transient Version failure"),
+			nil,
+		},
+	}
+	client := newRecordingGRPCClient(fake)
+
+	result, err := client.FindSwitchRackIDs(context.Background(), []string{"a", "b", "c"})
+	require.ErrorContains(t, err, "transient Version failure")
+	assert.Nil(t, result)
+
+	result, err = client.FindSwitchRackIDs(context.Background(), []string{"a", "b", "c"})
+	require.NoError(t, err)
+	assert.Len(t, result, 3)
+	require.Len(t, fake.versionRequests, 2, "a failed limit load must not be cached")
+}
+
+func TestGrpcClient_ByIDLookupsCoalesceConcurrentCoreLimitLoads(t *testing.T) {
+	fake := &recordingForgeClient{
+		runtimeConfig: &corev1.RuntimeConfig{MaxFindByIds: 2},
+		versionDelay:  20 * time.Millisecond,
+	}
+	client := newRecordingGRPCClient(fake)
+
+	const callers = 8
+	start := make(chan struct{})
+	errs := make(chan error, callers)
+	var wg sync.WaitGroup
+	for range callers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, err := client.FindSwitchRackIDs(context.Background(), []string{"a", "b", "c"})
+			errs <- err
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		require.NoError(t, err)
+	}
+	require.Len(t, fake.versionRequests, 1, "concurrent first lookups must share one Version RPC")
+}
+
+// One public lookup deadline covers the limit discovery and every batch. If
+// earlier RPCs consume that budget, a later batch fails the whole lookup and
+// no partial result is returned.
+func TestGrpcClient_ByIDLookupsFailWithoutPartialResultWhenDeadlineStarvesLaterBatch(t *testing.T) {
+	fake := &recordingForgeClient{
+		runtimeConfig: &corev1.RuntimeConfig{MaxFindByIds: 1},
+		versionDelay:  10 * time.Millisecond,
+		switchDelay:   15 * time.Millisecond,
+	}
+	client := newRecordingGRPCClient(fake)
+	client.grpcTimeout = 35 * time.Millisecond
+
+	result, err := client.FindSwitchRackIDs(context.Background(), []string{"a", "b", "c"})
+
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Nil(t, result)
+	assert.Less(t, len(fake.switchBatches), 3, "the exhausted operation deadline must prevent all batches from completing")
 }
