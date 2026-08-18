@@ -10196,48 +10196,6 @@ paths:
         Org must have an Infrastructure Provider entity and own the Site that
         the Machine belongs to. User must have authorization role with
         `PROVIDER_ADMIN` suffix.
-    delete:
-      summary: Delete a decommissioned managed host
-      tags:
-        - Machine
-      responses:
-        '204':
-          description: The decommissioned managed host and its attached DPUs were permanently removed. Site Explorer and DHCP suppressions were deleted.
-        '400':
-          $ref: '#/components/responses/ValidationError'
-        '403':
-          $ref: '#/components/responses/ForbiddenError'
-        '404':
-          $ref: '#/components/responses/NotFoundError'
-        '412':
-          description: The Machine has not completed Core decommissioning.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/NICoAPIError'
-        '500':
-          $ref: '#/components/responses/GenericHttpError'
-        '503':
-          description: Core is unavailable.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/NICoAPIError'
-        '504':
-          description: The Core proxy request timed out.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/NICoAPIError'
-      operationId: delete-decommissioned-managed-host
-      description: |-
-        Permanently remove a managed host after Core has reached its terminal
-        `Decommissioned` state. This also removes the managed host's attached
-        DPUs, credentials, and Site Explorer and DHCP suppression entries.
-
-        Org must have an Infrastructure Provider entity and own the Site that
-        the Machine belongs to. User must have authorization role with
-        `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/machine/{machineId}/validation/run':
     parameters:
       - schema:

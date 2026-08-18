@@ -192,8 +192,7 @@ fn parse_reset_host_reprovisioning() {
     );
 }
 
-// decommission and delete-decommissioned accept exactly one managed-host id
-// and route to their distinct lifecycle operations.
+// decommission accepts exactly one managed-host id.
 #[test]
 fn parse_decommission_lifecycle_commands() {
     scenarios!(
@@ -201,9 +200,6 @@ fn parse_decommission_lifecycle_commands() {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
                     Cmd::Decommission(args) => ("decommission", args.machine_id.to_string()),
-                    Cmd::DeleteDecommissioned(args) => {
-                        ("delete-decommissioned", args.machine_id.to_string())
-                    }
                     _ => panic!("expected managed-host decommission lifecycle command"),
                 })
                 .map_err(drop)
@@ -211,11 +207,6 @@ fn parse_decommission_lifecycle_commands() {
         "start decommissioning" {
             &["managed-host", "decommission", TEST_MACHINE_ID][..] =>
                 Yields(("decommission", TEST_MACHINE_ID.to_string())),
-        }
-
-        "permanently delete after decommissioning" {
-            &["managed-host", "delete-decommissioned", TEST_MACHINE_ID][..] =>
-                Yields(("delete-decommissioned", TEST_MACHINE_ID.to_string())),
         }
     );
 }

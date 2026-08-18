@@ -17,7 +17,6 @@
 
 mod debug_bundle;
 mod decommission;
-mod delete_decommissioned;
 mod maintenance;
 mod power_options;
 mod quarantine;
@@ -68,6 +67,4 @@ pub(crate) enum Cmd {
     DebugBundle(debug_bundle::Args),
     #[clap(about = "Start decommissioning a managed host")]
     Decommission(decommission::Args),
-    #[clap(about = "Permanently delete a decommissioned managed host")]
-    DeleteDecommissioned(delete_decommissioned::Args),
 }

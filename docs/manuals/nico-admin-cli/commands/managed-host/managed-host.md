@@ -50,7 +50,6 @@ Print help (see a summary with -h)
 | [`set-primary-dpu`](./managed-host-set-primary-dpu.md) | Set the primary DPU for the managed host |
 | [`debug-bundle`](./managed-host-debug-bundle.md) | Download debug bundle with logs for a specific host |
 | [`decommission`](./managed-host-decommission.md) | Start decommissioning a managed host |
-| [`delete-decommissioned`](./managed-host-delete-decommissioned.md) | Permanently delete a decommissioned managed host |
 
 ---
 

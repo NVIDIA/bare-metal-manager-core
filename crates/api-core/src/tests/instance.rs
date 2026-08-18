@@ -3395,6 +3395,8 @@ async fn test_auto_vpc_prefix_selection_force_delete_marks_generated_segment_del
             delete_bmc_interfaces: false,
             delete_bmc_credentials: false,
             allow_delete_with_orphaned_dpf_crds: false,
+            delete_bmc_suppressions: false,
+            delete_retained_boot_interfaces: false,
         }))
         .await
         .unwrap()

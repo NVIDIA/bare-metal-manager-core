@@ -17,9 +17,8 @@
 
 use ::rpc::forge as rpc;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
-use model::bmc_suppression::BmcSuppressionSubsystem;
+use model::machine::ManagedHostState;
 use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{DecommissioningState, ManagedHostState};
 use model::machine_boot_interface::{
     MachineBootInterface, MachineBootInterfaceTarget, canonical_redfish_boot_interface_id,
 };
@@ -123,133 +122,6 @@ pub(crate) async fn decommission_managed_host(
     }
 
     Ok(Response::new(rpc::DecommissionManagedHostResponse {}))
-}
-
-pub(crate) async fn delete_decommissioned_managed_host(
-    api: &Api,
-    request: Request<rpc::DeleteDecommissionedManagedHostRequest>,
-) -> Result<Response<rpc::DeleteDecommissionedManagedHostResponse>, Status> {
-    log_request_data(&request);
-    let request = request.into_inner();
-    let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
-    if machine_id.machine_type().is_dpu() {
-        return Err(CarbideError::InvalidArgument(format!(
-            "machine {machine_id} is a DPU, not a managed host"
-        ))
-        .into());
-    }
-
-    let mut txn = api.txn_begin().await?;
-    let host = db::machine::find_one(
-        &mut txn,
-        &machine_id,
-        MachineSearchConfig {
-            for_update: true,
-            ..Default::default()
-        },
-    )
-    .await?
-    .ok_or_else(|| CarbideError::NotFoundError {
-        kind: "managed host",
-        id: machine_id.to_string(),
-    })?;
-    if !matches!(
-        host.current_state(),
-        ManagedHostState::Decommissioning {
-            decommissioning_state: DecommissioningState::Decommissioned,
-        }
-    ) {
-        return Err(CarbideError::FailedPrecondition(format!(
-            "managed host {machine_id} must be in the terminal decommissioned state before deletion (current state: {})",
-            host.current_state()
-        ))
-        .into());
-    }
-    let dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &machine_id).await?;
-    let machines = std::iter::once(&host).chain(&dpus).collect::<Vec<_>>();
-    let bmc_macs = machines
-        .iter()
-        .filter_map(|machine| machine.status.bmc_info.mac)
-        .collect::<Vec<_>>();
-    let machine_ids = machines
-        .iter()
-        .map(|machine| machine.id)
-        .collect::<Vec<_>>();
-
-    db::machine_interface::lock_all_admin_segments(&mut txn).await?;
-
-    let oob_macs = db::machine_interface::find_by_machine_ids(&mut txn, &machine_ids)
-        .await?
-        .into_values()
-        .flatten()
-        .filter(|interface| interface.network_segment_type == Some(NetworkSegmentType::Underlay))
-        .map(|interface| interface.mac_address)
-        .collect::<Vec<_>>();
-    let dhcp_suppression_macs = bmc_macs.iter().copied().chain(oob_macs).collect::<Vec<_>>();
-
-    // Remove BMC interfaces, including those not projected into Machine.status.interfaces.
-    for machine in &machines {
-        if let Some(bmc_ip) = machine.status.bmc_info.ip {
-            db::machine_interface::delete_by_ip(&mut txn, bmc_ip).await?;
-        }
-        if let Some(bmc_mac) = machine.status.bmc_info.mac {
-            db::retained_boot_interface::take_by_mac(&mut txn, bmc_mac, None).await?;
-        }
-        for interface in &machine.status.interfaces {
-            db::machine_interface::delete(&interface.id, &mut txn).await?;
-            db::retained_boot_interface::take_by_mac(&mut txn, interface.mac_address, None).await?;
-        }
-    }
-
-    for dpu in &dpus {
-        db::vpc_dpu_loopback::delete_and_deallocate(&api.common_pools, &dpu.id, &mut txn, true)
-            .await?;
-        if let Some(loopback_ip) = dpu.network_config.loopback_ip {
-            db::resource_pool::release(
-                &api.common_pools.ethernet.pool_loopback_ip,
-                &mut txn,
-                loopback_ip,
-            )
-            .await?;
-        }
-        if let Some(loopback_ip_v6) = db::resource_pool::find_owned_allocation(
-            &api.common_pools.ethernet.pool_loopback_ip_v6,
-            &mut txn,
-            model::resource_pool::OwnerType::Machine,
-            &dpu.id.to_string(),
-        )
-        .await
-        .map_err(CarbideError::from)?
-        {
-            db::resource_pool::release(
-                &api.common_pools.ethernet.pool_loopback_ip_v6,
-                &mut txn,
-                loopback_ip_v6,
-            )
-            .await?;
-        }
-        if let Some(asn) = dpu.asn {
-            db::resource_pool::release(&api.common_pools.ethernet.pool_fnn_asn, &mut txn, asn)
-                .await?;
-        }
-        db::network_devices::dpu_to_network_device_map::delete(&mut txn, &dpu.id).await?;
-        db::machine::force_cleanup(&mut txn, &dpu.id).await?;
-    }
-    db::machine::force_cleanup(&mut txn, &host.id).await?;
-
-    db::bmc_suppression::delete_many(&mut txn, &bmc_macs, BmcSuppressionSubsystem::SiteExplorer)
-        .await?;
-    db::bmc_suppression::delete_many(
-        &mut txn,
-        &dhcp_suppression_macs,
-        BmcSuppressionSubsystem::Dhcp,
-    )
-    .await?;
-
-    txn.commit().await?;
-    Ok(Response::new(
-        rpc::DeleteDecommissionedManagedHostResponse {},
-    ))
 }
 
 /// Identifies the row directly or through the DPU attached to it.

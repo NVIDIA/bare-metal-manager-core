@@ -25,10 +25,12 @@ use carbide_redfish::libredfish::RedfishAuth;
 use carbide_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 use carbide_uuid::machine::MachineId;
 use libredfish::SystemPowerControl;
+use model::bmc_suppression::BmcSuppressionSubsystem;
 use model::hardware_info::MachineNvLinkInfo;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{LoadSnapshotOptions, Machine, ManagedHostState, ManagedHostStateSnapshot};
 use model::metadata::Metadata;
+use model::network_segment::NetworkSegmentType;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -369,6 +371,36 @@ async fn force_delete_cleanup_txn(
     // BMC-typed interfaces that `force_cleanup` still row-locks.
     db::machine_interface::lock_all_admin_segments(&mut txn).await?;
 
+    let machines = host_machine
+        .iter()
+        .copied()
+        .chain(dpu_machines.iter())
+        .collect::<Vec<_>>();
+    let bmc_macs = machines
+        .iter()
+        .filter_map(|machine| machine.status.bmc_info.mac)
+        .collect::<Vec<_>>();
+    // Collect underlay MACs before interface rows are deleted so DHCP
+    // suppression cleanup still sees them when `delete_bmc_suppressions` is set.
+    let dhcp_suppression_macs = if request.delete_bmc_suppressions {
+        let machine_ids = machines
+            .iter()
+            .map(|machine| machine.id)
+            .collect::<Vec<_>>();
+        let oob_macs = db::machine_interface::find_by_machine_ids(&mut txn, &machine_ids)
+            .await?
+            .into_values()
+            .flatten()
+            .filter(|interface| {
+                interface.network_segment_type == Some(NetworkSegmentType::Underlay)
+            })
+            .map(|interface| interface.mac_address)
+            .collect::<Vec<_>>();
+        bmc_macs.iter().copied().chain(oob_macs).collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+
     // Clean up the explored tables next, in site-explorer's write order
     // (`explored_managed_hosts`, then each machine topology and its
     // `explored_endpoints` row, then interface rows), so this delete and a
@@ -384,10 +416,9 @@ async fn force_delete_cleanup_txn(
         db::explored_managed_host::delete_by_host_bmc_addr(&mut txn, addr).await?;
     }
 
-    let mut machines_by_bmc_ip = host_machine
+    let mut machines_by_bmc_ip = machines
         .iter()
         .copied()
-        .chain(dpu_machines.iter())
         .filter_map(|machine| machine.status.bmc_info.ip.map(|address| (address, machine)))
         .collect::<Vec<_>>();
     // Any transaction touching multiple explored_endpoints needs to sort them the same way to avoid
@@ -510,6 +541,35 @@ async fn force_delete_cleanup_txn(
             }
             response.dpu_interfaces_deleted = true;
         }
+    }
+
+    // Optional permanent wipe: drop retained boot pairs written by interface
+    // deletes above (and any leftover BMC MAC entries).
+    if request.delete_retained_boot_interfaces {
+        for machine in &machines {
+            if let Some(bmc_mac) = machine.status.bmc_info.mac {
+                db::retained_boot_interface::take_by_mac(&mut txn, bmc_mac, None).await?;
+            }
+            for interface in &machine.status.interfaces {
+                db::retained_boot_interface::take_by_mac(&mut txn, interface.mac_address, None)
+                    .await?;
+            }
+        }
+    }
+
+    if request.delete_bmc_suppressions {
+        db::bmc_suppression::delete_many(
+            &mut txn,
+            &bmc_macs,
+            BmcSuppressionSubsystem::SiteExplorer,
+        )
+        .await?;
+        db::bmc_suppression::delete_many(
+            &mut txn,
+            &dhcp_suppression_macs,
+            BmcSuppressionSubsystem::Dhcp,
+        )
+        .await?;
     }
 
     txn.commit().await?;

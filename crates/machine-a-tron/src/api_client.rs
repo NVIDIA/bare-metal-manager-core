@@ -330,6 +330,8 @@ impl ApiClient {
                 delete_bmc_interfaces: true,
                 delete_bmc_credentials: false,
                 allow_delete_with_orphaned_dpf_crds: false,
+                delete_bmc_suppressions: false,
+                delete_retained_boot_interfaces: false,
             })
             .await
             .map_err(ClientApiError::InvocationError)

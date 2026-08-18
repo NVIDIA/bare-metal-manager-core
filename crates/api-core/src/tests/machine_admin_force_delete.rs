@@ -397,6 +397,8 @@ async fn test_admin_force_delete_orders_locks_against_exploration(pool: sqlx::Pg
             delete_bmc_interfaces: true,
             delete_bmc_credentials: false,
             allow_delete_with_orphaned_dpf_crds: false,
+            delete_bmc_suppressions: false,
+            delete_retained_boot_interfaces: false,
         }))
         .await
     });
@@ -478,6 +480,8 @@ async fn test_admin_force_delete_orders_endpoint_locks_by_address(pool: sqlx::Pg
             delete_bmc_interfaces: false,
             delete_bmc_credentials: false,
             allow_delete_with_orphaned_dpf_crds: false,
+            delete_bmc_suppressions: false,
+            delete_retained_boot_interfaces: false,
         }))
         .await
     });
@@ -551,6 +555,8 @@ async fn test_admin_force_delete_orders_topology_before_endpoint(pool: sqlx::PgP
             delete_bmc_interfaces: false,
             delete_bmc_credentials: false,
             allow_delete_with_orphaned_dpf_crds: false,
+            delete_bmc_suppressions: false,
+            delete_retained_boot_interfaces: false,
         }))
         .await
     });
@@ -615,6 +621,8 @@ async fn force_delete(
             delete_bmc_interfaces: false,
             delete_bmc_credentials: false,
             allow_delete_with_orphaned_dpf_crds: false,
+            delete_bmc_suppressions: false,
+            delete_retained_boot_interfaces: false,
         }))
         .await
         .unwrap()
@@ -1059,6 +1067,8 @@ async fn test_admin_force_delete_with_instance_type(pool: sqlx::PgPool) {
             delete_bmc_interfaces: false,
             delete_bmc_credentials: false,
             allow_delete_with_orphaned_dpf_crds: false,
+            delete_bmc_suppressions: false,
+            delete_retained_boot_interfaces: false,
         }))
         .await
         .unwrap_err();
@@ -1221,6 +1231,8 @@ async fn test_admin_force_delete_retains_boot_interface_ids(pool: sqlx::PgPool) 
             delete_bmc_interfaces: false,
             delete_bmc_credentials: false,
             allow_delete_with_orphaned_dpf_crds: false,
+            delete_bmc_suppressions: false,
+            delete_retained_boot_interfaces: false,
         }))
         .await
         .unwrap()
@@ -1243,6 +1255,92 @@ async fn test_admin_force_delete_retains_boot_interface_ids(pool: sqlx::PgPool) 
             .unwrap()
             .as_deref(),
         Some("NIC.Slot.5-1"),
+    );
+    txn.rollback().await.unwrap();
+}
+
+/// Clearing suppressions and retained boot pairs is opt-in so the default
+/// force-delete path still leaves rediscovery suppressions and boot-target
+/// memory intact. With both flags set (plus interface deletes), the wipe
+/// matches a permanent removal that expects a clean rediscovery.
+#[crate::sqlx_test]
+async fn test_admin_force_delete_clears_suppressions_and_retained_boot(pool: sqlx::PgPool) {
+    use model::bmc_suppression::{BmcSuppressionSubsystem, NewBmcSuppression};
+
+    let env = create_test_env(pool).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host_machine = db::machine::find_one(
+        txn.as_mut(),
+        &host_machine_id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let boot_mac = host_machine.status.interfaces[0].mac_address;
+    let bmc_mac = host_machine.status.bmc_info.mac.expect("host has BMC MAC");
+    db::machine_interface::set_boot_interface_id(boot_mac, "NIC.Slot.5-1", txn.as_mut())
+        .await
+        .unwrap();
+    db::bmc_suppression::upsert(
+        txn.as_mut(),
+        &NewBmcSuppression {
+            bmc_mac_address: bmc_mac,
+            subsystem: BmcSuppressionSubsystem::SiteExplorer,
+            reason: "test".to_string(),
+        },
+    )
+    .await
+    .unwrap();
+    db::bmc_suppression::upsert(
+        txn.as_mut(),
+        &NewBmcSuppression {
+            bmc_mac_address: bmc_mac,
+            subsystem: BmcSuppressionSubsystem::Dhcp,
+            reason: "test".to_string(),
+        },
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    let response = env
+        .api
+        .admin_force_delete_machine(tonic::Request::new(AdminForceDeleteMachineRequest {
+            host_query: host_machine_id.to_string(),
+            delete_interfaces: true,
+            delete_bmc_interfaces: true,
+            delete_bmc_credentials: false,
+            allow_delete_with_orphaned_dpf_crds: false,
+            delete_bmc_suppressions: true,
+            delete_retained_boot_interfaces: true,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(response.all_done);
+    assert!(response.host_interfaces_deleted);
+
+    let mut txn = env.pool.begin().await.unwrap();
+    assert!(
+        db::bmc_suppression::find(txn.as_mut(), bmc_mac, BmcSuppressionSubsystem::SiteExplorer)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        db::bmc_suppression::find(txn.as_mut(), bmc_mac, BmcSuppressionSubsystem::Dhcp)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        db::retained_boot_interface::find_by_mac(txn.as_mut(), boot_mac, None)
+            .await
+            .unwrap()
+            .is_none()
     );
     txn.rollback().await.unwrap();
 }

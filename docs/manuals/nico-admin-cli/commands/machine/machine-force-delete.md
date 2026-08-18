@@ -12,6 +12,8 @@ nico-admin-cli-machine-force-delete - Force delete a machine
 \[**-d**\|**--delete-interfaces**\]
 \[**-b**\|**--delete-bmc-interfaces**\]
 \[**-c**\|**--delete-bmc-credentials**\]
+\[**--delete-bmc-suppressions**\]
+\[**--delete-retained-boot-interfaces**\]
 \[**--allow-delete-with-instance**\]
 \[**--allow-delete-with-orphaned-dpf-crds**\] \[**--extended**\]
 \[**--sort-by**\] \[**-h**\|**--help**\]
@@ -34,6 +36,15 @@ Delete BMC interfaces. Redeploy kea after deleting machine interfaces.
 **-c**, **--delete-bmc-credentials**  
 Delete BMC credentials. Only applicable if site explorer has configured
 credentials for the BMCs associated with this managed host.
+
+**--delete-bmc-suppressions**  
+Delete Site Explorer and DHCP BMC suppressions for the host/DPU BMC MACs
+and underlay (OOB) MACs so rediscovery is not skipped.
+
+**--delete-retained-boot-interfaces**  
+Delete retained boot-interface pairs for the host/DPU BMC and interface
+MACs. Without this, deleted interfaces keep their boot targets for
+re-ingestion.
 
 **--allow-delete-with-instance**  
 Delete machine with allocated instance. This flag acknowledges
@@ -68,6 +79,7 @@ Print help (see a summary with -h)
 ```sh
 nico-admin-cli machine force-delete --machine 12345678-1234-5678-90ab-cdef01234567
 nico-admin-cli machine force-delete --machine 12345678-1234-5678-90ab-cdef01234567 --delete-interfaces
+nico-admin-cli machine force-delete --machine 12345678-1234-5678-90ab-cdef01234567 --delete-interfaces --delete-bmc-interfaces --delete-bmc-suppressions --delete-retained-boot-interfaces
 ```
 
 ---

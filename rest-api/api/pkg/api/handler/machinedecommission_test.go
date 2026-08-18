@@ -29,13 +29,12 @@ import (
 )
 
 type decommissionManagedHostFixture struct {
-	dbSession     *cdb.Session
-	org           string
-	machineID     string
-	user          interface{}
-	handler       echo.HandlerFunc
-	deleteHandler echo.HandlerFunc
-	proxiedReq    *grpcproxy.Request
+	dbSession  *cdb.Session
+	org        string
+	machineID  string
+	user       interface{}
+	handler    echo.HandlerFunc
+	proxiedReq *grpcproxy.Request
 }
 
 func newDecommissionManagedHostFixture(t *testing.T) decommissionManagedHostFixture {
@@ -75,16 +74,14 @@ func newDecommissionManagedHostFixture(t *testing.T) decommissionManagedHostFixt
 	clientPool := sc.NewClientPool(nil)
 	clientPool.IDClientMap[site.ID.String()] = temporalClient
 	handler := NewDecommissionManagedHostHandler(dbSession, clientPool, common.GetTestConfig())
-	deleteHandler := NewDeleteDecommissionedManagedHostHandler(dbSession, clientPool, common.GetTestConfig())
 
 	return decommissionManagedHostFixture{
-		dbSession:     dbSession,
-		org:           org,
-		machineID:     machine.ID,
-		user:          user,
-		handler:       handler.Handle,
-		deleteHandler: deleteHandler.Handle,
-		proxiedReq:    proxiedReq,
+		dbSession:  dbSession,
+		org:        org,
+		machineID:  machine.ID,
+		user:       user,
+		handler:    handler.Handle,
+		proxiedReq: proxiedReq,
 	}
 }
 
@@ -150,17 +147,4 @@ func TestDecommissionManagedHostHandlerRejectsMissingMachine(t *testing.T) {
 	recorder := fixture.request(t, http.MethodPost, fixture.handler)
 	assert.Equal(t, http.StatusBadRequest, recorder.Code)
 	assert.Empty(t, fixture.proxiedReq.FullMethod)
-}
-
-func TestDeleteDecommissionedManagedHostHandlerProxiesRequest(t *testing.T) {
-	fixture := newDecommissionManagedHostFixture(t)
-
-	recorder := fixture.request(t, http.MethodDelete, fixture.deleteHandler)
-	assert.Equal(t, http.StatusNoContent, recorder.Code)
-	assert.Empty(t, recorder.Body.String())
-	assert.Equal(t, corev1.Forge_DeleteDecommissionedManagedHost_FullMethodName, fixture.proxiedReq.FullMethod)
-
-	var coreRequest corev1.DeleteDecommissionedManagedHostRequest
-	require.NoError(t, protojson.Unmarshal(fixture.proxiedReq.RequestJSON, &coreRequest))
-	assert.Equal(t, fixture.machineID, coreRequest.GetMachineId().GetId())
 }
