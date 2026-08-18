@@ -1711,7 +1711,7 @@ jobs:
       # Subcharts (nico-flow, nico-machine-a-tron, unbound, etc) disabled by default
       # must be listed explicitly - umbrella chart tests skip them.
       - name: Run Helm unit tests
-        uses: d3adb5/helm-unittest-action@v2
+        uses: d3adb5/helm-unittest-action@850bc76597579183998069830d5fa8c3ef0ea34a  # v2
         with:
           unittest-version: ~1
           charts: >-
