@@ -2669,29 +2669,31 @@ pub(crate) async fn get_component_firmware_status(
                     })
                     .collect();
 
-                let backend_statuses = cm
-                    .compute_tray
-                    .get_firmware_status(&resolved.resolved.endpoints)
-                    .await
-                    .map_err(component_manager_error_to_status)?;
-                statuses.extend(backend_statuses.into_iter().map(|s| {
-                    let id = resolved
-                        .resolved
-                        .ip_to_machine_id
-                        .get(&s.bmc_ip)
-                        .map(|id| id.to_string())
-                        .unwrap_or_else(|| s.bmc_ip.to_string());
-                    rpc::FirmwareUpdateStatus {
-                        result: Some(if s.error.is_none() {
-                            success_result(&id)
-                        } else {
-                            error_result(&id, s.error.unwrap_or_default())
-                        }),
-                        state: map_fw_state(s.state),
-                        target_version: s.target_version,
-                        updated_at: None,
-                    }
-                }));
+                if !resolved.resolved.endpoints.is_empty() {
+                    let backend_statuses = cm
+                        .compute_tray
+                        .get_firmware_status(&resolved.resolved.endpoints)
+                        .await
+                        .map_err(component_manager_error_to_status)?;
+                    statuses.extend(backend_statuses.into_iter().map(|s| {
+                        let id = resolved
+                            .resolved
+                            .ip_to_machine_id
+                            .get(&s.bmc_ip)
+                            .map(|id| id.to_string())
+                            .unwrap_or_else(|| s.bmc_ip.to_string());
+                        rpc::FirmwareUpdateStatus {
+                            result: Some(if s.error.is_none() {
+                                success_result(&id)
+                            } else {
+                                error_result(&id, s.error.unwrap_or_default())
+                            }),
+                            state: map_fw_state(s.state),
+                            target_version: s.target_version,
+                            updated_at: None,
+                        }
+                    }));
+                }
                 statuses
             } else {
                 machine_firmware_statuses(api, &list.machine_ids).await?
@@ -4091,8 +4093,7 @@ mod tests {
             password: "secret".into(),
         });
 
-        let resolved =
-            resolve_compute_tray_endpoints_from_machines(&creds, &machines, &[id]).await;
+        let resolved = resolve_compute_tray_endpoints_from_machines(&creds, &machines, &[id]).await;
         assert!(resolved.unresolved.is_empty());
 
         let cm = MockComputeTrayManager;
