@@ -53,7 +53,7 @@ func AllCommands() []Command {
 		{Name: "instance list", Description: "List all instances", Run: cmdInstanceList},
 		{Name: "instance get", Description: "Get instance details", Run: cmdInstanceGet},
 		{Name: "instance create", Description: "Create an instance on a machine", Run: cmdInstanceCreate},
-		{Name: "instance update", Description: "Update an instance (rename, change OS, rotate ssh key groups, trigger reboot)", Run: cmdInstanceUpdate},
+		{Name: "instance update", Description: "Update an instance (rename, change OS, rotate ssh key groups)", Run: cmdInstanceUpdate},
 		{Name: "instance reboot", Description: "Reboot an instance, optionally with custom iPXE / pending updates", Run: cmdInstanceReboot},
 		{Name: "instance delete", Description: "Delete an instance", Run: cmdInstanceDelete},
 
@@ -2866,20 +2866,14 @@ func promptOptionalResourceIDs(s *Session, ctx context.Context, resourceType, si
 	}
 }
 
-// instanceUpdateInputs collects the optional fields exposed by the TUI
-// instance update form. Extracted so cmdInstanceUpdate stays linear and
-// cmdInstanceReboot can drive a stripped-down version of the same flow.
-type instanceUpdateInputs struct {
-	name                 string
-	description          string
-	osID                 string
-	sshKeyGroupIDs       []string
-	triggerReboot        bool
-	rebootWithCustomIpxe bool
-	applyUpdatesOnReboot bool
+type instanceAttributeUpdateInputs struct {
+	name           string
+	description    string
+	osID           string
+	sshKeyGroupIDs []string
 }
 
-func (u instanceUpdateInputs) toBody() map[string]interface{} {
+func (u instanceAttributeUpdateInputs) attributeBody() map[string]interface{} {
 	body := map[string]interface{}{}
 	if strings.TrimSpace(u.name) != "" {
 		body["name"] = strings.TrimSpace(u.name)
@@ -2893,14 +2887,21 @@ func (u instanceUpdateInputs) toBody() map[string]interface{} {
 	if len(u.sshKeyGroupIDs) > 0 {
 		body["sshKeyGroupIds"] = u.sshKeyGroupIDs
 	}
-	if u.triggerReboot {
-		body["triggerReboot"] = true
-		if u.rebootWithCustomIpxe {
-			body["rebootWithCustomIpxe"] = true
-		}
-		if u.applyUpdatesOnReboot {
-			body["applyUpdatesOnReboot"] = true
-		}
+	return body
+}
+
+type instanceRebootInputs struct {
+	rebootWithCustomIpxe bool
+	applyUpdatesOnReboot bool
+}
+
+func (u instanceRebootInputs) rebootBody() map[string]interface{} {
+	body := map[string]interface{}{"triggerReboot": true}
+	if u.rebootWithCustomIpxe {
+		body["rebootWithCustomIpxe"] = true
+	}
+	if u.applyUpdatesOnReboot {
+		body["applyUpdatesOnReboot"] = true
 	}
 	return body
 }
@@ -2911,7 +2912,7 @@ func cmdInstanceUpdate(s *Session, args []string) error {
 	if err != nil {
 		return err
 	}
-	inputs := instanceUpdateInputs{}
+	inputs := instanceAttributeUpdateInputs{}
 	inputs.name, err = PromptText("New name (optional)", false)
 	if err != nil {
 		return err
@@ -2946,22 +2947,7 @@ func cmdInstanceUpdate(s *Session, args []string) error {
 		}
 	}
 
-	inputs.triggerReboot, err = PromptConfirm("Trigger reboot now?")
-	if err != nil {
-		return err
-	}
-	if inputs.triggerReboot {
-		inputs.rebootWithCustomIpxe, err = PromptConfirm("Reboot with custom iPXE (one-time)?")
-		if err != nil {
-			return err
-		}
-		inputs.applyUpdatesOnReboot, err = PromptConfirm("Apply pending updates on reboot?")
-		if err != nil {
-			return err
-		}
-	}
-
-	body := inputs.toBody()
+	body := inputs.attributeBody()
 	if len(body) == 0 {
 		return fmt.Errorf("no updates provided")
 	}
@@ -2977,6 +2963,7 @@ func cmdInstanceUpdate(s *Session, args []string) error {
 	var updated map[string]interface{}
 	json.Unmarshal(resp, &updated)
 	fmt.Printf("%s Instance updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
+	fmt.Fprintf(os.Stderr, "%s run `instance reboot` when ready\n", Dim("note:"))
 	return nil
 }
 
@@ -2999,11 +2986,10 @@ func cmdInstanceReboot(s *Session, args []string) error {
 		return err
 	}
 
-	body := instanceUpdateInputs{
-		triggerReboot:        true,
+	body := instanceRebootInputs{
 		rebootWithCustomIpxe: rebootWithCustomIpxe,
 		applyUpdatesOnReboot: applyUpdatesOnReboot,
-	}.toBody()
+	}.rebootBody()
 
 	LogCmd(s, "instance", "update", item.ID, "--trigger-reboot=true")
 	bodyJSON, _ := json.Marshal(body)

@@ -406,6 +406,47 @@ func TestSpecializedCommand_StructuredAPIErrorsRemainActionable(t *testing.T) {
 	assert.NotContains(t, output, "metadata unavailable")
 }
 
+func TestCmdInstanceUpdate_SendsAttributeOnlyPatch(t *testing.T) {
+	var requestCount atomic.Int32
+	requests := make(chan specializedRequestSnapshot, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount.Add(1)
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		requests <- specializedRequestSnapshot{
+			method: r.Method,
+			path:   r.URL.Path,
+			body:   string(body),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"instance-1","name":"new-name"}`)
+	}))
+	defer server.Close()
+
+	session := NewSession(
+		appcli.NewClient(server.URL, "acme", "token", nil, false),
+		"acme",
+		"",
+	)
+	session.Cache.Set("instance", []NamedItem{{Name: "instance-one", ID: "instance-1"}})
+	session.Cache.Set("operating-system", []NamedItem{})
+
+	output, runErr := runSpecializedCommandWithInput(t, "new-name\n\nn\n", func() error {
+		return specializedRegressionCommand(t, "instance update").Run(session, []string{"instance-1"})
+	})
+
+	require.NoError(t, runErr)
+	request := <-requests
+	assert.Equal(t, int32(1), requestCount.Load())
+	assert.Equal(t, http.MethodPatch, request.method)
+	assert.Equal(t, "/v2/org/acme/nico/instance/instance-1", request.path)
+	assert.JSONEq(t, `{"name":"new-name"}`, request.body)
+	assert.Contains(t, output, "Instance updated: new-name (instance-1)")
+}
+
 func specializedRegressionCommand(t *testing.T, name string) Command {
 	t.Helper()
 	for _, command := range AllCommands() {
