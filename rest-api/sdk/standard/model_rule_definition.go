@@ -22,7 +22,7 @@ import (
 // checks if the RuleDefinition type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &RuleDefinition{}
 
-// RuleDefinition Executable definition of a rule. Mirrors Flow's wire schema 1:1 so existing YAML rule files can be converted to JSON without any key renaming (nested fields use `snake_case`).
+// RuleDefinition Executable definition of a rule. Structurally identical to Flow's own rule schema, so an existing YAML rule file maps across field for field. The fields declared here use `camelCase` (`componentType`, `mainOperation`, `pollInterval`) rather than the `snake_case` of Flow's YAML; keys inside the free-form `parameters` map pass through unchanged and stay `snake_case` (`expected_status`, `component_types`).
 type RuleDefinition struct {
 	// Schema version. Currently always `v1`.
 	Version string `json:"version"`

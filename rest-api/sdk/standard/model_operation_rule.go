@@ -33,7 +33,7 @@ type OperationRule struct {
 	Description *string `json:"description,omitempty"`
 	// Type of operation this rule applies to. Immutable after creation.
 	OperationType string `json:"operationType"`
-	// Operation code within the operation type (e.g. `power_on`, `power_off`, `upgrade`). Server-side validated against Flow's allow-list for the type. Immutable after creation.
+	// Operation code within the operation type. For `PowerControl`, accepted values are `power_on`, `force_power_on`, `power_off`, `force_power_off`, `restart`, `force_restart`, `warm_reset`, and `cold_reset`. For `FirmwareControl`, accepted values are `upgrade`, `downgrade`, and `rollback`. The server validates the code against the selected type. Immutable after creation.
 	OperationCode  string         `json:"operationCode"`
 	RuleDefinition RuleDefinition `json:"ruleDefinition"`
 	// Whether this rule is currently the default for its `(operationType, operationCode)` tuple.

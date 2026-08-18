@@ -30,7 +30,7 @@ type TaskRunFirmwareOperation struct {
 	RuleId NullableString `json:"ruleId,omitempty"`
 	// Skip the pre-flight readiness check when true.
 	OverrideReadinessCheck *bool `json:"overrideReadinessCheck,omitempty"`
-	// Optional subset of firmware sub-targets to update.
+	// Optional subset of firmware sub-parts to update within each targeted tray, using the same lowercase names as the Tray firmware endpoint's `targets` (e.g. `bmc`, `bios`). Omitted or empty means update everything in the bundle. Unknown names are rejected.
 	SubTargets []string `json:"subTargets,omitempty"`
 }
 
