@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	dbquery "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/query"
+	inventoryresolver "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/resolver"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
 	operationrun "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun"
 	identifier "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/Identifier"
@@ -204,43 +205,32 @@ func (l *InventoryTargetLookup) targetsFromNVLDomainSpec(
 	ctx context.Context,
 	domainTargets []operation.NVLDomainTarget,
 ) ([]operation.RackExecutionTarget, error) {
+	rackTargets, err := inventoryresolver.ResolveNVLDomainRackTargets(
+		ctx,
+		l.inventory,
+		domainTargets,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	targets := make([]operation.RackExecutionTarget, 0)
-	for domainIndex, domainTarget := range domainTargets {
-		domainRacks, err := l.inventory.GetRacksForNVLDomain(ctx, domainTarget.Identifier)
+	for rackIndex, rackTarget := range rackTargets {
+		r, err := l.inventory.GetRackByIdentifier(
+			ctx,
+			rackTarget.Identifier,
+			true,
+		)
 		if err != nil {
-			return nil, fmt.Errorf("NVLink domain target %d: %w", domainIndex, err)
+			return nil, fmt.Errorf("NVLink domain rack target %d: %w", rackIndex, err)
 		}
 
-		for rackIndex, domainRack := range domainRacks {
-			if domainRack == nil || domainRack.Info.ID == uuid.Nil {
-				return nil, fmt.Errorf(
-					"NVLink domain target %d rack %d has no ID",
-					domainIndex,
-					rackIndex,
-				)
-			}
-
-			r, err := l.inventory.GetRackByIdentifier(
-				ctx,
-				identifier.Identifier{ID: domainRack.Info.ID},
-				true,
-			)
-			if err != nil {
-				return nil, fmt.Errorf(
-					"NVLink domain target %d rack %d: %w",
-					domainIndex,
-					rackIndex,
-					err,
-				)
-			}
-
-			target, ok := executionTargetFromRack(
-				r,
-				componentFilterFromTypes(domainTarget.ComponentTypes),
-			)
-			if ok {
-				targets = append(targets, target)
-			}
+		target, ok := executionTargetFromRack(
+			r,
+			componentFilterFromTypes(rackTarget.ComponentTypes),
+		)
+		if ok {
+			targets = append(targets, target)
 		}
 	}
 

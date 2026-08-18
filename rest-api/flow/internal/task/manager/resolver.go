@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	inventoryresolver "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/resolver"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
 	identifier "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/Identifier"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
@@ -57,30 +58,13 @@ func resolveNVLDomainTargetSpec(
 	fetcher TargetFetcher,
 	targets []operation.NVLDomainTarget,
 ) (map[uuid.UUID]*rack.Rack, error) {
-	rackTargets := make([]operation.RackTarget, 0)
-	for _, target := range targets {
-		domainRacks, err := fetcher.GetRacksForNVLDomain(ctx, target.Identifier)
-		if err != nil {
-			return nil, fmt.Errorf(
-				"failed to resolve NVLink domain target %+v: %w",
-				target.Identifier,
-				err,
-			)
-		}
-
-		for rackIndex, domainRack := range domainRacks {
-			if domainRack == nil || domainRack.Info.ID == uuid.Nil {
-				return nil, fmt.Errorf(
-					"NVLink domain target %+v rack %d has no ID",
-					target.Identifier,
-					rackIndex,
-				)
-			}
-			rackTargets = append(rackTargets, operation.RackTarget{
-				Identifier:     identifier.Identifier{ID: domainRack.Info.ID},
-				ComponentTypes: target.ComponentTypes,
-			})
-		}
+	rackTargets, err := inventoryresolver.ResolveNVLDomainRackTargets(
+		ctx,
+		fetcher,
+		targets,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve NVLink domain targets: %w", err)
 	}
 
 	return resolveRackTargetSpec(ctx, fetcher, rackTargets)

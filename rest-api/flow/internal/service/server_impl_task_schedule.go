@@ -23,9 +23,9 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/converter/protobuf"
 	dbmodel "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/model"
 	dbquery "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/query"
+	inventoryresolver "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/resolver"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
 	taskschedule "github.com/NVIDIA/infra-controller/rest-api/flow/internal/scheduler/taskschedule"
-	identifier "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/Identifier"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 	pb "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/proto/v1"
 )
@@ -909,30 +909,13 @@ func (rs *FlowServerImpl) resolveNVLDomainScope(
 	ctx context.Context,
 	domains []operation.NVLDomainTarget,
 ) ([]*dbmodel.TaskScheduleScope, error) {
-	rackTargets := make([]operation.RackTarget, 0)
-	for domainIndex, domain := range domains {
-		domainRacks, err := rs.inventoryManager.GetRacksForNVLDomain(ctx, domain.Identifier)
-		if err != nil {
-			return nil, fmt.Errorf(
-				"target_spec.nvl_domains[%d]: resolve NVLink domain: %w",
-				domainIndex,
-				err,
-			)
-		}
-
-		for rackIndex, domainRack := range domainRacks {
-			if domainRack == nil || domainRack.Info.ID == uuid.Nil {
-				return nil, fmt.Errorf(
-					"target_spec.nvl_domains[%d].racks[%d] has no ID",
-					domainIndex,
-					rackIndex,
-				)
-			}
-			rackTargets = append(rackTargets, operation.RackTarget{
-				Identifier:     identifier.Identifier{ID: domainRack.Info.ID},
-				ComponentTypes: domain.ComponentTypes,
-			})
-		}
+	rackTargets, err := inventoryresolver.ResolveNVLDomainRackTargets(
+		ctx,
+		rs.inventoryManager,
+		domains,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("target_spec.nvl_domains: %w", err)
 	}
 
 	return rs.resolveRackScope(ctx, rackTargets)

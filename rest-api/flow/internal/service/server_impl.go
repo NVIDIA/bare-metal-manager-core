@@ -24,7 +24,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/converter/protobuf"
 	dbquery "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/query"
 	inventorymanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/manager"
-
+	inventoryresolver "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/resolver"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
 	operationrunmanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun/manager"
 	taskschedule "github.com/NVIDIA/infra-controller/rest-api/flow/internal/scheduler/taskschedule"
@@ -1922,32 +1922,20 @@ func (rs *FlowServerImpl) extractComponentsFromTargetSpec(
 		components = append(components, resolved...)
 	}
 
-	for _, dt := range spec.NVLDomains {
-		domainRacks, err := rs.inventoryManager.GetRacksForNVLDomain(ctx, dt.Identifier)
+	domainRackTargets, err := inventoryresolver.ResolveNVLDomainRackTargets(
+		ctx,
+		rs.inventoryManager,
+		spec.NVLDomains,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve NVLink domain targets: %w", err)
+	}
+	for _, rackTarget := range domainRackTargets {
+		resolved, err := rs.resolveRackTarget(ctx, rackTarget)
 		if err != nil {
-			return nil, fmt.Errorf(
-				"failed to resolve NVLink domain target %+v: %w",
-				dt.Identifier,
-				err,
-			)
+			return nil, err
 		}
-		for rackIndex, domainRack := range domainRacks {
-			if domainRack == nil || domainRack.Info.ID == uuid.Nil {
-				return nil, fmt.Errorf(
-					"NVLink domain target %+v rack %d has no ID",
-					dt.Identifier,
-					rackIndex,
-				)
-			}
-			resolved, err := rs.resolveRackTarget(ctx, operation.RackTarget{
-				Identifier:     identifier.Identifier{ID: domainRack.Info.ID},
-				ComponentTypes: dt.ComponentTypes,
-			})
-			if err != nil {
-				return nil, err
-			}
-			components = append(components, resolved...)
-		}
+		components = append(components, resolved...)
 	}
 
 	for _, ct := range spec.Components {
@@ -1961,7 +1949,8 @@ func (rs *FlowServerImpl) extractComponentsFromTargetSpec(
 	uniqueComponents := make([]*component.Component, 0, len(components))
 	seenComponentIDs := make(map[uuid.UUID]struct{}, len(components))
 	for _, comp := range components {
-		if _, exists := seenComponentIDs[comp.Info.ID]; exists {
+		_, exists := seenComponentIDs[comp.Info.ID]
+		if exists {
 			continue
 		}
 		seenComponentIDs[comp.Info.ID] = struct{}{}
