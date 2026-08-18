@@ -1091,7 +1091,15 @@ impl MainLoop {
                         })
                         .await
                     }
-                    Some(nvue_context) => health::nvue_api_health(&nvue_context.nvue_client).await,
+                    Some(nvue_context) => {
+                        health::nvue::NvueHealthCheck {
+                            nvue_client: &nvue_context.nvue_client,
+                            min_healthy_links: conf.min_dpu_functioning_links.unwrap_or(2) as usize,
+                            hbn_device_names: &self.hbn_device_names,
+                        }
+                        .health_check()
+                        .await
+                    }
                 };
                 is_healthy = !health_report.successes.is_empty() && health_report.alerts.is_empty();
                 self.is_hbn_up = health::is_up(&health_report);
