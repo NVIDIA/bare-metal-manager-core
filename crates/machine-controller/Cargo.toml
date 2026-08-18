@@ -93,6 +93,7 @@ tokio-util = { workspace = true }
 tonic = { workspace = true }
 
 [build-dependencies]
+carbide-proto-compiler = { path = "../proto-compiler" }
 tonic-prost-build = "0.14"
 
 [lints]

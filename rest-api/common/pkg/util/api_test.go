@@ -55,6 +55,43 @@ func TestNewAPIErrorResponse(t *testing.T) {
 	}
 }
 
+// TestAPIErrorUnwrapAndDiagnosis pins the split between the two accessors:
+// Unwrap reports a missing cause as nil, because the errors package walks it
+// without detecting a cycle, and Diagnosis is where the fallback to the
+// APIError itself belongs.
+func TestAPIErrorUnwrapAndDiagnosis(t *testing.T) {
+	cause := errors.New("flow rejected the request")
+
+	tests := []struct {
+		name            string
+		apiError        *APIError
+		expectedUnwrap  error
+		expectedLogged  string
+		expectedMatches bool
+	}{
+		{
+			name:            "cause recorded",
+			apiError:        NewAPIError(http.StatusInternalServerError, "Failed to get Rack details", cause),
+			expectedUnwrap:  cause,
+			expectedLogged:  "flow rejected the request",
+			expectedMatches: true,
+		},
+		{
+			name:           "cause folded into the message",
+			apiError:       NewAPIError(http.StatusNotFound, "Rack not found", nil),
+			expectedUnwrap: nil,
+			expectedLogged: "Rack not found",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expectedUnwrap, tt.apiError.Unwrap())
+			assert.Equal(t, tt.expectedLogged, tt.apiError.Diagnosis().Error())
+			assert.Equal(t, tt.expectedMatches, errors.Is(tt.apiError, cause))
+		})
+	}
+}
+
 func TestDefaultHTTPErrorHandler(t *testing.T) {
 	type args struct {
 		err error

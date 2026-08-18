@@ -42,3 +42,10 @@ POST /v2/org/{org}/nico/expected-machine/batch the `items/defaultBmcUsername` re
 PATCH /v2/org/{org}/nico/expected-machine/{expectedMachineId} the `chassisSerialNumber` request property's maxLength was decreased to `32`
 PATCH /v2/org/{org}/nico/expected-machine/{expectedMachineId} the `defaultBmcPassword` request property's maxLength was decreased to `20`
 PATCH /v2/org/{org}/nico/expected-machine/{expectedMachineId} the `defaultBmcUsername` request property's maxLength was decreased to `16`
+API POST /v2/org/{org}/nico/task/run the `selector/allOf[subschema #1: TaskRunSelector]/percentage/percent` request property's min was increased to `1.00`
+API POST /v2/org/{org}/nico/task/run the `options/safetyPolicy/gates/items/failureRate/thresholdPercent` request property's min was increased to `1.00`
+API POST /v2/org/{org}/nico/task/run the `options/safetyPolicy/gates/items/failureCount/thresholdCount` request property's min was increased to `1.00`
+API POST /v2/org/{org}/nico/task/run the `options/phasePolicy/percentage/phases/items/` request property's min was increased to `1.00`
+API POST /v2/org/{org}/nico/task/run the `options/phasePolicy/count/phases/items/` request property's min was increased to `1.00`
+API POST /v2/org/{org}/nico/task/run the `options/phasePolicy/percentage/phases` request property's minItems was increased to `1`
+API POST /v2/org/{org}/nico/task/run the `options/phasePolicy/count/phases` request property's minItems was increased to `1`

@@ -17,6 +17,7 @@
 
 use super::{CollectorEvent, DataSink, EventContext};
 use crate::HealthError;
+use crate::collectors::REACHABILITY_COLLECTOR_TYPE;
 use crate::config::TracingSinkConfig;
 
 /// Sink that writes health events through the process tracing subscriber.
@@ -43,6 +44,13 @@ impl DataSink for TracingSink {
         context: &EventContext,
         event: &CollectorEvent,
     ) -> Result<(), HealthError> {
+        if context.collector_type == REACHABILITY_COLLECTOR_TYPE
+            && matches!(event, CollectorEvent::Metric(_))
+        {
+            // Metric samples are not rendered as logs; log_mode controls probe logs.
+            return Ok(());
+        }
+
         match event {
             CollectorEvent::MetricCollectionStart => {
                 tracing::info!(
@@ -87,6 +95,7 @@ impl DataSink for TracingSink {
             }
             CollectorEvent::Log(record) => {
                 let record = record.emitted_log_record(self.include_diagnostics);
+                let record = record.without_decoded_protobuf_payload();
 
                 tracing::info!(
                     endpoint = %context.endpoint_key(),
@@ -144,23 +153,27 @@ mod tests {
 
     use super::*;
     use crate::endpoint::test_support::{mac, test_endpoint};
-    use crate::sink::LogRecord;
+    use crate::sink::{LogRecord, LogSeverity};
 
     #[test]
-    fn log_events_preserve_attributes_without_diagnostics() {
+    fn decoded_protobuf_payload_is_not_emitted_by_tracing_sink() {
         let sink = TracingSink::new(&TracingSinkConfig {
-            include_diagnostics: false,
+            include_diagnostics: true,
         });
 
         let endpoint = test_endpoint(mac("00:11:22:33:44:55"));
-        let context = EventContext::from_endpoint(&endpoint, "nvue_rest");
+        let context = EventContext::from_endpoint(&endpoint, "test_collector");
 
         let event = CollectorEvent::Log(Box::new(LogRecord {
-            body: "nvue_rest: collected system reboot reason".to_string(),
-            severity: "INFO".to_string(),
+            body: "Test notification".to_string(),
+            severity: LogSeverity::Info,
             attributes: vec![
                 (Cow::Borrowed("gentime"), "2026-07-05 12:34:56".to_string()),
                 (Cow::Borrowed("user"), "admin".to_string()),
+                (
+                    Cow::Borrowed(LogRecord::DECODED_PROTOBUF_PAYLOAD_ATTRIBUTE),
+                    serde_json::json!({ "testField": {} }).to_string(),
+                ),
             ],
             diagnostic_record: None,
         }));
@@ -176,5 +189,39 @@ mod tests {
             log.field("attributes"),
             Some(r#"[("gentime", "2026-07-05 12:34:56"), ("user", "admin")]"#)
         );
+    }
+
+    #[test]
+    fn reachability_metrics_do_not_bypass_structured_log_policy() {
+        let sink = TracingSink::new(&TracingSinkConfig {
+            include_diagnostics: false,
+        });
+
+        let endpoint = test_endpoint(mac("00:11:22:33:44:55"));
+        let context = EventContext::from_endpoint(&endpoint, REACHABILITY_COLLECTOR_TYPE);
+
+        let metric = CollectorEvent::Metric(
+            crate::sink::MetricSample {
+                key: "redfish@127.0.0.1:443".to_string(),
+                name: "tcp_port".to_string(),
+                metric_type: "reachable".to_string(),
+                unit: "state".to_string(),
+                value: 1.0,
+                labels: vec![],
+                context: None,
+            }
+            .into(),
+        );
+
+        assert!(capture_logs(|| sink.handle_event(&context, &metric)).is_empty());
+
+        let log = CollectorEvent::Log(Box::new(LogRecord {
+            body: "TCP port is reachable".to_string(),
+            severity: LogSeverity::Info,
+            attributes: vec![],
+            diagnostic_record: None,
+        }));
+
+        assert_eq!(capture_logs(|| sink.handle_event(&context, &log)).len(), 1);
     }
 }

@@ -32,6 +32,10 @@ carbide_api_url = "https://127.0.0.1:1079"
 # can omit this if tui_enabled = false
 log_file = "/tmp/mat.log"
 
+# Log format can be "compact" (the default) or "logfmt". Kubernetes deployments
+# use logfmt on stdout so log collectors can preserve structured tracing fields.
+log_format = "compact"
+
 # Network interface to bind to when creating addresses for BMC mocks. BMC mocks
 # will be configured with whatever IP address carbide assigns them, so they will
 # assign new addresses to this interface via `ip address add`.

@@ -304,7 +304,6 @@ func (o *IpBlockCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	varIpBlockCreateRequest := _IpBlockCreateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varIpBlockCreateRequest)
 
 	if err != nil {

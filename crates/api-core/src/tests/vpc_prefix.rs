@@ -658,6 +658,7 @@ async fn test_deleted_vpc_prefix_cannot_allocate_new_instance_interface(
                 dpu_extension_services: None,
                 nvlink: None,
                 spxconfig: None,
+                power_profile: None,
             }),
             metadata: None,
             allow_unhealthy_machine: false,

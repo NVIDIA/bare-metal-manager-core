@@ -141,24 +141,33 @@ fn stop_collectors_for_keys(
     }
 }
 
-pub(super) fn stop_removed_bmc_collectors(
+/// Removes collectors for absent endpoints and waits for their shutdown hooks.
+///
+/// Completing shutdown before the iteration returns prevents a later discovery
+/// pass from starting replacements before old `CollectorRemoved` events arrive.
+pub(super) async fn stop_removed_bmc_collectors(
     ctx: &mut DiscoveryLoopContext,
     active_endpoints: &HashSet<Cow<'static, str>>,
 ) {
     let removed_keys = ctx.collectors.removed_keys(active_endpoints);
 
-    for kind in CollectorKind::ALL {
-        stop_collectors_for_keys(
-            ctx,
-            kind,
-            &removed_keys,
-            CollectorStopReason::EndpointRemoved,
-        );
-    }
+    let removed_collectors = CollectorKind::ALL
+        .into_iter()
+        .flat_map(|kind| {
+            take_collectors_for_keys(
+                ctx,
+                kind,
+                &removed_keys,
+                CollectorStopReason::EndpointRemoved,
+            )
+        })
+        .collect::<Vec<_>>();
 
     for key in &removed_keys {
         ctx.collectors.remove_inventory(key);
     }
+
+    join_all(removed_collectors.into_iter().map(Collector::stop)).await;
 
     if !removed_keys.is_empty() {
         tracing::info!(

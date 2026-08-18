@@ -42,7 +42,8 @@ pub struct ApiServerAddresses {
     pub metrics_address: Option<SocketAddr>,
 }
 
-/// Run the carbide-api server until `cancel_token` is cancelled.
+/// Run the carbide-api server until `cancel_token` is cancelled or the process
+/// receives a shutdown signal.
 ///
 /// Once startup completes, `ready_channel` receives the effective API and metrics listener
 /// addresses. This includes OS-selected ports when either endpoint is configured with port zero.
@@ -66,9 +67,12 @@ pub async fn run(
     // `InitialObjectsConfig` so that the core runtime can reconcile its contents
     // against the database on first startup.
     let initial_objects = if let Some(path) = carbide_config.initial_objects_file.as_deref() {
-        Some(carbide_api_core::cfg::load::parse_initial_objects_config(
-            path,
-        )?)
+        Some(
+            carbide_api_core::cfg::load::parse_initial_objects_config_with_policy(
+                path,
+                carbide_config.deny_unknown_fields,
+            )?,
+        )
     } else {
         None
     };
@@ -103,6 +107,7 @@ pub async fn run(
     // initialization is complete, we use [`JoinSet::join_all`] to wait for them all to complete,
     // while propagating any panics to the current task.
     let mut join_set = JoinSet::new();
+    crate::shutdown_handler::start(&mut join_set, cancel_token.clone());
     let metrics_address = start_metrics_endpoint(
         &mut join_set,
         &carbide_config,

@@ -45,16 +45,18 @@ type MachinePosition struct {
 }
 
 func machineDetailFromPb(machine *corev1.Machine) MachineDetail {
+	config := machine.GetConfig()
+	status := machine.GetStatus()
 	detail := MachineDetail{
 		MachineID:      machine.Id.Id,
 		State:          machine.State,
 		MachineType:    machine.MachineType.String(),
-		UpdateComplete: machine.UpdateComplete,
+		UpdateComplete: status.GetUpdateComplete(),
 	}
 
 	// Chassis serial
-	if machine.DiscoveryInfo != nil && machine.DiscoveryInfo.DmiData != nil {
-		serial := machine.DiscoveryInfo.DmiData.ChassisSerial
+	if status.GetDiscoveryInfo() != nil && status.GetDiscoveryInfo().DmiData != nil {
+		serial := status.GetDiscoveryInfo().DmiData.ChassisSerial
 		detail.ChassisSerial = &serial
 	}
 
@@ -72,8 +74,8 @@ func machineDetailFromPb(machine *corev1.Machine) MachineDetail {
 	}
 
 	// Health status - derived from alerts
-	if machine.Health != nil {
-		if len(machine.Health.Alerts) > 0 {
+	if status.GetHealth() != nil {
+		if len(status.GetHealth().Alerts) > 0 {
 			detail.HealthStatus = "unhealthy"
 		} else {
 			detail.HealthStatus = "healthy"
@@ -81,13 +83,13 @@ func machineDetailFromPb(machine *corev1.Machine) MachineDetail {
 	}
 
 	// Last observation time
-	if machine.LastObservationTime != nil {
-		t := machine.LastObservationTime.AsTime()
+	if status.GetLastObservationTime() != nil {
+		t := status.GetLastObservationTime().AsTime()
 		detail.LastObservationTime = &t
 	}
 
-	if machine.FirmwareAutoupdate != nil {
-		v := machine.GetFirmwareAutoupdate()
+	if config != nil && config.FirmwareAutoupdate != nil {
+		v := config.GetFirmwareAutoupdate()
 		detail.FirmwareAutoupdate = &v
 	}
 
@@ -110,6 +112,8 @@ const (
 	PowerStateOff
 	PowerStateOn
 	PowerStateDisabled
+	PowerStateHibernating
+	PowerStateSleeping
 )
 
 // MachinePowerState is information about current and desired power states
@@ -382,6 +386,15 @@ type ExpectedRackDetail struct {
 	Name          string
 	Description   string
 	Labels        map[string]string
+}
+
+// NVLinkDomainMembership is one valid rack-scoped NVLink domain observation
+// from Core's actual switch inventory. Core stores the last valid observation
+// on every active switch in a rack, so a snapshot may contain duplicate rows
+// for the same domain and rack.
+type NVLinkDomainMembership struct {
+	DomainID string
+	RackID   string
 }
 
 // ExpectedMachineDetail is the canonical expected-machine representation

@@ -16,12 +16,37 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
 )
 
-func TestRackNaturalKeyIsCollisionFree(t *testing.T) {
+func TestNaturalKeyIsCollisionFree(t *testing.T) {
 	// The classic concatenation bug: "ab"+"cd" and "abc"+"d" collide if you
 	// don't separate with a forbidden byte.
-	a := rackNaturalKey("ab", "cd")
-	b := rackNaturalKey("abc", "d")
+	a := naturalKey("ab", "cd")
+	b := naturalKey("abc", "d")
 	assert.NotEqual(t, a, b, "manufacturer/serial collisions must be impossible")
+}
+
+func TestNaturalKeyOrEmpty(t *testing.T) {
+	tests := []struct {
+		name         string
+		manufacturer string
+		serialNumber string
+		wantEmpty    bool
+	}{
+		{name: "both halves populated", manufacturer: "Foxconn", serialNumber: "SN-1"},
+		{name: "no manufacturer", serialNumber: "SN-1", wantEmpty: true},
+		{name: "no serial", manufacturer: "Foxconn", wantEmpty: true},
+		{name: "neither", wantEmpty: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := naturalKeyOrEmpty(tc.manufacturer, tc.serialNumber)
+			if tc.wantEmpty {
+				assert.Empty(t, got)
+				return
+			}
+			assert.Equal(t, naturalKey(tc.manufacturer, tc.serialNumber), got)
+		})
+	}
 }
 
 func TestBuildRackFromCore(t *testing.T) {
@@ -75,24 +100,47 @@ func TestBuildRackFromCore(t *testing.T) {
 			},
 		},
 		{
-			name: "missing manufacturer is unusable",
+			name: "missing manufacturer is mirrored without it",
 			in: nicoapi.ExpectedRackDetail{
 				RackID: "c01",
 				Labels: map[string]string{
 					labelChassisSerialNumber: "SN-C01",
 				},
 			},
-			wantOK: false,
+			wantOK: true,
+			assertRow: func(t *testing.T, r model.Rack) {
+				assert.Empty(t, r.Manufacturer)
+				assert.Equal(t, "SN-C01", r.SerialNumber)
+				require.NotNil(t, r.ExternalID)
+				assert.Equal(t, "c01", *r.ExternalID)
+			},
 		},
 		{
-			name: "missing serial is unusable",
+			name: "missing serial is mirrored without it",
 			in: nicoapi.ExpectedRackDetail{
 				RackID: "c02",
 				Labels: map[string]string{
 					labelChassisManufacturer: "Foxconn",
 				},
 			},
-			wantOK: false,
+			wantOK: true,
+			assertRow: func(t *testing.T, r model.Rack) {
+				assert.Equal(t, "Foxconn", r.Manufacturer)
+				assert.Empty(t, r.SerialNumber)
+			},
+		},
+		{
+			name: "no chassis labels at all is still mirrored under rack_id",
+			in: nicoapi.ExpectedRackDetail{
+				RackID: "c03",
+				Name:   "klamath-1",
+			},
+			wantOK: true,
+			assertRow: func(t *testing.T, r model.Rack) {
+				assert.Empty(t, r.Manufacturer)
+				assert.Empty(t, r.SerialNumber)
+				assert.Equal(t, "klamath-1", r.Name)
+			},
 		},
 		{
 			name: "no description/location labels leaves jsonb columns nil",
@@ -111,7 +159,7 @@ func TestBuildRackFromCore(t *testing.T) {
 			},
 		},
 		{
-			name: "missing rack_id yields nil ExternalID (NULL in DB) so partial unique index stays clean",
+			name: "missing rack_id is unusable: nothing to identify the rack by",
 			in: nicoapi.ExpectedRackDetail{
 				Name: "noext",
 				Labels: map[string]string{
@@ -119,25 +167,7 @@ func TestBuildRackFromCore(t *testing.T) {
 					labelChassisSerialNumber: "SN-E01",
 				},
 			},
-			wantOK: true,
-			assertRow: func(t *testing.T, r model.Rack) {
-				assert.Nil(t, r.ExternalID)
-				assert.Equal(t, "noext", r.Name)
-			},
-		},
-		{
-			name: "missing both rack_id and name falls back to manufacturer-serial",
-			in: nicoapi.ExpectedRackDetail{
-				Labels: map[string]string{
-					labelChassisManufacturer: "Foxconn",
-					labelChassisSerialNumber: "SN-F01",
-				},
-			},
-			wantOK: true,
-			assertRow: func(t *testing.T, r model.Rack) {
-				assert.Equal(t, "Foxconn-SN-F01", r.Name)
-				assert.Nil(t, r.ExternalID)
-			},
+			wantOK: false,
 		},
 	}
 
@@ -216,44 +246,123 @@ func TestRackUpdatedFromCore(t *testing.T) {
 		fromCore.Name = ""
 		assert.Nil(t, rackUpdatedFromCore(existing, &fromCore))
 	})
+
+	t.Run("chassis labels are backfilled once Core starts sending them", func(t *testing.T) {
+		existing := base()
+		existing.Manufacturer = ""
+		existing.SerialNumber = ""
+		fromCore := *base()
+		got := rackUpdatedFromCore(existing, &fromCore)
+		require.NotNil(t, got)
+		assert.Equal(t, "Foxconn", got.Manufacturer)
+		assert.Equal(t, "SN-1", got.SerialNumber)
+	})
+
+	t.Run("Core dropping a chassis label does not erase Flow's copy", func(t *testing.T) {
+		existing := base()
+		fromCore := *base()
+		fromCore.Manufacturer = ""
+		fromCore.SerialNumber = ""
+		assert.Nil(t, rackUpdatedFromCore(existing, &fromCore))
+	})
+
+	t.Run("a populated chassis label is not overwritten with a different one", func(t *testing.T) {
+		existing := base()
+		fromCore := *base()
+		fromCore.Manufacturer = "Wistron"
+		fromCore.SerialNumber = "SN-2"
+		assert.Nil(t, rackUpdatedFromCore(existing, &fromCore))
+	})
 }
 
-func TestFlowBySerialInCore(t *testing.T) {
-	core := []nicoapi.ExpectedRackDetail{
+func TestNameUnavailable(t *testing.T) {
+	holder := uuid.New()
+	liveByName := map[string]uuid.UUID{"held": holder}
+
+	tests := []struct {
+		name         string
+		plannedNames map[string]struct{}
+		rackName     string
+		selfID       uuid.UUID
+		want         bool
+	}{
+		{name: "free name", rackName: "free", selfID: uuid.Nil},
+		{name: "name held by another live rack", rackName: "held", selfID: uuid.New(), want: true},
+		{name: "name held by the rack being updated", rackName: "held", selfID: holder},
 		{
-			RackID: "a12",
-			Labels: map[string]string{
-				labelChassisManufacturer: "Foxconn",
-				labelChassisSerialNumber: "SN-A12",
-			},
-		},
-		{
-			RackID: "b07",
-			Labels: map[string]string{
-				// Missing manufacturer; should not match anything.
-				labelChassisSerialNumber: "SN-B07",
-			},
+			name:         "name claimed by a write queued earlier this cycle",
+			plannedNames: map[string]struct{}{"free": {}},
+			rackName:     "free",
+			selfID:       uuid.Nil,
+			want:         true,
 		},
 	}
 
-	t.Run("matches by (manufacturer, serial)", func(t *testing.T) {
-		flow := &model.Rack{Manufacturer: "Foxconn", SerialNumber: "SN-A12"}
-		ext, ok := flowBySerialInCore(flow, core)
-		assert.True(t, ok)
-		assert.Equal(t, "a12", ext)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			planned := tc.plannedNames
+			if planned == nil {
+				planned = map[string]struct{}{}
+			}
+			assert.Equal(t, tc.want, nameUnavailable(liveByName, planned, tc.rackName, tc.selfID))
+		})
+	}
+}
+
+func TestClearChassisLabelsIfSlotTaken(t *testing.T) {
+	owner := &model.Rack{ID: uuid.New(), Name: "owner", Manufacturer: "Foxconn", SerialNumber: "SN-1"}
+	flowByNaturalKey := map[string]*model.Rack{
+		naturalKey("Foxconn", "SN-1"): owner,
+	}
+
+	t.Run("labels held by another rack are dropped", func(t *testing.T) {
+		built := model.Rack{Manufacturer: "Foxconn", SerialNumber: "SN-1"}
+		clearChassisLabelsIfSlotTaken(&built, flowByNaturalKey, uuid.New(), "b34")
+		assert.Empty(t, built.Manufacturer)
+		assert.Empty(t, built.SerialNumber)
 	})
 
-	t.Run("no match returns false", func(t *testing.T) {
-		flow := &model.Rack{Manufacturer: "Foxconn", SerialNumber: "SN-ZZ"}
-		_, ok := flowBySerialInCore(flow, core)
-		assert.False(t, ok)
+	t.Run("the rack already holding the pair keeps it", func(t *testing.T) {
+		built := model.Rack{Manufacturer: "Foxconn", SerialNumber: "SN-1"}
+		clearChassisLabelsIfSlotTaken(&built, flowByNaturalKey, owner.ID, "a12")
+		assert.Equal(t, "Foxconn", built.Manufacturer)
+		assert.Equal(t, "SN-1", built.SerialNumber)
 	})
 
-	t.Run("core row without manufacturer is ignored", func(t *testing.T) {
-		flow := &model.Rack{Manufacturer: "Foxconn", SerialNumber: "SN-B07"}
-		_, ok := flowBySerialInCore(flow, core)
-		assert.False(t, ok)
+	t.Run("an unclaimed pair is kept", func(t *testing.T) {
+		built := model.Rack{Manufacturer: "Wistron", SerialNumber: "SN-9"}
+		clearChassisLabelsIfSlotTaken(&built, flowByNaturalKey, uuid.Nil, "c01")
+		assert.Equal(t, "Wistron", built.Manufacturer)
+		assert.Equal(t, "SN-9", built.SerialNumber)
 	})
+
+	t.Run("a half-populated pair occupies no slot and is left alone", func(t *testing.T) {
+		built := model.Rack{SerialNumber: "SN-1"}
+		clearChassisLabelsIfSlotTaken(&built, flowByNaturalKey, uuid.Nil, "c02")
+		assert.Equal(t, "SN-1", built.SerialNumber)
+	})
+}
+
+func TestAdoptableByNaturalKey(t *testing.T) {
+	coreExtIDs := map[string]struct{}{"live": {}}
+
+	tests := []struct {
+		name       string
+		externalID *string
+		want       bool
+	}{
+		{name: "no external_id has never been claimed", want: true},
+		{name: "empty external_id has never been claimed", externalID: strPtr(""), want: true},
+		{name: "external_id Core no longer reports may be re-pointed", externalID: strPtr("retired"), want: true},
+		{name: "external_id Core still reports owns the row", externalID: strPtr("live")},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &model.Rack{ExternalID: tc.externalID}
+			assert.Equal(t, tc.want, adoptableByNaturalKey(r, coreExtIDs))
+		})
+	}
 }
 
 // errExpectedRacksClient is a tiny test wrapper around the production mock

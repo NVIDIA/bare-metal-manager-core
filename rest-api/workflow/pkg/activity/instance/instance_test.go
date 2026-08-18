@@ -57,6 +57,47 @@ func testTemporalSiteClientPool(t *testing.T) *sc.ClientPool {
 	return tSiteClientPool
 }
 
+func TestPrimaryResolvedVpcPrefixID(t *testing.T) {
+	ipv4 := &corev1.VpcPrefixId{Value: uuid.NewString()}
+	ipv6 := &corev1.VpcPrefixId{Value: uuid.NewString()}
+
+	tests := []struct {
+		name     string
+		prefixes *corev1.InstanceInterfaceResolvedVpcPrefixes
+		want     *corev1.VpcPrefixId
+	}{
+		{name: "unresolved", prefixes: nil, want: nil},
+		{
+			name: "IPv4-only uses IPv4",
+			prefixes: &corev1.InstanceInterfaceResolvedVpcPrefixes{
+				Ipv4VpcPrefixId: ipv4,
+			},
+			want: ipv4,
+		},
+		{
+			name: "IPv6-only uses IPv6",
+			prefixes: &corev1.InstanceInterfaceResolvedVpcPrefixes{
+				Ipv6VpcPrefixId: ipv6,
+			},
+			want: ipv6,
+		},
+		{
+			name: "dual-stack keeps IPv4 primary",
+			prefixes: &corev1.InstanceInterfaceResolvedVpcPrefixes{
+				Ipv4VpcPrefixId: ipv4,
+				Ipv6VpcPrefixId: ipv6,
+			},
+			want: ipv4,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, primaryResolvedVpcPrefixID(tt.prefixes))
+		})
+	}
+}
+
 // TestManageInstance_UpdateInstancesInDBVpcSelectionInventory verifies that
 // inventory caches and authoritatively clears Core-resolved prefixes while
 // preserving the VPC selection intent used for prefix accounting.

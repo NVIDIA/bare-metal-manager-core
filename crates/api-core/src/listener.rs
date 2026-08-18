@@ -17,7 +17,7 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use ::rpc::forge as rpc;
 use carbide_authn::SpiffeContext;
@@ -72,8 +72,31 @@ pub(crate) struct ApiTlsConfig {
     pub(crate) admin_root_cafile_path: String,
 }
 
+/// Cadence for re-reading the TLS identity and client-CA bundle, so
+/// cert-manager rotations are picked up without a restart.
+const TLS_REFRESH_INTERVAL: Duration = Duration::from_secs(5 * 60);
+
+/// Cadence after a failed rebuild. Shorter than [`TLS_REFRESH_INTERVAL`], so a
+/// file caught mid-write recovers in seconds rather than minutes — but not
+/// zero: retrying on every accepted connection would let a persistently broken
+/// identity file amplify inbound traffic into a rebuild per connection.
+const TLS_REFRESH_RETRY_DELAY: Duration = Duration::from_secs(15);
+
+/// Reads the client-CA bundle. Split out so one read can feed both the TLS
+/// acceptor and the node-auth validator: each building from its own read lets a
+/// cert-manager rotation land between them, which would install an acceptor
+/// trusting one generation of the bundle and a token validator trusting
+/// another, until the next refresh happened to catch them together.
+///
 /// this function blocks, don't use it in a raw async context
-fn get_tls_acceptor(tls_config: &ApiTlsConfig) -> Option<TlsAcceptor> {
+fn read_client_ca(tls_config: &ApiTlsConfig) -> Option<Vec<u8>> {
+    std::fs::read(&tls_config.root_cafile_path)
+        .inspect_err(|error| tracing::error!(?error, "error reading root ca cert file"))
+        .ok()
+}
+
+/// this function blocks, don't use it in a raw async context
+fn get_tls_acceptor(tls_config: &ApiTlsConfig, client_ca_pem: &[u8]) -> Option<TlsAcceptor> {
     let certs = {
         let fd = match std::fs::File::open(&tls_config.identity_pemfile_path) {
             Ok(fd) => fd,
@@ -111,22 +134,14 @@ fn get_tls_acceptor(tls_config: &ApiTlsConfig) -> Option<TlsAcceptor> {
 
     let roots = {
         let mut roots = RootCertStore::empty();
-        match std::fs::read(&tls_config.root_cafile_path) {
-            Ok(pem_file) => {
-                let mut cert_cursor = std::io::Cursor::new(&pem_file[..]);
-                let certs_to_add = rustls_pemfile::certs(&mut cert_cursor)
-                    .collect::<Result<Vec<_>, _>>()
-                    .inspect_err(|error| {
-                        tracing::error!(?error, "error parsing root ca cert file");
-                    })
-                    .ok()?;
-                let (_added, _ignored) = roots.add_parsable_certificates(certs_to_add);
-            }
-            Err(error) => {
-                tracing::error!(?error, "error reading root ca cert file");
-                return None;
-            }
-        }
+        let mut cert_cursor = std::io::Cursor::new(client_ca_pem);
+        let certs_to_add = rustls_pemfile::certs(&mut cert_cursor)
+            .collect::<Result<Vec<_>, _>>()
+            .inspect_err(|error| {
+                tracing::error!(?error, "error parsing root ca cert file");
+            })
+            .ok()?;
+        let (_added, _ignored) = roots.add_parsable_certificates(certs_to_add);
 
         if let Ok(pem_file) = std::fs::read(&tls_config.admin_root_cafile_path) {
             let mut cert_cursor = std::io::Cursor::new(&pem_file[..]);
@@ -305,7 +320,10 @@ pub(crate) async fn start(
             let tls_config_clone = tls_config.clone();
             let tls_acceptor = tokio::task::Builder::new()
                 .name("get_tls_acceptor init")
-                .spawn_blocking(move || get_tls_acceptor(&tls_config_clone))?
+                .spawn_blocking(move || {
+                    let client_ca = read_client_ca(&tls_config_clone)?;
+                    get_tls_acceptor(&tls_config_clone, &client_ca)
+                })?
                 .await?;
             (Some(tls_config), tls_acceptor, false)
         }
@@ -339,8 +357,64 @@ pub(crate) async fn start(
             ),
         ))?;
 
-    let cert_description_layer: CertDescriptionMiddleware<Authorization> =
-        CertDescriptionMiddleware::new(extra_cli_certs, spiffe_context);
+    let cert_description_layer: CertDescriptionMiddleware<Authorization> = {
+        let machine_certs_enabled = api_service.runtime_config.node_auth.mtls_enabled;
+        if !machine_certs_enabled {
+            tracing::warn!(
+                target: "node_auth",
+                "node-auth: mtls_enabled = false: machine client certificates will NOT be \
+                 accepted as node identity; nodes must present bearer tokens"
+            );
+        }
+        let layer = CertDescriptionMiddleware::new(extra_cli_certs, spiffe_context)
+            .with_machine_certs_enabled(machine_certs_enabled);
+        // When node-auth is enabled, accept bearer JWTs in addition to mTLS
+        // client certs (dual-support during the mTLS→JWT migration). Bearer
+        // tokens must only be accepted over TLS — never plaintext — so guard the
+        // authenticator on the listener actually being TLS-terminated.
+        //
+        // `tls_config.is_some()` alone is not that guarantee: it says TLS was
+        // configured, not that `get_tls_acceptor` could build one. An
+        // unreadable identity certificate or key drops the accept loop onto its
+        // plaintext branch.
+        //
+        // That is a failure on its own terms, node-auth or not: operators and
+        // clients both treat a TLS-configured port as encrypted, and silently
+        // serving cleartext there is worse than not coming up. Node-auth only
+        // sharpens it — the bearer authenticator is armed once, here, on the
+        // premise that this listener terminates TLS, and once
+        // mtls_enabled = false there is no other credential to fall back to.
+        match (
+            &api_service.node_jwt_validator,
+            tls_config.is_some(),
+            tls_acceptor.is_some(),
+        ) {
+            (node_jwt_validator, true, false) => {
+                eyre::bail!(
+                    "the TLS acceptor could not be built from the configured identity \
+                     certificate and key; refusing to start, because the listener would \
+                     serve plaintext on a TLS-configured port{}",
+                    if node_jwt_validator.is_some() {
+                        " while accepting node-auth bearer tokens"
+                    } else {
+                        ""
+                    }
+                );
+            }
+            (Some(node_jwt_validator), true, true) => {
+                tracing::info!(target: "node_auth", "node-auth: bearer token authentication enabled");
+                layer.with_bearer_authenticator(node_jwt_validator.clone())
+            }
+            (Some(_), false, _) => {
+                tracing::warn!(
+                    target: "node_auth",
+                    "node-auth: enabled but listener is not TLS; refusing to accept bearer tokens over plaintext"
+                );
+                layer
+            }
+            (None, _, _) => layer,
+        }
+    };
     let casbin_layer = if let Some(auth_config) = auth_config {
         if let Some(casbin_policy_file) = &auth_config.casbin_policy_file {
             let casbin_authorizer = Arc::new(
@@ -416,6 +490,15 @@ pub(crate) async fn start(
 
     let mut tls_acceptor_created = Instant::now();
     let mut initialize_tls_acceptor = true;
+    // How long until the next refresh attempt. Normally the rotation cadence;
+    // shortened after a failed rebuild so recovery does not wait out a full
+    // interval — but still a delay, because retrying on every accepted
+    // connection would turn a half-written identity file into one full rebuild
+    // (file reads, PEM parsing, a blocking task) per inbound connection.
+    let mut tls_refresh_after = TLS_REFRESH_INTERVAL;
+    // Refreshed alongside the TLS acceptor below; both read the same client-CA
+    // bundle, so they must not drift apart.
+    let node_jwt_validator = api_service.node_jwt_validator.clone();
 
     join_set
         .build_task()
@@ -440,23 +523,53 @@ pub(crate) async fn start(
                 // the file on disk and only refresh if it's actually necessary to do so,
                 // and emit a metric for the remaining duration on the cert
 
-                // hard refresh our certs every five minutes
-                // they may have been rewritten on disk by cert-manager and we want to honor the new cert.
+                // hard refresh our certs on the interval below (shortened after
+                // a failed rebuild); they may have been rewritten on disk by
+                // cert-manager and we want to honor the new cert.
                 if let (Some(tls_config), true) = (
                     tls_config.as_ref(),
-                    initialize_tls_acceptor
-                        || tls_acceptor_created.elapsed()
-                            > tokio::time::Duration::from_secs(5 * 60),
+                    initialize_tls_acceptor || tls_acceptor_created.elapsed() > tls_refresh_after,
                 ) {
                     carbide_instrument::emit(TlsCertsRefreshed);
                     initialize_tls_acceptor = false;
                     tls_acceptor_created = Instant::now();
 
-                    tls_acceptor = tokio::task::Builder::new()
-                        .name("get_tls_acceptor refresh")
+                    // Node-auth JWTs chain to the same client-CA bundle the TLS
+                    // listener verifies client certs against, so the acceptor
+                    // and the validator's trust anchors have to move as one.
+                    // Two ways that can go wrong, and both matter once
+                    // mtls_enabled = false leaves tokens as the only
+                    // credential: anchors left stale reject tokens issued under
+                    // the new CA, and an acceptor dropped to `None` puts the
+                    // listener on its plaintext branch while the bearer
+                    // authenticator keeps accepting JWTs in the clear.
+                    //
+                    // So do every fallible step first and swap nothing until
+                    // both succeed. Committing one without the other would
+                    // leave the TLS path trusting one generation of the bundle
+                    // and the token path another.
+                    // One read of the client-CA bundle feeds both builders.
+                    // Reading it separately in each would let a rotation land
+                    // between them, so the pair could be committed together and
+                    // still disagree about which generation they trust.
+                    let (rebuilt_acceptor, rebuilt_jwt_roots) = tokio::task::Builder::new()
+                        .name("tls trust rebuild")
                         .spawn_blocking({
                             let tls_config = tls_config.clone();
-                            move || get_tls_acceptor(&tls_config)
+                            let node_jwt_validator = node_jwt_validator.clone();
+                            move || {
+                                let Some(client_ca) = read_client_ca(&tls_config) else {
+                                    return (None, Ok(None));
+                                };
+                                let acceptor = get_tls_acceptor(&tls_config, &client_ca);
+                                let roots = match node_jwt_validator.as_ref() {
+                                    None => Ok(None),
+                                    Some(validator) => {
+                                        validator.build_roots_from_pem(&client_ca).map(Some)
+                                    }
+                                };
+                                (acceptor, roots)
+                            }
                         })
                         // Safety: spawn_blocking only returns Error if run outside the tokio runtime
                         .expect("Failed to spawn blocking task")
@@ -464,6 +577,34 @@ pub(crate) async fn start(
                         // Safety: Awaiting a JoinHandle only fails if the task panicked, and we want to
                         // propagate panics
                         .expect("task panicked");
+
+                    match (rebuilt_acceptor, rebuilt_jwt_roots) {
+                        (Some(acceptor), Ok(roots)) => {
+                            // Commit phase: nothing below this line can fail.
+                            if let (Some(validator), Some(roots)) =
+                                (node_jwt_validator.as_ref(), roots)
+                            {
+                                validator.install_roots(roots);
+                            }
+                            tls_acceptor = Some(acceptor);
+                            tls_refresh_after = TLS_REFRESH_INTERVAL;
+                        }
+                        (acceptor, roots) => {
+                            // Come back sooner than the rotation cadence, but
+                            // on a timer rather than on the next connection:
+                            // the previous pair is still serving, so there is
+                            // no urgency worth spending a rebuild per inbound
+                            // connection on while the files stay broken.
+                            tls_refresh_after = TLS_REFRESH_RETRY_DELAY;
+                            tracing::error!(
+                                target: "node_auth",
+                                tls_acceptor_rebuilt = acceptor.is_some(),
+                                jwt_roots_rebuilt = roots.is_ok(),
+                                "node-auth: could not rebuild both the TLS acceptor and the \
+                                 token trust anchors; keeping the previous pair and retrying"
+                            );
+                        }
+                    }
                 }
 
                 let tls_acceptor = tls_acceptor.clone();

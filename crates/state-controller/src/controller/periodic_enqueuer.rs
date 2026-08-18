@@ -22,6 +22,7 @@ use std::time::{Duration, Instant};
 use ::db::work_lock_manager::WorkLockManagerHandle;
 use carbide_utils::periodic_timer::PeriodicTimer;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
+use rand::RngExt;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
@@ -71,7 +72,7 @@ impl<IO: StateControllerIO> PeriodicEnqueuer<IO> {
         let err_jitter = (self.iteration_config.iteration_time.as_millis() / 5) as u64;
         let timer = PeriodicTimer::new(self.iteration_config.iteration_time);
 
-        loop {
+        while !self.cancel_token.is_cancelled() {
             let tick = timer.tick();
             let iteration_result = self.run_single_iteration().await;
 
@@ -80,7 +81,6 @@ impl<IO: StateControllerIO> PeriodicEnqueuer<IO> {
             // If a controller got the lock, the maximum delay is higher than for controllers
             // which failed to get the lock, which aims to give another bias to
             // a different controller.
-            use rand::RngExt;
             let iteration_max_jitter = if iteration_result.skipped_iteration {
                 err_jitter
             } else {
@@ -95,17 +95,15 @@ impl<IO: StateControllerIO> PeriodicEnqueuer<IO> {
                 .remaining()
                 .saturating_add(Duration::from_millis(jitter));
 
-            let cancelled_future = self.cancel_token.cancelled();
-            tokio::pin!(cancelled_future);
-            tokio::select! {
-                biased;
-                _ = &mut cancelled_future => {
-                    tracing::info!(controller=IO::LOG_SPAN_CONTROLLER_NAME, "PeriodicEnqueuer stop was requested");
-                    return;
-                }
-                _ = tokio::time::sleep(sleep_time) => {}
-            }
+            self.cancel_token
+                .run_until_cancelled(tokio::time::sleep(sleep_time))
+                .await;
         }
+
+        tracing::info!(
+            controller = IO::LOG_SPAN_CONTROLLER_NAME,
+            "PeriodicEnqueuer stop was requested"
+        );
     }
 
     /// Performs a single enqueuer iteration

@@ -64,8 +64,10 @@ pub const VALIDATION: Duration = Duration::from_secs(30 * 60);
 pub const MAINTENANCE: Duration = Duration::from_secs(5 * 60);
 
 // BMC credential rotation. A single synchronous Redfish password change
-// per device (host + each DPU); generous enough to absorb a slow BMC plus the
-// engine's short per-device backoff without tripping the SLA on the first retry.
+// per device (host + each DPU); generous enough to absorb the up-to-5-minute
+// site-explorer pause handshake (its `SITE_EXPLORER_PAUSE_BUDGET`) that precedes
+// the change, a slow BMC, and the engine's short per-device backoff without
+// tripping the SLA on the first retry.
 pub const ROTATING_BMC: Duration = Duration::from_secs(15 * 60);
 
 // Host UEFI credential rotation. Applying a new UEFI password

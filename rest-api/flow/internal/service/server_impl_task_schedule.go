@@ -23,6 +23,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/converter/protobuf"
 	dbmodel "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/model"
 	dbquery "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/query"
+	inventoryresolver "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/resolver"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
 	taskschedule "github.com/NVIDIA/infra-controller/rest-api/flow/internal/scheduler/taskschedule"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
@@ -886,10 +887,10 @@ func (rs *FlowServerImpl) buildUpdateFields(
 }
 
 // resolveScope converts an internal TargetSpec into DB scope rows ready for
-// insertion (ScheduleID is not yet set). Supports both rack-level targeting
-// (with optional component-type filter) and component-level targeting (specific
-// components by UUID or external ref). For component-level targets the server
-// resolves rack membership and groups components into per-rack scope entries.
+// insertion (ScheduleID is not yet set). Rack and NVLink domain targets may
+// include a component-type filter; component targets identify specific
+// components. Domain membership is materialized to rack scopes when this method
+// runs, so later membership changes do not silently change an existing schedule.
 func (rs *FlowServerImpl) resolveScope(
 	ctx context.Context,
 	ts operation.TargetSpec,
@@ -897,8 +898,27 @@ func (rs *FlowServerImpl) resolveScope(
 	if ts.IsRackTargeting() {
 		return rs.resolveRackScope(ctx, ts.Racks)
 	}
+	if ts.IsNVLDomainTargeting() {
+		return rs.resolveNVLDomainScope(ctx, ts.NVLDomains)
+	}
 
 	return rs.resolveComponentScope(ctx, ts.Components)
+}
+
+func (rs *FlowServerImpl) resolveNVLDomainScope(
+	ctx context.Context,
+	domains []operation.NVLDomainTarget,
+) ([]*dbmodel.TaskScheduleScope, error) {
+	rackTargets, err := inventoryresolver.ResolveNVLDomainRackTargets(
+		ctx,
+		rs.inventoryManager,
+		domains,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("target_spec.nvl_domains: %w", err)
+	}
+
+	return rs.resolveRackScope(ctx, rackTargets)
 }
 
 // resolveScheduleScope is the shared prologue for AddTaskScheduleScope and

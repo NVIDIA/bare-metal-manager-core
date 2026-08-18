@@ -619,26 +619,34 @@ mod test {
     #[test]
     fn test_get_mtu() {
         let interface_mtu_none = crate::packet_handler::InterfaceInfo {
-            address: <std::net::Ipv4Addr as std::str::FromStr>::from_str("10.12.1.2")
-                .ok()
-                .unwrap(),
-            gateway: <std::net::Ipv4Addr as std::str::FromStr>::from_str("10.12.1.2")
-                .ok()
-                .unwrap(),
-            prefix: "24".to_string(),
+            address: Some(
+                <std::net::Ipv4Addr as std::str::FromStr>::from_str("10.12.1.2")
+                    .ok()
+                    .unwrap(),
+            ),
+            gateway: Some(
+                <std::net::Ipv4Addr as std::str::FromStr>::from_str("10.12.1.2")
+                    .ok()
+                    .unwrap(),
+            ),
+            prefix: Some("24".to_string()),
             fqdn: "fqdn1".to_string(),
             booturl: None,
             mtu: None,
             ipv6: None,
         };
         let interface_mtu_9000 = crate::packet_handler::InterfaceInfo {
-            address: <std::net::Ipv4Addr as std::str::FromStr>::from_str("20.22.2.2")
-                .ok()
-                .unwrap(),
-            gateway: <std::net::Ipv4Addr as std::str::FromStr>::from_str("20.22.2.2")
-                .ok()
-                .unwrap(),
-            prefix: "16".to_string(),
+            address: Some(
+                <std::net::Ipv4Addr as std::str::FromStr>::from_str("20.22.2.2")
+                    .ok()
+                    .unwrap(),
+            ),
+            gateway: Some(
+                <std::net::Ipv4Addr as std::str::FromStr>::from_str("20.22.2.2")
+                    .ok()
+                    .unwrap(),
+            ),
+            prefix: Some("16".to_string()),
             fqdn: "fqdn2".to_string(),
             booturl: None,
             mtu: Some(9000),

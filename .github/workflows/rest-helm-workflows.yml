@@ -47,7 +47,7 @@ jobs:
           persist-credentials: false
 
       - name: Validate Helm chart
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
         with:
           chart-path: ${{ matrix.chart }}
           lint: 'true'
@@ -75,7 +75,7 @@ jobs:
 
       - name: Package and push Helm chart to NGC
         if: ${{ inputs.ngc_path != '' }}
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
           chart-path: ${{ matrix.chart }}
           chart-version: ${{ inputs.chart_version }}

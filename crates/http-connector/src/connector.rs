@@ -437,11 +437,10 @@ fn connect(
     .map_err(ConnectError::message("tcp bind local error"))?;
 
     #[cfg(unix)]
+    // SAFETY: `into_raw_fd` consumes `socket` and transfers ownership of its descriptor;
+    // `from_raw_fd` immediately assumes that ownership exactly once. The descriptor was also
+    // configured as nonblocking above, as required by `TcpSocket`.
     let socket = unsafe {
-        // Safety: `from_raw_fd` is only safe to call if ownership of the raw
-        // file descriptor is transferred. Since we call `into_raw_fd` on the
-        // socket2 socket, it gives up ownership of the fd and will not close
-        // it, so this is safe.
         use std::os::unix::io::{FromRawFd, IntoRawFd};
         TcpSocket::from_raw_fd(socket.into_raw_fd())
     };

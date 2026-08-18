@@ -302,7 +302,6 @@ func (o *ExpectedRackCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	varExpectedRackCreateRequest := _ExpectedRackCreateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varExpectedRackCreateRequest)
 
 	if err != nil {

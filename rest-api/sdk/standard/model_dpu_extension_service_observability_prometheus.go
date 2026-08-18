@@ -140,7 +140,6 @@ func (o *DpuExtensionServiceObservabilityPrometheus) UnmarshalJSON(data []byte) 
 	varDpuExtensionServiceObservabilityPrometheus := _DpuExtensionServiceObservabilityPrometheus{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varDpuExtensionServiceObservabilityPrometheus)
 
 	if err != nil {

@@ -17,6 +17,7 @@
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -24,17 +25,18 @@ use arc_swap::ArcSwapOption;
 use carbide_uuid::nvlink::NvLinkDomainId;
 use prometheus::{Histogram, HistogramOpts};
 
+use super::reachability::ReachabilitySpec;
 use crate::HealthError;
 use crate::api_client::ApiClientWrapper;
 use crate::bmc::BmcClient;
-use crate::collectors::{Collector, LogDowngradeRegistry, SharedInventory};
+use crate::collectors::{Collector, LogDowngradeRegistry, NmxcSchemaOverride, SharedInventory};
 use crate::config::{
     Config, Configurable, DiscoveryConfig, FirmwareCollectorConfig as FirmwareCollectorOptions,
     GpuInventoryConfig, LeakDetectorCollectorConfig as LeakDetectorCollectorOptions,
     LogsCollectorConfig as LogsCollectorOptions, MetricsCollectorConfig as MetricsCollectorOptions,
     MtlsProfileConfig, NmxcCollectorConfig as NmxcCollectorOptions,
     NmxtCollectorConfig as NmxtCollectorOptions, NvueCollectorConfig as NvueCollectorOptions,
-    SensorCollectorConfig as SensorCollectorOptions,
+    ReachabilityCollectorConfig, SensorCollectorConfig as SensorCollectorOptions,
     TelemetryCollectorConfig as TelemetryCollectorOptions,
 };
 use crate::limiter::RateLimiter;
@@ -55,6 +57,7 @@ pub(super) enum CollectorKind {
     NvueRest,
     NvueGnmi,
     GpuInventory,
+    Reachability,
 }
 
 impl CollectorKind {
@@ -87,8 +90,10 @@ pub(super) struct CollectorState {
     nvue_rest: HashMap<Cow<'static, str>, Collector>,
     nvue_gnmi: HashMap<Cow<'static, str>, Collector>,
     gpu_inventory: HashMap<Cow<'static, str>, Collector>,
+    reachability: HashMap<Cow<'static, str>, Collector>,
     inventories: HashMap<Cow<'static, str>, SharedInventory<BmcClient>>,
     switch_domain_uuids: HashMap<Cow<'static, str>, Option<NvLinkDomainId>>,
+    pub(super) reachability_specs: HashMap<Cow<'static, str>, ReachabilitySpec>,
 }
 
 impl CollectorState {
@@ -106,8 +111,10 @@ impl CollectorState {
             nvue_rest: HashMap::new(),
             nvue_gnmi: HashMap::new(),
             gpu_inventory: HashMap::new(),
+            reachability: HashMap::new(),
             inventories: HashMap::new(),
             switch_domain_uuids: HashMap::new(),
+            reachability_specs: HashMap::new(),
         }
     }
 
@@ -125,6 +132,7 @@ impl CollectorState {
             CollectorKind::NvueRest => &self.nvue_rest,
             CollectorKind::NvueGnmi => &self.nvue_gnmi,
             CollectorKind::GpuInventory => &self.gpu_inventory,
+            CollectorKind::Reachability => &self.reachability,
         }
     }
 
@@ -145,6 +153,7 @@ impl CollectorState {
             CollectorKind::NvueRest => &mut self.nvue_rest,
             CollectorKind::NvueGnmi => &mut self.nvue_gnmi,
             CollectorKind::GpuInventory => &mut self.gpu_inventory,
+            CollectorKind::Reachability => &mut self.reachability,
         }
     }
 
@@ -254,6 +263,7 @@ pub struct DiscoveryLoopContext {
     pub(crate) discovery_iteration_histogram: Histogram,
     pub(crate) discovery_endpoint_fetch_histogram: Histogram,
     pub(crate) limiter: Arc<dyn RateLimiter>,
+    pub(crate) bmc_request_concurrency: NonZeroUsize,
     pub(crate) metrics_manager: Arc<MetricsManager>,
     pub(crate) discovery_config: DiscoveryConfig,
     pub(crate) sensors_config: Configurable<SensorCollectorOptions>,
@@ -264,12 +274,19 @@ pub struct DiscoveryLoopContext {
     pub(crate) leak_detector_config: Configurable<LeakDetectorCollectorOptions>,
     pub(crate) nmxt_config: Configurable<NmxtCollectorOptions>,
     pub(crate) nmxc_config: Configurable<NmxcCollectorOptions>,
+    pub(crate) nmxc_schema_override: Option<Arc<NmxcSchemaOverride>>,
     pub(crate) nvue_config: Configurable<NvueCollectorOptions>,
     pub(crate) tls_config: Option<MtlsProfileConfig>,
     pub(crate) tls_http_client_provider: Option<MtlsHttpClientProvider>,
 
     /// Whether any enabled sink consumes `CollectorEvent::Log` payloads.
     pub(crate) log_event_sink_enabled: bool,
+
+    /// Active reachability configuration.
+    ///
+    /// This is absent when the collector is disabled or no metric or log sink
+    /// can consume its observations.
+    pub(super) reachability_config: Option<ReachabilityCollectorConfig>,
     pub(crate) gpu_inventory_config: Configurable<GpuInventoryConfig>,
     pub(crate) api_client: Option<Arc<ApiClientWrapper>>,
     pub(crate) log_downgrade_registry: Arc<LogDowngradeRegistry>,
@@ -284,7 +301,8 @@ impl DiscoveryLoopContext {
         metrics_manager: Arc<MetricsManager>,
         config: Arc<Config>,
     ) -> Result<Self, HealthError> {
-        Self::new_with_tls_config(limiter, metrics_manager, config, None)
+        let nmxc_schema_override = load_nmxc_schema_override(&config)?;
+        Self::new_with_tls_config(limiter, metrics_manager, config, None, nmxc_schema_override)
     }
 
     pub(crate) fn new_with_tls_config(
@@ -292,6 +310,7 @@ impl DiscoveryLoopContext {
         metrics_manager: Arc<MetricsManager>,
         config: Arc<Config>,
         tls_config: Option<MtlsProfileConfig>,
+        nmxc_schema_override: Option<Arc<NmxcSchemaOverride>>,
     ) -> Result<Self, HealthError> {
         let registry = metrics_manager.global_registry();
 
@@ -326,11 +345,19 @@ impl DiscoveryLoopContext {
                 .map(|reload_interval| MtlsHttpClientProvider::new(tls_config, reload_interval))
         });
 
+        let reachability_config =
+            if config.sinks.prometheus.is_enabled() || config.sinks.includes_log_events() {
+                config.collectors.reachability.as_option().cloned()
+            } else {
+                None
+            };
+
         Ok(Self {
             collectors: CollectorState::new(),
             discovery_iteration_histogram,
             discovery_endpoint_fetch_histogram,
             limiter,
+            bmc_request_concurrency: config.bmc_request_concurrency,
             metrics_manager,
             discovery_config: config.collectors.discovery.clone(),
             sensors_config: config.collectors.sensors.clone(),
@@ -341,10 +368,12 @@ impl DiscoveryLoopContext {
             leak_detector_config: config.collectors.leak_detector.clone(),
             nmxt_config: config.collectors.nmxt.clone(),
             nmxc_config: config.collectors.nmxc.clone(),
+            nmxc_schema_override,
             nvue_config: config.collectors.nvue.clone(),
             tls_config,
             tls_http_client_provider,
             log_event_sink_enabled: config.sinks.includes_log_events(),
+            reachability_config,
             gpu_inventory_config: config.collectors.gpu_inventory.clone(),
             api_client: match &config.endpoint_sources.carbide_api {
                 Configurable::Enabled(source_cfg) => Some(Arc::new(ApiClientWrapper::new(
@@ -359,6 +388,23 @@ impl DiscoveryLoopContext {
             logs_include_diagnostics: config.sinks.includes_log_diagnostics(),
         })
     }
+}
+
+pub(crate) fn load_nmxc_schema_override(
+    config: &Config,
+) -> Result<Option<Arc<NmxcSchemaOverride>>, HealthError> {
+    let Some(nmxc) = config.collectors.nmxc.as_option() else {
+        return Ok(None);
+    };
+
+    let Some(schema_override) = &nmxc.schema_override else {
+        return Ok(None);
+    };
+
+    NmxcSchemaOverride::load(schema_override, nmxc)
+        .map(Arc::new)
+        .map(Some)
+        .map_err(|error| HealthError::NmxcSchemaOverride(Box::new(error)))
 }
 
 /// Returns the cadence at which periodic HTTP switch collectors reload mTLS material.

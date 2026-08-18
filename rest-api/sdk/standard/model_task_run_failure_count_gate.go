@@ -152,7 +152,6 @@ func (o *TaskRunFailureCountGate) UnmarshalJSON(data []byte) (err error) {
 	varTaskRunFailureCountGate := _TaskRunFailureCountGate{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varTaskRunFailureCountGate)
 
 	if err != nil {

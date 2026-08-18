@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
-	inventoryresolver "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/resolver"
 	identifier "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/Identifier"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/deviceinfo"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
@@ -33,10 +32,11 @@ func TestEnrichComponent(t *testing.T) {
 		nil,
 	)
 	resolved.RackID = rackID
-	processor := New(
-		inventoryresolver.New(&processorInventory{
+	processor := newTestProcessor(
+		t,
+		&processorInventory{
 			components: []*component.Component{&resolved},
-		}),
+		},
 		nil,
 	)
 
@@ -48,9 +48,9 @@ func TestEnrichComponent(t *testing.T) {
 		}),
 	)
 	require.NoError(t, err)
-	require.Equal(t, componentID, result.ResolvedResource.ID)
-	require.Equal(t, flowtypes.ComponentTypeCompute, result.ResolvedResource.ComponentType)
-	require.Equal(t, rackID, result.ResolvedResource.RackID)
+	require.Equal(t, componentID, result.ID)
+	require.Equal(t, flowtypes.ComponentTypeCompute, result.ComponentType)
+	require.Equal(t, rackID, result.RackID)
 }
 
 func TestEnrichClassifiesFailures(t *testing.T) {
@@ -133,7 +133,7 @@ func TestEnrichClassifiesFailures(t *testing.T) {
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			processor := New(inventoryresolver.New(test.inventory), nil)
+			processor := newTestProcessor(t, test.inventory, nil)
 			_, err := processor.enrich(
 				context.Background(),
 				validEnvelope(test.resource),
@@ -151,10 +151,11 @@ func TestEnrichClassifiesFailures(t *testing.T) {
 
 func TestEnrichRackUsesResolvedResourceAsRack(t *testing.T) {
 	rackID := uuid.New()
-	processor := New(
-		inventoryresolver.New(&processorInventory{
+	processor := newTestProcessor(
+		t,
+		&processorInventory{
 			rack: rack.New(deviceinfo.DeviceInfo{ID: rackID}, location.Location{}),
-		}),
+		},
 		nil,
 	)
 
@@ -166,8 +167,8 @@ func TestEnrichRackUsesResolvedResourceAsRack(t *testing.T) {
 		}),
 	)
 	require.NoError(t, err)
-	require.Equal(t, rackID, result.ResolvedResource.ID)
-	require.Equal(t, rackID, result.ResolvedResource.RackID)
+	require.Equal(t, rackID, result.ID)
+	require.Equal(t, rackID, result.RackID)
 }
 
 func validEnvelope(resource eventrule.Resource) eventrule.Envelope {

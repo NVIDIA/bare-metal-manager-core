@@ -124,6 +124,9 @@ mod tests {
 
         let env_user = "CARBIDE_TEST_PREC__DPU_UEFI_SITE_DEFAULT__USERNAME";
         let env_password = "CARBIDE_TEST_PREC__DPU_UEFI_SITE_DEFAULT__PASSWORD";
+        // SAFETY: Initial lint enablement: `#[serial]` serializes participating tests,
+        // but it cannot prove Unix process-wide exclusion from unmarked environment
+        // readers. This needs owner review.
         unsafe {
             std::env::set_var(env_user, "env-user");
             std::env::set_var(env_password, "env-password");
@@ -159,6 +162,9 @@ mod tests {
             })
         );
 
+        // SAFETY: Initial lint enablement: `#[serial]` serializes participating tests,
+        // but it cannot prove Unix process-wide exclusion from unmarked environment
+        // readers. This needs owner review.
         unsafe {
             std::env::remove_var(env_user);
             std::env::remove_var(env_password);

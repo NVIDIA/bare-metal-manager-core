@@ -37,10 +37,8 @@ type Sku struct {
 	AssociatedMachineIds []string `json:"associatedMachineIds,omitempty"`
 	// Hardware components of this SKU
 	Components *SkuComponents `json:"components,omitempty"`
-	// ISO 8601 datetime when the SKU was created
+	// ISO 8601 datetime when the SKU was created, using the Site-reported timestamp when available
 	Created *time.Time `json:"created,omitempty"`
-	// ISO 8601 datetime when the SKU was last updated
-	Updated *time.Time `json:"updated,omitempty"`
 }
 
 // NewSku instantiates a new Sku object
@@ -327,38 +325,6 @@ func (o *Sku) SetCreated(v time.Time) {
 	o.Created = &v
 }
 
-// GetUpdated returns the Updated field value if set, zero value otherwise.
-func (o *Sku) GetUpdated() time.Time {
-	if o == nil || IsNil(o.Updated) {
-		var ret time.Time
-		return ret
-	}
-	return *o.Updated
-}
-
-// GetUpdatedOk returns a tuple with the Updated field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *Sku) GetUpdatedOk() (*time.Time, bool) {
-	if o == nil || IsNil(o.Updated) {
-		return nil, false
-	}
-	return o.Updated, true
-}
-
-// HasUpdated returns a boolean if a field has been set.
-func (o *Sku) HasUpdated() bool {
-	if o != nil && !IsNil(o.Updated) {
-		return true
-	}
-
-	return false
-}
-
-// SetUpdated gets a reference to the given time.Time and assigns it to the Updated field.
-func (o *Sku) SetUpdated(v time.Time) {
-	o.Updated = &v
-}
-
 func (o Sku) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -392,9 +358,6 @@ func (o Sku) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Created) {
 		toSerialize["created"] = o.Created
-	}
-	if !IsNil(o.Updated) {
-		toSerialize["updated"] = o.Updated
 	}
 	return toSerialize, nil
 }

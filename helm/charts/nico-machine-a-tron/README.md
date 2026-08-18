@@ -34,6 +34,40 @@ as nico-machine-a-tron. The controller does not support a separate namespace.
 
 **Default:** Override Mode (controller disabled, single pod).
 
+## UFM mock
+
+Machine-a-tron hosts a UFM-compatible mock on its existing HTTPS listener. The
+mock is enabled by default and exposes only the InfiniBand inventory belonging
+to that machine-a-tron process. Point the default NICo IB fabric at the same
+Service used for the machine-a-tron control and Redfish APIs, with
+`/ufmRestV3` as the UFM API path.
+
+The chart generates a 24-character HTTP Basic credential, stores it in a
+Secret, and preserves it across Helm upgrades. Set `ufmMock.existingAuthSecret`
+to use an externally managed Secret whose `token` key contains the credential.
+
+Disable the embedded mock when InfiniBand simulation is not needed or when an
+external fabric mock is managed separately:
+
+```yaml
+ufmMock:
+  enabled: false
+```
+
+For the default `mat-0` pod and chart name, the endpoint is
+`https://nico-machine-a-tron-mat-0-bmc-mock.<namespace>.svc.cluster.local:1266`.
+The chart does not aggregate InfiniBand inventory across multiple
+machine-a-tron pods. A full `configFiles.matConfigs` override owns the complete
+MAT configuration, including its `[ufm_mock]` section.
+
+## Logging
+
+The chart defaults `machineATron.logFormat` to `logfmt`, so machine-a-tron emits
+structured logs to stdout for Kubernetes log collectors. Set it to `compact`
+for the human-oriented tracing format. `machineATron.logFile` independently
+redirects either format to a file when set. A full `configFiles.matConfigs`
+override must set `log_format = "logfmt"` itself if structured output is wanted.
+
 ---
 
 ## Mode 1: Override Mode (Development)
@@ -160,13 +194,19 @@ spec:
     port: 443
     targetPort: 1266  # Redfish listen port from machine-a-tron (default: service.bmcMock.port)
     protocol: TCP
+  - name: ipmi        # Only present when IPMI simulation is enabled and BMC reports bmc.ipmi
+    port: 623
+    targetPort: 16023  # IPMI listen port from machine-a-tron
+    protocol: UDP
   selector:
     app.kubernetes.io/name: nico-machine-a-tron
     nvidia-infra-controller/pod-name: mat-0
 ```
 
 The `targetPort` is the Redfish listen port reported by machine-a-tron, which
-defaults to the configured `service.bmcMock.port` (1266).
+defaults to the configured `service.bmcMock.port` (1266). When IPMI simulation
+is enabled and the BMC reports `bmc.ipmi` in its status, the controller also
+adds a dynamic target UDP port for IPMI access.
 
 ### Requirements
 
@@ -225,6 +265,57 @@ pods:
         oobDhcpRelayAddress: "10.96.64.1"
         adminDhcpRelayAddress: "192.168.176.1"
 ```
+
+### IPMI/SOL Simulation
+
+Enable IPMI/SOL simulation to expose per-BMC IPMI endpoints for IPMI-capable
+mocked BMCs. This is optional and only affects BMCs that support IPMI (not all
+hardware types have IPMI support).
+
+```yaml
+machineATron:
+  enableIpmiSimulation: true
+  # For K8s controller mode, use dynamic ports so each BMC gets a unique port
+  ipmiReachablePort: 0
+```
+
+**Port Configuration:**
+
+| `ipmiReachablePort` | Behavior |
+|---------------------|----------|
+| Unset (default) | Advertise port 623 in Redfish |
+| `0` | Use dynamic port (required for K8s controller mode) |
+| `1-65535` | Use specified port |
+
+**Deployment Mode Considerations:**
+
+| Mode | IPMI Accessible? | Notes |
+|------|------------------|-------|
+| Controller mode (`useSingleBmcMock: true` + `mat-k8s-controller`) |Yes | Use `ipmiReachablePort: 0`. Controller creates per-BMC Services with dynamic IPMI ports. |
+| Shared-proxy mode (`useSingleBmcMock: true` without controller) |No | No per-BMC Services to route dynamic IPMI ports. IPMI simulators run but are not externally reachable. |
+| Override mode (`useSingleBmcMock: false`) |Yes | Each BMC gets its own IP address. Use `ipmiReachablePort: 623` (default) or a fixed port. |
+
+> **Note:** IPMI ports are only added to Services for host machines with
+> IPMI-capable hardware types (eg, NVIDIA GB300, Supermicro GB300)
+
+When using K8s controller mode (`machineATron.useSingleBmcMock: true`), set
+`ipmiReachablePort: 0` so each IPMI simulator gets a unique dynamic port that
+the `mat-k8s-controller` can map to individual Services.
+
+When enabled:
+
+1. Machine-a-tron starts an independent IPMI simulator (`ipmi_sim`) for each
+   IPMI-capable host BMC
+2. The `/machines/status` API reports `bmc.ipmi` with `reachable_port` and
+   `listen_port` for each BMC with IPMI enabled
+3. The `mat-k8s-controller` creates UDP Service ports for IPMI access alongside
+   the existing TCP Redfish port (controller mode only)
+
+**Requirements:**
+
+- The machine-a-tron container image must include `ipmi_sim` (from `openipmi`)
+  and `ipmitool` - these are included in the standard image
+- Only IPMI-capable hardware types will expose IPMI endpoints
 
 ### MAC Address Pool Configuration
 

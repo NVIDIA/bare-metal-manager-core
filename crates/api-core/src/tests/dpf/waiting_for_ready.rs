@@ -59,7 +59,7 @@ fn expect_provisioning(mock: &mut MockDpfOperations) {
     mock.expect_register_dpu_device().returning(|_| Ok(()));
     mock.expect_register_dpu_node().returning(|_| Ok(()));
     mock.expect_deployment_type_for_dpu()
-        .returning(|_| Ok(DpuDeploymentType::Bf3));
+        .returning(move |__, _| Ok(DpuDeploymentType::Bf3));
     mock.expect_verify_node_labels().returning(|_, _| Ok(true));
 }
 
@@ -529,7 +529,7 @@ async fn test_waiting_for_ready_idempotent_reboot(pool: sqlx::PgPool) {
 async fn test_reboot_persists_on_intent_before_power_command(pool: sqlx::PgPool) {
     let mut mock = MockDpfOperations::new();
     mock.expect_deployment_type_for_dpu()
-        .returning(|_| Ok(DpuDeploymentType::Bf3));
+        .returning(|_, _| Ok(DpuDeploymentType::Bf3));
     mock.expect_verify_node_labels().returning(|_, _| Ok(true));
     let dpf_sdk: Arc<dyn DpfOperations> = Arc::new(mock);
     let env = create_test_env_with_overrides(

@@ -45,6 +45,8 @@ pub unsafe extern "C" fn carbide_expire_lease(
     ip_address: *const c_char,
     mac_address: *const c_char,
 ) -> LeaseExpirationResult {
+    // SAFETY: Kea keeps the required IP C string readable and NUL-terminated
+    // through this synchronous call, including its nested `block_on`.
     let ip_str = unsafe {
         match CStr::from_ptr(ip_address).to_str() {
             Ok(s) => s,
@@ -55,6 +57,8 @@ pub unsafe extern "C" fn carbide_expire_lease(
     let mac_str = if mac_address.is_null() {
         None
     } else {
+        // SAFETY: A non-null optional MAC is a NUL-terminated Kea string that
+        // remains readable through this synchronous call.
         unsafe {
             match CStr::from_ptr(mac_address).to_str() {
                 Ok(s) if !s.is_empty() => Some(s),

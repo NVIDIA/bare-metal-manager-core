@@ -37,8 +37,17 @@ use crate::bmc::{BmcClient, BoxFuture};
 ///
 /// Collectors clone endpoint metadata when they start, so this state must remain
 /// shared for a UUID resolved after collector startup to reach emitted events.
+/// Clones of the same state compare equal. Distinct states compare equal only
+/// after both cells are initialized with the same optional UUID.
 #[derive(Clone, Debug, Default)]
 pub struct SharedSystemUuid(Arc<OnceCell<Option<uuid::Uuid>>>);
+
+impl PartialEq for SharedSystemUuid {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+            || matches!((self.0.get(), other.0.get()), (Some(left), Some(right)) if left == right)
+    }
+}
 
 impl SharedSystemUuid {
     pub fn get(&self) -> Option<uuid::Uuid> {
@@ -135,7 +144,7 @@ impl BmcEndpoint {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum EndpointMetadata {
     Machine(MachineData),
     PowerShelf(PowerShelfData),
@@ -169,7 +178,7 @@ impl EndpointMetadata {
 }
 
 /// Metadata that describes a machine endpoint for health telemetry.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct MachineData {
     /// Stable NICo machine identifier. None when running without NICo.
     pub machine_id: Option<MachineId>,
@@ -202,7 +211,7 @@ pub struct MachineData {
     pub driver_version: Option<String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PowerShelfData {
     pub id: Option<PowerShelfId>,
     pub serial: String,
@@ -214,7 +223,7 @@ pub enum SwitchEndpointRole {
     Host,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SwitchData {
     pub id: Option<SwitchId>,
     pub serial: String,
@@ -244,7 +253,7 @@ pub enum BmcCredentials {
     },
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BmcAddr {
     pub ip: IpAddr,
     pub port: Option<u16>,
@@ -438,5 +447,22 @@ mod tests {
         assert_eq!(query_count.load(Ordering::SeqCst), 1);
         assert_eq!(state.get(), None);
         assert_eq!(clone.get(), None);
+    }
+
+    #[tokio::test]
+    async fn shared_system_uuid_equality_distinguishes_unresolved_from_absent() {
+        let unresolved = SharedSystemUuid::default();
+        let other_unresolved = SharedSystemUuid::default();
+
+        assert_eq!(unresolved, unresolved.clone());
+        assert_ne!(unresolved, other_unresolved);
+
+        let initialized_absent = SharedSystemUuid::default();
+        initialized_absent
+            .get_or_try_init(|| async { Ok::<_, Infallible>(None) })
+            .await
+            .expect("infallible UUID initialization");
+
+        assert_ne!(initialized_absent, unresolved);
     }
 }

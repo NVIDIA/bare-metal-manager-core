@@ -243,7 +243,6 @@ func (o *MeasuredBootTrustedMachineCreateRequest) UnmarshalJSON(data []byte) (er
 	varMeasuredBootTrustedMachineCreateRequest := _MeasuredBootTrustedMachineCreateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varMeasuredBootTrustedMachineCreateRequest)
 
 	if err != nil {

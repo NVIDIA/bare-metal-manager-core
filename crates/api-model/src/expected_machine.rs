@@ -99,7 +99,8 @@ where
 ///   treated as `Fixed`, no address is treated as `Retained`.
 /// - `Dynamic`: a normal DHCP lease that may expire and change.
 /// - `Fixed`: the operator-specified `bmc_ip_address` (static).
-/// - `Retained`: an auto-allocated address pinned as Static (never expires).
+/// - `Retained`: an auto-allocated DHCP address that stays static for the
+///   lifetime of its machine-interface record.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, sqlx::Type, Serialize, Deserialize)]
 #[sqlx(type_name = "bmc_ip_allocation_t", rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]

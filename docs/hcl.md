@@ -1,8 +1,8 @@
 # Hardware Compatibility List
 
-This Hardware Compatibility List (HCL) is provided for reference purposes only. Systems listed here have been unit tested or exercised internally in limited scenarios.
-Inclusion in this list does not imply qualification, certification, or support, and does not represent a commitment to ongoing compatibility. For specific hardware support
-inquiries or technical specifications, please contact the original hardware vendor.
+The Hardware Compatibility List (HCL) identifies hardware that is currently supported and compatible from a NICo perspective. It is not an exhaustive certification or qualification of each platform. For platform certification, qualification, and detailed hardware support information, contact the hardware manufacturer.
+
+To add support for hardware that the NICo development team does not have access to, follow [Adding Support for New Hardware](development/new_hardware_support.md).
 
 ## Hosts
 

@@ -129,7 +129,7 @@ impl<IO: StateControllerIO> StateController<IO> {
             {
                 tracing::error!(error = %err, "State processor iteration error");
             }
-            if self.processor.in_flight.is_empty() {
+            if self.processor.object_tasks.is_empty() {
                 break;
             }
         }

@@ -25,7 +25,7 @@ use carbide_health::endpoint::{BmcAddr, EndpointMetadata, MachineData, SharedSys
 use carbide_health::metrics::MetricsManager;
 use carbide_health::sink::{
     Classification, CollectorEvent, CompositeDataSink, DataSink, EventContext, HealthReport,
-    HealthReportSink, LogRecord, MetricSample, PrometheusSink, ReportSource,
+    HealthReportSink, LogRecord, LogSeverity, MetricSample, PrometheusSink, ReportSource,
 };
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use health_report::HealthReport as CarbideHealthReport;
@@ -342,7 +342,7 @@ fn log_events_with_attrs(count: usize, unique_sensors: usize) -> Vec<CollectorEv
             let sensor = format!("HGX_GPU_{}_Temp_1", idx % unique_sensors);
             CollectorEvent::Log(Box::new(LogRecord {
                 body: format!("{sensor} sensor crossed threshold"),
-                severity: "Warning".to_string(),
+                severity: LogSeverity::Warn,
                 attributes: vec![
                     (
                         Cow::Borrowed("message_id"),

@@ -14,6 +14,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#![cfg_attr(not(test), deny(dead_code_pub_in_binary))]
+
+mod logging;
+mod ufm_mock;
+
 use std::borrow::Cow;
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -42,42 +47,9 @@ use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use rpc::protos::forge_api_client::ForgeApiClient;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::mpsc;
-use tracing_subscriber::filter::{EnvFilter, LevelFilter};
-use tracing_subscriber::prelude::*;
-use tracing_subscriber::{fmt, registry};
 
-fn init_log(
-    filename: &Option<String>,
-    tui_host_logs: Option<&TuiHostLogs>,
-) -> Result<(), Box<dyn Error>> {
-    let env_filter = EnvFilter::builder()
-        .with_default_directive(LevelFilter::INFO.into())
-        .from_env_lossy()
-        .add_directive("tower=warn".parse().unwrap())
-        .add_directive("rustls=warn".parse().unwrap())
-        .add_directive("hyper=warn".parse().unwrap())
-        .add_directive("hickory_proto=warn".parse().unwrap())
-        .add_directive("hickory_resolver=warn".parse().unwrap())
-        .add_directive("h2=warn".parse().unwrap());
-
-    match filename {
-        Some(filename) => {
-            let log_file = std::sync::Arc::new(std::fs::File::create(filename)?);
-            registry()
-                .with(fmt::Layer::default().compact().with_writer(log_file))
-                .with(env_filter)
-                .with(tui_host_logs.map(|l| l.make_tracing_layer()))
-                .try_init()?;
-        }
-        None => registry()
-            .with(fmt::Layer::default().compact().with_writer(std::io::stdout))
-            .with(env_filter)
-            .with(tui_host_logs.map(|l| l.make_tracing_layer()))
-            .try_init()?,
-    }
-
-    Ok(())
-}
+use crate::logging::init_logging;
+use crate::ufm_mock::HostedUfmMock;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 32)]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -89,13 +61,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let fig = Figment::new().merge(Toml::file(config_path));
     let app_config: MachineATronConfig = fig.extract()?;
     app_config.validate()?;
+    let ufm_config = app_config.ufm_mock.clone();
     let tui_host_logs = if app_config.tui_enabled {
         Some(TuiHostLogs::start_new(100))
     } else {
         None
     };
 
-    init_log(&app_config.log_file, tui_host_logs.as_ref())?;
+    init_logging(
+        app_config.log_format,
+        app_config.log_file.as_deref(),
+        tui_host_logs.as_ref(),
+    )?;
 
     let file_config = get_config_from_file();
 
@@ -149,6 +126,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let bmc_mock_port = app_config.bmc_mock_port;
     let tui_enabled = app_config.tui_enabled;
+    let hw_mac_address_ranges = app_config
+        .hw_mac_address_ranges
+        .as_ref()
+        .map(|config| {
+            MacAddressRangesConfig::new(config.base, config.host_bits, config.range_host_bits)
+        })
+        .unwrap_or_else(|| {
+            MacAddressRangesConfig::new(MacAddress::new([6, 0, 0, 0, 0, 0]), 32, 8)
+        })?;
+    let inventory_id = format!(
+        "mat-{}",
+        hw_mac_address_ranges
+            .base()
+            .to_string()
+            .to_ascii_lowercase()
+    );
 
     let mac_address_pool = MacAddressPool::new(MacAddressConfig {
         pool: Some(
@@ -160,21 +153,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     MacAddressPoolConfig::new(MacAddress::new([2, 0, 0, 0, 0, 0]), 24)
                 })?,
         ),
-        ranges: Some(
-            app_config
-                .hw_mac_address_ranges
-                .as_ref()
-                .map(|config| {
-                    MacAddressRangesConfig::new(
-                        config.base,
-                        config.host_bits,
-                        config.range_host_bits,
-                    )
-                })
-                .unwrap_or_else(|| {
-                    MacAddressRangesConfig::new(MacAddress::new([6, 0, 0, 0, 0, 0]), 32, 8)
-                })?,
-        ),
+        ranges: Some(hw_mac_address_ranges),
     });
 
     let bmc_mock_certs_dir = app_config.bmc_mock_certs_dir.clone();
@@ -217,8 +196,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Launch the control UI after the machines are created so it can report their handles. In
     // combined-BMC mode it shares the combined BMC listener. In per-IP mode it listens on the
     // loopback address at the same port, independently of the per-machine BMC listeners.
-    let control_state =
-        ControlState::new(simulators.clone(), DeviceStatusConfig::new(bmc_mock_port));
+    let control_state = ControlState::new(
+        simulators.clone(),
+        DeviceStatusConfig::new(bmc_mock_port),
+        inventory_id.into(),
+    );
+    // Hosted mode mounts the shared UFM mock router on machine-a-tron's control server. Its
+    // ControlState can be injected as an in-process inventory provider; the standalone binary
+    // initializes the same mock without this provider and relies on configured HTTP sources.
+    let hosted_ufm = HostedUfmMock::start(ufm_config, &control_state)?;
+    let ufm_router = hosted_ufm.as_ref().map(HostedUfmMock::router);
     let certs_dir = app_context
         .bmc_mock_certs_dir
         .as_ref()
@@ -233,7 +220,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
             BmcRegistrationMode::BackingInstance(bmc_mock_registry) => {
                 let server_config = bmc_mock::tls::server_config(certs_dir.clone())?;
                 let bmc_router = bmc_mock::combined_router(bmc_mock_registry.clone());
-                let router = append_control_routes(bmc_router, control_state.clone());
+                let bmc_router = match ufm_router.clone() {
+                    Some(ufm_router) => ufm_router.merge(bmc_router),
+                    None => bmc_router,
+                };
+                let router = append_control_routes(Some(bmc_router), control_state.clone());
                 let bmc_https_mock = bmc_mock::CombinedServer::run_router(
                     "bmc-mock",
                     router,
@@ -269,7 +260,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
             BmcRegistrationMode::None(_) => {
                 let server_config = bmc_mock::tls::server_config(certs_dir)?;
-                let router = append_control_routes(axum::Router::new(), control_state);
+                let router = append_control_routes(ufm_router, control_state);
                 let control_server = bmc_mock::CombinedServer::run_router(
                     "machine-a-tron-control",
                     router,
@@ -316,6 +307,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let mat_result = mat.run(simulators, tui_event_tx.clone(), app_rx).await;
+
+    if let Some(hosted_ufm) = hosted_ufm {
+        hosted_ufm.shutdown().await?;
+    }
 
     if let Some(tui_handle) = tui_handle {
         if let Some(tui_quit_tx) = tui_quit_tx.as_ref() {
