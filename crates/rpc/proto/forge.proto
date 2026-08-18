@@ -728,6 +728,9 @@ service Forge {
   // On-demand rack maintenance (full rack or partial)
   rpc OnDemandRackMaintenance(RackMaintenanceOnDemandRequest) returns (RackMaintenanceOnDemandResponse);
 
+  // Terminate active rack maintenance and transition the rack to Error.
+  rpc TerminateRackMaintenance(RackMaintenanceTerminateRequest) returns (RackMaintenanceTerminateResponse);
+
   // TPM CA certs Management
   //rpc TpmDeleteCaCert(TpmCaCertDetails) returns (google.protobuf.Empty);
   rpc TpmAddCaCert(TpmCaCert) returns (TpmCaAddedCaStatus);
@@ -6997,6 +7000,18 @@ message RackMaintenanceOnDemandRequest {
 
 message RackMaintenanceOnDemandResponse {
   // RackMaintenanceOnDemandResponse 
+}
+
+// Requests termination of NICo rack maintenance orchestration. The call is
+// accepted only while the rack is in Maintenance and returns after the durable
+// termination request is recorded, before the asynchronous transition to Error
+// completes. Repeating an accepted request before it is consumed is idempotent.
+// Work already submitted to an external backend is not guaranteed to stop.
+message RackMaintenanceTerminateRequest {
+  common.RackId rack_id = 1;
+}
+
+message RackMaintenanceTerminateResponse {
 }
 
 message AdminPowerControlRequest {

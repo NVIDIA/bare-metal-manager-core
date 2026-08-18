@@ -356,6 +356,7 @@ const (
 	Forge_IsInfiniteBootEnabled_FullMethodName                              = "/forge.Forge/IsInfiniteBootEnabled"
 	Forge_OnDemandMachineValidation_FullMethodName                          = "/forge.Forge/OnDemandMachineValidation"
 	Forge_OnDemandRackMaintenance_FullMethodName                            = "/forge.Forge/OnDemandRackMaintenance"
+	Forge_TerminateRackMaintenance_FullMethodName                           = "/forge.Forge/TerminateRackMaintenance"
 	Forge_TpmAddCaCert_FullMethodName                                       = "/forge.Forge/TpmAddCaCert"
 	Forge_TpmShowCaCerts_FullMethodName                                     = "/forge.Forge/TpmShowCaCerts"
 	Forge_TpmShowUnmatchedEkCerts_FullMethodName                            = "/forge.Forge/TpmShowUnmatchedEkCerts"
@@ -1091,6 +1092,8 @@ type ForgeClient interface {
 	OnDemandMachineValidation(ctx context.Context, in *MachineValidationOnDemandRequest, opts ...grpc.CallOption) (*MachineValidationOnDemandResponse, error)
 	// On-demand rack maintenance (full rack or partial)
 	OnDemandRackMaintenance(ctx context.Context, in *RackMaintenanceOnDemandRequest, opts ...grpc.CallOption) (*RackMaintenanceOnDemandResponse, error)
+	// Terminate active rack maintenance and transition the rack to Error.
+	TerminateRackMaintenance(ctx context.Context, in *RackMaintenanceTerminateRequest, opts ...grpc.CallOption) (*RackMaintenanceTerminateResponse, error)
 	// TPM CA certs Management
 	// rpc TpmDeleteCaCert(TpmCaCertDetails) returns (google.protobuf.Empty);
 	TpmAddCaCert(ctx context.Context, in *TpmCaCert, opts ...grpc.CallOption) (*TpmCaAddedCaStatus, error)
@@ -4711,6 +4714,16 @@ func (c *forgeClient) OnDemandRackMaintenance(ctx context.Context, in *RackMaint
 	return out, nil
 }
 
+func (c *forgeClient) TerminateRackMaintenance(ctx context.Context, in *RackMaintenanceTerminateRequest, opts ...grpc.CallOption) (*RackMaintenanceTerminateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RackMaintenanceTerminateResponse)
+	err := c.cc.Invoke(ctx, Forge_TerminateRackMaintenance_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *forgeClient) TpmAddCaCert(ctx context.Context, in *TpmCaCert, opts ...grpc.CallOption) (*TpmCaAddedCaStatus, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(TpmCaAddedCaStatus)
@@ -6761,6 +6774,8 @@ type ForgeServer interface {
 	OnDemandMachineValidation(context.Context, *MachineValidationOnDemandRequest) (*MachineValidationOnDemandResponse, error)
 	// On-demand rack maintenance (full rack or partial)
 	OnDemandRackMaintenance(context.Context, *RackMaintenanceOnDemandRequest) (*RackMaintenanceOnDemandResponse, error)
+	// Terminate active rack maintenance and transition the rack to Error.
+	TerminateRackMaintenance(context.Context, *RackMaintenanceTerminateRequest) (*RackMaintenanceTerminateResponse, error)
 	// TPM CA certs Management
 	// rpc TpmDeleteCaCert(TpmCaCertDetails) returns (google.protobuf.Empty);
 	TpmAddCaCert(context.Context, *TpmCaCert) (*TpmCaAddedCaStatus, error)
@@ -8041,6 +8056,9 @@ func (UnimplementedForgeServer) OnDemandMachineValidation(context.Context, *Mach
 }
 func (UnimplementedForgeServer) OnDemandRackMaintenance(context.Context, *RackMaintenanceOnDemandRequest) (*RackMaintenanceOnDemandResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method OnDemandRackMaintenance not implemented")
+}
+func (UnimplementedForgeServer) TerminateRackMaintenance(context.Context, *RackMaintenanceTerminateRequest) (*RackMaintenanceTerminateResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method TerminateRackMaintenance not implemented")
 }
 func (UnimplementedForgeServer) TpmAddCaCert(context.Context, *TpmCaCert) (*TpmCaAddedCaStatus, error) {
 	return nil, status.Error(codes.Unimplemented, "method TpmAddCaCert not implemented")
@@ -14494,6 +14512,24 @@ func _Forge_OnDemandRackMaintenance_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_TerminateRackMaintenance_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RackMaintenanceTerminateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).TerminateRackMaintenance(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_TerminateRackMaintenance_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).TerminateRackMaintenance(ctx, req.(*RackMaintenanceTerminateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Forge_TpmAddCaCert_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(TpmCaCert)
 	if err := dec(in); err != nil {
@@ -18449,6 +18485,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "OnDemandRackMaintenance",
 			Handler:    _Forge_OnDemandRackMaintenance_Handler,
+		},
+		{
+			MethodName: "TerminateRackMaintenance",
+			Handler:    _Forge_TerminateRackMaintenance_Handler,
 		},
 		{
 			MethodName: "TpmAddCaCert",

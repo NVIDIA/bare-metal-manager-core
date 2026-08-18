@@ -412,6 +412,31 @@ pub async fn clear_switch_reprovisioning_requested(
     Ok(())
 }
 
+/// Clears a rack-owned reprovisioning request before the switch leaves `Ready`.
+///
+/// Returns whether the request was cleared. Once the switch controller has
+/// started reprovisioning, it owns the request and unwinds it after observing
+/// the parent rack in `Error`.
+pub async fn clear_ready_switch_reprovisioning_requested(
+    txn: &mut PgConnection,
+    switch_id: SwitchId,
+    initiator: &str,
+) -> DatabaseResult<bool> {
+    let query = r#"UPDATE switches
+        SET switch_reprovisioning_requested = NULL
+        WHERE id = $1
+          AND controller_state->>'state' = 'ready'
+          AND switch_reprovisioning_requested->>'initiator' = $2
+        RETURNING id"#;
+    let cleared = sqlx::query_as::<_, SwitchId>(query)
+        .bind(switch_id)
+        .bind(initiator)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::new("clear_ready_switch_reprovisioning_requested", e))?;
+    Ok(cleared.is_some())
+}
+
 pub async fn set_switch_maintenance_requested(
     txn: &mut PgConnection,
     switch_id: SwitchId,
