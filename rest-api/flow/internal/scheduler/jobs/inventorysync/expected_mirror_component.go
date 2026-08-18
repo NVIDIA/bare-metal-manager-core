@@ -437,10 +437,11 @@ func mirrorExpectedComponents(
 		macs := hostBMCMACs(c)
 		key := naturalKeyOrEmpty(c.Manufacturer, c.SerialNumber)
 		if len(macs) == 0 && key == "" {
-			// Nothing in this row can identify it in any future expected
-			// snapshot. Once the current snapshot succeeds, retaining the row
-			// would leave a permanent orphan, so remove it with the rest of the
-			// absent expected inventory.
+			// With the expected mirror enabled, a successful Core response is the
+			// authoritative snapshot for this component type. This row has no host
+			// BMC or complete fallback identity with which to join that snapshot;
+			// keeping it live would leave stale inventory visible to list/count and
+			// actual-drift paths. Remove it with the other absent expected rows.
 			p.toDelete = append(p.toDelete, *c)
 			continue
 		}
@@ -460,6 +461,7 @@ func mirrorExpectedComponents(
 	}
 
 	now := time.Now()
+	softDeleted := 0
 	if err := pool.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
 		for i := range p.toInsert {
 			if _, err := tx.NewInsert().Model(&p.toInsert[i]).Exec(ctx); err != nil {
@@ -520,9 +522,18 @@ func mirrorExpectedComponents(
 			}
 		}
 		for i := range p.toDelete {
-			if _, err := tx.NewDelete().Model(&p.toDelete[i]).Where("id = ?", p.toDelete[i].ID).Exec(ctx); err != nil {
+			deleteResult, err := tx.NewDelete().Model(&p.toDelete[i]).Where("id = ?", p.toDelete[i].ID).Exec(ctx)
+			if err != nil {
 				return fmt.Errorf("soft-delete component %q: %w", p.toDelete[i].SerialNumber, err)
 			}
+			rowsAffected, err := deleteResult.RowsAffected()
+			if err != nil {
+				return fmt.Errorf("count soft-deleted component %q: %w", p.toDelete[i].SerialNumber, err)
+			}
+			if rowsAffected != 1 {
+				return fmt.Errorf("soft-delete component %q affected %d rows, expected 1", p.toDelete[i].SerialNumber, rowsAffected)
+			}
+			softDeleted += int(rowsAffected)
 		}
 		return nil
 	}); err != nil {
@@ -539,7 +550,7 @@ func mirrorExpectedComponents(
 
 	result.inserted = len(p.toInsert)
 	result.updated = len(p.toUpdate)
-	result.softDeleted = len(p.toDelete)
+	result.softDeleted = softDeleted
 	return result
 }
 

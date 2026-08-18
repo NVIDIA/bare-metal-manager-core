@@ -103,7 +103,8 @@ func TestMirrorRacks_EmptyCoreDeletesAbsentAndIdentitylessRows(t *testing.T) {
 		require.NoError(t, identitylessLegacy[i].Create(ctx, pool.DB))
 	}
 
-	mirrorExpectedRacks(ctx, pool, nil)
+	result := mirrorExpectedRacks(ctx, pool, nil)
+	assert.Equal(t, 4, result.softDeleted, "summary count must reflect the four rows actually soft-deleted")
 
 	gotAdopted, err := (&model.Rack{ID: adopted.ID}).GetIncludingDeleted(ctx, pool.DB)
 	require.NoError(t, err)
@@ -118,6 +119,28 @@ func TestMirrorRacks_EmptyCoreDeletesAbsentAndIdentitylessRows(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotNil(t, gotIdentitylessLegacy.DeletedAt, "legacy rack without a complete identity must be soft-deleted")
 	}
+}
+
+// An identity-less legacy rack can reserve a globally unique name needed by a
+// Core rack. The first authoritative pass removes the orphan; the next pass can
+// collect that tombstone and mirror the Core rack under the released name.
+func TestMirrorRacks_IdentitylessRowCleanupReleasesNameForCoreRack(t *testing.T) {
+	ctx, pool := mirrorTestPool(t)
+
+	orphan := model.Rack{Name: "reserved-name"}
+	require.NoError(t, orphan.Create(ctx, pool.DB))
+	core := coreRackNamed("a12", "reserved-name", "Mfg", "CORE-1")
+
+	first := mirrorExpectedRacks(ctx, pool, []nicoapi.ExpectedRackDetail{core})
+	assert.Equal(t, 1, first.skippedNameTaken)
+	assert.Equal(t, 1, first.softDeleted)
+
+	second := mirrorExpectedRacks(ctx, pool, []nicoapi.ExpectedRackDetail{core})
+	assert.Equal(t, 1, second.inserted)
+
+	var mirrored model.Rack
+	require.NoError(t, pool.DB.NewSelect().Model(&mirrored).Where("external_id = ?", "a12").Scan(ctx))
+	assert.Equal(t, "reserved-name", mirrored.Name)
 }
 
 // #1: a soft-deleted rack is resurrected (deleted_at cleared) when Core
@@ -377,7 +400,8 @@ func TestMirrorComponents_EmptyCoreSoftDeletesAll(t *testing.T) {
 	c := model.Component{Type: compType(), Manufacturer: "Mfg", SerialNumber: "C-DEL-1"}
 	require.NoError(t, c.Create(ctx, pool.DB))
 
-	mirrorExpectedComponents(ctx, pool, compType(), nil, map[string]uuid.UUID{})
+	result := mirrorExpectedComponents(ctx, pool, compType(), nil, map[string]uuid.UUID{})
+	assert.Equal(t, 1, result.softDeleted, "summary count must reflect the row actually soft-deleted")
 
 	got, err := (&model.Component{ID: c.ID}).GetIncludingDeleted(ctx, pool.DB)
 	require.NoError(t, err)
@@ -622,8 +646,8 @@ func TestMirrorComponents_BMCBoardSwapAdoptsByNaturalKey(t *testing.T) {
 }
 
 // A Flow component with neither a host BMC nor a complete chassis pair cannot
-// be identified by any future expected snapshot, so a successful reconciliation
-// removes it rather than retaining a permanent orphan.
+// join the successful authoritative snapshot, so reconciliation removes it
+// rather than retaining stale live inventory.
 func TestMirrorComponents_UnmatchableRowSoftDeleted(t *testing.T) {
 	ctx, pool := mirrorTestPool(t)
 
@@ -636,7 +660,8 @@ func TestMirrorComponents_UnmatchableRowSoftDeleted(t *testing.T) {
 		require.NoError(t, components[i].Create(ctx, pool.DB))
 	}
 
-	mirrorExpectedComponents(ctx, pool, compType(), nil, map[string]uuid.UUID{})
+	result := mirrorExpectedComponents(ctx, pool, compType(), nil, map[string]uuid.UUID{})
+	assert.Equal(t, 3, result.softDeleted, "summary count must reflect the three rows actually soft-deleted")
 
 	for _, component := range components {
 		got, err := (&model.Component{ID: component.ID}).GetIncludingDeleted(ctx, pool.DB)

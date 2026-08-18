@@ -314,10 +314,11 @@ func mirrorExpectedRacks(
 			continue
 		}
 		// External_id is NULL — never adopted. Without a complete natural key,
-		// no future Core snapshot can identify this row, so the successful
-		// authoritative snapshot makes it safe to remove. A complete but
-		// currently unmatched natural key remains a migration-compatible legacy
-		// row and may still be adopted by a later snapshot.
+		// this row cannot join the successful authoritative Core snapshot. Keeping
+		// it live also reserves its globally unique rack name, which can prevent a
+		// real Core rack from being mirrored. A complete but currently unmatched
+		// natural key remains a migration-compatible legacy row and may still be
+		// adopted by a later snapshot.
 		key := naturalKeyOrEmpty(r.Manufacturer, r.SerialNumber)
 		if key == "" {
 			p.toDelete = append(p.toDelete, *r)
@@ -338,6 +339,7 @@ func mirrorExpectedRacks(
 	}
 
 	now := time.Now()
+	softDeleted := 0
 	if err := pool.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
 		for i := range p.toInsert {
 			if err := gcTombstoneForNameReuse(ctx, tx, tombstonesByName, p.toInsert[i].Name, uuid.Nil); err != nil {
@@ -368,9 +370,18 @@ func mirrorExpectedRacks(
 			}
 		}
 		for i := range p.toDelete {
-			if _, err := tx.NewDelete().Model(&p.toDelete[i]).Where("id = ?", p.toDelete[i].ID).Exec(ctx); err != nil {
+			deleteResult, err := tx.NewDelete().Model(&p.toDelete[i]).Where("id = ?", p.toDelete[i].ID).Exec(ctx)
+			if err != nil {
 				return fmt.Errorf("soft-delete rack %q: %w", p.toDelete[i].Name, err)
 			}
+			rowsAffected, err := deleteResult.RowsAffected()
+			if err != nil {
+				return fmt.Errorf("count soft-deleted rack %q: %w", p.toDelete[i].Name, err)
+			}
+			if rowsAffected != 1 {
+				return fmt.Errorf("soft-delete rack %q affected %d rows, expected 1", p.toDelete[i].Name, rowsAffected)
+			}
+			softDeleted += int(rowsAffected)
 		}
 		return nil
 	}); err != nil {
@@ -387,7 +398,7 @@ func mirrorExpectedRacks(
 
 	result.inserted = len(p.toInsert)
 	result.updated = len(p.toUpdate)
-	result.softDeleted = len(p.toDelete)
+	result.softDeleted = softDeleted
 	return result
 }
 
