@@ -13,10 +13,10 @@
 # the mock's registry uses to pick the simulated BMC. BMC addresses come from
 # the simulated OOB prefix (SCALE_OOB_PREFIX), NOT from the Service CIDR.
 #
-# That prefix must be a /16. The mock BMCs are DHCP clients, so OOB demand is
-# ~6.6 addresses per host (measured), not one -- a /18 holds 16,382 and ceilings
-# a run at 2,048 hosts with no error beyond a per-request "No IP addresses left
-# in prefix", which reads as a hang rather than a failure.
+# OOB demand is 3 addresses per host -- one per simulated BMC -- so 4,500 hosts
+# need 13,500 and a /18 fits. An earlier note here claimed ~6.6 per host and
+# demanded a /16; that measurement was taken while the fleet was rendering at
+# double size, and the widening it justified cost ~3x on every allocation.
 #
 # Single pod on purpose: the chart emits one `-bmc-mock` Service per entry in
 # `pods`, so a single routable proxy host requires a single pod. Resources are
@@ -123,7 +123,7 @@ pods:
         runIntervalIdle: "60s"
         networkStatusRunInterval: "120s"
         # Simulated networks (Phase 5/6 constants), not Service CIDR carve-outs.
-        oobDhcpRelayAddress: "10.96.0.1"
+        oobDhcpRelayAddress: "10.96.64.1"
         adminDhcpRelayAddress: "10.102.0.1"
         networkVirtualizationType: ""
         dpusInNicMode: false

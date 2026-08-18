@@ -206,23 +206,21 @@ MAT_MODE="${MAT_MODE:-override}"
 # count: since the mock BMCs became DHCP clients, a 4,500-host fleet needs far
 # more addresses than the obvious "one per host" arithmetic suggests.
 #
-# Measured on dev6 at 4,076 explored hosts / 9,207 machines (Aug 2026):
-#   OOB    27,000 addresses = 6.6 per host  (BMC + data interfaces)
-#   admin  16,380 addresses = 1.8 per machine
-# Extrapolated to the full 4,500 hosts / 13,500 machines: ~30k OOB, ~24k admin.
-# A /16 (65,534) leaves better than 2x headroom on each; a /18 (16,382) does
-# not, and exhaustion is BRUTAL to diagnose — the allocator's "No IP addresses
-# left in prefix" is a per-request error, so ingestion does not fail, it simply
-# stops at a hard ceiling (OOB /18 stalled three runs at exactly 2,048 hosts)
-# while the fleet retries forever. Size these generously.
+# Sized to real demand, measured on a correct fleet: 3 OOB addresses per host
+# (one per simulated BMC) and 1 admin address per machine, so 4,500 hosts need
+# 13,500 of each and a /18's 16,382 fits.
 #
-# These defaults target shared-proxy mode, where the simulated BMC addresses are
-# reachable only through the proxy and so are unconstrained by cluster routing.
-# Controller Mode has a different and stricter rule — each BMC is a ClusterIP
-# Service, so its addresses must come from the Kubernetes ServiceCIDR — and must
-# override SCALE_OOB_PREFIX/SCALE_OOB_GW with a carve-out of that range.
-SCALE_OOB_PREFIX="${SCALE_OOB_PREFIX:-10.96.0.0/16}";  SCALE_OOB_GW="${SCALE_OOB_GW:-10.96.0.1}"
-SCALE_ADMIN_PREFIX="${SCALE_ADMIN_PREFIX:-10.102.0.0/16}"; SCALE_ADMIN_GW="${SCALE_ADMIN_GW:-10.102.0.1}"
+# These were briefly widened to /16 after runs began exhausting the pools. That
+# was treating a symptom: the fleet was rendering at DOUBLE size (see the render
+# gate below), so demand was 27,000 rather than 13,500. Widening made things
+# worse -- the allocator materialises the whole host space per request, measured
+# 9.8ms at /18 against 28.6ms at /16, and it does that holding the fleet-wide
+# admin-segment lock. Sizing these generously is NOT free.
+#
+# Controller Mode has the opposite constraint: its BMC addresses are ClusterIPs
+# and must come from the Kubernetes ServiceCIDR, so it must override these.
+SCALE_OOB_PREFIX="${SCALE_OOB_PREFIX:-10.96.64.0/18}";  SCALE_OOB_GW="${SCALE_OOB_GW:-10.96.64.1}"
+SCALE_ADMIN_PREFIX="${SCALE_ADMIN_PREFIX:-10.102.0.0/18}"; SCALE_ADMIN_GW="${SCALE_ADMIN_GW:-10.102.0.1}"
 SCALE_RESERVE=1
 # These four are operator-overridable and are written straight into the site
 # config and the DB, so validate them before anything consumes them: an
