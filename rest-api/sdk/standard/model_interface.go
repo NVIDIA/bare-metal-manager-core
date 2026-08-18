@@ -40,9 +40,9 @@ type Interface struct {
 	// Name of the device to use
 	Device NullableString `json:"device,omitempty"`
 	// Index of the device, used to identify which interface card to attache the Partition to
-	DeviceInstance NullableInt32 `json:"deviceInstance,omitempty"`
+	DeviceInstance NullableInt64 `json:"deviceInstance,omitempty"`
 	// Must be specified if isPhysical is false
-	VirtualFunctionId NullableInt32 `json:"virtualFunctionId,omitempty"`
+	VirtualFunctionId NullableInt64 `json:"virtualFunctionId,omitempty"`
 	// MAC address of the Interface
 	MacAddress NullableString `json:"macAddress,omitempty"`
 	// A list of IPv4 or IPv6 addresses
@@ -366,9 +366,9 @@ func (o *Interface) UnsetDevice() {
 }
 
 // GetDeviceInstance returns the DeviceInstance field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *Interface) GetDeviceInstance() int32 {
+func (o *Interface) GetDeviceInstance() int64 {
 	if o == nil || IsNil(o.DeviceInstance.Get()) {
-		var ret int32
+		var ret int64
 		return ret
 	}
 	return *o.DeviceInstance.Get()
@@ -377,7 +377,7 @@ func (o *Interface) GetDeviceInstance() int32 {
 // GetDeviceInstanceOk returns a tuple with the DeviceInstance field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *Interface) GetDeviceInstanceOk() (*int32, bool) {
+func (o *Interface) GetDeviceInstanceOk() (*int64, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -393,8 +393,8 @@ func (o *Interface) HasDeviceInstance() bool {
 	return false
 }
 
-// SetDeviceInstance gets a reference to the given NullableInt32 and assigns it to the DeviceInstance field.
-func (o *Interface) SetDeviceInstance(v int32) {
+// SetDeviceInstance gets a reference to the given NullableInt64 and assigns it to the DeviceInstance field.
+func (o *Interface) SetDeviceInstance(v int64) {
 	o.DeviceInstance.Set(&v)
 }
 
@@ -409,9 +409,9 @@ func (o *Interface) UnsetDeviceInstance() {
 }
 
 // GetVirtualFunctionId returns the VirtualFunctionId field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *Interface) GetVirtualFunctionId() int32 {
+func (o *Interface) GetVirtualFunctionId() int64 {
 	if o == nil || IsNil(o.VirtualFunctionId.Get()) {
-		var ret int32
+		var ret int64
 		return ret
 	}
 	return *o.VirtualFunctionId.Get()
@@ -420,7 +420,7 @@ func (o *Interface) GetVirtualFunctionId() int32 {
 // GetVirtualFunctionIdOk returns a tuple with the VirtualFunctionId field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *Interface) GetVirtualFunctionIdOk() (*int32, bool) {
+func (o *Interface) GetVirtualFunctionIdOk() (*int64, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -436,8 +436,8 @@ func (o *Interface) HasVirtualFunctionId() bool {
 	return false
 }
 
-// SetVirtualFunctionId gets a reference to the given NullableInt32 and assigns it to the VirtualFunctionId field.
-func (o *Interface) SetVirtualFunctionId(v int32) {
+// SetVirtualFunctionId gets a reference to the given NullableInt64 and assigns it to the VirtualFunctionId field.
+func (o *Interface) SetVirtualFunctionId(v int64) {
 	o.VirtualFunctionId.Set(&v)
 }
 

@@ -34,11 +34,11 @@ type InfiniBandInterface struct {
 	// Name of the InfiniBand device vendor associated with this interface
 	Vendor NullableString `json:"vendor,omitempty"`
 	// Index of the device where partition attach to
-	DeviceInstance *int32 `json:"deviceInstance,omitempty"`
+	DeviceInstance *int64 `json:"deviceInstance,omitempty"`
 	// Indicates whether this is a physical interface
 	IsPhysical *bool `json:"isPhysical,omitempty"`
 	// Must be specified if isPhysical is false
-	VirtualFunctionId NullableInt32 `json:"virtualFunctionId,omitempty"`
+	VirtualFunctionId NullableInt64 `json:"virtualFunctionId,omitempty"`
 	// Must be specified if isPhysical is false
 	Guid NullableString `json:"guid,omitempty"`
 	// Status of the InfiniBandInterface
@@ -238,9 +238,9 @@ func (o *InfiniBandInterface) UnsetVendor() {
 }
 
 // GetDeviceInstance returns the DeviceInstance field value if set, zero value otherwise.
-func (o *InfiniBandInterface) GetDeviceInstance() int32 {
+func (o *InfiniBandInterface) GetDeviceInstance() int64 {
 	if o == nil || IsNil(o.DeviceInstance) {
-		var ret int32
+		var ret int64
 		return ret
 	}
 	return *o.DeviceInstance
@@ -248,7 +248,7 @@ func (o *InfiniBandInterface) GetDeviceInstance() int32 {
 
 // GetDeviceInstanceOk returns a tuple with the DeviceInstance field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *InfiniBandInterface) GetDeviceInstanceOk() (*int32, bool) {
+func (o *InfiniBandInterface) GetDeviceInstanceOk() (*int64, bool) {
 	if o == nil || IsNil(o.DeviceInstance) {
 		return nil, false
 	}
@@ -264,8 +264,8 @@ func (o *InfiniBandInterface) HasDeviceInstance() bool {
 	return false
 }
 
-// SetDeviceInstance gets a reference to the given int32 and assigns it to the DeviceInstance field.
-func (o *InfiniBandInterface) SetDeviceInstance(v int32) {
+// SetDeviceInstance gets a reference to the given int64 and assigns it to the DeviceInstance field.
+func (o *InfiniBandInterface) SetDeviceInstance(v int64) {
 	o.DeviceInstance = &v
 }
 
@@ -302,9 +302,9 @@ func (o *InfiniBandInterface) SetIsPhysical(v bool) {
 }
 
 // GetVirtualFunctionId returns the VirtualFunctionId field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *InfiniBandInterface) GetVirtualFunctionId() int32 {
+func (o *InfiniBandInterface) GetVirtualFunctionId() int64 {
 	if o == nil || IsNil(o.VirtualFunctionId.Get()) {
-		var ret int32
+		var ret int64
 		return ret
 	}
 	return *o.VirtualFunctionId.Get()
@@ -313,7 +313,7 @@ func (o *InfiniBandInterface) GetVirtualFunctionId() int32 {
 // GetVirtualFunctionIdOk returns a tuple with the VirtualFunctionId field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *InfiniBandInterface) GetVirtualFunctionIdOk() (*int32, bool) {
+func (o *InfiniBandInterface) GetVirtualFunctionIdOk() (*int64, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -329,8 +329,8 @@ func (o *InfiniBandInterface) HasVirtualFunctionId() bool {
 	return false
 }
 
-// SetVirtualFunctionId gets a reference to the given NullableInt32 and assigns it to the VirtualFunctionId field.
-func (o *InfiniBandInterface) SetVirtualFunctionId(v int32) {
+// SetVirtualFunctionId gets a reference to the given NullableInt64 and assigns it to the VirtualFunctionId field.
+func (o *InfiniBandInterface) SetVirtualFunctionId(v int64) {
 	o.VirtualFunctionId.Set(&v)
 }
 

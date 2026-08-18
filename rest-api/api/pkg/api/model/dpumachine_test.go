@@ -18,6 +18,8 @@ import (
 )
 
 func TestAPIDpuMachine_FromProto(t *testing.T) {
+	const maxUint32 = uint32(1<<32 - 1)
+
 	site := &cdbm.Site{
 		ID:                       uuid.New(),
 		InfrastructureProviderID: uuid.New(),
@@ -96,6 +98,23 @@ func TestAPIDpuMachine_FromProto(t *testing.T) {
 				},
 			},
 		},
+		DpuNetworkConfig: &corev1.ManagedHostNetworkConfigResponse{
+			Asn:                    maxUint32,
+			VpcVni:                 cutil.GetPtr(maxUint32),
+			MinDpuFunctioningLinks: cutil.GetPtr(maxUint32),
+			InternetL3Vni:          cutil.GetPtr(maxUint32),
+			DatacenterAsn:          maxUint32,
+			TenantHostAsn:          cutil.GetPtr(maxUint32),
+			SiteGlobalVpcVni:       cutil.GetPtr(maxUint32),
+			AdminInterface: &corev1.FlatInterfaceConfig{
+				VlanId:            maxUint32,
+				Vni:               maxUint32,
+				VirtualFunctionId: cutil.GetPtr(maxUint32),
+				VpcVni:            maxUint32,
+				VpcPeerVnis:       []uint32{maxUint32},
+				Mtu:               cutil.GetPtr(maxUint32),
+			},
+		},
 	}
 
 	hostMachineID := "test-host-machine-id"
@@ -121,6 +140,20 @@ func TestAPIDpuMachine_FromProto(t *testing.T) {
 	assert.Equal(t, "test-interface-id", dpuMachine.Interfaces[0].ID)
 	require.NotNil(t, dpuMachine.Health)
 	assert.Equal(t, "test-health-source", dpuMachine.Health.Source)
+	assert.Equal(t, maxUint32, dpuMachine.DpuNetworkConfig.Asn)
+	assert.Equal(t, maxUint32, *dpuMachine.DpuNetworkConfig.VpcVni)
+	assert.Equal(t, maxUint32, *dpuMachine.DpuNetworkConfig.MinDpuFunctioningLinks)
+	assert.Equal(t, maxUint32, *dpuMachine.DpuNetworkConfig.InternetL3Vni)
+	assert.Equal(t, maxUint32, dpuMachine.DpuNetworkConfig.DatacenterAsn)
+	assert.Equal(t, maxUint32, *dpuMachine.DpuNetworkConfig.TenantHostAsn)
+	assert.Equal(t, maxUint32, *dpuMachine.DpuNetworkConfig.SiteGlobalVpcVni)
+	require.NotNil(t, dpuMachine.DpuNetworkConfig.AdminInterface)
+	assert.Equal(t, maxUint32, dpuMachine.DpuNetworkConfig.AdminInterface.VlanID)
+	assert.Equal(t, maxUint32, dpuMachine.DpuNetworkConfig.AdminInterface.Vni)
+	assert.Equal(t, maxUint32, *dpuMachine.DpuNetworkConfig.AdminInterface.VirtualFunctionID)
+	assert.Equal(t, maxUint32, dpuMachine.DpuNetworkConfig.AdminInterface.VpcVni)
+	assert.Equal(t, []uint32{maxUint32}, dpuMachine.DpuNetworkConfig.AdminInterface.VpcPeerVnis)
+	assert.Equal(t, maxUint32, *dpuMachine.DpuNetworkConfig.AdminInterface.Mtu)
 }
 
 // TestAPIDpuMachine_FromProto_NilMachine guards against a panic when a

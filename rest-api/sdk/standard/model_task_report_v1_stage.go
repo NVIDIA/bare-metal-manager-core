@@ -26,7 +26,7 @@ var _ MappedNullable = &TaskReportV1Stage{}
 // TaskReportV1Stage Execution state of one rule stage. `number` is the canonical key for joining a stage record back to its rule entry.
 type TaskReportV1Stage struct {
 	// 1-based rule stage number.
-	Number int32              `json:"number"`
+	Number int64              `json:"number"`
 	Status TaskReportV1Status `json:"status"`
 	Steps  []TaskReportV1Step `json:"steps"`
 	// Set when the stage leaves `pending`.
@@ -43,7 +43,7 @@ type _TaskReportV1Stage TaskReportV1Stage
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewTaskReportV1Stage(number int32, status TaskReportV1Status, steps []TaskReportV1Step) *TaskReportV1Stage {
+func NewTaskReportV1Stage(number int64, status TaskReportV1Status, steps []TaskReportV1Step) *TaskReportV1Stage {
 	this := TaskReportV1Stage{}
 	this.Number = number
 	this.Status = status
@@ -60,9 +60,9 @@ func NewTaskReportV1StageWithDefaults() *TaskReportV1Stage {
 }
 
 // GetNumber returns the Number field value
-func (o *TaskReportV1Stage) GetNumber() int32 {
+func (o *TaskReportV1Stage) GetNumber() int64 {
 	if o == nil {
-		var ret int32
+		var ret int64
 		return ret
 	}
 
@@ -71,7 +71,7 @@ func (o *TaskReportV1Stage) GetNumber() int32 {
 
 // GetNumberOk returns a tuple with the Number field value
 // and a boolean to check if the value has been set.
-func (o *TaskReportV1Stage) GetNumberOk() (*int32, bool) {
+func (o *TaskReportV1Stage) GetNumberOk() (*int64, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -79,7 +79,7 @@ func (o *TaskReportV1Stage) GetNumberOk() (*int32, bool) {
 }
 
 // SetNumber sets field value
-func (o *TaskReportV1Stage) SetNumber(v int32) {
+func (o *TaskReportV1Stage) SetNumber(v int64) {
 	o.Number = v
 }
 

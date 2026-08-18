@@ -44,7 +44,7 @@ type InfiniBandPartition struct {
 	// Rate limit configured for the InfiniBand Partition
 	RateLimit NullableFloat32 `json:"rateLimit,omitempty"`
 	// MTU configured for the InfiniBand Partition
-	Mtu NullableInt32 `json:"mtu,omitempty"`
+	Mtu NullableInt64 `json:"mtu,omitempty"`
 	// Whether SHARP is enabled for the InfiniBand Partition
 	EnableSharp *bool `json:"enableSharp,omitempty"`
 	// String key-value pairs describing InfiniBand Partition labels. Up to 10 key-value pairs can be specified
@@ -463,9 +463,9 @@ func (o *InfiniBandPartition) UnsetRateLimit() {
 }
 
 // GetMtu returns the Mtu field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *InfiniBandPartition) GetMtu() int32 {
+func (o *InfiniBandPartition) GetMtu() int64 {
 	if o == nil || IsNil(o.Mtu.Get()) {
-		var ret int32
+		var ret int64
 		return ret
 	}
 	return *o.Mtu.Get()
@@ -474,7 +474,7 @@ func (o *InfiniBandPartition) GetMtu() int32 {
 // GetMtuOk returns a tuple with the Mtu field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *InfiniBandPartition) GetMtuOk() (*int32, bool) {
+func (o *InfiniBandPartition) GetMtuOk() (*int64, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -490,8 +490,8 @@ func (o *InfiniBandPartition) HasMtu() bool {
 	return false
 }
 
-// SetMtu gets a reference to the given NullableInt32 and assigns it to the Mtu field.
-func (o *InfiniBandPartition) SetMtu(v int32) {
+// SetMtu gets a reference to the given NullableInt64 and assigns it to the Mtu field.
+func (o *InfiniBandPartition) SetMtu(v int64) {
 	o.Mtu.Set(&v)
 }
 

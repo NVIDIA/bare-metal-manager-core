@@ -34,7 +34,7 @@ type AuditEntry struct {
 	// HTTP body in JSON format
 	Body *string `json:"body,omitempty"`
 	// HTTP response status code
-	StatusCode *int32 `json:"statusCode,omitempty"`
+	StatusCode *int64 `json:"statusCode,omitempty"`
 	// HTTP response status message
 	StatusMessage *string `json:"statusMessage,omitempty"`
 	// Client IP address
@@ -50,7 +50,7 @@ type AuditEntry struct {
 	// API execution time
 	Timestamp *time.Time `json:"timestamp,omitempty"`
 	// API execution duration in milliseconds
-	DurationMs *int32 `json:"durationMs,omitempty"`
+	DurationMs *int64 `json:"durationMs,omitempty"`
 	// API version
 	ApiVersion *string `json:"apiVersion,omitempty"`
 }
@@ -233,9 +233,9 @@ func (o *AuditEntry) SetBody(v string) {
 }
 
 // GetStatusCode returns the StatusCode field value if set, zero value otherwise.
-func (o *AuditEntry) GetStatusCode() int32 {
+func (o *AuditEntry) GetStatusCode() int64 {
 	if o == nil || IsNil(o.StatusCode) {
-		var ret int32
+		var ret int64
 		return ret
 	}
 	return *o.StatusCode
@@ -243,7 +243,7 @@ func (o *AuditEntry) GetStatusCode() int32 {
 
 // GetStatusCodeOk returns a tuple with the StatusCode field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *AuditEntry) GetStatusCodeOk() (*int32, bool) {
+func (o *AuditEntry) GetStatusCodeOk() (*int64, bool) {
 	if o == nil || IsNil(o.StatusCode) {
 		return nil, false
 	}
@@ -259,8 +259,8 @@ func (o *AuditEntry) HasStatusCode() bool {
 	return false
 }
 
-// SetStatusCode gets a reference to the given int32 and assigns it to the StatusCode field.
-func (o *AuditEntry) SetStatusCode(v int32) {
+// SetStatusCode gets a reference to the given int64 and assigns it to the StatusCode field.
+func (o *AuditEntry) SetStatusCode(v int64) {
 	o.StatusCode = &v
 }
 
@@ -500,9 +500,9 @@ func (o *AuditEntry) SetTimestamp(v time.Time) {
 }
 
 // GetDurationMs returns the DurationMs field value if set, zero value otherwise.
-func (o *AuditEntry) GetDurationMs() int32 {
+func (o *AuditEntry) GetDurationMs() int64 {
 	if o == nil || IsNil(o.DurationMs) {
-		var ret int32
+		var ret int64
 		return ret
 	}
 	return *o.DurationMs
@@ -510,7 +510,7 @@ func (o *AuditEntry) GetDurationMs() int32 {
 
 // GetDurationMsOk returns a tuple with the DurationMs field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *AuditEntry) GetDurationMsOk() (*int32, bool) {
+func (o *AuditEntry) GetDurationMsOk() (*int64, bool) {
 	if o == nil || IsNil(o.DurationMs) {
 		return nil, false
 	}
@@ -526,8 +526,8 @@ func (o *AuditEntry) HasDurationMs() bool {
 	return false
 }
 
-// SetDurationMs gets a reference to the given int32 and assigns it to the DurationMs field.
-func (o *AuditEntry) SetDurationMs(v int32) {
+// SetDurationMs gets a reference to the given int64 and assigns it to the DurationMs field.
+func (o *AuditEntry) SetDurationMs(v int64) {
 	o.DurationMs = &v
 }
 

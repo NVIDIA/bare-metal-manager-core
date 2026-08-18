@@ -23,17 +23,17 @@ var _ MappedNullable = &IpBlockCountByStatus{}
 // IpBlockCountByStatus Describes counts of IP Blocks in various statuses
 type IpBlockCountByStatus struct {
 	// Total number of IP Blocks
-	Total *int32 `json:"total,omitempty"`
+	Total *int64 `json:"total,omitempty"`
 	// Number of IP Blocks in Pending status
-	Pending *int32 `json:"pending,omitempty"`
+	Pending *int64 `json:"pending,omitempty"`
 	// Number of IP Blocks in Provisioning status
-	Provisioning *int32 `json:"provisioning,omitempty"`
+	Provisioning *int64 `json:"provisioning,omitempty"`
 	// Number of IP Blocks in Ready status
-	Ready *int32 `json:"ready,omitempty"`
+	Ready *int64 `json:"ready,omitempty"`
 	// Number of IP Blocks in Deleting status
-	Deleting *int32 `json:"deleting,omitempty"`
+	Deleting *int64 `json:"deleting,omitempty"`
 	// Number of IP Blocks in Error status
-	Error *int32 `json:"error,omitempty"`
+	Error *int64 `json:"error,omitempty"`
 }
 
 // NewIpBlockCountByStatus instantiates a new IpBlockCountByStatus object
@@ -54,9 +54,9 @@ func NewIpBlockCountByStatusWithDefaults() *IpBlockCountByStatus {
 }
 
 // GetTotal returns the Total field value if set, zero value otherwise.
-func (o *IpBlockCountByStatus) GetTotal() int32 {
+func (o *IpBlockCountByStatus) GetTotal() int64 {
 	if o == nil || IsNil(o.Total) {
-		var ret int32
+		var ret int64
 		return ret
 	}
 	return *o.Total
@@ -64,7 +64,7 @@ func (o *IpBlockCountByStatus) GetTotal() int32 {
 
 // GetTotalOk returns a tuple with the Total field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IpBlockCountByStatus) GetTotalOk() (*int32, bool) {
+func (o *IpBlockCountByStatus) GetTotalOk() (*int64, bool) {
 	if o == nil || IsNil(o.Total) {
 		return nil, false
 	}
@@ -80,15 +80,15 @@ func (o *IpBlockCountByStatus) HasTotal() bool {
 	return false
 }
 
-// SetTotal gets a reference to the given int32 and assigns it to the Total field.
-func (o *IpBlockCountByStatus) SetTotal(v int32) {
+// SetTotal gets a reference to the given int64 and assigns it to the Total field.
+func (o *IpBlockCountByStatus) SetTotal(v int64) {
 	o.Total = &v
 }
 
 // GetPending returns the Pending field value if set, zero value otherwise.
-func (o *IpBlockCountByStatus) GetPending() int32 {
+func (o *IpBlockCountByStatus) GetPending() int64 {
 	if o == nil || IsNil(o.Pending) {
-		var ret int32
+		var ret int64
 		return ret
 	}
 	return *o.Pending
@@ -96,7 +96,7 @@ func (o *IpBlockCountByStatus) GetPending() int32 {
 
 // GetPendingOk returns a tuple with the Pending field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IpBlockCountByStatus) GetPendingOk() (*int32, bool) {
+func (o *IpBlockCountByStatus) GetPendingOk() (*int64, bool) {
 	if o == nil || IsNil(o.Pending) {
 		return nil, false
 	}
@@ -112,15 +112,15 @@ func (o *IpBlockCountByStatus) HasPending() bool {
 	return false
 }
 
-// SetPending gets a reference to the given int32 and assigns it to the Pending field.
-func (o *IpBlockCountByStatus) SetPending(v int32) {
+// SetPending gets a reference to the given int64 and assigns it to the Pending field.
+func (o *IpBlockCountByStatus) SetPending(v int64) {
 	o.Pending = &v
 }
 
 // GetProvisioning returns the Provisioning field value if set, zero value otherwise.
-func (o *IpBlockCountByStatus) GetProvisioning() int32 {
+func (o *IpBlockCountByStatus) GetProvisioning() int64 {
 	if o == nil || IsNil(o.Provisioning) {
-		var ret int32
+		var ret int64
 		return ret
 	}
 	return *o.Provisioning
@@ -128,7 +128,7 @@ func (o *IpBlockCountByStatus) GetProvisioning() int32 {
 
 // GetProvisioningOk returns a tuple with the Provisioning field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IpBlockCountByStatus) GetProvisioningOk() (*int32, bool) {
+func (o *IpBlockCountByStatus) GetProvisioningOk() (*int64, bool) {
 	if o == nil || IsNil(o.Provisioning) {
 		return nil, false
 	}
@@ -144,15 +144,15 @@ func (o *IpBlockCountByStatus) HasProvisioning() bool {
 	return false
 }
 
-// SetProvisioning gets a reference to the given int32 and assigns it to the Provisioning field.
-func (o *IpBlockCountByStatus) SetProvisioning(v int32) {
+// SetProvisioning gets a reference to the given int64 and assigns it to the Provisioning field.
+func (o *IpBlockCountByStatus) SetProvisioning(v int64) {
 	o.Provisioning = &v
 }
 
 // GetReady returns the Ready field value if set, zero value otherwise.
-func (o *IpBlockCountByStatus) GetReady() int32 {
+func (o *IpBlockCountByStatus) GetReady() int64 {
 	if o == nil || IsNil(o.Ready) {
-		var ret int32
+		var ret int64
 		return ret
 	}
 	return *o.Ready
@@ -160,7 +160,7 @@ func (o *IpBlockCountByStatus) GetReady() int32 {
 
 // GetReadyOk returns a tuple with the Ready field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IpBlockCountByStatus) GetReadyOk() (*int32, bool) {
+func (o *IpBlockCountByStatus) GetReadyOk() (*int64, bool) {
 	if o == nil || IsNil(o.Ready) {
 		return nil, false
 	}
@@ -176,15 +176,15 @@ func (o *IpBlockCountByStatus) HasReady() bool {
 	return false
 }
 
-// SetReady gets a reference to the given int32 and assigns it to the Ready field.
-func (o *IpBlockCountByStatus) SetReady(v int32) {
+// SetReady gets a reference to the given int64 and assigns it to the Ready field.
+func (o *IpBlockCountByStatus) SetReady(v int64) {
 	o.Ready = &v
 }
 
 // GetDeleting returns the Deleting field value if set, zero value otherwise.
-func (o *IpBlockCountByStatus) GetDeleting() int32 {
+func (o *IpBlockCountByStatus) GetDeleting() int64 {
 	if o == nil || IsNil(o.Deleting) {
-		var ret int32
+		var ret int64
 		return ret
 	}
 	return *o.Deleting
@@ -192,7 +192,7 @@ func (o *IpBlockCountByStatus) GetDeleting() int32 {
 
 // GetDeletingOk returns a tuple with the Deleting field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IpBlockCountByStatus) GetDeletingOk() (*int32, bool) {
+func (o *IpBlockCountByStatus) GetDeletingOk() (*int64, bool) {
 	if o == nil || IsNil(o.Deleting) {
 		return nil, false
 	}
@@ -208,15 +208,15 @@ func (o *IpBlockCountByStatus) HasDeleting() bool {
 	return false
 }
 
-// SetDeleting gets a reference to the given int32 and assigns it to the Deleting field.
-func (o *IpBlockCountByStatus) SetDeleting(v int32) {
+// SetDeleting gets a reference to the given int64 and assigns it to the Deleting field.
+func (o *IpBlockCountByStatus) SetDeleting(v int64) {
 	o.Deleting = &v
 }
 
 // GetError returns the Error field value if set, zero value otherwise.
-func (o *IpBlockCountByStatus) GetError() int32 {
+func (o *IpBlockCountByStatus) GetError() int64 {
 	if o == nil || IsNil(o.Error) {
-		var ret int32
+		var ret int64
 		return ret
 	}
 	return *o.Error
@@ -224,7 +224,7 @@ func (o *IpBlockCountByStatus) GetError() int32 {
 
 // GetErrorOk returns a tuple with the Error field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IpBlockCountByStatus) GetErrorOk() (*int32, bool) {
+func (o *IpBlockCountByStatus) GetErrorOk() (*int64, bool) {
 	if o == nil || IsNil(o.Error) {
 		return nil, false
 	}
@@ -240,8 +240,8 @@ func (o *IpBlockCountByStatus) HasError() bool {
 	return false
 }
 
-// SetError gets a reference to the given int32 and assigns it to the Error field.
-func (o *IpBlockCountByStatus) SetError(v int32) {
+// SetError gets a reference to the given int64 and assigns it to the Error field.
+func (o *IpBlockCountByStatus) SetError(v int64) {
 	o.Error = &v
 }
 

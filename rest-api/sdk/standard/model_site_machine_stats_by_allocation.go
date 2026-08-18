@@ -23,11 +23,11 @@ var _ MappedNullable = &SiteMachineStatsByAllocation{}
 // SiteMachineStatsByAllocation Machine stats for a Site by allocation
 type SiteMachineStatsByAllocation struct {
 	// Number of allocated Machines currently in use
-	AllocatedInUse *int32 `json:"allocatedInUse,omitempty"`
+	AllocatedInUse *int64 `json:"allocatedInUse,omitempty"`
 	// Number of allocated Machines not currently in use
-	AllocatedNotInUse *int32 `json:"allocatedNotInUse,omitempty"`
+	AllocatedNotInUse *int64 `json:"allocatedNotInUse,omitempty"`
 	// Number of Machines not currently allocated
-	Unallocated *int32 `json:"unallocated,omitempty"`
+	Unallocated *int64 `json:"unallocated,omitempty"`
 }
 
 // NewSiteMachineStatsByAllocation instantiates a new SiteMachineStatsByAllocation object
@@ -48,9 +48,9 @@ func NewSiteMachineStatsByAllocationWithDefaults() *SiteMachineStatsByAllocation
 }
 
 // GetAllocatedInUse returns the AllocatedInUse field value if set, zero value otherwise.
-func (o *SiteMachineStatsByAllocation) GetAllocatedInUse() int32 {
+func (o *SiteMachineStatsByAllocation) GetAllocatedInUse() int64 {
 	if o == nil || IsNil(o.AllocatedInUse) {
-		var ret int32
+		var ret int64
 		return ret
 	}
 	return *o.AllocatedInUse
@@ -58,7 +58,7 @@ func (o *SiteMachineStatsByAllocation) GetAllocatedInUse() int32 {
 
 // GetAllocatedInUseOk returns a tuple with the AllocatedInUse field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SiteMachineStatsByAllocation) GetAllocatedInUseOk() (*int32, bool) {
+func (o *SiteMachineStatsByAllocation) GetAllocatedInUseOk() (*int64, bool) {
 	if o == nil || IsNil(o.AllocatedInUse) {
 		return nil, false
 	}
@@ -74,15 +74,15 @@ func (o *SiteMachineStatsByAllocation) HasAllocatedInUse() bool {
 	return false
 }
 
-// SetAllocatedInUse gets a reference to the given int32 and assigns it to the AllocatedInUse field.
-func (o *SiteMachineStatsByAllocation) SetAllocatedInUse(v int32) {
+// SetAllocatedInUse gets a reference to the given int64 and assigns it to the AllocatedInUse field.
+func (o *SiteMachineStatsByAllocation) SetAllocatedInUse(v int64) {
 	o.AllocatedInUse = &v
 }
 
 // GetAllocatedNotInUse returns the AllocatedNotInUse field value if set, zero value otherwise.
-func (o *SiteMachineStatsByAllocation) GetAllocatedNotInUse() int32 {
+func (o *SiteMachineStatsByAllocation) GetAllocatedNotInUse() int64 {
 	if o == nil || IsNil(o.AllocatedNotInUse) {
-		var ret int32
+		var ret int64
 		return ret
 	}
 	return *o.AllocatedNotInUse
@@ -90,7 +90,7 @@ func (o *SiteMachineStatsByAllocation) GetAllocatedNotInUse() int32 {
 
 // GetAllocatedNotInUseOk returns a tuple with the AllocatedNotInUse field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SiteMachineStatsByAllocation) GetAllocatedNotInUseOk() (*int32, bool) {
+func (o *SiteMachineStatsByAllocation) GetAllocatedNotInUseOk() (*int64, bool) {
 	if o == nil || IsNil(o.AllocatedNotInUse) {
 		return nil, false
 	}
@@ -106,15 +106,15 @@ func (o *SiteMachineStatsByAllocation) HasAllocatedNotInUse() bool {
 	return false
 }
 
-// SetAllocatedNotInUse gets a reference to the given int32 and assigns it to the AllocatedNotInUse field.
-func (o *SiteMachineStatsByAllocation) SetAllocatedNotInUse(v int32) {
+// SetAllocatedNotInUse gets a reference to the given int64 and assigns it to the AllocatedNotInUse field.
+func (o *SiteMachineStatsByAllocation) SetAllocatedNotInUse(v int64) {
 	o.AllocatedNotInUse = &v
 }
 
 // GetUnallocated returns the Unallocated field value if set, zero value otherwise.
-func (o *SiteMachineStatsByAllocation) GetUnallocated() int32 {
+func (o *SiteMachineStatsByAllocation) GetUnallocated() int64 {
 	if o == nil || IsNil(o.Unallocated) {
-		var ret int32
+		var ret int64
 		return ret
 	}
 	return *o.Unallocated
@@ -122,7 +122,7 @@ func (o *SiteMachineStatsByAllocation) GetUnallocated() int32 {
 
 // GetUnallocatedOk returns a tuple with the Unallocated field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SiteMachineStatsByAllocation) GetUnallocatedOk() (*int32, bool) {
+func (o *SiteMachineStatsByAllocation) GetUnallocatedOk() (*int64, bool) {
 	if o == nil || IsNil(o.Unallocated) {
 		return nil, false
 	}
@@ -138,8 +138,8 @@ func (o *SiteMachineStatsByAllocation) HasUnallocated() bool {
 	return false
 }
 
-// SetUnallocated gets a reference to the given int32 and assigns it to the Unallocated field.
-func (o *SiteMachineStatsByAllocation) SetUnallocated(v int32) {
+// SetUnallocated gets a reference to the given int64 and assigns it to the Unallocated field.
+func (o *SiteMachineStatsByAllocation) SetUnallocated(v int64) {
 	o.Unallocated = &v
 }
 

@@ -23,9 +23,9 @@ var _ MappedNullable = &VpcRouteTarget{}
 // VpcRouteTarget BGP route target represented by an autonomous system number and VNI.
 type VpcRouteTarget struct {
 	// Autonomous system number.
-	Asn *int64 `json:"asn,omitempty"`
+	Asn *uint32 `json:"asn,omitempty"`
 	// Route-target VNI.
-	Vni *int64 `json:"vni,omitempty"`
+	Vni *uint32 `json:"vni,omitempty"`
 }
 
 // NewVpcRouteTarget instantiates a new VpcRouteTarget object
@@ -46,9 +46,9 @@ func NewVpcRouteTargetWithDefaults() *VpcRouteTarget {
 }
 
 // GetAsn returns the Asn field value if set, zero value otherwise.
-func (o *VpcRouteTarget) GetAsn() int64 {
+func (o *VpcRouteTarget) GetAsn() uint32 {
 	if o == nil || IsNil(o.Asn) {
-		var ret int64
+		var ret uint32
 		return ret
 	}
 	return *o.Asn
@@ -56,7 +56,7 @@ func (o *VpcRouteTarget) GetAsn() int64 {
 
 // GetAsnOk returns a tuple with the Asn field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *VpcRouteTarget) GetAsnOk() (*int64, bool) {
+func (o *VpcRouteTarget) GetAsnOk() (*uint32, bool) {
 	if o == nil || IsNil(o.Asn) {
 		return nil, false
 	}
@@ -72,15 +72,15 @@ func (o *VpcRouteTarget) HasAsn() bool {
 	return false
 }
 
-// SetAsn gets a reference to the given int64 and assigns it to the Asn field.
-func (o *VpcRouteTarget) SetAsn(v int64) {
+// SetAsn gets a reference to the given uint32 and assigns it to the Asn field.
+func (o *VpcRouteTarget) SetAsn(v uint32) {
 	o.Asn = &v
 }
 
 // GetVni returns the Vni field value if set, zero value otherwise.
-func (o *VpcRouteTarget) GetVni() int64 {
+func (o *VpcRouteTarget) GetVni() uint32 {
 	if o == nil || IsNil(o.Vni) {
-		var ret int64
+		var ret uint32
 		return ret
 	}
 	return *o.Vni
@@ -88,7 +88,7 @@ func (o *VpcRouteTarget) GetVni() int64 {
 
 // GetVniOk returns a tuple with the Vni field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *VpcRouteTarget) GetVniOk() (*int64, bool) {
+func (o *VpcRouteTarget) GetVniOk() (*uint32, bool) {
 	if o == nil || IsNil(o.Vni) {
 		return nil, false
 	}
@@ -104,8 +104,8 @@ func (o *VpcRouteTarget) HasVni() bool {
 	return false
 }
 
-// SetVni gets a reference to the given int64 and assigns it to the Vni field.
-func (o *VpcRouteTarget) SetVni(v int64) {
+// SetVni gets a reference to the given uint32 and assigns it to the Vni field.
+func (o *VpcRouteTarget) SetVni(v uint32) {
 	o.Vni = &v
 }
 

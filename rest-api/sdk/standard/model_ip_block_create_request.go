@@ -35,7 +35,7 @@ type IpBlockCreateRequest struct {
 	// Either IPv4 or IPv6 address
 	Prefix string `json:"prefix"`
 	// Min: 1, Max: 32 for IPv4, 128 for IPv6
-	PrefixLength int32 `json:"prefixLength"`
+	PrefixLength int64 `json:"prefixLength"`
 	// Version of the ip network ipv4 or ipv6
 	ProtocolVersion string `json:"protocolVersion"`
 }
@@ -46,7 +46,7 @@ type _IpBlockCreateRequest IpBlockCreateRequest
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewIpBlockCreateRequest(name string, siteId string, routingType string, prefix string, prefixLength int32, protocolVersion string) *IpBlockCreateRequest {
+func NewIpBlockCreateRequest(name string, siteId string, routingType string, prefix string, prefixLength int64, protocolVersion string) *IpBlockCreateRequest {
 	this := IpBlockCreateRequest{}
 	this.Name = name
 	this.SiteId = siteId
@@ -205,9 +205,9 @@ func (o *IpBlockCreateRequest) SetPrefix(v string) {
 }
 
 // GetPrefixLength returns the PrefixLength field value
-func (o *IpBlockCreateRequest) GetPrefixLength() int32 {
+func (o *IpBlockCreateRequest) GetPrefixLength() int64 {
 	if o == nil {
-		var ret int32
+		var ret int64
 		return ret
 	}
 
@@ -216,7 +216,7 @@ func (o *IpBlockCreateRequest) GetPrefixLength() int32 {
 
 // GetPrefixLengthOk returns a tuple with the PrefixLength field value
 // and a boolean to check if the value has been set.
-func (o *IpBlockCreateRequest) GetPrefixLengthOk() (*int32, bool) {
+func (o *IpBlockCreateRequest) GetPrefixLengthOk() (*int64, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -224,7 +224,7 @@ func (o *IpBlockCreateRequest) GetPrefixLengthOk() (*int32, bool) {
 }
 
 // SetPrefixLength sets field value
-func (o *IpBlockCreateRequest) SetPrefixLength(v int32) {
+func (o *IpBlockCreateRequest) SetPrefixLength(v int64) {
 	o.PrefixLength = v
 }
 

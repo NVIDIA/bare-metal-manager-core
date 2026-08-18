@@ -35,7 +35,7 @@ type SubnetCreateRequest struct {
 	// ID of the derived Tenant IPv6 Block from an Allocation
 	Ipv6BlockId NullableString `json:"ipv6BlockId,omitempty"`
 	// Length of the prefix
-	PrefixLength int32 `json:"prefixLength"`
+	PrefixLength int64 `json:"prefixLength"`
 }
 
 type _SubnetCreateRequest SubnetCreateRequest
@@ -44,7 +44,7 @@ type _SubnetCreateRequest SubnetCreateRequest
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewSubnetCreateRequest(name string, vpcId string, prefixLength int32) *SubnetCreateRequest {
+func NewSubnetCreateRequest(name string, vpcId string, prefixLength int64) *SubnetCreateRequest {
 	this := SubnetCreateRequest{}
 	this.Name = name
 	this.VpcId = vpcId
@@ -238,9 +238,9 @@ func (o *SubnetCreateRequest) UnsetIpv6BlockId() {
 }
 
 // GetPrefixLength returns the PrefixLength field value
-func (o *SubnetCreateRequest) GetPrefixLength() int32 {
+func (o *SubnetCreateRequest) GetPrefixLength() int64 {
 	if o == nil {
-		var ret int32
+		var ret int64
 		return ret
 	}
 
@@ -249,7 +249,7 @@ func (o *SubnetCreateRequest) GetPrefixLength() int32 {
 
 // GetPrefixLengthOk returns a tuple with the PrefixLength field value
 // and a boolean to check if the value has been set.
-func (o *SubnetCreateRequest) GetPrefixLengthOk() (*int32, bool) {
+func (o *SubnetCreateRequest) GetPrefixLengthOk() (*int64, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -257,7 +257,7 @@ func (o *SubnetCreateRequest) GetPrefixLengthOk() (*int32, bool) {
 }
 
 // SetPrefixLength sets field value
-func (o *SubnetCreateRequest) SetPrefixLength(v int32) {
+func (o *SubnetCreateRequest) SetPrefixLength(v int64) {
 	o.PrefixLength = v
 }
 

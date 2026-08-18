@@ -25,7 +25,7 @@ type NVLinkInterfaceCreateOrUpdateRequest struct {
 	// ID of the NVLink Logical Partition the Interface should attach to
 	NvLinkLogicalPartitionId *string `json:"nvLinkLogicalPartitionId,omitempty"`
 	// GPU index for this NVLink interface. Must be non-negative, unique within the request, and within the GPU count exposed by the selected Machine or Instance Type.
-	DeviceInstance *int32 `json:"deviceInstance,omitempty"`
+	DeviceInstance *int64 `json:"deviceInstance,omitempty"`
 }
 
 // NewNVLinkInterfaceCreateOrUpdateRequest instantiates a new NVLinkInterfaceCreateOrUpdateRequest object
@@ -78,9 +78,9 @@ func (o *NVLinkInterfaceCreateOrUpdateRequest) SetNvLinkLogicalPartitionId(v str
 }
 
 // GetDeviceInstance returns the DeviceInstance field value if set, zero value otherwise.
-func (o *NVLinkInterfaceCreateOrUpdateRequest) GetDeviceInstance() int32 {
+func (o *NVLinkInterfaceCreateOrUpdateRequest) GetDeviceInstance() int64 {
 	if o == nil || IsNil(o.DeviceInstance) {
-		var ret int32
+		var ret int64
 		return ret
 	}
 	return *o.DeviceInstance
@@ -88,7 +88,7 @@ func (o *NVLinkInterfaceCreateOrUpdateRequest) GetDeviceInstance() int32 {
 
 // GetDeviceInstanceOk returns a tuple with the DeviceInstance field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *NVLinkInterfaceCreateOrUpdateRequest) GetDeviceInstanceOk() (*int32, bool) {
+func (o *NVLinkInterfaceCreateOrUpdateRequest) GetDeviceInstanceOk() (*int64, bool) {
 	if o == nil || IsNil(o.DeviceInstance) {
 		return nil, false
 	}
@@ -104,8 +104,8 @@ func (o *NVLinkInterfaceCreateOrUpdateRequest) HasDeviceInstance() bool {
 	return false
 }
 
-// SetDeviceInstance gets a reference to the given int32 and assigns it to the DeviceInstance field.
-func (o *NVLinkInterfaceCreateOrUpdateRequest) SetDeviceInstance(v int32) {
+// SetDeviceInstance gets a reference to the given int64 and assigns it to the DeviceInstance field.
+func (o *NVLinkInterfaceCreateOrUpdateRequest) SetDeviceInstance(v int64) {
 	o.DeviceInstance = &v
 }
 

@@ -33,7 +33,7 @@ type HostFirmwareVersionConfig struct {
 	// When `true`, install only the artifacts explicitly listed for this version.
 	InstallOnlySpecified *bool `json:"installOnlySpecified,omitempty"`
 	// Optional number of power drains required after installing this version.
-	PowerDrainsNeeded *int32 `json:"powerDrainsNeeded,omitempty"`
+	PowerDrainsNeeded *uint32 `json:"powerDrainsNeeded,omitempty"`
 	// When `true`, perform pre-update resets before installing this version.
 	PreUpdateResets *bool `json:"preUpdateResets,omitempty"`
 	// Optional. When `true`, this firmware version applies only during BMC pre-ingestion. Omitted on update preserves the stored value; set to `false` to clear a previously stored value.
@@ -186,9 +186,9 @@ func (o *HostFirmwareVersionConfig) SetInstallOnlySpecified(v bool) {
 }
 
 // GetPowerDrainsNeeded returns the PowerDrainsNeeded field value if set, zero value otherwise.
-func (o *HostFirmwareVersionConfig) GetPowerDrainsNeeded() int32 {
+func (o *HostFirmwareVersionConfig) GetPowerDrainsNeeded() uint32 {
 	if o == nil || IsNil(o.PowerDrainsNeeded) {
-		var ret int32
+		var ret uint32
 		return ret
 	}
 	return *o.PowerDrainsNeeded
@@ -196,7 +196,7 @@ func (o *HostFirmwareVersionConfig) GetPowerDrainsNeeded() int32 {
 
 // GetPowerDrainsNeededOk returns a tuple with the PowerDrainsNeeded field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *HostFirmwareVersionConfig) GetPowerDrainsNeededOk() (*int32, bool) {
+func (o *HostFirmwareVersionConfig) GetPowerDrainsNeededOk() (*uint32, bool) {
 	if o == nil || IsNil(o.PowerDrainsNeeded) {
 		return nil, false
 	}
@@ -212,8 +212,8 @@ func (o *HostFirmwareVersionConfig) HasPowerDrainsNeeded() bool {
 	return false
 }
 
-// SetPowerDrainsNeeded gets a reference to the given int32 and assigns it to the PowerDrainsNeeded field.
-func (o *HostFirmwareVersionConfig) SetPowerDrainsNeeded(v int32) {
+// SetPowerDrainsNeeded gets a reference to the given uint32 and assigns it to the PowerDrainsNeeded field.
+func (o *HostFirmwareVersionConfig) SetPowerDrainsNeeded(v uint32) {
 	o.PowerDrainsNeeded = &v
 }
 

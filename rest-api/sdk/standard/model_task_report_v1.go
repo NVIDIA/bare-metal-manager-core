@@ -25,7 +25,7 @@ var _ MappedNullable = &TaskReportV1{}
 // TaskReportV1 Structured execution report (version 1) for a Flow-scheduled task. The document mirrors the structure of the operation rule that drives the workflow: each `Stage` corresponds to one rule stage and each `Step` within a stage corresponds to one rule sequence step at the same index.  Clients pick the decoder by the `version` field; future report schemas will be exposed as `TaskReportV2` etc. and conveyed via a parallel response field, leaving v1 consumers untouched.
 type TaskReportV1 struct {
 	// Schema version of this report. Always `1` for `TaskReportV1`.
-	Version int32               `json:"version"`
+	Version int64               `json:"version"`
 	Stages  []TaskReportV1Stage `json:"stages"`
 	// Top-level failure summary: the message from the first stage that fails in this report. Not overwritten by subsequent failures, so it remains the canonical task-level error. Truncated to 512 bytes by the producer.
 	Error *string `json:"error,omitempty"`
@@ -37,7 +37,7 @@ type _TaskReportV1 TaskReportV1
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewTaskReportV1(version int32, stages []TaskReportV1Stage) *TaskReportV1 {
+func NewTaskReportV1(version int64, stages []TaskReportV1Stage) *TaskReportV1 {
 	this := TaskReportV1{}
 	this.Version = version
 	this.Stages = stages
@@ -53,9 +53,9 @@ func NewTaskReportV1WithDefaults() *TaskReportV1 {
 }
 
 // GetVersion returns the Version field value
-func (o *TaskReportV1) GetVersion() int32 {
+func (o *TaskReportV1) GetVersion() int64 {
 	if o == nil {
-		var ret int32
+		var ret int64
 		return ret
 	}
 
@@ -64,7 +64,7 @@ func (o *TaskReportV1) GetVersion() int32 {
 
 // GetVersionOk returns a tuple with the Version field value
 // and a boolean to check if the value has been set.
-func (o *TaskReportV1) GetVersionOk() (*int32, bool) {
+func (o *TaskReportV1) GetVersionOk() (*int64, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -72,7 +72,7 @@ func (o *TaskReportV1) GetVersionOk() (*int32, bool) {
 }
 
 // SetVersion sets field value
-func (o *TaskReportV1) SetVersion(v int32) {
+func (o *TaskReportV1) SetVersion(v int64) {
 	o.Version = v
 }
 

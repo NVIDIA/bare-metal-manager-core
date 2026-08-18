@@ -46,9 +46,9 @@ type Site struct {
 	// Indicates if Serial Console is enabled for the Site by the Provider
 	IsSerialConsoleEnabled *bool `json:"isSerialConsoleEnabled,omitempty"`
 	// Maximum idle time in seconds before Serial Console is disconnected
-	SerialConsoleIdleTimeout NullableInt32 `json:"serialConsoleIdleTimeout,omitempty"`
+	SerialConsoleIdleTimeout NullableInt64 `json:"serialConsoleIdleTimeout,omitempty"`
 	// Maximum length of Serial Console session in seconds
-	SerialConsoleMaxSessionLength NullableInt32 `json:"serialConsoleMaxSessionLength,omitempty"`
+	SerialConsoleMaxSessionLength NullableInt64 `json:"serialConsoleMaxSessionLength,omitempty"`
 	// Only visible to Tenant retrieving the Site. Indicates if Serial Console access using SSH Keys is enabled by Tenant
 	IsSerialConsoleSSHKeysEnabled *bool `json:"isSerialConsoleSSHKeysEnabled,omitempty"`
 	// Indicates if the Site is currently reachable from Cloud
@@ -509,9 +509,9 @@ func (o *Site) SetIsSerialConsoleEnabled(v bool) {
 }
 
 // GetSerialConsoleIdleTimeout returns the SerialConsoleIdleTimeout field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *Site) GetSerialConsoleIdleTimeout() int32 {
+func (o *Site) GetSerialConsoleIdleTimeout() int64 {
 	if o == nil || IsNil(o.SerialConsoleIdleTimeout.Get()) {
-		var ret int32
+		var ret int64
 		return ret
 	}
 	return *o.SerialConsoleIdleTimeout.Get()
@@ -520,7 +520,7 @@ func (o *Site) GetSerialConsoleIdleTimeout() int32 {
 // GetSerialConsoleIdleTimeoutOk returns a tuple with the SerialConsoleIdleTimeout field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *Site) GetSerialConsoleIdleTimeoutOk() (*int32, bool) {
+func (o *Site) GetSerialConsoleIdleTimeoutOk() (*int64, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -536,8 +536,8 @@ func (o *Site) HasSerialConsoleIdleTimeout() bool {
 	return false
 }
 
-// SetSerialConsoleIdleTimeout gets a reference to the given NullableInt32 and assigns it to the SerialConsoleIdleTimeout field.
-func (o *Site) SetSerialConsoleIdleTimeout(v int32) {
+// SetSerialConsoleIdleTimeout gets a reference to the given NullableInt64 and assigns it to the SerialConsoleIdleTimeout field.
+func (o *Site) SetSerialConsoleIdleTimeout(v int64) {
 	o.SerialConsoleIdleTimeout.Set(&v)
 }
 
@@ -552,9 +552,9 @@ func (o *Site) UnsetSerialConsoleIdleTimeout() {
 }
 
 // GetSerialConsoleMaxSessionLength returns the SerialConsoleMaxSessionLength field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *Site) GetSerialConsoleMaxSessionLength() int32 {
+func (o *Site) GetSerialConsoleMaxSessionLength() int64 {
 	if o == nil || IsNil(o.SerialConsoleMaxSessionLength.Get()) {
-		var ret int32
+		var ret int64
 		return ret
 	}
 	return *o.SerialConsoleMaxSessionLength.Get()
@@ -563,7 +563,7 @@ func (o *Site) GetSerialConsoleMaxSessionLength() int32 {
 // GetSerialConsoleMaxSessionLengthOk returns a tuple with the SerialConsoleMaxSessionLength field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *Site) GetSerialConsoleMaxSessionLengthOk() (*int32, bool) {
+func (o *Site) GetSerialConsoleMaxSessionLengthOk() (*int64, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -579,8 +579,8 @@ func (o *Site) HasSerialConsoleMaxSessionLength() bool {
 	return false
 }
 
-// SetSerialConsoleMaxSessionLength gets a reference to the given NullableInt32 and assigns it to the SerialConsoleMaxSessionLength field.
-func (o *Site) SetSerialConsoleMaxSessionLength(v int32) {
+// SetSerialConsoleMaxSessionLength gets a reference to the given NullableInt64 and assigns it to the SerialConsoleMaxSessionLength field.
+func (o *Site) SetSerialConsoleMaxSessionLength(v int64) {
 	o.SerialConsoleMaxSessionLength.Set(&v)
 }
 

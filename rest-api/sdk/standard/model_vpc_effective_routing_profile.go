@@ -34,7 +34,7 @@ type VpcEffectiveRoutingProfile struct {
 	// Operator-controlled internal-routing classification inherited from the named profile.
 	Internal bool `json:"internal"`
 	// Operator-controlled access tier inherited from the named profile.
-	AccessTier int64 `json:"accessTier"`
+	AccessTier uint32 `json:"accessTier"`
 }
 
 type _VpcEffectiveRoutingProfile VpcEffectiveRoutingProfile
@@ -43,7 +43,7 @@ type _VpcEffectiveRoutingProfile VpcEffectiveRoutingProfile
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewVpcEffectiveRoutingProfile(routeTargetImports []VpcRouteTarget, routeTargetsOnExports []VpcRouteTarget, leakDefaultRouteFromUnderlay bool, leakTenantHostRoutesToUnderlay bool, tenantLeakCommunitiesAccepted bool, acceptedLeaksFromUnderlay []string, allowedAnycastPrefixes []string, internal bool, accessTier int64) *VpcEffectiveRoutingProfile {
+func NewVpcEffectiveRoutingProfile(routeTargetImports []VpcRouteTarget, routeTargetsOnExports []VpcRouteTarget, leakDefaultRouteFromUnderlay bool, leakTenantHostRoutesToUnderlay bool, tenantLeakCommunitiesAccepted bool, acceptedLeaksFromUnderlay []string, allowedAnycastPrefixes []string, internal bool, accessTier uint32) *VpcEffectiveRoutingProfile {
 	this := VpcEffectiveRoutingProfile{}
 	this.RouteTargetImports = routeTargetImports
 	this.RouteTargetsOnExports = routeTargetsOnExports
@@ -258,9 +258,9 @@ func (o *VpcEffectiveRoutingProfile) SetInternal(v bool) {
 }
 
 // GetAccessTier returns the AccessTier field value
-func (o *VpcEffectiveRoutingProfile) GetAccessTier() int64 {
+func (o *VpcEffectiveRoutingProfile) GetAccessTier() uint32 {
 	if o == nil {
-		var ret int64
+		var ret uint32
 		return ret
 	}
 
@@ -269,7 +269,7 @@ func (o *VpcEffectiveRoutingProfile) GetAccessTier() int64 {
 
 // GetAccessTierOk returns a tuple with the AccessTier field value
 // and a boolean to check if the value has been set.
-func (o *VpcEffectiveRoutingProfile) GetAccessTierOk() (*int64, bool) {
+func (o *VpcEffectiveRoutingProfile) GetAccessTierOk() (*uint32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -277,7 +277,7 @@ func (o *VpcEffectiveRoutingProfile) GetAccessTierOk() (*int64, bool) {
 }
 
 // SetAccessTier sets field value
-func (o *VpcEffectiveRoutingProfile) SetAccessTier(v int64) {
+func (o *VpcEffectiveRoutingProfile) SetAccessTier(v uint32) {
 	o.AccessTier = v
 }
 

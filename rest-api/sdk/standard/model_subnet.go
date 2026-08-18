@@ -48,9 +48,9 @@ type Subnet struct {
 	// Address of the IPv6 gateway in the Subnet
 	Ipv6Gateway NullableString `json:"ipv6Gateway,omitempty"`
 	// Maximum Transmission Unit size in bytes. This property is system-determined and read-only.
-	Mtu *int32 `json:"mtu,omitempty"`
+	Mtu *int64 `json:"mtu,omitempty"`
 	// Max value depends on prefix length of parent IP Block
-	PrefixLength *int32 `json:"prefixLength,omitempty"`
+	PrefixLength *int64 `json:"prefixLength,omitempty"`
 	// Routing type of the Subnet
 	RoutingType NullableString `json:"routingType,omitempty"`
 	// Status of the Subnet
@@ -555,9 +555,9 @@ func (o *Subnet) UnsetIpv6Gateway() {
 }
 
 // GetMtu returns the Mtu field value if set, zero value otherwise.
-func (o *Subnet) GetMtu() int32 {
+func (o *Subnet) GetMtu() int64 {
 	if o == nil || IsNil(o.Mtu) {
-		var ret int32
+		var ret int64
 		return ret
 	}
 	return *o.Mtu
@@ -565,7 +565,7 @@ func (o *Subnet) GetMtu() int32 {
 
 // GetMtuOk returns a tuple with the Mtu field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *Subnet) GetMtuOk() (*int32, bool) {
+func (o *Subnet) GetMtuOk() (*int64, bool) {
 	if o == nil || IsNil(o.Mtu) {
 		return nil, false
 	}
@@ -581,15 +581,15 @@ func (o *Subnet) HasMtu() bool {
 	return false
 }
 
-// SetMtu gets a reference to the given int32 and assigns it to the Mtu field.
-func (o *Subnet) SetMtu(v int32) {
+// SetMtu gets a reference to the given int64 and assigns it to the Mtu field.
+func (o *Subnet) SetMtu(v int64) {
 	o.Mtu = &v
 }
 
 // GetPrefixLength returns the PrefixLength field value if set, zero value otherwise.
-func (o *Subnet) GetPrefixLength() int32 {
+func (o *Subnet) GetPrefixLength() int64 {
 	if o == nil || IsNil(o.PrefixLength) {
-		var ret int32
+		var ret int64
 		return ret
 	}
 	return *o.PrefixLength
@@ -597,7 +597,7 @@ func (o *Subnet) GetPrefixLength() int32 {
 
 // GetPrefixLengthOk returns a tuple with the PrefixLength field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *Subnet) GetPrefixLengthOk() (*int32, bool) {
+func (o *Subnet) GetPrefixLengthOk() (*int64, bool) {
 	if o == nil || IsNil(o.PrefixLength) {
 		return nil, false
 	}
@@ -613,8 +613,8 @@ func (o *Subnet) HasPrefixLength() bool {
 	return false
 }
 
-// SetPrefixLength gets a reference to the given int32 and assigns it to the PrefixLength field.
-func (o *Subnet) SetPrefixLength(v int32) {
+// SetPrefixLength gets a reference to the given int64 and assigns it to the PrefixLength field.
+func (o *Subnet) SetPrefixLength(v int64) {
 	o.PrefixLength = &v
 }
 
