@@ -16,6 +16,7 @@
  */
 #![cfg_attr(not(test), deny(dead_code_pub_in_binary))]
 
+mod logging;
 mod ufm_mock;
 
 use std::borrow::Cow;
@@ -46,44 +47,9 @@ use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use rpc::protos::forge_api_client::ForgeApiClient;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::mpsc;
-use tracing_subscriber::filter::{EnvFilter, LevelFilter};
-use tracing_subscriber::prelude::*;
-use tracing_subscriber::{fmt, registry};
 
+use crate::logging::init_logging;
 use crate::ufm_mock::HostedUfmMock;
-
-fn init_log(
-    filename: &Option<String>,
-    tui_host_logs: Option<&TuiHostLogs>,
-) -> Result<(), Box<dyn Error>> {
-    let env_filter = EnvFilter::builder()
-        .with_default_directive(LevelFilter::INFO.into())
-        .from_env_lossy()
-        .add_directive("tower=warn".parse().unwrap())
-        .add_directive("rustls=warn".parse().unwrap())
-        .add_directive("hyper=warn".parse().unwrap())
-        .add_directive("hickory_proto=warn".parse().unwrap())
-        .add_directive("hickory_resolver=warn".parse().unwrap())
-        .add_directive("h2=warn".parse().unwrap());
-
-    match filename {
-        Some(filename) => {
-            let log_file = std::sync::Arc::new(std::fs::File::create(filename)?);
-            registry()
-                .with(fmt::Layer::default().compact().with_writer(log_file))
-                .with(env_filter)
-                .with(tui_host_logs.map(|l| l.make_tracing_layer()))
-                .try_init()?;
-        }
-        None => registry()
-            .with(fmt::Layer::default().compact().with_writer(std::io::stdout))
-            .with(env_filter)
-            .with(tui_host_logs.map(|l| l.make_tracing_layer()))
-            .try_init()?,
-    }
-
-    Ok(())
-}
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 32)]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -102,7 +68,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         None
     };
 
-    init_log(&app_config.log_file, tui_host_logs.as_ref())?;
+    init_logging(
+        app_config.log_format,
+        app_config.log_file.as_deref(),
+        tui_host_logs.as_ref(),
+    )?;
 
     let file_config = get_config_from_file();
 

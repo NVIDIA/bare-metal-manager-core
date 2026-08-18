@@ -5,6 +5,7 @@ package processor
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
 	"github.com/google/uuid"
@@ -19,12 +20,13 @@ type RuleResolver interface {
 // preparedEvent contains runtime inputs prepared for policy evaluation.
 type preparedEvent struct {
 	Envelope eventrule.Envelope
-	Enriched enrichment
+	Resource eventrule.ResolvedResource
 	Rule     *eventrule.Rule
 }
 
-// prepare enriches an envelope and resolves its effective rule. An absent rule
-// is an accepted no-op represented by a nil preparedEvent.Rule.
+// prepare enriches an envelope, resolves its effective rule, and validates
+// event-rule runtime compatibility. An absent rule is an accepted no-op
+// represented by a nil preparedEvent.Rule.
 func (p *Processor) prepare(
 	ctx context.Context,
 	envelope eventrule.Envelope,
@@ -33,7 +35,7 @@ func (p *Processor) prepare(
 		return preparedEvent{}, terminalError(err)
 	}
 
-	enriched, err := p.enrich(ctx, envelope)
+	resource, err := p.enrich(ctx, envelope)
 	if err != nil {
 		return preparedEvent{}, err
 	}
@@ -41,15 +43,22 @@ func (p *Processor) prepare(
 	rule, err := p.rules.GetEffective(
 		ctx,
 		envelope.Type,
-		enriched.ResolvedResource.RackID,
+		resource.RackID,
 	)
 	if err != nil {
 		return preparedEvent{}, classifyRuleError(err)
 	}
 
+	if rule != nil && rule.Dedupe != nil && envelope.CorrelationKey == "" {
+		return preparedEvent{}, terminalError(fmt.Errorf(
+			"correlation key is required by rule %s dedupe policy",
+			rule.ID,
+		))
+	}
+
 	return preparedEvent{
 		Envelope: envelope,
-		Enriched: enriched,
+		Resource: resource,
 		Rule:     rule,
 	}, nil
 }

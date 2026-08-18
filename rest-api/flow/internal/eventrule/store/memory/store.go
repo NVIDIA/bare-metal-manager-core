@@ -26,13 +26,22 @@ type Store struct {
 
 // New constructs an empty in-memory store.
 func New() *Store {
+	return NewWithClock(time.Now)
+}
+
+// NewWithClock constructs an empty in-memory store with an injected
+// authoritative clock.
+func NewWithClock(now func() time.Time) *Store {
+	if now == nil {
+		now = time.Now
+	}
 	return &Store{
 		rules:                make(map[uuid.UUID]dbmodel.EventRule),
 		bindings:             make(map[uuid.UUID]dbmodel.EventRuleBinding),
 		executions:           make(map[uuid.UUID]*memoryExecution),
 		executionsByDelivery: make(map[eventrule.ExecutionDeliveryKey]uuid.UUID),
 		executionsBySemantic: make(map[eventrule.ExecutionSemanticKey][]uuid.UUID),
-		now:                  time.Now,
+		now:                  now,
 	}
 }
 

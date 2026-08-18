@@ -2735,7 +2735,6 @@ impl StateHandler for MachineStateHandler {
         if !mh_snapshot.host_snapshot.config.dpf.used_for_ingestion {
             tracing::debug!(
                 machine_id = %host_machine_id,
-                removed_in = "v2.1",
                 docs = "https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup",
                 "iPXE provisioning strategy (internally) is deprecated; enable DPF management for DPUs to migrate"
             );
@@ -8304,13 +8303,18 @@ impl StateHandler for InstanceStateHandler {
                         .host_reprovision_requested
                         .is_some()
                     {
+                        let reprovision_state = if is_rack_level_reprovisioning(mh_snapshot) {
+                            HostReprovisionState::WaitingForRackFirmwareUpgrade
+                        } else {
+                            HostReprovisionState::CheckingFirmwareV2 {
+                                firmware_type: None,
+                                firmware_number: None,
+                            }
+                        };
                         Ok(StateHandlerOutcome::transition(
                             ManagedHostState::Assigned {
                                 instance_state: InstanceState::HostReprovision {
-                                    reprovision_state: HostReprovisionState::CheckingFirmwareV2 {
-                                        firmware_type: None,
-                                        firmware_number: None,
-                                    },
+                                    reprovision_state,
                                 },
                             },
                         ))
@@ -9439,7 +9443,7 @@ impl HostUpgradeState {
 
         // Treat Ready (but flagged to do updates) the same as HostReprovisionState/CheckingFirmware
         let original_state = &state.managed_state.clone();
-        let (mut host_reprovision_state, retry_count) = match &state.managed_state {
+        let (mut host_reprovision_state, mut retry_count) = match &state.managed_state {
             ManagedHostState::HostReprovision {
                 reprovision_state,
                 retry_count,
@@ -9484,6 +9488,7 @@ impl HostUpgradeState {
             })
         {
             tracing::info!(%machine_id, "Host firmware upgrade reset requested, returning to CheckingFirmwareRepeat");
+            retry_count = 0;
             host_reprovision_state = &HostReprovisionState::CheckingFirmwareRepeatV2 {
                 firmware_type: None,
                 firmware_number: None,
@@ -9500,6 +9505,25 @@ impl HostUpgradeState {
                     machine_id: *machine_id,
                     clear_reset: true,
                 });
+        }
+
+        if is_rack_level_reprovisioning(state)
+            && matches!(
+                host_reprovision_state,
+                HostReprovisionState::CheckingFirmware
+                    | HostReprovisionState::CheckingFirmwareRepeat
+                    | HostReprovisionState::CheckingFirmwareV2 { .. }
+                    | HostReprovisionState::CheckingFirmwareRepeatV2 { .. }
+            )
+        {
+            tracing::info!(
+                %machine_id,
+                "Rack-level firmware upgrade bypassing legacy host firmware checks"
+            );
+            return Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
+                HostReprovisionState::WaitingForRackFirmwareUpgrade,
+                retry_count,
+            )));
         }
 
         match host_reprovision_state {

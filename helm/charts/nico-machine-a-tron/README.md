@@ -60,6 +60,14 @@ The chart does not aggregate InfiniBand inventory across multiple
 machine-a-tron pods. A full `configFiles.matConfigs` override owns the complete
 MAT configuration, including its `[ufm_mock]` section.
 
+## Logging
+
+The chart defaults `machineATron.logFormat` to `logfmt`, so machine-a-tron emits
+structured logs to stdout for Kubernetes log collectors. Set it to `compact`
+for the human-oriented tracing format. `machineATron.logFile` independently
+redirects either format to a file when set. A full `configFiles.matConfigs`
+override must set `log_format = "logfmt"` itself if structured output is wanted.
+
 ---
 
 ## Mode 1: Override Mode (Development)

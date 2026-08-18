@@ -484,6 +484,10 @@ const (
 	Forge_GetDPFState_FullMethodName                                        = "/forge.Forge/GetDPFState"
 	Forge_GetDPFHostSnapshot_FullMethodName                                 = "/forge.Forge/GetDPFHostSnapshot"
 	Forge_GetDPFServiceVersions_FullMethodName                              = "/forge.Forge/GetDPFServiceVersions"
+	Forge_FindPendingDPUServiceSyncIds_FullMethodName                       = "/forge.Forge/FindPendingDPUServiceSyncIds"
+	Forge_FindPendingDPUServiceSyncsByIds_FullMethodName                    = "/forge.Forge/FindPendingDPUServiceSyncsByIds"
+	Forge_ListDPUServiceSyncHistory_FullMethodName                          = "/forge.Forge/ListDPUServiceSyncHistory"
+	Forge_ReleaseDPUServiceSyncHold_FullMethodName                          = "/forge.Forge/ReleaseDPUServiceSyncHold"
 	Forge_ComponentPowerControl_FullMethodName                              = "/forge.Forge/ComponentPowerControl"
 	Forge_ComponentConfigureSwitchCertificate_FullMethodName                = "/forge.Forge/ComponentConfigureSwitchCertificate"
 	Forge_GetComponentInventory_FullMethodName                              = "/forge.Forge/GetComponentInventory"
@@ -1322,6 +1326,26 @@ type ForgeClient interface {
 	// Helm/docker versions for the nico DPF mandatory services, from both
 	// the nico config and the live DPUServiceTemplate CRs.
 	GetDPFServiceVersions(ctx context.Context, in *GetDPFServiceVersionsRequest, opts ...grpc.CallOption) (*DPFServiceVersionsResponse, error)
+	// Machines DPF is waiting on before a changed DPUService can roll out.
+	//
+	// Required rather than convenient: the release RPC has no fleet-wide form, so
+	// this is the only way to discover which machines to name. Split ids-then-
+	// details because a fleet-wide rollout can leave every host waiting at once,
+	// and the worklist must not become one unbounded response.
+	FindPendingDPUServiceSyncIds(ctx context.Context, in *FindPendingDPUServiceSyncIdsRequest, opts ...grpc.CallOption) (*MachineIdList, error)
+	FindPendingDPUServiceSyncsByIds(ctx context.Context, in *FindPendingDPUServiceSyncsByIdsRequest, opts ...grpc.CallOption) (*ListPendingDPUServiceSyncsResponse, error)
+	// One machine's recorded sync history, newest first. Needs no paging: the
+	// database caps retained history per machine.
+	ListDPUServiceSyncHistory(ctx context.Context, in *ListDPUServiceSyncHistoryRequest, opts ...grpc.CallOption) (*ListPendingDPUServiceSyncsResponse, error)
+	// Release the DPF maintenance hold for named machines and complete their
+	// pending DPU service sync.
+	//
+	// Bypasses the host-state requirement nico applies to itself -- that is
+	// what strands a host which can never reach Ready, and a site that has turned
+	// the automatic rollout off. It does not bypass the DPU currency check: new
+	// services must never land on a DPU whose OS is about to be replaced, and that
+	// holds however the release was asked for.
+	ReleaseDPUServiceSyncHold(ctx context.Context, in *ReleaseDPUServiceSyncHoldRequest, opts ...grpc.CallOption) (*ReleaseDPUServiceSyncHoldResponse, error)
 	// --- Component management (unified switch + power shelf operations) ---
 	ComponentPowerControl(ctx context.Context, in *ComponentPowerControlRequest, opts ...grpc.CallOption) (*ComponentPowerControlResponse, error)
 	ComponentConfigureSwitchCertificate(ctx context.Context, in *ComponentConfigureSwitchCertificateRequest, opts ...grpc.CallOption) (*ComponentConfigureSwitchCertificateResponse, error)
@@ -5973,6 +5997,46 @@ func (c *forgeClient) GetDPFServiceVersions(ctx context.Context, in *GetDPFServi
 	return out, nil
 }
 
+func (c *forgeClient) FindPendingDPUServiceSyncIds(ctx context.Context, in *FindPendingDPUServiceSyncIdsRequest, opts ...grpc.CallOption) (*MachineIdList, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MachineIdList)
+	err := c.cc.Invoke(ctx, Forge_FindPendingDPUServiceSyncIds_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) FindPendingDPUServiceSyncsByIds(ctx context.Context, in *FindPendingDPUServiceSyncsByIdsRequest, opts ...grpc.CallOption) (*ListPendingDPUServiceSyncsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListPendingDPUServiceSyncsResponse)
+	err := c.cc.Invoke(ctx, Forge_FindPendingDPUServiceSyncsByIds_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) ListDPUServiceSyncHistory(ctx context.Context, in *ListDPUServiceSyncHistoryRequest, opts ...grpc.CallOption) (*ListPendingDPUServiceSyncsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListPendingDPUServiceSyncsResponse)
+	err := c.cc.Invoke(ctx, Forge_ListDPUServiceSyncHistory_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) ReleaseDPUServiceSyncHold(ctx context.Context, in *ReleaseDPUServiceSyncHoldRequest, opts ...grpc.CallOption) (*ReleaseDPUServiceSyncHoldResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReleaseDPUServiceSyncHoldResponse)
+	err := c.cc.Invoke(ctx, Forge_ReleaseDPUServiceSyncHold_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *forgeClient) ComponentPowerControl(ctx context.Context, in *ComponentPowerControlRequest, opts ...grpc.CallOption) (*ComponentPowerControlResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ComponentPowerControlResponse)
@@ -6944,6 +7008,26 @@ type ForgeServer interface {
 	// Helm/docker versions for the nico DPF mandatory services, from both
 	// the nico config and the live DPUServiceTemplate CRs.
 	GetDPFServiceVersions(context.Context, *GetDPFServiceVersionsRequest) (*DPFServiceVersionsResponse, error)
+	// Machines DPF is waiting on before a changed DPUService can roll out.
+	//
+	// Required rather than convenient: the release RPC has no fleet-wide form, so
+	// this is the only way to discover which machines to name. Split ids-then-
+	// details because a fleet-wide rollout can leave every host waiting at once,
+	// and the worklist must not become one unbounded response.
+	FindPendingDPUServiceSyncIds(context.Context, *FindPendingDPUServiceSyncIdsRequest) (*MachineIdList, error)
+	FindPendingDPUServiceSyncsByIds(context.Context, *FindPendingDPUServiceSyncsByIdsRequest) (*ListPendingDPUServiceSyncsResponse, error)
+	// One machine's recorded sync history, newest first. Needs no paging: the
+	// database caps retained history per machine.
+	ListDPUServiceSyncHistory(context.Context, *ListDPUServiceSyncHistoryRequest) (*ListPendingDPUServiceSyncsResponse, error)
+	// Release the DPF maintenance hold for named machines and complete their
+	// pending DPU service sync.
+	//
+	// Bypasses the host-state requirement nico applies to itself -- that is
+	// what strands a host which can never reach Ready, and a site that has turned
+	// the automatic rollout off. It does not bypass the DPU currency check: new
+	// services must never land on a DPU whose OS is about to be replaced, and that
+	// holds however the release was asked for.
+	ReleaseDPUServiceSyncHold(context.Context, *ReleaseDPUServiceSyncHoldRequest) (*ReleaseDPUServiceSyncHoldResponse, error)
 	// --- Component management (unified switch + power shelf operations) ---
 	ComponentPowerControl(context.Context, *ComponentPowerControlRequest) (*ComponentPowerControlResponse, error)
 	ComponentConfigureSwitchCertificate(context.Context, *ComponentConfigureSwitchCertificateRequest) (*ComponentConfigureSwitchCertificateResponse, error)
@@ -8356,6 +8440,18 @@ func (UnimplementedForgeServer) GetDPFHostSnapshot(context.Context, *GetDPFHostS
 }
 func (UnimplementedForgeServer) GetDPFServiceVersions(context.Context, *GetDPFServiceVersionsRequest) (*DPFServiceVersionsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetDPFServiceVersions not implemented")
+}
+func (UnimplementedForgeServer) FindPendingDPUServiceSyncIds(context.Context, *FindPendingDPUServiceSyncIdsRequest) (*MachineIdList, error) {
+	return nil, status.Error(codes.Unimplemented, "method FindPendingDPUServiceSyncIds not implemented")
+}
+func (UnimplementedForgeServer) FindPendingDPUServiceSyncsByIds(context.Context, *FindPendingDPUServiceSyncsByIdsRequest) (*ListPendingDPUServiceSyncsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method FindPendingDPUServiceSyncsByIds not implemented")
+}
+func (UnimplementedForgeServer) ListDPUServiceSyncHistory(context.Context, *ListDPUServiceSyncHistoryRequest) (*ListPendingDPUServiceSyncsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListDPUServiceSyncHistory not implemented")
+}
+func (UnimplementedForgeServer) ReleaseDPUServiceSyncHold(context.Context, *ReleaseDPUServiceSyncHoldRequest) (*ReleaseDPUServiceSyncHoldResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReleaseDPUServiceSyncHold not implemented")
 }
 func (UnimplementedForgeServer) ComponentPowerControl(context.Context, *ComponentPowerControlRequest) (*ComponentPowerControlResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ComponentPowerControl not implemented")
@@ -16709,6 +16805,78 @@ func _Forge_GetDPFServiceVersions_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_FindPendingDPUServiceSyncIds_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FindPendingDPUServiceSyncIdsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).FindPendingDPUServiceSyncIds(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_FindPendingDPUServiceSyncIds_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).FindPendingDPUServiceSyncIds(ctx, req.(*FindPendingDPUServiceSyncIdsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_FindPendingDPUServiceSyncsByIds_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FindPendingDPUServiceSyncsByIdsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).FindPendingDPUServiceSyncsByIds(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_FindPendingDPUServiceSyncsByIds_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).FindPendingDPUServiceSyncsByIds(ctx, req.(*FindPendingDPUServiceSyncsByIdsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_ListDPUServiceSyncHistory_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListDPUServiceSyncHistoryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).ListDPUServiceSyncHistory(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_ListDPUServiceSyncHistory_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).ListDPUServiceSyncHistory(ctx, req.(*ListDPUServiceSyncHistoryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_ReleaseDPUServiceSyncHold_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReleaseDPUServiceSyncHoldRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).ReleaseDPUServiceSyncHold(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_ReleaseDPUServiceSyncHold_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).ReleaseDPUServiceSyncHold(ctx, req.(*ReleaseDPUServiceSyncHoldRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Forge_ComponentPowerControl_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ComponentPowerControlRequest)
 	if err := dec(in); err != nil {
@@ -18825,6 +18993,22 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetDPFServiceVersions",
 			Handler:    _Forge_GetDPFServiceVersions_Handler,
+		},
+		{
+			MethodName: "FindPendingDPUServiceSyncIds",
+			Handler:    _Forge_FindPendingDPUServiceSyncIds_Handler,
+		},
+		{
+			MethodName: "FindPendingDPUServiceSyncsByIds",
+			Handler:    _Forge_FindPendingDPUServiceSyncsByIds_Handler,
+		},
+		{
+			MethodName: "ListDPUServiceSyncHistory",
+			Handler:    _Forge_ListDPUServiceSyncHistory_Handler,
+		},
+		{
+			MethodName: "ReleaseDPUServiceSyncHold",
+			Handler:    _Forge_ReleaseDPUServiceSyncHold_Handler,
 		},
 		{
 			MethodName: "ComponentPowerControl",

@@ -6,7 +6,6 @@ package eventrule
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/google/uuid"
 )
@@ -24,7 +23,7 @@ var ErrInvalidPersistedRule = errors.New("invalid persisted event rule")
 var ErrInvalidPersistedExecution = errors.New("invalid persisted event action execution")
 
 // ErrExecutionNotFound identifies an unsuccessful execution lookup.
-var ErrExecutionNotFound = errors.New("event action execution not found")
+var ErrExecutionNotFound = errors.New("execution not found")
 
 // RuleFilter limits rules returned by a store.
 type RuleFilter struct {
@@ -90,18 +89,23 @@ type BindingStore interface {
 	GetForScope(context.Context, Type, Scope) (*Binding, error)
 }
 
-// ExecutionStore owns idempotent claims and action state transitions.
-// Claim atomically creates or resumes an execution. It returns a non-nil
-// execution only when the caller owns processing. It returns (nil, nil) when
-// an existing execution makes the claim an accepted no-op. When an existing
-// retryable execution is not yet eligible to resume, Claim returns an error
-// wrapping ErrRetryScheduled unless persisting the claim's observation or
-// state fails; that persistence error takes precedence and is returned alone.
-// Other non-nil errors report claim failures.
-// Transition validates and atomically persists an execution state transition,
-// returning the canonical stored execution. Transition must return an error
-// wrapping ErrExecutionNotFound when the execution ID does not exist.
+// ExecutionStore atomically creates pending executions, owns
+// delivery and semantic deduplication, and persists attempt results.
+// CreateExecution returns the new execution, or (nil, nil) when an
+// existing execution accepts the request as a duplicate.
+// TransitionExecution returns ErrExecutionNotFound for an unknown
+// execution ID. The future scheduler extends transition persistence with lease
+// fencing without adding an ownership status. Implementations own creation,
+// observation, transition, and retry-scheduling timestamps.
 type ExecutionStore interface {
-	Claim(context.Context, ExecutionClaim) (*Execution, error)
-	Transition(context.Context, uuid.UUID, ExecutionState, time.Time) (*Execution, error)
+	CreateExecution(
+		ctx context.Context,
+		identity ExecutionIdentity,
+		dedupe *Dedupe,
+	) (created *Execution, err error)
+	TransitionExecution(
+		ctx context.Context,
+		executionID uuid.UUID,
+		result ExecutionResult,
+	) (transitioned *Execution, err error)
 }

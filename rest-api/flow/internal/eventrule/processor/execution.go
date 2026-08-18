@@ -5,141 +5,153 @@ package processor
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/executor"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/target"
 	"github.com/google/uuid"
 )
+
+// initialRetryDelay prevents a transient creator-attempt failure from becoming
+// immediately due. The scheduler owns delay policy after the first attempt.
+// It is global because per-rule retry customization is not required and would
+// unnecessarily expand the persisted rule contract.
+const initialRetryDelay = 5 * time.Second
+
+// executionPersistTimeout bounds result persistence after detaching it from
+// the attempt context so cancellation cannot leave the execution pending.
+const executionPersistTimeout = 5 * time.Second
 
 func (p *Processor) processAction(
 	ctx context.Context,
 	prepared preparedEvent,
 	action eventrule.Action,
 ) error {
-	// Check action eligibility and construct a validated execution claim.
-	claim, err := p.precheckExecution(prepared, action)
-	if err != nil || claim == nil {
+	// Check action eligibility before creating durable state.
+	if !action.Condition.AppliesTo(prepared.Envelope, prepared.Resource) {
+		return nil
+	}
+
+	// Atomically create or deduplicate the execution. A nil execution is a
+	// deduplication result and must not be dispatched.
+	execution, err := p.executions.CreateExecution(
+		ctx,
+		eventrule.ExecutionIdentity{
+			EventID:        prepared.Envelope.ID,
+			RuleID:         prepared.Rule.ID,
+			ActionID:       action.ID,
+			CorrelationKey: prepared.Envelope.CorrelationKey,
+		},
+		prepared.Rule.Dedupe.Clone(),
+	)
+	if err != nil || execution == nil {
 		return err
 	}
 
-	// Atomically claim the action's delivery and optional semantic-dedupe
-	// identity. A nil preparation request is an accepted duplicate.
-	prepareReq, err := p.claimExecution(ctx, *claim, prepared, action)
-	if err != nil || prepareReq == nil {
-		return err
+	// Resolve targets or persist the resulting target-resolution result.
+	targets, result := p.resolveTargets(ctx, prepared, action)
+	if result != nil {
+		return p.persistExecution(ctx, execution.ID, *result)
 	}
 
-	// Prepare the action-specific request or outcome.
-	result, err := p.prepareExecution(ctx, *prepareReq)
-	if err != nil {
-		return err
-	}
-
-	// Execute a prepared request, or carry forward a preparation outcome.
-	outcome, err := p.performExecution(ctx, result)
-	if err != nil {
-		return err
-	}
-
-	// Persist the resulting execution state.
-	return p.persistExecution(ctx, prepareReq.Execution.ID, outcome)
+	// Execute the action and persist the resulting state.
+	return p.executeAction(ctx, execution, action, targets)
 }
 
-func (p *Processor) precheckExecution(
+func (p *Processor) resolveTargets(
+	ctx context.Context,
 	prepared preparedEvent,
 	action eventrule.Action,
-) (*eventrule.ExecutionClaim, error) {
-	if !action.Condition.AppliesTo(
-		prepared.Envelope,
-		prepared.Enriched.ResolvedResource,
-	) {
+) ([]target.Target, *eventrule.ExecutionResult) {
+	strategy := action.Spec.TargetResolutionStrategy()
+	if !strategy.RequiresResolution() {
 		return nil, nil
 	}
 
-	claim, err := eventrule.NewExecutionClaim(
-		prepared.Envelope,
-		*prepared.Rule,
-		action.ID,
-		p.now(),
+	targets, err := p.targets.Resolve(
+		ctx,
+		target.ResolveRequest{
+			Envelope: prepared.Envelope,
+			Resource: prepared.Resource,
+			Strategy: strategy,
+		},
 	)
 	if err != nil {
-		return nil, terminalError(err)
+		if isTerminalTargetError(err) {
+			result := eventrule.FailedExecutionResult(err.Error())
+			return nil, &result
+		}
+
+		result := eventrule.DeferredExecutionResult(
+			eventrule.ExecutionReasonAttemptFailed,
+			err.Error(),
+			initialRetryDelay,
+		)
+		return nil, &result
 	}
 
-	return &claim, nil
+	if len(targets) == 0 {
+		result := eventrule.SkippedExecutionResult(
+			eventrule.ExecutionReasonNoTargets,
+		)
+		return nil, &result
+	}
+
+	return targets, nil
 }
 
-func (p *Processor) claimExecution(
+func (p *Processor) executeAction(
 	ctx context.Context,
-	claim eventrule.ExecutionClaim,
-	prepared preparedEvent,
+	execution *eventrule.Execution,
 	action eventrule.Action,
-) (*executor.PrepareRequest, error) {
-	execution, err := p.executions.Claim(ctx, claim)
-	if err != nil || execution == nil {
-		return nil, err
-	}
-
-	return &executor.PrepareRequest{
+	targets []target.Target,
+) error {
+	result, err := p.executor.Execute(ctx, executor.ExecutionRequest{
 		Execution: *execution,
-		Envelope:  prepared.Envelope,
-		Resource:  prepared.Enriched.ResolvedResource,
 		Action:    action,
-	}, nil
-}
-
-func (p *Processor) prepareExecution(
-	ctx context.Context,
-	prepareReq executor.PrepareRequest,
-) (executor.PreparationResult, error) {
-	result, err := p.executor.Prepare(ctx, prepareReq)
+		Targets:   targets,
+	})
 	if err != nil {
-		return executor.PreparationResult{}, terminalError(
-			fmt.Errorf("executor preparation failed: %w", err),
+		if ctx.Err() != nil ||
+			errors.Is(err, context.Canceled) ||
+			errors.Is(err, context.DeadlineExceeded) {
+			result = eventrule.DeferredExecutionResult(
+				eventrule.ExecutionReasonAttemptInterrupted,
+				fmt.Sprintf("executor execution interrupted: %v", err),
+				initialRetryDelay,
+			)
+		} else {
+			result = eventrule.FailedExecutionResult(
+				fmt.Sprintf("executor execution failed: %v", err),
+			)
+		}
+	} else if err := result.Validate(); err != nil {
+		result = eventrule.FailedExecutionResult(
+			fmt.Sprintf("invalid executor result: %v", err),
 		)
 	}
 
-	// Defensively validate the result at the executor boundary even though
-	// implementations are required to return a valid result with a nil error.
-	if err := result.Validate(); err != nil {
-		return executor.PreparationResult{}, terminalError(err)
-	}
-
-	return result, nil
-}
-
-func (p *Processor) performExecution(
-	ctx context.Context,
-	result executor.PreparationResult,
-) (eventrule.ExecutionState, error) {
-	// A preparation outcome already represents the resulting state, so no
-	// action execution is needed.
-	if result.Outcome != nil {
-		return *result.Outcome, nil
-	}
-
-	outcome, err := p.executor.Execute(ctx, *result.Request)
-	if err != nil {
-		return eventrule.ExecutionState{}, terminalError(
-			fmt.Errorf("executor execution failed: %w", err),
-		)
-	}
-
-	// Defensively validate the outcome at the executor boundary even though
-	// implementations are required to return a valid outcome with a nil error.
-	if err := outcome.ValidateTransition(); err != nil {
-		return eventrule.ExecutionState{}, terminalError(err)
-	}
-
-	return outcome, nil
+	return p.persistExecution(ctx, execution.ID, result)
 }
 
 func (p *Processor) persistExecution(
 	ctx context.Context,
 	executionID uuid.UUID,
-	outcome eventrule.ExecutionState,
+	result eventrule.ExecutionResult,
 ) error {
-	_, err := p.executions.Transition(ctx, executionID, outcome, p.now().UTC())
+	persistCtx, cancel := context.WithTimeout(
+		context.WithoutCancel(ctx),
+		executionPersistTimeout,
+	)
+	defer cancel()
+
+	_, err := p.executions.TransitionExecution(
+		persistCtx,
+		executionID,
+		result,
+	)
 	return err
 }

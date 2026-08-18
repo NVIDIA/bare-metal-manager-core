@@ -3460,7 +3460,6 @@ pub fn dpf_based_dpu_provisioning_possible(
         );
         tracing::warn!(
             machine_id = %state.host_snapshot.id,
-            removed_in = "v2.1",
             docs = "https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup",
             "iPXE provisioning strategy (internally) is deprecated; enable DPF management for DPUs to migrate"
         );
@@ -3492,7 +3491,6 @@ pub fn dpf_based_dpu_provisioning_possible(
         );
         tracing::warn!(
             machine_id = %state.host_snapshot.id,
-            removed_in = "v2.1",
             docs = "https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup",
             "iPXE provisioning strategy (internally) is deprecated; enable DPF management for DPUs to migrate"
         );
@@ -3514,7 +3512,6 @@ pub fn dpf_based_dpu_provisioning_possible(
         );
         tracing::warn!(
             machine_id = %state.host_snapshot.id,
-            removed_in = "v2.1",
             docs = "https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup",
             "iPXE provisioning strategy (internally) is deprecated; enable DPF management for DPUs to migrate"
         );
@@ -3532,7 +3529,6 @@ pub fn dpf_based_dpu_provisioning_possible(
         );
         tracing::warn!(
             machine_id = %state.host_snapshot.id,
-            removed_in = "v2.1",
             docs = "https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup",
             "iPXE provisioning strategy (internally) is deprecated; enable DPF management for DPUs to migrate"
         );

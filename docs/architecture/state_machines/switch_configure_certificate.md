@@ -54,7 +54,7 @@ component manager while polling) transitions to `Error`.
 Job status values use `ConfigureSwitchCertificateState`: `Started`,
 `InProgress`, `Completed`, `Failed`.
 
-## Domain name (`domain_name`) and mTLS services
+## Domain name (`domain_name`) and mTLS service selection
 
 The switch state handler passes:
 
@@ -63,7 +63,27 @@ The switch state handler passes:
   when deciding whether certificate configuration can run.
 - `services` from `SwitchStateHandlerServices.switch_mtls_services`, sourced
   from `[switch_state_controller].switch_mtls_services` in site config. When
-  omitted or empty, all supported switch mTLS services are used.
+  omitted or empty, all four service values are used.
+
+NICo has two independent mTLS service lists:
+
+| Setting | Workflow and target | Omitted or empty behavior |
+|---------|---------------------|---------------------------|
+| `[switch_state_controller].switch_mtls_services` | Per-switch certificate configuration for every switch handled by the switch state controller. | Uses all four service values. |
+| `[rack_state_controller].nmx_cluster_switch_mtls_services` | Rack certificate configuration on the primary switch before NMX cluster setup. | Uses `scale_up_fabric_manager` and `scale_up_fabric_telemetry_interface`. |
+
+A non-empty list replaces the corresponding default. Omission or an empty list
+uses the default.
+
+| Service value | Binding target |
+|---------------|----------------|
+| `nvue_api` | NVUE REST API |
+| `scale_up_fabric_telemetry` | NMX-T cluster application (`nmx-telemetry`) |
+| `scale_up_fabric_manager` | NMX-C cluster application (`nmx-controller`) |
+| `scale_up_fabric_telemetry_interface` | NVOS gNMI server mTLS configuration |
+
+Service selection requests certificate bindings; it does not enable the
+underlying service. The target switch build must support each selected binding.
 
 | Condition | Behavior |
 |-----------|----------|
@@ -77,9 +97,7 @@ The switch state handler passes:
 | RMS job status is `Failed` | Transition to `Error` with the job error message. |
 | Component manager not configured while polling | Transition to `Error` (no job ID to resume). |
 
-Rack NMX cluster maintenance uses a separate service list:
-`[rack_state_controller].nmx_cluster_switch_mtls_services` (defaults to
-ScaleUpFabric manager and telemetry interface services). See
+Rack NMX cluster maintenance is documented in
 [Rack State Machine](rackstatemachine.md).
 
 ## Component Manager API

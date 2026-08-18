@@ -55,7 +55,7 @@ func TestProcessorPreparationIntegration(t *testing.T) {
 
 	prepared, err := processor.prepare(ctx, envelope)
 	require.NoError(t, err)
-	require.Equal(t, rackID, prepared.Enriched.ResolvedResource.RackID)
+	require.Equal(t, rackID, prepared.Resource.RackID)
 	require.Equal(t, builtIn.ID, prepared.Rule.ID)
 
 	require.NoError(t, ruleManager.SetEnabled(ctx, rackRule.ID, true))

@@ -259,7 +259,6 @@ func (o *MeasuredBootTrustedProfile) UnmarshalJSON(data []byte) (err error) {
 	varMeasuredBootTrustedProfile := _MeasuredBootTrustedProfile{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varMeasuredBootTrustedProfile)
 
 	if err != nil {

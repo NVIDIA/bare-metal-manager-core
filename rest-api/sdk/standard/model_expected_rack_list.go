@@ -140,7 +140,6 @@ func (o *ExpectedRackList) UnmarshalJSON(data []byte) (err error) {
 	varExpectedRackList := _ExpectedRackList{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varExpectedRackList)
 
 	if err != nil {

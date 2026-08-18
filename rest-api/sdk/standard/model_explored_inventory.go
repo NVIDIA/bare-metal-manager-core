@@ -251,7 +251,6 @@ func (o *ExploredInventory) UnmarshalJSON(data []byte) (err error) {
 	varExploredInventory := _ExploredInventory{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varExploredInventory)
 
 	if err != nil {

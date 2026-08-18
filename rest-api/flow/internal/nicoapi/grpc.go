@@ -1027,7 +1027,7 @@ func (c *grpcClient) findAssociatedDpuMachineIdsLocked(
 		return nil, fmt.Errorf("machine %s not found", hostMachineID)
 	}
 
-	dpus := resp.GetMachines()[0].GetAssociatedDpuMachineIds()
+	dpus := resp.GetMachines()[0].GetStatus().GetAssociatedDpuMachineIds()
 	out := make([]string, 0, len(dpus))
 	for _, id := range dpus {
 		if v := id.GetId(); v != "" {

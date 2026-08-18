@@ -233,7 +233,6 @@ func (o *SshKeyGroupCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	varSshKeyGroupCreateRequest := _SshKeyGroupCreateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varSshKeyGroupCreateRequest)
 
 	if err != nil {

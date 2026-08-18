@@ -2451,6 +2451,7 @@ dependencies = [
  "figment",
  "futures",
  "lazy_static",
+ "logfmt",
  "mac_address",
  "metrics-endpoint",
  "rand 0.10.1",
@@ -7981,6 +7982,7 @@ dependencies = [
  "serde_yaml",
  "thiserror 2.0.18",
  "tokio",
+ "urlencoding",
 ]
 
 [[package]]

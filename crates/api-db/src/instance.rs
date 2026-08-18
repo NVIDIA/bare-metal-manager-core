@@ -325,13 +325,13 @@ pub async fn find_by_id(
 }
 
 pub async fn find_id_by_machine_id(
-    txn: &mut PgConnection,
+    db: impl DbReader<'_>,
     machine_id: &MachineId,
 ) -> Result<Option<InstanceId>, DatabaseError> {
     let query = "SELECT id from instances WHERE machine_id = $1";
     sqlx::query_as(query)
         .bind(machine_id)
-        .fetch_optional(txn)
+        .fetch_optional(db)
         .await
         .map_err(|e| DatabaseError::query(query, e))
 }
@@ -340,7 +340,7 @@ pub async fn find_by_machine_id(
     txn: &mut PgConnection,
     machine_id: &MachineId,
 ) -> Result<Option<InstanceSnapshot>, DatabaseError> {
-    let Some(instance_id) = find_id_by_machine_id(txn, machine_id).await? else {
+    let Some(instance_id) = find_id_by_machine_id(&mut *txn, machine_id).await? else {
         return Ok(None);
     };
     find_by_id(txn, instance_id).await

@@ -2017,7 +2017,7 @@ func allocateMachinesForBatch(
 // Returns empty string if the machine has no NVLink domain information.
 func getNVLinkDomainID(machine *cdbm.Machine) string {
 	if machine.Metadata != nil {
-		if nvlinkInfo := machine.Metadata.GetNvlinkInfo(); nvlinkInfo != nil {
+		if nvlinkInfo := machine.Metadata.GetStatus().GetNvlinkInfo(); nvlinkInfo != nil {
 			if domainUuid := nvlinkInfo.GetDomainUuid(); domainUuid != nil {
 				return domainUuid.GetValue()
 			}

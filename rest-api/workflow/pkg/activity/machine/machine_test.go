@@ -372,22 +372,107 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 
 	machineInfo1 := &corev1.MachineInfo{
 		Machine: &corev1.Machine{
-			Id:              &corev1.MachineId{Id: m.ControllerMachineID},
-			State:           controllerMachineStatePrefixReady,
-			Interfaces:      []*corev1.MachineInterface{newMachineInterface1},
-			HwSkuDeviceType: cutil.GetPtr("CPU_HwSkuDeviceType"),
-			DiscoveryInfo: &corev1.DiscoveryInfo{
-				DmiData: &corev1.DmiData{
-					BoardName:     "7Z23CTOLWW",
-					BoardVersion:  "06",
-					BiosVersion:   "U8E122J-1.51",
-					ProductSerial: "J1050ACR",
-					BoardSerial:   ".C1KS2CS001G.",
-					ChassisSerial: "J1050ACR5",
-					BiosDate:      "03/30/2023",
-					ProductName:   "ThinkSystem SR670 V2",
-					SysVendor:     "Lenovo",
+			Id:    &corev1.MachineId{Id: m.ControllerMachineID},
+			State: controllerMachineStatePrefixReady,
+			Status: &corev1.MachineStatus{
+				Interfaces:      []*corev1.MachineInterface{newMachineInterface1},
+				HwSkuDeviceType: cutil.GetPtr("CPU_HwSkuDeviceType"),
+				DiscoveryInfo: &corev1.DiscoveryInfo{
+					DmiData: &corev1.DmiData{
+						BoardName:     "7Z23CTOLWW",
+						BoardVersion:  "06",
+						BiosVersion:   "U8E122J-1.51",
+						ProductSerial: "J1050ACR",
+						BoardSerial:   ".C1KS2CS001G.",
+						ChassisSerial: "J1050ACR5",
+						BiosDate:      "03/30/2023",
+						ProductName:   "ThinkSystem SR670 V2",
+						SysVendor:     "Lenovo",
+					},
 				},
+				Capabilities: &corev1.MachineCapabilitiesSet{
+					Cpu: []*corev1.MachineCapabilityAttributesCpu{{
+						Name:    "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz",
+						Count:   2,
+						Vendor:  cutil.GetPtr("GenuineIntel"),
+						Cores:   util.GetUint32Ptr(3),
+						Threads: util.GetUint32Ptr(6),
+					}},
+					Network: []*corev1.MachineCapabilityAttributesNetwork{
+						{
+							Name:   "NetXtreme BCM5720 2-port Gigabit Ethernet PCIe (PowerEdge Rx5xx LOM Board)",
+							Count:  2,
+							Vendor: cutil.GetPtr("0x165f"),
+						},
+						{
+							Name:   "BCM57414 NetXtreme-E 10Gb/25Gb RDMA Ethernet Controller",
+							Count:  2,
+							Vendor: cutil.GetPtr("0x14e4"),
+						},
+						{
+							Name:       "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller",
+							Count:      2,
+							Vendor:     cutil.GetPtr("0x15b3"),
+							DeviceType: corev1.MachineCapabilityDeviceType(corev1.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU).Enum(),
+						},
+					},
+					Storage: []*corev1.MachineCapabilityAttributesStorage{
+						{
+							Name:  "SSDPF2KE016T9L",
+							Count: 1,
+						},
+						{
+							Name:  "Dell Ent NVMe CM6 RI 1.92TB",
+							Count: 4,
+						},
+						{
+							Name:  "DELLBOSS_VD",
+							Count: 1,
+						},
+					},
+					Gpu: []*corev1.MachineCapabilityAttributesGpu{
+						{
+							Name:      "NVIDIA H100 PCIe",
+							Frequency: cutil.GetPtr("1755 MHz"),
+							Capacity:  cutil.GetPtr("81559 MiB"),
+							Count:     1,
+						},
+						{
+							Name:       "NVIDIA GB200",
+							Frequency:  cutil.GetPtr("1755 MHz"),
+							Capacity:   cutil.GetPtr("81559 MiB"),
+							Count:      4,
+							DeviceType: corev1.MachineCapabilityDeviceType(corev1.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_NVLINK).Enum(),
+						},
+					},
+					Memory: []*corev1.MachineCapabilityAttributesMemory{
+						{
+							Name:     "DDR4",
+							Capacity: cutil.GetPtr(fmt.Sprintf("%d", memSize)),
+							Count:    8,
+						},
+						{
+							Name:     "UNKNOWN",
+							Capacity: nil,
+							Count:    7,
+						},
+					},
+					Infiniband: []*corev1.MachineCapabilityAttributesInfiniband{
+						{
+							Name:            "MT28908 Family [ConnectX-6]",
+							Vendor:          cutil.GetPtr(""),
+							Count:           2,
+							InactiveDevices: []uint32{2, 4},
+						},
+					},
+					Dpu: []*corev1.MachineCapabilityAttributesDpu{
+						{
+							Name:  "BF3",
+							Count: 2,
+						},
+					},
+				},
+				AssociatedDpuMachineIds: []*corev1.MachineId{newMachineInterface1.AttachedDpuMachineId, newMachineInterface3.AttachedDpuMachineId},
 			},
 			Metadata: &corev1.Metadata{
 				Labels: []*corev1.Label{
@@ -405,89 +490,6 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 					},
 				},
 			},
-			Capabilities: &corev1.MachineCapabilitiesSet{
-				Cpu: []*corev1.MachineCapabilityAttributesCpu{{
-					Name:    "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz",
-					Count:   2,
-					Vendor:  cutil.GetPtr("GenuineIntel"),
-					Cores:   util.GetUint32Ptr(3),
-					Threads: util.GetUint32Ptr(6),
-				}},
-				Network: []*corev1.MachineCapabilityAttributesNetwork{
-					{
-						Name:   "NetXtreme BCM5720 2-port Gigabit Ethernet PCIe (PowerEdge Rx5xx LOM Board)",
-						Count:  2,
-						Vendor: cutil.GetPtr("0x165f"),
-					},
-					{
-						Name:   "BCM57414 NetXtreme-E 10Gb/25Gb RDMA Ethernet Controller",
-						Count:  2,
-						Vendor: cutil.GetPtr("0x14e4"),
-					},
-					{
-						Name:       "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller",
-						Count:      2,
-						Vendor:     cutil.GetPtr("0x15b3"),
-						DeviceType: corev1.MachineCapabilityDeviceType(corev1.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU).Enum(),
-					},
-				},
-				Storage: []*corev1.MachineCapabilityAttributesStorage{
-					{
-						Name:  "SSDPF2KE016T9L",
-						Count: 1,
-					},
-					{
-						Name:  "Dell Ent NVMe CM6 RI 1.92TB",
-						Count: 4,
-					},
-					{
-						Name:  "DELLBOSS_VD",
-						Count: 1,
-					},
-				},
-				Gpu: []*corev1.MachineCapabilityAttributesGpu{
-					{
-						Name:      "NVIDIA H100 PCIe",
-						Frequency: cutil.GetPtr("1755 MHz"),
-						Capacity:  cutil.GetPtr("81559 MiB"),
-						Count:     1,
-					},
-					{
-						Name:       "NVIDIA GB200",
-						Frequency:  cutil.GetPtr("1755 MHz"),
-						Capacity:   cutil.GetPtr("81559 MiB"),
-						Count:      4,
-						DeviceType: corev1.MachineCapabilityDeviceType(corev1.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_NVLINK).Enum(),
-					},
-				},
-				Memory: []*corev1.MachineCapabilityAttributesMemory{
-					{
-						Name:     "DDR4",
-						Capacity: cutil.GetPtr(fmt.Sprintf("%d", memSize)),
-						Count:    8,
-					},
-					{
-						Name:     "UNKNOWN",
-						Capacity: nil,
-						Count:    7,
-					},
-				},
-				Infiniband: []*corev1.MachineCapabilityAttributesInfiniband{
-					{
-						Name:            "MT28908 Family [ConnectX-6]",
-						Vendor:          cutil.GetPtr(""),
-						Count:           2,
-						InactiveDevices: []uint32{2, 4},
-					},
-				},
-				Dpu: []*corev1.MachineCapabilityAttributesDpu{
-					{
-						Name:  "BF3",
-						Count: 2,
-					},
-				},
-			},
-			AssociatedDpuMachineIds: []*corev1.MachineId{newMachineInterface1.AttachedDpuMachineId, newMachineInterface3.AttachedDpuMachineId},
 		},
 	}
 
@@ -505,188 +507,182 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 	}
 	machineInfo2 := &corev1.MachineInfo{
 		Machine: &corev1.Machine{
-			Id:            &corev1.MachineId{Id: newControllerMachineID},
-			State:         controllerMachineStatePrefixReady,
-			Interfaces:    []*corev1.MachineInterface{newMachineInterface2},
-			DiscoveryInfo: nil,
+			Id:    &corev1.MachineId{Id: newControllerMachineID},
+			State: controllerMachineStatePrefixReady,
+			Status: &corev1.MachineStatus{
+				Interfaces: []*corev1.MachineInterface{newMachineInterface2},
+			},
 		},
 	}
 
 	// This machine was previously missing from Site inventory
 	machineInfo3 := &corev1.MachineInfo{
 		Machine: &corev1.Machine{
-			Id:            &corev1.MachineId{Id: m4.ControllerMachineID},
-			State:         controllerMachineStatePrefixReady,
-			Interfaces:    []*corev1.MachineInterface{},
-			DiscoveryInfo: nil,
+			Id:     &corev1.MachineId{Id: m4.ControllerMachineID},
+			State:  controllerMachineStatePrefixReady,
+			Status: &corev1.MachineStatus{},
 		},
 	}
 
 	// Machine cleared out of maintenance and network degraded state
 	machineInfo4 := &corev1.MachineInfo{
 		Machine: &corev1.Machine{
-			Id:            &corev1.MachineId{Id: m5.ControllerMachineID},
-			State:         controllerMachineStatePrefixReady,
-			Interfaces:    []*corev1.MachineInterface{},
-			DiscoveryInfo: nil,
+			Id:     &corev1.MachineId{Id: m5.ControllerMachineID},
+			State:  controllerMachineStatePrefixReady,
+			Status: &corev1.MachineStatus{},
 		},
 	}
 
 	// Machine with maintenance and network issue
 	machineInfo5 := &corev1.MachineInfo{
 		Machine: &corev1.Machine{
-			Id:            &corev1.MachineId{Id: m6.ControllerMachineID},
-			State:         controllerMachineStatePrefixReady,
-			Interfaces:    []*corev1.MachineInterface{},
-			DiscoveryInfo: nil,
-			MaintenanceStartTime: &timestamppb.Timestamp{
-				Seconds: refTime.Unix(),
+			Id:     &corev1.MachineId{Id: m6.ControllerMachineID},
+			State:  controllerMachineStatePrefixReady,
+			Status: &corev1.MachineStatus{},
+			Config: &corev1.MachineConfig{
+				MaintenanceStartTime: &timestamppb.Timestamp{Seconds: refTime.Unix()},
+				MaintenanceReference: cutil.GetPtr("Test maintenance message"),
 			},
-			MaintenanceReference: cutil.GetPtr("Test maintenance message"),
 		},
 	}
 
 	// Machine failed measured boot attestation
 	machineInfo6 := &corev1.MachineInfo{
 		Machine: &corev1.Machine{
-			Id:            &corev1.MachineId{Id: m7.ControllerMachineID},
-			State:         controllerMachineStatePrefixMeasuring + "/" + controllerMachineFailedMeasurementsFailedSignatureCheck,
-			Interfaces:    []*corev1.MachineInterface{},
-			DiscoveryInfo: nil,
+			Id:     &corev1.MachineId{Id: m7.ControllerMachineID},
+			State:  controllerMachineStatePrefixMeasuring + "/" + controllerMachineFailedMeasurementsFailedSignatureCheck,
+			Status: &corev1.MachineStatus{},
 		},
 	}
 
 	// Machine has failed state
 	machineInfo7 := &corev1.MachineInfo{
 		Machine: &corev1.Machine{
-			Id:            &corev1.MachineId{Id: m8.ControllerMachineID},
-			State:         controllerMachineStatePrefixFailed,
-			Interfaces:    []*corev1.MachineInterface{},
-			DiscoveryInfo: nil,
+			Id:     &corev1.MachineId{Id: m8.ControllerMachineID},
+			State:  controllerMachineStatePrefixFailed,
+			Status: &corev1.MachineStatus{},
 		},
 	}
 
 	// Machine DPU is reconfiguring
 	machineInfo8 := &corev1.MachineInfo{
 		Machine: &corev1.Machine{
-			Id:            &corev1.MachineId{Id: m9.ControllerMachineID},
-			State:         controllerMachineStatePrefixDPUInitializing,
-			Interfaces:    []*corev1.MachineInterface{},
-			DiscoveryInfo: nil,
+			Id:     &corev1.MachineId{Id: m9.ControllerMachineID},
+			State:  controllerMachineStatePrefixDPUInitializing,
+			Status: &corev1.MachineStatus{},
 		},
 	}
 
 	// Machine is pending measurement
 	machineInfo9 := &corev1.MachineInfo{
 		Machine: &corev1.Machine{
-			Id:            &corev1.MachineId{Id: m10.ControllerMachineID},
-			State:         controllerMachineStatePrefixMeasuring + "/" + controllerMachineMeasuringSubstatePendingBundle,
-			Interfaces:    []*corev1.MachineInterface{},
-			DiscoveryInfo: nil,
+			Id:     &corev1.MachineId{Id: m10.ControllerMachineID},
+			State:  controllerMachineStatePrefixMeasuring + "/" + controllerMachineMeasuringSubstatePendingBundle,
+			Status: &corev1.MachineStatus{},
 		},
 	}
 
 	// Machine with health issue
 	machineInfo10 := &corev1.MachineInfo{
 		Machine: &corev1.Machine{
-			Id:            &corev1.MachineId{Id: m11.ControllerMachineID},
-			State:         controllerMachineStatePrefixReady,
-			Interfaces:    []*corev1.MachineInterface{},
-			DiscoveryInfo: nil,
-			Health: &corev1.HealthReport{
-				Source: "aggregate-host-health",
-				Successes: []*corev1.HealthProbeSuccess{
-					{
-						Id:     "BgpDaemonEnabled",
-						Target: nil,
+			Id:    &corev1.MachineId{Id: m11.ControllerMachineID},
+			State: controllerMachineStatePrefixReady,
+			Status: &corev1.MachineStatus{
+				Health: &corev1.HealthReport{
+					Source: "aggregate-host-health",
+					Successes: []*corev1.HealthProbeSuccess{
+						{
+							Id:     "BgpDaemonEnabled",
+							Target: nil,
+						},
+						{
+							Id:     "BgpStats",
+							Target: nil,
+						},
+						{
+							Id:     "ContainerExists",
+							Target: nil,
+						},
+						{
+							Id:     "DhcpServer",
+							Target: nil,
+						},
+						{
+							Id:     "FileExists",
+							Target: cutil.GetPtr("/var/lib/hbn/etc/frr/daemons"),
+						},
+						{
+							Id:     "FileExists",
+							Target: cutil.GetPtr("/var/lib/hbn/etc/frr/frr.conf"),
+						},
+						{
+							Id:     "FileExists",
+							Target: cutil.GetPtr("/var/lib/hbn/etc/network/interfaces"),
+						},
+						{
+							Id:     "FileExists",
+							Target: cutil.GetPtr("/var/lib/hbn/etc/supervisor/conf.d/default-forge-dhcp-server.conf"),
+						},
+						{
+							Id:     "FileExists",
+							Target: cutil.GetPtr("/var/lib/hbn/etc/supervisor/conf.d/default-isc-dhcp-relay.conf"),
+						},
+						{
+							Id:     "FileIsValid",
+							Target: cutil.GetPtr("etc/frr/daemons"),
+						},
+						{
+							Id:     "FileIsValid",
+							Target: cutil.GetPtr("etc/frr/frr.conf"),
+						},
+						{
+							Id:     "FileIsValid",
+							Target: cutil.GetPtr("etc/network/interfaces"),
+						},
+						{
+							Id:     "FileIsValid",
+							Target: cutil.GetPtr("etc/supervisor/conf.d/default-forge-dhcp-server.conf"),
+						},
+						{
+							Id:     "FileIsValid",
+							Target: cutil.GetPtr("etc/supervisor/conf.d/default-isc-dhcp-relay.conf"),
+						},
+						{
+							Id:     "Ifreload",
+							Target: nil,
+						},
+						{
+							Id:     "RestrictedMode",
+							Target: nil,
+						},
+						{
+							Id:     "ServiceRunning",
+							Target: cutil.GetPtr("frr"),
+						},
+						{
+							Id:     "ServiceRunning",
+							Target: cutil.GetPtr("nl2doca"),
+						},
+						{
+							Id:     "ServiceRunning",
+							Target: cutil.GetPtr("rsyslog"),
+						},
+						{
+							Id:     "SupervisorctlStatus",
+							Target: nil,
+						},
 					},
-					{
-						Id:     "BgpStats",
-						Target: nil,
-					},
-					{
-						Id:     "ContainerExists",
-						Target: nil,
-					},
-					{
-						Id:     "DhcpServer",
-						Target: nil,
-					},
-					{
-						Id:     "FileExists",
-						Target: cutil.GetPtr("/var/lib/hbn/etc/frr/daemons"),
-					},
-					{
-						Id:     "FileExists",
-						Target: cutil.GetPtr("/var/lib/hbn/etc/frr/frr.conf"),
-					},
-					{
-						Id:     "FileExists",
-						Target: cutil.GetPtr("/var/lib/hbn/etc/network/interfaces"),
-					},
-					{
-						Id:     "FileExists",
-						Target: cutil.GetPtr("/var/lib/hbn/etc/supervisor/conf.d/default-forge-dhcp-server.conf"),
-					},
-					{
-						Id:     "FileExists",
-						Target: cutil.GetPtr("/var/lib/hbn/etc/supervisor/conf.d/default-isc-dhcp-relay.conf"),
-					},
-					{
-						Id:     "FileIsValid",
-						Target: cutil.GetPtr("etc/frr/daemons"),
-					},
-					{
-						Id:     "FileIsValid",
-						Target: cutil.GetPtr("etc/frr/frr.conf"),
-					},
-					{
-						Id:     "FileIsValid",
-						Target: cutil.GetPtr("etc/network/interfaces"),
-					},
-					{
-						Id:     "FileIsValid",
-						Target: cutil.GetPtr("etc/supervisor/conf.d/default-forge-dhcp-server.conf"),
-					},
-					{
-						Id:     "FileIsValid",
-						Target: cutil.GetPtr("etc/supervisor/conf.d/default-isc-dhcp-relay.conf"),
-					},
-					{
-						Id:     "Ifreload",
-						Target: nil,
-					},
-					{
-						Id:     "RestrictedMode",
-						Target: nil,
-					},
-					{
-						Id:     "ServiceRunning",
-						Target: cutil.GetPtr("frr"),
-					},
-					{
-						Id:     "ServiceRunning",
-						Target: cutil.GetPtr("nl2doca"),
-					},
-					{
-						Id:     "ServiceRunning",
-						Target: cutil.GetPtr("rsyslog"),
-					},
-					{
-						Id:     "SupervisorctlStatus",
-						Target: nil,
-					},
-				},
-				Alerts: []*corev1.HealthProbeAlert{
-					{
-						Id:            "HeartbeatTimeout",
-						Target:        cutil.GetPtr("hardware-health"),
-						InAlertSince:  nil,
-						Message:       "",
-						TenantMessage: nil,
-						Classifications: []string{
-							"PreventAllocations",
-							"PreventHostStateChanges",
+					Alerts: []*corev1.HealthProbeAlert{
+						{
+							Id:            "HeartbeatTimeout",
+							Target:        cutil.GetPtr("hardware-health"),
+							InAlertSince:  nil,
+							Message:       "",
+							TenantMessage: nil,
+							Classifications: []string{
+								"PreventAllocations",
+								"PreventHostStateChanges",
+							},
 						},
 					},
 				},
@@ -697,34 +693,34 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 	// Machine in BOM validating state
 	machineInfo11 := &corev1.MachineInfo{
 		Machine: &corev1.Machine{
-			Id:            &corev1.MachineId{Id: m12.ControllerMachineID},
-			State:         controllerMachineStatePrefixBomValidating + "/" + controllerMachineBomValidatingSubstateVerifyingSku,
-			Interfaces:    []*corev1.MachineInterface{},
-			DiscoveryInfo: nil,
+			Id:     &corev1.MachineId{Id: m12.ControllerMachineID},
+			State:  controllerMachineStatePrefixBomValidating + "/" + controllerMachineBomValidatingSubstateVerifyingSku,
+			Status: &corev1.MachineStatus{},
 		},
 	}
 	// Machine in BOM validating failure state
 	machineInfo12 := &corev1.MachineInfo{
 		Machine: &corev1.Machine{
-			Id:            &corev1.MachineId{Id: m13.ControllerMachineID},
-			State:         controllerMachineStatePrefixBomValidating + "/" + controllerMachineBomValidatingSubstateSkuVerificationFailed,
-			Interfaces:    []*corev1.MachineInterface{},
-			DiscoveryInfo: nil,
+			Id:     &corev1.MachineId{Id: m13.ControllerMachineID},
+			State:  controllerMachineStatePrefixBomValidating + "/" + controllerMachineBomValidatingSubstateSkuVerificationFailed,
+			Status: &corev1.MachineStatus{},
 		},
 	}
 
 	machineInfo13 := &corev1.MachineInfo{
 		Machine: &corev1.Machine{
-			Id:            &corev1.MachineId{Id: m14.ControllerMachineID},
-			State:         controllerMachineStatePrefixReady,
-			DiscoveryInfo: &corev1.DiscoveryInfo{},
-			Capabilities: &corev1.MachineCapabilitiesSet{
-				Infiniband: []*corev1.MachineCapabilityAttributesInfiniband{
-					{
-						Name:            "MT2910 Family [ConnectX-7]",
-						Vendor:          cutil.GetPtr(""),
-						Count:           2,
-						InactiveDevices: []uint32{},
+			Id:    &corev1.MachineId{Id: m14.ControllerMachineID},
+			State: controllerMachineStatePrefixReady,
+			Status: &corev1.MachineStatus{
+				DiscoveryInfo: &corev1.DiscoveryInfo{},
+				Capabilities: &corev1.MachineCapabilitiesSet{
+					Infiniband: []*corev1.MachineCapabilityAttributesInfiniband{
+						{
+							Name:            "MT2910 Family [ConnectX-7]",
+							Vendor:          cutil.GetPtr(""),
+							Count:           2,
+							InactiveDevices: []uint32{},
+						},
 					},
 				},
 			},
@@ -733,50 +729,45 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 
 	machineInfo14 := &corev1.MachineInfo{
 		Machine: &corev1.Machine{
-			Id:            &corev1.MachineId{Id: m15.ControllerMachineID},
-			State:         "MachineValidation { machine_validation: MachineValidating { context: \"Discovery\", id: 9fff1002-2a49-48ae-8d77-8c2e795b59cb, completed: 1, total: 1, is_enabled: true } }",
-			Interfaces:    []*corev1.MachineInterface{},
-			DiscoveryInfo: nil,
+			Id:     &corev1.MachineId{Id: m15.ControllerMachineID},
+			State:  "MachineValidation { machine_validation: MachineValidating { context: \"Discovery\", id: 9fff1002-2a49-48ae-8d77-8c2e795b59cb, completed: 1, total: 1, is_enabled: true } }",
+			Status: &corev1.MachineStatus{},
 		},
 	}
 
 	machineInfo15 := &corev1.MachineInfo{
 		Machine: &corev1.Machine{
-			Id:             &corev1.MachineId{Id: m16.ControllerMachineID},
-			State:          controllerMachineStatePrefixReady,
-			Interfaces:     []*corev1.MachineInterface{},
-			DiscoveryInfo:  nil,
-			InstanceTypeId: cutil.GetPtr(instanceTypeUpdated.ID.String()),
+			Id:     &corev1.MachineId{Id: m16.ControllerMachineID},
+			State:  controllerMachineStatePrefixReady,
+			Status: &corev1.MachineStatus{},
+			Config: &corev1.MachineConfig{InstanceTypeId: cutil.GetPtr(instanceTypeUpdated.ID.String())},
 		},
 	}
 
 	machineInfo16 := &corev1.MachineInfo{
 		Machine: &corev1.Machine{
-			Id:            &corev1.MachineId{Id: m17.ControllerMachineID},
-			State:         controllerMachineStatePrefixReady,
-			Interfaces:    []*corev1.MachineInterface{},
-			DiscoveryInfo: nil,
+			Id:     &corev1.MachineId{Id: m17.ControllerMachineID},
+			State:  controllerMachineStatePrefixReady,
+			Status: &corev1.MachineStatus{},
 		},
 	}
 
 	machineInfo17 := &corev1.MachineInfo{
 		Machine: &corev1.Machine{
-			Id:             &corev1.MachineId{Id: m18.ControllerMachineID},
-			State:          controllerMachineStatePrefixReady,
-			Interfaces:     []*corev1.MachineInterface{},
-			DiscoveryInfo:  nil,
-			InstanceTypeId: cutil.GetPtr(instanceTypeUnchanged.ID.String()),
+			Id:     &corev1.MachineId{Id: m18.ControllerMachineID},
+			State:  controllerMachineStatePrefixReady,
+			Status: &corev1.MachineStatus{},
+			Config: &corev1.MachineConfig{InstanceTypeId: cutil.GetPtr(instanceTypeUnchanged.ID.String())},
 		},
 	}
 
 	newWithInstanceTypeMachineID := uuid.NewString()
 	machineInfo18 := &corev1.MachineInfo{
 		Machine: &corev1.Machine{
-			Id:             &corev1.MachineId{Id: newWithInstanceTypeMachineID},
-			State:          controllerMachineStatePrefixReady,
-			Interfaces:     []*corev1.MachineInterface{},
-			DiscoveryInfo:  nil,
-			InstanceTypeId: cutil.GetPtr(instanceTypeOriginal.ID.String()),
+			Id:     &corev1.MachineId{Id: newWithInstanceTypeMachineID},
+			State:  controllerMachineStatePrefixReady,
+			Status: &corev1.MachineStatus{},
+			Config: &corev1.MachineConfig{InstanceTypeId: cutil.GetPtr(instanceTypeOriginal.ID.String())},
 		},
 	}
 
@@ -805,10 +796,9 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 	pagedInvMInfos := []*corev1.MachineInfo{}
 	for i := 0; i < 34; i++ {
 		mi := &corev1.Machine{
-			Id:            &corev1.MachineId{Id: pagedInvIds[i]},
-			State:         controllerMachineStatePrefixReady,
-			Interfaces:    []*corev1.MachineInterface{},
-			DiscoveryInfo: nil,
+			Id:     &corev1.MachineId{Id: pagedInvIds[i]},
+			State:  controllerMachineStatePrefixReady,
+			Status: &corev1.MachineStatus{},
 		}
 		pagedInvMInfos = append(pagedInvMInfos, &corev1.MachineInfo{Machine: mi})
 	}
@@ -1076,6 +1066,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 
 				assert.Equal(t, len(um1.Labels), 3)
 
+				expectedCaps := machineInfo1.Machine.GetStatus().GetCapabilities()
 				for _, mc := range mc1s {
 					if mc.Type == cdbm.MachineCapabilityTypeCPU {
 						// 9 Core CPU
@@ -1109,15 +1100,15 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 						if strings.Contains(mc.Name, "NVIDIA GB200") {
 							assert.Equal(t, cdbm.MachineCapabilityDeviceTypeNVLink, *mc.DeviceType)
 							assert.Equal(t, 4, *mc.Count)
-							assert.Equal(t, machineInfo1.Machine.Capabilities.Gpu[1].Name, mc.Name)
-							assert.Equal(t, *machineInfo1.Machine.Capabilities.Gpu[1].Capacity, *mc.Capacity)
+							assert.Equal(t, expectedCaps.Gpu[1].Name, mc.Name)
+							assert.Equal(t, *expectedCaps.Gpu[1].Capacity, *mc.Capacity)
 						}
 
 						if strings.Contains(mc.Name, "NVIDIA H100 PCIe") {
 							assert.Equal(t, 1, *mc.Count)
-							assert.Equal(t, machineInfo1.Machine.Capabilities.Gpu[0].Name, mc.Name)
-							assert.Equal(t, *machineInfo1.Machine.Capabilities.Gpu[0].Frequency, *mc.Frequency)
-							assert.Equal(t, *machineInfo1.Machine.Capabilities.Gpu[0].Capacity, *mc.Capacity)
+							assert.Equal(t, expectedCaps.Gpu[0].Name, mc.Name)
+							assert.Equal(t, *expectedCaps.Gpu[0].Frequency, *mc.Frequency)
+							assert.Equal(t, *expectedCaps.Gpu[0].Capacity, *mc.Capacity)
 						}
 					} else if mc.Type == cdbm.MachineCapabilityTypeMemory {
 						// 1 Memory
@@ -1125,8 +1116,8 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 						if mc.Name != "UNKNOWN" {
 							assert.Equal(t, 8, *mc.Count)
 
-							assert.Equal(t, machineInfo1.Machine.Capabilities.Memory[0].Name, mc.Name)
-							assert.Equal(t, *machineInfo1.Machine.Capabilities.Memory[0].Capacity, *mc.Capacity)
+							assert.Equal(t, expectedCaps.Memory[0].Name, mc.Name)
+							assert.Equal(t, *expectedCaps.Memory[0].Capacity, *mc.Capacity)
 
 							// Check that we are not deleting/recreating memory capabilities
 							// We created the DDR4 capability in advance, and only the count should have changed.
@@ -1135,7 +1126,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 						} else {
 							assert.Equal(t, 7, *mc.Count)
 
-							assert.Equal(t, machineInfo1.Machine.Capabilities.Memory[1].Name, mc.Name)
+							assert.Equal(t, expectedCaps.Memory[1].Name, mc.Name)
 							assert.Nil(t, mc.Capacity)
 						}
 
@@ -1143,11 +1134,11 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 						// 2 InfiniBand interfaces
 						assert.Equal(t, 2, *mc.Count)
 
-						assert.Equal(t, machineInfo1.Machine.Capabilities.Infiniband[0].Name, mc.Name)
+						assert.Equal(t, expectedCaps.Infiniband[0].Name, mc.Name)
 
-						if assert.Equal(t, len(machineInfo1.Machine.Capabilities.Infiniband[0].InactiveDevices), len(mc.InactiveDevices)) {
-							for i := range machineInfo1.Machine.Capabilities.Infiniband[0].InactiveDevices {
-								assert.Equal(t, int(machineInfo1.Machine.Capabilities.Infiniband[0].InactiveDevices[i]), mc.InactiveDevices[i])
+						if assert.Equal(t, len(expectedCaps.Infiniband[0].InactiveDevices), len(mc.InactiveDevices)) {
+							for i := range expectedCaps.Infiniband[0].InactiveDevices {
+								assert.Equal(t, int(expectedCaps.Infiniband[0].InactiveDevices[i]), mc.InactiveDevices[i])
 							}
 						}
 
@@ -1229,7 +1220,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 				assert.Nil(t, serr)
 				assert.Equal(t, um6.IsInMaintenance, true)
 				assert.NotNil(t, um6.MaintenanceMessage)
-				assert.Equal(t, *um6.MaintenanceMessage, *machineInfo5.Machine.MaintenanceReference)
+				assert.Equal(t, *um6.MaintenanceMessage, *machineInfo5.Machine.GetConfig().MaintenanceReference)
 				assert.Equal(t, um6.IsNetworkDegraded, false)
 				assert.Nil(t, um6.NetworkHealthMessage)
 			}
@@ -1379,15 +1370,17 @@ func TestManageMachine_UpdateMachinesInDB_AddresslessInterface(t *testing.T) {
 				Machine: &corev1.Machine{
 					Id:    &corev1.MachineId{Id: machineID},
 					State: controllerMachineStatePrefixReady,
-					Interfaces: []*corev1.MachineInterface{
-						{
-							Id:               &corev1.MachineInterfaceId{Value: interfaceID.String()},
-							MachineId:        &corev1.MachineId{Id: machineID},
-							SegmentId:        &corev1.NetworkSegmentId{Value: uuid.NewString()},
-							Address:          nil,
-							Hostname:         "addressless.example.com",
-							MacAddress:       "00:00:00:00:00:00",
-							PrimaryInterface: true,
+					Status: &corev1.MachineStatus{
+						Interfaces: []*corev1.MachineInterface{
+							{
+								Id:               &corev1.MachineInterfaceId{Value: interfaceID.String()},
+								MachineId:        &corev1.MachineId{Id: machineID},
+								SegmentId:        &corev1.NetworkSegmentId{Value: uuid.NewString()},
+								Address:          nil,
+								Hostname:         "addressless.example.com",
+								MacAddress:       "00:00:00:00:00:00",
+								PrimaryInterface: true,
+							},
 						},
 					},
 				},
@@ -1468,10 +1461,9 @@ func TestGetNICoMachineStatus(t *testing.T) {
 			name: "test get NICo machine status - with prefix",
 			args: args{
 				controllerMachine: &corev1.Machine{
-					Id:            &corev1.MachineId{Id: uuid.NewString()},
-					State:         fmt.Sprintf("%v/Test", controllerMachineStatePrefixAssigned),
-					Interfaces:    []*corev1.MachineInterface{},
-					DiscoveryInfo: nil,
+					Id:     &corev1.MachineId{Id: uuid.NewString()},
+					State:  fmt.Sprintf("%v/Test", controllerMachineStatePrefixAssigned),
+					Status: &corev1.MachineStatus{},
 				},
 			},
 			wantStatus:             cdbm.MachineStatusInUse,
@@ -1481,10 +1473,9 @@ func TestGetNICoMachineStatus(t *testing.T) {
 			name: "test get NICo machine status - without prefix",
 			args: args{
 				controllerMachine: &corev1.Machine{
-					Id:            &corev1.MachineId{Id: uuid.NewString()},
-					State:         controllerMachineStatePrefixReady,
-					Interfaces:    []*corev1.MachineInterface{},
-					DiscoveryInfo: nil,
+					Id:     &corev1.MachineId{Id: uuid.NewString()},
+					State:  controllerMachineStatePrefixReady,
+					Status: &corev1.MachineStatus{},
 				},
 			},
 			wantStatus:             cdbm.MachineStatusReady,
@@ -1494,13 +1485,15 @@ func TestGetNICoMachineStatus(t *testing.T) {
 			name: "test get NICo machine status - maintenance mode",
 			args: args{
 				controllerMachine: &corev1.Machine{
-					Id:         &corev1.MachineId{Id: uuid.NewString()},
-					State:      controllerMachineStatePrefixReady,
-					Interfaces: []*corev1.MachineInterface{},
-					MaintenanceStartTime: &timestamppb.Timestamp{
-						Seconds: time.Now().Add(-time.Hour * 2).Unix(),
+					Id:     &corev1.MachineId{Id: uuid.NewString()},
+					State:  controllerMachineStatePrefixReady,
+					Status: &corev1.MachineStatus{},
+					Config: &corev1.MachineConfig{
+						MaintenanceStartTime: &timestamppb.Timestamp{
+							Seconds: time.Now().Add(-time.Hour * 2).Unix(),
+						},
+						MaintenanceReference: cutil.GetPtr("test reason for maintenance"),
 					},
-					MaintenanceReference: cutil.GetPtr("test reason for maintenance"),
 				},
 			},
 			wantStatus:             cdbm.MachineStatusMaintenance,
@@ -1521,7 +1514,7 @@ func TestGetNICoMachineStatus(t *testing.T) {
 			args: args{
 				controllerMachine: &corev1.Machine{
 					State: controllerMachineStatePrefixReady,
-					Health: &corev1.HealthReport{
+					Status: &corev1.MachineStatus{Health: &corev1.HealthReport{
 						Alerts: []*corev1.HealthProbeAlert{
 							{
 								Classifications: []string{
@@ -1529,7 +1522,7 @@ func TestGetNICoMachineStatus(t *testing.T) {
 								},
 							},
 						},
-					},
+					}},
 				},
 			},
 			wantStatus:             cdbm.MachineStatusError,
@@ -1540,7 +1533,7 @@ func TestGetNICoMachineStatus(t *testing.T) {
 			args: args{
 				controllerMachine: &corev1.Machine{
 					State: controllerMachineStatePrefixReady,
-					Health: &corev1.HealthReport{
+					Status: &corev1.MachineStatus{Health: &corev1.HealthReport{
 						Alerts: []*corev1.HealthProbeAlert{
 							{
 								Id:      MachineDPUFirmwareUpdateAlertID,
@@ -1551,7 +1544,7 @@ func TestGetNICoMachineStatus(t *testing.T) {
 								},
 							},
 						},
-					},
+					}},
 				},
 			},
 			wantStatus:             cdbm.MachineStatusInitializing,
@@ -1563,7 +1556,7 @@ func TestGetNICoMachineStatus(t *testing.T) {
 			args: args{
 				controllerMachine: &corev1.Machine{
 					State: controllerMachineStatePrefixAssigned,
-					Health: &corev1.HealthReport{
+					Status: &corev1.MachineStatus{Health: &corev1.HealthReport{
 						Alerts: []*corev1.HealthProbeAlert{
 							{
 								Id:      MachineDPUFirmwareUpdateAlertID,
@@ -1574,7 +1567,7 @@ func TestGetNICoMachineStatus(t *testing.T) {
 								},
 							},
 						},
-					},
+					}},
 				},
 			},
 			wantStatus:             cdbm.MachineStatusInitializing,
@@ -1586,7 +1579,7 @@ func TestGetNICoMachineStatus(t *testing.T) {
 			args: args{
 				controllerMachine: &corev1.Machine{
 					State: controllerMachineStatePrefixReady,
-					Health: &corev1.HealthReport{
+					Status: &corev1.MachineStatus{Health: &corev1.HealthReport{
 						Alerts: []*corev1.HealthProbeAlert{
 							{
 								Id:      MachineDPUFirmwareUpdateAlertID,
@@ -1597,7 +1590,7 @@ func TestGetNICoMachineStatus(t *testing.T) {
 								},
 							},
 						},
-					},
+					}},
 				},
 			},
 			wantStatus:             cdbm.MachineStatusError,
@@ -1608,8 +1601,8 @@ func TestGetNICoMachineStatus(t *testing.T) {
 			name: "test tenant usable - Initializing, no alerts",
 			args: args{
 				controllerMachine: &corev1.Machine{
-					State:      controllerMachineStatePrefixHostInitializing,
-					Interfaces: []*corev1.MachineInterface{},
+					State:  controllerMachineStatePrefixHostInitializing,
+					Status: &corev1.MachineStatus{},
 				},
 			},
 			wantStatus:             cdbm.MachineStatusInitializing,
@@ -1620,7 +1613,7 @@ func TestGetNICoMachineStatus(t *testing.T) {
 			args: args{
 				controllerMachine: &corev1.Machine{
 					State: controllerMachineStatePrefixReady,
-					Health: &corev1.HealthReport{
+					Status: &corev1.MachineStatus{Health: &corev1.HealthReport{
 						Alerts: []*corev1.HealthProbeAlert{
 							{
 								Id: "TestAlert",
@@ -1629,7 +1622,7 @@ func TestGetNICoMachineStatus(t *testing.T) {
 								},
 							},
 						},
-					},
+					}},
 				},
 			},
 			wantStatus:             cdbm.MachineStatusError,
@@ -1640,14 +1633,14 @@ func TestGetNICoMachineStatus(t *testing.T) {
 			args: args{
 				controllerMachine: &corev1.Machine{
 					State: controllerMachineStatePrefixAssigned,
-					Health: &corev1.HealthReport{
+					Status: &corev1.MachineStatus{Health: &corev1.HealthReport{
 						Alerts: []*corev1.HealthProbeAlert{
 							{
 								Id:     "Maintenance",
 								Target: cutil.GetPtr("Degraded"),
 							},
 						},
-					},
+					}},
 				},
 			},
 			wantStatus:             cdbm.MachineStatusInUse,
@@ -1658,7 +1651,7 @@ func TestGetNICoMachineStatus(t *testing.T) {
 			args: args{
 				controllerMachine: &corev1.Machine{
 					State: controllerMachineStatePrefixAssigned,
-					Health: &corev1.HealthReport{
+					Status: &corev1.MachineStatus{Health: &corev1.HealthReport{
 						Alerts: []*corev1.HealthProbeAlert{
 							{
 								Id: "PreventAlert",
@@ -1671,7 +1664,7 @@ func TestGetNICoMachineStatus(t *testing.T) {
 								Target: cutil.GetPtr("Degraded"),
 							},
 						},
-					},
+					}},
 				},
 			},
 			wantStatus:             cdbm.MachineStatusError,
@@ -1682,14 +1675,14 @@ func TestGetNICoMachineStatus(t *testing.T) {
 			args: args{
 				controllerMachine: &corev1.Machine{
 					State: controllerMachineStatePrefixReady,
-					Health: &corev1.HealthReport{
+					Status: &corev1.MachineStatus{Health: &corev1.HealthReport{
 						Alerts: []*corev1.HealthProbeAlert{
 							{
 								Id:     "Maintenance",
 								Target: cutil.GetPtr("Degraded"),
 							},
 						},
-					},
+					}},
 				},
 			},
 			wantStatus:             cdbm.MachineStatusReady,
@@ -1700,8 +1693,10 @@ func TestGetNICoMachineStatus(t *testing.T) {
 			args: args{
 				controllerMachine: &corev1.Machine{
 					State: controllerMachineStatePrefixReady,
-					MaintenanceStartTime: &timestamppb.Timestamp{
-						Seconds: time.Now().Add(-time.Hour).Unix(),
+					Config: &corev1.MachineConfig{
+						MaintenanceStartTime: &timestamppb.Timestamp{
+							Seconds: time.Now().Add(-time.Hour).Unix(),
+						},
 					},
 				},
 			},
@@ -1767,7 +1762,7 @@ func TestGetNICoMachineStatus(t *testing.T) {
 			args: args{
 				controllerMachine: &corev1.Machine{
 					State: controllerMachineStatePrefixAssigned,
-					Health: &corev1.HealthReport{
+					Status: &corev1.MachineStatus{Health: &corev1.HealthReport{
 						Alerts: []*corev1.HealthProbeAlert{
 							{
 								Classifications: []string{
@@ -1775,7 +1770,7 @@ func TestGetNICoMachineStatus(t *testing.T) {
 								},
 							},
 						},
-					},
+					}},
 				},
 			},
 			wantStatus:             cdbm.MachineStatusError,

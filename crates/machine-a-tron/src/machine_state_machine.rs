@@ -597,7 +597,7 @@ impl MachineStateMachine {
                             self.actions.pop_front();
                             self.fsm_event(Event::InitialDiscoveryCompleted)
                         }
-                        Err(_) => return Some(self.config.run_interval_working),
+                        Err(_) => return Some(self.config.discovery_retry_interval),
                     }
                 }
                 FsmAction::AgentControlRequest(os_image) => {

@@ -423,7 +423,6 @@ func (o *ExploredComputerSystem) UnmarshalJSON(data []byte) (err error) {
 	varExploredComputerSystem := _ExploredComputerSystem{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varExploredComputerSystem)
 
 	if err != nil {

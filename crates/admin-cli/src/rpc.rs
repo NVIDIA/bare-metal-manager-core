@@ -20,14 +20,15 @@ use std::collections::HashMap;
 use ::rpc::forge::instance_interface_config::NetworkDetails;
 use ::rpc::forge::{
     self as rpc, BmcEndpointRequest, FindInstanceTypesByIdsRequest,
-    FindNetworkSecurityGroupsByIdsRequest, GetDpfHostSnapshotRequest, GetDpfStateRequest,
-    GetNetworkSecurityGroupAttachmentsRequest, GetNetworkSecurityGroupPropagationStatusRequest,
-    IdentifySerialRequest, MachineHardwareInfo, MachineHardwareInfoUpdateType,
+    FindNetworkSecurityGroupsByIdsRequest, FindPendingDpuServiceSyncsByIdsRequest,
+    GetDpfHostSnapshotRequest, GetDpfStateRequest, GetNetworkSecurityGroupAttachmentsRequest,
+    GetNetworkSecurityGroupPropagationStatusRequest, IdentifySerialRequest,
+    ListDpuServiceSyncHistoryRequest, MachineHardwareInfo, MachineHardwareInfoUpdateType,
     ModifyDpfStateRequest, NetworkPrefix, NetworkSecurityGroupAttributes,
-    NetworkSegmentCreationRequest, NetworkSegmentType, Remediation, RemediationIdList,
-    RemediationList, SpxPartitionSearchFilter, UpdateMachineHardwareInfoRequest,
-    UpdateNetworkSecurityGroupRequest, VpcCreationRequest, VpcSearchFilter, VpcVirtualizationType,
-    VpcsByIdsRequest,
+    NetworkSegmentCreationRequest, NetworkSegmentType, PendingDpuServiceSync,
+    ReleaseDpuServiceSyncHoldRequest, Remediation, RemediationIdList, RemediationList,
+    SpxPartitionSearchFilter, UpdateMachineHardwareInfoRequest, UpdateNetworkSecurityGroupRequest,
+    VpcCreationRequest, VpcSearchFilter, VpcVirtualizationType, VpcsByIdsRequest,
 };
 use ::rpc::forge_api_client::ForgeApiClient;
 use ::rpc::{Machine, NetworkSegment};
@@ -2836,6 +2837,57 @@ impl ApiClient {
         };
         let response = self.0.get_dpf_host_snapshot(request).await?;
         Ok(response.json_payload)
+    }
+
+    /// Every machine DPF is waiting on, fetched a page at a time.
+    ///
+    /// The worklist is fleet-sized during a rollout, so ids come back in one
+    /// call and their detail in chunks the server will accept.
+    pub(crate) async fn list_pending_dpu_service_syncs(
+        &self,
+        page_size: usize,
+    ) -> CarbideCliResult<Vec<PendingDpuServiceSync>> {
+        let ids = self
+            .0
+            // Generated wrapper takes no argument: the request message is empty.
+            .find_pending_dpu_service_sync_ids()
+            .await?
+            .machine_ids;
+
+        let mut pending = Vec::with_capacity(ids.len());
+        for chunk in ids.chunks(self.effective_chunk_size(page_size).await?) {
+            let page = self
+                .0
+                .find_pending_dpu_service_syncs_by_ids(FindPendingDpuServiceSyncsByIdsRequest {
+                    machine_ids: chunk.to_vec(),
+                })
+                .await?;
+            pending.extend(page.pending);
+        }
+        Ok(pending)
+    }
+
+    /// One machine's recorded history. Bounded by the server's retention, so it
+    /// needs no paging.
+    pub(crate) async fn list_dpu_service_sync_history(
+        &self,
+        machine_id: MachineId,
+    ) -> CarbideCliResult<Vec<PendingDpuServiceSync>> {
+        let response = self
+            .0
+            .list_dpu_service_sync_history(ListDpuServiceSyncHistoryRequest {
+                machine_id: Some(machine_id),
+            })
+            .await?;
+        Ok(response.pending)
+    }
+
+    pub(crate) async fn release_dpu_service_sync_hold(
+        &self,
+        request: ReleaseDpuServiceSyncHoldRequest,
+    ) -> CarbideCliResult<Vec<rpc::DpuServiceSyncReleaseResult>> {
+        let response = self.0.release_dpu_service_sync_hold(request).await?;
+        Ok(response.results)
     }
 
     pub(crate) async fn get_dpf_service_versions(

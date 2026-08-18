@@ -140,7 +140,6 @@ func (o *OperatingSystemIpxeParameter) UnmarshalJSON(data []byte) (err error) {
 	varOperatingSystemIpxeParameter := _OperatingSystemIpxeParameter{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varOperatingSystemIpxeParameter)
 
 	if err != nil {

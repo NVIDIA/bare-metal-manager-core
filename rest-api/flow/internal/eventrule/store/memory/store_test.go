@@ -20,8 +20,8 @@ func TestStoreContract(t *testing.T) {
 		store := New()
 		return store, store
 	})
-	storetest.RunExecutionContract(t, func() eventrule.ExecutionStore {
-		return New()
+	storetest.RunExecutionContract(t, func(now *time.Time) eventrule.ExecutionStore {
+		return NewWithClock(func() time.Time { return *now })
 	})
 }
 
@@ -62,31 +62,34 @@ func TestBindingScansIgnoreUnrelatedInvalidRecords(t *testing.T) {
 	require.NoError(t, store.Delete(ctx, rule.ID))
 }
 
-func TestStore_ClaimRejectsDanglingIndexes(t *testing.T) {
+func TestStore_CreateExecutionRejectsDanglingIndexes(t *testing.T) {
 	now := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
-	tests := map[string]func(*Store, eventrule.ExecutionClaim){
-		"delivery": func(store *Store, claim eventrule.ExecutionClaim) {
-			store.executionsByDelivery[claim.DeliveryKey()] = uuid.New()
+	tests := map[string]func(*Store, eventrule.ExecutionIdentity){
+		"delivery": func(store *Store, identity eventrule.ExecutionIdentity) {
+			store.executionsByDelivery[identity.DeliveryKey()] = uuid.New()
 		},
-		"semantic": func(store *Store, claim eventrule.ExecutionClaim) {
-			store.executionsBySemantic[claim.SemanticKey()] = []uuid.UUID{uuid.New()}
+		"semantic": func(store *Store, identity eventrule.ExecutionIdentity) {
+			store.executionsBySemantic[identity.SemanticKey()] = []uuid.UUID{uuid.New()}
 		},
 	}
 
 	for name, corrupt := range tests {
 		t.Run(name, func(t *testing.T) {
-			store := New()
-			claim := eventrule.ExecutionClaim{
+			store := NewWithClock(func() time.Time { return now })
+			identity := eventrule.ExecutionIdentity{
 				EventID:        uuid.New(),
 				RuleID:         uuid.New(),
 				ActionID:       "action",
 				CorrelationKey: "incident-1",
-				Dedupe:         &eventrule.Dedupe{Window: time.Minute},
-				Now:            now,
 			}
-			corrupt(store, claim)
+			dedupe := &eventrule.Dedupe{Window: time.Minute}
+			corrupt(store, identity)
 
-			execution, err := store.Claim(context.Background(), claim)
+			execution, err := store.CreateExecution(
+				context.Background(),
+				identity,
+				dedupe,
+			)
 			require.ErrorIs(t, err, eventrule.ErrExecutionNotFound)
 			require.Nil(t, execution)
 		})

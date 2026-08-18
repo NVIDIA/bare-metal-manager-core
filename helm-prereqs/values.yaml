@@ -187,6 +187,10 @@ flow:
 postgresql:
   enabled: true
   instances: 3
+  ## Patroni synchronous replication. Set false for single-instance clusters
+  ## (for development or simulation) — strict sync mode with no replicas
+  ## blocks all writes.
+  synchronousMode: true
   volumeSize: "10Gi"
   storageClass: "local-path-persistent"
   ## DB_HOST in nico-system-nico-database-config ConfigMap.

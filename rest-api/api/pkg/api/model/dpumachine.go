@@ -487,14 +487,15 @@ func (apd *APIDpuMachine) FromProto(protoDpuMachine *corev1.DpuMachine, ctx APID
 	if protoMachine == nil {
 		return
 	}
+	protoMachineStatus := protoMachine.GetStatus()
 
 	apd.ID = protoMachine.GetId().GetId()
 	apd.InfrastructureProviderID = ctx.InfrastructureProviderID.String()
 	apd.SiteID = ctx.SiteID.String()
 	apd.HostMachineID = ctx.HostMachineID
 
-	if protoMachine.DpuAgentVersion != nil {
-		apd.DpuAgentVersion = *protoMachine.DpuAgentVersion
+	if protoMachineStatus != nil && protoMachineStatus.DpuAgentVersion != nil {
+		apd.DpuAgentVersion = *protoMachineStatus.DpuAgentVersion
 	}
 
 	if protoMachine.BmcInfo != nil {
@@ -502,14 +503,14 @@ func (apd *APIDpuMachine) FromProto(protoDpuMachine *corev1.DpuMachine, ctx APID
 		apd.BMCInfo.FromProto(protoMachine.BmcInfo)
 	}
 
-	if protoMachine.DiscoveryInfo != nil && protoMachine.DiscoveryInfo.DmiData != nil {
+	if protoMachineStatus.GetDiscoveryInfo() != nil && protoMachineStatus.GetDiscoveryInfo().DmiData != nil {
 		apd.DMIData = &APIDMIData{}
-		apd.DMIData.FromProto(protoMachine.DiscoveryInfo.DmiData)
+		apd.DMIData.FromProto(protoMachineStatus.GetDiscoveryInfo().DmiData)
 	}
 
-	if protoMachine.Interfaces != nil {
-		apd.Interfaces = make([]APIDpuMachineInterface, 0, len(protoMachine.Interfaces))
-		for _, protoInterface := range protoMachine.Interfaces {
+	if protoMachineStatus.GetInterfaces() != nil {
+		apd.Interfaces = make([]APIDpuMachineInterface, 0, len(protoMachineStatus.GetInterfaces()))
+		for _, protoInterface := range protoMachineStatus.GetInterfaces() {
 			if protoInterface != nil {
 				apdInterface := APIDpuMachineInterface{}
 				apdInterface.FromProto(protoInterface)
@@ -530,9 +531,9 @@ func (apd *APIDpuMachine) FromProto(protoDpuMachine *corev1.DpuMachine, ctx APID
 		}
 	}
 
-	if protoMachine.Health != nil {
+	if protoMachineStatus.GetHealth() != nil {
 		apd.Health = &APIMachineHealth{}
-		apd.Health.FromProto(protoMachine.Health)
+		apd.Health.FromProto(protoMachineStatus.GetHealth())
 	}
 
 	var labels cdbm.Labels
@@ -546,8 +547,8 @@ func (apd *APIDpuMachine) FromProto(protoDpuMachine *corev1.DpuMachine, ctx APID
 		apd.DpuNetworkConfig.FromProto(protoDpuMachine.DpuNetworkConfig)
 	}
 
-	if protoMachine.LastRebootTime != nil {
-		lastRebooted := protoMachine.LastRebootTime.AsTime()
+	if protoMachineStatus.GetLastRebootTime() != nil {
+		lastRebooted := protoMachineStatus.GetLastRebootTime().AsTime()
 		apd.LastRebooted = &lastRebooted
 	}
 

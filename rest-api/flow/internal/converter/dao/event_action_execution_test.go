@@ -16,13 +16,21 @@ import (
 func TestEventActionExecutionRoundTrip(t *testing.T) {
 	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
 	base := eventrule.Execution{
-		ExecutionState: eventrule.ExecutionState{Status: eventrule.ExecutionStatusClaimed},
-		ID:             uuid.New(), EventID: uuid.New(), RuleID: uuid.New(), ActionID: "notify",
-		CorrelationKey: "incident-1", Observations: 2, Attempts: 1,
-		FirstClaimedAt: now, UpdatedAt: now.Add(time.Second),
+		ExecutionState: eventrule.ExecutionState{ExecutionStatusDetails: eventrule.ExecutionStatusDetails{Status: eventrule.ExecutionStatusPending}},
+		ExecutionIdentity: eventrule.ExecutionIdentity{
+			EventID:        uuid.New(),
+			RuleID:         uuid.New(),
+			ActionID:       "notify",
+			CorrelationKey: "incident-1",
+		},
+		ID:           uuid.New(),
+		Observations: 2,
+		Attempts:     1,
+		CreatedAt:    now,
+		UpdatedAt:    now.Add(time.Second),
 	}
 	tests := map[string]eventrule.Execution{
-		"claimed":   executionWithStatus(base, eventrule.ExecutionStatusClaimed),
+		"pending":   executionWithStatus(base, eventrule.ExecutionStatusPending),
 		"submitted": executionWithStatus(base, eventrule.ExecutionStatusSubmitted),
 		"completed": executionWithStatus(base, eventrule.ExecutionStatusCompleted),
 		"skipped": func() eventrule.Execution {
@@ -60,7 +68,7 @@ func TestEventActionExecutionRoundTrip(t *testing.T) {
 func TestEventActionExecutionToRejectsInvalidDomain(t *testing.T) {
 	tests := map[string]*eventrule.Execution{
 		"nil":        nil,
-		"invalid id": {ExecutionState: eventrule.ExecutionState{Status: eventrule.ExecutionStatusClaimed}},
+		"invalid id": {ExecutionState: eventrule.ExecutionState{ExecutionStatusDetails: eventrule.ExecutionStatusDetails{Status: eventrule.ExecutionStatusPending}}},
 	}
 	for name, execution := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -74,10 +82,15 @@ func TestEventActionExecutionToRejectsInvalidDomain(t *testing.T) {
 func TestEventActionExecutionFrom(t *testing.T) {
 	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
 	valid, err := EventActionExecutionTo(&eventrule.Execution{
-		ExecutionState: eventrule.ExecutionState{Status: eventrule.ExecutionStatusClaimed},
-		ID:             uuid.New(), EventID: uuid.New(), RuleID: uuid.New(), ActionID: "notify",
+		ExecutionState: eventrule.ExecutionState{ExecutionStatusDetails: eventrule.ExecutionStatusDetails{Status: eventrule.ExecutionStatusPending}},
+		ExecutionIdentity: eventrule.ExecutionIdentity{
+			EventID:  uuid.New(),
+			RuleID:   uuid.New(),
+			ActionID: "notify",
+		},
+		ID:           uuid.New(),
 		Observations: 1, Attempts: 1,
-		FirstClaimedAt: now, UpdatedAt: now,
+		CreatedAt: now, UpdatedAt: now,
 	})
 	require.NoError(t, err)
 

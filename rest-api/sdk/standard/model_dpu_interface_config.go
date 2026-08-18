@@ -760,7 +760,6 @@ func (o *DpuInterfaceConfig) UnmarshalJSON(data []byte) (err error) {
 	varDpuInterfaceConfig := _DpuInterfaceConfig{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varDpuInterfaceConfig)
 
 	if err != nil {

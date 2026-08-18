@@ -22,11 +22,11 @@ var _ MappedNullable = &TaskRunConflictRetry{}
 
 // TaskRunConflictRetry Retry backoff for blocked targets. Durations are Go duration strings (e.g. `30m`, `10s`); an empty value means \"use the operation default\".
 type TaskRunConflictRetry struct {
-	// Total time to keep retrying a blocked target before giving up.
+	// Total time to keep retrying a blocked target before giving up, as a Go duration string (e.g. `30m`, `2h`).
 	RetryTimeout *string `json:"retryTimeout,omitempty"`
-	// Delay before the first retry.
+	// Delay before the first retry, as a Go duration string (e.g. `10s`, `1m`).
 	InitialRetryDelay *string `json:"initialRetryDelay,omitempty"`
-	// Cap on the exponentially growing retry delay.
+	// Cap on the exponentially growing retry delay, as a Go duration string (e.g. `5m`).
 	MaxRetryDelay *string `json:"maxRetryDelay,omitempty"`
 }
 

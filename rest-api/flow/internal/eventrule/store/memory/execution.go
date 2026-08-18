@@ -20,49 +20,61 @@ type memoryExecution struct {
 	persisted dbmodel.EventActionExecution
 }
 
-// Claim atomically creates, suppresses, or resumes an action execution.
-func (s *Store) Claim(
+// CreateExecution atomically creates or deduplicates a pending action
+// execution.
+func (s *Store) CreateExecution(
 	_ context.Context,
-	claim eventrule.ExecutionClaim,
+	identity eventrule.ExecutionIdentity,
+	dedupe *eventrule.Dedupe,
 ) (*eventrule.Execution, error) {
-	if err := claim.Validate(); err != nil {
+	if err := identity.Validate(); err != nil {
 		return nil, err
+	}
+	if dedupe != nil {
+		if err := dedupe.Validate(); err != nil {
+			return nil, fmt.Errorf("execution dedupe: %w", err)
+		}
+		if identity.CorrelationKey == "" {
+			return nil, fmt.Errorf(
+				"correlation key is required by rule %s dedupe policy",
+				identity.RuleID,
+			)
+		}
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	now := s.now().UTC()
 
-	if id, exists := s.executionsByDelivery[claim.DeliveryKey()]; exists {
-		return s.claimExisting(id, claim)
+	if id, exists := s.executionsByDelivery[identity.DeliveryKey()]; exists {
+		return nil, s.recordDuplicate(id, now)
 	}
 
-	deduplicated, err := s.dedupeExecution(claim)
+	deduplicated, err := s.dedupeExecution(identity, dedupe, now)
 	if err != nil || deduplicated {
 		return nil, err
 	}
 
-	return s.newExecution(claim)
+	return s.newExecution(identity, dedupe != nil, now)
 }
 
-// Transition atomically moves an owned execution to the requested state.
-func (s *Store) Transition(
+// TransitionExecution atomically persists an attempt result.
+func (s *Store) TransitionExecution(
 	_ context.Context,
 	id uuid.UUID,
-	state eventrule.ExecutionState,
-	now time.Time,
+	result eventrule.ExecutionResult,
 ) (*eventrule.Execution, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	now := s.now().UTC()
 
 	execution, err := s.execution(id)
 	if err != nil {
 		return nil, err
 	}
-
-	if err := execution.TransitionTo(state, now.UTC()); err != nil {
+	if err := execution.TransitionTo(result, now); err != nil {
 		return nil, err
 	}
-
 	if err := s.setExecution(execution); err != nil {
 		return nil, err
 	}
@@ -70,7 +82,8 @@ func (s *Store) Transition(
 	return execution, nil
 }
 
-// Executions returns stable execution snapshots for diagnostics and tests.
+// Executions returns stable execution snapshots for diagnostics and
+// tests.
 func (s *Store) Executions() ([]eventrule.Execution, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -115,36 +128,36 @@ func (s *Store) setExecution(execution *eventrule.Execution) error {
 	return nil
 }
 
-func (s *Store) claimExisting(
-	id uuid.UUID,
-	claim eventrule.ExecutionClaim,
-) (*eventrule.Execution, error) {
+func (s *Store) recordDuplicate(id uuid.UUID, observedAt time.Time) error {
 	execution, err := s.execution(id)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	result, claimErr := execution.TryClaim(claim.Now)
-	if err := s.setExecution(execution); err != nil {
-		return nil, err
+	execution.Observations++
+	if observedAt.After(execution.UpdatedAt) {
+		execution.UpdatedAt = observedAt
 	}
-
-	return result, claimErr
+	return s.setExecution(execution)
 }
 
-func (s *Store) dedupeExecution(claim eventrule.ExecutionClaim) (bool, error) {
-	if claim.Dedupe == nil {
+func (s *Store) dedupeExecution(
+	identity eventrule.ExecutionIdentity,
+	dedupe *eventrule.Dedupe,
+	now time.Time,
+) (bool, error) {
+	if dedupe == nil {
 		return false, nil
 	}
 
-	executionIDs := s.executionsBySemantic[claim.SemanticKey()]
+	executionIDs := s.executionsBySemantic[identity.SemanticKey()]
 	for _, id := range executionIDs {
 		execution, err := s.execution(id)
 		if err != nil {
 			return false, err
 		}
 
-		if !execution.TryDeduplicate(claim.Dedupe, claim.Now) {
+		if !execution.TryDeduplicate(dedupe, now) {
 			continue
 		}
 
@@ -159,9 +172,14 @@ func (s *Store) dedupeExecution(claim eventrule.ExecutionClaim) (bool, error) {
 }
 
 func (s *Store) newExecution(
-	claim eventrule.ExecutionClaim,
+	identity eventrule.ExecutionIdentity,
+	semanticDedupe bool,
+	now time.Time,
 ) (*eventrule.Execution, error) {
-	execution := claim.NewExecutionUnchecked()
+	execution, err := eventrule.NewExecution(identity, now)
+	if err != nil {
+		return nil, err
+	}
 	persisted, err := converterdao.EventActionExecutionTo(execution)
 	if err != nil {
 		return nil, err
@@ -169,10 +187,10 @@ func (s *Store) newExecution(
 
 	record := &memoryExecution{persisted: *persisted}
 	s.executions[execution.ID] = record
-	s.executionsByDelivery[claim.DeliveryKey()] = execution.ID
+	s.executionsByDelivery[identity.DeliveryKey()] = execution.ID
 
-	if claim.Dedupe != nil {
-		semanticKey := claim.SemanticKey()
+	if semanticDedupe {
+		semanticKey := identity.SemanticKey()
 		s.executionsBySemantic[semanticKey] = append(
 			s.executionsBySemantic[semanticKey],
 			execution.ID,
