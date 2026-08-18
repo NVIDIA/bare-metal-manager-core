@@ -37,7 +37,7 @@ use crate::dpf::DpfOperations;
 /// What to do when the host turns out to be assigned.
 ///
 /// Checked fresh immediately before the release rather than by the caller, for
-/// the reasons in [`release_hold`].
+/// the reasons in [`release_hold_if_dpus_are_current`].
 pub enum TenantPolicy {
     /// Refuse to release an assigned host.
     ///
@@ -77,23 +77,16 @@ pub enum ReleaseOutcome {
 /// Lifts `host`'s DPF maintenance hold, once every one of its DPUs is confirmed
 /// to match its owning DPUDeployment, and completes the pending action.
 ///
-/// # Gates this does *not* apply
-///
-/// Deliberately, because they differ per caller and getting them wrong is the
-/// failure mode this function exists to prevent:
-///
-/// - the site's `dpu_service_sync_enabled` switch,
-/// - `used_for_ingestion`,
-/// - reading the outstanding pending action,
-/// - any requirement on the host's [`ManagedHostState`].
-///
-/// That last one is the whole point of the split: the state handler applies it
-/// by only ever being called from the `Ready` arm, while the admin API applies
-/// none, which is what lets an operator rescue a host that can never reach
-/// `Ready` on its own.
+/// The caller is responsible for every gate that decides *whether* to call
+/// this at all: the site's `dpu_service_sync_enabled` switch, `used_for_ingestion`,
+/// reading the outstanding pending action, and any requirement on the host's
+/// [`ManagedHostState`]. This function does not check them, because the two
+/// callers disagree on that last one: the state handler only calls this from
+/// the `Ready` arm, while the admin API calls it regardless of state, which is
+/// what lets an operator rescue a host that can never reach `Ready` on its own.
 ///
 /// [`ManagedHostState`]: model::machine::ManagedHostState
-pub async fn release_hold(
+pub async fn release_hold_if_dpus_are_current(
     dpf_sdk: &dyn DpfOperations,
     db_pool: &PgPool,
     host: &Machine,
@@ -158,15 +151,7 @@ pub async fn release_hold(
     // instead. That narrows the window to this query plus the patch rather than
     // closing it; the pending action survives, so a host that slips through is
     // caught once its instance is gone.
-    let mut conn = match db_pool.acquire().await {
-        Ok(conn) => conn,
-        Err(error) => {
-            return ReleaseOutcome::Failed {
-                reason: format!("could not acquire a database connection: {error}"),
-            };
-        }
-    };
-    let assigned = match db::instance::find_id_by_machine_id(&mut conn, &host.id).await {
+    let assigned = match db::instance::find_id_by_machine_id(db_pool, &host.id).await {
         Ok(assigned) => assigned,
         Err(error) => {
             return ReleaseOutcome::Failed {
@@ -183,9 +168,6 @@ pub async fn release_hold(
             return ReleaseOutcome::DeferredHostAssigned { instance };
         }
     }
-    // Dropped before the DPF call below: a Kubernetes round trip is unrelated
-    // work that must not pin a pooled connection idle.
-    drop(conn);
 
     if let Err(error) = dpf_sdk.release_maintenance_hold(&node_name).await {
         return ReleaseOutcome::Failed {

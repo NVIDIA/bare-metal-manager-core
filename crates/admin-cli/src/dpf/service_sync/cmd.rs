@@ -132,7 +132,7 @@ fn age(entry: &PendingDpuServiceSync) -> String {
 }
 
 async fn release(api_client: &ApiClient, args: Release) -> CarbideCliResult<()> {
-    let request = ReleaseDpuServiceSyncHoldRequest::from(&args);
+    let request = ReleaseDpuServiceSyncHoldRequest::from(args);
     let results = api_client.release_dpu_service_sync_hold(request).await?;
 
     let mut table = prettytable::Table::new();

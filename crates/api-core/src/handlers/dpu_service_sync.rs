@@ -30,7 +30,9 @@
 use std::collections::{HashMap, HashSet};
 
 use ::rpc::forge as rpc;
-use carbide_machine_controller::dpu_service_sync::{ReleaseOutcome, TenantPolicy, release_hold};
+use carbide_machine_controller::dpu_service_sync::{
+    ReleaseOutcome, TenantPolicy, release_hold_if_dpus_are_current,
+};
 use carbide_uuid::machine::MachineId;
 use db::managed_host::load_snapshot;
 use model::machine::LoadSnapshotOptions;
@@ -62,10 +64,9 @@ pub(crate) async fn find_pending_dpu_service_sync_ids(
 ) -> Result<Response<::rpc::common::MachineIdList>, Status> {
     log_request_data(&request);
 
-    let mut txn = api.txn_begin().await?;
     let machine_ids =
-        db::machine_pending_action::find_outstanding_machine_ids(&mut txn, DpuServiceSync).await?;
-    txn.commit().await?;
+        db::machine_pending_action::find_outstanding_machine_ids(api.pg_pool(), DpuServiceSync)
+            .await?;
 
     Ok(Response::new(::rpc::common::MachineIdList { machine_ids }))
 }
@@ -389,8 +390,8 @@ async fn release_one_inner(
         .await
         .map_err(|error| format!("could not load the machine snapshot: {error}"))?
         .ok_or_else(|| format!("no snapshot for machine {machine_id}"))?;
-    // Dropped here: `release_hold` acquires its own connections around each of
-    // its writes, so nothing pins this one idle across its Kubernetes calls.
+    // Dropped here: the release call below acquires its own connections around
+    // each of its writes, so nothing pins this one idle across its Kubernetes calls.
     drop(conn);
 
     let policy = match tenant_policy {
@@ -401,7 +402,7 @@ async fn release_one_inner(
     };
 
     Ok(Some(
-        release_hold(
+        release_hold_if_dpus_are_current(
             dpf_sdk,
             &api.database_connection,
             &snapshot.host_snapshot,

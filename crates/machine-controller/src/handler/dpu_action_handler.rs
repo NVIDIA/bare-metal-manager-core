@@ -98,7 +98,7 @@ pub(super) async fn handle_pending_dpu_actions(
         }
     }
 
-    let outcome = crate::dpu_service_sync::release_hold(
+    let outcome = crate::dpu_service_sync::release_hold_if_dpus_are_current(
         dpf_sdk,
         &ctx.services.db_pool,
         host,

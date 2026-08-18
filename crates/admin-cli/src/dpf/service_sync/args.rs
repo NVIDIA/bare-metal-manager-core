@@ -35,7 +35,7 @@ Release the hold for one or more hosts:
     $ nico-admin-cli dpf service-sync release --machine-id fm100psbtmb15tgh6q5duqb8ke5grng7ksd96hetbeie9nc5pvcca6eol80
 
 Release the host running an instance, accepting that its tenant is disrupted:
-    $ nico-admin-cli dpf service-sync release --instance-id abcdef01-2345-6789-abcd-ef0123456789
+    $ nico-admin-cli dpf service-sync release --instance-id 12345678-1234-5678-90ab-cdef01234567
 
 ")]
 pub(crate) enum Args {
@@ -82,7 +82,7 @@ Release several hosts, repeating the flag instead:
     --machine-id fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg
 
 Release the host running an instance, accepting that its tenant is disrupted:
-    $ nico-admin-cli dpf service-sync release --instance-id abcdef01-2345-6789-abcd-ef0123456789
+    $ nico-admin-cli dpf service-sync release --instance-id 12345678-1234-5678-90ab-cdef01234567
 
 Release the hosts running several instances:
     $ nico-admin-cli dpf service-sync release --instance-id 12345678-1234-5678-90ab-cdef01234567 abcdef01-2345-6789-abcd-ef0123456789
@@ -115,18 +115,18 @@ pub(crate) struct Release {
     pub(super) instance_ids: Vec<InstanceId>,
 }
 
-impl From<&Release> for ReleaseDpuServiceSyncHoldRequest {
-    fn from(args: &Release) -> Self {
+impl From<Release> for ReleaseDpuServiceSyncHoldRequest {
+    fn from(args: Release) -> Self {
         // The ArgGroup makes these mutually exclusive and one of them required,
         // so a non-empty instance list is the only way to reach the instance
         // target.
         let target = if args.instance_ids.is_empty() {
             Target::MachineIds(::rpc::common::MachineIdList {
-                machine_ids: args.machine_ids.clone(),
+                machine_ids: args.machine_ids,
             })
         } else {
             Target::InstanceIds(::rpc::forge::InstanceIdList {
-                instance_ids: args.instance_ids.clone(),
+                instance_ids: args.instance_ids,
             })
         };
         Self {
