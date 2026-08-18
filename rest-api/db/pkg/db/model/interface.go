@@ -8,7 +8,6 @@ import (
 	"database/sql"
 	"fmt"
 	"net/netip"
-	"strings"
 	"time"
 
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
@@ -132,97 +131,6 @@ type Interface struct {
 	Updated              time.Time                      `bun:"updated,nullzero,notnull,default:current_timestamp"`
 	Deleted              *time.Time                     `bun:"deleted,soft_delete"`
 	CreatedBy            uuid.UUID                      `bun:"type:uuid,notnull"`
-}
-
-// EthernetInterfaceKey identifies an Ethernet interface configuration for update reconciliation.
-type EthernetInterfaceKey struct {
-	SubnetID                uuid.UUID
-	VpcPrefixID             uuid.UUID
-	VpcID                   uuid.UUID
-	VpcIPFamilyMode         InterfaceVpcIPFamilyMode
-	HasVpcIPFamilyMode      bool
-	VirtualFunctionID       int
-	HasVirtualFunctionID    bool
-	Device                  string
-	HasDevice               bool
-	DeviceInstance          int
-	HasDeviceInstance       bool
-	IsPhysical              bool
-	RequestedIPAddress      string
-	HasRequestedIPAddress   bool
-	InlineRoutingProfile    string
-	HasInlineRoutingProfile bool
-}
-
-// EthernetKey returns the comparable fields that identify an Interface during update reconciliation.
-func (ifc Interface) EthernetKey() EthernetInterfaceKey {
-	vpcID := uuid.Nil
-	if ifc.VpcID != nil {
-		vpcID = *ifc.VpcID
-	} else if ifc.VpcPrefix != nil {
-		vpcID = ifc.VpcPrefix.VpcID
-	} else if ifc.Subnet != nil {
-		vpcID = ifc.Subnet.VpcID
-	}
-
-	key := EthernetInterfaceKey{
-		SubnetID:                uuid.Nil,
-		VpcPrefixID:             uuid.Nil,
-		VpcID:                   vpcID,
-		VpcIPFamilyMode:         "",
-		HasVpcIPFamilyMode:      false,
-		VirtualFunctionID:       0,
-		HasVirtualFunctionID:    false,
-		Device:                  "",
-		HasDevice:               false,
-		DeviceInstance:          0,
-		HasDeviceInstance:       false,
-		IsPhysical:              ifc.IsPhysical,
-		RequestedIPAddress:      "",
-		HasRequestedIPAddress:   false,
-		InlineRoutingProfile:    "",
-		HasInlineRoutingProfile: false,
-	}
-
-	if ifc.SubnetID != nil {
-		key.SubnetID = *ifc.SubnetID
-	}
-
-	if ifc.VpcPrefixID != nil {
-		key.VpcPrefixID = *ifc.VpcPrefixID
-	}
-
-	if ifc.VpcIPFamilyMode != nil {
-		key.VpcIPFamilyMode = *ifc.VpcIPFamilyMode
-		key.HasVpcIPFamilyMode = true
-	}
-
-	if ifc.VirtualFunctionID != nil {
-		key.VirtualFunctionID = *ifc.VirtualFunctionID
-		key.HasVirtualFunctionID = true
-	}
-
-	if ifc.Device != nil {
-		key.Device = *ifc.Device
-		key.HasDevice = true
-	}
-
-	if ifc.DeviceInstance != nil {
-		key.DeviceInstance = *ifc.DeviceInstance
-		key.HasDeviceInstance = true
-	}
-
-	if ifc.RequestedIpAddress != nil {
-		key.RequestedIPAddress = *ifc.RequestedIpAddress
-		key.HasRequestedIPAddress = true
-	}
-
-	if ifc.InlineRoutingProfile != nil {
-		key.InlineRoutingProfile = strings.Join(ifc.InlineRoutingProfile.AllowedAnycastPrefixes, "\x00")
-		key.HasInlineRoutingProfile = true
-	}
-
-	return key
 }
 
 // InterfaceCreateInput input parameters for Create method

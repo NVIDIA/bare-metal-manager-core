@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -3488,33 +3489,38 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 			}
 			newdbIfcs = []cdbm.Interface{}
 		case len(apiRequest.Interfaces) > 0:
-			existingIfcMap := make(map[cdbm.EthernetInterfaceKey][]cdbm.Interface)
-
-			for existingIfcIndex := range existingIfcs {
-				if existingIfcs[existingIfcIndex].Status == cdbm.InterfaceStatusDeleting {
-					continue
-				}
-
-				key := existingIfcs[existingIfcIndex].EthernetKey()
-				existingIfcMap[key] = append(existingIfcMap[key], existingIfcs[existingIfcIndex])
-			}
-
 			reusedIfcIDs := make(map[uuid.UUID]struct{})
 			for _, dbifc := range dbInterfaces {
-				key := dbifc.EthernetKey()
-
-				existingIfcsForKey := existingIfcMap[key]
-				if len(existingIfcsForKey) > 0 {
-					reusedIfc := existingIfcsForKey[0]
-					if len(existingIfcsForKey) == 1 {
-						delete(existingIfcMap, key)
-					} else {
-						existingIfcMap[key] = existingIfcsForKey[1:]
+				var reusedIfc *cdbm.Interface
+				for existingIfcIndex := range existingIfcs {
+					existingIfc := &existingIfcs[existingIfcIndex]
+					if existingIfc.Status == cdbm.InterfaceStatusDeleting {
+						continue
 					}
 
-					reusedIfcIDs[reusedIfc.ID] = struct{}{}
-					newdbIfcs = append(newdbIfcs, reusedIfc)
+					if _, reused := reusedIfcIDs[existingIfc.ID]; reused {
+						continue
+					}
 
+					networkMatches := reflect.DeepEqual(existingIfc.SubnetID, dbifc.SubnetID) &&
+						reflect.DeepEqual(existingIfc.VpcID, dbifc.VpcID) &&
+						reflect.DeepEqual(existingIfc.VpcIPFamilyMode, dbifc.VpcIPFamilyMode) &&
+						(dbifc.VpcID != nil || reflect.DeepEqual(existingIfc.VpcPrefixID, dbifc.VpcPrefixID))
+					if networkMatches &&
+						existingIfc.IsPhysical == dbifc.IsPhysical &&
+						reflect.DeepEqual(existingIfc.Device, dbifc.Device) &&
+						reflect.DeepEqual(existingIfc.DeviceInstance, dbifc.DeviceInstance) &&
+						reflect.DeepEqual(existingIfc.VirtualFunctionID, dbifc.VirtualFunctionID) &&
+						reflect.DeepEqual(existingIfc.RequestedIpAddress, dbifc.RequestedIpAddress) &&
+						reflect.DeepEqual(existingIfc.InlineRoutingProfile, dbifc.InlineRoutingProfile) {
+						reusedIfc = existingIfc
+						break
+					}
+				}
+
+				if reusedIfc != nil {
+					reusedIfcIDs[reusedIfc.ID] = struct{}{}
+					newdbIfcs = append(newdbIfcs, *reusedIfc)
 					continue
 				}
 
@@ -3561,7 +3567,7 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 					_, err := ifcDAO.Update(ctx, tx, cdbm.InterfaceUpdateInput{
 						InterfaceID: existingIfcs[existingIfcIndex].ID,
 						Status:      cutil.GetPtr(cdbm.InterfaceStatusDeleting),
-					}) //nolint:exhaustruct // Only the lifecycle status changes; associations remain held.
+					})
 					if err != nil {
 						logger.Error().Err(err).Msg("failed to update Interface record in DB")
 
