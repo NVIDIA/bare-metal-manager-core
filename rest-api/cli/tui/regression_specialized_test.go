@@ -410,16 +410,19 @@ func TestCmdInstanceUpdate_SendsAttributeOnlyPatch(t *testing.T) {
 	var requestCount atomic.Int32
 	requests := make(chan specializedRequestSnapshot, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestCount.Add(1)
+		requestNumber := requestCount.Add(1)
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		requests <- specializedRequestSnapshot{
+		snapshot := specializedRequestSnapshot{
 			method: r.Method,
 			path:   r.URL.Path,
 			body:   string(body),
+		}
+		if requestNumber == 1 {
+			requests <- snapshot
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"id":"instance-1","name":"new-name"}`)
