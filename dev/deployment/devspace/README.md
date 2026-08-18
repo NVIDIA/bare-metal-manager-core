@@ -101,7 +101,7 @@ Important:
 - For external Vault, either keep `LOCAL_DEV_VAULT_AUTH_MODE=root-token` or supply your own compatible auth setup.
 - `LOCAL_DEV_INSTALL_TEMPORAL=0` and `LOCAL_DEV_INSTALL_KEYCLOAK=0` skip those managed services.
 - `LOCAL_DEV_INSTALL_REST_PREREQS=0` preserves the Core-only bootstrap behavior.
-- A full-stack deployment requires the `nico_rest`, `keycloak`, `temporal`, and `temporal_visibility` databases and roles when the local PostgreSQL installation is skipped. DevSpace resolves the local `postgres` Service ClusterIP at deploy time and passes that literal address to the REST API, workflow, and migration components. This avoids hostname connection failures on affected ARM64 hosts and works unchanged on AMD64. A nondefault PostgreSQL host is supported only by the Core-only path.
+- A full-stack deployment requires the `nico_rest`, `keycloak`, `temporal`, and `temporal_visibility` databases and roles when the local PostgreSQL installation is skipped. The REST API, workflow, and migration components use the absolute `postgres.postgres.svc.cluster.local.` Service DNS name. The trailing dot prevents the pod resolver from appending search domains while allowing Kubernetes to update the Service address normally. A nondefault PostgreSQL host is supported only by the Core-only path.
 - The Core and REST services share one PostgreSQL server but use separate `nico` and `nico_rest` databases because both schemas contain tables such as `machines` and `instances`.
 
 ## Build And Deploy
@@ -127,7 +127,7 @@ Host setup preloads PostgreSQL 14.5 for the DevSpace REST migration wait contain
 
 The DevSpace images also use Dockerfile-specific ignore files. [`Dockerfile.core-artifacts.dockerignore`](Dockerfile.core-artifacts.dockerignore) provides the union of the source needed by the four binaries, while [`Dockerfile.api.dockerignore`](Dockerfile.api.dockerignore), [`Dockerfile.bmc-proxy.dockerignore`](Dockerfile.bmc-proxy.dockerignore), and [`Dockerfile.machine-a-tron.dockerignore`](Dockerfile.machine-a-tron.dockerignore) limit the runtime-image contexts. This keeps the top-level [`.dockerignore`](../../../.dockerignore) aligned with the main branch for CI and release builds.
 
-The local REST BuildKit builds use the Linux host network while downloading Go modules. This uses the host's working resolver when Docker bridge DNS cannot resolve public module hosts, without changing the network configuration of the deployed containers.
+On ARM64, the local REST BuildKit builds use the Linux host network while downloading Go modules because Docker bridge DNS cannot resolve public module hosts on the tested ARM64 development host. AMD64 builds retain BuildKit's default network. This does not change the network configuration of the deployed containers.
 
 The local REST Dockerfiles inherit BuildKit's target operating system and architecture. Native AMD64 hosts therefore produce AMD64 binaries, while native ARM64 hosts produce ARM64 binaries for the corresponding runtime images.
 

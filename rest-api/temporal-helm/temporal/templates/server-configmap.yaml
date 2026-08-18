@@ -198,11 +198,7 @@ data:
     {{- end }}
 
     publicClient:
-    {{- if $.Values.server.config.publicClient.hostPort }}
-      hostPort: {{ $.Values.server.config.publicClient.hostPort | quote }}
-    {{- else }}
       hostPort: "{{ include "temporal.componentname" (list $ "frontend") }}:{{ $.Values.server.frontend.service.port }}"
-    {{- end }}
 
     dynamicConfigClient:
       filepath: "/etc/temporal/dynamic_config/dynamic_config.yaml"

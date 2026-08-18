@@ -757,8 +757,6 @@ main() {
   require_bin kubectl
   require_bin helm
   require_bin base64
-  require_bin awk
-  require_bin openssl
 
   install_cert_manager
   apply_core_objects

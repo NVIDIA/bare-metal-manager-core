@@ -23,9 +23,14 @@ vars:
   LOCAL_DEV_REST_POSTGRES_PASSWORD:
     source: env
     default: nico_rest
-  LOCAL_DEV_REST_POSTGRES_HOST:
+  DEVSPACE_REST_BUILD_NETWORK_MODE:
     source: command
-    command: kubectl -n postgres get service postgres -o jsonpath='{.spec.clusterIP}'
+    default: default
+    command: |-
+      case "$(uname -m)" in
+        aarch64|arm64) printf host ;;
+        *) printf default ;;
+      esac
   LOCAL_DEV_REST_API_FORWARD_PORT:
     source: env
     default: "18388"
@@ -151,7 +156,7 @@ images:
     context: rest-api
     buildKit:
       args:
-        - --network=host
+        - --network=${DEVSPACE_REST_BUILD_NETWORK_MODE}
     skipPush: true
   nico-rest-workflow:
     image: localhost:5000/nico-rest-workflow
@@ -161,7 +166,7 @@ images:
     context: rest-api
     buildKit:
       args:
-        - --network=host
+        - --network=${DEVSPACE_REST_BUILD_NETWORK_MODE}
     skipPush: true
   nico-rest-site-manager:
     image: localhost:5000/nico-rest-site-manager
@@ -171,7 +176,7 @@ images:
     context: rest-api
     buildKit:
       args:
-        - --network=host
+        - --network=${DEVSPACE_REST_BUILD_NETWORK_MODE}
     skipPush: true
   nico-rest-site-agent:
     image: localhost:5000/nico-rest-site-agent
@@ -181,7 +186,7 @@ images:
     context: rest-api
     buildKit:
       args:
-        - --network=host
+        - --network=${DEVSPACE_REST_BUILD_NETWORK_MODE}
     skipPush: true
   nico-rest-db:
     image: localhost:5000/nico-rest-db
@@ -191,7 +196,7 @@ images:
     context: rest-api
     buildKit:
       args:
-        - --network=host
+        - --network=${DEVSPACE_REST_BUILD_NETWORK_MODE}
     skipPush: true
   nico-rest-cert-manager:
     image: localhost:5000/nico-rest-cert-manager
@@ -201,17 +206,7 @@ images:
     context: rest-api
     buildKit:
       args:
-        - --network=host
-    skipPush: true
-  nico-mcp:
-    image: localhost:5000/nico-mcp
-    tags:
-      - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_TIMESTAMP}
-    dockerfile: rest-api/docker/local/Dockerfile.nico-mcp
-    context: rest-api
-    buildKit:
-      args:
-        - --network=host
+        - --network=${DEVSPACE_REST_BUILD_NETWORK_MODE}
     skipPush: true
 
 deployments:
@@ -274,7 +269,7 @@ deployments:
             port: 30388
           config:
             db:
-              host: ${LOCAL_DEV_REST_POSTGRES_HOST}
+              host: postgres.postgres.svc.cluster.local.
               name: ${LOCAL_DEV_REST_POSTGRES_DB}
               user: ${LOCAL_DEV_REST_POSTGRES_USER}
             keycloak:
@@ -289,7 +284,7 @@ deployments:
             dbCreds: db-creds
           config:
             db:
-              host: ${LOCAL_DEV_REST_POSTGRES_HOST}
+              host: postgres.postgres.svc.cluster.local.
               name: ${LOCAL_DEV_REST_POSTGRES_DB}
               user: ${LOCAL_DEV_REST_POSTGRES_USER}
         nico-rest-db:
@@ -297,7 +292,7 @@ deployments:
             repository: postgres
             tag: 14.5-alpine
           db:
-            host: ${LOCAL_DEV_REST_POSTGRES_HOST}
+            host: postgres.postgres.svc.cluster.local.
             name: ${LOCAL_DEV_REST_POSTGRES_DB}
             user: ${LOCAL_DEV_REST_POSTGRES_USER}
   nico-rest-site-agent:
@@ -397,7 +392,9 @@ profiles:
             - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_TIMESTAMP}
           dockerfile: rest-api/docker/local/Dockerfile.nico-mcp
           context: rest-api
-          buildKit: {}
+          buildKit:
+            args:
+              - --network=${DEVSPACE_REST_BUILD_NETWORK_MODE}
           skipPush: true
       - op: add
         path: deployments.nico-mcp

@@ -252,6 +252,21 @@ fi
 
 inventory_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+# Discovery may still be adding machines after the first positive status
+# response used for endpoint recovery. Take a fresh snapshot so verification
+# expects the complete inventory rather than that earlier partial count.
+machine_status="$(kubectl exec deployment/nico-api -n "${CORE_NAMESPACE}" -- \
+  curl --fail --insecure --silent --max-time 5 \
+  "https://${machine_a_tron_bmc_ip}:1266/machines/status" 2>/dev/null || true)"
+expected_host_count="$(jq -er \
+  'if (.machines | type) == "array" then .machines | length else 0 end' \
+  <<<"${machine_status}" 2>/dev/null || printf '0')"
+if [[ ! "${expected_host_count}" =~ ^[1-9][0-9]*$ ]]; then
+  printf 'machine-a-tron at %s did not report a valid expected host count before REST verification\n' \
+    "${machine_a_tron_bmc_ip}:1266" >&2
+  exit 1
+fi
+
 site_ready=false
 machines_ready=false
 machine_count=0

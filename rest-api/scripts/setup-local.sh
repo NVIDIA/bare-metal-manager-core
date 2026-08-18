@@ -227,18 +227,9 @@ create_site() {
 
 ensure_temporal_namespace() {
     local temporal_namespace=$1
-    local temporal_frontend_ip
-    local temporal_address
+    local temporal_address="temporal-frontend.temporal.svc.cluster.local.:7233"
     local describe_error=""
     local create_error=""
-
-    temporal_frontend_ip=$(kubectl -n temporal get service temporal-frontend \
-        -o jsonpath='{.spec.clusterIP}')
-    if [ -z "$temporal_frontend_ip" ] || [ "$temporal_frontend_ip" = "None" ]; then
-        echo "ERROR: Temporal frontend Service has no ClusterIP" >&2
-        return 1
-    fi
-    temporal_address="${temporal_frontend_ip}:7233"
 
     local temporal_command=(
         kubectl -n temporal exec deployment/temporal-admintools --

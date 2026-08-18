@@ -97,12 +97,6 @@ server:
     # IMPORTANT: This value cannot be changed, once it's set.
     numHistoryShards: 512
 
-    publicClient:
-      # The ARM64 Temporal 1.26.2 SDK does not complete gRPC connections when
-      # the frontend address is a DNS name. Temporal renders this environment
-      # reference into the current Kubernetes Service ClusterIP at startup.
-      hostPort: "{{ .Env.TEMPORAL_FRONTEND_SERVICE_HOST }}:7233"
-
     persistence:
       defaultStore: default
       additionalStores: {}
