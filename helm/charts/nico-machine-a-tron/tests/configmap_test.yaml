@@ -15,6 +15,21 @@ tests:
       - matchRegex:
           path: data["mat.toml"]
           pattern: "use_single_bmc_mock = true"
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: 'log_format = "logfmt"'
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: 'discovery_retry_interval = "60s"'
+
+  - it: should allow compact log output
+    set:
+      machineATron:
+        logFormat: compact
+    asserts:
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: 'log_format = "compact"'
 
   - it: should configure custom host count via pods structure
     set:
@@ -66,11 +81,64 @@ tests:
       - hasDocuments:
           count: 2
 
+  - it: should render an atomic rack
+    set:
+      pods:
+        mat-0:
+          machines:
+            rack-machines: null
+          racks:
+            gb200:
+              type: wiwynn_gb200_nvl72
+              rack_profile_id: NVL72
+              ids:
+                - rack-001
+              dpu_reboot_delay: 20
+              host_reboot_delay: 10
+              oob_dhcp_relay_address: 10.96.64.1
+              admin_dhcp_relay_address: 192.168.176.1
+    asserts:
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: '\[racks\.gb200\]'
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: 'rack_profile_id = "NVL72"'
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: '\[machines\]'
+      - notMatchRegex:
+          path: data["mat.toml"]
+          pattern: '\[machines\.rack-machines\]'
+
+  - it: should render racks and machines together
+    set:
+      pods:
+        mat-0:
+          racks:
+            gb200:
+              type: wiwynn_gb200_nvl72
+              rack_profile_id: NVL72
+              ids:
+                - rack-001
+              dpu_reboot_delay: 20
+              host_reboot_delay: 10
+              oob_dhcp_relay_address: 10.96.64.1
+              admin_dhcp_relay_address: 192.168.176.1
+    asserts:
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: '\[racks\.gb200\]'
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: '\[machines\.rack-machines\]'
+
   - it: should use machineDefaults for all machine groups
     set:
       machineDefaults:
         runIntervalIdle: "30s"
         scoutRunInterval: "120s"
+        discoveryRetryInterval: "7s"
       pods:
         mat-0:
           machines:
@@ -84,3 +152,47 @@ tests:
       - matchRegex:
           path: data["mat.toml"]
           pattern: 'scout_run_interval = "120s"'
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: 'discovery_retry_interval = "7s"'
+
+  - it: should not include enable_ipmi_simulation by default
+    asserts:
+      - notMatchRegex:
+          path: data["mat.toml"]
+          pattern: "enable_ipmi_simulation"
+
+  - it: should include enable_ipmi_simulation when enabled
+    set:
+      machineATron:
+        enableIpmiSimulation: true
+    asserts:
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: "enable_ipmi_simulation = true"
+
+  - it: should not include ipmi_reachable_port by default
+    asserts:
+      - notMatchRegex:
+          path: data["mat.toml"]
+          pattern: "ipmi_reachable_port"
+
+  - it: should include ipmi_reachable_port when set to 0 for dynamic
+    set:
+      machineATron:
+        enableIpmiSimulation: true
+        ipmiReachablePort: 0
+    asserts:
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: "ipmi_reachable_port = 0"
+
+  - it: should include ipmi_reachable_port when set to custom value
+    set:
+      machineATron:
+        enableIpmiSimulation: true
+        ipmiReachablePort: 12345
+    asserts:
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: "ipmi_reachable_port = 12345"

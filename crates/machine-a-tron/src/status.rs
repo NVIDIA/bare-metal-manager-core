@@ -17,6 +17,15 @@
 use bmc_mock::HardwareType;
 use bmc_mock::ipmi_sim::IpmiEndpoint;
 use serde::Serialize;
+use ufm_mock::{EpochId, Generation, InventoryId};
+
+use crate::{Guid, InfinibandPortState};
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct InfinibandPortStatus {
+    pub guid: Guid,
+    pub state: InfinibandPortState,
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -65,6 +74,9 @@ impl DeviceStatusConfig {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct DevicesStatusResponse {
+    pub inventory_id: InventoryId,
+    pub epoch_id: EpochId,
+    pub generation: Generation,
     #[serde(rename = "machines")]
     pub devices: Vec<DeviceStatus>,
 }
@@ -86,6 +98,8 @@ pub struct DeviceStatus {
     pub machine_ip: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nvos_ip: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub infiniband_ports: Option<Vec<InfinibandPortStatus>>,
     pub bmc: BmcStatus,
     pub dpus: Vec<DeviceStatus>,
 }

@@ -94,7 +94,7 @@ impl OtlpSink {
     ///
     /// Returns an error if no Tokio runtime is active, or if Prometheus metrics
     /// cannot be created, registered, or initialized for a target.
-    pub fn new_many(
+    pub(crate) fn new_many(
         configs: &[OtlpTargetConfig],
         mapper: Arc<dyn RedfishEventMapper>,
         metrics_manager: &MetricsManager,
@@ -167,13 +167,13 @@ impl OtlpSink {
 
     /// Enqueues the emitted log record using the parent event identity.
     fn enqueue_log_event(&self, context: &EventContext, record: &LogRecord) {
+        let record = record.emitted_log_record(self.include_diagnostics);
+
         let key = self
             .mapper
             .queue_key(&context.endpoint_key, &record.attributes);
-        let record = record
-            .emitted_log_record(self.include_diagnostics)
-            .into_owned();
-        let event = CollectorEvent::Log(Box::new(record));
+
+        let event = CollectorEvent::Log(Box::new(record.into_owned()));
 
         if self.queue.save_latest(key, (context.clone(), event)) {
             self.replaced_total.inc();
@@ -181,12 +181,15 @@ impl OtlpSink {
     }
 }
 
-#[cfg(any(test, feature = "bench-hooks"))]
+#[cfg(feature = "bench-hooks")]
 impl OtlpSink {
     pub fn new_for_bench(mapper: Arc<dyn RedfishEventMapper>) -> Self {
         Self::new_for_bench_with_diagnostics(mapper, false)
     }
+}
 
+#[cfg(any(test, feature = "bench-hooks"))]
+impl OtlpSink {
     /// Builds a bench sink with diagnostic emission explicitly configured.
     fn new_for_bench_with_diagnostics(
         mapper: Arc<dyn RedfishEventMapper>,
@@ -279,7 +282,9 @@ mod tests {
 
     use super::*;
     use crate::sink::event_mapper::OpenBmcEventMapper;
-    use crate::sink::{CompositeDataSink, DiagnosticLogRecord, LogRecord, MetricSample};
+    use crate::sink::{
+        CompositeDataSink, DiagnosticLogRecord, LogRecord, LogSeverity, MetricSample,
+    };
 
     fn test_context() -> EventContext {
         EventContext {
@@ -308,7 +313,7 @@ mod tests {
     ) -> CollectorEvent {
         CollectorEvent::Log(Box::new(LogRecord {
             body: "test".to_string(),
-            severity: "OK".to_string(),
+            severity: LogSeverity::Info,
             attributes: vec![
                 (Cow::Borrowed("message_id"), message_id.to_string()),
                 (Cow::Borrowed("message_args"), message_args.to_string()),
@@ -326,6 +331,36 @@ mod tests {
                 "42".to_string(),
             )],
         }
+    }
+
+    fn decoded_protobuf_event(test_value: &str) -> CollectorEvent {
+        CollectorEvent::Log(Box::new(LogRecord {
+            body: "Extended protobuf notification received".to_string(),
+            severity: LogSeverity::Info,
+            attributes: vec![
+                (
+                    Cow::Borrowed("notification"),
+                    "extended_notification".to_string(),
+                ),
+                (
+                    Cow::Borrowed("message_id"),
+                    "Example.1.0.ExtendedNotification".to_string(),
+                ),
+                (
+                    Cow::Borrowed("message_args"),
+                    r#"["extended_notification"]"#.to_string(),
+                ),
+                (
+                    Cow::Borrowed(LogRecord::DECODED_PROTOBUF_PAYLOAD_ATTRIBUTE),
+                    serde_json::json!({ "testField": test_value }).to_string(),
+                ),
+                (
+                    Cow::Borrowed("protobuf.message_type"),
+                    "example.Notification".to_string(),
+                ),
+            ],
+            diagnostic_record: None,
+        }))
     }
 
     fn metric_event() -> CollectorEvent {
@@ -354,7 +389,7 @@ mod tests {
     }
 
     fn test_sink() -> OtlpSink {
-        OtlpSink::new_for_bench(Arc::new(OpenBmcEventMapper))
+        OtlpSink::new_for_bench_with_diagnostics(Arc::new(OpenBmcEventMapper), false)
     }
 
     #[test]
@@ -675,6 +710,67 @@ mod tests {
                 .iter()
                 .any(|(key, _)| key.as_ref() == "redfish.parent.log_entry_id")
         );
+    }
+
+    #[test]
+    fn decoded_protobuf_is_projected_for_all_otlp_targets() {
+        let enabled = OtlpSink::new_for_bench_with_diagnostics(Arc::new(OpenBmcEventMapper), true);
+        let context = test_context();
+
+        enabled.handle_event(&context, &decoded_protobuf_event("first"));
+        enabled.handle_event(&context, &decoded_protobuf_event("second"));
+        enabled.handle_event(&context, &decoded_protobuf_event("second"));
+
+        let mut records = Vec::new();
+
+        while let Some((_key, (_context, CollectorEvent::Log(record)))) = enabled.queue.pop() {
+            records.push(record);
+        }
+
+        assert_eq!(records.len(), 2, "distinct notifications remain queued");
+        assert_eq!(enabled.replaced_total.get() as u64, 1);
+
+        assert!(records.iter().all(|record| {
+            record.attributes.iter().any(|(key, value)| {
+                key.as_ref() == "protobuf.decoded_payload" && value.contains("testField")
+            })
+        }));
+
+        assert!(records.iter().any(|record| {
+            record
+                .attributes
+                .iter()
+                .any(|(_, value)| value.contains("first"))
+        }));
+
+        assert!(records.iter().any(|record| {
+            record
+                .attributes
+                .iter()
+                .any(|(_, value)| value.contains("second"))
+        }));
+
+        let diagnostics_disabled =
+            OtlpSink::new_for_bench_with_diagnostics(Arc::new(OpenBmcEventMapper), false);
+
+        diagnostics_disabled.handle_event(&context, &decoded_protobuf_event("first"));
+        diagnostics_disabled.handle_event(&context, &decoded_protobuf_event("second"));
+
+        let mut diagnostics_disabled_records = Vec::new();
+
+        while let Some((_key, (_context, CollectorEvent::Log(record)))) =
+            diagnostics_disabled.queue.pop()
+        {
+            diagnostics_disabled_records.push(record);
+        }
+
+        assert_eq!(diagnostics_disabled_records.len(), 2);
+
+        assert!(diagnostics_disabled_records.iter().all(|record| {
+            record.attributes.iter().any(|(key, value)| {
+                key.as_ref() == "protobuf.decoded_payload" && value.contains("testField")
+            })
+        }));
     }
 
     #[test]

@@ -358,7 +358,6 @@ func (o *IpxeTemplate) UnmarshalJSON(data []byte) (err error) {
 	varIpxeTemplate := _IpxeTemplate{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varIpxeTemplate)
 
 	if err != nil {

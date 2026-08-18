@@ -138,6 +138,120 @@ func TestInventoryTargetLookupTargetsFromComponentSpec(t *testing.T) {
 	)
 }
 
+func TestInventoryTargetLookupTargetsFromNVLDomainSpec(t *testing.T) {
+	t.Run("filters component types across domain racks", func(t *testing.T) {
+		domainID := uuid.New()
+		rackOneID := uuid.New()
+		rackTwoID := uuid.New()
+		computeOneID := uuid.New()
+		computeTwoID := uuid.New()
+		inventory := &fakeInventoryTargetSource{
+			domainRacks: map[uuid.UUID][]*rack.Rack{
+				domainID: {
+					rackWithComponents(rackOneID),
+					rackWithComponents(rackTwoID),
+				},
+			},
+			racksByID: map[uuid.UUID]*rack.Rack{
+				rackOneID: rackWithComponents(
+					rackOneID,
+					componentWithRack(
+						computeOneID,
+						rackOneID,
+						devicetypes.ComponentTypeCompute,
+						"",
+					),
+				),
+				rackTwoID: rackWithComponents(
+					rackTwoID,
+					componentWithRack(
+						computeTwoID,
+						rackTwoID,
+						devicetypes.ComponentTypeCompute,
+						"",
+					),
+				),
+			},
+		}
+
+		targets, err := NewInventoryTargetLookup(inventory, nil).TargetsFromSpec(
+			context.Background(),
+			&operation.TargetSpec{
+				NVLDomains: []operation.NVLDomainTarget{
+					{
+						Identifier: identifier.Identifier{ID: domainID},
+						ComponentTypes: []devicetypes.ComponentType{
+							devicetypes.ComponentTypeCompute,
+						},
+					},
+				},
+			},
+			TargetLookupOptions{},
+		)
+		require.NoError(t, err)
+		require.Equal(t, []operation.RackExecutionTarget{
+			{
+				RackID: rackOneID,
+				ComponentsByType: operation.ComponentsByType{
+					devicetypes.ComponentTypeCompute: {computeOneID},
+				},
+			},
+			{
+				RackID: rackTwoID,
+				ComponentsByType: operation.ComponentsByType{
+					devicetypes.ComponentTypeCompute: {computeTwoID},
+				},
+			},
+		}, targets)
+	})
+
+	t.Run("merges repeated racks before enforcing limit", func(t *testing.T) {
+		domainID := uuid.New()
+		rackID := uuid.New()
+		computeID := uuid.New()
+		nvSwitchID := uuid.New()
+		inventory := &fakeInventoryTargetSource{
+			domainRacks: map[uuid.UUID][]*rack.Rack{
+				domainID: {rackWithComponents(rackID)},
+			},
+			racksByID: map[uuid.UUID]*rack.Rack{
+				rackID: rackWithComponents(
+					rackID,
+					componentWithRack(computeID, rackID, devicetypes.ComponentTypeCompute, ""),
+					componentWithRack(nvSwitchID, rackID, devicetypes.ComponentTypeNVSwitch, ""),
+				),
+			},
+		}
+
+		targets, err := NewInventoryTargetLookup(inventory, nil).TargetsFromSpec(
+			context.Background(),
+			&operation.TargetSpec{
+				NVLDomains: []operation.NVLDomainTarget{
+					{
+						Identifier:     identifier.Identifier{ID: domainID},
+						ComponentTypes: []devicetypes.ComponentType{devicetypes.ComponentTypeCompute},
+					},
+					{
+						Identifier:     identifier.Identifier{ID: domainID},
+						ComponentTypes: []devicetypes.ComponentType{devicetypes.ComponentTypeNVSwitch},
+					},
+				},
+			},
+			TargetLookupOptions{MaxTargets: 1},
+		)
+		require.NoError(t, err)
+		require.Equal(t, []operation.RackExecutionTarget{
+			{
+				RackID: rackID,
+				ComponentsByType: operation.ComponentsByType{
+					devicetypes.ComponentTypeCompute:  {computeID},
+					devicetypes.ComponentTypeNVSwitch: {nvSwitchID},
+				},
+			},
+		}, targets)
+	})
+}
+
 func TestInventoryTargetLookupTargetsFromDefaultScopeAppliesComponentFilter(t *testing.T) {
 	rackID := uuid.New()
 	computeID := uuid.New()
@@ -344,10 +458,18 @@ func TestInventoryTargetLookupTargetsFromRunsReadsAllMaterializedTargets(t *test
 type fakeInventoryTargetSource struct {
 	racks              []*rack.Rack
 	racksByID          map[uuid.UUID]*rack.Rack
+	domainRacks        map[uuid.UUID][]*rack.Rack
 	componentsByID     map[uuid.UUID]*inventorycomponent.Component
 	externalComponents []*inventorycomponent.Component
 	total              int32
 	paginations        []dbquery.Pagination
+}
+
+func (s *fakeInventoryTargetSource) GetRacksForNVLDomain(
+	_ context.Context,
+	id identifier.Identifier,
+) ([]*rack.Rack, error) {
+	return s.domainRacks[id.ID], nil
 }
 
 func (s *fakeInventoryTargetSource) GetRackByIdentifier(

@@ -111,7 +111,6 @@ func (o *TaskRunSiteRequest) UnmarshalJSON(data []byte) (err error) {
 	varTaskRunSiteRequest := _TaskRunSiteRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varTaskRunSiteRequest)
 
 	if err != nil {

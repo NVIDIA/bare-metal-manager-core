@@ -61,6 +61,7 @@ impl<'a, 'b> TestInstanceBuilder<'a, 'b> {
                 dpu_extension_services: None,
                 nvlink: None,
                 spxconfig: None,
+                power_profile: None,
             },
             tenant: default_tenant_config(),
             metadata: None,
@@ -341,6 +342,7 @@ pub(in crate::tests) fn config_for_ib_config(
         spxconfig: None,
         network_security_group_id: None,
         dpu_extension_services: None,
+        power_profile: None,
     }
 }
 
@@ -357,6 +359,7 @@ pub(in crate::tests) fn config_for_nvlink_config(
         spxconfig: None,
         network_security_group_id: None,
         dpu_extension_services: None,
+        power_profile: None,
     }
 }
 
@@ -475,7 +478,7 @@ pub(in crate::tests) async fn delete_instance(
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.host().id,
-        7,
+        8,
         ManagedHostState::Assigned {
             instance_state: model::machine::InstanceState::HostPlatformConfiguration {
                 platform_config_state:

@@ -586,9 +586,9 @@ func (atrcr *APITaskRunCancelRequest) Validate() error {
 // ~~~~~ Create ~~~~~ //
 
 // APITaskRunCreateRequest is the JSON body for POST /task/run. A run executes
-// exactly one operation (currently firmware) across a candidate set of racks,
-// narrowed by an optional selector and divided into phases by an optional phase
-// policy. operationType is inferred from the operation and is not accepted here.
+// exactly one operation across a candidate set of racks, narrowed by an
+// optional selector and divided into phases by an optional phase policy.
+// operationType is inferred from the operation and is not accepted here.
 type APITaskRunCreateRequest struct {
 	SiteID      string `json:"siteId"`
 	Name        string `json:"name"`

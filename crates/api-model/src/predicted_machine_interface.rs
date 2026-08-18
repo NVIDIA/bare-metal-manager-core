@@ -32,11 +32,10 @@ pub struct PredictedMachineInterface {
     /// MAC, handed to the `machine_interfaces` row at DHCP promotion so
     /// the host's boot target is a full pair from its first owned interface.
     pub boot_interface_id: Option<String>,
-    /// The declared `ExpectedInterface.primary` intent, stored so promotion
-    /// into `machine_interfaces` lands the operator's chosen boot interface as
-    /// `primary_interface`. `false` when nothing is declared -- promotion then
-    /// leaves the row non-primary and the boot interface falls to the
-    /// `pick_boot_interface` automation.
+    /// Whether promotion should make this the machine's primary interface.
+    ///
+    /// For hosts this carries the declared `ExpectedInterface.primary` intent. For DPUs the
+    /// trusted OOB prediction is always primary because it is the DPU OS data interface.
     pub primary_interface: bool,
 }
 

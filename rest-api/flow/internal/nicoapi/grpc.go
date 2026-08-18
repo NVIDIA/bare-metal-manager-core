@@ -439,6 +439,77 @@ func (c *grpcClient) FindSwitchNvosIPs(ctx context.Context, switchIds []string) 
 	return result, nil
 }
 
+// GetObservedNVLinkDomainMemberships returns valid rack/domain observations
+// from a complete snapshot of Core's active switches. FindSwitchIds excludes
+// deleted switches by default; the details response must include every
+// requested switch so callers can safely reconcile omitted memberships.
+func (c *grpcClient) GetObservedNVLinkDomainMemberships(ctx context.Context) ([]NVLinkDomainMembership, error) {
+	idsCtx, idsCancel := context.WithTimeout(ctx, c.grpcTimeout)
+	idsResponse, err := c.gclient.FindSwitchIds(idsCtx, &corev1.SwitchSearchFilter{})
+	idsCancel()
+	if err != nil {
+		return nil, fmt.Errorf("FindSwitchIds for NVLink domain topology: %w", err)
+	}
+
+	switchIDs := idsResponse.GetIds()
+	if len(switchIDs) == 0 {
+		return []NVLinkDomainMembership{}, nil
+	}
+
+	detailsCtx, detailsCancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer detailsCancel()
+	detailsResponse, err := c.gclient.FindSwitchesByIds(detailsCtx, &corev1.SwitchesByIdsRequest{
+		SwitchIds: switchIDs,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("FindSwitchesByIds for NVLink domain topology: %w", err)
+	}
+
+	return nvLinkDomainMembershipsFromSwitches(switchIDs, detailsResponse.GetSwitches())
+}
+
+func nvLinkDomainMembershipsFromSwitches(
+	switchIDs []*corev1.SwitchId,
+	switches []*corev1.Switch,
+) ([]NVLinkDomainMembership, error) {
+	requested := make(map[string]struct{}, len(switchIDs))
+	for _, id := range switchIDs {
+		value := id.GetId()
+		if value != "" {
+			requested[value] = struct{}{}
+		}
+	}
+
+	seen := make(map[string]struct{}, len(switches))
+	memberships := make([]NVLinkDomainMembership, 0, len(switches))
+	for _, sw := range switches {
+		switchID := sw.GetId().GetId()
+		if switchID == "" {
+			continue
+		}
+		seen[switchID] = struct{}{}
+
+		domainID := sw.GetNvlinkDomainUuid().GetValue()
+		rackID := sw.GetRackId().GetId()
+		if domainID == "" || rackID == "" {
+			continue
+		}
+		memberships = append(memberships, NVLinkDomainMembership{
+			DomainID: domainID,
+			RackID:   rackID,
+		})
+	}
+
+	for switchID := range requested {
+		_, ok := seen[switchID]
+		if !ok {
+			return nil, fmt.Errorf("FindSwitchesByIds omitted active switch %s", switchID)
+		}
+	}
+
+	return memberships, nil
+}
+
 // FindPowerShelfRackIDs returns the rack assignment of each given power shelf.
 func (c *grpcClient) FindPowerShelfRackIDs(ctx context.Context, shelfIds []string) (map[string]string, error) {
 	if len(shelfIds) == 0 {
@@ -957,7 +1028,7 @@ func (c *grpcClient) findAssociatedDpuMachineIdsLocked(
 		return nil, fmt.Errorf("machine %s not found", hostMachineID)
 	}
 
-	dpus := resp.GetMachines()[0].GetAssociatedDpuMachineIds()
+	dpus := resp.GetMachines()[0].GetStatus().GetAssociatedDpuMachineIds()
 	out := make([]string, 0, len(dpus))
 	for _, id := range dpus {
 		if v := id.GetId(); v != "" {
@@ -1261,6 +1332,10 @@ func (c *grpcClient) SetPowerShelfControllerState(shelfID, state string) {
 }
 
 func (c *grpcClient) SetRackHostMachineIDs(rackID string, machineIDs []string) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) SetObservedNVLinkDomainMemberships(memberships []NVLinkDomainMembership) {
 	panic("Not a unit test")
 }
 

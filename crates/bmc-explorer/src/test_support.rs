@@ -25,6 +25,7 @@ use bmc_mock::test_support::TestBmc;
 use bmc_mock::test_support::axum_http_client::Error as TestBmcError;
 use bmc_mock::{DpuMachineInfo, DpuSettings, HardwareType, HostMachineInfo, MachineInfo};
 use model::site_explorer::EndpointExplorationReport;
+use nv_redfish::core::ODataId;
 use nv_redfish::{Bmc, Resource, ServiceRoot};
 
 use crate::chassis::ExploredChassisCollection;
@@ -85,6 +86,20 @@ pub async fn detect_hw_type<B: Bmc>(
     let explored_system = ExploredComputerSystem::explore(system, &system_explore_config).await?;
 
     Ok(hw_type(&root, &explored_system, &explored_chassis))
+}
+
+/// Fetches supplemental adapter Port data for selected chassis without running
+/// the platform-specific report pipeline.
+pub async fn explore_network_adapter_ports<B: Bmc>(
+    root: &ServiceRoot<B>,
+    linked_chassis_ids: &[ODataId],
+) -> Result<Vec<model::site_explorer::Chassis>, Error<B>> {
+    let config = build_chassis_explore_config(root);
+    let mut explored_chassis = ExploredChassisCollection::explore(root, &config).await?;
+    explored_chassis
+        .fetch_network_adapter_ports(linked_chassis_ids)
+        .await;
+    Ok(explored_chassis.to_model())
 }
 
 pub type MockExplorerError = Error<TestBmc>;

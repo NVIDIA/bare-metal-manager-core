@@ -301,7 +301,25 @@ impl DellPowerEdgeR750<'_> {
 
     pub(crate) fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
         redfish::update_service::UpdateServiceConfig {
-            firmware_inventory: vec![],
+            firmware_inventory: [
+                // BMC (iDRAC) version matches manager_config firmware_version.
+                ("HostBMC_0", "6.00.30.00"),
+                // Representative BIOS version for Dell PowerEdge R750.
+                ("HostBIOS_0", "2.22.2"),
+            ]
+            .iter()
+            .map(|(id, version)| {
+                redfish::software_inventory::builder(
+                    &redfish::software_inventory::firmware_inventory_resource(id),
+                )
+                .version(version)
+                .build()
+            })
+            .collect(),
+            advertise_multipart_push_uri: false,
+            host_bmc_inventory_id: Some("HostBMC_0".to_string()),
+            host_uefi_inventory_id: Some("HostBIOS_0".to_string()),
+            ..Default::default()
         }
     }
 }

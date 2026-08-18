@@ -21,6 +21,7 @@ spec:
       annotations:
         kubectl.kubernetes.io/default-container: {{ include "nico-api.name" . }}
     spec:
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       automountServiceAccountToken: {{ .Values.automountServiceAccountToken }}
       serviceAccountName: {{ include "nico-api.name" . }}
       {{- with .Values.global.imagePullSecrets }}

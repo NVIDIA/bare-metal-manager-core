@@ -94,6 +94,7 @@ impl TestNetworkController {
             subdomain_id: Some(domain.id),
             vpc_id: None,
             segment_type: rpc::forge::NetworkSegmentType::Underlay.into(),
+            infer_slaac_eui64_addresses: false,
         };
 
         let segment = self
@@ -140,6 +141,7 @@ impl TestNetworkController {
             subdomain_id: Some(domain.id),
             vpc_id: None,
             segment_type: rpc::forge::NetworkSegmentType::Admin.into(),
+            infer_slaac_eui64_addresses: false,
         };
 
         let segment = self
@@ -201,6 +203,7 @@ impl TestNetworkController {
             subdomain_id: Some(domain.id),
             vpc_id: vpc.id,
             segment_type: rpc::forge::NetworkSegmentType::HostInband.into(),
+            infer_slaac_eui64_addresses: false,
         };
 
         let segment = self
@@ -265,6 +268,7 @@ impl TestNetworkController {
             subdomain_id: Some(domain.id),
             vpc_id: Some(vpc_id),
             segment_type: rpc::forge::NetworkSegmentType::Tenant.into(),
+            infer_slaac_eui64_addresses: false,
         };
 
         let segment = self

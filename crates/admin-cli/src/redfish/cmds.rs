@@ -62,7 +62,7 @@ pub(crate) async fn action(action: RedfishAction) -> color_eyre::Result<()> {
     match action.command {
         BiosAttrs => {
             let bios = redfish.bios().await?;
-            println!("{}", serde_json::to_string(&bios).unwrap());
+            println!("{}", serde_json::to_string(&bios)?);
         }
         BootHdd => {
             redfish.boot_first(Boot::HardDisk).await?;
@@ -135,8 +135,9 @@ pub(crate) async fn action(action: RedfishAction) -> color_eyre::Result<()> {
             } else {
                 let all = redfish.get_boot_options().await?;
                 for b in all.members {
-                    let id = b.odata_id.split('/').next_back().unwrap();
-                    println!("{:?}", redfish.get_boot_option(id).await?)
+                    if let Some(id) = b.odata_id.split('/').next_back() {
+                        println!("{:?}", redfish.get_boot_option(id).await?)
+                    }
                 }
             }
         }
@@ -169,7 +170,16 @@ pub(crate) async fn action(action: RedfishAction) -> color_eyre::Result<()> {
                 "Status",
             ]);
             for dev in redfish.pcie_devices().await? {
-                let status = dev.status.unwrap();
+                let status = dev
+                    .status
+                    .map(|status| {
+                        format!(
+                            "{} {}",
+                            status.health.unwrap_or_default(),
+                            status.state.unwrap_or("".to_string())
+                        )
+                    })
+                    .unwrap_or_default();
                 table.add_row(row![
                     dev.id.unwrap_or_default(),
                     dev.manufacturer.or(dev.gpu_vendor).unwrap_or_default(),
@@ -177,11 +187,7 @@ pub(crate) async fn action(action: RedfishAction) -> color_eyre::Result<()> {
                     dev.firmware_version.unwrap_or_default(),
                     dev.part_number.unwrap_or_default(),
                     dev.serial_number.unwrap_or_default(),
-                    format!(
-                        "{} {}",
-                        status.health.unwrap_or_default(),
-                        status.state.unwrap_or("".to_string())
-                    ),
+                    status,
                 ]);
             }
             table.set_format(*prettytable::format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
@@ -250,7 +256,7 @@ pub(crate) async fn action(action: RedfishAction) -> color_eyre::Result<()> {
         }
         PowerMetrics => {
             let power = redfish.get_power_metrics().await?;
-            println!("{}", serde_json::to_string_pretty(&power).unwrap());
+            println!("{}", serde_json::to_string_pretty(&power)?);
         }
         ForceRestart => {
             redfish.power(SystemPowerControl::ForceRestart).await?;
@@ -273,7 +279,7 @@ pub(crate) async fn action(action: RedfishAction) -> color_eyre::Result<()> {
         }
         ThermalMetrics => {
             let thermal = redfish.get_thermal_metrics().await?;
-            println!("{}", serde_json::to_string_pretty(&thermal).unwrap());
+            println!("{}", serde_json::to_string_pretty(&thermal)?);
         }
         TpmReset => {
             redfish.clear_tpm().await?;
@@ -472,7 +478,7 @@ pub(crate) async fn action(action: RedfishAction) -> color_eyre::Result<()> {
         }
         SetBios(set_bios) => {
             let attrmap: HashMap<String, serde_json::Value> =
-                serde_json::from_str(set_bios.attributes.as_str()).unwrap();
+                serde_json::from_str(set_bios.attributes.as_str())?;
             redfish.set_bios(attrmap).await?;
             println!("success");
         }
@@ -728,7 +734,7 @@ async fn handle_port_show(redfish: Box<dyn Redfish>, args: ShowPort) -> Result<(
     match show_all_ports(redfish).await {
         Ok((mut ports_info, netdev_funcs_info)) => {
             if !args.port.is_empty() {
-                ports_info.retain(|f| *f.id.as_ref().unwrap() == args.port);
+                ports_info.retain(|f| f.id.as_ref().is_some_and(|id| id == &args.port));
             }
             convert_ports_to_nice_table(ports_info, netdev_funcs_info).printstd();
             // TODO(chet): Remove this ~March 2024.
@@ -964,7 +970,10 @@ async fn handle_get_chassis(
         match redfish.get_chassis(c).await {
             Ok(chassis) => {
                 if *c == chassis_id {
-                    println!("{}", serde_json::to_string_pretty(&chassis).unwrap());
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&chassis).unwrap_or_default()
+                    );
                     return Ok(());
                 }
             }

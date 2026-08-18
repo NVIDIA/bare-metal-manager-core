@@ -198,7 +198,6 @@ func (o *VpcPrefixCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	varVpcPrefixCreateRequest := _VpcPrefixCreateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varVpcPrefixCreateRequest)
 
 	if err != nil {

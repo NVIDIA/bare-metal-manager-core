@@ -253,7 +253,6 @@ func (o *SkuCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	varSkuCreateRequest := _SkuCreateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varSkuCreateRequest)
 
 	if err != nil {

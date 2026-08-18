@@ -106,10 +106,15 @@ pub async fn create_static_assignments_segment(
     crate::db_init::ensure_static_assignments_segment(api, &mut txn, subdomain_id)
         .await
         .unwrap();
-    txn.commit().await.unwrap();
-
-    let mut txn = api.database_connection.begin().await.unwrap();
     let seg = db::network_segment::static_assignments(&mut txn)
+        .await
+        .unwrap();
+    let prefixes = seg
+        .prefixes
+        .iter()
+        .map(|prefix| prefix.prefix)
+        .collect::<Vec<_>>();
+    db::dns::ensure_reverse_zones(&prefixes, &mut txn)
         .await
         .unwrap();
     txn.commit().await.unwrap();
@@ -258,6 +263,7 @@ pub(crate) async fn create_network_segment(
         subdomain_id,
         vpc_id,
         segment_type: segment_type as _,
+        infer_slaac_eui64_addresses: false,
     };
 
     let segment = api

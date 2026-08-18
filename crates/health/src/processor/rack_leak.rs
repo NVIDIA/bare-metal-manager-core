@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use carbide_uuid::rack::RackId;
@@ -28,7 +28,27 @@ use crate::sink::{
 };
 
 struct RackLeakState {
-    leaking_trays: HashSet<String>,
+    /// Maps each leaking tray's endpoint key to the collector types reporting it.
+    /// The tray remains active until every reporting collector retracts its state.
+    leaking_trays: HashMap<String, HashSet<&'static str>>,
+}
+
+impl RackLeakState {
+    fn remove_reporter(&mut self, endpoint_key: &str, collector_type: &'static str) -> bool {
+        let last_reporter_removed =
+            self.leaking_trays
+                .get_mut(endpoint_key)
+                .is_some_and(|reporters| {
+                    reporters.remove(collector_type);
+                    reporters.is_empty()
+                });
+
+        if last_reporter_removed {
+            self.leaking_trays.remove(endpoint_key);
+        }
+
+        last_reporter_removed
+    }
 }
 
 pub struct RackLeakProcessor {
@@ -87,10 +107,17 @@ impl EventProcessor for RackLeakProcessor {
         };
 
         if matches!(event, CollectorEvent::CollectorRemoved) {
-            if let Some(mut entry) = self.racks.get_mut(rack_id) {
-                entry.leaking_trays.remove(context.endpoint_key());
+            let Some(mut entry) = self.racks.get_mut(rack_id) else {
+                return Vec::new();
+            };
+
+            if !entry.remove_reporter(context.endpoint_key(), context.collector_type) {
+                return Vec::new();
             }
-            return Vec::new();
+
+            let report = self.build_report(entry.leaking_trays.len());
+
+            return vec![CollectorEvent::HealthReport(Arc::new(report))];
         }
 
         let CollectorEvent::HealthReport(report) = event else {
@@ -115,13 +142,17 @@ impl EventProcessor for RackLeakProcessor {
             .racks
             .entry(rack_id.clone())
             .or_insert_with(|| RackLeakState {
-                leaking_trays: HashSet::new(),
+                leaking_trays: HashMap::new(),
             });
 
         if is_leaking {
-            entry.leaking_trays.insert(tray_key);
+            entry
+                .leaking_trays
+                .entry(tray_key)
+                .or_default()
+                .insert(context.collector_type);
         } else {
-            entry.leaking_trays.remove(&tray_key);
+            entry.remove_reporter(&tray_key, context.collector_type);
         }
 
         let leaking_count = entry.leaking_trays.len();
@@ -341,12 +372,111 @@ mod tests {
 
         let emitted = processor.process_event(&ctx_a, &CollectorEvent::CollectorRemoved);
 
-        assert!(emitted.is_empty());
+        let Some(CollectorEvent::HealthReport(report)) = emitted.first() else {
+            panic!("expected updated rack health report");
+        };
+
+        assert!(report.alerts.is_empty());
+        assert_eq!(report.successes.len(), 1);
+
         let Some(rack) = processor.racks.get(ctx_a.rack_id().expect("rack id")) else {
             panic!("expected rack state");
         };
+
         assert_eq!(rack.leaking_trays.len(), 1);
-        assert!(rack.leaking_trays.contains(ctx_b.endpoint_key()));
+        assert!(rack.leaking_trays.contains_key(ctx_b.endpoint_key()));
+    }
+
+    #[test]
+    fn unrelated_collector_removal_keeps_tray_state() {
+        let processor = RackLeakProcessor::new(1);
+        let leak_context = context_with_rack("42:9e:b1:bd:9d:dd", "rack-1");
+        let mut unrelated_context = leak_context.clone();
+        unrelated_context.collector_type = "unrelated_collector";
+
+        processor.process_event(&leak_context, &tray_leak_report(true));
+
+        let emitted =
+            processor.process_event(&unrelated_context, &CollectorEvent::CollectorRemoved);
+
+        assert!(emitted.is_empty());
+
+        let Some(rack) = processor
+            .racks
+            .get(leak_context.rack_id().expect("rack id"))
+        else {
+            panic!("expected rack state");
+        };
+
+        assert!(rack.leaking_trays.contains_key(leak_context.endpoint_key()));
+    }
+
+    #[test]
+    fn tray_state_remains_until_every_reporting_collector_retracts() {
+        let processor = RackLeakProcessor::new(1);
+        let first_context = context_with_rack("42:9e:b1:bd:9d:dd", "rack-1");
+        let mut second_context = first_context.clone();
+        second_context.collector_type = "second_leak_collector";
+
+        processor.process_event(&first_context, &tray_leak_report(true));
+        processor.process_event(&second_context, &tray_leak_report(true));
+
+        let emitted = processor.process_event(&second_context, &tray_leak_report(false));
+
+        let CollectorEvent::HealthReport(report) = &emitted[0] else {
+            panic!("expected health report");
+        };
+
+        assert_eq!(report.alerts.len(), 1);
+
+        {
+            let rack = processor
+                .racks
+                .get(first_context.rack_id().expect("rack id"))
+                .expect("expected rack state");
+
+            let reporters = rack
+                .leaking_trays
+                .get(first_context.endpoint_key())
+                .expect("expected leaking tray state");
+
+            assert_eq!(reporters.len(), 1);
+            assert!(reporters.contains(first_context.collector_type));
+        }
+
+        processor.process_event(&second_context, &tray_leak_report(true));
+
+        let emitted = processor.process_event(&first_context, &CollectorEvent::CollectorRemoved);
+
+        assert!(emitted.is_empty());
+
+        {
+            let rack = processor
+                .racks
+                .get(first_context.rack_id().expect("rack id"))
+                .expect("expected rack state");
+
+            let reporters = rack
+                .leaking_trays
+                .get(first_context.endpoint_key())
+                .expect("expected leaking tray state");
+
+            assert_eq!(reporters.len(), 1);
+            assert!(reporters.contains(second_context.collector_type));
+        }
+
+        processor.process_event(&second_context, &CollectorEvent::CollectorRemoved);
+
+        let rack = processor
+            .racks
+            .get(first_context.rack_id().expect("rack id"))
+            .expect("expected rack state");
+
+        assert!(
+            !rack
+                .leaking_trays
+                .contains_key(first_context.endpoint_key())
+        );
     }
 
     #[test]

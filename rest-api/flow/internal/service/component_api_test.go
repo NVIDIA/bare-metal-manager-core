@@ -14,6 +14,7 @@ import (
 
 	inventorymanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/manager"
 	inventorystore "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/store"
+	identifier "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/Identifier"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/deviceinfo"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/bmc"
@@ -27,16 +28,33 @@ import (
 type mockManager struct {
 	inventorymanager.Manager // embed to satisfy the interface; unimplemented methods will panic
 
-	components map[uuid.UUID]*component.Component
-	racks      map[uuid.UUID]*rack.Rack
-	drifts     []inventorystore.ComponentDrift
+	components  map[uuid.UUID]*component.Component
+	racks       map[uuid.UUID]*rack.Rack
+	domainRacks map[uuid.UUID][]*rack.Rack
+	drifts      []inventorystore.ComponentDrift
 }
 
 func newMockManager() *mockManager {
 	return &mockManager{
-		components: make(map[uuid.UUID]*component.Component),
-		racks:      make(map[uuid.UUID]*rack.Rack),
+		components:  make(map[uuid.UUID]*component.Component),
+		racks:       make(map[uuid.UUID]*rack.Rack),
+		domainRacks: make(map[uuid.UUID][]*rack.Rack),
 	}
+}
+
+func (m *mockManager) GetRackByIdentifier(
+	_ context.Context,
+	id identifier.Identifier,
+	_ bool,
+) (*rack.Rack, error) {
+	return m.GetRackByID(context.Background(), id.ID, true)
+}
+
+func (m *mockManager) GetRacksForNVLDomain(
+	_ context.Context,
+	id identifier.Identifier,
+) ([]*rack.Rack, error) {
+	return m.domainRacks[id.ID], nil
 }
 
 func (m *mockManager) GetDriftsByComponentIDs(_ context.Context, componentIDs []uuid.UUID) ([]inventorystore.ComponentDrift, error) {
@@ -498,6 +516,46 @@ func TestGetComponents_TargetSpecWithPagination(t *testing.T) {
 	require.NotNil(t, resp)
 	assert.Equal(t, int32(3), resp.Total)
 	assert.Equal(t, 2, len(resp.Components))
+}
+
+func TestGetComponents_NVLinkDomainTarget(t *testing.T) {
+	mgr := newMockManager()
+	rackID, _ := setupValidateTestData(mgr)
+	domainID := uuid.New()
+	mgr.domainRacks[domainID] = []*rack.Rack{mgr.racks[rackID]}
+	server := &FlowServerImpl{inventoryManager: mgr}
+
+	resp, err := server.GetComponents(context.Background(), &pb.GetComponentsRequest{
+		TargetSpec: &pb.OperationTargetSpec{
+			Targets: &pb.OperationTargetSpec_NvlDomains{
+				NvlDomains: &pb.NVLDomainTargets{
+					Targets: []*pb.NVLDomainTarget{
+						{
+							Identifier: &pb.NVLDomainTarget_Id{
+								Id: &pb.UUID{Id: domainID.String()},
+							},
+							ComponentTypes: []pb.ComponentType{
+								pb.ComponentType_COMPONENT_TYPE_COMPUTE,
+							},
+						},
+						{
+							Identifier: &pb.NVLDomainTarget_Id{
+								Id: &pb.UUID{Id: domainID.String()},
+							},
+							ComponentTypes: []pb.ComponentType{
+								pb.ComponentType_COMPONENT_TYPE_COMPUTE,
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, int32(2), resp.Total)
+	assert.Len(t, resp.Components, 2)
 }
 
 // --- ValidateComponents Tests ---

@@ -51,6 +51,12 @@ hyper-util = { workspace = true, features = [
 ] }
 mac_address = { workspace = true }
 metrics-endpoint = { path = "../metrics-endpoint" }
+opentelemetry = { workspace = true }
+opentelemetry-proto = { workspace = true, default-features = false, features = [
+  "gen-tonic",
+  "logs",
+  "metrics",
+] }
 prometheus = { workspace = true }
 reqwest = { workspace = true, features = ["query", "json", "rustls"] }
 rustls = { workspace = true }
@@ -71,12 +77,14 @@ tokio = { workspace = true }
 tonic = { workspace = true, features = ["tls-native-roots"] }
 tonic-prost = { workspace = true }
 prost = { workspace = true }
+prost-reflect = { workspace = true, features = ["serde"] }
 prost-types = { workspace = true }
 nv-redfish = { workspace = true, features = [
   "bmc-http",
   "chassis",
   "computer-systems",
   "event-service",
+  "http-extras",
   "log-services",
   "managers",
   "memory",

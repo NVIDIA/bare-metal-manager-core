@@ -305,7 +305,8 @@ mod tests {
 
     impl UmaskGuard {
         fn set(mask: libc::mode_t) -> Self {
-            // SAFETY: `umask` cannot fail; it swaps and returns the prior mask.
+            // SAFETY: `umask` accepts every `mode_t` value and dereferences no pointers. The
+            // caller holds `UMASK_TEST_LOCK`, serializing this process-global mutation.
             let previous = unsafe { libc::umask(mask) };
             Self(previous)
         }
@@ -313,7 +314,8 @@ mod tests {
 
     impl Drop for UmaskGuard {
         fn drop(&mut self) {
-            // SAFETY: restoring the previously saved process umask.
+            // SAFETY: `self.0` was returned by `umask`; every `mode_t` value is accepted, and
+            // the call dereferences no pointers.
             unsafe { libc::umask(self.0) };
         }
     }

@@ -45,6 +45,13 @@ export NICO_CORE_IMAGE_TAG=NICO_CORE_TAG             # e.g. 2.0.0-pr-58-g38a54a3
 export NICO_REST_IMAGE_TAG=NICO_REST_TAG             # e.g. 2.0.0-pr-58-g38a54a3f
 # export REGISTRY_PULL_SECRET=RAW_API_KEY            # optional; raw key for authenticated registries
 
+# DPF (DOCA Platform Framework) DPU provisioning installs BY DEFAULT.
+# Set these three variables, or pass --skip-dpf to opt out:
+export NICO_DPF_DPU_INTERFACE=<nic-facing-dpus>     # controller NIC for the DPU cluster VIP
+export NICO_DPF_DPU_CLUSTER_VIP=<free-routable-ip>  # floating IP the DPUs use to reach their control plane
+export NICO_DPF_BMC_ROOT_PASSWORD=<bmc-password>    # site-wide BMC root password
+# Refer to helm-prereqs/README.md §DPF for full variable reference.
+
 # 3. Customize site-specific values
 #    Edit helm-prereqs/values/nico-core.yaml:
 #      nico-api.hostname      — your site's external API hostname
@@ -56,8 +63,9 @@ export NICO_REST_IMAGE_TAG=NICO_REST_TAG             # e.g. 2.0.0-pr-58-g38a54a3
 
 # 4. Run setup — installs common services, NICo Core, and NICo REST in order
 cd helm-prereqs
-./setup.sh        # interactive — prompts before deploying Core and REST
-./setup.sh -y     # non-interactive — deploys everything (CI/CD)
+./setup.sh                # interactive: prompts before deploying Core and REST
+./setup.sh -y             # non-interactive: deploys everything including DPF (CI/CD)
+./setup.sh -y --skip-dpf  # non-interactive: skip DPF (no DPUs, or still on iPXE)
 ```
 
 To tear everything down:

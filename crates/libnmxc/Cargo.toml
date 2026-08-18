@@ -52,3 +52,6 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 [build-dependencies]
 tonic-prost-build = { workspace = true }
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"

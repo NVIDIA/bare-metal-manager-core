@@ -111,7 +111,6 @@ func (o *MachineOnlineRepairPolicy) UnmarshalJSON(data []byte) (err error) {
 	varMachineOnlineRepairPolicy := _MachineOnlineRepairPolicy{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varMachineOnlineRepairPolicy)
 
 	if err != nil {

@@ -56,12 +56,13 @@ message DhcpConfig {
 }
 
 // Mirrors utils::models::dhcp::InterfaceInfo.
-// IPv4 addresses are encoded as dotted-decimal strings. IPv6 details are
-// absent for v4-only hosts.
+// IPv4 addresses are encoded as dotted-decimal strings and are absent for
+// IPv6-only hosts. Address, gateway, and prefix are either all present or all
+// absent. IPv6 details are absent for v4-only hosts.
 message InterfaceInfo {
-    string address = 1;
-    string gateway = 2;
-    string prefix = 3;
+    optional string address = 1;
+    optional string gateway = 2;
+    optional string prefix = 3;
     string fqdn = 4;
     optional string booturl = 5;
     optional uint32 mtu = 6;

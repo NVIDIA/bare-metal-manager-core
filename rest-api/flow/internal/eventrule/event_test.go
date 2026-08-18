@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	flowtypes "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
@@ -88,4 +89,95 @@ func TestResourceIDMayBeUnresolved(t *testing.T) {
 
 	resource.ID = uuid.New()
 	require.NoError(t, resource.Validate())
+}
+
+func TestResolvedResource_Validate(t *testing.T) {
+	componentID := uuid.New()
+	rackID := uuid.New()
+	tests := []struct {
+		name     string
+		resource ResolvedResource
+		wantErr  string
+	}{
+		{
+			name: "component",
+			resource: ResolvedResource{
+				Kind:          ResourceKindComponent,
+				ID:            componentID,
+				RackID:        rackID,
+				ComponentType: flowtypes.ComponentTypeCompute,
+			},
+		},
+		{
+			name: "rack",
+			resource: ResolvedResource{
+				Kind:   ResourceKindRack,
+				ID:     rackID,
+				RackID: rackID,
+			},
+		},
+		{
+			name: "rack ignores component type",
+			resource: ResolvedResource{
+				Kind:          ResourceKindRack,
+				ID:            rackID,
+				RackID:        rackID,
+				ComponentType: flowtypes.ComponentTypeCompute,
+			},
+		},
+		{
+			name:     "kind required",
+			resource: ResolvedResource{ID: componentID, RackID: rackID},
+			wantErr:  "unknown resource kind",
+		},
+		{
+			name:     "id required",
+			resource: ResolvedResource{Kind: ResourceKindComponent, RackID: rackID},
+			wantErr:  "resolved resource id is required",
+		},
+		{
+			name:     "rack id required",
+			resource: ResolvedResource{Kind: ResourceKindComponent, ID: componentID},
+			wantErr:  "resolved resource rack id is required",
+		},
+		{
+			name: "component type required",
+			resource: ResolvedResource{
+				Kind:   ResourceKindComponent,
+				ID:     componentID,
+				RackID: rackID,
+			},
+			wantErr: "resolved resource component type",
+		},
+		{
+			name: "component type must be supported",
+			resource: ResolvedResource{
+				Kind:          ResourceKindComponent,
+				ID:            componentID,
+				RackID:        rackID,
+				ComponentType: flowtypes.ComponentType("INVALID"),
+			},
+			wantErr: "unknown component type",
+		},
+		{
+			name: "rack identities must match",
+			resource: ResolvedResource{
+				Kind:   ResourceKindRack,
+				ID:     uuid.New(),
+				RackID: rackID,
+			},
+			wantErr: "resolved rack resource id must equal rack id",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := test.resource.Validate()
+			if test.wantErr != "" {
+				require.ErrorContains(t, err, test.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
 }

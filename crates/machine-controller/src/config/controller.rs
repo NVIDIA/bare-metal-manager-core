@@ -38,6 +38,7 @@ where
 
 /// MachineStateController related config.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct MachineStateControllerConfig {
     /// Common state controller configs
     #[serde(default = "StateControllerConfig::default")]

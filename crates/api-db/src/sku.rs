@@ -122,7 +122,6 @@ fn validate_storage_for_create(sku: &Sku) -> Result<(), DatabaseError> {
     Ok(())
 }
 
-#[allow(txn_held_across_await)]
 pub async fn create(txn: &mut PgConnection, sku: &Sku) -> Result<(), DatabaseError> {
     if sku.schema_version != CURRENT_SKU_VERSION {
         return Err(DatabaseError::InvalidArgument(

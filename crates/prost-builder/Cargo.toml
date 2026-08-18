@@ -36,3 +36,6 @@ syn = { default-features = false, workspace = true, features = [
 ] }
 quote = { default-features = false, workspace = true }
 proc-macro2 = { default-features = false, workspace = true }
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"

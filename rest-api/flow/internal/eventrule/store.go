@@ -18,6 +18,13 @@ var ErrRuleNotFound = errors.New("event rule not found")
 // cannot succeed.
 var ErrInvalidPersistedRule = errors.New("invalid persisted event rule")
 
+// ErrInvalidPersistedExecution identifies persisted execution data that
+// cannot be decoded into a valid domain execution.
+var ErrInvalidPersistedExecution = errors.New("invalid persisted event action execution")
+
+// ErrExecutionNotFound identifies an unsuccessful execution lookup.
+var ErrExecutionNotFound = errors.New("execution not found")
+
 // RuleFilter limits rules returned by a store.
 type RuleFilter struct {
 	EventType *Type
@@ -80,4 +87,25 @@ type BindingStore interface {
 	// GetForScope returns the binding for an event type and scope. When no
 	// binding exists, implementations must return (nil, nil).
 	GetForScope(context.Context, Type, Scope) (*Binding, error)
+}
+
+// ExecutionStore atomically creates pending executions, owns
+// delivery and semantic deduplication, and persists attempt results.
+// CreateExecution returns the new execution, or (nil, nil) when an
+// existing execution accepts the request as a duplicate.
+// TransitionExecution returns ErrExecutionNotFound for an unknown
+// execution ID. The future scheduler extends transition persistence with lease
+// fencing without adding an ownership status. Implementations own creation,
+// observation, transition, and retry-scheduling timestamps.
+type ExecutionStore interface {
+	CreateExecution(
+		ctx context.Context,
+		identity ExecutionIdentity,
+		dedupe *Dedupe,
+	) (created *Execution, err error)
+	TransitionExecution(
+		ctx context.Context,
+		executionID uuid.UUID,
+		result ExecutionResult,
+	) (transitioned *Execution, err error)
 }

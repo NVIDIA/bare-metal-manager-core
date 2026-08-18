@@ -113,8 +113,8 @@ impl MachineFsm {
 
     fn fsm_bmc_init(self, event: Event, power_on: bool, bmc_only: bool) -> (Self, Vec<Action>) {
         match event {
-            Event::DhcpComplete(DhcpType::Bmc) => (
-                if bmc_only {
+            Event::DhcpComplete(DhcpType::Bmc) => {
+                let next_state = if bmc_only {
                     if power_on {
                         Self::BmcOnlyMachineUp
                     } else {
@@ -124,9 +124,14 @@ impl MachineFsm {
                     Self::Init
                 } else {
                     Self::MachineDown
-                },
-                vec![Action::SetupBmc],
-            ),
+                };
+                let actions = if power_on && !bmc_only {
+                    vec![Action::SetupBmc, Action::SetTimer(Timer::MachineOn)]
+                } else {
+                    vec![Action::SetupBmc]
+                };
+                (next_state, actions)
+            }
             Event::PowerOn => (
                 Self::BmcInit {
                     bmc_only,
@@ -448,6 +453,56 @@ impl DpuAgentFsm {
             ),
             Event::MachineNotFound => (Self::FailedAndWaitForReboot, vec![]),
             _ => (self, vec![]),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bmc_dhcp_completion_selects_state_and_actions() {
+        enum ExpectedState {
+            Init,
+            MachineDown,
+            BmcOnlyMachineUp,
+            BmcOnlyMachineDown,
+        }
+
+        for (power_on, bmc_only, expected_state, starts_boot) in [
+            (true, false, ExpectedState::Init, true),
+            (false, false, ExpectedState::MachineDown, false),
+            (true, true, ExpectedState::BmcOnlyMachineUp, false),
+            (false, true, ExpectedState::BmcOnlyMachineDown, false),
+        ] {
+            let (fsm, _) = MachineFsm::init(power_on, bmc_only);
+            let (fsm, actions) = fsm.event(Event::DhcpComplete(DhcpType::Bmc));
+
+            assert!(
+                match expected_state {
+                    ExpectedState::Init => matches!(fsm, MachineFsm::Init),
+                    ExpectedState::MachineDown => matches!(fsm, MachineFsm::MachineDown),
+                    ExpectedState::BmcOnlyMachineUp => {
+                        matches!(fsm, MachineFsm::BmcOnlyMachineUp)
+                    }
+                    ExpectedState::BmcOnlyMachineDown => {
+                        matches!(fsm, MachineFsm::BmcOnlyMachineDown)
+                    }
+                },
+                "unexpected state for power_on={power_on}, bmc_only={bmc_only}"
+            );
+            assert!(
+                if starts_boot {
+                    matches!(
+                        actions.as_slice(),
+                        [Action::SetupBmc, Action::SetTimer(Timer::MachineOn)]
+                    )
+                } else {
+                    matches!(actions.as_slice(), [Action::SetupBmc])
+                },
+                "unexpected actions for power_on={power_on}, bmc_only={bmc_only}"
+            );
         }
     }
 }

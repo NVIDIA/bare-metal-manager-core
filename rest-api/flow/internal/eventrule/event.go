@@ -156,3 +156,27 @@ type ResolvedResource struct {
 	RackID        uuid.UUID
 	ComponentType flowtypes.ComponentType
 }
+
+// Validate checks the canonical identity and attributes established during
+// enrichment.
+func (r ResolvedResource) Validate() error {
+	if err := r.Kind.Validate(); err != nil {
+		return err
+	}
+	if r.ID == uuid.Nil {
+		return fmt.Errorf("resolved resource id is required")
+	}
+	if r.RackID == uuid.Nil {
+		return fmt.Errorf("resolved resource rack id is required")
+	}
+	if r.Kind == ResourceKindComponent {
+		if err := r.ComponentType.Validate(); err != nil {
+			return fmt.Errorf("resolved resource component type: %w", err)
+		}
+	} else {
+		if r.ID != r.RackID {
+			return fmt.Errorf("resolved rack resource id must equal rack id")
+		}
+	}
+	return nil
+}

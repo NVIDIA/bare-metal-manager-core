@@ -198,7 +198,6 @@ func (o *AllocationConstraintCreateRequest) UnmarshalJSON(data []byte) (err erro
 	varAllocationConstraintCreateRequest := _AllocationConstraintCreateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varAllocationConstraintCreateRequest)
 
 	if err != nil {

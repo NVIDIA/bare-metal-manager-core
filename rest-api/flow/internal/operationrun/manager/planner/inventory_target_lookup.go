@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	dbquery "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/query"
+	inventoryresolver "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/resolver"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
 	operationrun "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun"
 	identifier "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/Identifier"
@@ -24,6 +25,7 @@ import (
 // this interface.
 type InventoryTargetSource interface {
 	GetRackByIdentifier(ctx context.Context, identifier identifier.Identifier, withComponents bool) (*rack.Rack, error)
+	GetRacksForNVLDomain(ctx context.Context, domainIdentifier identifier.Identifier) ([]*rack.Rack, error)
 	GetListOfRacks(ctx context.Context, info dbquery.StringQueryInfo, manufacturerFilter *dbquery.StringQueryInfo, modelFilter *dbquery.StringQueryInfo, pagination *dbquery.Pagination, orderBy *dbquery.OrderBy, withComponents bool) ([]*rack.Rack, int32, error)
 	GetComponentByID(ctx context.Context, id uuid.UUID) (*inventorycomponent.Component, error)
 	GetComponentsByExternalIDs(ctx context.Context, externalIDs []string) ([]*inventorycomponent.Component, error)
@@ -132,6 +134,8 @@ func (l *InventoryTargetLookup) TargetsFromSpec(
 	var err error
 	if spec.IsRackTargeting() {
 		targets, err = l.targetsFromRackSpec(ctx, spec.Racks)
+	} else if spec.IsNVLDomainTargeting() {
+		targets, err = l.targetsFromNVLDomainSpec(ctx, spec.NVLDomains)
 	} else {
 		targets, err = l.targetsFromComponentSpec(ctx, spec.Components)
 	}
@@ -195,6 +199,47 @@ func (l *InventoryTargetLookup) requireInventory() error {
 	}
 
 	return nil
+}
+
+func (l *InventoryTargetLookup) targetsFromNVLDomainSpec(
+	ctx context.Context,
+	domainTargets []operation.NVLDomainTarget,
+) ([]operation.RackExecutionTarget, error) {
+	rackTargets, err := inventoryresolver.ResolveNVLDomainRackTargets(
+		ctx,
+		l.inventory,
+		domainTargets,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	targets := make([]operation.RackExecutionTarget, 0)
+	for rackIndex, rackTarget := range rackTargets {
+		r, err := l.inventory.GetRackByIdentifier(
+			ctx,
+			rackTarget.Identifier,
+			true,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("NVLink domain rack target %d: %w", rackIndex, err)
+		}
+
+		target, ok := executionTargetFromRack(
+			r,
+			componentFilterFromTypes(rackTarget.ComponentTypes),
+		)
+		if ok {
+			targets = append(targets, target)
+		}
+	}
+
+	normalized, err := executionTargets(targets).normalize()
+	if err != nil {
+		return nil, fmt.Errorf("normalize NVLink domain targets: %w", err)
+	}
+
+	return []operation.RackExecutionTarget(normalized), nil
 }
 
 func (l *InventoryTargetLookup) targetsFromRackSpec(

@@ -336,7 +336,6 @@ func (o *VpcEffectiveRoutingProfile) UnmarshalJSON(data []byte) (err error) {
 	varVpcEffectiveRoutingProfile := _VpcEffectiveRoutingProfile{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varVpcEffectiveRoutingProfile)
 
 	if err != nil {

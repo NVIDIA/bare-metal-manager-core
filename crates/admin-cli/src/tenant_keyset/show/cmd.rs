@@ -54,7 +54,7 @@ async fn show_keysets(
         Err(e) => return Err(e),
     };
     if json {
-        println!("{}", serde_json::to_string_pretty(&all_keysets).unwrap());
+        println!("{}", serde_json::to_string_pretty(&all_keysets)?);
     } else {
         convert_keysets_to_nice_table(all_keysets).printstd();
     }
@@ -77,7 +77,7 @@ async fn show_keyset_details(
     let keysets = &keysets.keyset[0];
 
     if json {
-        println!("{}", serde_json::to_string_pretty(keysets).unwrap());
+        println!("{}", serde_json::to_string_pretty(keysets)?);
     } else {
         println!(
             "{}",
