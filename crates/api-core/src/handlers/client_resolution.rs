@@ -252,10 +252,16 @@ pub(super) async fn resolve_cloud_init_instructions(
             && let Some(managed_host_state) =
                 db::machine::lookup_managed_host_state(&mut *conn, instance.machine_id).await?
         {
+            // The provisioning wait is included because it is exactly when the
+            // tenant's operating system is installing and running cloud-init:
+            // that cloud-init needs the tenant's user-data, and the phone-home
+            // block NICo injects into it is what ends the wait.
             let is_assigned_and_ready = matches!(
                 managed_host_state,
                 ManagedHostState::Assigned {
-                    instance_state: InstanceState::Ready | InstanceState::WaitingForRebootToReady,
+                    instance_state: InstanceState::Ready
+                        | InstanceState::WaitingForRebootToReady
+                        | InstanceState::WaitingForProvisioningComplete { .. },
                 }
             );
 

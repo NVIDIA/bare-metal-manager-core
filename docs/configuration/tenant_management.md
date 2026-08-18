@@ -613,10 +613,32 @@ cloud-init runs the `phone_home` module in its final stage, after the rest of yo
 
 **Notes and caveats.**
 
-- Phone-home only gates *status reporting*. It does not change how the host is provisioned or booted -- the reboot into the provisioned OS happens identically whether or not phone-home is enabled.
-- If phone-home is enabled but the booted OS never runs cloud-init, or the guest cannot reach the metadata endpoint, the callback never arrives and the instance stays in its provisioning state, never reporting ready.
+- The reboot into the provisioned OS happens identically whether or not phone-home is enabled. What differs is how NICo decides a provisioning boot finished: with phone-home, the callback is the signal; without it, NICo waits for the host to stop asking for iPXE instructions (see [Provisioning retries and failure](#provisioning-retries-and-failure)).
+- If phone-home is enabled but the booted OS never runs cloud-init, or the guest cannot reach the metadata endpoint, the callback never arrives. The instance stays in its provisioning state until the platform operator's provisioning deadline elapses (60 minutes by default), and then reports `Error`.
 - The metadata endpoint (by default, `169.254.169.254:7777`) is not a tenant-facing API, and is reachable only from the provisioned host over its link-local metadata link.
 - Rebooting the instance with a one-time custom iPXE override (`instance update --reboot-with-custom-ipxe=true`) re-arms the gate when phone-home is enabled: NICo clears the recorded contact, so the OS must phone home again before the instance is reported ready.
+
+### Provisioning retries and failure
+
+A provisioning boot -- initial provisioning, or a reboot with
+`--reboot-with-custom-ipxe=true` -- runs your iPXE script and then has to install
+an operating system. NICo cannot see inside that install, so it treats the host
+returning for iPXE instructions as evidence that the attempt failed, and serves
+your script again. A script that cannot fetch its kernel (an expired artifact
+token, a moved URL) therefore retries instead of leaving the machine to network
+boot against an empty disk forever.
+
+NICo concludes the install succeeded when the OS phones home, or, for instances
+without phone-home, when the host has gone quiet for the site's quiet window (15
+minutes by default). Only then does the instance report `Ready`.
+
+If neither happens -- after a handful of attempts, or once the site's
+provisioning deadline (60 minutes by default) elapses -- the instance reports
+`Error` rather than a `Ready` machine with nothing installed. Fix what the script
+could not deliver and request another
+`instance update --reboot-with-custom-ipxe=true` to start over; the same request
+also restarts an attempt that is still in flight. The exact retry budget, quiet
+window, and deadline are set by your platform operator.
 
 ### Batch Instance Creation
 

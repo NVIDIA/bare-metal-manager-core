@@ -46,6 +46,7 @@ pub(in crate::tests) struct TestInstanceBuilder<'a, 'b> {
     tenant: rpc::TenantConfig,
     metadata: Option<rpc::Metadata>,
     mh: &'b TestManagedHost,
+    stop_at_provisioning_wait: bool,
 }
 
 impl<'a, 'b> TestInstanceBuilder<'a, 'b> {
@@ -66,7 +67,17 @@ impl<'a, 'b> TestInstanceBuilder<'a, 'b> {
             tenant: default_tenant_config(),
             metadata: None,
             mh,
+            stop_at_provisioning_wait: false,
         }
+    }
+
+    /// Stops advancing at [`InstanceState::WaitingForProvisioningComplete`],
+    /// where the host has been rebooted for its provisioning boot but nothing has
+    /// confirmed that the tenant's operating system installed. Use this to
+    /// exercise what a host sees while it is being provisioned.
+    pub(in crate::tests) fn stop_at_provisioning_wait(mut self) -> Self {
+        self.stop_at_provisioning_wait = true;
+        self
     }
 
     pub(in crate::tests) fn config(mut self, config: rpc::InstanceConfig) -> Self {
@@ -125,6 +136,12 @@ impl<'a, 'b> TestInstanceBuilder<'a, 'b> {
         if self.config.tenant.is_none() {
             self.config.tenant = Some(self.tenant);
         }
+        // An instance whose operating system reports provisioning completion by
+        // phoning home cannot reach Ready without that contact, so stop where
+        // the state machine does. Always-PXE instances never wait at all.
+        let awaits_phone_home = self.config.os.as_ref().is_some_and(|os| {
+            os.phone_home_enabled && !os.run_provisioning_instructions_on_every_boot
+        });
         let instance_id = self
             .env
             .api
@@ -142,7 +159,11 @@ impl<'a, 'b> TestInstanceBuilder<'a, 'b> {
             .id
             .expect("Missing instance ID");
 
-        advance_created_instance_into_ready_state(self.env, self.mh).await;
+        if self.stop_at_provisioning_wait || awaits_phone_home {
+            advance_created_instance_into_provisioning_wait(self.env, self.mh).await;
+        } else {
+            advance_created_instance_into_ready_state(self.env, self.mh).await;
+        }
         let tinstance = TestInstance {
             id: instance_id,
             env: self.env,
@@ -444,17 +465,58 @@ pub(in crate::tests) async fn advance_created_instance_into_ready_state(
     })
     .await;
 
-    assert_eq!(
-        mh.host().parsed_history(Some(2)).await,
+    // Instance creation arms a provisioning boot, so the reboot is followed by a
+    // wait for evidence that the tenant OS installed. The test site config uses
+    // a zero quiet window, so a host that never network boots -- which is every
+    // host in these fixtures -- clears the wait on the next iteration.
+    // Always-PXE instances never arm the one-shot request and so skip the wait.
+    let awaits_provisioning = !instance_of(env, mh)
+        .await
+        .config
+        .os
+        .run_provisioning_instructions_on_every_boot;
+    let expected: Vec<&str> = if awaits_provisioning {
         vec![
-            ManagedHostState::Assigned {
-                instance_state: model::machine::InstanceState::WaitingForRebootToReady,
-            },
-            ManagedHostState::Assigned {
-                instance_state: model::machine::InstanceState::Ready,
-            }
+            "Assigned/WaitingForRebootToReady",
+            "Assigned/WaitingForProvisioningComplete",
+            "Assigned/Ready",
         ]
-    );
+    } else {
+        vec!["Assigned/WaitingForRebootToReady", "Assigned/Ready"]
+    };
+    let actual: Vec<String> = mh
+        .host()
+        .parsed_history(Some(expected.len()))
+        .await
+        .iter()
+        .map(ManagedHostState::to_string)
+        .collect();
+    assert_eq!(actual, expected);
+}
+
+pub(in crate::tests) async fn advance_created_instance_into_provisioning_wait(
+    env: &TestEnv,
+    mh: &TestManagedHost,
+) {
+    advance_created_instance_into_state(env, mh, |machine| {
+        matches!(
+            machine.state.value,
+            ManagedHostState::Assigned {
+                instance_state: model::machine::InstanceState::WaitingForProvisioningComplete { .. },
+            }
+        )
+    })
+    .await;
+}
+
+async fn instance_of(env: &TestEnv, mh: &TestManagedHost) -> InstanceSnapshot {
+    let mut txn = env.pool.begin().await.unwrap();
+    let instance = db::instance::find_by_machine_id(txn.as_mut(), &mh.host().id)
+        .await
+        .unwrap()
+        .expect("machine has an instance");
+    txn.rollback().await.unwrap();
+    instance
 }
 
 pub(in crate::tests) async fn delete_instance(

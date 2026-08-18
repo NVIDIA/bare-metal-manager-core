@@ -1881,6 +1881,14 @@ pub enum FailureCause {
     SpdmAttestationFailed { err: String },
 
     BiosSetupFailed { err: String },
+
+    // ProvisioningFailed is returned when a provisioning boot never produced
+    // evidence that the tenant's operating system installed: either the host
+    // kept coming back for iPXE instructions until `serve_count` exhausted the
+    // configured budget, or the overall provisioning deadline elapsed. Without
+    // it, a machine whose install fails network-boots against an empty disk
+    // forever while reporting itself provisioned.
+    ProvisioningFailed { serve_count: u32, err: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -2286,6 +2294,25 @@ pub enum InstanceState {
     WaitingForDpaToBeReady,
     WaitingForExtensionServicesConfig,
     WaitingForRebootToReady,
+    /// A provisioning boot has been armed and the host rebooted, but nothing yet
+    /// proves the tenant's operating system actually installed. NICo keeps
+    /// re-serving the tenant's iPXE script for every PXE boot that arrives in
+    /// this state instead of consuming the one-shot request on the first serve,
+    /// so a failed install retries rather than falling through to
+    /// "exit into the OS" against an empty disk.
+    ///
+    /// Serve bookkeeping (`custom_pxe_serve_count` and
+    /// `custom_pxe_last_served_at` on the `instances` row) is deliberately not
+    /// duplicated here: the API records each serve while this state is
+    /// persisted, so a copy in the state would be stale the moment a host PXE
+    /// boots.
+    WaitingForProvisioningComplete {
+        /// When the provisioning boot was armed. Bounds the quiet window for a
+        /// host that never asks for iPXE instructions at all.
+        started_at: DateTime<Utc>,
+        /// When to give up and fail the instance without success evidence.
+        deadline: DateTime<Utc>,
+    },
     Ready,
     HostPlatformConfiguration {
         platform_config_state: HostPlatformConfigurationState,
@@ -2494,7 +2521,16 @@ impl Display for MachineState {
 
 impl Display for InstanceState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(self, f)
+        match self {
+            // The label reaches operators through `ManagedHostState`'s `Display`,
+            // the iPXE echo lines, and state history. Rendering the timestamps
+            // this variant carries would make the same logical state read as a
+            // different label on every attempt, so keep the label constant.
+            InstanceState::WaitingForProvisioningComplete { .. } => {
+                write!(f, "WaitingForProvisioningComplete")
+            }
+            _ => std::fmt::Debug::fmt(self, f),
+        }
     }
 }
 
@@ -2540,6 +2576,7 @@ impl FailureCause {
             FailureCause::DpfProvisioning { .. } => "dpf_provisioning",
             FailureCause::SpdmAttestationFailed { .. } => "spdm_attestation_failed",
             FailureCause::BiosSetupFailed { .. } => "bios_setup_failed",
+            FailureCause::ProvisioningFailed { .. } => "provisioning_failed",
         }
     }
 }
@@ -2569,6 +2606,7 @@ impl Display for FailureCause {
                 write!(f, "SpdmAttestationFailed")
             }
             FailureCause::BiosSetupFailed { .. } => write!(f, "BiosSetupFailed"),
+            FailureCause::ProvisioningFailed { .. } => write!(f, "ProvisioningFailed"),
         }
     }
 }
@@ -2990,6 +3028,10 @@ pub fn state_sla(
             InstanceState::HostPlatformConfiguration { .. } => {
                 StateSla::with_sla(slas::ASSIGNED_HOST_PLATFORM_CONFIGURATION, time_in_state)
             }
+            InstanceState::WaitingForProvisioningComplete { .. } => StateSla::with_sla(
+                slas::ASSIGNED_WAITING_FOR_PROVISIONING_COMPLETE,
+                time_in_state,
+            ),
             _ => StateSla::with_sla(slas::ASSIGNED, time_in_state),
         },
         ManagedHostState::WaitingForCleanup { .. } => {

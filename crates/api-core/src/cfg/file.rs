@@ -4708,6 +4708,9 @@ mod tests {
             max_bios_config_retries: 3,
             polling_bios_setup_stuck_threshold: Duration::minutes(15),
             boot_interface_observation_interval: Duration::hours(2),
+            provisioning_quiet_window: Duration::minutes(15),
+            max_provisioning_serves: 4,
+            provisioning_deadline: Duration::minutes(60),
         };
 
         let config_str = serde_json::to_string(&input).unwrap();
@@ -4756,6 +4759,9 @@ mod tests {
                 max_bios_config_retries: 3,
                 polling_bios_setup_stuck_threshold: Duration::minutes(15),
                 boot_interface_observation_interval: Duration::hours(2),
+                provisioning_quiet_window: Duration::minutes(15),
+                max_provisioning_serves: 4,
+                provisioning_deadline: Duration::minutes(60),
             }
         );
     }
@@ -4780,6 +4786,9 @@ mod tests {
                 max_bios_config_retries: 3,
                 polling_bios_setup_stuck_threshold: Duration::minutes(15),
                 boot_interface_observation_interval: Duration::minutes(10),
+                provisioning_quiet_window: Duration::minutes(15),
+                max_provisioning_serves: 4,
+                provisioning_deadline: Duration::minutes(60),
             }
         );
     }
@@ -5323,6 +5332,9 @@ mod tests {
                 max_bios_config_retries: 3,
                 polling_bios_setup_stuck_threshold: Duration::minutes(15),
                 boot_interface_observation_interval: Duration::hours(2),
+                provisioning_quiet_window: Duration::minutes(15),
+                max_provisioning_serves: 4,
+                provisioning_deadline: Duration::minutes(60),
             }
         );
         assert_eq!(
@@ -5711,6 +5723,9 @@ mod tests {
                 max_bios_config_retries: 3,
                 polling_bios_setup_stuck_threshold: Duration::minutes(15),
                 boot_interface_observation_interval: Duration::minutes(10),
+                provisioning_quiet_window: Duration::minutes(15),
+                max_provisioning_serves: 4,
+                provisioning_deadline: Duration::minutes(60),
             }
         );
         assert_eq!(
@@ -6100,6 +6115,9 @@ mod tests {
                 max_bios_config_retries: 3,
                 polling_bios_setup_stuck_threshold: Duration::minutes(15),
                 boot_interface_observation_interval: Duration::hours(2),
+                provisioning_quiet_window: Duration::minutes(15),
+                max_provisioning_serves: 4,
+                provisioning_deadline: Duration::minutes(60),
             }
         );
         assert_eq!(

@@ -116,6 +116,30 @@ pub struct MachineStateControllerConfig {
         serialize_with = "as_duration"
     )]
     pub boot_interface_observation_interval: Duration,
+    /// How long an instance awaiting provisioning completion must go without a
+    /// new iPXE serve before NICo concludes the host booted its own disk. Only
+    /// consulted when the instance is not enrolled in phone home, which reports
+    /// completion directly.
+    #[serde(
+        default = "MachineStateControllerConfig::provisioning_quiet_window_default",
+        deserialize_with = "deserialize_duration_chrono",
+        serialize_with = "as_duration"
+    )]
+    pub provisioning_quiet_window: Duration,
+    /// How many times the tenant's iPXE script may be served for one
+    /// provisioning boot before the instance is failed. A host that keeps
+    /// coming back for instructions is not installing its operating system.
+    #[serde(default = "MachineStateControllerConfig::max_provisioning_serves_default")]
+    pub max_provisioning_serves: u32,
+    /// How long an instance may await provisioning completion before it is
+    /// failed, regardless of serve count. Bounds hosts that neither complete
+    /// nor return to network boot.
+    #[serde(
+        default = "MachineStateControllerConfig::provisioning_deadline_default",
+        deserialize_with = "deserialize_duration_chrono",
+        serialize_with = "as_duration"
+    )]
+    pub provisioning_deadline: Duration,
 }
 
 impl MachineStateControllerConfig {
@@ -137,6 +161,13 @@ impl MachineStateControllerConfig {
             // Keep periodic Redfish reads out of unrelated controller tests.
             // Focused tests explicitly age the observation they exercise.
             boot_interface_observation_interval: Duration::weeks(52),
+            // No simulated host network boots in unrelated controller tests, so
+            // a zero quiet window lets provisioning completion resolve on the
+            // next iteration. Focused tests set their own window.
+            provisioning_quiet_window: Duration::zero(),
+            max_provisioning_serves:
+                MachineStateControllerConfig::max_provisioning_serves_default(),
+            provisioning_deadline: Duration::weeks(52),
         }
     }
 
@@ -180,6 +211,28 @@ impl MachineStateControllerConfig {
     pub fn boot_interface_observation_interval_default() -> Duration {
         Duration::minutes(10)
     }
+
+    /// Default quiet window before a silent host is assumed to have booted its
+    /// own disk. A host stuck in the empty-disk loop returns to network boot
+    /// within a minute or two of a failed install, so this is generous while
+    /// still bounding how long a healthy instance waits to report Ready.
+    pub fn provisioning_quiet_window_default() -> Duration {
+        Duration::minutes(15)
+    }
+
+    /// Default serve budget for one provisioning boot. The first serve is the
+    /// install itself; the rest absorb transient artifact-fetch failures before
+    /// the instance is declared failed.
+    pub fn max_provisioning_serves_default() -> u32 {
+        4
+    }
+
+    /// Default ceiling on awaiting provisioning completion. Long enough for a
+    /// large image to install and phone home, short enough that a stuck
+    /// instance becomes visibly failed within the hour.
+    pub fn provisioning_deadline_default() -> Duration {
+        Duration::minutes(60)
+    }
 }
 
 impl Default for MachineStateControllerConfig {
@@ -201,6 +254,11 @@ impl Default for MachineStateControllerConfig {
                 MachineStateControllerConfig::polling_bios_setup_stuck_threshold_default(),
             boot_interface_observation_interval:
                 MachineStateControllerConfig::boot_interface_observation_interval_default(),
+            provisioning_quiet_window:
+                MachineStateControllerConfig::provisioning_quiet_window_default(),
+            max_provisioning_serves:
+                MachineStateControllerConfig::max_provisioning_serves_default(),
+            provisioning_deadline: MachineStateControllerConfig::provisioning_deadline_default(),
         }
     }
 }

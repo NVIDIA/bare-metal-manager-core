@@ -450,6 +450,47 @@ pub async fn set_custom_pxe_reboot_requested(
     Ok(())
 }
 
+/// Records that the tenant's iPXE script was served for the provisioning boot
+/// currently being awaited.
+///
+/// The increment is computed in SQL so concurrent PXE requests from the same
+/// host cannot lose a serve to a stale read-modify-write. Returns the resulting
+/// count.
+pub async fn record_custom_pxe_serve(
+    machine_id: &MachineId,
+    txn: &mut PgConnection,
+) -> Result<i32, DatabaseError> {
+    let query = "UPDATE instances \
+                 SET custom_pxe_serve_count = custom_pxe_serve_count + 1, \
+                     custom_pxe_last_served_at = now() \
+                 WHERE machine_id=$1 RETURNING custom_pxe_serve_count";
+    let (serve_count,): (i32,) = sqlx::query_as(query)
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(serve_count)
+}
+
+/// Clears the serve bookkeeping so it describes only the provisioning boot about
+/// to be armed, and not any earlier attempt.
+pub async fn clear_custom_pxe_serve_tracking(
+    machine_id: &MachineId,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE instances \
+                 SET custom_pxe_serve_count = 0, custom_pxe_last_served_at = NULL \
+                 WHERE machine_id=$1 RETURNING machine_id";
+    let _: (MachineId,) = sqlx::query_as(query)
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(())
+}
+
 /// Updates the desired network configuration for an instance
 pub async fn update_network_config(
     txn: &mut PgConnection,

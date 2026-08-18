@@ -132,6 +132,7 @@ mod host_uefi_rotation;
 mod machine_validation;
 mod maintenance;
 mod power;
+mod provisioning_completion;
 mod rotation;
 mod sku;
 #[cfg(test)]
@@ -147,6 +148,9 @@ use host_boot_config::{
     HostBootConfigOutcome, HostBootConfigStage, check_host_boot_config, decide_host_boot_config,
     initial_set_boot_order_info, inspect_host_boot_config, run_host_boot_config_stage,
     should_skip_boot_order_remediation,
+};
+use provisioning_completion::{
+    ProvisioningBounds, ProvisioningFailure, ProvisioningOutcome, ProvisioningSignals,
 };
 use state_controller::db_write_batch::DbWriteBatch;
 
@@ -7874,7 +7878,7 @@ impl StateHandler for InstanceStateHandler {
                 }
                 InstanceState::WaitingForRebootToReady => {
                     // If custom_pxe_reboot_requested is set, this reboot was triggered by
-                    // the tenant requested a boot with custom iPXE. Clear the request flag.
+                    // a tenant-requested boot with custom iPXE. Clear the request flag.
                     // The use_custom_pxe_on_boot flag was already set by the API handler.
                     if instance.custom_pxe_reboot_requested {
                         ctx.pending_db_writes
@@ -7884,17 +7888,78 @@ impl StateHandler for InstanceStateHandler {
                             });
                     }
 
+                    // A provisioning boot is one whose whole purpose is to run the
+                    // tenant's iPXE script: instance creation and
+                    // `rebootWithCustomIpxe` both arm `use_custom_pxe_on_boot`.
+                    // Always-PXE instances re-serve their script on every boot and
+                    // never depend on that one-shot flag, and a deleted instance is
+                    // on its way out through Ready. Everything else is a plain
+                    // reboot of an already-installed OS and stays on the existing
+                    // straight-to-Ready path.
+                    let awaits_provisioning = (instance.use_custom_pxe_on_boot
+                        || instance.custom_pxe_reboot_requested)
+                        && !instance
+                            .config
+                            .os
+                            .run_provisioning_instructions_on_every_boot
+                        && instance.deleted.is_none();
+
+                    if awaits_provisioning {
+                        // Serves recorded for an earlier attempt would make this
+                        // one look like it had already spent its budget. Reset
+                        // before the host can come back and be served, not after.
+                        ctx.pending_db_writes
+                            .push(MachineWriteOp::ClearCustomPxeServeTracking {
+                                machine_id: mh_snapshot.host_snapshot.id,
+                            });
+                    }
+
                     // Reboot host
                     handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::ForceRestart)
                         .await?;
 
-                    // Instance is ready.
-                    // We can not determine if machine is rebooted successfully or not. Just leave
-                    // it like this and declare Instance Ready.
-                    let next_state = ManagedHostState::Assigned {
-                        instance_state: InstanceState::Ready,
-                    };
-                    Ok(StateHandlerOutcome::transition(next_state))
+                    if !awaits_provisioning {
+                        // Nothing is being installed, so there is nothing to
+                        // confirm. We cannot tell whether the machine rebooted
+                        // successfully, so declare the instance Ready.
+                        return Ok(StateHandlerOutcome::transition(
+                            ManagedHostState::Assigned {
+                                instance_state: InstanceState::Ready,
+                            },
+                        ));
+                    }
+
+                    // The reboot is only the start of provisioning: the host still
+                    // has to fetch the script, install, and boot its own disk.
+                    // Reporting Ready here is what let a failed install fall
+                    // through to "exit into the OS" against an empty disk.
+                    let started_at = Utc::now();
+                    let deadline = started_at
+                        + ctx
+                            .services
+                            .site_config
+                            .machine_state_controller
+                            .provisioning_deadline;
+                    Ok(StateHandlerOutcome::transition(
+                        ManagedHostState::Assigned {
+                            instance_state: InstanceState::WaitingForProvisioningComplete {
+                                started_at,
+                                deadline,
+                            },
+                        },
+                    ))
+                }
+                InstanceState::WaitingForProvisioningComplete {
+                    started_at,
+                    deadline,
+                } => {
+                    handle_waiting_for_provisioning_complete(
+                        ctx,
+                        mh_snapshot,
+                        instance,
+                        *started_at,
+                        *deadline,
+                    )
                 }
                 InstanceState::Ready => {
                     // Machine is up after reboot. Hurray. Instance is up.
@@ -8523,6 +8588,29 @@ impl StateHandler for InstanceStateHandler {
                             },
                         };
                         handle_bios_setup_failed_recovery(ctx, mh_snapshot, None, recovered).await
+                    }
+                    // A provisioning failure is recoverable without operator
+                    // surgery, unlike the causes below: the tenant either fixes
+                    // whatever the iPXE script could not deliver and asks for
+                    // another custom-iPXE boot, or gives the machine back. Hand
+                    // to `Ready`, which owns both flows, rather than requiring
+                    // an admin force-delete to leave this state.
+                    FailureCause::ProvisioningFailed { .. }
+                        if instance.custom_pxe_reboot_requested
+                            || instance.deleted.is_some() =>
+                    {
+                        tracing::info!(
+                            instance_id = %instance.id,
+                            machine_id = %host_machine_id,
+                            reboot_requested = instance.custom_pxe_reboot_requested,
+                            release_requested = instance.deleted.is_some(),
+                            "Leaving provisioning failure for a newer tenant request"
+                        );
+                        Ok(StateHandlerOutcome::transition(
+                            ManagedHostState::Assigned {
+                                instance_state: InstanceState::Ready,
+                            },
+                        ))
                     }
                     _ => {
                         // Only way to proceed for other causes is to
@@ -12445,6 +12533,109 @@ async fn handle_instance_host_boot_config_stage(
                 },
             },
         )),
+    }
+}
+
+/// Acts on the verdict [`provisioning_completion::evaluate`] reaches for an
+/// instance waiting for evidence that its provisioning boot installed an OS.
+///
+/// Success releases the one-shot custom-iPXE request that the iPXE handler
+/// deliberately leaves armed while this state is current, and resets the serve
+/// bookkeeping for whatever provisioning boot comes next. Both failure bounds
+/// end in [`FailureCause::ProvisioningFailed`], so a tenant sees a terminal
+/// failure instead of an instance that claims to be provisioned while its disk
+/// is empty.
+fn handle_waiting_for_provisioning_complete(
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    mh_snapshot: &ManagedHostStateSnapshot,
+    instance: &InstanceSnapshot,
+    started_at: DateTime<Utc>,
+    deadline: DateTime<Utc>,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    let machine_id = mh_snapshot.host_snapshot.id;
+    let controller_config = &ctx.services.site_config.machine_state_controller;
+    let bounds = ProvisioningBounds {
+        quiet_window: controller_config.provisioning_quiet_window,
+        max_serves: controller_config.max_provisioning_serves,
+    };
+    let serve_count = instance.custom_pxe_serve_count;
+    let now = Utc::now();
+    let signals = ProvisioningSignals::from_instance(instance, started_at, deadline);
+
+    let ready = ManagedHostState::Assigned {
+        instance_state: InstanceState::Ready,
+    };
+
+    match provisioning_completion::evaluate(signals, bounds, now) {
+        // The `Assigned{Ready}` handler owns both the reboot and the deletion
+        // flow, so let it start the replacement attempt rather than judging the
+        // one being replaced. This is also how a retry after a failure works.
+        ProvisioningOutcome::Superseded => {
+            tracing::info!(
+                instance_id = %instance.id,
+                %machine_id,
+                serve_count,
+                "Provisioning wait superseded by a newer tenant request"
+            );
+            Ok(StateHandlerOutcome::transition(ready))
+        }
+        ProvisioningOutcome::Complete(evidence) => {
+            tracing::info!(
+                instance_id = %instance.id,
+                %machine_id,
+                serve_count,
+                ?evidence,
+                "Provisioning boot completed; instance is ready"
+            );
+            ctx.pending_db_writes
+                .push(MachineWriteOp::UseCustomIpxeOnNextBoot {
+                    machine_id,
+                    boot_with_custom_ipxe: false,
+                });
+            ctx.pending_db_writes
+                .push(MachineWriteOp::ClearCustomPxeServeTracking { machine_id });
+            Ok(StateHandlerOutcome::transition(ready))
+        }
+        // Each PXE request re-serves the script on its own, so waiting is the
+        // retry; there is nothing for the controller to drive here.
+        ProvisioningOutcome::KeepWaiting => Ok(StateHandlerOutcome::wait(format!(
+            "Waiting for evidence that provisioning completed (serves: {serve_count}, deadline: {deadline})."
+        ))),
+        ProvisioningOutcome::Failed(failure) => {
+            let err = match failure {
+                ProvisioningFailure::ServeBudgetExhausted => format!(
+                    "the tenant's iPXE script was served {serve_count} times without evidence \
+                     the operating system installed (budget: {})",
+                    bounds.max_serves
+                ),
+                ProvisioningFailure::DeadlineElapsed => format!(
+                    "no evidence the operating system installed within {} of the provisioning \
+                     boot (serves: {serve_count})",
+                    deadline - started_at
+                ),
+            };
+            tracing::warn!(
+                instance_id = %instance.id,
+                %machine_id,
+                serve_count,
+                %err,
+                "Provisioning boot failed"
+            );
+            Ok(StateHandlerOutcome::transition(
+                ManagedHostState::Assigned {
+                    instance_state: InstanceState::Failed {
+                        details: FailureDetails {
+                            cause: FailureCause::ProvisioningFailed { serve_count, err },
+                            failed_at: now,
+                            source: FailureSource::StateMachineArea(
+                                StateMachineArea::AssignedInstance,
+                            ),
+                        },
+                        machine_id,
+                    },
+                },
+            ))
+        }
     }
 }
 
