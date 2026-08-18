@@ -23,15 +23,15 @@ var _ MappedNullable = &TenantAccountCountByStatus{}
 // TenantAccountCountByStatus Describes counts of Tenant Accounts in various statuses
 type TenantAccountCountByStatus struct {
 	// Total number of Tenant Accounts
-	Total *int64 `json:"total,omitempty"`
+	Total *int32 `json:"total,omitempty"`
 	// Number of Tenant Accounts in Pending status
-	Pending *int64 `json:"pending,omitempty"`
+	Pending *int32 `json:"pending,omitempty"`
 	// Number of Tenant Accounts in Invited status
-	Invited *int64 `json:"invited,omitempty"`
+	Invited *int32 `json:"invited,omitempty"`
 	// Number of Tenant Accounts in Ready status
-	Ready *int64 `json:"ready,omitempty"`
+	Ready *int32 `json:"ready,omitempty"`
 	// Number of Tenant Accounts in Error status
-	Error *int64 `json:"error,omitempty"`
+	Error *int32 `json:"error,omitempty"`
 }
 
 // NewTenantAccountCountByStatus instantiates a new TenantAccountCountByStatus object
@@ -52,9 +52,9 @@ func NewTenantAccountCountByStatusWithDefaults() *TenantAccountCountByStatus {
 }
 
 // GetTotal returns the Total field value if set, zero value otherwise.
-func (o *TenantAccountCountByStatus) GetTotal() int64 {
+func (o *TenantAccountCountByStatus) GetTotal() int32 {
 	if o == nil || IsNil(o.Total) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Total
@@ -62,7 +62,7 @@ func (o *TenantAccountCountByStatus) GetTotal() int64 {
 
 // GetTotalOk returns a tuple with the Total field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *TenantAccountCountByStatus) GetTotalOk() (*int64, bool) {
+func (o *TenantAccountCountByStatus) GetTotalOk() (*int32, bool) {
 	if o == nil || IsNil(o.Total) {
 		return nil, false
 	}
@@ -78,15 +78,15 @@ func (o *TenantAccountCountByStatus) HasTotal() bool {
 	return false
 }
 
-// SetTotal gets a reference to the given int64 and assigns it to the Total field.
-func (o *TenantAccountCountByStatus) SetTotal(v int64) {
+// SetTotal gets a reference to the given int32 and assigns it to the Total field.
+func (o *TenantAccountCountByStatus) SetTotal(v int32) {
 	o.Total = &v
 }
 
 // GetPending returns the Pending field value if set, zero value otherwise.
-func (o *TenantAccountCountByStatus) GetPending() int64 {
+func (o *TenantAccountCountByStatus) GetPending() int32 {
 	if o == nil || IsNil(o.Pending) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Pending
@@ -94,7 +94,7 @@ func (o *TenantAccountCountByStatus) GetPending() int64 {
 
 // GetPendingOk returns a tuple with the Pending field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *TenantAccountCountByStatus) GetPendingOk() (*int64, bool) {
+func (o *TenantAccountCountByStatus) GetPendingOk() (*int32, bool) {
 	if o == nil || IsNil(o.Pending) {
 		return nil, false
 	}
@@ -110,15 +110,15 @@ func (o *TenantAccountCountByStatus) HasPending() bool {
 	return false
 }
 
-// SetPending gets a reference to the given int64 and assigns it to the Pending field.
-func (o *TenantAccountCountByStatus) SetPending(v int64) {
+// SetPending gets a reference to the given int32 and assigns it to the Pending field.
+func (o *TenantAccountCountByStatus) SetPending(v int32) {
 	o.Pending = &v
 }
 
 // GetInvited returns the Invited field value if set, zero value otherwise.
-func (o *TenantAccountCountByStatus) GetInvited() int64 {
+func (o *TenantAccountCountByStatus) GetInvited() int32 {
 	if o == nil || IsNil(o.Invited) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Invited
@@ -126,7 +126,7 @@ func (o *TenantAccountCountByStatus) GetInvited() int64 {
 
 // GetInvitedOk returns a tuple with the Invited field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *TenantAccountCountByStatus) GetInvitedOk() (*int64, bool) {
+func (o *TenantAccountCountByStatus) GetInvitedOk() (*int32, bool) {
 	if o == nil || IsNil(o.Invited) {
 		return nil, false
 	}
@@ -142,15 +142,15 @@ func (o *TenantAccountCountByStatus) HasInvited() bool {
 	return false
 }
 
-// SetInvited gets a reference to the given int64 and assigns it to the Invited field.
-func (o *TenantAccountCountByStatus) SetInvited(v int64) {
+// SetInvited gets a reference to the given int32 and assigns it to the Invited field.
+func (o *TenantAccountCountByStatus) SetInvited(v int32) {
 	o.Invited = &v
 }
 
 // GetReady returns the Ready field value if set, zero value otherwise.
-func (o *TenantAccountCountByStatus) GetReady() int64 {
+func (o *TenantAccountCountByStatus) GetReady() int32 {
 	if o == nil || IsNil(o.Ready) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Ready
@@ -158,7 +158,7 @@ func (o *TenantAccountCountByStatus) GetReady() int64 {
 
 // GetReadyOk returns a tuple with the Ready field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *TenantAccountCountByStatus) GetReadyOk() (*int64, bool) {
+func (o *TenantAccountCountByStatus) GetReadyOk() (*int32, bool) {
 	if o == nil || IsNil(o.Ready) {
 		return nil, false
 	}
@@ -174,15 +174,15 @@ func (o *TenantAccountCountByStatus) HasReady() bool {
 	return false
 }
 
-// SetReady gets a reference to the given int64 and assigns it to the Ready field.
-func (o *TenantAccountCountByStatus) SetReady(v int64) {
+// SetReady gets a reference to the given int32 and assigns it to the Ready field.
+func (o *TenantAccountCountByStatus) SetReady(v int32) {
 	o.Ready = &v
 }
 
 // GetError returns the Error field value if set, zero value otherwise.
-func (o *TenantAccountCountByStatus) GetError() int64 {
+func (o *TenantAccountCountByStatus) GetError() int32 {
 	if o == nil || IsNil(o.Error) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Error
@@ -190,7 +190,7 @@ func (o *TenantAccountCountByStatus) GetError() int64 {
 
 // GetErrorOk returns a tuple with the Error field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *TenantAccountCountByStatus) GetErrorOk() (*int64, bool) {
+func (o *TenantAccountCountByStatus) GetErrorOk() (*int32, bool) {
 	if o == nil || IsNil(o.Error) {
 		return nil, false
 	}
@@ -206,8 +206,8 @@ func (o *TenantAccountCountByStatus) HasError() bool {
 	return false
 }
 
-// SetError gets a reference to the given int64 and assigns it to the Error field.
-func (o *TenantAccountCountByStatus) SetError(v int64) {
+// SetError gets a reference to the given int32 and assigns it to the Error field.
+func (o *TenantAccountCountByStatus) SetError(v int32) {
 	o.Error = &v
 }
 

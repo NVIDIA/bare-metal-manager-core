@@ -40,7 +40,7 @@ type MachineValidationResult struct {
 	// Context in which the validation test ran.
 	Context string `json:"context"`
 	// Exit code returned by the validation command.
-	ExitCode int64 `json:"exitCode"`
+	ExitCode int32 `json:"exitCode"`
 	// Time the validation test started.
 	StartTime time.Time `json:"startTime"`
 	// Time the validation test completed.
@@ -57,7 +57,7 @@ type _MachineValidationResult MachineValidationResult
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewMachineValidationResult(name string, description string, command string, args string, stdOut string, stdErr string, context string, exitCode int64, startTime time.Time, endTime time.Time, validationID string, testID string) *MachineValidationResult {
+func NewMachineValidationResult(name string, description string, command string, args string, stdOut string, stdErr string, context string, exitCode int32, startTime time.Time, endTime time.Time, validationID string, testID string) *MachineValidationResult {
 	this := MachineValidationResult{}
 	this.Name = name
 	this.Description = description
@@ -251,9 +251,9 @@ func (o *MachineValidationResult) SetContext(v string) {
 }
 
 // GetExitCode returns the ExitCode field value
-func (o *MachineValidationResult) GetExitCode() int64 {
+func (o *MachineValidationResult) GetExitCode() int32 {
 	if o == nil {
-		var ret int64
+		var ret int32
 		return ret
 	}
 
@@ -262,7 +262,7 @@ func (o *MachineValidationResult) GetExitCode() int64 {
 
 // GetExitCodeOk returns a tuple with the ExitCode field value
 // and a boolean to check if the value has been set.
-func (o *MachineValidationResult) GetExitCodeOk() (*int64, bool) {
+func (o *MachineValidationResult) GetExitCodeOk() (*int32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -270,7 +270,7 @@ func (o *MachineValidationResult) GetExitCodeOk() (*int64, bool) {
 }
 
 // SetExitCode sets field value
-func (o *MachineValidationResult) SetExitCode(v int64) {
+func (o *MachineValidationResult) SetExitCode(v int32) {
 	o.ExitCode = v
 }
 

@@ -35,10 +35,10 @@ type SiteUpdateRequest struct {
 	IsSerialConsoleEnabled *bool `json:"isSerialConsoleEnabled,omitempty"`
 	// Maximum idle time in seconds before Serial Console is disconnected. Can only be updated by Provider. Modifying this attribute has no actual effect on SOL. It will be removed in a future API version.
 	// Deprecated
-	SerialConsoleIdleTimeout *int64 `json:"serialConsoleIdleTimeout,omitempty"`
+	SerialConsoleIdleTimeout *int32 `json:"serialConsoleIdleTimeout,omitempty"`
 	// Maximum length of Serial Console session in seconds. Can only be updated by Provider. Modifying this attribute has no actual effect on SOL. It will be removed in a future API version.
 	// Deprecated
-	SerialConsoleMaxSessionLength *int64 `json:"serialConsoleMaxSessionLength,omitempty"`
+	SerialConsoleMaxSessionLength *int32 `json:"serialConsoleMaxSessionLength,omitempty"`
 	// Enable/disable Serial Console access using SSH Keys. Previously updateable only by Tenants, modifying this value is no longer supported, update SSH Key Groups to remove Site instead.
 	// Deprecated
 	IsSerialConsoleSSHKeysEnabled *bool `json:"isSerialConsoleSSHKeysEnabled,omitempty"`
@@ -265,9 +265,9 @@ func (o *SiteUpdateRequest) SetIsSerialConsoleEnabled(v bool) {
 
 // GetSerialConsoleIdleTimeout returns the SerialConsoleIdleTimeout field value if set, zero value otherwise.
 // Deprecated
-func (o *SiteUpdateRequest) GetSerialConsoleIdleTimeout() int64 {
+func (o *SiteUpdateRequest) GetSerialConsoleIdleTimeout() int32 {
 	if o == nil || IsNil(o.SerialConsoleIdleTimeout) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.SerialConsoleIdleTimeout
@@ -276,7 +276,7 @@ func (o *SiteUpdateRequest) GetSerialConsoleIdleTimeout() int64 {
 // GetSerialConsoleIdleTimeoutOk returns a tuple with the SerialConsoleIdleTimeout field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // Deprecated
-func (o *SiteUpdateRequest) GetSerialConsoleIdleTimeoutOk() (*int64, bool) {
+func (o *SiteUpdateRequest) GetSerialConsoleIdleTimeoutOk() (*int32, bool) {
 	if o == nil || IsNil(o.SerialConsoleIdleTimeout) {
 		return nil, false
 	}
@@ -292,17 +292,17 @@ func (o *SiteUpdateRequest) HasSerialConsoleIdleTimeout() bool {
 	return false
 }
 
-// SetSerialConsoleIdleTimeout gets a reference to the given int64 and assigns it to the SerialConsoleIdleTimeout field.
+// SetSerialConsoleIdleTimeout gets a reference to the given int32 and assigns it to the SerialConsoleIdleTimeout field.
 // Deprecated
-func (o *SiteUpdateRequest) SetSerialConsoleIdleTimeout(v int64) {
+func (o *SiteUpdateRequest) SetSerialConsoleIdleTimeout(v int32) {
 	o.SerialConsoleIdleTimeout = &v
 }
 
 // GetSerialConsoleMaxSessionLength returns the SerialConsoleMaxSessionLength field value if set, zero value otherwise.
 // Deprecated
-func (o *SiteUpdateRequest) GetSerialConsoleMaxSessionLength() int64 {
+func (o *SiteUpdateRequest) GetSerialConsoleMaxSessionLength() int32 {
 	if o == nil || IsNil(o.SerialConsoleMaxSessionLength) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.SerialConsoleMaxSessionLength
@@ -311,7 +311,7 @@ func (o *SiteUpdateRequest) GetSerialConsoleMaxSessionLength() int64 {
 // GetSerialConsoleMaxSessionLengthOk returns a tuple with the SerialConsoleMaxSessionLength field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // Deprecated
-func (o *SiteUpdateRequest) GetSerialConsoleMaxSessionLengthOk() (*int64, bool) {
+func (o *SiteUpdateRequest) GetSerialConsoleMaxSessionLengthOk() (*int32, bool) {
 	if o == nil || IsNil(o.SerialConsoleMaxSessionLength) {
 		return nil, false
 	}
@@ -327,9 +327,9 @@ func (o *SiteUpdateRequest) HasSerialConsoleMaxSessionLength() bool {
 	return false
 }
 
-// SetSerialConsoleMaxSessionLength gets a reference to the given int64 and assigns it to the SerialConsoleMaxSessionLength field.
+// SetSerialConsoleMaxSessionLength gets a reference to the given int32 and assigns it to the SerialConsoleMaxSessionLength field.
 // Deprecated
-func (o *SiteUpdateRequest) SetSerialConsoleMaxSessionLength(v int64) {
+func (o *SiteUpdateRequest) SetSerialConsoleMaxSessionLength(v int32) {
 	o.SerialConsoleMaxSessionLength = &v
 }
 

@@ -34,7 +34,7 @@ type AllocationConstraint struct {
 	// Type of the Allocation Constraint. `Reserved` is the only constraint type supported by current implementation.
 	ConstraintType *string `json:"constraintType,omitempty"`
 	// Value of the Allocation Constraint. For resource type: `InstanceType`, this value represents number of Machines associated with the Instance Type that is allocated to the Tenant. For resource type `IPBlock`, this value represents the prefix length of the IP Block allocated to the Tenant.
-	ConstraintValue *int64 `json:"constraintValue,omitempty"`
+	ConstraintValue *int32 `json:"constraintValue,omitempty"`
 	// ID of the allocated Tenant IP Block when resource type is IPBlock
 	DerivedResourceId NullableString `json:"derivedResourceId,omitempty"`
 	// Summary of the Instance Type
@@ -227,9 +227,9 @@ func (o *AllocationConstraint) SetConstraintType(v string) {
 }
 
 // GetConstraintValue returns the ConstraintValue field value if set, zero value otherwise.
-func (o *AllocationConstraint) GetConstraintValue() int64 {
+func (o *AllocationConstraint) GetConstraintValue() int32 {
 	if o == nil || IsNil(o.ConstraintValue) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.ConstraintValue
@@ -237,7 +237,7 @@ func (o *AllocationConstraint) GetConstraintValue() int64 {
 
 // GetConstraintValueOk returns a tuple with the ConstraintValue field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *AllocationConstraint) GetConstraintValueOk() (*int64, bool) {
+func (o *AllocationConstraint) GetConstraintValueOk() (*int32, bool) {
 	if o == nil || IsNil(o.ConstraintValue) {
 		return nil, false
 	}
@@ -253,8 +253,8 @@ func (o *AllocationConstraint) HasConstraintValue() bool {
 	return false
 }
 
-// SetConstraintValue gets a reference to the given int64 and assigns it to the ConstraintValue field.
-func (o *AllocationConstraint) SetConstraintValue(v int64) {
+// SetConstraintValue gets a reference to the given int32 and assigns it to the ConstraintValue field.
+func (o *AllocationConstraint) SetConstraintValue(v int32) {
 	o.ConstraintValue = &v
 }
 

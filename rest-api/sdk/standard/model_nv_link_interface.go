@@ -32,7 +32,7 @@ type NVLinkInterface struct {
 	// ID of the NVLink Domain associated with this Interface
 	NvLinkDomainId NullableString `json:"nvLinkDomainId,omitempty"`
 	// Index of the device, used to identify the GPU associated with this Interface
-	DeviceInstance *int64 `json:"deviceInstance,omitempty"`
+	DeviceInstance *int32 `json:"deviceInstance,omitempty"`
 	// Unique ID of the GPU
 	GpuGuid NullableString `json:"gpuGuid,omitempty"`
 	// Status of the NVLinkInterface
@@ -202,9 +202,9 @@ func (o *NVLinkInterface) UnsetNvLinkDomainId() {
 }
 
 // GetDeviceInstance returns the DeviceInstance field value if set, zero value otherwise.
-func (o *NVLinkInterface) GetDeviceInstance() int64 {
+func (o *NVLinkInterface) GetDeviceInstance() int32 {
 	if o == nil || IsNil(o.DeviceInstance) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.DeviceInstance
@@ -212,7 +212,7 @@ func (o *NVLinkInterface) GetDeviceInstance() int64 {
 
 // GetDeviceInstanceOk returns a tuple with the DeviceInstance field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *NVLinkInterface) GetDeviceInstanceOk() (*int64, bool) {
+func (o *NVLinkInterface) GetDeviceInstanceOk() (*int32, bool) {
 	if o == nil || IsNil(o.DeviceInstance) {
 		return nil, false
 	}
@@ -228,8 +228,8 @@ func (o *NVLinkInterface) HasDeviceInstance() bool {
 	return false
 }
 
-// SetDeviceInstance gets a reference to the given int64 and assigns it to the DeviceInstance field.
-func (o *NVLinkInterface) SetDeviceInstance(v int64) {
+// SetDeviceInstance gets a reference to the given int32 and assigns it to the DeviceInstance field.
+func (o *NVLinkInterface) SetDeviceInstance(v int32) {
 	o.DeviceInstance = &v
 }
 

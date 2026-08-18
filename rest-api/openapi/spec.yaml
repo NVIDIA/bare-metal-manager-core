@@ -1903,7 +1903,6 @@ paths:
           description: Filter Allocations by Constraint Type. Can be specified multiple times to filter on more than one Constraint Type.
         - schema:
             type: integer
-            format: int64
           in: query
           name: constraintValue
           description: Filter Allocations by Constraint Value. Can be specified multiple times to filter on more than one Constraint Value.
@@ -16787,7 +16786,6 @@ components:
           description: Context in which the validation test ran.
         exitCode:
           type: integer
-          format: int64
           description: Exit code returned by the validation command.
         startTime:
           type: string
@@ -16888,35 +16886,27 @@ components:
       properties:
         total:
           type: integer
-          format: int64
           description: 'Total number of Machines'
         initializing:
           type: integer
-          format: int64
           description: 'Number of Machines in Initializing status'
         reset:
           type: integer
-          format: int64
           description: 'Number of Machines in Reset status'
         assigned:
           type: integer
-          format: int64
           description: 'Number of Machines in Assigned status'
         ready:
           type: integer
-          format: int64
           description: 'Number of Machines in Ready status'
         error:
           type: integer
-          format: int64
           description: 'Number of Machines in Error status'
         decommissioned:
           type: integer
-          format: int64
           description: 'Number of Machines in Decommissioned status'
         unknown:
           type: integer
-          format: int64
           description: 'Number of Machines in Unknown status'
     IpBlockCountByStatus:
       title: IpBlockCountByStatus
@@ -16932,27 +16922,21 @@ components:
       properties:
         total:
           type: integer
-          format: int64
           description: 'Total number of IP Blocks'
         pending:
           type: integer
-          format: int64
           description: 'Number of IP Blocks in Pending status'
         provisioning:
           type: integer
-          format: int64
           description: 'Number of IP Blocks in Provisioning status'
         ready:
           type: integer
-          format: int64
           description: 'Number of IP Blocks in Ready status'
         deleting:
           type: integer
-          format: int64
           description: 'Number of IP Blocks in Deleting status'
         error:
           type: integer
-          format: int64
           description: 'Number of IP Blocks in Error status'
     TenantAccountCountByStatus:
       title: TenantAccountCountByStatus
@@ -16967,23 +16951,18 @@ components:
       properties:
         total:
           type: integer
-          format: int64
           description: 'Total number of Tenant Accounts'
         pending:
           type: integer
-          format: int64
           description: 'Number of Tenant Accounts in Pending status'
         invited:
           type: integer
-          format: int64
           description: 'Number of Tenant Accounts in Invited status'
         ready:
           type: integer
-          format: int64
           description: 'Number of Tenant Accounts in Ready status'
         error:
           type: integer
-          format: int64
           description: 'Number of Tenant Accounts in Error status'
     Tenant:
       title: Tenant
@@ -17117,47 +17096,36 @@ components:
       properties:
         total:
           type: integer
-          format: int64
           description: 'Total number of Instances'
         pending:
           type: integer
-          format: int64
           description: 'Number of Instances in Pending status'
         provisioning:
           type: integer
-          format: int64
           description: 'Number of Instances in Provisioning status'
         configuring:
           type: integer
-          format: int64
           description: 'Number of Instances in Configuring status'
         ready:
           type: integer
-          format: int64
           description: 'Number of Instances in Ready status'
         rebooting:
           type: integer
-          format: int64
           description: 'Number of Instances in Rebooting status'
         repairing:
           type: integer
-          format: int64
           description: 'Number of Instances in Repairing status'
         terminating:
           type: integer
-          format: int64
           description: 'Number of Instances in Terminating status'
         error:
           type: integer
-          format: int64
           description: 'Number of Instances in Error status'
         updating:
           type: integer
-          format: int64
           description: 'Number of Instances in Updating status'
         unknown:
           type: integer
-          format: int64
           description: 'Number of Instances in Unknown status'
     VpcCountByStatus:
       title: VpcCountByStatus
@@ -17173,27 +17141,21 @@ components:
       properties:
         total:
           type: integer
-          format: int64
           description: 'Total number of VPCs'
         pending:
           type: integer
-          format: int64
           description: 'Number of VPCs in Pending status'
         provisioning:
           type: integer
-          format: int64
           description: 'Number of VPCs in Provisioning status'
         ready:
           type: integer
-          format: int64
           description: 'Number of VPCs in Ready status'
         deleting:
           type: integer
-          format: int64
           description: 'Number of VPCs in Deleting status'
         error:
           type: integer
-          format: int64
           description: 'Number of VPCs in Error status'
     SubnetCountByStatus:
       title: SubnetCountByStatus
@@ -17209,27 +17171,21 @@ components:
       properties:
         total:
           type: integer
-          format: int64
           description: 'Total number of Subnets'
         pending:
           type: integer
-          format: int64
           description: 'Number of Subnets in Pending status'
         provisioning:
           type: integer
-          format: int64
           description: 'Number of Subnets in Provisioning status'
         ready:
           type: integer
-          format: int64
           description: 'Number of Subnets in Ready status'
         deleting:
           type: integer
-          format: int64
           description: 'Number of Subnets in Deleting status'
         error:
           type: integer
-          format: int64
           description: 'Number of Subnets in Error status'
     TenantAccount:
       title: TenantAccount
@@ -17288,7 +17244,6 @@ components:
           description: 'Contact user for the Tenant'
         allocationCount:
           type: integer
-          format: int64
           description: 'Number of Allocations for the Tenant Account'
         status:
           $ref: '#/components/schemas/TenantAccountStatus'
@@ -17565,13 +17520,11 @@ components:
           type:
             - integer
             - 'null'
-          format: int64
           description: Maximum idle time in seconds before Serial Console is disconnected
         serialConsoleMaxSessionLength:
           type:
             - integer
             - 'null'
-          format: int64
           description: Maximum length of Serial Console session in seconds
         isSerialConsoleSSHKeysEnabled:
           type: boolean
@@ -17693,7 +17646,6 @@ components:
       properties:
         total:
           type: integer
-          format: int64
           description: 'Total number of Machines at the Site'
         totalByStatus:
           $ref: '#/components/schemas/SiteMachineStatsByStatus'
@@ -17714,15 +17666,12 @@ components:
       properties:
         allocatedInUse:
           type: integer
-          format: int64
           description: 'Number of allocated Machines currently in use'
         allocatedNotInUse:
           type: integer
-          format: int64
           description: 'Number of allocated Machines not currently in use'
         unallocated:
           type: integer
-          format: int64
           description: 'Number of Machines not currently allocated'
     SiteMachineStatsByHealth:
       title: SiteMachineStatsByHealth
@@ -17731,11 +17680,9 @@ components:
       properties:
         healthy:
           type: integer
-          format: int64
           description: 'Number of healthy Machines'
         unhealthy:
           type: integer
-          format: int64
           description: 'Number of unhealthy Machines'
     SiteMachineStatsByStatus:
       title: SiteMachineStatsByStatus
@@ -17744,35 +17691,27 @@ components:
       properties:
         Decommissioned:
           type: integer
-          format: int64
           description: 'Number of Machines in Decommissioned status'
         Error:
           type: integer
-          format: int64
           description: 'Number of Machines in Error status'
         Initializing:
           type: integer
-          format: int64
           description: 'Number of Machines in Initializing status'
         InUse:
           type: integer
-          format: int64
           description: 'Number of Machines in InUse status'
         Maintenance:
           type: integer
-          format: int64
           description: 'Number of Machines in Maintenance status'
         Ready:
           type: integer
-          format: int64
           description: 'Number of Machines in Ready status'
         Reset:
           type: integer
-          format: int64
           description: 'Number of Machines in Reset status'
         Unknown:
           type: integer
-          format: int64
           description: 'Number of Machines in Unknown status'
     SiteMachineStatsByStatusAndHealth:
       title: SiteMachineStatsByStatusAndHealth
@@ -17913,12 +17852,10 @@ components:
           deprecated: true
         serialConsoleIdleTimeout:
           type: integer
-          format: int64
           description: Maximum idle time in seconds before Serial Console is disconnected. Can only be updated by Provider. Modifying this attribute has no actual effect on SOL. It will be removed in a future API version.
           deprecated: true
         serialConsoleMaxSessionLength:
           type: integer
-          format: int64
           description: Maximum length of Serial Console session in seconds. Can only be updated by Provider. Modifying this attribute has no actual effect on SOL. It will be removed in a future API version.
           deprecated: true
         isSerialConsoleSSHKeysEnabled:
@@ -18178,7 +18115,6 @@ components:
             - Preemptible
         constraintValue:
           type: integer
-          format: int64
           description: |-
             Value of the Allocation Constraint. For resource type: `InstanceType`, this value represents number of Machines associated with the Instance Type that is allocated to the Tenant. For resource type `IPBlock`, this value represents the prefix length of the IP Block allocated to the Tenant.
         derivedResourceId:
@@ -18240,7 +18176,6 @@ components:
             - Preemptible
         constraintValue:
           type: integer
-          format: int64
           description: Value of the Allocation Constraint. For InstanceType, this value represents number of Machines allocated for Tenant. For IPBlock, this value represents the prefix Length of the IP Block.
       required:
         - resourceType
@@ -18256,7 +18191,6 @@ components:
       properties:
         constraintValue:
           type: integer
-          format: int64
           description: Value of the Allocation Constraint. For InstanceType, this value represents number of Machines allocated for Tenant. For IPBlock, this value represents the prefix Length of the IP Block.
       required:
         - constraintValue
@@ -19154,12 +19088,10 @@ components:
           format: ipv6
         mtu:
           type: integer
-          format: int64
           description: Maximum Transmission Unit size in bytes. This property is system-determined and read-only.
           readOnly: true
         prefixLength:
           type: integer
-          format: int64
           example: 24
           description: Max value depends on prefix length of parent IP Block
         routingType:
@@ -19243,7 +19175,6 @@ components:
           format: uuid
         prefixLength:
           type: integer
-          format: int64
           description: 'Length of the prefix'
       required:
         - name
@@ -19372,7 +19303,6 @@ components:
           type:
             - integer
             - 'null'
-          format: int64
           description: 'MTU configured for the InfiniBand Partition'
           enum:
             - 4000
@@ -19539,11 +19469,9 @@ components:
       properties:
         totalGpus:
           type: integer
-          format: int64
           description: Total number of GPUs associated with the NVLink Logical Partition
         totalDistinctInstances:
           type: integer
-          format: int64
           description: Total number of distinct Instances associated with the NVLink Logical Partition
     NVLinkLogicalPartitionStatus:
       title: NVLinkLogicalPartitionStatus
@@ -20499,27 +20427,21 @@ components:
       properties:
         assigned:
           type: integer
-          format: int64
           description: Total number of Machines assigned to this Instance Type
         total:
           type: integer
-          format: int64
           description: Total number of Machines allocated to different Tenants for this Instance Type
         used:
           type: integer
-          format: int64
           description: Total number of allocated Machines of this Instance Type currently being used by Tenants
         unused:
           type: integer
-          format: int64
           description: Total number of allocated Machines of this Instance Type that is currently not being used by Tenants
         unusedUsable:
           type: integer
-          format: int64
           description: 'Total number of allocated Machines of this Instance Type that is currently not in use but in Ready state, therefore can be provisioned by Tenant'
         maxAllocatable:
           type: integer
-          format: int64
           description: Maximum number of Machines of this Instance Type that can be allocated to a Tenant
     InstanceTypeCreateRequest:
       title: InstanceTypeCreateRequest
@@ -21731,13 +21653,11 @@ components:
           type:
             - integer
             - 'null'
-          format: int64
           description: 'Index of the device, used to identify which interface card to attache the Partition to'
         virtualFunctionId:
           type:
             - integer
             - 'null'
-          format: int64
           description: Must be specified if isPhysical is false
         macAddress:
           type:
@@ -21869,7 +21789,6 @@ components:
           description: Name of the device to use
         deviceInstance:
           type: integer
-          format: int64
           description: 'Index of the device, used to identify which interface card to attache the Partition to'
         virtualFunctionId:
           type:
@@ -21941,7 +21860,6 @@ components:
           description: Name of the InfiniBand device vendor associated with this interface
         deviceInstance:
           type: integer
-          format: int64
           description: 'Index of the device where partition attach to'
         isPhysical:
           type: boolean
@@ -21950,7 +21868,6 @@ components:
           type:
             - integer
             - 'null'
-          format: int64
           description: 'Must be specified if isPhysical is false'
         guid:
           type:
@@ -22010,7 +21927,6 @@ components:
           description: 'Name of the InfiniBand device vendor, optional'
         deviceInstance:
           type: integer
-          format: int64
           description: 'Index of the device, used to identify which interface card to attache the Partition to'
         isPhysical:
           type: boolean
@@ -22019,7 +21935,6 @@ components:
           type:
             - integer
             - 'null'
-          format: int64
           description: Must be specified if isPhysical is false
     NVLinkInterface:
       title: NVLinkInterface
@@ -22057,7 +21972,6 @@ components:
           description: ID of the NVLink Domain associated with this Interface
         deviceInstance:
           type: integer
-          format: int64
           description: 'Index of the device, used to identify the GPU associated with this Interface'
         gpuGuid:
           type:
@@ -22108,7 +22022,6 @@ components:
           description: ID of the NVLink Logical Partition the Interface should attach to
         deviceInstance:
           type: integer
-          format: int64
           minimum: 0
           description: GPU index for this NVLink interface. Must be non-negative, unique within the request, and within the GPU count exposed by the selected Machine or Instance Type.
     MachineCapability:
@@ -22989,14 +22902,12 @@ components:
             `ToRSwitch`, `UMS`, `CDU`. Matched case-insensitively.
         stage:
           type: integer
-          format: int64
           minimum: 1
           description: |-
             Stage number; steps with the same stage run in parallel, lower stages run
             first. Component types must be unique within a stage.
         maxParallel:
           type: integer
-          format: int64
           minimum: 0
           description: |-
             Maximum number of components of this type processed concurrently. `0`
@@ -23084,7 +22995,6 @@ components:
       properties:
         maxAttempts:
           type: integer
-          format: int64
           minimum: 1
           description: Maximum number of attempts including the first.
         initialInterval:
@@ -23736,7 +23646,6 @@ components:
       properties:
         version:
           type: integer
-          format: int64
           enum: [1]
           description: Schema version of this report. Always `1` for `TaskReportV1`.
         stages:
@@ -23759,7 +23668,6 @@ components:
       properties:
         number:
           type: integer
-          format: int64
           minimum: 1
           description: 1-based rule stage number.
         status:
@@ -23795,17 +23703,14 @@ components:
           $ref: '#/components/schemas/TaskReportV1Status'
         totalComponents:
           type: integer
-          format: int64
           description: |
             Count of components of `componentType` this step targets. Surfaced here because the task representation does not include the per-type component map.
         completedComponents:
           type: integer
-          format: int64
           description: |
             Reserved for a future best-effort activity contract that reports per-component outcomes. Not written under the current fail-fast contract and omitted by the producer.
         failedComponents:
           type: integer
-          format: int64
           description: Reserved (see `completedComponents`).
         startedAt:
           type: string
@@ -26846,7 +26751,6 @@ components:
           description: Either IPv4 or IPv6 address
         prefixLength:
           type: integer
-          format: int64
           example: 24
           description: 'Min: 1, Max: 32 for ipv4, 128 for ipv6'
         protocolVersion:
@@ -26909,7 +26813,6 @@ components:
           description: Either IPv4 or IPv6 address
         prefixLength:
           type: integer
-          format: int64
           example: 24
           description: 'Min: 1, Max: 32 for ipv4, 128 for ipv6'
         status:
@@ -27007,7 +26910,6 @@ components:
           description: Either IPv4 or IPv6 address
         prefixLength:
           type: integer
-          format: int64
           description: 'Min: 1, Max: 32 for IPv4, 128 for IPv6'
         protocolVersion:
           type: string
@@ -27111,7 +27013,6 @@ components:
           description: 'Rules that belong to the Network Security Group'
         ruleCount:
           type: integer
-          format: int64
           description: Number of rules in the Network Security Group
         attachmentStats:
           $ref: '#/components/schemas/NetworkSecurityGroupStats'
@@ -27137,15 +27038,12 @@ components:
           description: Whether the Network Security Group is directly attached to at least one object
         directVpcAttachmentCount:
           type: integer
-          format: int64
           description: Number of VPCs that directly attach this Network Security Group
         directInstanceAttachmentCount:
           type: integer
-          format: int64
           description: Number of Instances that directly attach this Network Security Group
         totalDirectAttachmentCount:
           type: integer
-          format: int64
           description: Total number of objects that directly attach this Network Security Group
     NetworkSecurityGroupStatus:
       title: NetworkSecurityGroupStatus
@@ -28233,7 +28131,6 @@ components:
           description: HTTP body in JSON format
         statusCode:
           type: integer
-          format: int64
           description: HTTP response status code
         statusMessage:
           type: string
@@ -28400,11 +28297,9 @@ components:
           description: GPU name from the MachineCapability record
         gpus:
           type: integer
-          format: int64
           description: Total number of GPUs (summation of all Machine GPU capability counts)
         machines:
           type: integer
-          format: int64
           description: Number of machines that have this GPU capability
       examples:
         - name: NVIDIA GB200
@@ -28420,31 +28315,24 @@ components:
       properties:
         total:
           type: integer
-          format: int64
           description: 'Total number of machines in this group'
         initializing:
           type: integer
-          format: int64
           description: 'Number of machines being initialized'
         ready:
           type: integer
-          format: int64
           description: 'Number of machines in ready state'
         inUse:
           type: integer
-          format: int64
           description: 'Number of machines currently in use'
         error:
           type: integer
-          format: int64
           description: 'Number of machines in error state'
         maintenance:
           type: integer
-          format: int64
           description: 'Number of machines in maintenance state'
         unknown:
           type: integer
-          format: int64
           description: 'Number of machines in unknown state'
     MachineInstanceTypeSummary:
       title: MachineInstanceTypeSummary
@@ -28474,11 +28362,9 @@ components:
           description: 'AssignedMachineStats captures the status of all Machines assigned to this Instance Type'
         allocated:
           type: integer
-          format: int64
           description: Number of Machines of this Instance Type allocated to Tenants
         maxAllocatable:
           type: integer
-          format: int64
           description: Number of Ready Machines of this Instance Type available for additional allocation to Tenants
         usedMachineStats:
           $ref: '#/components/schemas/MachineStatusBreakdown'
@@ -28502,14 +28388,12 @@ components:
           description: 'Name of the Instance Type'
         allocated:
           type: integer
-          format: int64
           description: 'Number of Machines allocated for this Instance Type'
         usedMachineStats:
           $ref: '#/components/schemas/MachineStatusBreakdown'
           description: 'Usage statistics for Machines allocated to this Instance Type'
         maxAllocatable:
           type: integer
-          format: int64
           description: 'Maximum number of Machines of this Instance Type that can be allocated'
         allocations:
           type: array
@@ -28530,7 +28414,6 @@ components:
           description: 'Name of the Allocation'
         total:
           type: integer
-          format: int64
           description: 'Total number of Machines allocated to different Tenants for this Instance Type'
     TenantInstanceTypeStats:
       title: TenantInstanceTypeStats

@@ -25,7 +25,7 @@ var _ MappedNullable = &AllocationConstraintUpdateRequest{}
 // AllocationConstraintUpdateRequest Request data to update an AllocationConstraint
 type AllocationConstraintUpdateRequest struct {
 	// Value of the Allocation Constraint. For InstanceType, this value represents number of Machines allocated for Tenant. For IPBlock, this value represents the prefix Length of the IP Block.
-	ConstraintValue int64 `json:"constraintValue"`
+	ConstraintValue int32 `json:"constraintValue"`
 }
 
 type _AllocationConstraintUpdateRequest AllocationConstraintUpdateRequest
@@ -34,7 +34,7 @@ type _AllocationConstraintUpdateRequest AllocationConstraintUpdateRequest
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewAllocationConstraintUpdateRequest(constraintValue int64) *AllocationConstraintUpdateRequest {
+func NewAllocationConstraintUpdateRequest(constraintValue int32) *AllocationConstraintUpdateRequest {
 	this := AllocationConstraintUpdateRequest{}
 	this.ConstraintValue = constraintValue
 	return &this
@@ -49,9 +49,9 @@ func NewAllocationConstraintUpdateRequestWithDefaults() *AllocationConstraintUpd
 }
 
 // GetConstraintValue returns the ConstraintValue field value
-func (o *AllocationConstraintUpdateRequest) GetConstraintValue() int64 {
+func (o *AllocationConstraintUpdateRequest) GetConstraintValue() int32 {
 	if o == nil {
-		var ret int64
+		var ret int32
 		return ret
 	}
 
@@ -60,7 +60,7 @@ func (o *AllocationConstraintUpdateRequest) GetConstraintValue() int64 {
 
 // GetConstraintValueOk returns a tuple with the ConstraintValue field value
 // and a boolean to check if the value has been set.
-func (o *AllocationConstraintUpdateRequest) GetConstraintValueOk() (*int64, bool) {
+func (o *AllocationConstraintUpdateRequest) GetConstraintValueOk() (*int32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -68,7 +68,7 @@ func (o *AllocationConstraintUpdateRequest) GetConstraintValueOk() (*int64, bool
 }
 
 // SetConstraintValue sets field value
-func (o *AllocationConstraintUpdateRequest) SetConstraintValue(v int64) {
+func (o *AllocationConstraintUpdateRequest) SetConstraintValue(v int32) {
 	o.ConstraintValue = v
 }
 

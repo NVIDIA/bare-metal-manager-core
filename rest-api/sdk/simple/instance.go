@@ -79,14 +79,14 @@ func toStandardInfiniBandInterface(request InfiniBandInterfaceCreateOrUpdateRequ
 	apiReq := standard.InfiniBandInterfaceCreateRequest{
 		PartitionId:    &request.PartitionID,
 		Device:         &request.Device,
-		DeviceInstance: standard.PtrInt64(int64(request.DeviceInstance)),
+		DeviceInstance: standard.PtrInt32(int32(request.DeviceInstance)),
 		IsPhysical:     standard.PtrBool(request.IsPhysical),
 	}
 	if request.Vendor != nil {
 		apiReq.Vendor.Set(request.Vendor)
 	}
 	if request.VirtualFunctionID != nil {
-		vf := int64(*request.VirtualFunctionID)
+		vf := int32(*request.VirtualFunctionID)
 		apiReq.VirtualFunctionId.Set(&vf)
 	}
 	return apiReq
@@ -95,7 +95,7 @@ func toStandardInfiniBandInterface(request InfiniBandInterfaceCreateOrUpdateRequ
 func toStandardNVLinkInterface(request NVLinkInterfaceCreateOrUpdateRequest) standard.NVLinkInterfaceCreateOrUpdateRequest {
 	return standard.NVLinkInterfaceCreateOrUpdateRequest{
 		NvLinkLogicalPartitionId: &request.NVLinkLogicalPartitionID,
-		DeviceInstance:           standard.PtrInt64(int64(request.DeviceInstance)),
+		DeviceInstance:           standard.PtrInt32(int32(request.DeviceInstance)),
 	}
 }
 

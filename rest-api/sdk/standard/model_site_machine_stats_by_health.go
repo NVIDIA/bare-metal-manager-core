@@ -23,9 +23,9 @@ var _ MappedNullable = &SiteMachineStatsByHealth{}
 // SiteMachineStatsByHealth Machine stats for a Site by health
 type SiteMachineStatsByHealth struct {
 	// Number of healthy Machines
-	Healthy *int64 `json:"healthy,omitempty"`
+	Healthy *int32 `json:"healthy,omitempty"`
 	// Number of unhealthy Machines
-	Unhealthy *int64 `json:"unhealthy,omitempty"`
+	Unhealthy *int32 `json:"unhealthy,omitempty"`
 }
 
 // NewSiteMachineStatsByHealth instantiates a new SiteMachineStatsByHealth object
@@ -46,9 +46,9 @@ func NewSiteMachineStatsByHealthWithDefaults() *SiteMachineStatsByHealth {
 }
 
 // GetHealthy returns the Healthy field value if set, zero value otherwise.
-func (o *SiteMachineStatsByHealth) GetHealthy() int64 {
+func (o *SiteMachineStatsByHealth) GetHealthy() int32 {
 	if o == nil || IsNil(o.Healthy) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Healthy
@@ -56,7 +56,7 @@ func (o *SiteMachineStatsByHealth) GetHealthy() int64 {
 
 // GetHealthyOk returns a tuple with the Healthy field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SiteMachineStatsByHealth) GetHealthyOk() (*int64, bool) {
+func (o *SiteMachineStatsByHealth) GetHealthyOk() (*int32, bool) {
 	if o == nil || IsNil(o.Healthy) {
 		return nil, false
 	}
@@ -72,15 +72,15 @@ func (o *SiteMachineStatsByHealth) HasHealthy() bool {
 	return false
 }
 
-// SetHealthy gets a reference to the given int64 and assigns it to the Healthy field.
-func (o *SiteMachineStatsByHealth) SetHealthy(v int64) {
+// SetHealthy gets a reference to the given int32 and assigns it to the Healthy field.
+func (o *SiteMachineStatsByHealth) SetHealthy(v int32) {
 	o.Healthy = &v
 }
 
 // GetUnhealthy returns the Unhealthy field value if set, zero value otherwise.
-func (o *SiteMachineStatsByHealth) GetUnhealthy() int64 {
+func (o *SiteMachineStatsByHealth) GetUnhealthy() int32 {
 	if o == nil || IsNil(o.Unhealthy) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Unhealthy
@@ -88,7 +88,7 @@ func (o *SiteMachineStatsByHealth) GetUnhealthy() int64 {
 
 // GetUnhealthyOk returns a tuple with the Unhealthy field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SiteMachineStatsByHealth) GetUnhealthyOk() (*int64, bool) {
+func (o *SiteMachineStatsByHealth) GetUnhealthyOk() (*int32, bool) {
 	if o == nil || IsNil(o.Unhealthy) {
 		return nil, false
 	}
@@ -104,8 +104,8 @@ func (o *SiteMachineStatsByHealth) HasUnhealthy() bool {
 	return false
 }
 
-// SetUnhealthy gets a reference to the given int64 and assigns it to the Unhealthy field.
-func (o *SiteMachineStatsByHealth) SetUnhealthy(v int64) {
+// SetUnhealthy gets a reference to the given int32 and assigns it to the Unhealthy field.
+func (o *SiteMachineStatsByHealth) SetUnhealthy(v int32) {
 	o.Unhealthy = &v
 }
 

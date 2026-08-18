@@ -29,11 +29,11 @@ type InfiniBandInterfaceCreateRequest struct {
 	// Name of the InfiniBand device vendor, optional
 	Vendor NullableString `json:"vendor,omitempty"`
 	// Index of the device, used to identify which interface card to attache the Partition to
-	DeviceInstance *int64 `json:"deviceInstance,omitempty"`
+	DeviceInstance *int32 `json:"deviceInstance,omitempty"`
 	// Specifies whether this Partition should be attached to the Instance over physical interface
 	IsPhysical *bool `json:"isPhysical,omitempty"`
 	// Must be specified if isPhysical is false
-	VirtualFunctionId NullableInt64 `json:"virtualFunctionId,omitempty"`
+	VirtualFunctionId NullableInt32 `json:"virtualFunctionId,omitempty"`
 }
 
 // NewInfiniBandInterfaceCreateRequest instantiates a new InfiniBandInterfaceCreateRequest object
@@ -161,9 +161,9 @@ func (o *InfiniBandInterfaceCreateRequest) UnsetVendor() {
 }
 
 // GetDeviceInstance returns the DeviceInstance field value if set, zero value otherwise.
-func (o *InfiniBandInterfaceCreateRequest) GetDeviceInstance() int64 {
+func (o *InfiniBandInterfaceCreateRequest) GetDeviceInstance() int32 {
 	if o == nil || IsNil(o.DeviceInstance) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.DeviceInstance
@@ -171,7 +171,7 @@ func (o *InfiniBandInterfaceCreateRequest) GetDeviceInstance() int64 {
 
 // GetDeviceInstanceOk returns a tuple with the DeviceInstance field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *InfiniBandInterfaceCreateRequest) GetDeviceInstanceOk() (*int64, bool) {
+func (o *InfiniBandInterfaceCreateRequest) GetDeviceInstanceOk() (*int32, bool) {
 	if o == nil || IsNil(o.DeviceInstance) {
 		return nil, false
 	}
@@ -187,8 +187,8 @@ func (o *InfiniBandInterfaceCreateRequest) HasDeviceInstance() bool {
 	return false
 }
 
-// SetDeviceInstance gets a reference to the given int64 and assigns it to the DeviceInstance field.
-func (o *InfiniBandInterfaceCreateRequest) SetDeviceInstance(v int64) {
+// SetDeviceInstance gets a reference to the given int32 and assigns it to the DeviceInstance field.
+func (o *InfiniBandInterfaceCreateRequest) SetDeviceInstance(v int32) {
 	o.DeviceInstance = &v
 }
 
@@ -225,9 +225,9 @@ func (o *InfiniBandInterfaceCreateRequest) SetIsPhysical(v bool) {
 }
 
 // GetVirtualFunctionId returns the VirtualFunctionId field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *InfiniBandInterfaceCreateRequest) GetVirtualFunctionId() int64 {
+func (o *InfiniBandInterfaceCreateRequest) GetVirtualFunctionId() int32 {
 	if o == nil || IsNil(o.VirtualFunctionId.Get()) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.VirtualFunctionId.Get()
@@ -236,7 +236,7 @@ func (o *InfiniBandInterfaceCreateRequest) GetVirtualFunctionId() int64 {
 // GetVirtualFunctionIdOk returns a tuple with the VirtualFunctionId field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *InfiniBandInterfaceCreateRequest) GetVirtualFunctionIdOk() (*int64, bool) {
+func (o *InfiniBandInterfaceCreateRequest) GetVirtualFunctionIdOk() (*int32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -252,8 +252,8 @@ func (o *InfiniBandInterfaceCreateRequest) HasVirtualFunctionId() bool {
 	return false
 }
 
-// SetVirtualFunctionId gets a reference to the given NullableInt64 and assigns it to the VirtualFunctionId field.
-func (o *InfiniBandInterfaceCreateRequest) SetVirtualFunctionId(v int64) {
+// SetVirtualFunctionId gets a reference to the given NullableInt32 and assigns it to the VirtualFunctionId field.
+func (o *InfiniBandInterfaceCreateRequest) SetVirtualFunctionId(v int32) {
 	o.VirtualFunctionId.Set(&v)
 }
 

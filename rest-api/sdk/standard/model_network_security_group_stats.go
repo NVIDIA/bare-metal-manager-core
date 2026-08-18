@@ -25,11 +25,11 @@ type NetworkSecurityGroupStats struct {
 	// Whether the Network Security Group is directly attached to at least one object
 	InUse *bool `json:"inUse,omitempty"`
 	// Number of VPCs that directly attach this Network Security Group
-	DirectVpcAttachmentCount *int64 `json:"directVpcAttachmentCount,omitempty"`
+	DirectVpcAttachmentCount *int32 `json:"directVpcAttachmentCount,omitempty"`
 	// Number of Instances that directly attach this Network Security Group
-	DirectInstanceAttachmentCount *int64 `json:"directInstanceAttachmentCount,omitempty"`
+	DirectInstanceAttachmentCount *int32 `json:"directInstanceAttachmentCount,omitempty"`
 	// Total number of objects that directly attach this Network Security Group
-	TotalDirectAttachmentCount *int64 `json:"totalDirectAttachmentCount,omitempty"`
+	TotalDirectAttachmentCount *int32 `json:"totalDirectAttachmentCount,omitempty"`
 }
 
 // NewNetworkSecurityGroupStats instantiates a new NetworkSecurityGroupStats object
@@ -82,9 +82,9 @@ func (o *NetworkSecurityGroupStats) SetInUse(v bool) {
 }
 
 // GetDirectVpcAttachmentCount returns the DirectVpcAttachmentCount field value if set, zero value otherwise.
-func (o *NetworkSecurityGroupStats) GetDirectVpcAttachmentCount() int64 {
+func (o *NetworkSecurityGroupStats) GetDirectVpcAttachmentCount() int32 {
 	if o == nil || IsNil(o.DirectVpcAttachmentCount) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.DirectVpcAttachmentCount
@@ -92,7 +92,7 @@ func (o *NetworkSecurityGroupStats) GetDirectVpcAttachmentCount() int64 {
 
 // GetDirectVpcAttachmentCountOk returns a tuple with the DirectVpcAttachmentCount field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *NetworkSecurityGroupStats) GetDirectVpcAttachmentCountOk() (*int64, bool) {
+func (o *NetworkSecurityGroupStats) GetDirectVpcAttachmentCountOk() (*int32, bool) {
 	if o == nil || IsNil(o.DirectVpcAttachmentCount) {
 		return nil, false
 	}
@@ -108,15 +108,15 @@ func (o *NetworkSecurityGroupStats) HasDirectVpcAttachmentCount() bool {
 	return false
 }
 
-// SetDirectVpcAttachmentCount gets a reference to the given int64 and assigns it to the DirectVpcAttachmentCount field.
-func (o *NetworkSecurityGroupStats) SetDirectVpcAttachmentCount(v int64) {
+// SetDirectVpcAttachmentCount gets a reference to the given int32 and assigns it to the DirectVpcAttachmentCount field.
+func (o *NetworkSecurityGroupStats) SetDirectVpcAttachmentCount(v int32) {
 	o.DirectVpcAttachmentCount = &v
 }
 
 // GetDirectInstanceAttachmentCount returns the DirectInstanceAttachmentCount field value if set, zero value otherwise.
-func (o *NetworkSecurityGroupStats) GetDirectInstanceAttachmentCount() int64 {
+func (o *NetworkSecurityGroupStats) GetDirectInstanceAttachmentCount() int32 {
 	if o == nil || IsNil(o.DirectInstanceAttachmentCount) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.DirectInstanceAttachmentCount
@@ -124,7 +124,7 @@ func (o *NetworkSecurityGroupStats) GetDirectInstanceAttachmentCount() int64 {
 
 // GetDirectInstanceAttachmentCountOk returns a tuple with the DirectInstanceAttachmentCount field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *NetworkSecurityGroupStats) GetDirectInstanceAttachmentCountOk() (*int64, bool) {
+func (o *NetworkSecurityGroupStats) GetDirectInstanceAttachmentCountOk() (*int32, bool) {
 	if o == nil || IsNil(o.DirectInstanceAttachmentCount) {
 		return nil, false
 	}
@@ -140,15 +140,15 @@ func (o *NetworkSecurityGroupStats) HasDirectInstanceAttachmentCount() bool {
 	return false
 }
 
-// SetDirectInstanceAttachmentCount gets a reference to the given int64 and assigns it to the DirectInstanceAttachmentCount field.
-func (o *NetworkSecurityGroupStats) SetDirectInstanceAttachmentCount(v int64) {
+// SetDirectInstanceAttachmentCount gets a reference to the given int32 and assigns it to the DirectInstanceAttachmentCount field.
+func (o *NetworkSecurityGroupStats) SetDirectInstanceAttachmentCount(v int32) {
 	o.DirectInstanceAttachmentCount = &v
 }
 
 // GetTotalDirectAttachmentCount returns the TotalDirectAttachmentCount field value if set, zero value otherwise.
-func (o *NetworkSecurityGroupStats) GetTotalDirectAttachmentCount() int64 {
+func (o *NetworkSecurityGroupStats) GetTotalDirectAttachmentCount() int32 {
 	if o == nil || IsNil(o.TotalDirectAttachmentCount) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.TotalDirectAttachmentCount
@@ -156,7 +156,7 @@ func (o *NetworkSecurityGroupStats) GetTotalDirectAttachmentCount() int64 {
 
 // GetTotalDirectAttachmentCountOk returns a tuple with the TotalDirectAttachmentCount field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *NetworkSecurityGroupStats) GetTotalDirectAttachmentCountOk() (*int64, bool) {
+func (o *NetworkSecurityGroupStats) GetTotalDirectAttachmentCountOk() (*int32, bool) {
 	if o == nil || IsNil(o.TotalDirectAttachmentCount) {
 		return nil, false
 	}
@@ -172,8 +172,8 @@ func (o *NetworkSecurityGroupStats) HasTotalDirectAttachmentCount() bool {
 	return false
 }
 
-// SetTotalDirectAttachmentCount gets a reference to the given int64 and assigns it to the TotalDirectAttachmentCount field.
-func (o *NetworkSecurityGroupStats) SetTotalDirectAttachmentCount(v int64) {
+// SetTotalDirectAttachmentCount gets a reference to the given int32 and assigns it to the TotalDirectAttachmentCount field.
+func (o *NetworkSecurityGroupStats) SetTotalDirectAttachmentCount(v int32) {
 	o.TotalDirectAttachmentCount = &v
 }
 

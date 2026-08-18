@@ -23,21 +23,21 @@ var _ MappedNullable = &SiteMachineStatsByStatus{}
 // SiteMachineStatsByStatus Machine stats for a Site by status
 type SiteMachineStatsByStatus struct {
 	// Number of Machines in Decommissioned status
-	Decommissioned *int64 `json:"Decommissioned,omitempty"`
+	Decommissioned *int32 `json:"Decommissioned,omitempty"`
 	// Number of Machines in Error status
-	Error *int64 `json:"Error,omitempty"`
+	Error *int32 `json:"Error,omitempty"`
 	// Number of Machines in Initializing status
-	Initializing *int64 `json:"Initializing,omitempty"`
+	Initializing *int32 `json:"Initializing,omitempty"`
 	// Number of Machines in InUse status
-	InUse *int64 `json:"InUse,omitempty"`
+	InUse *int32 `json:"InUse,omitempty"`
 	// Number of Machines in Maintenance status
-	Maintenance *int64 `json:"Maintenance,omitempty"`
+	Maintenance *int32 `json:"Maintenance,omitempty"`
 	// Number of Machines in Ready status
-	Ready *int64 `json:"Ready,omitempty"`
+	Ready *int32 `json:"Ready,omitempty"`
 	// Number of Machines in Reset status
-	Reset *int64 `json:"Reset,omitempty"`
+	Reset *int32 `json:"Reset,omitempty"`
 	// Number of Machines in Unknown status
-	Unknown *int64 `json:"Unknown,omitempty"`
+	Unknown *int32 `json:"Unknown,omitempty"`
 }
 
 // NewSiteMachineStatsByStatus instantiates a new SiteMachineStatsByStatus object
@@ -58,9 +58,9 @@ func NewSiteMachineStatsByStatusWithDefaults() *SiteMachineStatsByStatus {
 }
 
 // GetDecommissioned returns the Decommissioned field value if set, zero value otherwise.
-func (o *SiteMachineStatsByStatus) GetDecommissioned() int64 {
+func (o *SiteMachineStatsByStatus) GetDecommissioned() int32 {
 	if o == nil || IsNil(o.Decommissioned) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Decommissioned
@@ -68,7 +68,7 @@ func (o *SiteMachineStatsByStatus) GetDecommissioned() int64 {
 
 // GetDecommissionedOk returns a tuple with the Decommissioned field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SiteMachineStatsByStatus) GetDecommissionedOk() (*int64, bool) {
+func (o *SiteMachineStatsByStatus) GetDecommissionedOk() (*int32, bool) {
 	if o == nil || IsNil(o.Decommissioned) {
 		return nil, false
 	}
@@ -84,15 +84,15 @@ func (o *SiteMachineStatsByStatus) HasDecommissioned() bool {
 	return false
 }
 
-// SetDecommissioned gets a reference to the given int64 and assigns it to the Decommissioned field.
-func (o *SiteMachineStatsByStatus) SetDecommissioned(v int64) {
+// SetDecommissioned gets a reference to the given int32 and assigns it to the Decommissioned field.
+func (o *SiteMachineStatsByStatus) SetDecommissioned(v int32) {
 	o.Decommissioned = &v
 }
 
 // GetError returns the Error field value if set, zero value otherwise.
-func (o *SiteMachineStatsByStatus) GetError() int64 {
+func (o *SiteMachineStatsByStatus) GetError() int32 {
 	if o == nil || IsNil(o.Error) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Error
@@ -100,7 +100,7 @@ func (o *SiteMachineStatsByStatus) GetError() int64 {
 
 // GetErrorOk returns a tuple with the Error field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SiteMachineStatsByStatus) GetErrorOk() (*int64, bool) {
+func (o *SiteMachineStatsByStatus) GetErrorOk() (*int32, bool) {
 	if o == nil || IsNil(o.Error) {
 		return nil, false
 	}
@@ -116,15 +116,15 @@ func (o *SiteMachineStatsByStatus) HasError() bool {
 	return false
 }
 
-// SetError gets a reference to the given int64 and assigns it to the Error field.
-func (o *SiteMachineStatsByStatus) SetError(v int64) {
+// SetError gets a reference to the given int32 and assigns it to the Error field.
+func (o *SiteMachineStatsByStatus) SetError(v int32) {
 	o.Error = &v
 }
 
 // GetInitializing returns the Initializing field value if set, zero value otherwise.
-func (o *SiteMachineStatsByStatus) GetInitializing() int64 {
+func (o *SiteMachineStatsByStatus) GetInitializing() int32 {
 	if o == nil || IsNil(o.Initializing) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Initializing
@@ -132,7 +132,7 @@ func (o *SiteMachineStatsByStatus) GetInitializing() int64 {
 
 // GetInitializingOk returns a tuple with the Initializing field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SiteMachineStatsByStatus) GetInitializingOk() (*int64, bool) {
+func (o *SiteMachineStatsByStatus) GetInitializingOk() (*int32, bool) {
 	if o == nil || IsNil(o.Initializing) {
 		return nil, false
 	}
@@ -148,15 +148,15 @@ func (o *SiteMachineStatsByStatus) HasInitializing() bool {
 	return false
 }
 
-// SetInitializing gets a reference to the given int64 and assigns it to the Initializing field.
-func (o *SiteMachineStatsByStatus) SetInitializing(v int64) {
+// SetInitializing gets a reference to the given int32 and assigns it to the Initializing field.
+func (o *SiteMachineStatsByStatus) SetInitializing(v int32) {
 	o.Initializing = &v
 }
 
 // GetInUse returns the InUse field value if set, zero value otherwise.
-func (o *SiteMachineStatsByStatus) GetInUse() int64 {
+func (o *SiteMachineStatsByStatus) GetInUse() int32 {
 	if o == nil || IsNil(o.InUse) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.InUse
@@ -164,7 +164,7 @@ func (o *SiteMachineStatsByStatus) GetInUse() int64 {
 
 // GetInUseOk returns a tuple with the InUse field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SiteMachineStatsByStatus) GetInUseOk() (*int64, bool) {
+func (o *SiteMachineStatsByStatus) GetInUseOk() (*int32, bool) {
 	if o == nil || IsNil(o.InUse) {
 		return nil, false
 	}
@@ -180,15 +180,15 @@ func (o *SiteMachineStatsByStatus) HasInUse() bool {
 	return false
 }
 
-// SetInUse gets a reference to the given int64 and assigns it to the InUse field.
-func (o *SiteMachineStatsByStatus) SetInUse(v int64) {
+// SetInUse gets a reference to the given int32 and assigns it to the InUse field.
+func (o *SiteMachineStatsByStatus) SetInUse(v int32) {
 	o.InUse = &v
 }
 
 // GetMaintenance returns the Maintenance field value if set, zero value otherwise.
-func (o *SiteMachineStatsByStatus) GetMaintenance() int64 {
+func (o *SiteMachineStatsByStatus) GetMaintenance() int32 {
 	if o == nil || IsNil(o.Maintenance) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Maintenance
@@ -196,7 +196,7 @@ func (o *SiteMachineStatsByStatus) GetMaintenance() int64 {
 
 // GetMaintenanceOk returns a tuple with the Maintenance field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SiteMachineStatsByStatus) GetMaintenanceOk() (*int64, bool) {
+func (o *SiteMachineStatsByStatus) GetMaintenanceOk() (*int32, bool) {
 	if o == nil || IsNil(o.Maintenance) {
 		return nil, false
 	}
@@ -212,15 +212,15 @@ func (o *SiteMachineStatsByStatus) HasMaintenance() bool {
 	return false
 }
 
-// SetMaintenance gets a reference to the given int64 and assigns it to the Maintenance field.
-func (o *SiteMachineStatsByStatus) SetMaintenance(v int64) {
+// SetMaintenance gets a reference to the given int32 and assigns it to the Maintenance field.
+func (o *SiteMachineStatsByStatus) SetMaintenance(v int32) {
 	o.Maintenance = &v
 }
 
 // GetReady returns the Ready field value if set, zero value otherwise.
-func (o *SiteMachineStatsByStatus) GetReady() int64 {
+func (o *SiteMachineStatsByStatus) GetReady() int32 {
 	if o == nil || IsNil(o.Ready) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Ready
@@ -228,7 +228,7 @@ func (o *SiteMachineStatsByStatus) GetReady() int64 {
 
 // GetReadyOk returns a tuple with the Ready field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SiteMachineStatsByStatus) GetReadyOk() (*int64, bool) {
+func (o *SiteMachineStatsByStatus) GetReadyOk() (*int32, bool) {
 	if o == nil || IsNil(o.Ready) {
 		return nil, false
 	}
@@ -244,15 +244,15 @@ func (o *SiteMachineStatsByStatus) HasReady() bool {
 	return false
 }
 
-// SetReady gets a reference to the given int64 and assigns it to the Ready field.
-func (o *SiteMachineStatsByStatus) SetReady(v int64) {
+// SetReady gets a reference to the given int32 and assigns it to the Ready field.
+func (o *SiteMachineStatsByStatus) SetReady(v int32) {
 	o.Ready = &v
 }
 
 // GetReset returns the Reset field value if set, zero value otherwise.
-func (o *SiteMachineStatsByStatus) GetReset() int64 {
+func (o *SiteMachineStatsByStatus) GetReset() int32 {
 	if o == nil || IsNil(o.Reset) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Reset
@@ -260,7 +260,7 @@ func (o *SiteMachineStatsByStatus) GetReset() int64 {
 
 // GetResetOk returns a tuple with the Reset field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SiteMachineStatsByStatus) GetResetOk() (*int64, bool) {
+func (o *SiteMachineStatsByStatus) GetResetOk() (*int32, bool) {
 	if o == nil || IsNil(o.Reset) {
 		return nil, false
 	}
@@ -276,15 +276,15 @@ func (o *SiteMachineStatsByStatus) HasReset() bool {
 	return false
 }
 
-// SetReset gets a reference to the given int64 and assigns it to the Reset field.
-func (o *SiteMachineStatsByStatus) SetReset(v int64) {
+// SetReset gets a reference to the given int32 and assigns it to the Reset field.
+func (o *SiteMachineStatsByStatus) SetReset(v int32) {
 	o.Reset = &v
 }
 
 // GetUnknown returns the Unknown field value if set, zero value otherwise.
-func (o *SiteMachineStatsByStatus) GetUnknown() int64 {
+func (o *SiteMachineStatsByStatus) GetUnknown() int32 {
 	if o == nil || IsNil(o.Unknown) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Unknown
@@ -292,7 +292,7 @@ func (o *SiteMachineStatsByStatus) GetUnknown() int64 {
 
 // GetUnknownOk returns a tuple with the Unknown field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SiteMachineStatsByStatus) GetUnknownOk() (*int64, bool) {
+func (o *SiteMachineStatsByStatus) GetUnknownOk() (*int32, bool) {
 	if o == nil || IsNil(o.Unknown) {
 		return nil, false
 	}
@@ -308,8 +308,8 @@ func (o *SiteMachineStatsByStatus) HasUnknown() bool {
 	return false
 }
 
-// SetUnknown gets a reference to the given int64 and assigns it to the Unknown field.
-func (o *SiteMachineStatsByStatus) SetUnknown(v int64) {
+// SetUnknown gets a reference to the given int32 and assigns it to the Unknown field.
+func (o *SiteMachineStatsByStatus) SetUnknown(v int32) {
 	o.Unknown = &v
 }
 

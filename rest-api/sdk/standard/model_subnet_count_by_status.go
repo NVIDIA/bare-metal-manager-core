@@ -23,17 +23,17 @@ var _ MappedNullable = &SubnetCountByStatus{}
 // SubnetCountByStatus Describes counts of Subnets in various statuses
 type SubnetCountByStatus struct {
 	// Total number of Subnets
-	Total *int64 `json:"total,omitempty"`
+	Total *int32 `json:"total,omitempty"`
 	// Number of Subnets in Pending status
-	Pending *int64 `json:"pending,omitempty"`
+	Pending *int32 `json:"pending,omitempty"`
 	// Number of Subnets in Provisioning status
-	Provisioning *int64 `json:"provisioning,omitempty"`
+	Provisioning *int32 `json:"provisioning,omitempty"`
 	// Number of Subnets in Ready status
-	Ready *int64 `json:"ready,omitempty"`
+	Ready *int32 `json:"ready,omitempty"`
 	// Number of Subnets in Deleting status
-	Deleting *int64 `json:"deleting,omitempty"`
+	Deleting *int32 `json:"deleting,omitempty"`
 	// Number of Subnets in Error status
-	Error *int64 `json:"error,omitempty"`
+	Error *int32 `json:"error,omitempty"`
 }
 
 // NewSubnetCountByStatus instantiates a new SubnetCountByStatus object
@@ -54,9 +54,9 @@ func NewSubnetCountByStatusWithDefaults() *SubnetCountByStatus {
 }
 
 // GetTotal returns the Total field value if set, zero value otherwise.
-func (o *SubnetCountByStatus) GetTotal() int64 {
+func (o *SubnetCountByStatus) GetTotal() int32 {
 	if o == nil || IsNil(o.Total) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Total
@@ -64,7 +64,7 @@ func (o *SubnetCountByStatus) GetTotal() int64 {
 
 // GetTotalOk returns a tuple with the Total field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SubnetCountByStatus) GetTotalOk() (*int64, bool) {
+func (o *SubnetCountByStatus) GetTotalOk() (*int32, bool) {
 	if o == nil || IsNil(o.Total) {
 		return nil, false
 	}
@@ -80,15 +80,15 @@ func (o *SubnetCountByStatus) HasTotal() bool {
 	return false
 }
 
-// SetTotal gets a reference to the given int64 and assigns it to the Total field.
-func (o *SubnetCountByStatus) SetTotal(v int64) {
+// SetTotal gets a reference to the given int32 and assigns it to the Total field.
+func (o *SubnetCountByStatus) SetTotal(v int32) {
 	o.Total = &v
 }
 
 // GetPending returns the Pending field value if set, zero value otherwise.
-func (o *SubnetCountByStatus) GetPending() int64 {
+func (o *SubnetCountByStatus) GetPending() int32 {
 	if o == nil || IsNil(o.Pending) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Pending
@@ -96,7 +96,7 @@ func (o *SubnetCountByStatus) GetPending() int64 {
 
 // GetPendingOk returns a tuple with the Pending field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SubnetCountByStatus) GetPendingOk() (*int64, bool) {
+func (o *SubnetCountByStatus) GetPendingOk() (*int32, bool) {
 	if o == nil || IsNil(o.Pending) {
 		return nil, false
 	}
@@ -112,15 +112,15 @@ func (o *SubnetCountByStatus) HasPending() bool {
 	return false
 }
 
-// SetPending gets a reference to the given int64 and assigns it to the Pending field.
-func (o *SubnetCountByStatus) SetPending(v int64) {
+// SetPending gets a reference to the given int32 and assigns it to the Pending field.
+func (o *SubnetCountByStatus) SetPending(v int32) {
 	o.Pending = &v
 }
 
 // GetProvisioning returns the Provisioning field value if set, zero value otherwise.
-func (o *SubnetCountByStatus) GetProvisioning() int64 {
+func (o *SubnetCountByStatus) GetProvisioning() int32 {
 	if o == nil || IsNil(o.Provisioning) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Provisioning
@@ -128,7 +128,7 @@ func (o *SubnetCountByStatus) GetProvisioning() int64 {
 
 // GetProvisioningOk returns a tuple with the Provisioning field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SubnetCountByStatus) GetProvisioningOk() (*int64, bool) {
+func (o *SubnetCountByStatus) GetProvisioningOk() (*int32, bool) {
 	if o == nil || IsNil(o.Provisioning) {
 		return nil, false
 	}
@@ -144,15 +144,15 @@ func (o *SubnetCountByStatus) HasProvisioning() bool {
 	return false
 }
 
-// SetProvisioning gets a reference to the given int64 and assigns it to the Provisioning field.
-func (o *SubnetCountByStatus) SetProvisioning(v int64) {
+// SetProvisioning gets a reference to the given int32 and assigns it to the Provisioning field.
+func (o *SubnetCountByStatus) SetProvisioning(v int32) {
 	o.Provisioning = &v
 }
 
 // GetReady returns the Ready field value if set, zero value otherwise.
-func (o *SubnetCountByStatus) GetReady() int64 {
+func (o *SubnetCountByStatus) GetReady() int32 {
 	if o == nil || IsNil(o.Ready) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Ready
@@ -160,7 +160,7 @@ func (o *SubnetCountByStatus) GetReady() int64 {
 
 // GetReadyOk returns a tuple with the Ready field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SubnetCountByStatus) GetReadyOk() (*int64, bool) {
+func (o *SubnetCountByStatus) GetReadyOk() (*int32, bool) {
 	if o == nil || IsNil(o.Ready) {
 		return nil, false
 	}
@@ -176,15 +176,15 @@ func (o *SubnetCountByStatus) HasReady() bool {
 	return false
 }
 
-// SetReady gets a reference to the given int64 and assigns it to the Ready field.
-func (o *SubnetCountByStatus) SetReady(v int64) {
+// SetReady gets a reference to the given int32 and assigns it to the Ready field.
+func (o *SubnetCountByStatus) SetReady(v int32) {
 	o.Ready = &v
 }
 
 // GetDeleting returns the Deleting field value if set, zero value otherwise.
-func (o *SubnetCountByStatus) GetDeleting() int64 {
+func (o *SubnetCountByStatus) GetDeleting() int32 {
 	if o == nil || IsNil(o.Deleting) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Deleting
@@ -192,7 +192,7 @@ func (o *SubnetCountByStatus) GetDeleting() int64 {
 
 // GetDeletingOk returns a tuple with the Deleting field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SubnetCountByStatus) GetDeletingOk() (*int64, bool) {
+func (o *SubnetCountByStatus) GetDeletingOk() (*int32, bool) {
 	if o == nil || IsNil(o.Deleting) {
 		return nil, false
 	}
@@ -208,15 +208,15 @@ func (o *SubnetCountByStatus) HasDeleting() bool {
 	return false
 }
 
-// SetDeleting gets a reference to the given int64 and assigns it to the Deleting field.
-func (o *SubnetCountByStatus) SetDeleting(v int64) {
+// SetDeleting gets a reference to the given int32 and assigns it to the Deleting field.
+func (o *SubnetCountByStatus) SetDeleting(v int32) {
 	o.Deleting = &v
 }
 
 // GetError returns the Error field value if set, zero value otherwise.
-func (o *SubnetCountByStatus) GetError() int64 {
+func (o *SubnetCountByStatus) GetError() int32 {
 	if o == nil || IsNil(o.Error) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Error
@@ -224,7 +224,7 @@ func (o *SubnetCountByStatus) GetError() int64 {
 
 // GetErrorOk returns a tuple with the Error field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SubnetCountByStatus) GetErrorOk() (*int64, bool) {
+func (o *SubnetCountByStatus) GetErrorOk() (*int32, bool) {
 	if o == nil || IsNil(o.Error) {
 		return nil, false
 	}
@@ -240,8 +240,8 @@ func (o *SubnetCountByStatus) HasError() bool {
 	return false
 }
 
-// SetError gets a reference to the given int64 and assigns it to the Error field.
-func (o *SubnetCountByStatus) SetError(v int64) {
+// SetError gets a reference to the given int32 and assigns it to the Error field.
+func (o *SubnetCountByStatus) SetError(v int32) {
 	o.Error = &v
 }
 

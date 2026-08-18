@@ -297,7 +297,7 @@ type ApiGetAllAllocationRequest struct {
 	status                   *string
 	resourceTypeId           *string
 	constraintType           *string
-	constraintValue          *int64
+	constraintValue          *int32
 	query                    *string
 	includeRelation          *string
 	pageNumber               *int32
@@ -355,7 +355,7 @@ func (r ApiGetAllAllocationRequest) ConstraintType(constraintType string) ApiGet
 }
 
 // Filter Allocations by Constraint Value. Can be specified multiple times to filter on more than one Constraint Value.
-func (r ApiGetAllAllocationRequest) ConstraintValue(constraintValue int64) ApiGetAllAllocationRequest {
+func (r ApiGetAllAllocationRequest) ConstraintValue(constraintValue int32) ApiGetAllAllocationRequest {
 	r.constraintValue = &constraintValue
 	return r
 }

@@ -23,17 +23,17 @@ var _ MappedNullable = &InstanceTypeAllocationStats{}
 // InstanceTypeAllocationStats Allocation statistics for Instance Type
 type InstanceTypeAllocationStats struct {
 	// Total number of Machines assigned to this Instance Type
-	Assigned *int64 `json:"assigned,omitempty"`
+	Assigned *int32 `json:"assigned,omitempty"`
 	// Total number of Machines allocated to different Tenants for this Instance Type
-	Total *int64 `json:"total,omitempty"`
+	Total *int32 `json:"total,omitempty"`
 	// Total number of allocated Machines of this Instance Type currently being used by Tenants
-	Used *int64 `json:"used,omitempty"`
+	Used *int32 `json:"used,omitempty"`
 	// Total number of allocated Machines of this Instance Type that is currently not being used by Tenants
-	Unused *int64 `json:"unused,omitempty"`
+	Unused *int32 `json:"unused,omitempty"`
 	// Total number of allocated Machines of this Instance Type that is currently not in use but in Ready state, therefore can be provisioned by Tenant
-	UnusedUsable *int64 `json:"unusedUsable,omitempty"`
+	UnusedUsable *int32 `json:"unusedUsable,omitempty"`
 	// Maximum number of Machines of this Instance Type that can be allocated to a Tenant
-	MaxAllocatable *int64 `json:"maxAllocatable,omitempty"`
+	MaxAllocatable *int32 `json:"maxAllocatable,omitempty"`
 }
 
 // NewInstanceTypeAllocationStats instantiates a new InstanceTypeAllocationStats object
@@ -54,9 +54,9 @@ func NewInstanceTypeAllocationStatsWithDefaults() *InstanceTypeAllocationStats {
 }
 
 // GetAssigned returns the Assigned field value if set, zero value otherwise.
-func (o *InstanceTypeAllocationStats) GetAssigned() int64 {
+func (o *InstanceTypeAllocationStats) GetAssigned() int32 {
 	if o == nil || IsNil(o.Assigned) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Assigned
@@ -64,7 +64,7 @@ func (o *InstanceTypeAllocationStats) GetAssigned() int64 {
 
 // GetAssignedOk returns a tuple with the Assigned field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *InstanceTypeAllocationStats) GetAssignedOk() (*int64, bool) {
+func (o *InstanceTypeAllocationStats) GetAssignedOk() (*int32, bool) {
 	if o == nil || IsNil(o.Assigned) {
 		return nil, false
 	}
@@ -80,15 +80,15 @@ func (o *InstanceTypeAllocationStats) HasAssigned() bool {
 	return false
 }
 
-// SetAssigned gets a reference to the given int64 and assigns it to the Assigned field.
-func (o *InstanceTypeAllocationStats) SetAssigned(v int64) {
+// SetAssigned gets a reference to the given int32 and assigns it to the Assigned field.
+func (o *InstanceTypeAllocationStats) SetAssigned(v int32) {
 	o.Assigned = &v
 }
 
 // GetTotal returns the Total field value if set, zero value otherwise.
-func (o *InstanceTypeAllocationStats) GetTotal() int64 {
+func (o *InstanceTypeAllocationStats) GetTotal() int32 {
 	if o == nil || IsNil(o.Total) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Total
@@ -96,7 +96,7 @@ func (o *InstanceTypeAllocationStats) GetTotal() int64 {
 
 // GetTotalOk returns a tuple with the Total field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *InstanceTypeAllocationStats) GetTotalOk() (*int64, bool) {
+func (o *InstanceTypeAllocationStats) GetTotalOk() (*int32, bool) {
 	if o == nil || IsNil(o.Total) {
 		return nil, false
 	}
@@ -112,15 +112,15 @@ func (o *InstanceTypeAllocationStats) HasTotal() bool {
 	return false
 }
 
-// SetTotal gets a reference to the given int64 and assigns it to the Total field.
-func (o *InstanceTypeAllocationStats) SetTotal(v int64) {
+// SetTotal gets a reference to the given int32 and assigns it to the Total field.
+func (o *InstanceTypeAllocationStats) SetTotal(v int32) {
 	o.Total = &v
 }
 
 // GetUsed returns the Used field value if set, zero value otherwise.
-func (o *InstanceTypeAllocationStats) GetUsed() int64 {
+func (o *InstanceTypeAllocationStats) GetUsed() int32 {
 	if o == nil || IsNil(o.Used) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Used
@@ -128,7 +128,7 @@ func (o *InstanceTypeAllocationStats) GetUsed() int64 {
 
 // GetUsedOk returns a tuple with the Used field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *InstanceTypeAllocationStats) GetUsedOk() (*int64, bool) {
+func (o *InstanceTypeAllocationStats) GetUsedOk() (*int32, bool) {
 	if o == nil || IsNil(o.Used) {
 		return nil, false
 	}
@@ -144,15 +144,15 @@ func (o *InstanceTypeAllocationStats) HasUsed() bool {
 	return false
 }
 
-// SetUsed gets a reference to the given int64 and assigns it to the Used field.
-func (o *InstanceTypeAllocationStats) SetUsed(v int64) {
+// SetUsed gets a reference to the given int32 and assigns it to the Used field.
+func (o *InstanceTypeAllocationStats) SetUsed(v int32) {
 	o.Used = &v
 }
 
 // GetUnused returns the Unused field value if set, zero value otherwise.
-func (o *InstanceTypeAllocationStats) GetUnused() int64 {
+func (o *InstanceTypeAllocationStats) GetUnused() int32 {
 	if o == nil || IsNil(o.Unused) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Unused
@@ -160,7 +160,7 @@ func (o *InstanceTypeAllocationStats) GetUnused() int64 {
 
 // GetUnusedOk returns a tuple with the Unused field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *InstanceTypeAllocationStats) GetUnusedOk() (*int64, bool) {
+func (o *InstanceTypeAllocationStats) GetUnusedOk() (*int32, bool) {
 	if o == nil || IsNil(o.Unused) {
 		return nil, false
 	}
@@ -176,15 +176,15 @@ func (o *InstanceTypeAllocationStats) HasUnused() bool {
 	return false
 }
 
-// SetUnused gets a reference to the given int64 and assigns it to the Unused field.
-func (o *InstanceTypeAllocationStats) SetUnused(v int64) {
+// SetUnused gets a reference to the given int32 and assigns it to the Unused field.
+func (o *InstanceTypeAllocationStats) SetUnused(v int32) {
 	o.Unused = &v
 }
 
 // GetUnusedUsable returns the UnusedUsable field value if set, zero value otherwise.
-func (o *InstanceTypeAllocationStats) GetUnusedUsable() int64 {
+func (o *InstanceTypeAllocationStats) GetUnusedUsable() int32 {
 	if o == nil || IsNil(o.UnusedUsable) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.UnusedUsable
@@ -192,7 +192,7 @@ func (o *InstanceTypeAllocationStats) GetUnusedUsable() int64 {
 
 // GetUnusedUsableOk returns a tuple with the UnusedUsable field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *InstanceTypeAllocationStats) GetUnusedUsableOk() (*int64, bool) {
+func (o *InstanceTypeAllocationStats) GetUnusedUsableOk() (*int32, bool) {
 	if o == nil || IsNil(o.UnusedUsable) {
 		return nil, false
 	}
@@ -208,15 +208,15 @@ func (o *InstanceTypeAllocationStats) HasUnusedUsable() bool {
 	return false
 }
 
-// SetUnusedUsable gets a reference to the given int64 and assigns it to the UnusedUsable field.
-func (o *InstanceTypeAllocationStats) SetUnusedUsable(v int64) {
+// SetUnusedUsable gets a reference to the given int32 and assigns it to the UnusedUsable field.
+func (o *InstanceTypeAllocationStats) SetUnusedUsable(v int32) {
 	o.UnusedUsable = &v
 }
 
 // GetMaxAllocatable returns the MaxAllocatable field value if set, zero value otherwise.
-func (o *InstanceTypeAllocationStats) GetMaxAllocatable() int64 {
+func (o *InstanceTypeAllocationStats) GetMaxAllocatable() int32 {
 	if o == nil || IsNil(o.MaxAllocatable) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.MaxAllocatable
@@ -224,7 +224,7 @@ func (o *InstanceTypeAllocationStats) GetMaxAllocatable() int64 {
 
 // GetMaxAllocatableOk returns a tuple with the MaxAllocatable field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *InstanceTypeAllocationStats) GetMaxAllocatableOk() (*int64, bool) {
+func (o *InstanceTypeAllocationStats) GetMaxAllocatableOk() (*int32, bool) {
 	if o == nil || IsNil(o.MaxAllocatable) {
 		return nil, false
 	}
@@ -240,8 +240,8 @@ func (o *InstanceTypeAllocationStats) HasMaxAllocatable() bool {
 	return false
 }
 
-// SetMaxAllocatable gets a reference to the given int64 and assigns it to the MaxAllocatable field.
-func (o *InstanceTypeAllocationStats) SetMaxAllocatable(v int64) {
+// SetMaxAllocatable gets a reference to the given int32 and assigns it to the MaxAllocatable field.
+func (o *InstanceTypeAllocationStats) SetMaxAllocatable(v int32) {
 	o.MaxAllocatable = &v
 }
 

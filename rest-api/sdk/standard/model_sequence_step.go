@@ -27,9 +27,9 @@ type SequenceStep struct {
 	// Component type this step targets. Validated against Flow's component-type set: `Compute`, `NVSwitch`, `PowerShelf`, `ToRSwitch`, `UMS`, `CDU`. Matched case-insensitively.
 	ComponentType string `json:"componentType"`
 	// Stage number; steps with the same stage run in parallel, lower stages run first. Component types must be unique within a stage.
-	Stage int64 `json:"stage"`
+	Stage int32 `json:"stage"`
 	// Maximum number of components of this type processed concurrently. `0` means unlimited, `1` means strictly sequential.
-	MaxParallel *int64 `json:"maxParallel,omitempty"`
+	MaxParallel *int32 `json:"maxParallel,omitempty"`
 	// Optional child-workflow timeout for this step, as a Go duration string (e.g. `30s`, `2m`). Applies to pre + main + post combined.
 	Timeout *string      `json:"timeout,omitempty"`
 	Retry   *RetryPolicy `json:"retry,omitempty"`
@@ -48,7 +48,7 @@ type _SequenceStep SequenceStep
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewSequenceStep(componentType string, stage int64, mainOperation ActionConfig) *SequenceStep {
+func NewSequenceStep(componentType string, stage int32, mainOperation ActionConfig) *SequenceStep {
 	this := SequenceStep{}
 	this.ComponentType = componentType
 	this.Stage = stage
@@ -89,9 +89,9 @@ func (o *SequenceStep) SetComponentType(v string) {
 }
 
 // GetStage returns the Stage field value
-func (o *SequenceStep) GetStage() int64 {
+func (o *SequenceStep) GetStage() int32 {
 	if o == nil {
-		var ret int64
+		var ret int32
 		return ret
 	}
 
@@ -100,7 +100,7 @@ func (o *SequenceStep) GetStage() int64 {
 
 // GetStageOk returns a tuple with the Stage field value
 // and a boolean to check if the value has been set.
-func (o *SequenceStep) GetStageOk() (*int64, bool) {
+func (o *SequenceStep) GetStageOk() (*int32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -108,14 +108,14 @@ func (o *SequenceStep) GetStageOk() (*int64, bool) {
 }
 
 // SetStage sets field value
-func (o *SequenceStep) SetStage(v int64) {
+func (o *SequenceStep) SetStage(v int32) {
 	o.Stage = v
 }
 
 // GetMaxParallel returns the MaxParallel field value if set, zero value otherwise.
-func (o *SequenceStep) GetMaxParallel() int64 {
+func (o *SequenceStep) GetMaxParallel() int32 {
 	if o == nil || IsNil(o.MaxParallel) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.MaxParallel
@@ -123,7 +123,7 @@ func (o *SequenceStep) GetMaxParallel() int64 {
 
 // GetMaxParallelOk returns a tuple with the MaxParallel field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SequenceStep) GetMaxParallelOk() (*int64, bool) {
+func (o *SequenceStep) GetMaxParallelOk() (*int32, bool) {
 	if o == nil || IsNil(o.MaxParallel) {
 		return nil, false
 	}
@@ -139,8 +139,8 @@ func (o *SequenceStep) HasMaxParallel() bool {
 	return false
 }
 
-// SetMaxParallel gets a reference to the given int64 and assigns it to the MaxParallel field.
-func (o *SequenceStep) SetMaxParallel(v int64) {
+// SetMaxParallel gets a reference to the given int32 and assigns it to the MaxParallel field.
+func (o *SequenceStep) SetMaxParallel(v int32) {
 	o.MaxParallel = &v
 }
 

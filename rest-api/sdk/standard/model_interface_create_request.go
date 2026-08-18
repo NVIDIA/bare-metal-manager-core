@@ -39,7 +39,7 @@ type InterfaceCreateRequest struct {
 	// Name of the device to use
 	Device *string
 	// Index of the device, used to identify which interface card to attache the Partition to
-	DeviceInstance *int64
+	DeviceInstance *int32
 	// Index of the virtual function to use, must be specified if isPhysical is false
 	VirtualFunctionId NullableInt32
 }
@@ -340,9 +340,9 @@ func (o *InterfaceCreateRequest) SetDevice(v string) {
 }
 
 // GetDeviceInstance returns the DeviceInstance field value if set, zero value otherwise.
-func (o *InterfaceCreateRequest) GetDeviceInstance() int64 {
+func (o *InterfaceCreateRequest) GetDeviceInstance() int32 {
 	if o == nil || IsNil(o.DeviceInstance) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.DeviceInstance
@@ -350,7 +350,7 @@ func (o *InterfaceCreateRequest) GetDeviceInstance() int64 {
 
 // GetDeviceInstanceOk returns a tuple with the DeviceInstance field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *InterfaceCreateRequest) GetDeviceInstanceOk() (*int64, bool) {
+func (o *InterfaceCreateRequest) GetDeviceInstanceOk() (*int32, bool) {
 	if o == nil || IsNil(o.DeviceInstance) {
 		return nil, false
 	}
@@ -366,8 +366,8 @@ func (o *InterfaceCreateRequest) HasDeviceInstance() bool {
 	return false
 }
 
-// SetDeviceInstance gets a reference to the given int64 and assigns it to the DeviceInstance field.
-func (o *InterfaceCreateRequest) SetDeviceInstance(v int64) {
+// SetDeviceInstance gets a reference to the given int32 and assigns it to the DeviceInstance field.
+func (o *InterfaceCreateRequest) SetDeviceInstance(v int32) {
 	o.DeviceInstance = &v
 }
 

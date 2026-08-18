@@ -34,7 +34,7 @@ type AuditEntry struct {
 	// HTTP body in JSON format
 	Body *string `json:"body,omitempty"`
 	// HTTP response status code
-	StatusCode *int64 `json:"statusCode,omitempty"`
+	StatusCode *int32 `json:"statusCode,omitempty"`
 	// HTTP response status message
 	StatusMessage *string `json:"statusMessage,omitempty"`
 	// Client IP address
@@ -233,9 +233,9 @@ func (o *AuditEntry) SetBody(v string) {
 }
 
 // GetStatusCode returns the StatusCode field value if set, zero value otherwise.
-func (o *AuditEntry) GetStatusCode() int64 {
+func (o *AuditEntry) GetStatusCode() int32 {
 	if o == nil || IsNil(o.StatusCode) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.StatusCode
@@ -243,7 +243,7 @@ func (o *AuditEntry) GetStatusCode() int64 {
 
 // GetStatusCodeOk returns a tuple with the StatusCode field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *AuditEntry) GetStatusCodeOk() (*int64, bool) {
+func (o *AuditEntry) GetStatusCodeOk() (*int32, bool) {
 	if o == nil || IsNil(o.StatusCode) {
 		return nil, false
 	}
@@ -259,8 +259,8 @@ func (o *AuditEntry) HasStatusCode() bool {
 	return false
 }
 
-// SetStatusCode gets a reference to the given int64 and assigns it to the StatusCode field.
-func (o *AuditEntry) SetStatusCode(v int64) {
+// SetStatusCode gets a reference to the given int32 and assigns it to the StatusCode field.
+func (o *AuditEntry) SetStatusCode(v int32) {
 	o.StatusCode = &v
 }
 

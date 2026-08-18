@@ -36,7 +36,7 @@ type TenantAccount struct {
 	// Contact user for the Tenant
 	TenantContact *User `json:"tenantContact,omitempty"`
 	// Number of Allocations for the Tenant Account
-	AllocationCount *int64 `json:"allocationCount,omitempty"`
+	AllocationCount *int32 `json:"allocationCount,omitempty"`
 	// Status of the Tenant Account
 	Status *TenantAccountStatus `json:"status,omitempty"`
 	// Chronological status history for the Tenant Account
@@ -283,9 +283,9 @@ func (o *TenantAccount) SetTenantContact(v User) {
 }
 
 // GetAllocationCount returns the AllocationCount field value if set, zero value otherwise.
-func (o *TenantAccount) GetAllocationCount() int64 {
+func (o *TenantAccount) GetAllocationCount() int32 {
 	if o == nil || IsNil(o.AllocationCount) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.AllocationCount
@@ -293,7 +293,7 @@ func (o *TenantAccount) GetAllocationCount() int64 {
 
 // GetAllocationCountOk returns a tuple with the AllocationCount field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *TenantAccount) GetAllocationCountOk() (*int64, bool) {
+func (o *TenantAccount) GetAllocationCountOk() (*int32, bool) {
 	if o == nil || IsNil(o.AllocationCount) {
 		return nil, false
 	}
@@ -309,8 +309,8 @@ func (o *TenantAccount) HasAllocationCount() bool {
 	return false
 }
 
-// SetAllocationCount gets a reference to the given int64 and assigns it to the AllocationCount field.
-func (o *TenantAccount) SetAllocationCount(v int64) {
+// SetAllocationCount gets a reference to the given int32 and assigns it to the AllocationCount field.
+func (o *TenantAccount) SetAllocationCount(v int32) {
 	o.AllocationCount = &v
 }
 

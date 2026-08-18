@@ -31,7 +31,7 @@ type AllocationConstraintCreateRequest struct {
 	// Type of the Allocation Constraint. Please note that OnDemand and Preemptible are not supported by current implementation.
 	ConstraintType string `json:"constraintType"`
 	// Value of the Allocation Constraint. For InstanceType, this value represents number of Machines allocated for Tenant. For IPBlock, this value represents the prefix Length of the IP Block.
-	ConstraintValue int64 `json:"constraintValue"`
+	ConstraintValue int32 `json:"constraintValue"`
 }
 
 type _AllocationConstraintCreateRequest AllocationConstraintCreateRequest
@@ -40,7 +40,7 @@ type _AllocationConstraintCreateRequest AllocationConstraintCreateRequest
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewAllocationConstraintCreateRequest(resourceType string, resourceTypeId string, constraintType string, constraintValue int64) *AllocationConstraintCreateRequest {
+func NewAllocationConstraintCreateRequest(resourceType string, resourceTypeId string, constraintType string, constraintValue int32) *AllocationConstraintCreateRequest {
 	this := AllocationConstraintCreateRequest{}
 	this.ResourceType = resourceType
 	this.ResourceTypeId = resourceTypeId
@@ -130,9 +130,9 @@ func (o *AllocationConstraintCreateRequest) SetConstraintType(v string) {
 }
 
 // GetConstraintValue returns the ConstraintValue field value
-func (o *AllocationConstraintCreateRequest) GetConstraintValue() int64 {
+func (o *AllocationConstraintCreateRequest) GetConstraintValue() int32 {
 	if o == nil {
-		var ret int64
+		var ret int32
 		return ret
 	}
 
@@ -141,7 +141,7 @@ func (o *AllocationConstraintCreateRequest) GetConstraintValue() int64 {
 
 // GetConstraintValueOk returns a tuple with the ConstraintValue field value
 // and a boolean to check if the value has been set.
-func (o *AllocationConstraintCreateRequest) GetConstraintValueOk() (*int64, bool) {
+func (o *AllocationConstraintCreateRequest) GetConstraintValueOk() (*int32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -149,7 +149,7 @@ func (o *AllocationConstraintCreateRequest) GetConstraintValueOk() (*int64, bool
 }
 
 // SetConstraintValue sets field value
-func (o *AllocationConstraintCreateRequest) SetConstraintValue(v int64) {
+func (o *AllocationConstraintCreateRequest) SetConstraintValue(v int32) {
 	o.ConstraintValue = v
 }
 

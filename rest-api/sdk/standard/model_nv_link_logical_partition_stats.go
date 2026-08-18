@@ -23,9 +23,9 @@ var _ MappedNullable = &NVLinkLogicalPartitionStats{}
 // NVLinkLogicalPartitionStats GPU and Instance counts for an NVLink Logical Partition
 type NVLinkLogicalPartitionStats struct {
 	// Total number of GPUs associated with the NVLink Logical Partition
-	TotalGpus *int64 `json:"totalGpus,omitempty"`
+	TotalGpus *int32 `json:"totalGpus,omitempty"`
 	// Total number of distinct Instances associated with the NVLink Logical Partition
-	TotalDistinctInstances *int64 `json:"totalDistinctInstances,omitempty"`
+	TotalDistinctInstances *int32 `json:"totalDistinctInstances,omitempty"`
 }
 
 // NewNVLinkLogicalPartitionStats instantiates a new NVLinkLogicalPartitionStats object
@@ -46,9 +46,9 @@ func NewNVLinkLogicalPartitionStatsWithDefaults() *NVLinkLogicalPartitionStats {
 }
 
 // GetTotalGpus returns the TotalGpus field value if set, zero value otherwise.
-func (o *NVLinkLogicalPartitionStats) GetTotalGpus() int64 {
+func (o *NVLinkLogicalPartitionStats) GetTotalGpus() int32 {
 	if o == nil || IsNil(o.TotalGpus) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.TotalGpus
@@ -56,7 +56,7 @@ func (o *NVLinkLogicalPartitionStats) GetTotalGpus() int64 {
 
 // GetTotalGpusOk returns a tuple with the TotalGpus field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *NVLinkLogicalPartitionStats) GetTotalGpusOk() (*int64, bool) {
+func (o *NVLinkLogicalPartitionStats) GetTotalGpusOk() (*int32, bool) {
 	if o == nil || IsNil(o.TotalGpus) {
 		return nil, false
 	}
@@ -72,15 +72,15 @@ func (o *NVLinkLogicalPartitionStats) HasTotalGpus() bool {
 	return false
 }
 
-// SetTotalGpus gets a reference to the given int64 and assigns it to the TotalGpus field.
-func (o *NVLinkLogicalPartitionStats) SetTotalGpus(v int64) {
+// SetTotalGpus gets a reference to the given int32 and assigns it to the TotalGpus field.
+func (o *NVLinkLogicalPartitionStats) SetTotalGpus(v int32) {
 	o.TotalGpus = &v
 }
 
 // GetTotalDistinctInstances returns the TotalDistinctInstances field value if set, zero value otherwise.
-func (o *NVLinkLogicalPartitionStats) GetTotalDistinctInstances() int64 {
+func (o *NVLinkLogicalPartitionStats) GetTotalDistinctInstances() int32 {
 	if o == nil || IsNil(o.TotalDistinctInstances) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.TotalDistinctInstances
@@ -88,7 +88,7 @@ func (o *NVLinkLogicalPartitionStats) GetTotalDistinctInstances() int64 {
 
 // GetTotalDistinctInstancesOk returns a tuple with the TotalDistinctInstances field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *NVLinkLogicalPartitionStats) GetTotalDistinctInstancesOk() (*int64, bool) {
+func (o *NVLinkLogicalPartitionStats) GetTotalDistinctInstancesOk() (*int32, bool) {
 	if o == nil || IsNil(o.TotalDistinctInstances) {
 		return nil, false
 	}
@@ -104,8 +104,8 @@ func (o *NVLinkLogicalPartitionStats) HasTotalDistinctInstances() bool {
 	return false
 }
 
-// SetTotalDistinctInstances gets a reference to the given int64 and assigns it to the TotalDistinctInstances field.
-func (o *NVLinkLogicalPartitionStats) SetTotalDistinctInstances(v int64) {
+// SetTotalDistinctInstances gets a reference to the given int32 and assigns it to the TotalDistinctInstances field.
+func (o *NVLinkLogicalPartitionStats) SetTotalDistinctInstances(v int32) {
 	o.TotalDistinctInstances = &v
 }
 

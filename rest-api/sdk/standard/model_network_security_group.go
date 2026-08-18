@@ -42,7 +42,7 @@ type NetworkSecurityGroup struct {
 	// Rules that belong to the Network Security Group
 	Rules []NetworkSecurityGroupRule `json:"rules,omitempty"`
 	// Number of rules in the Network Security Group
-	RuleCount *int64 `json:"ruleCount,omitempty"`
+	RuleCount *int32 `json:"ruleCount,omitempty"`
 	// Attachment statistics for the Network Security Group. Returned when the `includeAttachmentStats` query parameter is set to true in retrieval endpoints.
 	AttachmentStats *NetworkSecurityGroupStats `json:"attachmentStats,omitempty"`
 	// Set of labels/tags for the Network Security Group
@@ -370,9 +370,9 @@ func (o *NetworkSecurityGroup) SetRules(v []NetworkSecurityGroupRule) {
 }
 
 // GetRuleCount returns the RuleCount field value if set, zero value otherwise.
-func (o *NetworkSecurityGroup) GetRuleCount() int64 {
+func (o *NetworkSecurityGroup) GetRuleCount() int32 {
 	if o == nil || IsNil(o.RuleCount) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.RuleCount
@@ -380,7 +380,7 @@ func (o *NetworkSecurityGroup) GetRuleCount() int64 {
 
 // GetRuleCountOk returns a tuple with the RuleCount field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *NetworkSecurityGroup) GetRuleCountOk() (*int64, bool) {
+func (o *NetworkSecurityGroup) GetRuleCountOk() (*int32, bool) {
 	if o == nil || IsNil(o.RuleCount) {
 		return nil, false
 	}
@@ -396,8 +396,8 @@ func (o *NetworkSecurityGroup) HasRuleCount() bool {
 	return false
 }
 
-// SetRuleCount gets a reference to the given int64 and assigns it to the RuleCount field.
-func (o *NetworkSecurityGroup) SetRuleCount(v int64) {
+// SetRuleCount gets a reference to the given int32 and assigns it to the RuleCount field.
+func (o *NetworkSecurityGroup) SetRuleCount(v int32) {
 	o.RuleCount = &v
 }
 

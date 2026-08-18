@@ -23,19 +23,19 @@ var _ MappedNullable = &MachineStatusBreakdown{}
 // MachineStatusBreakdown Machine counts broken down by status
 type MachineStatusBreakdown struct {
 	// Total number of machines in this group
-	Total *int64 `json:"total,omitempty"`
+	Total *int32 `json:"total,omitempty"`
 	// Number of machines being initialized
-	Initializing *int64 `json:"initializing,omitempty"`
+	Initializing *int32 `json:"initializing,omitempty"`
 	// Number of machines in ready state
-	Ready *int64 `json:"ready,omitempty"`
+	Ready *int32 `json:"ready,omitempty"`
 	// Number of machines currently in use
-	InUse *int64 `json:"inUse,omitempty"`
+	InUse *int32 `json:"inUse,omitempty"`
 	// Number of machines in error state
-	Error *int64 `json:"error,omitempty"`
+	Error *int32 `json:"error,omitempty"`
 	// Number of machines in maintenance state
-	Maintenance *int64 `json:"maintenance,omitempty"`
+	Maintenance *int32 `json:"maintenance,omitempty"`
 	// Number of machines in unknown state
-	Unknown *int64 `json:"unknown,omitempty"`
+	Unknown *int32 `json:"unknown,omitempty"`
 }
 
 // NewMachineStatusBreakdown instantiates a new MachineStatusBreakdown object
@@ -56,9 +56,9 @@ func NewMachineStatusBreakdownWithDefaults() *MachineStatusBreakdown {
 }
 
 // GetTotal returns the Total field value if set, zero value otherwise.
-func (o *MachineStatusBreakdown) GetTotal() int64 {
+func (o *MachineStatusBreakdown) GetTotal() int32 {
 	if o == nil || IsNil(o.Total) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Total
@@ -66,7 +66,7 @@ func (o *MachineStatusBreakdown) GetTotal() int64 {
 
 // GetTotalOk returns a tuple with the Total field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *MachineStatusBreakdown) GetTotalOk() (*int64, bool) {
+func (o *MachineStatusBreakdown) GetTotalOk() (*int32, bool) {
 	if o == nil || IsNil(o.Total) {
 		return nil, false
 	}
@@ -82,15 +82,15 @@ func (o *MachineStatusBreakdown) HasTotal() bool {
 	return false
 }
 
-// SetTotal gets a reference to the given int64 and assigns it to the Total field.
-func (o *MachineStatusBreakdown) SetTotal(v int64) {
+// SetTotal gets a reference to the given int32 and assigns it to the Total field.
+func (o *MachineStatusBreakdown) SetTotal(v int32) {
 	o.Total = &v
 }
 
 // GetInitializing returns the Initializing field value if set, zero value otherwise.
-func (o *MachineStatusBreakdown) GetInitializing() int64 {
+func (o *MachineStatusBreakdown) GetInitializing() int32 {
 	if o == nil || IsNil(o.Initializing) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Initializing
@@ -98,7 +98,7 @@ func (o *MachineStatusBreakdown) GetInitializing() int64 {
 
 // GetInitializingOk returns a tuple with the Initializing field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *MachineStatusBreakdown) GetInitializingOk() (*int64, bool) {
+func (o *MachineStatusBreakdown) GetInitializingOk() (*int32, bool) {
 	if o == nil || IsNil(o.Initializing) {
 		return nil, false
 	}
@@ -114,15 +114,15 @@ func (o *MachineStatusBreakdown) HasInitializing() bool {
 	return false
 }
 
-// SetInitializing gets a reference to the given int64 and assigns it to the Initializing field.
-func (o *MachineStatusBreakdown) SetInitializing(v int64) {
+// SetInitializing gets a reference to the given int32 and assigns it to the Initializing field.
+func (o *MachineStatusBreakdown) SetInitializing(v int32) {
 	o.Initializing = &v
 }
 
 // GetReady returns the Ready field value if set, zero value otherwise.
-func (o *MachineStatusBreakdown) GetReady() int64 {
+func (o *MachineStatusBreakdown) GetReady() int32 {
 	if o == nil || IsNil(o.Ready) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Ready
@@ -130,7 +130,7 @@ func (o *MachineStatusBreakdown) GetReady() int64 {
 
 // GetReadyOk returns a tuple with the Ready field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *MachineStatusBreakdown) GetReadyOk() (*int64, bool) {
+func (o *MachineStatusBreakdown) GetReadyOk() (*int32, bool) {
 	if o == nil || IsNil(o.Ready) {
 		return nil, false
 	}
@@ -146,15 +146,15 @@ func (o *MachineStatusBreakdown) HasReady() bool {
 	return false
 }
 
-// SetReady gets a reference to the given int64 and assigns it to the Ready field.
-func (o *MachineStatusBreakdown) SetReady(v int64) {
+// SetReady gets a reference to the given int32 and assigns it to the Ready field.
+func (o *MachineStatusBreakdown) SetReady(v int32) {
 	o.Ready = &v
 }
 
 // GetInUse returns the InUse field value if set, zero value otherwise.
-func (o *MachineStatusBreakdown) GetInUse() int64 {
+func (o *MachineStatusBreakdown) GetInUse() int32 {
 	if o == nil || IsNil(o.InUse) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.InUse
@@ -162,7 +162,7 @@ func (o *MachineStatusBreakdown) GetInUse() int64 {
 
 // GetInUseOk returns a tuple with the InUse field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *MachineStatusBreakdown) GetInUseOk() (*int64, bool) {
+func (o *MachineStatusBreakdown) GetInUseOk() (*int32, bool) {
 	if o == nil || IsNil(o.InUse) {
 		return nil, false
 	}
@@ -178,15 +178,15 @@ func (o *MachineStatusBreakdown) HasInUse() bool {
 	return false
 }
 
-// SetInUse gets a reference to the given int64 and assigns it to the InUse field.
-func (o *MachineStatusBreakdown) SetInUse(v int64) {
+// SetInUse gets a reference to the given int32 and assigns it to the InUse field.
+func (o *MachineStatusBreakdown) SetInUse(v int32) {
 	o.InUse = &v
 }
 
 // GetError returns the Error field value if set, zero value otherwise.
-func (o *MachineStatusBreakdown) GetError() int64 {
+func (o *MachineStatusBreakdown) GetError() int32 {
 	if o == nil || IsNil(o.Error) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Error
@@ -194,7 +194,7 @@ func (o *MachineStatusBreakdown) GetError() int64 {
 
 // GetErrorOk returns a tuple with the Error field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *MachineStatusBreakdown) GetErrorOk() (*int64, bool) {
+func (o *MachineStatusBreakdown) GetErrorOk() (*int32, bool) {
 	if o == nil || IsNil(o.Error) {
 		return nil, false
 	}
@@ -210,15 +210,15 @@ func (o *MachineStatusBreakdown) HasError() bool {
 	return false
 }
 
-// SetError gets a reference to the given int64 and assigns it to the Error field.
-func (o *MachineStatusBreakdown) SetError(v int64) {
+// SetError gets a reference to the given int32 and assigns it to the Error field.
+func (o *MachineStatusBreakdown) SetError(v int32) {
 	o.Error = &v
 }
 
 // GetMaintenance returns the Maintenance field value if set, zero value otherwise.
-func (o *MachineStatusBreakdown) GetMaintenance() int64 {
+func (o *MachineStatusBreakdown) GetMaintenance() int32 {
 	if o == nil || IsNil(o.Maintenance) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Maintenance
@@ -226,7 +226,7 @@ func (o *MachineStatusBreakdown) GetMaintenance() int64 {
 
 // GetMaintenanceOk returns a tuple with the Maintenance field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *MachineStatusBreakdown) GetMaintenanceOk() (*int64, bool) {
+func (o *MachineStatusBreakdown) GetMaintenanceOk() (*int32, bool) {
 	if o == nil || IsNil(o.Maintenance) {
 		return nil, false
 	}
@@ -242,15 +242,15 @@ func (o *MachineStatusBreakdown) HasMaintenance() bool {
 	return false
 }
 
-// SetMaintenance gets a reference to the given int64 and assigns it to the Maintenance field.
-func (o *MachineStatusBreakdown) SetMaintenance(v int64) {
+// SetMaintenance gets a reference to the given int32 and assigns it to the Maintenance field.
+func (o *MachineStatusBreakdown) SetMaintenance(v int32) {
 	o.Maintenance = &v
 }
 
 // GetUnknown returns the Unknown field value if set, zero value otherwise.
-func (o *MachineStatusBreakdown) GetUnknown() int64 {
+func (o *MachineStatusBreakdown) GetUnknown() int32 {
 	if o == nil || IsNil(o.Unknown) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Unknown
@@ -258,7 +258,7 @@ func (o *MachineStatusBreakdown) GetUnknown() int64 {
 
 // GetUnknownOk returns a tuple with the Unknown field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *MachineStatusBreakdown) GetUnknownOk() (*int64, bool) {
+func (o *MachineStatusBreakdown) GetUnknownOk() (*int32, bool) {
 	if o == nil || IsNil(o.Unknown) {
 		return nil, false
 	}
@@ -274,8 +274,8 @@ func (o *MachineStatusBreakdown) HasUnknown() bool {
 	return false
 }
 
-// SetUnknown gets a reference to the given int64 and assigns it to the Unknown field.
-func (o *MachineStatusBreakdown) SetUnknown(v int64) {
+// SetUnknown gets a reference to the given int32 and assigns it to the Unknown field.
+func (o *MachineStatusBreakdown) SetUnknown(v int32) {
 	o.Unknown = &v
 }
 

@@ -25,7 +25,7 @@ var _ MappedNullable = &RetryPolicy{}
 // RetryPolicy Retry behavior for a step's child workflow.
 type RetryPolicy struct {
 	// Maximum number of attempts including the first.
-	MaxAttempts int64 `json:"maxAttempts"`
+	MaxAttempts int32 `json:"maxAttempts"`
 	// Initial retry interval, as a Go duration string (e.g. `1s`).
 	InitialInterval string `json:"initialInterval"`
 	// Exponential backoff multiplier; must be `>= 1.0`.
@@ -40,7 +40,7 @@ type _RetryPolicy RetryPolicy
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewRetryPolicy(maxAttempts int64, initialInterval string, backoffCoefficient float32) *RetryPolicy {
+func NewRetryPolicy(maxAttempts int32, initialInterval string, backoffCoefficient float32) *RetryPolicy {
 	this := RetryPolicy{}
 	this.MaxAttempts = maxAttempts
 	this.InitialInterval = initialInterval
@@ -57,9 +57,9 @@ func NewRetryPolicyWithDefaults() *RetryPolicy {
 }
 
 // GetMaxAttempts returns the MaxAttempts field value
-func (o *RetryPolicy) GetMaxAttempts() int64 {
+func (o *RetryPolicy) GetMaxAttempts() int32 {
 	if o == nil {
-		var ret int64
+		var ret int32
 		return ret
 	}
 
@@ -68,7 +68,7 @@ func (o *RetryPolicy) GetMaxAttempts() int64 {
 
 // GetMaxAttemptsOk returns a tuple with the MaxAttempts field value
 // and a boolean to check if the value has been set.
-func (o *RetryPolicy) GetMaxAttemptsOk() (*int64, bool) {
+func (o *RetryPolicy) GetMaxAttemptsOk() (*int32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -76,7 +76,7 @@ func (o *RetryPolicy) GetMaxAttemptsOk() (*int64, bool) {
 }
 
 // SetMaxAttempts sets field value
-func (o *RetryPolicy) SetMaxAttempts(v int64) {
+func (o *RetryPolicy) SetMaxAttempts(v int32) {
 	o.MaxAttempts = v
 }
 

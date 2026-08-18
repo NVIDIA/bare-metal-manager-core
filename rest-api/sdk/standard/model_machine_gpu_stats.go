@@ -25,9 +25,9 @@ type MachineGPUStats struct {
 	// GPU name from the MachineCapability record
 	Name *string `json:"name,omitempty"`
 	// Total number of GPUs (summation of all Machine GPU capability counts)
-	Gpus *int64 `json:"gpus,omitempty"`
+	Gpus *int32 `json:"gpus,omitempty"`
 	// Number of machines that have this GPU capability
-	Machines *int64 `json:"machines,omitempty"`
+	Machines *int32 `json:"machines,omitempty"`
 }
 
 // NewMachineGPUStats instantiates a new MachineGPUStats object
@@ -80,9 +80,9 @@ func (o *MachineGPUStats) SetName(v string) {
 }
 
 // GetGpus returns the Gpus field value if set, zero value otherwise.
-func (o *MachineGPUStats) GetGpus() int64 {
+func (o *MachineGPUStats) GetGpus() int32 {
 	if o == nil || IsNil(o.Gpus) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Gpus
@@ -90,7 +90,7 @@ func (o *MachineGPUStats) GetGpus() int64 {
 
 // GetGpusOk returns a tuple with the Gpus field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *MachineGPUStats) GetGpusOk() (*int64, bool) {
+func (o *MachineGPUStats) GetGpusOk() (*int32, bool) {
 	if o == nil || IsNil(o.Gpus) {
 		return nil, false
 	}
@@ -106,15 +106,15 @@ func (o *MachineGPUStats) HasGpus() bool {
 	return false
 }
 
-// SetGpus gets a reference to the given int64 and assigns it to the Gpus field.
-func (o *MachineGPUStats) SetGpus(v int64) {
+// SetGpus gets a reference to the given int32 and assigns it to the Gpus field.
+func (o *MachineGPUStats) SetGpus(v int32) {
 	o.Gpus = &v
 }
 
 // GetMachines returns the Machines field value if set, zero value otherwise.
-func (o *MachineGPUStats) GetMachines() int64 {
+func (o *MachineGPUStats) GetMachines() int32 {
 	if o == nil || IsNil(o.Machines) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Machines
@@ -122,7 +122,7 @@ func (o *MachineGPUStats) GetMachines() int64 {
 
 // GetMachinesOk returns a tuple with the Machines field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *MachineGPUStats) GetMachinesOk() (*int64, bool) {
+func (o *MachineGPUStats) GetMachinesOk() (*int32, bool) {
 	if o == nil || IsNil(o.Machines) {
 		return nil, false
 	}
@@ -138,8 +138,8 @@ func (o *MachineGPUStats) HasMachines() bool {
 	return false
 }
 
-// SetMachines gets a reference to the given int64 and assigns it to the Machines field.
-func (o *MachineGPUStats) SetMachines(v int64) {
+// SetMachines gets a reference to the given int32 and assigns it to the Machines field.
+func (o *MachineGPUStats) SetMachines(v int32) {
 	o.Machines = &v
 }
 

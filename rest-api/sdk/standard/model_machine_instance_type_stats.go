@@ -29,9 +29,9 @@ type MachineInstanceTypeStats struct {
 	// AssignedMachineStats captures the status of all Machines assigned to this Instance Type
 	AssignedMachineStats *MachineStatusBreakdown `json:"assignedMachineStats,omitempty"`
 	// Number of Machines of this Instance Type allocated to Tenants
-	Allocated *int64 `json:"allocated,omitempty"`
+	Allocated *int32 `json:"allocated,omitempty"`
 	// Number of Ready Machines of this Instance Type available for additional allocation to Tenants
-	MaxAllocatable *int64 `json:"maxAllocatable,omitempty"`
+	MaxAllocatable *int32 `json:"maxAllocatable,omitempty"`
 	// UsedMachineStats captures the usage status of machines assigned to this instance type that are currently associated with Tenant Instances
 	UsedMachineStats *MachineStatusBreakdown `json:"usedMachineStats,omitempty"`
 	// Per-tenant breakdown for this instance type
@@ -152,9 +152,9 @@ func (o *MachineInstanceTypeStats) SetAssignedMachineStats(v MachineStatusBreakd
 }
 
 // GetAllocated returns the Allocated field value if set, zero value otherwise.
-func (o *MachineInstanceTypeStats) GetAllocated() int64 {
+func (o *MachineInstanceTypeStats) GetAllocated() int32 {
 	if o == nil || IsNil(o.Allocated) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.Allocated
@@ -162,7 +162,7 @@ func (o *MachineInstanceTypeStats) GetAllocated() int64 {
 
 // GetAllocatedOk returns a tuple with the Allocated field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *MachineInstanceTypeStats) GetAllocatedOk() (*int64, bool) {
+func (o *MachineInstanceTypeStats) GetAllocatedOk() (*int32, bool) {
 	if o == nil || IsNil(o.Allocated) {
 		return nil, false
 	}
@@ -178,15 +178,15 @@ func (o *MachineInstanceTypeStats) HasAllocated() bool {
 	return false
 }
 
-// SetAllocated gets a reference to the given int64 and assigns it to the Allocated field.
-func (o *MachineInstanceTypeStats) SetAllocated(v int64) {
+// SetAllocated gets a reference to the given int32 and assigns it to the Allocated field.
+func (o *MachineInstanceTypeStats) SetAllocated(v int32) {
 	o.Allocated = &v
 }
 
 // GetMaxAllocatable returns the MaxAllocatable field value if set, zero value otherwise.
-func (o *MachineInstanceTypeStats) GetMaxAllocatable() int64 {
+func (o *MachineInstanceTypeStats) GetMaxAllocatable() int32 {
 	if o == nil || IsNil(o.MaxAllocatable) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.MaxAllocatable
@@ -194,7 +194,7 @@ func (o *MachineInstanceTypeStats) GetMaxAllocatable() int64 {
 
 // GetMaxAllocatableOk returns a tuple with the MaxAllocatable field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *MachineInstanceTypeStats) GetMaxAllocatableOk() (*int64, bool) {
+func (o *MachineInstanceTypeStats) GetMaxAllocatableOk() (*int32, bool) {
 	if o == nil || IsNil(o.MaxAllocatable) {
 		return nil, false
 	}
@@ -210,8 +210,8 @@ func (o *MachineInstanceTypeStats) HasMaxAllocatable() bool {
 	return false
 }
 
-// SetMaxAllocatable gets a reference to the given int64 and assigns it to the MaxAllocatable field.
-func (o *MachineInstanceTypeStats) SetMaxAllocatable(v int64) {
+// SetMaxAllocatable gets a reference to the given int32 and assigns it to the MaxAllocatable field.
+func (o *MachineInstanceTypeStats) SetMaxAllocatable(v int32) {
 	o.MaxAllocatable = &v
 }
 

@@ -29,11 +29,11 @@ type TaskReportV1Step struct {
 	ComponentType string             `json:"componentType"`
 	Status        TaskReportV1Status `json:"status"`
 	// Count of components of `componentType` this step targets. Surfaced here because the task representation does not include the per-type component map.
-	TotalComponents *int64 `json:"totalComponents,omitempty"`
+	TotalComponents *int32 `json:"totalComponents,omitempty"`
 	// Reserved for a future best-effort activity contract that reports per-component outcomes. Not written under the current fail-fast contract and omitted by the producer.
-	CompletedComponents *int64 `json:"completedComponents,omitempty"`
+	CompletedComponents *int32 `json:"completedComponents,omitempty"`
 	// Reserved (see `completedComponents`).
-	FailedComponents *int64 `json:"failedComponents,omitempty"`
+	FailedComponents *int32 `json:"failedComponents,omitempty"`
 	// Set when the step leaves `pending`. `skipped` steps carry no timestamp.
 	StartedAt *time.Time `json:"startedAt,omitempty"`
 	// Set when the step reaches a terminal state.
@@ -112,9 +112,9 @@ func (o *TaskReportV1Step) SetStatus(v TaskReportV1Status) {
 }
 
 // GetTotalComponents returns the TotalComponents field value if set, zero value otherwise.
-func (o *TaskReportV1Step) GetTotalComponents() int64 {
+func (o *TaskReportV1Step) GetTotalComponents() int32 {
 	if o == nil || IsNil(o.TotalComponents) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.TotalComponents
@@ -122,7 +122,7 @@ func (o *TaskReportV1Step) GetTotalComponents() int64 {
 
 // GetTotalComponentsOk returns a tuple with the TotalComponents field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *TaskReportV1Step) GetTotalComponentsOk() (*int64, bool) {
+func (o *TaskReportV1Step) GetTotalComponentsOk() (*int32, bool) {
 	if o == nil || IsNil(o.TotalComponents) {
 		return nil, false
 	}
@@ -138,15 +138,15 @@ func (o *TaskReportV1Step) HasTotalComponents() bool {
 	return false
 }
 
-// SetTotalComponents gets a reference to the given int64 and assigns it to the TotalComponents field.
-func (o *TaskReportV1Step) SetTotalComponents(v int64) {
+// SetTotalComponents gets a reference to the given int32 and assigns it to the TotalComponents field.
+func (o *TaskReportV1Step) SetTotalComponents(v int32) {
 	o.TotalComponents = &v
 }
 
 // GetCompletedComponents returns the CompletedComponents field value if set, zero value otherwise.
-func (o *TaskReportV1Step) GetCompletedComponents() int64 {
+func (o *TaskReportV1Step) GetCompletedComponents() int32 {
 	if o == nil || IsNil(o.CompletedComponents) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.CompletedComponents
@@ -154,7 +154,7 @@ func (o *TaskReportV1Step) GetCompletedComponents() int64 {
 
 // GetCompletedComponentsOk returns a tuple with the CompletedComponents field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *TaskReportV1Step) GetCompletedComponentsOk() (*int64, bool) {
+func (o *TaskReportV1Step) GetCompletedComponentsOk() (*int32, bool) {
 	if o == nil || IsNil(o.CompletedComponents) {
 		return nil, false
 	}
@@ -170,15 +170,15 @@ func (o *TaskReportV1Step) HasCompletedComponents() bool {
 	return false
 }
 
-// SetCompletedComponents gets a reference to the given int64 and assigns it to the CompletedComponents field.
-func (o *TaskReportV1Step) SetCompletedComponents(v int64) {
+// SetCompletedComponents gets a reference to the given int32 and assigns it to the CompletedComponents field.
+func (o *TaskReportV1Step) SetCompletedComponents(v int32) {
 	o.CompletedComponents = &v
 }
 
 // GetFailedComponents returns the FailedComponents field value if set, zero value otherwise.
-func (o *TaskReportV1Step) GetFailedComponents() int64 {
+func (o *TaskReportV1Step) GetFailedComponents() int32 {
 	if o == nil || IsNil(o.FailedComponents) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.FailedComponents
@@ -186,7 +186,7 @@ func (o *TaskReportV1Step) GetFailedComponents() int64 {
 
 // GetFailedComponentsOk returns a tuple with the FailedComponents field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *TaskReportV1Step) GetFailedComponentsOk() (*int64, bool) {
+func (o *TaskReportV1Step) GetFailedComponentsOk() (*int32, bool) {
 	if o == nil || IsNil(o.FailedComponents) {
 		return nil, false
 	}
@@ -202,8 +202,8 @@ func (o *TaskReportV1Step) HasFailedComponents() bool {
 	return false
 }
 
-// SetFailedComponents gets a reference to the given int64 and assigns it to the FailedComponents field.
-func (o *TaskReportV1Step) SetFailedComponents(v int64) {
+// SetFailedComponents gets a reference to the given int32 and assigns it to the FailedComponents field.
+func (o *TaskReportV1Step) SetFailedComponents(v int32) {
 	o.FailedComponents = &v
 }
 

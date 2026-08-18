@@ -31,7 +31,7 @@ type IpBlockSummary struct {
 	// Either IPv4 or IPv6 address
 	Prefix *string `json:"prefix,omitempty"`
 	// Min: 1, Max: 32 for ipv4, 128 for ipv6
-	PrefixLength *int64 `json:"prefixLength,omitempty"`
+	PrefixLength *int32 `json:"prefixLength,omitempty"`
 	// Status of the IP Block
 	Status *IpBlockStatus `json:"status,omitempty"`
 }
@@ -182,9 +182,9 @@ func (o *IpBlockSummary) SetPrefix(v string) {
 }
 
 // GetPrefixLength returns the PrefixLength field value if set, zero value otherwise.
-func (o *IpBlockSummary) GetPrefixLength() int64 {
+func (o *IpBlockSummary) GetPrefixLength() int32 {
 	if o == nil || IsNil(o.PrefixLength) {
-		var ret int64
+		var ret int32
 		return ret
 	}
 	return *o.PrefixLength
@@ -192,7 +192,7 @@ func (o *IpBlockSummary) GetPrefixLength() int64 {
 
 // GetPrefixLengthOk returns a tuple with the PrefixLength field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *IpBlockSummary) GetPrefixLengthOk() (*int64, bool) {
+func (o *IpBlockSummary) GetPrefixLengthOk() (*int32, bool) {
 	if o == nil || IsNil(o.PrefixLength) {
 		return nil, false
 	}
@@ -208,8 +208,8 @@ func (o *IpBlockSummary) HasPrefixLength() bool {
 	return false
 }
 
-// SetPrefixLength gets a reference to the given int64 and assigns it to the PrefixLength field.
-func (o *IpBlockSummary) SetPrefixLength(v int64) {
+// SetPrefixLength gets a reference to the given int32 and assigns it to the PrefixLength field.
+func (o *IpBlockSummary) SetPrefixLength(v int32) {
 	o.PrefixLength = &v
 }
 
