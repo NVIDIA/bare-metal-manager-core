@@ -3810,7 +3810,7 @@ fn health_reports_equal_ignoring_observed_at(
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases};
+    use carbide_test_support::{Case, Check, check_cases, check_values};
     use config_version::ConfigVersion;
     use model::site_explorer::PreingestionState;
 
