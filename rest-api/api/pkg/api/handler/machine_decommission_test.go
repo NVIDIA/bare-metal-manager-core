@@ -28,7 +28,7 @@ import (
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
-type decommissionManagedHostFixture struct {
+type decommissionMachineFixture struct {
 	dbSession  *cdb.Session
 	org        string
 	machineID  string
@@ -37,7 +37,7 @@ type decommissionManagedHostFixture struct {
 	proxiedReq *grpcproxy.Request
 }
 
-func newDecommissionManagedHostFixture(t *testing.T) decommissionManagedHostFixture {
+func newDecommissionMachineFixture(t *testing.T) decommissionMachineFixture {
 	t.Helper()
 
 	dbSession := common.TestInitDB(t)
@@ -73,9 +73,9 @@ func newDecommissionManagedHostFixture(t *testing.T) decommissionManagedHostFixt
 
 	clientPool := sc.NewClientPool(nil)
 	clientPool.IDClientMap[site.ID.String()] = temporalClient
-	handler := NewDecommissionManagedHostHandler(dbSession, clientPool, common.GetTestConfig())
+	handler := NewDecommissionMachineHandler(dbSession, clientPool, common.GetTestConfig())
 
-	return decommissionManagedHostFixture{
+	return decommissionMachineFixture{
 		dbSession:  dbSession,
 		org:        org,
 		machineID:  machine.ID,
@@ -85,7 +85,7 @@ func newDecommissionManagedHostFixture(t *testing.T) decommissionManagedHostFixt
 	}
 }
 
-func (f decommissionManagedHostFixture) request(t *testing.T, method string, handler echo.HandlerFunc) *httptest.ResponseRecorder {
+func (f decommissionMachineFixture) request(t *testing.T, method string, handler echo.HandlerFunc) *httptest.ResponseRecorder {
 	t.Helper()
 
 	echoServer := echo.New()
@@ -99,8 +99,8 @@ func (f decommissionManagedHostFixture) request(t *testing.T, method string, han
 	return recorder
 }
 
-func TestDecommissionManagedHostHandlerProxiesRequest(t *testing.T) {
-	fixture := newDecommissionManagedHostFixture(t)
+func TestDecommissionMachineHandlerProxiesRequest(t *testing.T) {
+	fixture := newDecommissionMachineFixture(t)
 
 	recorder := fixture.request(t, http.MethodPost, fixture.handler)
 	assert.Equal(t, http.StatusAccepted, recorder.Code)
@@ -112,11 +112,11 @@ func TestDecommissionManagedHostHandlerProxiesRequest(t *testing.T) {
 
 	var response model.APIMessageResponse
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
-	assert.Equal(t, "Managed host decommissioning request was accepted", response.Message)
+	assert.Equal(t, "Machine decommissioning request was accepted", response.Message)
 }
 
-func TestDecommissionManagedHostHandlerRejectsProviderViewer(t *testing.T) {
-	fixture := newDecommissionManagedHostFixture(t)
+func TestDecommissionMachineHandlerRejectsProviderViewer(t *testing.T) {
+	fixture := newDecommissionMachineFixture(t)
 	fixture.user = &cdbm.User{OrgData: cdbm.OrgData{fixture.org: cdbm.Org{
 		Name:  fixture.org,
 		Roles: []string{authz.ProviderViewerRole},
@@ -127,8 +127,8 @@ func TestDecommissionManagedHostHandlerRejectsProviderViewer(t *testing.T) {
 	assert.Empty(t, fixture.proxiedReq.FullMethod)
 }
 
-func TestDecommissionManagedHostHandlerRejectsUnknownMachine(t *testing.T) {
-	fixture := newDecommissionManagedHostFixture(t)
+func TestDecommissionMachineHandlerRejectsUnknownMachine(t *testing.T) {
+	fixture := newDecommissionMachineFixture(t)
 	fixture.machineID = "missing-machine"
 
 	recorder := fixture.request(t, http.MethodPost, fixture.handler)
@@ -136,8 +136,8 @@ func TestDecommissionManagedHostHandlerRejectsUnknownMachine(t *testing.T) {
 	assert.Empty(t, fixture.proxiedReq.FullMethod)
 }
 
-func TestDecommissionManagedHostHandlerRejectsMissingMachine(t *testing.T) {
-	fixture := newDecommissionManagedHostFixture(t)
+func TestDecommissionMachineHandlerRejectsMissingMachine(t *testing.T) {
+	fixture := newDecommissionMachineFixture(t)
 	_, err := cdbm.NewMachineDAO(fixture.dbSession).Update(context.Background(), nil, cdbm.MachineUpdateInput{
 		MachineID:       fixture.machineID,
 		IsMissingOnSite: cutil.GetPtr(true),

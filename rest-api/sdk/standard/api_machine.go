@@ -25,21 +25,21 @@ import (
 // MachineAPIService MachineAPI service
 type MachineAPIService service
 
-type ApiDecommissionManagedHostRequest struct {
+type ApiDecommissionMachineRequest struct {
 	ctx        context.Context
 	ApiService *MachineAPIService
 	org        string
 	machineId  string
 }
 
-func (r ApiDecommissionManagedHostRequest) Execute() (*MessageResponse, *http.Response, error) {
-	return r.ApiService.DecommissionManagedHostExecute(r)
+func (r ApiDecommissionMachineRequest) Execute() (*MessageResponse, *http.Response, error) {
+	return r.ApiService.DecommissionMachineExecute(r)
 }
 
 /*
-DecommissionManagedHost Decommission a managed host
+DecommissionMachine Decommission a Machine
 
-Start decommissioning a managed host. The host must be in Core's `Ready`
+Start decommissioning a Machine. The Machine must be in Core's `Ready`
 state, and every attached DPU must support BFB installation through
 Redfish. The operation is asynchronous; use the Machine status to
 observe workflow progress.
@@ -50,11 +50,11 @@ the Machine belongs to. User must have authorization role with
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
-	@param machineId ID of the managed host Machine
-	@return ApiDecommissionManagedHostRequest
+	@param machineId ID of the Machine
+	@return ApiDecommissionMachineRequest
 */
-func (a *MachineAPIService) DecommissionManagedHost(ctx context.Context, org string, machineId string) ApiDecommissionManagedHostRequest {
-	return ApiDecommissionManagedHostRequest{
+func (a *MachineAPIService) DecommissionMachine(ctx context.Context, org string, machineId string) ApiDecommissionMachineRequest {
+	return ApiDecommissionMachineRequest{
 		ApiService: a,
 		ctx:        ctx,
 		org:        org,
@@ -65,7 +65,7 @@ func (a *MachineAPIService) DecommissionManagedHost(ctx context.Context, org str
 // Execute executes the request
 //
 //	@return MessageResponse
-func (a *MachineAPIService) DecommissionManagedHostExecute(r ApiDecommissionManagedHostRequest) (*MessageResponse, *http.Response, error) {
+func (a *MachineAPIService) DecommissionMachineExecute(r ApiDecommissionMachineRequest) (*MessageResponse, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodPost
 		localVarPostBody    interface{}
@@ -73,7 +73,7 @@ func (a *MachineAPIService) DecommissionManagedHostExecute(r ApiDecommissionMana
 		localVarReturnValue *MessageResponse
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "MachineAPIService.DecommissionManagedHost")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "MachineAPIService.DecommissionMachine")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
