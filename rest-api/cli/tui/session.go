@@ -488,7 +488,7 @@ func (s *Session) fetchIPBlocks(ctx context.Context) ([]NamedItem, error) {
 	for i, m := range items {
 		result[i] = NamedItem{
 			Name: str(m, "name"), ID: str(m, "id"), Status: str(m, "status"),
-			Extra: map[string]string{"siteId": str(m, "siteId")}, Raw: m,
+			Extra: map[string]string{"siteId": str(m, "siteId"), "tenantId": str(m, "tenantId")}, Raw: m,
 		}
 	}
 	return result, nil

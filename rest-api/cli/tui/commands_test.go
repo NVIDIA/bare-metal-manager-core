@@ -1578,8 +1578,8 @@ func TestAllocationConstraintValueHint(t *testing.T) {
 
 func TestBuildIPBlockSelectItems_MapsBlocksAndAppendsManualSentinel(t *testing.T) {
 	blocks := []NamedItem{
-		{Name: "block-a", ID: "id-a", Status: "Ready"},
-		{Name: "block-b", ID: "id-b"},
+		{Name: "block-a", ID: "id-a", Status: "Ready", Extra: map[string]string{"tenantId": "tenant-a"}},
+		{Name: "block-b", ID: "id-b", Status: "ready", Extra: map[string]string{"tenantId": "tenant-a"}},
 	}
 
 	items := buildIPBlockSelectItems(blocks)
@@ -1592,6 +1592,20 @@ func TestBuildIPBlockSelectItems_MapsBlocksAndAppendsManualSentinel(t *testing.T
 	assert.Equal(t, ipBlockManualEntrySentinel, items[2].ID)
 }
 
+func TestBuildIPBlockSelectItems_ExcludesProviderAndNonReadyBlocks(t *testing.T) {
+	blocks := []NamedItem{
+		{Name: "provider-block", ID: "provider-id", Status: "Ready"},
+		{Name: "pending-tenant-block", ID: "pending-id", Status: "Pending", Extra: map[string]string{"tenantId": "tenant-a"}},
+		{Name: "ready-tenant-block", ID: "ready-id", Status: "Ready", Extra: map[string]string{"tenantId": "tenant-a"}},
+	}
+
+	items := buildIPBlockSelectItems(blocks)
+
+	require.Len(t, items, 2, "one Ready tenant block plus the manual-entry sentinel")
+	assert.Equal(t, "ready-id", items[0].ID)
+	assert.Equal(t, ipBlockManualEntrySentinel, items[1].ID)
+}
+
 func TestBuildIPBlockSelectItems_EmptyListReturnsOnlySentinel(t *testing.T) {
 	items := buildIPBlockSelectItems(nil)
 	require.Len(t, items, 1, "an empty list still offers manual entry")
@@ -1601,13 +1615,13 @@ func TestBuildIPBlockSelectItems_EmptyListReturnsOnlySentinel(t *testing.T) {
 func TestBuildIPBlockSelectItems_SkipsBlocksWithoutIDAndFallsBackLabelToID(t *testing.T) {
 	blocks := []NamedItem{
 		{Name: "no-id", ID: "  "},
-		{Name: "  ", ID: "id-x"},
+		{Name: "  ", ID: "id-x", Status: "Ready", Extra: map[string]string{"tenantId": "tenant-x"}},
 	}
 
 	items := buildIPBlockSelectItems(blocks)
 
 	require.Len(t, items, 2, "one usable block (id-x) plus the manual-entry sentinel")
 	assert.Equal(t, "id-x", items[0].ID)
-	assert.Equal(t, "id-x", items[0].Label, "blank name must fall back to the ID")
+	assert.Contains(t, items[0].Label, "id-x", "blank name must fall back to the ID")
 	assert.Equal(t, ipBlockManualEntrySentinel, items[1].ID)
 }

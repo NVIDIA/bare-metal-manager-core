@@ -5,6 +5,7 @@ package tui
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +20,36 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestFetchIPBlocksPreservesTenantOwnership(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v2/org/acme/nico/infrastructure-provider/current":
+			http.Error(w, `{"message":"not a provider"}`, http.StatusForbidden)
+		case "/v2/org/acme/nico/tenant/current":
+			_, _ = io.WriteString(w, `{"id":"tenant-a"}`)
+		case "/v2/org/acme/nico/ipblock":
+			assert.Equal(t, "site-a", r.URL.Query().Get("siteId"))
+			assert.Equal(t, "tenant-a", r.URL.Query().Get("tenantId"))
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `[{"id":"provider-id","name":"provider","siteId":"site-a","status":"Ready","tenantId":null},{"id":"tenant-id","name":"tenant","siteId":"site-a","status":"Ready","tenantId":"tenant-a"}]`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := appcli.NewClient(server.URL, "acme", "token", nil, false)
+	session := NewSession(client, "acme", "")
+	session.Scope.SiteID = "site-a"
+
+	items, err := session.fetchIPBlocks(context.Background())
+
+	require.NoError(t, err)
+	require.Len(t, items, 2)
+	assert.Empty(t, items[0].Extra["tenantId"])
+	assert.Equal(t, "tenant-a", items[1].Extra["tenantId"])
+}
 
 type specializedRequestSnapshot struct {
 	method        string

@@ -2260,8 +2260,8 @@ func promptVPCPrefixIPBlockID(s *Session, ctx context.Context) (string, error) {
 	}
 	items := buildIPBlockSelectItems(blocks)
 	if len(items) == 1 {
-		// Only the manual-entry sentinel: no IP blocks for this site.
-		fmt.Fprintf(os.Stderr, "%s no IP blocks found for this site; enter an IP block ID manually\n", Dim("note:"))
+		// Only the manual-entry sentinel: no usable tenant IP blocks for this site.
+		fmt.Fprintf(os.Stderr, "%s no Ready tenant IP blocks found for this site; create an allocation or enter an IP block ID manually\n", Dim("note:"))
 		return promptIPBlockIDRaw()
 	}
 	selected, err := Select("IP block:", items)
@@ -2282,15 +2282,18 @@ func promptIPBlockIDRaw() (string, error) {
 	return strings.TrimSpace(raw), nil
 }
 
-// buildIPBlockSelectItems turns the resolver's IP block list into picker
-// options whose ID is the IP block UUID and whose label surfaces the block
-// name (falling back to the UUID when unnamed) plus status. A trailing
-// manual-entry sentinel is always appended -- even for an empty list -- so the
-// operator can still type a raw UUID for a block that isn't listed in the
-// current scope. Blocks without an ID are skipped.
+// buildIPBlockSelectItems turns the resolver's Ready tenant IP blocks into
+// picker options whose ID is the IP block UUID and whose label surfaces the
+// block name (falling back to the UUID when unnamed) plus status. Provider IP
+// blocks and tenant IP blocks that are not Ready cannot back a VPC prefix and
+// are skipped. A trailing manual-entry sentinel is always appended so the
+// operator can still type a raw UUID for a block that isn't listed.
 func buildIPBlockSelectItems(blocks []NamedItem) []SelectItem {
 	items := make([]SelectItem, 0, len(blocks)+1)
 	for _, b := range blocks {
+		if strings.TrimSpace(b.Extra["tenantId"]) == "" || !strings.EqualFold(strings.TrimSpace(b.Status), "Ready") {
+			continue
+		}
 		id := strings.TrimSpace(b.ID)
 		if id == "" {
 			continue
