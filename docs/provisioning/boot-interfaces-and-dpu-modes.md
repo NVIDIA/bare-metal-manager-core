@@ -53,7 +53,7 @@ Boot and DPU configuration is **declarative**: you describe the host in the Expe
 **Most hosts with DPU hardware need zero boot/DPU configuration.** Outside rack-manager deployments, when neither the host nor the site sets `dpu_policy`, and the host has no `host_nics` declaration:
 
 - The effective `dpu_policy` resolves to **`manage`** — NICo ingests and manages the host's DPUs, and the host boots through its primary DPU on the **Admin** network.
-- Site-explorer **auto-selects the boot interface**: the lowest-PCI DPU host-PF (the NIC a DPU presents to the host).
+- Site-explorer **auto-selects the boot interface**: it uses the lowest UEFI PCI path when every matching DPU host interface in the Redfish report has one. Otherwise, it orders the DPUs by their Redfish serial numbers without regard to case and uses the first interface in that order.
 - The host's IP comes from whichever segment its DHCP relay lands in (see [IP and Network Configuration](ip-and-network-configuration.md)).
 
 So a standard DPU host is handled entirely by defaults. A host without DPU hardware must instead use `dpu_policy: ignore` and declare a primary HostInband NIC as described in [3.2](#32-zero-dpu-host-no-dpu-hardware). The knobs below exist for the hosts that *don't* fit the standard-DPU mold.
@@ -93,7 +93,7 @@ The optional `host_nics` array declares specifics for individual host NICs. Each
 | Field | Type | Purpose | Default if unset |
 |---|---|---|---|
 | `mac_address` | string (required) | The NIC's MAC address. | — |
-| `primary` | bool | Declare **this NIC** as the host's boot/primary interface. **At most one per host.** | Site-explorer auto-picks (lowest-PCI DPU host-PF). |
+| `primary` | bool | Declare **this NIC** as the host's boot/primary interface. **At most one per host.** | For hosts whose effective DPU policy is `manage`, Site Explorer chooses among discovered DPU host PFs: it selects the lowest UEFI PCI path when every matching Redfish interface has one; otherwise it orders the DPUs by Redfish serial number and uses the first DPU's host PF. Hosts using `nic` or `ignore` do not get this fallback and must declare a primary HostInband NIC. |
 | `network_segment_type` | enum: `admin` / `underlay` / `host_inband` / `tenant` | The segment type this NIC's first DHCP lease should come from. Only needed to **disambiguate** when the NIC's DHCP relay matches more than one segment (nested/overlapping prefixes — see note below); otherwise the relay decides. | The relay's matching segment(s) stand. |
 | `fixed_ip` / `fixed_mask` / `fixed_gateway` | string | Static IP assignment for the NIC, pre-allocated at upload time. | Dynamic allocation. |
 | `nic_type` | string (legacy) | A free-form segment hint, **superseded by `network_segment_type`**. Kept for backward compatibility only. | — |
@@ -222,16 +222,58 @@ All of these are **admin-only**; the Forge gRPC service enforces admin authoriza
 
 | admin-cli | Forge RPC | Purpose |
 |---|---|---|
-| `managed-host set-primary-interface <host-id> <interface-id> [--reboot]` | `SetPrimaryInterface` | Designate a machine interface as the host's primary/boot interface. **The modern form.** |
-| `managed-host set-primary-dpu <host-id> <dpu-id> [--reboot]` | `SetPrimaryDpu` | Designate a DPU as primary. *Deprecated — prefer `set-primary-interface`.* |
-| `boot-interface show <machine-id>` | `GetMachineBootInterfaces` | Show a machine's boot interface across every store (managed, predicted, explored, retained), the effective interface the system would select, and any disagreement between stores. Read-only. |
-| `boot-interface candidates <machine-id>` | `GetMachineBootInterfaces` | List a machine's candidate boot NICs and the picks among them (`current`, `default`, `explored`); underlay rows are listed but ineligible. Read-only. |
-| `boot-interface set <machine-id> <interface> [--reboot]` | `SetPrimaryInterface` | Set a machine's boot interface by promoting it to the primary interface — the same operation as `set-primary-interface`. `<interface>` is a machine-interface UUID or a MAC (a MAC must match exactly one managed interface row). |
+| `managed-host set-primary-interface <host-id> <interface-id> [--force-reconcile] [--reboot]` | `SetPrimaryInterface` | Designate an eligible machine interface as the host's primary/boot interface. A host with a DPU-backed Admin interface restricts this command to Admin interfaces; configure an integrated HostInband primary through Expected Machines before ingestion. `--force-reconcile` opens a fresh reconciliation generation even when the interface is already selected. `--reboot` is a deprecated compatibility flag whose behavior depends on the server version. |
+| `managed-host set-primary-dpu <host-id> <dpu-id> [--force-reconcile] [--reboot]` | `SetPrimaryDpu` | Deprecated compatibility command that selects the host interface attached to `<dpu-id>`. The reconciliation flags behave as they do for `set-primary-interface`. Use `set-primary-interface` instead. |
+| `boot-interface show <machine-id>` | `GetMachineBootInterfaces` | Show a machine's boot interface across every store (managed, predicted, explored, retained), the effective interface the system would select, its selection source and decision time, and any disagreement between stores. Read-only. |
+| `boot-interface candidates <machine-id>` | `GetMachineBootInterfaces` | List a machine's candidate boot NICs and the picks among them (`current`, `default`, `explored`), plus the desired selection source and decision time; underlay rows are listed but ineligible. Read-only. |
+| `boot-interface set <machine-id> <interface> [--force-reconcile] [--reboot]` | `SetPrimaryInterface` | Set a machine's boot interface by promoting it to the primary interface. It uses the same operation and reconciliation flags as `set-primary-interface`. `<interface>` is a machine-interface UUID or a MAC (a MAC must match exactly one managed interface row). |
 | `boot-override set <interface-id> [--custom-pxe <f>] [--custom-user-data <f>]` | `SetMachineBootOverride` | Override the iPXE script / cloud-init user-data served at boot. |
 | `boot-override get <interface-id>` | `GetMachineBootOverride` | Show the current boot override. |
 | `boot-override clear <interface-id>` | `ClearMachineBootOverride` | Revert to the default PXE/cloud-init. |
 
-> Setting the DPU-first boot order directly (by MAC) is also exposed as a one-off action through the web UI ([Section 5](#5-web-ui)). Under normal operation the machine-controller sets the boot order automatically during ingestion ([Section 6](#6-behind-the-scenes-how-a-boot-device-is-chosen-and-set)).
+A server that supports `SetPrimaryInterfaceRequest.force_reconcile` treats `--force-reconcile` and deprecated `--reboot` as
+requests for a new desired generation. Neither flag directly reboots the host or bypasses lifecycle eligibility. NICo
+enqueues a Ready host immediately only when it has no instance; otherwise, the generation remains pending until the
+machine controller can reconcile it. While old and new server versions run together, an old server ignores
+`--force-reconcile`: changing the primary writes the Redfish boot order immediately, while selecting the current primary
+fails. Legacy `--reboot` also restarts the host.
+
+`GetMachineBootInterfacesResponse.Reconciliation.selection_source` is a `BootInterfaceSelectionSource` that records why
+NICo selected the current boot interface. The interface can belong to a DPU operating in DPU or NIC mode, or it can be
+an integrated or onboard NIC. This field does not describe DPU mode or reconciliation state. The admin CLI and web UI
+treat a numeric value they do not recognize as `Unspecified`.
+
+#### Boot interface selection sources
+
+The admin CLI and web UI use the following display labels:
+
+| Display label | Protobuf identifier | Meaning |
+|---|---|---|
+| `Unspecified` | `BOOT_INTERFACE_SELECTION_SOURCE_UNSPECIFIED` | The server did not provide a concrete value; this is a compatibility value on the wire, not a persisted selection source. |
+| `ExpectedMachine` | `BOOT_INTERFACE_SELECTION_SOURCE_EXPECTED_MACHINE` | An `ExpectedMachine` declaration selected the interface. |
+| `Operator` | `BOOT_INTERFACE_SELECTION_SOURCE_OPERATOR` | An operator selected the interface through an administrative write. |
+| `RedfishUefiPci` | `BOOT_INTERFACE_SELECTION_SOURCE_REDFISH_UEFI_PCI` | Redfish UEFI PCI path ordering selected the interface. |
+| `RedfishChassisId` | `BOOT_INTERFACE_SELECTION_SOURCE_REDFISH_CHASSIS_ID` | Reserved for [selection from Redfish chassis identity](https://github.com/NVIDIA/infra-controller/issues/5080). |
+| `RedfishSerialNumber` | `BOOT_INTERFACE_SELECTION_SOURCE_REDFISH_SERIAL_NUMBER` | NICo selected the interface after ordering DPUs by their Redfish serial numbers. Comparison ignores case. A missing serial number is an empty key and sorts before a populated value; equal keys preserve discovery order. |
+| `ScoutReportPci` | `BOOT_INTERFACE_SELECTION_SOURCE_SCOUT_REPORT_PCI` | Reserved for [selection from host PCI data reported by Scout](https://github.com/NVIDIA/infra-controller/issues/5083). |
+| `LegacyUnknown` | `BOOT_INTERFACE_SELECTION_SOURCE_LEGACY_UNKNOWN` | NICo cannot recover why the interface was selected, including migrated rows and compatibility baselines for an existing Ready or Assigned host. |
+
+`selection_updated_at` records when the selected MAC or its selection source last changed. Enriching the same MAC
+with a Redfish interface ID preserves this time. It is omitted when NICo cannot recover the decision time, including
+migrated rows and compatibility baselines for an existing Ready or Assigned host. It is independent of `observed_at`,
+which records the latest persisted Redfish observation or rollout compatibility baseline;
+`is_compatibility_baseline` distinguishes those cases.
+
+During a rolling deployment, a server that predates selection source tracking can change the desired boot interface
+without updating these fields. The source and decision time can describe the preceding selection until a writer that
+records selection sources makes another selection.
+
+Without `--force-reconcile` or its deprecated `--reboot` alias, selecting the current primary through
+`set-primary-interface` is still meaningful when its recorded source is not already `Operator`: the first request records
+`Operator` authority without opening a new Redfish reconciliation generation. Repeating that same explicit choice reports
+that the operator already selected the primary interface. Either reconciliation flag instead opens a fresh generation.
+
+> Setting the DPU first boot order directly (by MAC) is also exposed as a single action through the web UI ([Section 5](#5-web-ui)). Under normal operation the machine controller sets the boot order automatically during ingestion ([Section 6](#6-behind-the-scenes-how-a-boot-device-is-chosen-and-set)).
 
 ### Ingestion control
 
@@ -249,7 +291,7 @@ The NICo admin web UI (`/admin/…`) is primarily for **visibility**, with a foc
 
 **View:**
 
-- `/admin/machine` and `/admin/machine/{id}` — machine inventory and detail, including each interface's **primary indicator**, MAC, segment, and attached-DPU id.
+- `/admin/machine` and `/admin/machine/{id}` — machine inventory and detail, including each interface's **primary indicator**, MAC, segment, and attached DPU ID. The detail page also shows the desired boot interface's selection source and decision time.
 - `/admin/dpu` and `/admin/dpu/versions` — DPU inventory, associated host, and version info (read-only).
 - `/admin/expected-machine` — a status board of expected vs. unexpected machines, with tabs for **Completed / Unseen / Unexplored / Unlinked / Unexpected**. (Read-only; entries are defined via the CLI/JSON.)
 - `/admin/explored-endpoint` — discovered BMC endpoints with their **preingestion state**, last-exploration latency, and errors.
@@ -342,9 +384,9 @@ The same precedence applies wherever NICo picks a boot interface, over owned row
 |---|---|---|
 | `pick_boot_interface` | owned `machine_interfaces` | declared primary → lowest-MAC non-underlay → none |
 | `pick_boot_prediction` | predictions | declared primary → the sole non-underlay prediction → none |
-| `fetch_host_primary_interface_mac` | the explored report (**Store A**, the pre-ownership default) | declared primary → lowest-PCI DPU host-PF → none |
+| `select_host_primary_interface` and Site Explorer fallback | the explored report (**Store A**, the default before ownership) | declared primary → lowest UEFI PCI path when every matching DPU host interface in the Redfish report has one → stable Redfish serial ordering → none |
 
-**Store A vs. Store B:** before a host is owned, site-explorer records a pre-ownership boot default on the explored endpoint (`explored_endpoints.boot_interface_mac`/`_id`, via `fetch_host_primary_interface_mac`). Once owned, `machine_interfaces` (Store B) is authoritative. A declared `primary` wins in **both** stores, so the boot interface is consistent across the ownership handoff.
+**Store A vs. Store B:** before a host is owned, Site Explorer records a boot default on the explored endpoint (`explored_endpoints.boot_interface_mac`/`_id`, using `select_host_primary_interface`). Once owned, `machine_interfaces` (Store B) is authoritative. A declared `primary` wins in **both** stores, so the boot interface is consistent across the ownership handoff.
 
 ---
 
@@ -358,7 +400,7 @@ nico-admin-cli -a <api-url> managed-host show <machine-id>
 
 The interfaces section shows each NIC's MAC, segment, and which one is `primary` (the boot interface). The web UI machine-detail page shows the same with a primary indicator.
 
-To inspect the boot interface itself — every store (managed, predicted, explored, retained) side by side, the effective interface the system would select, and a flag when the stores disagree — use `boot-interface show <machine-id>`; `boot-interface candidates <machine-id>` narrows it to the candidate NICs and the picks among them. Both are read-only ([Section 4](#4-admin-cli-and-grpc-reference)).
+To inspect the boot interface itself, use `boot-interface show <machine-id>`. It displays every store (managed, predicted, explored, retained), the effective interface, and any disagreement between stores. `boot-interface candidates <machine-id>` narrows the output to candidate NICs and their picks. Both commands also show the selection source and decision time. When NICo cannot recover the historical selection, including a migrated row or a compatibility baseline for an existing Ready or Assigned host, the commands report `LegacyUnknown` without a decision time. Both commands are read-only ([Section 4](#4-admin-cli-and-grpc-reference)).
 
 **Common situations:**
 
