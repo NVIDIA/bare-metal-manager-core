@@ -3490,19 +3490,19 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 			}
 			newdbIfcs = []cdbm.Interface{}
 		case len(apiRequest.Interfaces) > 0:
-			existingIfcMap := make(map[cdbm.EthernetInterfaceKey][]cdbm.Interface)
+			existingIfcMap := make(map[string][]cdbm.Interface, len(existingIfcs))
 			for existingIfcIndex := range existingIfcs {
 				if existingIfcs[existingIfcIndex].Status == cdbm.InterfaceStatusDeleting {
 					continue
 				}
 
-				key := existingIfcs[existingIfcIndex].EthernetKey()
+				key := existingIfcs[existingIfcIndex].EthernetInterfaceKey()
 				existingIfcMap[key] = append(existingIfcMap[key], existingIfcs[existingIfcIndex])
 			}
 
-			reusedIfcIDs := make(map[uuid.UUID]struct{})
+			reusedIfcIDs := make(map[uuid.UUID]bool)
 			for _, dbifc := range dbInterfaces {
-				key := dbifc.EthernetKey()
+				key := dbifc.EthernetInterfaceKey()
 				existingIfcsForKey := existingIfcMap[key]
 
 				if len(existingIfcsForKey) > 0 {
@@ -3513,7 +3513,7 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 						existingIfcMap[key] = existingIfcsForKey[1:]
 					}
 
-					reusedIfcIDs[reusedIfc.ID] = struct{}{}
+					reusedIfcIDs[reusedIfc.ID] = true
 					newdbIfcs = append(newdbIfcs, reusedIfc)
 					continue
 				}
@@ -3550,7 +3550,7 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 
 			unmatchedIfcs := make([]cdbm.Interface, 0, len(existingIfcs)-len(reusedIfcIDs))
 			for existingIfcIndex := range existingIfcs {
-				if _, reused := reusedIfcIDs[existingIfcs[existingIfcIndex].ID]; reused {
+				if reusedIfcIDs[existingIfcs[existingIfcIndex].ID] {
 					continue
 				}
 

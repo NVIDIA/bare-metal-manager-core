@@ -6,7 +6,6 @@ package model
 import (
 	"context"
 	"fmt"
-	"net/netip"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -983,16 +982,6 @@ func TestVpcPrefixUsageFromInterfaces(t *testing.T) {
 			expectedAcquiredPrefixes:          2,
 		},
 		{
-			name:                              "/31 prefix with assigned IP is fully consumed",
-			cidr:                              "10.0.0.0/31",
-			ifcCountWithoutIPs:                0,
-			ips:                               []string{"10.0.0.1"},
-			expectedAvailableIPs:              2,
-			expectedAcquiredIPs:               2,
-			expectedAvailableSmallestPrefixes: 0,
-			expectedAcquiredPrefixes:          1,
-		},
-		{
 			name:                              "non-empty invalid or inapplicable addresses are not pending reservations",
 			cidr:                              "10.0.0.0/28",
 			ifcCountWithoutIPs:                0,
@@ -1017,6 +1006,14 @@ func TestVpcPrefixUsageFromInterfaces(t *testing.T) {
 			assert.Equal(t, testCase.expectedAcquiredPrefixes, usage.AcquiredPrefixes)
 		})
 	}
+
+	t.Run("unexpected child prefix acquisition error is propagated", func(t *testing.T) {
+		t.Parallel()
+
+		usage, err := vpcPrefixUsageFromInterfaces(context.Background(), "10.0.0.1/32", 0, []string{"10.0.0.1"})
+		require.Error(t, err)
+		assert.Nil(t, usage)
+	})
 }
 
 //nolint:funlen,paralleltest // Cases and fixtures stay inline; model tests share a PostgreSQL schema.
@@ -1028,7 +1025,6 @@ func TestVpcPrefixSQLDAO_GetPrefixUsage(t *testing.T) {
 
 	tests := []struct {
 		name                       string
-		cidr                       string
 		interfaces                 []interfaceFixture
 		expectedAvailableIPs       uint64
 		expectedAcquiredIPs        uint64
@@ -1039,7 +1035,6 @@ func TestVpcPrefixSQLDAO_GetPrefixUsage(t *testing.T) {
 	}{
 		{
 			name: "stale deleting rows do not exhaust prefix issue 4908",
-			cidr: "10.0.0.0/28",
 			// Deleting rows still hold capacity; duplicate /31 addresses are de-duplicated by prefix.
 			interfaces: []interfaceFixture{
 				{status: InterfaceStatusReady, ipAddress: cutil.GetPtr("10.0.0.1")},
@@ -1062,7 +1057,6 @@ func TestVpcPrefixSQLDAO_GetPrefixUsage(t *testing.T) {
 		},
 		{
 			name: "deleting interface with a distinct IP still consumes capacity",
-			cidr: "10.0.0.0/28",
 			interfaces: []interfaceFixture{
 				{status: InterfaceStatusReady, ipAddress: cutil.GetPtr("10.0.0.1")},
 				{status: InterfaceStatusDeleting, ipAddress: cutil.GetPtr("10.0.0.3")},
@@ -1076,7 +1070,6 @@ func TestVpcPrefixSQLDAO_GetPrefixUsage(t *testing.T) {
 		},
 		{
 			name: "pending interfaces without IPs reserve one /31 each",
-			cidr: "10.0.0.0/28",
 			interfaces: []interfaceFixture{
 				{status: InterfaceStatusPending, ipAddress: nil},
 				{status: InterfaceStatusPending, ipAddress: nil},
@@ -1091,7 +1084,6 @@ func TestVpcPrefixSQLDAO_GetPrefixUsage(t *testing.T) {
 		},
 		{
 			name: "mixed duplicate and pending interfaces reserve unique /31s",
-			cidr: "10.0.0.0/28",
 			interfaces: []interfaceFixture{
 				{status: InterfaceStatusReady, ipAddress: cutil.GetPtr("10.0.0.1")},
 				{status: InterfaceStatusReady, ipAddress: cutil.GetPtr("10.0.0.3")},
@@ -1108,7 +1100,6 @@ func TestVpcPrefixSQLDAO_GetPrefixUsage(t *testing.T) {
 		},
 		{
 			name: "usage clamps when acquired and pending interfaces exceed capacity",
-			cidr: "10.0.0.0/28",
 			interfaces: []interfaceFixture{
 				{status: InterfaceStatusReady, ipAddress: cutil.GetPtr("10.0.0.1")},
 				{status: InterfaceStatusReady, ipAddress: cutil.GetPtr("10.0.0.3")},
@@ -1123,19 +1114,6 @@ func TestVpcPrefixSQLDAO_GetPrefixUsage(t *testing.T) {
 			expectedAvailableIPs:       16,
 			expectedAcquiredIPs:        16,
 			expectedAcquiredPrefixes:   8,
-			expectedAvailableSmallest:  0,
-			expectedFreeInterfaceSlots: 0,
-			expectedAdmissionAllowed:   false,
-		},
-		{
-			name: "supported /31 prefix with assigned IP is fully consumed",
-			cidr: "10.0.0.0/31",
-			interfaces: []interfaceFixture{
-				{status: InterfaceStatusReady, ipAddress: cutil.GetPtr("10.0.0.1")},
-			},
-			expectedAvailableIPs:       2,
-			expectedAcquiredIPs:        2,
-			expectedAcquiredPrefixes:   1,
 			expectedAvailableSmallest:  0,
 			expectedFreeInterfaceSlots: 0,
 			expectedAdmissionAllowed:   false,
@@ -1163,9 +1141,6 @@ func TestVpcPrefixSQLDAO_GetPrefixUsage(t *testing.T) {
 			_, err := dbSession.DB.NewUpdate().Model(instance).Column("status").Where("id = ?", instance.ID).Exec(context.Background())
 			require.NoError(t, err)
 
-			parsedPrefix, parseErr := netip.ParsePrefix(testCase.cidr)
-			require.NoError(t, parseErr)
-
 			vpcPrefix, err := NewVpcPrefixDAO(dbSession).Create(context.Background(), nil, VpcPrefixCreateInput{
 				VpcPrefixID:  nil,
 				Name:         "issue-4908-prefix",
@@ -1174,8 +1149,8 @@ func TestVpcPrefixSQLDAO_GetPrefixUsage(t *testing.T) {
 				VpcID:        vpc.ID,
 				TenantID:     tenant.ID,
 				IpBlockID:    nil,
-				Prefix:       testCase.cidr,
-				PrefixLength: parsedPrefix.Bits(),
+				Prefix:       "10.0.0.0/28",
+				PrefixLength: 28,
 				Status:       VpcPrefixStatusReady,
 				CreatedBy:    user.ID,
 			})

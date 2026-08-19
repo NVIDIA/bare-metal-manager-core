@@ -135,11 +135,8 @@ type Interface struct {
 	CreatedBy            uuid.UUID                      `bun:"type:uuid,notnull"`
 }
 
-// EthernetInterfaceKey identifies an Ethernet interface configuration for update reconciliation.
-type EthernetInterfaceKey string
-
-// EthernetKey returns a stable string key for the Interface fields controlled by an update request.
-func (ifc Interface) EthernetKey() EthernetInterfaceKey {
+// EthernetInterfaceKey returns a stable string key for the Interface fields controlled by an update request.
+func (ifc Interface) EthernetInterfaceKey() string {
 	values := url.Values{}
 	if ifc.SubnetID != nil {
 		values.Set("subnet_id", ifc.SubnetID.String())
@@ -174,7 +171,7 @@ func (ifc Interface) EthernetKey() EthernetInterfaceKey {
 		values["inline_routing_prefix"] = append([]string(nil), ifc.InlineRoutingProfile.AllowedAnycastPrefixes...)
 	}
 
-	return EthernetInterfaceKey(values.Encode())
+	return values.Encode()
 }
 
 // InterfaceCreateInput input parameters for Create method
