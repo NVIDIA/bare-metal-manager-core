@@ -31,7 +31,7 @@ var (
 	ProjectRoot = filepath.Join(filepath.Dir(cur), "../..")
 )
 
-const defaultSitePhoneHomeUrl = "http://169.254.169.254:7777/latest/meta-data/phone_home"
+const defaultSitePhoneHomeUrl = "http://169.254.169.254/latest/meta-data/phone_home"
 
 const (
 	// ConfigFilePath specifies the path to the config file, this contains the default path
