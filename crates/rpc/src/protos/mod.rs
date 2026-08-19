@@ -77,6 +77,17 @@ impl machine_discovery::MemoryDeviceGroup {
     pub fn nonzero(self) -> Option<Self> {
         (self.count > 0).then_some(self)
     }
+
+    /// Expands this group back into a flat iterator of individual [`machine_discovery::MemoryDevice`]s.
+    pub fn rehydrate(&self) -> impl Iterator<Item = machine_discovery::MemoryDevice> + '_ {
+        std::iter::repeat_n(
+            machine_discovery::MemoryDevice {
+                size_mb: self.size_mb,
+                mem_type: self.mem_type.clone(),
+            },
+            self.count as usize,
+        )
+    }
 }
 
 #[allow(non_snake_case, unknown_lints, clippy::all)]
