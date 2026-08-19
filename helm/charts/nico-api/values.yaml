@@ -71,6 +71,44 @@ automountServiceAccountToken: true
 annotations:
   configmap.reloader.stakater.com/reload: '{{ include "nico-api.name" . }}-config-files,{{ include "nico-api.name" . }}-site-config-files'
 
+## Scheduling
+##
+## `affinity`, `nodeSelector` and `tolerations` are plain pass-throughs. Setting
+## `affinity` disables the `databaseAffinity` convenience below.
+affinity: {}
+nodeSelector: {}
+tolerations: []
+
+## Prefer -- never require -- scheduling nico-api onto the PostgreSQL primary's
+## node.
+##
+## nico-api holds the admin-segment advisory lock across application round trips
+## to the database, so a large share of that lock's hold time is network latency
+## rather than query time. The same 4,500-host ingestion measured a 1.32x
+## throughput difference between co-located and cross-node placement (local RTT
+## 0.073ms vs 0.473ms), with no other variable changed.
+##
+## Expressed as a soft preference on purpose:
+##   * `preferredDuringScheduling...` -- if the primary's node is full, cordoned
+##     or unreachable, nico-api still schedules normally. It never blocks a
+##     deployment or a node failover.
+##   * `...IgnoredDuringExecution` -- when Patroni promotes a new primary the
+##     `spilo-role=master` label moves, and nico-api is deliberately NOT evicted
+##     to follow it. Staying up beats chasing the 1.32x.
+##
+## The selector targets the Zalando/Spilo operator's convention. If your
+## PostgreSQL is deployed differently, point `matchLabels` at whatever marks
+## your primary, or set `enabled: false`. An unmatched preference is simply
+## ignored by the scheduler, so a wrong label costs nothing but the benefit.
+databaseAffinity:
+  enabled: true
+  weight: 100
+  topologyKey: kubernetes.io/hostname
+  namespaces:
+    - postgres
+  matchLabels:
+    spilo-role: master
+
 resources:
   limits:
     cpu: 3
