@@ -91,7 +91,7 @@ helm upgrade --install nico ./helm \
 
 ```toml
 [site_explorer]
-bmc_proxy = "nico-machine-a-tron-default-bmc-mock.nico-mat.svc.cluster.local:1266"
+bmc_proxy = "nico-machine-a-tron-default-bmc-mock.nico-system.svc.cluster.local:1266"
 ```
 
 The port defaults to 1266 and must match the `service.bmcMock.port` value if
