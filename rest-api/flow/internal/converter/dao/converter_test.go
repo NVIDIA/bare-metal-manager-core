@@ -454,7 +454,7 @@ func TestComponentConversionWithComponentID(t *testing.T) {
 func TestRackConversion(t *testing.T) {
 	// Test RackFrom and RackTo
 	rackID := uuid.New()
-	description := map[string]any{"description": "A rack"}
+	description := map[string]any{"description": "A rack", "model": "NVL72"}
 	loc := `{"region":"US-West","data_center":"Santa Clara","room":"Mars","position":"Row 5"}`
 
 	daoRack := model.Rack{
@@ -472,6 +472,7 @@ func TestRackConversion(t *testing.T) {
 			ID:           rackID,
 			Name:         "Rack1",
 			Manufacturer: "NVIDIA",
+			Model:        "NVL72",
 			SerialNumber: "67890",
 			Description:  utils.MapToJSONString(description),
 		},

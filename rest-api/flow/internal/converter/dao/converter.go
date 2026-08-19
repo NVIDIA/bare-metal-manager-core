@@ -127,6 +127,7 @@ func RackFrom(dao *model.Rack) *rack.Rack {
 	if dao == nil {
 		return nil
 	}
+	modelName, _ := dao.Description["model"].(string)
 
 	components := make([]component.Component, 0, len(dao.Components))
 	for _, c := range dao.Components {
@@ -138,6 +139,7 @@ func RackFrom(dao *model.Rack) *rack.Rack {
 			ID:           dao.ID,
 			Name:         dao.Name,
 			Manufacturer: dao.Manufacturer,
+			Model:        modelName,
 			SerialNumber: dao.SerialNumber,
 			Description:  utils.MapToJSONString(dao.Description),
 		},
