@@ -16,13 +16,37 @@
  */
 
 use ::rpc::admin_cli::OutputFormat;
-use ::rpc::forge as forgerpc;
+use ::rpc::{Machine, forge as forgerpc};
 use carbide_utils::none_if_empty::NoneIfEmpty;
+use carbide_uuid::machine::MachineId;
 use model::hardware_info::gpu_name_indicates_mnnvl;
 
 use super::args::{NvlinkInfoArgs, NvlinkInfoPopulateArgs};
 use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
+
+/// Returns an error unless the machine's discovery info identifies MNNVL hardware (GB200|GB300|VR NVL)
+#[allow(deprecated)]
+fn ensure_mnnvl_machine(machine: &Machine, machine_id: MachineId) -> CarbideCliResult<()> {
+    let is_mnnvl = machine.discovery_info.as_ref().is_some_and(|info| {
+        info.dmi_data
+            .as_ref()
+            .is_some_and(|dmi| gpu_name_indicates_mnnvl(&dmi.product_name))
+            || info
+                .gpus
+                .iter()
+                .any(|gpu| gpu_name_indicates_mnnvl(&gpu.name))
+    });
+
+    if !is_mnnvl {
+        return Err(CarbideCliError::GenericError(format!(
+            "Machine {} is not an MNNVL machine",
+            machine_id
+        )));
+    }
+
+    Ok(())
+}
 
 #[allow(deprecated)]
 pub(super) async fn handle_nvlink_info_show(
@@ -31,27 +55,7 @@ pub(super) async fn handle_nvlink_info_show(
 ) -> CarbideCliResult<()> {
     let machine = api_client.get_machine(args.machine_id).await?;
 
-    // Check if this is an MNNVL machine (GB200|GB300)
-    let is_mnnvl = machine
-        .discovery_info
-        .as_ref()
-        .map(|info| {
-            info.dmi_data
-                .as_ref()
-                .is_some_and(|dmi| gpu_name_indicates_mnnvl(&dmi.product_name))
-                || info
-                    .gpus
-                    .iter()
-                    .any(|gpu| gpu_name_indicates_mnnvl(&gpu.name))
-        })
-        .unwrap_or(false);
-
-    if !is_mnnvl {
-        return Err(CarbideCliError::GenericError(format!(
-            "Machine {} is not an MNNVL machine",
-            args.machine_id
-        )));
-    }
+    ensure_mnnvl_machine(&machine, args.machine_id)?;
 
     match machine.nvlink_info {
         Some(nvlink_info) => {
@@ -77,27 +81,7 @@ pub(super) async fn handle_nvlink_info_populate(
     let machine = api_client.get_machine(args.machine_id).await?;
     let update_db = args.update_db;
 
-    // Check if this is an MNNVL machine (GB200|GB300)
-    let is_mnnvl = machine
-        .discovery_info
-        .as_ref()
-        .map(|info| {
-            info.dmi_data
-                .as_ref()
-                .is_some_and(|dmi| gpu_name_indicates_mnnvl(&dmi.product_name))
-                || info
-                    .gpus
-                    .iter()
-                    .any(|gpu| gpu_name_indicates_mnnvl(&gpu.name))
-        })
-        .unwrap_or(false);
-
-    if !is_mnnvl {
-        return Err(CarbideCliError::GenericError(format!(
-            "Machine {} is not an MNNVL machine",
-            args.machine_id
-        )));
-    }
+    ensure_mnnvl_machine(&machine, args.machine_id)?;
 
     let bmc_ip = machine
         .bmc_info
