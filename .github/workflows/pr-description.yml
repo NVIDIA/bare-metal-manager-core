@@ -3,14 +3,12 @@
 
 name: Pull Request Description
 
+# NVIDIA self-hosted runners reject pull_request and pull_request_target events.
+# copy-pr-bot pushes trusted PR commits to pull-request/<PR number> branches.
 on:
-  pull_request_target:
-    types:
-      - opened
-      - edited
-      - reopened
-      - synchronize
-      - ready_for_review
+  push:
+    branches:
+      - 'pull-request/[0-9]+'
 
 permissions:
   contents: read
@@ -18,7 +16,7 @@ permissions:
   statuses: write
 
 concurrency:
-  group: pr-description-${{ github.event.pull_request.number }}
+  group: pr-description-${{ github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -29,13 +27,13 @@ jobs:
     steps:
       - name: Publish pr-description status
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
+
+          PR_NUMBER="${GITHUB_REF_NAME#pull-request/}"
+          EVENT_HEAD_SHA="${GITHUB_SHA}"
 
           post_status() {
             local sha="$1"
@@ -69,11 +67,12 @@ jobs:
             "Checking the current pull request description"
 
           pr_json="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
+          base_sha="$(jq -r '.base.sha' <<<"${pr_json}")"
 
           template="$(
             gh api \
               --header "Accept: application/vnd.github.raw+json" \
-              "repos/${GITHUB_REPOSITORY}/contents/.github/PULL_REQUEST_TEMPLATE.md?ref=${BASE_SHA}"
+              "repos/${GITHUB_REPOSITORY}/contents/.github/PULL_REQUEST_TEMPLATE.md?ref=${base_sha}"
           )"
           body="$(jq -r '.body // ""' <<<"${pr_json}")"
 
@@ -107,25 +106,25 @@ jobs:
 
           if [[ "${comparison}" == "empty" ]]; then
             message="Pull request description must not be empty"
-            post_status "${EVENT_HEAD_SHA}" failure "${message}"
+            post_status "${EVENT_HEAD_SHA}" failure "${message}; edit it, then re-run this failed job"
             status_finalized=true
-            echo "::error::${message}"
+            echo "::error::${message}. After updating the PR description, select 'Re-run failed jobs' on this Actions run."
             exit 1
           fi
 
           if [[ "${comparison}" == "template" ]]; then
             message="Fill in the pull request template before submitting"
-            post_status "${EVENT_HEAD_SHA}" failure "${message}"
+            post_status "${EVENT_HEAD_SHA}" failure "${message}; edit it, then re-run this failed job"
             status_finalized=true
-            echo "::error::${message}"
+            echo "::error::${message}. After updating the PR description, select 'Re-run failed jobs' on this Actions run."
             exit 1
           fi
 
           if [[ "${body}" == *"<!--"* ]]; then
             message="Remove all <!-- ... --> comments from the pull request description"
-            post_status "${EVENT_HEAD_SHA}" failure "${message}"
+            post_status "${EVENT_HEAD_SHA}" failure "${message}; edit it, then re-run this failed job"
             status_finalized=true
-            echo "::error::${message}"
+            echo "::error::${message}. After updating the PR description, select 'Re-run failed jobs' on this Actions run."
             exit 1
           fi
 
