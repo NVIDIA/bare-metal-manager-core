@@ -283,6 +283,8 @@ impl Kea {
         if let Some(process) = &mut self.process {
             // Rust stdlib can only send a KILL (9) to sub-process. Thankfully dhcp already depends on
             // libc so we can use that.
+            // SAFETY: The unreaped Child retains its valid, unreused PID and
+            // SIGTERM is a valid signal; no borrowed memory crosses the syscall.
             unsafe {
                 libc::kill(process.id() as i32, libc::SIGTERM);
             }

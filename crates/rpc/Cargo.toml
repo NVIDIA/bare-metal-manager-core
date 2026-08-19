@@ -62,6 +62,8 @@ carbide-uuid = { path = "../uuid" }
 chrono = { features = ["serde"], workspace = true }
 const_format = { workspace = true }
 eyre = { workspace = true }
+jsonwebtoken = { workspace = true, features = ["rust_crypto"] }
+p256 = { workspace = true }
 hyper = { workspace = true, features = ["full"] }
 hyper-rustls = { workspace = true, features = ["http2"] }
 hyper-util = { features = [
@@ -127,6 +129,8 @@ carbide-api-model = { path = "../api-model", features = ["test-support"] }
 carbide-libmlx-model = { path = "../libmlx-model", features = ["test-support"] }
 carbide-test-support = { path = "../test-support" }
 criterion = { workspace = true }
+rcgen = { workspace = true }
+tempfile = { workspace = true }
 
 [[bench]]
 name = "machine_convert"

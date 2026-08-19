@@ -111,7 +111,6 @@ func (o *CancelTaskRequest) UnmarshalJSON(data []byte) (err error) {
 	varCancelTaskRequest := _CancelTaskRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varCancelTaskRequest)
 
 	if err != nil {

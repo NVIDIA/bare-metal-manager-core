@@ -18,6 +18,7 @@
 mod common;
 mod disable;
 mod enable;
+mod service_sync;
 mod service_version;
 mod show;
 mod snapshot;
@@ -41,4 +42,10 @@ pub(crate) enum Cmd {
         about = "Compare configured vs deployed DPF service versions"
     )]
     ServiceVersion(service_version::Args),
+    #[clap(
+        subcommand,
+        alias = "ss",
+        about = "Release DPF maintenance holds blocking a DPUService rollout"
+    )]
+    ServiceSync(service_sync::Args),
 }

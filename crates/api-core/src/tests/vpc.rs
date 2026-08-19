@@ -27,8 +27,8 @@ use db::vpc::{self};
 use db::{self, ObjectColumnFilter};
 use model::metadata::Metadata;
 use model::vpc::{
-    NewVpc, UpdateVpc, UpdateVpcVirtualization, VpcDefinition, VpcRoutingProfileOverrides,
-    VpcStatus,
+    NewVpc, PowerResourceGroupUpdate, UpdateVpc, UpdateVpcVirtualization, VpcDefinition,
+    VpcRoutingProfileOverrides, VpcStatus,
 };
 use rpc::forge::forge_server::Forge;
 
@@ -353,6 +353,23 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
 
     let no_org_vpc_id: VpcId = no_org_vpc.id.expect("should have id");
 
+    // A power-resource-group-only update still validates that the VPC exists.
+    let unknown_vpc_id = VpcId::from(uuid::Uuid::new_v4());
+    let status = env
+        .api
+        .update_vpc(tonic::Request::new(rpc::forge::VpcUpdateRequest {
+            id: Some(unknown_vpc_id),
+            if_version_match: None,
+            metadata: None,
+            network_security_group_id: None,
+            default_nvlink_logical_partition_id: None,
+            routing_profile_overrides: None,
+            power_resource_group: Some("power-group".to_string()),
+        }))
+        .await
+        .expect_err("updating an unknown VPC should fail");
+    assert_eq!(status.code(), tonic::Code::NotFound);
+
     // Try to update to invalid metadata
     for (invalid_metadata, expected_err) in common::metadata::invalid_metadata_testcases(true) {
         let invalid_updated_vpc = env
@@ -364,6 +381,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
                 network_security_group_id: None,
                 default_nvlink_logical_partition_id: None,
                 routing_profile_overrides: None,
+                power_resource_group: None,
             }))
             .await;
 
@@ -393,12 +411,17 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
             metadata: updated_metadata.clone(),
             network_security_group_id: None,
             routing_profile_overrides: None,
+            power_resource_group: Some(PowerResourceGroupUpdate::Set("power-group".to_string())),
         },
         &mut txn,
     )
     .await?;
 
     assert_eq!(updated_vpc.metadata, updated_metadata);
+    assert_eq!(
+        updated_vpc.config.power_resource_group.as_deref(),
+        Some("power-group")
+    );
     assert_eq!(updated_vpc.version.version_nr(), 2);
 
     // DB value "etv" decodes as EthernetVirtualizer.
@@ -460,6 +483,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
             if_version_match: Some(initial_no_org_vpc_version),
             network_security_group_id: None,
             routing_profile_overrides: None,
+            power_resource_group: None,
             metadata: Metadata {
                 name: "never this name".to_string(),
                 description: "".to_string(),
@@ -490,6 +514,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
             id: no_org_vpc_id,
             network_security_group_id: None,
             routing_profile_overrides: None,
+            power_resource_group: None,
             if_version_match: Some(updated_vpc.version),
             metadata: Metadata {
                 name: "yet another new name".to_string(),
@@ -502,6 +527,25 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     .await?;
     assert_eq!(&updated_vpc.metadata.name, "yet another new name");
     assert_eq!(updated_vpc.version.version_nr(), 5);
+    assert_eq!(
+        updated_vpc.config.power_resource_group.as_deref(),
+        Some("power-group")
+    );
+
+    let updated_vpc = db::vpc::update(
+        &UpdateVpc {
+            id: no_org_vpc_id,
+            network_security_group_id: None,
+            routing_profile_overrides: None,
+            power_resource_group: Some(PowerResourceGroupUpdate::Clear),
+            if_version_match: Some(updated_vpc.version),
+            metadata: updated_vpc.metadata.clone(),
+        },
+        &mut txn,
+    )
+    .await?;
+    assert_eq!(updated_vpc.config.power_resource_group, None);
+    assert_eq!(updated_vpc.version.version_nr(), 6);
 
     let mut vpcs = db::vpc::find_by(
         txn.as_mut(),
@@ -510,7 +554,8 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     .await?;
     let first = vpcs.swap_remove(0);
     assert_eq!(&first.metadata.name, "yet another new name");
-    assert_eq!(first.version.version_nr(), 5);
+    assert_eq!(first.version.version_nr(), 6);
+    assert_eq!(first.config.power_resource_group, None);
 
     let vpcs = db::vpc::find_by_with_lock(
         txn.as_mut(),
@@ -722,7 +767,7 @@ async fn update_vpc_rejects_unresolvable_routing_profile_base(
     // no constraint tying profile names to that configuration.
     let stale_profile_id = VpcId::new();
     let mut txn = env.pool.begin().await?;
-    db::vpc::persist(
+    let stale_vpc = db::vpc::persist(
         NewVpc {
             id: stale_profile_id,
             tenant_organization_id: "stale-profile-vpc".to_string(),
@@ -734,12 +779,17 @@ async fn update_vpc_rejects_unresolvable_routing_profile_base(
             network_security_group_id: None,
             routing_profile_type: Some("REMOVED_PROFILE".to_string()),
             routing_profile_overrides: None,
+            power_resource_group: Some("stale-power-group".to_string()),
             vni: None,
         },
         VpcStatus { vni: None },
         &mut txn,
     )
     .await?;
+    assert_eq!(
+        stale_vpc.config.power_resource_group.as_deref(),
+        Some("stale-power-group")
+    );
     txn.commit().await?;
 
     check_cases_async(

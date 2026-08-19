@@ -139,6 +139,13 @@ func (d *Dispatcher) decide(
 		return newStopDecision(dispatchRunTransition{}), nil
 	}
 
+	if prep.summary.CurrentPhaseEmpty() && prep.run.TotalPhases > 0 {
+		return newStopDecision(failRunTransition(fmt.Sprintf(
+			"operation run phase %d has no targets; persisted phase plan is invalid",
+			prep.run.CurrentPhaseIndex,
+		))), nil
+	}
+
 	if prep.summary.SelectedTargetCount() == 0 {
 		return newStopDecision(failRunTransition("operation run has no targets")), nil
 	}

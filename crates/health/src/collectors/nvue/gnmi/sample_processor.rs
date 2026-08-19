@@ -174,9 +174,10 @@ impl GnmiSampleProcessor {
         } else if leaf_matches(elems, &["infiniband", "state", "vl-capabilities"])
             && let Some(caps) = typed_value_to_string(val).none_if_empty()
         {
-            self.emit_iface_info(
+            self.emit_entity_info(
                 "interface_vl_capabilities_info",
                 iface_name,
+                "interface_name",
                 "vl_capabilities",
                 &caps,
             );
@@ -194,23 +195,24 @@ impl GnmiSampleProcessor {
         );
     }
 
-    /// per-interface info-metric: constant `1.0` sample with a string label beside `interface_name`.
-    fn emit_iface_info(
+    /// The information value is excluded from the key so updates replace the prior sample.
+    fn emit_entity_info(
         &self,
         metric_type: &str,
-        iface_name: &str,
+        entity_id: &str,
+        entity_label_name: &'static str,
         info_label_name: &'static str,
         info_label_value: &str,
     ) {
         let Some(sink) = &self.data_sink else { return };
 
-        let mut key = String::with_capacity(metric_type.len() + 1 + iface_name.len());
+        let mut key = String::with_capacity(metric_type.len() + 1 + entity_id.len());
         key.push_str(metric_type);
         key.push(':');
-        key.push_str(iface_name);
+        key.push_str(entity_id);
 
         let labels = vec![
-            (Cow::Borrowed("interface_name"), iface_name.to_string()),
+            (Cow::Borrowed(entity_label_name), entity_id.to_string()),
             (Cow::Borrowed(info_label_name), info_label_value.to_string()),
         ];
 
@@ -250,6 +252,16 @@ impl GnmiSampleProcessor {
             && let Some(v) = typed_value_to_f64(val)
         {
             self.emit_comp("component_temperature_celsius", comp_name, v, "celsius");
+        } else if leaf_matches(elems, &["state", "last-reboot-reason"])
+            && let Some(reason) = typed_value_to_string(val).none_if_empty()
+        {
+            self.emit_entity_info(
+                "component_last_reboot_reason",
+                comp_name,
+                "component_name",
+                "reboot_reason",
+                &reason,
+            );
         } else if leaf_matches(elems, &["state", "oper-status"]) {
             // FAN-STATE (row 966) and CPU-STATE (row 1174) share this leaf.
             let current = oper_status_to_state(typed_value_to_string(val).as_deref());
@@ -2311,6 +2323,43 @@ mod tests {
         assert_eq!(cpu.metric_type, "component_cpu_utilization");
         assert_eq!(cpu.unit, "percent");
         assert_eq!(cpu.value, 24.0);
+    }
+
+    #[test]
+    fn test_component_last_reboot_reason_info() {
+        let samples = run_component_leaf_all(
+            "SYSTEM",
+            &["state", "last-reboot-reason"],
+            make_typed_value_string("POWER_CYCLE"),
+        );
+
+        assert_eq!(samples.len(), 1);
+
+        let sample = &samples[0];
+
+        assert_eq!(sample.name, NVUE_GNMI_SAMPLE_STREAM_ID);
+        assert_eq!(sample.key, "component_last_reboot_reason:SYSTEM");
+        assert_eq!(sample.metric_type, "component_last_reboot_reason");
+        assert_eq!(sample.unit, "info");
+        assert_eq!(sample.value, 1.0);
+        assert!(sample.context.is_none());
+
+        assert_eq!(
+            sample.labels,
+            vec![
+                (Cow::Borrowed("component_name"), "SYSTEM".to_string()),
+                (Cow::Borrowed("reboot_reason"), "POWER_CYCLE".to_string()),
+            ]
+        );
+
+        assert!(
+            run_component_leaf_all(
+                "SYSTEM",
+                &["state", "last-reboot-reason"],
+                make_typed_value_string(""),
+            )
+            .is_empty()
+        );
     }
 
     #[test]

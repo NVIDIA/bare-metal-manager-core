@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/target"
 	inventoryresolver "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/resolver"
 )
 
@@ -29,6 +30,11 @@ func classifyRuleError(err error) error {
 	}
 
 	return err
+}
+
+func isTerminalTargetError(err error) bool {
+	return errors.Is(err, target.ErrUnresolvable) ||
+		errors.Is(err, inventoryresolver.ErrUnresolvable)
 }
 
 func terminalError(err error) error {

@@ -5,6 +5,7 @@ package pagination
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 
@@ -18,6 +19,13 @@ import (
 const (
 	// MaxPageSize is the maximum page size allowed
 	MaxPageSize = 100
+
+	// MaxPageNumber is the maximum page number allowed. It bounds PageNumber so
+	// that the largest offset Validate can derive, (MaxPageNumber-1) *
+	// MaxPageSize, still fits the int32 every consumer narrows Offset to. Past
+	// that the narrowed offset wraps to an unrelated or negative value and the
+	// response reports a page it does not contain.
+	MaxPageNumber = math.MaxInt32 / MaxPageSize
 
 	// ResponseHeaderName describes the header name for the pagination response
 	ResponseHeaderName = "X-Pagination"
@@ -50,10 +58,11 @@ func (pr *PageRequest) Validate(orderByFields []string) error {
 	err := validation.ValidateStruct(pr,
 		validation.Field(&pr.PageNumber,
 			validation.Min(1).Error("must be greater than 0"),
+			validation.Max(MaxPageNumber).Error(fmt.Sprintf("must be less than or equal to: %v", MaxPageNumber)),
 		),
 		validation.Field(&pr.PageSize,
 			validation.Min(1).Error("must be greater than 0"),
-			validation.Max(MaxPageSize).Error(fmt.Sprintf("must be less that or equal to: %v", MaxPageSize)),
+			validation.Max(MaxPageSize).Error(fmt.Sprintf("must be less than or equal to: %v", MaxPageSize)),
 		),
 		validation.Field(&pr.OrderByStr,
 			validation.Match(regexp.MustCompile(OrderByRegex)).Error(fmt.Sprintf("must be in the format of field_%v or field_%v", cdbp.OrderAscending, cdbp.OrderDescending)),

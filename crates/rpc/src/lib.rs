@@ -74,13 +74,15 @@ pub use crate::protos::machine_discovery::{
     self, BlockDevice, Cpu, DiscoveryInfo, DmiData, NetworkInterface, NvmeDevice,
     PciDeviceProperties,
 };
-pub use crate::protos::{fmds, health, scout_firmware_upgrade, site_explorer};
+pub use crate::protos::{agent_local, fmds, health, scout_firmware_upgrade, site_explorer};
 
 pub mod errors;
 pub mod forge_tls_client;
 pub mod libmlx;
 pub mod measured_boot;
 pub mod network;
+pub mod node_jwt;
+pub mod node_token_socket;
 pub mod protos;
 pub mod secrets;
 mod site_explorer_report;
@@ -1088,6 +1090,20 @@ mod tests {
     use self::forge::{InlineIpxe, InstanceOperatingSystemConfig};
     use super::*;
     use crate::protos::dns::{Domain, Metadata};
+
+    fn assert_serialize<T: serde::Serialize>() {}
+
+    fn assert_deserialize<T: for<'de> serde::Deserialize<'de>>() {}
+
+    #[test]
+    fn protobuf_codegen_annotations_apply_to_generated_type_kinds() {
+        assert_serialize::<forge::ClientSecretBasic>();
+        assert_deserialize::<forge::ClientSecretBasic>();
+        assert_serialize::<forge::DpuMode>();
+        assert_deserialize::<forge::DpuMode>();
+        assert_serialize::<forge::instance_interface_config::NetworkDetails>();
+        assert_serialize::<forge::get_machine_boot_interfaces_response::Reconciliation>();
+    }
 
     #[test]
     fn reflection_descriptor_contains_all_rpc_services() {

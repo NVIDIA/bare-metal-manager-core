@@ -125,10 +125,9 @@ fn convert_to_nice_format(
 ) -> CarbideCliResult<String> {
     let width = 14;
     let mut lines = String::new();
-    if results.results.is_empty() {
+    let Some(first) = results.results.first() else {
         return Ok(lines);
-    }
-    let first = results.results.first().unwrap();
+    };
     let data = vec![
         (
             "ID",

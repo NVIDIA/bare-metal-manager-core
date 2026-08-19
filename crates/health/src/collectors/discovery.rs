@@ -16,6 +16,7 @@
  */
 
 use std::collections::HashSet;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -31,14 +32,16 @@ use crate::endpoint::BmcEndpoint;
 /// Configuration for the entity discovery collector
 pub struct EntityDiscoveryCollectorConfig<B: Bmc> {
     pub(crate) shared: SharedInventory<B>,
-    pub discovery_concurrency: usize,
+
+    /// Bounds local fan-out to the endpoint Redfish operation limit.
+    pub request_concurrency: NonZeroUsize,
 }
 
 pub struct EntityDiscoveryCollector<B: Bmc> {
     endpoint: Arc<BmcEndpoint>,
     bmc: Arc<B>,
     shared: SharedInventory<B>,
-    discovery_concurrency: usize,
+    request_concurrency: usize,
     generation: u64,
 }
 
@@ -54,7 +57,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for EntityDiscoveryCollector<B> {
             endpoint,
             bmc,
             shared: config.shared,
-            discovery_concurrency: config.discovery_concurrency.max(1),
+            request_concurrency: config.request_concurrency.get(),
             generation: 0,
         })
     }
@@ -177,7 +180,7 @@ impl<B: Bmc + 'static> EntityDiscoveryCollector<B> {
                 let metric = processor.metrics_sensor_links().await;
                 (processor, env, metric)
             })
-            .buffer_unordered(self.discovery_concurrency)
+            .buffer_unordered(self.request_concurrency)
             .collect()
             .await;
 
@@ -222,7 +225,7 @@ impl<B: Bmc + 'static> EntityDiscoveryCollector<B> {
                 let sensors = memory.environment_sensor_links().await;
                 (memory, sensors)
             })
-            .buffer_unordered(self.discovery_concurrency)
+            .buffer_unordered(self.request_concurrency)
             .collect()
             .await;
 
@@ -270,7 +273,7 @@ impl<B: Bmc + 'static> EntityDiscoveryCollector<B> {
                     let sensors = drive.environment_sensor_links().await;
                     (drive, sensors)
                 })
-                .buffer_unordered(self.discovery_concurrency)
+                .buffer_unordered(self.request_concurrency)
                 .collect()
                 .await;
 
@@ -312,7 +315,7 @@ impl<B: Bmc + 'static> EntityDiscoveryCollector<B> {
                 let sensors = ps.metrics_sensor_links().await;
                 (ps, sensors)
             })
-            .buffer_unordered(self.discovery_concurrency)
+            .buffer_unordered(self.request_concurrency)
             .collect()
             .await;
 

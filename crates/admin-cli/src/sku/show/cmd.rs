@@ -131,7 +131,7 @@ fn memory_table(memory: Vec<::rpc::forge::SkuComponentMemory>) -> Table {
 fn ib_device_table(devices: Vec<::rpc::forge::SkuComponentInfinibandDevices>) -> Table {
     let mut table = create_table(vec!["Vendor", "Model", "Count", "Inactive Devices"]);
     for dev in devices {
-        let inactive_devices = serde_json::to_string(&dev.inactive_devices).unwrap();
+        let inactive_devices = serde_json::to_string(&dev.inactive_devices).unwrap_or_default();
         table.add_row(Row::from(vec![
             dev.vendor,
             dev.model,

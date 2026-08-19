@@ -206,7 +206,6 @@ func (o *SiteExplorerEndpointActionRequest) UnmarshalJSON(data []byte) (err erro
 	varSiteExplorerEndpointActionRequest := _SiteExplorerEndpointActionRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varSiteExplorerEndpointActionRequest)
 
 	if err != nil {

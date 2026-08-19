@@ -32,6 +32,7 @@ async-trait = { workspace = true }
 chrono = { workspace = true }
 duration-str = { workspace = true }
 eyre = { workspace = true }
+futures = { workspace = true, features = ["std"] }
 hex = { workspace = true }
 http = { workspace = true }
 librms = { workspace = true }

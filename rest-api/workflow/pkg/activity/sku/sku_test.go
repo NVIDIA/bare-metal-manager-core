@@ -6,6 +6,7 @@ package sku
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -18,6 +19,7 @@ import (
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestManageSku_Reconcile_CreateUpdateDelete(t *testing.T) {
@@ -41,8 +43,9 @@ func TestManageSku_Reconcile_CreateUpdateDelete(t *testing.T) {
 	// 1) Create: inventory contains one sku not in DB
 	id1 := "sku-1"
 	description1 := "Initial SKU description"
+	created1 := time.Date(2025, time.January, 2, 3, 4, 5, 678_901_234, time.UTC)
 	inv1 := &corev1.SkuInventory{
-		Skus: []*corev1.Sku{{Id: id1, Description: &description1, SchemaVersion: 4, Components: &corev1.SkuComponents{}}},
+		Skus: []*corev1.Sku{{Id: id1, Description: &description1, Created: timestamppb.New(created1), SchemaVersion: 4, Components: &corev1.SkuComponents{}}},
 	}
 	assert.NoError(t, ms.UpdateSkusInDB(ctx, site.ID, inv1))
 
@@ -53,15 +56,18 @@ func TestManageSku_Reconcile_CreateUpdateDelete(t *testing.T) {
 	assert.Equal(t, id1, skus[0].ID)
 	assert.Equal(t, description1, skus[0].Description)
 	assert.Equal(t, uint32(4), skus[0].SchemaVersion)
+	assert.True(t, created1.Round(time.Microsecond).Equal(skus[0].Created))
 	if skus[0].Components == nil {
 		t.Fatalf("expected SkuData to be set")
 	}
 
 	// 2) Update: same id, ensure still one record
 	description2 := "Updated SKU description"
+	created2 := time.Date(2024, time.December, 1, 2, 3, 4, 567_890_123, time.UTC)
 	inv2 := &corev1.SkuInventory{Skus: []*corev1.Sku{{
 		Id:            id1,
 		Description:   &description2,
+		Created:       timestamppb.New(created2),
 		SchemaVersion: 5,
 		Components:    &corev1.SkuComponents{},
 	}}}
@@ -72,8 +78,22 @@ func TestManageSku_Reconcile_CreateUpdateDelete(t *testing.T) {
 	assert.Equal(t, 1, total)
 	assert.Equal(t, description2, skus[0].Description)
 	assert.Equal(t, uint32(5), skus[0].SchemaVersion)
+	assert.True(t, created2.Round(time.Microsecond).Equal(skus[0].Created))
 
-	// 3) Delete: send empty inventory, final page implied
+	// 3) Missing source timestamp preserves the stored creation time.
+	invWithoutCreated := &corev1.SkuInventory{Skus: []*corev1.Sku{{
+		Id:            id1,
+		Description:   &description2,
+		SchemaVersion: 5,
+		Components:    &corev1.SkuComponents{},
+	}}}
+	assert.NoError(t, ms.UpdateSkusInDB(ctx, site.ID, invWithoutCreated))
+	skus, total, err = ssd.GetAll(ctx, nil, cdbm.SkuFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(100)})
+	assert.NoError(t, err)
+	assert.Equal(t, 1, total)
+	assert.True(t, created2.Round(time.Microsecond).Equal(skus[0].Created))
+
+	// 4) Delete: send empty inventory, final page implied
 	inv3 := &corev1.SkuInventory{Skus: []*corev1.Sku{}}
 	assert.NoError(t, ms.UpdateSkusInDB(ctx, site.ID, inv3))
 

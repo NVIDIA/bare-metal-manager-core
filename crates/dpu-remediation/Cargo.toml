@@ -48,3 +48,6 @@ carbide-utils = { path = "../utils" }
 [dev-dependencies]
 carbide-instrument = { path = "../instrument", features = ["test-support"] }
 carbide-test-support = { path = "../test-support" }
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"

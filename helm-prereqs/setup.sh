@@ -439,9 +439,10 @@ helmfile sync -l name=postgres-operator
 #     No TLS/PKI dependency — installed early so it is ready before NICo Core
 #     deploys LoadBalancer services (NICo Core API, dhcp, dns, pxe, ssh-console-rs).
 #
-#     After the helm release installs the CRDs, site-specific config is applied
-#     from --metallb-config <path> (file or kustomize dir) if provided, otherwise
-#     from values/metallb-config.yaml. Fill in that file or pass --metallb-config.
+#     CRDs are managed externally (not by the helm release) and applied before
+#     and after helmfile sync. Site-specific config (IPAddressPool, BGPPeer,
+#     BGPAdvertisement) is applied from --metallb-config <path> if provided,
+#     otherwise from values/metallb-config.yaml.
 # ---------------------------------------------------------------------------
 _SETUP_PHASE="[1c] MetalLB"
 echo "=== [1c] MetalLB ==="
@@ -451,7 +452,20 @@ echo "=== [1c] MetalLB ==="
 # install, so a helm-managed CRD upgrade conflicts on every re-sync (see
 # operators/values/metallb.yaml crds.enabled=false). --force-conflicts keeps
 # this idempotent against the rotator's field ownership.
-echo "Applying MetalLB CRDs (server-side)..."
+#
+# Upgrade path (2.0→2.1): prior to 2.1, crds.enabled defaulted to true, so CRDs
+# were helm-managed template resources tracked in the release manifest. The 2.1
+# upgrade sets crds.enabled=false; if helm still owns the CRDs it would delete
+# them — and Kubernetes garbage-collects all IPAddressPool/BGPPeer/BGPAdvertisement
+# instances along with the CRD schema, causing data loss and breaking site config.
+#
+# Strategy:
+#   1. Strip helm ownership labels from any existing metallb CRDs so helm cannot
+#      delete them during the upgrade (prevents both schema and instance deletion).
+#   2. Apply CRDs directly before and after helmfile sync for idempotency.
+#   3. On sync failure, attempt CRD restoration before returning the error.
+#   4. Wait for CRDs to reach Established=True before applying site objects.
+#
 # Single source of truth for the chart version is the metallb release in
 # helmfile.yaml — read it from there so this bootstrap and the helm release
 # cannot drift when the version is bumped.
@@ -460,19 +474,73 @@ if [[ -z "${METALLB_CHART_VERSION}" ]]; then
     echo "ERROR: could not read the metallb chart version from helmfile.yaml" >&2
     exit 1
 fi
+
+# Helper: render and server-side apply only the CRD documents from the chart.
 # The awk filter emits only CustomResourceDefinition documents, splitting on
 # '---' separator lines itself (POSIX awk/mawk/BusyBox treat a multi-character
 # RS as its first character only, so RS="\n---\n" is not portable). helm's
 # stderr is left attached so a repo/render failure says what actually broke
 # instead of surfacing as a confusing kubectl parse error downstream.
-helm template metallb metallb/metallb --version "${METALLB_CHART_VERSION}" -n metallb-system --include-crds \
-    | awk '
-        /^---[[:space:]]*$/ { if (doc ~ /kind: CustomResourceDefinition/) printf "%s---\n", doc; doc = ""; next }
-        { doc = doc $0 "\n" }
-        END { if (doc ~ /kind: CustomResourceDefinition/) printf "%s", doc }' \
-    | kubectl apply --server-side --force-conflicts -f -
+_apply_metallb_crds() {
+    helm template metallb metallb/metallb --version "${METALLB_CHART_VERSION}" -n metallb-system --include-crds \
+        | awk '
+            /^---[[:space:]]*$/ { if (doc ~ /kind: CustomResourceDefinition/) printf "%s---\n", doc; doc = ""; next }
+            { doc = doc $0 "\n" }
+            END { if (doc ~ /kind: CustomResourceDefinition/) printf "%s", doc }' \
+        | kubectl apply --server-side --force-conflicts -f -
+}
 
-helmfile sync -l name=metallb
+# Strip helm ownership labels/annotations from any existing metallb CRDs so that
+# helmfile sync cannot delete them when transitioning from crds.enabled=true (2.0)
+# to crds.enabled=false (2.1). Without this, helm deletes the CRD schema AND all
+# stored IPAddressPool/BGPPeer/BGPAdvertisement instances — causing data loss that
+# cannot be recovered by re-applying the schema alone.
+echo "Removing helm ownership from any existing MetalLB CRDs (prevents instance deletion on upgrade)..."
+while IFS= read -r crd; do
+    [[ -z "${crd}" ]] && continue
+    if kubectl get "${crd}" -o jsonpath='{.metadata.labels.app\.kubernetes\.io/managed-by}' 2>/dev/null \
+            | grep -q 'Helm'; then
+        kubectl annotate "${crd}" \
+            meta.helm.sh/release-name- \
+            meta.helm.sh/release-namespace- \
+            --overwrite 2>/dev/null || true
+        kubectl label "${crd}" \
+            app.kubernetes.io/managed-by- \
+            --overwrite 2>/dev/null || true
+        echo "  Stripped helm ownership from ${crd}"
+    fi
+done < <(kubectl get crd -o name 2>/dev/null | grep '\.metallb\.io$' || true)
+
+echo "Applying MetalLB CRDs (server-side)..."
+_apply_metallb_crds
+
+# Capture helmfile sync exit code so CRDs can be restored even on failure.
+# With set -e active, the || construct is required to prevent immediate exit.
+_metallb_sync_rc=0
+helmfile sync -l name=metallb || _metallb_sync_rc=$?
+
+# Re-apply CRDs after the helm sync regardless of success or failure.
+# On success: idempotent safety net for any ownership-change edge cases.
+# On failure: best-effort restoration so a failed upgrade does not leave the
+#             cluster without CRDs (which breaks all LoadBalancer services).
+echo "Re-applying MetalLB CRDs (post-sync)..."
+_apply_metallb_crds || true
+
+if [[ "${_metallb_sync_rc}" -ne 0 ]]; then
+    echo "ERROR: helmfile sync for metallb failed (exit ${_metallb_sync_rc}); CRDs have been restored." >&2
+    exit "${_metallb_sync_rc}"
+fi
+
+# Wait for CRDs to reach Established=True before applying site objects.
+# kubectl apply on the CRDs returns before the API server has registered
+# the new types; applying IPAddressPool immediately can fail with
+# "no matches for kind".
+echo "Waiting for MetalLB CRDs to be established..."
+kubectl wait --for=condition=Established \
+    crd/ipaddresspools.metallb.io \
+    crd/bgppeers.metallb.io \
+    crd/bgpadvertisements.metallb.io \
+    --timeout=60s
 
 echo "Waiting for MetalLB controller to be ready..."
 kubectl wait --for=condition=Available deployment/metallb-controller \

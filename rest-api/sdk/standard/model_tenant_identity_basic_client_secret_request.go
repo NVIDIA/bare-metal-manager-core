@@ -140,7 +140,6 @@ func (o *TenantIdentityBasicClientSecretRequest) UnmarshalJSON(data []byte) (err
 	varTenantIdentityBasicClientSecretRequest := _TenantIdentityBasicClientSecretRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varTenantIdentityBasicClientSecretRequest)
 
 	if err != nil {

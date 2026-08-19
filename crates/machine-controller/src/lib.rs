@@ -34,6 +34,7 @@ pub mod boot_interface;
 pub mod config;
 pub mod context;
 pub mod dpf;
+pub mod dpu_service_sync;
 pub mod handler;
 pub mod health_report;
 pub mod io;

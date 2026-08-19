@@ -24,7 +24,7 @@ var _ MappedNullable = &SequenceStep{}
 
 // SequenceStep A single execution step inside a `RuleDefinition`.
 type SequenceStep struct {
-	// Component type this step targets (e.g. `Compute`, `NVLSwitch`, `PowerShelf`). Validated against Flow's component-type set.
+	// Component type this step targets. Validated against Flow's component-type set: `Compute`, `NVSwitch`, `PowerShelf`, `ToRSwitch`, `UMS`, `CDU`. Matched case-insensitively.
 	ComponentType string `json:"componentType"`
 	// Stage number; steps with the same stage run in parallel, lower stages run first. Component types must be unique within a stage.
 	Stage int32 `json:"stage"`
@@ -389,7 +389,6 @@ func (o *SequenceStep) UnmarshalJSON(data []byte) (err error) {
 	varSequenceStep := _SequenceStep{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varSequenceStep)
 
 	if err != nil {

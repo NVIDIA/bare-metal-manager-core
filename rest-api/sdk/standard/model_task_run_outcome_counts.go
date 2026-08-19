@@ -198,7 +198,6 @@ func (o *TaskRunOutcomeCounts) UnmarshalJSON(data []byte) (err error) {
 	varTaskRunOutcomeCounts := _TaskRunOutcomeCounts{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varTaskRunOutcomeCounts)
 
 	if err != nil {

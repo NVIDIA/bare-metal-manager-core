@@ -21,17 +21,22 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bmc_mock::mac_address_pool::MacAddressPool;
-use bmc_mock::{DpuMachineInfo, DpuSettings, HardwareType, RackInfo, RackType};
+use bmc_mock::{
+    DpuMachineInfo, DpuSettings, HardwareType, HostFirmwareVersions, RackInfo, RackPlacement,
+    RackType,
+};
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::rack::{RackId, RackProfileId};
 use clap::Parser;
 use duration_str::deserialize_duration;
+use eyre::Context;
 use mac_address::MacAddress;
 use rpc::forge::DesiredFirmwareVersionEntry;
 use rpc::forge_tls_client::ForgeClientConfig;
 use rpc::protos::forge_api_client::ForgeApiClient;
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use ufm_mock::UfmMockConfig;
 use uuid::Uuid;
 
 use crate::BmcRegistrationMode;
@@ -72,6 +77,8 @@ pub struct MachineATronArgs {
 pub struct MachineConfig {
     #[serde(default)]
     pub rack_id: Option<RackId>,
+    #[serde(skip)]
+    pub rack_placement: Option<RackPlacement>,
     #[serde(default = "default_hardware_type")]
     pub hw_type: HardwareType,
     pub host_count: u32,
@@ -86,6 +93,14 @@ pub struct MachineConfig {
         serialize_with = "as_std_duration"
     )]
     pub scout_run_interval: Duration,
+    /// Delay before retrying a failed DiscoverMachine request. The default matches the
+    /// production DPU agent; local development can override it independently of the MAT work loop.
+    #[serde(
+        default = "default_discovery_retry_interval",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub discovery_retry_interval: Duration,
     pub oob_dhcp_relay_address: Ipv4Addr,
     pub admin_dhcp_relay_address: Ipv4Addr,
     /// Relay address used when a host DHCPs directly through a plain NIC rather than a managed DPU.
@@ -127,6 +142,14 @@ pub struct MachineConfig {
     #[serde(default)]
     pub dpu_firmware_versions: Option<DpuFirmwareVersions>,
 
+    /// Initial host BMC / UEFI firmware versions to report in FirmwareInventory.
+    /// carbide will detect that these are older than the desired versions and
+    /// trigger an upgrade.  After the simulated power-cycle bmc-mock applies
+    /// the staged (desired) versions so site-explorer observes the upgrade.
+    /// When omitted, the hardware-type default versions are used.
+    #[serde(default)]
+    pub host_firmware_versions: Option<HostFirmwareVersions>,
+
     #[serde(default)]
     pub dpu_agent_version: Option<String>,
 }
@@ -148,6 +171,12 @@ pub struct WiwynnGb200RackConfig {
         serialize_with = "as_std_duration"
     )]
     pub scout_run_interval: Duration,
+    #[serde(
+        default = "default_discovery_retry_interval",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub discovery_retry_interval: Duration,
     pub oob_dhcp_relay_address: Ipv4Addr,
     pub admin_dhcp_relay_address: Ipv4Addr,
     #[serde(default)]
@@ -184,11 +213,13 @@ impl WiwynnGb200RackConfig {
     fn component_machine_config(
         &self,
         rack_id: RackId,
+        rack_placement: RackPlacement,
         hw_type: HardwareType,
         dpu_per_host_count: u32,
     ) -> MachineConfig {
         MachineConfig {
             rack_id: Some(rack_id),
+            rack_placement: Some(rack_placement),
             hw_type,
             host_count: 1,
             vpc_count: 0,
@@ -197,6 +228,7 @@ impl WiwynnGb200RackConfig {
             dpu_reboot_delay: self.dpu_reboot_delay,
             host_reboot_delay: self.host_reboot_delay,
             scout_run_interval: self.scout_run_interval,
+            discovery_retry_interval: self.discovery_retry_interval,
             oob_dhcp_relay_address: self.oob_dhcp_relay_address,
             admin_dhcp_relay_address: self.admin_dhcp_relay_address,
             host_inband_dhcp_relay_address: self.host_inband_dhcp_relay_address,
@@ -206,6 +238,7 @@ impl WiwynnGb200RackConfig {
             network_virtualization_type: self.network_virtualization_type.clone(),
             dpus_in_nic_mode: self.dpus_in_nic_mode,
             dpu_firmware_versions: self.dpu_firmware_versions.clone(),
+            host_firmware_versions: None,
             dpu_agent_version: self.dpu_agent_version.clone(),
         }
     }
@@ -221,6 +254,12 @@ pub struct LenovoGb300RackConfig {
         serialize_with = "as_std_duration"
     )]
     pub scout_run_interval: Duration,
+    #[serde(
+        default = "default_discovery_retry_interval",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub discovery_retry_interval: Duration,
     pub oob_dhcp_relay_address: Ipv4Addr,
     pub admin_dhcp_relay_address: Ipv4Addr,
     #[serde(default)]
@@ -257,11 +296,13 @@ impl LenovoGb300RackConfig {
     fn component_machine_config(
         &self,
         rack_id: RackId,
+        rack_placement: RackPlacement,
         hw_type: HardwareType,
         dpu_per_host_count: u32,
     ) -> MachineConfig {
         MachineConfig {
             rack_id: Some(rack_id),
+            rack_placement: Some(rack_placement),
             hw_type,
             host_count: 1,
             vpc_count: 0,
@@ -270,6 +311,7 @@ impl LenovoGb300RackConfig {
             dpu_reboot_delay: self.dpu_reboot_delay,
             host_reboot_delay: self.host_reboot_delay,
             scout_run_interval: self.scout_run_interval,
+            discovery_retry_interval: self.discovery_retry_interval,
             oob_dhcp_relay_address: self.oob_dhcp_relay_address,
             admin_dhcp_relay_address: self.admin_dhcp_relay_address,
             host_inband_dhcp_relay_address: self.host_inband_dhcp_relay_address,
@@ -279,6 +321,7 @@ impl LenovoGb300RackConfig {
             network_virtualization_type: self.network_virtualization_type.clone(),
             dpus_in_nic_mode: self.dpus_in_nic_mode,
             dpu_firmware_versions: self.dpu_firmware_versions.clone(),
+            host_firmware_versions: None,
             dpu_agent_version: self.dpu_agent_version.clone(),
         }
     }
@@ -316,16 +359,23 @@ impl RackModelConfig {
     fn component_machine_config(
         &self,
         rack_id: RackId,
+        rack_placement: RackPlacement,
         hardware_type: HardwareType,
         dpu_per_host_count: u32,
     ) -> MachineConfig {
         match self {
-            Self::WiwynnGb200Nvl72 { simulation } => {
-                simulation.component_machine_config(rack_id, hardware_type, dpu_per_host_count)
-            }
-            Self::LenovoGb300Nvl72 { simulation } => {
-                simulation.component_machine_config(rack_id, hardware_type, dpu_per_host_count)
-            }
+            Self::WiwynnGb200Nvl72 { simulation } => simulation.component_machine_config(
+                rack_id,
+                rack_placement,
+                hardware_type,
+                dpu_per_host_count,
+            ),
+            Self::LenovoGb300Nvl72 { simulation } => simulation.component_machine_config(
+                rack_id,
+                rack_placement,
+                hardware_type,
+                dpu_per_host_count,
+            ),
         }
     }
 }
@@ -380,6 +430,14 @@ impl DpuFirmwareVersions {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum LogFormat {
+    #[default]
+    Compact,
+    Logfmt,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct MachineATronConfig {
     #[serde(default)]
@@ -392,6 +450,9 @@ pub struct MachineATronConfig {
     pub machines: BTreeMap<String, Arc<MachineConfig>>,
     pub carbide_api_url: String,
     pub log_file: Option<String>,
+    /// Format used for logs written to stdout or `log_file`.
+    #[serde(default)]
+    pub log_format: LogFormat,
     pub interface: String,
 
     /// How machine-a-tron obtains DHCP leases for BMCs and directly attached hosts.
@@ -414,6 +475,13 @@ pub struct MachineATronConfig {
     /// Opt in to an independent IPMI/SOL simulator for each IPMI-capable host BMC.
     #[serde(default = "default_false")]
     pub enable_ipmi_simulation: bool,
+
+    /// IPMI port advertised through Redfish for client connections.
+    /// - Unset/None: Use default port
+    /// - 0: Use dynamic port (same as listen port)
+    /// - 1-65535: Use this specific port
+    #[serde(default)]
+    pub ipmi_reachable_port: Option<u16>,
 
     /// Set this to configure the port to use when mocking a BMC SSH server. If unset and
     /// use_single_bmc_mock is true, it will pick a random port. If unset and use_single_bmc_mock
@@ -473,13 +541,28 @@ pub struct MachineATronConfig {
     /// Pool to allocate ranges of HW MAC addresses for the machines.
     /// Ranges are needed for deterministic and unique addresses but
     /// that do not participate in any associations (allocated using
-    /// just "next_mac()" manner).
+    /// just "next_mac()" manner). The normalized base also identifies
+    /// the inventory exposed by `/machines/status`, so deployments whose
+    /// inventories are aggregated must use non-overlapping ranges.
     #[serde(default)]
     pub hw_mac_address_ranges: Option<MacAddressRangesConfig>,
+
+    /// Optional UFM API hosted on the machine-a-tron control listener.
+    ///
+    /// Unlike standalone execution, the hosted mock may consume machine-a-tron's control state
+    /// directly when `include_local_inventory` is enabled. Configured static sources are still
+    /// polled and can be combined with that local inventory. A present section is activated only
+    /// when its explicit `enabled` flag is set.
+    #[serde(default)]
+    pub ufm_mock: Option<UfmMockConfig>,
 }
 
 impl MachineATronConfig {
     pub fn validate(&self) -> eyre::Result<()> {
+        if let Some(ufm_mock) = self.ufm_mock.as_ref() {
+            ufm_mock.validate()?;
+        }
+
         if let DhcpType::UdpRelay {
             server_address,
             listen_address,
@@ -565,11 +648,15 @@ impl MachineATronConfig {
 
         for (rack_id, rack) in configured_racks {
             let rack_type = rack.model.rack_type();
-            let elevation = RackInfo { rack_type }.rack_elevation();
+            let rack_info = RackInfo { rack_type };
+            let elevation = rack_info.rack_elevation().wrap_err_with(|| {
+                format!("rack {rack_id} uses an invalid {rack_type} rack design")
+            })?;
             let rack_key = encoded_rack_key(&rack_id);
             let mut members = Vec::with_capacity(elevation.units.len());
 
             for unit in elevation.units {
+                let placement = rack_info.placement(unit.position);
                 let machine_config_section = format!("rack-{rack_key}--unit-{:02}", unit.position);
                 let dpu_per_host_count = unit
                     .hardware_type
@@ -582,6 +669,7 @@ impl MachineATronConfig {
                             machine_config_section.clone(),
                             Arc::new(rack.model.component_machine_config(
                                 rack_id.clone(),
+                                placement,
                                 unit.hardware_type,
                                 dpu_per_host_count,
                             )),
@@ -590,7 +678,7 @@ impl MachineATronConfig {
                     "rack {rack_id} generated duplicate device identity {machine_config_section}"
                 );
                 members.push(RackMemberRegistration {
-                    position: unit.position,
+                    placement,
                     hardware_type: unit.hardware_type,
                     machine_config_section,
                 });
@@ -729,6 +817,11 @@ pub struct PersistedDevice {
     pub tpm_ek_certificate: Option<Vec<u8>>,
     #[serde(default)]
     pub hw_mac_addr_pool: Option<MacAddressPoolConfig>,
+    /// Active host firmware inventory at the time this snapshot was taken.
+    /// Restored as `initial_host_firmware` on restart so the mock starts with
+    /// the versions last observed, not the operator-configured starting point.
+    #[serde(default)]
+    pub active_host_firmware: Option<HostFirmwareVersions>,
 }
 
 impl PersistedDevice {
@@ -786,6 +879,10 @@ fn default_bmc_mock_port() -> u16 {
 
 fn default_run_interval_working() -> Duration {
     Duration::from_secs(5)
+}
+
+fn default_discovery_retry_interval() -> Duration {
+    Duration::from_secs(60)
 }
 
 fn default_run_interval_idle() -> Duration {
@@ -935,6 +1032,7 @@ scout_run_interval = "5s"
             dpu_reboot_delay: machine.dpu_reboot_delay,
             host_reboot_delay: machine.host_reboot_delay,
             scout_run_interval: machine.scout_run_interval,
+            discovery_retry_interval: machine.discovery_retry_interval,
             oob_dhcp_relay_address: machine.oob_dhcp_relay_address,
             admin_dhcp_relay_address: machine.admin_dhcp_relay_address,
             host_inband_dhcp_relay_address: machine.host_inband_dhcp_relay_address,
@@ -953,6 +1051,7 @@ scout_run_interval = "5s"
             dpu_reboot_delay: machine.dpu_reboot_delay,
             host_reboot_delay: machine.host_reboot_delay,
             scout_run_interval: machine.scout_run_interval,
+            discovery_retry_interval: machine.discovery_retry_interval,
             oob_dhcp_relay_address: machine.oob_dhcp_relay_address,
             admin_dhcp_relay_address: machine.admin_dhcp_relay_address,
             host_inband_dhcp_relay_address: machine.host_inband_dhcp_relay_address,
@@ -1003,6 +1102,10 @@ scout_run_interval = "5s"
     #[test]
     fn test_serialize_config() {
         let cfg = rack_config();
+        assert_eq!(
+            cfg.machines["config"].discovery_retry_interval,
+            Duration::from_secs(60)
+        );
         cfg.validate().expect("Could not validate config");
         let serialized = toml::to_string(&cfg).expect("Could not serialize config");
         let round_tripped = toml::from_str::<MachineATronConfig>(&serialized)
@@ -1123,11 +1226,19 @@ scout_run_interval = "5s"
                         eyre::ensure!(
                             rack.members
                                 .iter()
-                                .map(|member| member.position)
+                                .map(|member| member.placement.position())
                                 .collect::<BTreeSet<_>>()
                                 .len()
                                 == expected.member_count
                         );
+                        for member in &rack.members {
+                            let machine = first
+                                .machines
+                                .get(&member.machine_config_section)
+                                .expect("rack member must reference a generated machine");
+                            eyre::ensure!(machine.rack_id.as_ref() == Some(&rack.rack_id));
+                            eyre::ensure!(machine.rack_placement == Some(member.placement));
+                        }
                     }
 
                     for machine in first.machines.values() {
@@ -1197,8 +1308,52 @@ scout_run_interval = "5s"
     }
 
     #[test]
+    fn ipmi_reachable_port_is_unset_by_default() {
+        assert!(rack_config().ipmi_reachable_port.is_none());
+    }
+
+    #[test]
     fn dhcp_uses_api_by_default() {
         assert_eq!(rack_config().dhcp, DhcpType::Api {});
+    }
+
+    #[test]
+    fn log_format_configuration() {
+        #[derive(Deserialize)]
+        struct LoggingConfig {
+            #[serde(default)]
+            log_format: LogFormat,
+        }
+
+        check_values(
+            [
+                Check {
+                    scenario: "format omitted",
+                    input: "",
+                    expect: Some(LogFormat::Compact),
+                },
+                Check {
+                    scenario: "compact format",
+                    input: r#"log_format = "compact""#,
+                    expect: Some(LogFormat::Compact),
+                },
+                Check {
+                    scenario: "logfmt format",
+                    input: r#"log_format = "logfmt""#,
+                    expect: Some(LogFormat::Logfmt),
+                },
+                Check {
+                    scenario: "unknown format",
+                    input: r#"log_format = "json""#,
+                    expect: None,
+                },
+            ],
+            |serialized| {
+                toml::from_str::<LoggingConfig>(serialized)
+                    .ok()
+                    .map(|config| config.log_format)
+            },
+        );
     }
 
     #[test]

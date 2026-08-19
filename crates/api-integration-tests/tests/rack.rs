@@ -28,7 +28,7 @@ use carbide_uuid::rack::{RackId, RackProfileId};
 use eyre::ContextCompat;
 use futures::future::join_all;
 use machine_a_tron::{
-    BmcMockRegistry, DhcpType, LenovoGb300RackConfig, MachineATronConfig, RackConfig,
+    BmcMockRegistry, DhcpType, LenovoGb300RackConfig, LogFormat, MachineATronConfig, RackConfig,
     RackModelConfig, WiwynnGb200RackConfig,
 };
 use tokio_util::sync::CancellationToken;
@@ -81,7 +81,8 @@ async fn test_machine_a_tron_racks_integration() -> eyre::Result<()> {
     run_machine_a_tron_racks_test(
         &test_env,
         &bmc_address_registry,
-        Ipv4Addr::new(172, 20, 0, 2),
+        // MAT currently uses admin_dhcp_relay_address for DPU OS DHCP.
+        Ipv4Addr::new(172, 20, 1, 1),
     )
     .await?;
 
@@ -120,6 +121,7 @@ async fn run_machine_a_tron_racks_test(
                             dpu_reboot_delay: 1,
                             host_reboot_delay: 1,
                             scout_run_interval: Duration::from_secs(1),
+                            discovery_retry_interval: Duration::from_millis(100),
                             oob_dhcp_relay_address: Ipv4Addr::new(172, 20, 1, 1),
                             admin_dhcp_relay_address,
                             host_inband_dhcp_relay_address: Some(Ipv4Addr::new(10, 10, 11, 2)),
@@ -144,6 +146,7 @@ async fn run_machine_a_tron_racks_test(
                             dpu_reboot_delay: 1,
                             host_reboot_delay: 1,
                             scout_run_interval: Duration::from_secs(1),
+                            discovery_retry_interval: Duration::from_millis(100),
                             oob_dhcp_relay_address: Ipv4Addr::new(172, 20, 1, 1),
                             admin_dhcp_relay_address,
                             host_inband_dhcp_relay_address: Some(Ipv4Addr::new(10, 10, 11, 2)),
@@ -163,6 +166,7 @@ async fn run_machine_a_tron_racks_test(
         carbide_api_url: format!("https://{}:{}", api_addr.ip(), api_addr.port()),
         dhcp: DhcpType::Api {},
         log_file: None,
+        log_format: LogFormat::Compact,
         bmc_mock_port: 0,
         bmc_mock_certs_dir: None,
         interface: String::from("UNUSED"),
@@ -178,8 +182,10 @@ async fn run_machine_a_tron_racks_test(
         mock_bmc_ssh_server: false,
         mock_bmc_ssh_port: None,
         enable_ipmi_simulation: false,
+        ipmi_reachable_port: None,
         hw_mac_address_ranges: None,
         mac_address_pool: None,
+        ufm_mock: Default::default(),
     };
 
     let (provisionable_handles, mat_handle) = api_test_helper::machine_a_tron::run_local(

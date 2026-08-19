@@ -175,7 +175,7 @@ impl Default for CarbideApiConnectionConfig {
             root_ca: "/var/run/secrets/spiffe.io/ca.crt".to_string(),
             client_cert: "/var/run/secrets/spiffe.io/tls.crt".to_string(),
             client_key: "/var/run/secrets/spiffe.io/tls.key".to_string(),
-            api_url: Url::parse("https://carbide-api.forge-system.svc.cluster.local:1079")
+            api_url: Url::parse("https://nico-api.nico-system.svc.cluster.local:1079")
                 .expect("valid default URL"),
         }
     }
@@ -267,5 +267,18 @@ mod tests {
         assert_eq!(config.mqtt.endpoint, "mqtt.forge");
         assert_eq!(config.mqtt.port, 1884);
         assert_eq!(config.metrics.endpoint, "0.0.0.0:9009");
+    }
+
+    #[test]
+    fn test_carbide_api_default_url_uses_current_hostname() {
+        let config = CarbideApiConnectionConfig::default();
+        assert!(
+            config
+                .api_url
+                .as_str()
+                .starts_with("https://nico-api.nico-system.svc.cluster.local:1079"),
+            "unexpected default api_url: {}",
+            config.api_url,
+        );
     }
 }

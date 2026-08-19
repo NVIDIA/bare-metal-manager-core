@@ -27,6 +27,13 @@ type phaseDecision struct {
 	message string
 }
 
+func newAdvancePhaseDecision(message string) phaseDecision {
+	return phaseDecision{
+		action:  phaseDecisionActionAdvance,
+		message: message,
+	}
+}
+
 func newPhasePolicy(options *operationrun.Options) (*phasePolicyRuntime, error) {
 	if err := options.PhasePolicy.Validate(); err != nil {
 		return nil, fmt.Errorf("phase policy: %w", err)
@@ -47,10 +54,7 @@ func (p phasePolicyRuntime) evaluate(
 	}
 
 	if p.autoAdvance {
-		return phaseDecision{
-			action:  phaseDecisionActionAdvance,
-			message: "advanced to next phase",
-		}
+		return newAdvancePhaseDecision("advanced to next phase")
 	}
 
 	return phaseDecision{

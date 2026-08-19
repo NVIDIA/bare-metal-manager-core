@@ -20,11 +20,12 @@ import (
 // contain names, external component IDs, or type filters that still need to be
 // resolved against inventory before an operation can execute.
 
-// TargetSpec contains either rack targets or component targets, but not both.
-// This enforces single-type targeting at the type level.
+// TargetSpec contains exactly one kind of target: racks, NVLink domains, or
+// components.
 type TargetSpec struct {
-	Racks      []RackTarget      // Set if targeting racks (mutually exclusive with Components)
-	Components []ComponentTarget // Set if targeting components (mutually exclusive with Racks)
+	Racks      []RackTarget
+	NVLDomains []NVLDomainTarget
+	Components []ComponentTarget
 }
 
 // IsRackTargeting returns true if this spec targets racks.
@@ -37,31 +38,77 @@ func (ts *TargetSpec) IsComponentTargeting() bool {
 	return len(ts.Components) > 0
 }
 
+// IsNVLDomainTargeting returns true if this spec targets NVLink domains.
+func (ts *TargetSpec) IsNVLDomainTargeting() bool {
+	return len(ts.NVLDomains) > 0
+}
+
 // Validate validates the target specification.
 func (ts *TargetSpec) Validate() error {
 	if ts == nil {
 		return fmt.Errorf("target spec is nil")
 	}
 
+	targetKinds := 0
 	if ts.IsRackTargeting() {
-		if ts.IsComponentTargeting() {
-			return fmt.Errorf("target_spec cannot have both racks and components set")
-		}
+		targetKinds++
+	}
+	if ts.IsNVLDomainTargeting() {
+		targetKinds++
+	}
+	if ts.IsComponentTargeting() {
+		targetKinds++
+	}
+	if targetKinds != 1 {
+		return fmt.Errorf("target_spec must have exactly one of racks, nvl_domains, or components set")
+	}
 
+	if ts.IsRackTargeting() {
 		for _, rt := range ts.Racks {
 			if err := rt.Validate(); err != nil {
 				return fmt.Errorf("invalid rack target: %w", err)
 			}
 		}
-	} else {
-		if !ts.IsComponentTargeting() {
-			return fmt.Errorf("target_spec must have either racks or components set")
-		}
+	}
 
+	if ts.IsNVLDomainTargeting() {
+		for _, dt := range ts.NVLDomains {
+			if err := dt.Validate(); err != nil {
+				return fmt.Errorf("invalid NVLink domain target: %w", err)
+			}
+		}
+	}
+
+	if ts.IsComponentTargeting() {
 		for _, ct := range ts.Components {
 			if err := ct.Validate(); err != nil {
 				return fmt.Errorf("invalid component target: %w", err)
 			}
+		}
+	}
+
+	return nil
+}
+
+// NVLDomainTarget identifies an NVLink domain with optional component type
+// filtering. The domain is resolved to its member racks before execution.
+type NVLDomainTarget struct {
+	Identifier     identifier.Identifier
+	ComponentTypes []devicetypes.ComponentType
+}
+
+func (dt *NVLDomainTarget) Validate() error {
+	if dt == nil {
+		return fmt.Errorf("NVLink domain target is nil")
+	}
+
+	if !dt.Identifier.ValidateAtLeastOne() {
+		return fmt.Errorf("NVLink domain target must have either id or name set")
+	}
+
+	for _, ctype := range dt.ComponentTypes {
+		if ctype == devicetypes.ComponentTypeUnknown {
+			return fmt.Errorf("unknown component type")
 		}
 	}
 

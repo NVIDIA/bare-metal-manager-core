@@ -13,10 +13,9 @@ use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use db::{ObjectColumnFilter, WithTransaction};
 use librms::RmsApi;
-use librms::protos::{rack_manager as rms, rack_manager_v2 as rms_v2};
 use model::machine::MachineMaintenanceOperation;
 use model::rack::{MaintenanceActivity, MaintenanceScope, RackState};
-use model::rack_type::RackProfileConfig;
+use model::rack_type::{RackHardwareTopology, RackProfileConfig};
 use model::switch::SwitchMaintenanceOperation;
 use sqlx::PgPool;
 
@@ -25,6 +24,7 @@ use crate::config::ComponentManagerConfig;
 use crate::error::ComponentManagerError;
 use crate::nv_switch_manager::{
     Backend as NvSwitchBackend, ConfigureSwitchCertificateJobStatus, NvSwitchManager,
+    ScaleUpFabricManagerJobStatus, ScaleUpFabricServiceStatuses, ScaleUpFabricStatus,
     SwitchEndpoint, SwitchFactoryResetJobStatus, SwitchFactoryResetState,
     SwitchPasswordRotationState,
 };
@@ -563,41 +563,46 @@ impl ComponentManager {
         })?
     }
 
-    /// Routes ScaleUp Fabric Manager V2 configuration through the switch backend.
-    pub async fn configure_scale_up_fabric_manager_v2(
+    /// Submits ScaleUp Fabric Manager configuration through the switch backend
+    /// and returns its non-empty, opaque job ID. A submission without a durable
+    /// job ID returns [`ComponentManagerError::OperationOutcomeUnknown`].
+    pub async fn configure_scale_up_fabric_manager(
         &self,
-        request: rms_v2::ConfigureScaleUpFabricManagerRequest,
-    ) -> Result<rms_v2::ConfigureScaleUpFabricManagerResponse, ComponentManagerError> {
+        endpoints: &[SwitchEndpoint],
+        topology: RackHardwareTopology,
+    ) -> Result<String, ComponentManagerError> {
         self.nv_switch
-            .configure_scale_up_fabric_manager_v2(request)
+            .configure_scale_up_fabric_manager(endpoints, topology)
             .await
     }
 
-    /// Routes V2 configuration job observation through the switch backend.
+    /// Returns the latest configuration job observation from the switch backend.
+    ///
+    /// Returns `None` when the backend cannot find the requested job.
     pub async fn get_scale_up_fabric_manager_job_status(
         &self,
-        request: rms::GetJobStatusRequest,
-    ) -> Result<rms::GetJobStatusResponse, ComponentManagerError> {
+        job_id: &str,
+    ) -> Result<Option<ScaleUpFabricManagerJobStatus>, ComponentManagerError> {
         self.nv_switch
-            .get_scale_up_fabric_manager_job_status(request)
+            .get_scale_up_fabric_manager_job_status(job_id)
             .await
     }
 
     /// Routes observed ScaleUp Fabric status reads through the switch backend.
     pub async fn get_scale_up_fabric_status(
         &self,
-        request: rms::GetScaleUpFabricStatusRequest,
-    ) -> Result<rms::GetScaleUpFabricStatusResponse, ComponentManagerError> {
-        self.nv_switch.get_scale_up_fabric_status(request).await
+        endpoints: &[SwitchEndpoint],
+    ) -> Result<ScaleUpFabricStatus, ComponentManagerError> {
+        self.nv_switch.get_scale_up_fabric_status(endpoints).await
     }
 
     /// Routes per-switch Fabric Manager status reads through the switch backend.
     pub async fn batch_get_scale_up_fabric_service_status(
         &self,
-        request: rms::BatchGetScaleUpFabricServiceStatusRequest,
-    ) -> Result<rms::BatchGetScaleUpFabricServiceStatusResponse, ComponentManagerError> {
+        endpoints: &[SwitchEndpoint],
+    ) -> Result<ScaleUpFabricServiceStatuses, ComponentManagerError> {
         self.nv_switch
-            .batch_get_scale_up_fabric_service_status(request)
+            .batch_get_scale_up_fabric_service_status(endpoints)
             .await
     }
 

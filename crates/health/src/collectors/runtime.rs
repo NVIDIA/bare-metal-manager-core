@@ -608,7 +608,7 @@ mod tests {
     use super::*;
     use crate::endpoint::test_support::{mac, test_endpoint};
     use crate::metrics::MetricsManager;
-    use crate::sink::LogRecord;
+    use crate::sink::{LogRecord, LogSeverity};
 
     #[derive(Default)]
     struct CountingSink(AtomicUsize);
@@ -653,7 +653,7 @@ mod tests {
         async fn connect(&mut self) -> Result<StreamingConnectResult<'_>, HealthError> {
             let event = CollectorEvent::Log(Box::new(LogRecord {
                 body: "pre-connected rejection".to_string(),
-                severity: "ERROR".to_string(),
+                severity: LogSeverity::Error,
                 attributes: Vec::new(),
                 diagnostic_record: None,
             }));

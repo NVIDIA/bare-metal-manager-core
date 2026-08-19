@@ -1129,10 +1129,7 @@ mod tests {
         insert_switch_with_nvos_credentials(conn, id, bmc_mac, deleted, false).await;
     }
 
-    // current_version for a (mac, type) row, or None if no row exists. Takes the
-    // same connection the writers use (rather than the pool) so the whole test
-    // runs on a single connection -- otherwise holding that connection across a
-    // second `pool` acquisition trips the txn_held_across_await lint.
+    // current_version for a (mac, type) row, or None if no row exists.
     async fn version_of(conn: &mut PgConnection, mac: &str, credential_type: &str) -> Option<i32> {
         let row: Option<Option<i32>> = sqlx::query_scalar(
             "SELECT current_version FROM device_credential_rotation \

@@ -104,12 +104,18 @@ impl super::ColumnInfo<'_> for SegmentIdColumn {
     }
 }
 
-/// Fetch the prefix that matches, is a subnet of, or contains the given one.
+/// Returns every network prefix that overlaps `prefix`.
+///
+/// The global exclusion constraint limits this to one row today. Returning all
+/// matches keeps callers correct when that constraint is scoped for eligible
+/// isolated VPCs.
 pub async fn containing_prefix(
     txn: impl DbReader<'_>,
     prefix: &str,
 ) -> Result<Vec<NetworkPrefix>, DatabaseError> {
-    let query = "select * from network_prefixes where prefix && $1::inet";
+    let query = "SELECT * FROM network_prefixes
+        WHERE prefix && $1::inet
+        ORDER BY segment_id, prefix";
     let container = sqlx::query_as(query)
         .bind(prefix)
         .fetch_all(txn)
@@ -171,6 +177,34 @@ pub async fn find_by<'a, C: super::ColumnInfo<'a, TableType = NetworkPrefix>>(
         .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::query(query.sql(), e))
+}
+
+/// Return the persisted prefixes for configured network definitions.
+///
+/// `network_def.segment_id` is the durable link between a config declaration
+/// and the segment it originally created or unambiguously backfilled. Looking
+/// up prefixes through that link preserves the existing config-drift contract:
+/// a changed declaration does not make startup act on a CIDR that was never
+/// persisted.
+pub async fn find_persisted_for_network_definitions(
+    txn: impl DbReader<'_>,
+    network_definition_names: &[String],
+) -> Result<Vec<IpNetwork>, DatabaseError> {
+    if network_definition_names.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let query = "SELECT np.prefix
+                 FROM network_prefixes np
+                 INNER JOIN network_def nd ON nd.segment_id = np.segment_id
+                 INNER JOIN network_segments ns ON ns.id = nd.segment_id
+                 WHERE nd.name = ANY($1)
+                   AND ns.deleted IS NULL";
+    sqlx::query_scalar(query)
+        .bind(network_definition_names)
+        .fetch_all(txn)
+        .await
+        .map_err(|error| DatabaseError::query(query, error))
 }
 
 // Return a list of network segment prefixes that are associated with this

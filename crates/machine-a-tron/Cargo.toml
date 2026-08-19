@@ -34,6 +34,7 @@ path = "src/main.rs"
 [dependencies]
 clap = { features = ["derive", "env"], workspace = true }
 lazy_static = { workspace = true }
+logfmt = { path = "../logfmt" }
 tracing = { workspace = true }
 tracing-subscriber = { features = ["env-filter"], workspace = true }
 uuid = { features = ["v4"], workspace = true }
@@ -76,6 +77,8 @@ carbide-version = { path = "../version" }
 carbide-uuid = { path = "../uuid" }
 carbide-network = { path = "../network" }
 carbide-utils = { path = "../utils", features = ["test-support"] }
+metrics-endpoint = { path = "../metrics-endpoint" }
+ufm-mock = { package = "carbide-ufm-mock", path = "../ufm-mock" }
 
 [dev-dependencies]
 carbide-test-support = { path = "../test-support" }

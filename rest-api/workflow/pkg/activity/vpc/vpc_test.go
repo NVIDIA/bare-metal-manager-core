@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -87,6 +88,12 @@ func testVPCSetupSchema(t *testing.T, dbSession *cdb.Session) {
 	assert.Nil(t, err)
 	// create Status Details table
 	err = dbSession.DB.ResetModel(context.Background(), (*cdbm.StatusDetail)(nil))
+	assert.Nil(t, err)
+	// create Network Security Group table
+	err = dbSession.DB.ResetModel(context.Background(), (*cdbm.NetworkSecurityGroup)(nil))
+	assert.Nil(t, err)
+	// create NVLink Logical Partition table
+	err = dbSession.DB.ResetModel(context.Background(), (*cdbm.NVLinkLogicalPartition)(nil))
 	assert.Nil(t, err)
 	// create VPC table
 	err = dbSession.DB.ResetModel(context.Background(), (*cdbm.Vpc)(nil))
@@ -490,6 +497,8 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 							Id:   &corev1.VpcId{Value: vpc8.ControllerVpcID.String()},
 							Name: vpc8.ID.String(),
 						},
+						// These unmatched entries intentionally omit tenant config,
+						// so create-or-update from Site skips rather than creating them.
 						{
 							Id:   &corev1.VpcId{Value: uuid.NewString()},
 							Name: vpc9.ID.String(),
@@ -546,10 +555,10 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 				vpc15.ID: cutil.GetPtr(networkSecurityGroupB.ID),
 				vpc16.ID: nil,
 			},
-			deletedVpcs:           []*cdbm.Vpc{vpc5, vpc6},
+			deletedVpcs:           []*cdbm.Vpc{vpc5, vpc6, vpc10},
 			missingVpcs:           []*cdbm.Vpc{vpc7, vpc11},
 			restoredVpcs:          []*cdbm.Vpc{vpc8},
-			unpairedVpcs:          []*cdbm.Vpc{vpc9, vpc10},
+			unpairedVpcs:          []*cdbm.Vpc{vpc9},
 			readyStatusDetailVpcs: []*cdbm.Vpc{vpc1},
 			wantErr:               false,
 		},
@@ -779,11 +788,10 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 			}
 
 			for _, vpc := range tt.unpairedVpcs {
-				uv, _ := vpcDAO.GetByID(ctx, nil, vpc.ID, nil)
-				assert.NotNil(t, uv.ControllerVpcID)
-				if vpc.Status != cdbm.VpcStatusDeleting {
-					assert.Equal(t, cdbm.VpcStatusReady, uv.Status)
-				}
+				uv, err := vpcDAO.GetByID(ctx, nil, vpc.ID, nil)
+				require.NoError(t, err)
+				assert.Nil(t, uv.ControllerVpcID)
+				assert.Equal(t, vpc.Status, uv.Status)
 			}
 
 			for _, vpc := range tt.restoredVpcs {
@@ -809,6 +817,408 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 				require.NotNil(t, statusDetails[0].Message)
 				assert.Equal(t, "VPC is ready for use", *statusDetails[0].Message)
 			}
+		})
+	}
+}
+
+func TestManageVpc_UpdateVpcsInDB_AutoCreatesAndRestores(t *testing.T) {
+	ctx := context.Background()
+	dbSession := testVPCInitDB(t)
+	defer dbSession.Close()
+	testVPCSetupSchema(t, dbSession)
+
+	providerOrg := "test-provider-org"
+	providerUser := testVPCBuildUser(t, dbSession, uuid.NewString(), providerOrg, []string{"FORGE_PROVIDER_ADMIN"})
+	provider := testVPCSiteBuildInfrastructureProvider(t, dbSession, "test-provider", providerOrg, providerUser)
+	tenantOrg := "test-tenant-org"
+	tenantUser := testVPCBuildUser(t, dbSession, uuid.NewString(), tenantOrg, []string{"FORGE_TENANT_ADMIN"})
+	tenant := testVPCBuildTenant(t, dbSession, "test-tenant", tenantOrg, tenantUser)
+	site := testVPCBuildSite(t, dbSession, provider, "test-site", providerUser)
+
+	siteClientPool := testTemporalSiteClientPool(t)
+	siteClientPool.IDClientMap[site.ID.String()] = &tmocks.Client{}
+	manager := ManageVpc{
+		dbSession:      dbSession,
+		siteClientPool: siteClientPool,
+	}
+
+	controllerVpcID := uuid.New()
+	networkVirtualizationType := corev1.VpcVirtualizationType_FNN
+	requestedVni := uint32(101)
+	activeVni := uint32(202)
+	routingProfile := "INTERNAL"
+	controllerVpc := &corev1.Vpc{
+		Id: &corev1.VpcId{Value: controllerVpcID.String()},
+		Config: &corev1.VpcConfig{
+			TenantOrganizationId:      tenantOrg,
+			NetworkVirtualizationType: &networkVirtualizationType,
+			RoutingProfileType:        &routingProfile,
+			Vni:                       &requestedVni,
+		},
+		Status: &corev1.VpcStatus{Vni: &activeVni},
+		Metadata: &corev1.Metadata{
+			Name:        "site-created-vpc",
+			Description: "created directly on Site",
+			Labels: []*corev1.Label{
+				{Key: "origin", Value: cutil.GetPtr("site")},
+			},
+		},
+	}
+	inventory := &corev1.VPCInventory{
+		Vpcs: []*corev1.Vpc{controllerVpc},
+	}
+
+	vpcDAO := cdbm.NewVpcDAO(dbSession)
+	statusDetailDAO := cdbm.NewStatusDetailDAO(dbSession)
+
+	if !t.Run("auto creates VPC from inventory", func(t *testing.T) {
+		_, err := manager.UpdateVpcsInDB(ctx, site.ID, inventory)
+		require.NoError(t, err)
+
+		createdVpc, err := vpcDAO.GetByID(ctx, nil, controllerVpcID, nil)
+		require.NoError(t, err)
+		assert.Equal(t, controllerVpcID, createdVpc.ID)
+		require.NotNil(t, createdVpc.ControllerVpcID)
+		assert.Equal(t, controllerVpcID, *createdVpc.ControllerVpcID)
+		assert.Equal(t, tenant.ID, createdVpc.TenantID)
+		assert.Equal(t, site.ID, createdVpc.SiteID)
+		assert.Equal(t, site.InfrastructureProviderID, createdVpc.InfrastructureProviderID)
+		assert.Equal(t, site.ID, createdVpc.CreatedBy)
+		assert.Equal(t, cdbm.VpcStatusReady, createdVpc.Status)
+		assert.Equal(t, "site-created-vpc", createdVpc.Name)
+		assert.Equal(t, cdbm.Labels{"origin": "site"}, createdVpc.Labels)
+		require.NotNil(t, createdVpc.NetworkVirtualizationType)
+		assert.Equal(t, cdbm.VpcFNN, *createdVpc.NetworkVirtualizationType)
+		require.NotNil(t, createdVpc.RoutingProfile)
+		assert.Equal(t, "INTERNAL", *createdVpc.RoutingProfile)
+		require.NotNil(t, createdVpc.Vni)
+		assert.Equal(t, 101, *createdVpc.Vni)
+		require.NotNil(t, createdVpc.ActiveVni)
+		assert.Equal(t, 202, *createdVpc.ActiveVni)
+
+		statusDetails, _, statusErr := statusDetailDAO.GetAll(
+			ctx,
+			nil,
+			cdbm.StatusDetailFilterInput{EntityIDs: []string{createdVpc.ID.String()}},
+			cdbp.PageInput{},
+		)
+		require.NoError(t, statusErr)
+		require.Len(t, statusDetails, 1)
+		require.NotNil(t, statusDetails[0].Message)
+		assert.Equal(t, "VPC was found on Site, Ready for use", *statusDetails[0].Message)
+	}) {
+		t.FailNow()
+	}
+
+	if !t.Run("inventory replay is idempotent", func(t *testing.T) {
+		_, err := manager.UpdateVpcsInDB(ctx, site.ID, inventory)
+		require.NoError(t, err)
+		vpcs, count, err := vpcDAO.GetAll(
+			ctx,
+			nil,
+			cdbm.VpcFilterInput{VpcIDs: []uuid.UUID{controllerVpcID}},
+			cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
+			nil,
+		)
+		require.NoError(t, err)
+		require.Len(t, vpcs, 1)
+		assert.Equal(t, 1, count)
+	}) {
+		t.FailNow()
+	}
+
+	t.Run("inventory restores soft-deleted VPC", func(t *testing.T) {
+		nonReadyNVLink := cwu.TestBuildNVLinkLogicalPartition(
+			t,
+			dbSession,
+			"test-restore-non-ready-nvlink",
+			nil,
+			site,
+			tenant,
+			cdbm.NVLinkLogicalPartitionStatusPending,
+			false,
+		)
+		_, err := vpcDAO.Update(ctx, nil, cdbm.VpcUpdateInput{
+			VpcID:                    controllerVpcID,
+			NVLinkLogicalPartitionID: &nonReadyNVLink.ID,
+			Status:                   cutil.GetPtr(cdbm.VpcStatusError),
+			IsMissingOnSite:          cutil.GetPtr(true),
+			ActiveVni:                cutil.GetPtr(1),
+			RoutingProfile:           cutil.GetPtr("EXTERNAL"),
+		})
+		require.NoError(t, err)
+
+		require.NoError(t, vpcDAO.DeleteByID(ctx, nil, controllerVpcID))
+		deletedVpcs, _, err := vpcDAO.GetAll(
+			ctx,
+			nil,
+			cdbm.VpcFilterInput{VpcIDs: []uuid.UUID{controllerVpcID}, IncludeDeleted: true},
+			cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
+			nil,
+		)
+		require.NoError(t, err)
+		require.Len(t, deletedVpcs, 1)
+		require.NotNil(t, deletedVpcs[0].Deleted)
+
+		_, err = manager.UpdateVpcsInDB(ctx, site.ID, inventory)
+		require.NoError(t, err)
+		restoredVpc, err := vpcDAO.GetByID(ctx, nil, controllerVpcID, nil)
+		require.NoError(t, err)
+		assert.Nil(t, restoredVpc.Deleted)
+		assert.False(t, restoredVpc.IsMissingOnSite)
+		assert.Equal(t, cdbm.VpcStatusReady, restoredVpc.Status)
+		require.NotNil(t, restoredVpc.ControllerVpcID)
+		assert.Equal(t, controllerVpcID, *restoredVpc.ControllerVpcID)
+		require.NotNil(t, restoredVpc.Vni)
+		assert.Equal(t, 101, *restoredVpc.Vni)
+		require.NotNil(t, restoredVpc.ActiveVni)
+		assert.Equal(t, 202, *restoredVpc.ActiveVni)
+		require.NotNil(t, restoredVpc.RoutingProfile)
+		assert.Equal(t, "INTERNAL", *restoredVpc.RoutingProfile)
+		// Soft-deleted NVLink is preserved; inventory does not overwrite it.
+		require.NotNil(t, restoredVpc.NVLinkLogicalPartitionID)
+		assert.Equal(t, nonReadyNVLink.ID, *restoredVpc.NVLinkLogicalPartitionID)
+
+		statusDetails, _, statusErr := statusDetailDAO.GetAll(
+			ctx,
+			nil,
+			cdbm.StatusDetailFilterInput{EntityIDs: []string{restoredVpc.ID.String()}},
+			cdbp.PageInput{},
+		)
+		require.NoError(t, statusErr)
+		foundReadyMessage := false
+		for i := range statusDetails {
+			if statusDetails[i].Message != nil &&
+				*statusDetails[i].Message == "VPC is ready for use" {
+				foundReadyMessage = true
+				break
+			}
+		}
+		assert.True(t, foundReadyMessage)
+	})
+
+	t.Run("inventory skips restore when tenant organization differs", func(t *testing.T) {
+		require.NoError(t, vpcDAO.DeleteByID(ctx, nil, controllerVpcID))
+		deletedVpcs, _, err := vpcDAO.GetAll(
+			ctx,
+			nil,
+			cdbm.VpcFilterInput{VpcIDs: []uuid.UUID{controllerVpcID}, IncludeDeleted: true},
+			cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
+			nil,
+		)
+		require.NoError(t, err)
+		require.Len(t, deletedVpcs, 1)
+		require.NotNil(t, deletedVpcs[0].Deleted)
+		deletedAt := *deletedVpcs[0].Deleted
+
+		mismatchedInventory := &corev1.VPCInventory{
+			Vpcs: []*corev1.Vpc{{
+				Id: &corev1.VpcId{Value: controllerVpcID.String()},
+				Config: &corev1.VpcConfig{
+					TenantOrganizationId:      "other-tenant-org",
+					NetworkVirtualizationType: &networkVirtualizationType,
+					RoutingProfileType:        &routingProfile,
+					Vni:                       &requestedVni,
+				},
+				Status: &corev1.VpcStatus{Vni: &activeVni},
+				Metadata: &corev1.Metadata{
+					Name:        "site-created-vpc",
+					Description: "created directly on Site",
+				},
+			}},
+		}
+		_, err = manager.UpdateVpcsInDB(ctx, site.ID, mismatchedInventory)
+		require.NoError(t, err)
+
+		stillDeleted, _, err := vpcDAO.GetAll(
+			ctx,
+			nil,
+			cdbm.VpcFilterInput{VpcIDs: []uuid.UUID{controllerVpcID}, IncludeDeleted: true},
+			cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
+			nil,
+		)
+		require.NoError(t, err)
+		require.Len(t, stillDeleted, 1)
+		require.NotNil(t, stillDeleted[0].Deleted)
+		assert.Equal(t, deletedAt, *stillDeleted[0].Deleted)
+
+		_, err = vpcDAO.GetByID(ctx, nil, controllerVpcID, nil)
+		assert.ErrorIs(t, err, cdb.ErrDoesNotExist)
+	})
+}
+
+func TestManageVpc_CreateOrUpdateVpcFromSite_SkipsIncompleteOwnership(t *testing.T) {
+	ctx := context.Background()
+	dbSession := testVPCInitDB(t)
+	defer dbSession.Close()
+	testVPCSetupSchema(t, dbSession)
+
+	providerOrg := "test-provider-org"
+	providerUser := testVPCBuildUser(t, dbSession, uuid.NewString(), providerOrg, []string{"FORGE_PROVIDER_ADMIN"})
+	provider := testVPCSiteBuildInfrastructureProvider(t, dbSession, "test-provider", providerOrg, providerUser)
+	site := testVPCBuildSite(t, dbSession, provider, "test-site", providerUser)
+	manager := ManageVpc{dbSession: dbSession}
+
+	authorizedTenantOrg := "test-authorized-tenant"
+	authorizedTenantUser := testVPCBuildUser(t, dbSession, uuid.NewString(), authorizedTenantOrg, []string{"FORGE_TENANT_ADMIN"})
+	authorizedTenant := testVPCBuildTenant(t, dbSession, "test-authorized-tenant", authorizedTenantOrg, authorizedTenantUser)
+
+	otherTenantOrg := "test-other-tenant"
+	otherTenantUser := testVPCBuildUser(t, dbSession, uuid.NewString(), otherTenantOrg, []string{"FORGE_TENANT_ADMIN"})
+	otherTenant := testVPCBuildTenant(t, dbSession, "test-other-tenant", otherTenantOrg, otherTenantUser)
+	otherTenantNVLink := cwu.TestBuildNVLinkLogicalPartition(
+		t,
+		dbSession,
+		"test-other-tenant-nvlink",
+		nil,
+		site,
+		otherTenant,
+		cdbm.NVLinkLogicalPartitionStatusReady,
+		false,
+	)
+	nonReadyNVLink := cwu.TestBuildNVLinkLogicalPartition(
+		t,
+		dbSession,
+		"test-non-ready-nvlink",
+		nil,
+		site,
+		authorizedTenant,
+		cdbm.NVLinkLogicalPartitionStatusPending,
+		false,
+	)
+	existingVpc := testVPCBuildVPC(
+		t,
+		dbSession,
+		"test-existing-name",
+		provider,
+		authorizedTenant,
+		site,
+		cutil.GetPtr(cdbm.VpcEthernetVirtualizer),
+		cutil.GetPtr(uuid.New()),
+		nil,
+		authorizedTenantUser,
+		cdbm.VpcStatusReady,
+	)
+
+	tests := []struct {
+		name          string
+		controllerVpc *corev1.Vpc
+		wantVpc       bool
+		wantName      string
+		wantNamePref  string
+		wantNVLinkID  *uuid.UUID
+	}{
+		{
+			name: "unknown tenant organization",
+			controllerVpc: &corev1.Vpc{
+				Id:       &corev1.VpcId{Value: uuid.NewString()},
+				Config:   &corev1.VpcConfig{TenantOrganizationId: "unknown-tenant-org"},
+				Metadata: &corev1.Metadata{Name: "unknown-tenant-vpc"},
+			},
+		},
+		{
+			name: "invalid controller VPC ID",
+			controllerVpc: &corev1.Vpc{
+				Id:       &corev1.VpcId{Value: "not-a-uuid"},
+				Config:   &corev1.VpcConfig{TenantOrganizationId: authorizedTenantOrg},
+				Metadata: &corev1.Metadata{Name: "invalid-id-vpc"},
+			},
+		},
+		{
+			name: "NVLink Logical Partition from another tenant is rejected",
+			controllerVpc: &corev1.Vpc{
+				Id: &corev1.VpcId{Value: uuid.NewString()},
+				Config: &corev1.VpcConfig{
+					TenantOrganizationId: authorizedTenantOrg,
+					DefaultNvlinkLogicalPartitionId: &corev1.NVLinkLogicalPartitionId{
+						Value: otherTenantNVLink.ID.String(),
+					},
+				},
+				Metadata: &corev1.Metadata{Name: "cross-tenant-nvlink-vpc"},
+			},
+		},
+		{
+			name: "creates VPC with non-Ready inventory NVLink Logical Partition",
+			controllerVpc: &corev1.Vpc{
+				Id: &corev1.VpcId{Value: uuid.NewString()},
+				Config: &corev1.VpcConfig{
+					TenantOrganizationId: authorizedTenantOrg,
+					DefaultNvlinkLogicalPartitionId: &corev1.NVLinkLogicalPartitionId{
+						Value: nonReadyNVLink.ID.String(),
+					},
+				},
+				Metadata: &corev1.Metadata{Name: "non-ready-nvlink-vpc"},
+			},
+			wantVpc:      true,
+			wantName:     "non-ready-nvlink-vpc",
+			wantNVLinkID: &nonReadyNVLink.ID,
+		},
+		{
+			name: "renames VPC when active name already exists",
+			controllerVpc: &corev1.Vpc{
+				Id:       &corev1.VpcId{Value: uuid.NewString()},
+				Config:   &corev1.VpcConfig{TenantOrganizationId: authorizedTenantOrg},
+				Metadata: &corev1.Metadata{Name: existingVpc.Name},
+			},
+			wantVpc:      true,
+			wantNamePref: existingVpc.Name + "-recovered-",
+		},
+		{
+			name: "assigns recovered name when metadata name is empty",
+			controllerVpc: &corev1.Vpc{
+				Id:       &corev1.VpcId{Value: uuid.NewString()},
+				Config:   &corev1.VpcConfig{TenantOrganizationId: authorizedTenantOrg},
+				Metadata: &corev1.Metadata{Name: ""},
+			},
+			wantVpc:      true,
+			wantNamePref: "recovered-",
+		},
+		{
+			name: "empty tenant organization is rejected",
+			controllerVpc: &corev1.Vpc{
+				Id:       &corev1.VpcId{Value: uuid.NewString()},
+				Config:   &corev1.VpcConfig{TenantOrganizationId: ""},
+				Metadata: &corev1.Metadata{Name: "missing-tenant-org-vpc"},
+			},
+		},
+		{
+			name: "creates VPC without Site allocation",
+			controllerVpc: &corev1.Vpc{
+				Id:       &corev1.VpcId{Value: uuid.NewString()},
+				Config:   &corev1.VpcConfig{TenantOrganizationId: authorizedTenantOrg},
+				Metadata: &corev1.Metadata{Name: "unallocated-tenant-vpc"},
+			},
+			wantVpc:  true,
+			wantName: "unallocated-tenant-vpc",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			vpc := manager.createOrUpdateVpcFromSite(
+				ctx,
+				site,
+				tt.controllerVpc,
+				nil,
+			)
+			if tt.wantVpc {
+				require.NotNil(t, vpc)
+				assert.Equal(t, cdbm.VpcStatusReady, vpc.Status)
+				assert.Equal(t, authorizedTenant.ID, vpc.TenantID)
+				if tt.wantName != "" {
+					assert.Equal(t, tt.wantName, vpc.Name)
+				}
+				if tt.wantNamePref != "" {
+					assert.True(t, strings.HasPrefix(vpc.Name, tt.wantNamePref), "name %q should have prefix %q", vpc.Name, tt.wantNamePref)
+					assert.Len(t, strings.TrimPrefix(vpc.Name, tt.wantNamePref), 8)
+				}
+				if tt.wantNVLinkID != nil {
+					require.NotNil(t, vpc.NVLinkLogicalPartitionID)
+					assert.Equal(t, *tt.wantNVLinkID, *vpc.NVLinkLogicalPartitionID)
+				}
+				return
+			}
+			assert.Nil(t, vpc)
 		})
 	}
 }

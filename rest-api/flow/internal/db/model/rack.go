@@ -24,10 +24,14 @@ var defaultRackPagination = dbquery.Pagination{
 type Rack struct {
 	bun.BaseModel `bun:"table:rack,alias:r"`
 
-	ID           uuid.UUID      `bun:"id,pk,type:uuid,default:gen_random_uuid()"`
-	Name         string         `bun:"name,notnull,unique:rack_name_idx"`
-	Manufacturer string         `bun:"manufacturer,notnull,unique:rack_manufacturer_serial_idx"`
-	SerialNumber string         `bun:"serial_number,notnull,unique:rack_manufacturer_serial_idx"`
+	ID   uuid.UUID `bun:"id,pk,type:uuid,default:gen_random_uuid()"`
+	Name string    `bun:"name,notnull,unique:rack_name_idx"`
+	// Manufacturer and SerialNumber are descriptive chassis labels, not
+	// identity: a mirrored rack is identified by ExternalID. nullzero maps the
+	// empty string to SQL NULL, so a rack missing either half occupies no slot
+	// in rack_manufacturer_serial_idx.
+	Manufacturer string         `bun:"manufacturer,nullzero,unique:rack_manufacturer_serial_idx"`
+	SerialNumber string         `bun:"serial_number,nullzero,unique:rack_manufacturer_serial_idx"`
 	Description  map[string]any `bun:"description,type:jsonb,json_use_number"`
 	Location     map[string]any `bun:"location,type:jsonb"`
 	NVLDomainID  uuid.UUID      `bun:"nvldomain_id,type:uuid"`
@@ -73,6 +77,9 @@ func (rd *Rack) Create(ctx context.Context, idb bun.IDB) error {
 	return err
 }
 
+// Get looks the rack up by ID, or by (manufacturer, serial_number) when no ID
+// is set. Both chassis columns are nullable, so a rack stored without one of
+// them is only reachable by the first form.
 func (rd *Rack) Get(
 	ctx context.Context,
 	idb bun.IDB,

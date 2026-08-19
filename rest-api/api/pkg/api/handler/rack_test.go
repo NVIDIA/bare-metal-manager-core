@@ -18,6 +18,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/grpcproxy"
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
@@ -32,6 +33,7 @@ import (
 	"github.com/uptrace/bun/extra/bundebug"
 	oteltrace "go.opentelemetry.io/otel/trace"
 	tmocks "go.temporal.io/sdk/mocks"
+	"google.golang.org/protobuf/proto"
 )
 
 func testRackInitDB(t *testing.T) *cdb.Session {
@@ -266,18 +268,8 @@ func TestGetRackHandler_Handle(t *testing.T) {
 			mockTemporalClient := &tmocks.Client{}
 			mockWorkflowRun := &tmocks.WorkflowRun{}
 			mockWorkflowRun.On("GetID").Return("test-workflow-id")
-			if tt.mockRack != nil {
-				mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-					resp := args.Get(1).(*flowv1.GetRackInfoResponse)
-					resp.Rack = tt.mockRack
-				}).Return(nil)
-			} else {
-				mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-					resp := args.Get(1).(*flowv1.GetRackInfoResponse)
-					resp.Rack = nil
-				}).Return(nil)
-			}
-			mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "GetRack", mock.Anything).Return(mockWorkflowRun, nil)
+			testFlowProxyReply(t, mockWorkflowRun, &flowv1.GetRackInfoResponse{Rack: tt.mockRack})
+			testFlowProxyDispatch(t, mockTemporalClient, mockWorkflowRun, flowv1.Flow_GetRackInfoByID_FullMethodName, nil)
 			scp.IDClientMap[site.ID.String()] = mockTemporalClient
 
 			q := url.Values{}
@@ -548,20 +540,15 @@ func TestGetAllRackHandler_Handle(t *testing.T) {
 			mockWorkflowRun.On("GetID").Return("test-workflow-id")
 			// Always set up Get mock, even for error cases, as handler may still call it
 			if tt.mockResponse != nil {
-				mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-					resp := args.Get(1).(*flowv1.GetListOfRacksResponse)
-					resp.Racks = tt.mockResponse.Racks
-					resp.Total = tt.mockResponse.Total
-				}).Return(nil)
+				testFlowProxyReply(t, mockWorkflowRun, &flowv1.GetListOfRacksResponse{
+					Racks: tt.mockResponse.Racks,
+					Total: tt.mockResponse.Total,
+				})
 			} else {
-				// For error cases, set up a mock that returns empty response
-				mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-					resp := args.Get(1).(*flowv1.GetListOfRacksResponse)
-					resp.Racks = []*flowv1.Rack{}
-					resp.Total = 0
-				}).Return(nil)
+				// For error cases, reply with an empty response
+				testFlowProxyReply(t, mockWorkflowRun, &flowv1.GetListOfRacksResponse{})
 			}
-			mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "GetRacks", mock.Anything).Return(mockWorkflowRun, nil)
+			testFlowProxyDispatch(t, mockTemporalClient, mockWorkflowRun, flowv1.Flow_GetListOfRacks_FullMethodName, nil)
 			scp.IDClientMap[site.ID.String()] = mockTemporalClient
 
 			// Build query string
@@ -762,23 +749,18 @@ func TestValidateRackHandler_Handle(t *testing.T) {
 			mockWorkflowRun := &tmocks.WorkflowRun{}
 			mockWorkflowRun.On("GetID").Return("test-workflow-id")
 			if tt.mockResponse != nil {
-				mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-					resp := args.Get(1).(*flowv1.ValidateComponentsResponse)
-					resp.Diffs = tt.mockResponse.Diffs
-					resp.TotalDiffs = tt.mockResponse.TotalDiffs
-					resp.MissingCount = tt.mockResponse.MissingCount
-					resp.UnexpectedCount = tt.mockResponse.UnexpectedCount
-					resp.MismatchCount = tt.mockResponse.MismatchCount
-					resp.MatchCount = tt.mockResponse.MatchCount
-				}).Return(nil)
+				testFlowProxyReply(t, mockWorkflowRun, &flowv1.ValidateComponentsResponse{
+					Diffs:           tt.mockResponse.Diffs,
+					TotalDiffs:      tt.mockResponse.TotalDiffs,
+					MissingCount:    tt.mockResponse.MissingCount,
+					UnexpectedCount: tt.mockResponse.UnexpectedCount,
+					MismatchCount:   tt.mockResponse.MismatchCount,
+					MatchCount:      tt.mockResponse.MatchCount,
+				})
 			} else {
-				mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-					resp := args.Get(1).(*flowv1.ValidateComponentsResponse)
-					resp.Diffs = []*flowv1.ComponentDiff{}
-					resp.TotalDiffs = 0
-				}).Return(nil)
+				testFlowProxyReply(t, mockWorkflowRun, &flowv1.ValidateComponentsResponse{})
 			}
-			mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "ValidateRackComponents", mock.Anything).Return(mockWorkflowRun, nil)
+			testFlowProxyDispatch(t, mockTemporalClient, mockWorkflowRun, flowv1.Flow_ValidateComponents_FullMethodName, nil)
 			scp.IDClientMap[site.ID.String()] = mockTemporalClient
 
 			// Build query string
@@ -985,23 +967,18 @@ func TestValidateRacksHandler_Handle(t *testing.T) {
 			mockWorkflowRun := &tmocks.WorkflowRun{}
 			mockWorkflowRun.On("GetID").Return("test-workflow-id")
 			if tt.mockResponse != nil {
-				mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-					resp := args.Get(1).(*flowv1.ValidateComponentsResponse)
-					resp.Diffs = tt.mockResponse.Diffs
-					resp.TotalDiffs = tt.mockResponse.TotalDiffs
-					resp.MissingCount = tt.mockResponse.MissingCount
-					resp.UnexpectedCount = tt.mockResponse.UnexpectedCount
-					resp.MismatchCount = tt.mockResponse.MismatchCount
-					resp.MatchCount = tt.mockResponse.MatchCount
-				}).Return(nil)
+				testFlowProxyReply(t, mockWorkflowRun, &flowv1.ValidateComponentsResponse{
+					Diffs:           tt.mockResponse.Diffs,
+					TotalDiffs:      tt.mockResponse.TotalDiffs,
+					MissingCount:    tt.mockResponse.MissingCount,
+					UnexpectedCount: tt.mockResponse.UnexpectedCount,
+					MismatchCount:   tt.mockResponse.MismatchCount,
+					MatchCount:      tt.mockResponse.MatchCount,
+				})
 			} else {
-				mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-					resp := args.Get(1).(*flowv1.ValidateComponentsResponse)
-					resp.Diffs = []*flowv1.ComponentDiff{}
-					resp.TotalDiffs = 0
-				}).Return(nil)
+				testFlowProxyReply(t, mockWorkflowRun, &flowv1.ValidateComponentsResponse{})
 			}
-			mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "ValidateRackComponents", mock.Anything).Return(mockWorkflowRun, nil)
+			testFlowProxyDispatch(t, mockTemporalClient, mockWorkflowRun, flowv1.Flow_ValidateComponents_FullMethodName, nil)
 			scp.IDClientMap[site.ID.String()] = mockTemporalClient
 
 			q := url.Values{}
@@ -1165,12 +1142,7 @@ func TestUpdateRackPowerStateHandler_Handle(t *testing.T) {
 			mockTemporalClient := &tmocks.Client{}
 			mockWorkflowRun := &tmocks.WorkflowRun{}
 			mockWorkflowRun.On("GetID").Return("test-workflow-id")
-			mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-				resp := args.Get(1).(*flowv1.SubmitTaskResponse)
-				if tt.mockTaskIDs != nil {
-					resp.TaskIds = tt.mockTaskIDs
-				}
-			}).Return(nil)
+			testFlowProxyReply(t, mockWorkflowRun, &flowv1.SubmitTaskResponse{TaskIds: tt.mockTaskIDs})
 			mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockWorkflowRun, nil)
 			scp.IDClientMap[site.ID.String()] = mockTemporalClient
 
@@ -1286,12 +1258,7 @@ func TestBatchUpdateRackPowerStateHandler_Handle(t *testing.T) {
 			mockTemporalClient := &tmocks.Client{}
 			mockWorkflowRun := &tmocks.WorkflowRun{}
 			mockWorkflowRun.On("GetID").Return("test-workflow-id")
-			mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-				resp := args.Get(1).(*flowv1.SubmitTaskResponse)
-				if tt.mockTaskIDs != nil {
-					resp.TaskIds = tt.mockTaskIDs
-				}
-			}).Return(nil)
+			testFlowProxyReply(t, mockWorkflowRun, &flowv1.SubmitTaskResponse{TaskIds: tt.mockTaskIDs})
 			mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockWorkflowRun, nil)
 			scp.IDClientMap[site.ID.String()] = mockTemporalClient
 
@@ -1408,12 +1375,7 @@ func TestUpdateRackFirmwareHandler_Handle(t *testing.T) {
 			mockTemporalClient := &tmocks.Client{}
 			mockWorkflowRun := &tmocks.WorkflowRun{}
 			mockWorkflowRun.On("GetID").Return("test-workflow-id")
-			mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-				resp := args.Get(1).(*flowv1.SubmitTaskResponse)
-				if tt.mockTaskIDs != nil {
-					resp.TaskIds = tt.mockTaskIDs
-				}
-			}).Return(nil)
+			testFlowProxyReply(t, mockWorkflowRun, &flowv1.SubmitTaskResponse{TaskIds: tt.mockTaskIDs})
 			mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockWorkflowRun, nil)
 			scp.IDClientMap[site.ID.String()] = mockTemporalClient
 
@@ -1530,12 +1492,7 @@ func TestBringUpRackHandler_Handle(t *testing.T) {
 			mockTemporalClient := &tmocks.Client{}
 			mockWorkflowRun := &tmocks.WorkflowRun{}
 			mockWorkflowRun.On("GetID").Return("test-workflow-id")
-			mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-				resp := args.Get(1).(*flowv1.SubmitTaskResponse)
-				if tt.mockTaskIDs != nil {
-					resp.TaskIds = tt.mockTaskIDs
-				}
-			}).Return(nil)
+			testFlowProxyReply(t, mockWorkflowRun, &flowv1.SubmitTaskResponse{TaskIds: tt.mockTaskIDs})
 			mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockWorkflowRun, nil)
 			scp.IDClientMap[site.ID.String()] = mockTemporalClient
 
@@ -1652,12 +1609,7 @@ func TestBatchBringUpRackHandler_Handle(t *testing.T) {
 			mockTemporalClient := &tmocks.Client{}
 			mockWorkflowRun := &tmocks.WorkflowRun{}
 			mockWorkflowRun.On("GetID").Return("test-workflow-id")
-			mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-				resp := args.Get(1).(*flowv1.SubmitTaskResponse)
-				if tt.mockTaskIDs != nil {
-					resp.TaskIds = tt.mockTaskIDs
-				}
-			}).Return(nil)
+			testFlowProxyReply(t, mockWorkflowRun, &flowv1.SubmitTaskResponse{TaskIds: tt.mockTaskIDs})
 			mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockWorkflowRun, nil)
 			scp.IDClientMap[site.ID.String()] = mockTemporalClient
 
@@ -1759,12 +1711,7 @@ func TestBatchUpdateRackFirmwareHandler_Handle(t *testing.T) {
 			mockTemporalClient := &tmocks.Client{}
 			mockWorkflowRun := &tmocks.WorkflowRun{}
 			mockWorkflowRun.On("GetID").Return("test-workflow-id")
-			mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-				resp := args.Get(1).(*flowv1.SubmitTaskResponse)
-				if tt.mockTaskIDs != nil {
-					resp.TaskIds = tt.mockTaskIDs
-				}
-			}).Return(nil)
+			testFlowProxyReply(t, mockWorkflowRun, &flowv1.SubmitTaskResponse{TaskIds: tt.mockTaskIDs})
 			mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockWorkflowRun, nil)
 			scp.IDClientMap[site.ID.String()] = mockTemporalClient
 
@@ -1827,7 +1774,8 @@ func TestRackHandlers_RuleIDPassThrough(t *testing.T) {
 		path       string
 		body       string
 		handler    echo.HandlerFunc
-		extractRID func(req interface{}) string
+		flowReq    proto.Message
+		extractRID func(req proto.Message) string
 	}{
 		{
 			name: "power - PowerOnRackRequest carries rule_id",
@@ -1836,12 +1784,9 @@ func TestRackHandlers_RuleIDPassThrough(t *testing.T) {
 			handler: func() echo.HandlerFunc {
 				return NewUpdateRackPowerStateHandler(dbSession, nil, scp, cfg).Handle
 			}(),
-			extractRID: func(req interface{}) string {
-				r, ok := req.(*flowv1.PowerOnRackRequest)
-				if !ok {
-					return ""
-				}
-				return r.GetRuleId().GetId()
+			flowReq: &flowv1.PowerOnRackRequest{},
+			extractRID: func(req proto.Message) string {
+				return req.(*flowv1.PowerOnRackRequest).GetRuleId().GetId()
 			},
 		},
 		{
@@ -1851,12 +1796,9 @@ func TestRackHandlers_RuleIDPassThrough(t *testing.T) {
 			handler: func() echo.HandlerFunc {
 				return NewUpdateRackFirmwareHandler(dbSession, nil, scp, cfg).Handle
 			}(),
-			extractRID: func(req interface{}) string {
-				r, ok := req.(*flowv1.UpgradeFirmwareRequest)
-				if !ok {
-					return ""
-				}
-				return r.GetRuleId().GetId()
+			flowReq: &flowv1.UpgradeFirmwareRequest{},
+			extractRID: func(req proto.Message) string {
+				return req.(*flowv1.UpgradeFirmwareRequest).GetRuleId().GetId()
 			},
 		},
 		{
@@ -1866,32 +1808,28 @@ func TestRackHandlers_RuleIDPassThrough(t *testing.T) {
 			handler: func() echo.HandlerFunc {
 				return NewBringUpRackHandler(dbSession, nil, scp, cfg).Handle
 			}(),
-			extractRID: func(req interface{}) string {
-				r, ok := req.(*flowv1.BringUpRackRequest)
-				if !ok {
-					return ""
-				}
-				return r.GetRuleId().GetId()
+			flowReq: &flowv1.BringUpRackRequest{},
+			extractRID: func(req proto.Message) string {
+				return req.(*flowv1.BringUpRackRequest).GetRuleId().GetId()
 			},
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			var capturedReq interface{}
+			dispatched := false
 
 			mockTemporalClient := &tmocks.Client{}
 			mockWorkflowRun := &tmocks.WorkflowRun{}
 			mockWorkflowRun.On("GetID").Return("test-workflow-id")
-			mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-				resp := args.Get(1).(*flowv1.SubmitTaskResponse)
-				resp.TaskIds = []*flowv1.UUID{{Id: uuid.NewString()}}
-			}).Return(nil)
+			testFlowProxyReply(t, mockWorkflowRun, &flowv1.SubmitTaskResponse{
+				TaskIds: []*flowv1.UUID{{Id: uuid.NewString()}},
+			})
 			mockTemporalClient.Mock.On("ExecuteWorkflow",
-				mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+				mock.Anything, mock.Anything, grpcproxy.Flow.WorkflowName, mock.Anything,
 			).Run(func(args mock.Arguments) {
-				// (ctx, options, workflowName, flowRequest)
-				capturedReq = args.Get(3)
+				testFlowProxyRequest(t, args, tc.flowReq)
+				dispatched = true
 			}).Return(mockWorkflowRun, nil)
 			scp.IDClientMap[site.ID.String()] = mockTemporalClient
 
@@ -1911,8 +1849,8 @@ func TestRackHandlers_RuleIDPassThrough(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
 
-			require.NotNil(t, capturedReq, "ExecuteWorkflow was not called")
-			assert.Equal(t, ruleID, tc.extractRID(capturedReq))
+			require.True(t, dispatched, "the Flow proxy workflow was not started")
+			assert.Equal(t, ruleID, tc.extractRID(tc.flowReq))
 		})
 	}
 }

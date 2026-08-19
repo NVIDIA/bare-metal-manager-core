@@ -15,9 +15,8 @@
  * limitations under the License.
  */
 
-// Allow txn_without_commit in tests
-#![cfg_attr(test, allow(txn_without_commit))]
-#![allow(unknown_lints)]
+// It's too cumbersome for tests to adhere to these, which are less important in testing anyway.
+#![cfg_attr(test, allow(txn_held_across_await, txn_without_commit))]
 
 pub mod attestation;
 pub mod bmc_metadata;
@@ -58,6 +57,7 @@ pub mod machine_boot_override;
 pub mod machine_desired_boot_interface;
 pub mod machine_interface;
 pub mod machine_interface_address;
+pub mod machine_pending_action;
 pub mod machine_topology;
 pub mod machine_validation;
 pub mod machine_validation_config;

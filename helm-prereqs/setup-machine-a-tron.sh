@@ -358,6 +358,39 @@ for _pw in "$BMC_PASSWORD" "$UEFI_DPU_PASSWORD" "$UEFI_HOST_PASSWORD"; do
 done
 info "image: ${MAT_IMAGE_REPO}:${MAT_IMAGE_TAG}   hosts: ${HOST_COUNT}   dpus/host: ${DPU_PER_HOST}"
 
+# GOTCHA: Postgres out-of-memory does not degrade gracefully. The kernel kills a
+# backend, the postmaster crash-recovers, and every connection is dropped with
+# in-flight transactions rolled back. Downstream that presents as stalled machine
+# readiness, controller panics and deadlocks, so the real cause is easy to miss.
+# A 4,500-host run against the old 4Gi default logged 531 OOM kills and never
+# completed; the same run at 24Gi peaked at ~8.7GiB with zero kills. Warn here so
+# an undersized database is visible at minute zero rather than hour three.
+_pg_mem="$(kubectl get postgresql -n "${POSTGRES_NS:-postgres}" nico-pg-cluster \
+    -o jsonpath='{.spec.resources.limits.memory}' 2>/dev/null || true)"
+if [[ -n "$_pg_mem" ]]; then
+    _pg_gib="${_pg_mem%Gi}"
+    if [[ "$_pg_mem" == *Mi ]]; then _pg_gib=$(( ${_pg_mem%Mi} / 1024 )); fi
+    if [[ "$_pg_gib" =~ ^[0-9]+$ ]]; then
+        # Same rough scale as the guidance in helm-prereqs/values.yaml.
+        _pg_want=4
+        (( HOST_COUNT > 500 ))   && _pg_want=8
+        (( HOST_COUNT > 1500 ))  && _pg_want=16
+        (( HOST_COUNT > 5000 ))  && _pg_want=32
+        if (( _pg_gib < _pg_want )); then
+            warn "postgres memory limit is ${_pg_mem} but ${HOST_COUNT} hosts wants >= ${_pg_want}Gi"
+            warn "  undersized postgres OOM-kills under load and breaks ingestion in ways that look unrelated"
+            warn "  raise postgresql.resources.limits.memory in helm-prereqs/values.yaml and reinstall"
+            warn "  (a resize applied before teardown is reverted: teardown deletes the postgres namespace)"
+            # Don't let the warning scroll past: make the operator choose, like
+            # the fit-sizing and deploy gates below. -y keeps automation moving.
+            confirm "Continue anyway with ${_pg_mem} for ${HOST_COUNT} hosts?" \
+                || die "aborted on postgres sizing — resize postgresql.resources.limits.memory and rerun"
+        else
+            ok "postgres memory ${_pg_mem} is adequate for ${HOST_COUNT} hosts (>= ${_pg_want}Gi)"
+        fi
+    fi
+fi
+
 # =============================================================================
 # Phase 1 — namespace
 # =============================================================================

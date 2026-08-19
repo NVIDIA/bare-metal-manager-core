@@ -218,7 +218,6 @@ func (o *UpdatePowerStateRequest) UnmarshalJSON(data []byte) (err error) {
 	varUpdatePowerStateRequest := _UpdatePowerStateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varUpdatePowerStateRequest)
 
 	if err != nil {

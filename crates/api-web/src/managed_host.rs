@@ -74,7 +74,7 @@ struct GroupedHosts {
 struct HostGroup {
     num_in_group: usize,
     group_fields: Vec<String>,
-    filter: String,
+    query: String,
 }
 
 #[derive(PartialEq, Eq)]
@@ -171,15 +171,7 @@ impl ManagedHostRowDisplay {
             .interfaces
             .into_iter()
             .find(|i| i.primary_interface)
-            .map(|i| {
-                (
-                    i.addresses
-                        .first()
-                        .map(|i| i.to_string())
-                        .unwrap_or_default(),
-                    i.mac_address.to_string(),
-                )
-            })
+            .map(|i| (i.addresses.iter().join(","), i.mac_address.to_string()))
             .unwrap_or_default();
 
         Self {
@@ -238,7 +230,7 @@ impl From<model::machine::Machine> for AttachedDpuRowDisplay {
             .unwrap_or_default();
         let primary_iface = item.status.interfaces.iter().find(|i| i.primary_interface);
         let oob_ip = primary_iface
-            .and_then(|t| t.addresses.first().map(|a| a.to_string()))
+            .map(|interface| interface.addresses.iter().join(","))
             .unwrap_or_default();
         let oob_mac = primary_iface
             .map(|t| t.mac_address.to_string())
@@ -437,6 +429,7 @@ pub(super) async fn show_html(
 
     let active_health_alerts_filter = params
         .remove("health-alerts-filter")
+        .filter(|value| !value.is_empty())
         .unwrap_or("all".to_string());
     let active_maintenance_filter = params
         .remove("maintenance-filter")
@@ -571,7 +564,20 @@ pub(super) async fn show_html(
 
     hosts.sort_unstable();
 
-    let grouped_hosts = group_hosts(&hosts, &group_by);
+    let active_filters = ActiveFilters {
+        health_alerts: &active_health_alerts_filter,
+        maintenance: &active_maintenance_filter,
+        vendor: &active_vendor_filter,
+        model: &active_model_filter,
+        state: &active_state_filter,
+        gpu: &active_gpu_filter,
+        ib: &active_ib_filter,
+        mem: active_mem_filter,
+        time_in_state_above_sla: &active_time_in_state_above_sla_filter,
+        group_by: &group_by_param,
+    };
+
+    let grouped_hosts = group_hosts(&hosts, &group_by, &active_filters);
 
     // Paginate the filtered result set (only for individual view, not grouped).
     let (info, hosts) = if grouped_hosts.is_some() {
@@ -590,7 +596,7 @@ pub(super) async fn show_html(
         .sorted_unstable()
         .collect();
 
-    for (_, models) in models_per_vendor.iter_mut() {
+    for models in models_per_vendor.values_mut() {
         models.sort_unstable();
     }
 
@@ -598,6 +604,12 @@ pub(super) async fn show_html(
 
     let states: Vec<String> = states.into_iter().sorted_unstable().collect();
 
+    if !matches!(
+        active_health_alerts_filter.as_str(),
+        "all" | "healthy" | "unhealthy"
+    ) {
+        health_alert_ids.insert(active_health_alerts_filter.clone());
+    }
     let health_alert_ids: Vec<String> = health_alert_ids.into_iter().sorted_unstable().collect();
 
     let gpus: Vec<String> = gpus
@@ -631,19 +643,7 @@ pub(super) async fn show_html(
         || active_ib_filter != "all"
         || active_mem_filter != -1;
 
-    let extra_query_params = ActiveFilters {
-        health_alerts: &active_health_alerts_filter,
-        maintenance: &active_maintenance_filter,
-        vendor: &active_vendor_filter,
-        model: &active_model_filter,
-        state: &active_state_filter,
-        gpu: &active_gpu_filter,
-        ib: &active_ib_filter,
-        mem: active_mem_filter,
-        time_in_state_above_sla: &active_time_in_state_above_sla_filter,
-        group_by: &group_by_param,
-    }
-    .to_query_params();
+    let extra_query_params = active_filters.to_query_params();
 
     let has_dpf_warning = hosts
         .iter()
@@ -676,7 +676,11 @@ pub(super) async fn show_html(
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-fn group_hosts(hosts: &[ManagedHostRowDisplay], group_by: &[GroupingKey]) -> Option<GroupedHosts> {
+fn group_hosts(
+    hosts: &[ManagedHostRowDisplay],
+    group_by: &[GroupingKey],
+    active_filters: &ActiveFilters<'_>,
+) -> Option<GroupedHosts> {
     if group_by.is_empty() || hosts.is_empty() {
         return None;
     }
@@ -693,11 +697,11 @@ fn group_hosts(hosts: &[ManagedHostRowDisplay], group_by: &[GroupingKey]) -> Opt
     let mut groups = Vec::new();
     for (k, num) in count {
         let fields: Vec<String> = k.as_str().split(',').map(|s| s.to_string()).collect();
-        let filter = filter_expr(group_by, &fields);
+        let query = active_filters.to_drilldown_query_params(group_by, &fields);
         groups.push(HostGroup {
             num_in_group: num,
             group_fields: fields,
-            filter,
+            query,
         });
         total += num;
     }
@@ -709,16 +713,6 @@ fn group_hosts(hosts: &[ManagedHostRowDisplay], group_by: &[GroupingKey]) -> Opt
         groups,
         total,
     })
-}
-
-// keys: health,host_memory,num_gpus,num_ib_ifs,state
-// OUT: state-filter=all&gpu-filter=all&ib-filter=all&mem-filter=all
-fn filter_expr(keys: &[GroupingKey], values: &[String]) -> String {
-    keys.iter()
-        .zip(values.iter())
-        .map(|(k, v)| format!("{}={}", k.filter_name(), v.to_lowercase()))
-        .collect::<Vec<_>>()
-        .join("&")
 }
 
 pub(super) async fn show_all_json(state: AxumState<Arc<Api>>) -> Response {
@@ -786,42 +780,75 @@ struct ActiveFilters<'a> {
 }
 
 impl ActiveFilters<'_> {
-    fn to_query_params(&self) -> String {
-        let mut parts = Vec::new();
+    fn query_pairs(&self, include_group_by: bool) -> Vec<(&'static str, String)> {
+        let mut pairs = Vec::new();
         if self.health_alerts != "all" {
-            parts.push(format!("&health-alerts-filter={}", self.health_alerts));
+            pairs.push(("health-alerts-filter", self.health_alerts.to_string()));
         }
         if self.maintenance != "all" {
-            parts.push(format!("&maintenance-filter={}", self.maintenance));
+            pairs.push(("maintenance-filter", self.maintenance.to_string()));
         }
         if self.vendor != "all" {
-            parts.push(format!("&vendor-filter={}", self.vendor));
+            pairs.push(("vendor-filter", self.vendor.to_string()));
         }
         if self.model != "all" {
-            parts.push(format!("&model-filter={}", self.model));
+            pairs.push(("model-filter", self.model.to_string()));
         }
         if self.state != "all" {
-            parts.push(format!("&state-filter={}", self.state));
+            pairs.push(("state-filter", self.state.to_string()));
         }
         if self.gpu != "all" {
-            parts.push(format!("&gpu-filter={}", self.gpu));
+            pairs.push(("gpu-filter", self.gpu.to_string()));
         }
         if self.ib != "all" {
-            parts.push(format!("&ib-filter={}", self.ib));
+            pairs.push(("ib-filter", self.ib.to_string()));
         }
         if self.mem != -1 {
-            parts.push(format!("&mem-filter={}", self.mem));
+            pairs.push(("mem-filter", self.mem.to_string()));
         }
         if self.time_in_state_above_sla != "all" {
-            parts.push(format!(
-                "&time-in-state-above-sla-filter={}",
-                self.time_in_state_above_sla
+            pairs.push((
+                "time-in-state-above-sla-filter",
+                self.time_in_state_above_sla.to_string(),
             ));
         }
-        if self.group_by != "none" {
-            parts.push(format!("&group-by={}", self.group_by));
+        if include_group_by && self.group_by != "none" {
+            pairs.push(("group-by", self.group_by.to_string()));
         }
-        parts.join("")
+        pairs
+    }
+
+    fn encode_query_pair((key, value): (&str, String)) -> String {
+        format!("{key}={}", urlencoding::encode(&value))
+    }
+
+    fn to_query_params(&self) -> String {
+        self.query_pairs(true)
+            .into_iter()
+            .map(Self::encode_query_pair)
+            .map(|part| format!("&{part}"))
+            .join("")
+    }
+
+    fn to_drilldown_query_params(
+        &self,
+        grouping_keys: &[GroupingKey],
+        group_values: &[String],
+    ) -> String {
+        let grouped_filter_names: HashSet<_> =
+            grouping_keys.iter().map(GroupingKey::filter_name).collect();
+
+        self.query_pairs(false)
+            .into_iter()
+            .filter(|(key, _)| !grouped_filter_names.contains(key))
+            .chain(
+                grouping_keys
+                    .iter()
+                    .zip(group_values)
+                    .map(|(key, value)| (key.filter_name(), value.to_lowercase())),
+            )
+            .map(Self::encode_query_pair)
+            .join("&")
     }
 }
 
@@ -870,10 +897,46 @@ impl super::Base for ManagedHostShow {}
 
 #[cfg(test)]
 mod tests {
+    use itertools::Itertools;
     use model::machine::LoadSnapshotOptions;
 
-    use super::ManagedHostRowDisplay;
+    use super::{ActiveFilters, GroupingKey, ManagedHostRowDisplay};
     use crate::tests::env::TestEnv;
+
+    fn active_filters_with_model(model: &str) -> ActiveFilters<'_> {
+        ActiveFilters {
+            health_alerts: "all",
+            maintenance: "all",
+            vendor: "all",
+            model,
+            state: "all",
+            gpu: "all",
+            ib: "all",
+            mem: -1,
+            time_in_state_above_sla: "all",
+            group_by: "none",
+        }
+    }
+
+    #[test]
+    fn test_active_filters_to_query_params_encodes_space() {
+        let active_filters = active_filters_with_model("poweredge r750");
+
+        assert_eq!(
+            active_filters.to_query_params(),
+            "&model-filter=poweredge%20r750"
+        );
+    }
+
+    #[test]
+    fn test_active_filters_to_drilldown_query_params_encodes_ampersand() {
+        let active_filters = active_filters_with_model("r&d");
+
+        assert_eq!(
+            active_filters.to_drilldown_query_params(&[GroupingKey::State], &["Ready".to_string()]),
+            "model-filter=r%26d&state-filter=ready"
+        );
+    }
 
     // Test the ManagedHostRowDisplay as a proxy for testing that the HTML has what we want in
     // managed_host::show_html (parsing the HTML string is prohibitive)
@@ -905,8 +968,56 @@ mod tests {
             "Unexpected number of managed host snapshots"
         );
 
-        let snapshot = snapshots.into_iter().next().unwrap();
+        let mut snapshot = snapshots.into_iter().next().unwrap();
         assert_eq!(snapshot.host_snapshot.id, machine_id);
+
+        snapshot
+            .host_snapshot
+            .status
+            .interfaces
+            .iter_mut()
+            .find(|interface| interface.primary_interface)
+            .expect("host should have a primary interface")
+            .addresses
+            .push("2001:db8::10".parse().unwrap());
+        for (dpu, address) in snapshot
+            .dpu_snapshots
+            .iter_mut()
+            .zip(["2001:db8::20", "2001:db8::30"])
+        {
+            dpu.status
+                .interfaces
+                .iter_mut()
+                .find(|interface| interface.primary_interface)
+                .expect("DPU should have a primary interface")
+                .addresses
+                .push(address.parse().unwrap());
+        }
+
+        let host_admin_ips = snapshot
+            .host_snapshot
+            .status
+            .interfaces
+            .iter()
+            .find(|interface| interface.primary_interface)
+            .expect("host should have a primary interface")
+            .addresses
+            .iter()
+            .join(",");
+        let dpu_oob_ips: Vec<String> = snapshot
+            .dpu_snapshots
+            .iter()
+            .map(|dpu| {
+                dpu.status
+                    .interfaces
+                    .iter()
+                    .find(|interface| interface.primary_interface)
+                    .expect("DPU should have a primary interface")
+                    .addresses
+                    .iter()
+                    .join(",")
+            })
+            .collect();
 
         let sla_config = model::machine::slas::MachineSlaConfig::new(
             env.api()
@@ -935,7 +1046,7 @@ mod tests {
         assert_eq!(row.machine_id, machine_id.to_string());
         assert!(!row.health_sources.is_empty());
         assert!(row.health_probe_alerts.is_empty());
-        assert!(!row.host_admin_ip.is_empty());
+        assert_eq!(row.host_admin_ip, host_admin_ips);
         assert_eq!(row.host_admin_mac, mh.host.primary_mac().to_string());
         assert!(row.state_reason.is_empty());
 
@@ -948,7 +1059,7 @@ mod tests {
         assert_eq!(row.dpus[0].bmc_ip, build_data.dpu_bmc_ip(0).to_string());
         assert_eq!(row.dpus[0].bmc_mac, dpu_1.bmc_mac.to_string());
         assert_eq!(row.dpus[0].oob_mac, dpu_1.oob_mac().to_string());
-        assert!(!row.dpus[0].oob_ip.is_empty(), "dpu should show an oob ip");
+        assert_eq!(row.dpus[0].oob_ip, dpu_oob_ips[0]);
 
         assert_eq!(
             row.dpus[1].machine_id,
@@ -957,7 +1068,7 @@ mod tests {
         assert_eq!(row.dpus[1].bmc_ip, build_data.dpu_bmc_ip(1).to_string());
         assert_eq!(row.dpus[1].bmc_mac, dpu_2.bmc_mac.to_string());
         assert_eq!(row.dpus[1].oob_mac, dpu_2.oob_mac().to_string());
-        assert!(!row.dpus[1].oob_ip.is_empty(), "dpu should show an oob ip");
+        assert_eq!(row.dpus[1].oob_ip, dpu_oob_ips[1]);
 
         Ok(())
     }

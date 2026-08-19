@@ -72,6 +72,8 @@ spec:
               value: {{ .Values.temporal.enableTls | quote }}
             - name: TEMPORAL_SERVER_NAME
               value: {{ .Values.temporal.serverName | quote }}
+            - name: FLOW_DATA_ENCRYPTION_KEY_PATH
+              value: /var/run/secrets/flow-data-encryption/encryption-key
             - name: PSM_API_URL
               value: {{ printf "psm.%s.svc.cluster.local:%d" (include "nico-flow.namespace" .) (int .Values.ports.psm) | quote }}
             - name: NSM_API_URL
@@ -95,6 +97,9 @@ spec:
             {{- end }}
             - name: temporal-client-certs
               mountPath: {{ .Values.temporal.certPath }}
+              readOnly: true
+            - name: data-encryption-key
+              mountPath: /var/run/secrets/flow-data-encryption
               readOnly: true
         ## -------------------------------------------------------------
         ## psm — power-shelf manager (gRPC 50052)
@@ -210,6 +215,12 @@ spec:
         - name: temporal-client-certs
           secret:
             secretName: {{ .Values.temporalCert.secretName }}
+        - name: data-encryption-key
+          secret:
+            secretName: {{ default "flow-data-encryption-key" (trim .Values.dataEncryption.key.existingSecret) | quote }}
+            items:
+              - key: flow-data-encryption-key
+                path: encryption-key
         - name: psm-firmware
           {{- toYaml .Values.firmware.psm.volume | nindent 10 }}
         - name: nsm-scratch

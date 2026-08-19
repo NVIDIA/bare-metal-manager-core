@@ -7,6 +7,7 @@ package planner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -14,6 +15,10 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
 	operationrun "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun"
 )
+
+// ErrPhaseHasNoTargets reports that a user-configured phase cannot be
+// materialized for the selected target set.
+var ErrPhaseHasNoTargets = errors.New("configured operation run phase has no targets")
 
 // TargetLookup supplies the primitive target lists needed by the planner.
 // The planner decides which sources to use and how to compose them; lookup
@@ -212,6 +217,16 @@ func phasedExecutionTargets(
 	targets := make([]*operationrun.OperationRunTarget, 0, len(ordered))
 	seqIdx := 0
 	for phaseIdx, phaseSize := range phaseCounts {
+		if phaseSize == 0 {
+			return nil, fmt.Errorf(
+				"%w: %s phase %d resolves to zero targets for %d selected targets",
+				ErrPhaseHasNoTargets,
+				policy.Plan.PhasePlanKind(),
+				phaseIdx+1,
+				len(ordered),
+			)
+		}
+
 		for range phaseSize {
 			targets = append(
 				targets,

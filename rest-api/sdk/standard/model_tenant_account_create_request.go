@@ -152,7 +152,6 @@ func (o *TenantAccountCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	varTenantAccountCreateRequest := _TenantAccountCreateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varTenantAccountCreateRequest)
 
 	if err != nil {

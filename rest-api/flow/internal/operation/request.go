@@ -35,7 +35,7 @@ const (
 // Task per rack.
 type Request struct {
 	Operation   Wrapper
-	TargetSpec  TargetSpec // Either racks or components, not both
+	TargetSpec  TargetSpec // Exactly one of racks, NVLink domains, or components
 	Description string
 
 	// ConflictStrategy controls how the task behaves when a conflict is
