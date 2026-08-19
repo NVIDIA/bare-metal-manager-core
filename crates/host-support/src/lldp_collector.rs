@@ -235,6 +235,8 @@ fn publish_lldp_snapshot_at(
     snapshot: LldpSnapshotData,
     captured_at: SystemTime,
 ) -> LldpCollectorResult<()> {
+    parse_lldp_neighbors(&snapshot.neighbors_json)?;
+
     let snapshots_dir = snapshot_root.join("snapshots");
     fs::create_dir_all(&snapshots_dir).map_err(|error| {
         snapshot_error("create LLDP snapshot directories", &snapshots_dir, error)
@@ -1112,6 +1114,36 @@ mod tests {
             0o644
         );
         assert!(!previous.exists());
+    }
+
+    #[test]
+    fn malformed_neighbors_are_not_published() {
+        let root = TempDir::new().unwrap();
+        let previous = root.path().join("snapshots/snapshot-previous");
+        fs::create_dir_all(&previous).unwrap();
+        symlink("snapshots/snapshot-previous", root.path().join("current")).unwrap();
+        let snapshot = LldpSnapshotData {
+            neighbors_json: "not-json".into(),
+            chassis_json: LOCAL_CHASSIS.into(),
+            interface_macs: HashMap::from([("p0".into(), "00:11:22:33:44:00".into())]),
+        };
+
+        assert!(
+            publish_lldp_snapshot_at(
+                root.path(),
+                snapshot,
+                UNIX_EPOCH + Duration::from_secs(1000),
+            )
+            .is_err()
+        );
+        assert_eq!(
+            fs::read_link(root.path().join("current")).unwrap(),
+            std::path::PathBuf::from("snapshots/snapshot-previous")
+        );
+        assert_eq!(
+            fs::read_dir(root.path().join("snapshots")).unwrap().count(),
+            1
+        );
     }
 
     #[test]
