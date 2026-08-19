@@ -5168,6 +5168,8 @@ message BMCMetaDataGetResponse {
   optional uint32 ssh_port = 6;
   optional uint32 ipmi_port = 7;
   optional string vendor = 8;
+  // SSH port for the managed system's serial console, not the manager CLI.
+  optional uint32 serial_console_ssh_port = 9;
 }
 
 message MachineCredentialsUpdateRequest {

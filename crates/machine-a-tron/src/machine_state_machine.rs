@@ -264,6 +264,7 @@ pub(super) struct LiveState {
     pub(super) machine_ip: Option<Ipv4Addr>,
     pub(super) bmc_ip: Option<Ipv4Addr>,
     pub(super) ipmi_endpoint: Option<IpmiEndpoint>,
+    pub(super) ssh_endpoint_port: Option<u16>,
     pub(super) booted_os: MaybeOsImage,
     pub(super) next_boot_kind: Option<BootOptionKind>,
     pub(super) installed_os: OsImage,
@@ -292,6 +293,7 @@ impl Default for LiveState {
             machine_ip: None,
             bmc_ip: None,
             ipmi_endpoint: None,
+            ssh_endpoint_port: None,
             booted_os: Default::default(),
             next_boot_kind: None,
             installed_os: Default::default(),
@@ -1006,6 +1008,10 @@ impl MachineStateMachine {
             .bmc_mock
             .as_ref()
             .and_then(|bmc_mock| bmc_mock.ipmi_endpoint());
+        live_state.ssh_endpoint_port = self
+            .bmc_mock
+            .as_ref()
+            .and_then(|bmc_mock| bmc_mock.ssh_endpoint_port());
         live_state.installed_os = self.installed_os;
         if let Some(machine_id) = self.machine_id()
             && live_state.observed_machine_id != Some(machine_id)
@@ -1302,11 +1308,20 @@ impl MachineStateMachine {
                     .await
                     .insert(ip_address.to_string(), bmc_mock.router().clone());
                 bmc_mock
-                    .start_ipmi_only(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED))
+                    .start_shared_mode_consoles(std::net::IpAddr::V4(
+                        std::net::Ipv4Addr::UNSPECIFIED,
+                    ))
                     .await?
                     .map(Arc::new)
             }
         };
+        if let Some(ssh_host_key) = maybe_bmc_mock_handle
+            .as_ref()
+            .and_then(|handle| handle.ssh_handle.as_ref())
+            .map(|handle| handle.host_pubkey.clone())
+        {
+            self.live_state.write().unwrap().ssh_host_key = Some(ssh_host_key);
+        }
         Ok((maybe_bmc_mock_handle, bmc_mock.state().clone()))
     }
 

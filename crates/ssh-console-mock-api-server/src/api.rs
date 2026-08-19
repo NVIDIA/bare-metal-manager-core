@@ -132,7 +132,7 @@ impl Forge for MockApiServer {
             ip: mock_host.bmc_ip.to_string(),
             user: mock_host.bmc_user.clone(),
             password: mock_host.bmc_password.clone(),
-            ssh_port: mock_host.bmc_ssh_port.map(Into::into),
+            serial_console_ssh_port: mock_host.serial_console_ssh_port.map(Into::into),
             ipmi_port: mock_host.ipmi_port.map(Into::into),
             vendor: Some(mock_host.sys_vendor.to_string()),
             ..Default::default()

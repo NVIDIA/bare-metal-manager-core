@@ -47,6 +47,7 @@ struct PowerShelfLiveState {
     power_state: MockPowerState,
     bmc_ip: Option<Ipv4Addr>,
     ipmi_endpoint: Option<IpmiEndpoint>,
+    ssh_endpoint_port: Option<u16>,
     ssh_host_key: Option<String>,
     state: &'static str,
 }
@@ -57,6 +58,7 @@ impl PowerShelfLiveState {
             power_state: fsm.power_state(),
             bmc_ip: None,
             ipmi_endpoint: None,
+            ssh_endpoint_port: None,
             ssh_host_key: None,
             state: fsm.state_string(),
         }
@@ -362,11 +364,19 @@ impl PowerShelfActor {
                     .await
                     .insert(dhcp_info.ip_address.to_string(), bmc_mock.router().clone());
                 bmc_mock
-                    .start_ipmi_only(IpAddr::V4(Ipv4Addr::UNSPECIFIED))
+                    .start_shared_mode_consoles(IpAddr::V4(Ipv4Addr::UNSPECIFIED))
                     .await?
                     .map(Arc::new)
             }
         };
+
+        if let Some(ssh_host_key) = bmc_handle
+            .as_ref()
+            .and_then(|handle| handle.ssh_handle.as_ref())
+            .map(|handle| handle.host_pubkey.clone())
+        {
+            self.live_state.write().unwrap().ssh_host_key = Some(ssh_host_key);
+        }
 
         {
             let mut state = self.live_state.write().unwrap();
@@ -374,6 +384,9 @@ impl PowerShelfActor {
             state.ipmi_endpoint = bmc_handle
                 .as_ref()
                 .and_then(|handle| handle.ipmi_endpoint());
+            state.ssh_endpoint_port = bmc_handle
+                .as_ref()
+                .and_then(|handle| handle.ssh_endpoint_port());
         }
         self._bmc_mock = bmc_handle;
         Ok(())
@@ -518,6 +531,7 @@ impl PowerShelfHandle {
                 ip: state.bmc_ip.map(|ip| ip.to_string()),
                 redfish: EndpointStatus::redfish(config),
                 ipmi: state.ipmi_endpoint.map(Into::into),
+                ssh: state.ssh_endpoint_port.map(EndpointStatus::ssh),
             },
             dpus: Vec::new(),
         }

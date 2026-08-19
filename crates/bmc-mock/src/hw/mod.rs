@@ -21,6 +21,9 @@
 /// Description of NIC card.
 pub(super) mod nic;
 
+/// Common OpenBMC bmcweb hardware profiles.
+pub(super) mod openbmc;
+
 /// Support of NVIDIA Bluefield3 DPU.
 pub(super) mod bluefield3;
 

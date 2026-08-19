@@ -46,6 +46,7 @@ pub(super) struct BmcMockWrapper {
     hostname: Arc<dyn HostnameQuerying>,
     needs_ipmi_console: bool,
     stable_id: String,
+    is_dpu: bool,
 }
 
 impl BmcMockWrapper {
@@ -76,6 +77,7 @@ impl BmcMockWrapper {
             hostname,
             needs_ipmi_console: machine_info.needs_ipmi_console(),
             stable_id: host_id.to_string(),
+            is_dpu: matches!(machine_info, MachineInfo::Dpu(_)),
         }
     }
 
@@ -157,7 +159,14 @@ impl BmcMockWrapper {
         } else {
             None
         };
-        let ipmi_sim_handle = self.start_ipmi_sim(address.ip()).await?;
+        let ipmi_sim_handle = if self.need_ipmi_sim() {
+            Some(self.start_ipmi_sim(address.ip()).await?)
+        } else {
+            None
+        };
+        let ssh_endpoint_port = ssh_handle.as_ref().map(|handle| handle.port);
+        self.bmc_mock_state
+            .set_serial_console_ssh_port(ssh_endpoint_port);
 
         tracing::info!(
             listen_address = ?address,
@@ -177,34 +186,63 @@ impl BmcMockWrapper {
                 tls_server_config,
             )),
             ssh_handle,
+            ssh_endpoint_port,
             _ipmi_sim_handle: ipmi_sim_handle,
         })
     }
 
-    /// Starts only the optional IPMI simulator when Redfish is served by a shared BMC mock.
-    /// Returns `None` when IPMI simulation is disabled or the machine does not need an IPMI console.
-    pub(super) async fn start_ipmi_only(
+    /// Starts per-machine console simulators when Redfish is served by a shared BMC mock.
+    /// Hosts use the shared SSH listener, while DPUs get a direct per-machine SSH listener.
+    /// Returns `None` when the hardware profile advertises neither an SSH nor IPMI console.
+    pub(super) async fn start_shared_mode_consoles(
         &self,
         bind_ip: std::net::IpAddr,
     ) -> Result<Option<BmcMockWrapperHandle>, MachineStateError> {
-        Ok(self
-            .start_ipmi_sim(bind_ip)
-            .await?
-            .map(|ipmi_sim_handle| BmcMockWrapperHandle {
-                _bmc_mock: None,
-                ssh_handle: None,
-                _ipmi_sim_handle: Some(ipmi_sim_handle),
-            }))
+        let ssh_handle = if self.app_context.app_config.mock_bmc_ssh_server && self.is_dpu {
+            Some(
+                mock_ssh_server::spawn(
+                    bind_ip,
+                    None,
+                    self.hostname.clone(),
+                    None,
+                    PromptBehavior::Dpu,
+                )
+                .await
+                .map_err(|error| MachineStateError::MockSshServer(error.to_string()))?,
+            )
+        } else {
+            None
+        };
+        let ipmi_sim_handle = if self.need_ipmi_sim() {
+            Some(self.start_ipmi_sim(bind_ip).await?)
+        } else {
+            None
+        };
+        let ssh_endpoint_port = ssh_handle.as_ref().map(|handle| handle.port).or_else(|| {
+            (!self.is_dpu)
+                .then(|| self.app_context.combined_bmc_ssh_port.get().copied())
+                .flatten()
+        });
+        let advertises_ssh = self
+            .bmc_mock_state
+            .set_serial_console_ssh_port(ssh_endpoint_port);
+
+        Ok(
+            (ipmi_sim_handle.is_some() || ssh_handle.is_some() || advertises_ssh).then_some(
+                BmcMockWrapperHandle {
+                    _bmc_mock: None,
+                    ssh_handle,
+                    ssh_endpoint_port,
+                    _ipmi_sim_handle: ipmi_sim_handle,
+                },
+            ),
+        )
     }
 
     async fn start_ipmi_sim(
         &self,
         bind_ip: std::net::IpAddr,
-    ) -> Result<Option<IpmiSimHandle>, MachineStateError> {
-        if !self.app_context.app_config.enable_ipmi_simulation || !self.needs_ipmi_console {
-            return Ok(None);
-        }
-
+    ) -> Result<IpmiSimHandle, MachineStateError> {
         // Determine the reachable port advertised through Redfish:
         // - None (unset): Use default port
         // - Some(0): Use dynamic port (same as listen port)
@@ -226,7 +264,6 @@ impl BmcMockWrapper {
             },
         )
         .await
-        .map(Some)
         .map_err(MachineStateError::IpmiSim)
     }
 
@@ -237,18 +274,27 @@ impl BmcMockWrapper {
     pub(super) fn state(&self) -> &BmcState {
         &self.bmc_mock_state
     }
+
+    fn need_ipmi_sim(&self) -> bool {
+        self.app_context.app_config.enable_ipmi_simulation && self.needs_ipmi_console
+    }
 }
 
 #[derive(Debug)]
 pub(super) struct BmcMockWrapperHandle {
     _bmc_mock: Option<CombinedServer>,
     pub(super) ssh_handle: Option<MockSshServerHandle>,
+    ssh_endpoint_port: Option<u16>,
     _ipmi_sim_handle: Option<IpmiSimHandle>,
 }
 
 impl BmcMockWrapperHandle {
     pub(super) fn ipmi_endpoint(&self) -> Option<IpmiEndpoint> {
         self._ipmi_sim_handle.as_ref().map(|handle| handle.endpoint)
+    }
+
+    pub(super) fn ssh_endpoint_port(&self) -> Option<u16> {
+        self.ssh_endpoint_port
     }
 }
 

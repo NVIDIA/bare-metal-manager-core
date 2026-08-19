@@ -237,6 +237,7 @@ struct BootSourceOverride {
 
 pub(crate) struct SingleSystemState {
     config: SingleSystemConfig,
+    serial_console_ssh_port_override: Mutex<Option<u16>>,
     virtual_media: Option<redfish::virtual_media::VirtualMediaState>,
     boot_order_override: Mutex<Option<Vec<String>>>,
     // HPE iLO uses OEM structured boot strings here, not the BootOption IDs
@@ -317,6 +318,27 @@ impl SystemState {
     pub(crate) fn on_boot_completed(&self) {
         self.systems.iter().for_each(|s| s.on_boot_completed())
     }
+
+    /// Overrides the advertised SSH serial-console port only for systems whose
+    /// hardware profile already declares an enabled SSH serial console.
+    pub fn set_serial_console_ssh_port(&self, port: Option<u16>) -> bool {
+        let mut updated = false;
+        for system in &self.systems {
+            if system
+                .config
+                .serial_console
+                .as_ref()
+                .is_some_and(redfish::serial_console::SerialConsole::has_enabled_ssh)
+            {
+                *system
+                    .serial_console_ssh_port_override
+                    .lock()
+                    .expect("mutex poisoned") = port;
+                updated = true;
+            }
+        }
+        updated
+    }
 }
 
 impl SingleSystemState {
@@ -327,6 +349,7 @@ impl SingleSystemState {
         Self {
             config,
             virtual_media,
+            serial_console_ssh_port_override: Mutex::new(None),
             boot_order_override: Mutex::new(None),
             hpe_boot_order_override: Mutex::new(None),
             boot_option_overrides: Mutex::new(HashMap::new()),
@@ -593,7 +616,15 @@ async fn get_system(State(state): State<BmcState>, Path(system_id): Path<String>
     };
 
     if let Some(serial_console) = &config.serial_console {
-        b = b.serial_console(serial_console);
+        let serial_console = system_state
+            .serial_console_ssh_port_override
+            .lock()
+            .expect("mutex poisoned")
+            .map_or_else(
+                || serial_console.clone(),
+                |port| serial_console.with_ssh_port(port),
+            );
+        b = b.serial_console(&serial_console);
     }
 
     let pcie_devices = config

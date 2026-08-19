@@ -168,6 +168,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         forge_api_client,
         dhcp_client,
         mac_address_pool: Mutex::new(mac_address_pool).into(),
+        combined_bmc_ssh_port: std::sync::OnceLock::new(),
     });
 
     let info = app_context.forge_api_client.version(false).await?;
@@ -272,6 +273,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 (control_server, None)
             }
         };
+
+    if let Some(ssh_handle) = &server_handles.1 {
+        app_context
+            .combined_bmc_ssh_port
+            .set(ssh_handle.port)
+            .expect("combined BMC SSH port must only be initialized once");
+    }
 
     // Run TUI
     let (app_tx, app_rx) = mpsc::channel(5000);

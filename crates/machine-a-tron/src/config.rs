@@ -17,7 +17,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use bmc_mock::mac_address_pool::MacAddressPool;
@@ -956,6 +956,8 @@ pub struct MachineATronContext {
     pub forge_api_client: ForgeApiClient,
     pub dhcp_client: crate::dhcp_wrapper::DhcpClient,
     pub mac_address_pool: Arc<Mutex<MacAddressPool>>,
+    /// Client-reachable port of the shared host SSH listener in combined-BMC mode.
+    pub combined_bmc_ssh_port: OnceLock<u16>,
 }
 
 impl MachineATronContext {

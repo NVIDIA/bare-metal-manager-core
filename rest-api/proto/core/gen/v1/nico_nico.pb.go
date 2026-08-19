@@ -28753,17 +28753,19 @@ func (x *BMCMetaDataGetRequest) GetBmcEndpointRequest() *BmcEndpointRequest {
 }
 
 type BMCMetaDataGetResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Ip            string                 `protobuf:"bytes,1,opt,name=ip,proto3" json:"ip,omitempty"`
-	User          string                 `protobuf:"bytes,2,opt,name=user,proto3" json:"user,omitempty"`
-	Password      string                 `protobuf:"bytes,3,opt,name=password,proto3" json:"password,omitempty"`
-	Mac           string                 `protobuf:"bytes,4,opt,name=mac,proto3" json:"mac,omitempty"`
-	Port          *uint32                `protobuf:"varint,5,opt,name=port,proto3,oneof" json:"port,omitempty"`
-	SshPort       *uint32                `protobuf:"varint,6,opt,name=ssh_port,json=sshPort,proto3,oneof" json:"ssh_port,omitempty"`
-	IpmiPort      *uint32                `protobuf:"varint,7,opt,name=ipmi_port,json=ipmiPort,proto3,oneof" json:"ipmi_port,omitempty"`
-	Vendor        *string                `protobuf:"bytes,8,opt,name=vendor,proto3,oneof" json:"vendor,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Ip       string                 `protobuf:"bytes,1,opt,name=ip,proto3" json:"ip,omitempty"`
+	User     string                 `protobuf:"bytes,2,opt,name=user,proto3" json:"user,omitempty"`
+	Password string                 `protobuf:"bytes,3,opt,name=password,proto3" json:"password,omitempty"`
+	Mac      string                 `protobuf:"bytes,4,opt,name=mac,proto3" json:"mac,omitempty"`
+	Port     *uint32                `protobuf:"varint,5,opt,name=port,proto3,oneof" json:"port,omitempty"`
+	SshPort  *uint32                `protobuf:"varint,6,opt,name=ssh_port,json=sshPort,proto3,oneof" json:"ssh_port,omitempty"`
+	IpmiPort *uint32                `protobuf:"varint,7,opt,name=ipmi_port,json=ipmiPort,proto3,oneof" json:"ipmi_port,omitempty"`
+	Vendor   *string                `protobuf:"bytes,8,opt,name=vendor,proto3,oneof" json:"vendor,omitempty"`
+	// SSH port for the managed system's serial console, not the manager CLI.
+	SerialConsoleSshPort *uint32 `protobuf:"varint,9,opt,name=serial_console_ssh_port,json=serialConsoleSshPort,proto3,oneof" json:"serial_console_ssh_port,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *BMCMetaDataGetResponse) Reset() {
@@ -28850,6 +28852,13 @@ func (x *BMCMetaDataGetResponse) GetVendor() string {
 		return *x.Vendor
 	}
 	return ""
+}
+
+func (x *BMCMetaDataGetResponse) GetSerialConsoleSshPort() uint32 {
+	if x != nil && x.SerialConsoleSshPort != nil {
+		return *x.SerialConsoleSshPort
+	}
+	return 0
 }
 
 type MachineCredentialsUpdateRequest struct {
@@ -66533,7 +66542,7 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x04role\x18\x02 \x01(\x0e2\x10.forge.UserRolesR\x04role\x128\n" +
 	"\frequest_type\x18\x03 \x01(\x0e2\x15.forge.BMCRequestTypeR\vrequestType\x12P\n" +
 	"\x14bmc_endpoint_request\x18\x04 \x01(\v2\x19.forge.BmcEndpointRequestH\x00R\x12bmcEndpointRequest\x88\x01\x01B\x17\n" +
-	"\x15_bmc_endpoint_request\"\x91\x02\n" +
+	"\x15_bmc_endpoint_request\"\xe9\x02\n" +
 	"\x16BMCMetaDataGetResponse\x12\x0e\n" +
 	"\x02ip\x18\x01 \x01(\tR\x02ip\x12\x12\n" +
 	"\x04user\x18\x02 \x01(\tR\x04user\x12\x1a\n" +
@@ -66542,12 +66551,14 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x04port\x18\x05 \x01(\rH\x00R\x04port\x88\x01\x01\x12\x1e\n" +
 	"\bssh_port\x18\x06 \x01(\rH\x01R\asshPort\x88\x01\x01\x12 \n" +
 	"\tipmi_port\x18\a \x01(\rH\x02R\bipmiPort\x88\x01\x01\x12\x1b\n" +
-	"\x06vendor\x18\b \x01(\tH\x03R\x06vendor\x88\x01\x01B\a\n" +
+	"\x06vendor\x18\b \x01(\tH\x03R\x06vendor\x88\x01\x01\x12:\n" +
+	"\x17serial_console_ssh_port\x18\t \x01(\rH\x04R\x14serialConsoleSshPort\x88\x01\x01B\a\n" +
 	"\x05_portB\v\n" +
 	"\t_ssh_portB\f\n" +
 	"\n" +
 	"_ipmi_portB\t\n" +
-	"\a_vendor\"\xaf\x03\n" +
+	"\a_vendorB\x1a\n" +
+	"\x18_serial_console_ssh_port\"\xaf\x03\n" +
 	"\x1fMachineCredentialsUpdateRequest\x120\n" +
 	"\n" +
 	"machine_id\x18\x04 \x01(\v2\x11.common.MachineIdR\tmachineId\x12T\n" +
