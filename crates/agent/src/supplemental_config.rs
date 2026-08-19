@@ -28,15 +28,21 @@
 //! patches that introduce NVUE sections the agent does not model.
 
 use eyre::WrapErr;
-use nvue_client::config::NvueConfig;
+use nvue_client::config::NvueConfigWithHeader;
 
 /// Applies the JSON merge-patch in `patch_json` to the `set` section of the
 /// YAML startup config in `nvue_yaml` and returns the merged YAML document.
 /// The `header` entry is passed through untouched.
+///
+/// The whole merge stays in the `serde_yaml::Value` domain (JSON is a YAML
+/// subset, so the patch parses with serde_yaml too). `serde_json::Value` must
+/// not appear anywhere in this transformation: with the workspace-unified
+/// `arbitrary_precision` feature, its numbers serialize into YAML as a
+/// `{"$serde_json::private::Number": ...}` mapping, corrupting the config.
 pub(crate) fn merge_into_nvue_yaml(nvue_yaml: &str, patch_json: &str) -> eyre::Result<String> {
-    let patch: serde_json::Value = serde_json::from_str(patch_json)
+    let patch: serde_yaml::Value = serde_yaml::from_str(patch_json)
         .wrap_err("supplemental network config is not valid JSON")?;
-    if !patch.is_object() {
+    if !patch.is_mapping() {
         return Err(eyre::eyre!(
             "supplemental network config must be a JSON object of NVUE config sections"
         ));
@@ -53,41 +59,40 @@ pub(crate) fn merge_into_nvue_yaml(nvue_yaml: &str, patch_json: &str) -> eyre::R
         .find_map(|entry| entry.as_mapping_mut().and_then(|map| map.get_mut(&set_key)))
         .ok_or_else(|| eyre::eyre!("generated NVUE config has no 'set' entry"))?;
 
-    let mut merged =
-        serde_json::to_value(&*set_entry).wrap_err("converting the NVUE 'set' section to JSON")?;
-    json_merge_patch(&mut merged, &patch);
+    yaml_merge_patch(set_entry, &patch);
+
+    let merged = serde_yaml::to_string(&doc).wrap_err("serializing the merged NVUE config")?;
 
     // Reject unknown top-level NVUE sections (deny_unknown_fields) instead of
-    // pushing a config NVUE may fail on as a whole-DPU apply.
-    let _: NvueConfig = serde_json::from_value(merged.clone())
+    // pushing a config NVUE may fail on as a whole-DPU apply. This is the same
+    // parse the REST apply path performs on the final document.
+    NvueConfigWithHeader::from_yaml(&merged)
         .wrap_err("merged NVUE config failed shape validation")?;
 
-    *set_entry = serde_yaml::to_value(&merged)
-        .wrap_err("converting the merged NVUE 'set' section back to YAML")?;
-    serde_yaml::to_string(&doc).wrap_err("serializing the merged NVUE config")
+    Ok(merged)
 }
 
 /// RFC 7386 JSON Merge Patch: objects merge recursively, `null` deletes a key,
 /// and any non-object patch value replaces the target wholesale.
-fn json_merge_patch(target: &mut serde_json::Value, patch: &serde_json::Value) {
-    let serde_json::Value::Object(patch_map) = patch else {
+fn yaml_merge_patch(target: &mut serde_yaml::Value, patch: &serde_yaml::Value) {
+    let serde_yaml::Value::Mapping(patch_map) = patch else {
         *target = patch.clone();
         return;
     };
-    if !target.is_object() {
-        *target = serde_json::Value::Object(serde_json::Map::new());
+    if !target.is_mapping() {
+        *target = serde_yaml::Value::Mapping(serde_yaml::Mapping::new());
     }
     let target_map = target
-        .as_object_mut()
-        .expect("target was just replaced with an object");
+        .as_mapping_mut()
+        .expect("target was just replaced with a mapping");
     for (key, patch_value) in patch_map {
         if patch_value.is_null() {
             target_map.remove(key);
         } else {
-            json_merge_patch(
+            yaml_merge_patch(
                 target_map
                     .entry(key.clone())
-                    .or_insert(serde_json::Value::Null),
+                    .or_insert(serde_yaml::Value::Null),
                 patch_value,
             );
         }
