@@ -157,8 +157,8 @@ cd helm-prereqs/
 
 | Flag | When to use |
 |------|------------|
-| `--skip-core` | Upgrade only the prerequisite stack (MetalLB, Vault, etc.) without rolling NICo Core. Useful when the prerequisite stack changed but the Core image did not. |
-| `--skip-rest` | Upgrade only NICo Core and prerequisites, skipping the REST stack. |
+| `--skip-core` | Skip Phase 6 only. Prerequisites and the REST stack still upgrade; NICo Core is left on its current image. Useful when the Core image did not change. |
+| `--skip-rest` | Skip Phase 7 only. Prerequisites and NICo Core still upgrade; the REST stack is left untouched. |
 | `--skip-flow` | Skip the Flow upgrade (Phase 7h). |
 | `--skip-dpf` | Skip DPF upgrade. Use only if DPF is not enabled at this site. |
 | `--core-values <file>` | Use a per-site NICo Core values file (same as initial install). |
@@ -298,17 +298,20 @@ For DPF, rolling back to a prior DPF version is not supported by NVIDIA. If DPF 
 
 ## Using setup.sh for individual component upgrades
 
-You can re-run only specific phases without going through the full upgrade sequence. The simplest way is to use the `--skip-*` flags:
+You can narrow an upgrade to particular components with the `--skip-*` flags. Each one skips exactly the phase it names — **none of them skip the prerequisite stack**, and there is no `--skip-prereqs`:
 
 ```bash
-# Upgrade only NICo Core image (skip all prereqs and REST)
+# Prerequisites + NICo Core; leave the REST stack untouched (skips Phase 7)
 ./setup.sh -y --skip-rest
 
-# Upgrade only NICo REST (skip Core and prereqs)
-# Setup.sh does not have --skip-prereqs; re-running the full script is safe
-# because all prereq phases are idempotent and fast when nothing changes.
+# Prerequisites + NICo REST; leave Core untouched (skips Phase 6)
 ./setup.sh -y --skip-core
+
+# Prerequisites only, fully non-interactive
+./setup.sh -y --skip-core --skip-rest
 ```
+
+The prerequisite phases therefore run on every invocation. That is by design and is cheap: each one is idempotent, and a phase whose inputs have not changed reconciles to the same state and exits quickly.
 
 For a single-helm-chart upgrade (e.g., rotating the NICo Core image tag without going through the full script):
 
