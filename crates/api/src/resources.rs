@@ -345,13 +345,15 @@ async fn connect_with_retry(
 
     let start = std::time::Instant::now();
     let mut retry_delay = INITIAL_RETRY_DELAY;
-    let remaining =
-        |elapsed: std::time::Duration| (!retry_timeout.is_zero()).then(|| retry_timeout.saturating_sub(elapsed));
-
-    let mut error = match try_connect(&pool_options, &connect_options, remaining(start.elapsed())).await {
-        Ok(pool) => return Ok(pool),
-        Err(error) => error,
+    let remaining = |elapsed: std::time::Duration| {
+        (!retry_timeout.is_zero()).then(|| retry_timeout.saturating_sub(elapsed))
     };
+
+    let mut error =
+        match try_connect(&pool_options, &connect_options, remaining(start.elapsed())).await {
+            Ok(pool) => return Ok(pool),
+            Err(error) => error,
+        };
 
     while !retry_timeout.is_zero() && start.elapsed() < retry_timeout {
         let elapsed = start.elapsed();
@@ -364,7 +366,8 @@ async fn connect_with_retry(
         tokio::time::sleep(retry_delay.min(retry_timeout.saturating_sub(elapsed))).await;
         retry_delay = (retry_delay * 2).min(MAX_RETRY_DELAY);
 
-        error = match try_connect(&pool_options, &connect_options, remaining(start.elapsed())).await {
+        error = match try_connect(&pool_options, &connect_options, remaining(start.elapsed())).await
+        {
             Ok(pool) => return Ok(pool),
             Err(error) => error,
         };
