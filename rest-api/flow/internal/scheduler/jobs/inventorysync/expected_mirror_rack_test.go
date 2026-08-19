@@ -277,7 +277,7 @@ func TestRackFromCoreRoundTripsThroughPublicFlowModel(t *testing.T) {
 	assert.Equal(t, "Foxconn", public.GetInfo().GetManufacturer())
 	assert.Equal(t, "SN-A12", public.GetInfo().GetSerialNumber())
 	assert.Equal(t, "MGX-Rack-Gen2", public.GetInfo().GetModel())
-	assert.JSONEq(t, `{"model":"MGX-Rack-Gen2","text":"Building 1, Row 3"}`, public.GetInfo().GetDescription())
+	assert.Equal(t, "Building 1, Row 3", public.GetInfo().GetDescription())
 	require.NotNil(t, public.GetLocation())
 	assert.Equal(t, "us-east", public.GetLocation().GetRegion())
 	assert.Equal(t, "DC1", public.GetLocation().GetDatacenter())

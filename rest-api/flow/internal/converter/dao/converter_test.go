@@ -474,7 +474,7 @@ func TestRackConversion(t *testing.T) {
 			Manufacturer: "NVIDIA",
 			Model:        "NVL72",
 			SerialNumber: "67890",
-			Description:  utils.MapToJSONString(description),
+			Description:  "A rack",
 		},
 		Loc:        location.New([]byte(loc)),
 		Components: []component.Component{},
@@ -482,4 +482,43 @@ func TestRackConversion(t *testing.T) {
 
 	assert.Equal(t, &internalRack, RackFrom(&daoRack))
 	assert.Equal(t, &daoRack, RackTo(&internalRack))
+}
+
+func TestRackMetadataFromDescription(t *testing.T) {
+	tests := []struct {
+		name            string
+		stored          map[string]any
+		wantModel       string
+		wantDescription string
+	}{
+		{
+			name:            "Core model and text",
+			stored:          map[string]any{"model": "NVL72", "text": "Core rack"},
+			wantModel:       "NVL72",
+			wantDescription: "Core rack",
+		},
+		{
+			name:            "Flow description",
+			stored:          map[string]any{"description": "Flow rack"},
+			wantDescription: "Flow rack",
+		},
+		{
+			name:      "model only",
+			stored:    map[string]any{"model": "NVL72"},
+			wantModel: "NVL72",
+		},
+		{
+			name:            "unknown structured metadata remains JSON",
+			stored:          map[string]any{"owner": "ops", "zone": "west"},
+			wantDescription: `{"owner":"ops","zone":"west"}`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gotModel, gotDescription := rackMetadataFromDescription(tc.stored)
+			assert.Equal(t, tc.wantModel, gotModel)
+			assert.Equal(t, tc.wantDescription, gotDescription)
+		})
+	}
 }
