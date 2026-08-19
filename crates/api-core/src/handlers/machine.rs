@@ -663,11 +663,6 @@ pub(crate) async fn admin_force_delete_machine(
         host_machine = Some(machine);
     }
 
-    let mut instance_id = None;
-    if let Some(host_machine) = &host_machine {
-        instance_id = db::instance::find_id_by_machine_id(&mut txn, &host_machine.id).await?;
-    }
-
     if let Some(host_machine) = &host_machine {
         response.managed_host_machine_id = host_machine.id.to_string();
         if let Some(iface) = host_machine.status.interfaces.first() {
@@ -696,9 +691,6 @@ pub(crate) async fn admin_force_delete_machine(
             response.dpu_bmc_ip = ip.to_string();
         }
     }
-    if let Some(instance_id) = &instance_id {
-        response.instance_id = instance_id.to_string();
-    }
 
     if let Some(machine) = &host_machine
         && machine.config.dpf.used_for_ingestion
@@ -717,7 +709,9 @@ pub(crate) async fn admin_force_delete_machine(
 
     // So far we only inspected state - now we start the deletion process
     // TODO: In the new model we might just need to move one Machine to this state
-    if let Some(host_machine) = &host_machine {
+    let instance_id = if let Some(host_machine) = &host_machine {
+        // Write to the machine row before fetching the instance, to lock it in case
+        // allocate_instance is running at the same time.
         db::machine::advance(
             host_machine,
             &mut txn,
@@ -725,7 +719,14 @@ pub(crate) async fn admin_force_delete_machine(
             None,
         )
         .await?;
-    }
+        let instance_id = db::instance::find_id_by_machine_id(&mut txn, &host_machine.id).await?;
+        if let Some(instance_id) = &instance_id {
+            response.instance_id = instance_id.to_string();
+        }
+        instance_id
+    } else {
+        None
+    };
     for dpu_machine in dpu_machines.iter() {
         db::machine::advance(
             dpu_machine,

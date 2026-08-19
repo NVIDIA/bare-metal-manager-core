@@ -27,9 +27,9 @@ type MachineValidationStatus struct {
 	// Current state or completed outcome of the validation run.
 	State string `json:"state"`
 	// Total number of validation tests in the run.
-	Total int32 `json:"total"`
+	Total uint32 `json:"total"`
 	// Number of validation tests that have completed.
-	Completed int32 `json:"completed"`
+	Completed uint32 `json:"completed"`
 }
 
 type _MachineValidationStatus MachineValidationStatus
@@ -38,7 +38,7 @@ type _MachineValidationStatus MachineValidationStatus
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewMachineValidationStatus(state string, total int32, completed int32) *MachineValidationStatus {
+func NewMachineValidationStatus(state string, total uint32, completed uint32) *MachineValidationStatus {
 	this := MachineValidationStatus{}
 	this.State = state
 	this.Total = total
@@ -79,9 +79,9 @@ func (o *MachineValidationStatus) SetState(v string) {
 }
 
 // GetTotal returns the Total field value
-func (o *MachineValidationStatus) GetTotal() int32 {
+func (o *MachineValidationStatus) GetTotal() uint32 {
 	if o == nil {
-		var ret int32
+		var ret uint32
 		return ret
 	}
 
@@ -90,7 +90,7 @@ func (o *MachineValidationStatus) GetTotal() int32 {
 
 // GetTotalOk returns a tuple with the Total field value
 // and a boolean to check if the value has been set.
-func (o *MachineValidationStatus) GetTotalOk() (*int32, bool) {
+func (o *MachineValidationStatus) GetTotalOk() (*uint32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -98,14 +98,14 @@ func (o *MachineValidationStatus) GetTotalOk() (*int32, bool) {
 }
 
 // SetTotal sets field value
-func (o *MachineValidationStatus) SetTotal(v int32) {
+func (o *MachineValidationStatus) SetTotal(v uint32) {
 	o.Total = v
 }
 
 // GetCompleted returns the Completed field value
-func (o *MachineValidationStatus) GetCompleted() int32 {
+func (o *MachineValidationStatus) GetCompleted() uint32 {
 	if o == nil {
-		var ret int32
+		var ret uint32
 		return ret
 	}
 
@@ -114,7 +114,7 @@ func (o *MachineValidationStatus) GetCompleted() int32 {
 
 // GetCompletedOk returns a tuple with the Completed field value
 // and a boolean to check if the value has been set.
-func (o *MachineValidationStatus) GetCompletedOk() (*int32, bool) {
+func (o *MachineValidationStatus) GetCompletedOk() (*uint32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -122,7 +122,7 @@ func (o *MachineValidationStatus) GetCompletedOk() (*int32, bool) {
 }
 
 // SetCompleted sets field value
-func (o *MachineValidationStatus) SetCompleted(v int32) {
+func (o *MachineValidationStatus) SetCompleted(v uint32) {
 	o.Completed = v
 }
 

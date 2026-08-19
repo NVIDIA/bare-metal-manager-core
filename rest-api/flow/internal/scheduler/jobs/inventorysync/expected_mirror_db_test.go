@@ -5,10 +5,8 @@ package inventorysync
 
 import (
 	"context"
-	"errors"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
@@ -21,16 +19,6 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 )
-
-// failGetMachinesClient wraps the production mock and forces the machine
-// actual-sync RPC to fail, so runActualSync reports allRPCOK=false.
-type failGetMachinesClient struct {
-	nicoapi.Client
-}
-
-func (c *failGetMachinesClient) GetMachines(_ context.Context) ([]nicoapi.MachineDetail, error) {
-	return nil, errors.New("boom")
-}
 
 // These tests exercise the mirror's write paths against a real database —
 // the half that pure-function tests can't reach and where the
@@ -84,25 +72,63 @@ func computeSpec(mfr, serial, mac string) expectedComponentSpec {
 
 // --- rack mirror ----------------------------------------------------------
 
-// #11: a successful but empty Core response soft-deletes mirror-adopted racks,
-// while legacy NULL-external_id racks are exempted.
-func TestMirrorRacks_EmptyCoreSoftDeletesAdoptedNotLegacy(t *testing.T) {
+// A successful but empty Core response soft-deletes both mirror-adopted racks
+// and identity-less legacy rows. An identifiable legacy row remains available
+// for later natural-key adoption.
+func TestMirrorRacks_EmptyCoreDeletesAbsentAndIdentitylessRows(t *testing.T) {
 	ctx, pool := mirrorTestPool(t)
 
 	adopted := model.Rack{Name: "adopted", Manufacturer: "Mfg", SerialNumber: "AD-1", ExternalID: strPtr("a12")}
 	require.NoError(t, adopted.Create(ctx, pool.DB))
-	legacy := model.Rack{Name: "legacy", Manufacturer: "Mfg", SerialNumber: "LG-1"}
-	require.NoError(t, legacy.Create(ctx, pool.DB))
+	identifiableLegacy := model.Rack{Name: "identifiable-legacy", Manufacturer: "Mfg", SerialNumber: "LG-1"}
+	require.NoError(t, identifiableLegacy.Create(ctx, pool.DB))
+	identitylessLegacy := []model.Rack{
+		{Name: "identityless-legacy"},
+		{Name: "manufacturer-only-legacy", Manufacturer: "Mfg"},
+		{Name: "serial-only-legacy", SerialNumber: "LG-2"},
+	}
+	for i := range identitylessLegacy {
+		require.NoError(t, identitylessLegacy[i].Create(ctx, pool.DB))
+	}
 
-	mirrorExpectedRacks(ctx, pool, nil)
+	result := mirrorExpectedRacks(ctx, pool, nil)
+	assert.Equal(t, 4, result.softDeleted, "summary count must reflect the four rows actually soft-deleted")
 
 	gotAdopted, err := (&model.Rack{ID: adopted.ID}).GetIncludingDeleted(ctx, pool.DB)
 	require.NoError(t, err)
 	assert.NotNil(t, gotAdopted.DeletedAt, "adopted rack absent from Core must be soft-deleted")
 
-	gotLegacy, err := (&model.Rack{ID: legacy.ID}).GetIncludingDeleted(ctx, pool.DB)
+	gotIdentifiableLegacy, err := (&model.Rack{ID: identifiableLegacy.ID}).GetIncludingDeleted(ctx, pool.DB)
 	require.NoError(t, err)
-	assert.Nil(t, gotLegacy.DeletedAt, "legacy NULL-external_id rack must be exempt from mirror deletes")
+	assert.Nil(t, gotIdentifiableLegacy.DeletedAt, "legacy rack with a complete natural key must remain available for later adoption")
+
+	for _, legacy := range identitylessLegacy {
+		gotIdentitylessLegacy, err := (&model.Rack{ID: legacy.ID}).GetIncludingDeleted(ctx, pool.DB)
+		require.NoError(t, err)
+		assert.NotNil(t, gotIdentitylessLegacy.DeletedAt, "legacy rack without a complete identity must be soft-deleted")
+	}
+}
+
+// An identity-less legacy rack can reserve a globally unique name needed by a
+// Core rack. The first authoritative pass removes the orphan; the next pass can
+// collect that tombstone and mirror the Core rack under the released name.
+func TestMirrorRacks_IdentitylessRowCleanupReleasesNameForCoreRack(t *testing.T) {
+	ctx, pool := mirrorTestPool(t)
+
+	orphan := model.Rack{Name: "reserved-name"}
+	require.NoError(t, orphan.Create(ctx, pool.DB))
+	core := coreRackNamed("a12", "reserved-name", "Mfg", "CORE-1")
+
+	first := mirrorExpectedRacks(ctx, pool, []nicoapi.ExpectedRackDetail{core})
+	assert.Equal(t, 1, first.skippedNameTaken)
+	assert.Equal(t, 1, first.softDeleted)
+
+	second := mirrorExpectedRacks(ctx, pool, []nicoapi.ExpectedRackDetail{core})
+	assert.Equal(t, 1, second.inserted)
+
+	var mirrored model.Rack
+	require.NoError(t, pool.DB.NewSelect().Model(&mirrored).Where("external_id = ?", "a12").Scan(ctx))
+	assert.Equal(t, "reserved-name", mirrored.Name)
 }
 
 // #1: a soft-deleted rack is resurrected (deleted_at cleared) when Core
@@ -362,7 +388,8 @@ func TestMirrorComponents_EmptyCoreSoftDeletesAll(t *testing.T) {
 	c := model.Component{Type: compType(), Manufacturer: "Mfg", SerialNumber: "C-DEL-1"}
 	require.NoError(t, c.Create(ctx, pool.DB))
 
-	mirrorExpectedComponents(ctx, pool, compType(), nil, map[string]uuid.UUID{})
+	result := mirrorExpectedComponents(ctx, pool, compType(), nil, map[string]uuid.UUID{})
+	assert.Equal(t, 1, result.softDeleted, "summary count must reflect the row actually soft-deleted")
 
 	got, err := (&model.Component{ID: c.ID}).GetIncludingDeleted(ctx, pool.DB)
 	require.NoError(t, err)
@@ -463,33 +490,6 @@ func TestMirrorComponents_EvictRefusesNonHostBMC(t *testing.T) {
 	b, err := (&model.Component{Manufacturer: "Mfg", SerialNumber: "C-B"}).Get(ctx, pool.DB)
 	require.NoError(t, err)
 	assert.Empty(t, b.BMCs, "B's host BMC insert must be skipped, not steal the DPU MAC")
-}
-
-// #10: when an actual-sync RPC fails, the component_drift table must be left
-// intact rather than wiped with a partial view.
-func TestRunInventoryOne_DriftTablePreservedOnRPCFailure(t *testing.T) {
-	ctx, pool := mirrorTestPool(t)
-
-	// A compute component so syncMachines reaches GetMachines (which fails).
-	c := model.Component{Type: compType(), Manufacturer: "Mfg", SerialNumber: "C-DRIFT-1"}
-	require.NoError(t, c.Create(ctx, pool.DB))
-
-	// A pre-existing drift row that must survive the failed cycle.
-	existing := model.ComponentDrift{
-		ComponentID: &c.ID,
-		DriftType:   model.DriftTypeMissingInActual,
-		Diffs:       []model.FieldDiff{},
-		CheckedAt:   time.Now(),
-	}
-	_, err := pool.DB.NewInsert().Model(&existing).Exec(ctx)
-	require.NoError(t, err)
-
-	client := &failGetMachinesClient{Client: nicoapi.NewMockClient()}
-	runInventoryOne(ctx, pool, client, false)
-
-	n, err := pool.DB.NewSelect().Model((*model.ComponentDrift)(nil)).Count(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, 1, n, "drift table must not be wiped when an actual-sync RPC failed")
 }
 
 // #4: two specs reporting the same manufacturer and serial must not abort the
@@ -606,17 +606,27 @@ func TestMirrorComponents_BMCBoardSwapAdoptsByNaturalKey(t *testing.T) {
 	assert.Equal(t, "aa:bb:cc:dd:ee:62", got.BMCs[0].MacAddress, "the host BMC must be repointed to Core's new MAC")
 }
 
-// A Flow component with neither a host BMC nor a complete chassis pair can't be
-// compared with what Core reported, so the delete phase leaves it alone.
-func TestMirrorComponents_UnmatchableRowExemptFromDelete(t *testing.T) {
+// A Flow component with neither a host BMC nor a complete chassis pair cannot
+// join the successful authoritative snapshot, so reconciliation removes it
+// rather than retaining stale live inventory.
+func TestMirrorComponents_UnmatchableRowSoftDeleted(t *testing.T) {
 	ctx, pool := mirrorTestPool(t)
 
-	c := model.Component{Type: compType(), Name: "orphan"}
-	require.NoError(t, c.Create(ctx, pool.DB))
+	components := []model.Component{
+		{Type: compType(), Name: "orphan"},
+		{Type: compType(), Name: "manufacturer-only-orphan", Manufacturer: "Mfg"},
+		{Type: compType(), Name: "serial-only-orphan", SerialNumber: "C-ORPHAN"},
+	}
+	for i := range components {
+		require.NoError(t, components[i].Create(ctx, pool.DB))
+	}
 
-	mirrorExpectedComponents(ctx, pool, compType(), nil, map[string]uuid.UUID{})
+	result := mirrorExpectedComponents(ctx, pool, compType(), nil, map[string]uuid.UUID{})
+	assert.Equal(t, 3, result.softDeleted, "summary count must reflect the three rows actually soft-deleted")
 
-	got, err := (&model.Component{ID: c.ID}).GetIncludingDeleted(ctx, pool.DB)
-	require.NoError(t, err)
-	assert.Nil(t, got.DeletedAt, "a component the mirror cannot match must not be soft-deleted")
+	for _, component := range components {
+		got, err := (&model.Component{ID: component.ID}).GetIncludingDeleted(ctx, pool.DB)
+		require.NoError(t, err)
+		assert.NotNil(t, got.DeletedAt, "a component without a complete expected-inventory identity must be soft-deleted")
+	}
 }

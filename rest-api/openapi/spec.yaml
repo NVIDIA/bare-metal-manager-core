@@ -15596,7 +15596,8 @@ components:
             - LockdownIKM
         targetVersion:
           type: integer
-          format: int64
+          format: uint32
+          minimum: 0
           description: Newly published site-wide target version that devices converge to.
         started:
           type:
@@ -15617,19 +15618,23 @@ components:
       properties:
         targetVersion:
           type: integer
-          format: int64
+          format: uint32
+          minimum: 0
           description: Current site-wide target version for this family.
         converged:
           type: integer
-          format: int64
+          format: uint64
+          minimum: 0
           description: Number of devices at or beyond the target version.
         pending:
           type: integer
-          format: int64
+          format: uint64
+          minimum: 0
           description: Number of devices not yet converged and eligible to rotate.
         quarantined:
           type: integer
-          format: int64
+          format: uint64
+          minimum: 0
           description: Number of devices currently in a rotation backoff window.
         quarantinedDeviceMacs:
           type:
@@ -15666,13 +15671,15 @@ components:
           type:
             - integer
             - 'null'
-          format: int64
+          format: uint32
+          minimum: 0
           description: Credential version live on the hardware. Null when not yet established.
         rotatingToVersion:
           type:
             - integer
             - 'null'
-          format: int64
+          format: uint32
+          minimum: 0
           description: Set while a rotation is mid-flight on this device.
         converged:
           type: boolean
@@ -15688,7 +15695,8 @@ components:
           description: When the current backoff window expires; set only while quarantined.
         rotateAttempts:
           type: integer
-          format: int64
+          format: uint32
+          minimum: 0
           description: Number of rotation attempts recorded for this device.
         lastAttempted:
           type:
@@ -16397,6 +16405,7 @@ components:
           description: When `true`, install only the artifacts explicitly listed for this version.
         powerDrainsNeeded:
           type: integer
+          format: uint32
           minimum: 0
           description: Optional number of power drains required after installing this version.
         preUpdateResets:
@@ -16754,6 +16763,7 @@ components:
           $ref: '#/components/schemas/MachineValidationStatus'
         durationToCompleteSecs:
           type: integer
+          format: int64
           description: Estimated maximum duration of the validation run in seconds. A value of zero can mean the estimate has not yet been calculated.
     MachineValidationStatus:
       type: object
@@ -16779,9 +16789,13 @@ components:
             - Skipped
         total:
           type: integer
+          format: uint32
+          minimum: 0
           description: Total number of validation tests in the run.
         completed:
           type: integer
+          format: uint32
+          minimum: 0
           description: Number of validation tests that have completed.
     MachineValidationResult:
       type: object
@@ -18417,13 +18431,13 @@ components:
       properties:
         asn:
           type: integer
-          format: int64
+          format: uint32
           minimum: 0
           maximum: 4294967295
           description: Autonomous system number.
         vni:
           type: integer
-          format: int64
+          format: uint32
           minimum: 0
           maximum: 4294967295
           description: Route-target VNI.
@@ -18509,7 +18523,7 @@ components:
           description: Operator-controlled internal-routing classification inherited from the named profile.
         accessTier:
           type: integer
-          format: int64
+          format: uint32
           minimum: 0
           maximum: 4294967295
           description: Operator-controlled access tier inherited from the named profile.
@@ -20657,12 +20671,16 @@ components:
           type:
             - integer
             - 'null'
+          format: uint32
+          minimum: 0
           description: Count of the Capability component
         inactiveDevices:
           type: array
           description: 'Indices of those devices that are inactive, only valid for InfiniBand Capability type'
           items:
             type: integer
+            format: uint32
+            minimum: 0
         deviceType:
           type:
             - string
@@ -22146,11 +22164,15 @@ components:
           type:
             - integer
             - 'null'
+          format: uint32
+          minimum: 0
           description: 'Number of Cores in the Capability component, if applicable'
         threads:
           type:
             - integer
             - 'null'
+          format: uint32
+          minimum: 0
           description: 'Number of Threads in the Capability component, if applicable'
         capacity:
           type:
@@ -22172,10 +22194,14 @@ components:
           description: A list of inactive devices
           items:
             type: integer
+            format: uint32
+            minimum: 0
         count:
           type:
             - integer
             - 'null'
+          format: uint32
+          minimum: 0
           description: Count of the Capability component
         deviceType:
           type:
@@ -22271,18 +22297,23 @@ components:
             $ref: '#/components/schemas/ComponentDiff'
         totalDiffs:
           type: integer
+          format: int32
           description: Total number of component differences found
         missingCount:
           type: integer
+          format: int32
           description: Number of components expected but missing from the source system
         unexpectedCount:
           type: integer
+          format: int32
           description: Number of components found in the source system but not expected
         mismatchCount:
           type: integer
+          format: int32
           description: Number of components present in both but with field differences
         matchCount:
           type: integer
+          format: int32
           description: Number of components that match between expected and actual
     ComponentDiff:
       title: ComponentDiff
@@ -22368,12 +22399,15 @@ components:
           description: Firmware version of the component
         slotId:
           type: integer
+          format: int32
           description: Slot ID of the component within the rack
         trayIdx:
           type: integer
+          format: int32
           description: Tray index of the component
         hostId:
           type: integer
+          format: int32
           description: Host ID of the component
         bmcs:
           type: array
@@ -22510,12 +22544,15 @@ components:
       properties:
         slotId:
           type: integer
+          format: int32
           description: Slot number of the tray in the rack
         trayIdx:
           type: integer
+          format: int32
           description: Index of the tray within its slot
         hostId:
           type: integer
+          format: int32
           description: Host ID associated with the tray
     RackFilter:
       title: RackFilter
@@ -23175,6 +23212,7 @@ components:
           description: Optional human-readable detail for the current status.
         totalPhases:
           type: integer
+          format: int32
           description: Total number of phases the selected targets were divided into.
         created:
           type: string
@@ -23225,9 +23263,11 @@ components:
       properties:
         phaseIndex:
           type: integer
+          format: int32
           description: Zero-based index of the phase this scope refers to.
         selectedTargets:
           type: integer
+          format: int32
           description: Number of targets selected within the scope.
         outcomeCounts:
           $ref: '#/components/schemas/TaskRunOutcomeCounts'
@@ -23243,15 +23283,19 @@ components:
       properties:
         completed:
           type: integer
+          format: int32
           description: Targets that completed successfully.
         failed:
           type: integer
+          format: int32
           description: Targets that failed.
         terminated:
           type: integer
+          format: int32
           description: Targets that were terminated (e.g. by cancellation).
         skipped:
           type: integer
+          format: int32
           description: Targets that were skipped.
     TaskRunTarget:
       title: TaskRunTarget
@@ -23284,9 +23328,11 @@ components:
           description: ID of the Rack this target operates on.
         sequenceIndex:
           type: integer
+          format: int32
           description: Position of this target in the Task Run's overall processing order.
         phaseIndex:
           type: integer
+          format: int32
           description: Zero-based index of the phase this target belongs to.
         taskId:
           type:
@@ -23344,6 +23390,7 @@ components:
           description: ID of the Site that owns the Task Run.
         expectedPhaseIndex:
           type: integer
+          format: int32
           description: |-
             Optional guard: when set, the phase that would be opened must match
             this zero-based index, otherwise the advance is rejected.
@@ -23413,6 +23460,7 @@ components:
       properties:
         percent:
           type: integer
+          format: int32
           minimum: 1
           maximum: 100
           description: Percentage of candidate Racks to select.
@@ -23428,6 +23476,7 @@ components:
       properties:
         maxConcurrentTargets:
           type: integer
+          format: int32
           minimum: 1
           description: |-
             Caps how many targets may have active child Tasks at once. Must be
@@ -23475,6 +23524,7 @@ components:
           description: Whether the ratio is evaluated over the current phase or the cumulative run.
         thresholdPercent:
           type: integer
+          format: int32
           minimum: 1
           maximum: 100
           description: Failure-rate percentage at which the gate trips.
@@ -23494,6 +23544,7 @@ components:
           description: Whether the count is evaluated over the current phase or the cumulative run.
         thresholdCount:
           type: integer
+          format: int32
           minimum: 1
           description: Number of failed targets at which the gate trips.
     TaskRunConflictPolicy:
@@ -23567,18 +23618,25 @@ components:
     TaskRunEqualPhases:
       title: TaskRunEqualPhases
       type: object
-      description: Splits targets into `phaseCount` roughly equal phases.
+      description: |-
+        Splits targets into `phaseCount` roughly equal phases. The request is
+        rejected when `phaseCount` exceeds the number of selected targets,
+        because every configured phase must contain at least one target.
       required:
         - phaseCount
       properties:
         phaseCount:
           type: integer
+          format: int32
           minimum: 1
           description: Number of equally sized phases.
     TaskRunPercentagePhases:
       title: TaskRunPercentagePhases
       type: object
-      description: Splits targets by percentage. Values must sum to 100.
+      description: |-
+        Splits targets by percentage. Values must sum to 100. A configured
+        phase must resolve to at least one selected target after rounding or
+        the request is rejected.
       required:
         - phases
       properties:
@@ -23588,6 +23646,7 @@ components:
           description: Per-phase percentages, in phase order; must sum to 100.
           items:
             type: integer
+            format: int32
             minimum: 1
             maximum: 100
     TaskRunCountPhases:
@@ -23603,6 +23662,7 @@ components:
           description: Per-phase target counts, in phase order.
           items:
             type: integer
+            format: int32
             minimum: 1
     TaskRunOperation:
       title: TaskRunOperation
@@ -24909,6 +24969,7 @@ components:
           description: 'Bios path of the Machine''s NetworkInterface'
         numaNode:
           type: integer
+          format: int32
           description: 'Info of numa node Machine''s NetworkInterface'
         description:
           type:
@@ -24955,6 +25016,7 @@ components:
           description: 'Bios path of the Machine''s InfiniBandInterface'
         numaNode:
           type: integer
+          format: int32
           description: 'Info of numa node Machine''s InfiniBandInterface'
         description:
           type:
@@ -26369,6 +26431,7 @@ components:
         schemaVersion:
           type: integer
           format: uint32
+          minimum: 0
           description: Core SKU schema version when available
           readOnly: true
         deviceType:
@@ -26517,10 +26580,12 @@ components:
         threadCount:
           type: integer
           format: uint32
+          minimum: 0
           description: Number of threads for the CPU
         count:
           type: integer
           format: uint32
+          minimum: 0
           description: Number of CPUs present
     SkuGpu:
       title: SkuGpu
@@ -26544,6 +26609,7 @@ components:
         count:
           type: integer
           format: uint32
+          minimum: 0
           description: Number of GPUs present
     SkuMemory:
       title: SkuMemory
@@ -26557,6 +26623,7 @@ components:
         capacityMb:
           type: integer
           format: uint32
+          minimum: 0
           description: Capacity in megabytes
         memoryType:
           type: string
@@ -26564,6 +26631,7 @@ components:
         count:
           type: integer
           format: uint32
+          minimum: 0
           description: Number of memory modules present
     SkuStorage:
       title: SkuStorage
@@ -26597,23 +26665,27 @@ components:
         capacityMb:
           type: integer
           format: uint32
+          minimum: 0
           readOnly: true
           description: Storage capacity in megabytes used for schema version 4 matching. Read-only in REST mutation requests and preserved in responses for legacy SKUs. Schema version 5 uses minSizeMiB and maxSizeMiB instead.
         count:
           type: integer
           format: uint32
+          minimum: 0
           description: Number of storage devices present
         minSizeMiB:
           type:
             - integer
             - 'null'
           format: uint32
+          minimum: 0
           description: Inclusive minimum size in MiB for each storage device. Null or omission means no lower bound. Used for SKU schema version 5 and later.
         maxSizeMiB:
           type:
             - integer
             - 'null'
           format: uint32
+          minimum: 0
           description: Inclusive maximum size in MiB for each storage device. Null or omission means no upper bound. Used for SKU schema version 5 and later.
         pciPatterns:
           type: array
@@ -26652,6 +26724,7 @@ components:
         count:
           type: integer
           format: uint32
+          minimum: 0
           description: Number of ethernet devices present
         isConnected:
           type: boolean
@@ -26675,6 +26748,7 @@ components:
         count:
           type: integer
           format: uint32
+          minimum: 0
           description: Number of infiniband devices present
         inactiveDevices:
           type: array
@@ -26682,6 +26756,7 @@ components:
           items:
             type: integer
             format: uint32
+            minimum: 0
     SkuTpm:
       title: SkuTpm
       type: object
@@ -26847,12 +26922,14 @@ components:
       properties:
         availableIPs:
           type: integer
-          format: int64
+          format: uint64
+          minimum: 0
           description: Total number of IP addresses in the block (acquired and unused)
           readOnly: true
         acquiredIPs:
           type: integer
-          format: int64
+          format: uint64
+          minimum: 0
           description: Number of individual IP addresses acquired from the block
           readOnly: true
         availablePrefixes:
@@ -26867,11 +26944,13 @@ components:
           type: integer
           description: |
             Total number of /30 prefixes that can still be acquired from this block (only reduced if prefixes are acquired, not reduced by acquired IPs)
-          format: int64
+          format: uint64
+          minimum: 0
           readOnly: true
         acquiredPrefixes:
           type: integer
-          format: int64
+          format: uint64
+          minimum: 0
           description: Total number of prefixes (of any size) acquired from this block
       description: Usage statistics for an IP Block, VPC Prefix or Subnet
     IpBlockCreateRequest:
@@ -27200,6 +27279,8 @@ components:
           example: PERMIT
         priority:
           type: integer
+          minimum: 0
+          maximum: 60000
           description: 'Rule priority used to order evaluation'
         sourcePrefix:
           type: string
@@ -28159,6 +28240,7 @@ components:
           description: API execution time
         durationMs:
           type: integer
+          format: int64
           description: API execution duration in milliseconds
         apiVersion:
           type: string
@@ -28506,6 +28588,7 @@ components:
             type: string
         tokenTtlSeconds:
           type: integer
+          format: uint32
           minimum: 1
           description: |-
             Issued-token TTL in seconds. Required in the REST request
@@ -28579,6 +28662,7 @@ components:
             type: string
         tokenTtlSeconds:
           type: integer
+          format: uint32
           minimum: 1
           description: |-
             Issued-token TTL in seconds. Required in the REST request
@@ -28604,6 +28688,7 @@ components:
             previous key.
         signingKeyOverlapSeconds:
           type: integer
+          format: uint32
           minimum: 1
           description: |-
             Required when `rotateKey` is `true`. Number of seconds
@@ -28648,6 +28733,8 @@ components:
             type: string
         tokenTtlSeconds:
           type: integer
+          format: uint32
+          minimum: 0
           description: 'Lifetime of issued Tenant identity tokens, in seconds'
         subjectPrefix:
           type: string
@@ -29007,6 +29094,7 @@ components:
         asn:
           type: integer
           format: uint32
+          minimum: 0
           description: Autonomous System Number for BGP routing
         dhcpServers:
           type: array
@@ -29053,6 +29141,7 @@ components:
             - integer
             - 'null'
           format: uint32
+          minimum: 0
           description: VPC VNI identifier
         routeServers:
           type: array
@@ -29101,6 +29190,7 @@ components:
             - integer
             - 'null'
           format: uint32
+          minimum: 0
           description: Minimum number of functioning DPU links required
         isPrimaryDpu:
           type: boolean
@@ -29110,10 +29200,12 @@ components:
             - integer
             - 'null'
           format: uint32
+          minimum: 0
           description: Layer 3 VNI used for internet access
         datacenterAsn:
           type: integer
           format: uint32
+          minimum: 0
           description: Datacenter Autonomous System Number
         anycastSitePrefixes:
           type: array
@@ -29125,12 +29217,14 @@ components:
             - integer
             - 'null'
           format: uint32
+          minimum: 0
           description: Autonomous System Number for the tenant host
         siteGlobalVpcVni:
           type:
             - integer
             - 'null'
           format: uint32
+          minimum: 0
           description: Site-global VPC VNI identifier
       required:
         - asn
@@ -29181,10 +29275,12 @@ components:
         vlanId:
           type: integer
           format: uint32
+          minimum: 0
           description: VLAN ID
         vni:
           type: integer
           format: uint32
+          minimum: 0
           description: VXLAN Network Identifier
         gateway:
           type: string
@@ -29200,6 +29296,7 @@ components:
             - integer
             - 'null'
           format: uint32
+          minimum: 0
           description: Virtual function ID if applicable
         vpcPrefixes:
           type: array
@@ -29220,6 +29317,7 @@ components:
         vpcVni:
           type: integer
           format: uint32
+          minimum: 0
           description: VPC VXLAN Network Identifier
         sviIp:
           type:
@@ -29244,12 +29342,14 @@ components:
           items:
             type: integer
             format: uint32
+            minimum: 0
           description: List of peered VPC VNIs
         mtu:
           type:
             - integer
             - 'null'
           format: uint32
+          minimum: 0
           description: Maximum transmission unit (MTU) for the interface
         networkSecurityGroup:
           $ref: '#/components/schemas/InterfaceNetworkSecurityGroupConfig'

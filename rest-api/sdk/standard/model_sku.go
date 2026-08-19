@@ -30,7 +30,7 @@ type Sku struct {
 	// Human-readable SKU description
 	Description *string `json:"description,omitempty"`
 	// Core SKU schema version when available
-	SchemaVersion *int32 `json:"schemaVersion,omitempty"`
+	SchemaVersion *uint32 `json:"schemaVersion,omitempty"`
 	// Optional device type identifier (e.g. \"gpu\", \"cpu\", \"storage\")
 	DeviceType NullableString `json:"deviceType,omitempty"`
 	// List of machine IDs associated with this SKU
@@ -155,9 +155,9 @@ func (o *Sku) SetDescription(v string) {
 }
 
 // GetSchemaVersion returns the SchemaVersion field value if set, zero value otherwise.
-func (o *Sku) GetSchemaVersion() int32 {
+func (o *Sku) GetSchemaVersion() uint32 {
 	if o == nil || IsNil(o.SchemaVersion) {
-		var ret int32
+		var ret uint32
 		return ret
 	}
 	return *o.SchemaVersion
@@ -165,7 +165,7 @@ func (o *Sku) GetSchemaVersion() int32 {
 
 // GetSchemaVersionOk returns a tuple with the SchemaVersion field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *Sku) GetSchemaVersionOk() (*int32, bool) {
+func (o *Sku) GetSchemaVersionOk() (*uint32, bool) {
 	if o == nil || IsNil(o.SchemaVersion) {
 		return nil, false
 	}
@@ -181,8 +181,8 @@ func (o *Sku) HasSchemaVersion() bool {
 	return false
 }
 
-// SetSchemaVersion gets a reference to the given int32 and assigns it to the SchemaVersion field.
-func (o *Sku) SetSchemaVersion(v int32) {
+// SetSchemaVersion gets a reference to the given uint32 and assigns it to the SchemaVersion field.
+func (o *Sku) SetSchemaVersion(v uint32) {
 	o.SchemaVersion = &v
 }
 

@@ -104,6 +104,7 @@ func (d *Dispatcher) prepare(
 	}
 	prep.summary = operationrun.NewTargetPhaseSummary(
 		run.CurrentPhaseIndex,
+		run.TotalPhases,
 		aggregate,
 		targets,
 	)

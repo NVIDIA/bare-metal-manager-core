@@ -53,17 +53,92 @@ func newMockPostgresStore(t *testing.T) (*PostgresStore, sqlmock.Sqlmock) {
 	}, mock
 }
 
-func TestGetPreservesNoRowsForMissingRun(t *testing.T) {
+func TestPostgresStore_Get(t *testing.T) {
+	t.Run("preserves no rows for missing run", func(t *testing.T) {
+		store, mock := newMockPostgresStore(t)
+		id := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+		mock.ExpectQuery("SELECT").
+			WillReturnError(sql.ErrNoRows)
+
+		run, err := store.Get(context.Background(), id)
+
+		require.Nil(t, run)
+		require.ErrorIs(t, err, sql.ErrNoRows)
+		require.ErrorContains(t, err, "operation run "+id.String()+" not found")
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("returns persisted phase count", func(t *testing.T) {
+		store, mock := newMockPostgresStore(t)
+		id := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+		mock.ExpectQuery(`SELECT orun\.\* FROM "operation_run" AS "orun"`).
+			WillReturnRows(
+				sqlmock.NewRows([]string{"id", "total_phases"}).
+					AddRow(id, 2),
+			)
+
+		run, err := store.Get(context.Background(), id)
+
+		require.NoError(t, err)
+		require.Equal(t, int32(2), run.TotalPhases)
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+}
+
+func TestPostgresStore_LockOperationRunReturnsPersistedPhaseCount(t *testing.T) {
 	store, mock := newMockPostgresStore(t)
 	id := uuid.MustParse("11111111-1111-1111-1111-111111111111")
-	mock.ExpectQuery("SELECT").
-		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery(`(?s)SELECT orun\.\* FROM "operation_run" AS "orun".*FOR UPDATE`).
+		WillReturnRows(
+			sqlmock.NewRows([]string{"id", "total_phases"}).
+				AddRow(id, 2),
+		)
 
-	run, err := store.Get(context.Background(), id)
+	run, err := store.LockOperationRun(context.Background(), id)
 
-	require.Nil(t, run)
-	require.ErrorIs(t, err, sql.ErrNoRows)
-	require.ErrorContains(t, err, "operation run "+id.String()+" not found")
+	require.NoError(t, err)
+	require.Equal(t, int32(2), run.TotalPhases)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresStore_List(t *testing.T) {
+	store, mock := newMockPostgresStore(t)
+	id := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	mock.ExpectQuery(`SELECT count\(\*\) FROM "operation_run" AS "orun"`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery(`(?s)SELECT.*"total_phases".*FROM "operation_run" AS "orun"`).
+		WillReturnRows(
+			sqlmock.NewRows([]string{"id", "total_phases"}).
+				AddRow(id, 2),
+		)
+
+	runs, total, err := store.List(context.Background(), operationrun.ListOptions{})
+
+	require.NoError(t, err)
+	require.Equal(t, int32(1), total)
+	require.Len(t, runs, 1)
+	require.Equal(t, int32(2), runs[0].TotalPhases)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresStore_GetTargetPhaseAggregate(t *testing.T) {
+	store, mock := newMockPostgresStore(t)
+	runID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	mock.ExpectQuery(`(?s)SELECT.*completed_targets.*FROM operation_run_target AS ort`).
+		WillReturnRows(
+			sqlmock.NewRows([]string{
+				"completed_targets",
+				"completed_completed",
+				"completed_failed",
+				"completed_terminated",
+				"completed_skipped",
+			}).AddRow(1, 1, 0, 0, 0),
+		)
+
+	aggregate, err := store.GetTargetPhaseAggregate(context.Background(), runID, 1)
+
+	require.NoError(t, err)
+	require.Equal(t, 1, aggregate.CompletedPhaseStats.SelectedTargets)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

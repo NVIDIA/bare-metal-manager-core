@@ -34,6 +34,7 @@ spec:
             - /bin/sh
             - -c
             - |
+              ulimit -Sn {{ .Values.fileDescriptorLimit | int }} || exit 1
               if [ -x /opt/nico/nico-hw-health ]; then
                 exec /opt/nico/nico-hw-health
               else

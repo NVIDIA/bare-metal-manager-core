@@ -42,9 +42,9 @@ pub struct PrefixFilterPolicyEntry {
 /// Routing-profile values set directly on a VPC.
 ///
 /// Each present value overrides the corresponding property from the VPC's
-/// named routing profile. `internal` and `access_tier` are intentionally absent
-/// because VPCs cannot override the base profile's allocation and access
-/// controls.
+/// named routing profile. `tenant_prefix_overlap_eligible`, `internal`, and
+/// `access_tier` are intentionally absent because VPCs cannot override the base
+/// profile's overlap admission, allocation, or access controls.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct VpcRoutingProfileOverrides {

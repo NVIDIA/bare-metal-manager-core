@@ -593,6 +593,100 @@ fn set_maintenance_access_token(
     Ok(())
 }
 
+#[derive(Event)]
+#[event(
+    event_name = "rack_maintenance_termination_access_token_cleanup_failed",
+    metric_name = "carbide_rack_maintenance_access_token_cleanup_failures_total",
+    component = "nico-api",
+    log = warn,
+    metric = counter,
+    message = "failed to delete rack maintenance access token during termination",
+    describe = "Number of rack maintenance access token cleanup failures"
+)]
+struct RackMaintenanceTerminationAccessTokenCleanupFailed {
+    #[context]
+    rack_id: RackId,
+    #[context]
+    error: String,
+}
+
+async fn delete_rack_maintenance_access_token_after_termination(
+    credential_manager: &dyn CredentialManager,
+    rack_id: &RackId,
+) {
+    if let Err(error) = credential_manager
+        .delete_credentials(&rack_maintenance_access_token_key(rack_id))
+        .await
+    {
+        emit(RackMaintenanceTerminationAccessTokenCleanupFailed {
+            rack_id: rack_id.clone(),
+            error: error.to_string(),
+        });
+    }
+}
+
+pub(crate) async fn terminate_rack_maintenance(
+    api: &Api,
+    request: Request<rpc::RackMaintenanceTerminateRequest>,
+) -> Result<Response<rpc::RackMaintenanceTerminateResponse>, Status> {
+    log_request_data(&request);
+    let request = request.into_inner();
+    let rack_id = request
+        .rack_id
+        .ok_or_else(|| CarbideError::InvalidArgument("rack_id is required".into()))?;
+
+    let mut txn = api.txn_begin().await?;
+    if !db_rack::lock_for_update(txn.as_mut(), &rack_id)
+        .await
+        .map_err(CarbideError::from)?
+    {
+        return Err(CarbideError::NotFoundError {
+            kind: "rack",
+            id: rack_id.to_string(),
+        }
+        .into());
+    }
+
+    let mut rack = db_rack::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(db_rack::IdColumn, &rack_id),
+    )
+    .await
+    .map_err(CarbideError::from)?
+    .pop()
+    .ok_or_else(|| CarbideError::NotFoundError {
+        kind: "rack",
+        id: rack_id.to_string(),
+    })?;
+
+    if !matches!(rack.controller_state.value, RackState::Maintenance { .. }) {
+        return Err(CarbideError::InvalidArgument(format!(
+            "rack {rack_id} is not in maintenance (current: {:?})",
+            rack.controller_state.value
+        ))
+        .into());
+    }
+
+    if !rack.config.maintenance_termination_requested {
+        rack.config.maintenance_termination_requested = true;
+        db_rack::update(txn.as_mut(), &rack_id, &rack.config)
+            .await
+            .map_err(CarbideError::from)?;
+    }
+    txn.commit().await?;
+
+    // The database request is durable before external credential cleanup. The
+    // rack controller will still terminate if the credential store is unavailable.
+    delete_rack_maintenance_access_token_after_termination(
+        api.credential_manager.as_ref(),
+        &rack_id,
+    )
+    .await;
+
+    tracing::info!(rack_id = %rack_id, "Rack maintenance termination requested");
+    Ok(Response::new(rpc::RackMaintenanceTerminateResponse {}))
+}
+
 pub(crate) async fn on_demand_rack_maintenance(
     api: &Api,
     request: Request<rpc::RackMaintenanceOnDemandRequest>,

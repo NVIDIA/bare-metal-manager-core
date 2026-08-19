@@ -29,6 +29,7 @@ use carbide_ib_fabric::config::IBFabricConfig;
 use carbide_ib_fabric::ib::{self, IBFabricManager};
 use carbide_machine_controller::dpf::{DpfOperations, MockDpfOperations};
 use carbide_uuid::infiniband::IBPartitionId;
+use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineType};
 use common::api_fixtures::dpu::create_dpu_machine;
 use common::api_fixtures::host::host_discover_dhcp;
@@ -40,12 +41,24 @@ use common::api_fixtures::{
     create_managed_host_with_dpf, create_test_env, create_test_env_with_overrides, get_config,
     get_instance_type_fixture_id,
 };
+use config_version::ConfigVersion;
 use model::hardware_info::TpmEkCertificate;
 use model::ib::DEFAULT_IB_FABRIC_NAME;
+use model::instance::NewInstance;
+use model::instance::config::InstanceConfig;
+use model::instance::config::extension_services::InstanceExtensionServicesConfig;
+use model::instance::config::infiniband::InstanceInfinibandConfig;
+use model::instance::config::network::InstanceNetworkConfig;
+use model::instance::config::nvlink::InstanceNvLinkConfig;
+use model::instance::config::spx::InstanceSpxConfig;
+use model::instance::config::tenant_config::TenantConfig;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{InstanceState, ManagedHostState};
+use model::metadata::Metadata;
+use model::os::{InlineIpxe, OperatingSystem, OperatingSystemVariant};
 use model::resource_pool::{ResourcePoolDef, ResourcePoolType};
 use model::site_explorer::ExploredManagedHost;
+use model::tenant::TenantOrganizationId;
 use sqlx::{PgConnection, Row};
 use tonic::Request;
 
@@ -729,7 +742,124 @@ async fn validate_machine_deletion(
     txn.rollback().await.unwrap();
 }
 
-// TODO: Test deletion for machines with active instances on them
+/// Allocation locks the host Machine before inserting its Instance. If
+/// force-delete waits behind that lock, it must read membership after the wait
+/// and clean the Instance in the same request.
+#[crate::sqlx_test]
+async fn test_admin_force_delete_reads_instance_after_machine_lock(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let managed_host = create_managed_host(&env).await;
+    let instance_id = InstanceId::new();
+
+    // Model allocation's Machine -> Instance lock/write order. This
+    // transaction owns the host `machines` row while no `instances` row is
+    // visible, then persists the Instance before releasing the Machine.
+    let mut allocation_txn = env.pool.begin().await.unwrap();
+    let locked_machine = db::machine::find_one(
+        allocation_txn.as_mut(),
+        &managed_host.id,
+        MachineSearchConfig {
+            for_update: true,
+            ..MachineSearchConfig::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        locked_machine.is_some(),
+        "fixture host must exist to be locked",
+    );
+    assert!(
+        db::instance::find_id_by_machine_id(allocation_txn.as_mut(), &managed_host.id)
+            .await
+            .unwrap()
+            .is_none(),
+        "fixture host must not have an Instance before concurrent allocation",
+    );
+
+    // Force-delete waits for allocation's host Machine lock when it advances
+    // the Machine to ForceDeletion. It cannot read authoritative Instance
+    // membership until it owns that row.
+    let api = managed_host.api.clone();
+    let host_id = managed_host.id;
+    let force_delete_task = tokio::spawn(async move {
+        api.admin_force_delete_machine(tonic::Request::new(AdminForceDeleteMachineRequest {
+            host_query: host_id.to_string(),
+            delete_interfaces: false,
+            delete_bmc_interfaces: false,
+            delete_bmc_credentials: false,
+            allow_delete_with_orphaned_dpf_crds: false,
+        }))
+        .await
+    });
+    wait_until_blocked_on(&env.pool, "UPDATE machines SET controller_state_version").await;
+
+    let config = InstanceConfig {
+        tenant: TenantConfig {
+            tenant_organization_id: TenantOrganizationId::try_from("force-delete-race".to_string())
+                .unwrap(),
+            tenant_keyset_ids: Vec::new(),
+            hostname: None,
+        },
+        os: OperatingSystem {
+            user_data: None,
+            variant: OperatingSystemVariant::Ipxe(InlineIpxe {
+                ipxe_script: "#!ipxe".to_string(),
+            }),
+            phone_home_enabled: false,
+            run_provisioning_instructions_on_every_boot: false,
+        },
+        network: InstanceNetworkConfig::default(),
+        infiniband: InstanceInfinibandConfig::default(),
+        network_security_group_id: None,
+        extension_services: InstanceExtensionServicesConfig::default(),
+        nvlink: InstanceNvLinkConfig::default(),
+        spxconfig: InstanceSpxConfig::default(),
+        power_profile: None,
+    };
+    let version = ConfigVersion::initial();
+    db::instance::batch_persist(
+        vec![NewInstance {
+            instance_id,
+            machine_id: managed_host.id,
+            instance_type_id: None,
+            config: &config,
+            metadata: Metadata::default(),
+            config_version: version,
+            network_config_version: version,
+            ib_config_version: version,
+            extension_services_config_version: version,
+            nvlink_config_version: version,
+            spx_config_version: version,
+        }],
+        allocation_txn.as_mut(),
+    )
+    .await
+    .unwrap();
+    allocation_txn.commit().await.unwrap();
+
+    let response = force_delete_task
+        .await
+        .unwrap()
+        .expect("force-delete completes after allocation commits")
+        .into_inner();
+    assert!(response.all_done);
+    assert_eq!(response.instance_id, instance_id.to_string());
+    assert!(
+        db::instance::find_by_id(&env.pool, instance_id)
+            .await
+            .unwrap()
+            .is_none(),
+        "the same force-delete request must remove the concurrent Instance"
+    );
+    for machine_id in managed_host
+        .dpu_ids
+        .iter()
+        .chain(std::iter::once(&managed_host.id))
+    {
+        validate_machine_deletion(&env, machine_id, None).await;
+    }
+}
 
 #[crate::sqlx_test]
 async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {

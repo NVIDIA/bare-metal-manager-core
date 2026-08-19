@@ -27,13 +27,13 @@ type SkuStorage struct {
 	// Informational storage model. Starting with the 2.1 release, NICo does not use this field for storage matching or validation.
 	Model *string `json:"model,omitempty"`
 	// Storage capacity in megabytes used for schema version 4 matching. Read-only in REST mutation requests and preserved in responses for legacy SKUs. Schema version 5 uses minSizeMiB and maxSizeMiB instead.
-	CapacityMb *int32 `json:"capacityMb,omitempty"`
+	CapacityMb *uint32 `json:"capacityMb,omitempty"`
 	// Number of storage devices present
-	Count *int32 `json:"count,omitempty"`
+	Count *uint32 `json:"count,omitempty"`
 	// Inclusive minimum size in MiB for each storage device. Null or omission means no lower bound. Used for SKU schema version 5 and later.
-	MinSizeMiB NullableInt32 `json:"minSizeMiB,omitempty"`
+	MinSizeMiB NullableUint32 `json:"minSizeMiB,omitempty"`
 	// Inclusive maximum size in MiB for each storage device. Null or omission means no upper bound. Used for SKU schema version 5 and later.
-	MaxSizeMiB NullableInt32 `json:"maxSizeMiB,omitempty"`
+	MaxSizeMiB NullableUint32 `json:"maxSizeMiB,omitempty"`
 	// Regular expressions matched against storage sysfs PCI paths. An empty or omitted list disables PCI location matching. Used for SKU schema version 5 and later.
 	PciPatterns []string `json:"pciPatterns,omitempty"`
 }
@@ -120,9 +120,9 @@ func (o *SkuStorage) SetModel(v string) {
 }
 
 // GetCapacityMb returns the CapacityMb field value if set, zero value otherwise.
-func (o *SkuStorage) GetCapacityMb() int32 {
+func (o *SkuStorage) GetCapacityMb() uint32 {
 	if o == nil || IsNil(o.CapacityMb) {
-		var ret int32
+		var ret uint32
 		return ret
 	}
 	return *o.CapacityMb
@@ -130,7 +130,7 @@ func (o *SkuStorage) GetCapacityMb() int32 {
 
 // GetCapacityMbOk returns a tuple with the CapacityMb field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SkuStorage) GetCapacityMbOk() (*int32, bool) {
+func (o *SkuStorage) GetCapacityMbOk() (*uint32, bool) {
 	if o == nil || IsNil(o.CapacityMb) {
 		return nil, false
 	}
@@ -146,15 +146,15 @@ func (o *SkuStorage) HasCapacityMb() bool {
 	return false
 }
 
-// SetCapacityMb gets a reference to the given int32 and assigns it to the CapacityMb field.
-func (o *SkuStorage) SetCapacityMb(v int32) {
+// SetCapacityMb gets a reference to the given uint32 and assigns it to the CapacityMb field.
+func (o *SkuStorage) SetCapacityMb(v uint32) {
 	o.CapacityMb = &v
 }
 
 // GetCount returns the Count field value if set, zero value otherwise.
-func (o *SkuStorage) GetCount() int32 {
+func (o *SkuStorage) GetCount() uint32 {
 	if o == nil || IsNil(o.Count) {
-		var ret int32
+		var ret uint32
 		return ret
 	}
 	return *o.Count
@@ -162,7 +162,7 @@ func (o *SkuStorage) GetCount() int32 {
 
 // GetCountOk returns a tuple with the Count field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SkuStorage) GetCountOk() (*int32, bool) {
+func (o *SkuStorage) GetCountOk() (*uint32, bool) {
 	if o == nil || IsNil(o.Count) {
 		return nil, false
 	}
@@ -178,15 +178,15 @@ func (o *SkuStorage) HasCount() bool {
 	return false
 }
 
-// SetCount gets a reference to the given int32 and assigns it to the Count field.
-func (o *SkuStorage) SetCount(v int32) {
+// SetCount gets a reference to the given uint32 and assigns it to the Count field.
+func (o *SkuStorage) SetCount(v uint32) {
 	o.Count = &v
 }
 
 // GetMinSizeMiB returns the MinSizeMiB field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *SkuStorage) GetMinSizeMiB() int32 {
+func (o *SkuStorage) GetMinSizeMiB() uint32 {
 	if o == nil || IsNil(o.MinSizeMiB.Get()) {
-		var ret int32
+		var ret uint32
 		return ret
 	}
 	return *o.MinSizeMiB.Get()
@@ -195,7 +195,7 @@ func (o *SkuStorage) GetMinSizeMiB() int32 {
 // GetMinSizeMiBOk returns a tuple with the MinSizeMiB field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *SkuStorage) GetMinSizeMiBOk() (*int32, bool) {
+func (o *SkuStorage) GetMinSizeMiBOk() (*uint32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -211,8 +211,8 @@ func (o *SkuStorage) HasMinSizeMiB() bool {
 	return false
 }
 
-// SetMinSizeMiB gets a reference to the given NullableInt32 and assigns it to the MinSizeMiB field.
-func (o *SkuStorage) SetMinSizeMiB(v int32) {
+// SetMinSizeMiB gets a reference to the given NullableUint32 and assigns it to the MinSizeMiB field.
+func (o *SkuStorage) SetMinSizeMiB(v uint32) {
 	o.MinSizeMiB.Set(&v)
 }
 
@@ -227,9 +227,9 @@ func (o *SkuStorage) UnsetMinSizeMiB() {
 }
 
 // GetMaxSizeMiB returns the MaxSizeMiB field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *SkuStorage) GetMaxSizeMiB() int32 {
+func (o *SkuStorage) GetMaxSizeMiB() uint32 {
 	if o == nil || IsNil(o.MaxSizeMiB.Get()) {
-		var ret int32
+		var ret uint32
 		return ret
 	}
 	return *o.MaxSizeMiB.Get()
@@ -238,7 +238,7 @@ func (o *SkuStorage) GetMaxSizeMiB() int32 {
 // GetMaxSizeMiBOk returns a tuple with the MaxSizeMiB field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *SkuStorage) GetMaxSizeMiBOk() (*int32, bool) {
+func (o *SkuStorage) GetMaxSizeMiBOk() (*uint32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -254,8 +254,8 @@ func (o *SkuStorage) HasMaxSizeMiB() bool {
 	return false
 }
 
-// SetMaxSizeMiB gets a reference to the given NullableInt32 and assigns it to the MaxSizeMiB field.
-func (o *SkuStorage) SetMaxSizeMiB(v int32) {
+// SetMaxSizeMiB gets a reference to the given NullableUint32 and assigns it to the MaxSizeMiB field.
+func (o *SkuStorage) SetMaxSizeMiB(v uint32) {
 	o.MaxSizeMiB.Set(&v)
 }
 

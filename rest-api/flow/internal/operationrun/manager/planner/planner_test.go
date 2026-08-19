@@ -122,6 +122,65 @@ func TestPhaseTargetCountsRejectsCountPhasesThatExceedSelection(t *testing.T) {
 	require.ErrorContains(t, err, "count phase counts exceed selected target count")
 }
 
+func TestPhasedExecutionTargetsRejectsEmptyPhases(t *testing.T) {
+	tests := []struct {
+		name        string
+		targetCount int
+		policy      operationrun.PhasePolicy
+		wantErr     string
+	}{
+		{
+			name:        "percentage phase rounds to zero for two targets",
+			targetCount: 2,
+			policy: operationrun.PhasePolicy{
+				Plan: &operationrun.PercentagePhases{
+					Phases: []operationrun.PercentagePhase{
+						{Percentage: 10},
+						{Percentage: 30},
+						{Percentage: 60},
+					},
+				},
+			},
+			wantErr: "percentage phase 2 resolves to zero targets for 2 selected targets",
+		},
+		{
+			name:        "percentage phase rounds to zero for five targets",
+			targetCount: 5,
+			policy: operationrun.PhasePolicy{
+				Plan: &operationrun.PercentagePhases{
+					Phases: []operationrun.PercentagePhase{
+						{Percentage: 10},
+						{Percentage: 10},
+						{Percentage: 80},
+					},
+				},
+			},
+			wantErr: "percentage phase 2 resolves to zero targets for 5 selected targets",
+		},
+		{
+			name:        "equal phases outnumber targets",
+			targetCount: 2,
+			policy: operationrun.PhasePolicy{
+				Plan: &operationrun.EqualPhases{PhaseCount: 10},
+			},
+			wantErr: "equal phase 2 resolves to zero targets for 2 selected targets",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			targets, err := phasedExecutionTargets(
+				executionTargetFixtures(tt.targetCount),
+				tt.policy,
+			)
+
+			require.Nil(t, targets)
+			require.ErrorIs(t, err, ErrPhaseHasNoTargets)
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
 func TestPlanAssignsSequenceAndPhaseIndexes(t *testing.T) {
 	lookup := &testTargetLookup{
 		defaultScope: executionTargetFixtures(10),

@@ -2220,6 +2220,16 @@ impl ApiClient {
         Ok(self.0.on_demand_rack_maintenance(request).await?)
     }
 
+    pub(crate) async fn terminate_rack_maintenance(
+        &self,
+        rack_id: RackId,
+    ) -> CarbideCliResult<rpc::RackMaintenanceTerminateResponse> {
+        let request = rpc::RackMaintenanceTerminateRequest {
+            rack_id: Some(rack_id),
+        };
+        Ok(self.0.terminate_rack_maintenance(request).await?)
+    }
+
     pub(crate) async fn list_os_image(
         &self,
         tenant_organization_id: Option<String>,

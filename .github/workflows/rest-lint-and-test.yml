@@ -62,7 +62,7 @@ jobs:
 
   lint-go:
     name: Lint Go
-    runs-on: linux-amd64-cpu4
+    runs-on: linux-amd64-cpu8
     continue-on-error: false
     steps:
       - name: Checkout code
@@ -113,7 +113,7 @@ jobs:
 
   openapi-breaking-changes:
     name: OpenAPI Breaking Changes Check
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu4
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -248,7 +248,7 @@ jobs:
 
   test:
     name: Test (${{ matrix.module }})
-    runs-on: linux-amd64-cpu4
+    runs-on: linux-amd64-cpu8
     continue-on-error: false
     strategy:
       fail-fast: false

@@ -540,6 +540,7 @@ impl InternalRBACRules {
         x.perm("SetDpuFirstBootOrder", vec![ForgeAdminCLI]);
         x.perm("OnDemandMachineValidation", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("OnDemandRackMaintenance", vec![ForgeAdminCLI]);
+        x.perm("TerminateRackMaintenance", vec![ForgeAdminCLI]);
         x.perm("TpmAddCaCert", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("TpmShowCaCerts", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("TpmShowUnmatchedEkCerts", vec![ForgeAdminCLI, SiteAgent]);

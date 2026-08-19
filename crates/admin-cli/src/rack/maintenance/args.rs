@@ -24,6 +24,28 @@ use clap::Parser;
 pub(crate) enum Args {
     #[clap(about = "Start on-demand rack maintenance (full rack or partial)")]
     Start(MaintenanceOptions),
+    #[clap(
+        about = "Terminate active rack maintenance and transition the rack to Error",
+        long_about = "Request that the rack controller terminate active maintenance and transition the rack to Error. The command is rejected unless the rack is in Maintenance; repeating an accepted request before it is consumed is safe. Device requests and current phase status are cleaned up. This terminates NICo rack maintenance orchestration, but does not guarantee that work already submitted to an external backend is stopped."
+    )]
+    Terminate(TerminateOptions),
+}
+
+#[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Terminate active maintenance on a rack:
+    $ nico-admin-cli rack maintenance terminate --rack rack-42-us-west
+
+")]
+pub(crate) struct TerminateOptions {
+    #[clap(
+        short,
+        long,
+        help = "Rack ID whose active maintenance should be terminated"
+    )]
+    pub(super) rack: RackId,
 }
 
 #[derive(Parser, Debug)]
