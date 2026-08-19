@@ -41,10 +41,17 @@ env:
   GIT_SUBMODULE_STRATEGY: recursive
 
 
+# Runner sizes are chosen from measured job durations on a full main run:
+# `cpu4` under `2m`, `cpu8` `2m`-`10m`, `cpu16` `10m`-`20m`, `cpu32` over `20m`.
+#
+# One label per job on purpose. A label already schedules onto any free runner in
+# its scale set, and `runs-on` intersects several labels rather than unioning
+# them, so listing two sizes would demand a runner carrying both and match
+# nothing. Moving a job between sizes is a one-line edit here.
 jobs:
   changes:
     name: Detect Core CI Gate
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu4
     outputs:
       run_core_ci: ${{ steps.gate.outputs.run_core_ci }}
       non_rest_changed: ${{ steps.non-rest-changes.outputs.non_rest }}
@@ -54,24 +61,6 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-
-      - name: Test CI token permission checker
-        run: bash .github/ci/check-ci-permissions.sh --self-test
-
-      - name: Check Core CI token permissions
-        run: bash .github/ci/check-core-ci-permissions.sh
-
-      - name: Check Stale PRs token permissions
-        run: bash .github/ci/check-stale-ci-permissions.sh
-
-      - name: Check Fern docs (check) token permissions
-        run: bash .github/ci/check-fern-docs-ci-permissions.sh
-
-      - name: "Check Preview Fern Docs: Build token permissions"
-        run: bash .github/ci/check-fern-docs-preview-build-permissions.sh
-
-      - name: Check Publish Fern Docs token permissions
-        run: bash .github/ci/check-publish-fern-docs-permissions.sh
 
       - name: Check Core CI concurrency policy
         run: bash scripts/check-ci-concurrency.sh core
@@ -761,7 +750,7 @@ jobs:
       image_tag: ${{ needs.prepare.outputs.version }}
       additional_tags: ${{ needs.prepare.outputs.image_registry }}/nvmetal-carbide:${{ needs.prepare.outputs.major_minor_version }}-latest
       platforms: linux/amd64
-      runner: linux-amd64-cpu16
+      runner: linux-amd64-cpu32
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: true
       scan: true
@@ -797,7 +786,7 @@ jobs:
       image_tag: ${{ needs.prepare.outputs.version }}
       additional_tags: ${{ needs.prepare.outputs.image_registry }}/nvmetal-carbide-aarch64:${{ needs.prepare.outputs.major_minor_version }}-latest
       platforms: linux/arm64
-      runner: linux-arm64-cpu16
+      runner: linux-arm64-cpu32
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: false
       tag_latest: false
@@ -927,7 +916,7 @@ jobs:
       - prepare
       - build-container-x86_64
       - build-runtime-container-x86_64
-    runs-on: linux-amd64-cpu16
+    runs-on: linux-amd64-cpu32
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -1047,7 +1036,7 @@ jobs:
       additional_tags: ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-x86_64:${{ needs.prepare.outputs.major_minor_version }}-latest
       build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_BUILD":"${{ needs.prepare.outputs.build_artifacts_container_x86_64_ref }}"}'
       platforms: linux/amd64
-      runner: linux-amd64-cpu4
+      runner: linux-amd64-cpu8
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: true
       scan: true
@@ -1071,7 +1060,7 @@ jobs:
       additional_tags: ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-aarch64:${{ needs.prepare.outputs.major_minor_version }}-latest
       build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_BUILD":"${{ needs.prepare.outputs.build_artifacts_container_aarch64_ref }}"}'
       platforms: linux/arm64
-      runner: linux-arm64-cpu4
+      runner: linux-arm64-cpu8
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: true
     secrets: inherit
@@ -1137,7 +1126,7 @@ jobs:
       build_type: boot
       cargo_make_task: build-boot-artifacts-x86-host-ci
       build_container: ${{ needs.prepare.outputs.build_artifacts_container_x86_64_ref }}
-      runner: linux-amd64-cpu4
+      runner: linux-amd64-cpu8
       version: ${{ needs.prepare.outputs.version }}
       use_container: true
       inject_extras: true
@@ -1184,7 +1173,7 @@ jobs:
       build_type: package
       cargo_make_task: package-scout-aarch64-ci
       build_container: ${{ needs.prepare.outputs.build_artifacts_container_aarch64_ref }}
-      runner: linux-arm64-cpu16
+      runner: linux-arm64-cpu8
       version: ${{ needs.prepare.outputs.version }}
       use_container: true
       # Not for injection (`inject_extras` stays false, so the extras are
@@ -1215,7 +1204,7 @@ jobs:
       build_type: ephemeral
       cargo_make_task: create-ephemeral-image-x86-host-ci
       version: ${{ needs.prepare.outputs.version }}
-      runner: linux-amd64-cpu8
+      runner: linux-amd64-cpu16
       use_container: false
       sa_enablement: true
       inject_extras: true
@@ -1279,7 +1268,7 @@ jobs:
       # steps (FROM alpine + COPY only), so no QEMU is needed. Single-arch on PR
       # so the image can load to the daemon.
       platforms: ${{ needs.prepare.outputs.publish_images == 'true' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
-      runner: linux-amd64-cpu4
+      runner: linux-amd64-cpu8
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: true
       scan: true
@@ -1319,7 +1308,7 @@ jobs:
       # Dockerfile has no RUN steps (FROM alpine + COPY only), so no QEMU is
       # needed. Single-arch on PR so the image can load to the daemon.
       platforms: ${{ needs.prepare.outputs.publish_images == 'true' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
-      runner: linux-amd64-cpu4
+      runner: linux-amd64-cpu16
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: true
       scan: true
@@ -1367,7 +1356,7 @@ jobs:
           fi
 
       - name: Run TruffleHog Scan
-        uses: NVIDIA/dsx-github-actions/.github/actions/trufflehog-scan@9a9ce3a7770a8b53d2726afa920be3276bc3ddd7
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/trufflehog-scan@9a9ce3a7770a8b53d2726afa920be3276bc3ddd7
         with:
           base: ${{ steps.scan-range.outputs.base }}
           head: ${{ steps.scan-range.outputs.head }}
@@ -1399,7 +1388,7 @@ jobs:
         # still lets the post steps run, rather than the runner being killed
         # mid-flight with no attribution.
         timeout-minutes: 15
-        uses: NVIDIA/dsx-github-actions/.github/actions/codeql-scan@20dc10dda4fa9f8f0380a47cd9a7800d3da3dcf3
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/codeql-scan@20dc10dda4fa9f8f0380a47cd9a7800d3da3dcf3
         with:
           languages: 'rust'
           build-mode: 'none'
@@ -1547,7 +1536,7 @@ jobs:
     needs:
       - changes
     if: ${{ contains(github.ref, 'pull-request/') }}
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu4
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -1566,7 +1555,7 @@ jobs:
     needs:
       - changes
     if: ${{ needs.changes.outputs.run_core_ci == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu4
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -1632,7 +1621,7 @@ jobs:
       - prepare
       - build-container-x86_64
     if: ${{ !failure() && !cancelled() && needs.prepare.outputs.source_files_changed == 'true' && contains(github.ref, 'pull-request/') }}
-    runs-on: linux-amd64-cpu16
+    runs-on: linux-amd64-cpu32
     container:
       image: ${{ needs.prepare.outputs.lint_container_ref }}
       credentials:
@@ -1734,7 +1723,7 @@ jobs:
           persist-credentials: false
 
       - name: Validate Helm chart
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
         with:
           chart-path: helm
           lint: 'true'
@@ -1754,7 +1743,7 @@ jobs:
 
       - name: Package and push Helm chart to NGC
         if: ${{ needs.prepare.outputs.target_ngc_path != '' }}
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
           chart-path: helm
           chart-version: ${{ needs.prepare.outputs.helm_version }}
@@ -1776,7 +1765,7 @@ jobs:
           persist-credentials: false
 
       - name: Validate Helm prereqs chart
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
         with:
           chart-path: helm-prereqs
           lint: 'true'
@@ -1796,7 +1785,7 @@ jobs:
 
       - name: Package and push Helm prereqs chart to NGC
         if: ${{ needs.prepare.outputs.target_ngc_path != '' }}
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
           chart-path: helm-prereqs
           chart-version: ${{ needs.prepare.outputs.helm_version }}
@@ -2003,28 +1992,28 @@ jobs:
           persist-credentials: false
 
       - name: Validate nico-otelcol chart
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
         with:
           chart-path: bluefield/charts/nico-otelcol
           lint: 'true'
           template: 'true'
 
       - name: Validate nico-dpu-agent chart
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
         with:
           chart-path: bluefield/charts/nico-dpu-agent
           lint: 'true'
           template: 'true'
 
       - name: Validate nico-dhcp-server chart
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
         with:
           chart-path: bluefield/charts/nico-dhcp-server
           lint: 'true'
           template: 'true'
 
       - name: Validate nico-fmds chart
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
         with:
           chart-path: bluefield/charts/nico-fmds
           lint: 'true'
@@ -2044,7 +2033,7 @@ jobs:
 
       - name: Package and push nico-otelcol chart
         if: ${{ needs.prepare.outputs.target_ngc_path != '' }}
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
           chart-path: bluefield/charts/nico-otelcol
           chart-version: ${{ needs.prepare.outputs.helm_version }}
@@ -2056,7 +2045,7 @@ jobs:
 
       - name: Package and push nico-dpu-agent chart
         if: ${{ needs.prepare.outputs.target_ngc_path != '' }}
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
           chart-path: bluefield/charts/nico-dpu-agent
           chart-version: ${{ needs.prepare.outputs.helm_version }}
@@ -2068,7 +2057,7 @@ jobs:
 
       - name: Package and push nico-dhcp-server chart
         if: ${{ needs.prepare.outputs.target_ngc_path != '' }}
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
           chart-path: bluefield/charts/nico-dhcp-server
           chart-version: ${{ needs.prepare.outputs.helm_version }}
@@ -2080,7 +2069,7 @@ jobs:
 
       - name: Package and push nico-fmds chart
         if: ${{ needs.prepare.outputs.target_ngc_path != '' }}
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
           chart-path: bluefield/charts/nico-fmds
           chart-version: ${{ needs.prepare.outputs.helm_version }}
@@ -2182,7 +2171,7 @@ jobs:
     needs:
       - prepare
       - build-release-container-x86_64
-    uses: NVIDIA/dsx-github-actions/.github/workflows/promote-image.yml@760d2d7964b479fde431cd3e0b980bc6b6a26ccd
+    uses: dsx-ai-factory/dsx-github-actions/.github/workflows/promote-image.yml@760d2d7964b479fde431cd3e0b980bc6b6a26ccd
     with:
       source: ${{ needs.prepare.outputs.image_registry }}/nvmetal-carbide
       source_tag: ${{ needs.prepare.outputs.version }}
@@ -2268,7 +2257,7 @@ jobs:
   # Branch protection should require only this gate and `rest-ci-pass`.
   core-ci-pass:
     name: core-ci-pass
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu4
     if: always()
     needs:
       # Detection and preparation

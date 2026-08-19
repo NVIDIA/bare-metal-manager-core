@@ -279,7 +279,6 @@ func (o *TaskReportV1Stage) UnmarshalJSON(data []byte) (err error) {
 	varTaskReportV1Stage := _TaskReportV1Stage{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varTaskReportV1Stage)
 
 	if err != nil {

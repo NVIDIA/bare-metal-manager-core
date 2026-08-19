@@ -159,7 +159,6 @@ func (o *SubnetUpdateRequest) UnmarshalJSON(data []byte) (err error) {
 	varSubnetUpdateRequest := _SubnetUpdateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varSubnetUpdateRequest)
 
 	if err != nil {

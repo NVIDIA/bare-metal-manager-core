@@ -176,6 +176,7 @@ pub(crate) async fn update(
     // against the VPC's persisted tenant and virtualization type.
     if vpc_update.network_security_group_id.is_some()
         || vpc_update.routing_profile_overrides.is_some()
+        || vpc_update.power_resource_group.is_some()
     {
         let Some(vpc) = db::vpc::find_by(
             &mut txn,

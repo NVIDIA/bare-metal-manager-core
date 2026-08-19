@@ -54,6 +54,10 @@ func powerStateFromDAO(ps *nicoapi.PowerState) string {
 		return "off"
 	case nicoapi.PowerStateDisabled:
 		return "disabled"
+	case nicoapi.PowerStateHibernating:
+		return "hibernating"
+	case nicoapi.PowerStateSleeping:
+		return "sleeping"
 	default:
 		return "unknown"
 	}
@@ -338,6 +342,7 @@ func OperationRunFrom(dao *model.OperationRun) *operationrun.OperationRun {
 		StatusReason:      dao.StatusReason,
 		StatusMessage:     dao.StatusMessage,
 		CurrentPhaseIndex: dao.CurrentPhaseIndex,
+		TotalPhases:       dao.TotalPhases,
 		Selector:          dao.Selector,
 		Options:           dao.Options,
 		OperationTemplate: dao.OperationTemplate,
@@ -364,6 +369,7 @@ func OperationRunTo(run *operationrun.OperationRun) *model.OperationRun {
 		StatusReason:      run.StatusReason,
 		StatusMessage:     run.StatusMessage,
 		CurrentPhaseIndex: run.CurrentPhaseIndex,
+		TotalPhases:       run.TotalPhases,
 		Selector:          run.Selector,
 		Options:           run.Options,
 		OperationTemplate: run.OperationTemplate,

@@ -3,7 +3,8 @@
 
 // Package inventorysync reconciles Flow's rack / component / BMC / drift
 // tables against Core every cycle: syncExpectedFromCore mirrors Core's
-// expected inventory, runActualSync detects drift against Core's runtime view.
+// expected inventory, while runActualSync detects drift and projects observed
+// topology.
 //
 // TODO: this job writes the DB directly via bun model.* and pool.RunInTx,
 // bypassing the service -> inventorymanager -> store layering the rest of Flow
@@ -36,9 +37,9 @@ import (
 //     expected_mirror*.go). Gated by expectedSyncEnabled; when false the
 //     step is skipped entirely and Flow's existing ingestion path is the
 //     sole writer to rack / component.
-//  2. runActualSync reconciles each component type against Core's runtime
-//     view and returns one combined drift set (the "actual" half — see
-//     actual_sync*.go).
+//  2. runActualSync reconciles actual component state, projects valid NVLink
+//     domain observations, and returns one combined drift set (the "actual"
+//     half — see actual_sync*.go).
 //  3. The drift set replaces the whole component_drift table atomically so
 //     stale rows from previous runs can't linger. The replace is skipped
 //     when any actual-sync RPC failed: component_drift is a full-table

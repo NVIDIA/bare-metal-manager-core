@@ -536,6 +536,7 @@ impl InternalRBACRules {
         x.perm("SetDpuFirstBootOrder", vec![ForgeAdminCLI]);
         x.perm("OnDemandMachineValidation", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("OnDemandRackMaintenance", vec![ForgeAdminCLI]);
+        x.perm("TerminateRackMaintenance", vec![ForgeAdminCLI]);
         x.perm("TpmAddCaCert", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("TpmShowCaCerts", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("TpmShowUnmatchedEkCerts", vec![ForgeAdminCLI, SiteAgent]);
@@ -926,6 +927,13 @@ impl InternalRBACRules {
         x.perm("ListComponentFirmwareVersions", vec![ForgeAdminCLI, Flow]);
         x.perm("GetDPFHostSnapshot", vec![ForgeAdminCLI]);
         x.perm("GetDPFServiceVersions", vec![ForgeAdminCLI]);
+        x.perm("FindPendingDPUServiceSyncIds", vec![ForgeAdminCLI]);
+        x.perm("FindPendingDPUServiceSyncsByIds", vec![ForgeAdminCLI]);
+        x.perm("ListDPUServiceSyncHistory", vec![ForgeAdminCLI]);
+        // Operator-only: releasing a hold restarts DPU services, and for an
+        // assigned host it disrupts a tenant. No service identity should be able
+        // to ask for that on its own.
+        x.perm("ReleaseDPUServiceSyncHold", vec![ForgeAdminCLI]);
         x
     }
     fn perm(&mut self, msg: &str, principals: Vec<RulePrincipal>) {

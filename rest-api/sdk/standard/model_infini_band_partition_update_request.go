@@ -196,7 +196,6 @@ func (o *InfiniBandPartitionUpdateRequest) UnmarshalJSON(data []byte) (err error
 	varInfiniBandPartitionUpdateRequest := _InfiniBandPartitionUpdateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varInfiniBandPartitionUpdateRequest)
 
 	if err != nil {

@@ -43,7 +43,7 @@ use crate::cfg::file::{
     DpuConfig as InitialDpuConfig, DsxExchangeEventBusConfig, FnnConfig,
     IbPartitionStateControllerConfig, KmsConfig, ListenMode, MachineUpdater,
     MeasuredBootMetricsCollectorConfig, MqttAuthConfig, NetworkSecurityGroupConfig,
-    NetworkSegmentStateControllerConfig, PowerShelfStateControllerConfig,
+    NetworkSegmentStateControllerConfig, NodeAuthConfig, PowerShelfStateControllerConfig,
     RackStateControllerConfig, SecretsConfig, SpdmConfig, SpdmStateControllerConfig,
     SwitchStateControllerConfig, TracingConfig, VmaasConfig, VpcPeeringPolicy,
     VpcPrefixStateControllerConfig, default_bmc_session_lockout_threshold,
@@ -103,9 +103,14 @@ pub(crate) fn with_dpf_intercept_topology(selected_vfs: &[u8]) -> CarbideConfig 
 
 /// [`get`] with every `Option` config section populated. Used by tests that
 /// walk the *serialized* config shape — e.g. the admin-UI documentation
-/// guards, which can only verify sections that actually serialize. When a
-/// new `Option` section is added to [`CarbideConfig`] (the compiler forces
-/// it into [`get`]), populate it here too so those guards can see inside it.
+/// guards, which can only verify sections and fields that actually serialize.
+/// When a new `Option` section is added to [`CarbideConfig`] (the compiler
+/// forces it into [`get`]), populate it here too. The
+/// `fmds_use_node_tokens` inner `Option` below is populated so its documented
+/// row is covered. New `skip_serializing_if` fields need the same explicit
+/// treatment when they should be checked; this is not compiler-enforced.
+/// `mlxconfig_profiles` is intentionally exempted by `SKIP_SERIALIZING` in
+/// `crates/api-web/src/configuration.rs`.
 pub fn fully_populated() -> CarbideConfig {
     CarbideConfig {
         auth: Some(AuthConfig {
@@ -134,6 +139,10 @@ pub fn fully_populated() -> CarbideConfig {
             import_from: None,
             import_approach: Default::default(),
         }),
+        node_auth: NodeAuthConfig {
+            fmds_use_node_tokens: Some(false),
+            ..Default::default()
+        },
         ..get()
     }
 }
@@ -143,7 +152,9 @@ pub fn get() -> CarbideConfig {
         default_tenant_routing_profile_type: "EXTERNAL".to_string(),
         enable_admin_ui: true,
         web_ui_sidebar_tools: vec![],
+        web_ui_logs_link_template: String::new(),
         log_history: Default::default(),
+        node_auth: Default::default(),
         observability: Default::default(),
         bgp_leaf_session_password: None,
         rack_validation_config: RackValidationConfig {
@@ -156,6 +167,7 @@ pub fn get() -> CarbideConfig {
         alt_metric_prefix: None,
         database_url: "pgsql:://localhost".to_string(),
         max_database_connections: 1000,
+        deny_unknown_fields: false,
         database_pool_acquire_timeout: default_database_pool_acquire_timeout(),
         database_pool_idle_timeout: default_database_pool_idle_timeout(),
         database_pool_max_lifetime: default_database_pool_max_lifetime(),
@@ -168,6 +180,7 @@ pub fn get() -> CarbideConfig {
         enable_route_servers: false,
         deny_prefixes: vec![],
         site_fabric_prefixes: vec![],
+        tenant_prefix_overlap_enabled: false,
         max_site_prefixes_per_tenant: default_max_site_prefixes_per_tenant(),
         anycast_site_prefixes: vec![],
         common_tenant_host_asn: None,
@@ -202,11 +215,13 @@ pub fn get() -> CarbideConfig {
             create_machines: Arc::new(false.into()),
             ..Default::default()
         },
+        deprecated_force_dpu_nic_mode: None,
         vpc_peering_policy: Some(VpcPeeringPolicy::Exclusive),
         vpc_peering_policy_on_existing: None,
         attestation_enabled: false,
         bmc_rotation_enabled: false,
         uefi_rotation_enabled: false,
+        bmc_factory_reset_on_instance_termination_enabled: false,
         tpm_required: true,
         ib_config: None,
         ib_fabrics: [(

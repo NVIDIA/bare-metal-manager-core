@@ -50,6 +50,8 @@ fn deny_prefix(config: &ManagedHostNetworkConfigResponse) -> String {
     deny_prefixes.join("\n")
 }
 
+// This diagnostic view preserves the compatibility fields exposed to older agents.
+#[allow(deprecated)]
 async fn show_dpu_network_config(
     api_client: &ApiClient,
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,

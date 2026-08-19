@@ -286,9 +286,10 @@ impl RedfishClient {
 
         let service_root = client.get_service_root().await.map_err(map_redfish_error)?;
         let redfish_vendor = service_root.vendor();
-        // Lenovo XCC is currently the platform where we have verified this
-        // fallback. Keep that policy here so the inventory path stays generic.
-        let supports_adapter_port_mac_fallback = redfish_vendor == Some(RedfishVendor::Lenovo);
+        // Lenovo XCC is the platform where we have verified that adapter Ports
+        // belong to the linked host chassis. Keep that policy here so the
+        // inventory path stays generic.
+        let supports_adapter_port_mac_inventory = redfish_vendor == Some(RedfishVendor::Lenovo);
         let vendor = redfish_vendor.map(bmc_vendor);
 
         let manager = fetch_manager(client.as_ref())
@@ -302,9 +303,8 @@ impl RedfishClient {
         } = fetch_system(client.as_ref()).await?;
 
         let fetch_network_adapter_ports = should_fetch_network_adapter_ports(
-            supports_adapter_port_mac_fallback,
+            supports_adapter_port_mac_inventory,
             is_host,
-            &system.ethernet_interfaces,
             &linked_chassis_ids,
         );
         // TODO (spyda): once we test the BMC reset logic, we can enhance our logic here
@@ -1129,17 +1129,11 @@ struct FetchedChassis {
 }
 
 fn should_fetch_network_adapter_ports(
-    supports_adapter_port_mac_fallback: bool,
+    supports_adapter_port_mac_inventory: bool,
     is_host: bool,
-    system_interfaces: &[EthernetInterface],
     linked_chassis_ids: &[String],
 ) -> bool {
-    supports_adapter_port_mac_fallback
-        && is_host
-        && !linked_chassis_ids.is_empty()
-        && !system_interfaces.iter().any(|interface| {
-            interface.interface_enabled != Some(false) && interface.mac_address.is_some()
-        })
+    supports_adapter_port_mac_inventory && is_host && !linked_chassis_ids.is_empty()
 }
 
 async fn fetch_network_adapter_port_mac_addresses(
@@ -1708,7 +1702,6 @@ mod tests {
     use libredfish::model::service_root::RedfishVendor;
     use mac_address::MacAddress;
     use model::machine_boot_interface::{MachineBootInterface, MachineBootInterfaceTarget};
-    use model::site_explorer::EthernetInterface;
 
     use super::{
         BootInterfaceTarget, EndpointExplorationError, MachineSetupStatus, RedfishClient,
@@ -1727,7 +1720,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn detected_lenovo_host_keeps_network_adapter_port_mac_on_its_adapter() {
+    async fn detected_lenovo_host_collects_linked_network_adapter_port_mac() {
         let mac_address = MacAddress::new([0x94, 0x6d, 0xae, 0x53, 0xcb, 0x9b]);
         let sim = Arc::new(RedfishSim::default());
         sim.set_service_root_vendor(Some("Lenovo".to_string()));
@@ -1795,70 +1788,39 @@ mod tests {
     }
 
     #[test]
-    fn network_adapter_port_fallback_gate_cases() {
+    fn network_adapter_port_inventory_gate_cases() {
         #[derive(Clone)]
         struct Input {
-            supports_adapter_port_mac_fallback: bool,
+            supports_adapter_port_mac_inventory: bool,
             is_host: bool,
-            system_interfaces: Vec<EthernetInterface>,
             linked_chassis_ids: Vec<String>,
         }
-
-        let interface = |interface_enabled, mac_address| EthernetInterface {
-            interface_enabled,
-            mac_address,
-            ..Default::default()
-        };
-        let mac_address = MacAddress::new([0x94, 0x6d, 0xae, 0x53, 0xcb, 0x9b]);
 
         check_values(
             [
                 Check {
-                    scenario: "eligible host without a System MAC uses linked adapter ports",
+                    scenario: "eligible host uses linked adapter ports",
                     input: Input {
-                        supports_adapter_port_mac_fallback: true,
+                        supports_adapter_port_mac_inventory: true,
                         is_host: true,
-                        system_interfaces: vec![interface(None, None)],
                         linked_chassis_ids: vec!["Card1".to_string()],
                     },
                     expect: true,
                 },
                 Check {
-                    scenario: "host with a System MAC skips adapter ports",
+                    scenario: "non-host skips adapter ports",
                     input: Input {
-                        supports_adapter_port_mac_fallback: true,
-                        is_host: true,
-                        system_interfaces: vec![interface(None, Some(mac_address))],
-                        linked_chassis_ids: vec!["Card1".to_string()],
-                    },
-                    expect: false,
-                },
-                Check {
-                    scenario: "host with a disabled System interface uses adapter ports",
-                    input: Input {
-                        supports_adapter_port_mac_fallback: true,
-                        is_host: true,
-                        system_interfaces: vec![interface(Some(false), Some(mac_address))],
-                        linked_chassis_ids: vec!["Card1".to_string()],
-                    },
-                    expect: true,
-                },
-                Check {
-                    scenario: "non-host without a System MAC skips adapter ports",
-                    input: Input {
-                        supports_adapter_port_mac_fallback: true,
+                        supports_adapter_port_mac_inventory: true,
                         is_host: false,
-                        system_interfaces: vec![],
                         linked_chassis_ids: vec!["Card1".to_string()],
                     },
                     expect: false,
                 },
                 Check {
-                    scenario: "platform without adapter-port fallback skips adapter ports",
+                    scenario: "platform without adapter-port inventory skips adapter ports",
                     input: Input {
-                        supports_adapter_port_mac_fallback: false,
+                        supports_adapter_port_mac_inventory: false,
                         is_host: true,
-                        system_interfaces: vec![],
                         linked_chassis_ids: vec!["Card1".to_string()],
                     },
                     expect: false,
@@ -1866,9 +1828,8 @@ mod tests {
                 Check {
                     scenario: "eligible host without chassis links skips adapter ports",
                     input: Input {
-                        supports_adapter_port_mac_fallback: true,
+                        supports_adapter_port_mac_inventory: true,
                         is_host: true,
-                        system_interfaces: vec![],
                         linked_chassis_ids: vec![],
                     },
                     expect: false,
@@ -1876,9 +1837,8 @@ mod tests {
             ],
             |input| {
                 should_fetch_network_adapter_ports(
-                    input.supports_adapter_port_mac_fallback,
+                    input.supports_adapter_port_mac_inventory,
                     input.is_host,
-                    &input.system_interfaces,
                     &input.linked_chassis_ids,
                 )
             },

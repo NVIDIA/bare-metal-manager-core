@@ -3241,9 +3241,6 @@ mod test {
         }
     }
 
-    // `capture_logs_async` wraps only `machine::create`, whose awaits all use
-    // this connection. No unrelated work runs while the connection is held.
-    #[allow(txn_held_across_await)]
     #[crate::sqlx_test]
     async fn dpu_creation_keeps_exhausted_fnn_asn_nonfatal(
         pool: sqlx::PgPool,
@@ -3815,7 +3812,6 @@ mod test {
     }
 
     #[crate::sqlx_test]
-    #[allow(txn_held_across_await)] // Intentional: this test holds a row lock to force a CAS retry.
     async fn ipv6_loopback_backfill_retries_after_network_config_conflict(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {

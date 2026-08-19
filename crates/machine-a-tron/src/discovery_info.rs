@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use bmc_mock::infiniband::Guid;
 use bmc_mock::mac_address_pool::MacAddressPool;
 use bmc_mock::{DpuMachineInfo, HardwareType, HostMachineInfo, MachineInfo};
 use carbide_utils::arch::CpuArchitecture;
@@ -723,7 +724,7 @@ fn gb200_gpus() -> Vec<Gpu> {
 }
 
 fn gb200_infiniband_interfaces(host: &HostMachineInfo) -> Vec<InfinibandInterface> {
-    let guids: [String; 4] = host
+    let guids: [Guid; 4] = host
         .infiniband_port_guids()
         .try_into()
         .expect("GB200 has four InfiniBand interfaces");
@@ -747,7 +748,7 @@ fn gb200_infiniband_interfaces(host: &HostMachineInfo) -> Vec<InfinibandInterfac
                     description: Some("MT2910 Family [ConnectX-7]".into()),
                     slot: Some(format!("{domain}:03:00.0")),
                 }),
-                guid,
+                guid: guid.to_string(),
             }
         })
         .collect()
@@ -827,7 +828,7 @@ fn cx8_network_interface(
 }
 
 fn dgx_h100_infiniband_interfaces(host: &HostMachineInfo) -> Vec<InfinibandInterface> {
-    let guids: [String; 8] = host
+    let guids: [Guid; 8] = host
         .infiniband_port_guids()
         .try_into()
         .expect("DGX H100 has eight InfiniBand interfaces");
@@ -859,7 +860,7 @@ fn dgx_h100_infiniband_interfaces(host: &HostMachineInfo) -> Vec<InfinibandInter
                 description: Some("MT2910 Family [ConnectX-7]".into()),
                 slot: Some(format!("0000:{:02x}:00.0", bus + 3)),
             }),
-            guid,
+            guid: guid.to_string(),
         }
     })
     .collect()

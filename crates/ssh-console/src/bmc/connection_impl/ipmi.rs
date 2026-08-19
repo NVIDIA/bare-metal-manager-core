@@ -619,7 +619,8 @@ impl IpmitoolMessageProxy {
                     ws_xpixel: pix_width.try_into().unwrap_or(0),
                     ws_ypixel: pix_height.try_into().unwrap_or(0),
                 };
-                // SAFETY: ioctl on master FD
+                // SAFETY: `pty_master` owns a valid PTY descriptor, and the fully initialized
+                // `winsz` value has the layout and lifetime required by `TIOCSWINSZ`.
                 unsafe {
                     libc::ioctl(self.pty_master.as_raw_fd(), libc::TIOCSWINSZ, &winsz);
                 }

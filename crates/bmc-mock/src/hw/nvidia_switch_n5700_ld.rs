@@ -208,6 +208,7 @@ impl NvidiaSwitchN5700Ld<'_> {
                 builder.build()
             })
             .collect(),
+            ..Default::default()
         }
     }
 

@@ -4,11 +4,13 @@
 package model
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
+	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 func TestAPIMachineValidationRunCreateRequestToProto(t *testing.T) {
@@ -77,6 +79,11 @@ func TestNewAPIMachineValidationRunFromOnDemandResponse(t *testing.T) {
 					MachineId:    &corev1.MachineId{Id: "machine-1"},
 					Name:         "Test_machine-1",
 					Context:      &context,
+					Status: &corev1.MachineValidationStatus{
+						Total:          math.MaxUint32,
+						CompletedTests: math.MaxUint32,
+					},
+					DurationToComplete: &durationpb.Duration{Seconds: 1 << 32},
 				},
 			},
 			want: &APIMachineValidationRun{
@@ -84,6 +91,11 @@ func TestNewAPIMachineValidationRunFromOnDemandResponse(t *testing.T) {
 				MachineID:    "machine-1",
 				Name:         "Test_machine-1",
 				Context:      "OnDemand",
+				Status: APIMachineValidationStatus{
+					Total:     math.MaxUint32,
+					Completed: math.MaxUint32,
+				},
+				DurationToCompleteSecs: 1 << 32,
 			},
 		},
 		{

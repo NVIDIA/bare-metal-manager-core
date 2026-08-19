@@ -20,6 +20,10 @@ shard = 0
 shards_count = 1
 
 cache_size = 100
+# Maximum concurrent Redfish operations per BMC, including collector fan-out.
+# Must be greater than zero. Default: 4.
+# Changes take effect after restarting carbide-health.
+bmc_request_concurrency = 4
 bmc_proxy_url = "http://proxy.example.com:8080"
 
 endpoint_discovery_interval = "5m"
@@ -32,7 +36,7 @@ endpoint_discovery_interval = "5m"
 root_ca = "/var/run/secrets/spiffe.io/ca.crt"
 client_cert = "/var/run/secrets/spiffe.io/tls.crt"
 client_key = "/var/run/secrets/spiffe.io/tls.key"
-api_url = "https://carbide-api.forge-system.svc.cluster.local:1079"
+api_url = "https://nico-api.nico-system.svc.cluster.local:1079"
 
 [[endpoint_sources.static_bmc_endpoints]]
 ip = "10.0.0.1"
@@ -108,6 +112,11 @@ enabled = false
 [[sinks.otlp.targets]]
 endpoint = "http://localhost:4317"
 batch_size = 512
+# Maximum entries waiting in each of this target's independent log and metric
+# queues. The oldest entry is dropped when a full queue receives a new event
+# identity. Must be greater than zero. Default: 32768. Changes require a service
+# restart.
+queue_capacity = 32768
 flush_interval = "2s"
 
 # Include Redfish diagnostic payload fields in OTLP logs for this target.
@@ -116,10 +125,10 @@ flush_interval = "2s"
 # latest-wins per endpoint while the drain is backed up.
 include_diagnostics = false
 
-# Include per-alert detail on health report records for this target. Health
-# report records otherwise carry only alert and success counts. When enabled,
-# each record with alerts gains a `health_report.alerts` attribute holding a
-# JSON array of up to 64 alerts; a truncated record also carries
+# Include per-alert detail on health report records for this target. Records
+# otherwise carry routing fields, counts, and structured successes without the
+# alert attributes. When enabled, each record with alerts carries the first 64
+# alerts in report order; only a report with more than 64 alerts also carries
 # `health_report.alerts.dropped` with the number omitted.
 include_alert_details = false
 #
@@ -128,6 +137,7 @@ include_alert_details = false
 # [[sinks.otlp.targets]]
 # endpoint = "https://telemetry.example.com:4317"
 # batch_size = 1024
+# queue_capacity = 32768
 # flush_interval = "5s"
 # include_diagnostics = true
 # include_alert_details = true
@@ -156,7 +166,7 @@ include_alert_details = false
 root_ca = "/var/run/secrets/spiffe.io/ca.crt"
 client_cert = "/var/run/secrets/spiffe.io/tls.crt"
 client_key = "/var/run/secrets/spiffe.io/tls.key"
-api_url = "https://carbide-api.forge-system.svc.cluster.local:1079"
+api_url = "https://nico-api.nico-system.svc.cluster.local:1079"
 workers = 8
 skip_empty_reports = true
 
@@ -164,7 +174,7 @@ skip_empty_reports = true
 root_ca = "/var/run/secrets/spiffe.io/ca.crt"
 client_cert = "/var/run/secrets/spiffe.io/tls.crt"
 client_key = "/var/run/secrets/spiffe.io/tls.key"
-api_url = "https://carbide-api.forge-system.svc.cluster.local:1079"
+api_url = "https://nico-api.nico-system.svc.cluster.local:1079"
 workers = 2
 skip_empty_reports = true
 
@@ -172,7 +182,7 @@ skip_empty_reports = true
 root_ca = "/var/run/secrets/spiffe.io/ca.crt"
 client_cert = "/var/run/secrets/spiffe.io/tls.crt"
 client_key = "/var/run/secrets/spiffe.io/tls.key"
-api_url = "https://carbide-api.forge-system.svc.cluster.local:1079"
+api_url = "https://nico-api.nico-system.svc.cluster.local:1079"
 workers = 2
 skip_empty_reports = true
 
@@ -180,7 +190,7 @@ skip_empty_reports = true
 root_ca = "/var/run/secrets/spiffe.io/ca.crt"
 client_cert = "/var/run/secrets/spiffe.io/tls.crt"
 client_key = "/var/run/secrets/spiffe.io/tls.key"
-api_url = "https://carbide-api.forge-system.svc.cluster.local:1079"
+api_url = "https://nico-api.nico-system.svc.cluster.local:1079"
 workers = 2
 skip_empty_reports = true
 
@@ -213,12 +223,10 @@ log_mode = "unreachable"
 
 [collectors.sensors]
 sensor_fetch_interval = "1m"
-sensor_fetch_concurrency = 10
 include_sensor_thresholds = true
 
 [collectors.metrics]
 fetch_interval = "2m"
-fetch_concurrency = 4
 
 # Redfish telemetry service: pre-aggregated metric reports, one GET per report
 # instead of one per resource. Published under the `hw_telemetry` series name so
@@ -368,6 +376,46 @@ initial_backoff = "1s"
 
 # Maximum reconnect delay after repeated connect or stream failures.
 max_backoff = "30s"
+
+# Optional. Omit this table to use the generated NMX-C collector.
+#
+# The override replaces the generated NMX-C collector with descriptor-driven
+# request encoding and response decoding. Responses are emitted as generic logs
+# and are not mapped to generated NMX-C events. Every OTLP target includes
+# canonical protobuf JSON regardless of include_diagnostics. These payloads may
+# be large.
+#
+# Enabling the override requires at least one [[sinks.otlp.targets]] entry. The
+# descriptor and request are loaded at startup; changes require a carbide-health
+# restart.
+#
+# [collectors.nmxc.schema_override]
+#
+# Required when the schema_override table is enabled. No default.
+# Path to a complete binary FileDescriptorSet containing the configured methods
+# and all imported descriptors. Relative paths use the process working directory.
+# descriptor_set_path = "/etc/carbide-health/nmx_c.desc"
+#
+# Optional. Default: "/nmx_c.NMX_Controller/Hello".
+# Fully qualified gRPC path in /package.Service/Method form. The method must
+# exist in the descriptor and use a unary request and response.
+# hello_rpc_path = "/nmx_c.NMX_Controller/Hello"
+#
+# Optional. Default: "/nmx_c.NMX_Controller/Subscribe".
+# Fully qualified gRPC path in /package.Service/Method form. The method must
+# exist in the descriptor, accept one request, and stream responses.
+# subscribe_rpc_path = "/nmx_c.NMX_Controller/Subscribe"
+#
+# Optional. Default: 4194304 (4 MiB). Valid range: 1-67108864.
+# Maximum encoded size accepted for one Hello or Subscribe response, in bytes.
+# max_frame_size_bytes = 4194304
+#
+# Optional. Default: empty.
+# Additional SubscribeRequest fields, using names and values accepted by the
+# supplied descriptor's protobuf JSON mapping. gateway_id, notify_on_self_change,
+# and heart_beat_rate are set by [collectors.nmxc] and cannot be repeated here.
+# [collectors.nmxc.schema_override.subscribe_fields]
+# additionalBooleanField = true
 
 [collectors.nmxt]
 scrape_interval = "1m"

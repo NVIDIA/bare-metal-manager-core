@@ -105,18 +105,16 @@ func (s *PostgresStore) GetTargetPhaseAggregate(
 	currentPhaseIndex int32,
 ) (operationrun.TargetPhaseAggregate, error) {
 	type aggregateRow struct {
-		TotalPhases         int32 `bun:"total_phases"`
-		CompletedTargets    int   `bun:"completed_targets"`
-		CompletedCompleted  int   `bun:"completed_completed"`
-		CompletedFailed     int   `bun:"completed_failed"`
-		CompletedTerminated int   `bun:"completed_terminated"`
-		CompletedSkipped    int   `bun:"completed_skipped"`
+		CompletedTargets    int `bun:"completed_targets"`
+		CompletedCompleted  int `bun:"completed_completed"`
+		CompletedFailed     int `bun:"completed_failed"`
+		CompletedTerminated int `bun:"completed_terminated"`
+		CompletedSkipped    int `bun:"completed_skipped"`
 	}
 
 	var row aggregateRow
 	err := s.idb(ctx).NewSelect().
 		TableExpr("operation_run_target AS ort").
-		ColumnExpr("COALESCE(MAX(ort.phase_index) + 1, 0) AS total_phases").
 		ColumnExpr(
 			"COUNT(*) FILTER (WHERE ort.phase_index < ?) AS completed_targets",
 			currentPhaseIndex,
@@ -148,7 +146,6 @@ func (s *PostgresStore) GetTargetPhaseAggregate(
 	}
 
 	return operationrun.TargetPhaseAggregate{
-		TotalPhases: row.TotalPhases,
 		CompletedPhaseStats: operationrun.PhaseStats{
 			PhaseIndex:      max(currentPhaseIndex-1, 0),
 			SelectedTargets: row.CompletedTargets,

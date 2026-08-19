@@ -125,7 +125,14 @@ pub(crate) async fn create_credential(
                     credential_type: CredentialType::SiteDefault,
                 })
                 .await)
-                .is_ok_and(|result| result.is_some())
+                .is_ok_and(|result| {
+                    result.is_some_and(|creds| {
+                        // An empty password is seeded by nico-prereqs at deploy time —
+                        // treat it as absent so the operator can set the real password.
+                        let Credentials::UsernamePassword { ref password, .. } = creds;
+                        !password.is_empty()
+                    })
+                })
             {
                 // TODO: support reset credential
                 return Err(tonic::Status::already_exists(
@@ -154,7 +161,14 @@ pub(crate) async fn create_credential(
                     credential_type: CredentialType::SiteDefault,
                 })
                 .await
-                .is_ok_and(|result| result.is_some())
+                .is_ok_and(|result| {
+                    result.is_some_and(|creds| {
+                        // An empty password is seeded by nico-prereqs at deploy time —
+                        // treat it as absent so the operator can set the real password.
+                        let Credentials::UsernamePassword { ref password, .. } = creds;
+                        !password.is_empty()
+                    })
+                })
             {
                 // TODO: support reset credential
                 return Err(tonic::Status::already_exists(

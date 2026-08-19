@@ -32,7 +32,7 @@ use carbide_dpf::{
 
 use crate::cfg::file::{
     DpfBootstrapCaObjectKind, DpfDpuAgentBootstrapCa, DpfExtraService,
-    DpfResolvedMandatoryServicesConfig, DpfServiceConfig,
+    DpfResolvedMandatoryServicesConfig, DpfServiceConfig, NodeAuthConfig,
 };
 
 /// Default DOCA helm registry (DPUServiceTemplate source.repoURL).
@@ -48,8 +48,7 @@ pub(crate) const DEFAULT_DOCA_IMAGE_REGISTRY: &str = "nvcr.io/nvidia/doca";
 pub(crate) const DEFAULT_CARBIDE_IMAGE_REGISTRY: &str = "nvcr.io/0837451325059433/carbide-dev";
 
 /// Astra Service Helm and Image Registries
-pub(crate) const DOCA_WEAVE_CHART_REPO_URL: &str =
-    "oci://harbor.mellanox.com/cloud-orchestration-dev/dpf";
+pub(crate) const DOCA_WEAVE_CHART_REPO_URL: &str = "oci://nvcr.io/nvstaging/doca";
 pub(crate) const DOCA_WEAVE_IMAGE_REGISTRY: &str = "nvcr.io/nvstaging/doca";
 
 const DOCA_XPLANE_CHART_REPO_URL: &str = "https://helm.ngc.nvidia.com/nvstaging/doca";
@@ -89,15 +88,15 @@ pub(crate) const OTEL_COLLECTOR_SERVICE_IMAGE_NAME: &str = "otelcol-contrib";
 
 /// Weave DHCP agent service definitions.
 pub(crate) const DOCA_WEAVE_DHCP_AGENT_SERVICE_HELM_NAME: &str = "dpf-weave";
-pub(crate) const DOCA_WEAVE_DHCP_AGENT_SERVICE_HELM_VERSION: &str = "v26.5.0-1f8f4e1e";
+pub(crate) const DOCA_WEAVE_DHCP_AGENT_SERVICE_HELM_VERSION: &str = "v26.8.0-a02ded2e-nightly";
 pub(crate) const DOCA_WEAVE_DHCP_AGENT_SERVICE_IMAGE_NAME: &str = "weave-system";
-pub(crate) const DOCA_WEAVE_DHCP_AGENT_SERVICE_IMAGE_TAG: &str = "v26.5.0-f2c9f7c4-nightly";
+pub(crate) const DOCA_WEAVE_DHCP_AGENT_SERVICE_IMAGE_TAG: &str = "v26.8.0-a02ded2e-nightly";
 
 /// Weave flow (ovs) controller service definitions.
 pub(crate) const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_HELM_NAME: &str = "dpf-weave";
-pub(crate) const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_HELM_VERSION: &str = "v26.5.0-1f8f4e1e";
+pub(crate) const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_HELM_VERSION: &str = "v26.8.0-a02ded2e-nightly";
 pub(crate) const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_NAME: &str = "weave-system";
-pub(crate) const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_TAG: &str = "v26.5.0-f2c9f7c4-nightly";
+pub(crate) const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_TAG: &str = "v26.8.0-a02ded2e-nightly";
 
 /// Xplane service definitions.
 const DOCA_XPLANE_SERVICE_HELM_NAME: &str = "xplane";
@@ -376,6 +375,56 @@ fn set_hbn_sf_count(helm_values: &mut serde_json::Value, sf_count: usize) {
     }
 }
 
+/// Restores a value the API owns after the operator overlay has been merged.
+///
+/// `apply_helm_values` merges `extra_helm_values` last, so an overlay wins over
+/// anything generated above it. That is right for tuning a chart, and wrong for
+/// the handful of values that encode an agreement between two components: the
+/// API validates them at startup, so letting a Helm overlay change one deploys
+/// a fleet the API will reject while passing every check. Reassert them, and
+/// say so when an overlay tried.
+fn reassert_api_owned_value(
+    helm_values: &mut serde_json::Value,
+    service: &str,
+    path: &[&str],
+    authoritative: serde_json::Value,
+) {
+    let (last, parents) = path.split_last().expect("path must not be empty");
+    let mut node = helm_values;
+    for key in parents {
+        // An overlay can put anything here, including a scalar or null, so
+        // descend defensively: assuming an object would turn a malformed
+        // `extra_helm_values` into a panic during DPF resource creation, which
+        // is a poor way to report a typo in someone's config.
+        let entry = node
+            .as_object_mut()
+            .expect("generated Helm values must be an object")
+            .entry((*key).to_string())
+            .or_insert_with(|| serde_json::json!({}));
+        if !entry.is_object() {
+            *entry = serde_json::json!({});
+        }
+        node = entry;
+    }
+    let object = node
+        .as_object_mut()
+        .expect("generated Helm values must be an object");
+    match object.get(*last) {
+        Some(existing) if *existing == authoritative => {}
+        Some(overridden) => tracing::warn!(
+            target: "node_auth",
+            service,
+            setting = path.join("."),
+            %overridden,
+            authoritative = %authoritative,
+            "node-auth: ignoring an extra_helm_values override of a value the API owns; \
+             it is validated at startup and both ends must agree"
+        ),
+        None => {}
+    }
+    object.insert((*last).to_string(), authoritative);
+}
+
 /// DOCA HBN service definition.
 pub(crate) fn doca_hbn_service(
     cfg: &DpfServiceConfig,
@@ -565,17 +614,31 @@ pub(crate) fn dhcp_server_service(
 }
 
 /// Forge FMDS service definition.
+///
+/// `use_node_tokens` defaults to the API's `[node_auth] enabled` switch and can
+/// be overridden by `fmds_use_node_tokens`: when set, fmds is deployed fetching
+/// bearer JWTs from the dpu-agent's local API socket instead of mounting the
+/// machine cert/key (issue #355). Requires a dpu-agent image that serves the
+/// local API.
 pub(crate) fn fmds_service(
     cfg: &DpfServiceConfig,
     dpu_interfaces: &[DpuServiceInterfaceTemplateDefinition],
+    use_node_tokens: bool,
 ) -> ServiceDefinition {
     let mut helm_values = serde_json::json!({
         "image": {
             "repository": cfg.docker_repo_url,
             "tag": cfg.docker_image_tag,
-        }
+        },
+        "useNodeTokens": use_node_tokens,
     });
     apply_helm_values(&mut helm_values, cfg);
+    reassert_api_owned_value(
+        &mut helm_values,
+        FMDS_SERVICE_NAME,
+        &["useNodeTokens"],
+        serde_json::json!(use_node_tokens),
+    );
     ServiceDefinition {
         helm_values: Some(helm_values),
 
@@ -765,17 +828,27 @@ pub(crate) fn doca_xplane_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
 }
 
 /// Build the full list of resolved mandatory DPU services.
+///
+/// `node_auth` mirrors the API's `[node_auth]` section: fmds token mode follows
+/// `enabled` unless `fmds_use_node_tokens` overrides it (issue #355).
 pub(crate) fn mandatory_services(
     resolved: &DpfResolvedMandatoryServicesConfig,
     bootstrap_ca: &DpfDpuAgentBootstrapCa,
     interfaces: &[DpuServiceInterfaceTemplateDefinition],
+    node_auth: &NodeAuthConfig,
 ) -> Vec<ServiceDefinition> {
     let mut service_vec = vec![
         dts_service(&resolved.base.dts),
         doca_hbn_service(&resolved.base.doca_hbn, interfaces),
         dhcp_server_service(&resolved.base.dhcp_server, interfaces),
         dpu_agent_service(&resolved.base.dpu_agent, bootstrap_ca),
-        fmds_service(&resolved.base.fmds, interfaces),
+        // Not `node_auth.enabled` directly: an operator staging a disable
+        // moves fmds off tokens first, while the API still accepts them.
+        fmds_service(
+            &resolved.base.fmds,
+            interfaces,
+            node_auth.fmds_use_node_tokens(),
+        ),
         otelcol_service(&resolved.base.otel),
     ];
 
@@ -855,7 +928,7 @@ mod tests {
 
         // DHCP receives both configured entries, while FMDS receives only the PF.
         let dhcp = dhcp_server_service(&default_dhcp_server_service(), &interfaces);
-        let fmds = fmds_service(&default_fmds_service(), &interfaces);
+        let fmds = fmds_service(&default_fmds_service(), &interfaces, false);
         assert_eq!(
             dhcp.interfaces
                 .iter()
@@ -956,7 +1029,10 @@ mod tests {
     fn dpu_agent_bootstrap_ca_helm_values_follow_site_policy() {
         value_scenarios!(
             run = |policy| {
-                dpu_agent_helm_values(&default_dpu_agent_service(), &policy)
+                dpu_agent_helm_values(
+                    &default_dpu_agent_service(),
+                    &policy,
+                )
                     .get("bootstrapCa")
                     .cloned()
             };
@@ -1462,5 +1538,68 @@ mod tests {
 
         println!("wrote {}", template_path.display());
         println!("wrote {}", configuration_path.display());
+    }
+    /// The override has to reach the rendered helm values, not just the
+    /// resolver — staging a disable is worthless if `mandatory_services` still
+    /// reads `enabled` and deploys fmds in token mode anyway.
+    #[test]
+    fn fmds_helm_values_honor_the_token_mode_override() {
+        // Every field carries a serde default, so an empty object yields the
+        // stock service set without spelling all six out here.
+        let resolved = DpfResolvedMandatoryServicesConfig {
+            base: serde_json::from_value(serde_json::json!({}))
+                .expect("mandatory services build from their serde defaults"),
+            extra: BTreeMap::new(),
+        };
+        let bootstrap_ca = DpfDpuAgentBootstrapCa::default();
+
+        let fmds_mode = |node_auth: &NodeAuthConfig| {
+            mandatory_services(&resolved, &bootstrap_ca, &[], node_auth)
+                .into_iter()
+                .find(|s| s.name == FMDS_SERVICE_NAME)
+                .and_then(|s| s.helm_values)
+                .and_then(|v| v.get("useNodeTokens").and_then(serde_json::Value::as_bool))
+                .expect("fmds renders useNodeTokens")
+        };
+
+        let derived_on = NodeAuthConfig {
+            enabled: true,
+            ..NodeAuthConfig::default()
+        };
+        assert!(fmds_mode(&derived_on), "enabled=true derives token mode");
+
+        let staged_off = NodeAuthConfig {
+            enabled: true,
+            fmds_use_node_tokens: Some(false),
+            ..NodeAuthConfig::default()
+        };
+        assert!(
+            !fmds_mode(&staged_off),
+            "the override must win over the derived value"
+        );
+
+        assert!(
+            !fmds_mode(&NodeAuthConfig::default()),
+            "node-auth off still renders cert mode"
+        );
+    }
+    /// Same reasoning for token mode: an overlay setting it true while the API
+    /// does not accept bearer tokens would deploy keyless fmds pods whose only
+    /// credential is refused, bypassing the startup validation entirely.
+    #[test]
+    fn an_overlay_cannot_turn_on_fmds_token_mode() {
+        let mut cfg = default_fmds_service();
+        cfg.extra_helm_values = serde_json::json!({ "useNodeTokens": true })
+            .as_object()
+            .cloned();
+
+        let service = fmds_service(&cfg, &[], false);
+        let values = service.helm_values.expect("fmds renders helm values");
+
+        assert_eq!(
+            values.get("useNodeTokens"),
+            Some(&serde_json::json!(false)),
+            "token mode follows the validated config, not the overlay"
+        );
     }
 }

@@ -353,7 +353,7 @@ fn credential_type_name(cred: &Credentials) -> &'static str {
         Credentials::BasicAuth { .. } => "basic_auth",
         Credentials::Header { .. } => "header",
         Credentials::SshKey { .. } => "ssh_key",
-        Credentials::SshAgent => "ssh_agent",
+        Credentials::SshAgent {} => "ssh_agent",
     }
 }
 

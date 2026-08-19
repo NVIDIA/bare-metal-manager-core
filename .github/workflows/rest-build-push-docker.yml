@@ -323,13 +323,12 @@ jobs:
       NICO_TARGET_REGISTRY_TOKEN: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN }}
       NICO_NGC_TOKEN: ${{ secrets.NICO_NGC_TOKEN }}
 
-  # GitHub-hosted on purpose. This job only writes markdown to the step summary,
-  # but as the last thing in the run it was spending 75 seconds waiting for a
-  # self-hosted runner to do three seconds of work. The service builds above
-  # still use `inputs.runner`.
+  # Was GitHub-hosted because this markdown-only job spent `75s` waiting for an
+  # enterprise runner to do `3s` of work. Hosted waits now reach `~8m`, and being
+  # last in the run means a hosted queue holds the whole run open.
   build-summary:
     name: Build Summary
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu4
     needs:
       - build-nico-rest-api
       - build-nico-rest-db

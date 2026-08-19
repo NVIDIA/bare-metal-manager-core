@@ -17,6 +17,46 @@
 
 use crate::HardwareType;
 
+const FIRST_COMPUTE_RANGE_START: u8 = 11;
+const FIRST_COMPUTE_RANGE_END: u8 = 18;
+const SECOND_COMPUTE_RANGE_START: u8 = 28;
+const SECOND_COMPUTE_RANGE_END: u8 = 37;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RackPlacement {
+    position: u8,
+    topology_id: u32,
+}
+
+impl RackPlacement {
+    pub(crate) fn new(position: u8, topology_id: u32) -> Self {
+        Self {
+            position,
+            topology_id,
+        }
+    }
+
+    pub fn position(self) -> u8 {
+        self.position
+    }
+
+    pub fn topology_id(self) -> u32 {
+        self.topology_id
+    }
+
+    pub(crate) fn compute_tray_index(self) -> Option<u8> {
+        match self.position {
+            FIRST_COMPUTE_RANGE_START..=FIRST_COMPUTE_RANGE_END => {
+                Some(self.position - FIRST_COMPUTE_RANGE_START)
+            }
+            SECOND_COMPUTE_RANGE_START..=SECOND_COMPUTE_RANGE_END => {
+                Some(self.position - SECOND_COMPUTE_RANGE_START + 8)
+            }
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RackUnit {
     pub position: u8,

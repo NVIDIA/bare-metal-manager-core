@@ -159,7 +159,6 @@ func (o *ManagedHostQuarantineState) UnmarshalJSON(data []byte) (err error) {
 	varManagedHostQuarantineState := _ManagedHostQuarantineState{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varManagedHostQuarantineState)
 
 	if err != nil {

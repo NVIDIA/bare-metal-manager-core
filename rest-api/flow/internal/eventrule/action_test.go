@@ -4,6 +4,7 @@
 package eventrule
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -50,9 +51,19 @@ func TestActionsValidate(t *testing.T) {
 		}),
 		NewAction("noop", ActionCondition{}, Noop{Reason: "record only"}),
 	)
+	wantStrategies := append(
+		slices.Clone(strategies),
+		TargetStrategyNone,
+		TargetStrategyNone,
+	)
 
 	for i := range actions {
 		require.NoError(t, actions[i].Validate())
+		require.Equal(
+			t,
+			wantStrategies[i],
+			actions[i].Spec.TargetResolutionStrategy(),
+		)
 	}
 }
 
@@ -65,6 +76,8 @@ func TestActionRejectsInvalidDomainValues(t *testing.T) {
 	}
 	unknownStrategySpec := validTaskSpec
 	unknownStrategySpec.TargetStrategy = "unknown"
+	noneStrategySpec := validTaskSpec
+	noneStrategySpec.TargetStrategy = TargetStrategyNone
 	mismatchedOperationSpec := validTaskSpec
 	mismatchedOperationSpec.OperationCode = taskcommon.OpCodeFirmwareControlUpgrade
 	tests := map[string]Action{
@@ -80,6 +93,9 @@ func TestActionRejectsInvalidDomainValues(t *testing.T) {
 		"unknown strategy": NewAction(
 			"task", ActionCondition{}, unknownStrategySpec,
 		),
+		"task without target resolution": NewAction(
+			"task", ActionCondition{}, noneStrategySpec,
+		),
 		"mismatched operation": NewAction(
 			"task", ActionCondition{}, mismatchedOperationSpec,
 		),
@@ -89,6 +105,25 @@ func TestActionRejectsInvalidDomainValues(t *testing.T) {
 	for name, action := range tests {
 		t.Run(name, func(t *testing.T) {
 			require.Error(t, action.Validate())
+		})
+	}
+}
+
+func TestTargetStrategy_RequiresResolution(t *testing.T) {
+	tests := map[string]struct {
+		strategy TargetStrategy
+		want     bool
+	}{
+		"none":                {strategy: TargetStrategyNone},
+		"component":           {strategy: TargetStrategyComponent, want: true},
+		"rack":                {strategy: TargetStrategyRack, want: true},
+		"affected components": {strategy: TargetStrategyAffectedComponents, want: true},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			require.NoError(t, test.strategy.Validate())
+			require.Equal(t, test.want, test.strategy.RequiresResolution())
 		})
 	}
 }
@@ -132,18 +167,35 @@ func TestActionConditionAppliesTo(t *testing.T) {
 		"matches severity and component type": {
 			condition: condition,
 			envelope:  Envelope{Severity: SeverityCritical},
-			resource:  ResolvedResource{ComponentType: flowtypes.ComponentTypeCompute},
-			want:      true,
+			resource: ResolvedResource{
+				Kind:          ResourceKindComponent,
+				ComponentType: flowtypes.ComponentTypeCompute,
+			},
+			want: true,
 		},
 		"rejects severity": {
 			condition: condition,
 			envelope:  Envelope{Severity: SeverityInfo},
-			resource:  ResolvedResource{ComponentType: flowtypes.ComponentTypeCompute},
+			resource: ResolvedResource{
+				Kind:          ResourceKindComponent,
+				ComponentType: flowtypes.ComponentTypeCompute,
+			},
 		},
 		"rejects component type": {
 			condition: condition,
 			envelope:  Envelope{Severity: SeverityCritical},
-			resource:  ResolvedResource{ComponentType: flowtypes.ComponentTypeNVSwitch},
+			resource: ResolvedResource{
+				Kind:          ResourceKindComponent,
+				ComponentType: flowtypes.ComponentTypeNVSwitch,
+			},
+		},
+		"component type condition rejects rack": {
+			condition: condition,
+			envelope:  Envelope{Severity: SeverityCritical},
+			resource: ResolvedResource{
+				Kind:          ResourceKindRack,
+				ComponentType: flowtypes.ComponentTypeCompute,
+			},
 		},
 		"empty severity set matches nothing": {
 			condition: ActionCondition{Severities: []Severity{}},

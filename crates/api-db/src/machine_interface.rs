@@ -2431,11 +2431,19 @@ pub async fn find_for_update_by_ip(
         })
 }
 
-/// Find and lock an interface only when an allocated instance IP belongs to the same machine.
+/// Find and lock an interface only when an allocated instance IP identifies one instance on the
+/// same machine.
 ///
 /// The source address, instance, and interface ownership are resolved in one query so the
-/// caller-provided interface ID is only a selector within the source-derived machine. All three
-/// rows remain locked for the caller's transaction.
+/// caller-provided interface ID is only a selector within the source-derived machine. If the
+/// address belongs to more than one instance, there is not enough trusted context to select a
+/// machine and discovery fails closed. The selected machine interface and instance are locked;
+/// address ownership is checked in the same statement but its rows are not locked. Production
+/// inserts take an exclusive `instance_addresses` table lock, which conflicts with this query's
+/// access-share lock until the discovery transaction finishes. A concurrent
+/// release may remove the address after this statement's snapshot, but it
+/// cannot redirect the selection to another instance; the selected instance
+/// and interface rows remain locked.
 pub async fn find_for_update_if_matches_instance_ip(
     txn: &mut PgConnection,
     interface_id: MachineInterfaceId,
@@ -2445,9 +2453,20 @@ pub async fn find_for_update_if_matches_instance_ip(
         machine_interface_snapshot_query!(),
         r#"
         JOIN instances i ON i.machine_id = mi.machine_id
-        JOIN instance_addresses ia ON ia.instance_id = i.id
-        WHERE mi.id = $1 AND ia.address = $2::inet
-        FOR UPDATE OF mi, i, ia
+        WHERE mi.id = $1
+          AND EXISTS (
+              SELECT 1
+              FROM instance_addresses matching_address
+              WHERE matching_address.instance_id = i.id
+                AND matching_address.address = $2::inet
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM instance_addresses owner
+              WHERE owner.address = $2::inet
+                AND owner.instance_id != i.id
+          )
+        FOR UPDATE OF mi, i
         "#,
     );
     let mut interfaces: Vec<MachineInterfaceSnapshot> = sqlx::query_as(QUERY)
@@ -2565,7 +2584,7 @@ pub async fn move_predicted_machine_interface_to_machine(
         != predicted_machine_interface.expected_network_segment_type
     {
         return Err(DatabaseError::internal(format!(
-            "Got DHCP for predicted host with MAC address {0} on network segment {1}, which is not of the expected type {2}",
+            "Got DHCP for predicted interface with MAC address {0} on network segment {1}, which is not of the expected type {2}",
             predicted_machine_interface.mac_address,
             network_segment.id,
             predicted_machine_interface.expected_network_segment_type,
@@ -2664,6 +2683,22 @@ pub async fn move_predicted_machine_interface_to_machine(
         txn,
     )
     .await?;
+
+    if predicted_machine_interface
+        .machine_id
+        .machine_type()
+        .is_dpu()
+    {
+        // Site Explorer is the trusted source for a DPU's OOB MAC. Preserve that trust when DHCP
+        // materializes the predicted row so anonymous DiscoverMachine can authenticate the DPU on
+        // its first attempt without being allowed to claim an arbitrary existing machine.
+        associate_interface_with_dpu_machine(
+            &machine_interface_id,
+            &predicted_machine_interface.machine_id,
+            txn,
+        )
+        .await?;
+    }
 
     // Resolve the promoted row's boot interface id. The prediction's value
     // comes from the live report and outranks an existing row value: that

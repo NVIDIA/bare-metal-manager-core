@@ -28,15 +28,13 @@ import (
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	flowv1 "github.com/NVIDIA/infra-controller/rest-api/proto/flow/gen/v1"
-	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 	temporalEnums "go.temporal.io/api/enums/v1"
-	tp "go.temporal.io/sdk/temporal"
 )
 
 // ~~~~~ Slot resolution helpers ~~~~~ //
 
-// resolveTrayIDsBySlot enumerates trays for the given baseSpec via Flow's
-// GetTrays workflow and returns the UUIDs of components at the requested slot.
+// resolveTrayIDsBySlot enumerates trays for the given baseSpec through Flow's
+// GetComponents and returns the UUIDs of components at the requested slot.
 //
 // baseSpec is the OperationTargetSpec the request would otherwise have
 // produced (rack scope, component-pinning ids/componentIds, or "all trays
@@ -46,40 +44,31 @@ import (
 //
 // Flow has no by-slot component target shape; REST resolves slotId to
 // component UUIDs and drives downstream workflows with ComponentTargets.
+//
+// It returns the proxy's own APIError rather than a plain error so a slot
+// filter cannot downgrade the status the endpoint would otherwise report: a
+// timeout here means the same thing to a client as a timeout on the call the
+// slot resolution precedes.
 func resolveTrayIDsBySlot(
 	ctx context.Context,
 	stc tClient.Client,
 	baseSpec *flowv1.OperationTargetSpec,
 	slot model.RackComponentSlotMatcher,
-) ([]string, error) {
+) ([]string, *cutil.APIError) {
 	flowReq := &flowv1.GetComponentsRequest{TargetSpec: baseSpec}
 
 	workflowID := fmt.Sprintf("tray-resolve-by-slot-%s",
 		common.RequestHash(flowReq))
-	workflowOptions := tClient.StartWorkflowOptions{
-		ID:                       workflowID,
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-		TaskQueue:                queue.SiteTaskQueue,
-		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
-		WorkflowIDConflictPolicy: temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-	}
-
-	wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
-
-	we, err := stc.ExecuteWorkflow(wfCtx, workflowOptions, "GetTrays", flowReq)
-	if err != nil {
-		return nil, fmt.Errorf("execute GetTrays workflow: %w", err)
-	}
-
 	var resp flowv1.GetComponentsResponse
-	err = we.Get(wfCtx, &resp)
-	if err != nil {
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) || errors.Is(err, context.DeadlineExceeded) || wfCtx.Err() != nil {
-			return nil, fmt.Errorf("GetTrays workflow timed out: %w", err)
-		}
-		return nil, fmt.Errorf("get GetTrays result: %w", err)
+	apiErr := common.ExecuteFlowGRPC(
+		ctx, stc,
+		flowv1.Flow_GetComponents_FullMethodName,
+		flowReq, &resp,
+		common.FlowWorkflowID(workflowID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		"",
+	)
+	if apiErr != nil {
+		return nil, apiErr
 	}
 
 	ids := make([]string, 0, len(resp.GetComponents()))
@@ -236,34 +225,19 @@ func (gth GetTrayHandler) Handle(c echo.Context) error {
 	}
 
 	// Execute workflow
-	workflowOptions := tClient.StartWorkflowOptions{
-		ID:                       fmt.Sprintf("tray-get-%s", trayStrID),
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-		TaskQueue:                queue.SiteTaskQueue,
-		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
-
-	we, err := stc.ExecuteWorkflow(ctx, workflowOptions, "GetTray", flowRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to execute GetTray workflow")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to get Tray details", nil)
-	}
-
-	// Get workflow result
+	//
+	// Concurrent identical reads do not coalesce here, unlike the tray reads
+	// below. Whether they should is a question about this endpoint rather than
+	// about its transport, so the policy crosses to the proxy unchanged.
 	var flowResponse flowv1.GetComponentInfoResponse
-	err = we.Get(ctx, &flowResponse)
-	if err != nil {
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || ctx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, fmt.Sprintf("tray-get-%s", trayStrID), err, "Tray", "GetTray")
-		}
-		code, err := common.UnwrapWorkflowError(err)
-		logger.Error().Err(err).Msg("failed to get result from GetTray workflow")
-
-		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to get Tray details: %s", err), nil)
+	proxyErr := common.ProxyFlowGRPC(
+		ctx, c, logger, stc,
+		flowv1.Flow_GetComponentInfoByID_FullMethodName,
+		flowRequest, &flowResponse,
+		common.FlowWorkflowID(fmt.Sprintf("tray-get-%s", trayStrID)), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_UNSPECIFIED,
+	)
+	if proxyErr != nil {
+		return proxyErr
 	}
 
 	// Convert to API model
@@ -445,34 +419,19 @@ func (gath GetAllTrayHandler) Handle(c echo.Context) error {
 	workflowID := fmt.Sprintf("tray-get-all-%s", common.QueryParamHash(hashValues))
 
 	// Execute workflow
-	workflowOptions := tClient.StartWorkflowOptions{
-		ID:                       workflowID,
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-		TaskQueue:                queue.SiteTaskQueue,
-		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
-
-	we, err := stc.ExecuteWorkflow(ctx, workflowOptions, "GetTrays", flowRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to execute GetTrays workflow")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to get Trays", nil)
-	}
-
-	// Get workflow result
+	//
+	// As in GetTrayHandler, concurrent identical reads do not coalesce, and
+	// changing that is a decision about the endpoint rather than part of moving
+	// it onto the proxy.
 	var flowResponse flowv1.GetComponentsResponse
-	err = we.Get(ctx, &flowResponse)
-	if err != nil {
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || ctx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Tray", "GetTrays")
-		}
-		code, err := common.UnwrapWorkflowError(err)
-		logger.Error().Err(err).Msg("failed to get result from GetTrays workflow")
-
-		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to get Trays: %s", err), nil)
+	proxyErr := common.ProxyFlowGRPC(
+		ctx, c, logger, stc,
+		flowv1.Flow_GetComponents_FullMethodName,
+		flowRequest, &flowResponse,
+		common.FlowWorkflowID(workflowID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_UNSPECIFIED,
+	)
+	if proxyErr != nil {
+		return proxyErr
 	}
 
 	components := flowResponse.GetComponents()
@@ -657,35 +616,15 @@ func (vth ValidateTrayHandler) Handle(c echo.Context) error {
 	}
 
 	// Execute workflow
-	workflowOptions := tClient.StartWorkflowOptions{
-		ID:                       fmt.Sprintf("tray-validate-%s", trayStrID),
-		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
-		WorkflowIDConflictPolicy: temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-		TaskQueue:                queue.SiteTaskQueue,
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
-
-	we, err := stc.ExecuteWorkflow(ctx, workflowOptions, "ValidateRackComponents", flowRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to execute ValidateComponents workflow")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to validate Tray", nil)
-	}
-
-	// Get workflow result
 	var flowResponse flowv1.ValidateComponentsResponse
-	err = we.Get(ctx, &flowResponse)
-	if err != nil {
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || ctx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, fmt.Sprintf("tray-validate-%s", trayStrID), err, "Tray", "ValidateRackComponents")
-		}
-		code, err := common.UnwrapWorkflowError(err)
-		logger.Error().Err(err).Msg("failed to get result from ValidateComponents workflow")
-
-		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to validate Tray: %s", err), nil)
+	proxyErr := common.ProxyFlowGRPC(
+		ctx, c, logger, stc,
+		flowv1.Flow_ValidateComponents_FullMethodName,
+		flowRequest, &flowResponse,
+		common.FlowWorkflowID(fmt.Sprintf("tray-validate-%s", trayStrID)), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+	)
+	if proxyErr != nil {
+		return proxyErr
 	}
 
 	// Convert to API model
@@ -825,8 +764,8 @@ func (vtsh ValidateTraysHandler) Handle(c echo.Context) error {
 		ids, resolveErr := resolveTrayIDsBySlot(ctx, stc, targetSpec,
 			model.RackComponentSlotMatcher{SlotID: apiRequest.SlotID})
 		if resolveErr != nil {
-			logger.Error().Err(resolveErr).Msg("failed to resolve trays by slot")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to resolve Trays by slot", nil)
+			logger.Error().Err(resolveErr.Diagnosis()).Msg("failed to resolve trays by slot")
+			return cutil.NewAPIErrorResponse(c, resolveErr.Code, resolveErr.Message, nil)
 		}
 		if len(ids) == 0 {
 			logger.Info().Msg("no trays match slot filter; returning empty validation result")
@@ -842,35 +781,15 @@ func (vtsh ValidateTraysHandler) Handle(c echo.Context) error {
 
 	workflowID := fmt.Sprintf("tray-validate-all-%s", common.QueryParamHash(apiRequest.QueryValues()))
 
-	workflowOptions := tClient.StartWorkflowOptions{
-		ID:                       workflowID,
-		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
-		WorkflowIDConflictPolicy: temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-		TaskQueue:                queue.SiteTaskQueue,
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
-
-	we, err := stc.ExecuteWorkflow(ctx, workflowOptions, "ValidateRackComponents", flowRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to execute ValidateComponents workflow")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to validate Trays", nil)
-	}
-
-	// Get workflow result
 	var flowResponse flowv1.ValidateComponentsResponse
-	err = we.Get(ctx, &flowResponse)
-	if err != nil {
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || ctx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Tray", "ValidateRackComponents")
-		}
-		code, err := common.UnwrapWorkflowError(err)
-		logger.Error().Err(err).Msg("failed to get result from ValidateComponents workflow")
-
-		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to validate Trays: %s", err), nil)
+	proxyErr := common.ProxyFlowGRPC(
+		ctx, c, logger, stc,
+		flowv1.Flow_ValidateComponents_FullMethodName,
+		flowRequest, &flowResponse,
+		common.FlowWorkflowID(workflowID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+	)
+	if proxyErr != nil {
+		return proxyErr
 	}
 
 	// Convert to API model
@@ -1127,8 +1046,8 @@ func (pctbh BatchUpdateTrayPowerStateHandler) Handle(c echo.Context) error {
 		ids, resolveErr := resolveTrayIDsBySlot(ctx, stc, targetSpec,
 			model.RackComponentSlotMatcher{SlotID: request.Filter.SlotID})
 		if resolveErr != nil {
-			logger.Error().Err(resolveErr).Msg("failed to resolve trays by slot")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to resolve Trays by slot", nil)
+			logger.Error().Err(resolveErr.Diagnosis()).Msg("failed to resolve trays by slot")
+			return cutil.NewAPIErrorResponse(c, resolveErr.Code, resolveErr.Message, nil)
 		}
 		if len(ids) == 0 {
 			logger.Info().Msg("no trays match slot filter; returning empty task list")
@@ -1391,8 +1310,8 @@ func (futbh BatchUpdateTrayFirmwareHandler) Handle(c echo.Context) error {
 		ids, resolveErr := resolveTrayIDsBySlot(ctx, stc, targetSpec,
 			model.RackComponentSlotMatcher{SlotID: request.Filter.SlotID})
 		if resolveErr != nil {
-			logger.Error().Err(resolveErr).Msg("failed to resolve trays by slot")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to resolve Trays by slot", nil)
+			logger.Error().Err(resolveErr.Diagnosis()).Msg("failed to resolve trays by slot")
+			return cutil.NewAPIErrorResponse(c, resolveErr.Code, resolveErr.Message, nil)
 		}
 		if len(ids) == 0 {
 			logger.Info().Msg("no trays match slot filter; returning empty task list")

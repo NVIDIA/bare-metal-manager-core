@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -20,6 +21,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	oteltrace "go.opentelemetry.io/otel/trace"
+	temporalEnums "go.temporal.io/api/enums/v1"
 	tmocks "go.temporal.io/sdk/mocks"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -27,6 +29,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/grpcproxy"
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	flowv1 "github.com/NVIDIA/infra-controller/rest-api/proto/flow/gen/v1"
@@ -153,12 +156,9 @@ func TestCreateRuleHandler_Handle(t *testing.T) {
 			mockRun := &tmocks.WorkflowRun{}
 			mockRun.On("GetID").Return("test-workflow-id")
 			if tt.mockResp != nil {
-				mockRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-					resp := args.Get(1).(*flowv1.CreateOperationRuleResponse)
-					resp.Id = tt.mockResp.Id
-				}).Return(nil)
+				testFlowProxyReply(t, mockRun, &flowv1.CreateOperationRuleResponse{Id: tt.mockResp.Id})
 			}
-			mockTC.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "CreateTaskRule", mock.Anything).Return(mockRun, tt.mockExecErr)
+			started := testFlowProxyDispatch(t, mockTC, mockRun, flowv1.Flow_CreateOperationRule_FullMethodName, tt.mockExecErr)
 			scp.IDClientMap[site.ID.String()] = mockTC
 
 			bodyBytes, err := json.Marshal(tt.body)
@@ -181,6 +181,11 @@ func TestCreateRuleHandler_Handle(t *testing.T) {
 			if tt.expectedStatus != http.StatusCreated {
 				return
 			}
+
+			// A per-request ID is what keeps two creates from becoming one
+			// rule, so the policy that resolves a collision never applies.
+			assert.True(t, strings.HasPrefix(started.ID, "flow-grpc-task-rule-create-"), "workflow ID = %q", started.ID)
+			assert.Equal(t, temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_UNSPECIFIED, started.WorkflowIDConflictPolicy)
 
 			var got model.APITaskRule
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
@@ -278,21 +283,9 @@ func TestGetRuleHandler_Handle(t *testing.T) {
 			mockRun := &tmocks.WorkflowRun{}
 			mockRun.On("GetID").Return("test-workflow-id")
 			if tt.mockRule != nil {
-				src := tt.mockRule
-				mockRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-					resp := args.Get(1).(*flowv1.OperationRule)
-					resp.Id = src.Id
-					resp.Name = src.Name
-					resp.Description = src.Description
-					resp.OperationType = src.OperationType
-					resp.OperationCode = src.OperationCode
-					resp.RuleDefinitionJson = src.RuleDefinitionJson
-					resp.IsDefault = src.IsDefault
-					resp.CreatedAt = src.CreatedAt
-					resp.UpdatedAt = src.UpdatedAt
-				}).Return(nil)
+				testFlowProxyReply(t, mockRun, tt.mockRule)
 			}
-			mockTC.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "GetTaskRule", mock.Anything).Return(mockRun, nil)
+			testFlowProxyDispatch(t, mockTC, mockRun, flowv1.Flow_GetOperationRule_FullMethodName, nil)
 			scp.IDClientMap[site.ID.String()] = mockTC
 
 			q := url.Values{}
@@ -414,17 +407,17 @@ func TestListRulesHandler_Handle(t *testing.T) {
 			mockRun := &tmocks.WorkflowRun{}
 			mockRun.On("GetID").Return("test-workflow-id")
 			if tt.mockRules != nil {
-				mockRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-					resp := args.Get(1).(*flowv1.ListOperationRulesResponse)
-					resp.Rules = tt.mockRules
-					resp.TotalCount = int32(len(tt.mockRules))
-				}).Return(nil)
+				testFlowProxyReply(t, mockRun, &flowv1.ListOperationRulesResponse{
+					Rules:      tt.mockRules,
+					TotalCount: int32(len(tt.mockRules)),
+				})
 			}
-			mockTC.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "GetAllTaskRules", mock.Anything).
+			mockTC.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, grpcproxy.Flow.WorkflowName, mock.Anything).
 				Run(func(args mock.Arguments) {
+					assert.Equal(t, flowv1.Flow_ListOperationRules_FullMethodName, args.Get(3).(grpcproxy.Request).FullMethod)
 					if tt.assertFlowReq != nil {
-						req, ok := args.Get(3).(*flowv1.ListOperationRulesRequest)
-						require.True(t, ok)
+						req := &flowv1.ListOperationRulesRequest{}
+						testFlowProxyRequest(t, args, req)
 						tt.assertFlowReq(t, req)
 					}
 				}).
@@ -540,7 +533,7 @@ func TestUpdateRuleHandler_Handle(t *testing.T) {
 			mockRun := &tmocks.WorkflowRun{}
 			mockRun.On("GetID").Return("test-workflow-id")
 			mockRun.Mock.On("Get", mock.Anything, mock.Anything).Return(tt.mockGetErr)
-			mockTC.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "UpdateTaskRule", mock.Anything).Return(mockRun, tt.mockExecErr)
+			started := testFlowProxyDispatch(t, mockTC, mockRun, flowv1.Flow_UpdateOperationRule_FullMethodName, tt.mockExecErr)
 			scp.IDClientMap[site.ID.String()] = mockTC
 
 			bodyBytes, err := json.Marshal(tt.body)
@@ -558,6 +551,16 @@ func TestUpdateRuleHandler_Handle(t *testing.T) {
 
 			_ = handler.Handle(ec)
 			require.Equal(t, tt.expectedStatus, rec.Code, "body=%s", rec.Body.String())
+
+			if tt.expectedStatus != http.StatusNoContent {
+				return
+			}
+
+			// Concurrent updates to one rule must stay separate executions, so
+			// the ID carries a per-request suffix and never resolves a
+			// collision by reading another request's result.
+			assert.True(t, strings.HasPrefix(started.ID, fmt.Sprintf("flow-grpc-task-rule-update-%s-", tt.ruleID)), "workflow ID = %q", started.ID)
+			assert.Equal(t, temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_UNSPECIFIED, started.WorkflowIDConflictPolicy)
 		})
 	}
 }
@@ -624,7 +627,7 @@ func TestDeleteRuleHandler_Handle(t *testing.T) {
 			mockRun := &tmocks.WorkflowRun{}
 			mockRun.On("GetID").Return("test-workflow-id")
 			mockRun.Mock.On("Get", mock.Anything, mock.Anything).Return(nil)
-			mockTC.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "DeleteTaskRule", mock.Anything).Return(mockRun, nil)
+			testFlowProxyDispatch(t, mockTC, mockRun, flowv1.Flow_DeleteOperationRule_FullMethodName, nil)
 			scp.IDClientMap[site.ID.String()] = mockTC
 
 			q := url.Values{}

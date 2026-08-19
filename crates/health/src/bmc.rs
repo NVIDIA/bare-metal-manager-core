@@ -16,6 +16,7 @@
  */
 
 use std::any::{Any, type_name};
+use std::num::NonZeroUsize;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
@@ -27,7 +28,7 @@ use futures::TryStreamExt;
 use http::HeaderMap;
 use http::header::{self, InvalidHeaderValue};
 use nv_redfish::bmc_http::reqwest::{BmcError, Client as ReqwestClient};
-use nv_redfish::bmc_http::{CacheSettings, HttpBmc, HttpClient};
+use nv_redfish::bmc_http::{CacheSettings, ConcurrencyLimitedBmc, HttpBmc, HttpClient};
 use nv_redfish::core::query::{ExpandQuery, FilterQuery};
 use nv_redfish::core::upload::{MultipartUpdateRequest, UploadReader};
 use nv_redfish::core::{
@@ -196,12 +197,14 @@ pub(crate) fn bmc_latency_endpoint_labels(
 }
 
 pub struct BmcClient {
-    inner: HttpBmc<InstrumentedHttpClient>,
+    /// Enforces this endpoint's configured Redfish operation limit.
+    inner: ConcurrencyLimitedBmc<HttpBmc<InstrumentedHttpClient>>,
     addr: BmcAddr,
     provider: Arc<dyn CredentialProvider>,
     credential_generation: AtomicU64,
     init: OnceCell<()>,
     refresh_lock: Mutex<()>,
+
     circuit: StdMutex<CircuitState>,
     /// Lock-free fast-path hint mirroring `circuit`: `false` iff the circuit is
     /// `Closed`. Lets the healthy request path (the overwhelmingly common case)
@@ -226,6 +229,7 @@ impl BmcClient {
         provider: Arc<dyn CredentialProvider>,
         proxy_url: Option<Url>,
         cache_size: usize,
+        request_concurrency: NonZeroUsize,
         bmc_latency_instrumentation: Option<BmcLatencyInstrumentation>,
     ) -> Result<Self, HealthError> {
         let server_address = bmc_server_address(&addr);
@@ -251,7 +255,9 @@ impl BmcClient {
             placeholder,
             CacheSettings::with_capacity(cache_size),
             headers,
-        );
+        )
+        .with_request_concurrency_limit(request_concurrency);
+
         Ok(Self {
             inner,
             addr,
@@ -1290,6 +1296,8 @@ mod tests {
     use crate::endpoint::BmcAddr;
     use crate::metrics::BmcLatencyAttribute;
 
+    const TEST_REQUEST_CONCURRENCY: NonZeroUsize = NonZeroUsize::MIN;
+
     struct CountingProvider {
         calls: Arc<AtomicUsize>,
         delay: Option<Duration>,
@@ -1366,6 +1374,34 @@ mod tests {
             .expect("reqwest client builds")
     }
 
+    fn reqwest_with_timeout(timeout: Duration) -> ReqwestClient {
+        ReqwestClient::with_params(
+            ReqwestClientParams::new()
+                .accept_invalid_certs(true)
+                .timeout(timeout),
+        )
+        .expect("reqwest client builds")
+    }
+
+    fn test_bmc(
+        reqwest: ReqwestClient,
+        addr: BmcAddr,
+        provider: Arc<dyn CredentialProvider>,
+        proxy_url: Option<Url>,
+        cache_size: usize,
+        bmc_latency_instrumentation: Option<BmcLatencyInstrumentation>,
+    ) -> Result<BmcClient, HealthError> {
+        BmcClient::new(
+            reqwest,
+            addr,
+            provider,
+            proxy_url,
+            cache_size,
+            TEST_REQUEST_CONCURRENCY,
+            bmc_latency_instrumentation,
+        )
+    }
+
     fn bmc_status_error(status: http::StatusCode) -> BmcError {
         BmcError::InvalidResponse {
             url: Url::parse("https://127.0.0.1/redfish/v1").expect("valid url"),
@@ -1381,7 +1417,7 @@ mod tests {
             },
             None,
         );
-        BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("constructor ok")
+        test_bmc(reqwest(), test_addr(), provider, None, 10, None).expect("constructor ok")
     }
 
     fn dummy_error() -> HealthError {
@@ -1428,9 +1464,8 @@ mod tests {
             port: Some(port),
             mac: MacAddress::from_str("00:11:22:33:44:55").expect("mac"),
         };
-        let client = Arc::new(
-            BmcClient::new(reqwest(), addr, provider, None, 10, None).expect("constructor ok"),
-        );
+        let client =
+            Arc::new(test_bmc(reqwest(), addr, provider, None, 10, None).expect("constructor ok"));
 
         assert_eq!(
             client.collector_sweep(),
@@ -1447,6 +1482,86 @@ mod tests {
             CollectorSweep::Skip,
             "a genuine connect failure must be classified as a connection error and open the breaker"
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn request_concurrency_limits_parallel_transport_attempts() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind test listener");
+
+        let proxy_url = Url::parse(&format!(
+            "http://{}",
+            listener.local_addr().expect("listener address")
+        ))
+        .expect("test proxy URL");
+
+        let (provider, _) = CountingProvider::new(
+            BmcCredentials::SessionToken {
+                token: "t".to_string(),
+            },
+            None,
+        );
+
+        let client = Arc::new(
+            BmcClient::new(
+                reqwest_with_timeout(Duration::from_millis(200)),
+                test_addr(),
+                provider,
+                Some(proxy_url),
+                10,
+                NonZeroUsize::MIN,
+                None,
+            )
+            .expect("constructor succeeds"),
+        );
+
+        client.ensure_credentials().await.expect("credentials load");
+
+        let first_client = Arc::clone(&client);
+
+        let first = tokio::spawn(async move {
+            first_client
+                .inner
+                .get::<nv_redfish::schema::service_root::ServiceRoot>(&ODataId::from(
+                    "/redfish/v1/".to_string(),
+                ))
+                .await
+        });
+
+        let (_first_connection, _) =
+            tokio::time::timeout(Duration::from_secs(1), listener.accept())
+                .await
+                .expect("first request reaches transport")
+                .expect("accept first request");
+
+        let second_client = Arc::clone(&client);
+
+        let second = tokio::spawn(async move {
+            second_client
+                .inner
+                .get::<nv_redfish::schema::service_root::ServiceRoot>(&ODataId::from(
+                    "/redfish/v1/".to_string(),
+                ))
+                .await
+        });
+
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), listener.accept())
+                .await
+                .is_err(),
+            "second request must wait while the first holds the only permit"
+        );
+
+        assert!(first.await.expect("first task joins").is_err());
+
+        let (_second_connection, _) =
+            tokio::time::timeout(Duration::from_secs(1), listener.accept())
+                .await
+                .expect("second request reaches transport after permit release")
+                .expect("accept second request");
+
+        assert!(second.await.expect("second task joins").is_err());
     }
 
     #[test]
@@ -1643,7 +1758,7 @@ mod tests {
             },
             None,
         );
-        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10, None)
+        let client = test_bmc(reqwest(), test_addr(), provider, None, 10, None)
             .expect("constructor succeeds");
 
         assert_eq!(
@@ -1667,7 +1782,7 @@ mod tests {
             Some(Duration::from_millis(50)),
         );
         let client =
-            Arc::new(BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("ok"));
+            Arc::new(test_bmc(reqwest(), test_addr(), provider, None, 10, None).expect("ok"));
 
         let mut handles = Vec::new();
         for _ in 0..16 {
@@ -1711,7 +1826,7 @@ mod tests {
         let provider = Arc::new(FlakyProvider {
             attempts: AtomicUsize::new(0),
         });
-        let client = BmcClient::new(reqwest(), test_addr(), provider.clone(), None, 10, None)
+        let client = test_bmc(reqwest(), test_addr(), provider.clone(), None, 10, None)
             .expect("constructor succeeds");
 
         assert!(client.ensure_credentials().await.is_err());
@@ -1730,7 +1845,7 @@ mod tests {
             Some(Duration::from_millis(50)),
         );
         let client =
-            Arc::new(BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("ok"));
+            Arc::new(test_bmc(reqwest(), test_addr(), provider, None, 10, None).expect("ok"));
         client.ensure_credentials().await.expect("init ok");
         assert_eq!(calls.load(AtomicOrdering::SeqCst), 1);
 
@@ -1791,7 +1906,7 @@ mod tests {
             handed_out: StdMutex::new(Vec::new()),
             calls: calls.clone(),
         });
-        let client = BmcClient::new(reqwest(), test_addr(), provider.clone(), None, 10, None)
+        let client = test_bmc(reqwest(), test_addr(), provider.clone(), None, 10, None)
             .expect("constructor ok");
 
         client.ensure_credentials().await.expect("init ok");
@@ -1825,7 +1940,7 @@ mod tests {
         }
 
         let client = Arc::new(
-            BmcClient::new(
+            test_bmc(
                 reqwest(),
                 test_addr(),
                 Arc::new(HangingProvider),
@@ -1863,7 +1978,7 @@ mod tests {
         }
 
         let client = Arc::new(
-            BmcClient::new(
+            test_bmc(
                 reqwest(),
                 test_addr(),
                 Arc::new(HangingProvider),
@@ -1895,7 +2010,7 @@ mod tests {
             },
             None,
         );
-        let recovered = BmcClient::new(reqwest(), test_addr(), recovery_provider, None, 10, None)
+        let recovered = test_bmc(reqwest(), test_addr(), recovery_provider, None, 10, None)
             .expect("constructor ok");
         recovered.ensure_credentials().await.expect("recovery ok");
         assert_eq!(recovery_calls.load(AtomicOrdering::SeqCst), 1);
@@ -1943,7 +2058,7 @@ mod tests {
             },
             None,
         );
-        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
+        let client = test_bmc(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
         let (op, attempts) = scripted_op(vec![Err(auth_error()), Ok("body")]);
 
         let value = client
@@ -1969,7 +2084,7 @@ mod tests {
             },
             None,
         );
-        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
+        let client = test_bmc(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
         let (op, attempts) = scripted_op(vec![Err(HealthError::HttpError(
             "request failed with HTTP 404".to_string(),
         ))]);
@@ -1997,7 +2112,7 @@ mod tests {
             },
             None,
         );
-        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
+        let client = test_bmc(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
         let (op, attempts) = scripted_op(vec![Err(auth_error()), Err(auth_error())]);
 
         client
@@ -2040,7 +2155,7 @@ mod tests {
         let provider = Arc::new(InitOnceThenFailingProvider {
             calls: AtomicUsize::new(0),
         });
-        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
+        let client = test_bmc(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
         let (op, attempts) = scripted_op(vec![Err(auth_error())]);
 
         let error = client
@@ -2070,7 +2185,7 @@ mod tests {
             },
             None,
         );
-        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
+        let client = test_bmc(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
         client.ensure_credentials().await.expect("init ok");
 
         let attempts = Arc::new(AtomicUsize::new(0));
@@ -2115,7 +2230,7 @@ mod tests {
             },
             None,
         );
-        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
+        let client = test_bmc(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
 
         let (first, first_attempts) = scripted_op(vec![Err(auth_error()), Err(auth_error())]);
         client
@@ -2159,7 +2274,7 @@ mod tests {
             },
             None,
         );
-        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
+        let client = test_bmc(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
         client.ensure_credentials().await.expect("init ok");
 
         let generation = client.credential_generation.load(Ordering::Acquire);
@@ -2193,7 +2308,7 @@ mod tests {
             },
             None,
         );
-        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
+        let client = test_bmc(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
         client.ensure_credentials().await.expect("init ok");
 
         let stale_generation = client.credential_generation.load(Ordering::Acquire) - 1;
@@ -2224,7 +2339,7 @@ mod tests {
             },
             None,
         );
-        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
+        let client = test_bmc(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
         client.ensure_credentials().await.expect("init ok");
 
         let observed = client.credential_generation.load(Ordering::Acquire);
@@ -2264,7 +2379,7 @@ mod tests {
             },
             None,
         );
-        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
+        let client = test_bmc(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
         client.ensure_credentials().await.expect("init ok");
 
         let attempts = Arc::new(AtomicUsize::new(0));
@@ -2306,7 +2421,7 @@ mod tests {
             },
             None,
         );
-        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
+        let client = test_bmc(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
         let (op, _) = scripted_op(vec![
             Err(auth_error()),
             Err(HealthError::HttpError("HTTP 500".to_string())),
@@ -2337,7 +2452,7 @@ mod tests {
             },
             None,
         );
-        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
+        let client = test_bmc(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
         let (op, attempts) = scripted_op(vec![Err(forbidden_error()), Err(forbidden_error())]);
 
         client
@@ -2367,7 +2482,7 @@ mod tests {
             },
             None,
         );
-        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
+        let client = test_bmc(reqwest(), test_addr(), provider, None, 10, None).expect("ok");
         let (op, _) = scripted_op(vec![Err(auth_error()), Err(auth_error())]);
 
         client
@@ -2556,7 +2671,7 @@ mod tests {
                 ),
             )
         });
-        let client = BmcClient::new(
+        let client = test_bmc(
             reqwest(),
             test_addr(),
             provider,

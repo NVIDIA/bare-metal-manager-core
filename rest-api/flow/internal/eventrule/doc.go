@@ -77,9 +77,10 @@
 // condition applies to every event.
 //
 // Task actions use a named TargetStrategy rather than an arbitrary inventory
-// query. Target resolution and side effects occur outside this package. If a
-// target strategy resolves no resources, the processor should record the
-// action as skipped and must not submit a task.
+// query; actions without targets use TargetStrategyNone. Target resolution and
+// side effects occur outside this package. If a target strategy resolves no
+// resources, the processor should record the action as skipped and must not
+// submit a task.
 //
 // # Validation boundaries
 //

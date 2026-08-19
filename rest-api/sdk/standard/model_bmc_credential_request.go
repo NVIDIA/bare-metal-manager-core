@@ -243,7 +243,6 @@ func (o *BMCCredentialRequest) UnmarshalJSON(data []byte) (err error) {
 	varBMCCredentialRequest := _BMCCredentialRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varBMCCredentialRequest)
 
 	if err != nil {

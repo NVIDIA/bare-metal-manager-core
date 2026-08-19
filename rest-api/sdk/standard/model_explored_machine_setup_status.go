@@ -182,7 +182,6 @@ func (o *ExploredMachineSetupStatus) UnmarshalJSON(data []byte) (err error) {
 	varExploredMachineSetupStatus := _ExploredMachineSetupStatus{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varExploredMachineSetupStatus)
 
 	if err != nil {

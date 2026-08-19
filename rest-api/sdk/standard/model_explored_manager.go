@@ -146,7 +146,6 @@ func (o *ExploredManager) UnmarshalJSON(data []byte) (err error) {
 	varExploredManager := _ExploredManager{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varExploredManager)
 
 	if err != nil {

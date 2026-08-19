@@ -148,7 +148,6 @@ func (o *MachinePowerControlRequest) UnmarshalJSON(data []byte) (err error) {
 	varMachinePowerControlRequest := _MachinePowerControlRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varMachinePowerControlRequest)
 
 	if err != nil {

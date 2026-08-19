@@ -36,3 +36,6 @@ path = "fuzz_targets/ssh_console_escape_filter.rs"
 test = false
 doc = false
 bench = false
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"

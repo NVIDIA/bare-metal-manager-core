@@ -281,7 +281,6 @@ func (o *SiteCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	varSiteCreateRequest := _SiteCreateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varSiteCreateRequest)
 
 	if err != nil {

@@ -111,7 +111,6 @@ func (o *TenantIdentityJWKS) UnmarshalJSON(data []byte) (err error) {
 	varTenantIdentityJWKS := _TenantIdentityJWKS{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varTenantIdentityJWKS)
 
 	if err != nil {

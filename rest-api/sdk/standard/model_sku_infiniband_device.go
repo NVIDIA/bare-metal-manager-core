@@ -27,9 +27,9 @@ type SkuInfinibandDevice struct {
 	// Model of the infiniband device
 	Model *string `json:"model,omitempty"`
 	// Number of infiniband devices present
-	Count *int32 `json:"count,omitempty"`
+	Count *uint32 `json:"count,omitempty"`
 	// Zero-based indexes of inactive devices
-	InactiveDevices []int32 `json:"inactiveDevices,omitempty"`
+	InactiveDevices []uint32 `json:"inactiveDevices,omitempty"`
 }
 
 // NewSkuInfinibandDevice instantiates a new SkuInfinibandDevice object
@@ -114,9 +114,9 @@ func (o *SkuInfinibandDevice) SetModel(v string) {
 }
 
 // GetCount returns the Count field value if set, zero value otherwise.
-func (o *SkuInfinibandDevice) GetCount() int32 {
+func (o *SkuInfinibandDevice) GetCount() uint32 {
 	if o == nil || IsNil(o.Count) {
-		var ret int32
+		var ret uint32
 		return ret
 	}
 	return *o.Count
@@ -124,7 +124,7 @@ func (o *SkuInfinibandDevice) GetCount() int32 {
 
 // GetCountOk returns a tuple with the Count field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SkuInfinibandDevice) GetCountOk() (*int32, bool) {
+func (o *SkuInfinibandDevice) GetCountOk() (*uint32, bool) {
 	if o == nil || IsNil(o.Count) {
 		return nil, false
 	}
@@ -140,15 +140,15 @@ func (o *SkuInfinibandDevice) HasCount() bool {
 	return false
 }
 
-// SetCount gets a reference to the given int32 and assigns it to the Count field.
-func (o *SkuInfinibandDevice) SetCount(v int32) {
+// SetCount gets a reference to the given uint32 and assigns it to the Count field.
+func (o *SkuInfinibandDevice) SetCount(v uint32) {
 	o.Count = &v
 }
 
 // GetInactiveDevices returns the InactiveDevices field value if set, zero value otherwise.
-func (o *SkuInfinibandDevice) GetInactiveDevices() []int32 {
+func (o *SkuInfinibandDevice) GetInactiveDevices() []uint32 {
 	if o == nil || IsNil(o.InactiveDevices) {
-		var ret []int32
+		var ret []uint32
 		return ret
 	}
 	return o.InactiveDevices
@@ -156,7 +156,7 @@ func (o *SkuInfinibandDevice) GetInactiveDevices() []int32 {
 
 // GetInactiveDevicesOk returns a tuple with the InactiveDevices field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SkuInfinibandDevice) GetInactiveDevicesOk() ([]int32, bool) {
+func (o *SkuInfinibandDevice) GetInactiveDevicesOk() ([]uint32, bool) {
 	if o == nil || IsNil(o.InactiveDevices) {
 		return nil, false
 	}
@@ -172,8 +172,8 @@ func (o *SkuInfinibandDevice) HasInactiveDevices() bool {
 	return false
 }
 
-// SetInactiveDevices gets a reference to the given []int32 and assigns it to the InactiveDevices field.
-func (o *SkuInfinibandDevice) SetInactiveDevices(v []int32) {
+// SetInactiveDevices gets a reference to the given []uint32 and assigns it to the InactiveDevices field.
+func (o *SkuInfinibandDevice) SetInactiveDevices(v []uint32) {
 	o.InactiveDevices = v
 }
 

@@ -22,6 +22,7 @@ pub mod metrics_drain;
 use std::time::Duration;
 
 use carbide_instrument::LabelValue;
+use opentelemetry::StringValue;
 use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
 
 use crate::HealthError;
@@ -35,6 +36,34 @@ const OTLP_RELOAD_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 pub(crate) enum OtlpSignal {
     Logs,
     Metrics,
+}
+
+/// An OTLP endpoint selected from the finite target list loaded at startup.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ConfiguredOtlpTarget(pub(crate) String);
+
+impl LabelValue for ConfiguredOtlpTarget {
+    fn label_value(&self) -> StringValue {
+        self.0.clone().into()
+    }
+}
+
+/// An OTLP queue dropped its oldest entry to admit a new identity.
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "otlp_queue_entry_dropped",
+    metric_name = "carbide_health_otlp_queue_dropped_total",
+    component = "nico-hardware-health",
+    log = off,
+    metric = counter,
+    message = "otlp queue dropped its oldest entry",
+    describe = "Number of OTLP queue entries dropped because a per-target queue reached capacity, by target and signal."
+)]
+pub(crate) struct OtlpQueueEntryDropped {
+    #[label]
+    pub(crate) target: ConfiguredOtlpTarget,
+    #[label]
+    pub(crate) signal: OtlpSignal,
 }
 
 /// Builds an OTLP endpoint with the target's current TLS or mTLS policy.
@@ -224,6 +253,7 @@ mod tests {
             endpoint: format!("https://{address}"),
             tls: None,
             batch_size: 1,
+            queue_capacity: OtlpTargetConfig::DEFAULT_QUEUE_CAPACITY,
             flush_interval: Duration::from_secs(1),
             include_diagnostics: false,
             include_alert_details: false,
@@ -264,6 +294,7 @@ mod tests {
             endpoint: format!("https://{address}"),
             tls: None,
             batch_size: 1,
+            queue_capacity: OtlpTargetConfig::DEFAULT_QUEUE_CAPACITY,
             flush_interval: Duration::from_secs(1),
             include_diagnostics: false,
             include_alert_details: false,

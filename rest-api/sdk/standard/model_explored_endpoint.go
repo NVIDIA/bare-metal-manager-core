@@ -379,7 +379,6 @@ func (o *ExploredEndpoint) UnmarshalJSON(data []byte) (err error) {
 	varExploredEndpoint := _ExploredEndpoint{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varExploredEndpoint)
 
 	if err != nil {

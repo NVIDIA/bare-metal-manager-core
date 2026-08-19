@@ -34,7 +34,7 @@ func TestOperationValidateRejectsInvalidTargetSpec(t *testing.T) {
 	op.TargetSpec = &operation.TargetSpec{}
 
 	err := op.Validate()
-	require.ErrorContains(t, err, "target_spec: target_spec must have either racks or components set")
+	require.ErrorContains(t, err, "target_spec: target_spec must have exactly one of racks, nvl_domains, or components set")
 }
 
 func TestOperationValidateRejectsDefaultScopeFilterWithTargetSpec(t *testing.T) {

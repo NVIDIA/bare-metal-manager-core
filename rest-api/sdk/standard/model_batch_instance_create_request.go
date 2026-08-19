@@ -878,7 +878,6 @@ func (o *BatchInstanceCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	varBatchInstanceCreateRequest := _BatchInstanceCreateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varBatchInstanceCreateRequest)
 
 	if err != nil {

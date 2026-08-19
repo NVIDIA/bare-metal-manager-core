@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use bmc_mock::{HardwareType, RackType};
+use bmc_mock::{HardwareType, RackPlacement, RackType};
 use carbide_uuid::rack::{RackId, RackProfileId};
 use serde::Serialize;
 
@@ -23,7 +23,7 @@ use crate::status::DeviceStatus;
 
 #[derive(Clone, Debug)]
 pub(crate) struct RackMemberRegistration {
-    pub position: u8,
+    pub placement: RackPlacement,
     pub hardware_type: HardwareType,
     pub machine_config_section: String,
 }
@@ -39,7 +39,7 @@ pub(crate) struct RackRegistration {
 
 #[derive(Clone, Debug)]
 pub(crate) struct RackMemberRef {
-    pub position: u8,
+    pub placement: RackPlacement,
     pub device_index: usize,
 }
 

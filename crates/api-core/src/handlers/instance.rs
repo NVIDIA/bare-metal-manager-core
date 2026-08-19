@@ -1244,6 +1244,15 @@ pub(crate) async fn update_instance_config(
             id: instance_id.to_string(),
         })?;
 
+    // power_profile was added to the complete-config update request after the
+    // API was deployed. Preserve the stored value when older clients omit it;
+    // an explicit empty string is the wire representation for clearing it.
+    config.power_profile = match config.power_profile.take() {
+        Some(profile) if profile.is_empty() => None,
+        Some(profile) => Some(profile),
+        None => instance.config.power_profile.clone(),
+    };
+
     log_machine_id(&instance.machine_id);
     log_tenant_organization_id(instance.config.tenant.tenant_organization_id.as_str());
 
@@ -1757,24 +1766,6 @@ pub(super) async fn force_delete_instance(
 
     let mut network_segment_ids_with_vpc = vec![];
     if let Some(update_network_req) = &instance.update_network_config_request {
-        // Not sure if new config is applied yet. Free all the resources.
-        let mut addresses = update_network_req
-            .new_config
-            .interfaces
-            .iter()
-            .flat_map(|x| x.ip_addrs.values().copied().collect_vec())
-            .collect_vec();
-
-        addresses.extend(
-            update_network_req
-                .old_config
-                .interfaces
-                .iter()
-                .flat_map(|x| x.ip_addrs.values().collect_vec()),
-        );
-
-        db::instance_address::delete_addresses(&mut txn, &addresses).await?;
-
         network_segment_ids_with_vpc = update_network_req
             .new_config
             .interfaces

@@ -16,6 +16,7 @@
  */
 
 use std::borrow::Cow;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -766,7 +767,9 @@ fn power_supply_metric_fields(m: &PowerSupplyMetrics) -> Vec<MetricField> {
 pub struct MetricsCollectorConfig<B: Bmc> {
     pub data_sink: Option<Arc<dyn DataSink>>,
     pub(crate) shared: SharedInventory<B>,
-    pub fetch_concurrency: usize,
+
+    /// Bounds local fan-out to the endpoint Redfish operation limit.
+    pub request_concurrency: NonZeroUsize,
 }
 
 pub struct MetricsCollector<B: Bmc> {
@@ -774,7 +777,7 @@ pub struct MetricsCollector<B: Bmc> {
     event_context: EventContext,
     shared: SharedInventory<B>,
     data_sink: Option<Arc<dyn DataSink>>,
-    fetch_concurrency: usize,
+    request_concurrency: usize,
 }
 
 impl<B: Bmc + 'static> PeriodicCollector<B> for MetricsCollector<B> {
@@ -791,7 +794,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for MetricsCollector<B> {
             event_context,
             shared: config.shared,
             data_sink: config.data_sink,
-            fetch_concurrency: config.fetch_concurrency.max(1),
+            request_concurrency: config.request_concurrency.get(),
         })
     }
 
@@ -828,7 +831,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for MetricsCollector<B> {
             .collect();
 
         let processed: usize = stream::iter(futures)
-            .buffer_unordered(self.fetch_concurrency)
+            .buffer_unordered(self.request_concurrency)
             .collect::<Vec<usize>>()
             .await
             .into_iter()
@@ -1633,7 +1636,7 @@ mod tests {
             MetricsCollectorConfig {
                 data_sink,
                 shared: Arc::new(arc_swap::ArcSwapOption::empty()),
-                fetch_concurrency: 1,
+                request_concurrency: NonZeroUsize::MIN,
             },
         )
         .expect("metrics collector should build");

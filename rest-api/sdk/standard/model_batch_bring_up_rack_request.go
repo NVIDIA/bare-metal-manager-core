@@ -263,7 +263,6 @@ func (o *BatchBringUpRackRequest) UnmarshalJSON(data []byte) (err error) {
 	varBatchBringUpRackRequest := _BatchBringUpRackRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varBatchBringUpRackRequest)
 
 	if err != nil {

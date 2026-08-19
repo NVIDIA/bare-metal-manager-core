@@ -25,7 +25,7 @@ use carbide_health::endpoint::{BmcAddr, EndpointMetadata, MachineData, SharedSys
 use carbide_health::metrics::MetricsManager;
 use carbide_health::sink::{
     CollectorEvent, CompositeDataSink, DataSink, EventContext, FirmwareInfo, LogRecord,
-    MetricSample, PrometheusSink,
+    LogSeverity, MetricSample, PrometheusSink,
 };
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use mac_address::MacAddress;
@@ -124,7 +124,7 @@ fn build_log_event(idx: usize) -> CollectorEvent {
     CollectorEvent::Log(
         LogRecord {
             body: format!("BMC event line {idx}"),
-            severity: "INFO".to_string(),
+            severity: LogSeverity::Info,
             attributes: vec![
                 (Cow::Borrowed("machine_id"), MACHINE_ID.to_string()),
                 (Cow::Borrowed("entry_id"), idx.to_string()),
