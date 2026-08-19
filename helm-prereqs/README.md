@@ -157,6 +157,7 @@ The tables below summarize the keys that must be set per site.
 | `vault.nicoCliClientRole.ou` | `""` | No | Certificate `SubjectOU` stamped on issued CLI client certs; empty means use `name`. nico-api maps the OU to the ExternalUser group, but admin-CLI authorization is gated by the issuer CN (`auth.additionalIssuerCns`), not the OU value. Do not set `"Invalid"`. |
 | `vault.nicoCliClientRole.organization` | `""` | No | Optional certificate `SubjectO` value for deployments that want an additional identity marker. |
 | `postgresql.instances` | `3` | No | Number of PostgreSQL replicas |
+| `postgresql.synchronousMode` | `null` (automatic) | No | Patroni synchronous replication mode. Automatic mode disables it for one instance and enables it when more than one instance is configured; set `true` or `false` to override. |
 | `postgresql.volumeSize` | `"10Gi"` | No | PVC size per PostgreSQL replica |
 | `postgresql.storageClass` | `"local-path-persistent"` | No | StorageClass for the nico-prereqs PostgreSQL PVCs. Override through Helm values when using a non-local StorageClass. |
 | `temporal.useHaPostgres` | `false` | No | Move Temporal's default/visibility stores onto `nico-pg-cluster` instead of `postgres.postgres`. Named `useHaPostgres`, not `enabled`, because it only moves the database — it doesn't gate whether Temporal is deployed. See [Consolidating Temporal/Keycloak onto nico-pg-cluster](#consolidating-temporalkeycloak-onto-nico-pg-cluster). |

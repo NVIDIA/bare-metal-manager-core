@@ -225,10 +225,10 @@ keycloak:
 postgresql:
   enabled: true
   instances: 3
-  ## Patroni synchronous replication. Set false for single-instance clusters
-  ## (for development or simulation) — strict sync mode with no replicas
-  ## blocks all writes.
-  synchronousMode: true
+  ## Patroni synchronous replication. null selects automatically from instances:
+  ## disabled for one instance and enabled when a standby exists. Set an explicit
+  ## boolean only when the deployment needs to override that topology-derived mode.
+  synchronousMode: null
   volumeSize: "10Gi"
   storageClass: "local-path-persistent"
   ## DB_HOST in nico-system-nico-database-config ConfigMap.
