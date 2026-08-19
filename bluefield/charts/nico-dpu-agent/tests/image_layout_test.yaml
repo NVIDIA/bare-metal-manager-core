@@ -105,11 +105,10 @@ tests:
               add:
                 - DAC_OVERRIDE
       - equal:
-          path: spec.template.spec.containers[1].command[0]
-          value: /busybox/sh
-      - matchRegex:
-          path: spec.template.spec.containers[1].command[2]
-          pattern: '(?s)readonly lldpcli_kill_grace=2.*timeout -k "\$\{lldpcli_kill_grace\}" "\$\{lldpcli_timeout\}".*show neighbors details.*timeout -k "\$\{lldpcli_kill_grace\}" "\$\{lldpcli_timeout\}".*show chassis'
+          path: spec.template.spec.containers[1].args[0]
+          value: sidecar-mode
+      - notExists:
+          path: spec.template.spec.containers[1].command
       - contains:
           path: spec.template.spec.containers[1].volumeMounts
           content:

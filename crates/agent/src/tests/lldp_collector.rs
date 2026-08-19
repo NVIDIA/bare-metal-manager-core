@@ -17,18 +17,45 @@
 
 use carbide_host_support::lldp_collector::LldpCollectorError;
 
-use crate::{AgentPlatformType, collect_lldp_neighbors_with_collectors};
+use crate::{AgentPlatformType, collect_lldp_neighbors_with_collectors, run_lldp_sidecar_loop};
 
-#[test]
-fn containerized_lldp_collection_preserves_snapshot_errors() {
+#[tokio::test]
+async fn containerized_lldp_collection_preserves_snapshot_errors() {
     let result = collect_lldp_neighbors_with_collectors(
         &AgentPlatformType::Containerized,
-        || Ok(Vec::new()),
+        || std::future::ready(Ok(Vec::new())),
         || Err(LldpCollectorError::Lldp("snapshot unavailable".into())),
-    );
+    )
+    .await;
 
     assert!(matches!(
         result,
         Err(LldpCollectorError::Lldp(message)) if message == "snapshot unavailable"
     ));
+}
+
+#[tokio::test(start_paused = true)]
+async fn sidecar_retries_past_three_failures_and_recovers() {
+    let outcomes = std::sync::Mutex::new(std::collections::VecDeque::from([
+        Err(LldpCollectorError::Lldp("first failure".into())),
+        Err(LldpCollectorError::Lldp("second failure".into())),
+        Err(LldpCollectorError::Lldp("third failure".into())),
+        Ok(()),
+    ]));
+
+    run_lldp_sidecar_loop(
+        || {
+            std::future::ready(
+                outcomes
+                    .lock()
+                    .unwrap()
+                    .pop_front()
+                    .expect("configured outcome"),
+            )
+        },
+        Some(4),
+    )
+    .await;
+
+    assert!(outcomes.lock().unwrap().is_empty());
 }

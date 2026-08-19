@@ -61,6 +61,9 @@ pub enum AgentCommand {
     #[clap(about = "Print LLDP neighbors visible on this host and exit")]
     LldpNeighbors(LldpNeighborsOptions),
 
+    #[clap(about = "Continuously publish host LLDP snapshots for a containerized agent")]
+    SidecarMode,
+
     #[clap(about = "One-off network monitor")]
     Network(NetworkOptions),
 
@@ -739,5 +742,11 @@ mod tests {
                 "init-container" => false,
             }
         );
+    }
+
+    #[test]
+    fn test_sidecar_mode_subcommand_parses_without_args() {
+        let opts = Options::try_parse_from(["forge-dpu-agent", "sidecar-mode"]).unwrap();
+        assert!(matches!(opts.cmd, Some(AgentCommand::SidecarMode)));
     }
 }
