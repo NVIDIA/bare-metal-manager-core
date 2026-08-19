@@ -123,6 +123,36 @@ pub async fn find_by_object_ids(
     Ok(histories)
 }
 
+/// Compile-time SQL template for [`persist`]. The table name is spliced into a
+/// single shared body (so the Machine/Switch variants can't drift), and every
+/// expansion is a `&'static str` with no per-call allocation, which matters
+/// because `persist` is on a hot path.
+macro_rules! persist_query {
+    ($table:literal) => {
+        concat!(
+            "WITH new_history_record as(
+            SELECT $1 as object_id,
+            $2::jsonb as health,
+            $3 as health_hash,
+            $4 as time
+        ),
+        last_history_record as(
+            SELECT health_hash FROM ",
+            $table,
+            "
+            WHERE object_id = $1
+            ORDER BY id DESC
+            LIMIT 1
+        )
+        INSERT INTO ",
+            $table,
+            " (object_id, health, health_hash, time)
+        SELECT * FROM new_history_record
+        WHERE NOT EXISTS (SELECT health_hash FROM last_history_record WHERE last_history_record.health_hash = new_history_record.health_hash);"
+        )
+    };
+}
+
 /// Store a new health history record for an object
 pub async fn persist(
     txn: &mut PgConnection,
@@ -142,36 +172,8 @@ pub async fn persist(
     let health_hash = format!("{:#x}", hasher.finish());
 
     let query = match table_id {
-        HealthHistoryTableId::Machine => "WITH new_history_record as(
-            SELECT $1 as object_id,
-            $2::jsonb as health,
-            $3 as health_hash,
-            $4 as time
-        ),
-        last_history_record as(
-            SELECT health_hash FROM machine_health_history
-            WHERE object_id = $1
-            ORDER BY id DESC
-            LIMIT 1
-        )
-        INSERT INTO machine_health_history (object_id, health, health_hash, time)
-        SELECT * FROM new_history_record
-        WHERE NOT EXISTS (SELECT health_hash FROM last_history_record WHERE last_history_record.health_hash = new_history_record.health_hash);",
-        HealthHistoryTableId::Switch => "WITH new_history_record as(
-            SELECT $1 as object_id,
-            $2::jsonb as health,
-            $3 as health_hash,
-            $4 as time
-        ),
-        last_history_record as(
-            SELECT health_hash FROM switch_health_history
-            WHERE object_id = $1
-            ORDER BY id DESC
-            LIMIT 1
-        )
-        INSERT INTO switch_health_history (object_id, health, health_hash, time)
-        SELECT * FROM new_history_record
-        WHERE NOT EXISTS (SELECT health_hash FROM last_history_record WHERE last_history_record.health_hash = new_history_record.health_hash);",
+        HealthHistoryTableId::Machine => persist_query!("machine_health_history"),
+        HealthHistoryTableId::Switch => persist_query!("switch_health_history"),
     };
     let _query_result = sqlx::query(query)
         .bind(object_id.to_string())
@@ -191,13 +193,16 @@ pub async fn update_object_ids(
     old_object_id: &impl std::fmt::Display,
     new_object_id: &impl std::fmt::Display,
 ) -> Result<(), DatabaseError> {
+    // `sqlx::query` requires a `&'static str` (SqlSafeStr), so build each arm at
+    // compile time via `concat!` rather than allocating with `format!`.
+    macro_rules! update_object_ids_query {
+        ($table:literal) => {
+            concat!("UPDATE ", $table, " SET object_id=$1 WHERE object_id=$2")
+        };
+    }
     let query = match table_id {
-        HealthHistoryTableId::Machine => {
-            "UPDATE machine_health_history SET object_id=$1 WHERE object_id=$2"
-        }
-        HealthHistoryTableId::Switch => {
-            "UPDATE switch_health_history SET object_id=$1 WHERE object_id=$2"
-        }
+        HealthHistoryTableId::Machine => update_object_ids_query!("machine_health_history"),
+        HealthHistoryTableId::Switch => update_object_ids_query!("switch_health_history"),
     };
     sqlx::query(query)
         .bind(new_object_id.to_string())
@@ -237,6 +242,49 @@ mod tests {
             .get(object_id)
             .map(Vec::len)
             .unwrap_or(0)
+    }
+
+    /// Verify that `persist_query!` must reproduce the sql statement
+    /// that was previously hand-written for the machine table.
+    #[test]
+    fn persist_query_matches_original_machine_literal() {
+        let original = "WITH new_history_record as(
+            SELECT $1 as object_id,
+            $2::jsonb as health,
+            $3 as health_hash,
+            $4 as time
+        ),
+        last_history_record as(
+            SELECT health_hash FROM machine_health_history
+            WHERE object_id = $1
+            ORDER BY id DESC
+            LIMIT 1
+        )
+        INSERT INTO machine_health_history (object_id, health, health_hash, time)
+        SELECT * FROM new_history_record
+        WHERE NOT EXISTS (SELECT health_hash FROM last_history_record WHERE last_history_record.health_hash = new_history_record.health_hash);";
+        assert_eq!(persist_query!("machine_health_history"), original);
+    }
+
+    /// Verify the produced sql statement for the switch table.
+    #[test]
+    fn persist_query_matches_original_switch_literal() {
+        let original = "WITH new_history_record as(
+            SELECT $1 as object_id,
+            $2::jsonb as health,
+            $3 as health_hash,
+            $4 as time
+        ),
+        last_history_record as(
+            SELECT health_hash FROM switch_health_history
+            WHERE object_id = $1
+            ORDER BY id DESC
+            LIMIT 1
+        )
+        INSERT INTO switch_health_history (object_id, health, health_hash, time)
+        SELECT * FROM new_history_record
+        WHERE NOT EXISTS (SELECT health_hash FROM last_history_record WHERE last_history_record.health_hash = new_history_record.health_hash);";
+        assert_eq!(persist_query!("switch_health_history"), original);
     }
 
     #[crate::sqlx_test]
