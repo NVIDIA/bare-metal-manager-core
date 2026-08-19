@@ -562,6 +562,63 @@ deploy_stack() {
     _ "${REPO_DIR}"
 }
 
+temporal_namespace_is_healthy() {
+  run_as_user kubectl -n temporal exec deployment/temporal-admintools -- \
+    temporal operator namespace describe \
+      --namespace site \
+      --address temporal-frontend.temporal.svc.cluster.local.:7233 \
+      --tls-cert-path /var/secrets/temporal/certs/server-interservice/tls.crt \
+      --tls-key-path /var/secrets/temporal/certs/server-interservice/tls.key \
+      --tls-ca-path /var/secrets/temporal/certs/server-interservice/ca.crt \
+      --tls-server-name interservice.server.temporal.local >/dev/null
+}
+
+temporal_restart_counts() {
+  run_as_user kubectl -n temporal get pods \
+    -l app.kubernetes.io/part-of=temporal \
+    -o jsonpath='{range .items[*]}{.metadata.name}{"="}{range .status.containerStatuses[*]}{.restartCount}{","}{end}{"\n"}{end}' | \
+    LC_ALL=C sort
+}
+
+verify_deployed_stack() {
+  log "Verifying deployed stack health"
+
+  local deployment
+  for deployment in frontend history matching worker; do
+    run_as_user kubectl rollout status \
+      "deployment/temporal-${deployment}" -n temporal --timeout=120s >/dev/null || \
+      die "Temporal ${deployment} deployment is not ready"
+  done
+
+  run_as_user kubectl -n postgres exec statefulset/postgres -- \
+    psql -U postgres -d postgres -tAc 'SELECT 1' >/dev/null || \
+    die "PostgreSQL is not responding"
+
+  local restart_counts_before
+  local restart_counts_after
+  restart_counts_before="$(temporal_restart_counts)"
+
+  local attempt
+  for attempt in {1..3}; do
+    temporal_namespace_is_healthy || \
+      die "Temporal namespace query failed on health-check attempt ${attempt}"
+    if [[ "${attempt}" != "3" ]]; then
+      sleep 10
+    fi
+  done
+
+  restart_counts_after="$(temporal_restart_counts)"
+  if [[ "${restart_counts_before}" != "${restart_counts_after}" ]]; then
+    printf '%s\n' "Temporal restart counts before health check:" \
+      "${restart_counts_before}" \
+      "Temporal restart counts after health check:" \
+      "${restart_counts_after}" >&2
+    die "a Temporal container restarted during the health check"
+  fi
+
+  log "Deployed stack health verified"
+}
+
 show_summary() {
   local node_ip
   node_ip="$(run_as_user docker inspect \
@@ -598,6 +655,7 @@ main() {
 
   if [[ "${SKIP_DEPLOY}" != "1" ]]; then
     deploy_stack
+    verify_deployed_stack
   fi
   show_summary
 }

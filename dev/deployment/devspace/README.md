@@ -125,6 +125,19 @@ The image builds are configured in [`devspace.yaml`](../../../devspace.yaml). De
 
 Host setup preloads PostgreSQL 14.5 for the DevSpace REST migration wait container. It also aliases that cached image as 14.4 inside the kind node for the standalone REST local deployment path, avoiding a second PostgreSQL image pull.
 
+After deploying, [`setup-devspace-on-host.sh`](setup-devspace-on-host.sh)
+checks PostgreSQL, every Temporal server deployment, and a functional Temporal
+namespace query. It observes Temporal container restart counts while repeating
+the namespace query and fails the setup if a container restarts during that
+window. A successful process exit therefore means the workflow backend remained
+usable through the final health check, not only that its Kubernetes readiness
+probe passed earlier in the bootstrap.
+
+The local Temporal server uses the absolute
+`temporal-frontend.temporal.svc.cluster.local.` Service DNS name for its public
+client. This avoids resolver search-domain expansion and works on both supported
+host architectures.
+
 The DevSpace images also use Dockerfile-specific ignore files. [`Dockerfile.core-artifacts.dockerignore`](Dockerfile.core-artifacts.dockerignore) provides the union of the source needed by the four binaries, while [`Dockerfile.api.dockerignore`](Dockerfile.api.dockerignore), [`Dockerfile.bmc-proxy.dockerignore`](Dockerfile.bmc-proxy.dockerignore), and [`Dockerfile.machine-a-tron.dockerignore`](Dockerfile.machine-a-tron.dockerignore) limit the runtime-image contexts. This keeps the top-level [`.dockerignore`](../../../.dockerignore) aligned with the main branch for CI and release builds.
 
 On ARM64, the local REST BuildKit builds use the Linux host network while downloading Go modules because Docker bridge DNS cannot resolve public module hosts on the tested ARM64 development host. AMD64 builds retain BuildKit's default network. This does not change the network configuration of the deployed containers.
