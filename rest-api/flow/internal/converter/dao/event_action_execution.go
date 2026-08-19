@@ -28,7 +28,7 @@ func EventActionExecutionTo(
 		ID:             execution.ID,
 		EventID:        execution.EventID,
 		RuleID:         execution.RuleID,
-		ActionID:       execution.ActionID,
+		ActionName:     execution.ActionName,
 		CorrelationKey: execution.CorrelationKey,
 		Status:         string(execution.Status),
 		Reason:         string(execution.Reason),
@@ -65,7 +65,7 @@ func EventActionExecutionFrom(
 		ExecutionIdentity: eventrule.ExecutionIdentity{
 			EventID:        persisted.EventID,
 			RuleID:         persisted.RuleID,
-			ActionID:       persisted.ActionID,
+			ActionName:     persisted.ActionName,
 			CorrelationKey: persisted.CorrelationKey,
 		},
 		ID:           persisted.ID,

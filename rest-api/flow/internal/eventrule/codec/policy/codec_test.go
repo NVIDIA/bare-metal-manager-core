@@ -32,7 +32,7 @@ func TestPolicyV1WithoutDedupeFixture(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, policy.Dedupe)
 	require.Len(t, policy.Actions, 1)
-	require.Equal(t, "noop", policy.Actions[0].ID)
+	require.Equal(t, "noop", policy.Actions[0].Name)
 }
 
 func TestPolicyRoundTrip(t *testing.T) {
@@ -55,7 +55,7 @@ func TestPolicyRejectsUnknownVersionsAndFields(t *testing.T) {
 		"action version": `{
 			"version":1,
 			"actions":[
-				{"version":2,"id":"noop","type":"noop","condition":{},"spec":{}}
+				{"version":2,"name":"noop","type":"noop","condition":{},"spec":{}}
 			]
 		}`,
 		"policy field": `{"version":1,"actions":[],"unknown":true}`,
@@ -73,33 +73,28 @@ func fullPolicy() eventrule.Policy {
 	return eventrule.Policy{
 		Dedupe: &eventrule.Dedupe{Window: 5 * time.Minute},
 		Actions: []eventrule.Action{
-			eventrule.NewAction(
-				"submit",
-				eventrule.ActionCondition{
+			{
+				Name: "submit",
+				Condition: eventrule.ActionCondition{
 					Severities:     []eventrule.Severity{eventrule.SeverityCritical},
 					ComponentTypes: []flowtypes.ComponentType{flowtypes.ComponentTypeCompute},
 				},
-				eventrule.SubmitTask{
+				Spec: &eventrule.SubmitTask{
 					OperationType:    taskcommon.TaskTypePowerControl,
 					OperationCode:    taskcommon.OpCodePowerControlForcePowerOff,
 					TargetStrategy:   eventrule.TargetStrategyComponent,
 					ConflictStrategy: eventrule.ConflictStrategyQueue,
 					Description:      "power off",
 				},
-			),
-			eventrule.NewAction(
-				"alert",
-				eventrule.ActionCondition{},
-				eventrule.SendAlert{
+			},
+			{
+				Name: "alert",
+				Spec: &eventrule.SendAlert{
 					Severity: eventrule.SeverityWarning,
 					Message:  "leak detected",
 				},
-			),
-			eventrule.NewAction(
-				"noop",
-				eventrule.ActionCondition{},
-				eventrule.Noop{Reason: "audit only"},
-			),
+			},
+			{Name: "noop", Spec: &eventrule.Noop{Reason: "audit only"}},
 		},
 	}
 }

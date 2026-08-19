@@ -17,7 +17,7 @@ const actionVersionV1 = 1
 
 type actionV1 struct {
 	Version   int               `json:"version"`
-	ID        string            `json:"id"`
+	Name      string            `json:"name"`
 	Type      string            `json:"type"`
 	Condition actionConditionV1 `json:"condition"`
 	Spec      json.RawMessage   `json:"spec"`
@@ -48,7 +48,7 @@ type noopSpecV1 struct {
 func marshalActionV1(action eventrule.Action) (json.RawMessage, error) {
 	persisted := actionV1{
 		Version: actionVersionV1,
-		ID:      action.ID,
+		Name:    action.Name,
 		Type:    string(action.Spec.Type()),
 	}
 
@@ -132,12 +132,16 @@ func unmarshalActionV1(data json.RawMessage) (eventrule.Action, error) {
 		return eventrule.Action{}, err
 	}
 
-	return eventrule.NewAction(persisted.ID, condition, spec), nil
+	return eventrule.Action{
+		Name:      persisted.Name,
+		Condition: condition,
+		Spec:      spec,
+	}, nil
 }
 
 func marshalActionSpecV1(spec eventrule.ActionSpec) (json.RawMessage, error) {
 	switch typed := spec.(type) {
-	case eventrule.SubmitTask:
+	case *eventrule.SubmitTask:
 		return json.Marshal(submitTaskSpecV1{
 			OperationType:    string(typed.OperationType),
 			OperationCode:    string(typed.OperationCode),
@@ -145,12 +149,12 @@ func marshalActionSpecV1(spec eventrule.ActionSpec) (json.RawMessage, error) {
 			ConflictStrategy: string(typed.ConflictStrategy),
 			Description:      typed.Description,
 		})
-	case eventrule.SendAlert:
+	case *eventrule.SendAlert:
 		return json.Marshal(sendAlertSpecV1{
 			Severity: string(typed.Severity),
 			Message:  typed.Message,
 		})
-	case eventrule.Noop:
+	case *eventrule.Noop:
 		return json.Marshal(noopSpecV1{Reason: typed.Reason})
 	default:
 		return nil, fmt.Errorf("unsupported action spec %T", spec)
@@ -168,7 +172,7 @@ func unmarshalActionSpecV1(
 			return nil, fmt.Errorf("decode submit_task action spec v1: %w", err)
 		}
 
-		return eventrule.SubmitTask{
+		return &eventrule.SubmitTask{
 			OperationType:    taskcommon.TaskType(persisted.OperationType),
 			OperationCode:    taskcommon.OperationCode(persisted.OperationCode),
 			TargetStrategy:   eventrule.TargetStrategy(persisted.TargetStrategy),
@@ -185,7 +189,7 @@ func unmarshalActionSpecV1(
 		if err != nil {
 			return nil, fmt.Errorf("decode send_alert action spec v1 severity: %w", err)
 		}
-		return eventrule.SendAlert{
+		return &eventrule.SendAlert{
 			Severity: severity,
 			Message:  persisted.Message,
 		}, nil
@@ -195,7 +199,7 @@ func unmarshalActionSpecV1(
 			return nil, fmt.Errorf("decode noop action spec v1: %w", err)
 		}
 
-		return eventrule.Noop{Reason: persisted.Reason}, nil
+		return &eventrule.Noop{Reason: persisted.Reason}, nil
 	default:
 		return nil, fmt.Errorf("unknown action type %q", actionType)
 	}

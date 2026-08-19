@@ -23,7 +23,7 @@ func TestEventRuleRoundTrip(t *testing.T) {
 		Enabled:     true,
 		EventType:   "test.event",
 		Policy: eventrule.Policy{Actions: []eventrule.Action{
-			eventrule.NewAction("noop", eventrule.ActionCondition{}, eventrule.Noop{}),
+			{Name: "noop", Spec: &eventrule.Noop{}},
 		}},
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -63,7 +63,7 @@ func TestEventRuleFromRejectsInvalidModel(t *testing.T) {
 				Name:      "test",
 				EventType: "test.event",
 				Policy: eventrule.Policy{Actions: []eventrule.Action{
-					eventrule.NewAction("noop", eventrule.ActionCondition{}, eventrule.Noop{}),
+					{Name: "noop", Spec: &eventrule.Noop{}},
 				}},
 			})
 			require.NoError(t, err)

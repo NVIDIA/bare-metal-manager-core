@@ -151,17 +151,16 @@ func DefaultRule() eventrule.Rule {
 		EventType:   TypeHardwareLeakDetected,
 		Policy: eventrule.Policy{
 			Actions: []eventrule.Action{
-				eventrule.NewAction(
-					"power_off_affected_components",
-					eventrule.ActionCondition{},
-					eventrule.SubmitTask{
+				{
+					Name: "power_off_affected_components",
+					Spec: &eventrule.SubmitTask{
 						OperationType:    taskcommon.TaskTypePowerControl,
 						OperationCode:    taskcommon.OpCodePowerControlForcePowerOff,
 						TargetStrategy:   eventrule.TargetStrategyAffectedComponents,
 						ConflictStrategy: eventrule.ConflictStrategyQueue,
 						Description:      "Leakage response",
 					},
-				),
+				},
 			},
 		},
 	}

@@ -39,7 +39,7 @@ func TestManagerUnifiedReadsAndMutationRouting(t *testing.T) {
 		Metadata:  eventrule.RuleMetadata{Name: "new rule"},
 		EventType: "new.event",
 		Policy: eventrule.Policy{Actions: []eventrule.Action{
-			eventrule.NewAction("noop", eventrule.ActionCondition{}, eventrule.Noop{}),
+			{Name: "noop", Spec: &eventrule.Noop{}},
 		}},
 	}
 	created, err := manager.Create(context.Background(), input)
@@ -48,8 +48,8 @@ func TestManagerUnifiedReadsAndMutationRouting(t *testing.T) {
 	assert.Equal(t, eventrule.RuleOriginPersisted, created.Origin)
 	assert.False(t, created.Enabled)
 	assert.Equal(t, 1, store.creates)
-	input.Policy.Actions[0].ID = "changed"
-	assert.Equal(t, "noop", created.Actions[0].ID)
+	input.Policy.Actions[0].Name = "changed"
+	assert.Equal(t, "noop", created.Actions[0].Name)
 
 	_, err = manager.Create(context.Background(), eventrule.RuleCreate{})
 	require.Error(t, err)
@@ -84,12 +84,12 @@ func TestManagerUnifiedReadsAndMutationRouting(t *testing.T) {
 	assert.Equal(t, time.Minute, persisted.Dedupe.Window)
 
 	actions := []eventrule.Action{
-		eventrule.NewAction("replacement", eventrule.ActionCondition{}, eventrule.Noop{}),
+		{Name: "replacement", Spec: &eventrule.Noop{}},
 	}
 	require.NoError(t, manager.ReplaceActions(context.Background(), persisted.ID, actions))
 	assert.Equal(t, actions, persisted.Actions)
-	actions[0].ID = "changed"
-	assert.Equal(t, "replacement", persisted.Actions[0].ID)
+	actions[0].Name = "changed"
+	assert.Equal(t, "replacement", persisted.Actions[0].Name)
 
 	require.NoError(t, manager.SetEnabled(context.Background(), persisted.ID, false))
 	assert.False(t, persisted.Enabled)
@@ -173,7 +173,7 @@ func TestManagerRejectsMissingIDs(t *testing.T) {
 		context.Background(),
 		uuid.Nil,
 		[]eventrule.Action{
-			eventrule.NewAction("noop", eventrule.ActionCondition{}, eventrule.Noop{}),
+			{Name: "noop", Spec: &eventrule.Noop{}},
 		},
 	), "event rule id is required")
 	require.ErrorContains(t, manager.Delete(context.Background(), uuid.Nil), "event rule id is required")
@@ -222,7 +222,7 @@ func TestManagerRejectsBuiltInRuleMutations(t *testing.T) {
 				ctx,
 				builtIn.ID,
 				[]eventrule.Action{
-					eventrule.NewAction("noop", eventrule.ActionCondition{}, eventrule.Noop{}),
+					{Name: "noop", Spec: &eventrule.Noop{}},
 				},
 			)
 		},
@@ -400,7 +400,7 @@ func testRule(id uuid.UUID, origin eventrule.RuleOrigin, eventType eventrule.Typ
 		Enabled:   true,
 		EventType: eventType,
 		Policy: eventrule.Policy{Actions: []eventrule.Action{
-			eventrule.NewAction("noop", eventrule.ActionCondition{}, eventrule.Noop{}),
+			{Name: "noop", Spec: &eventrule.Noop{}},
 		}},
 	}
 }

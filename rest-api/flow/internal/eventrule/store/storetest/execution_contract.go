@@ -281,8 +281,8 @@ func testExecutionConcurrentDeliveryDeduplication(
 
 func newExecutionIdentity() eventrule.ExecutionIdentity {
 	return eventrule.ExecutionIdentity{
-		EventID:  uuid.New(),
-		RuleID:   uuid.New(),
-		ActionID: "action",
+		EventID:    uuid.New(),
+		RuleID:     uuid.New(),
+		ActionName: "action",
 	}
 }
