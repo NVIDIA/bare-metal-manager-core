@@ -2641,60 +2641,69 @@ pub(crate) async fn get_component_firmware_status(
                 return Err(Status::invalid_argument("machine_ids must not be empty"));
             }
 
-            // When the component manager is available and not routing through the
-            // state controller, delegate to cm.compute_tray.get_firmware_status()
-            // which queries RMS for the tracked job ID. The DB-only
-            // machine_firmware_statuses() path is kept as a fallback for
-            // state-controller deployments, where firmware status is derived from
-            // machine state transitions instead.
-            if let Some(cm) = api.component_manager.as_ref()
-                && !cm.compute_tray_use_state_controller
-            {
+            // Delegate to cm.compute_tray.get_firmware_status() when:
+            // (a) the CM is in direct-dispatch mode (!use_state_controller), OR
+            // (b) a firmware update was dispatched via --bypass-state-controller and a
+            //     job ID was persisted in the DB for one of the requested machines.
+            //
+            // Case (b) is detected by loading the machines first and checking for a
+            // non-null rms_firmware_object_job_id. The DB-only machine_firmware_statuses()
+            // path is kept as a fallback for normal state-controller deployments.
+            if let Some(cm) = api.component_manager.as_ref() {
                 let machines_by_id = load_machines_by_id(api, &list.machine_ids).await?;
-                let resolved = resolve_compute_tray_endpoints_from_machines(
-                    api.credential_manager.as_ref(),
-                    &machines_by_id,
-                    &list.machine_ids,
-                )
-                .await;
 
-                let mut statuses: Vec<_> = resolved
-                    .unresolved
-                    .iter()
-                    .map(|u| rpc::FirmwareUpdateStatus {
-                        result: Some(error_result(&u.id.to_string(), u.reason.clone())),
-                        state: rpc::FirmwareUpdateState::FwStateUnknown as i32,
-                        target_version: String::new(),
-                        updated_at: None,
-                    })
-                    .collect();
+                let has_persisted_rms_job = machines_by_id
+                    .values()
+                    .any(|m| m.status.rms_firmware_object_job_id.is_some());
 
-                if !resolved.resolved.endpoints.is_empty() {
-                    let backend_statuses = cm
-                        .compute_tray
-                        .get_firmware_status(&resolved.resolved.endpoints)
-                        .await
-                        .map_err(component_manager_error_to_status)?;
-                    statuses.extend(backend_statuses.into_iter().map(|s| {
-                        let id = resolved
-                            .resolved
-                            .ip_to_machine_id
-                            .get(&s.bmc_ip)
-                            .map(|id| id.to_string())
-                            .unwrap_or_else(|| s.bmc_ip.to_string());
-                        rpc::FirmwareUpdateStatus {
-                            result: Some(if s.error.is_none() {
-                                success_result(&id)
-                            } else {
-                                error_result(&id, s.error.unwrap_or_default())
-                            }),
-                            state: map_fw_state(s.state),
-                            target_version: s.target_version,
+                if !cm.compute_tray_use_state_controller || has_persisted_rms_job {
+                    let resolved = resolve_compute_tray_endpoints_from_machines(
+                        api.credential_manager.as_ref(),
+                        &machines_by_id,
+                        &list.machine_ids,
+                    )
+                    .await;
+
+                    let mut statuses: Vec<_> = resolved
+                        .unresolved
+                        .iter()
+                        .map(|u| rpc::FirmwareUpdateStatus {
+                            result: Some(error_result(&u.id.to_string(), u.reason.clone())),
+                            state: rpc::FirmwareUpdateState::FwStateUnknown as i32,
+                            target_version: String::new(),
                             updated_at: None,
-                        }
-                    }));
+                        })
+                        .collect();
+
+                    if !resolved.resolved.endpoints.is_empty() {
+                        let backend_statuses = cm
+                            .compute_tray
+                            .get_firmware_status(&resolved.resolved.endpoints)
+                            .await
+                            .map_err(component_manager_error_to_status)?;
+                        statuses.extend(backend_statuses.into_iter().map(|s| {
+                            let id = resolved
+                                .resolved
+                                .ip_to_machine_id
+                                .get(&s.bmc_ip)
+                                .map(|id| id.to_string())
+                                .unwrap_or_else(|| s.bmc_ip.to_string());
+                            rpc::FirmwareUpdateStatus {
+                                result: Some(if s.error.is_none() {
+                                    success_result(&id)
+                                } else {
+                                    error_result(&id, s.error.unwrap_or_default())
+                                }),
+                                state: map_fw_state(s.state),
+                                target_version: s.target_version,
+                                updated_at: None,
+                            }
+                        }));
+                    }
+                    statuses
+                } else {
+                    machine_firmware_statuses(api, &list.machine_ids).await?
                 }
-                statuses
             } else {
                 machine_firmware_statuses(api, &list.machine_ids).await?
             }

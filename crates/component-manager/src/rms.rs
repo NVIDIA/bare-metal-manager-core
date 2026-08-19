@@ -3047,11 +3047,26 @@ impl ComputeTrayManager for RmsBackend {
                     );
 
                     if success {
-                        if let Some(job_id) = job_id {
+                        if let Some(ref job_id) = job_id {
                             self.firmware_jobs.lock().unwrap().insert(
                                 identity.bmc_mac,
-                                vec![RmsTrackedFirmwareJob::FirmwareObject(job_id)],
+                                vec![RmsTrackedFirmwareJob::FirmwareObject(job_id.clone())],
                             );
+                            // Persist to DB so status queries survive nico-api restarts.
+                            if let Err(e) = db::machine::save_rms_firmware_object_job_id(
+                                &self.db,
+                                &identity.identity.node_id,
+                                job_id,
+                            )
+                            .await
+                            {
+                                tracing::warn!(
+                                    machine_id = %identity.identity.node_id,
+                                    job_id = %job_id,
+                                    error = %e,
+                                    "failed to persist RMS firmware job ID to database"
+                                );
+                            }
                         } else {
                             self.firmware_jobs.lock().unwrap().remove(&identity.bmc_mac);
                         }
@@ -3114,7 +3129,31 @@ impl ComputeTrayManager for RmsBackend {
         let mut statuses = Vec::with_capacity(endpoints.len());
 
         for (bmc_ip, job_id) in &endpoint_jobs {
-            let Some(job_id) = job_id else {
+            // When the in-memory map has no job (e.g. after a pod restart), fall back
+            // to the DB-persisted job ID written by update_firmware.
+            let resolved_job_id: Option<String> = if job_id.is_some() {
+                job_id.clone()
+            } else if let Some(identity) = ids.get(bmc_ip) {
+                match db::machine::get_rms_firmware_object_job_id(
+                    &self.db,
+                    &identity.identity.node_id,
+                )
+                .await
+                {
+                    Ok(db_job_id) => db_job_id,
+                    Err(e) => {
+                        tracing::warn!(
+                            bmc_ip = %bmc_ip,
+                            error = %e,
+                            "failed to fetch persisted RMS firmware job ID from database"
+                        );
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+            let Some(job_id) = resolved_job_id else {
                 statuses.push(ComputeTrayFirmwareUpdateStatus {
                     bmc_ip: *bmc_ip,
                     state: FirmwareState::Unknown,
@@ -3123,6 +3162,7 @@ impl ComputeTrayManager for RmsBackend {
                 });
                 continue;
             };
+            let job_id = &job_id;
 
             let request = rms::GetFirmwareJobStatusRequest {
                 job_id: job_id.clone(),
@@ -3149,6 +3189,7 @@ impl ComputeTrayManager for RmsBackend {
                     } else {
                         Some(response.error_message)
                     };
+
                     statuses.push(ComputeTrayFirmwareUpdateStatus {
                         bmc_ip: *bmc_ip,
                         state,
