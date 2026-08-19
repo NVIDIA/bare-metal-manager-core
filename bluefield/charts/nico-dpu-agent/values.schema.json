@@ -158,6 +158,10 @@
           }
         }
       }
+    },
+    "supplementalNetworkConfig": {
+      "type": "string",
+      "description": "RFC 7386 JSON Merge Patch document that the dpu-agent merges into the `set` section of its generated NVUE config before every apply. Rendered into the <fullname>-supplemental-network-config ConfigMap and mounted into the agent container. Applies uniformly to every DPU in this release's DaemonSet. Empty disables the ConfigMap, the mount, and the merge."
     }
   },
   "additionalProperties": true

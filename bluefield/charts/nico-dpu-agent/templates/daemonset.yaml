@@ -9,8 +9,10 @@
 {{- $bootstrapCaObjectKey = get $bootstrapCaObject "key" -}}
 {{- end -}}
 {{- $certsDir := .Values.certsDir | default "/opt/nico" -}}
+{{- /* The agent's config.toml is needed by any section that sets a key in it. */ -}}
+{{- $agentConfigEnabled := or .Values.fmds.sign_proxy_url .Values.supplementalNetworkConfig -}}
 {{- $podAnnotations := .Values.serviceDaemonSet.annotations -}}
-{{- if .Values.fmds.sign_proxy_url -}}
+{{- if $agentConfigEnabled -}}
 {{- $podAnnotations = omit $podAnnotations "checksum/machine-identity-config" -}}
 {{- end -}}
 {{- if not (has $bootstrapCaSource (list "legacy_download" "mounted")) -}}
@@ -67,7 +69,7 @@ spec:
         {{- with $podAnnotations }}
           {{- toYaml . | nindent 8 }}
         {{- end }}
-        {{- with .Values.fmds.sign_proxy_url }}
+        {{- if $agentConfigEnabled }}
         checksum/machine-identity-config: {{ include (print $.Template.BasePath "/configmap.yaml") $ | sha256sum }}
         {{- end }}
       labels:
@@ -138,7 +140,7 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           args:
-            {{- with .Values.fmds.sign_proxy_url }}
+            {{- if $agentConfigEnabled }}
             - "--config-path=/etc/forge/config.toml"
             {{- end }}
             - run
@@ -192,10 +194,18 @@ spec:
                   name: {{ .Values.hbn.nvue_credentials_secret_name }}
                   key: {{ .Values.hbn.nvue_password_key }}
           volumeMounts:
-            {{- with .Values.fmds.sign_proxy_url }}
+            {{- if $agentConfigEnabled }}
             - name: agent-config
               mountPath: /etc/forge/config.toml
               subPath: config.toml
+              readOnly: true
+            {{- end }}
+            {{- if .Values.supplementalNetworkConfig }}
+            {{- /* Directory mount (no subPath) so kubelet live-updates the
+                   file on ConfigMap changes; the agent re-applies via its
+                   content-hash change detection without a pod restart. */}}
+            - name: supplemental-network-config
+              mountPath: /etc/forge/supplemental-network-config
               readOnly: true
             {{- end }}
             - name: nico-certs
@@ -204,10 +214,15 @@ spec:
               mountPath: /data
               readOnly: true
       volumes:
-        {{- with .Values.fmds.sign_proxy_url }}
+        {{- if $agentConfigEnabled }}
         - name: agent-config
           configMap:
-            name: {{ include "nico-dpu-agent.fullname" $ }}-config
+            name: {{ include "nico-dpu-agent.fullname" . }}-config
+        {{- end }}
+        {{- if .Values.supplementalNetworkConfig }}
+        - name: supplemental-network-config
+          configMap:
+            name: {{ include "nico-dpu-agent.fullname" . }}-supplemental-network-config
         {{- end }}
         - name: nico-certs
           hostPath:

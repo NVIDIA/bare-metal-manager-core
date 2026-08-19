@@ -1,8 +1,12 @@
 suite: machine identity configuration
 templates:
   - daemonset.yaml
+  # The daemonset's checksum annotation includes configmap.yaml, which newer
+  # helm-unittest versions only resolve when it is listed here.
+  - configmap.yaml
 tests:
   - it: uses the Forge signer by default
+    template: daemonset.yaml
     set:
       image:
         repository: test
@@ -13,6 +17,7 @@ tests:
           content: --config-path=/etc/forge/config.toml
 
   - it: mounts the configured agent file
+    template: daemonset.yaml
     set:
       image:
         repository: test

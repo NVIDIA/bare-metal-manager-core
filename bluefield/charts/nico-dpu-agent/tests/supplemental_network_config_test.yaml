@@ -1,0 +1,103 @@
+suite: supplemental network config
+templates:
+  - supplemental_network_configmap.yaml
+  - configmap.yaml
+  - daemonset.yaml
+tests:
+  - it: renders no supplemental ConfigMap by default
+    template: supplemental_network_configmap.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders the supplemental ConfigMap with the merge-patch content
+    template: supplemental_network_configmap.yaml
+    set:
+      supplementalNetworkConfig: |
+        {"vrf": {"storage": {"router": {"bgp": {"autonomous-system": 65099}}}}}
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-supplemental-network-config
+      - equal:
+          path: data["supplemental.json"]
+          value: |
+            {"vrf": {"storage": {"router": {"bgp": {"autonomous-system": 65099}}}}}
+
+  - it: points the agent config at the mounted patch file
+    template: configmap.yaml
+    set:
+      supplementalNetworkConfig: '{"vrf": {"storage": {}}}'
+    asserts:
+      - equal:
+          path: data["config.toml"]
+          value: |
+            [network]
+            supplemental-config-path = "/etc/forge/supplemental-network-config/supplemental.json"
+
+  - it: renders both agent config sections when sign proxy is also set
+    template: configmap.yaml
+    set:
+      fmds:
+        sign_proxy_url: http://dsx-imds.dpf-operator-system.svc.cluster.local:8080
+      supplementalNetworkConfig: '{"vrf": {"storage": {}}}'
+    asserts:
+      - equal:
+          path: data["config.toml"]
+          value: |
+            [machine-identity]
+            sign-proxy-url = "http://dsx-imds.dpf-operator-system.svc.cluster.local:8080"
+            [network]
+            supplemental-config-path = "/etc/forge/supplemental-network-config/supplemental.json"
+
+  - it: wires the config path, mount, and volume into the daemonset
+    template: daemonset.yaml
+    set:
+      image:
+        repository: test
+        tag: test
+      supplementalNetworkConfig: '{"vrf": {"storage": {}}}'
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --config-path=/etc/forge/config.toml
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: agent-config
+            mountPath: /etc/forge/config.toml
+            subPath: config.toml
+            readOnly: true
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: supplemental-network-config
+            mountPath: /etc/forge/supplemental-network-config
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: supplemental-network-config
+            configMap:
+              name: RELEASE-NAME-supplemental-network-config
+      - exists:
+          path: spec.template.metadata.annotations["checksum/machine-identity-config"]
+
+  - it: leaves the daemonset untouched when unset
+    template: daemonset.yaml
+    set:
+      image:
+        repository: test
+        tag: test
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --config-path=/etc/forge/config.toml
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: supplemental-network-config
+            mountPath: /etc/forge/supplemental-network-config
+            readOnly: true
+      - notExists:
+          path: spec.template.metadata.annotations["checksum/machine-identity-config"]

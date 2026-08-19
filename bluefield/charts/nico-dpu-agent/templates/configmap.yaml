@@ -1,12 +1,18 @@
-{{- with .Values.fmds.sign_proxy_url }}
+{{- if or .Values.fmds.sign_proxy_url .Values.supplementalNetworkConfig }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "nico-dpu-agent.fullname" $ }}-config
+  name: {{ include "nico-dpu-agent.fullname" . }}-config
   labels:
-    {{- include "nico-dpu-agent.labels" $ | nindent 4 }}
+    {{- include "nico-dpu-agent.labels" . | nindent 4 }}
 data:
   config.toml: |
+    {{- with .Values.fmds.sign_proxy_url }}
     [machine-identity]
     sign-proxy-url = {{ . | quote }}
+    {{- end }}
+    {{- if .Values.supplementalNetworkConfig }}
+    [network]
+    supplemental-config-path = "/etc/forge/supplemental-network-config/supplemental.json"
+    {{- end }}
 {{- end }}

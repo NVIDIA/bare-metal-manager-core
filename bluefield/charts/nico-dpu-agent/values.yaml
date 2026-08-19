@@ -69,3 +69,12 @@ fmds:
   service_name: ""
   # Empty keeps NICo's Forge signer.
   sign_proxy_url: ""
+
+### Supplemental NVUE network config (operator escape hatch, e.g. the DPF
+### storage test bed). An RFC 7386 JSON Merge Patch document that the
+### dpu-agent merges into the `set` section of its generated NVUE config
+### before every apply. Top-level keys must be NVUE sections the agent models
+### (bridge, evpn, interface, nve, router, system, vrf, acl); a `null` value
+### deletes a key. Applies uniformly to every DPU in this release's DaemonSet.
+### Empty disables the ConfigMap, the mount, and the merge.
+supplementalNetworkConfig: ""

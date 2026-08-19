@@ -347,7 +347,27 @@ impl RenderedInputChange {
 fn current_network_version_never_matches_before_first_update() {
     let config = comparison_network_config();
 
-    assert!(!CurrentNetworkVersion::default().matches_versions_from(&config));
+    assert!(!CurrentNetworkVersion::default().matches_versions_from(&config, None));
+}
+
+/// The supplemental config file's path never changes between iterations, so
+/// only its content hash can invalidate the cache: an in-place edit or a
+/// removal must force a re-render even when the response is unchanged.
+#[test]
+fn current_network_version_tracks_supplemental_config_hash() {
+    let config = comparison_network_config();
+    let hash = Some(CurrentNetworkVersion::hash_supplemental_config(
+        r#"{"vrf": {"storage": {}}}"#,
+    ));
+    let mut current = CurrentNetworkVersion::default();
+    current.update_from(&config, hash);
+
+    assert!(current.matches_versions_from(&config, hash));
+    let edited = Some(CurrentNetworkVersion::hash_supplemental_config(
+        r#"{"vrf": null}"#,
+    ));
+    assert!(!current.matches_versions_from(&config, edited));
+    assert!(!current.matches_versions_from(&config, None));
 }
 
 /// Every input consumed by HBN must invalidate the cache, and either
@@ -359,9 +379,9 @@ fn current_network_version_detects_rendered_input_changes() {
     value_scenarios!(run = |change| {
         let mut config = comparison_network_config();
         let mut current = CurrentNetworkVersion::default();
-        current.update_from(&config);
+        current.update_from(&config, None);
         change.apply(&mut config);
-        current.matches_versions_from(&config)
+        current.matches_versions_from(&config, None)
     };
         "unchanged configuration" {
             RenderedInputChange::Unchanged => true,
@@ -487,9 +507,9 @@ fn current_network_version_ignores_set_like_input_order() {
     value_scenarios!(run = |reordering| {
         let mut config = comparison_network_config();
         let mut current = CurrentNetworkVersion::default();
-        current.update_from(&config);
+        current.update_from(&config, None);
         reordering.apply(&mut config);
-        current.matches_versions_from(&config)
+        current.matches_versions_from(&config, None)
     };
         "top-level sets" {
             SetLikeInputReordering::DhcpServers => true,
@@ -585,9 +605,9 @@ fn current_network_version_preserves_semantically_significant_order() {
         let mut config = comparison_network_config();
         reordering.prepare(&mut config);
         let mut current = CurrentNetworkVersion::default();
-        current.update_from(&config);
+        current.update_from(&config, None);
         reordering.apply(&mut config);
-        current.matches_versions_from(&config)
+        current.matches_versions_from(&config, None)
     };
         "first-match interface order" {
             OrderSensitiveInputReordering::TenantInterfaces => false,
@@ -657,9 +677,9 @@ fn current_network_version_ignores_non_hbn_inputs() {
     value_scenarios!(run = |change| {
         let mut config = comparison_network_config();
         let mut current = CurrentNetworkVersion::default();
-        current.update_from(&config);
+        current.update_from(&config, None);
         change.apply(&mut config);
-        current.matches_versions_from(&config)
+        current.matches_versions_from(&config, None)
     };
         "inputs applied outside HBN rendering" {
             NonHbnInputChange::MinimumFunctioningLinks => true,

@@ -92,6 +92,8 @@ pub struct AgentConfig {
         skip_serializing_if = "MachineIdentityConfig::is_default"
     )]
     pub machine_identity: MachineIdentityConfig,
+    #[serde(default, skip_serializing_if = "NetworkConfig::is_default")]
+    pub network: NetworkConfig,
 }
 
 impl AgentConfig {
@@ -338,6 +340,28 @@ impl MachineIdentityConfig {
         Ok(())
     }
 
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// Agent-local network configuration knobs (the `[network]` section).
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct NetworkConfig {
+    /// Path to an operator-supplied RFC 7386 JSON Merge Patch document that the
+    /// agent merges into the `set` section of its generated NVUE config before
+    /// every apply. Top-level keys must be NVUE config sections the agent
+    /// already models (bridge, evpn, interface, nve, router, system, vrf, acl).
+    /// The file's contents participate in change detection, so editing it in
+    /// place triggers a re-render without an agent restart. When set, the file
+    /// must exist and be readable; an unreadable file fails the network
+    /// reconciliation loudly rather than silently applying an unmerged config.
+    #[serde(default)]
+    pub supplemental_config_path: Option<PathBuf>,
+}
+
+impl NetworkConfig {
     pub fn is_default(&self) -> bool {
         *self == Self::default()
     }
