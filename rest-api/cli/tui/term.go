@@ -41,7 +41,7 @@ func RawMode() (restore func(), err error) {
 		return nil, fmt.Errorf("entering raw mode: %w", err)
 	}
 	return func() {
-		term.Restore(fd, oldState)
+		_ = term.Restore(fd, oldState)
 	}, nil
 }
 

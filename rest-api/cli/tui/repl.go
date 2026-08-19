@@ -14,6 +14,8 @@ import (
 	"time"
 
 	appcli "github.com/NVIDIA/infra-controller/rest-api/cli/pkg"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 const (
@@ -95,7 +97,6 @@ var argResourceMap = map[string]string{
 }
 
 var history []string
-var historyPos int
 
 // RunREPL starts the interactive REPL loop with inline autocomplete.
 func RunREPL(s *Session) error {
@@ -358,7 +359,6 @@ func readLineWithSuggestions(s *Session, cmdNames []string) (string, error) {
 
 	prompt := s.PromptString()
 	line := ""
-	historyPos = -1
 	selectedSuggestion := -1
 	prevSuggestionCount := 0
 
@@ -409,7 +409,6 @@ func readLineWithSuggestions(s *Session, cmdNames []string) (string, error) {
 		case key.Char == KeyCtrlC:
 			line = ""
 			selectedSuggestion = -1
-			historyPos = -1
 			clearSuggestionLines(prevSuggestionCount)
 			prevSuggestionCount = 0
 			renderInput()
@@ -426,7 +425,6 @@ func readLineWithSuggestions(s *Session, cmdNames []string) (string, error) {
 			if selectedSuggestion >= 0 && selectedSuggestion < len(suggestions) {
 				line = suggestions[selectedSuggestion]
 				selectedSuggestion = -1
-				historyPos = -1
 				clearSuggestionLines(prevSuggestionCount)
 				prevSuggestionCount = 0
 				renderInput()
@@ -435,7 +433,6 @@ func readLineWithSuggestions(s *Session, cmdNames []string) (string, error) {
 			clearSuggestionLines(prevSuggestionCount)
 			ClearLine()
 			fmt.Print("\r" + prompt + line + "\r\n")
-			historyPos = -1
 			return line, nil
 
 		case key.Char == '\t':
@@ -484,7 +481,6 @@ func readLineWithSuggestions(s *Session, cmdNames []string) (string, error) {
 					line = chosen
 				}
 				selectedSuggestion = -1
-				historyPos = -1
 			}
 			renderInput()
 
@@ -507,14 +503,12 @@ func readLineWithSuggestions(s *Session, cmdNames []string) (string, error) {
 			if len(line) > 0 {
 				line = line[:len(line)-1]
 				selectedSuggestion = -1
-				historyPos = -1
 			}
 			renderInput()
 
 		case key.Char >= 32 && key.Char < 127:
 			line += string(key.Char)
 			selectedSuggestion = -1
-			historyPos = -1
 			renderInput()
 
 		default:
@@ -806,7 +800,7 @@ func runScopeSet(s *Session, resourceType, nameOrID string) {
 			return
 		}
 	} else {
-		item, err = s.Resolver.Resolve(context.Background(), resourceType, strings.Title(resourceType))
+		item, err = s.Resolver.Resolve(context.Background(), resourceType, cases.Title(language.English).String(resourceType))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s %v\n\n", Red("Error:"), err)
 			return

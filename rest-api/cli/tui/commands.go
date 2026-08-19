@@ -388,7 +388,7 @@ func cmdSiteCreate(s *Session, _ []string) error {
 	s.Cache.Invalidate("site")
 	s.Cache.InvalidateFiltered()
 	var created map[string]interface{}
-	json.Unmarshal(resp, &created)
+	_ = json.Unmarshal(resp, &created)
 	fmt.Printf("%s Site created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
 }
@@ -501,7 +501,7 @@ func cmdSiteUpdate(s *Session, args []string) error {
 	s.Cache.Invalidate("site")
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
-	json.Unmarshal(resp, &updated)
+	_ = json.Unmarshal(resp, &updated)
 	fmt.Printf("%s Site updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
 }
@@ -598,7 +598,7 @@ func cmdVPCCreate(s *Session, _ []string) error {
 	}
 	s.Cache.Invalidate("vpc")
 	var created map[string]interface{}
-	json.Unmarshal(resp, &created)
+	_ = json.Unmarshal(resp, &created)
 	fmt.Printf("%s VPC created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
 }
@@ -635,7 +635,7 @@ func cmdVPCUpdate(s *Session, args []string) error {
 	s.Cache.Invalidate("vpc")
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
-	json.Unmarshal(resp, &updated)
+	_ = json.Unmarshal(resp, &updated)
 	fmt.Printf("%s VPC updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
 }
@@ -678,7 +678,7 @@ func cmdVPCVirtualizationUpdate(s *Session, args []string) error {
 	s.Cache.Invalidate("vpc")
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
-	json.Unmarshal(resp, &updated)
+	_ = json.Unmarshal(resp, &updated)
 	fmt.Printf("%s VPC virtualization update submitted: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
 }
@@ -738,9 +738,8 @@ func cmdSubnetCreate(s *Session, _ []string) error {
 	if err != nil {
 		return err
 	}
-	var prefixLen int
-	fmt.Sscanf(prefixLenText, "%d", &prefixLen)
-	if prefixLen < 1 || prefixLen > 32 {
+	prefixLen, err := strconv.Atoi(strings.TrimSpace(prefixLenText))
+	if err != nil || prefixLen < 1 || prefixLen > 32 {
 		return fmt.Errorf("prefix length must be between 1 and 32")
 	}
 
@@ -784,7 +783,7 @@ func cmdSubnetCreate(s *Session, _ []string) error {
 	s.Cache.Invalidate("subnet")
 	s.Cache.InvalidateFiltered()
 	var created map[string]interface{}
-	json.Unmarshal(resp, &created)
+	_ = json.Unmarshal(resp, &created)
 	fmt.Printf("%s Subnet created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
 }
@@ -821,7 +820,7 @@ func cmdSubnetUpdate(s *Session, args []string) error {
 	s.Cache.Invalidate("subnet")
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
-	json.Unmarshal(resp, &updated)
+	_ = json.Unmarshal(resp, &updated)
 	fmt.Printf("%s Subnet updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
 }
@@ -1128,7 +1127,7 @@ func cmdOSCreate(s *Session, _ []string) error {
 	s.Cache.Invalidate("operating-system")
 	s.Cache.InvalidateFiltered()
 	var created map[string]interface{}
-	json.Unmarshal(resp, &created)
+	_ = json.Unmarshal(resp, &created)
 	fmt.Printf("%s Operating system created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
 }
@@ -1210,7 +1209,7 @@ func cmdOSUpdate(s *Session, args []string) error {
 	s.Cache.Invalidate("operating-system")
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
-	json.Unmarshal(resp, &updated)
+	_ = json.Unmarshal(resp, &updated)
 	fmt.Printf("%s Operating system updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
 }
@@ -1284,7 +1283,7 @@ func cmdSSHKeyGroupCreate(s *Session, _ []string) error {
 	s.Cache.Invalidate("ssh-key-group")
 	s.Cache.InvalidateFiltered()
 	var created map[string]interface{}
-	json.Unmarshal(resp, &created)
+	_ = json.Unmarshal(resp, &created)
 	fmt.Printf("%s SSH key group created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
 }
@@ -1343,7 +1342,7 @@ func cmdSSHKeyGroupUpdate(s *Session, args []string) error {
 	s.Cache.Invalidate("ssh-key-group")
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
-	json.Unmarshal(resp, &updated)
+	_ = json.Unmarshal(resp, &updated)
 	fmt.Printf("%s SSH key group updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
 }
@@ -1413,7 +1412,7 @@ func cmdSSHKeyCreate(s *Session, _ []string) error {
 	s.Cache.Invalidate("ssh-key-group")
 	s.Cache.InvalidateFiltered()
 	var created map[string]interface{}
-	json.Unmarshal(resp, &created)
+	_ = json.Unmarshal(resp, &created)
 	fmt.Printf("%s SSH key created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
 }
@@ -1440,7 +1439,7 @@ func cmdSSHKeyUpdate(s *Session, args []string) error {
 	s.Cache.Invalidate("ssh-key-group")
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
-	json.Unmarshal(resp, &updated)
+	_ = json.Unmarshal(resp, &updated)
 	fmt.Printf("%s SSH key updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
 }
@@ -1534,7 +1533,7 @@ func cmdAllocationCreate(s *Session, _ []string) error {
 	s.Cache.Invalidate("allocation")
 	s.Cache.InvalidateFiltered()
 	var created map[string]interface{}
-	json.Unmarshal(resp, &created)
+	_ = json.Unmarshal(resp, &created)
 	fmt.Printf("%s Allocation created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
 }
@@ -1836,7 +1835,7 @@ func cmdAllocationUpdate(s *Session, args []string) error {
 	s.Cache.Invalidate("allocation")
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
-	json.Unmarshal(resp, &updated)
+	_ = json.Unmarshal(resp, &updated)
 	fmt.Printf("%s Allocation updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
 }
@@ -1948,7 +1947,7 @@ func cmdIPBlockCreate(s *Session, _ []string) error {
 	}
 	s.Cache.Invalidate("ip-block")
 	var created map[string]interface{}
-	json.Unmarshal(resp, &created)
+	_ = json.Unmarshal(resp, &created)
 	fmt.Printf("%s IP block created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
 }
@@ -1985,7 +1984,7 @@ func cmdIPBlockUpdate(s *Session, args []string) error {
 	s.Cache.Invalidate("ip-block")
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
-	json.Unmarshal(resp, &updated)
+	_ = json.Unmarshal(resp, &updated)
 	fmt.Printf("%s IP block updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
 }
@@ -2063,7 +2062,7 @@ func cmdNSGCreate(s *Session, _ []string) error {
 	s.Cache.Invalidate("network-security-group")
 	s.Cache.InvalidateFiltered()
 	var created map[string]interface{}
-	json.Unmarshal(resp, &created)
+	_ = json.Unmarshal(resp, &created)
 	fmt.Printf("%s Network security group created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
 }
@@ -2100,7 +2099,7 @@ func cmdNSGUpdate(s *Session, args []string) error {
 	s.Cache.Invalidate("network-security-group")
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
-	json.Unmarshal(resp, &updated)
+	_ = json.Unmarshal(resp, &updated)
 	fmt.Printf("%s Network security group updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
 }
@@ -2210,9 +2209,8 @@ func cmdVPCPrefixCreate(s *Session, _ []string) error {
 	if err != nil {
 		return err
 	}
-	var prefixLen int
-	fmt.Sscanf(prefixLenText, "%d", &prefixLen)
-	if prefixLen < 8 || prefixLen > 31 {
+	prefixLen, err := strconv.Atoi(strings.TrimSpace(prefixLenText))
+	if err != nil || prefixLen < 8 || prefixLen > 31 {
 		return fmt.Errorf("prefix length must be between 8 and 31")
 	}
 	ipBlockID, err := promptVPCPrefixIPBlockID(s, context.Background())
@@ -2237,7 +2235,7 @@ func cmdVPCPrefixCreate(s *Session, _ []string) error {
 	s.Cache.Invalidate("vpc-prefix")
 	s.Cache.InvalidateFiltered()
 	var created map[string]interface{}
-	json.Unmarshal(resp, &created)
+	_ = json.Unmarshal(resp, &created)
 	fmt.Printf("%s VPC prefix created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
 }
@@ -2332,7 +2330,7 @@ func cmdVPCPrefixUpdate(s *Session, args []string) error {
 	s.Cache.Invalidate("vpc-prefix")
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
-	json.Unmarshal(resp, &updated)
+	_ = json.Unmarshal(resp, &updated)
 	fmt.Printf("%s VPC prefix updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
 }
@@ -2400,7 +2398,7 @@ func cmdTenantAccountCreate(s *Session, _ []string) error {
 	}
 	s.Cache.Invalidate("tenant-account")
 	var created map[string]interface{}
-	json.Unmarshal(resp, &created)
+	_ = json.Unmarshal(resp, &created)
 	fmt.Printf("%s Tenant account created: %s (%s)\n", Green("OK"), str(created, "tenantOrg"), str(created, "id"))
 	return nil
 }
@@ -2422,7 +2420,7 @@ func cmdTenantAccountUpdate(s *Session, args []string) error {
 	}
 	s.Cache.Invalidate("tenant-account")
 	var updated map[string]interface{}
-	json.Unmarshal(resp, &updated)
+	_ = json.Unmarshal(resp, &updated)
 	fmt.Printf("%s Tenant account accepted: %s (%s)\n", Green("OK"), str(updated, "tenantOrg"), str(updated, "id"))
 	return nil
 }
@@ -2765,7 +2763,7 @@ func cmdInstanceCreate(s *Session, _ []string) error {
 	s.Cache.Invalidate("instance")
 	s.Cache.InvalidateFiltered()
 	var created map[string]interface{}
-	json.Unmarshal(resp, &created)
+	_ = json.Unmarshal(resp, &created)
 	fmt.Printf("%s Instance created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
 }
@@ -2978,7 +2976,7 @@ func cmdInstanceUpdate(s *Session, args []string) error {
 	s.Cache.Invalidate("instance")
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
-	json.Unmarshal(resp, &updated)
+	_ = json.Unmarshal(resp, &updated)
 	fmt.Printf("%s Instance updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
 }
@@ -4259,7 +4257,8 @@ func sortByLabelKey(items []NamedItem, key string) []NamedItem {
 func parseLabelArgs(args []string) (remaining []string, labels map[string]string, sortKey string, err error) {
 	labels = map[string]string{}
 	for i := 0; i < len(args); i++ {
-		if args[i] == "--label" {
+		switch args[i] {
+		case "--label":
 			if i+1 >= len(args) {
 				return nil, nil, "", fmt.Errorf("--label requires a key=value argument")
 			}
@@ -4272,13 +4271,13 @@ func parseLabelArgs(args []string) (remaining []string, labels map[string]string
 			} else {
 				return nil, nil, "", fmt.Errorf("--label value %q must contain '='", args[i])
 			}
-		} else if args[i] == "--sort-label" {
+		case "--sort-label":
 			if i+1 >= len(args) {
 				return nil, nil, "", fmt.Errorf("--sort-label requires a key argument")
 			}
 			i++
 			sortKey = args[i]
-		} else {
+		default:
 			remaining = append(remaining, args[i])
 		}
 	}
