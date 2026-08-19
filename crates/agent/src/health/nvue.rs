@@ -15,10 +15,8 @@
  * limitations under the License.
  */
 
-use std::collections::BTreeMap;
-
 use health_report::{HealthProbeAlert, HealthProbeSuccess, HealthReport};
-use nvue_client::types::bgp::{BgpPeerInfo, BgpPeerState, BgpVrfInfo};
+use nvue_client::types::bgp::{BgpNeighbors, BgpPeerState};
 use nvue_client::{FieldFilter, NvueClient};
 
 use super::{failed, make_alert, probe_ids};
@@ -58,19 +56,19 @@ impl NvueHealthCheck<'_> {
 
     /// Checks BGP uplink session health through the configured NVUE API target.
     async fn check_bgp_uplinks(&self, report: &mut HealthReport) {
-        const BGP_NEIGHBOR_STATE_FIELD: &str = "/neighbor/*/state";
+        const BGP_NEIGHBOR_STATE_FIELD: &str = "/*/state";
 
-        let bgp_vrf_info = self
+        let bgp_neighbors = self
             .nvue_client
-            .get_bgp_vrf_info_filtered(
+            .get_bgp_neighbors_filtered(
                 BGP_VRF_UPLINKS,
                 FieldFilter::with_includes([BGP_NEIGHBOR_STATE_FIELD]),
             )
             .await;
-        match bgp_vrf_info.as_ref() {
-            Ok(bgp_vrf_info) => check_bgp_uplink_sessions(
+        match bgp_neighbors.as_ref() {
+            Ok(bgp_neighbors) => check_bgp_uplink_sessions(
                 report,
-                bgp_vrf_info,
+                bgp_neighbors.as_ref(),
                 self.min_healthy_links,
                 self.hbn_device_names,
             ),
@@ -78,7 +76,7 @@ impl NvueHealthCheck<'_> {
                 report,
                 probe_ids::BgpPeeringTor.clone(),
                 None,
-                format!("Error fetching NVUE BGP data for VRF {BGP_VRF_UPLINKS}: {error}"),
+                format!("Error fetching NVUE BGP neighbor data for VRF {BGP_VRF_UPLINKS}: {error}"),
             ),
         }
     }
@@ -100,7 +98,7 @@ impl NvueHealthCheck<'_> {
     }
 }
 
-/// Checks configured ToR BGP sessions from an already-fetched NVUE BGP VRF response.
+/// Checks configured ToR BGP sessions from an already-fetched NVUE BGP neighbor response.
 ///
 /// All configured HBN uplinks are evaluated, and the check passes when at least
 /// `min_healthy_links` of them are present and established. If too few uplinks
@@ -110,7 +108,7 @@ impl NvueHealthCheck<'_> {
 /// device names provide. The helper does not emit success entries.
 pub(super) fn check_bgp_uplink_sessions(
     report: &mut HealthReport,
-    bgp: &BgpVrfInfo,
+    neighbors: Option<&BgpNeighbors>,
     min_healthy_links: usize,
     hbn_device_names: &HBNDeviceNames,
 ) {
@@ -119,7 +117,7 @@ pub(super) fn check_bgp_uplink_sessions(
     let expected_hbn_uplinks = hbn_device_names.uplinks.iter().copied();
 
     for expected_uplink in expected_hbn_uplinks {
-        match check_expected_peer_established(bgp.neighbor.as_ref(), expected_uplink) {
+        match check_expected_peer_established(neighbors, expected_uplink) {
             Ok(()) => healthy_uplink_count += 1,
             Err(message) => unhealthy_uplink_names.push((expected_uplink.to_string(), message)),
         }
@@ -177,7 +175,7 @@ pub(super) fn check_bgp_uplink_sessions(
 /// missing state, or non-established state returns a descriptive error message
 /// for conversion to a health alert by the caller.
 fn check_expected_peer_established(
-    neighbors: Option<&BTreeMap<String, BgpPeerInfo>>,
+    neighbors: Option<&BgpNeighbors>,
     peer_name: &str,
 ) -> Result<(), String> {
     let Some(neighbors) = neighbors else {
@@ -216,9 +214,9 @@ mod tests {
         expected_alerts: Vec<health_report::HealthProbeAlert>,
     }
 
-    /// Builds a NVUE BGP VRF response from a compact scenario JSON fixture.
-    fn bgp_vrf_info(bgp_json: &str) -> BgpVrfInfo {
-        serde_json::from_str(bgp_json).expect("BGP VRF info should deserialize")
+    /// Builds NVUE BGP neighbors from a compact scenario JSON fixture.
+    fn bgp_neighbors(bgp_json: &str) -> Option<BgpNeighbors> {
+        serde_json::from_str(bgp_json).expect("BGP neighbors should deserialize")
     }
 
     /// Builds a ToR peering alert with the same target and criticality rules as production.
@@ -256,18 +254,16 @@ mod tests {
                     scenario: "all configured uplinks established",
                     bgp_json: r#"
                     {
-                        "neighbor": {
-                            "p0_if": { "state": "established" },
-                            "p1_if": { "state": "established" }
-                        }
+                        "p0_if": { "state": "established" },
+                        "p1_if": { "state": "established" }
                     }
                     "#,
                     min_healthy_links: 2,
                     expected_alerts: vec![],
                 },
                 Row {
-                    scenario: "missing neighbor map alerts for each configured uplink",
-                    bgp_json: r#"{}"#,
+                    scenario: "null neighbor response alerts for each configured uplink",
+                    bgp_json: r#"null"#,
                     min_healthy_links: 2,
                     expected_alerts: vec![
                         tor_alert(
@@ -286,9 +282,7 @@ mod tests {
                     scenario: "missing configured uplink targets that uplink",
                     bgp_json: r#"
                     {
-                        "neighbor": {
-                            "p0_if": { "state": "established" }
-                        }
+                        "p0_if": { "state": "established" }
                     }
                     "#,
                     min_healthy_links: 2,
@@ -302,10 +296,8 @@ mod tests {
                     scenario: "idle configured uplink alerts when below threshold",
                     bgp_json: r#"
                     {
-                        "neighbor": {
-                            "p0_if": { "state": "idle" },
-                            "p1_if": { "state": "established" }
-                        }
+                        "p0_if": { "state": "idle" },
+                        "p1_if": { "state": "established" }
                     }
                     "#,
                     min_healthy_links: 2,
@@ -319,10 +311,8 @@ mod tests {
                     scenario: "another non-established state alerts",
                     bgp_json: r#"
                     {
-                        "neighbor": {
-                            "p0_if": { "state": "active" },
-                            "p1_if": { "state": "established" }
-                        }
+                        "p0_if": { "state": "active" },
+                        "p1_if": { "state": "established" }
                     }
                     "#,
                     min_healthy_links: 2,
@@ -336,10 +326,8 @@ mod tests {
                     scenario: "missing state alerts",
                     bgp_json: r#"
                     {
-                        "neighbor": {
-                            "p0_if": {},
-                            "p1_if": { "state": "established" }
-                        }
+                        "p0_if": {},
+                        "p1_if": { "state": "established" }
                     }
                     "#,
                     min_healthy_links: 2,
@@ -353,12 +341,10 @@ mod tests {
                     scenario: "extra non-ToR and route-server neighbors ignored",
                     bgp_json: r#"
                     {
-                        "neighbor": {
-                            "p0_if": { "state": "established" },
-                            "p1_if": { "state": "established" },
-                            "tenant-vrf-peer": { "state": "idle" },
-                            "10.217.126.67": { "state": "active" }
-                        }
+                        "p0_if": { "state": "established" },
+                        "p1_if": { "state": "established" },
+                        "tenant-vrf-peer": { "state": "idle" },
+                        "10.217.126.67": { "state": "active" }
                     }
                     "#,
                     min_healthy_links: 2,
@@ -368,10 +354,8 @@ mod tests {
                     scenario: "one healthy uplink may be the second configured uplink",
                     bgp_json: r#"
                     {
-                        "neighbor": {
-                            "p0_if": { "state": "idle" },
-                            "p1_if": { "state": "established" }
-                        }
+                        "p0_if": { "state": "idle" },
+                        "p1_if": { "state": "established" }
                     }
                     "#,
                     min_healthy_links: 1,
@@ -381,10 +365,8 @@ mod tests {
                     scenario: "min healthy links greater than configured uplinks alerts",
                     bgp_json: r#"
                     {
-                        "neighbor": {
-                            "p0_if": { "state": "established" },
-                            "p1_if": { "state": "established" }
-                        }
+                        "p0_if": { "state": "established" },
+                        "p1_if": { "state": "established" }
                     }
                     "#,
                     min_healthy_links: 3,
@@ -402,9 +384,10 @@ mod tests {
             }),
             |row| {
                 let mut hr = HealthReport::empty("forge-dpu-agent".to_string());
+                let bgp_neighbors = bgp_neighbors(row.bgp_json);
                 check_bgp_uplink_sessions(
                     &mut hr,
-                    &bgp_vrf_info(row.bgp_json),
+                    bgp_neighbors.as_ref(),
                     row.min_healthy_links,
                     &HBNDeviceNames::hbn_23(),
                 );
