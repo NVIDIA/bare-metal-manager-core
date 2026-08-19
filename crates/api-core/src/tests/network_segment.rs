@@ -1943,7 +1943,7 @@ async fn test_create_network_segment_with_ipv6_prefix(
     assert_eq!(config.prefixes.len(), 1);
     assert_eq!(config.prefixes[0].prefix, "2001:db8::/64");
     assert!(config.prefixes[0].gateway.is_none());
-    assert!(config.is_some_and(|config| config.infer_slaac_eui64_addresses));
+    assert!(config.infer_slaac_eui64_addresses);
 
     Ok(())
 }
