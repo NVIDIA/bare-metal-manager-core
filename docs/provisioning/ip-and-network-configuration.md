@@ -12,7 +12,7 @@ Before configuring the items on this page, complete:
 
 - [Hardware](../getting-started/prerequisites/hardware.md) — server, DPU, and BMC inventory.
 - [Network Prerequisites](../getting-started/prerequisites/network.md) — VNI/ASN allocation, BGP/EVPN, route targets, and switch configuration.
-- [BMC and Out-of-Band Setup](../getting-started/prerequisites/bmc-oob-setup.md) — physical OOB connectivity and BMC credentials.
+- [BMC and Out-of-Band Setup](../getting-started/prerequisites/bmc-oob-setup.md) — physical BMC connectivity, DHCP relay, and credentials.
 
 This page assumes the underlay and overlay routing decisions described in those pages have already been made.
 
@@ -84,23 +84,57 @@ mtu = 1500
 
 ### 1.3 OOB/BMC IP Addresses (Static vs. Dynamic)
 
-Every host BMC, DPU BMC, and DPU OOB interface needs an IP on the OOB management network. NICo supports two modes for each BMC interface:
+Every host BMC, DPU BMC, and DPU OOB interface needs an address on a
+NICo-managed physical network. The usual deployment places these interfaces on
+an OOB network represented by an `Underlay` segment. A zero-DPU host's BMC can
+instead share one `HostInband` subnet/VLAN with the host OS; see
+[Shared HostInband for a Host BMC and Host OS](#15-shared-hostinband-for-a-host-bmc-and-host-os).
+That exception applies only to the host BMC. DPU BMC and DPU OOB interfaces
+remain on `Underlay` segments.
 
-| Mode | When IP is fixed | Configured by |
+The top-level Expected Machine fields `bmc_ip_address` and
+`bmc_ip_allocation` control host-BMC allocation.
+
+The `nico-admin-cli em add` and `em patch` flags accept policy values
+`unspecified`, `auto`, `dynamic`, `fixed`, and `retained`. The
+`bmc_ip_allocation` enum in the whole-table JSON consumed by `em replace-all`
+uses `Unspecified`, `Auto`, `Dynamic`, `Fixed`, and `Retained`. Direct gRPC
+clients use the corresponding `BMC_IP_ALLOCATION_TYPE_*` enum values.
+
+The table describes a newly created entry. On patch/update, omitting the policy
+preserves the stored effective policy rather than resetting it to Auto.
+Explicit `unspecified`/`Unspecified` resets the policy to Auto.
+
+| Expected Machine configuration | Effective policy | Behavior |
 |---|---|---|
-| **Dynamic** (default) | At first DHCP discovery, NICo allocates from the management network pool | `nico-dhcp` + the relevant `[networks.<name>]` block in `siteConfig` |
-| **Static** (predefined) | Set in `expected_machines.json` per host; `nico-dhcp` serves that exact address on first contact | `bmc_ip_address` field per machine |
+| Omit both fields, or select Auto without an address | **Retained** (default) | DHCP selects an address; Site Explorer makes it static for that machine-interface row's lifetime. |
+| Set `bmc_ip_address`; omit `bmc_ip_allocation` or select Auto | **Fixed** | NICo reserves and serves the configured address. |
+| Select Dynamic without an address | **Dynamic** | DHCP allocates a normal lease that can expire and change. |
+| Select Retained without an address | **Retained** | Same retained behavior as the default. |
+| Select Fixed with `bmc_ip_address` | **Fixed** | Same fixed behavior as inferred Auto. |
 
-Mixing modes within the same site is supported — each host can use whichever mode is convenient.
+Fixed requires `bmc_ip_address`. Dynamic and Retained reject a configured
+address. A retained address is not written back to the Expected Machine, so
+deleting the machine-interface row and re-ingesting the host can select a new
+address. Use a fixed address when it must survive interface recreation. Mixing
+policies within one site is supported.
 
 **Per node**, expect to allocate:
 
 - 1 IP for the host BMC.
 - For hosts with DPUs: 1 IP for the DPU ARM OS + 1 IP for the DPU BMC, per DPU.
 
-So a host with one DPU consumes three OOB addresses; a host without DPUs consumes one.
+In the conventional topology, a host with one DPU therefore consumes three OOB
+addresses. When a zero-DPU host BMC shares HostInband, its one BMC address is
+capacity on that HostInband segment rather than on a dedicated OOB segment.
 
-The OOB management network is declared as one or more NICo-managed network segments in `siteConfig` `[networks.<name>]` (block names are operator-chosen). Each segment carries its own prefix, gateway, and MTU. The OOB switches **must run a DHCP relay** pointed at the `nico-dhcp` LoadBalancer VIP — they must not assign addresses themselves. See [BMC and Out-of-Band Setup](../getting-started/prerequisites/bmc-oob-setup.md) for switch-side relay configuration.
+The conventional OOB management network is declared as one or more
+NICo-managed `Underlay` network segments in `siteConfig`
+`[networks.<name>]` blocks. Each segment carries its own prefix, gateway, and
+MTU. The switches **must run a DHCP relay** pointed at the `nico-dhcp`
+LoadBalancer VIP; they must not assign addresses themselves. See
+[BMC and Out-of-Band Setup](../getting-started/prerequisites/bmc-oob-setup.md)
+for switch-side relay configuration.
 
 ### 1.4 Predefined BMC IP Allocation for Expected Machines
 
@@ -122,11 +156,78 @@ For sites that require a stable, pre-known BMC IP per host (for example, to wire
 
 When `bmc_ip_address` is present:
 
-- The address pre-allocates a machine interface in `nico-api` at manifest upload time.
-- The first DHCP DISCOVER from that BMC's MAC is answered with the pre-allocated address — `nico-dhcp` does not draw from the dynamic OOB pool for that host.
-- The pre-allocated address must fall within a network segment prefix declared in `siteConfig` `[networks.<name>]`, and it must not overlap any range used by the dynamic pool for that segment.
+- NICo records the fixed intent with the Expected Machine. The API update path
+  and Site Explorer reconciliation materialize the machine-interface
+  reservation; the DHCP path also restores it if the interface was deleted.
+- The first DHCP DISCOVER from that BMC's MAC is answered with the reserved
+  address; `nico-dhcp` does not draw another address for that host.
+- For a BMC on a managed segment, the address must fall within that segment's
+  prefix. It can be inside the segment's otherwise-dynamic pool: once the
+  reservation exists, NICo's address-uniqueness constraint prevents the
+  dynamic allocator from assigning it to another interface.
+
+Changing `bmc_ip_address` does not replace an address already present on a live
+machine-interface row. Plan fixed addresses before ingestion, or use the
+machine-interface address workflow to replace existing state deliberately.
 
 For the full `expected_machines.json` schema and upload command, see [Ingesting Hosts](ingesting-hosts.md).
+
+### 1.5 Shared HostInband for a Host BMC and Host OS
+
+NICo supports connecting a zero-DPU host's BMC and host OS NIC to the same
+physical subnet/VLAN. This applies when the effective DPU policy is `ignore`
+(no managed DPU) or `nic` (an installed DPU operates as a plain NIC). Each
+interface receives its own address from one `HostInband` segment.
+
+Model the prefix **once**, as `HostInband`. Do not also declare an `Underlay`
+segment for the same prefix. NICo enforces globally non-overlapping network
+prefixes, so duplicate, nested, or partially overlapping segment definitions
+are rejected. Machine-interface addresses are also globally unique.
+
+The shared topology has these requirements:
+
+- Configure the `HostInband` segment with `allocation_strategy = "dynamic"`
+  (the default) whenever either interface needs an unreserved DHCP allocation.
+  A `reserved` segment answers only clients whose fixed reservation already
+  exists.
+- Associate the segment with a valid DNS subdomain. Config-seeded network
+  creation requires one selected initial forward domain and associates the
+  segment with it automatically; startup skips segment creation if no forward
+  domain can be selected unambiguously. A segment created at runtime with
+  `nico-admin-cli network-segment create` requires `--subdomain-id`.
+- Size the prefix for distinct host-BMC and host-OS addresses and set
+  `reserve_first` high enough to protect gateway or infrastructure addresses.
+- Declare every zero-DPU host data-NIC MAC on its Expected Machine in
+  `host_nics` (`interfaces` on newer admin-CLI surfaces). Mark one data NIC
+  `primary: true`; that NIC is the host's boot interface, and declarations with
+  more than one primary are rejected. Setting
+  `network_segment_type: "host_inband"` is recommended so DHCP fails on a
+  segment-type mismatch instead of using a relay candidate of another type.
+  See the [zero-DPU site setup](../manuals/vpc/flat_vpcs_zero_dpu.md#site-operations-operator).
+- Register the BMC MAC and credentials on the Expected Machine. Omit
+  `bmc_ip_address` to use the default Auto → Retained behavior, or set it
+  to an address in the HostInband prefix when the address must remain stable
+  after interface deletion and re-ingestion.
+- Configure the BMC-facing and host-NIC-facing switch ports so DHCP reaches
+  `nico-dhcp` with relay/link metadata that identifies the HostInband prefix.
+
+For IPv4, NICo selects candidate segments whose prefix contains the relay's
+`giaddr`; `giaddr` does not need to equal the configured gateway. For DHCPv6,
+an exact configured link-address match is authoritative, with prefix
+containment used as a fallback. VLAN ID, circuit ID, remote ID, and physical
+cabling do not themselves select a NICo segment, although the switch
+configuration determines which relay/link address NICo receives.
+
+This is a host-BMC exception only. Do not place a DPU BMC or DPU OOB interface
+on HostInband; those endpoints retain the conventional `Underlay` model.
+
+<Warning>
+Sharing the host-facing L2 network removes the network-level OOB isolation that
+a dedicated management VLAN provides. The BMC still operates independently of
+the host OS, but it can be reachable from the same physical network unless the
+fabric supplies ACL, VRF, private-VLAN, or equivalent isolation. Treat that as
+an explicit site security decision.
+</Warning>
 
 ---
 
@@ -136,8 +237,11 @@ For the full `expected_machines.json` schema and upload command, see [Ingesting 
 
 `nico-dhcp` is **not** a standalone DHCP daemon. It is a [Kea DHCP](https://www.isc.org/kea/) hooks library (`cdylib`) loaded into the upstream Kea v4 server inside the `nico-dhcp` container. Every DHCPDISCOVER/REQUEST is intercepted by the hooks library and forwarded to `nico-api` over mTLS gRPC (the `discover_dhcp` RPC). `nico-api` decides what address to lease based on:
 
-- Whether the source MAC matches an entry in `expected_machines` with a `bmc_ip_address` (predefined allocation).
-- Otherwise, whether the source MAC is a known host/DPU BMC or DPU OOB interface — `nico-api` consults the corresponding network segment pool and allocates the next free address.
+- Whether the source MAC has a fixed reservation, including an Expected Machine
+  `bmc_ip_address`.
+- Otherwise, whether the source MAC is a known host/DPU BMC, DPU OOB interface,
+  or declared host NIC. `nico-api` uses relay metadata to select a network
+  segment and applies that interface's allocation policy.
 - Vendor class (option 60) determines whether the client is a PXE/iPXE/BlueField boot client, which influences the boot options returned.
 
 The hook callouts (`lease4_select` and `lease4_renew`) overwrite the lease that Kea would have selected — `yiaddr`, valid lifetime, and DHCP options are replaced with the values `nico-api` produced, and the hook can return `SKIP` to cancel Kea's own lease assignment and database write. The result is written to Kea's memfile (`kea-leases4.csv`), but the authoritative record lives in `nico-api`. From an operator perspective this means:
@@ -148,31 +252,51 @@ The hook callouts (`lease4_select` and `lease4_renew`) overwrite the lease that 
 
 ### 2.2 DHCP Configuration for Host BMCs, DPU BMCs, and DPU OOB Addresses
 
-All three interface types are served by the same `nico-dhcp` instance. What distinguishes them at the wire level is which network segment the relayed request lands in — `nico-api` selects the segment by matching the relay's `giaddr` against the `gateway` field of each `[networks.<name>]` block in `siteConfig`:
+All physical interface types are served by the same `nico-dhcp` instance. For
+IPv4, `nico-api` selects candidate segments by finding the configured prefix
+that contains the relay's `giaddr`. The configured `gateway` is not the segment
+selector. DHCPv6 uses an exact configured link-address match when present and
+otherwise falls back to prefix containment.
 
 | Interface | DHCP request originates on | Served from |
 |---|---|---|
-| Host BMC | OOB management network | The `[networks.<name>]` segment whose `gateway` matches the OOB relay's `giaddr` |
-| DPU BMC | OOB management network | Same as host BMC — both attach to whichever management segment matches `giaddr` |
-| DPU OOB (ARM OS) | OOB management network | A management segment matched the same way; may share the BMC segment or be a distinct segment, depending on how `[networks.<name>]` blocks are declared |
+| Host BMC | Usually the OOB management network; optionally the shared zero-DPU host network | The relay-selected `Underlay`, or the supported shared `HostInband` segment |
+| DPU BMC | OOB management network | The relay-selected `Underlay` segment |
+| DPU OOB (ARM OS) | OOB management network | The relay-selected `Underlay` segment; it can share the DPU BMC segment or use another Underlay prefix |
+| Zero-DPU host OS NIC | Host-facing physical network | The relay-selected `HostInband` segment |
 
 Each `[networks.<name>]` block declares:
 
 | Field | Purpose |
 |---|---|
-| `type` | Segment classification: `admin` for the admin segment, `underlay` for routed/per-TOR segments. NICo uses this to decide which segment is eligible for which interface role. |
+| `type` | Segment classification: `admin`, `underlay`, or `hostinband`. Tenant segments are not config-declarable. |
 | `prefix` | The IPv4 CIDR for the segment. |
-| `gateway` | The address the OOB DHCP relay sets as `giaddr`; `nico-api` matches the inbound request to this segment by comparing `giaddr` against this field. |
+| `gateway` | The IPv4 gateway associated with the prefix and returned in network configuration. It does not have to equal `giaddr`. |
 | `mtu` | MTU advertised to clients on this segment. |
 | `reserve_first` | Number of leading addresses in the prefix to hold back from the dynamic pool (typically 5 — covers the network address, gateway, broadcast, plus headroom). |
+| `allocation_strategy` | `dynamic` (default) permits pool allocation and fixed reservations; `reserved` serves only pre-existing reservations. |
 
-A real site declares one `admin` segment and one `underlay` segment per OOB-facing TOR; the OOB management network is fragmented across as many `underlay` blocks as there are TORs.
+A conventional DPU site declares an `admin` segment and one or more `underlay`
+segments covering its OOB relay scopes. A zero-DPU or DPU-NIC-mode site also
+declares the required `hostinband` segments. The host BMC can use one of those
+HostInband segments as described in [section 1.5](#15-shared-hostinband-for-a-host-bmc-and-host-os).
 
 To configure these flows:
 
-1. **Declare the management network segments in `siteConfig`.** Use the schema above. The admin segment is not a singleton — a site may declare multiple admin/management segments, and the host's IP is sourced from whichever segment's `gateway` matches the relay's `giaddr` on the inbound DHCP request.
-2. **Configure the DHCP relay on every OOB switch** to forward DHCP traffic to the `nico-dhcp` LoadBalancer VIP (the IP assigned to the `nico-dhcp` service by MetalLB in [Quick Start Step 3h](../getting-started/quick-start.md#3h-assign-service-vips)). The relay must be on the same L2 broadcast domain as the BMCs and DPUs it serves.
-3. **For predefined IPs**, upload `expected_machines.json` with `bmc_ip_address` populated **before** the host first powers on. Uploading after the BMC has already received a dynamic lease will not retroactively change its IP — release the lease (`nico-admin-cli ... em ...`) and power-cycle the BMC.
+1. **Declare the physical network segments in `siteConfig`.** Use the schema
+   above. Each relay/link address must fall within the intended segment prefix,
+   except a separately configured DHCPv6 link-address can select its segment by
+   exact match.
+2. **Configure the DHCP relay on every applicable switch** to forward DHCP
+   traffic to the `nico-dhcp` LoadBalancer VIP (the IP assigned to the
+   `nico-dhcp` service by MetalLB in
+   [Quick Start Step 3h](../getting-started/quick-start.md#3h-assign-service-vips)).
+   The relay-facing interface must cover the L2 broadcast domain whose clients
+   it serves. In the shared HostInband topology, both the host BMC and host OS
+   paths must produce relay metadata for that HostInband prefix.
+3. **For predefined IPs**, upload `expected_machines.json` with
+   `bmc_ip_address` populated before ingestion. Adding it after the BMC has an
+   address does not overwrite the live machine-interface row.
 4. **Set `dhcp_servers`** in `siteConfig` to the list of DHCP server IPs reachable from bare-metal hosts. This list is informational and is passed through to agents; it does not change how `nico-dhcp` itself serves leases. May be left as `[]`.
 5. **Set `ntp_servers`** in `siteConfig` to your NTP server IPs. NICo uses this list to configure BMC NTP through Redfish during pre-ingestion, includes it in `DiscoverDhcp` responses, and passes it to DPU agents so their DHCP server advertises the same NTP servers to managed hosts.
 
@@ -215,7 +339,10 @@ kubectl exec -n nico-system deploy/nico-dhcp -- \
 
 The lease IP and MAC should match what `nico-api` allocated. The lease file is authoritative for Kea only — `nico-api` is the system of record.
 
-**From the OOB relay's vantage point**, verify packets are being forwarded by checking the switch's relay statistics (`show ip dhcp relay statistics` on Cumulus / SONiC). DISCOVER packets sent should match OFFER packets received.
+**On the switch relaying the tested BMC or HostInband client**, verify packets
+are being forwarded by checking its relay statistics (`show ip dhcp relay
+statistics` on Cumulus / SONiC). DISCOVER packets sent should match OFFER
+packets received.
 
 For DHCP-related stuck states during ingestion, see the [WaitingForNetworkConfig playbook](../playbooks/stuck_objects/waiting_for_network_config.md).
 
@@ -295,7 +422,11 @@ The required A records (shown for `.nico`; substitute `.nico` if your binaries u
 
 One additional `.nico` hostname, `socks.nico`, is hardcoded into the DPU agent as the SOCKS5 outbound proxy for DPU extension-service pods. Add a corresponding A record only if your environment runs a SOCKS5 proxy for that purpose; it is not part of every NICo deployment. For per-endpoint detail (consumers, in-cluster addresses, hardcode locations, and the `unbound`-vs-other-resolver guidance), see [`deploy/DNS.md`](https://github.com/NVIDIA/infra-controller/blob/main/deploy/DNS.md). That file is the canonical endpoint reference; the table above is the operator-facing summary.
 
-> **Note:** Neither `.nico` nor `.nico` is a publicly registered TLD. Both are used exclusively on the isolated OOB management network. Configure the recursive resolver to treat the chosen TLD as locally authoritative and **not** forward queries to upstream public resolvers.
+> **Note:** The `.nico` service zone is private and is not a publicly
+> registered TLD. It can be served on the conventional isolated OOB network or
+> on a supported shared HostInband network. Configure the recursive resolver to
+> treat it as locally authoritative and **not** forward it to upstream public
+> resolvers.
 
 #### Bootstrap CA Selection and Network Trust
 
@@ -373,7 +504,9 @@ kubectl get svc nico-dns -n nico-system
 dig +short @<nico-dns-vip> <initial_domain_name>
 ```
 
-**From an OOB-network vantage point** (a host BMC console, a managed host's BMC web UI shell, or any client on the OOB network), confirm the service zone resolves:
+**From a managed physical-network vantage point** (a host BMC console, a
+managed host's BMC web UI shell, or another client on its network), confirm the
+service zone resolves:
 
 ```bash
 for name in nico-api.nico nico-pxe.nico nico-static-pxe.nico \
@@ -405,17 +538,20 @@ A successful external recursion via `unbound.nico` confirms both DHCP option 6 (
 
 Use this checklist across the Day 0 rollout. Complete the configuration and
 infrastructure prerequisites before powering on the first host BMC. Complete
-the runtime checks as the first DPUs come online and before expanding the
-rollout to the rest of the fleet:
+the runtime checks as the first managed endpoints come online and before
+expanding the rollout to the rest of the fleet:
 
 - [ ] `siteConfig` `[pools.lo-ip]` and `[pools.vpc-dpu-lo]` populated with non-empty ranges.
 - [ ] `siteConfig` `[networks.admin]` has non-empty `prefix` and `gateway`.
-- [ ] One or more OOB network segments declared in `[networks.<name>]`, sized for `1 + 2 × DPU_count` IPs per host.
+- [ ] Each required physical segment declared in `[networks.<name>]`:
+      `underlay` capacity for every DPU BMC/OOB pair and isolated host BMC, and
+      `hostinband` capacity for every shared zero-DPU host BMC and host OS NIC.
 - [ ] `initial_domain_name` set in `siteConfig`.
 - [ ] `dhcp_servers` set in `siteConfig` (or left as `[]`).
 - [ ] `ntp_servers` set in `siteConfig`, or the legacy `nico-ntp` DNS / `nico-dhcp` `nico-ntpserver` fallback is intentionally configured.
 - [ ] `expected_machines.json` uploaded for every host; `bmc_ip_address` populated for any host that needs a predefined BMC IP.
-- [ ] OOB switches configured with a DHCP relay pointing to the `nico-dhcp` LoadBalancer VIP.
+- [ ] Every BMC- or zero-DPU-host-facing network configured with a DHCP relay
+      pointing to the `nico-dhcp` LoadBalancer VIP.
 - [ ] LoadBalancer VIPs assigned for `nico-api`, `nico-dhcp`, `nico-pxe`, `nico-dns` (one per replica), `nico-ssh-console-rs`, and `unbound`.
 - [ ] `unbound`'s `local_data.conf` ConfigMap contains A records for `nico-api`, `nico-pxe`, `nico-static-pxe`, `unbound`, and `otel-receiver` in the `.nico` zone; include `nico-ntp` pointing at your operator-supplied NTP server if you use the legacy fallback.
 - [ ] `nico-dns` zone for `initial_domain_name` is delegated from upstream DNS, or `unbound` forwards the zone to the `nico-dns` VIPs.
@@ -434,7 +570,7 @@ When every item is checked, proceed to [Ingesting Hosts](ingesting-hosts.md).
 ## Related Pages
 
 - [Network Prerequisites](../getting-started/prerequisites/network.md) — VNI/ASN/IPv4 sizing, BGP/EVPN, route targets, switch configuration.
-- [BMC and Out-of-Band Setup](../getting-started/prerequisites/bmc-oob-setup.md) — OOB physical network, DHCP relay setup, BMC credentials.
+- [BMC and Out-of-Band Setup](../getting-started/prerequisites/bmc-oob-setup.md) — physical management networks, DHCP relay setup, BMC credentials.
 - [IP Resource Pools](../manuals/networking/ip_resource_pools.md) — `lo-ip` / `vpc-dpu-lo` semantics, sizing, `admin-cli resource-pool grow`.
 - [Quick Start Guide](../getting-started/quick-start.md) — the install flow that consumes the configuration described here.
 - [Reference Installation](../getting-started/installation-options/reference-install.md) — pointers to the manual, manifest-level install and troubleshooting references.

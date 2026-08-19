@@ -220,7 +220,17 @@ Some per-host settings are not exposed through the REST API or `nicocli`. To set
 - **`dpf_enabled`** (bool, default `true`): Enable or disable DPF provisioning for this host. When omitted or `true`, DPF is the provisioning path (requires `[dpf].enabled = true` in the site config — see [DPF setup](../manuals/dpf.md)). Set to `false` to keep a host on the deprecated iPXE path.
 - **`bmc_retain_credentials`** (bool): Skip BMC password rotation.
 - **`default_pause_ingestion_and_poweron`** (bool): Pause ingestion and power-on for this host.
-- **`bmc_ip_address`** (string): Static BMC IP, which pre-allocates a machine interface.
+- **`bmc_ip_address`** (string, optional): Fixed host-BMC address. When omitted,
+  the default allocation obtains an address through DHCP and retains it for the
+  machine-interface row's lifetime.
+- **`bmc_ip_allocation`** (`"Unspecified"` | `"Auto"` | `"Dynamic"` |
+  `"Fixed"` | `"Retained"`, default `"Auto"`): Allocation policy for the host
+  BMC in the whole-table JSON consumed by `em replace-all`. `Auto` resolves to
+  `Fixed` when `bmc_ip_address` is present and `Retained` otherwise;
+  `Unspecified` resets to `Auto`. The corresponding `em add` and `em patch`
+  flag values are lowercase. See
+  [OOB/BMC IP Addresses](ip-and-network-configuration.md#13-oobbmc-ip-addresses-static-vs-dynamic)
+  for field interactions and the supported shared HostInband topology.
 - **`host_lifecycle_profile.disable_lockdown`** (bool, default `false`): When `true`, the state machine does not lock down the host during lifecycle management, which suits automation workflows that keep lockdown disabled.
 
 Each manifest entry combines the required BMC credentials with any of these fields:

@@ -32,11 +32,11 @@ A host's management network lives on one of a few segment types. Which one depen
 | Segment type | What it is | Used when |
 |---|---|---|
 | **Admin** | A **DPU-served overlay**. A DPU in DPU mode runs an on-board DHCP server and hands the host OS its admin IP over the overlay; the physical fabric never sees it (the DPU is a VTEP). | The host boots **through a DPU**. |
-| **HostInband** | An ordinary NIC straight to the physical fabric. The host gets its IP from central NICo DHCP (`nico-dhcp`), and the switch port is configured differently. This is also the segment Flat-VPC allocation keys off. | The host boots through a **plain NIC** — an integrated NIC, or a DPU in NIC mode. |
-| **Underlay** | The DPU's *own* IP (its loopback/VTEP) and the OOB/BMC management network. | Always, for DPU self-addressing and BMCs. |
+| **HostInband** | An ordinary NIC straight to the physical fabric. The host gets its IP from central NICo DHCP (`nico-dhcp`), and the switch port is configured differently. This is also the segment Flat-VPC allocation keys off. | The host boots through a **plain NIC** — an integrated NIC, or a DPU in NIC mode. A zero-DPU host BMC may share this segment with the host OS. |
+| **Underlay** | The DPU's *own* IP (its loopback/VTEP) and the conventional OOB/BMC management network. | For DPU self-addressing, DPU BMC/OOB, and the usual isolated host-BMC topology. |
 | **Tenant** | Tenant workload networks. | After a host is assigned to a tenant. |
 
-**Rule of thumb:** the host-OS segment follows the boot interface's mode — boot via DPU ⇒ **Admin**; boot via a plain NIC ⇒ **HostInband**. A non-DPU NIC is never on the Admin segment, because Admin *is* the DPU overlay.
+**Rule of thumb:** the host-OS segment follows the boot interface's mode — boot via DPU ⇒ **Admin**; boot via a plain NIC ⇒ **HostInband**. A non-DPU NIC is never on the Admin segment, because Admin *is* the DPU overlay. The supported shared host-BMC topology is documented in [IP and Network Configuration](ip-and-network-configuration.md#15-shared-hostinband-for-a-host-bmc-and-host-os).
 
 ### The boot (primary) interface
 
@@ -94,11 +94,17 @@ The optional `host_nics` array declares specifics for individual host NICs. Each
 |---|---|---|---|
 | `mac_address` | string (required) | The NIC's MAC address. | — |
 | `primary` | bool | Declare **this NIC** as the host's boot/primary interface. **At most one per host.** | For hosts whose effective DPU policy is `manage`, Site Explorer chooses among discovered DPU host PFs: it selects the lowest UEFI PCI path when every matching Redfish interface has one; otherwise it orders the DPUs by Redfish serial number and uses the first DPU's host PF. Hosts using `nic` or `ignore` do not get this fallback and must declare a primary HostInband NIC. |
-| `network_segment_type` | enum: `admin` / `underlay` / `host_inband` / `tenant` | The segment type this NIC's first DHCP lease should come from. Only needed to **disambiguate** when the NIC's DHCP relay matches more than one segment (nested/overlapping prefixes — see note below); otherwise the relay decides. | The relay's matching segment(s) stand. |
-| `fixed_ip` / `fixed_mask` / `fixed_gateway` | string | Static IP assignment for the NIC, pre-allocated at upload time. | Dynamic allocation. |
+| `network_segment_type` | enum: `admin` / `underlay` / `host_inband` / `tenant` | The expected segment type for this NIC's DHCP selection. It narrows candidates when a request carries multiple relay addresses and prevents a declaration from silently using the wrong segment type. | The relay's matching segment(s) stand. |
+| `fixed_ip` / `fixed_mask` / `fixed_gateway` | string | Static IP assignment for the NIC, materialized during expected-interface reconciliation. | Dynamic allocation. |
 | `nic_type` | string (legacy) | A free-form segment hint, **superseded by `network_segment_type`**. Kept for backward compatibility only. | — |
 
-> **What `network_segment_type` actually does.** A NIC's segment is normally determined by its DHCP relay: NICo picks the segment whose prefix *contains* the relay address. Where segment prefixes **nest or overlap** — for example a `/27` HostInband segment inside a `/24` underlay — one relay matches several segments. `network_segment_type` narrows that to the segment of the named type. If a relay maps unambiguously to one segment (the common case), this field is unnecessary.
+> **What `network_segment_type` actually does.** A NIC's segment is normally
+> determined by relay metadata: NICo finds the segment whose prefix contains
+> an IPv4 relay address; an exact configured DHCPv6 link-address takes
+> precedence. `network_segment_type` narrows multiple relay candidates to the
+> named type and acts as an expected-type check for explicit interface
+> policies. Network-segment prefixes cannot nest or overlap, so do not create
+> an Underlay and HostInband alias for one physical prefix.
 
 **Admin JSON** (an Expected Machine entry):
 
@@ -155,7 +161,9 @@ A plain server with one or more host NICs and no DPU. Declare `ignore` and mark 
 }
 ```
 
-The host boots from that NIC on HostInband and gets its IP from central NICo DHCP.
+The host boots from that NIC on HostInband and gets its IP from central NICo
+DHCP. Its host BMC may use the same physical subnet/VLAN and HostInband segment;
+see [Shared HostInband for a Host BMC and Host OS](ip-and-network-configuration.md#15-shared-hostinband-for-a-host-bmc-and-host-os).
 
 ### 3.3 DPU in NIC mode
 
