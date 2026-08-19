@@ -1816,6 +1816,7 @@ message Vpc {
 
   // dpa_vni
   reserved 12;
+  reserved "dpa_vni";
 
   reserved 13;  // was: common.NVLinkLogicalPartitionId default_nvlink_logical_partition_id, replaced with config.default_nvlink_logical_partition_id
   reserved "default_nvlink_logical_partition_id";

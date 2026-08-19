@@ -64451,7 +64451,7 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x03vni\x18\x01 \x01(\rH\x00R\x03vni\x88\x01\x01\x12b\n" +
 	"\x19effective_routing_profile\x18\x02 \x01(\v2!.forge.VpcEffectiveRoutingProfileH\x01R\x17effectiveRoutingProfile\x88\x01\x01B\x06\n" +
 	"\x04_vniB\x1c\n" +
-	"\x1a_effective_routing_profile\"\xe9\x04\n" +
+	"\x1a_effective_routing_profile\"\xf2\x04\n" +
 	"\x03Vpc\x12\x1d\n" +
 	"\x02id\x18\x01 \x01(\v2\r.common.VpcIdR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
@@ -64464,7 +64464,7 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x06status\x18\x0e \x01(\v2\x10.forge.VpcStatusH\x00R\x06status\x88\x01\x01\x12(\n" +
 	"\x06config\x18\x11 \x01(\v2\x10.forge.VpcConfigR\x06configB\t\n" +
 	"\a_statusJ\x04\b\x03\x10\x04J\x04\b\a\x10\bJ\x04\b\b\x10\tJ\x04\b\t\x10\n" +
-	"J\x04\b\v\x10\fJ\x04\b\f\x10\rJ\x04\b\r\x10\x0eJ\x04\b\x0f\x10\x10J\x04\b\x10\x10\x11R\x14tenantOrganizationIdR\x0etenantKeysetIdR\x0edeprecated_vniR\x1bnetwork_virtualization_typeR\x19network_security_group_idR#default_nvlink_logical_partition_idR\x03vniR\x14routing_profile_type\"\xb9\a\n" +
+	"J\x04\b\v\x10\fJ\x04\b\f\x10\rJ\x04\b\r\x10\x0eJ\x04\b\x0f\x10\x10J\x04\b\x10\x10\x11R\x14tenantOrganizationIdR\x0etenantKeysetIdR\x0edeprecated_vniR\x1bnetwork_virtualization_typeR\x19network_security_group_idR\adpa_vniR#default_nvlink_logical_partition_idR\x03vniR\x14routing_profile_type\"\xb9\a\n" +
 	"\x12VpcCreationRequest\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x122\n" +
 	"\x14tenantOrganizationId\x18\x03 \x01(\tR\x14tenantOrganizationId\x12+\n" +
