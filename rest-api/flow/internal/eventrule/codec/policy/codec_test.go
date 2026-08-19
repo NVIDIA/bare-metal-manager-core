@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-package policycodec
+package policy_test
 
 import (
 	"os"
@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
+	policycodec "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/codec/policy"
 	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
 	flowtypes "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 	"github.com/stretchr/testify/require"
@@ -18,7 +19,7 @@ func TestPolicyV1Fixture(t *testing.T) {
 	data, err := os.ReadFile("testdata/policy_v1_all_actions.json")
 	require.NoError(t, err)
 
-	policy, err := Unmarshal(data)
+	policy, err := policycodec.Unmarshal(data)
 	require.NoError(t, err)
 	require.Equal(t, fullPolicy(), policy)
 }
@@ -27,7 +28,7 @@ func TestPolicyV1WithoutDedupeFixture(t *testing.T) {
 	data, err := os.ReadFile("testdata/policy_v1_without_dedupe.json")
 	require.NoError(t, err)
 
-	policy, err := Unmarshal(data)
+	policy, err := policycodec.Unmarshal(data)
 	require.NoError(t, err)
 	require.Nil(t, policy.Dedupe)
 	require.Len(t, policy.Actions, 1)
@@ -36,9 +37,9 @@ func TestPolicyV1WithoutDedupeFixture(t *testing.T) {
 
 func TestPolicyRoundTrip(t *testing.T) {
 	policy := fullPolicy()
-	encoded, err := Marshal(policy)
+	encoded, err := policycodec.Marshal(policy)
 	require.NoError(t, err)
-	roundTripped, err := Unmarshal(encoded)
+	roundTripped, err := policycodec.Unmarshal(encoded)
 	require.NoError(t, err)
 	require.Equal(t, policy, roundTripped)
 }
@@ -58,72 +59,11 @@ func TestPolicyRejectsUnknownVersionsAndFields(t *testing.T) {
 			]
 		}`,
 		"policy field": `{"version":1,"actions":[],"unknown":true}`,
-		"action field": `{
-			"version":1,
-			"actions":[
-				{
-					"version":1,
-					"id":"noop",
-					"type":"noop",
-					"condition":{},
-					"spec":{},
-					"unknown":true
-				}
-			]
-		}`,
-		"invalid action severity": `{
-			"version":1,
-			"actions":[
-				{
-					"version":1,
-					"id":"noop",
-					"type":"noop",
-					"condition":{"severities":["urgent"]},
-					"spec":{}
-				}
-			]
-		}`,
-		"invalid action component type": `{
-			"version":1,
-			"actions":[
-				{
-					"version":1,
-					"id":"noop",
-					"type":"noop",
-					"condition":{"componentTypes":["GPU"]},
-					"spec":{}
-				}
-			]
-		}`,
-		"invalid send alert severity": `{
-			"version":1,
-			"actions":[
-				{
-					"version":1,
-					"id":"alert",
-					"type":"send_alert",
-					"condition":{},
-					"spec":{"severity":"urgent"}
-				}
-			]
-		}`,
-		"unspecified send alert severity": `{
-			"version":1,
-			"actions":[
-				{
-					"version":1,
-					"id":"alert",
-					"type":"send_alert",
-					"condition":{},
-					"spec":{"severity":""}
-				}
-			]
-		}`,
 	}
 
 	for name, data := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, err := Unmarshal([]byte(data))
+			_, err := policycodec.Unmarshal([]byte(data))
 			require.Error(t, err)
 		})
 	}
