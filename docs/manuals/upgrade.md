@@ -1,4 +1,4 @@
-# Upgrading NICo
+# Upgrading NICo <Badge intent="info">v2.1</Badge> <Badge intent="launch" minimal>New</Badge>
 
 `setup.sh` is designed to be **idempotent**: running it against an existing NICo installation upgrades each component in place. The same script and values files used for initial installation are the mechanism for upgrades — there is no separate upgrade script.
 
@@ -9,16 +9,16 @@ This page documents how each component behaves when `setup.sh` is re-run against
 Every installation phase is designed to be safe to re-run:
 
 | Phase | Behavior on re-run |
-|-------|-------------------|
+| ----- | ------------------ |
 | **1 — local-path-provisioner** | Manifests are `kubectl apply`'d — idempotent. StorageClasses are upserted. |
 | **1b — postgres-operator** | `helmfile sync` issues `helm upgrade --install` — upgrades the release in place. Existing `PostgreSQL` CRs (including `nico-pg-cluster`) are untouched. |
-| **1c — MetalLB** | CRDs are applied server-side with `--force-conflicts`. Any helm-owned CRDs from a prior install have their ownership labels stripped before sync, preventing deletion. `helmfile sync` upgrades the release. Existing `IPAddressPool`, `BGPPeer`, and `BGPAdvertisement` instances are preserved and re-applied (idempotent `kubectl apply`). See [MetalLB CRD ownership](#metallb-crd-ownership-2021-upgrade-path). |
+| **1c — MetalLB** | CRDs are applied server-side with `--force-conflicts`. Any helm-owned CRDs from a prior install have their ownership labels stripped before sync, preventing deletion. `helmfile sync` upgrades the release. Existing `IPAddressPool`, `BGPPeer`, and `BGPAdvertisement` instances are preserved and re-applied (idempotent `kubectl apply`). Refer to [MetalLB CRD ownership](#20--21-metallb-crd-ownership-migration). |
 | **2 — cert-manager** | `helmfile sync` upgrades the release. Existing `ClusterIssuer`, `Certificate`, and `CertificateRequest` objects are untouched. The Vault TLS bootstrap certs are re-applied server-side; existing certs that are still valid are not reissued. |
 | **3 — Vault** | `helmfile sync` upgrades the release. The StatefulSet rolling-update leaves Vault pods running. |
 | **4 — Vault unseal** | `unseal_vault.sh` checks whether Vault is already initialized. If it is, it skips `vault operator init` and only unseals any pods that were restarted and became sealed again. The Vault cluster keys (`vault-cluster-keys` Secret) and root token (`vaultroottoken`) are preserved. |
 | **4 (SSH host key)** | `bootstrap_ssh_host_key.sh` detects an existing SSH host key Secret and skips re-generation. The cluster's SSH identity is preserved across upgrades. |
 | **5 — external-secrets + nico-prereqs** | `helmfile sync` upgrades both releases. Existing `ClusterSecretStore` and `ExternalSecret` objects are reconciled to their new definitions. The ESO controller re-syncs all secrets on the next poll cycle. |
-| **5b — DPF** | DPF components are upgraded via their helm charts. The `DPFOperatorConfig`, `DPUCluster`, and `DPUService` objects are preserved. See [DPF upgrade considerations](#dpf-upgrade-considerations). |
+| **5b — DPF** | DPF components are upgraded via their helm charts. The `DPFOperatorConfig`, `DPUCluster`, and `DPUService` objects are preserved. Refer to [DPF version update](#20--21-dpf-version-update). |
 | **6 — NICo Core** | `helm upgrade --install nico` rolls out the new Core image tag. The PostgreSQL database schema is migrated by the pre-upgrade Job (uses the `imagepullsecret` Secret, which is upserted). NICo state (host records, machine state, firmware inventory) lives in PostgreSQL and is preserved. |
 | **7a–7g — NICo REST** | REST components are upgraded via `helm upgrade --install`. The `nico_rest` PostgreSQL database is migrated in-place by the REST migration Job. Temporal workflow state is preserved. The Keycloak realm and client credentials are preserved. |
 | **7h — NICo Flow** | Flow, PSM, and NSM are upgraded in place. |
@@ -45,7 +45,9 @@ Every installation phase is designed to be safe to re-run:
 
 Complete every item before running `setup.sh`. Missing any of these can cause the upgrade to fail or leave the cluster in a partially upgraded state.
 
-### 1. Back up Vault unseal keys
+<Steps toc={true}>
+
+### Back up Vault unseal keys
 
 Vault unseal keys are stored in the `vault-cluster-keys` Secret in the `vault` namespace. If this Secret is lost and all Vault pods restart simultaneously, the cluster is unrecoverable without a Vault snapshot.
 
@@ -65,7 +67,7 @@ kubectl get secret vault-cluster-keys -n vault -o json > vault-cluster-keys-back
 This file contains the plaintext Vault unseal keys. Store it in a secure, offline location and delete the local copy after storing.
 </Warning>
 
-### 2. Check cluster health before upgrading
+### Check cluster health before upgrading
 
 Do not upgrade a cluster that already has degraded components. Resolve any existing issues first.
 
@@ -95,7 +97,7 @@ kubectl exec -n vault vault-0 -c vault -- vault status -tls-skip-verify | grep -
 
 Both should show `Initialized true` and `Sealed false`.
 
-### 3. Pull the new release
+### Pull the new release
 
 Update your local checkout to the target release branch or tag:
 
@@ -105,10 +107,11 @@ git checkout upstream/release/v2.1   # or the specific release tag
 ```
 
 Review the release changelog for breaking changes:
+
 - `fern/changelog/` — user-facing changelog entries
 - `helm-prereqs/` diff from the prior release — any new required values fields or removed flags
 
-### 4. Review values file changes
+### Review values file changes
 
 Check whether new release added required values fields or changed defaults:
 
@@ -121,7 +124,7 @@ git diff upstream/release/v2.0..upstream/release/v2.1 -- helm-prereqs/values.yam
 
 Update your site values files to include any new required fields before running `setup.sh`.
 
-### 5. Update image tags
+### Update image tags
 
 Set the new image tags for the target release:
 
@@ -133,7 +136,7 @@ export NICO_REST_IMAGE_TAG=v2.1.0                      # new REST tag
 
 If you are upgrading DPF as part of this release, the DPF version is read from `NICO_DPF_VERSION` (defaulting to the value baked into `setup.sh`). You do not normally need to set this explicitly unless your site uses a pinned version.
 
-### 6. Run the pre-flight check
+### Run the pre-flight check
 
 ```bash
 cd helm-prereqs/
@@ -141,6 +144,8 @@ source ./preflight.sh
 ```
 
 Fix all errors before proceeding. Warnings about `NICO_DPF_BMC_ROOT_PASSWORD` being unset are safe to ignore on an upgrade (the credential is already stored in Vault from the initial install).
+
+</Steps>
 
 ## Running the upgrade
 
@@ -156,7 +161,7 @@ cd helm-prereqs/
 ### Upgrade-specific flags
 
 | Flag | When to use |
-|------|------------|
+| ---- | ----------- |
 | `--skip-core` | Skip Phase 6 only. Prerequisites and the REST stack still upgrade; NICo Core is left on its current image. Useful when the Core image did not change. |
 | `--skip-rest` | Skip Phase 7 only. Prerequisites and NICo Core still upgrade; the REST stack is left untouched. |
 | `--skip-flow` | Skip the Flow upgrade (Phase 7h). |
@@ -167,7 +172,7 @@ cd helm-prereqs/
 ### Estimated upgrade time
 
 | Phase | Typical duration |
-|-------|-----------------|
+| ----- | ---------------- |
 | Phases 1–1c (storage, postgres-operator, MetalLB) | 2–5 min |
 | Phases 2–4 (cert-manager, Vault, unseal) | 1–3 min (Vault is already initialized; only rolling update time) |
 | Phase 5 (ESO + nico-prereqs) | 1–3 min |
