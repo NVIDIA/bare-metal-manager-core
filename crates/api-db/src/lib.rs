@@ -46,6 +46,10 @@ pub mod health_report;
 pub mod host_firmware_config;
 pub mod host_machine_update;
 pub mod host_naming;
+// Persistence lands before its IB reconciliation callers as the small first
+// slice of https://github.com/NVIDIA/infra-controller/issues/5138.
+#[allow(dead_code)]
+mod ib_membership_cleanup_intent;
 pub mod ib_partition;
 pub mod instance;
 pub mod instance_address;
