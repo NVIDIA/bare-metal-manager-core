@@ -22,7 +22,7 @@ mod metrics;
 
 use std::collections::{HashMap, HashSet};
 use std::io;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use carbide_instrument::emit;
@@ -30,6 +30,7 @@ use carbide_utils::periodic_timer::PeriodicTimer;
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::machine::MachineId;
 use chrono::Utc;
+use db::ib_membership_cleanup_intent::IbMembershipCleanupIntent;
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{self, DatabaseError};
 use health_report::HealthReportApplyMode;
@@ -44,7 +45,9 @@ use model::machine::infiniband::{
     MachineIbInterfaceStatusObservation, MachineInfinibandStatusObservation,
 };
 use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot};
+use model::machine::{
+    HostHealthConfig, LoadSnapshotOptions, ManagedHostState, ManagedHostStateSnapshot,
+};
 use sqlx::{PgConnection, PgPool};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
@@ -55,6 +58,12 @@ use crate::errors::{IbError, IbResult};
 use crate::ib::{GetPartitionOptions, IBFabric, IBFabricManager, IBFabricManagerType};
 
 type SkuInactiveDevicesCache = HashMap<String, Option<HashSet<u32>>>;
+
+#[derive(Clone, Debug, Default)]
+struct CleanupIntentScan {
+    after: Option<IbMembershipCleanupIntent>,
+    high_water: Option<IbMembershipCleanupIntent>,
+}
 
 /// `IbFabricMonitor` monitors the health of all connected InfiniBand fabrics in periodic intervals
 pub struct IbFabricMonitor {
@@ -67,6 +76,7 @@ pub struct IbFabricMonitor {
 
     host_health: HostHealthConfig,
     work_lock_manager_handle: WorkLockManagerHandle,
+    cleanup_intent_scan: Mutex<CleanupIntentScan>,
 }
 
 impl IbFabricMonitor {
@@ -105,6 +115,7 @@ impl IbFabricMonitor {
             fabric_manager,
             host_health,
             work_lock_manager_handle,
+            cleanup_intent_scan: Mutex::new(CleanupIntentScan::default()),
         }
     }
 
@@ -310,6 +321,7 @@ impl IbFabricMonitor {
             });
 
         let mut reports = Vec::new();
+        let mut live_desired_memberships = HashMap::new();
         for (machine, snapshot) in &snapshots {
             let mut snapshot_clone = snapshot.clone();
             match record_machine_infiniband_status_observation(
@@ -324,6 +336,9 @@ impl IbFabricMonitor {
             .await
             {
                 Ok(report) => {
+                    for membership in &report.live_desired_memberships {
+                        live_desired_memberships.insert(membership.clone(), *machine);
+                    }
                     reports.push(report);
                 }
                 Err(e) => {
@@ -335,7 +350,15 @@ impl IbFabricMonitor {
             }
         }
 
-        let num_changes = apply_guid_pkey_changes(
+        let cleanup_changes = self
+            .reconcile_cleanup_intents(
+                &mut fabric_clients,
+                &fabric_data,
+                &live_desired_memberships,
+                &mut reports,
+            )
+            .await?;
+        let membership_changes = apply_guid_pkey_changes(
             self.fabric_manager.as_ref(),
             &mut fabric_clients,
             &self.fabrics,
@@ -345,7 +368,210 @@ impl IbFabricMonitor {
         )
         .await?;
 
+        Ok(cleanup_changes + membership_changes)
+    }
+
+    /// Reconciles one keyset page per iteration. Each finite scan fixes its
+    /// high-water tuple before the first page, so continuous higher-key
+    /// arrivals wait for the next scan instead of postponing its wrap.
+    async fn reconcile_cleanup_intents(
+        &self,
+        fabric_clients: &mut HashMap<String, Arc<dyn IBFabric>>,
+        data_by_fabric: &HashMap<String, FabricData>,
+        live_desired_memberships: &HashMap<IbMembershipCleanupIntent, MachineId>,
+        reports: &mut [MachineIbStatusEvaluation],
+    ) -> IbResult<usize> {
+        let scan = self
+            .cleanup_intent_scan
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        let high_water = match scan.high_water {
+            Some(high_water) => high_water,
+            None => {
+                let Some(high_water) =
+                    db::ib_membership_cleanup_intent::high_water_mark(&self.db_pool).await?
+                else {
+                    *self
+                        .cleanup_intent_scan
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner) = CleanupIntentScan::default();
+                    return Ok(0);
+                };
+                high_water
+            }
+        };
+        let batch = db::ib_membership_cleanup_intent::list_batch(
+            &self.db_pool,
+            scan.after.as_ref(),
+            Some(&high_water),
+        )
+        .await?;
+        let Some(last) = batch.last().cloned() else {
+            *self
+                .cleanup_intent_scan
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner) = CleanupIntentScan::default();
+            return Ok(0);
+        };
+        let mut num_changes = 0;
+
+        for intent in batch {
+            if let Some(machine_id) = live_desired_memberships.get(&intent)
+                && self
+                    .supersede_cleanup_intent_if_still_live(*machine_id, &intent)
+                    .await?
+            {
+                continue;
+            }
+
+            // A processed intent wins over this iteration's Machine-derived
+            // bind and unbind actions. Intents beyond the bounded page are
+            // suppressed when the rotating cursor reaches them, so this is an
+            // eventual convergence guarantee rather than a global per-pass
+            // snapshot of the table.
+            for report in reports.iter_mut() {
+                report.missing_guid_pkeys.retain(|(fabric, guid, pkey)| {
+                    fabric != &intent.fabric || guid != &intent.guid || *pkey != intent.pkey
+                });
+                report.unexpected_guid_pkeys.retain(|(fabric, guid, pkey)| {
+                    fabric != &intent.fabric || guid != &intent.guid || *pkey != intent.pkey
+                });
+            }
+
+            // A retained intent is a standing desired-absence policy, not
+            // work that must issue a no-op UFM call every iteration. Fresh
+            // fabric data will expose any delayed stale bind on a later pass.
+            if !fabric_contains_membership(data_by_fabric, &intent) {
+                continue;
+            }
+
+            let conn =
+                client_for_fabric(self.fabric_manager.as_ref(), fabric_clients, &intent.fabric)
+                    .await?;
+            let result = conn
+                .unbind_ib_ports(intent.pkey.into(), vec![intent.guid.clone()])
+                .await;
+            UfmGuidPkeyChangeFinished::emit(
+                &intent.fabric,
+                UfmOperation::UnbindGuidFromPkey,
+                &intent.guid,
+                intent.pkey,
+                &result,
+            );
+            if result.is_ok() {
+                num_changes += 1;
+            }
+        }
+
+        let next_scan = if last == high_water {
+            CleanupIntentScan::default()
+        } else {
+            CleanupIntentScan {
+                after: Some(last),
+                high_water: Some(high_water),
+            }
+        };
+        *self
+            .cleanup_intent_scan
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = next_scan;
+
         Ok(num_changes)
+    }
+
+    /// Rechecks desired presence while holding the Machine row lock used by
+    /// allocation and force-delete transitions. The UFM observation that found
+    /// the fabric stays outside this transaction; overlapping UFM calls remain
+    /// subject to repair by later monitor iterations.
+    async fn supersede_cleanup_intent_if_still_live(
+        &self,
+        machine_id: MachineId,
+        intent: &IbMembershipCleanupIntent,
+    ) -> IbResult<bool> {
+        let mut txn = self
+            .db_pool
+            .begin()
+            .await
+            .map_err(|e| DatabaseError::new("begin IB cleanup supersession transaction", e))?;
+
+        let machine_exists = db::machine::find_one(
+            txn.as_mut(),
+            &machine_id,
+            MachineSearchConfig {
+                for_update: true,
+                ..Default::default()
+            },
+        )
+        .await?
+        .is_some();
+        if !machine_exists {
+            txn.commit()
+                .await
+                .map_err(|e| DatabaseError::new("commit IB cleanup supersession transaction", e))?;
+            return Ok(false);
+        }
+
+        // READ COMMITTED takes a new statement snapshot after the row-lock
+        // wait, so this reload sees the Instance transition that held the lock
+        // before us rather than the monitor's earlier iteration snapshot.
+        let snapshot = db::managed_host::load_snapshot(
+            txn.as_mut(),
+            &machine_id,
+            LoadSnapshotOptions::default().with_host_health(self.host_health),
+        )
+        .await?;
+        let fabric_matches = snapshot.as_ref().is_some_and(|snapshot| {
+            // The force-delete publisher creates the absence intent while
+            // holding this same Machine lock. Its old Instance config can
+            // still look live until deletion finishes, so ForceDeletion wins
+            // at that exact publication boundary. Other lifecycle states keep
+            // using the monitor's existing tenant/admin-network policy below.
+            !matches!(snapshot.managed_state, ManagedHostState::ForceDeletion)
+                && snapshot
+                    .host_snapshot
+                    .status
+                    .infiniband_status_observation
+                    .as_ref()
+                    .into_iter()
+                    .flat_map(|observation| &observation.ib_interfaces)
+                    .any(|interface| {
+                        interface.guid == intent.guid && interface.fabric_id == intent.fabric
+                    })
+        });
+        let mut still_live = false;
+        if let Some(instance) = snapshot
+            .as_ref()
+            .filter(|snapshot| fabric_matches && !snapshot.use_admin_network())
+            .and_then(|snapshot| snapshot.instance.as_ref())
+            .filter(|instance| instance.deleted.is_none())
+        {
+            for interface in &instance.config.infiniband.ib_interfaces {
+                if interface.guid.as_deref() != Some(intent.guid.as_str()) {
+                    continue;
+                }
+                let pkey = db::ib_partition::find_pkey_by_partition_id(
+                    txn.as_mut(),
+                    interface.ib_partition_id,
+                )
+                .await?
+                .and_then(|pkey| PartitionKey::try_from(pkey).ok());
+                if pkey == Some(intent.pkey) {
+                    still_live = true;
+                    break;
+                }
+            }
+        }
+
+        if still_live {
+            db::ib_membership_cleanup_intent::supersede_for_live_presence(txn.as_mut(), intent)
+                .await?;
+        }
+        txn.commit()
+            .await
+            .map_err(|e| DatabaseError::new("commit IB cleanup supersession transaction", e))?;
+
+        Ok(still_live)
     }
 
     async fn get_all_snapshots(
@@ -617,6 +843,21 @@ async fn client_for_fabric(
     Ok(conn)
 }
 
+/// Returns whether the iteration's complete UFM partition data contains an
+/// exact cleanup tuple. Missing or incomplete data is treated as unknown and
+/// deferred to a later iteration.
+fn fabric_contains_membership(
+    data_by_fabric: &HashMap<String, FabricData>,
+    intent: &IbMembershipCleanupIntent,
+) -> bool {
+    data_by_fabric
+        .get(&intent.fabric)
+        .and_then(|fabric| fabric.partitions.as_ref())
+        .and_then(|partitions| partitions.get(&u16::from(intent.pkey)))
+        .and_then(|partition| partition.associated_guids.as_ref())
+        .is_some_and(|guids| guids.contains(&intent.guid))
+}
+
 /// Applies the GUID<->pkey binding changes that the per-machine status
 /// evaluations found to be required. Each fabric is served by a single client
 /// from `fabric_clients` for the whole batch, and every UFM call emits its
@@ -744,6 +985,7 @@ struct MachineIbStatusEvaluation {
     unexpected_guid_pkeys: Vec<(String, String, PartitionKey)>,
     unknown_guid_pkeys: Vec<(String, String, PartitionKey)>,
     down_port_guids: Vec<String>,
+    live_desired_memberships: Vec<IbMembershipCleanupIntent>,
 }
 
 async fn record_machine_infiniband_status_observation(
@@ -883,6 +1125,16 @@ async fn record_machine_infiniband_status_observation(
 
         let (fabric_id, lid, associated_pkeys, associated_partition_ids) = match found_port_data {
             Some((fabric_id, fabric_data, port_data)) => {
+                if let Some(expected_pkey) = expected_pkeys.get(guid) {
+                    result
+                        .live_desired_memberships
+                        .push(IbMembershipCleanupIntent {
+                            fabric: fabric_id.to_string(),
+                            pkey: *expected_pkey,
+                            guid: guid.to_string(),
+                        });
+                }
+
                 // Port was found. Now try to look up associated pkeys
                 // If there's no associated pkeys found, don't return any potentially invalid or empty
                 // pkey list. Instead opt for a safe result and return `None` (we don't know).
@@ -1943,6 +2195,7 @@ mod tests {
                 ],
                 unknown_guid_pkeys: vec![],
                 down_port_guids: vec![],
+                live_desired_memberships: vec![],
             }]
         }
 
