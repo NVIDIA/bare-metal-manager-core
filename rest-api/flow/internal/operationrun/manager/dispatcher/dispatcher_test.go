@@ -268,6 +268,62 @@ func TestDispatchRunLocksOnlyCurrentPhaseTargets(t *testing.T) {
 	require.Equal(t, operationrun.OperationRunStatusReasonPhaseGate, store.run.StatusReason)
 }
 
+func TestDispatchRunFailsLegacyEmptyPhase(t *testing.T) {
+	tests := []struct {
+		name        string
+		autoAdvance bool
+	}{
+		{name: "automatic phase policy", autoAdvance: true},
+		{name: "manual phase policy"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runID := uuid.New()
+			nextRackID := uuid.New()
+			nextTaskID := uuid.New()
+			now := time.Date(2026, 8, 14, 10, 0, 0, 0, time.UTC)
+			completed := testTarget(runID, uuid.New(), uuid.New(), 0, 0)
+			completed.Status = operationrun.OperationRunTargetStatusCompleted
+			pending := testTarget(runID, nextRackID, uuid.New(), 1, 3)
+
+			store := newFakeStore(
+				testRun(t, runID, 1, operationrun.PhasePolicy{
+					AdvancePolicy: operationrun.PhaseAdvancePolicy{
+						AutoAdvance: tt.autoAdvance,
+					},
+				}),
+				[]*operationrun.OperationRunTarget{completed, pending},
+			)
+			store.run.Status = operationrun.OperationRunStatusRunning
+			store.run.CurrentPhaseIndex = 1
+			store.run.TotalPhases = 4
+			taskManager := &fakeTaskManager{
+				results: map[uuid.UUID]submitResult{
+					nextRackID: {ids: []uuid.UUID{nextTaskID}},
+				},
+			}
+			dispatcher := newTestDispatcherAt(t, Dependencies{
+				Store:       store,
+				TaskManager: taskManager,
+				TaskStore:   &fakeTaskStore{},
+			}, Config{FetchBatch: 10}, now)
+
+			err := dispatcher.dispatchRun(context.Background(), runID)
+			require.NoError(t, err)
+			require.Equal(t, int32(1), store.run.CurrentPhaseIndex)
+			require.Equal(t, operationrun.OperationRunStatusFailed, store.run.Status)
+			require.Equal(
+				t,
+				"operation run phase 1 has no targets; persisted phase plan is invalid",
+				store.run.StatusMessage,
+			)
+			require.Empty(t, taskManager.requests)
+			require.Equal(t, operationrun.OperationRunTargetStatusPending, pending.Status)
+		})
+	}
+}
+
 func TestDispatchRunPausesWhenSafetyGateTrips(t *testing.T) {
 	runID := uuid.New()
 	taskID := uuid.New()
@@ -628,7 +684,6 @@ func TestDecideSetsTerminalStatusFromTargetOutcomes(t *testing.T) {
 				Status: operationrun.OperationRunStatusRunning,
 			}
 			summary := operationrun.TargetPhaseSummary{}
-			summary.TotalPhases = 1
 			summary.CurrentPhaseStats.SelectedTargets = len(tt.statuses)
 			for _, status := range tt.statuses {
 				summary.CurrentPhaseStats.StatusCounts.Add(status)
@@ -666,6 +721,11 @@ func newFakeStore(
 	run *operationrun.OperationRun,
 	targets []*operationrun.OperationRunTarget,
 ) *fakeStore {
+	for _, target := range targets {
+		if phaseCount := target.PhaseIndex + 1; phaseCount > run.TotalPhases {
+			run.TotalPhases = phaseCount
+		}
+	}
 	return &fakeStore{run: run, targets: targets}
 }
 
@@ -713,19 +773,14 @@ func (s *fakeStore) GetTargetPhaseAggregate(
 	runID uuid.UUID,
 	currentPhaseIndex int32,
 ) (operationrun.TargetPhaseAggregate, error) {
-	var totalPhases int32
 	completedStats := operationrun.PhaseStats{PhaseIndex: max(currentPhaseIndex-1, 0)}
 	for _, target := range s.targets {
-		if target.PhaseIndex+1 > totalPhases {
-			totalPhases = target.PhaseIndex + 1
-		}
 		if target.PhaseIndex < currentPhaseIndex {
 			completedStats.AddTarget(target)
 		}
 	}
 
 	return operationrun.TargetPhaseAggregate{
-		TotalPhases:         totalPhases,
 		CompletedPhaseStats: completedStats,
 	}, nil
 }
@@ -913,7 +968,7 @@ func testRunWithSafetyGate(
 	})
 	require.NoError(t, err)
 
-	return &operationrun.OperationRun{
+	run := &operationrun.OperationRun{
 		ID:                id,
 		Name:              "firmware rollout",
 		Status:            operationrun.OperationRunStatusPending,
@@ -923,6 +978,7 @@ func testRunWithSafetyGate(
 		OperationType:     firmware.Type(),
 		OperationCode:     firmware.CodeString(),
 	}
+	return run
 }
 
 func testTarget(

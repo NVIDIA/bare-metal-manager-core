@@ -28,7 +28,7 @@ type InterfaceCreateRequest struct {
 	VpcPrefixId *string
 	// ID of the VPC from which the Controller should select a prefix. `ipFamilies` must also be specified, and `ipAddress` cannot be specified.
 	VpcId *string
-	// Address families requested for Controller prefix selection. Required with `vpcId` and prohibited otherwise. Only `IPv4` is currently accepted.
+	// Address families requested for Controller prefix selection. Required with `vpcId` and prohibited otherwise. Specify `IPv4`, `IPv6`, or both for dual-stack allocation. Duplicate values are accepted and normalized in `IPv4`, then `IPv6` order.
 	IpFamilies []string
 	// Explicitly requested IP address for the interface. It can only be specified with an explicit `vpcPrefixId`. The least-significant host bit must be 1.
 	IpAddress NullableString

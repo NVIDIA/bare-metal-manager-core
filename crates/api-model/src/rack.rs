@@ -803,6 +803,12 @@ pub struct RackConfig {
     /// selects full-rack vs partial-rack and which activities to run.
     #[serde(default)]
     pub maintenance_requested: Option<MaintenanceScope>,
+
+    /// Operator request to terminate the active rack maintenance cycle. The rack
+    /// state controller consumes this flag, performs device cleanup, and
+    /// transitions the rack to [`RackState::Error`].
+    #[serde(default)]
+    pub maintenance_termination_requested: bool,
 }
 
 /// Reason a rack will not accept a new on-demand maintenance request.
@@ -1059,6 +1065,16 @@ mod tests {
             MaintenanceActivity::PowerSequence.to_string(),
             "PowerSequence"
         );
+    }
+
+    #[test]
+    fn rack_config_defaults_missing_maintenance_termination_request_to_false() {
+        let config: RackConfig = serde_json::from_str("{}").unwrap();
+        assert!(!config.maintenance_termination_requested);
+
+        let config: RackConfig =
+            serde_json::from_str(r#"{"maintenance_termination_requested":true}"#).unwrap();
+        assert!(config.maintenance_termination_requested);
     }
 
     // ── Rack::check_accepts_maintenance ─────────────────────────────────

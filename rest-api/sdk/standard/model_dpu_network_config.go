@@ -25,7 +25,7 @@ var _ MappedNullable = &DpuNetworkConfig{}
 // DpuNetworkConfig Network configuration fields exposed for a DPU Machine. Internal-only and sensitive fields from the Core configuration are omitted.
 type DpuNetworkConfig struct {
 	// Autonomous System Number for BGP routing
-	Asn int32 `json:"asn"`
+	Asn uint32 `json:"asn"`
 	// List of DHCP server IP addresses
 	DhcpServers []string `json:"dhcpServers,omitempty"`
 	// VNI device name
@@ -47,7 +47,7 @@ type DpuNetworkConfig struct {
 	// Type of network virtualization
 	NetworkVirtualizationType NullableString `json:"networkVirtualizationType,omitempty"`
 	// VPC VNI identifier
-	VpcVni NullableInt32 `json:"vpcVni,omitempty"`
+	VpcVni NullableUint32 `json:"vpcVni,omitempty"`
 	// List of route server IP addresses
 	RouteServers []string `json:"routeServers,omitempty"`
 	// Remote identifier for the managed host
@@ -69,19 +69,19 @@ type DpuNetworkConfig struct {
 	// ID of the host interface
 	HostInterfaceId NullableString `json:"hostInterfaceId,omitempty"`
 	// Minimum number of functioning DPU links required
-	MinDpuFunctioningLinks NullableInt32 `json:"minDpuFunctioningLinks,omitempty"`
+	MinDpuFunctioningLinks NullableUint32 `json:"minDpuFunctioningLinks,omitempty"`
 	// Whether this is the primary DPU
 	IsPrimaryDpu bool `json:"isPrimaryDpu"`
 	// Layer 3 VNI used for internet access
-	InternetL3Vni NullableInt32 `json:"internetL3Vni,omitempty"`
+	InternetL3Vni NullableUint32 `json:"internetL3Vni,omitempty"`
 	// Datacenter Autonomous System Number
-	DatacenterAsn int32 `json:"datacenterAsn"`
+	DatacenterAsn uint32 `json:"datacenterAsn"`
 	// List of anycast site IP prefixes
 	AnycastSitePrefixes []string `json:"anycastSitePrefixes,omitempty"`
 	// Autonomous System Number for the tenant host
-	TenantHostAsn NullableInt32 `json:"tenantHostAsn,omitempty"`
+	TenantHostAsn NullableUint32 `json:"tenantHostAsn,omitempty"`
 	// Site-global VPC VNI identifier
-	SiteGlobalVpcVni NullableInt32 `json:"siteGlobalVpcVni,omitempty"`
+	SiteGlobalVpcVni NullableUint32 `json:"siteGlobalVpcVni,omitempty"`
 }
 
 type _DpuNetworkConfig DpuNetworkConfig
@@ -90,7 +90,7 @@ type _DpuNetworkConfig DpuNetworkConfig
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewDpuNetworkConfig(asn int32, vniDevice string, managedHostConfigVersion string, useAdminNetwork bool, remoteId string, vpcIsolationBehavior string, statefulAclsEnabled bool, enableDhcp bool, isPrimaryDpu bool, datacenterAsn int32) *DpuNetworkConfig {
+func NewDpuNetworkConfig(asn uint32, vniDevice string, managedHostConfigVersion string, useAdminNetwork bool, remoteId string, vpcIsolationBehavior string, statefulAclsEnabled bool, enableDhcp bool, isPrimaryDpu bool, datacenterAsn uint32) *DpuNetworkConfig {
 	this := DpuNetworkConfig{}
 	this.Asn = asn
 	this.VniDevice = vniDevice
@@ -114,9 +114,9 @@ func NewDpuNetworkConfigWithDefaults() *DpuNetworkConfig {
 }
 
 // GetAsn returns the Asn field value
-func (o *DpuNetworkConfig) GetAsn() int32 {
+func (o *DpuNetworkConfig) GetAsn() uint32 {
 	if o == nil {
-		var ret int32
+		var ret uint32
 		return ret
 	}
 
@@ -125,7 +125,7 @@ func (o *DpuNetworkConfig) GetAsn() int32 {
 
 // GetAsnOk returns a tuple with the Asn field value
 // and a boolean to check if the value has been set.
-func (o *DpuNetworkConfig) GetAsnOk() (*int32, bool) {
+func (o *DpuNetworkConfig) GetAsnOk() (*uint32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -133,7 +133,7 @@ func (o *DpuNetworkConfig) GetAsnOk() (*int32, bool) {
 }
 
 // SetAsn sets field value
-func (o *DpuNetworkConfig) SetAsn(v int32) {
+func (o *DpuNetworkConfig) SetAsn(v uint32) {
 	o.Asn = v
 }
 
@@ -467,9 +467,9 @@ func (o *DpuNetworkConfig) UnsetNetworkVirtualizationType() {
 }
 
 // GetVpcVni returns the VpcVni field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *DpuNetworkConfig) GetVpcVni() int32 {
+func (o *DpuNetworkConfig) GetVpcVni() uint32 {
 	if o == nil || IsNil(o.VpcVni.Get()) {
-		var ret int32
+		var ret uint32
 		return ret
 	}
 	return *o.VpcVni.Get()
@@ -478,7 +478,7 @@ func (o *DpuNetworkConfig) GetVpcVni() int32 {
 // GetVpcVniOk returns a tuple with the VpcVni field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *DpuNetworkConfig) GetVpcVniOk() (*int32, bool) {
+func (o *DpuNetworkConfig) GetVpcVniOk() (*uint32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -494,8 +494,8 @@ func (o *DpuNetworkConfig) HasVpcVni() bool {
 	return false
 }
 
-// SetVpcVni gets a reference to the given NullableInt32 and assigns it to the VpcVni field.
-func (o *DpuNetworkConfig) SetVpcVni(v int32) {
+// SetVpcVni gets a reference to the given NullableUint32 and assigns it to the VpcVni field.
+func (o *DpuNetworkConfig) SetVpcVni(v uint32) {
 	o.VpcVni.Set(&v)
 }
 
@@ -820,9 +820,9 @@ func (o *DpuNetworkConfig) UnsetHostInterfaceId() {
 }
 
 // GetMinDpuFunctioningLinks returns the MinDpuFunctioningLinks field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *DpuNetworkConfig) GetMinDpuFunctioningLinks() int32 {
+func (o *DpuNetworkConfig) GetMinDpuFunctioningLinks() uint32 {
 	if o == nil || IsNil(o.MinDpuFunctioningLinks.Get()) {
-		var ret int32
+		var ret uint32
 		return ret
 	}
 	return *o.MinDpuFunctioningLinks.Get()
@@ -831,7 +831,7 @@ func (o *DpuNetworkConfig) GetMinDpuFunctioningLinks() int32 {
 // GetMinDpuFunctioningLinksOk returns a tuple with the MinDpuFunctioningLinks field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *DpuNetworkConfig) GetMinDpuFunctioningLinksOk() (*int32, bool) {
+func (o *DpuNetworkConfig) GetMinDpuFunctioningLinksOk() (*uint32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -847,8 +847,8 @@ func (o *DpuNetworkConfig) HasMinDpuFunctioningLinks() bool {
 	return false
 }
 
-// SetMinDpuFunctioningLinks gets a reference to the given NullableInt32 and assigns it to the MinDpuFunctioningLinks field.
-func (o *DpuNetworkConfig) SetMinDpuFunctioningLinks(v int32) {
+// SetMinDpuFunctioningLinks gets a reference to the given NullableUint32 and assigns it to the MinDpuFunctioningLinks field.
+func (o *DpuNetworkConfig) SetMinDpuFunctioningLinks(v uint32) {
 	o.MinDpuFunctioningLinks.Set(&v)
 }
 
@@ -887,9 +887,9 @@ func (o *DpuNetworkConfig) SetIsPrimaryDpu(v bool) {
 }
 
 // GetInternetL3Vni returns the InternetL3Vni field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *DpuNetworkConfig) GetInternetL3Vni() int32 {
+func (o *DpuNetworkConfig) GetInternetL3Vni() uint32 {
 	if o == nil || IsNil(o.InternetL3Vni.Get()) {
-		var ret int32
+		var ret uint32
 		return ret
 	}
 	return *o.InternetL3Vni.Get()
@@ -898,7 +898,7 @@ func (o *DpuNetworkConfig) GetInternetL3Vni() int32 {
 // GetInternetL3VniOk returns a tuple with the InternetL3Vni field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *DpuNetworkConfig) GetInternetL3VniOk() (*int32, bool) {
+func (o *DpuNetworkConfig) GetInternetL3VniOk() (*uint32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -914,8 +914,8 @@ func (o *DpuNetworkConfig) HasInternetL3Vni() bool {
 	return false
 }
 
-// SetInternetL3Vni gets a reference to the given NullableInt32 and assigns it to the InternetL3Vni field.
-func (o *DpuNetworkConfig) SetInternetL3Vni(v int32) {
+// SetInternetL3Vni gets a reference to the given NullableUint32 and assigns it to the InternetL3Vni field.
+func (o *DpuNetworkConfig) SetInternetL3Vni(v uint32) {
 	o.InternetL3Vni.Set(&v)
 }
 
@@ -930,9 +930,9 @@ func (o *DpuNetworkConfig) UnsetInternetL3Vni() {
 }
 
 // GetDatacenterAsn returns the DatacenterAsn field value
-func (o *DpuNetworkConfig) GetDatacenterAsn() int32 {
+func (o *DpuNetworkConfig) GetDatacenterAsn() uint32 {
 	if o == nil {
-		var ret int32
+		var ret uint32
 		return ret
 	}
 
@@ -941,7 +941,7 @@ func (o *DpuNetworkConfig) GetDatacenterAsn() int32 {
 
 // GetDatacenterAsnOk returns a tuple with the DatacenterAsn field value
 // and a boolean to check if the value has been set.
-func (o *DpuNetworkConfig) GetDatacenterAsnOk() (*int32, bool) {
+func (o *DpuNetworkConfig) GetDatacenterAsnOk() (*uint32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -949,7 +949,7 @@ func (o *DpuNetworkConfig) GetDatacenterAsnOk() (*int32, bool) {
 }
 
 // SetDatacenterAsn sets field value
-func (o *DpuNetworkConfig) SetDatacenterAsn(v int32) {
+func (o *DpuNetworkConfig) SetDatacenterAsn(v uint32) {
 	o.DatacenterAsn = v
 }
 
@@ -986,9 +986,9 @@ func (o *DpuNetworkConfig) SetAnycastSitePrefixes(v []string) {
 }
 
 // GetTenantHostAsn returns the TenantHostAsn field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *DpuNetworkConfig) GetTenantHostAsn() int32 {
+func (o *DpuNetworkConfig) GetTenantHostAsn() uint32 {
 	if o == nil || IsNil(o.TenantHostAsn.Get()) {
-		var ret int32
+		var ret uint32
 		return ret
 	}
 	return *o.TenantHostAsn.Get()
@@ -997,7 +997,7 @@ func (o *DpuNetworkConfig) GetTenantHostAsn() int32 {
 // GetTenantHostAsnOk returns a tuple with the TenantHostAsn field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *DpuNetworkConfig) GetTenantHostAsnOk() (*int32, bool) {
+func (o *DpuNetworkConfig) GetTenantHostAsnOk() (*uint32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -1013,8 +1013,8 @@ func (o *DpuNetworkConfig) HasTenantHostAsn() bool {
 	return false
 }
 
-// SetTenantHostAsn gets a reference to the given NullableInt32 and assigns it to the TenantHostAsn field.
-func (o *DpuNetworkConfig) SetTenantHostAsn(v int32) {
+// SetTenantHostAsn gets a reference to the given NullableUint32 and assigns it to the TenantHostAsn field.
+func (o *DpuNetworkConfig) SetTenantHostAsn(v uint32) {
 	o.TenantHostAsn.Set(&v)
 }
 
@@ -1029,9 +1029,9 @@ func (o *DpuNetworkConfig) UnsetTenantHostAsn() {
 }
 
 // GetSiteGlobalVpcVni returns the SiteGlobalVpcVni field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *DpuNetworkConfig) GetSiteGlobalVpcVni() int32 {
+func (o *DpuNetworkConfig) GetSiteGlobalVpcVni() uint32 {
 	if o == nil || IsNil(o.SiteGlobalVpcVni.Get()) {
-		var ret int32
+		var ret uint32
 		return ret
 	}
 	return *o.SiteGlobalVpcVni.Get()
@@ -1040,7 +1040,7 @@ func (o *DpuNetworkConfig) GetSiteGlobalVpcVni() int32 {
 // GetSiteGlobalVpcVniOk returns a tuple with the SiteGlobalVpcVni field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *DpuNetworkConfig) GetSiteGlobalVpcVniOk() (*int32, bool) {
+func (o *DpuNetworkConfig) GetSiteGlobalVpcVniOk() (*uint32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -1056,8 +1056,8 @@ func (o *DpuNetworkConfig) HasSiteGlobalVpcVni() bool {
 	return false
 }
 
-// SetSiteGlobalVpcVni gets a reference to the given NullableInt32 and assigns it to the SiteGlobalVpcVni field.
-func (o *DpuNetworkConfig) SetSiteGlobalVpcVni(v int32) {
+// SetSiteGlobalVpcVni gets a reference to the given NullableUint32 and assigns it to the SiteGlobalVpcVni field.
+func (o *DpuNetworkConfig) SetSiteGlobalVpcVni(v uint32) {
 	o.SiteGlobalVpcVni.Set(&v)
 }
 
@@ -1185,7 +1185,6 @@ func (o *DpuNetworkConfig) UnmarshalJSON(data []byte) (err error) {
 	varDpuNetworkConfig := _DpuNetworkConfig{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varDpuNetworkConfig)
 
 	if err != nil {

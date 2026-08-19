@@ -74,6 +74,40 @@ pub async fn set_boot_interface_id(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
+/// Reconciles the selected primary state on a pending prediction.
+pub async fn set_primary_interface(
+    id: uuid::Uuid,
+    primary_interface: bool,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE predicted_machine_interfaces SET primary_interface = $1 WHERE id = $2";
+    sqlx::query(query)
+        .bind(primary_interface)
+        .bind(id)
+        .execute(txn)
+        .await
+        .map(|_| ())
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
+/// Clears the primary flag from every pending prediction except the selected
+/// MAC, keeping boot selection unambiguous when a refreshed report adds or
+/// changes the primary candidate.
+pub async fn demote_other_primary_interfaces_for_machine(
+    machine_id: &carbide_uuid::machine::MachineId,
+    primary_mac_address: MacAddress,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE predicted_machine_interfaces SET primary_interface=false WHERE machine_id=$1 AND mac_address!=$2 AND primary_interface=true";
+    sqlx::query(query)
+        .bind(machine_id)
+        .bind(primary_mac_address)
+        .execute(txn)
+        .await
+        .map(|_| ())
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
 pub async fn delete(
     value: &PredictedMachineInterface,
     txn: &mut PgConnection,

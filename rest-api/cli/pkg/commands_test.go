@@ -410,7 +410,7 @@ func TestBuildCommands_NoDuplicateFlags(t *testing.T) {
 	visit("nicocli", cmds)
 }
 
-func TestGeneratedCommandInfos_ContainsMachinePowerAliases(t *testing.T) {
+func TestGeneratedCommandInfos_ContainsConciseAliases(t *testing.T) {
 	spec, err := ParseSpec(openapi.Spec)
 	require.NoError(t, err)
 
@@ -432,6 +432,16 @@ func TestGeneratedCommandInfos_ContainsMachinePowerAliases(t *testing.T) {
 			"concise command path for %q does not identify the same operation",
 			operationID,
 		)
+	}
+	for operationID, paths := range additionalCommandPathAliases {
+		for _, path := range paths {
+			assert.Equalf(t,
+				operationID,
+				operations[strings.Join(path, " ")],
+				"additional command path for %q does not identify the same operation",
+				operationID,
+			)
+		}
 	}
 }
 
@@ -950,12 +960,30 @@ func TestBuildCommands_SiteExplorerActionIsRunnable(t *testing.T) {
 	}
 	require.NotNil(t, siteExplorer)
 
+	var sawCreate, sawEndpointAction, sawList bool
 	for _, command := range siteExplorer.Subcommands {
 		if command.HasName("create") {
-			return
+			sawCreate = true
+		}
+		if command.HasName("endpoint") && len(command.Subcommands) > 0 {
+			for _, subcommand := range command.Subcommands {
+				if subcommand.HasName("action") && subcommand.Action != nil {
+					sawEndpointAction = true
+				}
+			}
+		}
+		if command.HasName("list") {
+			sawList = true
 		}
 	}
-	t.Fatal("site-explorer create must be generated from the OpenAPI operation")
+	if !sawCreate {
+		t.Fatal("site-explorer create must be generated from the OpenAPI operation")
+	}
+	require.True(t, sawEndpointAction,
+		"site-explorer endpoint action must be generated from the OpenAPI operation")
+	if !sawList {
+		t.Fatal("site-explorer list must be generated from the OpenAPI operation")
+	}
 }
 
 // TestBuildCommands_AllocationConstraintIsUpdateOnly is the CLI-side guard for

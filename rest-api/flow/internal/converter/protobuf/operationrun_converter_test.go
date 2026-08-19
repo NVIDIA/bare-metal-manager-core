@@ -83,11 +83,13 @@ func TestOperationRunFromDefaults(t *testing.T) {
 func TestOperationRunToRebuildsConfigurationFromInternalJSON(t *testing.T) {
 	run, err := OperationRunFrom(validCreateRequest())
 	require.NoError(t, err)
+	run.TotalPhases = 2
 
 	got, err := OperationRunTo(run)
 	require.NoError(t, err)
 
 	require.NotNil(t, got.GetConfiguration())
+	require.Equal(t, int32(2), got.GetSummary().GetTotalPhases())
 	require.EqualValues(
 		t,
 		10,
@@ -136,6 +138,57 @@ func TestOperationRunToRebuildsConfigurationFromInternalJSON(t *testing.T) {
 			GetRuleId().
 			GetId(),
 	)
+}
+
+func TestOperationRunNVLDomainTargetRoundTrip(t *testing.T) {
+	domainID := uuid.New()
+	req := validCreateRequest()
+	req.Configuration.Operation.GetUpgradeFirmware().TargetSpec = &pb.OperationTargetSpec{
+		Targets: &pb.OperationTargetSpec_NvlDomains{
+			NvlDomains: &pb.NVLDomainTargets{
+				Targets: []*pb.NVLDomainTarget{
+					{
+						Identifier: &pb.NVLDomainTarget_Id{
+							Id: &pb.UUID{Id: domainID.String()},
+						},
+						ComponentTypes: []pb.ComponentType{
+							pb.ComponentType_COMPONENT_TYPE_COMPUTE,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	run, err := OperationRunFrom(req)
+	require.NoError(t, err)
+	operation := mustUnmarshalOperation(t, run.OperationTemplate)
+	require.NotNil(t, operation.TargetSpec)
+	require.Len(t, operation.TargetSpec.NVLDomains, 1)
+	require.Equal(t, domainID, operation.TargetSpec.NVLDomains[0].Identifier.ID)
+
+	got, err := OperationRunTo(run)
+	require.NoError(t, err)
+	targets := got.GetConfiguration().GetOperation().GetUpgradeFirmware().GetTargetSpec().GetNvlDomains()
+	require.Len(t, targets.GetTargets(), 1)
+	require.Equal(t, domainID.String(), targets.GetTargets()[0].GetId().GetId())
+	require.Equal(
+		t,
+		[]pb.ComponentType{pb.ComponentType_COMPONENT_TYPE_COMPUTE},
+		targets.GetTargets()[0].GetComponentTypes(),
+	)
+}
+
+func TestOperationRunSummaryToUsesMaterializedPhaseCount(t *testing.T) {
+	run := &operationrun.OperationRun{
+		TotalPhases: 2,
+		Options:     []byte("{"),
+	}
+
+	got, err := OperationRunSummaryTo(run)
+
+	require.NoError(t, err)
+	require.Equal(t, int32(2), got.GetTotalPhases())
 }
 
 func TestOperationRunStatusConversionIncludesCompletedWithFailures(t *testing.T) {

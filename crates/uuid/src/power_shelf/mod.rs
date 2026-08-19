@@ -329,8 +329,9 @@ impl std::fmt::Display for PowerShelfId {
         f.write_char(self.ty.id_char())?;
         // The next character determines how the PowerShelfId is derived (`PowerShelfIdSource`)
         f.write_char(self.source.id_char())?;
-        // Then follows the actual source data. self.hardware_id is guaranteed to have been written
-        // from a valid string, so we can use from_utf8_unchecked.
+        // Then follows the source data.
+        // SAFETY: `hardware_id` is private and populated only from `BASE32_DNSSEC::encode`, whose
+        // output is ASCII and therefore valid UTF-8.
         unsafe { f.write_str(std::str::from_utf8_unchecked(self.hardware_id.as_slice())) }
     }
 }

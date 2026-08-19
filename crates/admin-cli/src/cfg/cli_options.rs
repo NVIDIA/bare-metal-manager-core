@@ -48,7 +48,7 @@ fn parse_internal_page_size(value: &str) -> Result<usize, String> {
 
 #[derive(Parser, Debug)]
 #[clap(name = "nico-admin-cli")]
-#[clap(author = "https://github.com/NVIDIA/ncx-infra-controller-core")]
+#[clap(author = "https://github.com/NVIDIA/infra-controller")]
 pub(crate) struct CliOptions {
     #[clap(
         long,

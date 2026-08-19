@@ -546,11 +546,11 @@ impl InstanceNetworkConfig {
 
             if let Some(existing_interface) = existing_interface {
                 // Copy all allocated resources.
-                // TODO: Zero DPU changes.
                 interface.ip_addrs = existing_interface.ip_addrs.clone();
                 interface.interface_prefixes = existing_interface.interface_prefixes.clone();
                 interface.network_segment_gateways =
                     existing_interface.network_segment_gateways.clone();
+                interface.host_inband_mac_address = existing_interface.host_inband_mac_address;
 
                 if interface.vpc_selection.is_some() {
                     // Automatic intent reuses the resolution without reviving
@@ -1553,6 +1553,23 @@ mod tests {
         requested.copy_existing_resources(&current);
 
         assert_eq!(requested.interfaces[0].vpc_id, Some(vpc_id));
+    }
+
+    /// HostInband MACs come from Core rather than the caller, so a matching
+    /// interface must retain that physical-interface identity with its IPs.
+    #[test]
+    fn copy_existing_resources_preserves_host_inband_mac() {
+        let host_inband_mac_address = MacAddress::new([1, 2, 3, 4, 5, 6]);
+        let mut current = create_valid_network_config();
+        current.interfaces[0].host_inband_mac_address = Some(host_inband_mac_address);
+
+        let mut requested = create_valid_network_config();
+        requested.copy_existing_resources(&current);
+
+        assert_eq!(
+            requested.interfaces[0].host_inband_mac_address,
+            Some(host_inband_mac_address)
+        );
     }
 
     // InstanceNetworkConfig::validate over a base valid config mutated per row.

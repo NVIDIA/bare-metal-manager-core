@@ -20,13 +20,29 @@ type Dedupe struct {
 	Window time.Duration
 }
 
+// Clone returns an independent copy of the deduplication policy.
+func (d *Dedupe) Clone() *Dedupe {
+	if d == nil {
+		return nil
+	}
+	cloned := *d
+	return &cloned
+}
+
+// WithinWindow reports whether an observation falls within the deduplication
+// window anchored at the action execution's creation time.
+func (d *Dedupe) WithinWindow(createdAt, observedAt time.Time) bool {
+	if d == nil {
+		return false
+	}
+	return !observedAt.Before(createdAt) &&
+		observedAt.Sub(createdAt) < d.Window
+}
+
 // Clone returns an independent copy of the policy and its mutable data.
 func (p Policy) Clone() Policy {
 	cloned := p
-	if p.Dedupe != nil {
-		dedupe := *p.Dedupe
-		cloned.Dedupe = &dedupe
-	}
+	cloned.Dedupe = p.Dedupe.Clone()
 	cloned.Actions = CloneActions(p.Actions)
 	return cloned
 }

@@ -25,7 +25,7 @@ use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tower_http::normalize_path::NormalizePathLayer;
 
-use crate::combined_service::combined_router;
+use crate::combined_router;
 
 pub enum ListenerOrAddress {
     Listener(TcpListener),

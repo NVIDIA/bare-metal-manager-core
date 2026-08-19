@@ -227,7 +227,7 @@ impl From<Machine> for ManagedHostOutput {
             hostname: primary_interface
                 .as_ref()
                 .map(|i| i.hostname.clone())
-                .and_then(|h| if h.trim().is_empty() { None } else { Some(h) }),
+                .filter(|h| !h.trim().is_empty()),
             machine_id: machine.id.as_ref().map(|i| i.to_string()),
             state: machine.state.clone(),
             time_in_state: config_version::since_state_change_humanized(&machine.state_version),

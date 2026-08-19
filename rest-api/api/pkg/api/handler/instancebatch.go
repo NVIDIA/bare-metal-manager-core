@@ -691,7 +691,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 			dbInterfaces = append(dbInterfaces, cdbm.Interface{
 				VpcID:                &interfaceVpcID,
 				Vpc:                  interfaceVpc,
-				VpcIPFamilyMode:      cutil.GetPtr(cdbm.InterfaceVpcIPFamilyModeIPv4Only),
+				VpcIPFamilyMode:      cutil.GetPtr(ifc.VpcIPFamilyMode()),
 				InlineRoutingProfile: ifc.InlineRoutingProfile.ToDB(),
 				Device:               ifc.Device,
 				DeviceInstance:       ifc.DeviceInstance,
@@ -2017,7 +2017,7 @@ func allocateMachinesForBatch(
 // Returns empty string if the machine has no NVLink domain information.
 func getNVLinkDomainID(machine *cdbm.Machine) string {
 	if machine.Metadata != nil {
-		if nvlinkInfo := machine.Metadata.GetNvlinkInfo(); nvlinkInfo != nil {
+		if nvlinkInfo := machine.Metadata.GetStatus().GetNvlinkInfo(); nvlinkInfo != nil {
 			if domainUuid := nvlinkInfo.GetDomainUuid(); domainUuid != nil {
 				return domainUuid.GetValue()
 			}

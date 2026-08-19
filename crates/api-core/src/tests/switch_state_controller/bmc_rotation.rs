@@ -32,6 +32,7 @@ use db::credential_rotation::{
 };
 use db::switch as db_switch;
 use mac_address::MacAddress;
+use model::bmc_suppression::BmcSuppressionSubsystem;
 use model::switch::{Switch, SwitchControllerState};
 
 use super::fixtures::switch::transition_switch_controller_state;
@@ -41,6 +42,30 @@ use crate::tests::common::api_fixtures::create_test_env;
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
 const BMC: CredentialRotationType = CredentialRotationType::Bmc;
+
+/// Stand in for site-explorer acknowledging every pending BMC suppression -- the
+/// barrier the rotation gate waits on before changing a credential. This test
+/// drives only the switch controller, so it plays the site-explorer ack pass
+/// itself.
+async fn ack_all_site_explorer_suppressions(pool: &sqlx::PgPool) {
+    let mut conn = pool.acquire().await.expect("acquire connection");
+    let macs: Vec<MacAddress> = db::bmc_suppression::find_all_by_subsystem(
+        &mut *conn,
+        BmcSuppressionSubsystem::SiteExplorer,
+    )
+    .await
+    .expect("read suppressions")
+    .into_iter()
+    .map(|s| s.bmc_mac_address)
+    .collect();
+    db::bmc_suppression::acknowledge_unacknowledged(
+        &mut conn,
+        &macs,
+        BmcSuppressionSubsystem::SiteExplorer,
+    )
+    .await
+    .expect("acknowledge suppressions");
+}
 
 fn per_device_key(mac: MacAddress) -> CredentialKey {
     CredentialKey::BmcCredentials {
@@ -168,7 +193,30 @@ async fn ready_switch_converges_bmc_to_site_target(pool: sqlx::PgPool) -> TestRe
         switch.controller_state.value,
     );
 
-    // Iteration 2: the rotation converges the device and returns to Ready.
+    // Iteration 2: the gate records a site-explorer suppression for the switch
+    // BMC and waits for its acknowledgement before touching the credential, so
+    // the switch stays in RotatingBmc and nothing is rotated yet.
+    run_switch_controller_with_services(
+        pool.clone(),
+        env.api.work_lock_manager_handle.clone(),
+        switch_services(&env, &pool, true),
+    )
+    .await;
+    let switch = load_switch(&pool, &switch_id).await?;
+    assert!(
+        matches!(
+            switch.controller_state.value,
+            SwitchControllerState::RotatingBmc { .. }
+        ),
+        "rotation must wait in RotatingBmc until site-explorer acknowledges, got {:?}",
+        switch.controller_state.value,
+    );
+
+    // Site-explorer acknowledges the suppression (its skip barrier).
+    ack_all_site_explorer_suppressions(&pool).await;
+
+    // Iteration 3: with the barrier satisfied, the rotation converges the device
+    // and returns to Ready.
     run_switch_controller_with_services(
         pool.clone(),
         env.api.work_lock_manager_handle.clone(),
@@ -209,6 +257,164 @@ async fn ready_switch_converges_bmc_to_site_target(pool: sqlx::PgPool) -> TestRe
         persisted,
         creds("root", "new"),
         "per-device secret should be rotated to the new password"
+    );
+
+    Ok(())
+}
+
+/// When the switch BMC password change lands but persisting the new per-device
+/// secret to the store fails, the hardware is AHEAD of the store. The switch
+/// must hold in `RotatingBmc` (keeping the site-explorer suppression) rather
+/// than settling to Ready with a stale stored secret, and keep retrying until
+/// the store reconciles.
+#[crate::sqlx_test]
+async fn switch_store_persist_failure_holds_in_rotating_bmc_until_reconciled(
+    pool: sqlx::PgPool,
+) -> TestResult {
+    let env = create_test_env(pool.clone()).await;
+
+    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+    let bmc_mac = db_switch::find_switch_endpoints_by_ids(&pool, &[switch_id])
+        .await?
+        .first()
+        .expect("switch endpoint row")
+        .bmc_mac;
+
+    {
+        let mut txn = pool.begin().await?;
+        transition_switch_controller_state(txn.as_mut(), &switch_id, SwitchControllerState::Ready)
+            .await?;
+        txn.commit().await?;
+    }
+
+    env.redfish_sim.seed_user("root", "old");
+    env.test_credential_manager
+        .set_credentials(&per_device_key(bmc_mac), &creds("root", "old"))
+        .await
+        .expect("staging the per-device secret should succeed");
+    {
+        let mut conn = pool.acquire().await?;
+        record_device_converged(&mut conn, bmc_mac, BMC).await?;
+        set_next_target_version(&mut conn, BMC, 0, serde_json::json!({}))
+            .await?
+            .expect("target must advance from version 0");
+    }
+    env.test_credential_manager
+        .set_credentials(&rotate_to_key(1), &creds("root", "new"))
+        .await
+        .expect("staging the rotate-to secret should succeed");
+
+    // Enter RotatingBmc, let the gate record the suppression, and acknowledge it.
+    run_switch_controller_with_services(
+        pool.clone(),
+        env.api.work_lock_manager_handle.clone(),
+        switch_services(&env, &pool, true),
+    )
+    .await; // Ready -> RotatingBmc
+    run_switch_controller_with_services(
+        pool.clone(),
+        env.api.work_lock_manager_handle.clone(),
+        switch_services(&env, &pool, true),
+    )
+    .await; // gate records the suppression and waits
+    ack_all_site_explorer_suppressions(&pool).await;
+
+    // The store write now fails: the hardware change will land but the persist
+    // will not, leaving the BMC ahead of the store.
+    env.test_credential_manager
+        .set_set_credentials_failure(true);
+
+    // The password change succeeds on the hardware but the persist fails, so the
+    // switch holds in RotatingBmc instead of returning to Ready.
+    run_switch_controller_with_services(
+        pool.clone(),
+        env.api.work_lock_manager_handle.clone(),
+        switch_services(&env, &pool, true),
+    )
+    .await;
+    let switch = load_switch(&pool, &switch_id).await?;
+    assert!(
+        matches!(
+            switch.controller_state.value,
+            SwitchControllerState::RotatingBmc { .. }
+        ),
+        "a persist failure must hold in RotatingBmc, got {:?}",
+        switch.controller_state.value,
+    );
+    assert!(
+        db::bmc_suppression::is_suppressed(&pool, bmc_mac, BmcSuppressionSubsystem::SiteExplorer)
+            .await?,
+        "the rotation suppression must be retained while the store lags"
+    );
+    {
+        let mut conn = pool.acquire().await?;
+        let status = device_rotation_status(&mut conn, BMC, bmc_mac)
+            .await?
+            .expect("device rotation row should exist");
+        assert!(
+            !status.converged,
+            "hardware ahead of store is not converged"
+        );
+        assert!(
+            !status.quarantined,
+            "a persist failure must not record a backoff"
+        );
+    }
+    assert_eq!(
+        env.redfish_sim.user_password("root").as_deref(),
+        Some("new"),
+        "the hardware change must have landed even though the persist failed"
+    );
+    assert_eq!(
+        env.test_credential_manager
+            .get_credentials(&per_device_key(bmc_mac))
+            .await
+            .expect("reading the per-device secret should succeed")
+            .expect("per-device secret should still be set"),
+        creds("root", "old"),
+        "the stored secret must still lag after the failed persist"
+    );
+
+    // The store becomes writable again: the next tick reconciles and returns to
+    // Ready.
+    env.test_credential_manager
+        .set_set_credentials_failure(false);
+    run_switch_controller_with_services(
+        pool.clone(),
+        env.api.work_lock_manager_handle.clone(),
+        switch_services(&env, &pool, true),
+    )
+    .await;
+    let switch = load_switch(&pool, &switch_id).await?;
+    assert!(
+        matches!(switch.controller_state.value, SwitchControllerState::Ready),
+        "expected Ready once the store reconciles, got {:?}",
+        switch.controller_state.value,
+    );
+    assert!(
+        !db::bmc_suppression::is_suppressed(&pool, bmc_mac, BmcSuppressionSubsystem::SiteExplorer)
+            .await?,
+        "resume must delete the rotation suppression once reconciled"
+    );
+    {
+        let mut conn = pool.acquire().await?;
+        let status = device_rotation_status(&mut conn, BMC, bmc_mac)
+            .await?
+            .expect("device rotation row should exist");
+        assert!(
+            status.converged,
+            "device should converge once the store reconciles"
+        );
+        assert_eq!(status.current_version, Some(1));
+    }
+    assert_eq!(
+        env.test_credential_manager
+            .get_credentials(&per_device_key(bmc_mac))
+            .await
+            .expect("reading the per-device secret should succeed")
+            .expect("per-device secret should still be set"),
+        creds("root", "new"),
+        "the store is reconciled to the new password once the write succeeds"
     );
 
     Ok(())

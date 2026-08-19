@@ -905,7 +905,6 @@ func (o *ExpectedMachineCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	varExpectedMachineCreateRequest := _ExpectedMachineCreateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varExpectedMachineCreateRequest)
 
 	if err != nil {

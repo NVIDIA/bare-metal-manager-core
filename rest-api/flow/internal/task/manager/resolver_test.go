@@ -25,11 +25,14 @@ import (
 type mockTargetFetcher struct {
 	racks                  map[uuid.UUID]*rack.Rack
 	racksByName            map[string]*rack.Rack
+	domainRacks            map[uuid.UUID][]*rack.Rack
+	domainRacksByName      map[string][]*rack.Rack
 	components             map[uuid.UUID]*component.Component
 	componentsByExternalID map[string][]*component.Component
 
 	// Error injection
 	getRackErr      error
+	getDomainErr    error
 	getComponentErr error
 	getExternalErr  error
 }
@@ -38,9 +41,24 @@ func newMockTargetFetcher() *mockTargetFetcher {
 	return &mockTargetFetcher{
 		racks:                  make(map[uuid.UUID]*rack.Rack),
 		racksByName:            make(map[string]*rack.Rack),
+		domainRacks:            make(map[uuid.UUID][]*rack.Rack),
+		domainRacksByName:      make(map[string][]*rack.Rack),
 		components:             make(map[uuid.UUID]*component.Component),
 		componentsByExternalID: make(map[string][]*component.Component),
 	}
+}
+
+func (m *mockTargetFetcher) GetRacksForNVLDomain(
+	_ context.Context,
+	id identifier.Identifier,
+) ([]*rack.Rack, error) {
+	if m.getDomainErr != nil {
+		return nil, m.getDomainErr
+	}
+	if id.ID != uuid.Nil {
+		return m.domainRacks[id.ID], nil
+	}
+	return m.domainRacksByName[id.Name], nil
 }
 
 func (m *mockTargetFetcher) GetRackByIdentifier(
@@ -362,6 +380,68 @@ func TestResolveTargetSpecToRacks_RackFetchError(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Nil(t, result)
+}
+
+func TestResolveTargetSpecToRacks_NVLinkDomainTargets(t *testing.T) {
+	domainID := uuid.New()
+	rackOneID := uuid.New()
+	rackTwoID := uuid.New()
+	computeID := uuid.New()
+	nvSwitchID := uuid.New()
+	rackOne := newTestRack(rackOneID, "rack-1")
+	rackOne.AddComponent(newTestComponent(
+		computeID,
+		rackOneID,
+		devicetypes.ComponentTypeCompute,
+		"compute-1",
+	))
+	rackOne.AddComponent(newTestComponent(
+		nvSwitchID,
+		rackOneID,
+		devicetypes.ComponentTypeNVSwitch,
+		"nvswitch-1",
+	))
+	rackTwo := newTestRack(rackTwoID, "rack-2")
+	rackTwo.AddComponent(newTestComponent(
+		uuid.New(),
+		rackTwoID,
+		devicetypes.ComponentTypeCompute,
+		"compute-2",
+	))
+
+	testCases := map[string]identifier.Identifier{
+		"by ID":   {ID: domainID},
+		"by name": {Name: "domain-1"},
+	}
+	for name, domainIdentifier := range testCases {
+		t.Run(name, func(t *testing.T) {
+			fetcher := newMockTargetFetcher()
+			fetcher.addRack(rackOne)
+			fetcher.addRack(rackTwo)
+			fetcher.domainRacks[domainID] = []*rack.Rack{rackOne, rackTwo}
+			fetcher.domainRacksByName["domain-1"] = []*rack.Rack{rackOne, rackTwo}
+
+			result, err := resolveTargetSpecToRacks(
+				context.Background(),
+				fetcher,
+				&operation.TargetSpec{
+					NVLDomains: []operation.NVLDomainTarget{
+						{
+							Identifier: domainIdentifier,
+							ComponentTypes: []devicetypes.ComponentType{
+								devicetypes.ComponentTypeCompute,
+							},
+						},
+					},
+				},
+			)
+			require.NoError(t, err)
+			require.Len(t, result, 2)
+			require.Len(t, result[rackOneID].Components, 1)
+			require.Equal(t, computeID, result[rackOneID].Components[0].Info.ID)
+			require.Len(t, result[rackTwoID].Components, 1)
+		})
+	}
 }
 
 func TestResolveTargetSpecToRacks_ComponentTargetByUUID(t *testing.T) {

@@ -1,3 +1,4 @@
+pub mod bgp;
 pub mod revision;
 
 #[derive(Debug, serde::Deserialize)]

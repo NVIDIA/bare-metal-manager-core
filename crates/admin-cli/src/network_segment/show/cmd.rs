@@ -64,7 +64,7 @@ pub(in crate::network_segment) async fn convert_network_to_nice_format(
         })
         .unwrap_or_default();
 
-    let width = 10;
+    let width = 18;
     let mut lines = String::new();
 
     let data = vec![
@@ -98,6 +98,10 @@ pub(in crate::network_segment) async fn convert_network_to_nice_format(
                 "{:?}",
                 forgerpc::NetworkSegmentType::try_from(config.segment_type).unwrap_or_default()
             ),
+        ),
+        (
+            "INFER SLAAC EUI-64",
+            config.infer_slaac_eui64_addresses.to_string(),
         ),
     ];
     for (key, value) in data {
@@ -402,6 +406,7 @@ mod tests {
                 mtu: Some(9000),
                 segment_type: forgerpc::NetworkSegmentType::Tenant as i32,
                 prefixes: vec![prefix(cidr)],
+                infer_slaac_eui64_addresses: false,
             }),
             status: Some(forgerpc::NetworkSegmentStatus {
                 flags: vec![],

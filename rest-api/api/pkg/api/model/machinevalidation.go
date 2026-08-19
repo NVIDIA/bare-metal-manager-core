@@ -309,7 +309,7 @@ type APIMachineValidationRun struct {
 	Name                   string                     `json:"name"`
 	Context                string                     `json:"context"`
 	Status                 APIMachineValidationStatus `json:"status"`
-	DurationToCompleteSecs int                        `json:"durationToCompleteSecs"`
+	DurationToCompleteSecs int64                      `json:"durationToCompleteSecs"`
 }
 
 type APIMachineValidationState string
@@ -324,8 +324,8 @@ const (
 
 type APIMachineValidationStatus struct {
 	State     APIMachineValidationState `json:"state"`
-	Total     int                       `json:"total"`
-	Completed int                       `json:"completed"`
+	Total     uint32                    `json:"total"`
+	Completed uint32                    `json:"completed"`
 }
 
 func NewAPIMachineValidationRun(proto *corev1.MachineValidationRun) *APIMachineValidationRun {
@@ -344,8 +344,8 @@ func NewAPIMachineValidationRun(proto *corev1.MachineValidationRun) *APIMachineV
 	}
 	if protoStatus := proto.GetStatus(); protoStatus != nil {
 		apio.Status = APIMachineValidationStatus{
-			Total:     int(protoStatus.GetTotal()),
-			Completed: int(protoStatus.GetCompleted()),
+			Total:     protoStatus.GetTotal(),
+			Completed: protoStatus.GetCompletedTests(),
 		}
 		if sts, ok := protoStatus.GetMachineValidationState().(*corev1.MachineValidationStatus_Started); ok {
 			if sts.Started == corev1.MachineValidationStarted_Started {
@@ -366,7 +366,7 @@ func NewAPIMachineValidationRun(proto *corev1.MachineValidationRun) *APIMachineV
 		}
 	}
 	if protoDuration := proto.GetDurationToComplete(); protoDuration != nil {
-		apio.DurationToCompleteSecs = int(protoDuration.GetSeconds())
+		apio.DurationToCompleteSecs = protoDuration.GetSeconds()
 	}
 	return apio
 }

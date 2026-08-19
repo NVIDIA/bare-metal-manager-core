@@ -187,17 +187,49 @@ flow:
 postgresql:
   enabled: true
   instances: 3
+  ## Patroni synchronous replication. Set false for single-instance clusters
+  ## (for development or simulation) — strict sync mode with no replicas
+  ## blocks all writes.
+  synchronousMode: true
   volumeSize: "10Gi"
   storageClass: "local-path-persistent"
   ## DB_HOST in nico-system-nico-database-config ConfigMap.
   ## Points at the operator-managed Service in the postgres namespace.
   host: "nico-pg-cluster.postgres.svc.cluster.local"
   ## Resource limits for each postgres instance.
-  ## Production uses 32 CPU / 16Gi — tune down for dev clusters.
+  ##
+  ## SIZE THIS TO THE FLEET. Postgres running out of memory does not degrade
+  ## gracefully: the kernel OOM-kills a backend, the postmaster performs a full
+  ## crash-recovery, and every open connection is dropped with in-flight
+  ## transactions rolled back. Downstream that looks like unrelated defects --
+  ## stalled machine readiness, controller panics, deadlocks -- so the real
+  ## cause is easy to miss.
+  ##
+  ## Measured on a 4,500-host (13,500 machine) ingestion:
+  ##   4Gi limit  -> 99.96% memory, 531 OOM kills, 112 crash-recoveries,
+  ##                 ingestion unable to complete
+  ##   24Gi limit -> ~8.7GiB peak, zero OOM kills, full fleet ingested and
+  ##                 every machine reaching ready
+  ##
+  ## Rough guidance (limits.memory), assuming ~3 machines per host:
+  ##   up to   500 hosts   4Gi
+  ##   up to 1,500 hosts   8Gi
+  ##   up to 5,000 hosts  16Gi   <- default below
+  ##   beyond              32Gi, and measure
+  ##
+  ## To check a running cluster:
+  ##   kubectl exec -n postgres <pod> -c postgres -- sh -c \
+  ##     'cat /sys/fs/cgroup/memory.current /sys/fs/cgroup/memory.max; \
+  ##      grep oom_kill /sys/fs/cgroup/memory.events'
+  ## A non-zero and rising oom_kill count means everything downstream is a
+  ## symptom of this.
+  ##
+  ## NOTE: teardown deletes the postgres namespace, so a resize applied before
+  ## a reinstall is silently reverted. Change it here, not on the live cluster.
   resources:
     limits:
-      cpu: "4"
-      memory: "4Gi"
+      cpu: "8"
+      memory: "16Gi"
     requests:
-      cpu: "500m"
-      memory: "1Gi"
+      cpu: "2"
+      memory: "4Gi"

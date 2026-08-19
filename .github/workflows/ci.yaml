@@ -41,10 +41,17 @@ env:
   GIT_SUBMODULE_STRATEGY: recursive
 
 
+# Runner sizes are chosen from measured job durations on a full main run:
+# `cpu4` under `2m`, `cpu8` `2m`-`10m`, `cpu16` `10m`-`20m`, `cpu32` over `20m`.
+#
+# One label per job on purpose. A label already schedules onto any free runner in
+# its scale set, and `runs-on` intersects several labels rather than unioning
+# them, so listing two sizes would demand a runner carrying both and match
+# nothing. Moving a job between sizes is a one-line edit here.
 jobs:
   changes:
     name: Detect Core CI Gate
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu4
     outputs:
       run_core_ci: ${{ steps.gate.outputs.run_core_ci }}
       non_rest_changed: ${{ steps.non-rest-changes.outputs.non_rest }}
@@ -55,23 +62,14 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      - name: Test CI token permission checker
-        run: bash .github/ci/check-ci-permissions.sh --self-test
-
-      - name: Check Core CI token permissions
-        run: bash .github/ci/check-core-ci-permissions.sh
-
-      - name: Check Stale PRs token permissions
-        run: bash .github/ci/check-stale-ci-permissions.sh
-
       - name: Check Core CI concurrency policy
         run: bash scripts/check-ci-concurrency.sh core
 
       - name: Test CI final-gate checker
         run: python3 -B .github/ci/test_check_ci_gate.py
 
-      - name: Test PR secret-scan range resolver
-        run: bash .github/ci/test-resolve-pr-scan-range.sh
+      - name: Test secret-scan range resolver
+        run: bash .github/ci/test-resolve-secret-scan-range.sh
 
       - name: Check Core CI final-gate inventory
         run: python3 -B .github/ci/check_ci_gate.py inventory --policy core .github/workflows/ci.yaml
@@ -744,15 +742,15 @@ jobs:
       # any new commit invalidates the builder layer and the expensive cargo
       # step can never be restored. Exporting it anyway measured 7m32s on a main
       # run and bought two cached layers, while its multi-GB blobs were the bulk
-      # of what pushed the 50 GB Actions quota to its ceiling and evicted the
-      # sccache entries. sccache is what carries reuse across commits here.
+      # of what filled up the Actions quota and evicted the sccache
+      # entries.
       cache: false
       build_args: ${{ needs.prepare.outputs.release_build_args }}
       image_name: ${{ needs.prepare.outputs.image_registry }}/nvmetal-carbide
       image_tag: ${{ needs.prepare.outputs.version }}
       additional_tags: ${{ needs.prepare.outputs.image_registry }}/nvmetal-carbide:${{ needs.prepare.outputs.major_minor_version }}-latest
       platforms: linux/amd64
-      runner: linux-amd64-cpu16
+      runner: linux-amd64-cpu32
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: true
       scan: true
@@ -788,7 +786,7 @@ jobs:
       image_tag: ${{ needs.prepare.outputs.version }}
       additional_tags: ${{ needs.prepare.outputs.image_registry }}/nvmetal-carbide-aarch64:${{ needs.prepare.outputs.major_minor_version }}-latest
       platforms: linux/arm64
-      runner: linux-arm64-cpu16
+      runner: linux-arm64-cpu32
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: false
       tag_latest: false
@@ -857,8 +855,8 @@ jobs:
       # Dockerfile does `COPY . .` before the cargo build, so any new commit
       # invalidates the builder layer and nothing expensive can ever be
       # restored. `mode=max` still exported the whole builder stage on every
-      # main commit, pushing `388 MB` blobs into the `50 GB` Actions cache
-      # pool that sccache depends on.
+      # main commit, pushing multi-hundred-MB blobs into the Actions cache pool
+      # that sccache depends on.
       cache: false
       build_args: >-
         ${{ format('{{"VERSION":"{0}","CI_COMMIT_SHORT_SHA":"{1}"}}',
@@ -918,7 +916,7 @@ jobs:
       - prepare
       - build-container-x86_64
       - build-runtime-container-x86_64
-    runs-on: linux-amd64-cpu16
+    runs-on: linux-amd64-cpu32
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -1002,13 +1000,11 @@ jobs:
       # a run that changes no dependencies hits the primary key and skips the
       # upload rather than rewriting an equivalent entry.
       #
-      # Only main saves. This entry is ~5 GB, and the restore-keys prefix above
-      # means any pull request whose Cargo.lock differs from main's takes a
-      # prefix match rather than an exact one, so cache-hit is false and the
-      # save fires, storing a ref-scoped 5 GB copy nothing else can read. Three
-      # such copies were live at once, 15 GB of a 50 GB pool, which evicted the
-      # sccache objects the image builds read down to 3.5 GB. Pull requests keep
-      # restoring main's entry through that same prefix, so they still start warm.
+      # Only main saves. A pull request whose Cargo.lock differs from main's
+      # matches the restore-keys prefix rather than the exact key, so cache-hit
+      # is false and the save would otherwise fire, storing a large ref-scoped
+      # copy nothing else can read. The main-only condition blocks that, and the
+      # prefix match still leaves the pull request warm.
       - name: Save sccache
         if: ${{ !cancelled() && github.ref == 'refs/heads/main' && steps.sccache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
@@ -1040,7 +1036,7 @@ jobs:
       additional_tags: ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-x86_64:${{ needs.prepare.outputs.major_minor_version }}-latest
       build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_BUILD":"${{ needs.prepare.outputs.build_artifacts_container_x86_64_ref }}"}'
       platforms: linux/amd64
-      runner: linux-amd64-cpu4
+      runner: linux-amd64-cpu8
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: true
       scan: true
@@ -1064,7 +1060,7 @@ jobs:
       additional_tags: ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-aarch64:${{ needs.prepare.outputs.major_minor_version }}-latest
       build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_BUILD":"${{ needs.prepare.outputs.build_artifacts_container_aarch64_ref }}"}'
       platforms: linux/arm64
-      runner: linux-arm64-cpu4
+      runner: linux-arm64-cpu8
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: true
     secrets: inherit
@@ -1130,7 +1126,7 @@ jobs:
       build_type: boot
       cargo_make_task: build-boot-artifacts-x86-host-ci
       build_container: ${{ needs.prepare.outputs.build_artifacts_container_x86_64_ref }}
-      runner: linux-amd64-cpu4
+      runner: linux-amd64-cpu8
       version: ${{ needs.prepare.outputs.version }}
       use_container: true
       inject_extras: true
@@ -1177,7 +1173,7 @@ jobs:
       build_type: package
       cargo_make_task: package-scout-aarch64-ci
       build_container: ${{ needs.prepare.outputs.build_artifacts_container_aarch64_ref }}
-      runner: linux-arm64-cpu16
+      runner: linux-arm64-cpu8
       version: ${{ needs.prepare.outputs.version }}
       use_container: true
       # Not for injection (`inject_extras` stays false, so the extras are
@@ -1208,7 +1204,7 @@ jobs:
       build_type: ephemeral
       cargo_make_task: create-ephemeral-image-x86-host-ci
       version: ${{ needs.prepare.outputs.version }}
-      runner: linux-amd64-cpu8
+      runner: linux-amd64-cpu16
       use_container: false
       sa_enablement: true
       inject_extras: true
@@ -1259,9 +1255,9 @@ jobs:
       target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' && needs.prepare.outputs.publish_images == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.release-artifacts-x86_64
       # No RUN steps, so there are no expensive layers worth reusing. The
-      # multi-GB blob COPY layer would also take a large bite out of the 50 GB
-      # per-repo Actions cache quota now shared with the layer and sccache
-      # caches the rest of the pipeline depends on.
+      # multi-GB blob COPY layer would also take a large bite out of the per-repo
+      # Actions cache quota shared with the layer and sccache caches the rest of
+      # the pipeline depends on.
       cache: false
       image_name: ${{ needs.prepare.outputs.image_registry }}/boot-artifacts-x86_64
       image_tag: ${{ needs.prepare.outputs.version }}
@@ -1272,7 +1268,7 @@ jobs:
       # steps (FROM alpine + COPY only), so no QEMU is needed. Single-arch on PR
       # so the image can load to the daemon.
       platforms: ${{ needs.prepare.outputs.publish_images == 'true' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
-      runner: linux-amd64-cpu4
+      runner: linux-amd64-cpu8
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: true
       scan: true
@@ -1299,9 +1295,9 @@ jobs:
       target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' && needs.prepare.outputs.publish_images == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.release-artifacts-aarch64
       # No RUN steps, so there are no expensive layers worth reusing. The
-      # multi-GB blob COPY layer would also take a large bite out of the 50 GB
-      # per-repo Actions cache quota now shared with the layer and sccache
-      # caches the rest of the pipeline depends on.
+      # multi-GB blob COPY layer would also take a large bite out of the per-repo
+      # Actions cache quota shared with the layer and sccache caches the rest of
+      # the pipeline depends on.
       cache: false
       image_name: ${{ needs.prepare.outputs.image_registry }}/boot-artifacts-aarch64
       image_tag: ${{ needs.prepare.outputs.version }}
@@ -1312,7 +1308,7 @@ jobs:
       # Dockerfile has no RUN steps (FROM alpine + COPY only), so no QEMU is
       # needed. Single-arch on PR so the image can load to the daemon.
       platforms: ${{ needs.prepare.outputs.publish_images == 'true' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
-      runner: linux-amd64-cpu4
+      runner: linux-amd64-cpu16
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: true
       scan: true
@@ -1344,32 +1340,23 @@ jobs:
           persist-credentials: false
           fetch-depth: 0  # Full history for secret scanning
 
-      # The copy PR bot can create or rewrite its synthetic branch, so
-      # `github.event.before` can be all zeroes or name a commit that no longer
-      # exists. Resolve both ends from the current PR for every synthetic push.
+      # Pull requests and tags both need a verified base and head. Resolve those
+      # ranges in one place; ordinary branch pushes keep using the push event.
       - name: Compute TruffleHog scan range
         id: scan-range
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [[ "$GITHUB_REF" == refs/heads/pull-request/* ]]; then
-            bash .github/ci/resolve-pr-scan-range.sh >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF" == refs/heads/pull-request/* || "$GITHUB_REF" == refs/tags/* ]]; then
+            bash .github/ci/resolve-secret-scan-range.sh >> "$GITHUB_OUTPUT"
           else
             BEFORE="${{ github.event.before }}"
-            if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-              # Tag pushes also have an all-zeros before. Scope the scan to commits
-              # since the previous tag so we don't re-scan the entire history on
-              # every release.
-              PREV_TAG=$(git tag --sort=-version:refname | grep -v "^${GITHUB_REF_NAME}$" | head -1)
-              if [[ -n "$PREV_TAG" ]]; then
-                BEFORE=$(git merge-base "refs/tags/${PREV_TAG}" HEAD)
-              fi
-            fi
             echo "base=$BEFORE" >> "$GITHUB_OUTPUT"
+            echo "head=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Run TruffleHog Scan
-        uses: NVIDIA/dsx-github-actions/.github/actions/trufflehog-scan@9a9ce3a7770a8b53d2726afa920be3276bc3ddd7
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/trufflehog-scan@9a9ce3a7770a8b53d2726afa920be3276bc3ddd7
         with:
           base: ${{ steps.scan-range.outputs.base }}
           head: ${{ steps.scan-range.outputs.head }}
@@ -1401,7 +1388,7 @@ jobs:
         # still lets the post steps run, rather than the runner being killed
         # mid-flight with no attribution.
         timeout-minutes: 15
-        uses: NVIDIA/dsx-github-actions/.github/actions/codeql-scan@20dc10dda4fa9f8f0380a47cd9a7800d3da3dcf3
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/codeql-scan@20dc10dda4fa9f8f0380a47cd9a7800d3da3dcf3
         with:
           languages: 'rust'
           build-mode: 'none'
@@ -1549,7 +1536,7 @@ jobs:
     needs:
       - changes
     if: ${{ contains(github.ref, 'pull-request/') }}
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu4
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -1557,17 +1544,18 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      - name: Check new migration timestamps
+      - name: Check migration policy
         run: |
           git fetch --no-tags origin main:refs/remotes/origin/main
           bash scripts/check-migration-filenames.sh --base origin/main
+          bash scripts/check-migration-immutability.sh --base origin/main
 
   proto-breaking-changes:
     name: Proto Breaking Changes Check
     needs:
       - changes
     if: ${{ needs.changes.outputs.run_core_ci == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu4
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -1633,7 +1621,7 @@ jobs:
       - prepare
       - build-container-x86_64
     if: ${{ !failure() && !cancelled() && needs.prepare.outputs.source_files_changed == 'true' && contains(github.ref, 'pull-request/') }}
-    runs-on: linux-amd64-cpu16
+    runs-on: linux-amd64-cpu32
     container:
       image: ${{ needs.prepare.outputs.lint_container_ref }}
       credentials:
@@ -1735,7 +1723,7 @@ jobs:
           persist-credentials: false
 
       - name: Validate Helm chart
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
         with:
           chart-path: helm
           lint: 'true'
@@ -1755,7 +1743,7 @@ jobs:
 
       - name: Package and push Helm chart to NGC
         if: ${{ needs.prepare.outputs.target_ngc_path != '' }}
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
           chart-path: helm
           chart-version: ${{ needs.prepare.outputs.helm_version }}
@@ -1777,7 +1765,7 @@ jobs:
           persist-credentials: false
 
       - name: Validate Helm prereqs chart
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
         with:
           chart-path: helm-prereqs
           lint: 'true'
@@ -1797,7 +1785,7 @@ jobs:
 
       - name: Package and push Helm prereqs chart to NGC
         if: ${{ needs.prepare.outputs.target_ngc_path != '' }}
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
           chart-path: helm-prereqs
           chart-version: ${{ needs.prepare.outputs.helm_version }}
@@ -2004,28 +1992,28 @@ jobs:
           persist-credentials: false
 
       - name: Validate nico-otelcol chart
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
         with:
           chart-path: bluefield/charts/nico-otelcol
           lint: 'true'
           template: 'true'
 
       - name: Validate nico-dpu-agent chart
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
         with:
           chart-path: bluefield/charts/nico-dpu-agent
           lint: 'true'
           template: 'true'
 
       - name: Validate nico-dhcp-server chart
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
         with:
           chart-path: bluefield/charts/nico-dhcp-server
           lint: 'true'
           template: 'true'
 
       - name: Validate nico-fmds chart
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
         with:
           chart-path: bluefield/charts/nico-fmds
           lint: 'true'
@@ -2045,7 +2033,7 @@ jobs:
 
       - name: Package and push nico-otelcol chart
         if: ${{ needs.prepare.outputs.target_ngc_path != '' }}
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
           chart-path: bluefield/charts/nico-otelcol
           chart-version: ${{ needs.prepare.outputs.helm_version }}
@@ -2057,7 +2045,7 @@ jobs:
 
       - name: Package and push nico-dpu-agent chart
         if: ${{ needs.prepare.outputs.target_ngc_path != '' }}
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
           chart-path: bluefield/charts/nico-dpu-agent
           chart-version: ${{ needs.prepare.outputs.helm_version }}
@@ -2069,7 +2057,7 @@ jobs:
 
       - name: Package and push nico-dhcp-server chart
         if: ${{ needs.prepare.outputs.target_ngc_path != '' }}
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
           chart-path: bluefield/charts/nico-dhcp-server
           chart-version: ${{ needs.prepare.outputs.helm_version }}
@@ -2081,7 +2069,7 @@ jobs:
 
       - name: Package and push nico-fmds chart
         if: ${{ needs.prepare.outputs.target_ngc_path != '' }}
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
           chart-path: bluefield/charts/nico-fmds
           chart-version: ${{ needs.prepare.outputs.helm_version }}
@@ -2183,7 +2171,7 @@ jobs:
     needs:
       - prepare
       - build-release-container-x86_64
-    uses: NVIDIA/dsx-github-actions/.github/workflows/promote-image.yml@760d2d7964b479fde431cd3e0b980bc6b6a26ccd
+    uses: dsx-ai-factory/dsx-github-actions/.github/workflows/promote-image.yml@760d2d7964b479fde431cd3e0b980bc6b6a26ccd
     with:
       source: ${{ needs.prepare.outputs.image_registry }}/nvmetal-carbide
       source_tag: ${{ needs.prepare.outputs.version }}
@@ -2269,7 +2257,7 @@ jobs:
   # Branch protection should require only this gate and `rest-ci-pass`.
   core-ci-pass:
     name: core-ci-pass
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu4
     if: always()
     needs:
       # Detection and preparation

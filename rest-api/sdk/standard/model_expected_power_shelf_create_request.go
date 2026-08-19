@@ -734,7 +734,6 @@ func (o *ExpectedPowerShelfCreateRequest) UnmarshalJSON(data []byte) (err error)
 	varExpectedPowerShelfCreateRequest := _ExpectedPowerShelfCreateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varExpectedPowerShelfCreateRequest)
 
 	if err != nil {

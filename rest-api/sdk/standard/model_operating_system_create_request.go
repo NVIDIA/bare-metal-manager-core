@@ -984,7 +984,6 @@ func (o *OperatingSystemCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	varOperatingSystemCreateRequest := _OperatingSystemCreateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varOperatingSystemCreateRequest)
 
 	if err != nil {

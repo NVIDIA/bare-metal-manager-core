@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	inventoryresolver "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/resolver"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
 	identifier "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/Identifier"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
@@ -19,6 +20,7 @@ import (
 // TargetFetcher provides the methods needed to fetch racks and components for target resolution.
 type TargetFetcher interface {
 	GetRackByIdentifier(ctx context.Context, identifier identifier.Identifier, withComponents bool) (*rack.Rack, error)
+	GetRacksForNVLDomain(ctx context.Context, domainIdentifier identifier.Identifier) ([]*rack.Rack, error)
 	GetComponentByID(ctx context.Context, id uuid.UUID) (*component.Component, error)
 	GetComponentsByExternalIDs(ctx context.Context, externalIDs []string) ([]*component.Component, error)
 }
@@ -38,13 +40,34 @@ func resolveTargetSpecToRacks(
 		return resolveRackTargetSpec(ctx, fetcher, targetSpec.Racks)
 	}
 
+	if targetSpec.IsNVLDomainTargeting() {
+		return resolveNVLDomainTargetSpec(ctx, fetcher, targetSpec.NVLDomains)
+	}
+
 	if targetSpec.IsComponentTargeting() {
 		return resolveComponentTargetSpec(ctx, fetcher, targetSpec.Components)
 	}
 
 	// This should be detected by Validate() and should never be here, but
 	// just in case, handle it anyway.
-	return nil, fmt.Errorf("target spec must have either racks or components set")
+	return nil, fmt.Errorf("target spec must have one of racks, NVLink domains, or components set")
+}
+
+func resolveNVLDomainTargetSpec(
+	ctx context.Context,
+	fetcher TargetFetcher,
+	targets []operation.NVLDomainTarget,
+) (map[uuid.UUID]*rack.Rack, error) {
+	rackTargets, err := inventoryresolver.ResolveNVLDomainRackTargets(
+		ctx,
+		fetcher,
+		targets,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve NVLink domain targets: %w", err)
+	}
+
+	return resolveRackTargetSpec(ctx, fetcher, rackTargets)
 }
 
 func resolveRackTargetSpec(

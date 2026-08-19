@@ -251,6 +251,7 @@ mod tests {
             extension_services: InstanceExtensionServicesConfig::default(),
             nvlink: InstanceNvLinkConfig::default(),
             spxconfig: InstanceSpxConfig::default(),
+            power_profile: None,
         }
     }
 

@@ -160,6 +160,7 @@ var commandPathAliases = map[string][]string{
 	"create-or-update-machine-health-report":            {"health-report", "update"},
 	"create-or-update-tenant-identity-config":           {"tenant-identity", "update"},
 	"create-or-update-tenant-identity-token-delegation": {"tenant-identity", "token-delegation", "update"},
+	"create-site-explorer-endpoint-action":              {"site-explorer", "create"},
 	"delete-all-expected-rack":                          {"expected-rack", "delete-all"},
 	"delete-tenant-identity-token-delegation":           {"tenant-identity", "token-delegation", "delete"},
 	"firmware-update-rack":                              {"rack", "firmware"},
@@ -174,6 +175,8 @@ var commandPathAliases = map[string][]string{
 	"get-tenant-identity-token-delegation":              {"tenant-identity", "token-delegation", "get"},
 	"get-tenant-instance-type-stats":                    {"tenant", "instance-type-stats"},
 	"get-tray-tasks":                                    {"tray", "task", "get"},
+	"get-all-measured-boot-trusted-machine":             {"measured-boot", "machine", "list"},
+	"get-all-measured-boot-trusted-profile":             {"measured-boot", "profile", "list"},
 	"list-rules":                                        {"rule", "list"},
 	"machine-power-control-machine":                     {"machine", "power"},
 	"power-control-rack":                                {"rack", "power"},
@@ -183,10 +186,20 @@ var commandPathAliases = map[string][]string{
 	"replace-all-expected-rack":                         {"expected-rack", "replace-all"},
 	"reprovision-machine-dpu":                           {"machine", "dpu", "reprovision"},
 	"reset-machine-bmc":                                 {"machine", "bmc", "reset"},
+	"create-measured-boot-trusted-machine":              {"measured-boot", "machine", "approve"},
+	"create-measured-boot-trusted-profile":              {"measured-boot", "profile", "approve"},
+	"delete-measured-boot-trusted-machine":              {"measured-boot", "machine", "remove"},
+	"delete-measured-boot-trusted-profile":              {"measured-boot", "profile", "remove"},
 	"validate-rack":                                     {"rack", "validate"},
 	"validate-racks":                                    {"rack", "validate-all"},
 	"validate-tray":                                     {"tray", "validate"},
 	"validate-trays":                                    {"tray", "validate-all"},
+}
+
+// additionalCommandPathAliases preserves established command paths when an
+// operation also has a newer preferred alias.
+var additionalCommandPathAliases = map[string][][]string{
+	"create-site-explorer-endpoint-action": {{"site-explorer", "endpoint", "action"}},
 }
 
 // subResourceHelpTemplate renders actions and sub-resources as separate sections.
@@ -288,13 +301,13 @@ func buildCommands(spec *Spec, options commandBuildOptions) []*cli.Command {
 		commands = append(commands, cmd)
 	}
 	operationIndex := newOperationIndex(spec)
-	for operationID, path := range commandPathAliases {
+	addAlias := func(operationID string, path []string) {
 		if len(path) < 2 {
 			panic(fmt.Sprintf("command path alias for %q must have at least two components", operationID))
 		}
 		operation, ok := operationIndex[operationID]
 		if !ok {
-			continue
+			return
 		}
 		operation.commandPath = path
 		commands = addCommandAtPath(
@@ -302,6 +315,14 @@ func buildCommands(spec *Spec, options commandBuildOptions) []*cli.Command {
 			path,
 			buildActionCommandWithOptions(spec, operation, "", options),
 		)
+	}
+	for operationID, path := range commandPathAliases {
+		addAlias(operationID, path)
+	}
+	for operationID, paths := range additionalCommandPathAliases {
+		for _, path := range paths {
+			addAlias(operationID, path)
+		}
 	}
 	sortCommandTree(commands)
 	return commands

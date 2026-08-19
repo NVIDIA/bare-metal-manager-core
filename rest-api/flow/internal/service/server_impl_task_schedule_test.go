@@ -18,9 +18,11 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
 	taskschedule "github.com/NVIDIA/infra-controller/rest-api/flow/internal/scheduler/taskschedule"
 	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
+	identifier "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/Identifier"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/deviceinfo"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/component"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/rack"
 	pb "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/proto/v1"
 )
 
@@ -1039,5 +1041,39 @@ func TestResolveComponentTarget_ExternalID(t *testing.T) {
 			assert.Equal(t, tt.wantCompID, gotComp)
 			assert.Equal(t, tt.wantRackID, gotRack)
 		})
+	}
+}
+
+func TestResolveNVLDomainScopeMaterializesRackMembership(t *testing.T) {
+	mgr := newMockManager()
+	domainID := uuid.New()
+	rackIDs := []uuid.UUID{uuid.New(), uuid.New()}
+	for _, rackID := range rackIDs {
+		mgr.racks[rackID] = &rack.Rack{
+			Info: deviceinfo.DeviceInfo{ID: rackID},
+		}
+		mgr.domainRacks[domainID] = append(mgr.domainRacks[domainID], mgr.racks[rackID])
+	}
+
+	scopes, err := (&FlowServerImpl{inventoryManager: mgr}).resolveNVLDomainScope(
+		context.Background(),
+		[]operation.NVLDomainTarget{
+			{
+				Identifier: identifier.Identifier{ID: domainID},
+				ComponentTypes: []devicetypes.ComponentType{
+					devicetypes.ComponentTypeCompute,
+				},
+			},
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, scopes, 2)
+	for index, scope := range scopes {
+		assert.Equal(t, rackIDs[index], scope.RackID)
+		filter, err := dbmodel.UnmarshalComponentFilter(scope.ComponentFilter)
+		require.NoError(t, err)
+		require.NotNil(t, filter)
+		assert.Equal(t, dbmodel.ComponentFilterKindTypes, filter.Kind)
+		assert.Equal(t, []string{"Compute"}, filter.Types)
 	}
 }

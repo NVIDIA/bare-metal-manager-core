@@ -39,7 +39,7 @@ type MachineValidationRun struct {
 	Context string                  `json:"context"`
 	Status  MachineValidationStatus `json:"status"`
 	// Estimated maximum duration of the validation run in seconds. A value of zero can mean the estimate has not yet been calculated.
-	DurationToCompleteSecs int32 `json:"durationToCompleteSecs"`
+	DurationToCompleteSecs int64 `json:"durationToCompleteSecs"`
 }
 
 type _MachineValidationRun MachineValidationRun
@@ -48,7 +48,7 @@ type _MachineValidationRun MachineValidationRun
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewMachineValidationRun(validationID string, machineID string, startTime time.Time, endTime NullableTime, name string, context string, status MachineValidationStatus, durationToCompleteSecs int32) *MachineValidationRun {
+func NewMachineValidationRun(validationID string, machineID string, startTime time.Time, endTime NullableTime, name string, context string, status MachineValidationStatus, durationToCompleteSecs int64) *MachineValidationRun {
 	this := MachineValidationRun{}
 	this.ValidationID = validationID
 	this.MachineID = machineID
@@ -240,9 +240,9 @@ func (o *MachineValidationRun) SetStatus(v MachineValidationStatus) {
 }
 
 // GetDurationToCompleteSecs returns the DurationToCompleteSecs field value
-func (o *MachineValidationRun) GetDurationToCompleteSecs() int32 {
+func (o *MachineValidationRun) GetDurationToCompleteSecs() int64 {
 	if o == nil {
-		var ret int32
+		var ret int64
 		return ret
 	}
 
@@ -251,7 +251,7 @@ func (o *MachineValidationRun) GetDurationToCompleteSecs() int32 {
 
 // GetDurationToCompleteSecsOk returns a tuple with the DurationToCompleteSecs field value
 // and a boolean to check if the value has been set.
-func (o *MachineValidationRun) GetDurationToCompleteSecsOk() (*int32, bool) {
+func (o *MachineValidationRun) GetDurationToCompleteSecsOk() (*int64, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -259,7 +259,7 @@ func (o *MachineValidationRun) GetDurationToCompleteSecsOk() (*int32, bool) {
 }
 
 // SetDurationToCompleteSecs sets field value
-func (o *MachineValidationRun) SetDurationToCompleteSecs(v int32) {
+func (o *MachineValidationRun) SetDurationToCompleteSecs(v int64) {
 	o.DurationToCompleteSecs = v
 }
 
@@ -316,7 +316,6 @@ func (o *MachineValidationRun) UnmarshalJSON(data []byte) (err error) {
 	varMachineValidationRun := _MachineValidationRun{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varMachineValidationRun)
 
 	if err != nil {

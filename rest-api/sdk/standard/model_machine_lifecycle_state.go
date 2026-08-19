@@ -218,7 +218,6 @@ func (o *MachineLifecycleState) UnmarshalJSON(data []byte) (err error) {
 	varMachineLifecycleState := _MachineLifecycleState{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varMachineLifecycleState)
 
 	if err != nil {

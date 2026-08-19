@@ -4,7 +4,6 @@
 package handler
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,7 +16,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	temporalEnums "go.temporal.io/api/enums/v1"
 	tClient "go.temporal.io/sdk/client"
-	tp "go.temporal.io/sdk/temporal"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
@@ -29,7 +27,6 @@ import (
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	flowv1 "github.com/NVIDIA/infra-controller/rest-api/proto/flow/gen/v1"
-	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 )
 
 // ~~~~~ Get Rack Handler ~~~~~ //
@@ -161,35 +158,15 @@ func (grh GetRackHandler) Handle(c echo.Context) error {
 	}
 
 	// Execute workflow
-	workflowOptions := tClient.StartWorkflowOptions{
-		ID:                       fmt.Sprintf("rack-get-%s", rackStrID),
-		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
-		WorkflowIDConflictPolicy: temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-		TaskQueue:                queue.SiteTaskQueue,
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
-
-	we, err := stc.ExecuteWorkflow(ctx, workflowOptions, "GetRack", flowRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to execute GetRack workflow")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to get Rack details", nil)
-	}
-
-	// Get workflow result
 	var flowResponse flowv1.GetRackInfoResponse
-	err = we.Get(ctx, &flowResponse)
-	if err != nil {
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || ctx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, fmt.Sprintf("rack-get-%s", rackStrID), err, "Rack", "GetRack")
-		}
-		code, err := common.UnwrapWorkflowError(err)
-		logger.Error().Err(err).Msg("failed to get result from GetRack workflow")
-
-		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to get Rack details: %s", err), nil)
+	proxyErr := common.ProxyFlowGRPC(
+		ctx, c, logger, stc,
+		flowv1.Flow_GetRackInfoByID_FullMethodName,
+		flowRequest, &flowResponse,
+		common.FlowWorkflowID(fmt.Sprintf("rack-get-%s", rackStrID)), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+	)
+	if proxyErr != nil {
+		return proxyErr
 	}
 
 	// Convert to API model
@@ -367,35 +344,15 @@ func (garh GetAllRackHandler) Handle(c echo.Context) error {
 	workflowID := fmt.Sprintf("rack-get-all-%s", common.QueryParamHash(apiRequest.QueryValues()))
 
 	// Execute workflow
-	workflowOptions := tClient.StartWorkflowOptions{
-		ID:                       workflowID,
-		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
-		WorkflowIDConflictPolicy: temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-		TaskQueue:                queue.SiteTaskQueue,
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
-
-	we, err := stc.ExecuteWorkflow(ctx, workflowOptions, "GetRacks", flowRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to execute GetRacks workflow")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to get Racks", nil)
-	}
-
-	// Get workflow result
 	var flowResponse flowv1.GetListOfRacksResponse
-	err = we.Get(ctx, &flowResponse)
-	if err != nil {
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || ctx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Rack", "GetRacks")
-		}
-		code, err := common.UnwrapWorkflowError(err)
-		logger.Error().Err(err).Msg("failed to get result from GetRacks workflow")
-
-		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to get Racks: %s", err), nil)
+	proxyErr := common.ProxyFlowGRPC(
+		ctx, c, logger, stc,
+		flowv1.Flow_GetListOfRacks_FullMethodName,
+		flowRequest, &flowResponse,
+		common.FlowWorkflowID(workflowID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+	)
+	if proxyErr != nil {
+		return proxyErr
 	}
 
 	// Convert to API model
@@ -553,35 +510,15 @@ func (vrh ValidateRackHandler) Handle(c echo.Context) error {
 	}
 
 	// Execute workflow
-	workflowOptions := tClient.StartWorkflowOptions{
-		ID:                       fmt.Sprintf("rack-validate-%s", rackStrID),
-		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
-		WorkflowIDConflictPolicy: temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-		TaskQueue:                queue.SiteTaskQueue,
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
-
-	we, err := stc.ExecuteWorkflow(ctx, workflowOptions, "ValidateRackComponents", flowRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to execute ValidateComponents workflow")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to validate Rack", nil)
-	}
-
-	// Get workflow result
 	var flowResponse flowv1.ValidateComponentsResponse
-	err = we.Get(ctx, &flowResponse)
-	if err != nil {
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || ctx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, fmt.Sprintf("rack-validate-%s", rackStrID), err, "Rack", "ValidateRackComponents")
-		}
-		code, err := common.UnwrapWorkflowError(err)
-		logger.Error().Err(err).Msg("failed to get result from ValidateComponents workflow")
-
-		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to validate Rack: %s", err), nil)
+	proxyErr := common.ProxyFlowGRPC(
+		ctx, c, logger, stc,
+		flowv1.Flow_ValidateComponents_FullMethodName,
+		flowRequest, &flowResponse,
+		common.FlowWorkflowID(fmt.Sprintf("rack-validate-%s", rackStrID)), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+	)
+	if proxyErr != nil {
+		return proxyErr
 	}
 
 	// Convert to API model
@@ -718,35 +655,15 @@ func (vrsh ValidateRacksHandler) Handle(c echo.Context) error {
 	workflowID := fmt.Sprintf("rack-validate-all-%s", common.QueryParamHash(apiRequest.QueryValues()))
 
 	// Execute workflow
-	workflowOptions := tClient.StartWorkflowOptions{
-		ID:                       workflowID,
-		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
-		WorkflowIDConflictPolicy: temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-		TaskQueue:                queue.SiteTaskQueue,
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
-
-	we, err := stc.ExecuteWorkflow(ctx, workflowOptions, "ValidateRackComponents", flowRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to execute ValidateComponents workflow")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to validate Racks", nil)
-	}
-
-	// Get workflow result
 	var flowResponse flowv1.ValidateComponentsResponse
-	err = we.Get(ctx, &flowResponse)
-	if err != nil {
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || ctx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Rack", "ValidateRackComponents")
-		}
-		code, err := common.UnwrapWorkflowError(err)
-		logger.Error().Err(err).Msg("failed to get result from ValidateComponents workflow")
-
-		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to validate Racks: %s", err), nil)
+	proxyErr := common.ProxyFlowGRPC(
+		ctx, c, logger, stc,
+		flowv1.Flow_ValidateComponents_FullMethodName,
+		flowRequest, &flowResponse,
+		common.FlowWorkflowID(workflowID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+	)
+	if proxyErr != nil {
+		return proxyErr
 	}
 
 	// Convert to API model

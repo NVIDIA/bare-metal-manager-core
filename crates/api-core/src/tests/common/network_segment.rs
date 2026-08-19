@@ -56,6 +56,7 @@ impl NetworkSegmentHelper {
             prefixes,
             segment_type: NetworkSegmentType::Tenant as i32,
             id: None,
+            infer_slaac_eui64_addresses: false,
         };
         Self { inner }
     }
@@ -107,6 +108,7 @@ pub(in crate::tests) async fn create_network_segment_with_api(
         subdomain_id: use_subdomain.then(|| env.domain.into()),
         vpc_id,
         segment_type,
+        infer_slaac_eui64_addresses: false,
     };
 
     env.api

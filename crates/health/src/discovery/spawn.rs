@@ -27,13 +27,17 @@ use crate::collectors::{
     EntityDiscoveryCollector, EntityDiscoveryCollectorConfig, FailureKind, FirmwareCollector,
     FirmwareCollectorConfig, GpuInventoryCollector, GpuInventoryCollectorConfig,
     LeakDetectorCollector, LeakDetectorCollectorConfig, LogsCollector, LogsCollectorConfig,
-    MetricsCollector, MetricsCollectorConfig, NmxcCollector, NmxcCollectorConfig, NmxtCollector,
+    MetricsCollector, MetricsCollectorConfig, NmxcCollector, NmxcCollectorConfig,
+    NmxcSchemaOverrideCollector, NmxcSchemaOverrideCollectorConfig, NmxtCollector,
     NmxtCollectorConfig, NvueRestCollector, NvueRestCollectorConfig, SensorCollector,
     SensorCollectorConfig, SseLogCollector, SseLogCollectorConfig, StreamingCollectorStartContext,
     TelemetryCollector, TelemetryCollectorConfig, spawn_gnmi_collector,
 };
-use crate::config::{Configurable, LogCollectionMode, PeriodicLogConfig};
+use crate::config::{
+    Configurable, LogCollectionMode, NmxcCollectorConfig as NmxcCollectorOptions, PeriodicLogConfig,
+};
 use crate::endpoint::{BmcEndpoint, EndpointMetadata, SwitchEndpointRole};
+use crate::metrics::CollectorRegistry;
 use crate::sink::DataSink;
 
 fn logs_state_file_path(template: &str, endpoint_id: &str) -> PathBuf {
@@ -196,7 +200,7 @@ fn spawn_generic_redfish_collectors(
             bmc.clone(),
             EntityDiscoveryCollectorConfig {
                 shared,
-                discovery_concurrency: ctx.discovery_config.discovery_concurrency,
+                request_concurrency: ctx.bmc_request_concurrency,
             },
             CollectorStartContext {
                 limiter: ctx.limiter.clone(),
@@ -238,7 +242,7 @@ fn spawn_generic_redfish_collectors(
             SensorCollectorConfig {
                 data_sink: data_sink.clone(),
                 shared,
-                sensor_fetch_concurrency: sensor_cfg.sensor_fetch_concurrency,
+                request_concurrency: ctx.bmc_request_concurrency,
                 include_sensor_thresholds: sensor_cfg.include_sensor_thresholds,
             },
             CollectorStartContext {
@@ -281,7 +285,7 @@ fn spawn_generic_redfish_collectors(
             MetricsCollectorConfig {
                 data_sink: data_sink.clone(),
                 shared,
-                fetch_concurrency: metrics_cfg.fetch_concurrency,
+                request_concurrency: ctx.bmc_request_concurrency,
             },
             CollectorStartContext {
                 limiter: ctx.limiter.clone(),
@@ -356,12 +360,10 @@ fn spawn_generic_redfish_collectors(
                 .create_collector_registry(format!("log_collector_{key}"), metrics_prefix)?,
         );
 
-        let sse_backoff_config = || {
-            let sse_cfg = logs_cfg.sse_or_default();
-            BackoffConfig {
-                initial: sse_cfg.initial_backoff,
-                max: sse_cfg.max_backoff,
-            }
+        let sse_cfg = logs_cfg.sse_or_default();
+        let sse_backoff_config = || BackoffConfig {
+            initial: sse_cfg.initial_backoff,
+            max: sse_cfg.max_backoff,
         };
 
         let spawn_periodic_logs = |pcfg: PeriodicLogConfig,
@@ -399,6 +401,7 @@ fn spawn_generic_redfish_collectors(
                         bmc.clone(),
                         SseLogCollectorConfig {
                             include_diagnostics: ctx.logs_include_diagnostics,
+                            request_concurrency: ctx.bmc_request_concurrency,
                         },
                         data_sink,
                         StreamingCollectorStartContext {
@@ -435,6 +438,7 @@ fn spawn_generic_redfish_collectors(
                         bmc.clone(),
                         SseLogCollectorConfig {
                             include_diagnostics: ctx.logs_include_diagnostics,
+                            request_concurrency: ctx.bmc_request_concurrency,
                         },
                         data_sink,
                         StreamingCollectorStartContext {
@@ -615,6 +619,50 @@ fn spawn_generic_redfish_collectors(
     Ok(())
 }
 
+fn start_nmxc_collector(
+    ctx: &DiscoveryLoopContext,
+    endpoint: &Arc<BmcEndpoint>,
+    bmc: &Arc<BmcClient>,
+    config: &NmxcCollectorOptions,
+    data_sink: Arc<dyn DataSink>,
+    collector_registry: Arc<CollectorRegistry>,
+) -> Result<Collector, HealthError> {
+    let start_context = StreamingCollectorStartContext {
+        backoff_config: BackoffConfig {
+            initial: config.initial_backoff,
+            max: config.max_backoff,
+        },
+        collector_registry,
+    };
+
+    if let Some(schema_override) = &ctx.nmxc_schema_override {
+        Collector::start_streaming::<NmxcSchemaOverrideCollector, _>(
+            endpoint.clone(),
+            bmc.clone(),
+            NmxcSchemaOverrideCollectorConfig {
+                nmxc_config: config.clone(),
+                tls_config: ctx.tls_config.clone(),
+                schema_override: schema_override.clone(),
+            },
+            data_sink,
+            start_context,
+            |_| true,
+        )
+    } else {
+        Collector::start_streaming::<NmxcCollector, _>(
+            endpoint.clone(),
+            bmc.clone(),
+            NmxcCollectorConfig {
+                nmxc_config: config.clone(),
+                tls_config: ctx.tls_config.clone(),
+            },
+            data_sink,
+            start_context,
+            |_| true,
+        )
+    }
+}
+
 fn spawn_switch_host_collectors(
     ctx: &mut DiscoveryLoopContext,
     endpoint: &Arc<BmcEndpoint>,
@@ -683,22 +731,13 @@ fn spawn_switch_host_collectors(
                     .create_collector_registry(format!("nmxc_collector_{key}"), metrics_prefix)?,
             );
 
-            match Collector::start_streaming::<NmxcCollector, _>(
-                endpoint_arc.clone(),
-                bmc.clone(),
-                NmxcCollectorConfig {
-                    nmxc_config: nmxc_cfg.clone(),
-                    tls_config: ctx.tls_config.clone(),
-                },
+            match start_nmxc_collector(
+                ctx,
+                &endpoint_arc,
+                &bmc,
+                nmxc_cfg,
                 data_sink,
-                StreamingCollectorStartContext {
-                    backoff_config: BackoffConfig {
-                        initial: nmxc_cfg.initial_backoff,
-                        max: nmxc_cfg.max_backoff,
-                    },
-                    collector_registry,
-                },
-                |_| true,
+                collector_registry,
             ) {
                 Ok(handle) => {
                     ctx.collectors
@@ -1341,8 +1380,16 @@ mod tests {
             mac: MacAddress::from_str("99:88:77:66:55:44").expect("valid mac"),
         };
         let bmc = Arc::new(
-            BmcClient::new(reqwest(), addr.clone(), Arc::new(FailingProvider), None, 10)
-                .expect("constructor succeeds"),
+            BmcClient::new(
+                reqwest(),
+                addr.clone(),
+                Arc::new(FailingProvider),
+                None,
+                10,
+                std::num::NonZeroUsize::MIN,
+                None,
+            )
+            .expect("constructor succeeds"),
         );
         let endpoint = Arc::new(BmcEndpoint {
             addr,

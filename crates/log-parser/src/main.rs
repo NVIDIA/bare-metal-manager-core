@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#![cfg_attr(not(test), deny(dead_code_pub_in_binary))]
 
 mod carbide_reporting;
 #[cfg(test)]
@@ -352,7 +353,7 @@ async fn process_log_file_events(
             } else {
                 eprintln!(
                     "{}: buffer of size {buffer_length} did not contain the delimiter",
-                    &log.file_path
+                    log.file_path
                 );
                 log.offset += buffer_length;
             }
@@ -483,7 +484,7 @@ async fn read_event_definition(path: &Path) -> Result<Configuration, anyhow::Err
         if regex_string.is_empty() {
             return Err(anyhow!(
                 "invalid event regex pattern {}",
-                &event_type.regex_string
+                event_type.regex_string
             ));
         }
         let event_regex = Regex::new(regex_string.as_str())?;

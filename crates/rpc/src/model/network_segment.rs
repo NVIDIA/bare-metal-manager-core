@@ -136,6 +136,7 @@ impl TryFrom<rpc::forge::NetworkSegmentCreationRequest> for NewNetworkSegment {
             segment_type,
             can_stretch,
             allocation_strategy: AllocationStrategy::Dynamic,
+            infer_slaac_eui64_addresses: value.infer_slaac_eui64_addresses,
         })
     }
 }
@@ -225,6 +226,7 @@ impl From<NetworkSegment> for rpc::NetworkSegment {
                 mtu: Some(src.config.mtu),
                 prefixes,
                 segment_type: src.config.segment_type as i32,
+                infer_slaac_eui64_addresses: src.config.infer_slaac_eui64_addresses,
             }),
             status: Some(rpc::forge::NetworkSegmentStatus {
                 flags,
@@ -269,6 +271,7 @@ mod tests {
                 NetworkSegmentType::Underlay => rpc::forge::NetworkSegmentType::Underlay as i32,
                 NetworkSegmentType::HostInband => rpc::forge::NetworkSegmentType::HostInband as i32,
             },
+            infer_slaac_eui64_addresses: false,
         }
     }
 

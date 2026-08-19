@@ -254,7 +254,6 @@ func (o *AllocationCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	varAllocationCreateRequest := _AllocationCreateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varAllocationCreateRequest)
 
 	if err != nil {

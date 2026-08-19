@@ -13,7 +13,6 @@ type TargetPhaseSummary struct {
 }
 
 type TargetPhaseAggregate struct {
-	TotalPhases         int32
 	CompletedPhaseStats PhaseStats
 }
 
@@ -27,11 +26,12 @@ type SafetyGateEvaluation struct {
 // phase's target rows and SQL-derived aggregate stats for earlier phases.
 func NewTargetPhaseSummary(
 	currentPhaseIndex int32,
+	totalPhases int32,
 	aggregate TargetPhaseAggregate,
 	currentPhaseTargets []*OperationRunTarget,
 ) TargetPhaseSummary {
 	summary := TargetPhaseSummary{
-		TotalPhases:         aggregate.TotalPhases,
+		TotalPhases:         totalPhases,
 		CurrentPhaseTargets: currentPhaseTargets,
 		CompletedPhaseStats: aggregate.CompletedPhaseStats,
 		CurrentPhaseStats:   PhaseStats{PhaseIndex: currentPhaseIndex},
@@ -44,17 +44,22 @@ func NewTargetPhaseSummary(
 
 // IsAllTerminal reports whether there is no remaining active target work.
 func (s TargetPhaseSummary) IsAllTerminal() bool {
-	return s.TotalPhases > 0 &&
-		s.CurrentPhaseStats.PhaseIndex+1 >= s.TotalPhases &&
-		s.CurrentPhaseStats.AllTargetsTerminal()
+	return !s.HasNextPhase() && s.CurrentPhaseTerminal()
 }
 
 func (s TargetPhaseSummary) CurrentPhaseTerminal() bool {
 	return s.CurrentPhaseStats.AllTargetsTerminal()
 }
 
+// CurrentPhaseEmpty reports whether the persisted phase index has no targets.
+// New plans use contiguous materialized indexes, but older runs can contain
+// gaps when percentage or equal phase sizes rounded to zero.
+func (s TargetPhaseSummary) CurrentPhaseEmpty() bool {
+	return s.CurrentPhaseStats.SelectedTargets == 0
+}
+
 func (s TargetPhaseSummary) HasNextPhase() bool {
-	return s.TotalPhases > 0 && s.CurrentPhaseStats.PhaseIndex+1 < s.TotalPhases
+	return s.CurrentPhaseStats.PhaseIndex+1 < s.TotalPhases
 }
 
 // TerminalRunStatus returns the terminal run status implied by an all-terminal

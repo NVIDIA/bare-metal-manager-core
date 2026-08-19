@@ -12,14 +12,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	oteltrace "go.opentelemetry.io/otel/trace"
+	temporalEnums "go.temporal.io/api/enums/v1"
 	tmocks "go.temporal.io/sdk/mocks"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
@@ -135,12 +136,9 @@ func TestCreateTaskRunHandler_Handle(t *testing.T) {
 			mockRun := &tmocks.WorkflowRun{}
 			mockRun.On("GetID").Return("test-workflow-id")
 			if tt.mockResp != nil {
-				mockRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-					resp := args.Get(1).(*flowv1.CreateOperationRunResponse)
-					resp.Id = tt.mockResp.Id
-				}).Return(nil)
+				testFlowProxyReply(t, mockRun, tt.mockResp)
 			}
-			mockTC.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "CreateTaskRun", mock.Anything).Return(mockRun, tt.mockExecErr)
+			started := testFlowProxyDispatch(t, mockTC, mockRun, flowv1.Flow_CreateOperationRun_FullMethodName, tt.mockExecErr)
 			scp.IDClientMap[site.ID.String()] = mockTC
 
 			bodyBytes, err := json.Marshal(tt.body)
@@ -162,6 +160,12 @@ func TestCreateTaskRunHandler_Handle(t *testing.T) {
 			if tt.expectedStatus != http.StatusCreated {
 				return
 			}
+
+			// Create must never coalesce onto another request's execution, so
+			// its ID is per-request and it declares no conflict policy.
+			assert.True(t, strings.HasPrefix(started.ID, "flow-grpc-task-run-create-"), "workflow ID = %q", started.ID)
+			assert.Equal(t, temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_UNSPECIFIED, started.WorkflowIDConflictPolicy)
+
 			var got model.APITaskRun
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 			assert.Equal(t, tt.mockResp.GetId().GetId(), got.ID)
@@ -170,6 +174,60 @@ func TestCreateTaskRunHandler_Handle(t *testing.T) {
 			assert.Equal(t, model.TaskRunStatusPending, got.Status)
 		})
 	}
+}
+
+// TestCreateTaskRunHandler_FreshWorkflowIDPerRequest pins what keeps two
+// identical create requests from becoming one run. The ID is the whole
+// mechanism: a fixed one would let the second request attach to the first
+// execution and report its run as though it had created a second.
+func TestCreateTaskRunHandler_FreshWorkflowIDPerRequest(t *testing.T) {
+	e := echo.New()
+	dbSession := testRackInitDB(t)
+	defer dbSession.Close()
+
+	cfg := common.GetTestConfig()
+	tcfg, _ := cfg.GetTemporalConfig()
+	scp := sc.NewClientPool(tcfg)
+
+	org := "test-org"
+	_, site, _ := testRackSetupTestData(t, dbSession, org)
+	providerUser := testRackBuildUser(t, dbSession, "provider-user-run-create-fresh", org, []string{authz.ProviderAdminRole})
+
+	handler := NewCreateTaskRunHandler(dbSession, nil, scp, cfg)
+	tracer := oteltrace.NewNoopTracerProvider().Tracer("test")
+
+	submit := func(t *testing.T) string {
+		t.Helper()
+
+		mockTC := &tmocks.Client{}
+		mockRun := &tmocks.WorkflowRun{}
+		mockRun.On("GetID").Return("test-workflow-id")
+		testFlowProxyReply(t, mockRun, &flowv1.CreateOperationRunResponse{Id: &flowv1.UUID{Id: uuid.New().String()}})
+		started := testFlowProxyDispatch(t, mockTC, mockRun, flowv1.Flow_CreateOperationRun_FullMethodName, nil)
+		scp.IDClientMap[site.ID.String()] = mockTC
+
+		bodyBytes, err := json.Marshal(testRunSampleCreateRequest(site.ID.String()))
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/v2/org/%s/nico/task/run", org), bytes.NewReader(bodyBytes))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+		ec := e.NewContext(req, rec)
+		ec.SetParamNames("orgName")
+		ec.SetParamValues(org)
+		ec.Set("user", providerUser)
+		ec.SetRequest(ec.Request().WithContext(context.WithValue(context.Background(), otelecho.TracerKey, tracer)))
+
+		require.NoError(t, handler.Handle(ec))
+		require.Equal(t, http.StatusCreated, rec.Code, "body=%s", rec.Body.String())
+		return started.ID
+	}
+
+	first := submit(t)
+	second := submit(t)
+
+	assert.NotEqual(t, first, second, "two creates shared a workflow ID")
+	assert.True(t, strings.HasPrefix(first, "flow-grpc-task-run-create-"), "workflow ID = %q", first)
 }
 
 func TestGetTaskRunHandler_Handle(t *testing.T) {
@@ -215,6 +273,14 @@ func TestGetTaskRunHandler_Handle(t *testing.T) {
 			expectedStatus: http.StatusOK,
 		},
 		{
+			name:           "success - includeStats gets its own workflow ID",
+			user:           providerUser,
+			runID:          runID,
+			queryParams:    map[string]string{"siteId": site.ID.String(), "includeStats": "true"},
+			mockRun:        found,
+			expectedStatus: http.StatusOK,
+		},
+		{
 			name:           "failure - run not found",
 			user:           providerUser,
 			runID:          runID,
@@ -251,13 +317,9 @@ func TestGetTaskRunHandler_Handle(t *testing.T) {
 			mockRun := &tmocks.WorkflowRun{}
 			mockRun.On("GetID").Return("test-workflow-id")
 			if tt.mockRun != nil {
-				src := tt.mockRun
-				mockRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-					resp := args.Get(1).(*flowv1.GetOperationRunResponse)
-					resp.OperationRun = src
-				}).Return(nil)
+				testFlowProxyReply(t, mockRun, &flowv1.GetOperationRunResponse{OperationRun: tt.mockRun})
 			}
-			mockTC.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "GetTaskRun", mock.Anything).Return(mockRun, nil)
+			started := testFlowProxyDispatch(t, mockTC, mockRun, flowv1.Flow_GetOperationRun_FullMethodName, nil)
 			scp.IDClientMap[site.ID.String()] = mockTC
 
 			q := url.Values{}
@@ -281,6 +343,16 @@ func TestGetTaskRunHandler_Handle(t *testing.T) {
 			if tt.expectedStatus != http.StatusOK {
 				return
 			}
+
+			// Reads coalesce onto an in-flight identical request, so the ID is
+			// derived from the query and namespaced away from the bespoke
+			// per-method workflows that still run on the site. includeStats is
+			// part of it because attaching to an execution started with the
+			// other value would answer with the wrong stats presence.
+			wantStats := tt.queryParams["includeStats"] == "true"
+			assert.Equal(t, fmt.Sprintf("flow-grpc-task-run-get-%s-%t", runID, wantStats), started.ID)
+			assert.Equal(t, temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING, started.WorkflowIDConflictPolicy)
+
 			var got model.APITaskRun
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 			assert.Equal(t, runID, got.ID)
@@ -356,19 +428,22 @@ func TestGetAllTaskRunHandler_Handle(t *testing.T) {
 		},
 	}
 
+	// Collected across subtests: two different filter sets must not derive the
+	// same ID, or USE_EXISTING would serve one query's result to the other.
+	listIDs := map[string]string{}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockTC := &tmocks.Client{}
 			mockRun := &tmocks.WorkflowRun{}
 			mockRun.On("GetID").Return("test-workflow-id")
 			if tt.mockRuns != nil {
-				mockRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-					resp := args.Get(1).(*flowv1.ListOperationRunsResponse)
-					resp.OperationRuns = tt.mockRuns
-					resp.Total = int32(len(tt.mockRuns))
-				}).Return(nil)
+				testFlowProxyReply(t, mockRun, &flowv1.ListOperationRunsResponse{
+					OperationRuns: tt.mockRuns,
+					Total:         int32(len(tt.mockRuns)),
+				})
 			}
-			mockTC.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "GetAllTaskRuns", mock.Anything).Return(mockRun, nil)
+			started := testFlowProxyDispatch(t, mockTC, mockRun, flowv1.Flow_ListOperationRuns_FullMethodName, nil)
 			scp.IDClientMap[site.ID.String()] = mockTC
 
 			q := url.Values{}
@@ -392,11 +467,22 @@ func TestGetAllTaskRunHandler_Handle(t *testing.T) {
 			if tt.expectedStatus != http.StatusOK {
 				return
 			}
+
+			assert.True(t, strings.HasPrefix(started.ID, "flow-grpc-task-run-get-all-"), "workflow ID = %q", started.ID)
+			assert.Equal(t, temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING, started.WorkflowIDConflictPolicy)
+			listIDs[tt.name] = started.ID
+
 			var got []*model.APITaskRun
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 			require.Len(t, got, len(tt.mockRuns))
 			require.NotEmpty(t, rec.Header().Get("X-Pagination"))
 		})
+	}
+
+	seen := map[string]string{}
+	for name, id := range listIDs {
+		require.NotContains(t, seen, id, "%q and %q derived the same workflow ID", seen[id], name)
+		seen[id] = name
 	}
 }
 
@@ -479,13 +565,12 @@ func TestGetAllTaskRunTargetHandler_Handle(t *testing.T) {
 			mockRun := &tmocks.WorkflowRun{}
 			mockRun.On("GetID").Return("test-workflow-id")
 			if tt.mockTargets != nil {
-				mockRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-					resp := args.Get(1).(*flowv1.ListOperationRunTargetsResponse)
-					resp.Targets = tt.mockTargets
-					resp.Total = int32(len(tt.mockTargets))
-				}).Return(nil)
+				testFlowProxyReply(t, mockRun, &flowv1.ListOperationRunTargetsResponse{
+					Targets: tt.mockTargets,
+					Total:   int32(len(tt.mockTargets)),
+				})
 			}
-			mockTC.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "GetAllTaskRunTargets", mock.Anything).Return(mockRun, nil)
+			started := testFlowProxyDispatch(t, mockTC, mockRun, flowv1.Flow_ListOperationRunTargets_FullMethodName, nil)
 			scp.IDClientMap[site.ID.String()] = mockTC
 
 			q := url.Values{}
@@ -509,6 +594,10 @@ func TestGetAllTaskRunTargetHandler_Handle(t *testing.T) {
 			if tt.expectedStatus != http.StatusOK {
 				return
 			}
+
+			assert.True(t, strings.HasPrefix(started.ID, fmt.Sprintf("flow-grpc-task-run-target-get-all-%s-", runID)), "workflow ID = %q", started.ID)
+			assert.Equal(t, temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING, started.WorkflowIDConflictPolicy)
+
 			var got []*model.APITaskRunTarget
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 			require.Len(t, got, len(tt.mockTargets))
@@ -558,15 +647,18 @@ func TestRunLifecycleHandlers_Handle(t *testing.T) {
 		}
 	}
 
+	// The method is pinned per action because all four handlers share one
+	// dispatch path and one ID shape: without it, pause wired to Flow's resume
+	// would still satisfy every other assertion here.
 	actions := []struct {
-		action   string
-		workflow string
-		handle   func(echo.Context) error
+		action string
+		method string
+		handle func(echo.Context) error
 	}{
-		{"pause", "PauseTaskRun", NewPauseTaskRunHandler(dbSession, nil, scp, cfg).Handle},
-		{"resume", "ResumeTaskRun", NewResumeTaskRunHandler(dbSession, nil, scp, cfg).Handle},
-		{"advance", "AdvanceTaskRunPhase", NewAdvanceTaskRunPhaseHandler(dbSession, nil, scp, cfg).Handle},
-		{"cancel", "CancelTaskRun", NewCancelTaskRunHandler(dbSession, nil, scp, cfg).Handle},
+		{"pause", flowv1.Flow_PauseOperationRun_FullMethodName, NewPauseTaskRunHandler(dbSession, nil, scp, cfg).Handle},
+		{"resume", flowv1.Flow_ResumeOperationRun_FullMethodName, NewResumeTaskRunHandler(dbSession, nil, scp, cfg).Handle},
+		{"advance", flowv1.Flow_AdvanceOperationRunPhase_FullMethodName, NewAdvanceTaskRunPhaseHandler(dbSession, nil, scp, cfg).Handle},
+		{"cancel", flowv1.Flow_CancelOperationRun_FullMethodName, NewCancelTaskRunHandler(dbSession, nil, scp, cfg).Handle},
 	}
 
 	for _, act := range actions {
@@ -590,11 +682,10 @@ func TestRunLifecycleHandlers_Handle(t *testing.T) {
 				mockTC := &tmocks.Client{}
 				mockRun := &tmocks.WorkflowRun{}
 				mockRun.On("GetID").Return("test-workflow-id")
-				mockRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-					resp := args.Get(1).(*flowv1.OperationRun)
-					resp.Summary = &flowv1.OperationRunSummary{Id: &flowv1.UUID{Id: runID}}
-				}).Return(nil)
-				mockTC.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, act.workflow, mock.Anything).Return(mockRun, tt.mockExecErr)
+				testFlowProxyReply(t, mockRun, &flowv1.OperationRun{
+					Summary: &flowv1.OperationRunSummary{Id: &flowv1.UUID{Id: runID}},
+				})
+				started := testFlowProxyDispatch(t, mockTC, mockRun, act.method, tt.mockExecErr)
 				scp.IDClientMap[site.ID.String()] = mockTC
 
 				bodyBytes, err := json.Marshal(tt.body)
@@ -616,6 +707,9 @@ func TestRunLifecycleHandlers_Handle(t *testing.T) {
 				if tt.expectedStatus != http.StatusAccepted {
 					return
 				}
+
+				assert.Equal(t, fmt.Sprintf("flow-grpc-task-run-%s-%s", act.action, runID), started.ID)
+
 				var got model.APITaskRun
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 				assert.Equal(t, runID, got.ID)

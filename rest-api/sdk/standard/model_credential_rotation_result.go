@@ -28,7 +28,7 @@ type CredentialRotationResult struct {
 	// Credential family that was rotated.
 	CredentialType string `json:"credentialType"`
 	// Newly published site-wide target version that devices converge to.
-	TargetVersion int64 `json:"targetVersion"`
+	TargetVersion uint32 `json:"targetVersion"`
 	// When the rotation was staged.
 	Started NullableTime `json:"started,omitempty"`
 }
@@ -39,7 +39,7 @@ type _CredentialRotationResult CredentialRotationResult
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewCredentialRotationResult(credentialType string, targetVersion int64) *CredentialRotationResult {
+func NewCredentialRotationResult(credentialType string, targetVersion uint32) *CredentialRotationResult {
 	this := CredentialRotationResult{}
 	this.CredentialType = credentialType
 	this.TargetVersion = targetVersion
@@ -79,9 +79,9 @@ func (o *CredentialRotationResult) SetCredentialType(v string) {
 }
 
 // GetTargetVersion returns the TargetVersion field value
-func (o *CredentialRotationResult) GetTargetVersion() int64 {
+func (o *CredentialRotationResult) GetTargetVersion() uint32 {
 	if o == nil {
-		var ret int64
+		var ret uint32
 		return ret
 	}
 
@@ -90,7 +90,7 @@ func (o *CredentialRotationResult) GetTargetVersion() int64 {
 
 // GetTargetVersionOk returns a tuple with the TargetVersion field value
 // and a boolean to check if the value has been set.
-func (o *CredentialRotationResult) GetTargetVersionOk() (*int64, bool) {
+func (o *CredentialRotationResult) GetTargetVersionOk() (*uint32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -98,7 +98,7 @@ func (o *CredentialRotationResult) GetTargetVersionOk() (*int64, bool) {
 }
 
 // SetTargetVersion sets field value
-func (o *CredentialRotationResult) SetTargetVersion(v int64) {
+func (o *CredentialRotationResult) SetTargetVersion(v uint32) {
 	o.TargetVersion = v
 }
 
@@ -189,7 +189,6 @@ func (o *CredentialRotationResult) UnmarshalJSON(data []byte) (err error) {
 	varCredentialRotationResult := _CredentialRotationResult{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varCredentialRotationResult)
 
 	if err != nil {

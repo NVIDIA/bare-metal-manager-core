@@ -97,3 +97,6 @@ russh = { workspace = true }
 #default = ["mockdpa"]
 default = []
 mockdpa = []
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
