@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Debug;
 use std::net::{IpAddr, SocketAddr};
 use std::num::NonZeroUsize;
@@ -25,6 +25,7 @@ use std::time::Duration;
 use figment::providers::{Env, Format, Serialized, Toml};
 use figment::value::{Dict, Map, Value};
 use figment::{Error as FigmentError, Figment, Metadata, Profile, Provider};
+use mac_address::MacAddress;
 use rustls_pki_types::DnsName;
 use serde::{Deserialize, Deserializer, Serialize};
 use tokio::sync::Semaphore;
@@ -105,8 +106,12 @@ pub struct EndpointSourcesConfig {
     #[serde(rename = "nico_api", alias = "carbide_api")]
     pub carbide_api: Configurable<CarbideApiConnectionConfig>,
 
-    /// Static BMC endpoints
+    /// Static BMC endpoints, including switch host endpoints.
     pub static_bmc_endpoints: Vec<StaticBmcEndpoint>,
+
+    /// Static switch host endpoints. Each entry requires `switch`
+    /// metadata. The endpoint role defaults to host and must be host when set.
+    pub static_switch_host_endpoints: Vec<StaticBmcEndpoint>,
 
     /// Cluster inventory file source (file or cluster manager JSON RPC)
     pub cluster: Configurable<ClusterEndpointSourceConfig>,
@@ -117,6 +122,7 @@ impl Default for EndpointSourcesConfig {
         Self {
             carbide_api: Configurable::Enabled(CarbideApiConnectionConfig::default()),
             static_bmc_endpoints: Vec::new(),
+            static_switch_host_endpoints: Vec::new(),
             cluster: Configurable::Disabled,
         }
     }
@@ -210,6 +216,8 @@ impl std::fmt::Debug for ClusterEndpointSourceConfig {
 #[serde(deny_unknown_fields)]
 pub struct StaticBmcEndpoint {
     pub ip: IpAddr,
+
+    /// Optional Redfish or NVUE REST HTTPS port, depending on endpoint role.
     #[serde(default)]
     pub port: Option<u16>,
     pub mac: String,
@@ -310,10 +318,10 @@ impl StaticBmcEndpoint {
             + usize::from(self.switch.is_some())
     }
 
-    fn validate(&self, index: usize) -> Result<(), String> {
+    fn validate(&self, config_path: &str, index: usize) -> Result<(), String> {
         if self.identity_count() > 1 {
             return Err(format!(
-                "endpoint_sources.static_bmc_endpoints[{index}] must specify at most one of machine, power_shelf, or switch"
+                "{config_path}[{index}] must specify at most one of machine, power_shelf, or switch"
             ));
         }
 
@@ -322,7 +330,7 @@ impl StaticBmcEndpoint {
             && power_shelf.serial.is_none()
         {
             return Err(format!(
-                "endpoint_sources.static_bmc_endpoints[{index}].power_shelf requires id or serial"
+                "{config_path}[{index}].power_shelf requires id or serial"
             ));
         }
 
@@ -331,7 +339,7 @@ impl StaticBmcEndpoint {
             && switch.serial.is_none()
         {
             return Err(format!(
-                "endpoint_sources.static_bmc_endpoints[{index}].switch requires id or serial"
+                "{config_path}[{index}].switch requires id or serial"
             ));
         }
 
@@ -354,7 +362,7 @@ impl StaticBmcEndpoint {
 
         if self.labels.len() > 32 {
             return Err(format!(
-                "endpoint_sources.static_bmc_endpoints[{index}].labels supports at most 32 labels"
+                "{config_path}[{index}].labels supports at most 32 labels"
             ));
         }
 
@@ -366,19 +374,74 @@ impl StaticBmcEndpoint {
             let valid_rest = chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_');
             if !valid_start || !valid_rest {
                 return Err(format!(
-                    "endpoint_sources.static_bmc_endpoints[{index}].labels key {name:?} must match [a-zA-Z_][a-zA-Z0-9_]*"
+                    "{config_path}[{index}].labels key {name:?} must match [a-zA-Z_][a-zA-Z0-9_]*"
                 ));
             }
             if RESERVED_LABELS.contains(&name.as_str()) {
                 return Err(format!(
-                    "endpoint_sources.static_bmc_endpoints[{index}].labels key {name:?} is reserved"
+                    "{config_path}[{index}].labels key {name:?} is reserved"
                 ));
             }
             if value.len() > 1024 {
                 return Err(format!(
-                    "endpoint_sources.static_bmc_endpoints[{index}].labels value for {name:?} exceeds 1024 bytes"
+                    "{config_path}[{index}].labels value for {name:?} exceeds 1024 bytes"
                 ));
             }
+        }
+
+        Ok(())
+    }
+}
+
+impl EndpointSourcesConfig {
+    fn validate(&self) -> Result<(), String> {
+        const BMC_ENDPOINTS_PATH: &str = "endpoint_sources.static_bmc_endpoints";
+        const SWITCH_HOST_ENDPOINTS_PATH: &str = "endpoint_sources.static_switch_host_endpoints";
+
+        let mut static_macs = HashMap::new();
+
+        for (index, endpoint) in self.static_bmc_endpoints.iter().enumerate() {
+            endpoint.validate(BMC_ENDPOINTS_PATH, index)?;
+
+            let mac = endpoint.mac.parse::<MacAddress>().map_err(|_| {
+                format!("{BMC_ENDPOINTS_PATH}[{index}].mac must be a valid MAC address")
+            })?;
+
+            static_macs
+                .entry(mac)
+                .or_insert((BMC_ENDPOINTS_PATH, index));
+        }
+
+        for (index, endpoint) in self.static_switch_host_endpoints.iter().enumerate() {
+            endpoint.validate(SWITCH_HOST_ENDPOINTS_PATH, index)?;
+
+            let Some(switch) = endpoint.switch.as_ref() else {
+                return Err(format!(
+                    "{SWITCH_HOST_ENDPOINTS_PATH}[{index}] requires switch metadata"
+                ));
+            };
+
+            if switch.endpoint_role != StaticSwitchEndpointRole::Host {
+                return Err(format!(
+                    "{SWITCH_HOST_ENDPOINTS_PATH}[{index}].switch.endpoint_role must be host"
+                ));
+            }
+
+            let mac = endpoint.mac.parse::<MacAddress>().map_err(|_| {
+                format!("{SWITCH_HOST_ENDPOINTS_PATH}[{index}].mac must be a valid MAC address")
+            })?;
+
+            if let Some((existing_path, existing_index)) = static_macs.get(&mac) {
+                return Err(format!(
+                    "{SWITCH_HOST_ENDPOINTS_PATH}[{index}].mac duplicates {existing_path}[{existing_index}].mac"
+                ));
+            }
+
+            static_macs.insert(mac, (SWITCH_HOST_ENDPOINTS_PATH, index));
+        }
+
+        if let Configurable::Enabled(cluster) = &self.cluster {
+            cluster.validate()?;
         }
 
         Ok(())
@@ -2075,18 +2138,7 @@ impl Config {
             );
         }
 
-        for (index, endpoint) in self
-            .endpoint_sources
-            .static_bmc_endpoints
-            .iter()
-            .enumerate()
-        {
-            endpoint.validate(index)?;
-        }
-
-        if let Configurable::Enabled(ref cluster_cfg) = self.endpoint_sources.cluster {
-            cluster_cfg.validate()?;
-        }
+        self.endpoint_sources.validate()?;
 
         if let Configurable::Enabled(health_report) = &self.sinks.health_report
             && health_report.workers == 0
@@ -2661,7 +2713,10 @@ username = "root"
 
     #[test]
     fn static_endpoint_validation() {
-        scenarios!(run = |IndexedStaticEndpoint { index, endpoint }| endpoint.validate(index);
+        scenarios!(run = |IndexedStaticEndpoint { index, endpoint }| endpoint.validate(
+            "endpoint_sources.static_bmc_endpoints",
+            index,
+        );
             "valid endpoint" {
                 IndexedStaticEndpoint {
                     index: 3,
@@ -4506,6 +4561,13 @@ power_shelf = { id = "fps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1
             Some(3)
         );
         assert_eq!(
+            config.endpoint_sources.static_bmc_endpoints[2]
+                .switch
+                .as_ref()
+                .map(|switch| switch.endpoint_role),
+            Some(StaticSwitchEndpointRole::Host)
+        );
+        assert_eq!(
             config.endpoint_sources.static_bmc_endpoints[3]
                 .power_shelf
                 .as_ref()
@@ -4617,6 +4679,127 @@ switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", 
         assert_eq!(
             switch.nvlink_domain_uuid.as_deref(),
             Some("9f4b45ec-705a-4af4-89f7-a112bc9c8f4e")
+        );
+    }
+
+    #[test]
+    fn static_switch_host_endpoint_validation() {
+        scenarios!(run = |config: Box<Config>| config.validate();
+            "host" {
+                config_with(|config| {
+                    config.endpoint_sources.static_switch_host_endpoints =
+                        vec![StaticBmcEndpoint {
+                            switch: Some(static_switch()),
+                            ..static_endpoint()
+                        }];
+                }) => Yields(()),
+            }
+
+            "missing switch metadata" {
+                config_with(|config| {
+                    config.endpoint_sources.static_switch_host_endpoints =
+                        vec![static_endpoint()];
+                }) => FailsWith(
+                    "endpoint_sources.static_switch_host_endpoints[0] requires switch metadata"
+                        .to_string()
+                ),
+            }
+
+            "BMC role" {
+                config_with(|config| {
+                    config.endpoint_sources.static_switch_host_endpoints =
+                        vec![StaticBmcEndpoint {
+                            switch: Some(StaticSwitchEndpoint {
+                                endpoint_role: StaticSwitchEndpointRole::Bmc,
+                                ..static_switch()
+                            }),
+                            ..static_endpoint()
+                        }];
+                }) => FailsWith(
+                    "endpoint_sources.static_switch_host_endpoints[0].switch.endpoint_role must be host"
+                        .to_string()
+                ),
+            }
+
+            "malformed BMC endpoint MAC" {
+                config_with(|config| {
+                    config.endpoint_sources.static_bmc_endpoints =
+                        vec![StaticBmcEndpoint {
+                            mac: "not-a-mac".to_string(),
+                            ..static_endpoint()
+                        }];
+                }) => FailsWith(
+                    "endpoint_sources.static_bmc_endpoints[0].mac must be a valid MAC address"
+                        .to_string()
+                ),
+            }
+
+            "malformed switch host endpoint MAC" {
+                config_with(|config| {
+                    config.endpoint_sources.static_switch_host_endpoints =
+                        vec![StaticBmcEndpoint {
+                            mac: "not-a-mac".to_string(),
+                            switch: Some(static_switch()),
+                            ..static_endpoint()
+                        }];
+                }) => FailsWith(
+                    "endpoint_sources.static_switch_host_endpoints[0].mac must be a valid MAC address"
+                        .to_string()
+                ),
+            }
+
+            "duplicate within BMC endpoint list is accepted" {
+                config_with(|config| {
+                    let endpoint = StaticBmcEndpoint {
+                        mac: "aa:bb:cc:dd:ee:ff".to_string(),
+                        ..static_endpoint()
+                    };
+
+                    config.endpoint_sources.static_bmc_endpoints = vec![
+                        endpoint,
+                        StaticBmcEndpoint {
+                            mac: "AA:BB:CC:DD:EE:FF".to_string(),
+                            ..static_endpoint()
+                        },
+                    ];
+                }) => Yields(()),
+            }
+
+            "duplicate within host list" {
+                config_with(|config| {
+                    let endpoint = StaticBmcEndpoint {
+                        switch: Some(static_switch()),
+                        mac: "aa:bb:cc:dd:ee:ff".to_string(),
+                        ..static_endpoint()
+                    };
+
+                    config.endpoint_sources.static_switch_host_endpoints =
+                        vec![endpoint.clone(), endpoint];
+                }) => FailsWith(
+                    "endpoint_sources.static_switch_host_endpoints[1].mac duplicates endpoint_sources.static_switch_host_endpoints[0].mac"
+                        .to_string()
+                ),
+            }
+
+            "duplicate across endpoint lists" {
+                config_with(|config| {
+                    config.endpoint_sources.static_bmc_endpoints =
+                        vec![StaticBmcEndpoint {
+                            mac: "AA:BB:CC:DD:EE:FF".to_string(),
+                            ..static_endpoint()
+                        }];
+
+                    config.endpoint_sources.static_switch_host_endpoints =
+                        vec![StaticBmcEndpoint {
+                            mac: "aa:bb:cc:dd:ee:ff".to_string(),
+                            switch: Some(static_switch()),
+                            ..static_endpoint()
+                        }];
+                }) => FailsWith(
+                    "endpoint_sources.static_switch_host_endpoints[0].mac duplicates endpoint_sources.static_bmc_endpoints[0].mac"
+                        .to_string()
+                ),
+            }
         );
     }
 
@@ -4742,7 +4925,13 @@ switch = { serial = "SN-SW-001", physical_slot_number = 7, compute_tray_index = 
             .extract()
             .expect("could not parse config toml file");
 
-        assert_eq!(config.endpoint_sources.static_bmc_endpoints.len(), 4);
+        config.validate().expect("example config should be valid");
+
+        assert_eq!(config.endpoint_sources.static_bmc_endpoints.len(), 3);
+        assert_eq!(
+            config.endpoint_sources.static_switch_host_endpoints.len(),
+            1
+        );
         assert!(
             config.endpoint_sources.static_bmc_endpoints[0]
                 .switch
@@ -4781,28 +4970,28 @@ switch = { serial = "SN-SW-001", physical_slot_number = 7, compute_tray_index = 
             Some(StaticSwitchEndpointRole::Bmc)
         );
         assert_eq!(
-            config.endpoint_sources.static_bmc_endpoints[2]
+            config.endpoint_sources.static_switch_host_endpoints[0]
                 .switch
                 .as_ref()
                 .and_then(|switch| switch.serial.as_deref()),
             Some("SN-SWITCH-HOST-001")
         );
         assert_eq!(
-            config.endpoint_sources.static_bmc_endpoints[2]
+            config.endpoint_sources.static_switch_host_endpoints[0]
                 .switch
                 .as_ref()
                 .map(|switch| switch.endpoint_role),
             Some(StaticSwitchEndpointRole::Host)
         );
         assert_eq!(
-            config.endpoint_sources.static_bmc_endpoints[3]
+            config.endpoint_sources.static_bmc_endpoints[2]
                 .power_shelf
                 .as_ref()
                 .and_then(|power_shelf| power_shelf.id.as_deref()),
             Some("fps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0")
         );
         assert_eq!(
-            config.endpoint_sources.static_bmc_endpoints[3]
+            config.endpoint_sources.static_bmc_endpoints[2]
                 .power_shelf
                 .as_ref()
                 .and_then(|power_shelf| power_shelf.serial.as_deref()),

@@ -271,10 +271,11 @@ Machine endpoints carry the inventory metadata needed to interpret hardware heal
 
 Switch endpoints carry switch ID, serial number, rack placement, and NVLink domain UUID when present.
 
-**For local and test deployments**, you can configure explicit machine, switch, or power-shelf identity with `[[endpoint_sources.static_bmc_endpoints]]`. Note the following:
+**For local and test deployments**, you can configure explicit machine, switch, or power-shelf identity with `[[endpoint_sources.static_bmc_endpoints]]`. Direct switch host endpoints can use `[[endpoint_sources.static_switch_host_endpoints]]` or `[[endpoint_sources.static_bmc_endpoints]]`. Note the following:
 
 - Static machine endpoints can include the same serial number, rack placement, and NVLink domain UUID metadata
 - Static switch endpoints can include serial number, rack placement, and NVLink domain UUID metadata
+- `static_switch_host_endpoints` requires switch metadata; `endpoint_role` defaults to `host`, and only the `host` role is accepted
 - All static endpoints can provide `rack_id` and validated custom telemetry `labels`
 - The primary Redfish system UUID remains BMC-derived and cannot be overridden by a custom label
 
