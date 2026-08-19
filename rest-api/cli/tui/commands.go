@@ -906,13 +906,37 @@ func cmdInstanceList(s *Session, args []string) error {
 	fmt.Fprintf(os.Stderr, "%d items\n", len(items))
 	defer printLabelHint(os.Stderr, items, merged)
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tSTATUS\tVPC\tSITE\tLABELS\tID")
+	fmt.Fprintln(tw, "NAME\tIP ADDRESSES\tSTATUS\tVPC\tSITE\tLABELS\tID")
 	for _, item := range items {
+		ipAddresses := strings.Join(instanceIPAddresses(item.Raw), ", ")
+		if ipAddresses == "" {
+			ipAddresses = "-"
+		}
 		vpcName := s.Resolver.ResolveID("vpc", item.Extra["vpcId"])
 		siteName := s.Resolver.ResolveID("site", item.Extra["siteId"])
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", item.Name, item.Status, vpcName, siteName, formatLabels(item.Labels, 60), item.ID)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", item.Name, ipAddresses, item.Status, vpcName, siteName, formatLabels(item.Labels, 60), item.ID)
 	}
 	return tw.Flush()
+}
+
+func instanceIPAddresses(raw interface{}) []string {
+	instance, ok := raw.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	interfaces, ok := instance["interfaces"].([]interface{})
+	if !ok {
+		return nil
+	}
+	var addresses []string
+	for _, rawInterface := range interfaces {
+		instanceInterface, ok := rawInterface.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		addresses = append(addresses, stringSlice(instanceInterface["ipAddresses"])...)
+	}
+	return addresses
 }
 
 func cmdMachineList(s *Session, args []string) error {
