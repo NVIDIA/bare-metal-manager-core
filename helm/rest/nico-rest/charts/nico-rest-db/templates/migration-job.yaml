@@ -26,9 +26,22 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      # 1000 is the `nvs` user the migrations image declares. `pg_isready` in
+      # the init container is a client binary that writes nothing, so it runs
+      # under the same UID without needing anything from its own image.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
       initContainers:
         - name: wait-for-postgres
           image: {{ if and .Values.waitForPostgres.repository .Values.waitForPostgres.tag }}{{ .Values.waitForPostgres.repository }}:{{ .Values.waitForPostgres.tag }}{{ else }}{{ .Values.waitForPostgres.image }}{{ end }}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           command:
             - pg_isready
             - -h
@@ -41,6 +54,12 @@ spec:
         - name: migrations
           image: "{{ include "nico-rest-db.image" . }}"
           imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: PGHOST
               value: {{ .Values.db.host }}
@@ -55,5 +74,13 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.secrets.dbCreds }}
                   key: password
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        # Scratch space for the read-only root filesystem. Go puts temp files
+        # under /tmp.
+        - name: tmp
+          emptyDir: {}
