@@ -2663,7 +2663,10 @@ fn select_firmware_status_routing(
         FirmwareStatusRouting::DirectDispatch
     } else {
         let (persisted, fallback) = partition_by_rms_job_id(machine_ids, machines_by_id);
-        FirmwareStatusRouting::Partitioned { persisted, fallback }
+        FirmwareStatusRouting::Partitioned {
+            persisted,
+            fallback,
+        }
     }
 }
 
@@ -2769,15 +2772,13 @@ pub(crate) async fn get_component_firmware_status(
                     &machines_by_id,
                 ) {
                     FirmwareStatusRouting::DirectDispatch => {
-                        compute_tray_firmware_statuses(
-                            cm,
-                            api,
-                            &machines_by_id,
-                            &list.machine_ids,
-                        )
-                        .await?
+                        compute_tray_firmware_statuses(cm, api, &machines_by_id, &list.machine_ids)
+                            .await?
                     }
-                    FirmwareStatusRouting::Partitioned { persisted, fallback } => {
+                    FirmwareStatusRouting::Partitioned {
+                        persisted,
+                        fallback,
+                    } => {
                         let mut statuses = Vec::with_capacity(list.machine_ids.len());
                         if !persisted.is_empty() {
                             statuses.extend(
@@ -4298,10 +4299,16 @@ mod tests {
 
         for case in &cases {
             let ids: Vec<MachineId> = case.ids.iter().map(|&i| all_ids[i]).collect();
-            let expect_persisted: Vec<MachineId> =
-                case.expect_persisted_indices.iter().map(|&i| all_ids[i]).collect();
-            let expect_fallback: Vec<MachineId> =
-                case.expect_fallback_indices.iter().map(|&i| all_ids[i]).collect();
+            let expect_persisted: Vec<MachineId> = case
+                .expect_persisted_indices
+                .iter()
+                .map(|&i| all_ids[i])
+                .collect();
+            let expect_fallback: Vec<MachineId> = case
+                .expect_fallback_indices
+                .iter()
+                .map(|&i| all_ids[i])
+                .collect();
 
             let routing =
                 select_firmware_status_routing(case.use_state_controller, &ids, &machines);
@@ -4313,7 +4320,10 @@ mod tests {
                         case.scenario,
                     );
                 }
-                FirmwareStatusRouting::Partitioned { persisted, fallback } => {
+                FirmwareStatusRouting::Partitioned {
+                    persisted,
+                    fallback,
+                } => {
                     assert!(
                         !case.expect_direct,
                         "{}: expected DirectDispatch but got Partitioned",
