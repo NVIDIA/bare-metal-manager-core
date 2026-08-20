@@ -2129,6 +2129,28 @@ mod tests {
         assert_eq!(recovered, original);
     }
 
+    // Verifies that an empty `memory_device_groups` list survives a JSON round trip.
+    // `memory_device_groups` is `skip_serializing_if = "Vec::is_empty"`, so an empty list is
+    // omitted from the JSON entirely; without `#[serde(default)]` on that field, deserializing
+    // that JSON would fail with "missing field `memory_device_groups`".
+    #[test]
+    fn memory_device_groups_empty_json_round_trip() {
+        let discovery_info = rpc::machine_discovery::DiscoveryInfo {
+            memory_device_groups: vec![],
+            ..Default::default()
+        };
+
+        let json = serde_json::to_string(&discovery_info).expect("serialization succeeds");
+        assert!(
+            !json.contains("memory_device_groups"),
+            "empty memory_device_groups should be omitted from JSON: {json}"
+        );
+
+        let recovered: rpc::machine_discovery::DiscoveryInfo =
+            serde_json::from_str(&json).expect("deserialization succeeds");
+        assert_eq!(recovered.memory_device_groups, Vec::new());
+    }
+
     // Verifies that the internal `count` field is set correctly when reading both
     // old and new proto formats — not just that rehydration produces the right flat list.
     #[test]

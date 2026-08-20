@@ -318,7 +318,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .field_attribute(
             "machine_discovery.DiscoveryInfo.memory_device_groups",
-            "#[serde(skip_serializing_if = \"Vec::is_empty\")]",
+            "#[serde(default, skip_serializing_if = \"Vec::is_empty\")]",
         )
 
         .type_attribute(
