@@ -1,5 +1,17 @@
 PUT /v2/org/{org}/nico/credential/bmc removed the enum value `bmc-root` of the request property `kind`
 PUT /v2/org/{org}/nico/credential/bmc removed the enum value `site-wide-root` of the request property `kind`
+GET /v2/org/{org}/nico/tray removed the enum value `compute` from the `query` request parameter `type`
+GET /v2/org/{org}/nico/tray removed the enum value `powershelf` from the `query` request parameter `type`
+GET /v2/org/{org}/nico/tray removed the enum value `switch` from the `query` request parameter `type`
+PATCH /v2/org/{org}/nico/tray/firmware removed the enum value `compute` of the request property `filter/type`
+PATCH /v2/org/{org}/nico/tray/firmware removed the enum value `powershelf` of the request property `filter/type`
+PATCH /v2/org/{org}/nico/tray/firmware removed the enum value `switch` of the request property `filter/type`
+PATCH /v2/org/{org}/nico/tray/power removed the enum value `compute` of the request property `filter/type`
+PATCH /v2/org/{org}/nico/tray/power removed the enum value `powershelf` of the request property `filter/type`
+PATCH /v2/org/{org}/nico/tray/power removed the enum value `switch` of the request property `filter/type`
+GET /v2/org/{org}/nico/tray/validation removed the enum value `compute` from the `query` request parameter `type`
+GET /v2/org/{org}/nico/tray/validation removed the enum value `powershelf` from the `query` request parameter `type`
+GET /v2/org/{org}/nico/tray/validation removed the enum value `switch` from the `query` request parameter `type`
 POST /v2/org/{org}/nico/instance the `interfaces/items/virtualFunctionId` request property's max was decreased to `15.00`
 POST /v2/org/{org}/nico/instance/batch the `interfaces/items/virtualFunctionId` request property's max was decreased to `15.00`
 PATCH /v2/org/{org}/nico/instance/{instanceId} the `interfaces/items/virtualFunctionId` request property's max was decreased to `15.00`
