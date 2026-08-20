@@ -252,7 +252,7 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 
 	vpcPrefixID, err := uuid.Parse(controllerVpcPrefix.GetId().GetValue())
 	if err != nil {
-		logger.Warn().Msg(fmt.Sprintf("unable to create VPC Prefix found on Site: failed to parse VPC Prefix Controller ID, not a valid UUID %s", controllerVpcPrefix.GetId().GetValue()))
+		logger.Warn().Msgf("unable to create VPC Prefix found on Site: failed to parse VPC Prefix Controller ID, not a valid UUID %s", controllerVpcPrefix.GetId().GetValue())
 		return nil
 	}
 
@@ -265,9 +265,9 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 		logger.Warn().Msg("unable to create VPC Prefix found on Site: VPC Prefix on Site is reporting empty Prefix")
 		return nil
 	}
-	reportedPrefix, prefixErr := netip.ParsePrefix(reportedVpcPrefix.Prefix)
-	if prefixErr != nil {
-		logger.Warn().Msg(fmt.Sprintf("unable to create VPC Prefix found on Site: failed to parse Prefix CIDR %s", reportedVpcPrefix.Prefix))
+	reportedPrefix, err := netip.ParsePrefix(reportedVpcPrefix.Prefix)
+	if err != nil {
+		logger.Warn().Msgf("unable to create VPC Prefix found on Site: failed to parse Prefix CIDR %s", reportedVpcPrefix.Prefix)
 		return nil
 	}
 	// netip.ParsePrefix accepts host bits (e.g. 10.20.0.1/16). Reject those before any
@@ -281,7 +281,10 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 	reportedVpcPrefix.Prefix = canonicalPrefix
 	prefixLength := reportedPrefix.Bits()
 
-	// Belt-and-braces with UpdateVpcPrefixesInDB: never create/undelete from a terminal Site status.
+	// This is the gate for the IPAM claim below: a stale inventory snapshot can still
+	// report a just-deleted prefix as TERMINATING/TERMINATED, and recreating from that
+	// would resurrect a user delete. UpdateVpcPrefixesInDB checks the same thing first
+	// only to skip the transaction.
 	reportedStatus, _ := getControllerVpcPrefixStatus(controllerVpcPrefix.GetStatus())
 	if reportedStatus == cdbm.VpcPrefixStatusDeleting || reportedStatus == cdbm.VpcPrefixStatusDeleted {
 		logger.Warn().Msgf("unable to create VPC Prefix found on Site: Site reports status %s", reportedStatus)
@@ -292,15 +295,16 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 		logger.Warn().Msg("unable to create VPC Prefix found on Site: VPC Prefix on Site is reporting empty VPC ID")
 		return nil
 	}
-	vpcID := reportedVpcPrefix.VpcID
+	parentVpcID := reportedVpcPrefix.VpcID
 
 	vpcPrefix, err := cdb.WithTxResult(ctx, mvp.dbSession, func(tx *cdb.Tx) (*cdbm.VpcPrefix, error) {
 		vpcPrefixDAO := cdbm.NewVpcPrefixDAO(mvp.dbSession)
 		vpcDAO := cdbm.NewVpcDAO(mvp.dbSession)
+		sdDAO := cdbm.NewStatusDetailDAO(mvp.dbSession)
 
 		// Parent VPC must already exist in REST; inventory VpcId is the site-facing VPC ID.
 		vpcMatches, _, vpcErr := vpcDAO.GetAll(ctx, tx, cdbm.VpcFilterInput{
-			VpcIDs: []uuid.UUID{vpcID}, SiteIDs: []uuid.UUID{site.ID},
+			VpcIDs: []uuid.UUID{parentVpcID}, SiteIDs: []uuid.UUID{site.ID},
 		}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if vpcErr != nil {
 			return nil, fmt.Errorf("unable to create VPC Prefix found on Site: failed to retrieve parent VPC by ID, DB error: %w", vpcErr)
@@ -308,7 +312,7 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 		if len(vpcMatches) == 0 {
 			// Even if this happens, the VPC will be created based on the createOrUpdateVpcFromSite function in the vpc activity
 			// hence we are just returning nil and next inventory iteration VPC will be created in the vpc activity
-			logger.Warn().Msgf("unable to create VPC Prefix found on Site: no VPC was found for ID: %s", vpcID)
+			logger.Warn().Msgf("unable to create VPC Prefix found on Site: no VPC was found for ID: %s", parentVpcID)
 			return nil, nil
 		}
 		vpc := &vpcMatches[0]
@@ -324,8 +328,13 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 			return nil, fmt.Errorf("unable to create VPC Prefix found on Site: failed to retrieve VPC Prefix by controller ID, DB error: %w", reloadErr)
 		}
 
+		// Non-nil from here on means this inventory entry is an undelete, not a create.
+		var existingVpcPrefix *cdbm.VpcPrefix
 		if len(matches) > 0 {
-			existingVpcPrefix := &matches[0]
+			existingVpcPrefix = &matches[0]
+		}
+
+		if existingVpcPrefix != nil {
 			if existingVpcPrefix.SiteID != site.ID {
 				logger.Warn().Msgf("unable to create VPC Prefix found on Site: VPC Prefix ID already exists under a different Site for VPC Prefix %s", vpcPrefixID)
 				return nil, nil
@@ -334,7 +343,7 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 				return existingVpcPrefix, nil
 			}
 			if existingVpcPrefix.Org != vpc.Org {
-				logger.Warn().Msg(fmt.Sprintf("unable to create VPC Prefix found on Site: tenant organization differs in REST cache and Site record %s", vpc.Org))
+				logger.Warn().Msgf("unable to create VPC Prefix found on Site: tenant organization differs in REST cache and Site record %s", vpc.Org)
 				return nil, nil
 			}
 		}
@@ -352,19 +361,20 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 
 		var ipBlock *cdbm.IPBlock
 		for i := range ipBlocks {
+			candidateIPBlock := &ipBlocks[i]
 			// A fully granted IPBlock is entirely owned by an existing VPC Prefix, but the ipam DB
 			// reports it as empty and full-granting does not change its Status, so skip it here.
-			if ipBlocks[i].FullGrant {
+			if candidateIPBlock.FullGrant {
 				continue
 			}
-			candidateCIDR := ipam.GetCidrForIPBlock(ctx, ipBlocks[i].Prefix, ipBlocks[i].PrefixLength)
+			candidateCIDR := ipam.GetCidrForIPBlock(ctx, candidateIPBlock.Prefix, candidateIPBlock.PrefixLength)
 			candidatePrefix, parseErr := netip.ParsePrefix(candidateCIDR)
 			if parseErr != nil || candidatePrefix.Addr().BitLen() != reportedPrefix.Addr().BitLen() ||
 				candidatePrefix.Bits() > reportedPrefix.Bits() || !candidatePrefix.Contains(reportedPrefix.Addr()) {
 				continue
 			}
-			if ipBlock == nil || ipBlocks[i].PrefixLength > ipBlock.PrefixLength {
-				ipBlock = &ipBlocks[i]
+			if ipBlock == nil || candidateIPBlock.PrefixLength > ipBlock.PrefixLength {
+				ipBlock = candidateIPBlock
 			}
 		}
 		if ipBlock == nil {
@@ -372,19 +382,19 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 			return nil, nil
 		}
 
-		if len(matches) > 0 && (matches[0].IPBlockID == nil || *matches[0].IPBlockID != ipBlock.ID) {
-			logger.Warn().Msgf("unable to create VPC Prefix found on Site: IP Block differs in REST cache and Site record for VPC Prefix %s", vpcPrefixID)
-			return nil, nil
-		}
-		if len(matches) > 0 {
+		if existingVpcPrefix != nil {
 			// Clear restores the row as stored; do not acquire a Site CIDR that disagrees with
-			// the cached Prefix/VpcID or DB and IPAM will permanently diverge.
-			existingPrefix, existingPrefixErr := netip.ParsePrefix(matches[0].Prefix)
-			if existingPrefixErr != nil || existingPrefix.Masked().String() != reportedVpcPrefix.Prefix {
+			// the cached IPBlock/Prefix/VpcID or DB and IPAM will permanently diverge.
+			if existingVpcPrefix.IPBlockID == nil || *existingVpcPrefix.IPBlockID != ipBlock.ID {
+				logger.Warn().Msgf("unable to create VPC Prefix found on Site: IP Block differs in REST cache and Site record for VPC Prefix %s", vpcPrefixID)
+				return nil, nil
+			}
+			existingPrefix, parseErr := netip.ParsePrefix(existingVpcPrefix.Prefix)
+			if parseErr != nil || existingPrefix.Masked().String() != reportedVpcPrefix.Prefix {
 				logger.Warn().Msgf("unable to create VPC Prefix found on Site: prefix differs in REST cache and Site record for VPC Prefix %s", vpcPrefixID)
 				return nil, nil
 			}
-			if matches[0].VpcID != vpc.ID {
+			if existingVpcPrefix.VpcID != vpc.ID {
 				logger.Warn().Msgf("unable to create VPC Prefix found on Site: VPC differs in REST cache and Site record for VPC Prefix %s", vpcPrefixID)
 				return nil, nil
 			}
@@ -392,7 +402,7 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 
 		// Claim the exact Site-reported CIDR in REST IPAM while holding the same
 		// tenant/IPBlock lock used by the normal REST create path.
-		lockErr := tx.AcquireAdvisoryLock(ctx, cdb.GetAdvisoryLockIDFromString(fmt.Sprintf("%s-%s", vpc.TenantID, ipBlock.ID)), false)
+		lockErr := tx.AcquireAdvisoryLock(ctx, cdb.GetAdvisoryLockIDFromString(fmt.Sprintf("%s-%s", vpc.TenantID.String(), ipBlock.ID.String())), false)
 		if lockErr != nil {
 			return nil, fmt.Errorf("unable to create VPC Prefix found on Site: failed to acquire advisory lock on IP Block, DB error: %w", lockErr)
 		}
@@ -407,16 +417,19 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 			if childPrefix.Cidr != reportedVpcPrefix.Prefix {
 				return nil, fmt.Errorf("unable to create VPC Prefix found on Site: allocated Prefix %s differs from Site record %s", childPrefix.Cidr, reportedVpcPrefix.Prefix)
 			}
-		} else if _, allocateErr := ipam.AcquireSpecificChildIpamEntryForIPBlock(ctx, tx, mvp.dbSession, ipamStorage, ipBlock, reportedVpcPrefix.Prefix); allocateErr != nil {
-			return nil, fmt.Errorf("unable to create VPC Prefix found on Site: failed to create IPAM entry for VPC Prefix: %w", allocateErr)
+		} else {
+			_, allocateErr := ipam.AcquireSpecificChildIpamEntryForIPBlock(ctx, tx, mvp.dbSession, ipamStorage, ipBlock, reportedVpcPrefix.Prefix)
+			if allocateErr != nil {
+				return nil, fmt.Errorf("unable to create VPC Prefix found on Site: failed to create IPAM entry for VPC Prefix: %w", allocateErr)
+			}
 		}
 
-		if len(matches) > 0 {
+		if existingVpcPrefix != nil {
 			// Soft-deleted rows almost always carry Status=Deleting (set by the REST
 			// delete path before soft-delete). Clear only nulls deleted; also reset
 			// Status from Site inventory here. UpdateVpcPrefixesInDB skips refresh when
 			// Status is Deleting and Site reports a non-terminal state (e.g. READY).
-			restored, clearErr := vpcPrefixDAO.Clear(ctx, tx, cdbm.VpcPrefixClearInput{VpcPrefixID: matches[0].ID, Deleted: true})
+			restored, clearErr := vpcPrefixDAO.Clear(ctx, tx, cdbm.VpcPrefixClearInput{VpcPrefixID: existingVpcPrefix.ID, Deleted: true})
 			if clearErr != nil {
 				return nil, fmt.Errorf("unable to create VPC Prefix found on Site: failed to clear soft-delete timestamp for VPC Prefix, DB error: %w", clearErr)
 			}
@@ -428,9 +441,10 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 			if updateErr != nil {
 				return nil, fmt.Errorf("unable to create VPC Prefix found on Site: failed to update VPC Prefix status after undelete, DB error: %w", updateErr)
 			}
-			if _, statusErr := cdbm.NewStatusDetailDAO(mvp.dbSession).Create(ctx, tx, cdbm.StatusDetailCreateInput{
+			_, statusErr := sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{
 				EntityID: updated.ID.String(), Status: status, Message: &statusMessage,
-			}); statusErr != nil {
+			})
+			if statusErr != nil {
 				return nil, fmt.Errorf("unable to create VPC Prefix found on Site: failed to create Status Detail after undelete, DB error: %w", statusErr)
 			}
 			return updated, nil
@@ -464,9 +478,10 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 		if createErr != nil {
 			return nil, fmt.Errorf("unable to create VPC Prefix found on Site: failed to create VPC Prefix, DB error: %w", createErr)
 		}
-		if _, statusErr := cdbm.NewStatusDetailDAO(mvp.dbSession).Create(ctx, tx, cdbm.StatusDetailCreateInput{
+		_, statusErr := sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{
 			EntityID: created.ID.String(), Status: cdbm.VpcPrefixStatusReady, Message: &readyMsg,
-		}); statusErr != nil {
+		})
+		if statusErr != nil {
 			return nil, fmt.Errorf("unable to create VPC Prefix found on Site: failed to create Status Detail, DB error: %w", statusErr)
 		}
 		return created, nil
