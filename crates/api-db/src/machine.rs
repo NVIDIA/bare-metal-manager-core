@@ -3170,13 +3170,13 @@ pub async fn find_rms_identities_by_bmc_ips(
 /// --bypass-state-controller. This survives nico-api restarts so that
 /// get_firmware_status can keep querying RMS even after the in-memory map is
 /// cleared.
-pub async fn save_rms_firmware_object_job_id(
+pub async fn save_backend_firmware_object_job_id(
     db: &sqlx::PgPool,
     machine_id: &str,
     job_id: &str,
 ) -> DatabaseResult<()> {
     let sql =
-        "UPDATE machines SET rms_firmware_object_job_id = $1 WHERE id::text = $2 RETURNING id";
+        "UPDATE machines SET backend_firmware_object_job_id = $1 WHERE id::text = $2 RETURNING id";
     sqlx::query(sql)
         .bind(job_id)
         .bind(machine_id)
@@ -3186,12 +3186,12 @@ pub async fn save_rms_firmware_object_job_id(
     Ok(())
 }
 
-/// Fetch the persisted RMS firmware-object job ID for a machine, if any.
-pub async fn get_rms_firmware_object_job_id(
+/// Fetch the persisted backend firmware-object job ID for a machine, if any.
+pub async fn get_backend_firmware_object_job_id(
     db: &sqlx::PgPool,
     machine_id: &str,
 ) -> DatabaseResult<Option<String>> {
-    let sql = "SELECT rms_firmware_object_job_id FROM machines WHERE id::text = $1";
+    let sql = "SELECT backend_firmware_object_job_id FROM machines WHERE id::text = $1";
     let row: Option<(Option<String>,)> = sqlx::query_as(sql)
         .bind(machine_id)
         .fetch_optional(db)

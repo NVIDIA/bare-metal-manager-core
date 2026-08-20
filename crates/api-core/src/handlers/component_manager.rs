@@ -2627,7 +2627,7 @@ enum FirmwareStatusRouting {
     /// requested IDs are sent to the compute-tray backend.
     DirectDispatch,
     /// The CM is in state-controller mode: the request is split by whether each
-    /// machine has a persisted `rms_firmware_object_job_id`.
+    /// machine has a persisted `backend_firmware_object_job_id`.
     Partitioned {
         /// IDs with a persisted RMS job — route to `compute_tray` so callers
         /// can poll the live in-flight state.
@@ -2642,7 +2642,7 @@ enum FirmwareStatusRouting {
 ///
 /// Returns `(persisted_ids, fallback_ids)`:
 /// - `persisted_ids` — IDs where the loaded machine has a non-null
-///   `rms_firmware_object_job_id`; route to `compute_tray`.
+///   `backend_firmware_object_job_id`; route to `compute_tray`.
 /// - `fallback_ids` — remaining IDs; route to `machine_firmware_statuses`.
 fn partition_by_rms_job_id(
     machine_ids: &[MachineId],
@@ -2651,7 +2651,7 @@ fn partition_by_rms_job_id(
     machine_ids.iter().copied().partition(|id| {
         machines_by_id
             .get(id)
-            .is_some_and(|m| m.status.rms_firmware_object_job_id.is_some())
+            .is_some_and(|m| m.status.backend_firmware_object_job_id.is_some())
     })
 }
 
@@ -2659,7 +2659,7 @@ fn partition_by_rms_job_id(
 ///
 /// When `use_state_controller` is `false` (direct-dispatch mode) all IDs are
 /// forwarded to the compute-tray backend. Otherwise the IDs are partitioned by
-/// the presence of a persisted `rms_firmware_object_job_id`: those with a job
+/// the presence of a persisted `backend_firmware_object_job_id`: those with a job
 /// go to the live backend; the rest fall back to the DB-only path.
 fn select_firmware_status_routing(
     use_state_controller: bool,
@@ -2766,7 +2766,7 @@ pub(crate) async fn get_component_firmware_status(
 
             // In direct-dispatch mode all IDs go to the compute-tray backend.
             // In state-controller mode the batch is partitioned: IDs with a
-            // persisted rms_firmware_object_job_id (set when a firmware update
+            // persisted backend_firmware_object_job_id (set when a firmware update
             // was dispatched via --bypass-state-controller) are polled from the
             // live backend; the rest use the DB-only machine_firmware_statuses()
             // path.
@@ -4301,7 +4301,7 @@ mod tests {
         let id_c = dpu_machine_id(1);
 
         let mut machine_with_rms_job = machine_with_id(standalone_machine(), id_a);
-        machine_with_rms_job.status.rms_firmware_object_job_id =
+        machine_with_rms_job.status.backend_firmware_object_job_id =
             Some("rms-job-bypass-abc".to_string());
 
         let machines = HashMap::from([

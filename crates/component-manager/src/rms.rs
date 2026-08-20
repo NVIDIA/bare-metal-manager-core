@@ -3053,7 +3053,7 @@ impl ComputeTrayManager for RmsBackend {
                                 vec![RmsTrackedFirmwareJob::FirmwareObject(job_id.clone())],
                             );
                             // Persist to DB so status queries survive nico-api restarts.
-                            if let Err(e) = db::machine::save_rms_firmware_object_job_id(
+                            if let Err(e) = db::machine::save_backend_firmware_object_job_id(
                                 &self.db,
                                 &identity.identity.node_id,
                                 job_id,
@@ -3134,7 +3134,7 @@ impl ComputeTrayManager for RmsBackend {
             let resolved_job_id: Option<String> = if job_id.is_some() {
                 job_id.clone()
             } else if let Some(identity) = ids.get(bmc_ip) {
-                match db::machine::get_rms_firmware_object_job_id(
+                match db::machine::get_backend_firmware_object_job_id(
                     &self.db,
                     &identity.identity.node_id,
                 )

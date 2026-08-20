@@ -127,7 +127,7 @@ pub struct MachineSnapshotPgJson {
     pub hw_sku_device_type: Option<String>,
     pub update_complete: bool,
     #[serde(default)]
-    pub rms_firmware_object_job_id: Option<String>,
+    pub backend_firmware_object_job_id: Option<String>,
     pub nvlink_info: Option<MachineNvLinkInfo>,
     pub dpf: Dpf,
     #[serde(default)]
@@ -360,7 +360,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
                 hw_sku: value.hw_sku_status,
                 hw_sku_device_type: value.hw_sku_device_type,
                 update_complete: value.update_complete,
-                rms_firmware_object_job_id: value.rms_firmware_object_job_id,
+                backend_firmware_object_job_id: value.backend_firmware_object_job_id,
                 nvlink_info: value.nvlink_info,
                 infiniband_status_observation: value.infiniband_status_observation,
                 nvlink_status_observation: value.nvlink_status_observation,
