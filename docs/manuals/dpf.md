@@ -1268,7 +1268,7 @@ site-disabled case).
 # One host
 nico-admin-cli dpf show <host-machine-id>
 
-# All hosts (paginated by --page-size)
+# All hosts (paginated by --internal-page-size)
 nico-admin-cli dpf show
 ```
 
@@ -1329,7 +1329,7 @@ open the gate itself, which is either a site running with
 #### `dpf service-sync list`
 
 ```bash
-# Every machine DPF is waiting on, longest wait first (paginated by --page-size)
+# Every machine DPF is waiting on, longest wait first (paginated by --internal-page-size)
 nico-admin-cli dpf service-sync list
 
 # One host's recorded history instead of the outstanding worklist
@@ -1346,7 +1346,7 @@ release call has no fleet-wide form. Its columns are:
 | Column | Meaning |
 | --- | --- |
 | `Machine Id` | The host DPF is waiting on. |
-| `State` | The host's managed state. NICo releases on its own only from `Ready`, so this is the field that says why a machine is still waiting. |
+| `State` | The host's managed state. NICo releases on its own only from `Ready`, so anything else here is a reason the machine is still waiting. It is not the whole story: a `Ready` host can still be held because one of its DPUs is not yet current, which this column does not show. |
 | `Waiting Since` | First time DPF was seen waiting on this machine. It survives repeat requests, so it measures the whole wait rather than the last observation. |
 | `Age` | How long that wait has run, rendered as `2d3h`, `4h5m`, or `6m`. |
 | `Instance` | Set when the host is currently allocated, so tenant impact is visible before any machine is named. |
@@ -1389,9 +1389,15 @@ One row is printed per host, in request order, followed by a
 | `deferred: DPU could not be evaluated` | A DPU could not be checked at all, usually because Kubernetes was unreachable. Unlike an outdated DPU this is worth retrying. |
 | `failed` | The attempt failed part-way. The sync stays outstanding, so retry. |
 
-Only a `failed` row exits non-zero. A deferral is a documented answer and
-`not pending` is what a repeat run reports, so neither breaks a
-drain-until-clean loop.
+Among the per-host results, only a `failed` row makes the command exit
+non-zero. A deferral is a documented answer and `not pending` is what a repeat
+run reports, so neither breaks a drain-until-clean loop.
+
+A command-level failure also exits non-zero, but prints no result table at all.
+A batch over the cap, an unknown or DPU machine id, a missing authorization, and
+an unreachable API all land here, because the request is rejected before any
+host is acted on. Treat an empty result table as "nothing was released", not as
+"nothing was owed".
 
 <Note>
 Releasing by hand relaxes the **host-state** requirement and nothing else. Every DPU is still checked against its `DPUDeployment` first, so a service update never lands on a DPU whose OS is about to be replaced. The whole request is also validated before anything is released, so a mistyped id cannot leave half a batch released behind it.
