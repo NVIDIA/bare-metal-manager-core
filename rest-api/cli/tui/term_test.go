@@ -6,6 +6,7 @@
 package tui
 
 import (
+	"bytes"
 	"os"
 	"testing"
 	"time"
@@ -36,6 +37,50 @@ func TestRawMode_ReturnsRestoreError(t *testing.T) {
 	err = restore()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "restoring terminal")
+}
+
+func TestSelectCancellationPreservesSentinel(t *testing.T) {
+	terminal, tty, err := pty.Open()
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = terminal.Close()
+		_ = tty.Close()
+	})
+
+	originalStdin := os.Stdin
+	originalStdout := os.Stdout
+	os.Stdin = tty
+	os.Stdout = tty
+	t.Cleanup(func() {
+		os.Stdin = originalStdin
+		os.Stdout = originalStdout
+	})
+
+	result := make(chan error, 1)
+	go func() {
+		_, err := Select("Cancel", []SelectItem{{Label: "item", ID: "item"}})
+		result <- err
+	}()
+
+	require.NoError(t, terminal.SetReadDeadline(time.Now().Add(time.Second)))
+	output := make([]byte, 0, 256)
+	buffer := make([]byte, 256)
+	for !bytes.Contains(output, []byte("Cancel")) {
+		n, readErr := terminal.Read(buffer)
+		require.NoError(t, readErr)
+		output = append(output, buffer[:n]...)
+	}
+	require.NoError(t, terminal.SetReadDeadline(time.Time{}))
+
+	_, err = terminal.Write([]byte{KeyCtrlD})
+	require.NoError(t, err)
+
+	select {
+	case err := <-result:
+		assert.Equal(t, errSelectionCancelled, err)
+	case <-time.After(time.Second):
+		t.Fatal("Select did not return after Ctrl+D")
+	}
 }
 
 func TestReadKey_LoneEscapeReturnsWithoutWaitingForMoreInput(t *testing.T) {

@@ -251,8 +251,9 @@ verification expectations.
 - When an option consumes a separate value, test that another option token is
   rejected instead of consumed as that value.
 - Propagate terminal restoration errors. Restore the terminal successfully
-  before starting another interactive selector, and test both the normal PTY
-  path and a restoration failure.
+  before starting another interactive selector. Join only non-nil restoration
+  errors so sentinel results keep their identity. Test normal PTY, cancellation,
+  and restoration-failure paths.
 - Table-test shell argument quoting with empty input, whitespace, quotes,
   backslashes, control characters, non-ASCII text, and shell metacharacters.
 

@@ -315,6 +315,23 @@ func TestCLIRegression_RealTerminalAndNonInteractive(t *testing.T) {
 		}
 	})
 
+	t.Run("interactive Ctrl+D prints goodbye", func(t *testing.T) {
+		configPath := writeRegressionConfig(t, "http://127.0.0.1:1")
+		command := exec.Command(binaryPath, "--config", configPath, "tui")
+		command.Env = regressionEnvironment(map[string]string{
+			"NICO_TOKEN": ptyAuthToken,
+			"TERM":       "xterm-256color",
+		})
+
+		terminal := startRegressionPTY(t, command)
+		defer terminal.close()
+
+		terminal.waitFor(t, "NICo Interactive Mode")
+		terminal.sendBytes(t, []byte{KeyCtrlD})
+		terminal.waitFor(t, "Goodbye.")
+		terminal.waitForExit(t)
+	})
+
 	t.Run("non-interactive generated command keeps shared debug output redacted", func(t *testing.T) {
 		recorder := &cliRegressionRecorder{}
 		server := httptest.NewServer(newInteractiveRegressionHandler(recorder))

@@ -32,7 +32,9 @@ func Select(label string, items []SelectItem) (selectedItem *SelectItem, err err
 		return nil, err
 	}
 	defer func() {
-		err = errors.Join(err, restore())
+		if restoreErr := restore(); restoreErr != nil {
+			err = errors.Join(err, restoreErr)
+		}
 	}()
 
 	cursor := 0

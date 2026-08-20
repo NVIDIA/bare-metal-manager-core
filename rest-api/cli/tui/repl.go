@@ -357,7 +357,9 @@ func readLineWithSuggestions(s *Session, cmdNames []string) (_ string, err error
 	}
 	defer func() {
 		if restore != nil {
-			err = errors.Join(err, restore())
+			if restoreErr := restore(); restoreErr != nil {
+				err = errors.Join(err, restoreErr)
+			}
 		}
 		ShowCursor()
 	}()
@@ -879,7 +881,7 @@ func selectFromHistory() (string, error) {
 		items[len(history)-1-i] = SelectItem{Label: cmd, ID: cmd}
 	}
 	selected, err := Select("History", items)
-	if errors.Is(err, errSelectionCancelled) {
+	if err == errSelectionCancelled {
 		return "", nil
 	}
 	if err != nil {
