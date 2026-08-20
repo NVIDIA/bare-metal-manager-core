@@ -2715,6 +2715,7 @@ dependencies = [
  "carbide-api-model",
  "carbide-credential-rotation",
  "carbide-health-metrics",
+ "carbide-health-report",
  "carbide-rack",
  "carbide-redfish",
  "carbide-secrets",
