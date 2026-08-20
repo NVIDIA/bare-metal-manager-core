@@ -1447,6 +1447,34 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 		verifyChildSpanner       bool
 	}{
 		{
+			name: "test Instance create API endpoint rejects power profile when Site power provisioning is disabled",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: &model.APIInstanceCreateRequest{
+					Name:           "Test Instance rejected power profile",
+					TenantID:       tn1.ID.String(),
+					InstanceTypeID: cutil.GetPtr(ist1.ID.String()),
+					VpcID:          vpc1.ID.String(),
+					PowerProfile:   cutil.GetPtr("balanced"),
+					UserData:       cutil.GetPtr(""),
+					IpxeScript:     cutil.GetPtr(common.DefaultIpxeScript),
+					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
+						{SubnetID: cutil.GetPtr(subnet1.ID.String())},
+					},
+					PhoneHomeEnabled: cutil.GetPtr(false),
+				},
+				reqOrg:      tnOrg,
+				reqUser:     tnu1,
+				respCode:    http.StatusPreconditionFailed,
+				respMessage: "Site is not configured to accept power provisioning values",
+			},
+			wantErr: false,
+		},
+		{
 			name: "test Instance create API endpoint success with subnet interface and ssh key group iPXE script and Labels",
 			fields: fields{
 				dbSession: dbSession,

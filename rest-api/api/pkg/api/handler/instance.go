@@ -547,6 +547,9 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 		logger.Warn().Msg(fmt.Sprintf("The Site: %v where this Instance is being created is not in Registered state", vpc.SiteID.String()))
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "The Site where this Instance is being created is not in Registered state", nil)
 	}
+	if apiErr := validateSitePowerProvisioning(site.Config, apiRequest.PowerProfile); apiErr != nil {
+		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
+	}
 
 	// Begin validating interfaces
 	// Fetch and validate Subnets, VPC Prefixes, and VPC selections
@@ -2484,6 +2487,9 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 	if site.Status != cdbm.SiteStatusRegistered {
 		logger.Error().Str("Site ID", site.ID.String()).Str("Site Status", site.Status).Msg("Unable to update Instance, Site is not in Registered state")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Site is not in Registered state - cannot update Instance", nil)
+	}
+	if apiErr := validateSitePowerProvisioning(site.Config, apiRequest.PowerProfile); apiErr != nil {
+		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 	}
 
 	// If the instance is in some stage of deprovisioning, there's nothing to update.

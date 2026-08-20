@@ -538,6 +538,27 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 		expectRolledBack   bool
 	}{
 		{
+			name: "test VPC create API endpoint rejects power resource group when Site power provisioning is disabled",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: &model.APIVpcCreateRequest{
+					Name:               "Test VPC rejected power resource group",
+					SiteID:             st1.ID.String(),
+					PowerResourceGroup: cutil.GetPtr("resource-group"),
+				},
+				reqOrg:      tnOrg,
+				reqUser:     tnu,
+				respCode:    http.StatusPreconditionFailed,
+				respMessage: "Site is not configured to accept power provisioning values",
+			},
+			wantErr:          false,
+			expectNoMutation: true,
+		},
+		{
 			name: "test VPC create API endpoint success",
 			fields: fields{
 				dbSession: dbSession,

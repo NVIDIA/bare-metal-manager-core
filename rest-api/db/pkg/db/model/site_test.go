@@ -20,6 +20,27 @@ import (
 	otrace "go.opentelemetry.io/otel/trace"
 )
 
+func TestSiteConfigPowerProvisioningMode(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *SiteConfig
+		want string
+	}{
+		{name: "missing config", want: SitePowerProvisioningDisabled},
+		{name: "missing mode", cfg: &SiteConfig{}, want: SitePowerProvisioningDisabled},
+		{name: "disabled", cfg: &SiteConfig{PowerProvisioning: SitePowerProvisioningDisabled}, want: SitePowerProvisioningDisabled},
+		{name: "external", cfg: &SiteConfig{PowerProvisioning: SitePowerProvisioningExternal}, want: SitePowerProvisioningExternal},
+		{name: "DPS", cfg: &SiteConfig{PowerProvisioning: SitePowerProvisioningDPS}, want: SitePowerProvisioningDPS},
+		{name: "unknown fails safe", cfg: &SiteConfig{PowerProvisioning: "unknown"}, want: SitePowerProvisioningDisabled},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.cfg.PowerProvisioningMode())
+		})
+	}
+}
+
 func setupSchema(t *testing.T, dbSession *db.Session) {
 	// Create Infrastructure Provider table
 	err := dbSession.DB.ResetModel(context.Background(), (*InfrastructureProvider)(nil))

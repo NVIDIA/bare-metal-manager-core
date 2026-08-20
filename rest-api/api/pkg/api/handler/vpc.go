@@ -213,6 +213,9 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 	if site.Config != nil {
 		siteConfig = site.Config
 	}
+	if apiErr := validateSitePowerProvisioning(siteConfig, apiRequest.PowerResourceGroup); apiErr != nil {
+		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
+	}
 
 	// Network Virtualization type support
 	networkVirtualizationType := apiRequest.NetworkVirtualizationType
@@ -718,6 +721,9 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 	siteConfig := &cdbm.SiteConfig{}
 	if vpc.Site != nil && vpc.Site.Config != nil {
 		siteConfig = vpc.Site.Config
+	}
+	if apiErr := validateSitePowerProvisioning(siteConfig, apiRequest.PowerResourceGroup); apiErr != nil {
+		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 	}
 
 	var defaultNvllPartitionId *uuid.UUID

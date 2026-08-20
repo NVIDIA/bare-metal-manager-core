@@ -34,6 +34,8 @@ type SiteCapabilities struct {
 	ImageBasedOperatingSystem *bool `json:"imageBasedOperatingSystem,omitempty"`
 	// Whether the latest successfully stored Site configuration inventory reports that Core supports VPCs with SLAAC enabled. False also represents a missing Site configuration or an inventory report that omits the capability. This value is managed by Site configuration inventory and cannot be updated through the Site API.
 	VpcSlaac *bool `json:"vpcSlaac,omitempty"`
+	// Controls whether this Site accepts power resource groups and power profiles. The default is `disabled`.
+	PowerProvisioning *SitePowerProvisioningMode `json:"powerProvisioning,omitempty"`
 }
 
 // NewSiteCapabilities instantiates a new SiteCapabilities object
@@ -245,6 +247,38 @@ func (o *SiteCapabilities) SetVpcSlaac(v bool) {
 	o.VpcSlaac = &v
 }
 
+// GetPowerProvisioning returns the PowerProvisioning field value if set, zero value otherwise.
+func (o *SiteCapabilities) GetPowerProvisioning() SitePowerProvisioningMode {
+	if o == nil || IsNil(o.PowerProvisioning) {
+		var ret SitePowerProvisioningMode
+		return ret
+	}
+	return *o.PowerProvisioning
+}
+
+// GetPowerProvisioningOk returns a tuple with the PowerProvisioning field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *SiteCapabilities) GetPowerProvisioningOk() (*SitePowerProvisioningMode, bool) {
+	if o == nil || IsNil(o.PowerProvisioning) {
+		return nil, false
+	}
+	return o.PowerProvisioning, true
+}
+
+// HasPowerProvisioning returns a boolean if a field has been set.
+func (o *SiteCapabilities) HasPowerProvisioning() bool {
+	if o != nil && !IsNil(o.PowerProvisioning) {
+		return true
+	}
+
+	return false
+}
+
+// SetPowerProvisioning gets a reference to the given SitePowerProvisioningMode and assigns it to the PowerProvisioning field.
+func (o *SiteCapabilities) SetPowerProvisioning(v SitePowerProvisioningMode) {
+	o.PowerProvisioning = &v
+}
+
 func (o SiteCapabilities) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -272,6 +306,9 @@ func (o SiteCapabilities) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.VpcSlaac) {
 		toSerialize["vpcSlaac"] = o.VpcSlaac
+	}
+	if !IsNil(o.PowerProvisioning) {
+		toSerialize["powerProvisioning"] = o.PowerProvisioning
 	}
 	return toSerialize, nil
 }

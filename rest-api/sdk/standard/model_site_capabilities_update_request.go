@@ -32,6 +32,8 @@ type SiteCapabilitiesUpdateRequest struct {
 	Flow NullableBool `json:"flow,omitempty"`
 	// Enable or disable image-based operating system support for the Site
 	ImageBasedOperatingSystem NullableBool `json:"imageBasedOperatingSystem,omitempty"`
+	// Select the owner of power provisioning for the Site. Omission or `null` preserves the current mode. Only Providers can update this field.
+	PowerProvisioning NullableSitePowerProvisioningMode `json:"powerProvisioning,omitempty"`
 }
 
 // NewSiteCapabilitiesUpdateRequest instantiates a new SiteCapabilitiesUpdateRequest object
@@ -266,6 +268,49 @@ func (o *SiteCapabilitiesUpdateRequest) UnsetImageBasedOperatingSystem() {
 	o.ImageBasedOperatingSystem.Unset()
 }
 
+// GetPowerProvisioning returns the PowerProvisioning field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *SiteCapabilitiesUpdateRequest) GetPowerProvisioning() SitePowerProvisioningMode {
+	if o == nil || IsNil(o.PowerProvisioning.Get()) {
+		var ret SitePowerProvisioningMode
+		return ret
+	}
+	return *o.PowerProvisioning.Get()
+}
+
+// GetPowerProvisioningOk returns a tuple with the PowerProvisioning field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+func (o *SiteCapabilitiesUpdateRequest) GetPowerProvisioningOk() (*SitePowerProvisioningMode, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.PowerProvisioning.Get(), o.PowerProvisioning.IsSet()
+}
+
+// HasPowerProvisioning returns a boolean if a field has been set.
+func (o *SiteCapabilitiesUpdateRequest) HasPowerProvisioning() bool {
+	if o != nil && o.PowerProvisioning.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetPowerProvisioning gets a reference to the given NullableSitePowerProvisioningMode and assigns it to the PowerProvisioning field.
+func (o *SiteCapabilitiesUpdateRequest) SetPowerProvisioning(v SitePowerProvisioningMode) {
+	o.PowerProvisioning.Set(&v)
+}
+
+// SetPowerProvisioningNil sets the value for PowerProvisioning to be an explicit nil
+func (o *SiteCapabilitiesUpdateRequest) SetPowerProvisioningNil() {
+	o.PowerProvisioning.Set(nil)
+}
+
+// UnsetPowerProvisioning ensures that no value is present for PowerProvisioning, not even an explicit nil
+func (o *SiteCapabilitiesUpdateRequest) UnsetPowerProvisioning() {
+	o.PowerProvisioning.Unset()
+}
+
 func (o SiteCapabilitiesUpdateRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -290,6 +335,9 @@ func (o SiteCapabilitiesUpdateRequest) ToMap() (map[string]interface{}, error) {
 	}
 	if o.ImageBasedOperatingSystem.IsSet() {
 		toSerialize["imageBasedOperatingSystem"] = o.ImageBasedOperatingSystem.Get()
+	}
+	if o.PowerProvisioning.IsSet() {
+		toSerialize["powerProvisioning"] = o.PowerProvisioning.Get()
 	}
 	return toSerialize, nil
 }

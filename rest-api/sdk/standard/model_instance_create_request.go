@@ -42,7 +42,7 @@ type InstanceCreateRequest struct {
 	UserData NullableString `json:"userData,omitempty"`
 	// Must be specified if iPXE Script field is empty
 	OperatingSystemId NullableString `json:"operatingSystemId,omitempty"`
-	// External power provisioning profile to apply to the Instance.
+	// External power provisioning profile to apply to the Instance. A non-empty value requires the Site's `powerProvisioning` mode to be `external` or `dps`.
 	PowerProfile NullableString `json:"powerProfile,omitempty"`
 	// ID of the desired Network Security Group to attach to the Instance
 	NetworkSecurityGroupId NullableString `json:"networkSecurityGroupId,omitempty"`

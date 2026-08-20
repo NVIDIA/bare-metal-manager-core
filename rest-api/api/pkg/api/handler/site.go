@@ -508,6 +508,7 @@ func (ush UpdateSiteHandler) Handle(c echo.Context) error {
 					NVLinkPartition:           apiRequest.Capabilities.NVLinkPartition,
 					Flow:                      apiRequest.Capabilities.Flow,
 					ImageBasedOperatingSystem: apiRequest.Capabilities.ImageBasedOperatingSystem,
+					PowerProvisioning:         apiRequest.Capabilities.PowerProvisioning,
 				}
 			}
 

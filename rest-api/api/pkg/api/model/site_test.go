@@ -388,6 +388,46 @@ func TestAPISiteUpdateRequest_Validate(t *testing.T) {
 			wantErr:    false,
 		},
 		{
+			name: "validate update request success, Provider enabling external power provisioning",
+			fields: fields{
+				Capabilities: &APISiteCapabilitiesUpdateRequest{
+					PowerProvisioning: cutil.GetPtr(cdbm.SitePowerProvisioningExternal),
+				},
+			},
+			isProvider: true,
+			wantErr:    false,
+		},
+		{
+			name: "validate update request success, Provider enabling DPS power provisioning",
+			fields: fields{
+				Capabilities: &APISiteCapabilitiesUpdateRequest{
+					PowerProvisioning: cutil.GetPtr(cdbm.SitePowerProvisioningDPS),
+				},
+			},
+			isProvider: true,
+			wantErr:    false,
+		},
+		{
+			name: "validate update request success, Provider disabling power provisioning",
+			fields: fields{
+				Capabilities: &APISiteCapabilitiesUpdateRequest{
+					PowerProvisioning: cutil.GetPtr(cdbm.SitePowerProvisioningDisabled),
+				},
+			},
+			isProvider: true,
+			wantErr:    false,
+		},
+		{
+			name: "validate update request failure, invalid power provisioning mode",
+			fields: fields{
+				Capabilities: &APISiteCapabilitiesUpdateRequest{
+					PowerProvisioning: cutil.GetPtr("unknown"),
+				},
+			},
+			isProvider: true,
+			wantErr:    true,
+		},
+		{
 			name: "validate update request failure, Provider disabling inventory capability",
 			fields: fields{
 				Capabilities: &APISiteCapabilitiesUpdateRequest{
@@ -434,21 +474,30 @@ func TestAPISiteUpdateRequest_Validate(t *testing.T) {
 
 func TestSiteConfigToAPISiteCapabilities(t *testing.T) {
 	tests := []struct {
-		name string
-		cfg  *cdbm.SiteConfig
-		want bool
+		name                  string
+		cfg                   *cdbm.SiteConfig
+		wantVpcSlaac          bool
+		wantPowerProvisioning string
 	}{
 		{
-			name: "missing Site config",
+			name:                  "missing Site config",
+			wantPowerProvisioning: cdbm.SitePowerProvisioningDisabled,
 		},
 		{
-			name: "stored false",
-			cfg:  &cdbm.SiteConfig{},
+			name:                  "missing power provisioning mode",
+			cfg:                   &cdbm.SiteConfig{},
+			wantPowerProvisioning: cdbm.SitePowerProvisioningDisabled,
 		},
 		{
-			name: "stored true",
-			cfg:  &cdbm.SiteConfig{VpcSlaac: true},
-			want: true,
+			name:                  "stored capabilities",
+			cfg:                   &cdbm.SiteConfig{VpcSlaac: true, PowerProvisioning: cdbm.SitePowerProvisioningDPS},
+			wantVpcSlaac:          true,
+			wantPowerProvisioning: cdbm.SitePowerProvisioningDPS,
+		},
+		{
+			name:                  "unknown power provisioning mode fails safe",
+			cfg:                   &cdbm.SiteConfig{PowerProvisioning: "unknown"},
+			wantPowerProvisioning: cdbm.SitePowerProvisioningDisabled,
 		},
 	}
 
@@ -456,7 +505,8 @@ func TestSiteConfigToAPISiteCapabilities(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := siteConfigToAPISiteCapabilities(tt.cfg)
 			require.NotNil(t, got)
-			assert.Equal(t, tt.want, got.VpcSlaac)
+			assert.Equal(t, tt.wantVpcSlaac, got.VpcSlaac)
+			assert.Equal(t, tt.wantPowerProvisioning, got.PowerProvisioning)
 		})
 	}
 }
@@ -497,6 +547,20 @@ func TestAPISiteCapabilitiesUpdateRequest_ToSiteConfig(t *testing.T) {
 				VpcSlaac: cutil.GetPtr(true),
 			},
 			want: &cdbm.SiteConfig{},
+		},
+		{
+			name: "updates power provisioning mode",
+			existing: &cdbm.SiteConfig{
+				NativeNetworking:  true,
+				PowerProvisioning: cdbm.SitePowerProvisioningDisabled,
+			},
+			request: APISiteCapabilitiesUpdateRequest{
+				PowerProvisioning: cutil.GetPtr(cdbm.SitePowerProvisioningExternal),
+			},
+			want: &cdbm.SiteConfig{
+				NativeNetworking:  true,
+				PowerProvisioning: cdbm.SitePowerProvisioningExternal,
+			},
 		},
 	}
 

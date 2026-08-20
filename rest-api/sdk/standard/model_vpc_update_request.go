@@ -32,7 +32,7 @@ type VpcUpdateRequest struct {
 	NvLinkLogicalPartitionId NullableString `json:"nvLinkLogicalPartitionId,omitempty"`
 	// Replaces the current inline routing-profile definition when present. Requires `TargetedInstanceCreation` to be effective for the Tenant at the VPC's Site. Omission or `null` preserves the current definition. An empty object restores inheritance for every property; a partial object replaces the previous definition and inherits its omitted properties from the named profile.
 	RoutingProfileOverrides NullableVpcRoutingProfileOverrides `json:"routingProfileOverrides,omitempty"`
-	// External power provisioning resource group to associate with the VPC. Omission or `null` preserves the current association; an empty string clears it.
+	// External power provisioning resource group to associate with the VPC. A non-empty value requires the Site's `powerProvisioning` mode to be `external` or `dps`. Omission or `null` preserves the current association; an empty string clears it even when power provisioning is disabled.
 	PowerResourceGroup NullableString `json:"powerResourceGroup,omitempty"`
 	// Update labels of the VPC. Up to 10 key-value pairs can be specified. The labels will be replaced with the labels sent in the request. Any labels not included in the request will be removed. To retain existing labels, fetch them first and include them in this request.
 	Labels map[string]string `json:"labels,omitempty"`
