@@ -76,6 +76,7 @@ func TestNewAPIRoutes(t *testing.T) {
 		"task":                      3,
 		"rule":                      5,
 		"run":                       8,
+		"domain":                    4,
 		"rack":                      13,
 		"tray":                      9,
 		"stats":                     4,
@@ -160,6 +161,12 @@ func TestNewAPIRoutes(t *testing.T) {
 			ipxeTemplatePath := "/org/:orgName/" + cfg.GetAPIName() + "/ipxe-template"
 			assertRouteExists(t, got, http.MethodGet, ipxeTemplatePath)
 			assertRouteExists(t, got, http.MethodGet, ipxeTemplatePath+"/:id")
+
+			domainPath := "/org/:orgName/" + cfg.GetAPIName() + "/domain/nvlink"
+			assertRouteExists(t, got, http.MethodPatch, domainPath+"/power")
+			assertRouteExists(t, got, http.MethodPatch, domainPath+"/firmware")
+			assertRouteExists(t, got, http.MethodPatch, domainPath+"/:id/power")
+			assertRouteExists(t, got, http.MethodPatch, domainPath+"/:id/firmware")
 
 			skuPath := "/org/:orgName/" + cfg.GetAPIName() + "/sku"
 			assertRouteExists(t, got, http.MethodPost, skuPath)
