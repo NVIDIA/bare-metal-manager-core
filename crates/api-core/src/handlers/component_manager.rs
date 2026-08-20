@@ -1592,6 +1592,26 @@ async fn machine_firmware_statuses(
 /// Returns one [`rpc::FirmwareUpdateStatus`] per input ID. IDs that cannot be
 /// resolved (missing machine, no BMC MAC/IP, or no credentials) produce an
 /// inline error entry; successfully queried IDs carry the backend result.
+fn map_compute_tray_firmware_status(
+    s: component_manager::compute_tray_manager::ComputeTrayFirmwareUpdateStatus,
+    ip_to_machine_id: &HashMap<IpAddr, MachineId>,
+) -> rpc::FirmwareUpdateStatus {
+    let id = ip_to_machine_id
+        .get(&s.bmc_ip)
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| s.bmc_ip.to_string());
+    rpc::FirmwareUpdateStatus {
+        result: Some(if s.error.is_none() {
+            success_result(&id)
+        } else {
+            error_result(&id, s.error.unwrap_or_default())
+        }),
+        state: map_fw_state(s.state),
+        target_version: s.target_version,
+        updated_at: None,
+    }
+}
+
 async fn compute_tray_firmware_statuses(
     cm: &ComponentManager,
     api: &Api,
@@ -1622,24 +1642,11 @@ async fn compute_tray_firmware_statuses(
             .get_firmware_status(&resolved.resolved.endpoints)
             .await
             .map_err(component_manager_error_to_status)?;
-        statuses.extend(backend_statuses.into_iter().map(|s| {
-            let id = resolved
-                .resolved
-                .ip_to_machine_id
-                .get(&s.bmc_ip)
-                .map(|id| id.to_string())
-                .unwrap_or_else(|| s.bmc_ip.to_string());
-            rpc::FirmwareUpdateStatus {
-                result: Some(if s.error.is_none() {
-                    success_result(&id)
-                } else {
-                    error_result(&id, s.error.unwrap_or_default())
-                }),
-                state: map_fw_state(s.state),
-                target_version: s.target_version,
-                updated_at: None,
-            }
-        }));
+        statuses.extend(
+            backend_statuses
+                .into_iter()
+                .map(|s| map_compute_tray_firmware_status(s, &resolved.resolved.ip_to_machine_id)),
+        );
     }
 
     Ok(statuses)
@@ -4179,66 +4186,110 @@ mod tests {
         assert_eq!(resolved.resolved.ip_to_machine_id.get(&bmc_ip), Some(&id));
     }
 
-    /// Verify that the result mapping used by the MachineIds firmware-status
-    /// path converts `bmc_ip` back to the machine ID and propagates the state
-    /// and target version returned by the CM backend.
-    #[tokio::test]
-    async fn compute_tray_firmware_status_result_mapped_to_machine_id() {
-        use component_manager::mock::MockComputeTrayManager;
+    // ---- map_compute_tray_firmware_status ----
 
-        let id = host_machine_id();
-        let machine = standalone_machine();
-        let bmc_ip = machine.status.bmc_info.ip.expect("fixture has BMC IP");
-        let machines = HashMap::from([(id, machine)]);
-        let creds = TestCredentialManager::new(Credentials::UsernamePassword {
-            username: "root".into(),
-            password: "secret".into(),
-        });
+    use component_manager::compute_tray_manager::ComputeTrayFirmwareUpdateStatus;
 
-        let resolved = resolve_compute_tray_endpoints_from_machines(&creds, &machines, &[id]).await;
-        assert!(resolved.unresolved.is_empty());
+    struct FwStatusCase {
+        label: &'static str,
+        bmc_ip: IpAddr,
+        state: FirmwareState,
+        target_version: &'static str,
+        error: Option<&'static str>,
+        /// When `Some`, the IP is present in `ip_to_machine_id`.
+        machine_id: Option<MachineId>,
+        expected_component_id: String,
+        expected_state: rpc::FirmwareUpdateState,
+        expected_success: bool,
+    }
 
-        let cm = MockComputeTrayManager;
-        let backend_statuses = cm
-            .get_firmware_status(&resolved.resolved.endpoints)
-            .await
-            .expect("mock CM must not fail");
+    fn run_fw_status_case(c: &FwStatusCase) {
+        let mut ip_to_machine_id = HashMap::new();
+        if let Some(id) = c.machine_id {
+            ip_to_machine_id.insert(c.bmc_ip, id);
+        }
 
-        let statuses: Vec<rpc::FirmwareUpdateStatus> = backend_statuses
-            .into_iter()
-            .map(|s| {
-                let component_id = resolved
-                    .resolved
-                    .ip_to_machine_id
-                    .get(&s.bmc_ip)
-                    .map(|mid| mid.to_string())
-                    .unwrap_or_else(|| s.bmc_ip.to_string());
-                rpc::FirmwareUpdateStatus {
-                    result: Some(if s.error.is_none() {
-                        success_result(&component_id)
-                    } else {
-                        error_result(&component_id, s.error.unwrap_or_default())
-                    }),
-                    state: map_fw_state(s.state),
-                    target_version: s.target_version,
-                    updated_at: None,
-                }
-            })
-            .collect();
+        let raw = ComputeTrayFirmwareUpdateStatus {
+            bmc_ip: c.bmc_ip,
+            state: c.state,
+            target_version: c.target_version.to_string(),
+            error: c.error.map(str::to_string),
+        };
 
-        assert_eq!(statuses.len(), 1);
-        let status = &statuses[0];
-        // The component ID must be the machine ID, not the raw BMC IP.
+        let status = map_compute_tray_firmware_status(raw, &ip_to_machine_id);
+
+        let result = status.result.as_ref().expect("result must be set");
         assert_eq!(
-            status.result.as_ref().map(|r| r.component_id.as_str()),
-            Some(id.to_string().as_str()),
-            "component_id should be the machine ID, not {bmc_ip}"
+            result.component_id, c.expected_component_id,
+            "[{}] component_id",
+            c.label
+        );
+        assert_eq!(
+            result.error.is_empty(),
+            c.expected_success,
+            "[{}] success flag",
+            c.label
         );
         assert_eq!(
             status.state,
-            rpc::FirmwareUpdateState::FwStateCompleted as i32
+            c.expected_state as i32,
+            "[{}] state",
+            c.label
         );
-        assert_eq!(status.target_version, "mock-1.0.0");
+        assert_eq!(
+            status.target_version, c.target_version,
+            "[{}] target_version",
+            c.label
+        );
+    }
+
+    #[test]
+    fn map_compute_tray_firmware_status_cases() {
+        let known_ip: IpAddr = "10.0.0.1".parse().unwrap();
+        let unknown_ip: IpAddr = "10.0.0.2".parse().unwrap();
+        let id = host_machine_id();
+        let id_str = id.to_string();
+        let unknown_ip_str = unknown_ip.to_string();
+
+        let cases = [
+            FwStatusCase {
+                label: "success — ip resolves to machine id",
+                bmc_ip: known_ip,
+                state: FirmwareState::Completed,
+                target_version: "1.2.3",
+                error: None,
+                machine_id: Some(id),
+                expected_component_id: id_str.clone(),
+                expected_state: rpc::FirmwareUpdateState::FwStateCompleted,
+                expected_success: true,
+            },
+            FwStatusCase {
+                label: "backend error — component id still resolved",
+                bmc_ip: known_ip,
+                state: FirmwareState::Failed,
+                target_version: "1.2.3",
+                error: Some("flash failed"),
+                machine_id: Some(id),
+                expected_component_id: id_str.clone(),
+                expected_state: rpc::FirmwareUpdateState::FwStateFailed,
+                expected_success: false,
+            },
+            FwStatusCase {
+                label: "unknown bmc ip — falls back to ip string",
+                bmc_ip: unknown_ip,
+                state: FirmwareState::InProgress,
+                target_version: "1.2.3",
+                error: None,
+                machine_id: None,
+                expected_component_id: unknown_ip_str,
+                expected_state: rpc::FirmwareUpdateState::FwStateInProgress,
+                expected_success: true,
+            },
+        ];
+
+        for c in &cases {
+            run_fw_status_case(c);
+        }
     }
 
     // ---- firmware-status routing decision ----
