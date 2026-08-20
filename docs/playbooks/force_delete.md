@@ -40,7 +40,6 @@ Example:
 /opt/nico/nico-admin-cli -a https://127.0.0.1:1079 machine force-delete --machine="60cef902-9779-4666-8362-c9bb4b37184f"
 ```
 
-
 For a full rediscovery wipe (interfaces, BMC interfaces, BMC suppressions, and
 retained boot targets), add:
 
