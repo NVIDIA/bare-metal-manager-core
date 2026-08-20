@@ -31,7 +31,7 @@ image_auth_token=
 distro_name=
 distro_version=
 distro_release=
-installed_os_label=
+installed_os_bootnum=
 serial_port=
 serial_port_num=
 log_output=
@@ -349,6 +349,37 @@ function get_part_num() {
 	fi
 }
 
+function efi_boot_entries() {
+	# Always pass -v. efibootmgr >= 18 prints the HD(...)/File(...) device
+	# path unconditionally, but <= 17 only prints it under -v, and every
+	# match below depends on that path being present. The extra "dp:"/"data:"
+	# hexdump lines -v adds are indented, so they never match the
+	# "^Boot####" filter.
+	efibootmgr -v | grep -E "^Boot[0-9A-Fa-f]{4}"
+}
+
+function is_network_entry() {
+	# Classify from the device path first: PXE/HTTP boot options carry
+	# MAC()/IPv4()/IPv6()/Uri() nodes regardless of how the firmware labels
+	# them. Fall back to label keywords, because some firmware exposes its
+	# native network boot options as an opaque VenHw() path with nothing but
+	# the label to go on, e.g. on Dell:
+	#   Boot0001* NIC in Slot 7 Port 1 Partition 1	VenHw(986d1755-...)
+	# Neither test alone covers both; Supermicro/NVIDIA boards label theirs
+	# "UEFI PXEv4 (MAC:...)" / "UEFI HTTPv4 (MAC:...)" and match on both.
+	case "$1" in
+		*mac\(*|*ipv4\(*|*ipv6\(*|*uri\(*) return 0 ;;
+		*pxe*|*http*|*nic*|*network*|*ethernet*) return 0 ;;
+	esac
+	return 1
+}
+
+function efi_entry_label() {
+	# Strip the "Boot####[*]" prefix and any device path that follows, leaving
+	# just the description. efibootmgr separates the two with a tab.
+	printf '%s' "$1" | sed -E 's/^Boot[0-9A-Fa-f]{4}\*?[[:space:]]*//' | cut -d'	' -f1
+}
+
 function create_efi_boot_entry() {
 	if ! command -v efibootmgr >/dev/null 2>&1; then
 		echo "efibootmgr not available, skipping EFI boot entry creation" | tee $log_output
@@ -374,10 +405,26 @@ function create_efi_boot_entry() {
 	# assuming a path derived from distro_name, which is not always set
 	# (e.g. when the image is provisioned via a raw image_url instead of
 	# image_distro_name/image_distro_version on the kernel cmdline).
-	shim_path=$(find /mnt/boot/efi/EFI -mindepth 2 -maxdepth 2 -iname "shim${shim_arch}.efi" -print -quit 2>/dev/null)
-	if [ -z "$shim_path" ]; then
+	# Sort rather than taking whatever the filesystem yields first: an ESP
+	# reprovisioned over a different distro can hold more than one shim (e.g.
+	# a leftover EFI/dgx alongside the new EFI/ubuntu), and -print -quit
+	# would pick between them nondeterministically. Prefer the directory
+	# matching distro_name when it was supplied on the kernel cmdline.
+	shim_paths=$(find /mnt/boot/efi/EFI -mindepth 2 -maxdepth 2 -iname "shim${shim_arch}.efi" 2>/dev/null | sort)
+	if [ -z "$shim_paths" ]; then
 		echo "No shim${shim_arch}.efi found under /mnt/boot/efi/EFI/*, skipping EFI boot entry creation" | tee $log_output
 		return 0
+	fi
+	shim_path=
+	if [ ! -z "$distro_name" ]; then
+		shim_path=$(printf '%s\n' "$shim_paths" | grep -iE "/EFI/$distro_name/[^/]+$" | head -n1)
+	fi
+	if [ -z "$shim_path" ]; then
+		shim_path=$(printf '%s\n' "$shim_paths" | head -n1)
+	fi
+	if [ "$(printf '%s\n' "$shim_paths" | wc -l)" -gt 1 ]; then
+		echo "Multiple shim${shim_arch}.efi found on ESP, using $shim_path:" | tee $log_output
+		printf '%s\n' "$shim_paths" | tee $log_output
 	fi
 
 	efi_dir=$(dirname "$shim_path")
@@ -397,9 +444,6 @@ function create_efi_boot_entry() {
 	if [ -z "$label" ]; then
 		label="$distro_dir"
 	fi
-	# Shared with set_boot_order() so it can prioritize this entry even
-	# when distro_name wasn't provided on the kernel cmdline.
-	installed_os_label="$label"
 
 	esp_part_num=$(get_part_num "$efi_dev")
 	if [ -z "$esp_part_num" ]; then
@@ -407,61 +451,77 @@ function create_efi_boot_entry() {
 		return 0
 	fi
 
-	# The partition's GPT UUID lets us distinguish "an Ubuntu entry on THIS
-	# disk's ESP" from "an Ubuntu entry with the same relative loader path on
-	# some OTHER disk" -- e.g. a leftover boot entry from a previous OS
-	# install on a different NVMe device. The loader path alone
-	# ("\EFI\ubuntu\shimaa64.efi") is identical regardless of which physical
-	# disk/partition it lives on, since it's only meaningful relative to
-	# whichever ESP the entry's HD(...) device-path node actually points at.
-	esp_part_uuid=$(blkid -s PARTUUID -o value "$efi_dev" 2>/dev/null | tr '[:upper:]' '[:lower:]')
-
-	# Require the label, the loader path, AND (when known) the target ESP's
-	# partition UUID to all match an existing entry. Each check guards
-	# against a different false match:
-	#  - Label-only, end-anchored (the original approach) breaks because
-	#    efibootmgr's plain (non -v) output on some firmware/builds still
-	#    appends the full UEFI device path after the label with no
-	#    unambiguous delimiter, so anchoring the label at end-of-line never
-	#    matches and a duplicate same-labeled entry gets created every run.
-	#  - Loader-path-only breaks the opposite way: during a reinstall (e.g.
-	#    replacing DGX OS with Ubuntu) a pre-existing, differently-labeled
-	#    entry (like a firmware-native "DGX OS" entry) can reference the same
-	#    shim file path, which would wrongly be treated as "Ubuntu already
-	#    exists" and skip creating the real entry.
-	#  - Label + loader path without the partition UUID breaks on multi-disk
-	#    systems: a same-named "Ubuntu" entry left over on a different disk's
-	#    ESP would falsely count as a duplicate of the one we're about to
-	#    create on this disk.
-	# Anchoring the label at the *start* (right after the "Boot####[*] "
-	# prefix) instead of the end avoids the first problem -- trailing device
-	# path text is now expected, not fatal -- while still requiring an exact
-	# label match avoids the second. Labels are compared via a quoted bash
-	# pattern (not grep/regex) so metacharacters in the label can't be
-	# misinterpreted.
-	label_lower=$(printf '%s' "$label" | tr '[:upper:]' '[:lower:]')
-	loader_path_lower=$(printf '%s' "$loader_path" | tr '[:upper:]' '[:lower:]')
-	duplicate_found=0
-	while IFS= read -r bootline; do
-		[ -z "$bootline" ] && continue
-		remainder=$(printf '%s' "$bootline" | sed -E 's/^Boot[0-9A-Fa-f]{4}\*?[[:space:]]*//')
-		remainder_lower=$(printf '%s' "$remainder" | tr '[:upper:]' '[:lower:]')
-		bootline_lower=$(printf '%s' "$bootline" | tr '[:upper:]' '[:lower:]')
-		if [[ "$remainder_lower" == "$label_lower"* ]] \
-			&& printf '%s' "$bootline_lower" | grep -qF "$loader_path_lower" \
-			&& { [ -z "$esp_part_uuid" ] || printf '%s' "$bootline_lower" | grep -qF "$esp_part_uuid"; }; then
-			duplicate_found=1
-			break
-		fi
-	done < <(efibootmgr | grep -E "^Boot[0-9A-Fa-f]{4}")
-
-	if [ "$duplicate_found" -eq 1 ]; then
-		echo "EFI boot entry for $label already exists on this disk's ESP (loader $loader_path found), skipping creation" | tee $log_output
-		return 0
+	# Delete every entry carrying our label, then create exactly one. This is
+	# deliberately unconditional rather than "create only if missing":
+	# reprovisioning the same image accumulates same-labelled entries that
+	# cannot be told apart from the live one by label, and whichever of them
+	# sorts first is what the machine boots. Replacing the whole set makes the
+	# outcome independent of whatever was there before.
+	#
+	# It also cleans up entries the firmware has already given up on. When
+	# the target of a boot option no longer resolves, AMI firmware prepends a
+	# broken-entry sentinel and an END_ENTIRE node, and efibootmgr stops
+	# rendering there, so the listing shows only:
+	#   Boot000B* Ubuntu	VenHw(99e275e7-75a0-4b37-a2e6-c5385e6c00cb)
+	# while the variable still holds the original
+	# HD(15,GPT,815eb350-...)/File(\EFI\ubuntu\shimaa64.efi). One test node
+	# had four such orphans, all labelled "Ubuntu", all pointing at an ESP
+	# that no longer existed -- one per reprovision. Deleting by label catches
+	# them without having to parse raw variables, because the label is the one
+	# field the sentinel leaves intact.
+	#
+	# Trade-off: this is ESP-blind. A legitimately separate install of the
+	# same distro on another disk in the same machine shares the label and
+	# would be deleted too. That is acceptable for whole-node provisioning,
+	# where the imager owns the box, but it is the reason this is scoped to
+	# an exact label rather than a substring.
+	#
+	# "-B -L" needs efibootmgr >= 18 (delete_label() does not exist in 17)
+	# and exits non-zero when nothing matched, which is the normal case on a
+	# first install, so the failure is logged rather than treated as fatal.
+	echo "Removing any existing EFI boot entries labelled $label" | tee $log_output
+	delete_out=$(efibootmgr -B -L "$label" 2>&1)
+	if [ $? -ne 0 ]; then
+		echo "No existing EFI boot entry labelled $label to remove ($delete_out)" | tee $log_output
 	fi
 
 	echo "Creating EFI boot entry for $label ($loader_path on $image_disk part $esp_part_num)" | tee $log_output
 	efibootmgr --create --disk "$image_disk" --part "$esp_part_num" --label "$label" --loader "$loader_path" 2>&1 | tee $log_output
+
+	# Resolve the number efibootmgr assigned, so set_boot_order() can rank
+	# this specific entry. It is not echoed in a parseable form, so find it by
+	# walking BootOrder and taking the first entry carrying our label:
+	# --create places the new entry at the front of BootOrder, which makes the
+	# first match the one just created.
+	#
+	# Deliberately not "the only entry with this label". That would be true
+	# whenever the delete above succeeded, but it silently stops being true if
+	# delete-by-label is unavailable (efibootmgr <= 17) or fails for any other
+	# reason, and picking a leftover then reintroduces exactly the bug this is
+	# meant to fix. Ordering holds either way.
+	efi_list=$(efibootmgr -v)
+	installed_os_bootnum=
+	label_matches=0
+	IFS=',' read -r -a created_order <<< "$(echo "$efi_list" | grep '^BootOrder:' | sed -E 's/^BootOrder:[[:space:]]*//')"
+	for bootnum in "${created_order[@]}"; do
+		bootline=$(echo "$efi_list" | grep -E "^Boot$bootnum")
+		[ -z "$bootline" ] && continue
+		if [ "$(efi_entry_label "$bootline")" == "$label" ]; then
+			label_matches=$((label_matches + 1))
+			if [ -z "$installed_os_bootnum" ]; then
+				installed_os_bootnum="$bootnum"
+			fi
+		fi
+	done
+
+	if [ -z "$installed_os_bootnum" ]; then
+		echo "Warning: created EFI boot entry for $label but could not resolve its Boot####" | tee $log_output
+	elif [ "$label_matches" -gt 1 ]; then
+		# Only reachable if the delete did not take effect. Not fatal, since
+		# the entry resolved above is still the one just created, but it means
+		# leftovers are accumulating and should be looked at.
+		echo "Warning: $label_matches EFI boot entries labelled $label remain after cleanup; using Boot$installed_os_bootnum" | tee $log_output
+	fi
 }
 
 function set_boot_order() {
@@ -469,7 +529,7 @@ function set_boot_order() {
 		return 0
 	fi
 
-	efi_list=$(efibootmgr)
+	efi_list=$(efibootmgr -v)
 	current_order_line=$(echo "$efi_list" | grep '^BootOrder:')
 	if [ -z "$current_order_line" ]; then
 		echo "Could not read current BootOrder, skipping reorder" | tee $log_output
@@ -478,31 +538,41 @@ function set_boot_order() {
 	current_order_csv=$(echo "$current_order_line" | sed -E 's/^BootOrder:[[:space:]]*//')
 	IFS=',' read -r -a current_order <<< "$current_order_csv"
 
-	# Prefer the label create_efi_boot_entry() actually discovered on the
-	# ESP; distro_name alone can be empty (e.g. raw image_url provisioning),
-	# which would otherwise match every entry as "distro".
-	match_name="${installed_os_label:-$distro_name}"
-
+	# Rank the single Boot#### create_efi_boot_entry() resolved for this
+	# install, not "every entry whose text looks like the distro". Grouping
+	# by label preserves the relative order of same-labelled entries, so the
+	# winner among them was decided by the pre-existing BootOrder -- the very
+	# thing this function exists to normalize. Where a stale same-labelled
+	# entry happened to sort first, the machine booted it.
+	#
+	# If the identifier is unknown (efibootmgr missing, no shim on the ESP,
+	# creation failed) the OS entry falls through to "rest" and still lands
+	# behind the network entries, which is the safe direction.
 	network=()
-	distro=()
+	target=()
 	rest=()
 	for bootnum in "${current_order[@]}"; do
-		entry_label=$(echo "$efi_list" | grep "^Boot$bootnum" | sed -E 's/^Boot[0-9A-Fa-f]{4}\*?[[:space:]]*//')
+		entry_label=$(echo "$efi_list" | grep -E "^Boot$bootnum" | sed -E 's/^Boot[0-9A-Fa-f]{4}\*?[[:space:]]*//')
 		lower_label=$(echo "$entry_label" | tr '[:upper:]' '[:lower:]')
-		if [[ "$lower_label" == *pxe* || "$lower_label" == *http* ]]; then
+		if [ ! -z "$installed_os_bootnum" ] && [ "$bootnum" == "$installed_os_bootnum" ]; then
+			target=("$bootnum")
+		elif is_network_entry "$lower_label"; then
 			network+=("$bootnum")
-		elif [ -n "$match_name" ] && printf '%s' "$lower_label" | grep -qF "$(printf '%s' "$match_name" | tr '[:upper:]' '[:lower:]')"; then
-			distro+=("$bootnum")
 		else
 			rest+=("$bootnum")
 		fi
 	done
 
-	new_order=("${network[@]}" "${distro[@]}" "${rest[@]}")
+	new_order=("${network[@]}" "${target[@]}" "${rest[@]}")
 	new_order_csv=$(IFS=,; echo "${new_order[*]}")
 
+	if [ -z "$new_order_csv" ]; then
+		echo "Computed empty boot order, skipping reorder" | tee $log_output
+		return 0
+	fi
+
 	if [ "$new_order_csv" == "$current_order_csv" ]; then
-		echo "Boot order already network-first then $match_name, no change needed" | tee $log_output
+		echo "Boot order already network-first then Boot${installed_os_bootnum:-<unresolved>}, no change needed" | tee $log_output
 		return 0
 	fi
 
