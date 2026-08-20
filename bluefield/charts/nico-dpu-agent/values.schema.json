@@ -165,11 +165,16 @@
       "properties": {
         "name": {
           "type": "string",
-          "description": "Name of the externally managed ConfigMap in the release namespace"
+          "description": "Name of the externally managed ConfigMap in the release namespace (RFC 1123 DNS subdomain). Empty disables the feature.",
+          "maxLength": 253,
+          "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
         },
         "key": {
           "type": "string",
-          "description": "Key within that ConfigMap holding the merge-patch document (default: supplemental.json)"
+          "description": "Key within that ConfigMap holding the merge-patch document (default: supplemental.json)",
+          "minLength": 1,
+          "maxLength": 253,
+          "pattern": "^[-._a-zA-Z0-9]+$"
         }
       },
       "additionalProperties": false

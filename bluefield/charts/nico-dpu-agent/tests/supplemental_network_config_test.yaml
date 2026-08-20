@@ -109,6 +109,31 @@ tests:
       - notExists:
           path: spec.template.metadata.annotations["checksum/machine-identity-config"]
 
+  - it: rejects a ConfigMap name that is not a valid Kubernetes name
+    template: daemonset.yaml
+    set:
+      image:
+        repository: test
+        tag: test
+      supplementalNetworkConfig:
+        name: "Not A Valid Name!"
+    asserts:
+      - failedTemplate:
+          errorPattern: supplementalNetworkConfig
+
+  - it: rejects a data key with characters Kubernetes does not allow
+    template: daemonset.yaml
+    set:
+      image:
+        repository: test
+        tag: test
+      supplementalNetworkConfig:
+        name: storage-testbed-nvue-patch
+        key: "bad key/with spaces"
+    asserts:
+      - failedTemplate:
+          errorPattern: supplementalNetworkConfig
+
   - it: treats an empty name as disabled
     template: daemonset.yaml
     set:

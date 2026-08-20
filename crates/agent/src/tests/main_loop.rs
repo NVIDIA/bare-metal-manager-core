@@ -355,14 +355,26 @@ fn current_network_version_never_matches_before_first_update() {
 /// removal must force a re-render even when the response is unchanged.
 #[test]
 fn current_network_version_tracks_supplemental_config_hash() {
-    let config = comparison_network_config();
-    let contents = r#"{"vrf": {"storage": {}}}"#;
-    let mut current = CurrentNetworkVersion::default();
-    current.update_from(&config, Some(contents));
+    const PATCH: Option<&str> = Some(r#"{"vrf": {"storage": {}}}"#);
+    const EDITED_PATCH: Option<&str> = Some(r#"{"vrf": null}"#);
 
-    assert!(current.matches_versions_from(&config, Some(contents)));
-    assert!(!current.matches_versions_from(&config, Some(r#"{"vrf": null}"#)));
-    assert!(!current.matches_versions_from(&config, None));
+    let config = comparison_network_config();
+    // (scenario, content at last reconciliation, content now, still matches?)
+    for (scenario, recorded, current, expected) in [
+        ("unchanged content matches", PATCH, PATCH, true),
+        ("edited content invalidates", PATCH, EDITED_PATCH, false),
+        ("removed config invalidates", PATCH, None, false),
+        ("still-absent config matches", None, None, true),
+        ("newly added config invalidates", None, PATCH, false),
+    ] {
+        let mut current_version = CurrentNetworkVersion::default();
+        current_version.update_from(&config, recorded);
+        assert_eq!(
+            current_version.matches_versions_from(&config, current),
+            expected,
+            "{scenario}"
+        );
+    }
 }
 
 /// Every input consumed by HBN must invalidate the cache, and either

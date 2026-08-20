@@ -363,7 +363,8 @@ pub struct NetworkConfig {
 }
 
 impl NetworkConfig {
-    pub fn is_default(&self) -> bool {
+    // Only referenced by the serde skip_serializing_if attribute above.
+    fn is_default(&self) -> bool {
         *self == Self::default()
     }
 }
