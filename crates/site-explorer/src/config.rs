@@ -290,16 +290,23 @@ impl SiteExplorerConfig {
         Arc::new(true.into())
     }
 
+    /// Redfish endpoints probed in parallel per exploration cycle. Bounds the
+    /// concurrent load placed on BMCs.
     pub const fn default_concurrent_explorations() -> u64 {
-        30
+        100
     }
 
+    /// Endpoints selected for exploration per cycle. Identification and machine
+    /// creation run only at the end of a completed cycle, so this trades sweep
+    /// breadth against how frequently creation runs.
     pub const fn default_explorations_per_run() -> u64 {
-        90
+        360
     }
 
+    /// Machines created per completed exploration cycle. Caps ingestion rate
+    /// independently of how many hosts exploration has identified.
     pub const fn default_machines_created_per_run() -> u64 {
-        4
+        100
     }
 
     pub fn default_rotate_switch_nvos_credentials() -> Arc<AtomicBool> {
