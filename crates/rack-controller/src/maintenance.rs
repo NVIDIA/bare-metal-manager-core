@@ -2290,7 +2290,13 @@ pub async fn handle_maintenance(
                         let state = match device.status.as_str() {
                             "completed" => RackFirmwareUpgradeState::Completed,
                             "failed" => RackFirmwareUpgradeState::Failed {
-                                cause: format!("RMS reported failure for {}", device.mac),
+                                cause: device
+                                    .error_message
+                                    .clone()
+                                    .filter(|message| !message.trim().is_empty())
+                                    .unwrap_or_else(|| {
+                                        format!("RMS reported failure for {}", device.mac)
+                                    }),
                             },
                             "in_progress" => RackFirmwareUpgradeState::InProgress,
                             _ => RackFirmwareUpgradeState::Started,
