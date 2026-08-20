@@ -62,6 +62,7 @@ func normalizeProtoFile(protoFile string) {
 
 	content := string(protoFileContent)
 	content = addOrReplaceLicenseHeader(content)
+	content = removeCodegenAnnotations(content)
 	content = addGoPackageOption(content)
 	content = updateImports(content)
 	content = renameCarbideReference(content)
@@ -81,6 +82,15 @@ func normalizeProtoFile(protoFile string) {
 	if err := os.WriteFile(protoFile, []byte(content), 0644); err != nil {
 		log.Err(err).Str("protoFile", protoFile).Msg("Failed to write normalized proto file")
 	}
+}
+
+// removeCodegenAnnotations removes Rust-only code generation metadata before
+// the Core protobuf snapshot is passed to Buf and the Go protobuf compiler.
+func removeCodegenAnnotations(content string) string {
+	codegenImport := regexp.MustCompile(`(?m)^[ \t]*import "codegen/v1/derive\.proto";[ \t]*\n(?:[ \t]*\n)?`)
+	content = codegenImport.ReplaceAllString(content, "")
+	codegenOption := regexp.MustCompile(`(?m)^[ \t]*option \(carbide\.codegen\.v1\.(?:message|enum)_derive\) = "[^"]+";[ \t]*\n?`)
+	return codegenOption.ReplaceAllString(content, "")
 }
 
 // addOrReplaceLicenseHeader strips any existing comment/blank-line preamble

@@ -48,7 +48,7 @@ use crate::endpoint::{
     ClusterEndpointSource, CompositeEndpointSource, EndpointSource, StaticEndpointSource,
 };
 use crate::limiter::{BucketLimiter, NoopLimiter, RateLimiter};
-use crate::metrics::{MetricsManager, run_metrics_server};
+use crate::metrics::{BmcLatencyMetrics, MetricsManager, run_metrics_server};
 use crate::processor::{
     BmcIntrusionEventProcessor, EventProcessingPipeline, EventProcessor, HealthReportProcessor,
     LeakEventProcessor, RackLeakProcessor,
@@ -135,7 +135,10 @@ struct EndpointWiring {
     source: Arc<dyn EndpointSource>,
 }
 
-fn build_endpoint_wiring(config: &Config) -> Result<EndpointWiring, HealthError> {
+fn build_endpoint_wiring(
+    config: &Config,
+    bmc_latency_metrics: Option<Arc<BmcLatencyMetrics>>,
+) -> Result<EndpointWiring, HealthError> {
     let reqwest = ReqwestClient::with_params(ReqwestClientParams::new().accept_invalid_certs(true))
         .map_err(BmcError::ReqwestError)?;
     let mut sources: Vec<Arc<dyn EndpointSource>> = Vec::new();
@@ -146,6 +149,7 @@ fn build_endpoint_wiring(config: &Config) -> Result<EndpointWiring, HealthError>
             &reqwest,
             config.bmc_proxy_url.as_ref(),
             config.cache_size,
+            bmc_latency_metrics.clone(),
         );
         sources.push(Arc::new(static_source));
     }
@@ -162,6 +166,7 @@ fn build_endpoint_wiring(config: &Config) -> Result<EndpointWiring, HealthError>
             reqwest.clone(),
             config.bmc_proxy_url.clone(),
             config.cache_size,
+            bmc_latency_metrics.clone(),
         ));
         sources.push(endpoint_source as Arc<dyn EndpointSource>);
     }
@@ -172,6 +177,7 @@ fn build_endpoint_wiring(config: &Config) -> Result<EndpointWiring, HealthError>
             &reqwest,
             config.bmc_proxy_url.as_ref(),
             config.cache_size,
+            bmc_latency_metrics,
         );
         sources.push(Arc::new(cluster_source));
     }
@@ -350,6 +356,16 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
 
     let metrics_endpoint = config.metrics_addr()?;
     let metrics_manager = Arc::new(MetricsManager::new(&config.metrics.prefix)?);
+    let bmc_latency_metrics = if config.metrics.enable_bmc_latency_metrics {
+        let attributes = config.metrics.bmc_latency_attributes();
+        Some(Arc::new(BmcLatencyMetrics::new_with_attributes(
+            metrics_manager.global_registry(),
+            &config.metrics.prefix,
+            &attributes,
+        )?))
+    } else {
+        None
+    };
 
     // Back the global OpenTelemetry meter with a prometheus registry and
     // merge that registry into this binary's /metrics exposition, so events
@@ -393,7 +409,7 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
 
     let EndpointWiring {
         source: endpoint_source,
-    } = build_endpoint_wiring(&config)?;
+    } = build_endpoint_wiring(&config, bmc_latency_metrics)?;
 
     let data_sink = build_data_sink(&config, metrics_manager.clone())?;
 

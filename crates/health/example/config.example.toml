@@ -201,6 +201,16 @@ max_jitter = "40ms"
 refresh_interval = "60m"
 discovery_concurrency = 1
 
+# Optional direct TCP checks for ports used by eligible enabled collectors.
+# Every check emits a metric; "unreachable" logs failures and "all" logs every result.
+# Checks bypass BMC proxies and do not verify TLS, authentication, or protocol readiness.
+# Results never create health reports or alerts.
+[collectors.reachability]
+enabled = true
+interval = "30s"
+timeout = "3s"
+log_mode = "unreachable"
+
 [collectors.sensors]
 sensor_fetch_interval = "1m"
 sensor_fetch_concurrency = 10
@@ -423,3 +433,13 @@ leaking_tray_threshold = 2
 # Listener exposes /metrics (service), /telemetry (Prometheus sink hardware samples), /livez (health).
 endpoint = "0.0.0.0:9009"
 prefix = "carbide_hardware_health"
+
+# Disabled by default. When enabled, emits {prefix}_bmc_latency_ms for outbound
+# Redfish HTTP requests to BMCs.
+enable_bmc_latency_metrics = false
+
+# Defaults to ["all"]. Set a subset to control emitted labels. Allowed values:
+# "all", "http_response_status_code", "http_request_method", "http_path",
+# "server_address", "url_scheme", "bmc_vendor", "bmc_model", "entity_type",
+# "machine_id", "rack_id".
+bmc_latency_attributes = ["all"]

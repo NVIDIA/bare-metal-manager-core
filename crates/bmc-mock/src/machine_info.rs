@@ -50,6 +50,32 @@ pub struct HostMachineInfo {
     pub delta_psu_power: Option<Vec<bool>>,
 }
 
+trait HardwareTypeExt {
+    fn infiniband_port_count(&self) -> usize;
+}
+
+impl HardwareTypeExt for HardwareType {
+    fn infiniband_port_count(&self) -> usize {
+        match self {
+            HardwareType::WiwynnGB200Nvl => 4,
+            HardwareType::NvidiaDgxH100 => 8,
+            HardwareType::DellPowerEdgeR750
+            | HardwareType::DellPowerEdgeR760Bf4
+            | HardwareType::LenovoGB300Nvl
+            | HardwareType::NvidiaDgxGb300
+            | HardwareType::SupermicroGb300Nvl
+            | HardwareType::NvidiaDgxVr
+            | HardwareType::LiteOnPowerShelf
+            | HardwareType::DeltaPowerShelf
+            | HardwareType::NvidiaSwitchNd5200Ld
+            | HardwareType::NvidiaSwitchN5700Ld
+            | HardwareType::GenericAmi
+            | HardwareType::HpeProliantDl380aGen11
+            | HardwareType::GenericSupermicro => 0,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DpuMachineInfo {
     pub hw_type: HardwareType,
@@ -323,6 +349,19 @@ impl HostMachineInfo {
         self.primary_dpu()
             .map(|d| d.host_mac_address)
             .or(self.non_dpu_mac_address)
+    }
+
+    pub fn infiniband_port_guids(&self) -> Vec<String> {
+        let [b0, b1, b2, b3, b4, b5] = self.hw_mac_addr_pool.base().bytes();
+        (0..self.hw_type.infiniband_port_count())
+            .map(|interface_index| {
+                let interface_index = u16::try_from(interface_index)
+                    .expect("mock hardware models have fewer than 65536 InfiniBand interfaces");
+                let [b6, b7] = interface_index.to_be_bytes();
+                let guid = u64::from_be_bytes([b0, b1, b2, b3, b4, b5, b6, b7]);
+                format!("{guid:016x}")
+            })
+            .collect()
     }
 
     fn oem_state(&self) -> redfish::oem::State {

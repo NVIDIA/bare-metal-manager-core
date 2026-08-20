@@ -533,6 +533,12 @@ async fn test_machine_validation_test_on_demand_filter(
     )
     .await;
 
+    let run = on_demand_response.run.as_ref().unwrap();
+    assert_eq!(run.validation_id, on_demand_response.validation_id);
+    assert_eq!(run.machine_id, machine.id);
+    assert!(run.start_time.is_some());
+    assert_eq!(run.context.as_deref(), Some("OnDemand"));
+
     let validation_id: MachineValidationId = on_demand_response.validation_id.unwrap();
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.host().id,

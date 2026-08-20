@@ -157,7 +157,7 @@ impl BmcMockWrapper {
         } else {
             None
         };
-        let ipmi_sim_handle = self.start_ipmi_sim(address.ip(), None).await?;
+        let ipmi_sim_handle = self.start_ipmi_sim(address.ip()).await?;
 
         tracing::info!(
             listen_address = ?address,
@@ -188,7 +188,7 @@ impl BmcMockWrapper {
         bind_ip: std::net::IpAddr,
     ) -> Result<Option<BmcMockWrapperHandle>, MachineStateError> {
         Ok(self
-            .start_ipmi_sim(bind_ip, Some(DEFAULT_IPMI_PORT))
+            .start_ipmi_sim(bind_ip)
             .await?
             .map(|ipmi_sim_handle| BmcMockWrapperHandle {
                 _bmc_mock: None,
@@ -200,11 +200,20 @@ impl BmcMockWrapper {
     async fn start_ipmi_sim(
         &self,
         bind_ip: std::net::IpAddr,
-        reachable_port: Option<u16>,
     ) -> Result<Option<IpmiSimHandle>, MachineStateError> {
         if !self.app_context.app_config.enable_ipmi_simulation || !self.supports_ipmi_console {
             return Ok(None);
         }
+
+        // Determine the reachable port advertised through Redfish:
+        // - None (unset): Use default port
+        // - Some(0): Use dynamic port (same as listen port)
+        // - Some(n): Use the specified port
+        let reachable_port = match self.app_context.app_config.ipmi_reachable_port {
+            None => Some(DEFAULT_IPMI_PORT),
+            Some(0) => None,
+            Some(port) => Some(port),
+        };
 
         let console_prompt = format!("root@{} # ", self.hostname.get_hostname());
         bmc_mock::ipmi_sim::start(

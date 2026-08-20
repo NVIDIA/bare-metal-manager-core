@@ -61,14 +61,16 @@ pub use device_simulator::{
 pub use dhcp_wrapper::{DhcpClient, UdpDhcpService};
 pub use dpu_machine::DpuMachineHandle;
 pub use machine_a_tron::{AppEvent, MachineATron};
-pub use machine_state_machine::BmcRegistrationMode;
+pub use machine_state_machine::{BmcRegistrationMode, InfinibandPortState};
 pub use mock_ssh_server::{
     Credentials as MockSshCredentials, MockSshServerHandle, PromptBehavior,
     spawn as spawn_mock_ssh_server,
 };
 pub use rack::{RackMemberStatus, RackStatus, RacksStatusResponse};
 pub use simulator_registry::SimulatorRegistry;
-pub use status::{DeviceKind, DeviceStatus, DeviceStatusConfig, DevicesStatusResponse};
+pub use status::{
+    DeviceKind, DeviceStatus, DeviceStatusConfig, DevicesStatusResponse, InfinibandPortStatus,
+};
 pub use tui::{Tui, UiUpdate};
 pub use tui_host_logs::TuiHostLogs;
 

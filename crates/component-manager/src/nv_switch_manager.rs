@@ -1,15 +1,17 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::net::IpAddr;
 
 use carbide_secrets::credentials::Credentials;
-use librms::protos::{rack_manager as rms, rack_manager_v2 as rms_v2};
 use mac_address::MacAddress;
 use model::component_manager::{
     ConfigureSwitchCertificateState, FirmwareState, NvSwitchComponent, PowerAction,
 };
+use model::rack_type::RackHardwareTopology;
+use model::switch::FabricManagerStatus;
 
 use crate::error::ComponentManagerError;
 use crate::types::FirmwareUpdateOptions;
@@ -61,7 +63,7 @@ pub enum SwitchPasswordRotationState {
 }
 
 /// Physical network identifiers for an NV-Switch, used to register with and
-/// operate against the backend service (NSM).
+/// operate against the configured backend service.
 #[derive(Debug, Clone)]
 pub struct SwitchEndpoint {
     pub bmc_ip: IpAddr,
@@ -118,6 +120,71 @@ impl crate::component_common::ComponentPowerStateResult for SwitchPowerStateResu
 pub struct ConfigureSwitchCertificateJobStatus {
     pub state: ConfigureSwitchCertificateState,
     pub error: Option<String>,
+}
+
+/// Backend observation of a ScaleUp Fabric Manager configuration job.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ScaleUpFabricManagerJobStatus {
+    /// The job remains queued or running.
+    Pending { description: String },
+
+    /// The desired fabric configuration completed successfully.
+    Completed,
+
+    /// The job terminated unsuccessfully.
+    Failed { error: Option<String> },
+
+    /// The backend returned an execution state that cannot be classified.
+    Unknown { execution_state: i32 },
+}
+
+/// Application-level result reported by a ScaleUp Fabric status operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScaleUpFabricResponseStatus {
+    /// The backend completed the operation successfully.
+    Success,
+
+    /// The backend completed the operation with a failure result.
+    Failure,
+
+    /// The backend returned an unspecified or unrecognized result code.
+    Unknown(i32),
+}
+
+/// Observed ScaleUp Fabric state for one switch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScaleUpFabricSwitchStatus {
+    /// Backend node identifier for the switch.
+    pub node_id: String,
+
+    /// Whether the ScaleUp Fabric cluster is enabled on this switch.
+    pub enabled: bool,
+
+    /// Backend-provided inspection failure details.
+    pub error_message: String,
+}
+
+/// Result of inspecting the ScaleUp Fabric configuration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScaleUpFabricStatus {
+    /// Application-level result of the inspection.
+    pub status: ScaleUpFabricResponseStatus,
+
+    /// Per-switch observations, absent when the backend returned no fabric status.
+    pub switches: Option<Vec<ScaleUpFabricSwitchStatus>>,
+
+    /// Backend-provided operation failure details.
+    pub error_message: String,
+}
+
+/// Result of reading per-switch Fabric Manager service status.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScaleUpFabricServiceStatuses {
+    /// Application-level result of the batch operation.
+    pub status: ScaleUpFabricResponseStatus,
+
+    /// Normalized per-switch observations keyed by backend node identifier.
+    pub service_statuses: HashMap<String, FabricManagerStatus>,
 }
 
 /// Aggregate lifecycle state for a switch factory-reset job.
@@ -263,24 +330,31 @@ pub trait NvSwitchManager: Send + Sync + Debug + 'static {
         )))
     }
 
-    /// Submits rack-level ScaleUp Fabric Manager configuration.
+    /// Submits the desired rack-level ScaleUp Fabric Manager configuration.
     ///
-    /// This operation is currently supported only by the RMS switch backend.
-    async fn configure_scale_up_fabric_manager_v2(
+    /// A successful submission returns a non-empty, opaque job ID. If the backend may
+    /// have accepted the request but does not return a durable job ID, the
+    /// implementation returns [`ComponentManagerError::OperationOutcomeUnknown`]. The
+    /// default implementation returns [`ComponentManagerError::Unsupported`].
+    async fn configure_scale_up_fabric_manager(
         &self,
-        _request: rms_v2::ConfigureScaleUpFabricManagerRequest,
-    ) -> Result<rms_v2::ConfigureScaleUpFabricManagerResponse, ComponentManagerError> {
+        _endpoints: &[SwitchEndpoint],
+        _topology: RackHardwareTopology,
+    ) -> Result<String, ComponentManagerError> {
         Err(ComponentManagerError::Unsupported(format!(
-            "scale-up fabric manager V2 configuration is not supported by the {} backend",
+            "scale-up fabric manager configuration is not supported by the {} backend",
             self.name()
         )))
     }
 
-    /// Reads the RMS job created by ScaleUp Fabric Manager V2 configuration.
+    /// Returns the latest observation for a ScaleUp Fabric Manager job.
+    ///
+    /// `None` means the backend cannot find the requested job. The default
+    /// implementation returns [`ComponentManagerError::Unsupported`].
     async fn get_scale_up_fabric_manager_job_status(
         &self,
-        _request: rms::GetJobStatusRequest,
-    ) -> Result<rms::GetJobStatusResponse, ComponentManagerError> {
+        _job_id: &str,
+    ) -> Result<Option<ScaleUpFabricManagerJobStatus>, ComponentManagerError> {
         Err(ComponentManagerError::Unsupported(format!(
             "scale-up fabric manager job status is not supported by the {} backend",
             self.name()
@@ -288,10 +362,12 @@ pub trait NvSwitchManager: Send + Sync + Debug + 'static {
     }
 
     /// Reads the primary and enabled state observed for the submitted fabric.
+    ///
+    /// The default implementation returns [`ComponentManagerError::Unsupported`].
     async fn get_scale_up_fabric_status(
         &self,
-        _request: rms::GetScaleUpFabricStatusRequest,
-    ) -> Result<rms::GetScaleUpFabricStatusResponse, ComponentManagerError> {
+        _endpoints: &[SwitchEndpoint],
+    ) -> Result<ScaleUpFabricStatus, ComponentManagerError> {
         Err(ComponentManagerError::Unsupported(format!(
             "scale-up fabric status is not supported by the {} backend",
             self.name()
@@ -299,10 +375,12 @@ pub trait NvSwitchManager: Send + Sync + Debug + 'static {
     }
 
     /// Reads per-switch Fabric Manager service status for persistence by NICo.
+    ///
+    /// The default implementation returns [`ComponentManagerError::Unsupported`].
     async fn batch_get_scale_up_fabric_service_status(
         &self,
-        _request: rms::BatchGetScaleUpFabricServiceStatusRequest,
-    ) -> Result<rms::BatchGetScaleUpFabricServiceStatusResponse, ComponentManagerError> {
+        _endpoints: &[SwitchEndpoint],
+    ) -> Result<ScaleUpFabricServiceStatuses, ComponentManagerError> {
         Err(ComponentManagerError::Unsupported(format!(
             "scale-up fabric manager service status is not supported by the {} backend",
             self.name()

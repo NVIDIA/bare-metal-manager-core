@@ -294,7 +294,10 @@ impl InternalRBACRules {
             "FindExploredEndpointIds",
             vec![ForgeAdminCLI, Flow, SiteAgent],
         );
-        x.perm("FindExploredEndpointsByIds", vec![ForgeAdminCLI, Flow]);
+        x.perm(
+            "FindExploredEndpointsByIds",
+            vec![ForgeAdminCLI, Flow, SiteAgent],
+        );
         x.perm("FindExploredManagedHostIds", vec![ForgeAdminCLI, Flow]);
         x.perm("FindExploredManagedHostsByIds", vec![ForgeAdminCLI, Flow]);
         x.perm("FindExploredMlxDeviceHostIds", vec![ForgeAdminCLI]);
@@ -531,7 +534,7 @@ impl InternalRBACRules {
         x.perm("DisableSecureBoot", vec![ForgeAdminCLI]);
         x.perm("MachineSetup", vec![ForgeAdminCLI]);
         x.perm("SetDpuFirstBootOrder", vec![ForgeAdminCLI]);
-        x.perm("OnDemandMachineValidation", vec![ForgeAdminCLI]);
+        x.perm("OnDemandMachineValidation", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("OnDemandRackMaintenance", vec![ForgeAdminCLI]);
         x.perm("TpmAddCaCert", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("TpmShowCaCerts", vec![ForgeAdminCLI, SiteAgent]);
@@ -1183,6 +1186,12 @@ mod rbac_rule_tests {
         }
 
         assert!(InternalRBACRules::allowed_from_static(
+            "OnDemandMachineValidation",
+            &[Principal::SpiffeServiceIdentifier(
+                "elektra-site-agent".to_string()
+            )]
+        ));
+        assert!(InternalRBACRules::allowed_from_static(
             "FindNetworkSegmentsByIds",
             &[
                 Principal::SpiffeServiceIdentifier("machine-a-tron".to_string()),
@@ -1223,6 +1232,7 @@ mod rbac_rule_tests {
             "ClearSiteExplorationError",
             "ReExploreEndpoint",
             "FindExploredEndpointIds",
+            "FindExploredEndpointsByIds",
         ] {
             assert!(
                 InternalRBACRules::allowed_from_static(

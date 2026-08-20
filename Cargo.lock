@@ -2465,6 +2465,7 @@ dependencies = [
  "carbide-instrument",
  "carbide-ipmi",
  "carbide-measured-boot",
+ "carbide-proto-compiler",
  "carbide-redfish",
  "carbide-secrets",
  "carbide-state-controller-common",
@@ -3805,6 +3806,7 @@ dependencies = [
  "prost",
  "prost-types",
  "serde",
+ "serde_json",
  "sqlx",
  "thiserror 2.0.18",
  "tokio",
@@ -6868,7 +6870,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.46.3#b199e7bebeb8238fe1440f110d06affba5b6b799"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.46.5#c79aa49ea21a8e3e161eb9f6154f331162b79b2d"
 dependencies = [
  "chrono",
  "clap",
