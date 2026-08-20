@@ -11,7 +11,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/target"
 	inventoryresolver "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/resolver"
-	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/deviceinfo"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/component"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/rack"
@@ -32,8 +32,9 @@ func TestDefaultRuleValidates(t *testing.T) {
 	require.Len(t, rule.Actions, 1)
 	spec, ok := rule.Actions[0].Spec.(*eventrule.SubmitTask)
 	require.True(t, ok)
-	assert.Equal(t, taskcommon.TaskTypePowerControl, spec.OperationType)
-	assert.Equal(t, taskcommon.OperationCode(taskcommon.OpCodePowerControlForcePowerOff), spec.OperationCode)
+	operation, ok := spec.Operation.(*operations.PowerControlTaskInfo)
+	require.True(t, ok)
+	assert.Equal(t, operations.PowerOperationForcePowerOff, operation.Operation)
 	assert.Equal(t, eventrule.TargetStrategyAffectedComponents, spec.TargetStrategy)
 }
 

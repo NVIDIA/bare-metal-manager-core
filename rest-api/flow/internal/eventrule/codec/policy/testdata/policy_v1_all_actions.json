@@ -14,8 +14,13 @@
         "componentTypes": ["COMPUTE"]
       },
       "spec": {
-        "operationType": "power_control",
-        "operationCode": "force_power_off",
+        "operation": {
+          "type": "power_control",
+          "info": {
+            "operation": 4,
+            "forced": false
+          }
+        },
         "targetStrategy": "component",
         "conflictStrategy": "queue",
         "description": "power off"

@@ -11,7 +11,7 @@ import (
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/target"
-	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/rack"
 	"github.com/google/uuid"
 )
@@ -154,8 +154,9 @@ func DefaultRule() eventrule.Rule {
 				{
 					Name: "power_off_affected_components",
 					Spec: &eventrule.SubmitTask{
-						OperationType:    taskcommon.TaskTypePowerControl,
-						OperationCode:    taskcommon.OpCodePowerControlForcePowerOff,
+						Operation: &operations.PowerControlTaskInfo{
+							Operation: operations.PowerOperationForcePowerOff,
+						},
 						TargetStrategy:   eventrule.TargetStrategyAffectedComponents,
 						ConflictStrategy: eventrule.ConflictStrategyQueue,
 						Description:      "Leakage response",

@@ -10,7 +10,7 @@ import (
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
 	policycodec "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/codec/policy"
-	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	flowtypes "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 	"github.com/stretchr/testify/require"
 )
@@ -80,8 +80,9 @@ func fullPolicy() eventrule.Policy {
 					ComponentTypes: []flowtypes.ComponentType{flowtypes.ComponentTypeCompute},
 				},
 				Spec: &eventrule.SubmitTask{
-					OperationType:    taskcommon.TaskTypePowerControl,
-					OperationCode:    taskcommon.OpCodePowerControlForcePowerOff,
+					Operation: &operations.PowerControlTaskInfo{
+						Operation: operations.PowerOperationForcePowerOff,
+					},
 					TargetStrategy:   eventrule.TargetStrategyComponent,
 					ConflictStrategy: eventrule.ConflictStrategyQueue,
 					Description:      "power off",

@@ -17,7 +17,7 @@ import (
 	memorystore "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/store/memory"
 	eventtarget "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/target"
 	inventoryresolver "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/resolver"
-	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/deviceinfo"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/location"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/rack"
@@ -553,8 +553,9 @@ func submitAction(name string) eventrule.Action {
 	return eventrule.Action{
 		Name: name,
 		Spec: &eventrule.SubmitTask{
-			OperationType:    taskcommon.TaskTypePowerControl,
-			OperationCode:    taskcommon.OpCodePowerControlForcePowerOff,
+			Operation: &operations.PowerControlTaskInfo{
+				Operation: operations.PowerOperationForcePowerOff,
+			},
 			TargetStrategy:   eventrule.TargetStrategyRack,
 			ConflictStrategy: eventrule.ConflictStrategyQueue,
 		},

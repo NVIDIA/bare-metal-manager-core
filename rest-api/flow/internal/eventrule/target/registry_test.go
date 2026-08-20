@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
-	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	flowtypes "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -298,8 +298,9 @@ func targetRule(strategy eventrule.TargetStrategy) *eventrule.Rule {
 			{
 				Name: "task",
 				Spec: &eventrule.SubmitTask{
-					OperationType:    taskcommon.TaskTypePowerControl,
-					OperationCode:    taskcommon.OpCodePowerControlForcePowerOff,
+					Operation: &operations.PowerControlTaskInfo{
+						Operation: operations.PowerOperationForcePowerOff,
+					},
 					TargetStrategy:   strategy,
 					ConflictStrategy: eventrule.ConflictStrategyQueue,
 				},

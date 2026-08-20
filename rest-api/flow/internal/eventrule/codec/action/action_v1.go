@@ -10,6 +10,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/codec"
 	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	flowtypes "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 )
 
@@ -29,11 +30,15 @@ type actionConditionV1 struct {
 }
 
 type submitTaskSpecV1 struct {
-	OperationType    string `json:"operationType"`
-	OperationCode    string `json:"operationCode"`
-	TargetStrategy   string `json:"targetStrategy"`
-	ConflictStrategy string `json:"conflictStrategy"`
-	Description      string `json:"description,omitempty"`
+	Operation        operationV1 `json:"operation"`
+	TargetStrategy   string      `json:"targetStrategy"`
+	ConflictStrategy string      `json:"conflictStrategy"`
+	Description      string      `json:"description,omitempty"`
+}
+
+type operationV1 struct {
+	Type string          `json:"type"`
+	Info json.RawMessage `json:"info"`
 }
 
 type sendAlertSpecV1 struct {
@@ -142,9 +147,16 @@ func unmarshalActionV1(data json.RawMessage) (eventrule.Action, error) {
 func marshalActionSpecV1(spec eventrule.ActionSpec) (json.RawMessage, error) {
 	switch typed := spec.(type) {
 	case *eventrule.SubmitTask:
+		operationInfo, err := typed.Operation.Marshal()
+		if err != nil {
+			return nil, fmt.Errorf("encode submit_task operation v1: %w", err)
+		}
+
 		return json.Marshal(submitTaskSpecV1{
-			OperationType:    string(typed.OperationType),
-			OperationCode:    string(typed.OperationCode),
+			Operation: operationV1{
+				Type: string(typed.Operation.Type()),
+				Info: operationInfo,
+			},
 			TargetStrategy:   string(typed.TargetStrategy),
 			ConflictStrategy: string(typed.ConflictStrategy),
 			Description:      typed.Description,
@@ -171,10 +183,16 @@ func unmarshalActionSpecV1(
 		if err := codec.DecodeStrict(data, &persisted); err != nil {
 			return nil, fmt.Errorf("decode submit_task action spec v1: %w", err)
 		}
+		operation, err := operations.New(
+			taskcommon.TaskType(persisted.Operation.Type),
+			persisted.Operation.Info,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("decode submit_task operation v1: %w", err)
+		}
 
 		return &eventrule.SubmitTask{
-			OperationType:    taskcommon.TaskType(persisted.OperationType),
-			OperationCode:    taskcommon.OperationCode(persisted.OperationCode),
+			Operation:        operation,
 			TargetStrategy:   eventrule.TargetStrategy(persisted.TargetStrategy),
 			ConflictStrategy: eventrule.ConflictStrategy(persisted.ConflictStrategy),
 			Description:      persisted.Description,

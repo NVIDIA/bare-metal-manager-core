@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	flowtypes "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -37,8 +37,9 @@ func TestActionsValidate(t *testing.T) {
 			Name:      []string{"component", "rack", "affected"}[i],
 			Condition: conditions[i],
 			Spec: &SubmitTask{
-				OperationType:    taskcommon.TaskTypePowerControl,
-				OperationCode:    taskcommon.OpCodePowerControlForcePowerOff,
+				Operation: &operations.PowerControlTaskInfo{
+					Operation: operations.PowerOperationForcePowerOff,
+				},
 				TargetStrategy:   strategy,
 				ConflictStrategy: ConflictStrategyQueue,
 			},
@@ -103,18 +104,6 @@ func TestValidateActions(t *testing.T) {
 }
 
 func TestActionRejectsInvalidDomainValues(t *testing.T) {
-	validTaskSpec := SubmitTask{
-		OperationType:    taskcommon.TaskTypePowerControl,
-		OperationCode:    taskcommon.OpCodePowerControlForcePowerOff,
-		TargetStrategy:   TargetStrategyComponent,
-		ConflictStrategy: ConflictStrategyQueue,
-	}
-	unknownStrategySpec := validTaskSpec
-	unknownStrategySpec.TargetStrategy = "unknown"
-	noneStrategySpec := validTaskSpec
-	noneStrategySpec.TargetStrategy = TargetStrategyNone
-	mismatchedOperationSpec := validTaskSpec
-	mismatchedOperationSpec.OperationCode = taskcommon.OpCodeFirmwareControlUpgrade
 	tests := map[string]Action{
 		"empty condition list": {
 			Name:      "noop",
@@ -132,10 +121,50 @@ func TestActionRejectsInvalidDomainValues(t *testing.T) {
 			Name: "alert",
 			Spec: &SendAlert{Severity: SeverityUnspecified},
 		},
-		"unknown strategy":               {Name: "task", Spec: &unknownStrategySpec},
-		"task without target resolution": {Name: "task", Spec: &noneStrategySpec},
-		"mismatched operation":           {Name: "task", Spec: &mismatchedOperationSpec},
-		"missing spec":                   {Name: "task"},
+		"unknown strategy": {
+			Name: "task",
+			Spec: &SubmitTask{
+				Operation: &operations.PowerControlTaskInfo{
+					Operation: operations.PowerOperationForcePowerOff,
+				},
+				TargetStrategy:   "unknown",
+				ConflictStrategy: ConflictStrategyQueue,
+			},
+		},
+		"task without target resolution": {
+			Name: "task",
+			Spec: &SubmitTask{
+				Operation: &operations.PowerControlTaskInfo{
+					Operation: operations.PowerOperationForcePowerOff,
+				},
+				TargetStrategy:   TargetStrategyNone,
+				ConflictStrategy: ConflictStrategyQueue,
+			},
+		},
+		"invalid operation": {
+			Name: "task",
+			Spec: &SubmitTask{
+				Operation:        &operations.PowerControlTaskInfo{},
+				TargetStrategy:   TargetStrategyComponent,
+				ConflictStrategy: ConflictStrategyQueue,
+			},
+		},
+		"missing operation": {
+			Name: "task",
+			Spec: &SubmitTask{
+				TargetStrategy:   TargetStrategyComponent,
+				ConflictStrategy: ConflictStrategyQueue,
+			},
+		},
+		"typed nil operation": {
+			Name: "task",
+			Spec: &SubmitTask{
+				Operation:        (*operations.PowerControlTaskInfo)(nil),
+				TargetStrategy:   TargetStrategyComponent,
+				ConflictStrategy: ConflictStrategyQueue,
+			},
+		},
+		"missing spec": {Name: "task"},
 	}
 
 	for name, action := range tests {
@@ -159,9 +188,15 @@ func TestActionRejectsInvalidDomainValues(t *testing.T) {
 
 func TestAction_Clone(t *testing.T) {
 	tests := map[string]ActionSpec{
-		"submit task": &SubmitTask{Description: "submit"},
-		"send alert":  &SendAlert{Message: "alert"},
-		"noop":        &Noop{Reason: "noop"},
+		"submit task": &SubmitTask{
+			Operation: &operations.FirmwareControlTaskInfo{
+				Operation:  operations.FirmwareOperationUpgrade,
+				SubTargets: []string{"bmc"},
+			},
+			Description: "submit",
+		},
+		"send alert": &SendAlert{Message: "alert"},
+		"noop":       &Noop{Reason: "noop"},
 	}
 
 	for name, spec := range tests {
@@ -182,6 +217,29 @@ func TestAction_Clone(t *testing.T) {
 			require.Equal(t, SeverityWarning, action.Condition.Severities[0])
 		})
 	}
+
+	t.Run("submit task operation", func(t *testing.T) {
+		action := Action{
+			Spec: &SubmitTask{
+				Operation: &operations.FirmwareControlTaskInfo{
+					Operation:  operations.FirmwareOperationUpgrade,
+					SubTargets: []string{"bmc"},
+				},
+			},
+		}
+
+		cloned := action.Clone()
+		originalSpec := action.Spec.(*SubmitTask)
+		clonedSpec := cloned.Spec.(*SubmitTask)
+		require.NotSame(t, originalSpec.Operation, clonedSpec.Operation)
+		clonedOperation := clonedSpec.Operation.(*operations.FirmwareControlTaskInfo)
+		clonedOperation.SubTargets[0] = "bios"
+		require.Equal(
+			t,
+			[]string{"bmc"},
+			originalSpec.Operation.(*operations.FirmwareControlTaskInfo).SubTargets,
+		)
+	})
 
 	t.Run("nil specs", func(t *testing.T) {
 		require.Nil(t, (Action{}).Clone().Spec)

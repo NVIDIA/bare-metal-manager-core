@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"slices"
 
-	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	flowtypes "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 )
 
@@ -120,7 +120,8 @@ type ActionSpec interface {
 	validate() error
 }
 
-// Action describes one independently selected and deduplicated response.
+// Action describes one independently selected and deduplicated response. Name
+// is its stable identity within the owning rule (it is not a database key).
 type Action struct {
 	Name      string
 	Condition ActionCondition
@@ -219,8 +220,7 @@ func (s TargetStrategy) RequiresResolution() bool {
 
 // SubmitTask describes a task submission requested by an event rule.
 type SubmitTask struct {
-	OperationType    taskcommon.TaskType
-	OperationCode    taskcommon.OperationCode
+	Operation        operations.Operation
 	TargetStrategy   TargetStrategy
 	ConflictStrategy ConflictStrategy
 	Description      string
@@ -243,34 +243,36 @@ func (s *SubmitTask) clone() ActionSpec {
 	if s == nil {
 		return nil
 	}
-	cloned := *s
-	return &cloned
+	cloned := &SubmitTask{
+		TargetStrategy:   s.TargetStrategy,
+		ConflictStrategy: s.ConflictStrategy,
+		Description:      s.Description,
+	}
+	if s.Operation != nil {
+		cloned.Operation = s.Operation.Clone()
+	}
+	return cloned
 }
 
 func (s *SubmitTask) validate() error {
 	if s == nil {
 		return fmt.Errorf("action spec is required")
 	}
-
-	if !s.OperationType.IsValid() {
-		return fmt.Errorf("operation_type %q is invalid", s.OperationType)
+	if s.Operation == nil {
+		return fmt.Errorf("operation is required")
 	}
-
-	if err := s.OperationCode.ValidateFor(s.OperationType); err != nil {
-		return err
+	if err := s.Operation.Validate(); err != nil {
+		return fmt.Errorf("operation: %w", err)
 	}
-
 	if err := s.TargetStrategy.Validate(); err != nil {
 		return err
 	}
 	if !s.TargetStrategy.RequiresResolution() {
 		return fmt.Errorf("submit task target strategy must require resolution")
 	}
-
 	if err := s.ConflictStrategy.validate(); err != nil {
 		return err
 	}
-
 	return validateOptionalString("description", s.Description)
 }
 

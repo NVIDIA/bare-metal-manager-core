@@ -8,7 +8,7 @@ import (
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
 	actioncodec "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/codec/action"
-	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	flowtypes "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 	"github.com/stretchr/testify/require"
 )
@@ -22,8 +22,14 @@ func TestMarshal(t *testing.T) {
 				ComponentTypes: []flowtypes.ComponentType{flowtypes.ComponentTypeCompute},
 			},
 			Spec: &eventrule.SubmitTask{
-				OperationType:    taskcommon.TaskTypePowerControl,
-				OperationCode:    taskcommon.OpCodePowerControlForcePowerOff,
+				Operation: &operations.FirmwareControlTaskInfo{
+					Operation:              operations.FirmwareOperationUpgrade,
+					TargetVersion:          "1.2.3",
+					StartTime:              123,
+					EndTime:                456,
+					SubTargets:             []string{"bmc", "bios"},
+					OverrideReadinessCheck: true,
+				},
 				TargetStrategy:   eventrule.TargetStrategyComponent,
 				ConflictStrategy: eventrule.ConflictStrategyQueue,
 				Description:      "power off",
