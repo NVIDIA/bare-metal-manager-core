@@ -6,6 +6,7 @@ package common
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v4"
@@ -21,6 +22,7 @@ import (
 
 	cam "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/grpcproxy"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	flowv1 "github.com/NVIDIA/infra-controller/rest-api/proto/flow/gen/v1"
 )
 
@@ -77,6 +79,7 @@ func TestFlowMutationHelpersProxyRequests(t *testing.T) {
 	const (
 		rackID     = "6f1b7c4e-9c2a-4d1e-8f3b-2a5c7d9e1b04"
 		ruleID     = "b3d2c1a0-5e4f-4a3b-9c8d-7e6f5a4b3c2d"
+		siteID     = "58fe7a29-58b7-4d61-9b64-e355eaff6024"
 		workflowID = "rack-power-1"
 		entityName = "rack r1"
 	)
@@ -166,7 +169,7 @@ func TestFlowMutationHelpersProxyRequests(t *testing.T) {
 		{
 			name: "firmware update",
 			execute: func(ctx context.Context, c echo.Context, stc tclient.Client) (*flowv1.SubmitTaskResponse, error) {
-				return ExecuteFirmwareUpdateWorkflow(ctx, c, zerolog.Nop(), stc, mutationTargetSpec(rackID), &version, []string{"bmc", "nvos"}, nil, false, workflowID, entityName)
+				return ExecuteFirmwareUpdateWorkflow(ctx, c, zerolog.Nop(), stc, mutationTargetSpec(rackID), &version, []string{"bmc", "nvos"}, nil, siteID, nil, false, workflowID, entityName)
 			},
 			wantFullMethod: flowv1.Flow_UpgradeFirmware_FullMethodName,
 			wantRequest: &flowv1.UpgradeFirmwareRequest{
@@ -205,6 +208,47 @@ func TestFlowMutationHelpersProxyRequests(t *testing.T) {
 			})
 		})
 	}
+}
+
+func TestExecuteFirmwareUpdateWorkflowEncryptsAuthenticationData(t *testing.T) {
+	const (
+		rackID     = "6f1b7c4e-9c2a-4d1e-8f3b-2a5c7d9e1b04"
+		siteID     = "58fe7a29-58b7-4d61-9b64-e355eaff6024"
+		workflowID = "rack-firmware-1"
+		token      = "firmware-access-token"
+	)
+	authenticationData := &flowv1.FirmwareAuthenticationData{
+		Value: &flowv1.FirmwareAuthenticationData_Shared{Shared: token},
+	}
+	wantRequest := &flowv1.UpgradeFirmwareRequest{
+		TargetSpec:         mutationTargetSpec(rackID),
+		Description:        "API firmware update rack r1",
+		AuthenticationData: authenticationData,
+	}
+	temporalClient, call := newMutationProxyClient(t, &flowv1.SubmitTaskResponse{})
+	echoCtx, _ := newProxyEchoContext()
+
+	got, err := ExecuteFirmwareUpdateWorkflow(
+		context.Background(), echoCtx, zerolog.Nop(), temporalClient,
+		mutationTargetSpec(rackID), nil, nil, authenticationData, siteID, nil, false,
+		workflowID, "rack r1",
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.True(t, strings.HasPrefix(call.options.ID, FlowWorkflowID(workflowID+"-")))
+	assert.NotContains(t, call.options.ID, token)
+	assert.Equal(t, temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_UNSPECIFIED, call.options.WorkflowIDConflictPolicy)
+	assert.NotContains(t, string(call.request.RequestJSON), token)
+	assert.Contains(t, string(call.request.RequestJSON), grpcproxy.RedactedPlaceholder)
+	require.NotEmpty(t, call.request.EncryptedSecrets)
+
+	secretsJSON := cutil.DecryptData(call.request.EncryptedSecrets, siteID)
+	restoredJSON, err := grpcproxy.MergeSecrets(call.request.RequestJSON, secretsJSON)
+	require.NoError(t, err)
+	gotRequest := &flowv1.UpgradeFirmwareRequest{}
+	require.NoError(t, protojson.Unmarshal(restoredJSON, gotRequest))
+	assert.True(t, proto.Equal(wantRequest, gotRequest), "want %v, got %v", wantRequest, gotRequest)
 }
 
 // TestExecutePowerControlWorkflowRejectsUnknownState keeps an unroutable state

@@ -22812,6 +22812,13 @@ components:
             - string
             - 'null'
           description: Target firmware version.
+        authenticationData:
+          $ref: '#/components/schemas/FirmwareAuthenticationData'
+          writeOnly: true
+          description: |-
+            Optional, write-only authentication data for firmware downloads.
+            Not supported for DPU-only updates or by the legacy NICo compute
+            firmware controller.
         ruleId:
           type: string
           format: uuid
@@ -23989,6 +23996,13 @@ components:
             listed explicitly. `version` is ignored on the `dpu`
             branch; the target firmware version comes from site
             configuration.
+        authenticationData:
+          $ref: '#/components/schemas/FirmwareAuthenticationData'
+          writeOnly: true
+          description: |-
+            Optional, write-only authentication data for firmware downloads.
+            Not supported for DPU-only updates or by the legacy NICo compute
+            firmware controller.
         ruleId:
           type: string
           format: uuid
@@ -24072,6 +24086,50 @@ components:
       examples:
         - taskIds:
             - 550e8400-e29b-41d4-a716-446655440000
+    FirmwareAuthenticationData:
+      title: FirmwareAuthenticationData
+      type: object
+      additionalProperties: false
+      description: |-
+        Optional, write-only authentication data for firmware downloads.
+        Exactly one of `shared` or `perComponent` must be present. Empty string
+        values mean no authentication data for the corresponding target.
+
+        Authentication data is not supported for DPU-only updates or by the
+        legacy NICo compute firmware controller.
+      properties:
+        shared:
+          type: string
+          writeOnly: true
+          description: Authentication data shared by every supported firmware target.
+        perComponent:
+          $ref: '#/components/schemas/PerComponentFirmwareAuthenticationData'
+          writeOnly: true
+      oneOf:
+        - required:
+            - shared
+        - required:
+            - perComponent
+    PerComponentFirmwareAuthenticationData:
+      title: PerComponentFirmwareAuthenticationData
+      type: object
+      additionalProperties: false
+      description: |-
+        Authentication data scoped to supported firmware tray types. An
+        omitted field means that tray type receives no authentication data.
+      properties:
+        compute:
+          type: string
+          writeOnly: true
+          description: Authentication data for compute tray firmware downloads.
+        nvswitch:
+          type: string
+          writeOnly: true
+          description: Authentication data for NVSwitch tray firmware downloads.
+        powershelf:
+          type: string
+          writeOnly: true
+          description: Authentication data for power shelf firmware downloads.
     FirmwareUpdateRequest:
       title: FirmwareUpdateRequest
       type: object
@@ -24126,6 +24184,13 @@ components:
             listed explicitly. `version` is ignored on the `dpu`
             branch; the target firmware version comes from site
             configuration.
+        authenticationData:
+          $ref: '#/components/schemas/FirmwareAuthenticationData'
+          writeOnly: true
+          description: |-
+            Optional, write-only authentication data for firmware downloads.
+            Not supported for DPU-only updates or by the legacy NICo compute
+            firmware controller.
         ruleId:
           type: string
           format: uuid
