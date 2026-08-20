@@ -462,7 +462,9 @@ impl From<rpc::machine_discovery::MemoryDevice> for MemoryDevice {
     }
 }
 
-impl TryFrom<rpc::machine_discovery::MemoryDeviceGroup> for model::hardware_info::MemoryDeviceGroup {
+impl TryFrom<rpc::machine_discovery::MemoryDeviceGroup>
+    for model::hardware_info::MemoryDeviceGroup
+{
     type Error = RpcDataConversionError;
 
     fn try_from(value: rpc::machine_discovery::MemoryDeviceGroup) -> Result<Self, Self::Error> {
@@ -480,7 +482,9 @@ impl TryFrom<rpc::machine_discovery::MemoryDeviceGroup> for model::hardware_info
     }
 }
 
-impl From<model::hardware_info::MemoryDeviceGroup> for rpc::machine_discovery::MemoryDeviceGroup {
+impl From<model::hardware_info::MemoryDeviceGroup>
+    for rpc::machine_discovery::MemoryDeviceGroup
+{
     fn from(value: model::hardware_info::MemoryDeviceGroup) -> Self {
         Self {
             size_mb: value.size_mb,
