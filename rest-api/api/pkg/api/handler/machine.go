@@ -2235,7 +2235,7 @@ func (h DecommissionMachineHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site details for Machine, DB error", nil)
 	}
 	if machine.Site.Status != cdbm.SiteStatusRegistered {
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Site specified in request data is not in Registered state, cannot execute admin operation", nil)
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Site specified in request data is not in Registered state, cannot decommission Machine", nil)
 	}
 
 	stc, err := h.scp.GetClientByID(machine.Site.ID)
