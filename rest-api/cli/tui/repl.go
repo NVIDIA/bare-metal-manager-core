@@ -357,8 +357,13 @@ func readLineWithSuggestions(s *Session, cmdNames []string) (_ string, err error
 	}
 	defer func() {
 		if restore != nil {
-			if restoreErr := restore(); restoreErr != nil {
-				err = errors.Join(err, restoreErr)
+			restoreErr := restore()
+			if restoreErr != nil {
+				if err == nil {
+					err = restoreErr
+				} else {
+					err = errors.Join(err, restoreErr)
+				}
 			}
 		}
 		ShowCursor()

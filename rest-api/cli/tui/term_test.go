@@ -77,7 +77,7 @@ func TestSelectCancellationPreservesSentinel(t *testing.T) {
 
 	select {
 	case err := <-result:
-		assert.Equal(t, errSelectionCancelled, err)
+		assert.Same(t, errSelectionCancelled, err)
 	case <-time.After(time.Second):
 		t.Fatal("Select did not return after Ctrl+D")
 	}

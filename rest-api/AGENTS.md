@@ -251,9 +251,11 @@ verification expectations.
 - When an option consumes a separate value, test that another option token is
   rejected instead of consumed as that value.
 - Propagate terminal restoration errors. Restore the terminal successfully
-  before starting another interactive selector. Join only non-nil restoration
-  errors so sentinel results keep their identity. Test normal PTY, cancellation,
-  and restoration-failure paths.
+  before starting another interactive selector. Return one non-nil error
+  unchanged. Use `errors.Join` only when the operation and restoration both
+  fail. Treat only a direct cancellation sentinel as successful so a joined
+  restoration failure propagates. Test normal PTY, cancellation, and
+  restoration-failure paths.
 - Table-test shell argument quoting with empty input, whitespace, quotes,
   backslashes, control characters, non-ASCII text, and shell metacharacters.
 

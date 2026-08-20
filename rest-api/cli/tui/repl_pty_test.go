@@ -327,6 +327,8 @@ func TestCLIRegression_RealTerminalAndNonInteractive(t *testing.T) {
 		defer terminal.close()
 
 		terminal.waitFor(t, "NICo Interactive Mode")
+		terminal.waitFor(t, "Type a command or")
+		terminal.waitFor(t, "nico:acme")
 		terminal.sendBytes(t, []byte{KeyCtrlD})
 		terminal.waitFor(t, "Goodbye.")
 		terminal.waitForExit(t)
