@@ -760,7 +760,10 @@ fn get_config_files(
         "ENABLE_ESWITCH_MULTIPORT=\"yes\"\n"
     )
     .to_string();
-    if matches!(deployment_type, DpuDeploymentType::Bf4Generic) {
+    if matches!(
+        deployment_type,
+        DpuDeploymentType::Bf4Generic | DpuDeploymentType::Bf4Astra
+    ) {
         mlnx_bf_conf.push_str("SNAP_DMA_SF=\"no\"\n");
     }
 
