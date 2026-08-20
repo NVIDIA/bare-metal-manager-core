@@ -633,12 +633,12 @@ show_summary() {
 Access the services from another machine with:
 
   ssh -N \\
-    -L 30388:${node_ip}:30388 \\
-    -L 30082:${node_ip}:30082 \\
+    -L 18388:${node_ip}:30388 \\
+    -L 18082:${node_ip}:30082 \\
     ${DEV_USER}@<vm-hostname>
 
-REST health: http://localhost:30388/healthz
-Keycloak:    http://localhost:30082/realms/nico-dev
+REST health: http://localhost:18388/healthz
+Keycloak:    http://localhost:18082/realms/nico-dev
 EOF
 }
 
