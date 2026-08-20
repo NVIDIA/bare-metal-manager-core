@@ -258,6 +258,9 @@ verification expectations.
   restoration-failure paths.
 - Table-test shell argument quoting with empty input, whitespace, quotes,
   backslashes, control characters, non-ASCII text, and shell metacharacters.
+- When a mutation success message reads fields from a response object, reject
+  malformed JSON, `null`, empty objects, and missing display fields before
+  printing success.
 
 ### REST endpoints through the Core gRPC proxy
 
@@ -838,7 +841,7 @@ All commits **must** meet the following signing requirement:
 - Before requesting review for a Go change, run `make lint-go` and inspect its
   complete analyzer output. Its `golangci-lint` command uses
   `--issues-exit-code 0`, so a successful command does not mean the output is
-  clean. Run `go tool golangci-lint run <changed-packages>` without that
+  clean. Run `go tool golangci-lint run ./cli/tui/...` without that
   override and fix every finding in the changed package.
 - When CLI flags override configuration, copy the complete configured object
   first and overlay only explicitly set flags. Test no override, one override,

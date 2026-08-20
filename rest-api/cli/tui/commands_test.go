@@ -8,16 +8,67 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"sort"
 	"strings"
 	"testing"
 
+	appcli "github.com/NVIDIA/infra-controller/rest-api/cli/pkg"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // --- Upstream tests ---
+
+func TestCmdSiteCreateRejectsResponseWithoutID(t *testing.T) {
+	for _, response := range []string{"null", "{}"} {
+		t.Run(response, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusCreated)
+				_, _ = io.WriteString(w, response)
+			}))
+			defer server.Close()
+
+			session := NewSession(appcli.NewClient(server.URL, "acme", "token", nil, false), "acme", "")
+			_, err := withStdin(t, "site-name\n\n\n\n\n\n\n", func() (string, error) {
+				return "", cmdSiteCreate(session, nil)
+			})
+
+			require.EqualError(t, err, "parsing created site response: missing id")
+		})
+	}
+}
+
+func TestParseMutationResponse(t *testing.T) {
+	tests := []struct {
+		name      string
+		response  string
+		wantID    string
+		wantError string
+	}{
+		{name: "malformed JSON", response: "[", wantError: "parsing created site response:"},
+		{name: "null", response: "null", wantError: "parsing created site response: missing id"},
+		{name: "empty object", response: "{}", wantError: "parsing created site response: missing id"},
+		{name: "blank id", response: `{"id":"  "}`, wantError: "parsing created site response: missing id"},
+		{name: "valid object", response: `{"id":"site-1","name":"Site One"}`, wantID: "site-1"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			parsed, err := parseMutationResponse([]byte(test.response), "created site")
+			if test.wantError != "" {
+				require.ErrorContains(t, err, test.wantError)
+				assert.Nil(t, parsed)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, test.wantID, str(parsed, "id"))
+		})
+	}
+}
 
 func TestAppendScopeFlags_NoSession(t *testing.T) {
 	got := appendScopeFlags(nil, []string{"machine", "list"})
