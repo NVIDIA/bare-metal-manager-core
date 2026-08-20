@@ -29,6 +29,7 @@ use http_body_util::BodyExt;
 use hyper::http::header::CONTENT_TYPE;
 use hyper::http::{Method, StatusCode};
 use model::machine::{InstanceState, ManagedHostState, RetryInfo};
+use model::machine_boot_interface::BootInterfaceSelectionSource;
 use tower::ServiceExt;
 
 use crate::tests::env::TestEnv;
@@ -154,6 +155,16 @@ async fn machine_detail_manages_the_desired_boot_interface(pool: sqlx::PgPool) {
         .expect("two-DPU host should have another selectable DPU interface")
         .clone();
 
+    sqlx::query(
+        "UPDATE machine_boot_interfaces
+         SET selection_source = 'legacy_unknown', selection_updated_at = NULL
+         WHERE machine_id = $1",
+    )
+    .bind(machine_id)
+    .execute(&env.api().database_connection)
+    .await
+    .expect("the legacy selection fixture should be persisted");
+
     // The page combines persisted reconciliation state with every exact
     // managed row an operator can select.
     let response = app
@@ -180,6 +191,12 @@ async fn machine_detail_manages_the_desired_boot_interface(pool: sqlx::PgPool) {
     assert!(boot_interface_section.contains("Desired Boot Interface"));
     assert!(boot_interface_section.contains("Converged"));
     assert!(boot_interface_section.contains("Redfish verified"));
+    assert!(boot_interface_section.contains("<th>Selection Source</th>"));
+    assert!(boot_interface_section.contains("<th>Selection Updated At</th>"));
+    assert!(
+        boot_interface_section.contains("<tr><th>Selection Source</th><td>LegacyUnknown</td></tr>")
+    );
+    assert!(boot_interface_section.contains("<tr><th>Selection Updated At</th><td>-</td></tr>"));
     assert!(boot_interface_section.contains(&host.host.primary_mac().to_string()));
     assert!(boot_interface_section.contains("<strong>Current</strong>"));
     assert!(boot_interface_section.contains("Matches system default"));
@@ -235,6 +252,43 @@ async fn machine_detail_manages_the_desired_boot_interface(pool: sqlx::PgPool) {
             .is_some_and(|interface| interface.primary_interface),
         "the selected row should become primary",
     );
+
+    let selection = host
+        .host
+        .machine()
+        .await
+        .config
+        .boot_interface_selection
+        .expect("the operator selection should retain its source");
+    assert_eq!(selection.source, BootInterfaceSelectionSource::Operator);
+    let selection_updated_at = selection
+        .updated_at
+        .expect("the operator selection should retain its decision time")
+        .to_string();
+
+    let response = app
+        .clone()
+        .oneshot(
+            web_request_builder()
+                .uri(format!("/admin/machine/{machine_id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("machine detail body should be readable")
+        .to_bytes();
+    let body = std::str::from_utf8(&body).expect("machine detail should be UTF-8");
+    let boot_interface_section = desired_boot_interface_section(body);
+    assert!(boot_interface_section.contains("<tr><th>Selection Source</th><td>Operator</td></tr>"));
+    assert!(boot_interface_section.contains(&format!(
+        "<tr><th>Selection Updated At</th><td>{selection_updated_at}</td></tr>"
+    )));
 
     // `Use system default` is the same exact-row write with the server's
     // current default mapped back to its managed UUID.

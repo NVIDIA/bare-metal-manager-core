@@ -53,6 +53,15 @@ securityContext:
       - NET_RAW
 tolerations: []
 
+lldpSidecar:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+
 ### Values for agent operation
 hbn:
   nvue_https_address: "nvue"

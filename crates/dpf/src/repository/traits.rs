@@ -106,6 +106,12 @@ pub trait DpuDeviceRepository: Send + Sync {
     async fn get(&self, name: &str, namespace: &str) -> Result<Option<DPUDevice>, DpfError>;
     async fn list(&self, namespace: &str) -> Result<Vec<DPUDevice>, DpfError>;
     async fn create(&self, device: &DPUDevice) -> Result<DPUDevice, DpfError>;
+    async fn patch(
+        &self,
+        name: &str,
+        namespace: &str,
+        patch: serde_json::Value,
+    ) -> Result<(), DpfError>;
     async fn delete(&self, name: &str, namespace: &str) -> Result<(), DpfError>;
 }
 
@@ -208,6 +214,14 @@ pub trait DpuServiceConfigurationRepository: Send + Sync {
 pub trait DpuServiceRepository: Send + Sync {
     async fn get(&self, name: &str, namespace: &str) -> Result<Option<DPUService>, DpfError>;
     async fn list(&self, namespace: &str) -> Result<Vec<DPUService>, DpfError>;
+    async fn create(&self, service: &DPUService) -> Result<DPUService, DpfError>;
+    async fn patch(
+        &self,
+        name: &str,
+        namespace: &str,
+        patch: serde_json::Value,
+    ) -> Result<(), DpfError>;
+    async fn delete(&self, name: &str, namespace: &str) -> Result<(), DpfError>;
 }
 
 /// Repository for DPUServiceNAD resources.

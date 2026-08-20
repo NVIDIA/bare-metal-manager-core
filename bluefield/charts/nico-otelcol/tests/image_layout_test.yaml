@@ -48,6 +48,12 @@ tests:
       - matchRegex:
           path: data["config.yaml"]
           pattern: 'key_file:\s*/opt/forge/machine_cert\.key'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '/var/log/pods/\*/nico-lldp-sidecar/\*\.log'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'set\(attributes\["systemd\.unit"\], "nico-lldp-sidecar"\)'
 
   - it: should fall back to /opt/nico when certsDir is cleared
     template: daemonset.yaml

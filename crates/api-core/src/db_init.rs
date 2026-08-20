@@ -293,6 +293,7 @@ pub(crate) async fn create_initial_vpcs(
             routing_profile_overrides: def.routing_profile_overrides.clone(),
             power_resource_group: None,
             vni: Some(vni),
+            slaac_enabled: false,
         };
 
         // Validation
@@ -588,6 +589,7 @@ pub(crate) async fn create_admin_vpc(
         routing_profile_type: None, // It's purely informational.  Admin profile is pulled from an inline-config and not tied to a name or ID.
         routing_profile_overrides: None,
         power_resource_group: None,
+        slaac_enabled: false,
         network_security_group_id: None,
         network_virtualization_type: carbide_network::virtualization::VpcVirtualizationType::Fnn,
         metadata: Metadata {

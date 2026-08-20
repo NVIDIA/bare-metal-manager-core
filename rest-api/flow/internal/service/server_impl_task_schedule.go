@@ -26,6 +26,7 @@ import (
 	inventoryresolver "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/resolver"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
 	taskschedule "github.com/NVIDIA/infra-controller/rest-api/flow/internal/scheduler/taskschedule"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 	pb "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/proto/v1"
 )
@@ -60,6 +61,16 @@ func (rs *FlowServerImpl) CreateTaskSchedule(
 	opInfo, targetSpec, pbQueueOpts, pbRuleID, err := protobuf.ScheduledOperationFrom(req.GetOperation())
 	if err != nil {
 		return nil, err
+	}
+	firmwareInfo, isFirmware := opInfo.(*operations.FirmwareControlTaskInfo)
+	if isFirmware {
+		err = rs.encryptFirmwareAuthenticationData(
+			firmwareInfo,
+			req.GetOperation().GetUpgradeFirmware().GetAuthenticationData(),
+		)
+		if err != nil {
+			return nil, firmwareAuthenticationStatusError(err)
+		}
 	}
 
 	raw, err := opInfo.Marshal()

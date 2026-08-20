@@ -37,6 +37,7 @@ use model::bmc_suppression::{BmcSuppressionSubsystem, NewBmcSuppression};
 use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{LoadSnapshotOptions, Machine};
+use model::machine_boot_interface::BootInterfaceSelectionSource;
 use model::metadata::Metadata;
 use model::site_explorer::{
     BlueFieldOperatingMode, Chassis, ComputerSystem, EndpointExplorationError,
@@ -2932,7 +2933,7 @@ async fn fetch_exploration_report(api: &Api) -> rpc::site_explorer::SiteExplorat
 }
 
 #[sqlx_test]
-async fn test_fetch_host_primary_interface_mac(
+async fn test_select_host_primary_interface(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut mock_dpus = (0..NUM_DPUS).map(|_| DpuConfig::default()).collect_vec();
@@ -2986,22 +2987,43 @@ async fn test_fetch_host_primary_interface_mac(
         });
     }
 
-    // No declaration: the automatic pick stands -- the lowest-PCI DPU host-PF
-    // (the second mock DPU, given the device paths set above).
+    // No declaration: the automatic pick stands -- the DPU host PF with the
+    // lowest UEFI PCI path (the second mock DPU, given the paths set above).
     let expected_mac: MacAddress = mock_dpus[1].host_mac_address;
-    let mac = host_report
-        .fetch_host_primary_interface_mac(&explored_dpus, None)
+    let selection = host_report
+        .select_host_primary_interface(&explored_dpus, None)
         .unwrap();
-    assert_eq!(mac, expected_mac);
+    assert_eq!(selection.mac_address, expected_mac);
+    assert_eq!(
+        selection.source,
+        BootInterfaceSelectionSource::RedfishUefiPci
+    );
+
+    // Preserve the all-or-nothing PCI rule: one matching DPU interface without
+    // a UEFI path disables PCI selection for the whole host, allowing the
+    // existing stable fallback that orders by serial number to run.
+    let mut incomplete_pci_report = host_report.clone();
+    let missing_path_mac = mock_dpus[0].host_mac_address;
+    incomplete_pci_report.systems[0]
+        .ethernet_interfaces
+        .iter_mut()
+        .find(|interface| interface.mac_address == Some(missing_path_mac))
+        .expect("fixture should include the first DPU host-PF")
+        .uefi_device_path = None;
+    assert_eq!(
+        incomplete_pci_report.select_host_primary_interface(&explored_dpus, None),
+        None,
+    );
 
     // A declared primary on a DPU host-PF wins over the automatic pick -- here
     // the first DPU, which the PCI ordering would NOT have chosen.
     let declared_dpu_pf = mock_dpus[0].host_mac_address;
     assert_eq!(
-        host_report
-            .fetch_host_primary_interface_mac(&explored_dpus, Some(declared_dpu_pf))
-            .unwrap(),
-        declared_dpu_pf,
+        host_report.select_host_primary_interface(&explored_dpus, Some(declared_dpu_pf)),
+        Some(model::site_explorer::HostPrimaryInterfaceSelection {
+            mac_address: declared_dpu_pf,
+            source: BootInterfaceSelectionSource::ExpectedMachine,
+        }),
     );
 
     // The headline case: a declared *integrated* NIC -- which the DPU-only
@@ -3020,20 +3042,22 @@ async fn test_fetch_host_primary_interface_mac(
         })
         .expect("the fixture host should have a non-DPU integrated NIC");
     assert_eq!(
-        host_report
-            .fetch_host_primary_interface_mac(&explored_dpus, Some(integrated_nic))
-            .unwrap(),
-        integrated_nic,
+        host_report.select_host_primary_interface(&explored_dpus, Some(integrated_nic)),
+        Some(model::site_explorer::HostPrimaryInterfaceSelection {
+            mac_address: integrated_nic,
+            source: BootInterfaceSelectionSource::ExpectedMachine,
+        }),
     );
 
     // A declared MAC absent from this report is ignored -- the automatic pick
     // stands.
     let absent_mac: MacAddress = "de:ad:be:ef:00:01".parse().unwrap();
     assert_eq!(
-        host_report
-            .fetch_host_primary_interface_mac(&explored_dpus, Some(absent_mac))
-            .unwrap(),
-        expected_mac,
+        host_report.select_host_primary_interface(&explored_dpus, Some(absent_mac)),
+        Some(model::site_explorer::HostPrimaryInterfaceSelection {
+            mac_address: expected_mac,
+            source: BootInterfaceSelectionSource::RedfishUefiPci,
+        }),
     );
     Ok(())
 }

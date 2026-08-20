@@ -276,7 +276,16 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 	vpcDAO := cdbm.NewVpcDAO(dbSession)
 	vpc8, err = vpcDAO.Update(ctx, nil, cdbm.VpcUpdateInput{VpcID: vpc8.ID, Status: cutil.GetPtr(cdbm.VpcStatusError), IsMissingOnSite: cutil.GetPtr(true)})
 	assert.NoError(t, err)
-	vpc2, err = vpcDAO.Update(ctx, nil, cdbm.VpcUpdateInput{VpcID: vpc2.ID, RoutingProfile: cutil.GetPtr("EXTERNAL")})
+	vpc2, err = vpcDAO.Update(ctx, nil, cdbm.VpcUpdateInput{
+		VpcID:          vpc2.ID,
+		RoutingProfile: cutil.GetPtr("EXTERNAL"),
+		SlaacEnabled:   cutil.GetPtr(true),
+	})
+	assert.NoError(t, err)
+	vpc3, err = vpcDAO.Update(ctx, nil, cdbm.VpcUpdateInput{
+		VpcID:        vpc3.ID,
+		SlaacEnabled: cutil.GetPtr(true),
+	})
 	assert.NoError(t, err)
 	// Seed cached profile data so an inventory omission must actively clear it.
 	vpc2, err = vpcDAO.Update(ctx, nil, cdbm.VpcUpdateInput{
@@ -415,6 +424,7 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 		routingProfileClearedVpcs         []*cdbm.Vpc
 		routingProfileStateUpdatedVpc     *cdbm.Vpc
 		routingProfileStateClearedVpc     *cdbm.Vpc
+		expectedSlaacEnabled              map[uuid.UUID]bool
 		expectedNetworkSecurityGroupIDs   map[uuid.UUID]*string
 		readyStatusDetailVpcs             []*cdbm.Vpc
 		requiredMetadataUpdate            bool
@@ -463,6 +473,7 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 							Name: vpc1.ID.String(),
 							Config: &corev1.VpcConfig{
 								NetworkVirtualizationType: &nwvt,
+								SlaacEnabled:              cutil.GetPtr(true),
 								RoutingProfileType:        cutil.GetPtr("INTERNAL"),
 								RoutingProfileOverrides: &corev1.VpcRoutingProfileOverrides{
 									LeakDefaultRouteFromUnderlay: cutil.GetPtr(false),
@@ -486,6 +497,9 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 						{
 							Id:   &corev1.VpcId{Value: vpc3.ControllerVpcID.String()},
 							Name: vpc3.ID.String(),
+							Config: &corev1.VpcConfig{
+								SlaacEnabled: cutil.GetPtr(false),
+							},
 						},
 						{
 							Id:   &corev1.VpcId{Value: vpc4.ControllerVpcID.String()},
@@ -548,6 +562,11 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 			routingProfileClearedVpcs:         []*cdbm.Vpc{vpc2},
 			routingProfileStateUpdatedVpc:     vpc1,
 			routingProfileStateClearedVpc:     vpc2,
+			expectedSlaacEnabled: map[uuid.UUID]bool{
+				vpc1.ID: true,
+				vpc2.ID: true,
+				vpc3.ID: false,
+			},
 			expectedNetworkSecurityGroupIDs: map[uuid.UUID]*string{
 				vpc14.ID: cutil.GetPtr(networkSecurityGroupA.ID),
 				vpc15.ID: cutil.GetPtr(networkSecurityGroupB.ID),
@@ -740,6 +759,12 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 				assert.Nil(t, clearedRoutingProfileVPC.RoutingProfile)
 			}
 
+			for vpcID, expectedSlaacEnabled := range tt.expectedSlaacEnabled {
+				updatedSlaacVpc, gerr := vpcDAO.GetByID(ctx, nil, vpcID, nil)
+				require.NoError(t, gerr)
+				assert.Equal(t, expectedSlaacEnabled, updatedSlaacVpc.SlaacEnabled)
+			}
+
 			// Controller-reported desired and effective profiles must be cached together.
 			if tt.routingProfileStateUpdatedVpc != nil {
 				updatedProfileVPC, gerr := vpcDAO.GetByID(ctx, nil, tt.routingProfileStateUpdatedVpc.ID, nil)
@@ -850,6 +875,7 @@ func TestManageVpc_UpdateVpcsInDB_AutoCreatesAndRestores(t *testing.T) {
 		Config: &corev1.VpcConfig{
 			TenantOrganizationId:      tenantOrg,
 			NetworkVirtualizationType: &networkVirtualizationType,
+			SlaacEnabled:              cutil.GetPtr(true),
 			RoutingProfileType:        &routingProfile,
 			Vni:                       &requestedVni,
 		},
@@ -887,6 +913,7 @@ func TestManageVpc_UpdateVpcsInDB_AutoCreatesAndRestores(t *testing.T) {
 		assert.Equal(t, cdbm.Labels{"origin": "site"}, createdVpc.Labels)
 		require.NotNil(t, createdVpc.NetworkVirtualizationType)
 		assert.Equal(t, cdbm.VpcFNN, *createdVpc.NetworkVirtualizationType)
+		assert.True(t, createdVpc.SlaacEnabled)
 		require.NotNil(t, createdVpc.RoutingProfile)
 		assert.Equal(t, "INTERNAL", *createdVpc.RoutingProfile)
 		require.NotNil(t, createdVpc.Vni)
@@ -965,6 +992,7 @@ func TestManageVpc_UpdateVpcsInDB_AutoCreatesAndRestores(t *testing.T) {
 		assert.Nil(t, restoredVpc.Deleted)
 		assert.False(t, restoredVpc.IsMissingOnSite)
 		assert.Equal(t, cdbm.VpcStatusReady, restoredVpc.Status)
+		assert.True(t, restoredVpc.SlaacEnabled)
 		require.NotNil(t, restoredVpc.ControllerVpcID)
 		assert.Equal(t, controllerVpcID, *restoredVpc.ControllerVpcID)
 		require.NotNil(t, restoredVpc.Vni)

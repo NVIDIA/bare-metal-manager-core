@@ -200,6 +200,13 @@ pub struct VpcCapabilities {
     /// set this true with the same `DpuOverlayL2` kind.
     pub supports_ipv6_prefix: bool,
 
+    /// Whether this VPC type supports per-VPC SLAAC allocation mode.
+    ///
+    /// This is intentionally independent of IPv6 prefix support: Flat VPCs
+    /// can carry IPv6 prefixes, but NICo does not manage the data-plane
+    /// behavior needed for SLAAC on them.
+    pub supports_slaac: bool,
+
     /// Which other VPC virtualization types this one can be peered
     /// with under the site's `Exclusive` peering policy. Must be
     /// maintained symmetrically -- if A lists B, B should list A.
@@ -230,6 +237,7 @@ const ETV_CAPABILITIES: VpcCapabilities = VpcCapabilities {
     ],
     supports_ipv4_prefix: true,
     supports_ipv6_prefix: false,
+    supports_slaac: false,
     peers_with: &[
         VpcVirtualizationType::EthernetVirtualizer,
         VpcVirtualizationType::EthernetVirtualizerWithNvue,
@@ -246,6 +254,7 @@ const FNN_CAPABILITIES: VpcCapabilities = VpcCapabilities {
     ],
     supports_ipv4_prefix: true,
     supports_ipv6_prefix: true,
+    supports_slaac: true,
     peers_with: &[VpcVirtualizationType::Fnn, VpcVirtualizationType::Flat],
 };
 
@@ -254,6 +263,7 @@ const FLAT_CAPABILITIES: VpcCapabilities = VpcCapabilities {
     allowed_segment_types: &[NetworkSegmentType::HostInband],
     supports_ipv4_prefix: true,
     supports_ipv6_prefix: true,
+    supports_slaac: false,
     peers_with: &[
         VpcVirtualizationType::EthernetVirtualizer,
         VpcVirtualizationType::EthernetVirtualizerWithNvue,
@@ -284,6 +294,9 @@ pub enum VpcCapabilityError {
          `routing_profile_overrides` fields are FNN-only"
     )]
     RoutingProfilesUnsupported { vpc_type: VpcVirtualizationType },
+
+    #[error("{vpc_type} VPCs do not support SLAAC allocation mode")]
+    SlaacUnsupported { vpc_type: VpcVirtualizationType },
 
     #[error("{a} and {b} VPCs cannot be peered")]
     PeeringIncompatible {
@@ -327,6 +340,9 @@ pub trait VpcVirtualizationTypeCapabilities {
     /// [`DataPlaneKind::supports_routing_profiles`].
     fn supports_routing_profiles(self) -> bool;
 
+    /// Whether this type supports per-VPC SLAAC allocation mode.
+    fn supports_slaac(self) -> bool;
+
     /// Whether this type is *capable* of allocating an SVI IP for its
     /// segments (precondition, not guarantee per segment). See
     /// [`DataPlaneKind::allocates_svi_ip`].
@@ -368,6 +384,7 @@ pub trait VpcVirtualizationTypeCapabilities {
     fn ensure_supports_ipv4_prefix(self) -> Result<(), VpcCapabilityError>;
     fn ensure_supports_ipv6_prefix(self) -> Result<(), VpcCapabilityError>;
     fn ensure_supports_routing_profiles(self) -> Result<(), VpcCapabilityError>;
+    fn ensure_supports_slaac(self) -> Result<(), VpcCapabilityError>;
     fn ensure_can_peer_with(self, other: VpcVirtualizationType) -> Result<(), VpcCapabilityError>;
 }
 
@@ -449,6 +466,10 @@ impl VpcVirtualizationTypeCapabilities for VpcVirtualizationType {
         self.capabilities().data_plane.supports_routing_profiles()
     }
 
+    fn supports_slaac(self) -> bool {
+        self.capabilities().supports_slaac
+    }
+
     fn allocates_svi_ip(self) -> bool {
         self.capabilities().data_plane.allocates_svi_ip()
     }
@@ -520,6 +541,14 @@ impl VpcVirtualizationTypeCapabilities for VpcVirtualizationType {
             Ok(())
         } else {
             Err(VpcCapabilityError::RoutingProfilesUnsupported { vpc_type: self })
+        }
+    }
+
+    fn ensure_supports_slaac(self) -> Result<(), VpcCapabilityError> {
+        if self.supports_slaac() {
+            Ok(())
+        } else {
+            Err(VpcCapabilityError::SlaacUnsupported { vpc_type: self })
         }
     }
 
@@ -663,6 +692,18 @@ mod tests {
     }
 
     #[test]
+    fn slaac_is_fnn_only() {
+        assert!(VpcVirtualizationType::Fnn.supports_slaac());
+        assert!(!VpcVirtualizationType::EthernetVirtualizer.supports_slaac());
+        assert!(!VpcVirtualizationType::EthernetVirtualizerWithNvue.supports_slaac());
+        assert!(!VpcVirtualizationType::Flat.supports_slaac());
+        assert!(matches!(
+            VpcVirtualizationType::Flat.ensure_supports_slaac(),
+            Err(VpcCapabilityError::SlaacUnsupported { .. })
+        ));
+    }
+
+    #[test]
     fn svi_ip_allocation_is_fnn_only() {
         assert!(VpcVirtualizationType::Fnn.allocates_svi_ip());
         assert!(!VpcVirtualizationType::EthernetVirtualizer.allocates_svi_ip());
@@ -750,6 +791,7 @@ mod tests {
             supports_ipv4_prefix: bool,
             supports_ipv6_prefix: bool,
             supports_routing_profiles: bool,
+            supports_slaac: bool,
             allocates_svi_ip: bool,
             imports_peer_vnis_into_overlay: bool,
             vni_advertised_to_peers: bool,
@@ -766,6 +808,7 @@ mod tests {
                     supports_ipv4_prefix: true,
                     supports_ipv6_prefix: false,
                     supports_routing_profiles: false,
+                    supports_slaac: false,
                     allocates_svi_ip: false,
                     imports_peer_vnis_into_overlay: false,
                     vni_advertised_to_peers: false,
@@ -790,6 +833,7 @@ mod tests {
                     supports_ipv4_prefix: true,
                     supports_ipv6_prefix: false,
                     supports_routing_profiles: false,
+                    supports_slaac: false,
                     allocates_svi_ip: false,
                     imports_peer_vnis_into_overlay: false,
                     vni_advertised_to_peers: false,
@@ -813,6 +857,7 @@ mod tests {
                     supports_ipv4_prefix: true,
                     supports_ipv6_prefix: true,
                     supports_routing_profiles: true,
+                    supports_slaac: true,
                     allocates_svi_ip: true,
                     imports_peer_vnis_into_overlay: true,
                     vni_advertised_to_peers: true,
@@ -832,6 +877,7 @@ mod tests {
                     supports_ipv4_prefix: true,
                     supports_ipv6_prefix: true,
                     supports_routing_profiles: false,
+                    supports_slaac: false,
                     allocates_svi_ip: false,
                     imports_peer_vnis_into_overlay: false,
                     vni_advertised_to_peers: true,
@@ -876,6 +922,11 @@ mod tests {
                 vt.supports_routing_profiles(),
                 expected.supports_routing_profiles,
                 "supports_routing_profiles for {vt}",
+            );
+            assert_eq!(
+                vt.supports_slaac(),
+                expected.supports_slaac,
+                "supports_slaac for {vt}",
             );
             assert_eq!(
                 vt.allocates_svi_ip(),

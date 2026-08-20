@@ -418,11 +418,11 @@ type APIInstanceCreateRequest struct {
 	InstanceTypeID *string `json:"instanceTypeId"`
 	// VpcID is the ID of the VPC containing the Instance
 	VpcID string `json:"vpcId"`
-	// SecondaryVpcIDs lists additional VPC UUIDs for prefix-backed, non-primary
-	// network interfaces on the Instance. Validate() rejects this field unless
+	// SecondaryVpcIDs lists additional VPC UUIDs for non-primary interfaces on
+	// the Instance that select a prefix. Validate() rejects this field unless
 	// every entry in Interfaces uses vpcPrefixId or vpcId, and the create handler then
 	// verifies that the supplied UUIDs exactly match the VPCs resolved from those
-	// prefix-backed interfaces.
+	// interfaces.
 	SecondaryVpcIDs []string `json:"secondaryVpcIds"`
 	// OperatingSystemID is the ID of the Operating System
 	OperatingSystemID *string `json:"operatingSystemId"`
@@ -478,11 +478,11 @@ type APIBatchInstanceCreateRequest struct {
 	InstanceTypeID string `json:"instanceTypeId"`
 	// VpcID is the ID of the VPC containing the Instances
 	VpcID string `json:"vpcId"`
-	// SecondaryVpcIDs lists additional VPC UUIDs for prefix-backed, non-primary
-	// network interfaces on each Instance in the batch. Validate() rejects this
+	// SecondaryVpcIDs lists additional VPC UUIDs for non-primary interfaces on
+	// each Instance in the batch that select a prefix. Validate() rejects this
 	// field unless every entry in Interfaces uses vpcPrefixId or vpcId, and batch create
 	// processing expects these UUIDs to align with the VPCs implied by those
-	// prefix-backed interfaces.
+	// interfaces.
 	SecondaryVpcIDs []string `json:"secondaryVpcIds"`
 	// OperatingSystemID is the ID of the Operating System
 	OperatingSystemID *string `json:"operatingSystemId"`
@@ -1196,11 +1196,11 @@ type APIInstanceUpdateRequest struct {
 	PhoneHomeEnabled *bool `json:"phoneHomeEnabled"`
 	// AlwaysBootWithCustomIpxe is an attribute which is specified by user if instance boot with ipxe or not
 	AlwaysBootWithCustomIpxe *bool `json:"alwaysBootWithCustomIpxe"`
-	// SecondaryVpcIDs lists additional VPC IDs for prefix-backed, non-primary
-	// network interfaces on the Instance. This field will be rejected unless
+	// SecondaryVpcIDs lists additional VPC IDs for non-primary interfaces on the
+	// Instance that select a prefix. This field will be rejected unless
 	// Interfaces is provided and non-empty and every entry in Interfaces uses
 	// vpcPrefixId or vpcId. The update handler then verifies that the supplied UUIDs
-	// exactly match the VPCs resolved from those prefix-backed interfaces.
+	// exactly match the VPCs resolved from those interfaces.
 	SecondaryVpcIDs []string `json:"secondaryVpcIds"`
 	// Interfaces is the list of Interfaces to update for the Instance.
 	// Mutually exclusive with `AutoNetwork`: when `AutoNetwork` is true this MUST be empty.

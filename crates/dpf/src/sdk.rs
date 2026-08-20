@@ -40,6 +40,8 @@ use crate::crds::dpudeployments_generated::{
     DpuDeploymentServiceChainsUpgradePolicy, DpuDeploymentServices, DpuDeploymentServicesDependsOn,
     DpuDeploymentSpec,
 };
+#[cfg(test)]
+use crate::crds::dpudevices_generated::DpuDeviceCluster;
 use crate::crds::dpudevices_generated::{DPUDevice, DpuDeviceSpec};
 use crate::crds::dpunodes_generated::{
     DPUNode, DpuNodeDpus, DpuNodeNodeRebootMethod, DpuNodeNodeRebootMethodExternal, DpuNodeSpec,
@@ -76,6 +78,12 @@ use crate::crds::dpuserviceinterfaces_generated::{
 use crate::crds::dpuservicenads_generated::{
     DPUServiceNAD, DpuServiceNadResourceType, DpuServiceNadSpec,
 };
+use crate::crds::dpuservices_generated::{
+    DPUService, DpuServiceHelmChart, DpuServiceHelmChartSource, DpuServiceSecurity,
+    DpuServiceServiceDaemonSet, DpuServiceServiceDaemonSetNodeSelector,
+    DpuServiceServiceDaemonSetNodeSelectorNodeSelectorTerms,
+    DpuServiceServiceDaemonSetNodeSelectorNodeSelectorTermsMatchExpressions, DpuServiceSpec,
+};
 use crate::crds::dpuservicetemplates_generated::{
     DPUServiceTemplate, DpuServiceTemplateHelmChart, DpuServiceTemplateHelmChartSource,
     DpuServiceTemplateSpec,
@@ -85,18 +93,20 @@ use crate::repository::{
     BfbRepository, BlueFieldSoftwareRepository, DpfOperatorConfigRepository,
     DpuDeploymentRepository, DpuDeviceRepository, DpuFlavorRepository,
     DpuNodeMaintenanceRepository, DpuNodeRepository, DpuRepository,
-    DpuServiceConfigurationRepository, DpuServiceNADRepository, DpuServiceTemplateRepository,
-    K8sConfigRepository,
+    DpuServiceConfigurationRepository, DpuServiceNADRepository, DpuServiceRepository,
+    DpuServiceTemplateRepository, K8sConfigRepository,
 };
 use crate::types::{
     BlueFieldSoftwareParams, BmcPasswordProvider, ConfigPortsServiceType,
     DEFAULT_PF_TOTAL_SF_RESERVED, DHCP_SERVER_SERVICE_NAME, DOCA_HBN_SERVICE_NAME,
-    DPU_AGENT_SERVICE_NAME, DPU_ENABLED_NODE_LABEL, DTS_SERVICE_NAME, DpfInterceptBridging,
-    DpuDeploymentType, DpuDeviceInfo, DpuDeviceSummary, DpuMismatch, DpuNodeInfo, DpuNodeSummary,
-    DpuPhase, DpuServiceInterfacePatch, DpuServiceInterfaceTemplateDefinition,
-    DpuServiceInterfaceTemplateType, DpuServiceVersion, DpuSummary, FMDS_SERVICE_NAME,
-    HostDpfSnapshot, InitDpfResourcesConfig, MAX_BLUEFIELD_VFS_PER_PF, OTEL_COLLECTOR_SERVICE_NAME,
-    ServiceConfigPortProtocol, ServiceDefinition, ServiceNADResourceType, ServiceTemplateVersion,
+    DPU_AGENT_SERVICE_NAME, DPU_ENABLED_NODE_LABEL, DTS_SERVICE_NAME, DetachedDpuServiceDefinition,
+    DpfInterceptBridging, DpuDeploymentType, DpuDeviceInfo, DpuDeviceSummary, DpuMismatch,
+    DpuNodeInfo, DpuNodeSummary, DpuPhase, DpuServiceHelmChartObservation,
+    DpuServiceInterfacePatch, DpuServiceInterfaceTemplateDefinition,
+    DpuServiceInterfaceTemplateType, DpuServiceObservation, DpuServiceVersion, DpuSummary,
+    FMDS_SERVICE_NAME, HostDpfSnapshot, InitDpfResourcesConfig, MAX_BLUEFIELD_VFS_PER_PF,
+    OTEL_COLLECTOR_SERVICE_NAME, ServiceConfigPortProtocol, ServiceDefinition,
+    ServiceNADResourceType, ServiceTemplateVersion,
 };
 use crate::watcher::DpuWatcherBuilder;
 
@@ -1754,7 +1764,170 @@ impl<R: DpuDeploymentRepository, L> DpfSdk<R, L> {
     }
 }
 
+impl<R: DpuServiceRepository, L> DpfSdk<R, L> {
+    /// Get any observed DPUService from this SDK's namespace.
+    pub async fn get_dpu_service(
+        &self,
+        service_name: &str,
+    ) -> Result<Option<DpuServiceObservation>, DpfError> {
+        DpuServiceRepository::get(&*self.repo, service_name, &self.namespace)
+            .await?
+            .map(dpu_service_from_resource)
+            .transpose()
+    }
+
+    /// Create a direct, detached DPUService in this SDK's namespace.
+    ///
+    /// The caller decides how to handle an `AlreadyExists` response, because
+    /// the object must be checked for its particular ownership contract.
+    pub async fn create_dpu_service(
+        &self,
+        service: &DetachedDpuServiceDefinition,
+    ) -> Result<DpuServiceObservation, DpfError> {
+        let mut resource = dpu_service_to_resource(service);
+        resource.metadata.namespace = Some(self.namespace.clone());
+        let created = DpuServiceRepository::create(&*self.repo, &resource).await?;
+        dpu_service_from_resource(created)
+    }
+
+    /// Merge-patch a detached DPUService in this SDK's namespace.
+    pub async fn patch_dpu_service(
+        &self,
+        service_name: &str,
+        patch: serde_json::Value,
+    ) -> Result<(), DpfError> {
+        DpuServiceRepository::patch(&*self.repo, service_name, &self.namespace, patch).await
+    }
+
+    /// Delete a detached DPUService in this SDK's namespace.
+    pub async fn delete_dpu_service(&self, service_name: &str) -> Result<(), DpfError> {
+        DpuServiceRepository::delete(&*self.repo, service_name, &self.namespace).await
+    }
+}
+
+/// Convert the SDK-owned detached-service definition at the SDK/repository
+/// boundary.  DPF's generated type must not escape this module.
+fn dpu_service_to_resource(service: &DetachedDpuServiceDefinition) -> DPUService {
+    DPUService {
+        metadata: ObjectMeta {
+            name: Some(service.name.clone()),
+            namespace: Some(service.namespace.clone()),
+            labels: (!service.labels.is_empty()).then(|| service.labels.clone()),
+            ..Default::default()
+        },
+        spec: DpuServiceSpec {
+            config_ports: None,
+            deploy_in_cluster: Some(service.deploy_in_cluster),
+            dpu_cluster_selector: None,
+            helm_chart: DpuServiceHelmChart {
+                source: DpuServiceHelmChartSource {
+                    chart: Some(service.helm_chart.chart.clone()),
+                    path: None,
+                    release_name: Some(service.helm_chart.release_name.clone()),
+                    repo_url: service.helm_chart.repo_url.clone(),
+                    version: service.helm_chart.version.clone(),
+                },
+                values: service.helm_chart.values.clone(),
+            },
+            interfaces: None,
+            paused: None,
+            security: Some(DpuServiceSecurity {
+                privileged: Some(service.security_privileged),
+            }),
+            service_daemon_set: Some(DpuServiceServiceDaemonSet {
+                annotations: None,
+                labels: None,
+                node_selector: Some(detached_node_selector(&service.node_selector_labels)),
+                resources: None,
+                update_strategy: None,
+            }),
+            service_id: None,
+        },
+        status: None,
+    }
+}
+
+/// Convert a DPF-generated DPUService into the SDK-owned view needed by the
+/// controller.  The repository remains the only layer that deals in checked
+/// DPF CR types.
+fn dpu_service_from_resource(service: DPUService) -> Result<DpuServiceObservation, DpfError> {
+    Ok(DpuServiceObservation {
+        name: service.metadata.name,
+        namespace: service.metadata.namespace,
+        labels: service.metadata.labels.unwrap_or_default(),
+        helm_chart: DpuServiceHelmChartObservation {
+            repo_url: service.spec.helm_chart.source.repo_url,
+            chart: service.spec.helm_chart.source.chart,
+            version: service.spec.helm_chart.source.version,
+            release_name: service.spec.helm_chart.source.release_name,
+            values: service.spec.helm_chart.values,
+        },
+        deploy_in_cluster: service.spec.deploy_in_cluster,
+        dpu_cluster_selector_present: service.spec.dpu_cluster_selector.is_some(),
+        interfaces_present: service.spec.interfaces.is_some(),
+        paused: service.spec.paused,
+        security_privileged: service
+            .spec
+            .security
+            .and_then(|security| security.privileged),
+        service_daemon_set_node_selector: service
+            .spec
+            .service_daemon_set
+            .as_ref()
+            .and_then(|daemon_set| daemon_set.node_selector.as_ref())
+            .map(serde_json::to_value)
+            .transpose()?,
+        service_id: service.spec.service_id,
+        config_ports_present: service.spec.config_ports.is_some(),
+        is_deleting: service.metadata.deletion_timestamp.is_some(),
+    })
+}
+
+fn detached_node_selector(
+    labels: &BTreeMap<String, String>,
+) -> DpuServiceServiceDaemonSetNodeSelector {
+    DpuServiceServiceDaemonSetNodeSelector {
+        node_selector_terms: vec![DpuServiceServiceDaemonSetNodeSelectorNodeSelectorTerms {
+            match_expressions: Some(
+                labels
+                    .iter()
+                    .map(|(key, value)| {
+                        DpuServiceServiceDaemonSetNodeSelectorNodeSelectorTermsMatchExpressions {
+                            key: key.clone(),
+                            operator: "In".to_owned(),
+                            values: Some(vec![value.clone()]),
+                        }
+                    })
+                    .collect(),
+            ),
+            match_fields: None,
+        }],
+    }
+}
+
 impl<R: DpuDeviceRepository, L: ResourceLabeler> DpfSdk<R, L> {
+    /// Merge changes into a DPUDevice's DPU-cluster node labels.
+    ///
+    /// `dpu_device_name` is the raw device ID (without the `device-` CR
+    /// prefix); the SDK applies the prefix internally. `Some(value)` adds or
+    /// replaces a label, while `None` removes it. Existing node labels and
+    /// cluster fields not named by `changes` are preserved.
+    pub async fn merge_dpu_device_node_labels(
+        &self,
+        dpu_device_name: &str,
+        changes: BTreeMap<String, Option<String>>,
+    ) -> Result<(), DpfError> {
+        let cr_name = dpu_device_cr_name(dpu_device_name);
+        let patch = json!({
+            "spec": {
+                "cluster": {
+                    "nodeLabels": changes,
+                },
+            },
+        });
+        DpuDeviceRepository::patch(&*self.repo, &cr_name, &self.namespace, patch).await
+    }
+
     /// Register a new DPU device.
     ///
     /// This operation is idempotent - if the device already exists, it will be
@@ -2700,12 +2873,14 @@ mod tests {
     use super::*;
     use crate::crds::dpuflavors_generated::DPUFlavor;
     use crate::crds::dpus_generated::{DPU, DpuNodeEffect};
+    use crate::crds::dpuservices_generated::DPUService;
     use crate::repository::{
         DpuDeviceRepository, DpuFlavorRepository, DpuNodeRepository, DpuRepository,
+        DpuServiceRepository,
     };
     use crate::types::{
-        DpfInterceptBridge, DpfInterceptBridging, DpfInterfaceIdentity, DpfProxyDetails,
-        DpuDeviceInfo, DpuNodeInfo,
+        DetachedHelmChart, DpfInterceptBridge, DpfInterceptBridging, DpfInterfaceIdentity,
+        DpfProxyDetails, DpuDeviceInfo, DpuNodeInfo,
     };
 
     /// Verifies scoped ServiceInterface names distinguish every deployment class.
@@ -3269,6 +3444,8 @@ mod tests {
         nodes: Arc<RwLock<BTreeMap<String, DPUNode>>>,
         dpus: Arc<RwLock<BTreeMap<String, DPU>>>,
         flavors: Arc<RwLock<BTreeMap<String, DPUFlavor>>>,
+        services: Arc<RwLock<BTreeMap<String, DPUService>>>,
+        service_patch: Arc<RwLock<Option<(String, String, serde_json::Value)>>>,
     }
 
     impl SdkMock {
@@ -3286,6 +3463,59 @@ mod tests {
 
         fn ns_key(ns: &str, name: &str) -> String {
             format!("{}/{}", ns, name)
+        }
+    }
+
+    #[async_trait]
+    impl DpuServiceRepository for SdkMock {
+        async fn get(&self, name: &str, ns: &str) -> Result<Option<DPUService>, DpfError> {
+            Ok(self
+                .services
+                .read()
+                .unwrap()
+                .get(&Self::ns_key(ns, name))
+                .cloned())
+        }
+
+        async fn list(&self, ns: &str) -> Result<Vec<DPUService>, DpfError> {
+            Ok(self
+                .services
+                .read()
+                .unwrap()
+                .iter()
+                .filter(|(key, _)| key.starts_with(&format!("{ns}/")))
+                .map(|(_, service)| service.clone())
+                .collect())
+        }
+
+        async fn create(&self, service: &DPUService) -> Result<DPUService, DpfError> {
+            let key = Self::key(service);
+            let mut services = self.services.write().unwrap();
+            if services.contains_key(&key) {
+                return Err(already_exists_error(
+                    service.meta().name.as_deref().unwrap_or(""),
+                ));
+            }
+            services.insert(key, service.clone());
+            Ok(service.clone())
+        }
+
+        async fn patch(
+            &self,
+            name: &str,
+            ns: &str,
+            patch: serde_json::Value,
+        ) -> Result<(), DpfError> {
+            *self.service_patch.write().unwrap() = Some((name.to_string(), ns.to_string(), patch));
+            Ok(())
+        }
+
+        async fn delete(&self, name: &str, ns: &str) -> Result<(), DpfError> {
+            self.services
+                .write()
+                .unwrap()
+                .remove(&Self::ns_key(ns, name));
+            Ok(())
         }
     }
 
@@ -3317,6 +3547,38 @@ mod tests {
             }
             devices.insert(key, d.clone());
             Ok(d.clone())
+        }
+        async fn patch(
+            &self,
+            name: &str,
+            ns: &str,
+            patch: serde_json::Value,
+        ) -> Result<(), DpfError> {
+            let mut devices = self.devices.write().unwrap();
+            let device = devices
+                .get_mut(&Self::ns_key(ns, name))
+                .ok_or_else(|| DpfError::not_found("DPUDevice", name))?;
+
+            let Some(node_labels) = patch
+                .pointer("/spec/cluster/nodeLabels")
+                .and_then(serde_json::Value::as_object)
+            else {
+                return Ok(());
+            };
+
+            let cluster = device.spec.cluster.get_or_insert(DpuDeviceCluster {
+                node_annotations: None,
+                node_labels: None,
+            });
+            let labels = cluster.node_labels.get_or_insert_with(BTreeMap::new);
+            for (key, value) in node_labels {
+                if value.is_null() {
+                    labels.remove(key);
+                } else if let Some(value) = value.as_str() {
+                    labels.insert(key.clone(), value.to_owned());
+                }
+            }
+            Ok(())
         }
         async fn delete(&self, name: &str, ns: &str) -> Result<(), DpfError> {
             self.devices
@@ -4042,6 +4304,89 @@ mod tests {
         assert_eq!(devices2[0].spec.serial_number, "SN222");
     }
 
+    #[tokio::test]
+    async fn merge_dpu_device_node_labels_preserves_unrelated_labels() {
+        let mock = SdkMock::new();
+        let sdk = DpfSdkBuilder::new(mock.clone(), TEST_NAMESPACE, String::new())
+            .build_without_resources()
+            .await
+            .unwrap();
+
+        let device_name = dpu_device_cr_name("dpu-001");
+        let device = DPUDevice {
+            metadata: ObjectMeta {
+                name: Some(device_name.clone()),
+                namespace: Some(TEST_NAMESPACE.to_string()),
+                ..Default::default()
+            },
+            spec: DpuDeviceSpec {
+                bmc_ip: None,
+                bmc_port: None,
+                number_of_p_fs: None,
+                opn: None,
+                pf0_name: None,
+                psid: None,
+                serial_number: "SN123456".to_string(),
+                bmc_credential_secret_name: None,
+                cluster: Some(DpuDeviceCluster {
+                    node_annotations: Some(BTreeMap::from([(
+                        "other-annotation".to_string(),
+                        "other-value".to_string(),
+                    )])),
+                    node_labels: Some(BTreeMap::from([
+                        ("other-controller".to_string(), "preserve".to_string()),
+                        ("nico/extsvc-remove".to_string(), "enabled".to_string()),
+                    ])),
+                }),
+                nic_device_count: None,
+                values: None,
+            },
+            status: None,
+        };
+        DpuDeviceRepository::create(&mock, &device).await.unwrap();
+
+        sdk.merge_dpu_device_node_labels(
+            "dpu-001",
+            BTreeMap::from([
+                ("nico/extsvc-add".to_string(), Some("enabled".to_string())),
+                ("nico/extsvc-remove".to_string(), None),
+            ]),
+        )
+        .await
+        .unwrap();
+        // Reapplying the same patch is the normal Ready-loop retry path and
+        // must leave the resource in the same converged state.
+        sdk.merge_dpu_device_node_labels(
+            "dpu-001",
+            BTreeMap::from([
+                ("nico/extsvc-add".to_string(), Some("enabled".to_string())),
+                ("nico/extsvc-remove".to_string(), None),
+            ]),
+        )
+        .await
+        .unwrap();
+
+        let updated = DpuDeviceRepository::get(&mock, &device_name, TEST_NAMESPACE)
+            .await
+            .unwrap()
+            .unwrap();
+        let cluster = updated.spec.cluster.unwrap();
+        assert_eq!(
+            cluster.node_annotations,
+            Some(BTreeMap::from([(
+                "other-annotation".to_string(),
+                "other-value".to_string(),
+            )]))
+        );
+        assert_eq!(
+            cluster.node_labels,
+            Some(BTreeMap::from([
+                ("nico/extsvc-add".to_string(), "enabled".to_string()),
+                ("other-controller".to_string(), "preserve".to_string()),
+            ]))
+        );
+    }
+
     #[derive(Clone, Default)]
     struct SecretTrackingMock {
         secrets_written: Arc<std::sync::Mutex<Vec<String>>>,
@@ -4223,6 +4568,126 @@ mod tests {
         assert!(
             matches!(error, DpfError::InvalidState(msg) if msg.contains("BMC root credentials")),
             "unexpected error"
+        );
+    }
+
+    fn test_dpu_service(name: &str) -> DetachedDpuServiceDefinition {
+        DetachedDpuServiceDefinition {
+            name: name.to_owned(),
+            namespace: "another-namespace".to_owned(),
+            labels: BTreeMap::from([("nico/extension-service-id".to_owned(), "id".to_owned())]),
+            helm_chart: DetachedHelmChart {
+                repo_url: "oci://registry.example.com/extensions".to_owned(),
+                chart: "extension".to_owned(),
+                version: "1.0.0".to_owned(),
+                release_name: "extension-release".to_owned(),
+                values: Some(BTreeMap::from([("replicas".to_owned(), json!(1))])),
+            },
+            deploy_in_cluster: false,
+            security_privileged: false,
+            node_selector_labels: BTreeMap::from([(
+                "nico/extension-service".to_owned(),
+                "enabled".to_owned(),
+            )]),
+        }
+    }
+
+    #[tokio::test]
+    async fn dpu_service_lifecycle_delegates_to_repository() {
+        let mock = SdkMock::new();
+        let sdk = DpfSdkBuilder::new(mock.clone(), TEST_NAMESPACE, String::new())
+            .build_without_resources()
+            .await
+            .unwrap();
+        let service = test_dpu_service("extension-service");
+
+        let created = sdk.create_dpu_service(&service).await.unwrap();
+        assert_eq!(created.name.as_deref(), Some("extension-service"));
+        assert_eq!(created.namespace.as_deref(), Some(TEST_NAMESPACE));
+        let resource = mock
+            .services
+            .read()
+            .unwrap()
+            .get(&SdkMock::ns_key(TEST_NAMESPACE, "extension-service"))
+            .cloned()
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(resource).unwrap(),
+            json!({
+                "apiVersion": "svc.dpu.nvidia.com/v1alpha1",
+                "kind": "DPUService",
+                "metadata": {
+                    "labels": {"nico/extension-service-id": "id"},
+                    "name": "extension-service",
+                    "namespace": TEST_NAMESPACE,
+                },
+                "spec": {
+                    "deployInCluster": false,
+                    "helmChart": {
+                        "source": {
+                            "chart": "extension",
+                            "releaseName": "extension-release",
+                            "repoURL": "oci://registry.example.com/extensions",
+                            "version": "1.0.0",
+                        },
+                        "values": {"replicas": 1},
+                    },
+                    "security": {"privileged": false},
+                    "serviceDaemonSet": {
+                        "nodeSelector": {
+                            "nodeSelectorTerms": [{
+                                "matchExpressions": [{
+                                    "key": "nico/extension-service",
+                                    "operator": "In",
+                                    "values": ["enabled"],
+                                }],
+                            }],
+                        },
+                    },
+                },
+            })
+        );
+        assert!(
+            !sdk.get_dpu_service("extension-service")
+                .await
+                .unwrap()
+                .expect("created service can be observed")
+                .is_deleting
+        );
+        mock.services
+            .write()
+            .unwrap()
+            .get_mut(&SdkMock::ns_key(TEST_NAMESPACE, "extension-service"))
+            .expect("created service is retained by the mock")
+            .metadata
+            .deletion_timestamp = Some(terminating_timestamp());
+        assert!(
+            sdk.get_dpu_service("extension-service")
+                .await
+                .unwrap()
+                .expect("finalizer-held service can be observed")
+                .is_deleting
+        );
+
+        let patch = serde_json::json!({"spec": {"paused": true}});
+        sdk.patch_dpu_service("extension-service", patch.clone())
+            .await
+            .unwrap();
+        assert_eq!(
+            *mock.service_patch.read().unwrap(),
+            Some((
+                "extension-service".to_string(),
+                TEST_NAMESPACE.to_string(),
+                patch,
+            ))
+        );
+
+        sdk.delete_dpu_service("extension-service").await.unwrap();
+        assert!(
+            sdk.get_dpu_service("extension-service")
+                .await
+                .unwrap()
+                .is_none()
         );
     }
 

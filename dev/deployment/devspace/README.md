@@ -29,6 +29,7 @@ By default this script assumes an empty cluster and will idempotently:
 - deploy a simple PostgreSQL instance
 - deploy a simple Vault dev server
 - configure Vault mounts and a local PKI role
+- add the Vault PKI public CA to the generated Core admin-client trust bundle
 - create a separate REST database in the local PostgreSQL instance
 - deploy Temporal and create its `cloud` and `site` namespaces
 - deploy the local Keycloak realm
@@ -64,8 +65,21 @@ LOCAL_DEV_VAULT_TOKEN=... \
 LOCAL_DEV_VAULT_KV_MOUNT=secrets \
 LOCAL_DEV_VAULT_PKI_MOUNT=certs \
 LOCAL_DEV_VAULT_AUTH_MODE=root-token \
+LOCAL_DEV_VAULT_ADMIN_CA_FILE=/path/to/vault-pki-ca.pem \
 dev/deployment/devspace/bootstrap-prereqs.sh
 ```
+
+`LOCAL_DEV_VAULT_ADMIN_CA_FILE` is optional when
+`LOCAL_DEV_INSTALL_VAULT=0`. When set, it must name a readable regular file
+containing only one or more valid X.509 certificates as bare PEM `CERTIFICATE`
+blocks and whitespace. The public certificates are copied to
+`nico-api.siteConfig.adminRootCertPem` in `values.generated.yaml`; private keys
+and PEM metadata are rejected. When omitted for an external Vault, the
+generated values do not set `adminRootCertPem`.
+
+When the bootstrap script manages the local Vault, it reads the public CA
+directly from `LOCAL_DEV_VAULT_PKI_MOUNT`. Setting
+`LOCAL_DEV_VAULT_ADMIN_CA_FILE` overrides that CA.
 
 ```bash
 LOCAL_DEV_INSTALL_CERT_MANAGER=0 \
@@ -80,8 +94,11 @@ dev/deployment/devspace/bootstrap-prereqs.sh
 Important:
 
 - The script writes the generated Helm values file from these settings.
+- The generated values trust the configured Vault PKI CA for authenticated
+  Core admin-client operations when the bootstrap script manages local Vault
+  or `LOCAL_DEV_VAULT_ADMIN_CA_FILE` is set.
 - For local Vault, the app uses root-token auth by setting `automountServiceAccountToken: false`.
-- For external Vault, either keep `VAULT_AUTH_MODE=root-token` or supply your own compatible auth setup.
+- For external Vault, either keep `LOCAL_DEV_VAULT_AUTH_MODE=root-token` or supply your own compatible auth setup.
 - `LOCAL_DEV_INSTALL_TEMPORAL=0` and `LOCAL_DEV_INSTALL_KEYCLOAK=0` skip those managed services.
 - `LOCAL_DEV_INSTALL_REST_PREREQS=0` preserves the Core-only bootstrap behavior.
 - A full-stack deployment expects PostgreSQL at `postgres.postgres.svc.cluster.local` and requires the `nico_rest`, `keycloak`, `temporal`, and `temporal_visibility` databases and roles when the local PostgreSQL installation is skipped. A nondefault PostgreSQL host is supported only by the Core-only path.

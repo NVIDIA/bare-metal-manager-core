@@ -4,11 +4,36 @@
 package model
 
 import (
+	"encoding/json"
 	"testing"
 
 	flowv1 "github.com/NVIDIA/infra-controller/rest-api/proto/flow/gen/v1"
 	"github.com/stretchr/testify/assert"
 )
+
+func TestAPIRackJSONContract(t *testing.T) {
+	description := "Core rack description"
+	modelName := "NICO-QA-RACK"
+	apiRack := NewAPIRack(&flowv1.Rack{
+		Info: &flowv1.DeviceInfo{
+			Model:       &modelName,
+			Description: &description,
+		},
+		Location: &flowv1.Location{Datacenter: "DC1"},
+	}, false)
+
+	got, err := json.Marshal(apiRack)
+	assert.NoError(t, err)
+	assert.JSONEq(t, `{
+		"id":"",
+		"name":"",
+		"manufacturer":"",
+		"model":"NICO-QA-RACK",
+		"serialNumber":"",
+		"description":"Core rack description",
+		"location":{"region":"","datacenter":"DC1","room":"","position":""}
+	}`, string(got))
+}
 
 func TestNewAPIRack(t *testing.T) {
 	description := "Test rack description"

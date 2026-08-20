@@ -31,6 +31,7 @@ use carbide_uuid::machine::MachineId;
 use prettytable::{Cell, Row, Table};
 use serde::Serialize;
 
+use super::super::SUMMARY_LABEL_WIDTH;
 use super::args::Args;
 use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
@@ -95,6 +96,11 @@ struct CandidatesReport {
     /// Every boot pair recorded on the machine's explored BMC endpoints --
     /// the MAC plus the Redfish interface id when captured.
     explored_boot_interfaces: Vec<ExploredDefault>,
+    /// Why the current desired target was selected, when it is initialized.
+    desired_selection_source: Option<String>,
+    /// Time the current desired target and source decision was established.
+    /// Adding a Redfish interface ID for the same MAC preserves it.
+    desired_selection_updated_at: Option<String>,
     divergent: bool,
 }
 
@@ -108,6 +114,16 @@ struct ExploredDefault {
 
 impl From<forgerpc::GetMachineBootInterfacesResponse> for CandidatesReport {
     fn from(r: forgerpc::GetMachineBootInterfacesResponse) -> Self {
+        let desired_selection_source = r
+            .reconciliation
+            .as_ref()
+            .map(|status| status.selection_source().as_str().to_string());
+        let desired_selection_updated_at = r.reconciliation.as_ref().and_then(|status| {
+            status
+                .selection_updated_at
+                .map(|timestamp| timestamp.to_string())
+        });
+
         // The default and predicted picks arrive as `MachineBootInterface`
         // messages -- flatten to the strings the report carries.
         let default_mac = r
@@ -209,6 +225,8 @@ impl From<forgerpc::GetMachineBootInterfacesResponse> for CandidatesReport {
             predicted_boot_interface_mac: predicted_mac,
             predicted_boot_interface_id: predicted_id,
             explored_boot_interfaces: explored_defaults,
+            desired_selection_source,
+            desired_selection_updated_at,
             divergent: r.divergent,
         }
     }
@@ -242,6 +260,7 @@ pub(super) async fn handle_candidates(
 fn render_candidates(report: &CandidatesReport) -> String {
     let mut out = String::new();
     let dash = |s: &Option<String>| s.as_deref().unwrap_or("-").to_string();
+    let summary_width = SUMMARY_LABEL_WIDTH;
 
     let machine_id = report
         .machine_id
@@ -322,7 +341,8 @@ fn render_candidates(report: &CandidatesReport) -> String {
     };
     let _ = writeln!(
         out,
-        "\nCurrent boot interface:  {}{}",
+        "\n{:<summary_width$} {}{}",
+        "Current boot interface:",
         pair(
             report.current_boot_interface_mac.as_deref(),
             report.current_boot_interface_id.as_deref(),
@@ -331,7 +351,8 @@ fn render_candidates(report: &CandidatesReport) -> String {
     );
     let _ = writeln!(
         out,
-        "Default (auto) pick:     {}",
+        "{:<summary_width$} {}",
+        "Default (auto) pick:",
         pair(
             report.default_boot_interface_mac.as_deref(),
             report.default_boot_interface_id.as_deref(),
@@ -355,7 +376,8 @@ fn render_candidates(report: &CandidatesReport) -> String {
             (Some(_), _) => {
                 let _ = writeln!(
                     out,
-                    "Predicted pick:          {}",
+                    "{:<summary_width$} {}",
+                    "Predicted pick:",
                     pair(
                         report.predicted_boot_interface_mac.as_deref(),
                         report.predicted_boot_interface_id.as_deref(),
@@ -363,21 +385,23 @@ fn render_candidates(report: &CandidatesReport) -> String {
                 );
             }
             (None, false) => {
-                let _ = writeln!(out, "Predicted pick:          -");
+                let _ = writeln!(out, "{:<summary_width$} -", "Predicted pick:");
             }
             (None, true) => {
                 let _ = writeln!(
                     out,
-                    "Predicted pick:          none -- multiple predictions and none declared \
+                    "{:<summary_width$} none -- multiple predictions and none declared \
                      primary, so the system refuses to guess (declare one via the expected \
-                     machine's `interfaces[].primary`)"
+                     machine's `interfaces[].primary`)",
+                    "Predicted pick:",
                 );
             }
         }
     }
     let _ = writeln!(
         out,
-        "Explored default(s):     {}",
+        "{:<summary_width$} {}",
+        "Explored default(s):",
         if report.explored_boot_interfaces.is_empty() {
             "-".to_string()
         } else {
@@ -389,7 +413,23 @@ fn render_candidates(report: &CandidatesReport) -> String {
                 .join(", ")
         },
     );
-    let _ = writeln!(out, "Stores diverge on boot MAC: {}", report.divergent);
+    let _ = writeln!(
+        out,
+        "{:<summary_width$} {}",
+        "Stores diverge on boot MAC:", report.divergent,
+    );
+    let _ = writeln!(
+        out,
+        "{:<summary_width$} {}",
+        "Desired selection source:",
+        dash(&report.desired_selection_source),
+    );
+    let _ = writeln!(
+        out,
+        "{:<summary_width$} {}",
+        "Selection updated at:",
+        dash(&report.desired_selection_updated_at),
+    );
 
     out
 }
@@ -450,7 +490,14 @@ mod tests {
                 mac_address: "aa:bb:cc:00:00:09".to_string(),
                 interface_id: None,
             }),
-            reconciliation: None,
+            reconciliation: Some(
+                forgerpc::get_machine_boot_interfaces_response::Reconciliation {
+                    selection_source: forgerpc::BootInterfaceSelectionSource::RedfishSerialNumber
+                        as i32,
+                    selection_updated_at: Some(Default::default()),
+                    ..Default::default()
+                },
+            ),
         }
     }
 
@@ -529,11 +576,19 @@ mod tests {
 
         assert!(rendered.contains("current,explored"));
         assert!(rendered.contains("no (underlay)"));
-        assert!(rendered.contains("Current boot interface:  aa:bb:cc:00:00:02 (NIC.Slot.2-1-1)\n"));
-        assert!(rendered.contains("Default (auto) pick:     aa:bb:cc:00:00:01 (NIC.Slot.1-1-1)\n"));
-        assert!(rendered.contains("Predicted pick:          aa:bb:cc:00:00:09"));
-        assert!(rendered.contains("Explored default(s):     aa:bb:cc:00:00:02 (NIC.Slot.2-1-1)"));
-        assert!(rendered.contains("Stores diverge on boot MAC: false"));
+        assert!(
+            rendered.contains("Current boot interface:       aa:bb:cc:00:00:02 (NIC.Slot.2-1-1)\n")
+        );
+        assert!(
+            rendered.contains("Default (auto) pick:          aa:bb:cc:00:00:01 (NIC.Slot.1-1-1)\n")
+        );
+        assert!(rendered.contains("Predicted pick:               aa:bb:cc:00:00:09"));
+        assert!(
+            rendered.contains("Explored default(s):          aa:bb:cc:00:00:02 (NIC.Slot.2-1-1)")
+        );
+        assert!(rendered.contains("Stores diverge on boot MAC:   false"));
+        assert!(rendered.contains("Desired selection source:     RedfishSerialNumber"));
+        assert!(rendered.contains("Selection updated at:         1970-01-01T00:00:00Z"));
     }
 
     #[test]
@@ -567,7 +622,7 @@ mod tests {
 
         let rendered = render_candidates(&CandidatesReport::from(response));
 
-        assert!(rendered.contains("Current boot interface:  -"));
+        assert!(rendered.contains("Current boot interface:       -"));
         assert!(rendered.contains("refuses to guess"));
     }
 
@@ -595,7 +650,7 @@ mod tests {
 
         let rendered = render_candidates(&CandidatesReport::from(response));
 
-        assert!(rendered.contains("Predicted pick:          -"));
+        assert!(rendered.contains("Predicted pick:               -"));
         assert!(!rendered.contains("refuses to guess"));
     }
 
@@ -620,5 +675,10 @@ mod tests {
             "NIC.Slot.2-1-1"
         );
         assert_eq!(value["divergent"], false);
+        assert_eq!(value["desired_selection_source"], "RedfishSerialNumber");
+        assert_eq!(
+            value["desired_selection_updated_at"],
+            "1970-01-01T00:00:00Z"
+        );
     }
 }

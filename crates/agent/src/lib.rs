@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::future::Future;
 use std::io::{Cursor, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
@@ -534,10 +535,12 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             println!("{}", serde_json::to_string_pretty(&health_report)?);
         }
 
-        Some(AgentCommand::LldpNeighbors) => {
-            let neighbors = carbide_host_support::lldp_collector::collect_lldp_neighbors()?;
+        Some(AgentCommand::LldpNeighbors(options)) => {
+            let neighbors = collect_lldp_neighbors(&options.agent_platform_type).await?;
             println!("{neighbors:#?}");
         }
+
+        Some(AgentCommand::SidecarMode) => run_lldp_sidecar().await,
 
         // One-off network monitor check.
         // dumps JSON-formatted peer DPU network reachability and latency status
@@ -733,6 +736,86 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         },
     }
     Ok(())
+}
+
+/// Collect LLDP neighbors from the source appropriate for this agent platform.
+///
+/// Periodic topology publishers must retain their last successful topology when
+/// this returns an error, then log the failure and retry on their normal interval.
+pub async fn collect_lldp_neighbors(
+    platform_type: &AgentPlatformType,
+) -> carbide_host_support::lldp_collector::LldpCollectorResult<
+    Vec<carbide_host_support::lldp_collector::LldpNeighbor>,
+> {
+    collect_lldp_neighbors_with_collectors(
+        platform_type,
+        carbide_host_support::lldp_collector::collect_lldp_neighbors,
+        carbide_host_support::lldp_collector::collect_lldp_neighbors_from_snapshot,
+    )
+    .await
+}
+
+async fn collect_lldp_neighbors_with_collectors<DpuCollector, DpuFuture>(
+    platform_type: &AgentPlatformType,
+    dpu_os_collector: DpuCollector,
+    containerized_collector: impl FnOnce() -> carbide_host_support::lldp_collector::LldpCollectorResult<
+        Vec<carbide_host_support::lldp_collector::LldpNeighbor>,
+    >,
+) -> carbide_host_support::lldp_collector::LldpCollectorResult<
+    Vec<carbide_host_support::lldp_collector::LldpNeighbor>,
+>
+where
+    DpuCollector: FnOnce() -> DpuFuture,
+    DpuFuture: Future<
+        Output = carbide_host_support::lldp_collector::LldpCollectorResult<
+            Vec<carbide_host_support::lldp_collector::LldpNeighbor>,
+        >,
+    >,
+{
+    match platform_type {
+        AgentPlatformType::DpuOs => dpu_os_collector().await,
+        AgentPlatformType::Containerized => containerized_collector(),
+    }
+}
+
+const LLDP_SIDECAR_REFRESH_INTERVAL: Duration = Duration::from_secs(120);
+const LLDP_SIDECAR_RETRY_INTERVAL: Duration = Duration::from_secs(30);
+
+/// Continuously refreshes the LLDP snapshot consumed by the containerized agent.
+pub async fn run_lldp_sidecar() {
+    run_lldp_sidecar_loop(
+        carbide_host_support::lldp_collector::publish_lldp_snapshot,
+        None,
+    )
+    .await;
+}
+
+async fn run_lldp_sidecar_loop<Capture, CaptureFuture>(
+    mut capture: Capture,
+    attempt_limit: Option<usize>,
+) where
+    Capture: FnMut() -> CaptureFuture,
+    CaptureFuture: Future<Output = carbide_host_support::lldp_collector::LldpCollectorResult<()>>,
+{
+    let mut attempts = 0;
+    loop {
+        let delay = match capture().await {
+            Ok(()) => LLDP_SIDECAR_REFRESH_INTERVAL,
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    retry_interval_seconds = LLDP_SIDECAR_RETRY_INTERVAL.as_secs(),
+                    "Could not refresh LLDP sidecar snapshot; retaining the last successful snapshot"
+                );
+                LLDP_SIDECAR_RETRY_INTERVAL
+            }
+        };
+        attempts += 1;
+        if attempt_limit.is_some_and(|limit| attempts >= limit) {
+            return;
+        }
+        tokio::time::sleep(delay).await;
+    }
 }
 
 struct Registration {

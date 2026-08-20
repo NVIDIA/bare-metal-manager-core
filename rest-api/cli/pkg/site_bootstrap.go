@@ -1027,7 +1027,7 @@ func (references bootstrapReferences) resolve(value any) (any, error) {
 			if err != nil {
 				return nil, err
 			}
-			result.WriteString(fmt.Sprint(resolved))
+			fmt.Fprint(&result, resolved)
 			last = match[1]
 		}
 		result.WriteString(typed[last:])

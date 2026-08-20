@@ -52,6 +52,7 @@ rustls-pemfile = { workspace = true }
 serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
 smbios-lib = { workspace = true }
+tempfile = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 toml = { workspace = true }
@@ -71,7 +72,6 @@ serde_with = { workspace = true }
 [dev-dependencies]
 carbide-test-support = { path = "../test-support" }
 rcgen = { workspace = true }
-tempfile = { workspace = true }
 
 [lints]
 workspace = true

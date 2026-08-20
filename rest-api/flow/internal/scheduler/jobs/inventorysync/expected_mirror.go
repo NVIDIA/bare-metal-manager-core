@@ -28,9 +28,7 @@ type mirrorResult struct {
 	adopted          int
 	resurrected      int
 	softDeleted      int
-	legacyExempt     int
 	skippedNoIDOrKey int
-	skippedNameTaken int
 }
 
 func (r mirrorResult) log() {
@@ -42,9 +40,7 @@ func (r mirrorResult) log() {
 		Int("adopted", r.adopted).
 		Int("resurrected", r.resurrected).
 		Int("soft_deleted", r.softDeleted).
-		Int("legacy_exempt", r.legacyExempt).
 		Int("skipped_invalid", r.skippedNoIDOrKey).
-		Int("skipped_name_taken", r.skippedNameTaken).
 		Msgf("Expected-inventory mirror: %s", r.resource)
 }
 

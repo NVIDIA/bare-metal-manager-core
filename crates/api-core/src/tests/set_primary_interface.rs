@@ -18,10 +18,13 @@
 use std::str::FromStr;
 
 use carbide_redfish::libredfish::test_support::RedfishSimAction;
-use carbide_uuid::machine::MachineInterfaceId;
+use carbide_uuid::instance::InstanceId;
+use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use chrono::{DateTime, Utc};
+use config_version::ConfigVersion;
 use ipnetwork::IpNetwork;
 use model::machine::{InstanceState, ManagedHostState};
-use model::machine_boot_interface::MachineBootInterfaceTarget;
+use model::machine_boot_interface::{BootInterfaceSelectionSource, MachineBootInterfaceTarget};
 use model::network_segment::NetworkSegmentType;
 use model::test_support::ManagedHostConfig;
 use rpc::forge;
@@ -35,6 +38,64 @@ use crate::tests::common::api_fixtures::network_segment::{
     FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY, create_admin_network_segment,
     create_host_inband_network_segment, create_underlay_network_segment,
 };
+
+#[derive(Debug, PartialEq)]
+struct SetPrimaryPersistenceState {
+    interface_primaries: Vec<(String, bool)>,
+    interface_addresses: Vec<(String, String, String)>,
+    machine_network_configs: Vec<(String, String, String)>,
+    instance_network_config: (String, String),
+    desired_boot_interface: Option<(Option<String>, Option<String>, Option<String>)>,
+}
+
+async fn load_set_primary_persistence_state(
+    pool: &sqlx::PgPool,
+    host_id: MachineId,
+    instance_id: InstanceId,
+) -> Result<SetPrimaryPersistenceState, sqlx::Error> {
+    Ok(SetPrimaryPersistenceState {
+        interface_primaries: sqlx::query_as(
+            "SELECT id::text, primary_interface FROM machine_interfaces \
+             WHERE machine_id = $1 ORDER BY id",
+        )
+        .bind(host_id)
+        .fetch_all(pool)
+        .await?,
+        interface_addresses: sqlx::query_as(
+            "SELECT address.interface_id::text, address.address::text, address.allocation_type \
+             FROM machine_interface_addresses address \
+             JOIN machine_interfaces interface ON interface.id = address.interface_id \
+             WHERE interface.machine_id = $1 \
+             ORDER BY address.interface_id, address.address, address.allocation_type",
+        )
+        .bind(host_id)
+        .fetch_all(pool)
+        .await?,
+        machine_network_configs: sqlx::query_as(
+            "SELECT id::text, network_config::text, network_config_version::text \
+             FROM machines \
+             WHERE id IN (SELECT id FROM machine_group_member_ids($1)) \
+             ORDER BY id",
+        )
+        .bind(host_id)
+        .fetch_all(pool)
+        .await?,
+        instance_network_config: sqlx::query_as(
+            "SELECT network_config::text, network_config_version::text \
+             FROM instances WHERE id = $1",
+        )
+        .bind(instance_id)
+        .fetch_one(pool)
+        .await?,
+        desired_boot_interface: sqlx::query_as(
+            "SELECT desired_mac_address::text, desired_interface_id, desired_version::text \
+             FROM machine_boot_interfaces WHERE machine_id = $1",
+        )
+        .bind(host_id)
+        .fetch_optional(pool)
+        .await?,
+    })
+}
 
 // Unlike `set_primary_dpu`, `set_primary_interface` has no zero-DPU guard -- a
 // zero-DPU host is a first-class target. So on a zero-DPU host the call must get
@@ -119,6 +180,297 @@ async fn test_set_primary_interface_does_not_apply_the_zero_dpu_guard(
         err.message().contains("not found"),
         "expected the missing-interface error, got: {}",
         err.message(),
+    );
+
+    Ok(())
+}
+
+// Selecting the ingestion winner is still meaningful when the current
+// source is automatic: it pins that same target as explicit operator intent.
+// Since the target does not change, this must not manufacture controller work.
+#[crate::sqlx_test]
+async fn test_set_primary_interface_records_same_target_operator_authority(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = api_fixtures::create_test_env(pool).await;
+    let host =
+        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::default().with_dpu_count(2))
+            .await?;
+    let host_id = host.host_snapshot.id;
+
+    let current_primary_id = {
+        let mut txn = env.pool.begin().await?;
+        db::machine_interface::find_by_machine_ids(txn.as_mut(), &[host_id])
+            .await?
+            .remove(&host_id)
+            .expect("host should have interface rows")
+            .into_iter()
+            .find(|interface| interface.primary_interface)
+            .expect("host should start with a primary interface")
+            .id
+    };
+    let sentinel =
+        DateTime::from_timestamp(1_722_000_000, 123_000_000).expect("fixture selection timestamp");
+    sqlx::query(
+        "UPDATE machine_boot_interfaces
+         SET selection_source = 'redfish_serial_number',
+             selection_updated_at = $1
+         WHERE machine_id = $2",
+    )
+    .bind(sentinel)
+    .bind(host_id)
+    .execute(&env.pool)
+    .await?;
+    sqlx::query("DELETE FROM machine_state_controller_queued_objects WHERE object_id = $1")
+        .bind(host_id.to_string())
+        .execute(&env.pool)
+        .await?;
+
+    #[derive(sqlx::FromRow)]
+    struct BootInterfaceState {
+        machine_version: ConfigVersion,
+        desired_version: ConfigVersion,
+        verified_version: Option<ConfigVersion>,
+        observed_at: Option<DateTime<Utc>>,
+        assumed: bool,
+        selection_source: BootInterfaceSelectionSource,
+        selection_updated_at: Option<DateTime<Utc>>,
+    }
+
+    let state_query = "SELECT machine.version AS machine_version,
+                              boot_interface.desired_version,
+                              boot_interface.verified_version,
+                              boot_interface.observed_at,
+                              boot_interface.assumed,
+                              boot_interface.selection_source,
+                              boot_interface.selection_updated_at
+                       FROM machines machine
+                       JOIN machine_boot_interfaces boot_interface
+                         ON boot_interface.machine_id = machine.id
+                       WHERE machine.id = $1";
+    let before = sqlx::query_as::<_, BootInterfaceState>(state_query)
+        .bind(host_id)
+        .fetch_one(&env.pool)
+        .await?;
+    assert_eq!(
+        before.verified_version,
+        Some(before.desired_version),
+        "this case isolates a source-only change, so the target must already be verified",
+    );
+
+    env.api
+        .set_primary_interface(tonic::Request::new(forge::SetPrimaryInterfaceRequest {
+            host_machine_id: Some(host_id),
+            interface_id: Some(current_primary_id),
+            force_reconcile: false,
+            ..Default::default()
+        }))
+        .await?;
+
+    let after = sqlx::query_as::<_, BootInterfaceState>(state_query)
+        .bind(host_id)
+        .fetch_one(&env.pool)
+        .await?;
+    assert_eq!(
+        after.machine_version.version_nr(),
+        before.machine_version.version_nr() + 1,
+        "the visible source change must advance the aggregate machine version",
+    );
+    assert_eq!(after.desired_version, before.desired_version);
+    assert_eq!(after.verified_version, before.verified_version);
+    assert_eq!(after.observed_at, before.observed_at);
+    assert_eq!(after.assumed, before.assumed);
+    assert_eq!(
+        after.selection_source,
+        BootInterfaceSelectionSource::Operator
+    );
+    let selection_updated_at = after
+        .selection_updated_at
+        .expect("operator decision timestamp");
+    assert!(selection_updated_at > sentinel);
+
+    let is_queued: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+            SELECT 1
+            FROM machine_state_controller_queued_objects
+            WHERE object_id = $1
+        )",
+    )
+    .bind(host_id.to_string())
+    .fetch_one(&env.pool)
+    .await?;
+    assert!(!is_queued, "source-only authority needs no Redfish work");
+
+    let error = env
+        .api
+        .set_primary_interface(tonic::Request::new(forge::SetPrimaryInterfaceRequest {
+            host_machine_id: Some(host_id),
+            interface_id: Some(current_primary_id),
+            force_reconcile: false,
+            ..Default::default()
+        }))
+        .await
+        .expect_err("repeating explicit operator intent should retain the API guard");
+    assert_eq!(error.code(), tonic::Code::InvalidArgument);
+    assert_eq!(
+        error.message(),
+        "requested interface is already the operator-selected primary interface",
+    );
+
+    let retry_selection: (BootInterfaceSelectionSource, Option<DateTime<Utc>>) = sqlx::query_as(
+        "SELECT selection_source, selection_updated_at
+         FROM machine_boot_interfaces
+         WHERE machine_id = $1",
+    )
+    .bind(host_id)
+    .fetch_one(&env.pool)
+    .await?;
+    assert_eq!(
+        retry_selection,
+        (
+            BootInterfaceSelectionSource::Operator,
+            Some(selection_updated_at),
+        ),
+        "an idempotent retry must not refresh the selection timestamp",
+    );
+
+    Ok(())
+}
+
+// BMC administration can leave the desired target on a different interface
+// without moving the primary row. Selecting the current primary must repair
+// that divergence even when the stored target was also selected by an operator.
+#[crate::sqlx_test]
+async fn test_set_primary_interface_repairs_divergent_operator_target(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = api_fixtures::create_test_env(pool).await;
+    let host =
+        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::default().with_dpu_count(2))
+            .await?;
+    let host_id = host.host_snapshot.id;
+
+    let (current_primary_id, current_primary_target, divergent_target) = {
+        let mut txn = env.pool.begin().await?;
+        let interfaces = db::machine_interface::find_by_machine_ids(txn.as_mut(), &[host_id])
+            .await?
+            .remove(&host_id)
+            .expect("host should have interface rows");
+        let current_primary = interfaces
+            .iter()
+            .find(|interface| interface.primary_interface)
+            .expect("host should start with a primary interface");
+        let divergent = interfaces
+            .iter()
+            .find(|interface| {
+                !interface.primary_interface && interface.attached_dpu_machine_id.is_some()
+            })
+            .expect("host with two DPUs should have an interface backed by another DPU");
+        (
+            current_primary.id,
+            MachineBootInterfaceTarget::Pair(
+                current_primary
+                    .boot_interface()
+                    .expect("primary DPU interface should have a Redfish id"),
+            ),
+            MachineBootInterfaceTarget::Pair(
+                divergent
+                    .boot_interface()
+                    .expect("secondary DPU interface should have a Redfish id"),
+            ),
+        )
+    };
+
+    let mut txn = env.pool.begin().await?;
+    db::machine_desired_boot_interface::force_set(
+        txn.as_mut(),
+        &host_id,
+        &divergent_target,
+        BootInterfaceSelectionSource::Operator,
+    )
+    .await?;
+    txn.commit().await?;
+
+    env.api
+        .set_primary_interface(tonic::Request::new(forge::SetPrimaryInterfaceRequest {
+            host_machine_id: Some(host_id),
+            interface_id: Some(current_primary_id),
+            force_reconcile: false,
+            ..Default::default()
+        }))
+        .await?;
+
+    let desired = db::machine_desired_boot_interface::get(&env.pool, &host_id)
+        .await?
+        .expect("the repaired desired target should be persisted");
+    assert_eq!(desired.value, current_primary_target);
+
+    Ok(())
+}
+
+// A Redfish interface ID is part of a complete desired target. Selecting the
+// current primary must refresh an obsolete ID even when the MAC and operator
+// selection source have not changed.
+#[crate::sqlx_test]
+async fn test_set_primary_interface_refreshes_operator_target_interface_id(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = api_fixtures::create_test_env(pool).await;
+    let host =
+        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::default().with_dpu_count(2))
+            .await?;
+    let host_id = host.host_snapshot.id;
+
+    let (current_primary_id, current_primary_target, obsolete_target) = {
+        let mut txn = env.pool.begin().await?;
+        let interfaces = db::machine_interface::find_by_machine_ids(txn.as_mut(), &[host_id])
+            .await?
+            .remove(&host_id)
+            .expect("host should have interface rows");
+        let current_primary = interfaces
+            .iter()
+            .find(|interface| interface.primary_interface)
+            .expect("host should start with a primary interface");
+        let current_primary_target = MachineBootInterfaceTarget::Pair(
+            current_primary
+                .boot_interface()
+                .expect("primary DPU interface should have a Redfish id"),
+        );
+        let obsolete_target = MachineBootInterfaceTarget::from_parts(
+            Some(current_primary.mac_address),
+            Some("NIC.Obsolete.1-1-1".to_string()),
+        )
+        .expect("the obsolete complete target should be valid");
+        (current_primary.id, current_primary_target, obsolete_target)
+    };
+
+    let mut txn = env.pool.begin().await?;
+    let obsolete = db::machine_desired_boot_interface::force_set(
+        txn.as_mut(),
+        &host_id,
+        &obsolete_target,
+        BootInterfaceSelectionSource::Operator,
+    )
+    .await?;
+    txn.commit().await?;
+
+    env.api
+        .set_primary_interface(tonic::Request::new(forge::SetPrimaryInterfaceRequest {
+            host_machine_id: Some(host_id),
+            interface_id: Some(current_primary_id),
+            force_reconcile: false,
+            ..Default::default()
+        }))
+        .await?;
+
+    let desired = db::machine_desired_boot_interface::get(&env.pool, &host_id)
+        .await?
+        .expect("the refreshed desired target should be persisted");
+    assert_eq!(desired.value, current_primary_target);
+    assert_eq!(
+        desired.version.version_nr(),
+        obsolete.desired.version.version_nr() + 1,
+        "refreshing the Redfish interface ID should open a desired generation",
     );
 
     Ok(())
@@ -222,10 +574,9 @@ async fn test_set_primary_interface_promotes_a_non_primary_interface(
         .await
         .expect_err("selecting the current primary without force should retain the API guard");
     assert_eq!(error.code(), tonic::Code::InvalidArgument);
-    assert!(
-        error.message().contains("already primary"),
-        "expected the already-primary guard error, got: {}",
+    assert_eq!(
         error.message(),
+        "requested interface is already the operator-selected primary interface",
     );
 
     sqlx::query("DELETE FROM machine_state_controller_queued_objects WHERE object_id = $1")
@@ -391,6 +742,94 @@ async fn test_set_primary_interface_rolls_back_primary_and_desired_together(
         .expect("the original desired target should remain");
     assert_eq!(desired_after.value, desired_before.value);
     assert_eq!(desired_after.version, desired_before.version);
+
+    Ok(())
+}
+
+// A deleted `Instance` remains associated with its host while lifecycle cleanup
+// is pending. The locked lookup must reject both a primary move and a forced
+// reconciliation before either operation can persist changes.
+#[crate::sqlx_test]
+async fn test_set_primary_interface_rejects_deleted_instance_and_rolls_back_writes(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = api_fixtures::create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let host = api_fixtures::create_managed_host_multi_dpu(&env, 2).await;
+    let host_id = host.id;
+    let instance = host
+        .instance_builer(&env)
+        .single_interface_network_config(segment_id)
+        .build()
+        .await;
+
+    let (current_primary_id, promote_id) = {
+        let mut txn = env.pool.begin().await?;
+        let interfaces = db::machine_interface::find_by_machine_ids(txn.as_mut(), &[host_id])
+            .await?
+            .remove(&host_id)
+            .expect("host should have interface rows");
+        let current_primary_id = interfaces
+            .iter()
+            .find(|interface| interface.primary_interface)
+            .expect("host should have a primary interface")
+            .id;
+        let promote_id = interfaces
+            .into_iter()
+            .find(|interface| {
+                !interface.primary_interface && interface.attached_dpu_machine_id.is_some()
+            })
+            .expect("host should have a non-primary DPU-backed interface")
+            .id;
+        txn.commit().await?;
+        (current_primary_id, promote_id)
+    };
+
+    let state_before = load_set_primary_persistence_state(&env.pool, host_id, instance.id).await?;
+
+    let mut deletion = env.pool.begin().await?;
+    db::instance::mark_as_deleted(instance.id, deletion.as_mut()).await?;
+    deletion.commit().await?;
+
+    struct Case {
+        name: &'static str,
+        interface_id: MachineInterfaceId,
+        force_reconcile: bool,
+    }
+    let cases = [
+        Case {
+            name: "primary move",
+            interface_id: promote_id,
+            force_reconcile: false,
+        },
+        Case {
+            name: "forced reconciliation",
+            interface_id: current_primary_id,
+            force_reconcile: true,
+        },
+    ];
+
+    for case in cases {
+        let error = env
+            .api
+            .set_primary_interface(tonic::Request::new(forge::SetPrimaryInterfaceRequest {
+                host_machine_id: Some(host_id),
+                interface_id: Some(case.interface_id),
+                force_reconcile: case.force_reconcile,
+                ..Default::default()
+            }))
+            .await
+            .expect_err(case.name);
+        assert_eq!(error.code(), tonic::Code::FailedPrecondition);
+        assert_eq!(
+            error.message(),
+            format!("instance {} is being deleted", instance.id),
+        );
+
+        let state_after =
+            load_set_primary_persistence_state(&env.pool, host_id, instance.id).await?;
+        assert_eq!(state_after, state_before, "{} persisted state", case.name);
+    }
 
     Ok(())
 }

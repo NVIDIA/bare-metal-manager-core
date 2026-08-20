@@ -34,6 +34,7 @@ use rpc::forge::forge_server::Forge;
 
 use crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
 use crate::tests::common;
+use crate::tests::common::api_fixtures::tenant::create_fixture_tenant;
 use crate::tests::common::api_fixtures::{TestEnvOverrides, create_test_env_with_overrides};
 use crate::tests::common::rpc_builder::{VpcCreationRequest, VpcDeletionRequest, VpcUpdateRequest};
 use crate::{DatabaseError, db_init};
@@ -758,6 +759,151 @@ async fn vpc_without_fnn_rejects_routing_profile_fields(
     Ok(())
 }
 
+/// SLAAC is immutable VPC creation policy and is supported only by FNN.
+#[crate::sqlx_test]
+async fn test_slaac_vpc_creation_contract(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env =
+        create_test_env_with_overrides(pool, TestEnvOverrides::default().with_fnn_config(None))
+            .await;
+    let tenant_organization_id = "slaac-vpc-tenant";
+    create_fixture_tenant(&env, tenant_organization_id).await?;
+
+    check_cases_async(
+        [
+            Case {
+                scenario: "default Ethernet virtualization",
+                input: VpcCreationRequest::builder(tenant_organization_id)
+                    .metadata(Metadata {
+                        name: "SLAAC on ETV".to_string(),
+                        ..Default::default()
+                    })
+                    .slaac_enabled(true)
+                    .tonic_request(),
+                expect: FailsWith(true),
+            },
+            Case {
+                scenario: "Flat virtualization",
+                input: VpcCreationRequest::builder(tenant_organization_id)
+                    .metadata(Metadata {
+                        name: "SLAAC on Flat".to_string(),
+                        ..Default::default()
+                    })
+                    .network_virtualization_type(rpc::forge::VpcVirtualizationType::Flat as i32)
+                    .slaac_enabled(true)
+                    .tonic_request(),
+                expect: FailsWith(true),
+            },
+        ],
+        |request| {
+            let api = env.api.clone();
+            async move {
+                api.create_vpc(request).await.map(drop).map_err(|error| {
+                    error.code() == tonic::Code::InvalidArgument
+                        && error
+                            .message()
+                            .contains("VPCs do not support SLAAC allocation mode")
+                })
+            }
+        },
+    )
+    .await;
+
+    let omitted = env
+        .api
+        .create_vpc(
+            VpcCreationRequest::builder(tenant_organization_id)
+                .metadata(Metadata {
+                    name: "FNN without SLAAC".to_string(),
+                    ..Default::default()
+                })
+                .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+                .tonic_request(),
+        )
+        .await?
+        .into_inner();
+    assert_eq!(forge_vpc_config(&omitted).slaac_enabled, Some(false));
+
+    let explicitly_disabled = env
+        .api
+        .create_vpc(
+            VpcCreationRequest::builder(tenant_organization_id)
+                .metadata(Metadata {
+                    name: "FNN with SLAAC explicitly disabled".to_string(),
+                    ..Default::default()
+                })
+                .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+                .slaac_enabled(false)
+                .tonic_request(),
+        )
+        .await?
+        .into_inner();
+    assert_eq!(
+        forge_vpc_config(&explicitly_disabled).slaac_enabled,
+        Some(false)
+    );
+
+    // VPC creation succeeds before any IPv6 (or other) VPC prefix exists.
+    let created = env
+        .api
+        .create_vpc(
+            VpcCreationRequest::builder(tenant_organization_id)
+                .metadata(Metadata {
+                    name: "SLAAC on FNN".to_string(),
+                    ..Default::default()
+                })
+                .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+                .slaac_enabled(true)
+                .tonic_request(),
+        )
+        .await?
+        .into_inner();
+    let vpc_id = created.id.expect("created VPC ID");
+    assert_eq!(forge_vpc_config(&created).slaac_enabled, Some(true));
+
+    let mut txn = env.pool.begin().await?;
+    assert!(
+        db::vpc_prefix::find_by_vpc(txn.as_mut(), vpc_id)
+            .await?
+            .is_empty()
+    );
+    let persisted = db::vpc::find_by(
+        txn.as_mut(),
+        ObjectColumnFilter::One(vpc::IdColumn, &vpc_id),
+    )
+    .await?
+    .pop()
+    .expect("persisted SLAAC VPC");
+    assert!(persisted.config.slaac_enabled);
+    txn.commit().await?;
+
+    // The separate virtualization update API cannot violate the rule that
+    // SLAAC is supported only for FNN because `slaac_enabled` is fixed when the
+    // VPC is created.
+    let error = env
+        .api
+        .update_vpc_virtualization(tonic::Request::new(
+            rpc::forge::VpcUpdateVirtualizationRequest {
+                id: Some(vpc_id),
+                if_version_match: None,
+                network_virtualization_type: Some(
+                    rpc::forge::VpcVirtualizationType::EthernetVirtualizer as i32,
+                ),
+            },
+        ))
+        .await
+        .expect_err("a SLAAC VPC must remain FNN");
+    assert_eq!(error.code(), tonic::Code::FailedPrecondition);
+    assert!(
+        error
+            .message()
+            .contains("VPCs do not support SLAAC allocation mode")
+    );
+
+    Ok(())
+}
+
 /// Verifies override updates require a currently resolvable named base so the
 /// API cannot persist policy that the FNN data plane is unable to render.
 #[crate::sqlx_test]
@@ -804,6 +950,7 @@ async fn update_vpc_rejects_unresolvable_routing_profile_base(
             routing_profile_overrides: None,
             power_resource_group: Some("stale-power-group".to_string()),
             vni: None,
+            slaac_enabled: false,
         },
         VpcStatus { vni: None },
         &mut txn,

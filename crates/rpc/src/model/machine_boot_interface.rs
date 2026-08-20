@@ -15,10 +15,11 @@
  * limitations under the License.
  */
 
-use model::machine_boot_interface::MachineBootInterface;
+use model::machine_boot_interface::{BootInterfaceSelectionSource, MachineBootInterface};
 
 use crate as rpc;
 use crate::errors::RpcDataConversionError;
+use crate::forge::BootInterfaceSelectionSource as RpcBootInterfaceSelectionSource;
 
 impl From<MachineBootInterface> for rpc::forge::MachineBootInterface {
     fn from(boot_interface: MachineBootInterface) -> Self {
@@ -44,8 +45,46 @@ impl TryFrom<rpc::forge::MachineBootInterface> for MachineBootInterface {
     }
 }
 
+impl From<BootInterfaceSelectionSource> for RpcBootInterfaceSelectionSource {
+    fn from(source: BootInterfaceSelectionSource) -> Self {
+        match source {
+            BootInterfaceSelectionSource::ExpectedMachine => Self::ExpectedMachine,
+            BootInterfaceSelectionSource::Operator => Self::Operator,
+            BootInterfaceSelectionSource::RedfishUefiPci => Self::RedfishUefiPci,
+            BootInterfaceSelectionSource::RedfishChassisId => Self::RedfishChassisId,
+            BootInterfaceSelectionSource::RedfishSerialNumber => Self::RedfishSerialNumber,
+            BootInterfaceSelectionSource::ScoutReportPci => Self::ScoutReportPci,
+            BootInterfaceSelectionSource::LegacyUnknown => Self::LegacyUnknown,
+        }
+    }
+}
+
+impl TryFrom<RpcBootInterfaceSelectionSource> for BootInterfaceSelectionSource {
+    type Error = RpcDataConversionError;
+
+    fn try_from(source: RpcBootInterfaceSelectionSource) -> Result<Self, Self::Error> {
+        match source {
+            RpcBootInterfaceSelectionSource::Unspecified => {
+                Err(RpcDataConversionError::InvalidValue(
+                    "BootInterfaceSelectionSource".to_string(),
+                    source.as_str_name().to_string(),
+                ))
+            }
+            RpcBootInterfaceSelectionSource::ExpectedMachine => Ok(Self::ExpectedMachine),
+            RpcBootInterfaceSelectionSource::Operator => Ok(Self::Operator),
+            RpcBootInterfaceSelectionSource::RedfishUefiPci => Ok(Self::RedfishUefiPci),
+            RpcBootInterfaceSelectionSource::RedfishChassisId => Ok(Self::RedfishChassisId),
+            RpcBootInterfaceSelectionSource::RedfishSerialNumber => Ok(Self::RedfishSerialNumber),
+            RpcBootInterfaceSelectionSource::ScoutReportPci => Ok(Self::ScoutReportPci),
+            RpcBootInterfaceSelectionSource::LegacyUnknown => Ok(Self::LegacyUnknown),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::value_scenarios;
+
     use super::*;
 
     #[test]
@@ -93,5 +132,75 @@ mod tests {
             MachineBootInterface::try_from(wire),
             Err(RpcDataConversionError::InvalidArgument(_))
         ));
+    }
+
+    #[test]
+    fn selection_sources_round_trip_without_collapsing_meanings() {
+        value_scenarios!(run = |source| {
+            let wire = RpcBootInterfaceSelectionSource::from(source);
+            BootInterfaceSelectionSource::try_from(wire).expect("a concrete source should round trip")
+        };
+            "expected-machine declaration" {
+                BootInterfaceSelectionSource::ExpectedMachine => BootInterfaceSelectionSource::ExpectedMachine,
+            }
+            "operator selection" {
+                BootInterfaceSelectionSource::Operator => BootInterfaceSelectionSource::Operator,
+            }
+            "Redfish UEFI PCI ordering" {
+                BootInterfaceSelectionSource::RedfishUefiPci => BootInterfaceSelectionSource::RedfishUefiPci,
+            }
+            "Redfish chassis-id ordering" {
+                BootInterfaceSelectionSource::RedfishChassisId => BootInterfaceSelectionSource::RedfishChassisId,
+            }
+            "Redfish serial-number fallback" {
+                BootInterfaceSelectionSource::RedfishSerialNumber => BootInterfaceSelectionSource::RedfishSerialNumber,
+            }
+            "Scout PCI correction" {
+                BootInterfaceSelectionSource::ScoutReportPci => BootInterfaceSelectionSource::ScoutReportPci,
+            }
+            "legacy row" {
+                BootInterfaceSelectionSource::LegacyUnknown => BootInterfaceSelectionSource::LegacyUnknown,
+            }
+        );
+    }
+
+    #[test]
+    fn unspecified_selection_source_is_not_a_model_source() {
+        assert!(matches!(
+            BootInterfaceSelectionSource::try_from(RpcBootInterfaceSelectionSource::Unspecified),
+            Err(RpcDataConversionError::InvalidValue(name, value))
+                if name == "BootInterfaceSelectionSource"
+                    && value == "BOOT_INTERFACE_SELECTION_SOURCE_UNSPECIFIED"
+        ));
+    }
+
+    #[test]
+    fn selection_source_display_names_are_stable() {
+        value_scenarios!(run = |source: RpcBootInterfaceSelectionSource| source.as_str();
+            "unspecified" {
+                RpcBootInterfaceSelectionSource::Unspecified => "Unspecified",
+            }
+            "expected machine" {
+                RpcBootInterfaceSelectionSource::ExpectedMachine => "ExpectedMachine",
+            }
+            "operator" {
+                RpcBootInterfaceSelectionSource::Operator => "Operator",
+            }
+            "Redfish UEFI PCI" {
+                RpcBootInterfaceSelectionSource::RedfishUefiPci => "RedfishUefiPci",
+            }
+            "Redfish chassis id" {
+                RpcBootInterfaceSelectionSource::RedfishChassisId => "RedfishChassisId",
+            }
+            "Redfish serial number" {
+                RpcBootInterfaceSelectionSource::RedfishSerialNumber => "RedfishSerialNumber",
+            }
+            "Scout report PCI" {
+                RpcBootInterfaceSelectionSource::ScoutReportPci => "ScoutReportPci",
+            }
+            "legacy unknown" {
+                RpcBootInterfaceSelectionSource::LegacyUnknown => "LegacyUnknown",
+            }
+        );
     }
 }
