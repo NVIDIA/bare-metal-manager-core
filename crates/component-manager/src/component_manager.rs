@@ -147,7 +147,7 @@ pub async fn request_rack_maintenance_via_state_controller(
                 })?;
 
                 if let Some(existing_scope) = rack.config.maintenance_requested.as_ref() {
-                    return Ok(if existing_scope == &scope {
+                    return Ok(if existing_scope.same_request(&scope) {
                         RackMaintenanceRequestOutcome::AlreadyPending
                     } else {
                         RackMaintenanceRequestOutcome::Busy
@@ -171,8 +171,10 @@ pub async fn request_rack_maintenance_via_state_controller(
                         components: vec![],
                         force_update: false,
                     });
+                let mut accepted_scope = scope;
+                accepted_scope.requested_at = Some(chrono::Utc::now());
                 let mut config = rack.config;
-                config.maintenance_requested = Some(scope);
+                config.maintenance_requested = Some(accepted_scope);
                 db::rack::update(txn.as_mut(), &transaction_rack_id, &config)
                     .await
                     .map_err(|error| ComponentManagerError::Internal(error.to_string()))?;

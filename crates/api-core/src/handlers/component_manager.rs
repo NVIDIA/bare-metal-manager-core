@@ -365,7 +365,7 @@ fn persisted_firmware_status(
             .ended_at
             .as_ref()
             .or(status.started_at.as_ref())
-            .cloned()
+            .copied()
             .map(Into::into),
     }
 }
@@ -403,17 +403,16 @@ fn switch_firmware_request_time(
                     .any(|activity| activity.same_kind(&firmware_activity))
         })
         .map(|request| request.requested_at);
-    let rack_request_time = rack
-        .filter(|rack| {
-            rack.config
-                .maintenance_requested
-                .as_ref()
-                .is_some_and(|scope| {
-                    scope.should_run(&firmware_activity)
-                        && (scope.is_full_rack() || scope.switch_ids.contains(&switch.id))
-                })
-        })
-        .map(|rack| rack.updated);
+    let rack_request_time = rack.and_then(|rack| {
+        rack.config
+            .maintenance_requested
+            .as_ref()
+            .filter(|scope| {
+                scope.should_run(&firmware_activity)
+                    && (scope.is_full_rack() || scope.switch_ids.contains(&switch.id))
+            })
+            .map(|scope| scope.requested_at.unwrap_or(rack.updated))
+    });
 
     switch_request_time.max(rack_request_time)
 }
@@ -5073,6 +5072,51 @@ mod tests {
         });
         switch.switch_reprovisioning_requested = None;
         assert_eq!(switch_firmware_request_time(&switch, Some(&rack)), None);
+    }
+
+    #[test]
+    fn switch_firmware_request_time_ignores_later_rack_writes() {
+        let requested_at = chrono::Utc::now();
+        let mut rack = test_rack_with_job(None);
+        let mut switch = test_switch();
+        switch.rack_id = Some(rack.id.clone());
+        // The rack row is written repeatedly while the request is pending
+        // (state transitions, job updates), long after the upgrade started.
+        rack.updated = requested_at + chrono::Duration::minutes(5);
+        rack.config.maintenance_requested = Some(model::rack::MaintenanceScope {
+            activities: vec![MaintenanceActivity::FirmwareUpgrade {
+                firmware_version: Some("firmware-object-json".into()),
+                components: vec![],
+                force_update: false,
+            }],
+            requested_at: Some(requested_at),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            switch_firmware_request_time(&switch, Some(&rack)),
+            Some(requested_at),
+            "the cycle boundary is when the request was accepted"
+        );
+
+        let status = model::rack::RackFirmwareUpgradeStatus {
+            task_id: "rms-task-id".into(),
+            status: model::rack::RackFirmwareUpgradeState::InProgress,
+            started_at: Some(requested_at + chrono::Duration::seconds(30)),
+            ended_at: None,
+        };
+        let selected = select_persisted_switch_firmware_status(
+            switch.id,
+            Some(&status),
+            switch_firmware_request_time(&switch, Some(&rack)),
+        )
+        .expect("a pending request always yields a status");
+
+        assert_eq!(
+            selected.state,
+            rpc::FirmwareUpdateState::FwStateInProgress as i32,
+            "a later rack write must not send the upgrade back to queued"
+        );
     }
 
     #[test]

@@ -742,6 +742,8 @@ pub struct MaintenanceScope {
     /// Which maintenance activities to perform. Empty means all activities.
     #[serde(default)]
     pub activities: Vec<MaintenanceActivity>,
+    #[serde(default)]
+    pub requested_at: Option<DateTime<Utc>>,
 }
 
 impl MaintenanceScope {
@@ -753,6 +755,13 @@ impl MaintenanceScope {
 
     pub fn should_run(&self, activity: &MaintenanceActivity) -> bool {
         self.activities.is_empty() || self.activities.iter().any(|a| a.same_kind(activity))
+    }
+
+    pub fn same_request(&self, other: &Self) -> bool {
+        self.machine_ids == other.machine_ids
+            && self.switch_ids == other.switch_ids
+            && self.power_shelf_ids == other.power_shelf_ids
+            && self.activities == other.activities
     }
 }
 
