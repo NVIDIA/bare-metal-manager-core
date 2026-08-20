@@ -10,9 +10,33 @@ import (
 	"testing"
 	"time"
 
+	"github.com/creack/pty"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestRawMode_ReturnsRestoreError(t *testing.T) {
+	terminal, tty, err := pty.Open()
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = terminal.Close()
+		_ = tty.Close()
+	})
+
+	originalStdin := os.Stdin
+	os.Stdin = tty
+	t.Cleanup(func() {
+		os.Stdin = originalStdin
+	})
+
+	restore, err := RawMode()
+	require.NoError(t, err)
+	require.NoError(t, tty.Close())
+
+	err = restore()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "restoring terminal")
+}
 
 func TestReadKey_LoneEscapeReturnsWithoutWaitingForMoreInput(t *testing.T) {
 	reader, writer, err := os.Pipe()

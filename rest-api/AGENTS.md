@@ -246,6 +246,16 @@ verification expectations.
   arguments. If it's used only once or breaks the flow of reading the caller code,
   it is often better to keep the logic inline
 
+### Interactive CLI review checks
+
+- When an option consumes a separate value, test that another option token is
+  rejected instead of consumed as that value.
+- Propagate terminal restoration errors. Restore the terminal successfully
+  before starting another interactive selector, and test both the normal PTY
+  path and a restoration failure.
+- Table-test shell argument quoting with empty input, whitespace, quotes,
+  backslashes, control characters, non-ASCII text, and shell metacharacters.
+
 ### REST endpoints through the Core gRPC proxy
 
 When building or converting a REST endpoint that calls on-site NICo Core through

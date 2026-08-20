@@ -756,6 +756,20 @@ func TestParseLabelArgs(t *testing.T) {
 		_, _, _, err := parseLabelArgs([]string{"--sort-label"})
 		assert.Error(t, err)
 	})
+	t.Run("sort-label rejects another option", func(t *testing.T) {
+		remaining, labels, sortKey, err := parseLabelArgs([]string{"--sort-label", "--label", "env=prod"})
+		require.Error(t, err)
+		assert.Nil(t, remaining)
+		assert.Nil(t, labels)
+		assert.Empty(t, sortKey)
+	})
+	t.Run("label rejects another option", func(t *testing.T) {
+		remaining, labels, sortKey, err := parseLabelArgs([]string{"--label", "--sort-label", "rack"})
+		require.Error(t, err)
+		assert.Nil(t, remaining)
+		assert.Nil(t, labels)
+		assert.Empty(t, sortKey)
+	})
 	t.Run("dangling label flag", func(t *testing.T) {
 		_, _, _, err := parseLabelArgs([]string{"--label"})
 		assert.Error(t, err)

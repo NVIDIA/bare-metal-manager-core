@@ -4349,13 +4349,13 @@ func sortByLabelKey(items []NamedItem, key string) []NamedItem {
 
 // parseLabelArgs extracts --label key=value and --sort-label key from args.
 // Returns the remaining args, label filters, sort-label key, and an error
-// if a --label value is missing "=" or --sort-label has no following token.
+// if a --label value is missing "=" or either flag is followed by an option.
 func parseLabelArgs(args []string) (remaining []string, labels map[string]string, sortKey string, err error) {
 	labels = map[string]string{}
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--label":
-			if i+1 >= len(args) {
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "--") {
 				return nil, nil, "", fmt.Errorf("--label requires a key=value argument")
 			}
 			i++
@@ -4368,7 +4368,7 @@ func parseLabelArgs(args []string) (remaining []string, labels map[string]string
 				return nil, nil, "", fmt.Errorf("--label value %q must contain '='", args[i])
 			}
 		case "--sort-label":
-			if i+1 >= len(args) {
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "--") {
 				return nil, nil, "", fmt.Errorf("--sort-label requires a key argument")
 			}
 			i++

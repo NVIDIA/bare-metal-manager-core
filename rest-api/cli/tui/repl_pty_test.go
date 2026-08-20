@@ -111,6 +111,15 @@ func TestCLIRegression_RealTerminalAndNonInteractive(t *testing.T) {
 		terminal.send(t, "scope\r")
 		terminal.waitFor(t, "No scope set.")
 
+		// History selection must restore the REPL terminal before entering the
+		// nested selector, then return to raw mode for the selected command.
+		terminal.sendBytes(t, []byte{KeyEscape, '[', 'A'})
+		terminal.waitFor(t, "History")
+		terminal.send(t, "\r")
+		terminal.waitFor(t, "scope")
+		terminal.send(t, "\r")
+		terminal.waitFor(t, "No scope set.")
+
 		// A lone Escape must cancel a real selector without waiting forever.
 		terminal.send(t, "scope site\r")
 		terminal.waitFor(t, "Site:")
