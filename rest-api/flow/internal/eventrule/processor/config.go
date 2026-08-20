@@ -17,7 +17,7 @@ type Config struct {
 	Inventory  inventoryresolver.InventoryReader
 	Rules      RuleResolver
 	Executions eventrule.ExecutionStore
-	Targets    target.Resolver
+	Targets    *target.Registry
 	Executor   executor.Executor
 }
 
@@ -33,7 +33,7 @@ func (c Config) Validate() error {
 		return fmt.Errorf("execution store is required")
 	}
 	if c.Targets == nil {
-		return fmt.Errorf("target resolver is required")
+		return fmt.Errorf("target resolver registry is required")
 	}
 	if c.Executor == nil {
 		return fmt.Errorf("action executor is required")

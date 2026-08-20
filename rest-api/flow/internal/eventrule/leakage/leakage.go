@@ -47,11 +47,11 @@ func RegisterTargetResolvers(
 	return registry.Register(
 		TypeHardwareLeakDetected,
 		eventrule.TargetStrategyAffectedComponents,
-		resolver.resolveAffectedComponents,
+		resolver,
 	)
 }
 
-func (r *targetResolver) resolveAffectedComponents(
+func (r *targetResolver) Resolve(
 	ctx context.Context,
 	request target.ResolveRequest,
 ) ([]target.Target, error) {
