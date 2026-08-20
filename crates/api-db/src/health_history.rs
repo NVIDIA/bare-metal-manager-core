@@ -63,6 +63,7 @@ pub enum HealthHistoryTableId {
     Machine,
     Switch,
     PowerShelf,
+    Rack,
 }
 
 impl HealthHistoryTableId {
@@ -71,6 +72,7 @@ impl HealthHistoryTableId {
             HealthHistoryTableId::Machine => "machine_health_history",
             HealthHistoryTableId::Switch => "switch_health_history",
             HealthHistoryTableId::PowerShelf => "power_shelf_health_history",
+            HealthHistoryTableId::Rack => "rack_health_history",
         }
     }
 }
@@ -177,6 +179,7 @@ pub async fn persist(
         HealthHistoryTableId::Machine => persist_query!("machine_health_history"),
         HealthHistoryTableId::Switch => persist_query!("switch_health_history"),
         HealthHistoryTableId::PowerShelf => persist_query!("power_shelf_health_history"),
+        HealthHistoryTableId::Rack => persist_query!("rack_health_history"),
     };
     let _query_result = sqlx::query(query)
         .bind(object_id.to_string())
@@ -209,6 +212,7 @@ pub async fn update_object_ids(
         HealthHistoryTableId::PowerShelf => {
             update_object_ids_query!("power_shelf_health_history")
         }
+        HealthHistoryTableId::Rack => update_object_ids_query!("rack_health_history"),
     };
     sqlx::query(query)
         .bind(new_object_id.to_string())
@@ -316,6 +320,27 @@ mod tests {
         SELECT * FROM new_history_record
         WHERE NOT EXISTS (SELECT health_hash FROM last_history_record WHERE last_history_record.health_hash = new_history_record.health_hash);";
         assert_eq!(persist_query!("power_shelf_health_history"), original);
+    }
+
+    /// Verify the produced sql statement for the rack table.
+    #[test]
+    fn persist_query_matches_original_rack_literal() {
+        let original = "WITH new_history_record as(
+            SELECT $1 as object_id,
+            $2::jsonb as health,
+            $3 as health_hash,
+            $4 as time
+        ),
+        last_history_record as(
+            SELECT health_hash FROM rack_health_history
+            WHERE object_id = $1
+            ORDER BY id DESC
+            LIMIT 1
+        )
+        INSERT INTO rack_health_history (object_id, health, health_hash, time)
+        SELECT * FROM new_history_record
+        WHERE NOT EXISTS (SELECT health_hash FROM last_history_record WHERE last_history_record.health_hash = new_history_record.health_hash);";
+        assert_eq!(persist_query!("rack_health_history"), original);
     }
 
     #[crate::sqlx_test]
@@ -552,6 +577,126 @@ mod tests {
         );
         assert_eq!(
             count_records(&mut conn, HealthHistoryTableId::PowerShelf, new_object_id).await,
+            1
+        );
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn rack_health_history_dedup_and_retention(
+        pool: PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut conn = pool.acquire().await?;
+        let object_id = "rack-health-history-test";
+
+        // First observation is recorded.
+        persist(
+            &mut conn,
+            HealthHistoryTableId::Rack,
+            &object_id,
+            &health_with_alert("AlertA"),
+        )
+        .await?;
+        assert_eq!(
+            count_records(&mut conn, HealthHistoryTableId::Rack, object_id).await,
+            1
+        );
+
+        // Re-observing identical content is deduplicated by health_hash.
+        persist(
+            &mut conn,
+            HealthHistoryTableId::Rack,
+            &object_id,
+            &health_with_alert("AlertA"),
+        )
+        .await?;
+        assert_eq!(
+            count_records(&mut conn, HealthHistoryTableId::Rack, object_id).await,
+            1
+        );
+
+        // A timestamp-only change is still the same content, so no new row.
+        let mut timestamp_only = health_with_alert("AlertA");
+        timestamp_only.observed_at = Some(chrono::Utc::now() + chrono::Duration::minutes(5));
+        persist(
+            &mut conn,
+            HealthHistoryTableId::Rack,
+            &object_id,
+            &timestamp_only,
+        )
+        .await?;
+        assert_eq!(
+            count_records(&mut conn, HealthHistoryTableId::Rack, object_id).await,
+            1
+        );
+
+        // Changed content produces a new row.
+        persist(
+            &mut conn,
+            HealthHistoryTableId::Rack,
+            &object_id,
+            &health_with_alert("AlertB"),
+        )
+        .await?;
+        assert_eq!(
+            count_records(&mut conn, HealthHistoryTableId::Rack, object_id).await,
+            2
+        );
+
+        // The retention trigger keeps only the most recent 250 rows per object.
+        const EXPECTED_LIMIT: usize = 250;
+        for i in 0..EXPECTED_LIMIT + 10 {
+            persist(
+                &mut conn,
+                HealthHistoryTableId::Rack,
+                &object_id,
+                &health_with_alert(&format!("Alert{i}")),
+            )
+            .await?;
+        }
+        assert_eq!(
+            count_records(&mut conn, HealthHistoryTableId::Rack, object_id).await,
+            EXPECTED_LIMIT
+        );
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn rack_health_history_update_object_ids(
+        pool: PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut conn = pool.acquire().await?;
+        let old_object_id = "rack-old-id";
+        let new_object_id = "rack-new-id";
+
+        persist(
+            &mut conn,
+            HealthHistoryTableId::Rack,
+            &old_object_id,
+            &health_with_alert("AlertA"),
+        )
+        .await?;
+        assert_eq!(
+            count_records(&mut conn, HealthHistoryTableId::Rack, old_object_id).await,
+            1
+        );
+
+        update_object_ids(
+            &mut conn,
+            HealthHistoryTableId::Rack,
+            &old_object_id,
+            &new_object_id,
+        )
+        .await?;
+
+        assert_eq!(
+            count_records(&mut conn, HealthHistoryTableId::Rack, old_object_id).await,
+            0
+        );
+        assert_eq!(
+            count_records(&mut conn, HealthHistoryTableId::Rack, new_object_id).await,
             1
         );
 
