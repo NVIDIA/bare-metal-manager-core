@@ -47,7 +47,7 @@ func TestDesiredDpuBMCs(t *testing.T) {
 	t.Run("unrepresented Core host is not projected", func(t *testing.T) {
 		details := []nicoapi.MachineDetail{
 			{MachineID: "host-only-in-core", MachineType: corev1.MachineType_HOST.String(), AssociatedDpuMachineIDs: []string{"dpu-1"}},
-			{MachineID: "dpu-1", MachineType: corev1.MachineType_DPU.String(), BmcMac: "aa:bb:cc:dd:ee:01"},
+			{MachineID: "dpu-1", MachineType: corev1.MachineType_DPU.String(), BmcMac: "invalid"},
 		}
 
 		desired, err := desiredDpuBMCs(details, []model.Component{componentA})
@@ -78,6 +78,15 @@ func TestDesiredDpuBMCs(t *testing.T) {
 			},
 			components: []model.Component{componentA},
 			errorText:  "expected DPU",
+		},
+		{
+			name: "same DPU repeated by one Core host",
+			details: []nicoapi.MachineDetail{
+				{MachineID: "host-1", MachineType: corev1.MachineType_HOST.String(), AssociatedDpuMachineIDs: []string{"dpu-1", "dpu-1"}},
+				{MachineID: "dpu-1", MachineType: corev1.MachineType_DPU.String(), BmcMac: "aa:bb:cc:dd:ee:01"},
+			},
+			components: []model.Component{componentA},
+			errorText:  "contains duplicate association",
 		},
 		{
 			name: "DPU has two Core hosts",
@@ -153,6 +162,27 @@ func TestPlanDpuBMCReconciliation(t *testing.T) {
 		_, err := planDpuBMCReconciliation(desired, existing)
 
 		require.ErrorContains(t, err, "occupied by Flow BMC type")
+	})
+
+	t.Run("invalid stored DPU MAC is scheduled for deletion", func(t *testing.T) {
+		existing := []model.BMC{{MacAddress: "invalid", Type: dpuType, ComponentID: componentA}}
+
+		plan, err := planDpuBMCReconciliation(nil, existing)
+
+		require.NoError(t, err)
+		require.Len(t, plan.deletes, 1)
+		assert.Equal(t, "invalid", plan.deletes[0].MacAddress)
+	})
+
+	t.Run("duplicate normalized stored MAC fails the complete plan", func(t *testing.T) {
+		existing := []model.BMC{
+			{MacAddress: "AA-BB-CC-DD-EE-01", Type: dpuType, ComponentID: componentA},
+			{MacAddress: "aa:bb:cc:dd:ee:01", Type: dpuType, ComponentID: componentB},
+		}
+
+		_, err := planDpuBMCReconciliation(nil, existing)
+
+		require.ErrorContains(t, err, "normalize to the same MAC")
 	})
 }
 
@@ -290,4 +320,31 @@ func TestSyncMachinesGetMachinesFailurePreservesDPUInventory(t *testing.T) {
 	require.NoError(t, pool.DB.NewSelect().Model(&got).Scan(ctx))
 	require.Len(t, got, 1)
 	assert.Equal(t, existing.MacAddress, got[0].MacAddress)
+}
+
+func TestSyncMachinesDpuFailureDoesNotBlockHostConvergence(t *testing.T) {
+	ctx, pool := mirrorTestPool(t)
+	component := model.Component{
+		Type:        devicetypes.ComponentTypeToString(devicetypes.ComponentTypeCompute),
+		ComponentID: strPtr("host-1"),
+	}
+	require.NoError(t, component.Create(ctx, pool.DB))
+	createTestBMC(ctx, t, pool, component.ID, "aa:bb:cc:dd:ee:10")
+
+	client := nicoapi.NewMockClient()
+	client.AddMachine(nicoapi.MachineDetail{
+		MachineID:               "host-1",
+		MachineType:             corev1.MachineType_HOST.String(),
+		BmcMac:                  "aa:bb:cc:dd:ee:10",
+		AssociatedDpuMachineIDs: []string{"missing-dpu"},
+	})
+	client.AddPowerState("host-1", nicoapi.PowerStateOn)
+
+	_, _, ok := syncMachines(ctx, pool, client)
+
+	assert.False(t, ok, "the cycle remains degraded when DPU reconciliation fails")
+	var persisted model.Component
+	require.NoError(t, pool.DB.NewSelect().Model(&persisted).Where("id = ?", component.ID).Scan(ctx))
+	require.NotNil(t, persisted.PowerState)
+	assert.Equal(t, nicoapi.PowerStateOn, *persisted.PowerState)
 }

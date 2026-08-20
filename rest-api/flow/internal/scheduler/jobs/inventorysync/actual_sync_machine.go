@@ -118,9 +118,10 @@ func syncMachines(
 	// the DPU BMC MAC as the durable identity. Validation and all DB mutations
 	// happen transactionally, so an incomplete association cannot apply a
 	// partial DPU inventory snapshot.
+	dpuSyncOK := true
 	if err := reconcileDpuBMCs(ctx, pool, allMachineDetails, components); err != nil {
 		log.Error().Err(err).Msg("Unable to reconcile Core DPU inventory")
-		return received, nil, false
+		dpuSyncOK = false
 	}
 
 	// Build lookup maps for matched components
@@ -135,7 +136,7 @@ func syncMachines(
 	}
 
 	if len(machineIDs) == 0 {
-		return received, buildDriftsForUnmatchedComponents(components, hostMachineDetails), true
+		return received, buildDriftsForUnmatchedComponents(components, hostMachineDetails), dpuSyncOK
 	}
 
 	// Step 5: Direct-write power_state (requires separate NICo API)
@@ -224,7 +225,7 @@ func syncMachines(
 	}
 
 	log.Info().Msgf("Machine sync: %d drift(s) out of %d component(s)", len(drifts), len(components))
-	return received, drifts, true
+	return received, drifts, dpuSyncOK
 }
 
 // buildDriftsForUnmatchedComponents returns missing_in_actual drifts for all

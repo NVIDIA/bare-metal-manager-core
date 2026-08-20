@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net"
+	"sort"
 
 	"github.com/rs/zerolog/log"
 	"github.com/uptrace/bun"
@@ -55,6 +56,7 @@ func reconcileDpuBMCs(
 		for i := range plan.deletes {
 			result, err := tx.NewDelete().Model(&plan.deletes[i]).
 				Where("mac_address = ?", plan.deletes[i].MacAddress).
+				Where("type = ?", devicetypes.BMCTypeToString(devicetypes.BMCTypeDPU)).
 				Exec(ctx)
 			if err != nil {
 				return fmt.Errorf("delete DPU BMC %q: %w", plan.deletes[i].MacAddress, err)
@@ -68,6 +70,7 @@ func reconcileDpuBMCs(
 			result, err := tx.NewUpdate().Model(&plan.updates[i]).
 				Column("component_id", "ip_address").
 				Where("mac_address = ?", plan.updates[i].MacAddress).
+				Where("type = ?", devicetypes.BMCTypeToString(devicetypes.BMCTypeDPU)).
 				Exec(ctx)
 			if err != nil {
 				return fmt.Errorf("update DPU BMC %q: %w", plan.updates[i].MacAddress, err)
@@ -146,8 +149,21 @@ func desiredDpuBMCs(
 			continue
 		}
 		component, represented := componentByHostID[host.MachineID]
+		if !represented && len(host.AssociatedDpuMachineIDs) > 0 {
+			log.Warn().
+				Str("core_host_machine_id", host.MachineID).
+				Int("associated_dpu_count", len(host.AssociatedDpuMachineIDs)).
+				Msg("Skipping DPU projection because Core host is not represented by a Flow compute component")
+		}
 		for _, dpuID := range host.AssociatedDpuMachineIDs {
 			if previousHostID, exists := dpuOwnerByID[dpuID]; exists {
+				if previousHostID == host.MachineID {
+					return nil, fmt.Errorf(
+						"core host machine %q contains duplicate association to DPU machine %q",
+						host.MachineID,
+						dpuID,
+					)
+				}
 				return nil, fmt.Errorf(
 					"core DPU machine %q is associated with multiple hosts %q and %q",
 					dpuID,
@@ -173,12 +189,12 @@ func desiredDpuBMCs(
 					dpu.MachineType,
 				)
 			}
+			if !represented {
+				continue
+			}
 			mac, err := normalizedBMCAddress(dpu.BmcMac)
 			if err != nil {
 				return nil, fmt.Errorf("core DPU machine %q: %w", dpuID, err)
-			}
-			if !represented {
-				continue
 			}
 			if existing, exists := desiredByMAC[mac]; exists {
 				return nil, fmt.Errorf(
@@ -267,6 +283,15 @@ func planDpuBMCReconciliation(
 			plan.deletes = append(plan.deletes, current)
 		}
 	}
+	sort.Slice(plan.inserts, func(i, j int) bool {
+		return plan.inserts[i].MacAddress < plan.inserts[j].MacAddress
+	})
+	sort.Slice(plan.updates, func(i, j int) bool {
+		return plan.updates[i].MacAddress < plan.updates[j].MacAddress
+	})
+	sort.Slice(plan.deletes, func(i, j int) bool {
+		return plan.deletes[i].MacAddress < plan.deletes[j].MacAddress
+	})
 	return plan, nil
 }
 
