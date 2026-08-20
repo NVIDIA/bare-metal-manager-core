@@ -165,6 +165,10 @@ func (m *Manager) ReplaceActions(
 		return err
 	}
 
+	if len(actions) == 0 {
+		return fmt.Errorf("actions are required")
+	}
+
 	if err := eventrule.ValidateActions(actions); err != nil {
 		return err
 	}

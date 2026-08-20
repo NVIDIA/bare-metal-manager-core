@@ -41,7 +41,9 @@ use crate::errors::{ErrorCode, ErrorSubsystem, ModelError, ModelResult, Operator
 use crate::firmware::{Firmware, FirmwareComponentType};
 use crate::hardware_info::{DmiData, HardwareInfo, HardwareInfoError};
 use crate::machine::machine_id::{MissingHardwareInfo, from_hardware_info_with_type};
-use crate::machine_boot_interface::{MachineBootInterface, MachineBootInterfaceTarget};
+use crate::machine_boot_interface::{
+    BootInterfaceSelectionSource, MachineBootInterface, MachineBootInterfaceTarget,
+};
 use crate::power_shelf::power_shelf_id;
 use crate::switch::switch_id;
 
@@ -330,8 +332,8 @@ impl ExploredEndpoint {
 }
 
 impl EndpointExplorationReport {
-    /// The boot interface MAC for this endpoint's explored default -- the boot
-    /// interface site-explorer records before any machine owns the endpoint.
+    /// The boot interface selection for this endpoint's explored default -- the
+    /// selection Site Explorer records before any machine owns the endpoint.
     ///
     /// A declared `ExpectedInterface.primary` wins when this report has that NIC
     /// as a full pair -- its MAC present on a system ethernet interface with a
@@ -341,18 +343,21 @@ impl EndpointExplorationReport {
     /// whose id this report has not resolved yet falls back, alongside the
     /// no-declaration case, to the automatic pick: the lowest-PCI DPU host-PF
     /// interface.
-    pub fn fetch_host_primary_interface_mac(
+    pub fn select_host_primary_interface(
         &self,
         explored_dpus: &[ExploredDpu],
         declared_primary: Option<MacAddress>,
-    ) -> Option<MacAddress> {
+    ) -> Option<HostPrimaryInterfaceSelection> {
         // A declared primary wins as long as the report has it as a full pair
         // (`find_interface_id_for_mac` scans every system ethernet interface,
         // integrated NICs included).
         if let Some(declared) = declared_primary
             && self.find_interface_id_for_mac(declared).is_some()
         {
-            return Some(declared);
+            return Some(HostPrimaryInterfaceSelection {
+                mac_address: declared,
+                source: BootInterfaceSelectionSource::ExpectedMachine,
+            });
         }
 
         let system = self.systems.first()?;
@@ -410,8 +415,25 @@ impl EndpointExplorationReport {
         });
 
         // If we know the bootable interface name, find the MAC address associated with it.
-        interface_with_min_pci.mac_address
+        interface_with_min_pci
+            .mac_address
+            .map(|mac_address| HostPrimaryInterfaceSelection {
+                mac_address,
+                source: BootInterfaceSelectionSource::RedfishUefiPci,
+            })
     }
+}
+
+/// A host primary interface decision made from one Site Explorer report.
+///
+/// Keeping the selected MAC beside the exact input that selected it prevents a
+/// later fallback or target resolution step from recording the wrong source.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HostPrimaryInterfaceSelection {
+    /// MAC address selected as the host's primary boot interface.
+    pub mac_address: MacAddress,
+    /// Exact mechanism that selected `mac_address`.
+    pub source: BootInterfaceSelectionSource,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

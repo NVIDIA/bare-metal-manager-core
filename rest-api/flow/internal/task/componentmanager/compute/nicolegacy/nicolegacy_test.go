@@ -143,6 +143,18 @@ func managerYAMLNode(t *testing.T, data string) yaml.Node {
 // NICo, so the manager only logs a warning and proceeds; we exercise
 // that branch here. The replacement compute/nico implementation routes
 // through Core's UpdateComponentFirmware which does honour sub-targets.
+func TestFirmwareControlRejectsAuthenticationData(t *testing.T) {
+	m := &Manager{}
+
+	err := m.FirmwareControl(
+		context.Background(),
+		common.Target{},
+		operations.FirmwareControlTaskInfo{AccessToken: "token"},
+	)
+
+	require.ErrorContains(t, err, "not supported by the nicolegacy compute manager")
+}
+
 func TestFirmwareControl_SubTargetsAccepted(t *testing.T) {
 	tests := map[string]struct {
 		subTargets []string

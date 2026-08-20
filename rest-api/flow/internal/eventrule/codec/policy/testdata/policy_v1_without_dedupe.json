@@ -3,7 +3,7 @@
   "actions": [
     {
       "version": 1,
-      "id": "noop",
+      "name": "noop",
       "type": "noop",
       "condition": {},
       "spec": {

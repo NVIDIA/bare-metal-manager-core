@@ -117,6 +117,9 @@ or explicit cases (`check_cases` / `check_values`) is the easiest way to reach t
 conversions, and the like.
 For functions that map multiple booleans or enums to state and action outputs,
 enumerate every input combination in one table before requesting review.
+For user-visible CLI table changes, exercise the public command in a test and
+assert the rendered headers plus populated and empty cell values. Helper-only
+tests do not prove the table contract.
 
 Keep test rack-profile capability counts aligned with the inventory the fixture
 actually instantiates. Use zero for unsupported component types so tests do not
@@ -185,10 +188,60 @@ Use the narrowest Rust visibility required by actual callers. Do not use `pub`
 to suppress dead-code warnings or widen production visibility solely for unit
 tests. Follow the [visibility guidance](STYLE_GUIDE.md#visibility).
 
-Name new Core database migrations with the fully populated
+### Database migrations
+
+Core migrations live in `crates/api-db/migrations/` and use the fully populated
 `YYYYMMDDhhmmss_description.sql` format described in
 [`STYLE_GUIDE.md`](STYLE_GUIDE.md#database-migrations). The `migration-police`
-CI job checks only newly added migrations, so existing filenames remain accepted.
+CI job checks only newly added migrations, so existing filenames remain
+accepted.
+
+Most of what makes a migration wrong here is not something CI can catch, because
+an over-built migration still applies cleanly. Write the smallest exact forward
+change from the schema on `main`: the median migration in this repository is two
+statements and eight lines, and most do exactly one thing.
+
+- **Never edit a migration that has merged.** Its checksum is recorded by every
+  deployment that has applied it. Assume any migration on `main` is already
+  running somewhere, since this is a public repository and we cannot know where.
+  Correct it with a new forward migration instead.
+
+- **Do not hand-roll safety the runner already provides.** `sqlx` runs each file
+  in a transaction and records it once, so a migration cannot half-apply or run
+  twice. Leave out `IF EXISTS` and `IF NOT EXISTS`, `ON CONFLICT DO NOTHING`
+  added for rerunnability, `DO $$ ... RAISE EXCEPTION` preflight checks, system
+  catalog probes, `BEGIN` and `COMMIT`, and `NOT VALID` paired with
+  `VALIDATE CONSTRAINT` in the same file. These pass CI and read as caution, but
+  they convert a diagnosable failure into a silent skip.
+
+- **The migration has to apply while a `nico-api` instance is still running.**
+  Nothing stops the running instance first, so assume a live writer throughout.
+  A migration's contract is with the incoming binary, so leave the schema that
+  version expects rather than preserving the outgoing one, but it still has to
+  succeed against that writer.
+
+- **Keep domain logic in Rust.** Do not reimplement a Rust helper in PL/pgSQL,
+  and do not add a view, function, or trigger without a live consumer or an
+  invariant the database has to own.
+
+- **Use `NULL` for genuine absence.** Add a column as nullable, or `NOT NULL`
+  with a default that is true for every row it reaches. Do not invent an empty
+  string, an epoch timestamp, a placeholder version, or `UNKNOWN` to satisfy
+  `NOT NULL`. A `jsonb` default has to deserialize into the current Rust type.
+
+- **Remove things in two steps.** Ship the code that stops reading and writing
+  it, then drop it in a later migration.
+
+- **Comment intent, briefly.** A sentence or two on why the change exists. A
+  safety argument or design rationale belongs in the pull request, not in the
+  migration.
+
+- **Test anything with data semantics** against a database at the predecessor
+  schema populated with realistic rows, including a backfill, a default, a new
+  requiredness, a constraint, or a type conversion. Reference the file with
+  `include_str!` so the test cannot drift from what ships, as
+  [`test_backfill.rs`](crates/api-db/src/credential_rotation/test_backfill.rs)
+  does. A purely additive nullable column is already covered by the suite.
 
 ### Documentation
 

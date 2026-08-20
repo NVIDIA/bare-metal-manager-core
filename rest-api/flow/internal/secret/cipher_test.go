@@ -45,6 +45,19 @@ func TestNewCipher(t *testing.T) {
 	}
 }
 
+func TestCipherKeyIDIsStableAndKeySpecific(t *testing.T) {
+	first, err := NewCipher(testKey)
+	require.NoError(t, err)
+	second, err := NewCipher(testKey)
+	require.NoError(t, err)
+	other, err := NewCipher(otherTestKey)
+	require.NoError(t, err)
+
+	require.Equal(t, first.keyID, second.keyID)
+	require.Len(t, first.keyID, 64)
+	require.NotEqual(t, first.keyID, other.keyID)
+}
+
 func TestNewCipherFromFile(t *testing.T) {
 	dir := t.TempDir()
 	validPath := filepath.Join(dir, "valid-key")
@@ -83,18 +96,18 @@ func TestCipher_Encrypt(t *testing.T) {
 	cipher, err := NewCipher(testKey)
 	require.NoError(t, err)
 
-	first, err := cipher.Encrypt(plaintext, additionalData)
+	first, err := cipher.encrypt(plaintext, additionalData)
 	require.NoError(t, err)
-	second, err := cipher.Encrypt(plaintext, additionalData)
+	second, err := cipher.encrypt(plaintext, additionalData)
 	require.NoError(t, err)
 	require.NotEqual(t, first, second)
 	require.NotContains(t, string(first), string(plaintext))
 
-	decrypted, err := cipher.Decrypt(first, additionalData)
+	decrypted, err := cipher.decrypt(first, additionalData)
 	require.NoError(t, err)
 	require.Equal(t, plaintext, decrypted)
 
-	ciphertext, err := cipher.Encrypt(plaintext, nil)
+	ciphertext, err := cipher.encrypt(plaintext, nil)
 	require.EqualError(t, err, "additional authenticated data is empty")
 	require.Nil(t, ciphertext)
 }
@@ -106,7 +119,7 @@ func TestCipher_Decrypt(t *testing.T) {
 	otherCipher, err := NewCipher(otherTestKey)
 	require.NoError(t, err)
 
-	ciphertext, err := cipher.Encrypt([]byte("download-credential"), additionalData)
+	ciphertext, err := cipher.encrypt([]byte("download-credential"), additionalData)
 	require.NoError(t, err)
 	tamperedCiphertext := append([]byte(nil), ciphertext...)
 	tamperedCiphertext[len(tamperedCiphertext)-1] ^= 1
@@ -127,9 +140,51 @@ func TestCipher_Decrypt(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			plaintext, err := tt.cipher.Decrypt(tt.ciphertext, tt.additionalData)
+			plaintext, err := tt.cipher.decrypt(tt.ciphertext, tt.additionalData)
 			require.ErrorContains(t, err, tt.wantErr)
 			require.Nil(t, plaintext)
 		})
 	}
+}
+
+func TestCipherEncryptedDataEnvelope(t *testing.T) {
+	cipher, err := NewCipher(testKey)
+	require.NoError(t, err)
+	additionalData := []byte("flow:firmware-authentication")
+
+	encrypted, err := cipher.EncryptData(
+		[]byte("download-credential"),
+		additionalData,
+	)
+	require.NoError(t, err)
+	require.Equal(t, EncryptedDataVersion, encrypted.Version)
+	require.Equal(t, cipher.keyID, encrypted.KeyID)
+
+	plaintext, err := cipher.DecryptData(encrypted, additionalData)
+	require.NoError(t, err)
+	require.Equal(t, []byte("download-credential"), plaintext)
+
+	t.Run("wrong purpose AAD", func(t *testing.T) {
+		_, err := cipher.DecryptData(encrypted, []byte("flow:another-purpose"))
+		require.ErrorContains(t, err, "decrypt data")
+	})
+
+	t.Run("empty purpose AAD", func(t *testing.T) {
+		_, err := cipher.DecryptData(encrypted, nil)
+		require.EqualError(t, err, "additional authenticated data is empty")
+	})
+
+	t.Run("wrong version", func(t *testing.T) {
+		candidate := *encrypted
+		candidate.Version++
+		_, err := cipher.DecryptData(&candidate, additionalData)
+		require.ErrorContains(t, err, "unsupported encrypted data version")
+	})
+
+	t.Run("wrong key ID", func(t *testing.T) {
+		candidate := *encrypted
+		candidate.KeyID = "different"
+		_, err := cipher.DecryptData(&candidate, additionalData)
+		require.ErrorContains(t, err, "does not match configured key ID")
+	})
 }

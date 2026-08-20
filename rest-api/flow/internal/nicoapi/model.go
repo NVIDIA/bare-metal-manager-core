@@ -23,17 +23,18 @@ func stringsToMachineIds(machineIds []string) (ret []*corev1.MachineId) {
 
 // MachineDetail represents detailed machine information from NICo
 type MachineDetail struct {
-	MachineID           string
-	ChassisSerial       *string
-	State               string
-	MachineType         string
-	BmcIP               string
-	BmcMac              string
-	FirmwareVersion     string
-	UpdateComplete      bool
-	HealthStatus        string
-	LastObservationTime *time.Time
-	FirmwareAutoupdate  *bool
+	MachineID               string
+	ChassisSerial           *string
+	State                   string
+	MachineType             string
+	BmcIP                   string
+	BmcMac                  string
+	FirmwareVersion         string
+	AssociatedDpuMachineIDs []string
+	UpdateComplete          bool
+	HealthStatus            string
+	LastObservationTime     *time.Time
+	FirmwareAutoupdate      *bool
 }
 
 // MachinePosition represents machine position information from NICo
@@ -52,6 +53,11 @@ func machineDetailFromPb(machine *corev1.Machine) MachineDetail {
 		State:          machine.State,
 		MachineType:    machine.MachineType.String(),
 		UpdateComplete: status.GetUpdateComplete(),
+	}
+	for _, dpuID := range status.GetAssociatedDpuMachineIds() {
+		if id := dpuID.GetId(); id != "" {
+			detail.AssociatedDpuMachineIDs = append(detail.AssociatedDpuMachineIDs, id)
+		}
 	}
 
 	// Chassis serial

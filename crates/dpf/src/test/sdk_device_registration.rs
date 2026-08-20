@@ -77,6 +77,35 @@ impl DpuDeviceRepository for DeviceRegistrationMock {
             .insert(resource_key(d), d.clone());
         Ok(d.clone())
     }
+    async fn patch(&self, name: &str, ns: &str, patch: serde_json::Value) -> Result<(), DpfError> {
+        let mut devices = self.devices.write().unwrap();
+        let device = devices
+            .get_mut(&ns_key(ns, name))
+            .ok_or_else(|| DpfError::not_found("DPUDevice", name))?;
+
+        let Some(node_labels) = patch
+            .pointer("/spec/cluster/nodeLabels")
+            .and_then(serde_json::Value::as_object)
+        else {
+            return Ok(());
+        };
+
+        let cluster = device.spec.cluster.get_or_insert({
+            crate::crds::dpudevices_generated::DpuDeviceCluster {
+                node_annotations: None,
+                node_labels: None,
+            }
+        });
+        let labels = cluster.node_labels.get_or_insert_with(BTreeMap::new);
+        for (key, value) in node_labels {
+            if value.is_null() {
+                labels.remove(key);
+            } else if let Some(value) = value.as_str() {
+                labels.insert(key.clone(), value.to_owned());
+            }
+        }
+        Ok(())
+    }
     async fn delete(&self, name: &str, ns: &str) -> Result<(), DpfError> {
         self.devices.write().unwrap().remove(&ns_key(ns, name));
         Ok(())

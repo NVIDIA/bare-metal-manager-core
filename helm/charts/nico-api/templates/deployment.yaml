@@ -237,6 +237,11 @@ spec:
             - name: spiffe
               mountPath: "/var/run/secrets/spiffe.io"
               readOnly: true
+            {{- if .Values.nvSwitchTls.nicoClient.enabled }}
+            - name: nvswitch-nico-client
+              mountPath: {{ .Values.nvSwitchTls.nicoClient.mountPath }}
+              readOnly: true
+            {{- end }}
             - name: nico-roots
               mountPath: "/var/run/secrets/forge-roots"
               readOnly: true
@@ -267,6 +272,11 @@ spec:
         - name: spiffe
           secret:
             secretName: {{ include "nico-api.name" . }}-certificate
+        {{- if .Values.nvSwitchTls.nicoClient.enabled }}
+        - name: nvswitch-nico-client
+          secret:
+            secretName: {{ .Values.nvSwitchTls.nicoClient.secretName }}
+        {{- end }}
         - name: nico-roots
           secret:
             secretName: nico-roots

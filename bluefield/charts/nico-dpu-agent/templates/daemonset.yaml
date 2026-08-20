@@ -168,6 +168,8 @@ spec:
               value: "0"
             - name: RUST_LOG
               value: "info"
+            - name: AGENT_PLATFORM_TYPE
+              value: "containerized"
             - name: NODE_NAME
               valueFrom:
                 fieldRef:
@@ -203,6 +205,38 @@ spec:
             - name: hw-cache
               mountPath: /data
               readOnly: true
+        - name: nico-lldp-sidecar
+          securityContext:
+            privileged: false
+            allowPrivilegeEscalation: true
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - DAC_OVERRIDE
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          args:
+            - sidecar-mode
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.lldpSidecar.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: hw-cache
+              mountPath: /data
+            - name: host-run
+              mountPath: /run
+              readOnly: true
+            - name: host-usr-sbin
+              mountPath: /usr/sbin
+              readOnly: true
+            - name: host-lib
+              mountPath: /lib
+              readOnly: true
+            - name: sys
+              mountPath: /host-sys
+              readOnly: true
       volumes:
         {{- with .Values.fmds.sign_proxy_url }}
         - name: agent-config
@@ -215,6 +249,18 @@ spec:
             type: DirectoryOrCreate
         - name: hw-cache
           emptyDir: {}
+        - name: host-run
+          hostPath:
+            path: /run
+            type: Directory
+        - name: host-usr-sbin
+          hostPath:
+            path: /usr/sbin
+            type: Directory
+        - name: host-lib
+          hostPath:
+            path: /lib
+            type: Directory
         - name: sys
           hostPath:
             path: /sys

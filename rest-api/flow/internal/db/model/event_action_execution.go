@@ -18,7 +18,7 @@ type EventActionExecution struct {
 	ID             uuid.UUID  `bun:"id,pk,type:uuid,default:gen_random_uuid()"`
 	EventID        uuid.UUID  `bun:"event_id,type:uuid,notnull"`
 	RuleID         uuid.UUID  `bun:"rule_id,type:uuid,notnull"`
-	ActionID       string     `bun:"action_id,notnull"`
+	ActionName     string     `bun:"action_name,notnull"`
 	CorrelationKey string     `bun:"correlation_key,notnull"`
 	Status         string     `bun:"status,notnull"`
 	Reason         string     `bun:"reason,notnull"`

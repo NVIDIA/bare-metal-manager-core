@@ -28,13 +28,16 @@
 use std::collections::BTreeSet;
 
 use ::rpc::forge as rpc;
+use ::rpc::forge::BootInterfaceSelectionSource as RpcBootInterfaceSelectionSource;
 use ::rpc::forge::get_machine_boot_interfaces_response::Reconciliation as BootInterfaceReconciliationStatus;
 use ::rpc::forge::get_machine_boot_interfaces_response::reconciliation::State as BootInterfaceReconciliationState;
 use config_version::{ConfigVersion, Versioned};
 use mac_address::MacAddress;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{ManagedHostState, ReadyBootConfigState};
-use model::machine_boot_interface::{BootInterfaceStatusObservation, MachineBootInterfaceTarget};
+use model::machine_boot_interface::{
+    BootInterfaceSelection, BootInterfaceStatusObservation, MachineBootInterfaceTarget,
+};
 use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_request_data};
@@ -221,6 +224,7 @@ pub(crate) async fn get_machine_boot_interfaces(
         reconciliation: machine.as_ref().and_then(|machine| {
             boot_interface_reconciliation_status(
                 machine.config.desired_boot_interface.as_ref(),
+                machine.config.boot_interface_selection.as_ref(),
                 machine.status.boot_interface_status_observation.as_ref(),
                 machine.current_state(),
             )
@@ -236,6 +240,7 @@ pub(crate) async fn get_machine_boot_interfaces(
 /// finishing, even though neither can satisfy the current desired version.
 fn boot_interface_reconciliation_status(
     desired_boot_interface: Option<&Versioned<MachineBootInterfaceTarget>>,
+    boot_interface_selection: Option<&BootInterfaceSelection>,
     observation: Option<&BootInterfaceStatusObservation>,
     machine_state: &ManagedHostState,
 ) -> Option<BootInterfaceReconciliationStatus> {
@@ -272,6 +277,12 @@ fn boot_interface_reconciliation_status(
         machine_state: machine_state.to_string(),
         reconciling_version: active_reconciliation.map(|(version, _)| version.version_string()),
         failure,
+        selection_source: boot_interface_selection.map_or(
+            RpcBootInterfaceSelectionSource::Unspecified as i32,
+            |selection| RpcBootInterfaceSelectionSource::from(selection.source) as i32,
+        ),
+        selection_updated_at: boot_interface_selection
+            .and_then(|selection| selection.updated_at.map(Into::into)),
     })
 }
 
@@ -329,6 +340,7 @@ fn boot_interface_message(
 mod tests {
     use carbide_test_support::{Check, check_values};
     use chrono::{DateTime, Utc};
+    use model::machine_boot_interface::BootInterfaceSelectionSource;
 
     use super::*;
 
@@ -341,6 +353,10 @@ mod tests {
         );
         let desired = Versioned::new(target.clone(), desired_version);
         let observed_at = DateTime::<Utc>::UNIX_EPOCH;
+        let selection = BootInterfaceSelection {
+            source: BootInterfaceSelectionSource::Operator,
+            updated_at: Some(observed_at),
+        };
         let boot_configuring =
             |reconciling_version, boot_config_state| ManagedHostState::BootConfiguring {
                 desired_version: reconciling_version,
@@ -429,6 +445,7 @@ mod tests {
                     });
                 let status = boot_interface_reconciliation_status(
                     Some(&desired),
+                    Some(&selection),
                     observation.as_ref(),
                     &machine_state,
                 )
@@ -453,6 +470,10 @@ mod tests {
         );
         let desired = Versioned::new(target.clone(), desired_version);
         let observed_at = DateTime::<Utc>::UNIX_EPOCH;
+        let selection = BootInterfaceSelection {
+            source: BootInterfaceSelectionSource::RedfishUefiPci,
+            updated_at: Some(observed_at),
+        };
         let observation = BootInterfaceStatusObservation {
             config_version: stale_version,
             observed_at,
@@ -469,13 +490,19 @@ mod tests {
         };
 
         assert!(
-            boot_interface_reconciliation_status(None, Some(&observation), &machine_state)
-                .is_none(),
+            boot_interface_reconciliation_status(
+                None,
+                Some(&selection),
+                Some(&observation),
+                &machine_state,
+            )
+            .is_none(),
             "a machine without a desired target has no reconciliation view"
         );
 
         let status = boot_interface_reconciliation_status(
             Some(&desired),
+            Some(&selection),
             Some(&observation),
             &machine_state,
         )
@@ -501,5 +528,10 @@ mod tests {
             Some(stale_version.version_string().as_str())
         );
         assert_eq!(status.failure.as_deref(), Some(failure.as_str()));
+        assert_eq!(
+            status.selection_source(),
+            RpcBootInterfaceSelectionSource::RedfishUefiPci,
+        );
+        assert_eq!(status.selection_updated_at, Some(observed_at.into()));
     }
 }

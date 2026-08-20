@@ -20,6 +20,64 @@ use config_version::ConfigVersion;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
+/// Which selection mechanism established the machine's current boot interface.
+///
+/// A source records the path NICo used to make the decision, not necessarily a
+/// unique hardware discriminator. This mirrors the
+/// `boot_interface_selection_source` Postgres enum. Sources that come from
+/// Redfish name the exact Redfish signal used, while [`Self::LegacyUnknown`]
+/// covers selections that predate tracking or whose current source cannot be
+/// recovered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(
+    type_name = "boot_interface_selection_source",
+    rename_all = "snake_case"
+)]
+#[serde(rename_all = "snake_case")]
+pub enum BootInterfaceSelectionSource {
+    /// An `ExpectedMachine` explicitly declared the primary interface.
+    ExpectedMachine,
+    /// An operator explicitly selected the boot interface.
+    Operator,
+    /// Redfish UEFI PCI paths determined the ordering.
+    RedfishUefiPci,
+    /// Redfish chassis identifiers determined the ordering.
+    RedfishChassisId,
+    /// Site Explorer used its DPU serial number fallback from Redfish.
+    /// Missing serials sort as empty keys, and the stable sort retains discovery
+    /// order among equal keys.
+    RedfishSerialNumber,
+    /// Host PCI data in a Scout report determined the ordering.
+    ScoutReportPci,
+    /// The selection predates source tracking or otherwise has no known source.
+    LegacyUnknown,
+}
+
+/// Whether forced boot interface reconciliation selects a target or reapplies
+/// the target that was already selected.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BootInterfaceSelectionAuthority {
+    /// An operator explicitly selected the target being reconciled.
+    Operator,
+    /// Reconciliation preserves existing selection metadata, or records
+    /// `LegacyUnknown` when no prior selection exists.
+    Existing,
+}
+
+/// Persisted explanation for the current desired boot interface selection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BootInterfaceSelection {
+    /// Mechanism that established the current selection.
+    pub source: BootInterfaceSelectionSource,
+    /// Time the current target and source decision was established.
+    ///
+    /// Adding a Redfish interface ID for the same MAC preserves this time. It is
+    /// absent when NICo cannot recover the decision time, including migrated
+    /// rows and compatibility baselines. It is distinct from Redfish
+    /// observation time, which records convergence.
+    pub updated_at: Option<DateTime<Utc>>,
+}
+
 /// Returns the canonical form of a Redfish boot-interface id.
 ///
 /// Redfish ids may arrive padded by transport or vendor formatting. Only

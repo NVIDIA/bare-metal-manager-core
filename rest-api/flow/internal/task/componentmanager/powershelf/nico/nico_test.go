@@ -97,7 +97,8 @@ func TestPowerControl(t *testing.T) {
 }
 
 func TestFirmwareControl(t *testing.T) {
-	m := New(nicoapi.NewMockClient(), nil)
+	client := nicoapi.NewMockClient()
+	m := New(client, nil)
 
 	target := common.Target{
 		Type:         devicetypes.ComponentTypePowerShelf,
@@ -106,8 +107,14 @@ func TestFirmwareControl(t *testing.T) {
 
 	err := m.FirmwareControl(context.Background(), target, operations.FirmwareControlTaskInfo{
 		TargetVersion: "1.2.3",
+		AccessToken:   "powershelf-token",
 	})
 	assert.NoError(t, err)
+	assert.Equal(
+		t,
+		"powershelf-token",
+		client.LastUpdateComponentFirmwareRequest().GetAccessToken(),
+	)
 }
 
 func TestGetFirmwareStatus(t *testing.T) {

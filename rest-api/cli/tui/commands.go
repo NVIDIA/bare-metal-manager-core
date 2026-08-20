@@ -1005,8 +1005,9 @@ func cmdMachineList(s *Session, args []string) error {
 	fmt.Fprintf(os.Stderr, "%d items\n", len(items))
 	defer printLabelHint(os.Stderr, items, merged)
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tSTATUS\tBLOCKED BY\tSITE\tVPC\tLABELS\tID")
+	fmt.Fprintln(tw, "NAME\tIP ADDRESS\tSTATUS\tBLOCKED BY\tSITE\tVPC\tLABELS\tID")
 	for _, item := range items {
+		ipAddress := firstMachineIPAddress(item.Raw)
 		siteName := s.Resolver.ResolveID("site", item.Extra["siteId"])
 		vpcNames := strings.TrimSpace(vpcNamesByMachineID[item.ID])
 		if vpcNames == "" {
@@ -1016,9 +1017,37 @@ func cmdMachineList(s *Session, args []string) error {
 		if blockedBy == "" {
 			blockedBy = "-"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", item.Name, item.Status, blockedBy, siteName, vpcNames, formatLabels(item.Labels, 60), item.ID)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", item.Name, ipAddress, item.Status, blockedBy, siteName, vpcNames, formatLabels(item.Labels, 60), item.ID)
 	}
 	return tw.Flush()
+}
+
+func firstMachineIPAddress(raw interface{}) string {
+	machine, ok := raw.(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	interfaces, ok := machine["machineInterfaces"].([]interface{})
+	if !ok {
+		return ""
+	}
+	for _, rawInterface := range interfaces {
+		machineInterface, ok := rawInterface.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		ipAddresses, ok := machineInterface["ipAddresses"].([]interface{})
+		if !ok {
+			continue
+		}
+		for _, rawIPAddress := range ipAddresses {
+			ipAddress, ok := rawIPAddress.(string)
+			if ok && strings.TrimSpace(ipAddress) != "" {
+				return ipAddress
+			}
+		}
+	}
+	return ""
 }
 
 // blockingHealthAlert captures the fields from MachineHealthProbeAlert that we

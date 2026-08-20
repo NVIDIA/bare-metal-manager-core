@@ -8,40 +8,41 @@ import (
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
 	actioncodec "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/codec/action"
-	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	flowtypes "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 	"github.com/stretchr/testify/require"
 )
 
 func TestMarshal(t *testing.T) {
 	tests := map[string]eventrule.Action{
-		"submit task": eventrule.NewAction(
-			"submit",
-			eventrule.ActionCondition{
+		"submit task": {
+			Name: "submit",
+			Condition: eventrule.ActionCondition{
 				Severities:     []eventrule.Severity{eventrule.SeverityCritical},
 				ComponentTypes: []flowtypes.ComponentType{flowtypes.ComponentTypeCompute},
 			},
-			eventrule.SubmitTask{
-				OperationType:    taskcommon.TaskTypePowerControl,
-				OperationCode:    taskcommon.OpCodePowerControlForcePowerOff,
+			Spec: &eventrule.SubmitTask{
+				Operation: &operations.FirmwareControlTaskInfo{
+					Operation:              operations.FirmwareOperationUpgrade,
+					TargetVersion:          "1.2.3",
+					StartTime:              123,
+					EndTime:                456,
+					SubTargets:             []string{"bmc", "bios"},
+					OverrideReadinessCheck: true,
+				},
 				TargetStrategy:   eventrule.TargetStrategyComponent,
 				ConflictStrategy: eventrule.ConflictStrategyQueue,
 				Description:      "power off",
 			},
-		),
-		"send alert": eventrule.NewAction(
-			"alert",
-			eventrule.ActionCondition{},
-			eventrule.SendAlert{
+		},
+		"send alert": {
+			Name: "alert",
+			Spec: &eventrule.SendAlert{
 				Severity: eventrule.SeverityWarning,
 				Message:  "leak detected",
 			},
-		),
-		"noop": eventrule.NewAction(
-			"noop",
-			eventrule.ActionCondition{},
-			eventrule.Noop{Reason: "audit only"},
-		),
+		},
+		"noop": {Name: "noop", Spec: &eventrule.Noop{Reason: "audit only"}},
 	}
 
 	for name, action := range tests {
@@ -65,14 +66,14 @@ func TestUnmarshal(t *testing.T) {
 	tests := map[string]string{
 		"unknown version": `{
 			"version":2,
-			"id":"noop",
+			"name":"noop",
 			"type":"noop",
 			"condition":{},
 			"spec":{}
 		}`,
 		"unknown action field": `{
 			"version":1,
-			"id":"noop",
+			"name":"noop",
 			"type":"noop",
 			"condition":{},
 			"spec":{},
@@ -80,35 +81,35 @@ func TestUnmarshal(t *testing.T) {
 		}`,
 		"invalid condition severity": `{
 			"version":1,
-			"id":"noop",
+			"name":"noop",
 			"type":"noop",
 			"condition":{"severities":["urgent"]},
 			"spec":{}
 		}`,
 		"invalid condition component type": `{
 			"version":1,
-			"id":"noop",
+			"name":"noop",
 			"type":"noop",
 			"condition":{"componentTypes":["GPU"]},
 			"spec":{}
 		}`,
 		"invalid send alert severity": `{
 			"version":1,
-			"id":"alert",
+			"name":"alert",
 			"type":"send_alert",
 			"condition":{},
 			"spec":{"severity":"urgent"}
 		}`,
 		"unspecified send alert severity": `{
 			"version":1,
-			"id":"alert",
+			"name":"alert",
 			"type":"send_alert",
 			"condition":{},
 			"spec":{"severity":""}
 		}`,
 		"unknown action type": `{
 			"version":1,
-			"id":"unknown",
+			"name":"unknown",
 			"type":"unknown",
 			"condition":{},
 			"spec":{}
