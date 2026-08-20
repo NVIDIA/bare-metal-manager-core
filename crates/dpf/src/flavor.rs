@@ -760,10 +760,7 @@ fn get_config_files(
         "ENABLE_ESWITCH_MULTIPORT=\"yes\"\n"
     )
     .to_string();
-    if matches!(
-        deployment_type,
-        DpuDeploymentType::Bf4Generic | DpuDeploymentType::Bf4Astra
-    ) {
+    if matches!(deployment_type, DpuDeploymentType::Bf4Generic) {
         mlnx_bf_conf.push_str("SNAP_DMA_SF=\"no\"\n");
     }
 
@@ -981,6 +978,7 @@ fn get_bf4_astra_config_files(
                     "ALLOW_SHARED_RQ=\"no\"\n",
                     "IPSEC_FULL_OFFLOAD=\"no\"\n",
                     "ENABLE_ESWITCH_MULTIPORT=\"yes\"\n",
+                    "SNAP_DMA_SF=\"no\"\n"
                 )
                 .to_string(),
             ),
