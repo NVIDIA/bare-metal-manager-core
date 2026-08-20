@@ -140,8 +140,6 @@ host architectures.
 
 The DevSpace images also use Dockerfile-specific ignore files. [`Dockerfile.core-artifacts.dockerignore`](Dockerfile.core-artifacts.dockerignore) provides the union of the source needed by the four binaries, while [`Dockerfile.api.dockerignore`](Dockerfile.api.dockerignore), [`Dockerfile.bmc-proxy.dockerignore`](Dockerfile.bmc-proxy.dockerignore), and [`Dockerfile.machine-a-tron.dockerignore`](Dockerfile.machine-a-tron.dockerignore) limit the runtime-image contexts. This keeps the top-level [`.dockerignore`](../../../.dockerignore) aligned with the main branch for CI and release builds.
 
-On ARM64, the local REST BuildKit builds use the Linux host network while downloading Go modules because Docker bridge DNS cannot resolve public module hosts on the tested ARM64 development host. AMD64 builds retain BuildKit's default network. This does not change the network configuration of the deployed containers.
-
 The local REST Dockerfiles inherit BuildKit's target operating system and architecture. Native AMD64 hosts therefore produce AMD64 binaries, while native ARM64 hosts produce ARM64 binaries for the corresponding runtime images.
 
 DevSpace watches the Rust workspace, toolchain metadata, and the runtime Dockerfiles to decide when the shared Core artifacts need rebuilding. It always runs the three second-stage Core runtime builds to guarantee their generated tags exist locally. On kind clusters, the pre-deploy hooks then load all Core and REST images into the cluster selected by the current kube context.

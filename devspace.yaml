@@ -23,14 +23,6 @@ vars:
   LOCAL_DEV_REST_POSTGRES_PASSWORD:
     source: env
     default: nico_rest
-  DEVSPACE_REST_BUILD_NETWORK_MODE:
-    source: command
-    default: default
-    command: |-
-      case "$(uname -m)" in
-        aarch64|arm64) printf host ;;
-        *) printf default ;;
-      esac
   LOCAL_DEV_REST_API_FORWARD_PORT:
     source: env
     default: "18388"
@@ -154,9 +146,7 @@ images:
       - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_TIMESTAMP}
     dockerfile: rest-api/docker/local/Dockerfile.nico-rest-api
     context: rest-api
-    buildKit:
-      args:
-        - --network=${DEVSPACE_REST_BUILD_NETWORK_MODE}
+    buildKit: {}
     skipPush: true
   nico-rest-workflow:
     image: localhost:5000/nico-rest-workflow
@@ -164,9 +154,7 @@ images:
       - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_TIMESTAMP}
     dockerfile: rest-api/docker/local/Dockerfile.nico-rest-workflow
     context: rest-api
-    buildKit:
-      args:
-        - --network=${DEVSPACE_REST_BUILD_NETWORK_MODE}
+    buildKit: {}
     skipPush: true
   nico-rest-site-manager:
     image: localhost:5000/nico-rest-site-manager
@@ -174,9 +162,7 @@ images:
       - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_TIMESTAMP}
     dockerfile: rest-api/docker/local/Dockerfile.nico-rest-site-manager
     context: rest-api
-    buildKit:
-      args:
-        - --network=${DEVSPACE_REST_BUILD_NETWORK_MODE}
+    buildKit: {}
     skipPush: true
   nico-rest-site-agent:
     image: localhost:5000/nico-rest-site-agent
@@ -184,9 +170,7 @@ images:
       - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_TIMESTAMP}
     dockerfile: rest-api/docker/local/Dockerfile.nico-rest-site-agent
     context: rest-api
-    buildKit:
-      args:
-        - --network=${DEVSPACE_REST_BUILD_NETWORK_MODE}
+    buildKit: {}
     skipPush: true
   nico-rest-db:
     image: localhost:5000/nico-rest-db
@@ -194,9 +178,7 @@ images:
       - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_TIMESTAMP}
     dockerfile: rest-api/docker/local/Dockerfile.nico-rest-db
     context: rest-api
-    buildKit:
-      args:
-        - --network=${DEVSPACE_REST_BUILD_NETWORK_MODE}
+    buildKit: {}
     skipPush: true
   nico-rest-cert-manager:
     image: localhost:5000/nico-rest-cert-manager
@@ -204,9 +186,7 @@ images:
       - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_TIMESTAMP}
     dockerfile: rest-api/docker/local/Dockerfile.nico-rest-cert-manager
     context: rest-api
-    buildKit:
-      args:
-        - --network=${DEVSPACE_REST_BUILD_NETWORK_MODE}
+    buildKit: {}
     skipPush: true
 
 deployments:
@@ -392,9 +372,7 @@ profiles:
             - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_TIMESTAMP}
           dockerfile: rest-api/docker/local/Dockerfile.nico-mcp
           context: rest-api
-          buildKit:
-            args:
-              - --network=${DEVSPACE_REST_BUILD_NETWORK_MODE}
+          buildKit: {}
           skipPush: true
       - op: add
         path: deployments.nico-mcp
