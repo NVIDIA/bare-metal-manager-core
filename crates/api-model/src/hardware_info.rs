@@ -241,6 +241,12 @@ fn default_count_one() -> u32 {
     1
 }
 
+/// Upper bound on [`MemoryDeviceGroup::count`] accepted from an RPC boundary. Far beyond any
+/// real DIMM slot count (even the largest multi-socket servers top out in the low hundreds), so
+/// this only exists to keep [`MemoryDeviceGroup::rehydrate`] from allocating an unbounded number
+/// of [`MemoryDevice`]s for a malicious or corrupted `count`.
+pub const MAX_MEMORY_DEVICE_GROUP_COUNT: u32 = 8192;
+
 /// Condensed representation of one or more identical memory devices. This is the internal and
 /// storage form stored in [`HardwareInfo`]. Use [`condense_memory_devices`] to build from a flat
 /// list and [`MemoryDeviceGroup::rehydrate`] to expand back.

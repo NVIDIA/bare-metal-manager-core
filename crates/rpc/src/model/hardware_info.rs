@@ -462,13 +462,21 @@ impl From<rpc::machine_discovery::MemoryDevice> for MemoryDevice {
     }
 }
 
-impl From<rpc::machine_discovery::MemoryDeviceGroup> for model::hardware_info::MemoryDeviceGroup {
-    fn from(value: rpc::machine_discovery::MemoryDeviceGroup) -> Self {
-        Self {
+impl TryFrom<rpc::machine_discovery::MemoryDeviceGroup> for model::hardware_info::MemoryDeviceGroup {
+    type Error = RpcDataConversionError;
+
+    fn try_from(value: rpc::machine_discovery::MemoryDeviceGroup) -> Result<Self, Self::Error> {
+        if value.count > model::hardware_info::MAX_MEMORY_DEVICE_GROUP_COUNT {
+            return Err(RpcDataConversionError::InvalidValue(
+                "memory_device_groups[].count".to_string(),
+                value.count.to_string(),
+            ));
+        }
+        Ok(Self {
             size_mb: value.size_mb,
             mem_type: value.mem_type,
             count: value.count,
-        }
+        })
     }
 }
 
@@ -525,7 +533,10 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
             memory_devices: if !info.memory_device_groups.is_empty() {
                 info.memory_device_groups
                     .into_iter()
-                    .filter_map(|g| model::hardware_info::MemoryDeviceGroup::from(g).nonzero())
+                    .map(model::hardware_info::MemoryDeviceGroup::try_from)
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .filter_map(model::hardware_info::MemoryDeviceGroup::nonzero)
                     .collect()
             } else {
                 #[allow(deprecated)]
@@ -2464,5 +2475,20 @@ mod tests {
                 count: 4,
             }]
         );
+    }
+
+    // A `count` above `MAX_MEMORY_DEVICE_GROUP_COUNT` is rejected, otherwise
+    // it would let `rehydrate` allocate an unbounded number of `MemoryDevice`s.
+    #[test]
+    fn discovery_info_conversion_rejects_excessive_memory_group_count() {
+        let info = rpc::machine_discovery::DiscoveryInfo {
+            memory_device_groups: vec![rpc::machine_discovery::MemoryDeviceGroup {
+                size_mb: Some(16384),
+                mem_type: Some("DDR5".to_string()),
+                count: model::hardware_info::MAX_MEMORY_DEVICE_GROUP_COUNT + 1,
+            }],
+            ..Default::default()
+        };
+        assert!(HardwareInfo::try_from(info).is_err());
     }
 }
