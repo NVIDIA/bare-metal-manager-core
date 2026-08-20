@@ -104,9 +104,9 @@ impl PolledInventorySource {
             self.failure_applied = true;
             return Some(SourceFailure::ClientConfiguration(error));
         }
-        if !self
+        if self
             .failure_since
-            .is_some_and(|start| now.duration_since(start) >= grace_period)
+            .is_some_and(|start| now.duration_since(start) < grace_period)
         {
             return None;
         }

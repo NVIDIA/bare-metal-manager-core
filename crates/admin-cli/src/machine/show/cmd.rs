@@ -325,6 +325,7 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
     table
 }
 
+#[allow(deprecated)]
 async fn show_all_machines(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: &OutputFormat,
@@ -344,6 +345,14 @@ async fn show_all_machines(
 
     match output_format {
         OutputFormat::Json => {
+            // `memory_device_groups` didn't exist before condensing was introduced; rehydrate and
+            // clear it here so this raw dump stays byte-for-byte identical to the pre-condensing
+            // output, which only ever had `memory_devices`.
+            for machine in machines.machines.iter_mut() {
+                if let Some(discovery_info) = machine.discovery_info.as_mut() {
+                    discovery_info.rehydrate_memory_devices();
+                }
+            }
             async_writeln!(output_file, "{}", serde_json::to_string_pretty(&machines)?)?;
         }
         OutputFormat::AsciiTable => {
@@ -361,6 +370,7 @@ async fn show_all_machines(
     Ok(())
 }
 
+#[allow(deprecated)]
 async fn show_machine_information(
     machine_id: MachineId,
     args: &Args,
@@ -368,9 +378,15 @@ async fn show_machine_information(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let machine = api_client.get_machine(machine_id).await?;
+    let mut machine = api_client.get_machine(machine_id).await?;
     match output_format {
         OutputFormat::Json => {
+            // `memory_device_groups` didn't exist before condensing was introduced; rehydrate and
+            // clear it here so this raw dump stays byte-for-byte identical to the pre-condensing
+            // output, which only ever had `memory_devices`.
+            if let Some(discovery_info) = machine.discovery_info.as_mut() {
+                discovery_info.rehydrate_memory_devices();
+            }
             async_write!(output_file, "{}", serde_json::to_string_pretty(&machine)?)?
         }
         OutputFormat::AsciiTable => async_write!(

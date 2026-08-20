@@ -90,6 +90,26 @@ impl machine_discovery::MemoryDeviceGroup {
     }
 }
 
+impl machine_discovery::DiscoveryInfo {
+    /// Rehydrates the deprecated flat `memory_devices` list from `memory_device_groups` and
+    /// clears the groups, so a raw dump of this `DiscoveryInfo` stays byte-for-byte identical
+    /// to the pre-condensing output, which only ever had `memory_devices`.
+    ///
+    /// Group order (and thus device order) is preserved: groups only merge consecutive
+    /// identical devices, and `rehydrate()` expands each group to `count` copies in place.
+    #[allow(deprecated)]
+    pub fn rehydrate_memory_devices(&mut self) {
+        if self.memory_devices.is_empty() && !self.memory_device_groups.is_empty() {
+            self.memory_devices = self
+                .memory_device_groups
+                .iter()
+                .flat_map(|group| group.rehydrate())
+                .collect();
+        }
+        self.memory_device_groups.clear();
+    }
+}
+
 #[allow(non_snake_case, unknown_lints, clippy::all)]
 #[rustfmt::skip]
 pub mod measured_boot {
