@@ -1,4 +1,5 @@
-{{- if or .Values.fmds.sign_proxy_url .Values.supplementalNetworkConfig }}
+{{- $supplementalCmName := default "" (get (default (dict) .Values.supplementalNetworkConfig) "name") -}}
+{{- if or .Values.fmds.sign_proxy_url $supplementalCmName }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -11,7 +12,7 @@ data:
     [machine-identity]
     sign-proxy-url = {{ . | quote }}
     {{- end }}
-    {{- if .Values.supplementalNetworkConfig }}
+    {{- if $supplementalCmName }}
     [network]
     supplemental-config-path = "/etc/forge/supplemental-network-config/supplemental.json"
     {{- end }}

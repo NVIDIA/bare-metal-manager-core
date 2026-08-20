@@ -34,15 +34,17 @@ use nvue_client::config::NvueConfigWithHeader;
 /// YAML startup config in `nvue_yaml` and returns the merged YAML document.
 /// The `header` entry is passed through untouched.
 ///
-/// The whole merge stays in the `serde_yaml::Value` domain (JSON is a YAML
-/// subset, so the patch parses with serde_yaml too). `serde_json::Value` must
-/// not appear anywhere in this transformation: with the workspace-unified
-/// `arbitrary_precision` feature, its numbers serialize into YAML as a
-/// `{"$serde_json::private::Number": ...}` mapping, corrupting the config.
+/// The merge itself is `json_patch::merge` (RFC 7386). Because it operates on
+/// `serde_json::Value`, the `set` section crosses into the JSON domain and
+/// back; the return crossing MUST go through JSON text rather than
+/// `serde_yaml::to_value`, because with the workspace-unified
+/// `arbitrary_precision` feature a `serde_json` number serializes into YAML
+/// as a `{"$serde_json::private::Number": ...}` mapping, corrupting the
+/// config. `preserves_scalar_types` is the regression test for this bridge.
 pub(crate) fn merge_into_nvue_yaml(nvue_yaml: &str, patch_json: &str) -> eyre::Result<String> {
-    let patch: serde_yaml::Value = serde_yaml::from_str(patch_json)
+    let patch: serde_json::Value = serde_json::from_str(patch_json)
         .wrap_err("supplemental network config is not valid JSON")?;
-    if !patch.is_mapping() {
+    if !patch.is_object() {
         return Err(eyre::eyre!(
             "supplemental network config must be a JSON object of NVUE config sections"
         ));
@@ -59,7 +61,15 @@ pub(crate) fn merge_into_nvue_yaml(nvue_yaml: &str, patch_json: &str) -> eyre::R
         .find_map(|entry| entry.as_mapping_mut().and_then(|map| map.get_mut(&set_key)))
         .ok_or_else(|| eyre::eyre!("generated NVUE config has no 'set' entry"))?;
 
-    yaml_merge_patch(set_entry, &patch);
+    let mut merged =
+        serde_json::to_value(&*set_entry).wrap_err("converting the NVUE 'set' section to JSON")?;
+    json_patch::merge(&mut merged, &patch);
+
+    // Bridge back through JSON text, not serde_yaml::to_value — see above.
+    let merged_json =
+        serde_json::to_string(&merged).wrap_err("serializing the merged NVUE 'set' section")?;
+    *set_entry = serde_yaml::from_str(&merged_json)
+        .wrap_err("converting the merged NVUE 'set' section back to YAML")?;
 
     let merged = serde_yaml::to_string(&doc).wrap_err("serializing the merged NVUE config")?;
 
@@ -70,33 +80,6 @@ pub(crate) fn merge_into_nvue_yaml(nvue_yaml: &str, patch_json: &str) -> eyre::R
         .wrap_err("merged NVUE config failed shape validation")?;
 
     Ok(merged)
-}
-
-/// RFC 7386 JSON Merge Patch: objects merge recursively, `null` deletes a key,
-/// and any non-object patch value replaces the target wholesale.
-fn yaml_merge_patch(target: &mut serde_yaml::Value, patch: &serde_yaml::Value) {
-    let serde_yaml::Value::Mapping(patch_map) = patch else {
-        *target = patch.clone();
-        return;
-    };
-    if !target.is_mapping() {
-        *target = serde_yaml::Value::Mapping(serde_yaml::Mapping::new());
-    }
-    let target_map = target
-        .as_mapping_mut()
-        .expect("target was just replaced with a mapping");
-    for (key, patch_value) in patch_map {
-        if patch_value.is_null() {
-            target_map.remove(key);
-        } else {
-            yaml_merge_patch(
-                target_map
-                    .entry(key.clone())
-                    .or_insert(serde_yaml::Value::Null),
-                patch_value,
-            );
-        }
-    }
 }
 
 #[cfg(test)]
@@ -160,7 +143,12 @@ mod tests {
         let patch = r#"{"vrf": {"default": null}}"#;
         let merged = merge_into_nvue_yaml(BASE_NVUE_YAML, patch).unwrap();
         let doc: serde_yaml::Value = serde_yaml::from_str(&merged).unwrap();
-        assert!(doc[1]["set"]["vrf"]["default"].is_null());
+        // The key must be removed, not left behind with a null value —
+        // indexing alone cannot tell those apart.
+        let vrf = doc[1]["set"]["vrf"]
+            .as_mapping()
+            .expect("vrf mapping survives");
+        assert!(!vrf.contains_key(serde_yaml::Value::from("default")));
         // The sibling section is untouched.
         assert_eq!(doc[1]["set"]["interface"]["lo"]["type"], "loopback");
     }
@@ -199,5 +187,186 @@ mod tests {
     fn rejects_invalid_json() {
         let err = merge_into_nvue_yaml(BASE_NVUE_YAML, "{not json").unwrap_err();
         assert!(err.to_string().contains("not valid JSON"), "{err:#}");
+    }
+
+    /// The contract is JSON Merge Patch; YAML-only syntax must not slip
+    /// through just because the merge internally parses with serde_yaml.
+    #[test]
+    fn rejects_yaml_only_patch_syntax() {
+        for patch in [
+            "vrf:\n  default: {}",               // block mapping
+            "{vrf: {default: {}}}",              // unquoted flow-mapping keys
+            "---\n{\"vrf\": {\"default\": {}}}", // document marker
+        ] {
+            let err = merge_into_nvue_yaml(BASE_NVUE_YAML, patch).unwrap_err();
+            assert!(
+                err.to_string().contains("not valid JSON"),
+                "patch {patch:?} should be rejected as non-JSON: {err:#}"
+            );
+        }
+    }
+
+    /// The supplemental document is RFC 7386 JSON *Merge* Patch (an object
+    /// mirroring the config's shape), not RFC 6902 JSON Patch (an array of
+    /// {op, path} operations). A 6902 document must be rejected, not applied.
+    #[test]
+    fn rejects_rfc6902_json_patch_document() {
+        let patch = r#"[{"op": "add", "path": "/vrf/storage", "value": {}}]"#;
+        let err = merge_into_nvue_yaml(BASE_NVUE_YAML, patch).unwrap_err();
+        assert!(err.to_string().contains("JSON object"), "{err:#}");
+    }
+
+    #[test]
+    fn empty_patch_object_is_a_no_op() {
+        let merged = merge_into_nvue_yaml(BASE_NVUE_YAML, "{}").unwrap();
+        let doc: serde_yaml::Value = serde_yaml::from_str(&merged).unwrap();
+        let base: serde_yaml::Value = serde_yaml::from_str(BASE_NVUE_YAML).unwrap();
+        assert_eq!(doc[1]["set"], base[1]["set"]);
+    }
+
+    /// A deep addition must not clobber siblings anywhere along the path.
+    #[test]
+    fn deep_merge_preserves_siblings_at_every_level() {
+        let patch = r#"{"vrf": {"default": {"router": {"bgp": {"router-id": "10.0.0.1"}}}}}"#;
+        let merged = merge_into_nvue_yaml(BASE_NVUE_YAML, patch).unwrap();
+        let doc: serde_yaml::Value = serde_yaml::from_str(&merged).unwrap();
+        let bgp = &doc[1]["set"]["vrf"]["default"]["router"]["bgp"];
+        assert_eq!(bgp["autonomous-system"], 65001);
+        assert_eq!(bgp["router-id"], "10.0.0.1");
+    }
+
+    /// `null` deletes exactly the addressed key; the enclosing mapping and
+    /// its siblings survive.
+    #[test]
+    fn null_deletes_nested_key_only() {
+        let patch = r#"{"vrf": {"default": {"router": {"bgp": {"autonomous-system": null}}}}}"#;
+        let merged = merge_into_nvue_yaml(BASE_NVUE_YAML, patch).unwrap();
+        let doc: serde_yaml::Value = serde_yaml::from_str(&merged).unwrap();
+        let bgp = doc[1]["set"]["vrf"]["default"]["router"]["bgp"]
+            .as_mapping()
+            .expect("bgp mapping must survive the delete");
+        assert!(!bgp.contains_key(serde_yaml::Value::from("autonomous-system")));
+        assert_eq!(doc[1]["set"]["interface"]["lo"]["type"], "loopback");
+    }
+
+    /// RFC 7386: deleting a key that does not exist is not an error.
+    #[test]
+    fn null_on_missing_key_is_ignored() {
+        let patch = r#"{"vrf": {"no-such-vrf": null}}"#;
+        let merged = merge_into_nvue_yaml(BASE_NVUE_YAML, patch).unwrap();
+        let doc: serde_yaml::Value = serde_yaml::from_str(&merged).unwrap();
+        assert_eq!(
+            doc[1]["set"]["vrf"]["default"]["router"]["bgp"]["autonomous-system"],
+            65001
+        );
+    }
+
+    /// RFC 7386: a non-object patch value replaces the target wholesale, in
+    /// both directions (scalar over object, object over scalar).
+    #[test]
+    fn non_object_values_replace_wholesale() {
+        let patch = r#"{"interface": {"lo": {"type": {"mode": "l3"}, "ip": "disabled"}}}"#;
+        let merged = merge_into_nvue_yaml(BASE_NVUE_YAML, patch).unwrap();
+        let doc: serde_yaml::Value = serde_yaml::from_str(&merged).unwrap();
+        let lo = &doc[1]["set"]["interface"]["lo"];
+        // object replaced the "loopback" scalar
+        assert_eq!(lo["type"]["mode"], "l3");
+        // scalar replaced the ip mapping wholesale (so the old address key
+        // is gone with it)
+        assert_eq!(lo["ip"], "disabled");
+    }
+
+    /// RFC 7386 does not merge arrays: a patch array replaces the target.
+    #[test]
+    fn arrays_are_replaced_not_merged() {
+        let patch = r#"{"system": {"dns": {"server": ["1.1.1.1", "8.8.8.8"]}}}"#;
+        let merged = merge_into_nvue_yaml(BASE_NVUE_YAML, patch).unwrap();
+        let doc: serde_yaml::Value = serde_yaml::from_str(&merged).unwrap();
+        let servers = doc[1]["set"]["system"]["dns"]["server"]
+            .as_sequence()
+            .expect("array survives as a sequence");
+        assert_eq!(servers.len(), 2);
+        assert_eq!(servers[0], "1.1.1.1");
+    }
+
+    /// Scalar types must survive the merge unchanged. Guards against value
+    /// re-encoding regressions (e.g. serde_json's arbitrary_precision feature
+    /// turning numbers into private tagged mappings).
+    #[test]
+    fn preserves_scalar_types() {
+        let patch = r#"{
+            "vrf": {"t": {"num": 65099, "float": 1.5, "flag": true, "text": "swp", "big": 4294967296}}
+        }"#;
+        let merged = merge_into_nvue_yaml(BASE_NVUE_YAML, patch).unwrap();
+        assert!(
+            !merged.contains("$serde_json"),
+            "numbers must not re-encode as tagged mappings: {merged}"
+        );
+        let doc: serde_yaml::Value = serde_yaml::from_str(&merged).unwrap();
+        let t = &doc[1]["set"]["vrf"]["t"];
+        assert_eq!(t["num"], 65099);
+        assert_eq!(t["float"], 1.5);
+        assert_eq!(t["flag"], true);
+        assert_eq!(t["text"], "swp");
+        assert_eq!(t["big"], 4294967296u64);
+    }
+
+    /// NVUE keys are frequently prefix-like ("10.1.2.3/31"); they must pass
+    /// through as plain string keys.
+    #[test]
+    fn accepts_prefix_style_keys() {
+        let patch = r#"{"interface": {"pf0sf4_r": {"ip": {"address": {"10.1.2.3/31": {}}}}}}"#;
+        let merged = merge_into_nvue_yaml(BASE_NVUE_YAML, patch).unwrap();
+        let doc: serde_yaml::Value = serde_yaml::from_str(&merged).unwrap();
+        assert!(
+            doc[1]["set"]["interface"]["pf0sf4_r"]["ip"]["address"]["10.1.2.3/31"].is_mapping()
+        );
+    }
+
+    /// The storage test-bed's actual shape: add the storage VPC VRF, put the
+    /// SF representor into it, and assign the link address — in one patch,
+    /// alongside the generated config, still parseable by the wire model.
+    #[test]
+    fn realistic_storage_testbed_patch() {
+        let patch = r#"{
+            "vrf": {
+                "storage-vpc": {
+                    "router": {"bgp": {"autonomous-system": 65099, "router-id": "10.9.0.1"}}
+                }
+            },
+            "interface": {
+                "pf0sf4_r": {
+                    "ip": {"vrf": "storage-vpc", "address": {"10.9.1.0/31": {}}},
+                    "type": "swp"
+                }
+            }
+        }"#;
+        let merged = merge_into_nvue_yaml(BASE_NVUE_YAML, patch).unwrap();
+        // Generated config intact, storage additions present, wire-parseable.
+        let doc: serde_yaml::Value = serde_yaml::from_str(&merged).unwrap();
+        let set = &doc[1]["set"];
+        assert_eq!(set["interface"]["lo"]["type"], "loopback");
+        assert_eq!(
+            set["vrf"]["default"]["router"]["bgp"]["autonomous-system"],
+            65001
+        );
+        assert_eq!(set["interface"]["pf0sf4_r"]["ip"]["vrf"], "storage-vpc");
+        assert_eq!(
+            set["vrf"]["storage-vpc"]["router"]["bgp"]["autonomous-system"],
+            65099
+        );
+        nvue_client::config::NvueConfigWithHeader::from_yaml(&merged)
+            .expect("merged document must remain a valid NVUE startup config");
+    }
+
+    /// Idempotence: applying the same patch to an already-patched document
+    /// changes nothing — the loop the test-bed relies on when the agent
+    /// re-renders with an unchanged file.
+    #[test]
+    fn merge_is_idempotent() {
+        let patch = r#"{"vrf": {"storage": {"router": {"bgp": {"autonomous-system": 65099}}}}}"#;
+        let once = merge_into_nvue_yaml(BASE_NVUE_YAML, patch).unwrap();
+        let twice = merge_into_nvue_yaml(&once, patch).unwrap();
+        assert_eq!(once, twice);
     }
 }

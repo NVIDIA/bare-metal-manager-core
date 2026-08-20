@@ -9,8 +9,11 @@
 {{- $bootstrapCaObjectKey = get $bootstrapCaObject "key" -}}
 {{- end -}}
 {{- $certsDir := .Values.certsDir | default "/opt/nico" -}}
+{{- $supplementalNetworkConfig := default (dict) .Values.supplementalNetworkConfig -}}
+{{- $supplementalCmName := default "" (get $supplementalNetworkConfig "name") -}}
+{{- $supplementalCmKey := default "supplemental.json" (get $supplementalNetworkConfig "key") -}}
 {{- /* The agent's config.toml is needed by any section that sets a key in it. */ -}}
-{{- $agentConfigEnabled := or .Values.fmds.sign_proxy_url .Values.supplementalNetworkConfig -}}
+{{- $agentConfigEnabled := or .Values.fmds.sign_proxy_url $supplementalCmName -}}
 {{- $podAnnotations := .Values.serviceDaemonSet.annotations -}}
 {{- if $agentConfigEnabled -}}
 {{- $podAnnotations = omit $podAnnotations "checksum/machine-identity-config" -}}
@@ -200,7 +203,7 @@ spec:
               subPath: config.toml
               readOnly: true
             {{- end }}
-            {{- if .Values.supplementalNetworkConfig }}
+            {{- if $supplementalCmName }}
             {{- /* Directory mount (no subPath) so kubelet live-updates the
                    file on ConfigMap changes; the agent re-applies via its
                    content-hash change detection without a pod restart. */}}
@@ -219,10 +222,21 @@ spec:
           configMap:
             name: {{ include "nico-dpu-agent.fullname" . }}-config
         {{- end }}
-        {{- if .Values.supplementalNetworkConfig }}
+        {{- if $supplementalCmName }}
+        {{- /* Externally managed ConfigMap; this chart only mounts it. The
+               items projection pins the in-container filename regardless of
+               the source key, matching the agent's config.toml path.
+               optional keeps the agent pod running when the ConfigMap is
+               absent (the agent fails the network reconcile loudly instead);
+               kubelet populates the directory mount on its next sync once
+               the ConfigMap appears, no pod restart needed. */}}
         - name: supplemental-network-config
           configMap:
-            name: {{ include "nico-dpu-agent.fullname" . }}-supplemental-network-config
+            name: {{ $supplementalCmName | quote }}
+            optional: true
+            items:
+              - key: {{ $supplementalCmKey | quote }}
+                path: supplemental.json
         {{- end }}
         - name: nico-certs
           hostPath:

@@ -356,17 +356,12 @@ fn current_network_version_never_matches_before_first_update() {
 #[test]
 fn current_network_version_tracks_supplemental_config_hash() {
     let config = comparison_network_config();
-    let hash = Some(CurrentNetworkVersion::hash_supplemental_config(
-        r#"{"vrf": {"storage": {}}}"#,
-    ));
+    let contents = r#"{"vrf": {"storage": {}}}"#;
     let mut current = CurrentNetworkVersion::default();
-    current.update_from(&config, hash);
+    current.update_from(&config, Some(contents));
 
-    assert!(current.matches_versions_from(&config, hash));
-    let edited = Some(CurrentNetworkVersion::hash_supplemental_config(
-        r#"{"vrf": null}"#,
-    ));
-    assert!(!current.matches_versions_from(&config, edited));
+    assert!(current.matches_versions_from(&config, Some(contents)));
+    assert!(!current.matches_versions_from(&config, Some(r#"{"vrf": null}"#)));
     assert!(!current.matches_versions_from(&config, None));
 }
 

@@ -16,6 +16,28 @@ tests:
           path: spec.template.spec.containers[0].args
           content: --config-path=/etc/forge/config.toml
 
+  - it: renders no agent ConfigMap by default
+    template: configmap.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders the agent ConfigMap when the sign proxy is set
+    template: configmap.yaml
+    set:
+      fmds:
+        sign_proxy_url: http://dsx-imds.dpf-operator-system.svc.cluster.local:8080
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-config
+      # Exact config.toml contents are asserted in
+      # machine_identity_configmap_test.yaml.
+      - exists:
+          path: data["config.toml"]
+
   - it: mounts the configured agent file
     template: daemonset.yaml
     set:

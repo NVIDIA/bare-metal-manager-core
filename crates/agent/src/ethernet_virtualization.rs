@@ -655,9 +655,10 @@ pub(super) async fn update_nvue(
     let next_contents = nvue::build(conf)?;
 
     // Merging before the write/push keeps the supplemental content part of the
-    // same atomic NVUE revision on both apply flavors. An empty file means "no
-    // patch"; a malformed one fails this reconciliation instead of being
-    // silently dropped.
+    // same atomic NVUE revision on both apply flavors. A blank file (empty or
+    // whitespace-only, hence the trim: a pre-created ConfigMap or a stray
+    // trailing newline) means "no patch" rather than failing reconciliation;
+    // a malformed one fails loudly instead of being silently dropped.
     let next_contents = match supplemental_config.map(str::trim) {
         Some(patch) if !patch.is_empty() => {
             crate::supplemental_config::merge_into_nvue_yaml(&next_contents, patch)

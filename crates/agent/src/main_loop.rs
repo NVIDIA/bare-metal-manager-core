@@ -506,14 +506,16 @@ struct CurrentNetworkVersion {
 }
 
 impl CurrentNetworkVersion {
-    /// Returns whether the explicit versions and HBN inputs from the response
-    /// match the last successful network reconciliation.
+    /// Returns whether the explicit versions and HBN inputs from the response,
+    /// plus the supplemental network config contents, match the last
+    /// successful network reconciliation.
     fn matches_versions_from(
         &self,
         conf: &ManagedHostNetworkConfigResponse,
-        supplemental_config_hash: Option<u64>,
+        supplemental_config: Option<&str>,
     ) -> bool {
-        if self.supplemental_config_hash != supplemental_config_hash {
+        if self.supplemental_config_hash != supplemental_config.map(Self::hash_supplemental_config)
+        {
             tracing::info!("Supplemental network config changed");
             return false;
         }
@@ -538,12 +540,13 @@ impl CurrentNetworkVersion {
         }
     }
 
-    /// Records the versions and HBN inputs from the response after network
-    /// reconciliation succeeds.
+    /// Records the versions and HBN inputs from the response, plus the
+    /// supplemental network config contents, after network reconciliation
+    /// succeeds.
     fn update_from(
         &mut self,
         conf: &ManagedHostNetworkConfigResponse,
-        supplemental_config_hash: Option<u64>,
+        supplemental_config: Option<&str>,
     ) {
         self.managed_host_config_version =
             get_non_empty_str(&conf.managed_host_config_version).map(String::from);
@@ -551,7 +554,7 @@ impl CurrentNetworkVersion {
             get_non_empty_str(&conf.instance_network_config_version).map(String::from);
         self.rendered_inputs_hash
             .replace(Self::hash_rendered_inputs(conf));
-        self.supplemental_config_hash = supplemental_config_hash;
+        self.supplemental_config_hash = supplemental_config.map(Self::hash_supplemental_config);
     }
 
     /// Hashes the supplemental network config file's contents for change
@@ -1008,88 +1011,78 @@ impl MainLoop {
                     // picked up. A configured-but-unreadable file fails the
                     // update loudly instead of silently applying an unmerged
                     // config.
-                    let supplemental_config = self
-                        .agent_config
-                        .network
-                        .supplemental_config_path
-                        .as_ref()
-                        .map(|path| {
-                            std::fs::read_to_string(path).map_err(|err| {
-                                eyre::eyre!(
-                                    "couldn't read supplemental network config {}: {err}",
-                                    path.display()
-                                )
-                            })
-                        })
-                        .transpose();
-                    let supplemental_config_hash = supplemental_config
-                        .as_ref()
-                        .ok()
-                        .and_then(|contents| contents.as_deref())
-                        .map(CurrentNetworkVersion::hash_supplemental_config);
-
-                    let update_result = match supplemental_config {
-                        Err(err) => Err(err),
-                        Ok(_)
-                            if self
-                                .current_network_version
-                                .matches_versions_from(&conf, supplemental_config_hash) =>
-                        {
-                            tracing::debug!(
-                                current_network_version = ?self.current_network_version,
-                                "No configuration change, skipping HBN updates"
-                            );
-                            Ok(false)
-                        }
-                        Ok(supplemental_config) => {
-                            if self.options.agent_platform_type.is_dpu_os()
-                                && hbn_version >= self.fmds_minimum_hbn_version
-                            {
-                                let fmds_proposed_interfaces =
-                                    &self.agent_config.fmds_armos_networking;
-                                let network_plan =
-                                    DpuNetworkInterfaces::new(fmds_proposed_interfaces);
-
-                                let fmds_interface_plan =
-                                    Interface::plan(self.hbn_device_names.sfs[0], network_plan)
-                                        .await?;
-                                tracing::trace!(interface_plan = ?fmds_interface_plan, "Interface plan");
-
-                                Interface::apply(fmds_interface_plan).await?;
-
-                                // plan_fmds_armos_routing reads the interface's current IPv4 address
-                                // for prefsrc and returns Ok(None) when no address is present, skipping
-                                // route installation entirely. The config-version cache can prevent a
-                                // retry on the next tick, so the interface address must be applied
-                                // before the route plan is computed.
-                                let route_plan = plan_fmds_armos_routing(
-                                    self.hbn_device_names.sfs[0],
-                                    &proposed_routes,
-                                )
-                                .await?;
-                                tracing::trace!(route_plan = ?route_plan, "Route plan");
-
-                                if let Some(route_plan) = route_plan {
-                                    Route::apply(route_plan).await?;
+                    let mut supplemental_config_error = None;
+                    let supplemental_config =
+                        match &self.agent_config.network.supplemental_config_path {
+                            None => None,
+                            Some(path) => match std::fs::read_to_string(path) {
+                                Ok(contents) => Some(contents),
+                                Err(err) => {
+                                    supplemental_config_error = Some(eyre::eyre!(
+                                        "couldn't read supplemental network config {}: {err}",
+                                        path.display()
+                                    ));
+                                    None
                                 }
-                            }
+                            },
+                        };
 
-                            let update_flavor = match self.nvue_context.as_mut() {
-                                Some(nvue_context) => NvueUpdateFlavor::RestApi { nvue_context },
-                                None => NvueUpdateFlavor::StartupFile {
-                                    hbn_root: &self.agent_config.hbn.root_dir,
-                                    skip_post: self.agent_config.hbn.skip_reload,
-                                },
-                            };
-                            ethernet_virtualization::update_nvue(
-                                virtualization_type,
-                                update_flavor,
-                                &conf,
-                                self.hbn_device_names.clone(),
-                                supplemental_config.as_deref(),
+                    let update_result = if let Some(err) = supplemental_config_error {
+                        Err(err)
+                    } else if self
+                        .current_network_version
+                        .matches_versions_from(&conf, supplemental_config.as_deref())
+                    {
+                        tracing::debug!(
+                            current_network_version = ?self.current_network_version,
+                            "No configuration change, skipping HBN updates"
+                        );
+                        Ok(false)
+                    } else {
+                        if self.options.agent_platform_type.is_dpu_os()
+                            && hbn_version >= self.fmds_minimum_hbn_version
+                        {
+                            let fmds_proposed_interfaces = &self.agent_config.fmds_armos_networking;
+                            let network_plan = DpuNetworkInterfaces::new(fmds_proposed_interfaces);
+
+                            let fmds_interface_plan =
+                                Interface::plan(self.hbn_device_names.sfs[0], network_plan).await?;
+                            tracing::trace!(interface_plan = ?fmds_interface_plan, "Interface plan");
+
+                            Interface::apply(fmds_interface_plan).await?;
+
+                            // plan_fmds_armos_routing reads the interface's current IPv4 address
+                            // for prefsrc and returns Ok(None) when no address is present, skipping
+                            // route installation entirely. The config-version cache can prevent a
+                            // retry on the next tick, so the interface address must be applied
+                            // before the route plan is computed.
+                            let route_plan = plan_fmds_armos_routing(
+                                self.hbn_device_names.sfs[0],
+                                &proposed_routes,
                             )
-                            .await
+                            .await?;
+                            tracing::trace!(route_plan = ?route_plan, "Route plan");
+
+                            if let Some(route_plan) = route_plan {
+                                Route::apply(route_plan).await?;
+                            }
                         }
+
+                        let update_flavor = match self.nvue_context.as_mut() {
+                            Some(nvue_context) => NvueUpdateFlavor::RestApi { nvue_context },
+                            None => NvueUpdateFlavor::StartupFile {
+                                hbn_root: &self.agent_config.hbn.root_dir,
+                                skip_post: self.agent_config.hbn.skip_reload,
+                            },
+                        };
+                        ethernet_virtualization::update_nvue(
+                            virtualization_type,
+                            update_flavor,
+                            &conf,
+                            self.hbn_device_names.clone(),
+                            supplemental_config.as_deref(),
+                        )
+                        .await
                     };
 
                     let astra_config_status =
@@ -1117,7 +1110,7 @@ impl MainLoop {
                     match joined_result {
                         Ok((has_changed, astra_config_status)) => {
                             self.current_network_version
-                                .update_from(&conf, supplemental_config_hash);
+                                .update_from(&conf, supplemental_config.as_deref());
                             has_changed_configs = has_changed;
                             if conf.astra_config.is_some() {
                                 status_out.astra_config_status = Some(astra_config_status);

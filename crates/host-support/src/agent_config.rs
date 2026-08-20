@@ -357,7 +357,8 @@ pub struct NetworkConfig {
     /// place triggers a re-render without an agent restart. When set, the file
     /// must exist and be readable; an unreadable file fails the network
     /// reconciliation loudly rather than silently applying an unmerged config.
-    #[serde(default)]
+    /// An empty string means "not configured", same as omitting the key.
+    #[serde(default, deserialize_with = "empty_path_as_none")]
     pub supplemental_config_path: Option<PathBuf>,
 }
 
@@ -365,6 +366,17 @@ impl NetworkConfig {
     pub fn is_default(&self) -> bool {
         *self == Self::default()
     }
+}
+
+/// Normalizes `supplemental-config-path = ""` to `None`: an empty path means
+/// "disabled", not "read the empty path" (which would fail every network
+/// reconciliation instead of turning the feature off).
+fn empty_path_as_none<'de, D>(deserializer: D) -> Result<Option<PathBuf>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let path = Option::<PathBuf>::deserialize(deserializer)?;
+    Ok(path.filter(|path| !path.as_os_str().is_empty()))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -529,6 +541,36 @@ mod tests {
             sign_timeout_secs,
             sign_proxy_url: sign_proxy_url.map(ToString::to_string),
             sign_proxy_tls_root_ca: sign_proxy_tls_root_ca.map(ToString::to_string),
+        }
+    }
+
+    // `[network] supplemental-config-path` parsing — one row per input shape.
+    // An empty string must behave exactly like an omitted key (disabled),
+    // never as a readable path.
+    #[test]
+    fn network_config_supplemental_path_parsing() {
+        for (scenario, toml_src, expected) in [
+            ("section omitted", "", None),
+            ("key omitted", "[network]\n", None),
+            (
+                "empty path is disabled",
+                "[network]\nsupplemental-config-path = \"\"\n",
+                None,
+            ),
+            (
+                "non-empty path is kept",
+                "[network]\nsupplemental-config-path = \"/etc/forge/supplemental-network-config/supplemental.json\"\n",
+                Some(PathBuf::from(
+                    "/etc/forge/supplemental-network-config/supplemental.json",
+                )),
+            ),
+        ] {
+            let config: AgentConfig =
+                toml::from_str(toml_src).unwrap_or_else(|e| panic!("{scenario}: {e}"));
+            assert_eq!(
+                config.network.supplemental_config_path, expected,
+                "{scenario}"
+            );
         }
     }
 

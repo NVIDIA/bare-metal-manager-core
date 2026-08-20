@@ -1,33 +1,13 @@
 suite: supplemental network config
 templates:
-  - supplemental_network_configmap.yaml
   - configmap.yaml
   - daemonset.yaml
 tests:
-  - it: renders no supplemental ConfigMap by default
-    template: supplemental_network_configmap.yaml
-    asserts:
-      - hasDocuments:
-          count: 0
-
-  - it: renders the supplemental ConfigMap with the merge-patch content
-    template: supplemental_network_configmap.yaml
-    set:
-      supplementalNetworkConfig: |
-        {"vrf": {"storage": {"router": {"bgp": {"autonomous-system": 65099}}}}}
-    asserts:
-      - equal:
-          path: metadata.name
-          value: RELEASE-NAME-supplemental-network-config
-      - equal:
-          path: data["supplemental.json"]
-          value: |
-            {"vrf": {"storage": {"router": {"bgp": {"autonomous-system": 65099}}}}}
-
   - it: points the agent config at the mounted patch file
     template: configmap.yaml
     set:
-      supplementalNetworkConfig: '{"vrf": {"storage": {}}}'
+      supplementalNetworkConfig:
+        name: storage-testbed-nvue-patch
     asserts:
       - equal:
           path: data["config.toml"]
@@ -40,7 +20,8 @@ tests:
     set:
       fmds:
         sign_proxy_url: http://dsx-imds.dpf-operator-system.svc.cluster.local:8080
-      supplementalNetworkConfig: '{"vrf": {"storage": {}}}'
+      supplementalNetworkConfig:
+        name: storage-testbed-nvue-patch
     asserts:
       - equal:
           path: data["config.toml"]
@@ -50,13 +31,14 @@ tests:
             [network]
             supplemental-config-path = "/etc/forge/supplemental-network-config/supplemental.json"
 
-  - it: wires the config path, mount, and volume into the daemonset
+  - it: mounts the externally managed ConfigMap by reference
     template: daemonset.yaml
     set:
       image:
         repository: test
         tag: test
-      supplementalNetworkConfig: '{"vrf": {"storage": {}}}'
+      supplementalNetworkConfig:
+        name: storage-testbed-nvue-patch
     asserts:
       - contains:
           path: spec.template.spec.containers[0].args
@@ -79,9 +61,34 @@ tests:
           content:
             name: supplemental-network-config
             configMap:
-              name: RELEASE-NAME-supplemental-network-config
+              name: storage-testbed-nvue-patch
+              optional: true
+              items:
+                - key: supplemental.json
+                  path: supplemental.json
       - exists:
           path: spec.template.metadata.annotations["checksum/machine-identity-config"]
+
+  - it: pins the mounted filename when a custom key is used
+    template: daemonset.yaml
+    set:
+      image:
+        repository: test
+        tag: test
+      supplementalNetworkConfig:
+        name: storage-testbed-nvue-patch
+        key: patch.json
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: supplemental-network-config
+            configMap:
+              name: storage-testbed-nvue-patch
+              optional: true
+              items:
+                - key: patch.json
+                  path: supplemental.json
 
   - it: leaves the daemonset untouched when unset
     template: daemonset.yaml
@@ -101,3 +108,22 @@ tests:
             readOnly: true
       - notExists:
           path: spec.template.metadata.annotations["checksum/machine-identity-config"]
+
+  - it: treats an empty name as disabled
+    template: daemonset.yaml
+    set:
+      image:
+        repository: test
+        tag: test
+      supplementalNetworkConfig:
+        name: ""
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --config-path=/etc/forge/config.toml
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: supplemental-network-config
+            mountPath: /etc/forge/supplemental-network-config
+            readOnly: true
