@@ -18,10 +18,10 @@ type APITenantIdentityConfigCreateOrUpdateRequest struct {
 	Issuer                   string   `json:"issuer"`
 	DefaultAudience          string   `json:"defaultAudience"`
 	AllowedAudiences         []string `json:"allowedAudiences"`
-	TokenTtlSeconds          int      `json:"tokenTtlSeconds"`
+	TokenTtlSeconds          uint32   `json:"tokenTtlSeconds"`
 	SubjectPrefix            *string  `json:"subjectPrefix"`
 	RotateKey                *bool    `json:"rotateKey"`
-	SigningKeyOverlapSeconds *int     `json:"signingKeyOverlapSeconds"`
+	SigningKeyOverlapSeconds *uint32  `json:"signingKeyOverlapSeconds"`
 }
 
 // Validate enforces the REST-layer contract. Enabled is optional; nil
@@ -31,7 +31,7 @@ func (req APITenantIdentityConfigCreateOrUpdateRequest) Validate() error {
 	if err := validation.ValidateStruct(&req,
 		validation.Field(&req.Issuer, validation.Required.Error(validationErrorValueRequired)),
 		validation.Field(&req.DefaultAudience, validation.Required.Error(validationErrorValueRequired)),
-		validation.Field(&req.TokenTtlSeconds, validation.Required.Error(validationErrorValueRequired), validation.Min(1)),
+		validation.Field(&req.TokenTtlSeconds, validation.Required.Error(validationErrorValueRequired), validation.Min(uint32(1))),
 	); err != nil {
 		return err
 	}
@@ -76,15 +76,14 @@ func (req APITenantIdentityConfigCreateOrUpdateRequest) ToProto(org string) *cor
 		AllowedAudiences: req.AllowedAudiences,
 		SubjectPrefix:    req.SubjectPrefix,
 		Issuer:           req.Issuer,
-		TokenTtlSec:      uint32(req.TokenTtlSeconds),
+		TokenTtlSec:      req.TokenTtlSeconds,
 	}
 	cfg.Enabled = req.Enabled == nil || *req.Enabled
 	if req.RotateKey != nil {
 		cfg.RotateKey = *req.RotateKey
 	}
 	if req.SigningKeyOverlapSeconds != nil {
-		v := uint32(*req.SigningKeyOverlapSeconds)
-		cfg.SigningKeyOverlapSec = &v
+		cfg.SigningKeyOverlapSec = req.SigningKeyOverlapSeconds
 	}
 
 	return &corev1.SetTenantIdentityConfigRequest{
@@ -108,7 +107,7 @@ type APITenantIdentityConfig struct {
 	Issuer           string                        `json:"issuer"`
 	DefaultAudience  string                        `json:"defaultAudience"`
 	AllowedAudiences []string                      `json:"allowedAudiences"`
-	TokenTtlSeconds  int                           `json:"tokenTtlSeconds"`
+	TokenTtlSeconds  uint32                        `json:"tokenTtlSeconds"`
 	SubjectPrefix    string                        `json:"subjectPrefix"`
 	SigningKeys      []APITenantIdentitySigningKey `json:"signingKeys"`
 	Created          time.Time                     `json:"created"`
@@ -126,7 +125,7 @@ func (resp *APITenantIdentityConfig) FromResponseProto(proto *corev1.TenantIdent
 		resp.Issuer = cfg.GetIssuer()
 		resp.DefaultAudience = cfg.GetDefaultAudience()
 		resp.AllowedAudiences = cfg.GetAllowedAudiences()
-		resp.TokenTtlSeconds = int(cfg.GetTokenTtlSec())
+		resp.TokenTtlSeconds = cfg.GetTokenTtlSec()
 		resp.SubjectPrefix = cfg.GetSubjectPrefix()
 	}
 	if keys := proto.GetSigningKeys(); len(keys) > 0 {

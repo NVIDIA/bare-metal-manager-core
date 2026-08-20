@@ -15,6 +15,7 @@ import (
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
 	operationrun "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/secret"
 	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
@@ -26,8 +27,23 @@ import (
 // server-owned defaults such as generated seeds and conflict retry durations.
 // The returned OperationRun stores each normalized policy/configuration value
 // as internal JSON for dispatcher use.
-func OperationRunFrom(
+func OperationRunFrom(req *pb.CreateOperationRunRequest) (*operationrun.OperationRun, error) {
+	return operationRunFrom(req, nil)
+}
+
+// OperationRunFromWithFirmwareAuthentication converts a request while adding
+// already-encrypted firmware authentication data to the persisted operation
+// template before its first serialization.
+func OperationRunFromWithFirmwareAuthentication(
 	req *pb.CreateOperationRunRequest,
+	authenticationData *secret.EncryptedData,
+) (*operationrun.OperationRun, error) {
+	return operationRunFrom(req, authenticationData)
+}
+
+func operationRunFrom(
+	req *pb.CreateOperationRunRequest,
+	firmwareAuthenticationData *secret.EncryptedData,
 ) (*operationrun.OperationRun, error) {
 	if req == nil {
 		return nil, fmt.Errorf("create operation run request is required")
@@ -46,6 +62,9 @@ func OperationRunFrom(
 	operation, err := operationFrom(configuration.GetOperation())
 	if err != nil {
 		return nil, err
+	}
+	if firmwareInfo, ok := operation.Payload.(*operations.FirmwareControlTaskInfo); ok {
+		firmwareInfo.AuthenticationData = firmwareAuthenticationData
 	}
 
 	selector, err := selectorFrom(configuration.GetSelector())
@@ -1125,7 +1144,7 @@ func OperationRunTo(run *operationrun.OperationRun) (*pb.OperationRun, error) {
 	}
 
 	result := &pb.OperationRun{
-		Summary: operationRunSummaryTo(run, &options),
+		Summary: operationRunSummaryTo(run),
 		Configuration: &pb.OperationRunConfiguration{
 			Selector:  pbSelector,
 			Options:   pbOptions,
@@ -1140,8 +1159,7 @@ func OperationRunTo(run *operationrun.OperationRun) (*pb.OperationRun, error) {
 }
 
 // OperationRunSummaryTo converts a domain operation run to the lightweight
-// list shape. It intentionally avoids unmarshalling selector and operation
-// template JSON.
+// list shape without unmarshalling configuration JSON.
 func OperationRunSummaryTo(
 	run *operationrun.OperationRun,
 ) (*pb.OperationRunSummary, error) {
@@ -1149,17 +1167,11 @@ func OperationRunSummaryTo(
 		return nil, nil
 	}
 
-	var options operationrun.Options
-	if err := operationrun.UnmarshalConfig(run.Options, &options); err != nil {
-		return nil, fmt.Errorf("unmarshal options: %w", err)
-	}
-
-	return operationRunSummaryTo(run, &options), nil
+	return operationRunSummaryTo(run), nil
 }
 
 func operationRunSummaryTo(
 	run *operationrun.OperationRun,
-	options *operationrun.Options,
 ) *pb.OperationRunSummary {
 	summary := &pb.OperationRunSummary{
 		Id:            UUIDTo(run.ID),
@@ -1168,7 +1180,7 @@ func operationRunSummaryTo(
 		OperationKind: OperationKindTo(run.OperationType, run.OperationCode),
 		State:         OperationRunStateTo(run.Status, run.StatusReason),
 		StatusMessage: run.StatusMessage,
-		TotalPhases:   operationRunPhaseCount(&options.PhasePolicy),
+		TotalPhases:   run.TotalPhases,
 		CreatedAt:     timestamppb.New(run.CreatedAt),
 		UpdatedAt:     timestamppb.New(run.UpdatedAt),
 	}
@@ -1426,38 +1438,6 @@ func OperationRunTargetListOptionsFrom(
 	}
 
 	return opts, nil
-}
-
-func operationRunPhaseCount(policy *operationrun.PhasePolicy) int32 {
-	if policy == nil {
-		return 0
-	}
-	if policy.Plan == nil {
-		return 0
-	}
-
-	switch policy.Plan.PhasePlanKind() {
-	case operationrun.PhasePlanKindEqual:
-		equal, ok := policy.Plan.(*operationrun.EqualPhases)
-		if !ok || equal == nil {
-			return 0
-		}
-		return equal.PhaseCount
-	case operationrun.PhasePlanKindPercentage:
-		percentage, ok := policy.Plan.(*operationrun.PercentagePhases)
-		if !ok || percentage == nil {
-			return 0
-		}
-		return int32(len(percentage.Phases))
-	case operationrun.PhasePlanKindCount:
-		count, ok := policy.Plan.(*operationrun.CountPhases)
-		if !ok || count == nil {
-			return 0
-		}
-		return int32(len(count.Phases) + 1)
-	default:
-		return 0
-	}
 }
 
 // OperationRunStatusTo converts a domain operation-run status to proto.

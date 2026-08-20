@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
-	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	flowtypes "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -255,28 +255,21 @@ func TestRegistry_ValidateRule(t *testing.T) {
 			require.NoError(t, New().ValidateRule(targetRule(strategy)))
 		}
 	})
-	t.Run("task pointer", func(t *testing.T) {
-		rule := targetRule(eventrule.TargetStrategyComponent)
-		task := rule.Actions[0].Spec.(eventrule.SubmitTask)
-		rule.Actions[0].Spec = &task
-		require.NoError(t, New().ValidateRule(rule))
-	})
 	t.Run("actions without targets", func(t *testing.T) {
 		tests := []struct {
 			name string
 			spec eventrule.ActionSpec
 		}{
-			{name: "send alert", spec: eventrule.SendAlert{Severity: eventrule.SeverityWarning}},
-			{name: "noop", spec: eventrule.Noop{}},
+			{name: "send alert", spec: &eventrule.SendAlert{Severity: eventrule.SeverityWarning}},
+			{name: "noop", spec: &eventrule.Noop{}},
 		}
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
 				rule := targetRule(eventrule.TargetStrategyComponent)
-				rule.Actions[0] = eventrule.NewAction(
-					"action",
-					eventrule.ActionCondition{},
-					test.spec,
-				)
+				rule.Actions[0] = eventrule.Action{
+					Name: "action",
+					Spec: test.spec,
+				}
 				require.NoError(t, New().ValidateRule(rule))
 			})
 		}
@@ -302,12 +295,16 @@ func targetRule(strategy eventrule.TargetStrategy) *eventrule.Rule {
 		Enabled:   true,
 		EventType: "hardware.leak.detected",
 		Policy: eventrule.Policy{Actions: []eventrule.Action{
-			eventrule.NewAction("task", eventrule.ActionCondition{}, eventrule.SubmitTask{
-				OperationType:    taskcommon.TaskTypePowerControl,
-				OperationCode:    taskcommon.OpCodePowerControlForcePowerOff,
-				TargetStrategy:   strategy,
-				ConflictStrategy: eventrule.ConflictStrategyQueue,
-			}),
+			{
+				Name: "task",
+				Spec: &eventrule.SubmitTask{
+					Operation: &operations.PowerControlTaskInfo{
+						Operation: operations.PowerOperationForcePowerOff,
+					},
+					TargetStrategy:   strategy,
+					ConflictStrategy: eventrule.ConflictStrategyQueue,
+				},
+			},
 		}},
 	}
 }

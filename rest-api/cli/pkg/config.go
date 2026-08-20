@@ -31,14 +31,17 @@ type ConfigAuth struct {
 }
 
 type ConfigOIDC struct {
-	TokenURL     string `yaml:"token_url,omitempty"`
-	ClientID     string `yaml:"client_id,omitempty"`
-	ClientSecret string `yaml:"client_secret,omitempty"`
-	Username     string `yaml:"username,omitempty"`
-	Password     string `yaml:"password,omitempty"`
-	Token        string `yaml:"token,omitempty"`
-	RefreshToken string `yaml:"refresh_token,omitempty"`
-	ExpiresAt    string `yaml:"expires_at,omitempty"`
+	TokenURL         string            `yaml:"token_url,omitempty"`
+	ClientID         string            `yaml:"client_id,omitempty"`
+	ClientSecret     string            `yaml:"client_secret,omitempty"`
+	ClientAuthMethod string            `yaml:"client_auth_method,omitempty"`
+	Scopes           []string          `yaml:"scopes,omitempty"`
+	TokenParameters  map[string]string `yaml:"token_parameters,omitempty"`
+	Username         string            `yaml:"username,omitempty"`
+	Password         string            `yaml:"password,omitempty"`
+	Token            string            `yaml:"token,omitempty"`
+	RefreshToken     string            `yaml:"refresh_token,omitempty"`
+	ExpiresAt        string            `yaml:"expires_at,omitempty"`
 }
 
 type ConfigAPIKey struct {
@@ -113,7 +116,9 @@ func SaveConfigToPath(cfg *ConfigFile, path string) error {
 	// Load existing file as raw map to preserve unknown keys.
 	raw := make(map[string]interface{})
 	if existing, err := os.ReadFile(path); err == nil {
-		yaml.Unmarshal(existing, &raw)
+		if err := yaml.Unmarshal(existing, &raw); err != nil {
+			return fmt.Errorf("parsing existing config %s: %w", path, err)
+		}
 	}
 
 	// Marshal the struct and merge into the raw map.
@@ -122,7 +127,9 @@ func SaveConfigToPath(cfg *ConfigFile, path string) error {
 		return fmt.Errorf("marshaling config: %w", err)
 	}
 	var cfgMap map[string]interface{}
-	yaml.Unmarshal(structured, &cfgMap)
+	if err := yaml.Unmarshal(structured, &cfgMap); err != nil {
+		return fmt.Errorf("parsing marshaled config: %w", err)
+	}
 	for k, v := range cfgMap {
 		raw[k] = v
 	}
@@ -198,6 +205,10 @@ auth:
     token_url: http://localhost:8080/realms/nico-dev/protocol/openid-connect/token
     client_id: nico-api
     client_secret: nico-local-secret
+    # scopes: [openid]
+    # client_auth_method: client_secret_post
+    # token_parameters:
+    #   audience: nico
     # Run 'nicocli login' to authenticate; it will prompt for username/password
     # and persist the resulting bearer token (and refresh token) here.
 

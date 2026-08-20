@@ -389,7 +389,7 @@ func cmdSiteCreate(s *Session, _ []string) error {
 	s.Cache.InvalidateFiltered()
 	var created map[string]interface{}
 	if err := json.Unmarshal(resp, &created); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+		return fmt.Errorf("parsing created site: %w", err)
 	}
 	fmt.Printf("%s Site created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
@@ -504,7 +504,7 @@ func cmdSiteUpdate(s *Session, args []string) error {
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
 	if err := json.Unmarshal(resp, &updated); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+		return fmt.Errorf("parsing updated site: %w", err)
 	}
 	fmt.Printf("%s Site updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
@@ -603,7 +603,7 @@ func cmdVPCCreate(s *Session, _ []string) error {
 	s.Cache.Invalidate("vpc")
 	var created map[string]interface{}
 	if err := json.Unmarshal(resp, &created); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+		return fmt.Errorf("parsing created VPC: %w", err)
 	}
 	fmt.Printf("%s VPC created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
@@ -642,7 +642,7 @@ func cmdVPCUpdate(s *Session, args []string) error {
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
 	if err := json.Unmarshal(resp, &updated); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+		return fmt.Errorf("parsing response: %w", err)
 	}
 	fmt.Printf("%s VPC updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
@@ -687,7 +687,7 @@ func cmdVPCVirtualizationUpdate(s *Session, args []string) error {
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
 	if err := json.Unmarshal(resp, &updated); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+		return fmt.Errorf("parsing response: %w", err)
 	}
 	fmt.Printf("%s VPC virtualization update submitted: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
@@ -748,9 +748,9 @@ func cmdSubnetCreate(s *Session, _ []string) error {
 	if err != nil {
 		return err
 	}
-	prefixLen, err := strconv.Atoi(strings.TrimSpace(prefixLenText))
+	prefixLen, err := strconv.Atoi(prefixLenText)
 	if err != nil {
-		return fmt.Errorf("prefix length must be a number: %w", err)
+		return fmt.Errorf("prefix length must be an integer: %w", err)
 	}
 	if prefixLen < 1 || prefixLen > 32 {
 		return fmt.Errorf("prefix length must be between 1 and 32")
@@ -797,7 +797,7 @@ func cmdSubnetCreate(s *Session, _ []string) error {
 	s.Cache.InvalidateFiltered()
 	var created map[string]interface{}
 	if err := json.Unmarshal(resp, &created); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+		return fmt.Errorf("parsing response: %w", err)
 	}
 	fmt.Printf("%s Subnet created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
@@ -836,7 +836,7 @@ func cmdSubnetUpdate(s *Session, args []string) error {
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
 	if err := json.Unmarshal(resp, &updated); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+		return fmt.Errorf("parsing response: %w", err)
 	}
 	fmt.Printf("%s Subnet updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
@@ -1174,7 +1174,7 @@ func cmdOSCreate(s *Session, _ []string) error {
 	s.Cache.InvalidateFiltered()
 	var created map[string]interface{}
 	if err := json.Unmarshal(resp, &created); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+		return fmt.Errorf("parsing response: %w", err)
 	}
 	fmt.Printf("%s Operating system created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
@@ -1258,7 +1258,7 @@ func cmdOSUpdate(s *Session, args []string) error {
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
 	if err := json.Unmarshal(resp, &updated); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+		return fmt.Errorf("parsing response: %w", err)
 	}
 	fmt.Printf("%s Operating system updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
@@ -1334,7 +1334,7 @@ func cmdSSHKeyGroupCreate(s *Session, _ []string) error {
 	s.Cache.InvalidateFiltered()
 	var created map[string]interface{}
 	if err := json.Unmarshal(resp, &created); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+		return fmt.Errorf("parsing response: %w", err)
 	}
 	fmt.Printf("%s SSH key group created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
@@ -1395,7 +1395,7 @@ func cmdSSHKeyGroupUpdate(s *Session, args []string) error {
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
 	if err := json.Unmarshal(resp, &updated); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+		return fmt.Errorf("parsing response: %w", err)
 	}
 	fmt.Printf("%s SSH key group updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
@@ -1467,7 +1467,7 @@ func cmdSSHKeyCreate(s *Session, _ []string) error {
 	s.Cache.InvalidateFiltered()
 	var created map[string]interface{}
 	if err := json.Unmarshal(resp, &created); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+		return fmt.Errorf("parsing response: %w", err)
 	}
 	fmt.Printf("%s SSH key created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
@@ -1496,7 +1496,7 @@ func cmdSSHKeyUpdate(s *Session, args []string) error {
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
 	if err := json.Unmarshal(resp, &updated); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+		return fmt.Errorf("parsing response: %w", err)
 	}
 	fmt.Printf("%s SSH key updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
@@ -1592,7 +1592,7 @@ func cmdAllocationCreate(s *Session, _ []string) error {
 	s.Cache.InvalidateFiltered()
 	var created map[string]interface{}
 	if err := json.Unmarshal(resp, &created); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+		return fmt.Errorf("parsing response: %w", err)
 	}
 	fmt.Printf("%s Allocation created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
@@ -1896,7 +1896,7 @@ func cmdAllocationUpdate(s *Session, args []string) error {
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
 	if err := json.Unmarshal(resp, &updated); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+		return fmt.Errorf("parsing response: %w", err)
 	}
 	fmt.Printf("%s Allocation updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
@@ -2010,7 +2010,7 @@ func cmdIPBlockCreate(s *Session, _ []string) error {
 	s.Cache.Invalidate("ip-block")
 	var created map[string]interface{}
 	if err := json.Unmarshal(resp, &created); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+		return fmt.Errorf("parsing response: %w", err)
 	}
 	fmt.Printf("%s IP block created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
@@ -2049,7 +2049,7 @@ func cmdIPBlockUpdate(s *Session, args []string) error {
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
 	if err := json.Unmarshal(resp, &updated); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+		return fmt.Errorf("parsing response: %w", err)
 	}
 	fmt.Printf("%s IP block updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
@@ -2129,7 +2129,7 @@ func cmdNSGCreate(s *Session, _ []string) error {
 	s.Cache.InvalidateFiltered()
 	var created map[string]interface{}
 	if err := json.Unmarshal(resp, &created); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+		return fmt.Errorf("parsing response: %w", err)
 	}
 	fmt.Printf("%s Network security group created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
@@ -2168,7 +2168,7 @@ func cmdNSGUpdate(s *Session, args []string) error {
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
 	if err := json.Unmarshal(resp, &updated); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+		return fmt.Errorf("parsing response: %w", err)
 	}
 	fmt.Printf("%s Network security group updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
@@ -2279,9 +2279,9 @@ func cmdVPCPrefixCreate(s *Session, _ []string) error {
 	if err != nil {
 		return err
 	}
-	prefixLen, err := strconv.Atoi(strings.TrimSpace(prefixLenText))
+	prefixLen, err := strconv.Atoi(prefixLenText)
 	if err != nil {
-		return fmt.Errorf("prefix length must be a number: %w", err)
+		return fmt.Errorf("prefix length must be an integer: %w", err)
 	}
 	if prefixLen < 8 || prefixLen > 31 {
 		return fmt.Errorf("prefix length must be between 8 and 31")
@@ -2309,7 +2309,7 @@ func cmdVPCPrefixCreate(s *Session, _ []string) error {
 	s.Cache.InvalidateFiltered()
 	var created map[string]interface{}
 	if err := json.Unmarshal(resp, &created); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+		return fmt.Errorf("parsing response: %w", err)
 	}
 	fmt.Printf("%s VPC prefix created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
@@ -2403,7 +2403,7 @@ func cmdVPCPrefixUpdate(s *Session, args []string) error {
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
 	if err := json.Unmarshal(resp, &updated); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+		return fmt.Errorf("parsing response: %w", err)
 	}
 	fmt.Printf("%s VPC prefix updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
@@ -2473,7 +2473,7 @@ func cmdTenantAccountCreate(s *Session, _ []string) error {
 	s.Cache.Invalidate("tenant-account")
 	var created map[string]interface{}
 	if err := json.Unmarshal(resp, &created); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+		return fmt.Errorf("parsing response: %w", err)
 	}
 	fmt.Printf("%s Tenant account created: %s (%s)\n", Green("OK"), str(created, "tenantOrg"), str(created, "id"))
 	return nil
@@ -2497,7 +2497,7 @@ func cmdTenantAccountUpdate(s *Session, args []string) error {
 	s.Cache.Invalidate("tenant-account")
 	var updated map[string]interface{}
 	if err := json.Unmarshal(resp, &updated); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+		return fmt.Errorf("parsing response: %w", err)
 	}
 	fmt.Printf("%s Tenant account accepted: %s (%s)\n", Green("OK"), str(updated, "tenantOrg"), str(updated, "id"))
 	return nil
@@ -2842,7 +2842,7 @@ func cmdInstanceCreate(s *Session, _ []string) error {
 	s.Cache.InvalidateFiltered()
 	var created map[string]interface{}
 	if err := json.Unmarshal(resp, &created); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+		return fmt.Errorf("parsing response: %w", err)
 	}
 	fmt.Printf("%s Instance created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
@@ -3057,7 +3057,7 @@ func cmdInstanceUpdate(s *Session, args []string) error {
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
 	if err := json.Unmarshal(resp, &updated); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+		return fmt.Errorf("parsing response: %w", err)
 	}
 	fmt.Printf("%s Instance updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil

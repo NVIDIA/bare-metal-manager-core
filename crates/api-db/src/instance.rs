@@ -346,6 +346,40 @@ pub async fn find_by_machine_id(
     find_by_id(txn, instance_id).await
 }
 
+/// Locks and returns the live `Instance` assigned to one `Machine`.
+///
+/// A returned record remains locked until the caller's transaction ends. `None`
+/// means the `Machine` has no assigned `Instance`. If the assigned `Instance` is
+/// already marked for deletion, the lookup returns
+/// [`DatabaseError::FailedPrecondition`] instead of a snapshot that a caller
+/// could use for later writes.
+pub async fn find_live_by_machine_id_for_update(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+) -> Result<Option<InstanceSnapshot>, DatabaseError> {
+    let query = "SELECT row_to_json(i.*) AS instance, row_to_json(o.*) AS operating_system
+        FROM instances i
+        LEFT JOIN operating_systems o ON i.operating_system_id = o.id AND o.deleted IS NULL
+        WHERE i.machine_id = $1
+        FOR UPDATE OF i";
+    let Some(instance_and_os_row) = sqlx::query_as::<_, InstanceAndOsRow>(query)
+        .bind(machine_id)
+        .fetch_optional(txn)
+        .await
+        .map_err(|error| DatabaseError::query(query, error))?
+    else {
+        return Ok(None);
+    };
+    let instance: InstanceSnapshot = instance_and_os_row.try_into()?;
+    if instance.deleted.is_some() {
+        return Err(DatabaseError::FailedPrecondition(format!(
+            "instance {} is being deleted",
+            instance.id
+        )));
+    }
+    Ok(Some(instance))
+}
+
 pub async fn find_by_machine_ids(
     txn: &mut PgConnection,
     machine_ids: &[&MachineId],
@@ -466,6 +500,29 @@ pub async fn update_network_config(
     .await
 }
 
+/// Distinguishes a missing or deleted `Instance` from a version conflict after
+/// an optimistic configuration update affects no records.
+async fn ensure_live_for_config_update(
+    txn: &mut PgConnection,
+    instance_id: InstanceId,
+) -> Result<(), DatabaseError> {
+    let query = "SELECT deleted IS NULL FROM instances WHERE id=$1 FOR UPDATE";
+    let live: Option<bool> = sqlx::query_scalar(query)
+        .bind(instance_id)
+        .fetch_optional(txn)
+        .await
+        .map_err(|error| DatabaseError::query(query, error))?;
+    match live {
+        Some(true) => Ok(()),
+        Some(false) => Err(DatabaseError::FailedPrecondition(format!(
+            "instance {instance_id} is being deleted"
+        ))),
+        None => Err(DatabaseError::FailedPrecondition(format!(
+            "instance {instance_id} does not exist"
+        ))),
+    }
+}
+
 pub async fn update_phone_home_last_contact(
     txn: &mut PgConnection,
     instance_id: InstanceId,
@@ -515,8 +572,10 @@ pub async fn clear_phone_home_last_contact(
 /// - instance network and infiniband configurations
 /// - tenant organization IDs
 ///
-/// This method does not check if the instance still exists.
-/// A previous `Instance::find` call should fulfill this purpose.
+/// The update applies only while the instance exists, is not marked deleted,
+/// and still has `expected_version`. A deleted or missing instance reports a
+/// failed precondition; a live instance with another version reports a
+/// concurrent modification.
 pub async fn update_config(
     txn: &mut PgConnection,
     instance_id: InstanceId,
@@ -546,7 +605,7 @@ pub async fn update_config(
             os_image_id=$7, keyset_ids=$8,
             name=$9, description=$10, labels=$11::json, network_security_group_id=$14,
             power_profile=$15
-            WHERE id=$12 AND config_version=$13
+            WHERE id=$12 AND config_version=$13 AND deleted IS NULL
             RETURNING id";
     let query_result: Result<(InstanceId,), _> = sqlx::query_as(query)
         .bind(next_version)
@@ -564,24 +623,28 @@ pub async fn update_config(
         .bind(expected_version)
         .bind(config.network_security_group_id)
         .bind(config.power_profile)
-        .fetch_one(txn)
+        .fetch_one(&mut *txn)
         .await;
 
     match query_result {
         Ok((_instance_id,)) => Ok(()),
-        Err(e) => Err(match e {
-            sqlx::Error::RowNotFound => {
-                DatabaseError::ConcurrentModificationError("instance", expected_version.to_string())
-            }
-            e => DatabaseError::query(query, e),
-        }),
+        Err(sqlx::Error::RowNotFound) => {
+            ensure_live_for_config_update(txn, instance_id).await?;
+            Err(DatabaseError::ConcurrentModificationError(
+                "instance",
+                expected_version.to_string(),
+            ))
+        }
+        Err(error) => Err(DatabaseError::query(query, error)),
     }
 }
 
 /// Updates the Operating System
 ///
-/// This method does not check if the instance still exists.
-/// A previous `Instance::find` call should fulfill this purpose.
+/// The update applies only while the instance exists, is not marked deleted,
+/// and still has `expected_version`. A deleted or missing instance reports a
+/// failed precondition; a live instance with another version reports a
+/// concurrent modification.
 pub async fn update_os(
     txn: &mut PgConnection,
     instance_id: InstanceId,
@@ -607,7 +670,7 @@ pub async fn update_os(
 
     let query = "UPDATE instances SET config_version=$1,
             operating_system_id=$2, os_ipxe_script=$3, os_user_data=$4, os_always_boot_with_ipxe=$5, os_phone_home_enabled=$6, os_image_id=$7
-            WHERE id=$8 AND config_version=$9
+            WHERE id=$8 AND config_version=$9 AND deleted IS NULL
             RETURNING id";
     let query_result: Result<(InstanceId,), _> = sqlx::query_as(query)
         .bind(next_version)
@@ -619,17 +682,19 @@ pub async fn update_os(
         .bind(os_image_id)
         .bind(instance_id)
         .bind(expected_version)
-        .fetch_one(txn)
+        .fetch_one(&mut *txn)
         .await;
 
     match query_result {
         Ok((_instance_id,)) => Ok(()),
-        Err(e) => Err(match e {
-            sqlx::Error::RowNotFound => {
-                DatabaseError::ConcurrentModificationError("instance", expected_version.to_string())
-            }
-            e => DatabaseError::query(query, e),
-        }),
+        Err(sqlx::Error::RowNotFound) => {
+            ensure_live_for_config_update(txn, instance_id).await?;
+            Err(DatabaseError::ConcurrentModificationError(
+                "instance",
+                expected_version.to_string(),
+            ))
+        }
+        Err(error) => Err(DatabaseError::query(query, error)),
     }
 }
 
@@ -1316,6 +1381,231 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(snapshots.len(), 2);
+    }
+
+    /// General and OS updates distinguish missing and deleted `Instance`s from
+    /// live records whose version has changed.
+    #[crate::sqlx_test]
+    async fn config_writers_return_distinct_errors_for_missing_deleted_and_stale_records(
+        pool: sqlx::PgPool,
+    ) {
+        enum StaleUpdate {
+            Config,
+            OperatingSystem,
+        }
+
+        enum RowState {
+            Deleted,
+            Missing,
+            LiveWithNewerVersion,
+        }
+
+        let cases = [
+            (
+                "deleted general config",
+                0x44,
+                StaleUpdate::Config,
+                RowState::Deleted,
+            ),
+            (
+                "deleted operating system",
+                0x45,
+                StaleUpdate::OperatingSystem,
+                RowState::Deleted,
+            ),
+            (
+                "live stale general config",
+                0x46,
+                StaleUpdate::Config,
+                RowState::LiveWithNewerVersion,
+            ),
+            (
+                "live stale operating system",
+                0x47,
+                StaleUpdate::OperatingSystem,
+                RowState::LiveWithNewerVersion,
+            ),
+            (
+                "missing general config",
+                0x48,
+                StaleUpdate::Config,
+                RowState::Missing,
+            ),
+            (
+                "missing operating system",
+                0x49,
+                StaleUpdate::OperatingSystem,
+                RowState::Missing,
+            ),
+        ];
+
+        for (case_name, machine_seed, stale_update, row_state) in cases {
+            let mut setup = pool.begin().await.unwrap();
+            let instance_id = seed_instance(&mut setup, machine_seed, None).await;
+            setup.commit().await.unwrap();
+
+            let stale_snapshot = find_by_id(&pool, instance_id).await.unwrap().unwrap();
+            let expected_version = stale_snapshot.config_version;
+            let mut prepare = pool.begin().await.unwrap();
+            let persisted_version = match row_state {
+                RowState::Deleted => {
+                    mark_as_deleted(instance_id, prepare.as_mut())
+                        .await
+                        .unwrap();
+                    Some(expected_version)
+                }
+                RowState::Missing => {
+                    delete(instance_id, prepare.as_mut()).await.unwrap();
+                    None
+                }
+                RowState::LiveWithNewerVersion => {
+                    let newer_version = expected_version.increment();
+                    sqlx::query("UPDATE instances SET config_version = $1 WHERE id = $2")
+                        .bind(newer_version)
+                        .bind(instance_id)
+                        .execute(prepare.as_mut())
+                        .await
+                        .unwrap();
+                    Some(newer_version)
+                }
+            };
+            prepare.commit().await.unwrap();
+
+            let mut update = pool.begin().await.unwrap();
+            let error = match stale_update {
+                StaleUpdate::Config => {
+                    update_config(
+                        update.as_mut(),
+                        instance_id,
+                        expected_version,
+                        stale_snapshot.config,
+                        stale_snapshot.metadata,
+                    )
+                    .await
+                }
+                StaleUpdate::OperatingSystem => {
+                    update_os(
+                        update.as_mut(),
+                        instance_id,
+                        expected_version,
+                        stale_snapshot.config.os,
+                    )
+                    .await
+                }
+            }
+            .expect_err("a stale writer must not update the instance");
+
+            match row_state {
+                RowState::Deleted => {
+                    assert!(matches!(&error, DatabaseError::FailedPrecondition(_)));
+                    assert_eq!(
+                        error.to_string(),
+                        format!("instance {instance_id} is being deleted"),
+                        "unexpected error for {case_name}",
+                    );
+                }
+                RowState::Missing => {
+                    assert!(matches!(&error, DatabaseError::FailedPrecondition(_)));
+                    assert_eq!(
+                        error.to_string(),
+                        format!("instance {instance_id} does not exist"),
+                        "unexpected error for {case_name}",
+                    );
+                }
+                RowState::LiveWithNewerVersion => assert!(
+                    matches!(
+                        &error,
+                        DatabaseError::ConcurrentModificationError("instance", version)
+                            if version == &expected_version.to_string()
+                    ),
+                    "unexpected error for {case_name}: {error:?}",
+                ),
+            }
+            update.rollback().await.unwrap();
+
+            let version_after_rejection: Option<ConfigVersion> =
+                sqlx::query_scalar("SELECT config_version FROM instances WHERE id = $1")
+                    .bind(instance_id)
+                    .fetch_optional(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(
+                version_after_rejection, persisted_version,
+                "the rejected {case_name} update changed the instance version",
+            );
+        }
+    }
+
+    #[crate::sqlx_test]
+    async fn live_machine_lookup_locks_the_instance_row(pool: sqlx::PgPool) {
+        let machine_id = MachineId::new(
+            MachineIdSource::ProductBoardChassisSerial,
+            [0x48; 32],
+            MachineType::Host,
+        );
+        let unassigned_machine_id = MachineId::new(
+            MachineIdSource::ProductBoardChassisSerial,
+            [0x49; 32],
+            MachineType::Host,
+        );
+        let mut setup = pool.begin().await.unwrap();
+        let instance_id = seed_instance(&mut setup, 0x48, None).await;
+        sqlx::query("INSERT INTO machines (id, dpf) VALUES ($1, '{}'::jsonb)")
+            .bind(unassigned_machine_id)
+            .execute(setup.as_mut())
+            .await
+            .unwrap();
+        setup.commit().await.unwrap();
+
+        let mut reader = pool.begin().await.unwrap();
+        assert!(
+            find_live_by_machine_id_for_update(reader.as_mut(), &unassigned_machine_id)
+                .await
+                .unwrap()
+                .is_none(),
+            "an unassigned machine must return no instance",
+        );
+        let instance = find_live_by_machine_id_for_update(reader.as_mut(), &machine_id)
+            .await
+            .unwrap()
+            .expect("the machine should have an assigned instance");
+        assert_eq!(instance.id, instance_id);
+
+        let mut deletion = pool.begin().await.unwrap();
+        sqlx::query("SET LOCAL lock_timeout = '100ms'")
+            .execute(deletion.as_mut())
+            .await
+            .unwrap();
+        let error = sqlx::query("UPDATE instances SET deleted = NOW() WHERE id = $1")
+            .bind(instance_id)
+            .execute(deletion.as_mut())
+            .await
+            .expect_err("deletion must wait for the instance reader");
+        assert_eq!(
+            error
+                .as_database_error()
+                .and_then(sqlx::error::DatabaseError::code)
+                .as_deref(),
+            Some("55P03"),
+        );
+        deletion.rollback().await.unwrap();
+        reader.rollback().await.unwrap();
+
+        let mut deletion = pool.begin().await.unwrap();
+        mark_as_deleted(instance_id, deletion.as_mut())
+            .await
+            .unwrap();
+        deletion.commit().await.unwrap();
+
+        let mut reader = pool.begin().await.unwrap();
+        let error = find_live_by_machine_id_for_update(reader.as_mut(), &machine_id)
+            .await
+            .expect_err("a deleted instance must not be returned for writes");
+        assert_eq!(
+            error.to_string(),
+            format!("instance {instance_id} is being deleted"),
+        );
+        reader.rollback().await.unwrap();
     }
 }
 

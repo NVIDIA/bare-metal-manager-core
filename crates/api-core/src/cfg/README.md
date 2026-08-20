@@ -42,6 +42,7 @@ Use `site_explorer.dpu_policy` instead.
 | `enable_route_servers` | `bool` | `false` | `networking` | Enables route server injection into DPU FRR configs for L2VPN. |
 | `deny_prefixes` | `Vec<IpNetwork>` | `[]` | `networking` | IPv4 and IPv6 CIDR prefixes that tenant instances are blocked from reaching. FNN generates family-specific NVUE ACL policies; all non-FNN virtualizers apply the IPv4 prefixes only. |
 | `site_fabric_prefixes` | `Vec<IpNetwork>` | `[]` | `networking` | IP prefixes (v4/v6) assigned for tenant use within this site. |
+| `tenant_prefix_overlap_enabled` | `bool` | `false` | `networking` | Site opt-in for tenant prefix overlap admission. This setting has no effect until [#3890](https://github.com/NVIDIA/infra-controller/issues/3890) lands and does not change the existing database prefix constraints. Admission will also require site-wide `vpc_isolation_behavior = "mutual_isolation"` and participating FNN base profiles with `tenant_prefix_overlap_eligible = true`. |
 | `max_site_prefixes_per_tenant` | `u32` | `8` | `networking` | Maximum tenant-managed SitePrefixes retained for one tenant at this site. Prefixes awaiting removal still count against this limit and keep their CIDR reserved. |
 | `anycast_site_prefixes` | `Vec<Ipv4Network>` | `[]` | `networking` | Aggregate IPv4 prefixes containing tenant-announced prefixes (e.g., BYOIP). **Deprecated.** Use [`routing_profiles.allowed_anycast_prefixes`](#fnnroutingprofileconfig) instead. |
 | `common_tenant_host_asn` | `Option<u32>` | — | `networking` | ASN that tenants use to peer with the DPU. If unset, any ASN is accepted. |
@@ -75,9 +76,9 @@ Use `site_explorer.dpu_policy` instead.
 | `vpc_prefix_state_controller` | `VpcPrefixStateControllerConfig` | *(see below)* | `networking` | VPC prefix state controller timing. |
 | `ib_partition_state_controller` | `IbPartitionStateControllerConfig` | *(see below)* | `hardware` | IB partition state controller timing. |
 | `dpa_interface_state_controller` | `DpaInterfaceStateControllerConfig` | *(see below)* | `networking` | DPA interface state controller timing. |
-| `rack_state_controller` | `RackStateControllerConfig` | *(see below)* | `hardware` | Rack state controller timing and optional firmware update during ingestion. |
+| `rack_state_controller` | `RackStateControllerConfig` | *(see below)* | `hardware` | Rack state controller timing, optional ingestion firmware update, and primary-switch mTLS service selection. |
 | `power_shelf_state_controller` | `PowerShelfStateControllerConfig` | *(see below)* | `hardware` | Power shelf state controller timing and optional rack firmware reprovisioning. |
-| `switch_state_controller` | `SwitchStateControllerConfig` | *(see below)* | `hardware` | Switch state controller timing. |
+| `switch_state_controller` | `SwitchStateControllerConfig` | *(see below)* | `hardware` | Switch state controller timing and per-switch mTLS service selection. |
 | `spdm_state_controller` | `SpdmStateControllerConfig` | *(see below)* | `security` | SPDM state controller timing. |
 | `host_models` | `HashMap<String, Firmware>` | `{}` | `machines` | Maps host model identifiers to firmware definitions. |
 | `firmware_global` | `FirmwareGlobal` | *(see below)* | `machines` | Global firmware update settings (see [FirmwareGlobal](#firmwareglobal)). |
@@ -440,6 +441,37 @@ partition, DPA interface, rack, power shelf, switch, SPDM).
 | `metric_emission_interval` | `Duration` | `60s` | How often aggregate metrics are recalculated. |
 | `metric_hold_time` | `Duration` | `5m` | How long per-object metrics are held before eviction. |
 
+### `RackStateControllerConfig`
+
+TOML section: `[rack_state_controller]`.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `controller` | `StateControllerConfig` | *(default)* | Common state controller timing (see [StateControllerConfig](#statecontrollerconfig)). |
+| `nmx_cluster_switch_mtls_services` | `Vec<SwitchMtlsService>` | `scale_up_fabric_manager`, `scale_up_fabric_telemetry_interface` | mTLS certificate bindings applied to the primary switch before NMX cluster setup. A non-empty list replaces the default. Omission and `[]` both use the default. |
+
+### `SwitchStateControllerConfig`
+
+TOML section: `[switch_state_controller]`.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `controller` | `StateControllerConfig` | *(default)* | Common state controller timing (see [StateControllerConfig](#statecontrollerconfig)). |
+| `switch_mtls_services` | `Vec<SwitchMtlsService>` | all four values below | mTLS certificate bindings applied by the per-switch certificate workflow. A non-empty list replaces the default. Omission and `[]` both use the default. |
+
+Both settings accept the same service names:
+
+| Value | Switch endpoint |
+|-------|-----------------|
+| `nvue_api` | NVUE REST API |
+| `scale_up_fabric_telemetry` | NMX-T cluster application (`nmx-telemetry`) |
+| `scale_up_fabric_manager` | NMX-C cluster application (`nmx-controller`) |
+| `scale_up_fabric_telemetry_interface` | NVOS gNMI server mTLS configuration |
+
+These lists select server-side certificate bindings. They do not enable the
+underlying service. For workflow scope, see
+[Switch Certificate Configuration](../../../../docs/architecture/state_machines/switch_configure_certificate.md).
+
 ### `ObservabilityConfig`
 
 TOML section: `[observability]`.
@@ -638,6 +670,7 @@ client-certificate authentication is not used.
 | `route_target_imports` | `Option<Vec<RouteTargetConfig>>` | — (effective `[]`) | Route targets imported into DPU VRFs for VPC routes. |
 | `route_targets_on_exports` | `Option<Vec<RouteTargetConfig>>` | — (effective `[]`) | Route targets added to routes exported by the DPU. |
 | `internal` | `Option<bool>` | — (effective `false`) | Whether the profile uses internal VNI allocation. This property cannot be overridden on a VPC. |
+| `tenant_prefix_overlap_eligible` | `bool` | `false` | Base-profile opt-in for tenant prefix overlap admission. This setting has no effect until [#3890](https://github.com/NVIDIA/infra-controller/issues/3890) lands and cannot be overridden on a VPC. |
 | `leak_default_route_from_underlay` | `Option<bool>` | — (effective `false`) | Leak the default route from the underlay/default VRF into tenant VRFs. |
 | `leak_tenant_host_routes_to_underlay` | `Option<bool>` | — (effective `false`) | Leak tenant host routes into the underlay/default VRF. |
 | `tenant_leak_communities_accepted` | `Option<bool>` | — (effective `false`) | Honor route-leak communities sent by the tenant host OS. |

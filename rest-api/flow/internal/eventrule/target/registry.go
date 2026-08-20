@@ -136,7 +136,7 @@ func (r *Registry) ValidateRule(rule *eventrule.Rule) error {
 			return fmt.Errorf(
 				"event rule %s action %q has no target resolver for strategy %q",
 				rule.ID,
-				action.ID,
+				action.Name,
 				strategy,
 			)
 		}

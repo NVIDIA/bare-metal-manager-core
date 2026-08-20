@@ -379,29 +379,13 @@ func TestAPIVpcRoutingProfileOverrides_Validate(t *testing.T) {
 			profile: &APIVpcRoutingProfileOverrides{
 				RouteTargetImports: &APIVpcRouteTargets{
 					{ASN: 0, VNI: 0},
-					{ASN: int(math.MaxUint32), VNI: int(math.MaxUint32)},
+					{ASN: math.MaxUint32, VNI: math.MaxUint32},
 				},
 				RouteTargetsOnExports:        &APIVpcRouteTargets{},
 				AcceptedLeaksFromUnderlay:    &[]string{"10.0.0.1/24", "10.0.0.1/24", "2001:db8::1/64"},
 				AllowedAnycastPrefixes:       &[]string{},
 				LeakDefaultRouteFromUnderlay: cutil.GetPtr(false),
 			},
-		},
-		// Negative values cannot be represented by the unsigned protobuf fields.
-		{
-			name: "rejects negative route targets",
-			profile: &APIVpcRoutingProfileOverrides{
-				RouteTargetImports: &APIVpcRouteTargets{{ASN: -1, VNI: 1}},
-			},
-			wantErr: true,
-		},
-		// Values above uint32 would otherwise be truncated during conversion.
-		{
-			name: "rejects overflowing route targets",
-			profile: &APIVpcRoutingProfileOverrides{
-				RouteTargetsOnExports: &APIVpcRouteTargets{{ASN: 1, VNI: int(math.MaxUint32) + 1}},
-			},
-			wantErr: true,
 		},
 		// Malformed prefixes must not reach Core's IpNetwork parser.
 		{
@@ -720,7 +704,7 @@ func TestNewAPIVpc(t *testing.T) {
 		privileged := NewAPIVpc(profileVpc, nil, true)
 		require.NotNil(t, privileged.EffectiveRoutingProfile)
 		assert.True(t, privileged.EffectiveRoutingProfile.Internal)
-		assert.Equal(t, 7, privileged.EffectiveRoutingProfile.AccessTier)
+		assert.Equal(t, uint32(7), privileged.EffectiveRoutingProfile.AccessTier)
 		assert.NotNil(t, privileged.EffectiveRoutingProfile.AcceptedLeaksFromUnderlay)
 		assert.Empty(t, privileged.EffectiveRoutingProfile.AcceptedLeaksFromUnderlay)
 		assert.NotNil(t, privileged.EffectiveRoutingProfile.AllowedAnycastPrefixes)

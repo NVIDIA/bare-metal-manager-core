@@ -798,8 +798,7 @@ func runScopeSet(s *Session, resourceType, nameOrID string) {
 			return
 		}
 	} else {
-		label := strings.ToUpper(resourceType[:1]) + resourceType[1:]
-		item, err = s.Resolver.Resolve(context.Background(), resourceType, label)
+		item, err = s.Resolver.Resolve(context.Background(), resourceType, strings.ToUpper(resourceType[:1])+resourceType[1:])
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s %v\n\n", Red("Error:"), err)
 			return

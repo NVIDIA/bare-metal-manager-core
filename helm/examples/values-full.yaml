@@ -76,6 +76,46 @@ nico-api:
     RUST_BACKTRACE: "full"
     RUST_LIB_BACKTRACE: "0"
 
+  ## Optional NVSwitch TLS leaves issued by one existing issuer. The standard
+  ## NICo prerequisites provide vault-nico-issuer. Both leaves are off by
+  ## default. Enable switchServer only when this release should own that
+  ## artifact; an external installer or operator must install its Secret on
+  ## the switches.
+  nvSwitchTls:
+    issuerRef:
+      kind: ClusterIssuer
+      name: vault-nico-issuer
+      group: cert-manager.io
+    nicoClient:
+      enabled: false
+      name: nvswitch-nico-client-certificate
+      secretName: nvswitch-nico-client-certificate
+      mountPath: /var/run/secrets/nvswitch-client
+      duration: 720h0m0s
+      renewBefore: 360h0m0s
+      uris:
+        - spiffe://switch.local/nico-system/sa/nico-nmxc
+      privateKey:
+        algorithm: ECDSA
+        size: 384
+        rotationPolicy: Always
+    switchServer:
+      enabled: false
+      name: nvswitch-server-certificate
+      secretName: nvswitch-server-certificate
+      duration: 720h0m0s
+      renewBefore: 360h0m0s
+      ## Use dnsNames or ipAddresses to exactly match
+      ## nvlink_config.nmx_c_tls_authority.
+      dnsNames:
+        - nmxc.example.internal
+      ipAddresses: []
+      uris: []
+      privateKey:
+        algorithm: ECDSA
+        size: 384
+        rotationPolicy: Always
+
   ## WebUI authentication defaults to Basic with a generated password Secret.
   ## Select OAuth2 here; provider-specific settings remain in extraEnv.
   webAuth:

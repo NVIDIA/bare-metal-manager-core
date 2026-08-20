@@ -1,13 +1,15 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-package policycodec
+package policy
 
 import (
 	"encoding/json"
 	"fmt"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/codec"
+	actioncodec "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/codec/action"
 )
 
 const policyVersionV1 = 1
@@ -34,7 +36,7 @@ func marshalPolicyV1(policy eventrule.Policy) (json.RawMessage, error) {
 	}
 
 	for i, action := range policy.Actions {
-		encodedAction, err := marshalAction(action)
+		encodedAction, err := actioncodec.Marshal(action)
 		if err != nil {
 			return nil, fmt.Errorf("actions[%d]: %w", i, err)
 		}
@@ -52,7 +54,7 @@ func marshalPolicyV1(policy eventrule.Policy) (json.RawMessage, error) {
 
 func unmarshalPolicyV1(data json.RawMessage) (eventrule.Policy, error) {
 	var persisted policyV1
-	if err := decodeStrict(data, &persisted); err != nil {
+	if err := codec.DecodeStrict(data, &persisted); err != nil {
 		return eventrule.Policy{}, fmt.Errorf("decode event policy v1: %w", err)
 	}
 
@@ -77,7 +79,7 @@ func unmarshalPolicyV1(data json.RawMessage) (eventrule.Policy, error) {
 	}
 
 	for i, action := range persisted.Actions {
-		decodedAction, err := unmarshalAction(action)
+		decodedAction, err := actioncodec.Unmarshal(action)
 		if err != nil {
 			return eventrule.Policy{}, fmt.Errorf("actions[%d]: %w", i, err)
 		}

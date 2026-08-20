@@ -900,6 +900,7 @@ generate-sdk: $(OPENAPI_GENERATOR_JAR)
 		-t openapi/templates/go \
 		--package-name standard \
 		--additional-properties=isGoSubmodule=true,enumClassPrefix=true \
+		--type-mappings integer+int64=int64,integer+uint32=uint32,integer+uint64=uint64 \
 		--global-property=apis,models,supportingFiles
 	rm -rf sdk/standard/docs sdk/standard/api sdk/standard/README.md sdk/standard/test sdk/standard/.openapi-generator
 	python3 scripts/check_source_headers.py --fix \

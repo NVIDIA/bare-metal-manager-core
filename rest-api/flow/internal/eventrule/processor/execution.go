@@ -42,7 +42,7 @@ func (p *Processor) processAction(
 		eventrule.ExecutionIdentity{
 			EventID:        prepared.Envelope.ID,
 			RuleID:         prepared.Rule.ID,
-			ActionID:       action.ID,
+			ActionName:     action.Name,
 			CorrelationKey: prepared.Envelope.CorrelationKey,
 		},
 		prepared.Rule.Dedupe.Clone(),

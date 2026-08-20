@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -19,6 +21,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -52,6 +55,69 @@ const (
 type grpcClient struct {
 	gclient     corev1.ForgeClient
 	grpcTimeout time.Duration
+}
+
+// batchingForgeClient keeps limit handling below the Flow client methods so
+// direct ForgeClient calls use the same batching behavior as the convenience
+// methods in this package.
+type batchingForgeClient struct {
+	corev1.ForgeClient
+
+	maxFindByIDsMu     sync.Mutex
+	maxFindByIDs       uint32
+	maxFindByIDsLoaded bool
+}
+
+func newBatchingForgeClient(client corev1.ForgeClient) corev1.ForgeClient {
+	return &batchingForgeClient{ForgeClient: client}
+}
+
+func (c *batchingForgeClient) FindMachinesByIds(
+	ctx context.Context,
+	request *corev1.MachinesByIdsRequest,
+	options ...grpc.CallOption,
+) (*corev1.MachineList, error) {
+	machineIDs := protoIDsToStrings(request.GetMachineIds())
+	machines, err := findByIDBatches(ctx, c.loadMaxFindByIDs, machineIDs,
+		func(ctx context.Context, batch []string) ([]*corev1.Machine, error) {
+			return c.fetchMachinesByIDs(ctx, request, batch, options...)
+		})
+	if err != nil {
+		return nil, err
+	}
+	return &corev1.MachineList{Machines: machines}, nil
+}
+
+func (c *batchingForgeClient) FindSwitchesByIds(
+	ctx context.Context,
+	request *corev1.SwitchesByIdsRequest,
+	options ...grpc.CallOption,
+) (*corev1.SwitchList, error) {
+	switchIDs := protoIDsToStrings(request.GetSwitchIds())
+	switches, err := findByIDBatches(ctx, c.loadMaxFindByIDs, switchIDs,
+		func(ctx context.Context, batch []string) ([]*corev1.Switch, error) {
+			return c.fetchSwitchesByIDs(ctx, request, batch, options...)
+		})
+	if err != nil {
+		return nil, err
+	}
+	return &corev1.SwitchList{Switches: switches}, nil
+}
+
+func (c *batchingForgeClient) FindPowerShelvesByIds(
+	ctx context.Context,
+	request *corev1.PowerShelvesByIdsRequest,
+	options ...grpc.CallOption,
+) (*corev1.PowerShelfList, error) {
+	shelfIDs := protoIDsToStrings(request.GetPowerShelfIds())
+	shelves, err := findByIDBatches(ctx, c.loadMaxFindByIDs, shelfIDs,
+		func(ctx context.Context, batch []string) ([]*corev1.PowerShelf, error) {
+			return c.fetchPowerShelvesByIDs(ctx, request, batch, options...)
+		})
+	if err != nil {
+		return nil, err
+	}
+	return &corev1.PowerShelfList{PowerShelves: shelves}, nil
 }
 
 var testingMsgOnce sync.Once
@@ -88,7 +154,10 @@ func NewClient(grpcTimeout time.Duration) (Client, error) {
 		return nil, fmt.Errorf("Unable to connect to nico-core-api: %w", err)
 	}
 
-	return &grpcClient{gclient: corev1.NewForgeClient(conn), grpcTimeout: grpcTimeout}, nil
+	return &grpcClient{
+		gclient:     newBatchingForgeClient(corev1.NewForgeClient(conn)),
+		grpcTimeout: grpcTimeout,
+	}, nil
 }
 
 // GetMachines retrieves all machines known by nico-core-api
@@ -183,6 +252,120 @@ func (c *grpcClient) Version(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return res.GetBuildVersion(), nil
+}
+
+// loadMaxFindByIDs lazily loads and caches Core's effective request limit.
+// Failed loads are not cached, so a transient Version failure can recover on a
+// later lookup. The mutex also coalesces concurrent first loads into one RPC.
+func (c *batchingForgeClient) loadMaxFindByIDs(ctx context.Context) (uint32, error) {
+	c.maxFindByIDsMu.Lock()
+	defer c.maxFindByIDsMu.Unlock()
+
+	if c.maxFindByIDsLoaded {
+		return c.maxFindByIDs, nil
+	}
+
+	response, err := c.ForgeClient.Version(ctx, &corev1.VersionRequest{DisplayConfig: true})
+	if err != nil {
+		return 0, fmt.Errorf("get Core runtime config: %w", err)
+	}
+	c.maxFindByIDs = response.GetRuntimeConfig().GetMaxFindByIds()
+	c.maxFindByIDsLoaded = true
+	return c.maxFindByIDs, nil
+}
+
+// findByIDBatches loads the shared server limit, fetches every chunk in order,
+// and returns only a complete aggregate. The caller's context covers limit
+// discovery and all batch RPCs; deadline exhaustion therefore fails the whole
+// lookup without returning values from earlier batches.
+func findByIDBatches[T any](
+	ctx context.Context,
+	loadLimit func(context.Context) (uint32, error),
+	ids []string,
+	fetch func(context.Context, []string) ([]T, error),
+) ([]T, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	limit, err := loadLimit(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	batchSize := len(ids)
+	if limit > 0 && uint64(limit) < uint64(batchSize) {
+		batchSize = int(limit)
+	}
+
+	result := make([]T, 0, len(ids))
+	for batch := range slices.Chunk(ids, batchSize) {
+		values, err := fetch(ctx, batch)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, values...)
+	}
+	return result, nil
+}
+
+// validateByIDsResponse rejects a batch response that omits any requested ID.
+func validateByIDsResponse(requested, returned []string, rpcName string) error {
+	returnedSet := make(map[string]struct{}, len(returned))
+	for _, id := range returned {
+		returnedSet[id] = struct{}{}
+	}
+
+	missing := make([]string, 0)
+	for _, id := range requested {
+		if _, ok := returnedSet[id]; !ok {
+			missing = append(missing, id)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("%s returned an incomplete response; missing IDs: %s", rpcName, strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+// protoID is the common generated-protobuf ID contract used by Core resources.
+type protoID interface {
+	GetId() string
+}
+
+// protoIDsToStrings extracts ID values while preserving request order.
+func protoIDsToStrings[T protoID](ids []T) []string {
+	result := make([]string, 0, len(ids))
+	for _, id := range ids {
+		result = append(result, id.GetId())
+	}
+	return result
+}
+
+// fetchMachinesByIDs clones the caller's request for one raw Core batch and
+// verifies that Core returned every requested machine.
+func (c *batchingForgeClient) fetchMachinesByIDs(
+	ctx context.Context,
+	request *corev1.MachinesByIdsRequest,
+	batch []string,
+	options ...grpc.CallOption,
+) ([]*corev1.Machine, error) {
+	batchRequest := proto.Clone(request).(*corev1.MachinesByIdsRequest)
+	batchRequest.MachineIds = stringsToMachineIds(batch)
+	response, err := c.ForgeClient.FindMachinesByIds(ctx, batchRequest, options...)
+	if err != nil {
+		return nil, fmt.Errorf("FindMachinesByIds: %w", err)
+	}
+
+	machines := response.GetMachines()
+	returned := make([]string, 0, len(machines))
+	for _, machine := range machines {
+		returned = append(returned, machine.GetId().GetId())
+	}
+	if err := validateByIDsResponse(batch, returned, "FindMachinesByIds"); err != nil {
+		return nil, err
+	}
+	return machines, nil
 }
 
 // GetPowerStates returns the power states of the given machines (all machines if given an empty machineIds)
@@ -330,6 +513,66 @@ func (c *grpcClient) FindHostMachineIdsByRack(ctx context.Context, rackID string
 		}
 	}
 	return ids, nil
+}
+
+// fetchSwitchesByIDs clones the caller's request for one raw Core batch and
+// verifies that Core returned every requested switch.
+func (c *batchingForgeClient) fetchSwitchesByIDs(
+	ctx context.Context,
+	request *corev1.SwitchesByIdsRequest,
+	batch []string,
+	options ...grpc.CallOption,
+) ([]*corev1.Switch, error) {
+	batchRequest := proto.Clone(request).(*corev1.SwitchesByIdsRequest)
+	batchRequest.SwitchIds = make([]*corev1.SwitchId, 0, len(batch))
+	for _, id := range batch {
+		batchRequest.SwitchIds = append(batchRequest.SwitchIds, &corev1.SwitchId{Id: id})
+	}
+
+	response, err := c.ForgeClient.FindSwitchesByIds(ctx, batchRequest, options...)
+	if err != nil {
+		return nil, fmt.Errorf("FindSwitchesByIds: %w", err)
+	}
+
+	switches := response.GetSwitches()
+	returned := make([]string, 0, len(switches))
+	for _, sw := range switches {
+		returned = append(returned, sw.GetId().GetId())
+	}
+	if err := validateByIDsResponse(batch, returned, "FindSwitchesByIds"); err != nil {
+		return nil, err
+	}
+	return switches, nil
+}
+
+// fetchPowerShelvesByIDs clones the caller's request for one raw Core batch and
+// verifies that Core returned every requested power shelf.
+func (c *batchingForgeClient) fetchPowerShelvesByIDs(
+	ctx context.Context,
+	request *corev1.PowerShelvesByIdsRequest,
+	batch []string,
+	options ...grpc.CallOption,
+) ([]*corev1.PowerShelf, error) {
+	batchRequest := proto.Clone(request).(*corev1.PowerShelvesByIdsRequest)
+	batchRequest.PowerShelfIds = make([]*corev1.PowerShelfId, 0, len(batch))
+	for _, id := range batch {
+		batchRequest.PowerShelfIds = append(batchRequest.PowerShelfIds, &corev1.PowerShelfId{Id: id})
+	}
+
+	response, err := c.ForgeClient.FindPowerShelvesByIds(ctx, batchRequest, options...)
+	if err != nil {
+		return nil, fmt.Errorf("FindPowerShelvesByIds: %w", err)
+	}
+
+	shelves := response.GetPowerShelves()
+	returned := make([]string, 0, len(shelves))
+	for _, shelf := range shelves {
+		returned = append(returned, shelf.GetId().GetId())
+	}
+	if err := validateByIDsResponse(batch, returned, "FindPowerShelvesByIds"); err != nil {
+		return nil, err
+	}
+	return shelves, nil
 }
 
 // FindSwitchRackIDs returns the rack assignment of each given switch.

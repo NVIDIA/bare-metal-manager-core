@@ -138,6 +138,26 @@ func TestSplitNICoComputeTraySubTargets(t *testing.T) {
 	}
 }
 
+func TestIsNICoDPUOnlySubTargets(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []string
+		want bool
+	}{
+		{name: "empty"},
+		{name: "dpu only", in: []string{"dpu"}, want: true},
+		{name: "repeated dpu", in: []string{"DPU", " dpu "}, want: true},
+		{name: "compute only", in: []string{"bmc"}},
+		{name: "mixed compute and dpu", in: []string{"bmc", "dpu"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, IsNICoDPUOnlySubTargets(tt.in))
+		})
+	}
+}
+
 func TestSupportedNamesAreSortedAndImmutable(t *testing.T) {
 	names := SupportedNICoNVSwitchNames()
 	require.Equal(t, []string{"bios", "bmc", "cpld", "nvos"}, names)

@@ -1362,7 +1362,7 @@ func captureStdout(f func()) string {
 	os.Stdout = old
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, r); err != nil {
-		panic(fmt.Sprintf("capture stdout: %v", err))
+		panic(err)
 	}
 	return buf.String()
 }

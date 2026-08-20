@@ -244,6 +244,18 @@ impl DpuDeviceRepository for KubeRepository {
         Ok(api.create(&PostParams::default(), device).await?)
     }
 
+    async fn patch(
+        &self,
+        name: &str,
+        namespace: &str,
+        patch: serde_json::Value,
+    ) -> Result<(), DpfError> {
+        let api: Api<DPUDevice> = self.api(namespace);
+        api.patch(name, &PatchParams::default(), &Patch::Merge(&patch))
+            .await?;
+        Ok(())
+    }
+
     async fn delete(&self, name: &str, namespace: &str) -> Result<(), DpfError> {
         let api: Api<DPUDevice> = self.api(namespace);
         api.delete(name, &Default::default()).await?;
@@ -510,6 +522,30 @@ impl DpuServiceRepository for KubeRepository {
         let api = self.api(namespace);
         let list = api.list(&ListParams::default()).await?;
         Ok(list.items)
+    }
+
+    async fn create(&self, service: &DPUService) -> Result<DPUService, DpfError> {
+        let namespace = service.meta().namespace.as_deref().unwrap_or("default");
+        let api = self.api(namespace);
+        Ok(api.create(&PostParams::default(), service).await?)
+    }
+
+    async fn patch(
+        &self,
+        name: &str,
+        namespace: &str,
+        patch: serde_json::Value,
+    ) -> Result<(), DpfError> {
+        let api: Api<DPUService> = self.api(namespace);
+        api.patch(name, &PatchParams::default(), &Patch::Merge(&patch))
+            .await?;
+        Ok(())
+    }
+
+    async fn delete(&self, name: &str, namespace: &str) -> Result<(), DpfError> {
+        let api: Api<DPUService> = self.api(namespace);
+        api.delete(name, &Default::default()).await?;
+        Ok(())
     }
 }
 

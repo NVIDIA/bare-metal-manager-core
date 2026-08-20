@@ -41,8 +41,8 @@ func RawMode() (restore func(), err error) {
 		return nil, fmt.Errorf("entering raw mode: %w", err)
 	}
 	return func() {
-		if err := term.Restore(fd, oldState); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to restore terminal: %v\n", err)
+		if restoreErr := term.Restore(fd, oldState); restoreErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to restore terminal mode: %v\n", restoreErr)
 		}
 	}, nil
 }

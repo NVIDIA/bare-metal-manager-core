@@ -5,11 +5,15 @@ package activity
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/firmwareauth"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/secret"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/capability"
 	cmcatalog "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/catalog"
@@ -18,10 +22,11 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/common"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
+	pb "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/proto/v1"
 )
 
 func TestActivitiesReturnErrorWhenComponentManagerRegistryIsMissing(t *testing.T) {
-	acts := New(nil, nil, nil)
+	acts := New(nil, nil, nil, nil)
 
 	for name, call := range activityCallsForMissingManagerTest(t, acts) {
 		t.Run(name, func(t *testing.T) {
@@ -40,7 +45,7 @@ func TestActivitiesReturnErrorWhenComponentManagerIsMissing(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	acts := New(nil, nil, registry)
+	acts := New(nil, nil, registry, nil)
 
 	for name, call := range activityCallsForMissingManagerTest(t, acts) {
 		t.Run(name, func(t *testing.T) {
@@ -81,6 +86,40 @@ func TestActivityCallsManagerWhenCapabilityIsSupported(t *testing.T) {
 
 	require.NoError(t, err)
 	require.True(t, manager.called)
+}
+
+func TestFirmwareControlDecryptsAuthenticationDataInActivity(t *testing.T) {
+	acts, manager := newCapabilityTestActivities(
+		t,
+		capability.CapabilityFirmwareControl,
+	)
+	cipher := newActivityTestCipher(t)
+	acts.dataCipher = cipher
+	encrypted, err := firmwareauth.Encrypt(
+		cipher,
+		&pb.FirmwareAuthenticationData{
+			Value: &pb.FirmwareAuthenticationData_PerComponent{
+				PerComponent: &pb.PerComponentFirmwareAuthenticationData{
+					Compute:  proto.String("compute-token"),
+					Nvswitch: proto.String("switch-token"),
+				},
+			},
+		},
+		nil,
+	)
+	require.NoError(t, err)
+
+	err = acts.FirmwareControl(
+		context.Background(),
+		newActivityTestTarget(),
+		operations.FirmwareControlTaskInfo{
+			Operation:          operations.FirmwareOperationUpgrade,
+			AuthenticationData: encrypted,
+		},
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, "compute-token", manager.firmwareInfo.AccessToken)
 }
 
 func TestActivityRequiresOperationInterfaceAfterCapabilityValidation(t *testing.T) {
@@ -216,8 +255,9 @@ func capabilityCheckedActivityCalls(
 }
 
 type capabilityTestManager struct {
-	descriptor cmcatalog.Descriptor
-	called     bool
+	descriptor   cmcatalog.Descriptor
+	called       bool
+	firmwareInfo operations.FirmwareControlTaskInfo
 }
 
 func (m *capabilityTestManager) Descriptor() cmcatalog.Descriptor {
@@ -251,11 +291,12 @@ func (m *capabilityTestManager) GetPowerStatus(
 }
 
 func (m *capabilityTestManager) FirmwareControl(
-	context.Context,
-	common.Target,
-	operations.FirmwareControlTaskInfo,
+	_ context.Context,
+	_ common.Target,
+	info operations.FirmwareControlTaskInfo,
 ) error {
 	m.called = true
+	m.firmwareInfo = info
 	return nil
 }
 
@@ -265,6 +306,16 @@ func (m *capabilityTestManager) GetFirmwareStatus(
 ) (map[string]operations.FirmwareUpdateStatus, error) {
 	m.called = true
 	return nil, nil
+}
+
+func newActivityTestCipher(t *testing.T) *secret.Cipher {
+	t.Helper()
+
+	key := make([]byte, 32)
+	encodedKey := base64.StdEncoding.EncodeToString(key)
+	cipher, err := secret.NewCipher(encodedKey)
+	require.NoError(t, err)
+	return cipher
 }
 
 func newCapabilityTestActivities(
@@ -301,7 +352,7 @@ func newCapabilityTestActivities(
 	)
 	require.NoError(t, err)
 
-	return New(nil, nil, registry), manager
+	return New(nil, nil, registry, nil), manager
 }
 
 type descriptorOnlyManager struct {
@@ -345,7 +396,7 @@ func newDescriptorOnlyActivities(
 	)
 	require.NoError(t, err)
 
-	return New(nil, nil, registry)
+	return New(nil, nil, registry, nil)
 }
 
 func newActivityTestTarget() common.Target {

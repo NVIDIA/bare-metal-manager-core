@@ -25,10 +25,17 @@ use common::api_fixtures::TestEnv;
 use db::{self, ObjectColumnFilter};
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
+use model::allocation_type::AllocationType;
 use model::bmc_suppression::{BmcSuppressionSubsystem, NewBmcSuppression};
+use model::expected_machine::{
+    BmcIpAllocationType, ExpectedInterface, ExpectedInterfaceIpAllocation, ExpectedInterfaceRole,
+    ExpectedMachineData,
+};
 use model::hardware_info::HardwareInfo;
 use model::machine::ManagedHostStateSnapshot;
 use model::machine_boot_interface::MachineBootInterfaceTarget;
+use model::machine_interface::InterfaceType;
+use model::network_segment::NetworkSegmentType;
 use model::site_explorer::{
     Chassis, EndpointExplorationError, EndpointExplorationReport, MachineSetupStatus,
 };
@@ -143,6 +150,297 @@ async fn test_site_explorer_new_host_fixture(
     let config = ManagedHostConfig::default().with_dpu_count(2);
     let two_dpu_host = api_fixtures::site_explorer::new_host(&env, config).await?;
     assert_eq!(two_dpu_host.dpu_snapshots.len(), 2);
+
+    Ok(())
+}
+
+/// A zero-DPU host can put its BMC and host OS on one HostInband segment.
+/// The addressless BMC receives an ordinary DHCP lease, Site Explorer pins
+/// that lease, and HostInband Redfish filtering ignores the host data NIC.
+#[sqlx_test]
+async fn test_zero_dpu_host_bmc_and_os_share_host_inband_segment(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides {
+            site_prefixes: Some(vec![
+                IpNetwork::new(
+                    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.network(),
+                    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.prefix(),
+                )?,
+                IpNetwork::new(
+                    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.network(),
+                    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.prefix(),
+                )?,
+            ]),
+            ..Default::default()
+        },
+    )
+    .await;
+    let host_inband_segment = create_host_inband_network_segment(&env.api, None).await;
+
+    let mut mock_host = ManagedHostConfig::zero_dpu();
+    let host_bmc_mac = mock_host.bmc_mac_address;
+    let host_os_mac = mock_host.dhcp_mac_address();
+    mock_host.expected_machine_data = Some(ExpectedMachineData {
+        interfaces: vec![ExpectedInterface {
+            mac_address: host_os_mac,
+            role: ExpectedInterfaceRole::Host,
+            ip_allocation: Some(ExpectedInterfaceIpAllocation::Dynamic),
+            network_segment_type: Some(NetworkSegmentType::HostInband),
+            primary: Some(true),
+            ..Default::default()
+        }],
+        ..Default::default()
+    });
+    api_fixtures::site_explorer::register_expected_machine(&env, &mock_host, None).await;
+
+    let expected_machine = db::expected_machine::find_by_bmc_mac_address(&pool, host_bmc_mac)
+        .await?
+        .expect("zero-DPU host should have an ExpectedMachine");
+    assert_eq!(expected_machine.data.bmc_ip_address, None);
+    assert_eq!(
+        expected_machine.data.bmc_ip_allocation,
+        BmcIpAllocationType::Auto,
+    );
+    assert_eq!(
+        expected_machine
+            .effective_host_bmc()
+            .resolved_ip_allocation(),
+        ExpectedInterfaceIpAllocation::Retained,
+    );
+
+    let mock = MockExploredHost::new(&env, mock_host)
+        // The BMC first contacts DHCP through the same HostInband relay the
+        // zero-DPU host OS will use later.
+        .discover_dhcp_host_bmc_from_relay(
+            FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.ip(),
+            |result, _| {
+                let response = result?.into_inner();
+                assert_eq!(response.segment_id, Some(host_inband_segment));
+                assert!(response.machine_id.is_none());
+                Ok(())
+            },
+        )
+        .await?
+        .then(|mock| {
+            let pool = mock.test_env.pool.clone();
+            let host_bmc_mac = mock.managed_host.bmc_mac_address;
+            async move {
+                let mut txn = pool.begin().await?;
+                let interfaces =
+                    db::machine_interface::find_by_mac_address(txn.as_mut(), host_bmc_mac).await?;
+                let [interface] = interfaces.as_slice() else {
+                    eyre::bail!(
+                        "host BMC should have exactly one interface before exploration, found {}",
+                        interfaces.len(),
+                    );
+                };
+                let addresses =
+                    db::machine_interface_address::find_for_interface(&mut txn, interface.id)
+                        .await?;
+                txn.rollback().await?;
+
+                assert_eq!(interface.segment_id, host_inband_segment);
+                assert_eq!(interface.interface_type, InterfaceType::Bmc);
+                assert!(!interface.primary_interface);
+                assert!(interface.machine_id.is_none());
+                assert_eq!(addresses.len(), 1);
+                assert_eq!(addresses[0].allocation_type, AllocationType::Dhcp);
+                Ok(())
+            }
+        })
+        .await?
+        // Exercise the ordinary zero-DPU ingestion lifecycle. The first pass
+        // explores and pins the BMC lease; after preingestion completes, the
+        // next pass creates the managed host and predicts its in-band NIC.
+        .insert_site_exploration_results()?
+        .run_site_explorer_iteration()
+        .await
+        .mark_preingestion_complete()
+        .await?
+        .run_site_explorer_iteration()
+        .await
+        .then(|mock| {
+            let pool = mock.test_env.pool.clone();
+            let host_bmc_mac = mock.managed_host.bmc_mac_address;
+            let host_os_mac = mock.managed_host.dhcp_mac_address();
+            async move {
+                let mut txn = pool.begin().await?;
+                let bmc_interfaces =
+                    db::machine_interface::find_by_mac_address(txn.as_mut(), host_bmc_mac).await?;
+                let [bmc_interface] = bmc_interfaces.as_slice() else {
+                    eyre::bail!(
+                        "host BMC should have exactly one interface after ingestion, found {}",
+                        bmc_interfaces.len(),
+                    );
+                };
+                let bmc_machine_id = bmc_interface
+                    .machine_id
+                    .expect("ingested BMC interface should be associated with the host");
+                let bmc_addresses =
+                    db::machine_interface_address::find_for_interface(&mut txn, bmc_interface.id)
+                        .await?;
+                let prediction =
+                    db::predicted_machine_interface::find_by_mac_address(&mut txn, host_os_mac)
+                        .await?
+                        .expect(
+                            "zero-DPU host OS interface should be predicted before its first lease",
+                        );
+                let host_os_interfaces =
+                    db::machine_interface::find_by_mac_address(txn.as_mut(), host_os_mac).await?;
+                txn.rollback().await?;
+
+                assert_eq!(bmc_addresses.len(), 1);
+                assert_eq!(bmc_addresses[0].allocation_type, AllocationType::Static);
+                assert_eq!(prediction.machine_id, bmc_machine_id);
+                assert_eq!(
+                    prediction.expected_network_segment_type,
+                    NetworkSegmentType::HostInband,
+                );
+                assert!(prediction.primary_interface);
+                assert!(
+                    host_os_interfaces.is_empty(),
+                    "prediction should not become a real interface before host OS DHCP",
+                );
+                Ok(())
+            }
+        })
+        .await?
+        // The first host-OS lease promotes the prediction onto the same
+        // HostInband segment and keeps the Site Explorer-created association.
+        .discover_dhcp_host_primary_iface(|result, _| {
+            let response = result?.into_inner();
+            assert_eq!(response.segment_id, Some(host_inband_segment));
+            assert!(response.machine_id.is_some());
+            Ok(())
+        })
+        .await?
+        .discover_machine(|result, _| {
+            assert!(result.is_ok());
+            Ok(())
+        })
+        .await?;
+
+    // Isolate the scan performed after both final interface rows exist. Calls
+    // from earlier ingestion passes do not help prove that the host data NIC
+    // remains excluded from the HostInband Redfish candidate set.
+    env.endpoint_explorer
+        .explore_endpoint_calls
+        .lock()
+        .unwrap()
+        .clear();
+    let mock = mock.run_site_explorer_iteration().await;
+
+    let machine_id = mock
+        .discovered_machine_id()
+        .expect("host discovery should return the ingested machine id");
+    let host_bmc_ip = mock
+        .host_bmc_ip
+        .expect("host BMC DHCP should record its address");
+    let host_os_dhcp = mock
+        .host_dhcp_response
+        .as_ref()
+        .expect("host OS DHCP should record its response");
+    // DHCP promotes the Site Explorer prediction under its provisional host
+    // ID. Machine discovery then replaces that ID with the TPM-derived stable
+    // ID; the final interface assertions below verify both rows followed it.
+    assert!(host_os_dhcp.machine_id.is_some());
+    assert_eq!(host_os_dhcp.segment_id, Some(host_inband_segment));
+    let host_os_ip: IpAddr = host_os_dhcp.address.parse()?;
+    assert_ne!(host_bmc_ip, host_os_ip);
+
+    let snapshot: ManagedHostStateSnapshot =
+        db::managed_host::load_snapshot(&mut env.db_reader(), &machine_id, Default::default())
+            .await
+            .transpose()
+            .unwrap()?;
+    assert!(snapshot.dpu_snapshots.is_empty());
+
+    struct InterfaceCase {
+        name: &'static str,
+        mac_address: MacAddress,
+        address: IpAddr,
+        interface_type: InterfaceType,
+        primary: bool,
+        allocation_type: AllocationType,
+    }
+
+    for case in [
+        InterfaceCase {
+            name: "host BMC",
+            mac_address: host_bmc_mac,
+            address: host_bmc_ip,
+            interface_type: InterfaceType::Bmc,
+            primary: false,
+            allocation_type: AllocationType::Static,
+        },
+        InterfaceCase {
+            name: "host OS",
+            mac_address: host_os_mac,
+            address: host_os_ip,
+            interface_type: InterfaceType::Data,
+            primary: true,
+            allocation_type: AllocationType::Dhcp,
+        },
+    ] {
+        let mut txn = pool.begin().await?;
+        let interfaces =
+            db::machine_interface::find_by_mac_address(txn.as_mut(), case.mac_address).await?;
+        let [interface] = interfaces.as_slice() else {
+            panic!(
+                "{} should have exactly one final machine interface, found {}",
+                case.name,
+                interfaces.len(),
+            );
+        };
+        let addresses =
+            db::machine_interface_address::find_for_interface(&mut txn, interface.id).await?;
+        txn.rollback().await?;
+
+        assert_eq!(interface.machine_id, Some(machine_id), "{}", case.name);
+        assert_eq!(interface.segment_id, host_inband_segment, "{}", case.name);
+        assert_eq!(
+            interface.interface_type, case.interface_type,
+            "{}",
+            case.name,
+        );
+        assert_eq!(interface.primary_interface, case.primary, "{}", case.name);
+        assert_eq!(addresses.len(), 1, "{}", case.name);
+        assert_eq!(addresses[0].address, case.address, "{}", case.name);
+        assert_eq!(
+            addresses[0].allocation_type, case.allocation_type,
+            "{}",
+            case.name,
+        );
+    }
+
+    let mut txn = pool.begin().await?;
+    assert!(
+        db::predicted_machine_interface::find_by_mac_address(&mut txn, host_os_mac)
+            .await?
+            .is_none(),
+        "host OS DHCP should consume its predicted interface",
+    );
+    txn.rollback().await?;
+
+    let explored_ips = env
+        .endpoint_explorer
+        .explore_endpoint_calls
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|call| call.ip_address)
+        .collect::<Vec<_>>();
+    assert!(
+        !explored_ips.is_empty(),
+        "the final Site Explorer pass should scan the HostInband BMC",
+    );
+    assert!(
+        explored_ips.iter().all(|address| *address == host_bmc_ip),
+        "the HostInband host data NIC must not be treated as a Redfish endpoint",
+    );
 
     Ok(())
 }

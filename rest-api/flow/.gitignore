@@ -4,6 +4,7 @@
 build
 flow
 .local_envrc
+.flow-data-encryption-key
 ignore
 
 # Go event-rule target package; override the repository-wide Rust target ignore.

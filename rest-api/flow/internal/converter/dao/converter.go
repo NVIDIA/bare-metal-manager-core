@@ -127,6 +127,7 @@ func RackFrom(dao *model.Rack) *rack.Rack {
 	if dao == nil {
 		return nil
 	}
+	modelName, description := rackMetadataFromDescription(dao.Description)
 
 	components := make([]component.Component, 0, len(dao.Components))
 	for _, c := range dao.Components {
@@ -138,14 +139,43 @@ func RackFrom(dao *model.Rack) *rack.Rack {
 			ID:           dao.ID,
 			Name:         dao.Name,
 			Manufacturer: dao.Manufacturer,
+			Model:        modelName,
 			SerialNumber: dao.SerialNumber,
-			Description:  utils.MapToJSONString(dao.Description),
+			Description:  description,
 		},
 		Loc: location.New(
 			[]byte(utils.MapToJSONString(dao.Location)),
 		),
 		Components: components,
 	}
+}
+
+// rackMetadataFromDescription separates the rack fields stored in the shared
+// description JSONB column. Model has a dedicated public field, while the
+// standard scalar description keys should be exposed as plain text rather than
+// leaking the database JSON representation. Unknown structured metadata stays
+// JSON so legacy values continue to round-trip.
+func rackMetadataFromDescription(stored map[string]any) (string, string) {
+	modelName, _ := stored["model"].(string)
+	publicDescription := make(map[string]any, len(stored))
+	for key, value := range stored {
+		if key != "model" {
+			publicDescription[key] = value
+		}
+	}
+	if len(publicDescription) == 0 {
+		return modelName, ""
+	}
+
+	if len(publicDescription) == 1 {
+		for _, key := range []string{"text", "description"} {
+			if value, ok := publicDescription[key].(string); ok {
+				return modelName, value
+			}
+		}
+	}
+
+	return modelName, utils.MapToJSONString(publicDescription)
 }
 
 // NVLDomainFrom converts a DAO NVLDomain model to its domain object.
@@ -281,12 +311,20 @@ func RackTo(r *rack.Rack) *model.Rack {
 		components = append(components, *ComponentTo(&c, r.Info.ID))
 	}
 
+	description := utils.JSONStringToMap("description", r.Info.Description)
+	if r.Info.Model != "" {
+		if description == nil {
+			description = make(map[string]any)
+		}
+		description["model"] = r.Info.Model
+	}
+
 	return &model.Rack{
 		ID:           r.Info.ID,
 		Name:         r.Info.Name,
 		Manufacturer: r.Info.Manufacturer,
 		SerialNumber: r.Info.SerialNumber,
-		Description:  utils.JSONStringToMap("description", r.Info.Description),
+		Description:  description,
 		Location:     r.Loc.ToMap(),
 		Components:   components,
 	}
@@ -342,6 +380,7 @@ func OperationRunFrom(dao *model.OperationRun) *operationrun.OperationRun {
 		StatusReason:      dao.StatusReason,
 		StatusMessage:     dao.StatusMessage,
 		CurrentPhaseIndex: dao.CurrentPhaseIndex,
+		TotalPhases:       dao.TotalPhases,
 		Selector:          dao.Selector,
 		Options:           dao.Options,
 		OperationTemplate: dao.OperationTemplate,
@@ -368,6 +407,7 @@ func OperationRunTo(run *operationrun.OperationRun) *model.OperationRun {
 		StatusReason:      run.StatusReason,
 		StatusMessage:     run.StatusMessage,
 		CurrentPhaseIndex: run.CurrentPhaseIndex,
+		TotalPhases:       run.TotalPhases,
 		Selector:          run.Selector,
 		Options:           run.Options,
 		OperationTemplate: run.OperationTemplate,

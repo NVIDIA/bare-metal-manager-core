@@ -101,12 +101,12 @@ func resolveRackTarget(
 	rt *operation.RackTarget,
 ) (*rack.Rack, error) {
 	rackObj, err := fetcher.GetRackByIdentifier(ctx, rt.Identifier, true)
-	if rackObj == nil {
-		return nil, fmt.Errorf("rack not found for identifier %+v", rt.Identifier)
-	}
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to get rack by identifier %+v: %w", rt.Identifier, err)
+	}
+
+	if rackObj == nil {
+		return nil, fmt.Errorf("rack not found for identifier %+v", rt.Identifier)
 	}
 
 	var components []component.Component

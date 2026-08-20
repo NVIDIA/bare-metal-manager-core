@@ -18,7 +18,8 @@
 use std::str::FromStr;
 
 use carbide_redfish::libredfish::test_support::RedfishSimAction;
-use carbide_uuid::machine::MachineInterfaceId;
+use carbide_uuid::instance::InstanceId;
+use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use ipnetwork::IpNetwork;
 use model::machine::{InstanceState, ManagedHostState};
 use model::machine_boot_interface::MachineBootInterfaceTarget;
@@ -35,6 +36,64 @@ use crate::tests::common::api_fixtures::network_segment::{
     FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY, create_admin_network_segment,
     create_host_inband_network_segment, create_underlay_network_segment,
 };
+
+#[derive(Debug, PartialEq)]
+struct SetPrimaryPersistenceState {
+    interface_primaries: Vec<(String, bool)>,
+    interface_addresses: Vec<(String, String, String)>,
+    machine_network_configs: Vec<(String, String, String)>,
+    instance_network_config: (String, String),
+    desired_boot_interface: Option<(Option<String>, Option<String>, Option<String>)>,
+}
+
+async fn load_set_primary_persistence_state(
+    pool: &sqlx::PgPool,
+    host_id: MachineId,
+    instance_id: InstanceId,
+) -> Result<SetPrimaryPersistenceState, sqlx::Error> {
+    Ok(SetPrimaryPersistenceState {
+        interface_primaries: sqlx::query_as(
+            "SELECT id::text, primary_interface FROM machine_interfaces \
+             WHERE machine_id = $1 ORDER BY id",
+        )
+        .bind(host_id)
+        .fetch_all(pool)
+        .await?,
+        interface_addresses: sqlx::query_as(
+            "SELECT address.interface_id::text, address.address::text, address.allocation_type \
+             FROM machine_interface_addresses address \
+             JOIN machine_interfaces interface ON interface.id = address.interface_id \
+             WHERE interface.machine_id = $1 \
+             ORDER BY address.interface_id, address.address, address.allocation_type",
+        )
+        .bind(host_id)
+        .fetch_all(pool)
+        .await?,
+        machine_network_configs: sqlx::query_as(
+            "SELECT id::text, network_config::text, network_config_version::text \
+             FROM machines \
+             WHERE id IN (SELECT id FROM machine_group_member_ids($1)) \
+             ORDER BY id",
+        )
+        .bind(host_id)
+        .fetch_all(pool)
+        .await?,
+        instance_network_config: sqlx::query_as(
+            "SELECT network_config::text, network_config_version::text \
+             FROM instances WHERE id = $1",
+        )
+        .bind(instance_id)
+        .fetch_one(pool)
+        .await?,
+        desired_boot_interface: sqlx::query_as(
+            "SELECT desired_mac_address::text, desired_interface_id, desired_version::text \
+             FROM machine_boot_interfaces WHERE machine_id = $1",
+        )
+        .bind(host_id)
+        .fetch_optional(pool)
+        .await?,
+    })
+}
 
 // Unlike `set_primary_dpu`, `set_primary_interface` has no zero-DPU guard -- a
 // zero-DPU host is a first-class target. So on a zero-DPU host the call must get
@@ -391,6 +450,94 @@ async fn test_set_primary_interface_rolls_back_primary_and_desired_together(
         .expect("the original desired target should remain");
     assert_eq!(desired_after.value, desired_before.value);
     assert_eq!(desired_after.version, desired_before.version);
+
+    Ok(())
+}
+
+// A deleted `Instance` remains associated with its host while lifecycle cleanup
+// is pending. The locked lookup must reject both a primary move and a forced
+// reconciliation before either operation can persist changes.
+#[crate::sqlx_test]
+async fn test_set_primary_interface_rejects_deleted_instance_and_rolls_back_writes(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = api_fixtures::create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let host = api_fixtures::create_managed_host_multi_dpu(&env, 2).await;
+    let host_id = host.id;
+    let instance = host
+        .instance_builer(&env)
+        .single_interface_network_config(segment_id)
+        .build()
+        .await;
+
+    let (current_primary_id, promote_id) = {
+        let mut txn = env.pool.begin().await?;
+        let interfaces = db::machine_interface::find_by_machine_ids(txn.as_mut(), &[host_id])
+            .await?
+            .remove(&host_id)
+            .expect("host should have interface rows");
+        let current_primary_id = interfaces
+            .iter()
+            .find(|interface| interface.primary_interface)
+            .expect("host should have a primary interface")
+            .id;
+        let promote_id = interfaces
+            .into_iter()
+            .find(|interface| {
+                !interface.primary_interface && interface.attached_dpu_machine_id.is_some()
+            })
+            .expect("host should have a non-primary DPU-backed interface")
+            .id;
+        txn.commit().await?;
+        (current_primary_id, promote_id)
+    };
+
+    let state_before = load_set_primary_persistence_state(&env.pool, host_id, instance.id).await?;
+
+    let mut deletion = env.pool.begin().await?;
+    db::instance::mark_as_deleted(instance.id, deletion.as_mut()).await?;
+    deletion.commit().await?;
+
+    struct Case {
+        name: &'static str,
+        interface_id: MachineInterfaceId,
+        force_reconcile: bool,
+    }
+    let cases = [
+        Case {
+            name: "primary move",
+            interface_id: promote_id,
+            force_reconcile: false,
+        },
+        Case {
+            name: "forced reconciliation",
+            interface_id: current_primary_id,
+            force_reconcile: true,
+        },
+    ];
+
+    for case in cases {
+        let error = env
+            .api
+            .set_primary_interface(tonic::Request::new(forge::SetPrimaryInterfaceRequest {
+                host_machine_id: Some(host_id),
+                interface_id: Some(case.interface_id),
+                force_reconcile: case.force_reconcile,
+                ..Default::default()
+            }))
+            .await
+            .expect_err(case.name);
+        assert_eq!(error.code(), tonic::Code::FailedPrecondition);
+        assert_eq!(
+            error.message(),
+            format!("instance {} is being deleted", instance.id),
+        );
+
+        let state_after =
+            load_set_primary_persistence_state(&env.pool, host_id, instance.id).await?;
+        assert_eq!(state_after, state_before, "{} persisted state", case.name);
+    }
 
     Ok(())
 }
