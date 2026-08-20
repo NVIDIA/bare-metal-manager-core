@@ -40,7 +40,7 @@ use strum_macros::EnumIter;
 use self::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use super::StateSla;
 use super::instance::snapshot::InstanceSnapshot;
-use super::instance::status::extension_service::InstanceExtensionServiceStatusObservation;
+use super::instance::status::extension_service::InstanceExtensionServiceStatusObservationByType;
 use super::instance::status::network::InstanceNetworkStatusObservation;
 use super::machine_boot_interface::{MachineBootInterface, MachineBootInterfaceTarget};
 use super::metadata::Metadata;
@@ -200,7 +200,7 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ManagedHostStateSnapshot {
             instance.observations.network =
                 InstanceNetworkStatusObservation::aggregate_instance_observation(&dpu_snapshots);
             instance.observations.extension_services =
-                InstanceExtensionServiceStatusObservation::aggregate_instance_observation(
+                InstanceExtensionServiceStatusObservationByType::aggregate_instance_observation(
                     &dpu_snapshots,
                 );
         }
@@ -3506,6 +3506,30 @@ pub fn dpf_based_dpu_provisioning_possible(
             machine_id = %state.host_snapshot.id,
             docs = "https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup",
             "iPXE provisioning strategy (internally) is deprecated; enable DPF management for DPUs to migrate"
+        );
+        return false;
+    }
+
+    // Flipping a host to DPF also flips the extension-service delivery path
+    // from the DPU agent to DPUDevice placement labels. Attachments admitted
+    // against the agent path cannot follow that flip -- only a detach moves
+    // them -- so keep such a host on the legacy path rather than stranding
+    // services the new path will never reconcile. Any service attached to a
+    // host that is not yet DPF-managed is agent-delivered by admission, so no
+    // service-type lookup is needed here.
+    if reprovisioning_case
+        && !state.host_snapshot.config.dpf.used_for_ingestion
+        && state.instance.as_ref().is_some_and(|instance| {
+            !instance
+                .config
+                .extension_services
+                .service_configs
+                .is_empty()
+        })
+    {
+        tracing::warn!(
+            machine_id = %state.host_snapshot.id,
+            "DPF based DPU reprovisioning is not possible for host because its instance has attached extension services; detach them before migrating the host to DPF.",
         );
         return false;
     }

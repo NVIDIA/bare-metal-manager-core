@@ -75,6 +75,7 @@ Use `site_explorer.dpu_policy` instead.
 | `machine_state_controller` | `MachineStateControllerConfig` | *(see below)* | `machines` | Machine state controller timing (see [MachineStateControllerConfig](#machinestatecontrollerconfig)). |
 | `network_segment_state_controller` | `NetworkSegmentStateControllerConfig` | *(see below)* | `networking` | Network segment state controller timing. |
 | `vpc_prefix_state_controller` | `VpcPrefixStateControllerConfig` | *(see below)* | `networking` | VPC prefix state controller timing. |
+| `extension_service_state_controller` | `ExtensionServiceStateControllerConfig` | *(see below)* | `machines` | DPU extension service state controller timing. |
 | `ib_partition_state_controller` | `IbPartitionStateControllerConfig` | *(see below)* | `hardware` | IB partition state controller timing. |
 | `dpa_interface_state_controller` | `DpaInterfaceStateControllerConfig` | *(see below)* | `networking` | DPA interface state controller timing. |
 | `rack_state_controller` | `RackStateControllerConfig` | *(see below)* | `hardware` | Rack state controller timing, optional ingestion firmware update, and primary-switch mTLS service selection. |
@@ -452,8 +453,8 @@ shipped configuration selects a plaintext mode.
 
 ### `StateControllerConfig`
 
-Shared by all `*StateControllerConfig` structs (machine, network segment, VPC prefix, IB
-partition, DPA interface, rack, power shelf, switch, SPDM).
+Shared by all `*StateControllerConfig` structs (machine, network segment, VPC prefix, extension
+service, IB partition, DPA interface, rack, power shelf, switch, SPDM).
 
 | Field | Type | Default | Description |
 | ------- | ------ | --------- | ------------- |
@@ -561,6 +562,14 @@ Extends `StateControllerConfig` with:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `vpc_prefix_drain_time` | `Duration` | `5m` | Time a VPC prefix must have 0 referencing network prefixes before release. |
+| `controller` | `StateControllerConfig` | *(default)* | Common state controller timing (see [StateControllerConfig](#statecontrollerconfig)). |
+
+### `ExtensionServiceStateControllerConfig`
+
+TOML section: `[extension_service_state_controller]`.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
 | `controller` | `StateControllerConfig` | *(default)* | Common state controller timing (see [StateControllerConfig](#statecontrollerconfig)). |
 
 ### `FirmwareGlobal`

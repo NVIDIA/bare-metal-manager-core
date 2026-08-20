@@ -35,9 +35,11 @@ use lazy_static::lazy_static;
 use mac_address::MacAddress;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::expected_machine::ExpectedMachineData;
+use model::extension_service::ExtensionServiceType;
 use model::hardware_info::{
     MachineInventory, MachineNvLinkInfo, mnnvl_gpu_name_sql_like_conditions,
 };
+use model::instance::status::extension_service::InstanceExtensionServiceStatusObservation;
 use model::machine::infiniband::MachineInfinibandStatusObservation;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::network::{
@@ -986,6 +988,79 @@ pub async fn update_network_status_observation(
     };
 
     Ok(())
+}
+
+/// Updates the current extension-service observation for one service type.
+///
+/// Writers own their type key, so the DPU agent's KubernetesPod observation
+/// and NICo's DPF Helm observation cannot replace one another. The operation
+/// is a single JSONB update: PostgreSQL serializes concurrent row updates and
+/// `jsonb_set` retains every other service-type entry.
+///
+/// Returns `false` when the machine exists but a newer observation for this
+/// same service type is already present, and [`DatabaseError::NotFoundError`]
+/// when the machine row is absent, so a superseded report is distinguishable
+/// from a machine that went away.
+pub async fn update_extension_service_status_observation(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    service_type: ExtensionServiceType,
+    observation: &InstanceExtensionServiceStatusObservation,
+) -> Result<bool, DatabaseError> {
+    let query = r#"
+        UPDATE machines
+        SET extension_service_status_observations = jsonb_set(
+            COALESCE(extension_service_status_observations, '{}'::jsonb),
+            ARRAY[$2]::text[],
+            $3::jsonb,
+            true
+        )
+        WHERE id = $1
+          AND (
+              extension_service_status_observations -> $2 IS NULL
+              OR (extension_service_status_observations -> $2 ->> 'observed_at')::timestamptz
+                    <= $4::timestamptz
+          )
+        RETURNING id
+    "#;
+    let updated: Option<(MachineId,)> = sqlx::query_as(query)
+        .bind(machine_id)
+        .bind(service_type.to_string())
+        .bind(sqlx::types::Json(observation))
+        .bind(observation.observed_at)
+        .fetch_optional(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    if updated.is_some() {
+        return Ok(true);
+    }
+
+    // The update above matches on machine identity and observation freshness
+    // together, so re-check identity alone to attribute the miss to one or the
+    // other.
+    let identity_query = "SELECT id FROM machines WHERE id = $1";
+    let machine_exists: Option<(MachineId,)> = sqlx::query_as(identity_query)
+        .bind(machine_id)
+        .fetch_optional(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::query(identity_query, e))?;
+    if machine_exists.is_some() {
+        return Ok(false);
+    }
+
+    // Captures why the update failed in unit tests even though all prerequisite
+    // data appears present. Compiles to a no-op in production environments.
+    debug_failed_machine_status_update(
+        txn,
+        machine_id,
+        "extension_service_status_observations",
+        observation,
+    )
+    .await;
+    Err(DatabaseError::NotFoundError {
+        kind: "machine",
+        id: machine_id.to_string(),
+    })
 }
 
 /// Only does the update if the passed observation is newer than any existing one

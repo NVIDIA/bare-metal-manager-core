@@ -3173,6 +3173,7 @@ message InstanceDpuExtensionServiceConfig {
 message InstanceDpuExtensionServicesConfig {
   repeated InstanceDpuExtensionServiceConfig service_configs = 1;
 }
+
 // Desired nvlink configuration for an instance
 message InstanceNVLinkConfig {
   // Configures how instance nvlink gpus are set up
@@ -8720,7 +8721,20 @@ message SetPrimaryInterfaceRequest {
 // DPU Extension Service Types and Messages
 enum DpuExtensionServiceType {
   KUBERNETES_POD = 0;
-  // Add supported service types in the future
+  DPF_HELM_CHART = 1;
+}
+
+// Enumerates the lifecycle states of an extension service registration.
+//
+// This is distinct from DpuExtensionServiceDeploymentStatus, which describes
+// an individual service deployment on an instance.
+enum DpuExtensionServiceLifecycleState {
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_CREATING = 0;
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_READY = 1;
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_UPDATING = 2;
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_DELETING = 3;
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_DELETED = 4;
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_FAILED = 5;
 }
 
 message UsernamePassword {
@@ -8772,6 +8786,10 @@ message DpuExtensionService {
   string description = 8;
   string created = 9;
   string updated = 10;
+
+  // The lifecycle of the extension service registration itself. This is
+  // independent from deployment status on individual instances.
+  LifecycleStatus lifecycle_status = 11;
 }
 
 message CreateDpuExtensionServiceRequest {

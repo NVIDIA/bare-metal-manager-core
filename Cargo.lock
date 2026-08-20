@@ -1188,6 +1188,7 @@ dependencies = [
  "carbide-dpa",
  "carbide-dpa-manager",
  "carbide-dpf",
+ "carbide-extension-service-controller",
  "carbide-firmware",
  "carbide-health-metrics",
  "carbide-health-report",
@@ -1990,6 +1991,25 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+]
+
+[[package]]
+name = "carbide-extension-service-controller"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "carbide-api-db",
+ "carbide-api-model",
+ "carbide-dpf",
+ "carbide-machine-controller",
+ "carbide-uuid",
+ "config-version",
+ "kube",
+ "serde_json",
+ "sqlx",
+ "state-controller",
+ "thiserror 2.0.18",
+ "tracing",
 ]
 
 [[package]]

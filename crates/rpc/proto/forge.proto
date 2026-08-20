@@ -1075,6 +1075,7 @@ service Forge {
 // Indicates the lifecycle state of a resource that is controlled by a state controller
 message LifecycleStatus {
   option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   // The current state of the resource
   string state = 1;
   // The state version. This version number is incremented each time the resource transitions into a new state
@@ -3287,6 +3288,7 @@ message InstanceDpuExtensionServicesConfig {
   option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated InstanceDpuExtensionServiceConfig service_configs = 1;
 }
+
 // Desired nvlink configuration for an instance
 message InstanceNVLinkConfig {
   option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
@@ -4422,6 +4424,7 @@ message ControllerStateSourceReference {
 
 message StateSla {
   option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   // The SLA for the current state
   // This field will be absent if there is no SLA defined for a field
   // A value of 0 (instead of absent) will indicate the `time_in_state` will always
@@ -9079,7 +9082,22 @@ enum DpuExtensionServiceType {
   option (carbide.codegen.v1.enum_derive) = "serde::Serialize";
   option (carbide.codegen.v1.enum_derive) = "serde::Deserialize";
   KUBERNETES_POD = 0;
-  // Add supported service types in the future
+  DPF_HELM_CHART = 1;
+}
+
+// Enumerates the lifecycle states of an extension service registration.
+//
+// This is distinct from DpuExtensionServiceDeploymentStatus, which describes
+// an individual service deployment on an instance.
+enum DpuExtensionServiceLifecycleState {
+  option (carbide.codegen.v1.enum_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.enum_derive) = "serde::Deserialize";
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_CREATING = 0;
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_READY = 1;
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_UPDATING = 2;
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_DELETING = 3;
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_DELETED = 4;
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_FAILED = 5;
 }
 
 message UsernamePassword {
@@ -9139,6 +9157,10 @@ message DpuExtensionService {
   string description = 8;
   string created = 9;
   string updated = 10;
+
+  // The lifecycle of the extension service registration itself. This is
+  // independent from deployment status on individual instances.
+  LifecycleStatus lifecycle_status = 11;
 }
 
 message CreateDpuExtensionServiceRequest {

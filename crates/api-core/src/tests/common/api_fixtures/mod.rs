@@ -24,6 +24,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
+use carbide_extension_service_controller::context::ExtensionServiceStateHandlerServices;
+use carbide_extension_service_controller::handler::ExtensionServiceStateHandler;
+use carbide_extension_service_controller::io::ExtensionServiceStateControllerIO;
 use carbide_ib_fabric::IbFabricMonitor;
 use carbide_ib_fabric::ib::IBFabricManagerImpl;
 use carbide_ib_partition_controller::context::IBPartitionStateHandlerServices;
@@ -282,6 +285,7 @@ pub(crate) struct TestEnv {
     pub(in crate::tests) machine_state_handler: SwapHandler<MachineStateHandler>,
     network_segment_controller: Arc<Mutex<StateController<NetworkSegmentStateControllerIO>>>,
     vpc_prefix_controller: Arc<Mutex<StateController<VpcPrefixStateControllerIO>>>,
+    extension_service_controller: Arc<Mutex<StateController<ExtensionServiceStateControllerIO>>>,
     ib_partition_controller: Arc<Mutex<StateController<IBPartitionStateControllerIO>>>,
     power_shelf_controller: Arc<Mutex<StateController<PowerShelfStateControllerIO>>>,
     rack_controller: Arc<Mutex<StateController<RackStateControllerIO>>>,
@@ -599,6 +603,17 @@ impl TestEnv {
     /// in this test environment.
     pub(in crate::tests) async fn run_vpc_prefix_controller_iteration(&self) {
         self.vpc_prefix_controller
+            .lock()
+            .await
+            .run_single_iteration()
+            .boxed()
+            .await;
+    }
+
+    /// Runs one periodic-scan and processor iteration of the extension-service
+    /// state controller with the services in this test environment.
+    pub(in crate::tests) async fn run_extension_service_controller_iteration(&self) {
+        self.extension_service_controller
             .lock()
             .await
             .run_single_iteration()
@@ -1655,6 +1670,21 @@ pub(in crate::tests) async fn create_test_env_with_overrides(
         .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build VpcPrefixStateController");
 
+    let extension_service_controller = StateController::builder()
+        .database(db_pool.clone(), api.work_lock_manager_handle.clone())
+        .meter("carbide_extension_services", test_meter.meter())
+        .processor_id(state_controller_id.clone())
+        .services(
+            ExtensionServiceStateHandlerServices {
+                db_pool: db_pool.clone(),
+                dpf_sdk: api.dpf_sdk.clone(),
+            }
+            .into(),
+        )
+        .state_handler(Arc::new(ExtensionServiceStateHandler))
+        .build_for_manual_iterations(cancel_token.clone())
+        .expect("Unable to build ExtensionServiceStateController");
+
     let power_shelf_controller = StateController::builder()
         .database(db_pool.clone(), api.work_lock_manager_handle.clone())
         .meter("carbide_power_shelves", test_meter.meter())
@@ -1852,6 +1882,7 @@ pub(in crate::tests) async fn create_test_env_with_overrides(
         switch_controller: Arc::new(Mutex::new(switch_controller)),
         network_segment_controller: Arc::new(Mutex::new(network_controller)),
         vpc_prefix_controller: Arc::new(Mutex::new(vpc_prefix_controller)),
+        extension_service_controller: Arc::new(Mutex::new(extension_service_controller)),
         power_shelf_controller: Arc::new(Mutex::new(power_shelf_controller)),
         rack_controller: Arc::new(Mutex::new(rack_controller)),
         reachability_params,
