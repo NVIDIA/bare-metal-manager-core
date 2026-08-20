@@ -14,8 +14,6 @@ import (
 	"time"
 
 	appcli "github.com/NVIDIA/infra-controller/rest-api/cli/pkg"
-	"golang.org/x/text/cases"
-	"golang.org/x/text/language"
 )
 
 const (
@@ -800,7 +798,7 @@ func runScopeSet(s *Session, resourceType, nameOrID string) {
 			return
 		}
 	} else {
-		item, err = s.Resolver.Resolve(context.Background(), resourceType, cases.Title(language.English).String(resourceType))
+		item, err = s.Resolver.Resolve(context.Background(), resourceType, strings.ToUpper(resourceType[:1])+resourceType[1:])
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s %v\n\n", Red("Error:"), err)
 			return

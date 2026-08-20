@@ -7,7 +7,7 @@
   "actions": [
     {
       "version": 1,
-      "id": "submit",
+      "name": "submit",
       "type": "submit_task",
       "condition": {
         "severities": ["critical"],
@@ -23,7 +23,7 @@
     },
     {
       "version": 1,
-      "id": "alert",
+      "name": "alert",
       "type": "send_alert",
       "condition": {},
       "spec": {
@@ -33,7 +33,7 @@
     },
     {
       "version": 1,
-      "id": "noop",
+      "name": "noop",
       "type": "noop",
       "condition": {},
       "spec": {

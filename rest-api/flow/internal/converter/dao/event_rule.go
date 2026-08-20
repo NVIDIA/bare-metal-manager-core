@@ -9,7 +9,7 @@ import (
 
 	dbmodel "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/model"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
-	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/policycodec"
+	policycodec "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/codec/policy"
 	"github.com/google/uuid"
 )
 

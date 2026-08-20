@@ -20,6 +20,9 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
 
+/// BGP neighbor collection response data, keyed by peer name.
+pub type BgpNeighbors = BTreeMap<String, BgpPeerInfo>;
+
 /// BGP VRF response data.
 /// Corresponds to `#/x-defs/cue-show-schema-bgp-vrf-bgp`.
 #[derive(Debug, Deserialize)]
@@ -35,7 +38,7 @@ pub struct BgpVrfInfo {
 
     // #/x-defs/cue-show-schema-bgp-vrf-bgp-config-children
     pub address_family: Option<JsonValue>,
-    pub neighbor: Option<BTreeMap<String, BgpPeerInfo>>,
+    pub neighbor: Option<BgpNeighbors>,
     pub peer_group: Option<JsonValue>,
     pub path_selection: Option<JsonValue>,
     pub route_reflection: Option<JsonValue>,

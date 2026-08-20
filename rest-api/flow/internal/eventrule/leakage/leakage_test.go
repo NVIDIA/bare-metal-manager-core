@@ -30,7 +30,7 @@ func TestDefaultRuleValidates(t *testing.T) {
 	assert.Equal(t, eventrule.RuleOriginBuiltIn, rule.Origin)
 	assert.Equal(t, TypeHardwareLeakDetected, rule.EventType)
 	require.Len(t, rule.Actions, 1)
-	spec, ok := rule.Actions[0].Spec.(eventrule.SubmitTask)
+	spec, ok := rule.Actions[0].Spec.(*eventrule.SubmitTask)
 	require.True(t, ok)
 	assert.Equal(t, taskcommon.TaskTypePowerControl, spec.OperationType)
 	assert.Equal(t, taskcommon.OperationCode(taskcommon.OpCodePowerControlForcePowerOff), spec.OperationCode)

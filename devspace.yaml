@@ -64,7 +64,10 @@ functions:
   build_local_images: |-
     build_images core-artifacts nico-rest-api nico-rest-workflow \
       nico-rest-site-manager nico-rest-site-agent nico-rest-db \
-      nico-rest-cert-manager nico-mcp
+      nico-rest-cert-manager
+    if [ "${LOCAL_DEV_DSX_GATEWAY_PROFILE}" = "1" ]; then
+      build_images nico-mcp
+    fi
     # Custom-build onChange state can outlive the corresponding local Docker
     # image. Always invoke these inexpensive second-stage builds so the tags
     # consumed by the Kind image-loading hook are guaranteed to exist.

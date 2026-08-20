@@ -107,13 +107,14 @@ impl DhcpMode for Dpu {
 
 fn validate_host_config(host_config: &HostConfig) -> Result<(), DhcpError> {
     for (circuit_id, interface) in &host_config.host_ip_addresses {
-        if !matches!(
-            (&interface.address, &interface.gateway, &interface.prefix),
-            (Some(_), Some(_), Some(_)) | (None, None, None)
-        ) {
-            return Err(DhcpError::InvalidInput(format!(
-                "IPv4 address, gateway, and prefix for {circuit_id} must be configured together"
-            )));
+        match (&interface.address, &interface.gateway, &interface.prefix) {
+            (Some(_), Some(_), Some(prefix)) if !prefix.is_empty() => {}
+            (None, None, None) => {}
+            _ => {
+                return Err(DhcpError::InvalidInput(format!(
+                    "IPv4 address, gateway, and non-empty prefix for {circuit_id} must be configured together"
+                )));
+            }
         }
     }
 
@@ -163,6 +164,14 @@ mod tests {
             host_ip_addresses: [("vlan100".to_string(), interface)].into(),
         };
         validate_host_config(&host_config).map_err(drop)
+    }
+
+    fn validate_yaml_interface_prefix(prefix: &str) -> Result<(), ()> {
+        let yaml = format!(
+            "address: 192.0.2.10\ngateway: 192.0.2.1\nprefix: \"{prefix}\"\nfqdn: host.example.com\nbooturl: null\n"
+        );
+        let interface = serde_yaml::from_str(&yaml).map_err(drop)?;
+        validate_interface_presence(interface)
     }
 
     #[test]
@@ -217,7 +226,7 @@ mod tests {
                     ..Default::default()
                 } => Yields(()),
             }
-            "IPv6-only configuration" {
+            "all IPv4 fields absent in IPv6-only configuration" {
                 InterfaceInfo {
                     ipv6: Some(InterfaceInfoV6 {
                         address: Some("2001:db8::10".parse().unwrap()),
@@ -246,6 +255,36 @@ mod tests {
                     gateway: Some(Ipv4Addr::new(192, 0, 2, 1)),
                     ..Default::default()
                 } => Fails,
+            }
+            "IPv4 address only" {
+                InterfaceInfo {
+                    address: Some(Ipv4Addr::new(192, 0, 2, 10)),
+                    ..Default::default()
+                } => Fails,
+            }
+            "IPv4 gateway only" {
+                InterfaceInfo {
+                    gateway: Some(Ipv4Addr::new(192, 0, 2, 1)),
+                    ..Default::default()
+                } => Fails,
+            }
+            "IPv4 prefix only" {
+                InterfaceInfo {
+                    prefix: Some("192.0.2.0/24".to_string()),
+                    ..Default::default()
+                } => Fails,
+            }
+        );
+    }
+
+    #[test]
+    fn host_config_rejects_empty_ipv4_prefix_from_yaml() {
+        scenarios!(run = validate_yaml_interface_prefix;
+            "configured IPv4 prefix" {
+                "192.0.2.0/24" => Yields(()),
+            }
+            "empty IPv4 prefix" {
+                "" => Fails,
             }
         );
     }

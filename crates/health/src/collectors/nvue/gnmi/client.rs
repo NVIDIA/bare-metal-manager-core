@@ -63,9 +63,10 @@ pub(super) fn nvue_subscribe_paths(paths_config: &NvueGnmiPaths) -> Vec<Path> {
             ..Default::default()
         });
     }
+
     if paths_config.platform_general_enabled {
-        // `/platform-general/state` carries the memory and disk
-        // utilization leaves
+        // `/platform-general/state` carries memory, disk, and ambient
+        // temperature leaves.
         paths.push(Path {
             elem: vec![
                 PathElem {

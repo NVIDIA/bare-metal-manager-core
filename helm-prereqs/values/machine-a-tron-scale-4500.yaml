@@ -1,8 +1,8 @@
 # =============================================================================
 # machine-a-tron-scale-4500.yaml — 4,500 hosts × 2 DPUs across 3 MAT pods
-# (Controller Mode, dev6). Derived from machine-a-tron-scale.yaml.
+# (Controller Mode). Derived from machine-a-tron-scale.yaml.
 #
-# dev6 ServiceCIDR is 10.233.0.0/18 (16,384 IPs). 4,500 hosts × 3 BMCs =
+# Example: a /18 ServiceCIDR gives 16,384 IPs. 4,500 hosts × 3 BMCs =
 # 13,500 per-BMC ClusterIP Services. Cluster services live in the low range,
 # so each pod gets its own carved segment from the upper space (NICo has a
 # one-IPv4-prefix-per-segment constraint → one segment per pod):
@@ -52,8 +52,14 @@ mat-k8s-controller:
   # published build or the controller ImagePullBackOffs and no BMC Services
   # are ever created (so exploration finds nothing).
   image:
-    repository: nvcr.io/0837451325059433/carbide-dev/mat-k8s-controller
-    tag: "v2.1.0-pr-614-g587165fcf"
+    # Set to your registry's mat-k8s-controller image. The subchart default is a
+    # bare local name with no registry, which ImagePullBackOffs on any real
+    # cluster -- and with no controller there are no per-BMC Services, so
+    # exploration finds nothing and the run reports zeros with no obvious cause.
+    #   MAT_K8S_CONTROLLER_IMAGE=<registry>/mat-k8s-controller
+    #   MAT_K8S_CONTROLLER_TAG=<tag>
+    repository: ""
+    tag: ""
   imagePullSecrets:
     - name: machine-a-tron-pull
   config:

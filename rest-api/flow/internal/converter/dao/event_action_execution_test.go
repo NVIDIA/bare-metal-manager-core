@@ -20,7 +20,7 @@ func TestEventActionExecutionRoundTrip(t *testing.T) {
 		ExecutionIdentity: eventrule.ExecutionIdentity{
 			EventID:        uuid.New(),
 			RuleID:         uuid.New(),
-			ActionID:       "notify",
+			ActionName:     "notify",
 			CorrelationKey: "incident-1",
 		},
 		ID:           uuid.New(),
@@ -84,9 +84,9 @@ func TestEventActionExecutionFrom(t *testing.T) {
 	valid, err := EventActionExecutionTo(&eventrule.Execution{
 		ExecutionState: eventrule.ExecutionState{ExecutionStatusDetails: eventrule.ExecutionStatusDetails{Status: eventrule.ExecutionStatusPending}},
 		ExecutionIdentity: eventrule.ExecutionIdentity{
-			EventID:  uuid.New(),
-			RuleID:   uuid.New(),
-			ActionID: "notify",
+			EventID:    uuid.New(),
+			RuleID:     uuid.New(),
+			ActionName: "notify",
 		},
 		ID:           uuid.New(),
 		Observations: 1, Attempts: 1,
@@ -106,10 +106,10 @@ func TestEventActionExecutionFrom(t *testing.T) {
 			mutate:    func(execution *dbmodel.EventActionExecution) { execution.Status = "unknown" },
 			wantErr:   "unknown execution status",
 		},
-		"missing action id": {
+		"missing action name": {
 			persisted: valid,
-			mutate:    func(execution *dbmodel.EventActionExecution) { execution.ActionID = "" },
-			wantErr:   "event rule action id is empty",
+			mutate:    func(execution *dbmodel.EventActionExecution) { execution.ActionName = "" },
+			wantErr:   "event rule action name is empty",
 		},
 		"deferred without next attempt": {
 			persisted: valid,
