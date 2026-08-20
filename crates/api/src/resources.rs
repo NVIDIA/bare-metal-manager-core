@@ -317,43 +317,37 @@ async fn connect_with_retry(
     const MAX_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(30);
 
     // Runs one attempt, bounded to `remaining` (`None` for a zero
-    // `retry_timeout`, meaning unbounded here). A `remaining` of exactly
-    // zero skips the attempt entirely rather than polling it -- avoids
-    // letting an immediately-ready connection count as succeeding within an
-    // already-exhausted window.
+    // `retry_timeout`, meaning unbounded here).
     async fn try_connect(
         pool_options: &sqlx::pool::PoolOptions<sqlx::Postgres>,
         connect_options: &sqlx::postgres::PgConnectOptions,
         remaining: Option<std::time::Duration>,
     ) -> Result<PgPool, sqlx::Error> {
+        let attempt = pool_options.clone().connect_with(connect_options.clone());
         match remaining {
-            Some(remaining) if remaining.is_zero() => Err(sqlx::Error::PoolTimedOut),
-            Some(remaining) => {
-                let attempt = pool_options.clone().connect_with(connect_options.clone());
-                tokio::time::timeout(remaining, attempt)
-                    .await
-                    .unwrap_or(Err(sqlx::Error::PoolTimedOut))
-            }
-            None => {
-                pool_options
-                    .clone()
-                    .connect_with(connect_options.clone())
-                    .await
-            }
+            Some(remaining) => tokio::time::timeout(remaining, attempt)
+                .await
+                .unwrap_or(Err(sqlx::Error::PoolTimedOut)),
+            None => attempt.await,
         }
     }
 
     let start = std::time::Instant::now();
     let mut retry_delay = INITIAL_RETRY_DELAY;
-    let remaining = |elapsed: std::time::Duration| {
+    let time_remaining = |elapsed: std::time::Duration| {
         (!retry_timeout.is_zero()).then(|| retry_timeout.saturating_sub(elapsed))
     };
 
-    let mut error =
-        match try_connect(&pool_options, &connect_options, remaining(start.elapsed())).await {
-            Ok(pool) => return Ok(pool),
-            Err(error) => error,
-        };
+    let mut error = match try_connect(
+        &pool_options,
+        &connect_options,
+        time_remaining(start.elapsed()),
+    )
+    .await
+    {
+        Ok(pool) => return Ok(pool),
+        Err(error) => error,
+    };
 
     while !retry_timeout.is_zero() && start.elapsed() < retry_timeout {
         let elapsed = start.elapsed();
@@ -366,8 +360,15 @@ async fn connect_with_retry(
         tokio::time::sleep(retry_delay.min(retry_timeout.saturating_sub(elapsed))).await;
         retry_delay = (retry_delay * 2).min(MAX_RETRY_DELAY);
 
-        error = match try_connect(&pool_options, &connect_options, remaining(start.elapsed())).await
-        {
+        // The sleep above may have used up the rest of the window. Only
+        // attempt again if time actually remains -- otherwise stop without
+        // touching `error`, so a window that closes mid-sleep still reports
+        // the real error from the last actual attempt instead of a
+        // synthetic "out of time" one that would obscure it.
+        let Some(remaining) = time_remaining(start.elapsed()).filter(|r| !r.is_zero()) else {
+            break;
+        };
+        error = match try_connect(&pool_options, &connect_options, Some(remaining)).await {
             Ok(pool) => return Ok(pool),
             Err(error) => error,
         };
