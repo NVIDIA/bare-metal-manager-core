@@ -28,7 +28,7 @@ type RackComponent struct {
 	ComponentId *string `json:"componentId,omitempty"`
 	// ID of the rack this component belongs to
 	RackId *string `json:"rackId,omitempty"`
-	// Type of the component (e.g. ComponentTypeCompute, ComponentTypeNVSwitch)
+	// Type of the component (e.g. Compute, NVSwitch, PowerShelf)
 	Type *string `json:"type,omitempty"`
 	// Name of the component
 	Name *string `json:"name,omitempty"`
