@@ -73,6 +73,7 @@ tracing-subscriber = { features = [
 futures = { workspace = true }
 librms = { workspace = true }
 itertools = { workspace = true }
+ipnet = { workspace = true }
 ctor = { workspace = true }
 temp-dir = { workspace = true }
 rand = { workspace = true }

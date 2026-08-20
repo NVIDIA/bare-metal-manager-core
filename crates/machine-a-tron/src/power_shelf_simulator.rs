@@ -305,7 +305,7 @@ impl PowerShelfActor {
             .dhcp_client
             .request_ip(DhcpRequestInfo {
                 mac_address: self.host_info.bmc_mac_address,
-                relay_address: self.config.oob_dhcp_relay_address,
+                relay_address: self.config.bmc_dhcp_relay_address,
                 vendor_class: vendor_class(&machine_info, DhcpRequester::Bmc),
             })
             .await
