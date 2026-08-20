@@ -312,6 +312,7 @@ where
     D: serde::Deserializer<'de>,
 {
     use serde::Deserialize as _;
+    use serde::de::Error;
     let raw = Vec::<MemoryDeviceGroup>::deserialize(deserializer)?;
     let mut merged: Vec<MemoryDeviceGroup> = Vec::new();
     for group in raw.into_iter().filter_map(|g| g.nonzero()) {
@@ -320,6 +321,13 @@ where
                 last.count = last.count.saturating_add(group.count);
             }
             _ => merged.push(group),
+        }
+        let last = merged.last().expect("just inserted or updated an element");
+        if last.count > MAX_MEMORY_DEVICE_GROUP_COUNT {
+            return Err(D::Error::custom(format!(
+                "memory device group count {} exceeds maximum of {MAX_MEMORY_DEVICE_GROUP_COUNT}",
+                last.count
+            )));
         }
     }
     Ok(merged)
@@ -1435,18 +1443,53 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_memory_devices_count_saturates_at_u32_max() {
-        // Two consecutive identical groups whose counts sum past u32::MAX.
-        // The merge must saturate rather than overflow.
+    fn deserialize_memory_devices_rejects_excessive_count() {
+        // A single group's `count` above `MAX_MEMORY_DEVICE_GROUP_COUNT` must be rejected,
+        // otherwise it would let `rehydrate` allocate an unbounded number of `MemoryDevice`s.
         let json = format!(
             r#"{{
                 "machine_type": "x86_64",
                 "memory_devices": [
-                    {{"size_mb": 8192, "mem_type": "DDR4", "count": {}}},
-                    {{"size_mb": 8192, "mem_type": "DDR4", "count": 1}}
+                    {{"size_mb": 8192, "mem_type": "DDR4", "count": {}}}
                 ]
             }}"#,
-            u32::MAX
+            MAX_MEMORY_DEVICE_GROUP_COUNT + 1
+        );
+        assert!(serde_json::from_str::<HardwareInfo>(&json).is_err());
+    }
+
+    #[test]
+    fn deserialize_memory_devices_rejects_merged_count_above_max() {
+        // Two consecutive identical groups, each individually within the max, must be
+        // rejected if their merged total exceeds the max — otherwise the
+        // per-group check at deserialize time could be bypassed by splitting a
+        // large count across multiple consecutive groups.
+        let json = format!(
+            r#"{{
+                "machine_type": "x86_64",
+                "memory_devices": [
+                    {{"size_mb": 8192, "mem_type": "DDR4", "count": {max}}},
+                    {{"size_mb": 8192, "mem_type": "DDR4", "count": {max}}}
+                ]
+            }}"#,
+            max = MAX_MEMORY_DEVICE_GROUP_COUNT
+        );
+        assert!(serde_json::from_str::<HardwareInfo>(&json).is_err());
+    }
+
+    #[test]
+    fn deserialize_memory_devices_merges_consecutive_groups_within_max_count() {
+        // Two consecutive identical groups whose merged total is still under
+        // the max must merge correctly.
+        let half = MAX_MEMORY_DEVICE_GROUP_COUNT / 2;
+        let json = format!(
+            r#"{{
+                "machine_type": "x86_64",
+                "memory_devices": [
+                    {{"size_mb": 8192, "mem_type": "DDR4", "count": {half}}},
+                    {{"size_mb": 8192, "mem_type": "DDR4", "count": {half}}}
+                ]
+            }}"#
         );
         let info: HardwareInfo = serde_json::from_str(&json).unwrap();
         assert_eq!(
@@ -1454,7 +1497,7 @@ mod tests {
             vec![MemoryDeviceGroup {
                 size_mb: Some(8192),
                 mem_type: Some("DDR4".into()),
-                count: u32::MAX,
+                count: half.saturating_add(half),
             }]
         );
     }
