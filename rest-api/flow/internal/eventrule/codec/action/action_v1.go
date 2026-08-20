@@ -1,13 +1,14 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-package policycodec
+package action
 
 import (
 	"encoding/json"
 	"fmt"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/codec"
 	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
 	flowtypes "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 )
@@ -85,7 +86,7 @@ func marshalActionV1(action eventrule.Action) (json.RawMessage, error) {
 
 func unmarshalActionV1(data json.RawMessage) (eventrule.Action, error) {
 	var persisted actionV1
-	if err := decodeStrict(data, &persisted); err != nil {
+	if err := codec.DecodeStrict(data, &persisted); err != nil {
 		return eventrule.Action{}, fmt.Errorf("decode event policy action v1: %w", err)
 	}
 
@@ -163,7 +164,7 @@ func unmarshalActionSpecV1(
 	switch actionType {
 	case eventrule.ActionTypeSubmitTask:
 		var persisted submitTaskSpecV1
-		if err := decodeStrict(data, &persisted); err != nil {
+		if err := codec.DecodeStrict(data, &persisted); err != nil {
 			return nil, fmt.Errorf("decode submit_task action spec v1: %w", err)
 		}
 
@@ -176,7 +177,7 @@ func unmarshalActionSpecV1(
 		}, nil
 	case eventrule.ActionTypeSendAlert:
 		var persisted sendAlertSpecV1
-		if err := decodeStrict(data, &persisted); err != nil {
+		if err := codec.DecodeStrict(data, &persisted); err != nil {
 			return nil, fmt.Errorf("decode send_alert action spec v1: %w", err)
 		}
 
@@ -190,7 +191,7 @@ func unmarshalActionSpecV1(
 		}, nil
 	case eventrule.ActionTypeNoop:
 		var persisted noopSpecV1
-		if err := decodeStrict(data, &persisted); err != nil {
+		if err := codec.DecodeStrict(data, &persisted); err != nil {
 			return nil, fmt.Errorf("decode noop action spec v1: %w", err)
 		}
 

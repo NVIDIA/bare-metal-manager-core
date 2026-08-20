@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-package policycodec
+package policy
 
 import (
 	"encoding/json"
@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/codec"
 )
 
 const dedupeVersionV1 = 1
@@ -31,7 +32,7 @@ func marshalDedupeV1(dedupe eventrule.Dedupe) (json.RawMessage, error) {
 
 func unmarshalDedupeV1(data json.RawMessage) (*eventrule.Dedupe, error) {
 	var persisted dedupeV1
-	if err := decodeStrict(data, &persisted); err != nil {
+	if err := codec.DecodeStrict(data, &persisted); err != nil {
 		return nil, fmt.Errorf("decode event policy dedupe v1: %w", err)
 	}
 	return &eventrule.Dedupe{Window: persisted.Window}, nil

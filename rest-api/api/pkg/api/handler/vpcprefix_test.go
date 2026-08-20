@@ -1785,6 +1785,8 @@ func TestVpcPrefixHandler_Delete(t *testing.T) {
 
 	okBody2, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "test-vpc-prefix-2", VpcID: vpc1.ID.String(), IPBlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
+	okBody3, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "test-vpc-prefix-3", VpcID: vpc1.ID.String(), IPBlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: prefixLen})
+	assert.Nil(t, err)
 
 	okBodyFG, err := json.Marshal(model.APIVpcPrefixCreateRequest{Name: "test-vpc-prefix-full-grant", VpcID: vpc1.ID.String(), IPBlockID: cutil.GetPtr(ipbFG.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
@@ -1793,11 +1795,18 @@ func TestVpcPrefixHandler_Delete(t *testing.T) {
 
 	vpcp2 := testCreateVpcPrefix(t, dbSession, scp, ipamStorage, tnu, tnOrg1, string(okBody2))
 	vpcp2ID := uuid.MustParse(vpcp2.ID)
+	vpcp3 := testCreateVpcPrefix(t, dbSession, scp, ipamStorage, tnu, tnOrg1, string(okBody3))
+	vpcp3ID := uuid.MustParse(vpcp3.ID)
 
 	vpcp1FG := testCreateVpcPrefix(t, dbSession, scp, ipamStorage, tnu, tnOrg1, string(okBodyFG))
 
 	ins1 := common.TestBuildInstance(t, dbSession, "test-instance-1", tn1.ID, ip.ID, site.ID, it1.ID, vpc1.ID, cutil.GetPtr(m1.ID), os1.ID)
-	common.TestBuildInterface(t, dbSession, ins1.ID, nil, &vpcp2ID, true, nil, nil, nil, cutil.GetPtr(cdbm.InterfaceStatusReady), tnu)
+	dualStackInterface := common.TestBuildInterface(t, dbSession, ins1.ID, nil, &vpcp2ID, true, nil, nil, nil, cutil.GetPtr(cdbm.InterfaceStatusReady), tnu)
+	_, err = cdbm.NewInterfaceDAO(dbSession).Update(ctx, nil, cdbm.InterfaceUpdateInput{
+		InterfaceID:          dualStackInterface.ID,
+		SecondaryVpcPrefixID: &vpcp3ID,
+	})
+	require.NoError(t, err)
 
 	// OTEL Spanner configuration
 	tracer, _, ctx := common.TestCommonTraceProviderSetup(t, ctx)
@@ -1892,6 +1901,15 @@ func TestVpcPrefixHandler_Delete(t *testing.T) {
 			reqOrgName:       tnOrg1,
 			user:             tnu,
 			id:               vpcp2.ID,
+			expectedErr:      true,
+			expectedStatus:   http.StatusBadRequest,
+			expectedErrorMsg: cutil.GetPtr("VPC Prefix is being used by one or more Instances and cannot be deleted"),
+		},
+		{
+			name:             "error when VPC Prefix is used as a secondary dual-stack prefix",
+			reqOrgName:       tnOrg1,
+			user:             tnu,
+			id:               vpcp3.ID,
 			expectedErr:      true,
 			expectedStatus:   http.StatusBadRequest,
 			expectedErrorMsg: cutil.GetPtr("VPC Prefix is being used by one or more Instances and cannot be deleted"),

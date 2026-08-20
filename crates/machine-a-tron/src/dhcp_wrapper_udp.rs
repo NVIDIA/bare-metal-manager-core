@@ -20,7 +20,6 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use carbide_uuid::machine::MachineInterfaceId;
 use dhcproto::v4::relay::{RelayAgentInformation, RelayInfo};
 use dhcproto::v4::{
     Decodable, Decoder, DhcpOption, HType, Message, MessageType, Opcode, OptionCode,
@@ -36,7 +35,6 @@ use crate::dhcp_wrapper::{DhcpRelayError, DhcpRelayResult, DhcpRequestInfo, Dhcp
 
 const DHCP_RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
 const DHCP_PACKET_BUFFER_SIZE: usize = 4096;
-const MACHINE_INTERFACE_ID_SUBOPTION: u8 = 70;
 
 #[derive(Clone, Debug)]
 pub struct UdpDhcpClient {
@@ -117,7 +115,6 @@ impl UdpDhcpClient {
         let task = tokio::spawn(receive_responses(
             socket.clone(),
             pending.clone(),
-            server_address,
             advertise_address,
             cancellation.clone(),
         ));
@@ -201,16 +198,13 @@ impl UdpDhcpClient {
             )));
         }
 
-        let interface_id = machine_interface_id(&ack)?;
         tracing::info!(
             mac_address = %request_info.mac_address,
             relay_address = %request_info.relay_address,
             assigned_address = %ack.yiaddr(),
-            %interface_id,
             "DHCP relay request received an address",
         );
         Ok(DhcpResponseInfo {
-            interface_id: Some(interface_id),
             ip_address: ack.yiaddr(),
         })
     }
@@ -299,7 +293,6 @@ impl UdpDhcpClient {
 async fn receive_responses(
     socket: Arc<UdpSocket>,
     pending: PendingResponses,
-    server_address: SocketAddrV4,
     advertise_address: Ipv4Addr,
     cancellation: CancellationToken,
 ) -> std::io::Result<()> {
@@ -329,7 +322,6 @@ async fn receive_responses(
             advertise_address,
             transaction.expected_type,
             source,
-            server_address,
         );
         let terminal_result = match result {
             Ok(()) => Ok(response),
@@ -353,10 +345,11 @@ fn validate_response(
     advertise_address: Ipv4Addr,
     expected_type: MessageType,
     source: SocketAddr,
-    server_address: SocketAddrV4,
 ) -> DhcpRelayResult<()> {
-    if source != SocketAddr::V4(server_address)
-        || response.opcode() != Opcode::BootReply
+    // A DHCP server sends replies to giaddr as a new UDP flow, so neither the
+    // source IP nor source port has to match the configured request destination.
+    // Correlate replies using the DHCP transaction fields instead.
+    if response.opcode() != Opcode::BootReply
         || response.xid() != xid
         || response.chaddr() != mac_address.bytes()
         || response.giaddr() != advertise_address
@@ -368,6 +361,7 @@ fn validate_response(
     let actual_type = response.opts().msg_type().ok_or_else(|| {
         DhcpRelayError::InvalidDhcpPacket("response is missing DHCP message type".to_string())
     })?;
+    server_identifier(response)?;
     if actual_type == MessageType::Nak {
         return Err(DhcpRelayError::NegativeAcknowledgement(xid));
     }
@@ -388,44 +382,6 @@ fn server_identifier(message: &Message) -> DhcpRelayResult<Ipv4Addr> {
     }
 }
 
-fn machine_interface_id(message: &Message) -> DhcpRelayResult<MachineInterfaceId> {
-    let Some(DhcpOption::VendorExtensions(value)) =
-        message.opts().get(OptionCode::VendorExtensions)
-    else {
-        return Err(DhcpRelayError::InvalidDhcpRecord(
-            "ACK is missing Carbide vendor extensions".to_string(),
-        ));
-    };
-    let mut remaining = value.as_slice();
-    while !remaining.is_empty() {
-        let Some((&code, suboption)) = remaining.split_first() else {
-            break;
-        };
-        let Some((&length, suboption)) = suboption.split_first() else {
-            return Err(DhcpRelayError::InvalidDhcpRecord(
-                "ACK has a truncated Carbide vendor suboption".to_string(),
-            ));
-        };
-        let length = usize::from(length);
-        if suboption.len() < length {
-            return Err(DhcpRelayError::InvalidDhcpRecord(
-                "ACK has a truncated Carbide vendor suboption value".to_string(),
-            ));
-        }
-        let (suboption, rest) = suboption.split_at(length);
-        remaining = rest;
-        if code == MACHINE_INTERFACE_ID_SUBOPTION {
-            return std::str::from_utf8(suboption)
-                .map_err(|error| DhcpRelayError::InvalidDhcpRecord(error.to_string()))?
-                .parse()
-                .map_err(|error| DhcpRelayError::InvalidDhcpRecord(format!("{error}")));
-        }
-    }
-    Err(DhcpRelayError::InvalidDhcpRecord(
-        "ACK is missing the machine interface ID suboption".to_string(),
-    ))
-}
-
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
@@ -436,13 +392,14 @@ mod tests {
 
     const ASSIGNED_ADDRESS: Ipv4Addr = Ipv4Addr::new(172, 21, 0, 42);
     const SERVER_IDENTIFIER: Ipv4Addr = Ipv4Addr::new(127, 0, 0, 1);
-    const LEGACY_VENDOR_SUBOPTION: u8 = 6;
-    const LEGACY_VENDOR_VALUE: u32 = 8;
 
     #[derive(Clone, Copy, Debug)]
     enum ResponseVariation {
         Valid,
-        WrongSource,
+        DifferentSourceIp,
+        DifferentSourcePort,
+        MissingServerIdentifier,
+        DifferentServerIdentifier,
         WrongOpcode,
         WrongTransactionId,
         WrongMacAddress,
@@ -467,9 +424,24 @@ mod tests {
                     expect: Yields(()),
                 },
                 Case {
-                    scenario: "wrong source",
-                    input: ResponseVariation::WrongSource,
+                    scenario: "DHCP pod source behind a Kubernetes Service",
+                    input: ResponseVariation::DifferentSourceIp,
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "different source port",
+                    input: ResponseVariation::DifferentSourcePort,
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "missing server identifier",
+                    input: ResponseVariation::MissingServerIdentifier,
                     expect: Fails,
+                },
+                Case {
+                    scenario: "server identifier differs from request destination",
+                    input: ResponseVariation::DifferentServerIdentifier,
+                    expect: Yields(()),
                 },
                 Case {
                     scenario: "wrong opcode",
@@ -517,12 +489,26 @@ mod tests {
                 response
                     .opts_mut()
                     .insert(DhcpOption::MessageType(MessageType::Offer));
+                response
+                    .opts_mut()
+                    .insert(DhcpOption::ServerIdentifier(*server_address.ip()));
                 let mut source = SocketAddr::V4(server_address);
 
                 match variation {
                     ResponseVariation::Valid => {}
-                    ResponseVariation::WrongSource => {
+                    ResponseVariation::DifferentSourceIp => {
+                        source = "127.0.0.2:6767".parse().unwrap();
+                    }
+                    ResponseVariation::DifferentSourcePort => {
                         source = "127.0.0.1:6768".parse().unwrap();
+                    }
+                    ResponseVariation::MissingServerIdentifier => {
+                        response.opts_mut().remove(OptionCode::ServerIdentifier);
+                    }
+                    ResponseVariation::DifferentServerIdentifier => {
+                        response
+                            .opts_mut()
+                            .insert(DhcpOption::ServerIdentifier(Ipv4Addr::new(127, 0, 0, 2)));
                     }
                     ResponseVariation::WrongOpcode => {
                         response.set_opcode(Opcode::BootRequest);
@@ -558,26 +544,10 @@ mod tests {
                     advertise_address,
                     MessageType::Offer,
                     source,
-                    server_address,
                 )
                 .map_err(drop)
             },
         );
-    }
-
-    fn append_vendor_suboption(
-        vendor_extensions: &mut Vec<u8>,
-        code: u8,
-        value: &[u8],
-    ) -> DhcpRelayResult<()> {
-        let length = value.len().try_into().map_err(|_| {
-            DhcpRelayError::InvalidDhcpPacket(format!(
-                "DHCP vendor suboption {code} exceeds 255 bytes"
-            ))
-        })?;
-        vendor_extensions.extend_from_slice(&[code, length]);
-        vendor_extensions.extend_from_slice(value);
-        Ok(())
     }
 
     #[tokio::test]
@@ -635,15 +605,8 @@ mod tests {
         .await
         .unwrap();
         let client_address = client.socket.local_addr().unwrap();
-        let interface_id: MachineInterfaceId =
-            "0fd6e9a3-06fc-4a22-ad29-aca299677b00".parse().unwrap();
-        let server_task = tokio::spawn(run_fake_server(
-            server,
-            client_address,
-            interface_id,
-            2,
-            ASSIGNED_ADDRESS,
-        ));
+        let server_task =
+            tokio::spawn(run_fake_server(server, client_address, 2, ASSIGNED_ADDRESS));
 
         let request = |last_mac_byte| DhcpRequestInfo {
             mac_address: MacAddress::new([2, 0, 0, 0, 0, last_mac_byte]),
@@ -655,7 +618,6 @@ mod tests {
 
         for response in [first.unwrap(), second.unwrap()] {
             assert_eq!(response.ip_address, ASSIGNED_ADDRESS);
-            assert_eq!(response.interface_id, Some(interface_id));
         }
         server_task.await.unwrap();
         service.shutdown().await.unwrap();
@@ -676,12 +638,9 @@ mod tests {
         .await
         .unwrap();
         let client_address = client.socket.local_addr().unwrap();
-        let interface_id: MachineInterfaceId =
-            "0fd6e9a3-06fc-4a22-ad29-aca299677b00".parse().unwrap();
         let server_task = tokio::spawn(run_fake_server(
             server,
             client_address,
-            interface_id,
             1,
             Ipv4Addr::new(172, 21, 0, 43),
         ));
@@ -702,7 +661,6 @@ mod tests {
     async fn run_fake_server(
         server: UdpSocket,
         client_address: SocketAddr,
-        interface_id: MachineInterfaceId,
         exchange_count: usize,
         ack_address: Ipv4Addr,
     ) {
@@ -737,8 +695,7 @@ mod tests {
                 message_type => panic!("unexpected DHCP request: {message_type:?}"),
             };
             if request_type == MessageType::Request {
-                let delayed_offer =
-                    fake_response(&request, MessageType::Offer, interface_id, ASSIGNED_ADDRESS);
+                let delayed_offer = fake_response(&request, MessageType::Offer, ASSIGNED_ADDRESS);
                 let mut encoded = Vec::new();
                 delayed_offer
                     .encode(&mut Encoder::new(&mut encoded))
@@ -750,7 +707,7 @@ mod tests {
             } else {
                 ASSIGNED_ADDRESS
             };
-            let response = fake_response(&request, response_type, interface_id, assigned_address);
+            let response = fake_response(&request, response_type, assigned_address);
             let mut encoded = Vec::new();
             response.encode(&mut Encoder::new(&mut encoded)).unwrap();
             server.send_to(&encoded, client_address).await.unwrap();
@@ -760,7 +717,6 @@ mod tests {
     fn fake_response(
         request: &Message,
         message_type: MessageType,
-        interface_id: MachineInterfaceId,
         assigned_address: Ipv4Addr,
     ) -> Message {
         let mut response = Message::default();
@@ -777,88 +733,6 @@ mod tests {
         response
             .opts_mut()
             .insert(DhcpOption::ServerIdentifier(SERVER_IDENTIFIER));
-        if message_type == MessageType::Ack {
-            let interface_id = interface_id.to_string();
-            let mut vendor_extension = Vec::new();
-            append_vendor_suboption(
-                &mut vendor_extension,
-                LEGACY_VENDOR_SUBOPTION,
-                &LEGACY_VENDOR_VALUE.to_be_bytes(),
-            )
-            .unwrap();
-            append_vendor_suboption(
-                &mut vendor_extension,
-                MACHINE_INTERFACE_ID_SUBOPTION,
-                interface_id.as_bytes(),
-            )
-            .unwrap();
-            response
-                .opts_mut()
-                .insert(DhcpOption::VendorExtensions(vendor_extension));
-        }
         response
-    }
-
-    #[test]
-    fn vendor_extension_is_built_as_suboptions() {
-        let interface_id: MachineInterfaceId =
-            "0fd6e9a3-06fc-4a22-ad29-aca299677b00".parse().unwrap();
-        let response = fake_response(
-            &Message::default(),
-            MessageType::Ack,
-            interface_id,
-            ASSIGNED_ADDRESS,
-        );
-        let Some(DhcpOption::VendorExtensions(value)) =
-            response.opts().get(OptionCode::VendorExtensions)
-        else {
-            panic!("fake ACK is missing vendor extensions");
-        };
-        assert_eq!(value[0], LEGACY_VENDOR_SUBOPTION);
-        assert_eq!(value[1], LEGACY_VENDOR_VALUE.to_be_bytes().len() as u8);
-        assert_eq!(&value[2..6], &LEGACY_VENDOR_VALUE.to_be_bytes());
-        assert_eq!(value[6], MACHINE_INTERFACE_ID_SUBOPTION);
-        assert_eq!(usize::from(value[7]), interface_id.to_string().len());
-        assert_eq!(&value[8..], interface_id.to_string().as_bytes());
-    }
-
-    #[test]
-    fn machine_interface_suboption_does_not_require_a_fixed_prefix() {
-        let interface_id: MachineInterfaceId =
-            "0fd6e9a3-06fc-4a22-ad29-aca299677b00".parse().unwrap();
-        let mut vendor_extensions = Vec::new();
-        append_vendor_suboption(&mut vendor_extensions, 99, &[1, 2]).unwrap();
-        append_vendor_suboption(
-            &mut vendor_extensions,
-            MACHINE_INTERFACE_ID_SUBOPTION,
-            interface_id.to_string().as_bytes(),
-        )
-        .unwrap();
-
-        let mut message = Message::default();
-        message
-            .opts_mut()
-            .insert(DhcpOption::VendorExtensions(vendor_extensions));
-        assert_eq!(machine_interface_id(&message).unwrap(), interface_id);
-    }
-
-    #[test]
-    fn malformed_machine_interface_vendor_extensions_are_rejected() {
-        for vendor_extensions in [
-            vec![LEGACY_VENDOR_SUBOPTION],
-            vec![LEGACY_VENDOR_SUBOPTION, 4, 0],
-            vec![LEGACY_VENDOR_SUBOPTION, 4, 0, 0, 0, 8],
-        ] {
-            let mut message = Message::default();
-            message
-                .opts_mut()
-                .insert(DhcpOption::VendorExtensions(vendor_extensions));
-            assert!(machine_interface_id(&message).is_err());
-        }
-    }
-
-    #[test]
-    fn oversized_vendor_suboption_is_rejected() {
-        assert!(append_vendor_suboption(&mut Vec::new(), 1, &[0; 256]).is_err());
     }
 }

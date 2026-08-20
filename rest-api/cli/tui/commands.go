@@ -754,7 +754,10 @@ func cmdSubnetCreate(s *Session, _ []string) error {
 		return err
 	}
 	prefixLen, err := strconv.Atoi(strings.TrimSpace(prefixLenText))
-	if err != nil || prefixLen < 1 || prefixLen > 32 {
+	if err != nil {
+		return fmt.Errorf("prefix length must be an integer: %w", err)
+	}
+	if prefixLen < 1 || prefixLen > 32 {
 		return fmt.Errorf("prefix length must be between 1 and 32")
 	}
 
@@ -2291,7 +2294,10 @@ func cmdVPCPrefixCreate(s *Session, _ []string) error {
 		return err
 	}
 	prefixLen, err := strconv.Atoi(strings.TrimSpace(prefixLenText))
-	if err != nil || prefixLen < 8 || prefixLen > 31 {
+	if err != nil {
+		return fmt.Errorf("prefix length must be an integer: %w", err)
+	}
+	if prefixLen < 8 || prefixLen > 31 {
 		return fmt.Errorf("prefix length must be between 8 and 31")
 	}
 	ipBlockID, err := promptVPCPrefixIPBlockID(s, context.Background())

@@ -223,6 +223,14 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub site_fabric_prefixes: Vec<IpNetwork>,
 
+    /// Opts this site into tenant prefix overlap admission.
+    ///
+    /// Defaults to `false`. Participating FNN base profiles must separately
+    /// set `tenant_prefix_overlap_eligible`, and configuration alone does not permit
+    /// duplicate prefix persistence while database exclusions remain active.
+    #[serde(default)]
+    pub tenant_prefix_overlap_enabled: bool,
+
     /// Maximum number of tenant-managed SitePrefixes retained for one tenant
     /// at this site. Prefixes awaiting removal still count against this limit
     /// and keep their CIDR reserved.
@@ -2445,6 +2453,15 @@ pub struct FnnRoutingProfileConfig {
     #[serde(default)]
     pub internal: Option<bool>,
 
+    /// Opts VPCs based on this profile into future tenant prefix overlap admission.
+    ///
+    /// This base-profile setting defaults to `false` and cannot be overridden
+    /// by a VPC. Admission support is tracked by
+    /// <https://github.com/NVIDIA/infra-controller/issues/3890>; this value
+    /// alone changes neither routing nor prefix persistence.
+    #[serde(default)]
+    pub tenant_prefix_overlap_eligible: bool,
+
     /// Should DPUs leak the default route from the
     /// underlay into the tenant VRF?
     #[serde(default)]
@@ -2487,6 +2504,47 @@ pub struct FnnRoutingProfileConfig {
     pub access_tier: Option<u32>,
 }
 
+impl FnnRoutingProfileConfig {
+    /// Returns whether this resolved profile satisfies the profile-local overlap policy.
+    ///
+    /// Evaluate the profile returned by [`FnnConfig::resolve_vpc_routing_profile`],
+    /// not the raw base profile, so VPC overrides participate in the decision.
+    /// This check cannot see site-wide route targets, additional FNN imports,
+    /// VPC peering, or retained routing state. Callers must reject those paths
+    /// between overlapping VPCs and separately require the site gate and
+    /// site-wide `vpc_isolation_behavior = "mutual_isolation"`.
+    #[allow(dead_code)] // Staged for https://github.com/NVIDIA/infra-controller/issues/3890.
+    pub(crate) fn is_eligible_for_tenant_prefix_overlap(&self) -> bool {
+        // Keep this exhaustive so new profile fields require an explicit eligibility decision.
+        let Self {
+            tenant_prefix_overlap_eligible,
+            route_target_imports,
+            route_targets_on_exports,
+            // External profiles are outside the initial overlap-admission scope.
+            internal,
+            leak_default_route_from_underlay,
+            leak_tenant_host_routes_to_underlay,
+            tenant_leak_communities_accepted,
+            accepted_leaks_from_underlay,
+            allowed_anycast_prefixes,
+            // Access tiers control profile selection, not rendered routes.
+            access_tier: _,
+        } = self;
+
+        *tenant_prefix_overlap_eligible
+            && *internal == Some(true)
+            && route_target_imports.as_ref().is_none_or(Vec::is_empty)
+            && route_targets_on_exports.as_ref().is_none_or(Vec::is_empty)
+            && !leak_default_route_from_underlay.unwrap_or_default()
+            && !leak_tenant_host_routes_to_underlay.unwrap_or_default()
+            && !tenant_leak_communities_accepted.unwrap_or_default()
+            && accepted_leaks_from_underlay
+                .as_ref()
+                .is_none_or(Vec::is_empty)
+            && allowed_anycast_prefixes.as_ref().is_none_or(Vec::is_empty)
+    }
+}
+
 impl FnnConfig {
     /// Resolves the named routing profile and applies properties set on the VPC.
     pub(crate) fn resolve_vpc_routing_profile(
@@ -2521,8 +2579,6 @@ impl FnnConfig {
                 .route_targets_on_exports
                 .clone()
                 .or_else(|| base_profile.route_targets_on_exports.clone()),
-            // VPCs must inherit the base profile's allocation and access controls.
-            internal: base_profile.internal,
             leak_default_route_from_underlay: overrides
                 .leak_default_route_from_underlay
                 .or(base_profile.leak_default_route_from_underlay),
@@ -2540,6 +2596,9 @@ impl FnnConfig {
                 .allowed_anycast_prefixes
                 .clone()
                 .or_else(|| base_profile.allowed_anycast_prefixes.clone()),
+            // These base-profile properties cannot be overridden on a VPC.
+            tenant_prefix_overlap_eligible: base_profile.tenant_prefix_overlap_eligible,
+            internal: base_profile.internal,
             access_tier: base_profile.access_tier,
         }))
     }
@@ -4321,6 +4380,220 @@ mod tests {
         }
     }
 
+    #[test]
+    fn tenant_prefix_overlap_site_gate_defaults_false_and_parses() {
+        value_scenarios!(
+            run = |patch| Figment::new()
+                .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+                .merge(Toml::string(patch))
+                .extract::<CarbideConfig>()
+                .expect("tenant prefix overlap site setting must parse")
+                .tenant_prefix_overlap_enabled;
+            "site setting" {
+                "" => false,
+                "tenant_prefix_overlap_enabled = false" => false,
+                "tenant_prefix_overlap_enabled = true" => true,
+            }
+        );
+    }
+
+    #[test]
+    fn fnn_overlap_eligibility_opt_in_defaults_false_and_parses() {
+        value_scenarios!(
+            run = |input| toml::from_str::<FnnRoutingProfileConfig>(input)
+                .expect("FNN overlap eligibility setting must parse")
+                .tenant_prefix_overlap_eligible;
+            "base profile setting" {
+                "" => false,
+                "tenant_prefix_overlap_eligible = false" => false,
+                "tenant_prefix_overlap_eligible = true" => true,
+            }
+        );
+    }
+
+    #[test]
+    fn fnn_profile_overlap_eligibility_fails_closed_for_route_policy() {
+        let safe_profile = FnnRoutingProfileConfig {
+            tenant_prefix_overlap_eligible: true,
+            internal: Some(true),
+            ..Default::default()
+        };
+        let explicit_safe_profile = FnnRoutingProfileConfig {
+            tenant_prefix_overlap_eligible: true,
+            route_target_imports: Some(vec![]),
+            route_targets_on_exports: Some(vec![]),
+            internal: Some(true),
+            leak_default_route_from_underlay: Some(false),
+            leak_tenant_host_routes_to_underlay: Some(false),
+            tenant_leak_communities_accepted: Some(false),
+            accepted_leaks_from_underlay: Some(vec![]),
+            allowed_anycast_prefixes: Some(vec![]),
+            access_tier: Some(2),
+        };
+        let route_target = RouteTargetConfig {
+            asn: 64512,
+            vni: 1001,
+        };
+        let prefix_filter = PrefixFilterPolicyEntry {
+            prefix: "192.0.2.0/24".parse().expect("valid test prefix"),
+        };
+
+        check_values(
+            [
+                Check {
+                    scenario: "omitted neutral policy inputs",
+                    input: safe_profile.clone(),
+                    expect: true,
+                },
+                Check {
+                    scenario: "explicit neutral policy inputs",
+                    input: explicit_safe_profile,
+                    expect: true,
+                },
+                Check {
+                    scenario: "profile opt-in disabled",
+                    input: FnnRoutingProfileConfig {
+                        tenant_prefix_overlap_eligible: false,
+                        ..safe_profile.clone()
+                    },
+                    expect: false,
+                },
+                Check {
+                    scenario: "public profile",
+                    input: FnnRoutingProfileConfig {
+                        internal: Some(false),
+                        ..safe_profile.clone()
+                    },
+                    expect: false,
+                },
+                Check {
+                    scenario: "missing internal classification",
+                    input: FnnRoutingProfileConfig {
+                        internal: None,
+                        ..safe_profile.clone()
+                    },
+                    expect: false,
+                },
+                Check {
+                    scenario: "route-target import",
+                    input: FnnRoutingProfileConfig {
+                        route_target_imports: Some(vec![route_target.clone()]),
+                        ..safe_profile.clone()
+                    },
+                    expect: false,
+                },
+                Check {
+                    scenario: "route-target export",
+                    input: FnnRoutingProfileConfig {
+                        route_targets_on_exports: Some(vec![route_target]),
+                        ..safe_profile.clone()
+                    },
+                    expect: false,
+                },
+                Check {
+                    scenario: "default-route leak from underlay",
+                    input: FnnRoutingProfileConfig {
+                        leak_default_route_from_underlay: Some(true),
+                        ..safe_profile.clone()
+                    },
+                    expect: false,
+                },
+                Check {
+                    scenario: "tenant host-route leak to underlay",
+                    input: FnnRoutingProfileConfig {
+                        leak_tenant_host_routes_to_underlay: Some(true),
+                        ..safe_profile.clone()
+                    },
+                    expect: false,
+                },
+                Check {
+                    scenario: "tenant leak communities",
+                    input: FnnRoutingProfileConfig {
+                        tenant_leak_communities_accepted: Some(true),
+                        ..safe_profile.clone()
+                    },
+                    expect: false,
+                },
+                Check {
+                    scenario: "accepted underlay leak",
+                    input: FnnRoutingProfileConfig {
+                        accepted_leaks_from_underlay: Some(vec![prefix_filter.clone()]),
+                        ..safe_profile.clone()
+                    },
+                    expect: false,
+                },
+                Check {
+                    scenario: "allowed anycast prefix",
+                    input: FnnRoutingProfileConfig {
+                        allowed_anycast_prefixes: Some(vec![prefix_filter]),
+                        ..safe_profile.clone()
+                    },
+                    expect: false,
+                },
+                Check {
+                    scenario: "access tier does not alter routes",
+                    input: FnnRoutingProfileConfig {
+                        access_tier: Some(u32::MAX),
+                        ..safe_profile
+                    },
+                    expect: true,
+                },
+            ],
+            |profile| profile.is_eligible_for_tenant_prefix_overlap(),
+        );
+    }
+
+    #[test]
+    fn resolved_profile_overlap_eligibility_includes_vpc_overrides() {
+        let fnn = FnnConfig {
+            admin_vpc: None,
+            common_internal_route_target: None,
+            additional_route_target_imports: vec![],
+            routing_profiles: HashMap::from([(
+                "BASE".to_string(),
+                FnnRoutingProfileConfig {
+                    tenant_prefix_overlap_eligible: true,
+                    internal: Some(true),
+                    ..Default::default()
+                },
+            )]),
+            use_vpc_vrf_loopback: false,
+        };
+        assert!(
+            fnn.routing_profiles["BASE"].is_eligible_for_tenant_prefix_overlap(),
+            "base profile should be eligible before VPC overrides"
+        );
+
+        let vpc = vpc_config(
+            Some("BASE"),
+            Some(VpcRoutingProfileOverrides {
+                leak_default_route_from_underlay: Some(true),
+                ..Default::default()
+            }),
+        );
+        let resolved = fnn
+            .resolve_vpc_routing_profile(&vpc)
+            .expect("base profile must resolve");
+
+        assert!(
+            !resolved.is_eligible_for_tenant_prefix_overlap(),
+            "resolved VPC leak must make the profile ineligible"
+        );
+    }
+
+    #[test]
+    fn vpc_cannot_override_overlap_eligibility() {
+        let error =
+            toml::from_str::<VpcRoutingProfileOverrides>("tenant_prefix_overlap_eligible = true")
+                .expect_err("overlap eligibility must remain a base-profile setting");
+
+        assert!(
+            error
+                .to_string()
+                .contains("unknown field `tenant_prefix_overlap_eligible`")
+        );
+    }
+
     /// Verifies existing routing-profile TOML values deserialize unchanged
     /// after the fields become presence-aware.
     #[test]
@@ -4345,6 +4618,7 @@ mod tests {
         assert_eq!(
             profile,
             FnnRoutingProfileConfig {
+                tenant_prefix_overlap_eligible: false,
                 route_target_imports: Some(vec![RouteTargetConfig {
                     asn: 64512,
                     vni: 10,
@@ -4411,8 +4685,9 @@ mod tests {
         );
     }
 
-    /// Verifies VPC properties override only present fields while `internal`
-    /// and `access_tier` remain owned by the base profile.
+    /// Verifies VPC properties override only present fields while
+    /// `tenant_prefix_overlap_eligible`, `internal`, and `access_tier` remain owned by the
+    /// base profile.
     #[test]
     fn vpc_routing_profile_overrides_are_presence_aware() {
         // Build a complete base and an override containing explicit default values.
@@ -4421,6 +4696,7 @@ mod tests {
             prefix: "192.0.2.0/24".parse().expect("valid test prefix"),
         };
         let base = FnnRoutingProfileConfig {
+            tenant_prefix_overlap_eligible: true,
             route_target_imports: Some(vec![RouteTargetConfig { asn: 3, vni: 4 }]),
             route_targets_on_exports: Some(vec![inherited_export.clone()]),
             internal: Some(true),
@@ -4453,6 +4729,7 @@ mod tests {
         assert_eq!(
             fnn.resolve_vpc_routing_profile(&vpc).unwrap().as_ref(),
             &FnnRoutingProfileConfig {
+                tenant_prefix_overlap_eligible: true,
                 route_target_imports: Some(vec![]),
                 route_targets_on_exports: Some(vec![inherited_export]),
                 internal: Some(true),

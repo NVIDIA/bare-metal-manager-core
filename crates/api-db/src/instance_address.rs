@@ -96,12 +96,39 @@ pub async fn find_by_segment_id(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
-pub async fn delete(txn: &mut PgConnection, instance_id: InstanceId) -> Result<(), DatabaseError> {
-    // Lock MUST be taken by calling function.
-    let query = "DELETE FROM instance_addresses WHERE instance_id=$1 RETURNING id";
-    let _: Vec<(InstanceId,)> = sqlx::query_as(query)
+/// Locks every address row for an instance in stable ID order.
+///
+/// Both deletion paths call this before choosing rows to delete. Full instance
+/// deletion consequently retains the existing address-before-instance order.
+/// Allocation holds an `ACCESS EXCLUSIVE` table lock before inserting, so no
+/// new address row can appear between this prelock and the following delete.
+async fn lock_addresses_for_instance(
+    txn: &mut PgConnection,
+    instance_id: InstanceId,
+) -> Result<(), DatabaseError> {
+    let query = "SELECT id FROM instance_addresses
+        WHERE instance_id=$1
+        ORDER BY id
+        FOR UPDATE";
+    sqlx::query(query)
         .bind(instance_id)
-        .fetch_all(txn)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(())
+}
+
+/// Deletes every address allocated to an instance.
+///
+/// All address rows for the instance are locked in stable ID order before the
+/// delete so this operation can safely overlap partial address cleanup.
+pub async fn delete(txn: &mut PgConnection, instance_id: InstanceId) -> Result<(), DatabaseError> {
+    lock_addresses_for_instance(txn, instance_id).await?;
+
+    let query = "DELETE FROM instance_addresses WHERE instance_id=$1";
+    sqlx::query(query)
+        .bind(instance_id)
+        .execute(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
     Ok(())
@@ -119,6 +146,8 @@ pub async fn delete_addresses_for_instance(
     if addresses.is_empty() {
         return Ok(());
     }
+
+    lock_addresses_for_instance(txn, instance_id).await?;
 
     let segment_ids = addresses
         .iter()
@@ -972,6 +1001,34 @@ mod tests {
             .collect()
     }
 
+    /// Waits until one exact backend is blocked by another, avoiding matches
+    /// from unrelated tests running against the same database.
+    async fn wait_until_blocked_by(
+        pool: &sqlx::PgPool,
+        blocked_pid: i32,
+        blocker_pid: i32,
+    ) -> String {
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let blocked_query: Option<String> = sqlx::query_scalar(
+                    "SELECT query FROM pg_stat_activity
+                     WHERE pid = $1 AND $2 = ANY(pg_blocking_pids(pid))",
+                )
+                .bind(blocked_pid)
+                .bind(blocker_pid)
+                .fetch_optional(pool)
+                .await
+                .unwrap();
+                if let Some(blocked_query) = blocked_query {
+                    return blocked_query;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("address deletion did not wait on the expected row lock")
+    }
+
     /// The unbatched baseline: one INSERT per row, exactly what `allocate`'s
     /// inner loop used to issue. Used only to establish the BEFORE count.
     async fn insert_one_at_a_time(
@@ -1124,10 +1181,138 @@ mod tests {
         txn.rollback().await.unwrap();
     }
 
-    /// Large releases stay in one array-backed statement instead of expanding
-    /// into one bind pair per address.
+    /// Full and partial deletion lock a whole instance's address rows in the
+    /// same order before deciding which rows to delete.
     #[crate::sqlx_test]
-    async fn delete_addresses_for_instance_uses_one_array_query(pool: sqlx::PgPool) {
+    async fn address_deletions_lock_all_rows_in_id_order(pool: sqlx::PgPool) {
+        enum Deletion {
+            Full,
+            Partial,
+        }
+
+        struct Case {
+            name: &'static str,
+            deletion: Deletion,
+            expected_remaining: i64,
+        }
+
+        let cases = [
+            Case {
+                name: "full",
+                deletion: Deletion::Full,
+                expected_remaining: 0,
+            },
+            Case {
+                name: "partial",
+                deletion: Deletion::Partial,
+                expected_remaining: 1,
+            },
+        ];
+
+        for case in cases {
+            let Case {
+                name,
+                deletion,
+                expected_remaining,
+            } = case;
+            let mut setup = pool.begin().await.unwrap();
+            let (instance_id, segment_id, vpc_id) = seed_fk_fixtures(setup.as_mut(), name).await;
+            insert_instance_addresses(
+                setup.as_mut(),
+                &make_rows(instance_id, segment_id, vpc_id, 2),
+            )
+            .await
+            .unwrap();
+            setup.commit().await.unwrap();
+
+            let ordered_rows: Vec<(uuid::Uuid, IpAddr)> = sqlx::query_as(
+                "SELECT id, address FROM instance_addresses
+                 WHERE instance_id = $1 ORDER BY id",
+            )
+            .bind(instance_id)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+            assert_eq!(ordered_rows.len(), 2);
+            let (first_id, _) = ordered_rows[0];
+            let (second_id, second_address) = ordered_rows[1];
+
+            let mut blocker = pool.begin().await.unwrap();
+            let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+                .fetch_one(blocker.as_mut())
+                .await
+                .unwrap();
+            let _: uuid::Uuid =
+                sqlx::query_scalar("SELECT id FROM instance_addresses WHERE id = $1 FOR UPDATE")
+                    .bind(first_id)
+                    .fetch_one(blocker.as_mut())
+                    .await
+                    .unwrap();
+
+            let (pid_tx, pid_rx) = tokio::sync::oneshot::channel();
+            let delete_pool = pool.clone();
+            let deletion_task = tokio::spawn(async move {
+                let mut txn = delete_pool.begin().await.unwrap();
+                let deletion_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+                    .fetch_one(txn.as_mut())
+                    .await
+                    .unwrap();
+                pid_tx.send(deletion_pid).unwrap();
+
+                match deletion {
+                    Deletion::Full => delete(txn.as_mut(), instance_id).await.unwrap(),
+                    Deletion::Partial => delete_addresses_for_instance(
+                        txn.as_mut(),
+                        instance_id,
+                        &[(segment_id, second_address)],
+                    )
+                    .await
+                    .unwrap(),
+                }
+                txn.commit().await.unwrap();
+            });
+            let deletion_pid = pid_rx.await.unwrap();
+            let blocked_query = wait_until_blocked_by(&pool, deletion_pid, blocker_pid).await;
+            assert!(
+                blocked_query.contains("ORDER BY id") && blocked_query.contains("FOR UPDATE"),
+                "{} did not block in its ordered address prelock: {blocked_query}",
+                name,
+            );
+
+            // If deletion had locked the second row before waiting on the
+            // first, this NOWAIT acquisition would fail. Owning both rows in
+            // the blocker also keeps the assertion stable until commit.
+            let _: uuid::Uuid = sqlx::query_scalar(
+                "SELECT id FROM instance_addresses WHERE id = $1 FOR UPDATE NOWAIT",
+            )
+            .bind(second_id)
+            .fetch_one(blocker.as_mut())
+            .await
+            .unwrap_or_else(|error| {
+                panic!("{} locked the second row before the first: {error}", name)
+            });
+
+            blocker.commit().await.unwrap();
+            tokio::time::timeout(std::time::Duration::from_secs(5), deletion_task)
+                .await
+                .unwrap_or_else(|_| panic!("{name} deletion did not resume"))
+                .unwrap();
+
+            let remaining: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM instance_addresses WHERE instance_id = $1",
+            )
+            .bind(instance_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(remaining, expected_remaining, "unexpected {} result", name,);
+        }
+    }
+
+    /// Large releases use one fixed-cost ordered lock query and one
+    /// array-backed delete instead of expanding into one bind pair per address.
+    #[crate::sqlx_test]
+    async fn delete_addresses_for_instance_uses_one_array_delete(pool: sqlx::PgPool) {
         let addresses =
             vec![(NetworkSegmentId::new(), "10.88.0.20".parse().unwrap()); BIND_LIMIT / 2 + 1];
 
@@ -1139,7 +1324,10 @@ mod tests {
         })
         .await;
 
-        assert_eq!(query_count, 1, "the release should use one array query");
+        assert_eq!(
+            query_count, 2,
+            "the release should use one lock query and one array delete"
+        );
     }
 
     /// BEFORE/AFTER measurement of the INSERT statement count.

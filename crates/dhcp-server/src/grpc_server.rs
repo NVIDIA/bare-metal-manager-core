@@ -117,13 +117,14 @@ impl TryFrom<proto::InterfaceInfo> for ModelInterfaceInfo {
 
     fn try_from(i: proto::InterfaceInfo) -> Result<Self, Self::Error> {
         let (address, gateway, prefix) = match (i.address, i.gateway, i.prefix) {
-            (Some(address), Some(gateway), Some(prefix)) => {
+            (Some(address), Some(gateway), Some(prefix)) if !prefix.is_empty() => {
                 (Some(address.parse()?), Some(gateway.parse()?), Some(prefix))
             }
             (None, None, None) => (None, None, None),
             _ => {
                 return Err(DhcpError::InvalidInput(
-                    "IPv4 address, gateway, and prefix must be configured together".to_string(),
+                    "IPv4 address, gateway, and non-empty prefix must be configured together"
+                        .to_string(),
                 ));
             }
         };
@@ -298,7 +299,7 @@ mod tests {
                     Some("192.0.2.0/24".to_string()),
                 )),
             }
-            "IPv6-only configuration" {
+            "all IPv4 fields absent in IPv6-only configuration" {
                 proto::InterfaceInfo {
                     ipv6: Some(proto::InterfaceInfoV6 {
                         address: Some("2001:db8::10".to_string()),
@@ -325,6 +326,32 @@ mod tests {
                 proto::InterfaceInfo {
                     address: Some("192.0.2.10".to_string()),
                     gateway: Some("192.0.2.1".to_string()),
+                    ..Default::default()
+                } => Fails,
+            }
+            "IPv4 address only" {
+                proto::InterfaceInfo {
+                    address: Some("192.0.2.10".to_string()),
+                    ..Default::default()
+                } => Fails,
+            }
+            "IPv4 gateway only" {
+                proto::InterfaceInfo {
+                    gateway: Some("192.0.2.1".to_string()),
+                    ..Default::default()
+                } => Fails,
+            }
+            "IPv4 prefix only" {
+                proto::InterfaceInfo {
+                    prefix: Some("192.0.2.0/24".to_string()),
+                    ..Default::default()
+                } => Fails,
+            }
+            "empty IPv4 prefix" {
+                proto::InterfaceInfo {
+                    address: Some("192.0.2.10".to_string()),
+                    gateway: Some("192.0.2.1".to_string()),
+                    prefix: Some(String::new()),
                     ..Default::default()
                 } => Fails,
             }

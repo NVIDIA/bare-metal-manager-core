@@ -272,6 +272,50 @@ impl GnmiSampleProcessor {
                 current,
                 OPER_STATUS_STATES,
             );
+        } else if leaf_matches(elems, &["fan", "state", "speed"])
+            && let Some(v) = typed_value_to_f64(val)
+        {
+            self.emit_comp("component_fan_speed", comp_name, v, "rpm");
+        } else if leaf_matches(elems, &["power-supply", "state", "output-current"])
+            && let Some(v) = typed_value_to_f64(val)
+        {
+            self.emit_comp(
+                "component_power_supply_output_current",
+                comp_name,
+                v,
+                "amperes",
+            );
+        } else if leaf_matches(elems, &["power-supply", "state", "input-current"])
+            && let Some(v) = typed_value_to_f64(val)
+        {
+            self.emit_comp(
+                "component_power_supply_input_current",
+                comp_name,
+                v,
+                "amperes",
+            );
+        } else if leaf_matches(elems, &["power-supply", "state", "input-voltage"])
+            && let Some(v) = typed_value_to_f64(val)
+        {
+            self.emit_comp(
+                "component_power_supply_input_voltage",
+                comp_name,
+                v,
+                "volts",
+            );
+        } else if leaf_matches(elems, &["power-supply", "state", "output-power"])
+            && let Some(v) = typed_value_to_f64(val)
+        {
+            self.emit_comp("component_power_supply_output_power", comp_name, v, "watts");
+        } else if leaf_matches(elems, &["power-supply", "state", "output-voltage"])
+            && let Some(v) = typed_value_to_f64(val)
+        {
+            self.emit_comp(
+                "component_power_supply_output_voltage",
+                comp_name,
+                v,
+                "volts",
+            );
         } else if leaf_matches(elems, &["asic", "state", "asic-temp"])
             && let Some(v) = typed_value_to_f64(val)
         {
@@ -322,20 +366,22 @@ impl GnmiSampleProcessor {
             return;
         }
 
-        let metric_type = if leaf_matches(elems, &["state", "memory-used"]) {
-            "platform_memory_used"
+        let (metric_type, unit) = if leaf_matches(elems, &["state", "memory-used"]) {
+            ("platform_memory_used", "bytes")
         } else if leaf_matches(elems, &["state", "memory-total-size"]) {
-            "platform_memory_total"
+            ("platform_memory_total", "bytes")
         } else if leaf_matches(elems, &["state", "disk-total-size"]) {
-            "platform_disk_total"
+            ("platform_disk_total", "bytes")
         } else if leaf_matches(elems, &["state", "disk-used"]) {
-            "platform_disk_used"
+            ("platform_disk_used", "bytes")
+        } else if leaf_matches(elems, &["state", "ambient-temperature"]) {
+            ("platform_ambient_temperature", "celsius")
         } else {
             return;
         };
 
         match typed_value_to_f64(val) {
-            Some(v) => self.emit_switch(metric_type, v, "bytes"),
+            Some(v) => self.emit_switch(metric_type, v, unit),
             None => debug_unmapped_value(elems, val, metric_type),
         }
     }
@@ -2303,26 +2349,90 @@ mod tests {
     }
 
     #[test]
-    fn test_component_explicit_leaf_mappings() {
-        // ASIC-TEMP-CURRENT (row 875)
-        let asic = run_component_leaf(
-            "ASIC1",
-            &["asic", "state", "asic-temp"],
-            make_typed_value_uint(46),
-        );
-        assert_eq!(asic.metric_type, "component_asic_temperature_celsius");
-        assert_eq!(asic.unit, "celsius");
-        assert_eq!(asic.value, 46.0);
+    fn component_numeric_leaves_emit_expected_metrics() {
+        struct Case {
+            component_name: &'static str,
+            tail: &'static [&'static str],
+            raw: u64,
+            metric_type: &'static str,
+            unit: &'static str,
+        }
 
-        // CPU-UTIL (row 885)
-        let cpu = run_component_leaf(
-            "cpu",
-            &["cpu", "utilization", "state", "avg"],
-            make_typed_value_uint(24),
-        );
-        assert_eq!(cpu.metric_type, "component_cpu_utilization");
-        assert_eq!(cpu.unit, "percent");
-        assert_eq!(cpu.value, 24.0);
+        let cases = [
+            Case {
+                component_name: "ASIC1",
+                tail: &["asic", "state", "asic-temp"],
+                raw: 46,
+                metric_type: "component_asic_temperature_celsius",
+                unit: "celsius",
+            },
+            Case {
+                component_name: "cpu",
+                tail: &["cpu", "utilization", "state", "avg"],
+                raw: 24,
+                metric_type: "component_cpu_utilization",
+                unit: "percent",
+            },
+            Case {
+                component_name: "FAN1/1",
+                tail: &["fan", "state", "speed"],
+                raw: 12_000,
+                metric_type: "component_fan_speed",
+                unit: "rpm",
+            },
+            Case {
+                component_name: "PSU1",
+                tail: &["power-supply", "state", "output-current"],
+                raw: 8,
+                metric_type: "component_power_supply_output_current",
+                unit: "amperes",
+            },
+            Case {
+                component_name: "PSU1",
+                tail: &["power-supply", "state", "input-current"],
+                raw: 6,
+                metric_type: "component_power_supply_input_current",
+                unit: "amperes",
+            },
+            Case {
+                component_name: "PSU1",
+                tail: &["power-supply", "state", "input-voltage"],
+                raw: 230,
+                metric_type: "component_power_supply_input_voltage",
+                unit: "volts",
+            },
+            Case {
+                component_name: "PSU1",
+                tail: &["power-supply", "state", "output-power"],
+                raw: 1_200,
+                metric_type: "component_power_supply_output_power",
+                unit: "watts",
+            },
+            Case {
+                component_name: "PSU1",
+                tail: &["power-supply", "state", "output-voltage"],
+                raw: 48,
+                metric_type: "component_power_supply_output_voltage",
+                unit: "volts",
+            },
+        ];
+
+        for case in cases {
+            let sample = run_component_leaf(
+                case.component_name,
+                case.tail,
+                make_typed_value_uint(case.raw),
+            );
+
+            assert_eq!(
+                sample.key,
+                format!("{}:{}", case.metric_type, case.component_name)
+            );
+
+            assert_eq!(sample.metric_type, case.metric_type);
+            assert_eq!(sample.unit, case.unit);
+            assert_eq!(sample.value, case.raw as f64);
+        }
     }
 
     #[test]
@@ -2661,35 +2771,46 @@ mod tests {
     }
 
     #[test]
-    fn test_platform_general_numeric_leaf_mappings() {
-        // (leaf tail, raw bytes value, expected metric_type, expected value)
-        // values are the authoritative live GB200 Stage-0 capture.
-        let cases: &[(&[&str], u64, &str)] = &[
+    fn platform_general_numeric_leaves_emit_expected_metrics() {
+        let cases: &[(&[&str], u64, &str, &str)] = &[
             (
                 &["state", "memory-used"],
                 3_856_510_976,
                 "platform_memory_used",
+                "bytes",
             ),
             (
                 &["state", "memory-total-size"],
                 16_151_990_272,
                 "platform_memory_total",
+                "bytes",
             ),
             (
                 &["state", "disk-total-size"],
                 77_780_082_688,
                 "platform_disk_total",
+                "bytes",
             ),
             (
                 &["state", "disk-used"],
                 22_848_192_512,
                 "platform_disk_used",
+                "bytes",
+            ),
+            (
+                &["state", "ambient-temperature"],
+                27,
+                "platform_ambient_temperature",
+                "celsius",
             ),
         ];
-        for (tail, raw, metric_type) in cases {
+
+        for (tail, raw, metric_type, unit) in cases {
             let sample = run_platform_general_leaf(tail, make_typed_value_uint(*raw));
+
+            assert_eq!(sample.key, *metric_type, "leaf {tail:?}");
             assert_eq!(sample.metric_type, *metric_type, "leaf {tail:?}");
-            assert_eq!(sample.unit, "bytes", "leaf {tail:?} unit must be bytes");
+            assert_eq!(sample.unit, *unit, "leaf {tail:?}");
             assert_eq!(sample.value, *raw as f64, "leaf {tail:?} value");
         }
     }
