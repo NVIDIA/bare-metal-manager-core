@@ -4984,37 +4984,38 @@ mod tests {
             ended_at: Some(requested_at + chrono::Duration::seconds(2)),
         };
 
-        let stale = select_persisted_switch_firmware_status(
-            switch_id,
-            Some(&stale_status),
-            Some(requested_at),
-        )
-        .expect("a pending request reports queued");
-        let missing = select_persisted_switch_firmware_status(switch_id, None, Some(requested_at))
-            .expect("a pending request without status reports queued");
-        let current = select_persisted_switch_firmware_status(
-            switch_id,
-            Some(&current_status),
-            Some(requested_at),
-        )
-        .expect("a current persisted status is reported");
-        let historical =
-            select_persisted_switch_firmware_status(switch_id, Some(&stale_status), None)
-                .expect("the last persisted result is reported without an active request");
+        let cases = [
+            (
+                Some(&stale_status),
+                Some(requested_at),
+                rpc::FirmwareUpdateState::FwStateQueued,
+            ),
+            (
+                None,
+                Some(requested_at),
+                rpc::FirmwareUpdateState::FwStateQueued,
+            ),
+            (
+                Some(&current_status),
+                Some(requested_at),
+                rpc::FirmwareUpdateState::FwStateCompleted,
+            ),
+            (
+                Some(&stale_status),
+                None,
+                rpc::FirmwareUpdateState::FwStateFailed,
+            ),
+        ];
 
-        assert_eq!(stale.state, rpc::FirmwareUpdateState::FwStateQueued as i32);
-        assert_eq!(
-            missing.state,
-            rpc::FirmwareUpdateState::FwStateQueued as i32
-        );
-        assert_eq!(
-            current.state,
-            rpc::FirmwareUpdateState::FwStateCompleted as i32
-        );
-        assert_eq!(
-            historical.state,
-            rpc::FirmwareUpdateState::FwStateFailed as i32
-        );
+        for (persisted, requested_at, expected) in cases {
+            let actual = select_persisted_switch_firmware_status(switch_id, persisted, requested_at)
+                .expect("a request or a persisted status yields a status");
+            assert_eq!(
+                actual.state, expected as i32,
+                "persisted: {persisted:?}, requested_at: {requested_at:?}"
+            );
+        }
+
         assert!(
             select_persisted_switch_firmware_status(switch_id, None, None).is_none(),
             "the backend is required when neither request nor persisted status exists"
