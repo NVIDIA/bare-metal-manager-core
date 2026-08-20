@@ -1601,6 +1601,20 @@ pub struct DpfConfig {
     /// keep their hold either way.
     #[serde(default = "default_to_true")]
     pub dpu_service_sync_enabled: bool,
+    /// Whether a BlueFieldSoftware change on a DPU's owning DPUDeployment
+    /// counts as drift that needs reprovisioning.
+    ///
+    /// Off by default. While it is off, a BlueFieldSoftware-provisioned
+    /// deployment is judged on its `DPUFlavor` alone when carbide scans for
+    /// DPUs to reprovision, so publishing a new BlueFieldSoftware does not by
+    /// itself queue the fleet. BFB-provisioned deployments are unaffected.
+    ///
+    /// This governs the reprovision scan only. Deciding whether a DPUService
+    /// rollout may reach a DPU always considers BlueFieldSoftware, whatever
+    /// this is set to, because new services must never land on a DPU whose OS
+    /// is about to be replaced.
+    #[serde(default)]
+    pub bluefield_software_reprovision_enabled: bool,
     /// Optional override for the Kubernetes `imagePullSecrets` entry used to pull the
     /// docker images of the mandatory services. When set, it is applied to every
     /// mandatory service except `dts` and `doca_hbn`, which take a pull secret only
@@ -1631,6 +1645,7 @@ impl Default for DpfConfig {
             deployment_scoped_service_interfaces: false,
             pf_total_sf_reserved: default_dpf_pf_total_sf_reserved(),
             dpu_service_sync_enabled: default_to_true(),
+            bluefield_software_reprovision_enabled: false,
             docker_image_pull_secret: None,
             dpu_agent_bootstrap_ca: DpfDpuAgentBootstrapCa::default(),
             services: Box::default(),

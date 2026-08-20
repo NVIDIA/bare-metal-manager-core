@@ -2222,9 +2222,17 @@ impl<R: DpuDeploymentRepository + DpuRepository, L> DpfSdk<R, L> {
     ///
     /// `dpu_label_selector` is forwarded to `DpuRepository::list` — pass the
     /// caller's controlled-device selector to limit the scan to its own DPUs.
+    ///
+    /// `consider_blue_field_software` gates the BlueFieldSoftware half of the
+    /// comparison. When false, a deployment that provisions from
+    /// BlueFieldSoftware is judged on its flavor alone, so a BlueFieldSoftware
+    /// change does not queue a reprovision. It does not affect BFB-provisioned
+    /// deployments, and it is deliberately not plumbed into
+    /// [`Self::is_dpu_outdated`], which must keep seeing that drift.
     pub async fn find_outdated_dpus_dpf(
         &self,
         dpu_label_selector: Option<&str>,
+        consider_blue_field_software: bool,
     ) -> Result<Vec<DpuMismatch>, DpfError> {
         let deployments = DpuDeploymentRepository::list(&*self.repo, &self.namespace).await?;
         let ready_deployments: HashMap<String, &DPUDeployment> = deployments
@@ -2272,7 +2280,12 @@ impl<R: DpuDeploymentRepository + DpuRepository, L> DpfSdk<R, L> {
                     return None;
                 };
 
-                dpu_mismatch(&self.namespace, &dpu, deployment)
+                dpu_mismatch(
+                    &self.namespace,
+                    &dpu,
+                    deployment,
+                    consider_blue_field_software,
+                )
             })
             .collect();
 
@@ -2290,8 +2303,13 @@ impl<R: DpuDeploymentRepository + DpuRepository, L> DpfSdk<R, L> {
 /// Split out of [`DpfSdk::find_outdated_dpus_dpf`] so the comparison can be
 /// exercised directly, without standing up repository mocks for a namespace
 /// scan.
-fn dpu_mismatch(namespace: &str, dpu: &DPU, deployment: &DPUDeployment) -> Option<DpuMismatch> {
-    match dpu_comparison(namespace, dpu, deployment) {
+fn dpu_mismatch(
+    namespace: &str,
+    dpu: &DPU,
+    deployment: &DPUDeployment,
+    consider_blue_field_software: bool,
+) -> Option<DpuMismatch> {
+    match dpu_comparison(namespace, dpu, deployment, consider_blue_field_software) {
         DpuComparison::Mismatch(mismatch) => Some(mismatch),
         DpuComparison::Match | DpuComparison::Inconclusive => None,
     }
@@ -2313,7 +2331,12 @@ enum DpuComparison {
     Inconclusive,
 }
 
-fn dpu_comparison(namespace: &str, dpu: &DPU, deployment: &DPUDeployment) -> DpuComparison {
+fn dpu_comparison(
+    namespace: &str,
+    dpu: &DPU,
+    deployment: &DPUDeployment,
+    consider_blue_field_software: bool,
+) -> DpuComparison {
     let Some(cr_name) = dpu.metadata.name.clone() else {
         return DpuComparison::Inconclusive;
     };
@@ -2341,8 +2364,14 @@ fn dpu_comparison(namespace: &str, dpu: &DPU, deployment: &DPUDeployment) -> Dpu
             let matches = current_basename == Some(expected_filename.as_str());
             (matches, expected_filename)
         }
+        // Callers that only want to know whether a reprovision is pending can
+        // opt out of this arm, leaving the flavor as the sole signal for a
+        // BlueFieldSoftware-provisioned deployment. Reporting the source as
+        // matching (rather than skipping the DPU) keeps a flavor change able to
+        // flag drift, which is the behavior that predates this comparison.
         (None, Some(expected_software)) => {
-            let matches = dpu.spec.blue_field_software.as_deref() == Some(expected_software);
+            let matches = !consider_blue_field_software
+                || dpu.spec.blue_field_software.as_deref() == Some(expected_software);
             (matches, expected_software.to_string())
         }
         // Neither or both set violates the DPU CRD's
@@ -2723,7 +2752,11 @@ impl<R: DpuRepository + DpuDeploymentRepository + DpuServiceTemplateRepository, 
             return Ok(true);
         }
 
-        match dpu_comparison(&self.namespace, &dpu, &deployment) {
+        // Always true: a service update must never land on a DPU whose OS is
+        // about to be replaced, and that includes a pending BlueFieldSoftware
+        // change. The site switch that can suppress this comparison for the
+        // reprovision scan deliberately does not reach here.
+        match dpu_comparison(&self.namespace, &dpu, &deployment, true) {
             DpuComparison::Match => Ok(false),
             DpuComparison::Mismatch(mismatch) => {
                 tracing::info!(
@@ -5345,7 +5378,7 @@ mod tests {
             Some("/bfb/test-namespace-bf-bundle-abc.bfb"),
         );
 
-        assert!(dpu_mismatch(TEST_NAMESPACE, &dpu, &deployment).is_none());
+        assert!(dpu_mismatch(TEST_NAMESPACE, &dpu, &deployment, true).is_none());
     }
 
     #[test]
@@ -5361,7 +5394,7 @@ mod tests {
             Some("/bfb/test-namespace-bf-bundle-old.bfb"),
         );
 
-        let mismatch = dpu_mismatch(TEST_NAMESPACE, &dpu, &deployment).expect("outdated");
+        let mismatch = dpu_mismatch(TEST_NAMESPACE, &dpu, &deployment, true).expect("outdated");
         assert_eq!(mismatch.target_source, "test-namespace-bf-bundle-new.bfb");
     }
 
@@ -5373,7 +5406,7 @@ mod tests {
         );
         let dpu = dpu_with(None, Some("bf-software-abc"), TEST_FLAVOR, None);
 
-        assert!(dpu_mismatch(TEST_NAMESPACE, &dpu, &deployment).is_none());
+        assert!(dpu_mismatch(TEST_NAMESPACE, &dpu, &deployment, true).is_none());
     }
 
     /// A BlueFieldSoftware change used to be invisible: with no BFB to compare,
@@ -5387,7 +5420,7 @@ mod tests {
         );
         let dpu = dpu_with(None, Some("bf-software-old"), TEST_FLAVOR, None);
 
-        let mismatch = dpu_mismatch(TEST_NAMESPACE, &dpu, &deployment).expect("outdated");
+        let mismatch = dpu_mismatch(TEST_NAMESPACE, &dpu, &deployment, true).expect("outdated");
         assert_eq!(mismatch.target_source, "bf-software-new");
     }
 
@@ -5399,8 +5432,58 @@ mod tests {
         );
         let dpu = dpu_with(None, Some("bf-software-abc"), TEST_FLAVOR, None);
 
-        let mismatch = dpu_mismatch(TEST_NAMESPACE, &dpu, &deployment).expect("outdated");
+        let mismatch = dpu_mismatch(TEST_NAMESPACE, &dpu, &deployment, true).expect("outdated");
         assert_eq!(mismatch.target_source, "bf-software-abc");
+    }
+
+    /// With the site switch off, a BlueFieldSoftware change is not drift the
+    /// reprovision scan acts on. This is the pre-existing behavior the switch
+    /// restores, and the reason it defaults to off.
+    #[test]
+    fn blue_field_software_change_is_ignored_when_not_considered() {
+        let deployment = deployment_with(
+            DpuProvisioningSource::BlueFieldSoftware("bf-software-new".to_string()),
+            TEST_FLAVOR,
+        );
+        let dpu = dpu_with(None, Some("bf-software-old"), TEST_FLAVOR, None);
+
+        assert!(dpu_mismatch(TEST_NAMESPACE, &dpu, &deployment, false).is_none());
+    }
+
+    /// Suppressing the BlueFieldSoftware comparison must not suppress the
+    /// flavor one alongside it, or a BF4 deployment would become unreprovisionable.
+    #[test]
+    fn flavor_change_still_marks_dpu_outdated_when_software_not_considered() {
+        let deployment = deployment_with(
+            DpuProvisioningSource::BlueFieldSoftware("bf-software-abc".to_string()),
+            "new-flavor",
+        );
+        let dpu = dpu_with(None, Some("bf-software-abc"), TEST_FLAVOR, None);
+
+        let mismatch = dpu_mismatch(TEST_NAMESPACE, &dpu, &deployment, false).expect("outdated");
+        assert_eq!(mismatch.target_source, "bf-software-abc");
+    }
+
+    /// The switch is scoped to BlueFieldSoftware. A BFB-provisioned deployment
+    /// is compared identically either way.
+    #[test]
+    fn bfb_comparison_is_unaffected_by_the_software_switch() {
+        let deployment = deployment_with(
+            DpuProvisioningSource::Bfb("bf-bundle-new".to_string()),
+            TEST_FLAVOR,
+        );
+        let dpu = dpu_with(
+            Some("bf-bundle-old"),
+            None,
+            TEST_FLAVOR,
+            Some("/bfb/test-namespace-bf-bundle-old.bfb"),
+        );
+
+        for considered in [true, false] {
+            let mismatch =
+                dpu_mismatch(TEST_NAMESPACE, &dpu, &deployment, considered).expect("outdated");
+            assert_eq!(mismatch.target_source, "test-namespace-bf-bundle-new.bfb");
+        }
     }
 
     /// The DPU CRD requires exactly one provisioning source. A deployment that
@@ -5414,11 +5497,11 @@ mod tests {
             TEST_FLAVOR,
         );
         both.spec.dpus.blue_field_software = Some("bf-software-abc".to_string());
-        assert!(dpu_mismatch(TEST_NAMESPACE, &dpu, &both).is_none());
+        assert!(dpu_mismatch(TEST_NAMESPACE, &dpu, &both, true).is_none());
 
         let mut neither = both;
         neither.spec.dpus.bfb = None;
         neither.spec.dpus.blue_field_software = None;
-        assert!(dpu_mismatch(TEST_NAMESPACE, &dpu, &neither).is_none());
+        assert!(dpu_mismatch(TEST_NAMESPACE, &dpu, &neither, true).is_none());
     }
 }

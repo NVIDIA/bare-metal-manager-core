@@ -253,6 +253,12 @@ async fn is_outdated(mock: OutdatedDpuMock) -> Result<bool, DpfError> {
 /// either a BFB or a BlueFieldSoftware CR, and the two are compared differently:
 /// a BFB against the image actually installed, BlueFieldSoftware against the CR
 /// name the DPU was created with.
+///
+/// The BlueFieldSoftware cases are load-bearing beyond the comparison itself.
+/// `dpf.bluefield_software_reprovision_enabled` can suppress that comparison for
+/// the reprovision scan, but must never reach this path: a DPUService rollout
+/// has to keep seeing a pending BlueFieldSoftware change. Plumbing that switch
+/// in here would turn the drifted case below red, which is the point.
 #[tokio::test]
 async fn a_dpu_is_current_only_while_it_matches_its_declared_provisioning_source() {
     let cases: [(&str, DPU, DPUDeployment, bool); 4] = [

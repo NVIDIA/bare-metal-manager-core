@@ -808,6 +808,7 @@ async fn initialize_dpf_sdk(
         Arc::new(sdk),
         db_pool,
         join_set,
+        carbide_config.dpf.bluefield_software_reprovision_enabled,
     )?)))
 }
 

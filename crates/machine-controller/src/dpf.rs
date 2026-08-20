@@ -388,6 +388,10 @@ impl BmcPasswordProvider for CarbideBmcPasswordProvider {
 /// DPF SDK operations implementation that wraps the real DPF SDK.
 pub struct DpfSdkOps {
     sdk: Arc<DpfSdk<KubeRepository, CarbideDPFLabeler>>,
+    /// Site switch for the BlueFieldSoftware half of the reprovision scan.
+    /// Applies to [`DpfOperations::find_outdated_dpus_dpf`] only; the
+    /// service-sync check reads BlueFieldSoftware whatever this says.
+    bluefield_software_reprovision_enabled: bool,
     _watcher: DpuWatcher,
 }
 
@@ -397,6 +401,7 @@ impl DpfSdkOps {
         sdk: Arc<DpfSdk<KubeRepository, CarbideDPFLabeler>>,
         db_pool: PgPool,
         join_set: &mut JoinSet<()>,
+        bluefield_software_reprovision_enabled: bool,
     ) -> std::io::Result<Self> {
         let watcher = sdk
             .watcher()
@@ -480,6 +485,7 @@ impl DpfSdkOps {
 
         Ok(Self {
             sdk,
+            bluefield_software_reprovision_enabled,
             _watcher: watcher,
         })
     }
@@ -713,7 +719,10 @@ impl DpfOperations for DpfSdkOps {
         let label_selector = format!("{CONTROLLED_DEVICE_LABEL}=true");
         let mismatches = self
             .sdk
-            .find_outdated_dpus_dpf(Some(label_selector.as_str()))
+            .find_outdated_dpus_dpf(
+                Some(label_selector.as_str()),
+                self.bluefield_software_reprovision_enabled,
+            )
             .await?;
 
         let mut out = Vec::with_capacity(mismatches.len());
