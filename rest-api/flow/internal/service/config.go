@@ -15,6 +15,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/certs"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/clients/temporal"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/secret"
 	cmconfig "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/config"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providerapi"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor"
@@ -68,6 +69,7 @@ type Config struct {
 	FlowConfig       config.Config
 	CMConfig         cmconfig.Config
 	ProviderRegistry *providerapi.ProviderRegistry
+	DataCipher       *secret.Cipher
 
 	// DevMode enables developer options such as gRPC reflection and debug
 	// logging. Must not be set in staging/production environments.
@@ -88,9 +90,10 @@ type Config struct {
 //
 //  1. Unknown or unset FLOW_ENV — always rejected regardless of other settings.
 //  2. DevMode in a non-development environment — staging and production block it.
-//  3. Partial CertConfig — all three cert paths must be set together or not at all.
-//  4. Missing TLS in staging or production — those environments require mTLS.
-//  5. Secure gRPC without a valid service-identity allowlist.
+//  3. Missing data-encryption cipher.
+//  4. Partial CertConfig — all three cert paths must be set together or not at all.
+//  5. Missing TLS in staging or production — those environments require mTLS.
+//  6. Secure gRPC without a valid service-identity allowlist.
 func (c Config) Validate() error {
 	envStr, err := GetDeploymentEnv()
 	if err != nil {
@@ -99,12 +102,15 @@ func (c Config) Validate() error {
 
 	env := deploymentEnv(envStr)
 
-	// Rule 1: dev-mode is only allowed in development.
+	// Dev-mode is only allowed in development.
 	if c.DevMode && env != envDevelopment {
 		return fmt.Errorf("--dev-mode is not allowed in %q environment", env)
 	}
+	if c.DataCipher == nil {
+		return errors.New("data encryption cipher is required")
+	}
 
-	// Rule 2: reject partial CertConfig before reaching IsTLSAvailable. A
+	// Reject partial CertConfig before reaching IsTLSAvailable. A
 	// partial config would cause IsSet() to return false, letting the CERTDIR /
 	// SPIFFE fallback satisfy the TLS check even though those certs would never
 	// be used by the server (it would attempt to load the incomplete paths).

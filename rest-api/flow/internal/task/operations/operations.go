@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/secret"
 	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
 )
 
@@ -240,6 +241,11 @@ type FirmwareControlTaskInfo struct {
 	// maintenance windows and recorded as a warning log on the worker
 	// that executes the task; authorisation lives upstream.
 	OverrideReadinessCheck bool `json:"override_readiness_check,omitempty"`
+	// AuthenticationData remains encrypted while this payload is persisted in
+	// Flow or carried by Temporal. The final FirmwareControl activity decrypts
+	// it and sets AccessToken only on its in-memory copy.
+	AuthenticationData *secret.EncryptedData `json:"authentication_data,omitempty"`
+	AccessToken        string                `json:"-"`
 }
 
 func (t *FirmwareControlTaskInfo) Validate() error {

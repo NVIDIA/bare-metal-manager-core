@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/firmwareauth"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/common"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/task"
@@ -117,6 +118,15 @@ func (a *Activities) FirmwareControl(
 	info operations.FirmwareControlTaskInfo,
 ) error {
 	controller, err := requireFirmwareController(a.registry, target)
+	if err != nil {
+		return err
+	}
+
+	info.AccessToken, err = firmwareauth.DecryptFor(
+		a.dataCipher,
+		info.AuthenticationData,
+		target.Type,
+	)
 	if err != nil {
 		return err
 	}

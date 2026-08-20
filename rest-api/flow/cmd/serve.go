@@ -21,6 +21,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/authz"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/config"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/secret"
 	svc "github.com/NVIDIA/infra-controller/rest-api/flow/internal/service"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager"
 	cmbuiltin "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/builtin"
@@ -217,6 +218,11 @@ func doServe() {
 		log.Fatal().Msgf("failed to retrieve Temporal conn information: %v", err)
 	}
 
+	dataCipher, err := loadDataCipherFromEnv()
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to load Flow data encryption key")
+	}
+
 	ctx := context.Background()
 
 	// Load component manager configuration
@@ -270,6 +276,7 @@ func doServe() {
 			temporalmanager.WorkflowQueue: {},
 		},
 		ComponentManagerRegistry: cmRegistry,
+		DataCipher:               dataCipher,
 	}
 
 	if os.Getenv("REPORT_NICO_API_VERSION") != "" {
@@ -311,6 +318,7 @@ func doServe() {
 			FlowConfig:       flowConfig,
 			CMConfig:         cmConfig,
 			ProviderRegistry: providerRegistry,
+			DataCipher:       dataCipher,
 			DevMode:          devMode,
 			Authorization:    authorization,
 			CertConfig: pkgcerts.Config{
@@ -327,7 +335,7 @@ func doServe() {
 
 	log.Info().Msg("New Flow service is created\n")
 	log.Info().Msgf("DB config: %+v", dbConf)
-	log.Info().Msgf("Temporal config: %+v", temporalManagerConf)
+	log.Info().Msgf("Temporal config: %+v", temporalManagerConf.ClientConf)
 
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
@@ -339,6 +347,15 @@ func doServe() {
 	if err := service.Start(ctx); err != nil {
 		log.Fatal().Msgf("failed to start the service: %v\n", err)
 	}
+}
+
+func loadDataCipherFromEnv() (*secret.Cipher, error) {
+	path := strings.TrimSpace(os.Getenv(secret.EncryptionKeyPathEnvVar))
+	if path == "" {
+		return nil, fmt.Errorf("%s is not set", secret.EncryptionKeyPathEnvVar)
+	}
+
+	return secret.NewCipherFromFile(path)
 }
 
 func loadAuthorizationConfig() (authz.Config, error) {
