@@ -1582,7 +1582,7 @@ func TestBuildIPBlockSelectItems_MapsBlocksAndAppendsManualSentinel(t *testing.T
 		{Name: "block-b", ID: "id-b", Status: "ready", Extra: map[string]string{"tenantId": "tenant-a"}},
 	}
 
-	items := buildIPBlockSelectItems(blocks)
+	items := buildIPBlockSelectItems(blocks, "tenant-a")
 
 	require.Len(t, items, 3, "two IP blocks plus the manual-entry sentinel")
 	assert.Equal(t, "id-a", items[0].ID, "select ID must be the IP block UUID")
@@ -1597,9 +1597,10 @@ func TestBuildIPBlockSelectItems_ExcludesProviderAndNonReadyBlocks(t *testing.T)
 		{Name: "provider-block", ID: "provider-id", Status: "Ready"},
 		{Name: "pending-tenant-block", ID: "pending-id", Status: "Pending", Extra: map[string]string{"tenantId": "tenant-a"}},
 		{Name: "ready-tenant-block", ID: "ready-id", Status: "Ready", Extra: map[string]string{"tenantId": "tenant-a"}},
+		{Name: "other-tenant-block", ID: "other-tenant-id", Status: "Ready", Extra: map[string]string{"tenantId": "tenant-b"}},
 	}
 
-	items := buildIPBlockSelectItems(blocks)
+	items := buildIPBlockSelectItems(blocks, "tenant-a")
 
 	require.Len(t, items, 2, "one Ready tenant block plus the manual-entry sentinel")
 	assert.Equal(t, "ready-id", items[0].ID)
@@ -1607,7 +1608,7 @@ func TestBuildIPBlockSelectItems_ExcludesProviderAndNonReadyBlocks(t *testing.T)
 }
 
 func TestBuildIPBlockSelectItems_EmptyListReturnsOnlySentinel(t *testing.T) {
-	items := buildIPBlockSelectItems(nil)
+	items := buildIPBlockSelectItems(nil, "tenant-a")
 	require.Len(t, items, 1, "an empty list still offers manual entry")
 	assert.Equal(t, ipBlockManualEntrySentinel, items[0].ID)
 }
@@ -1618,7 +1619,7 @@ func TestBuildIPBlockSelectItems_SkipsBlocksWithoutIDAndFallsBackLabelToID(t *te
 		{Name: "  ", ID: "id-x", Status: "Ready", Extra: map[string]string{"tenantId": "tenant-x"}},
 	}
 
-	items := buildIPBlockSelectItems(blocks)
+	items := buildIPBlockSelectItems(blocks, "tenant-x")
 
 	require.Len(t, items, 2, "one usable block (id-x) plus the manual-entry sentinel")
 	assert.Equal(t, "id-x", items[0].ID)

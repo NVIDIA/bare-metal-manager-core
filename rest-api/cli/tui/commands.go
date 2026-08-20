@@ -2251,12 +2251,12 @@ const ipBlockManualEntrySentinel = "__manual__"
 // blocks are visible, when listing fails, or when the operator opts out via
 // the trailing sentinel (NVBug 6105076).
 func promptVPCPrefixIPBlockID(s *Session, ctx context.Context) (string, error) {
-	blocks, err := s.Resolver.Fetch(ctx, "ip-block")
+	blocks, tenantID, err := s.fetchVPCPrefixIPBlocks(ctx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s could not list IP blocks (%v); falling back to manual entry\n", Dim("note:"), err)
+		fmt.Fprintf(os.Stderr, "%s could not list current tenant IP blocks (%v); falling back to manual entry\n", Dim("note:"), err)
 		return promptIPBlockIDRaw()
 	}
-	items := buildIPBlockSelectItems(blocks)
+	items := buildIPBlockSelectItems(blocks, tenantID)
 	if len(items) == 1 {
 		// Only the manual-entry sentinel: no usable tenant IP blocks for this site.
 		fmt.Fprintf(os.Stderr, "%s no Ready tenant IP blocks found for this site; create an allocation or enter an IP block ID manually\n", Dim("note:"))
@@ -2286,10 +2286,11 @@ func promptIPBlockIDRaw() (string, error) {
 // blocks and tenant IP blocks that are not Ready cannot back a VPC prefix and
 // are skipped. A trailing manual-entry sentinel is always appended so the
 // operator can still type a raw UUID for a block that isn't listed.
-func buildIPBlockSelectItems(blocks []NamedItem) []SelectItem {
+func buildIPBlockSelectItems(blocks []NamedItem, tenantID string) []SelectItem {
+	tenantID = strings.TrimSpace(tenantID)
 	items := make([]SelectItem, 0, len(blocks)+1)
 	for _, b := range blocks {
-		if strings.TrimSpace(b.Extra["tenantId"]) == "" || !strings.EqualFold(strings.TrimSpace(b.Status), "Ready") {
+		if strings.TrimSpace(b.Extra["tenantId"]) != tenantID || !strings.EqualFold(strings.TrimSpace(b.Status), "Ready") {
 			continue
 		}
 		id := strings.TrimSpace(b.ID)

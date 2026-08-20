@@ -184,6 +184,10 @@ verification expectations.
 - When a test verifies a generated CLI command path, assert that the leaf
   command has a non-nil `Action`; path presence alone does not prove the
   command is runnable.
+- For a tenant-owned TUI resource picker, resolve the current tenant explicitly,
+  send its ID in the list request, and require each returned row to match that
+  exact tenant ID. Test a dual-role caller whose response also contains
+  provider-owned and other-tenant resources.
 - Tests that need a database use a PostgreSQL container (testcontainers-go
   or the Makefile-managed container).
 - Organize tests by the production function or method under test, not by individual

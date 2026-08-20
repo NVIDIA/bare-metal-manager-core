@@ -494,6 +494,29 @@ func (s *Session) fetchIPBlocks(ctx context.Context) ([]NamedItem, error) {
 	return result, nil
 }
 
+func (s *Session) fetchVPCPrefixIPBlocks(ctx context.Context) ([]NamedItem, string, error) {
+	tenantID, err := s.getTenantID(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	q := map[string]string{"tenantId": tenantID}
+	if s.Scope.SiteID != "" {
+		q["siteId"] = s.Scope.SiteID
+	}
+	items, err := s.fetchAll(apiPath(s, "ipblock"), q)
+	if err != nil {
+		return nil, "", err
+	}
+	result := make([]NamedItem, len(items))
+	for i, m := range items {
+		result[i] = NamedItem{
+			Name: str(m, "name"), ID: str(m, "id"), Status: str(m, "status"),
+			Extra: map[string]string{"siteId": str(m, "siteId"), "tenantId": str(m, "tenantId")}, Raw: m,
+		}
+	}
+	return result, tenantID, nil
+}
+
 func (s *Session) fetchNSGs(_ context.Context) ([]NamedItem, error) {
 	q := map[string]string{}
 	if s.Scope.SiteID != "" {

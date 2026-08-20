@@ -21,18 +21,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestFetchIPBlocksPreservesTenantOwnership(t *testing.T) {
+func TestFetchVPCPrefixIPBlocksUsesCurrentTenantScope(t *testing.T) {
+	providerRequests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v2/org/acme/nico/infrastructure-provider/current":
-			http.Error(w, `{"message":"not a provider"}`, http.StatusForbidden)
+			providerRequests++
+			_, _ = io.WriteString(w, `{"id":"provider-a"}`)
 		case "/v2/org/acme/nico/tenant/current":
 			_, _ = io.WriteString(w, `{"id":"tenant-a"}`)
 		case "/v2/org/acme/nico/ipblock":
 			assert.Equal(t, "site-a", r.URL.Query().Get("siteId"))
 			assert.Equal(t, "tenant-a", r.URL.Query().Get("tenantId"))
+			assert.Empty(t, r.URL.Query().Get("infrastructureProviderId"))
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(w, `[{"id":"provider-id","name":"provider","siteId":"site-a","status":"Ready","tenantId":null},{"id":"tenant-id","name":"tenant","siteId":"site-a","status":"Ready","tenantId":"tenant-a"}]`)
+			_, _ = io.WriteString(w, `[{"id":"provider-id","name":"provider","siteId":"site-a","status":"Ready","tenantId":null},{"id":"other-tenant-id","name":"other tenant","siteId":"site-a","status":"Ready","tenantId":"tenant-b"},{"id":"tenant-id","name":"tenant","siteId":"site-a","status":"Ready","tenantId":"tenant-a"}]`)
 		default:
 			http.NotFound(w, r)
 		}
@@ -42,13 +45,26 @@ func TestFetchIPBlocksPreservesTenantOwnership(t *testing.T) {
 	client := appcli.NewClient(server.URL, "acme", "token", nil, false)
 	session := NewSession(client, "acme", "")
 	session.Scope.SiteID = "site-a"
+	ctx := context.Background()
 
-	items, err := session.fetchIPBlocks(context.Background())
+	providerID, err := session.getInfrastructureProviderID(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "provider-a", providerID)
+
+	items, tenantID, err := session.fetchVPCPrefixIPBlocks(ctx)
 
 	require.NoError(t, err)
-	require.Len(t, items, 2)
+	assert.Equal(t, "tenant-a", tenantID)
+	assert.Equal(t, 1, providerRequests)
+	require.Len(t, items, 3)
 	assert.Empty(t, items[0].Extra["tenantId"])
-	assert.Equal(t, "tenant-a", items[1].Extra["tenantId"])
+	assert.Equal(t, "tenant-b", items[1].Extra["tenantId"])
+	assert.Equal(t, "tenant-a", items[2].Extra["tenantId"])
+
+	selectItems := buildIPBlockSelectItems(items, tenantID)
+	require.Len(t, selectItems, 2)
+	assert.Equal(t, "tenant-id", selectItems[0].ID)
+	assert.Equal(t, ipBlockManualEntrySentinel, selectItems[1].ID)
 }
 
 type specializedRequestSnapshot struct {
