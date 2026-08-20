@@ -461,17 +461,18 @@ async fn switch_firmware_statuses(
         .collect::<HashSet<_>>()
         .into_iter()
         .collect();
+    drop(txn);
+
     let racks = if rack_ids.is_empty() {
         vec![]
     } else {
         db::rack::find_by(
-            &mut txn,
+            api.db_reader().as_mut(),
             db::ObjectColumnFilter::List(db::rack::IdColumn, &rack_ids),
         )
         .await
         .map_err(|e| Status::internal(format!("failed to look up switch racks: {e}")))?
     };
-    drop(txn);
 
     let switch_by_id: HashMap<_, _> = switches
         .into_iter()
