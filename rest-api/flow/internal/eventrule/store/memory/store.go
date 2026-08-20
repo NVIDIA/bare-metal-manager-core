@@ -15,13 +15,12 @@ import (
 
 // Store implements rule, binding, and execution persistence in memory.
 type Store struct {
-	mu                   sync.RWMutex
-	rules                map[uuid.UUID]dbmodel.EventRule
-	bindings             map[uuid.UUID]dbmodel.EventRuleBinding
-	executions           map[uuid.UUID]*memoryExecution
-	executionsByDelivery map[eventrule.ExecutionDeliveryKey]uuid.UUID
-	executionsBySemantic map[eventrule.ExecutionSemanticKey][]uuid.UUID
-	now                  func() time.Time
+	mu              sync.RWMutex
+	rules           map[uuid.UUID]dbmodel.EventRule
+	bindings        map[uuid.UUID]dbmodel.EventRuleBinding
+	executions      map[uuid.UUID]*memoryExecution
+	executionsByKey map[eventrule.ExecutionKey]uuid.UUID
+	now             func() time.Time
 }
 
 // New constructs an empty in-memory store.
@@ -36,12 +35,11 @@ func NewWithClock(now func() time.Time) *Store {
 		now = time.Now
 	}
 	return &Store{
-		rules:                make(map[uuid.UUID]dbmodel.EventRule),
-		bindings:             make(map[uuid.UUID]dbmodel.EventRuleBinding),
-		executions:           make(map[uuid.UUID]*memoryExecution),
-		executionsByDelivery: make(map[eventrule.ExecutionDeliveryKey]uuid.UUID),
-		executionsBySemantic: make(map[eventrule.ExecutionSemanticKey][]uuid.UUID),
-		now:                  now,
+		rules:           make(map[uuid.UUID]dbmodel.EventRule),
+		bindings:        make(map[uuid.UUID]dbmodel.EventRuleBinding),
+		executions:      make(map[uuid.UUID]*memoryExecution),
+		executionsByKey: make(map[eventrule.ExecutionKey]uuid.UUID),
+		now:             now,
 	}
 }
 
