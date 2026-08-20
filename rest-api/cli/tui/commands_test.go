@@ -1310,7 +1310,10 @@ func captureStdout(f func()) string {
 	w.Close()
 	os.Stdout = old
 	var buf bytes.Buffer
-	io.Copy(&buf, r)
+	_, err := io.Copy(&buf, r)
+	if err != nil {
+		panic(err)
+	}
 	return buf.String()
 }
 
