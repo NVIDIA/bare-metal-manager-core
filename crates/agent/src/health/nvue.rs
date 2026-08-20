@@ -15,11 +15,13 @@
  * limitations under the License.
  */
 
-use health_report::{HealthProbeAlert, HealthProbeSuccess, HealthReport};
+use health_report::{
+    HealthAlertClassification, HealthProbeAlert, HealthProbeSuccess, HealthReport,
+};
 use nvue_client::types::bgp::{BgpNeighbors, BgpPeerState};
 use nvue_client::{FieldFilter, NvueClient};
 
-use super::{failed, make_alert, probe_ids};
+use super::{add_post_config_wait_alert, failed, make_alert, make_classified_alert, probe_ids};
 use crate::HBNDeviceNames;
 
 /// The VRF we'll look for our BGP uplinks in.
@@ -33,6 +35,8 @@ pub(crate) struct NvueHealthCheck<'a> {
     pub(crate) min_healthy_links: usize,
     /// HBN interface names used to identify expected ToR uplink sessions.
     pub(crate) hbn_device_names: &'a HBNDeviceNames,
+    /// Whether this iteration applied a changed HBN configuration through NVUE.
+    pub(crate) has_changed_hbn_config: bool,
 }
 
 impl NvueHealthCheck<'_> {
@@ -51,12 +55,17 @@ impl NvueHealthCheck<'_> {
         }
 
         self.check_bgp_uplinks(&mut report).await;
+        add_post_config_wait_alert(&mut report, self.has_changed_hbn_config);
         report
     }
 
     /// Checks BGP uplink session health through the configured NVUE API target.
     async fn check_bgp_uplinks(&self, report: &mut HealthReport) {
         const BGP_NEIGHBOR_STATE_FIELD: &str = "/*/state";
+
+        if self.min_healthy_links == 0 {
+            return;
+        }
 
         let bgp_neighbors = self
             .nvue_client
@@ -98,32 +107,71 @@ impl NvueHealthCheck<'_> {
     }
 }
 
-/// Checks configured ToR BGP sessions from an already-fetched NVUE BGP neighbor response.
+/// One configured NVUE uplink whose BGP session is not established.
+struct UnhealthyUplink {
+    /// Whether this is the first configured uplink, which PXE boot requires.
+    is_primary: bool,
+    /// HBN interface name used as the health alert target.
+    uplink_name: String,
+    /// Diagnostic reason that the session check failed.
+    message: String,
+}
+
+/// Checks configured ToR BGP sessions using an NVUE response fetched by the caller.
 ///
 /// All configured HBN uplinks are evaluated, and the check passes when at least
 /// `min_healthy_links` of them are present and established. If too few uplinks
 /// are healthy, each missing peer, missing state, or non-established state emits
-/// a `BgpPeeringTor` alert targeted at that uplink. A `BgpPeeringTor` alert is
-/// emitted when `min_healthy_links` asks for more uplinks than the configured
-/// device names provide. The helper does not emit success entries.
-pub(super) fn check_bgp_uplink_sessions(
+/// a `BgpPeeringTor` alert targeted at that uplink. While a redundant session
+/// remains established, an unavailable primary (the first configured uplink)
+/// prevents allocations but not host state changes; an unavailable secondary
+/// has no classifications. With a minimum of one, either established session
+/// satisfies the configured minimum, so only a failed primary remains visible
+/// for the PXE readiness gate. A minimum of zero disables the NVUE neighbor
+/// request and all uplink alerts, including the primary readiness signal. If no
+/// expected uplink is established, each alert prevents allocations and host
+/// state changes. A `BgpPeeringTor` alert is emitted when `min_healthy_links`
+/// asks for more uplinks than the configured device names provide. The helper
+/// does not emit success entries.
+fn check_bgp_uplink_sessions(
     report: &mut HealthReport,
     neighbors: Option<&BgpNeighbors>,
     min_healthy_links: usize,
     hbn_device_names: &HBNDeviceNames,
 ) {
-    let mut unhealthy_uplink_names = Vec::new();
+    let mut unhealthy_uplinks = Vec::new();
     let mut healthy_uplink_count = 0;
-    let expected_hbn_uplinks = hbn_device_names.uplinks.iter().copied();
+    let expected_hbn_uplinks = hbn_device_names.uplinks.iter().copied().enumerate();
 
-    for expected_uplink in expected_hbn_uplinks {
+    for (uplink_index, expected_uplink) in expected_hbn_uplinks {
         match check_expected_peer_established(neighbors, expected_uplink) {
             Ok(()) => healthy_uplink_count += 1,
-            Err(message) => unhealthy_uplink_names.push((expected_uplink.to_string(), message)),
+            Err(message) => unhealthy_uplinks.push(UnhealthyUplink {
+                is_primary: uplink_index == 0,
+                uplink_name: expected_uplink.to_string(),
+                message,
+            }),
         }
     }
 
+    if min_healthy_links == 0 {
+        return;
+    }
+
     if healthy_uplink_count >= min_healthy_links {
+        // A healthy p1 can satisfy the configured minimum, but PXE still
+        // depends on p0, so preserve a failed primary as an allocation blocker.
+        let failed_primary_uplink = unhealthy_uplinks
+            .into_iter()
+            .find(|unhealthy_uplink| unhealthy_uplink.is_primary);
+        if let Some(failed_primary_uplink) = failed_primary_uplink {
+            report.alerts.push(make_classified_alert(
+                probe_ids::BgpPeeringTor.clone(),
+                Some(failed_primary_uplink.uplink_name),
+                failed_primary_uplink.message,
+                bgp_uplink_classifications(true, false),
+            ));
+        }
         return;
     }
 
@@ -141,30 +189,31 @@ pub(super) fn check_bgp_uplink_sessions(
         );
     }
 
-    // This behavior differs from what the non-NVUE code path does (in
-    // BgpHealthData::into_health_report()), in that we always treat this
-    // case as critical. I couldn't make sense of why the other path computes
-    // criticality like this:
-    //
-    // let num_unhealthy_tors = self.unhealthy_tor_peers.len();
-    // // TODO: This is correct for environments with both DPU ports connected
-    // let unhealthy_tors_critical = num_unhealthy_tors > 1;
-    //
-    // This looks like a duplication of what I think min_healthy_links is
-    // concerned with, and also seems to hardcode an assumption about uplink
-    // count.
-    //
-    // It was all added before The Big Squash so I couldn't learn anything from
-    // the git history of the file.
-    // - drew
-    let is_critical = true;
-    for (uplink, message) in unhealthy_uplink_names {
-        report.alerts.push(make_alert(
+    let no_established_uplinks = healthy_uplink_count == 0;
+    for unhealthy_uplink in unhealthy_uplinks {
+        report.alerts.push(make_classified_alert(
             probe_ids::BgpPeeringTor.clone(),
-            Some(uplink),
-            message,
-            is_critical,
+            Some(unhealthy_uplink.uplink_name),
+            unhealthy_uplink.message,
+            bgp_uplink_classifications(unhealthy_uplink.is_primary, no_established_uplinks),
         ));
+    }
+}
+
+/// Selects the classifications for one unavailable ToR uplink.
+fn bgp_uplink_classifications(
+    is_primary: bool,
+    no_established_uplinks: bool,
+) -> Vec<HealthAlertClassification> {
+    if no_established_uplinks {
+        vec![
+            HealthAlertClassification::prevent_allocations(),
+            HealthAlertClassification::prevent_host_state_changes(),
+        ]
+    } else if is_primary {
+        vec![HealthAlertClassification::prevent_allocations()]
+    } else {
+        vec![]
     }
 }
 
@@ -214,31 +263,69 @@ mod tests {
         expected_alerts: Vec<health_report::HealthProbeAlert>,
     }
 
+    /// Test-only names for the exact classification sets expected by table rows.
+    ///
+    /// This builds the vectors without production classification helpers, so
+    /// the tests can catch policy regressions.
+    #[derive(Clone, Copy)]
+    enum ExpectedClassifications {
+        /// Contains no classifications; the alert remains visible.
+        Unclassified,
+        /// Contains only `PreventAllocations`.
+        PreventAllocations,
+        /// Contains `PreventAllocations` and `PreventHostStateChanges`.
+        PreventAllocationsAndHostStateChanges,
+    }
+
+    impl ExpectedClassifications {
+        fn health_classifications(self) -> Vec<HealthAlertClassification> {
+            match self {
+                Self::Unclassified => vec![],
+                Self::PreventAllocations => {
+                    vec![HealthAlertClassification::prevent_allocations()]
+                }
+                Self::PreventAllocationsAndHostStateChanges => vec![
+                    HealthAlertClassification::prevent_allocations(),
+                    HealthAlertClassification::prevent_host_state_changes(),
+                ],
+            }
+        }
+    }
+
     /// Builds NVUE BGP neighbors from a compact scenario JSON fixture.
     fn bgp_neighbors(bgp_json: &str) -> Option<BgpNeighbors> {
         serde_json::from_str(bgp_json).expect("BGP neighbors should deserialize")
     }
 
-    /// Builds a ToR peering alert with the same target and criticality rules as production.
-    fn tor_alert(port: &str, message: &str, critical: bool) -> health_report::HealthProbeAlert {
-        make_alert(
-            probe_ids::BgpPeeringTor.clone(),
-            Some(port.to_string()),
-            message.to_string(),
-            critical,
-        )
+    /// Builds an expected ToR peering alert independently of the production helper.
+    fn tor_alert(
+        port: &str,
+        message: &str,
+        expected_classifications: ExpectedClassifications,
+    ) -> health_report::HealthProbeAlert {
+        health_report::HealthProbeAlert {
+            id: health_report::HealthProbeId::bgp_peering_tor(),
+            target: Some(port.to_string()),
+            in_alert_since: None,
+            message: message.to_string(),
+            tenant_message: None,
+            classifications: expected_classifications.health_classifications(),
+        }
     }
 
     /// Builds the site-configuration alert for impossible uplink thresholds.
     fn config_mismatch_alert(min_healthy_links: usize) -> health_report::HealthProbeAlert {
-        make_alert(
-            probe_ids::BgpPeeringTor.clone(),
-            None,
-            format!(
+        health_report::HealthProbeAlert {
+            id: health_report::HealthProbeId::bgp_peering_tor(),
+            target: None,
+            in_alert_since: None,
+            message: format!(
                 "Site configuration requires a minimum of {min_healthy_links} healthy uplinks, but this is greater than the number of expected uplink interface names (p0_if,p1_if)"
             ),
-            true,
-        )
+            tenant_message: None,
+            classifications: ExpectedClassifications::PreventAllocationsAndHostStateChanges
+                .health_classifications(),
+        }
     }
 
     /// Orders alerts by `(id, target, message)` so table rows can stay readable.
@@ -262,24 +349,24 @@ mod tests {
                     expected_alerts: vec![],
                 },
                 Row {
-                    scenario: "null neighbor response alerts for each configured uplink",
+                    scenario: "missing neighbor data blocks allocations and host state changes",
                     bgp_json: r#"null"#,
                     min_healthy_links: 2,
                     expected_alerts: vec![
                         tor_alert(
                             "p0_if",
                             "BGP neighbor data was not reported; expected session for p0_if",
-                            true,
+                            ExpectedClassifications::PreventAllocationsAndHostStateChanges,
                         ),
                         tor_alert(
                             "p1_if",
                             "BGP neighbor data was not reported; expected session for p1_if",
-                            true,
+                            ExpectedClassifications::PreventAllocationsAndHostStateChanges,
                         ),
                     ],
                 },
                 Row {
-                    scenario: "missing configured uplink targets that uplink",
+                    scenario: "missing secondary stays visible without classifications",
                     bgp_json: r#"
                     {
                         "p0_if": { "state": "established" }
@@ -289,11 +376,11 @@ mod tests {
                     expected_alerts: vec![tor_alert(
                         "p1_if",
                         "expected session for p1_if was not found in BGP peer data",
-                        true,
+                        ExpectedClassifications::Unclassified,
                     )],
                 },
                 Row {
-                    scenario: "idle configured uplink alerts when below threshold",
+                    scenario: "failed primary prevents allocations but not state changes",
                     bgp_json: r#"
                     {
                         "p0_if": { "state": "idle" },
@@ -304,11 +391,48 @@ mod tests {
                     expected_alerts: vec![tor_alert(
                         "p0_if",
                         "BGP session p0_if is not established, but in state idle",
-                        true,
+                        ExpectedClassifications::PreventAllocations,
                     )],
                 },
                 Row {
-                    scenario: "another non-established state alerts",
+                    scenario: "failed secondary stays visible without classifications",
+                    bgp_json: r#"
+                    {
+                        "p0_if": { "state": "established" },
+                        "p1_if": { "state": "idle" }
+                    }
+                    "#,
+                    min_healthy_links: 2,
+                    expected_alerts: vec![tor_alert(
+                        "p1_if",
+                        "BGP session p1_if is not established, but in state idle",
+                        ExpectedClassifications::Unclassified,
+                    )],
+                },
+                Row {
+                    scenario: "two failed sessions block allocations and state changes",
+                    bgp_json: r#"
+                    {
+                        "p0_if": { "state": "idle" },
+                        "p1_if": { "state": "idle" }
+                    }
+                    "#,
+                    min_healthy_links: 2,
+                    expected_alerts: vec![
+                        tor_alert(
+                            "p0_if",
+                            "BGP session p0_if is not established, but in state idle",
+                            ExpectedClassifications::PreventAllocationsAndHostStateChanges,
+                        ),
+                        tor_alert(
+                            "p1_if",
+                            "BGP session p1_if is not established, but in state idle",
+                            ExpectedClassifications::PreventAllocationsAndHostStateChanges,
+                        ),
+                    ],
+                },
+                Row {
+                    scenario: "active primary session prevents allocations",
                     bgp_json: r#"
                     {
                         "p0_if": { "state": "active" },
@@ -319,11 +443,11 @@ mod tests {
                     expected_alerts: vec![tor_alert(
                         "p0_if",
                         "BGP session p0_if is not established, but in state active",
-                        true,
+                        ExpectedClassifications::PreventAllocations,
                     )],
                 },
                 Row {
-                    scenario: "missing state alerts",
+                    scenario: "primary with missing state prevents allocations",
                     bgp_json: r#"
                     {
                         "p0_if": {},
@@ -334,7 +458,7 @@ mod tests {
                     expected_alerts: vec![tor_alert(
                         "p0_if",
                         "state field for p0_if peer is not present",
-                        true,
+                        ExpectedClassifications::PreventAllocations,
                     )],
                 },
                 Row {
@@ -351,7 +475,7 @@ mod tests {
                     expected_alerts: vec![],
                 },
                 Row {
-                    scenario: "one healthy uplink may be the second configured uplink",
+                    scenario: "minimum one keeps failed primary as allocation blocker",
                     bgp_json: r#"
                     {
                         "p0_if": { "state": "idle" },
@@ -359,6 +483,65 @@ mod tests {
                     }
                     "#,
                     min_healthy_links: 1,
+                    expected_alerts: vec![tor_alert(
+                        "p0_if",
+                        "BGP session p0_if is not established, but in state idle",
+                        ExpectedClassifications::PreventAllocations,
+                    )],
+                },
+                Row {
+                    scenario: "minimum one accepts two established sessions",
+                    bgp_json: r#"
+                    {
+                        "p0_if": { "state": "established" },
+                        "p1_if": { "state": "established" }
+                    }
+                    "#,
+                    min_healthy_links: 1,
+                    expected_alerts: vec![],
+                },
+                Row {
+                    scenario: "minimum one suppresses failed secondary after p0 is established",
+                    bgp_json: r#"
+                    {
+                        "p0_if": { "state": "established" },
+                        "p1_if": { "state": "idle" }
+                    }
+                    "#,
+                    min_healthy_links: 1,
+                    expected_alerts: vec![],
+                },
+                Row {
+                    scenario: "minimum one still blocks when both sessions fail",
+                    bgp_json: r#"
+                    {
+                        "p0_if": { "state": "idle" },
+                        "p1_if": { "state": "idle" }
+                    }
+                    "#,
+                    min_healthy_links: 1,
+                    expected_alerts: vec![
+                        tor_alert(
+                            "p0_if",
+                            "BGP session p0_if is not established, but in state idle",
+                            ExpectedClassifications::PreventAllocationsAndHostStateChanges,
+                        ),
+                        tor_alert(
+                            "p1_if",
+                            "BGP session p1_if is not established, but in state idle",
+                            ExpectedClassifications::PreventAllocationsAndHostStateChanges,
+                        ),
+                    ],
+                },
+                Row {
+                    scenario: "minimum zero disables every uplink alert",
+                    bgp_json: r#"
+                    {
+                        "p0_if": { "state": "idle" },
+                        "p1_if": { "state": "idle" }
+                    }
+                    "#,
+                    min_healthy_links: 0,
                     expected_alerts: vec![],
                 },
                 Row {
@@ -374,6 +557,8 @@ mod tests {
                 },
             ]
             .map(|mut row| {
+                // Alert emission order is not part of the policy under test, so
+                // normalize each expected row before moving it into `Check`.
                 sort_alerts(&mut row.expected_alerts);
                 let expect = row.expected_alerts.clone();
                 Check {
@@ -383,16 +568,18 @@ mod tests {
                 }
             }),
             |row| {
-                let mut hr = HealthReport::empty("forge-dpu-agent".to_string());
+                // Parse the NVUE response, apply the uplink policy, and compare
+                // the complete alert set independent of emission order.
+                let mut report = HealthReport::empty("forge-dpu-agent".to_string());
                 let bgp_neighbors = bgp_neighbors(row.bgp_json);
                 check_bgp_uplink_sessions(
-                    &mut hr,
+                    &mut report,
                     bgp_neighbors.as_ref(),
                     row.min_healthy_links,
                     &HBNDeviceNames::hbn_23(),
                 );
-                sort_alerts(&mut hr.alerts);
-                hr.alerts
+                sort_alerts(&mut report.alerts);
+                report.alerts
             },
         );
     }

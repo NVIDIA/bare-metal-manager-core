@@ -51,6 +51,7 @@ use futures_util::future::join_all;
 use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
 use itertools::Itertools;
 use mac_address::MacAddress;
+use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::dpu_machine_update::DpuMachineUpdate;
 use model::instance::config::extension_services::InstanceExtensionServicesConfig;
 use model::instance::config::infiniband::InstanceInfinibandConfig;
@@ -1357,6 +1358,216 @@ async fn test_instance_deletion_before_provisioning_finishes(
 
     // Now go through regular deletion
     mh.delete_instance(&env, instance_id).await;
+}
+
+#[crate::sqlx_test]
+async fn test_instance_waits_for_primary_dpu_bgp_before_pxe_reboot(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    const PRIMARY_DPU_BGP_WAIT_REASON: &str =
+        "Waiting for the primary DPU p0 BGP session to be established";
+    const HOST_HEALTH_WAIT_REASON: &str =
+        "Waiting for lifecycle-blocking host health alerts to clear before PXE reboot";
+
+    fn dpu_health_alert(
+        id: &str,
+        target: Option<&str>,
+        classifications: Vec<health_report::HealthAlertClassification>,
+    ) -> rpc::health::HealthReport {
+        rpc::health::HealthReport {
+            source: "forge-dpu-agent".to_string(),
+            triggered_by: None,
+            observed_at: None,
+            successes: vec![],
+            alerts: vec![rpc::health::HealthProbeAlert {
+                id: id.to_string(),
+                target: target.map(str::to_string),
+                in_alert_since: None,
+                message: "test lifecycle gate".to_string(),
+                tenant_message: None,
+                classifications: classifications
+                    .into_iter()
+                    .map(|classification| classification.to_string())
+                    .collect(),
+            }],
+        }
+    }
+
+    fn post_config_wait_health() -> rpc::health::HealthReport {
+        dpu_health_alert(
+            "PostConfigCheckWait",
+            None,
+            vec![
+                health_report::HealthAlertClassification::prevent_allocations(),
+                health_report::HealthAlertClassification::prevent_host_state_changes(),
+            ],
+        )
+    }
+
+    fn bgp_tor_health(target: &str, prevent_allocations: bool) -> rpc::health::HealthReport {
+        let classifications = prevent_allocations
+            .then(health_report::HealthAlertClassification::prevent_allocations)
+            .into_iter()
+            .collect();
+        dpu_health_alert(
+            health_report::HealthProbeId::bgp_peering_tor().as_str(),
+            Some(target),
+            classifications,
+        )
+    }
+
+    fn pxe_blocking_bgp_merge(source: &str) -> health_report::HealthReport {
+        health_report::HealthReport {
+            source: source.to_string(),
+            triggered_by: None,
+            observed_at: None,
+            successes: vec![],
+            alerts: vec![health_report::HealthProbeAlert {
+                id: health_report::HealthProbeId::bgp_peering_tor(),
+                target: Some("p0_if".to_string()),
+                in_alert_since: None,
+                message: "test additive PXE gate".to_string(),
+                tenant_message: None,
+                classifications: vec![
+                    health_report::HealthAlertClassification::prevent_allocations(),
+                ],
+            }],
+        }
+    }
+
+    async fn assert_instance_state(env: &TestEnv, mh: &TestManagedHost, expected: InstanceState) {
+        let mut txn = env.db_txn().await;
+        assert_eq!(
+            mh.host().db_machine(&mut txn).await.current_state(),
+            &ManagedHostState::Assigned {
+                instance_state: expected,
+            }
+        );
+        txn.commit().await.unwrap();
+    }
+
+    async fn assert_pxe_reboot_wait_outcome(
+        env: &TestEnv,
+        mh: &TestManagedHost,
+        expected_reason: &str,
+    ) {
+        let mut txn = env.db_txn().await;
+        let host_machine = mh.host().db_machine(&mut txn).await;
+        let Some(PersistentStateHandlerOutcome::Wait {
+            reason,
+            source_ref: Some(source_ref),
+        }) = &host_machine.controller_state_outcome
+        else {
+            panic!("The PXE reboot gate should persist a Wait outcome with a source reference");
+        };
+        assert_eq!(reason, expected_reason);
+        assert!(source_ref.file.ends_with("/handler.rs"));
+        txn.commit().await.unwrap();
+    }
+
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let mh = create_managed_host(&env).await;
+    let dpu_id = mh.dpu().id;
+
+    let config = InstanceConfig::default_tenant_and_os()
+        .network(single_interface_network_config(segment_id));
+    env.api
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(mh.host().id)
+                .config(config)
+                .metadata(rpc::Metadata {
+                    name: "test_instance".to_string(),
+                    description: "tests/instance".to_string(),
+                    labels: Vec::new(),
+                })
+                .tonic_request(),
+        )
+        .await
+        .expect("Create instance failed.");
+
+    env.run_network_segment_controller_iteration().await;
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        10,
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::WaitingForNetworkConfig,
+        },
+    )
+    .await;
+
+    // Both the configuration settle period and a failed p0 session hold the
+    // initial network configuration gate.
+    network_configured_with_health(&env, &dpu_id, Some(post_config_wait_health())).await;
+    env.run_machine_state_controller_iteration().await;
+    assert_instance_state(&env, &mh, InstanceState::WaitingForNetworkConfig).await;
+
+    network_configured_with_health(&env, &dpu_id, Some(bgp_tor_health("p0_if", true))).await;
+    env.run_machine_state_controller_iteration().await;
+    assert_instance_state(&env, &mh, InstanceState::WaitingForNetworkConfig).await;
+
+    // An empty DPU Replace report masks the agent Merge report and allows
+    // provisioning to advance to the reboot gate.
+    send_health_report_entry(
+        &env,
+        &dpu_id,
+        (
+            health_report::HealthReport::empty("test-pxe-bgp-override".to_string()),
+            health_report::HealthReportApplyMode::Replace,
+        ),
+    )
+    .await;
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        1,
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::WaitingForRebootToReady,
+        },
+    )
+    .await;
+
+    // Removing the Replace report exposes the agent p0 alert again, so the
+    // reboot gate must recheck it before restarting the host.
+    remove_health_report_entry(&env, &dpu_id, "test-pxe-bgp-override".to_string()).await;
+    env.run_machine_state_controller_iteration().await;
+    assert_instance_state(&env, &mh, InstanceState::WaitingForRebootToReady).await;
+    assert_pxe_reboot_wait_outcome(&env, &mh, PRIMARY_DPU_BGP_WAIT_REASON).await;
+
+    // The reboot gate also rechecks health alerts that block host state
+    // changes and persists a diagnosable wait reason.
+    network_configured_with_health(&env, &dpu_id, Some(post_config_wait_health())).await;
+    env.run_machine_state_controller_iteration().await;
+    assert_instance_state(&env, &mh, InstanceState::WaitingForRebootToReady).await;
+    assert_pxe_reboot_wait_outcome(&env, &mh, HOST_HEALTH_WAIT_REASON).await;
+
+    // A visible p1 alert permits reboot, but an additional primary DPU Merge
+    // report that carries the p0 classification still blocks it.
+    network_configured_with_health(&env, &dpu_id, Some(bgp_tor_health("p1_if", false))).await;
+    send_health_report_entry(
+        &env,
+        &dpu_id,
+        (
+            pxe_blocking_bgp_merge("test-pxe-bgp-merge"),
+            health_report::HealthReportApplyMode::Merge,
+        ),
+    )
+    .await;
+    env.run_machine_state_controller_iteration().await;
+    assert_instance_state(&env, &mh, InstanceState::WaitingForRebootToReady).await;
+
+    // Clearing the last PXE blocking Merge report lets provisioning reach Ready.
+    remove_health_report_entry(&env, &dpu_id, "test-pxe-bgp-merge".to_string()).await;
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        1,
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::Ready,
+        },
+    )
+    .await;
 }
 
 #[crate::sqlx_test]
