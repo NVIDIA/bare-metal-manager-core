@@ -39,7 +39,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use ufm_mock::UfmMockConfig;
 use uuid::Uuid;
 
-use crate::BmcRegistrationMode;
+use crate::BmcMockRegistry;
 use crate::api_client::ApiClient;
 use crate::api_throttler::ApiThrottler;
 use crate::machine_state_machine::OsImage;
@@ -469,8 +469,6 @@ pub struct MachineATronConfig {
     /// Format used for logs written to stdout or `log_file`.
     #[serde(default)]
     pub log_format: LogFormat,
-    pub interface: String,
-
     /// How machine-a-tron obtains DHCP leases for BMCs and directly attached hosts.
     #[serde(default)]
     pub dhcp: DhcpType,
@@ -499,18 +497,10 @@ pub struct MachineATronConfig {
     #[serde(default)]
     pub ipmi_reachable_port: Option<u16>,
 
-    /// Set this to configure the port to use when mocking a BMC SSH server. If unset and
-    /// use_single_bmc_mock is true, it will pick a random port. If unset and use_single_bmc_mock
-    /// is false, it will use port 2222 for each IP alias. (Port 22 is problematic because it
-    /// collides with any system SSH server.)
+    /// Set this to configure the port to use when mocking a BMC SSH
+    /// server. If unset it will pick a random port.
     #[serde(default)]
     pub mock_bmc_ssh_port: Option<u16>,
-
-    /// Set this to true if all BMC-mocks should be behind a single address (using HTTP headers to
-    /// proxy to the real mock). This is the case for machine-a-tron running inside kubernetes
-    /// clusters where there is a single k8s Service and we can't dynamically assign IP's.
-    #[serde(default = "default_false")]
-    pub use_single_bmc_mock: bool,
 
     /// Set this to a hostname or IP If you want machine-a-tron to register its BMC-mock as the
     /// bmc_proxy host (this will be combined with bmc_mock_port.)
@@ -948,7 +938,7 @@ pub struct MachineATronContext {
     pub app_config: MachineATronConfig,
     pub forge_client_config: ForgeClientConfig,
     pub bmc_mock_certs_dir: Option<PathBuf>,
-    pub bmc_registration_mode: BmcRegistrationMode,
+    pub bmc_registry: BmcMockRegistry,
     pub api_throttler: ApiThrottler,
     /// These are the firmware versions the server wants us to be on. If not configured for other
     /// firmware, DPU's can mock that they already have this installed.
@@ -1024,7 +1014,6 @@ pxe_server_port = "8080"
 bmc_mock_port = 1266
 mat_api_server_enabled = true
 mat_api_server_listen_port = 2112
-use_single_bmc_mock = true
 configure_carbide_bmc_proxy_host = "192.168.1.20"
 
 [machines.config]

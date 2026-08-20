@@ -172,9 +172,7 @@ async fn run_machine_a_tron_racks_test(
         log_format: LogFormat::Compact,
         bmc_mock_port: 0,
         bmc_mock_certs_dir: None,
-        interface: String::from("UNUSED"),
         tui_enabled: false,
-        use_single_bmc_mock: false,
         configure_carbide_bmc_proxy_host: None,
         persist_dir: None,
         cleanup_on_quit: false,
@@ -195,7 +193,7 @@ async fn run_machine_a_tron_racks_test(
         mat_config,
         additional_api_urls,
         &test_env.root_dir,
-        Some(bmc_mock_registry.clone()),
+        bmc_mock_registry.clone(),
         TEST_MAC_POOL.clone(),
     )
     .await?;

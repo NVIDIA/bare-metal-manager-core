@@ -17,7 +17,7 @@
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::{Display, Formatter};
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::Ipv4Addr;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
@@ -39,7 +39,7 @@ use tokio::time::Instant;
 use uuid::Uuid;
 
 use crate::api_client::{ClientApiError, DpuNetworkStatusArgs, MockDiscoveryData};
-use crate::bmc_mock_wrapper::{BmcMockRegistry, BmcMockWrapper, BmcMockWrapperHandle};
+use crate::bmc_mock_wrapper::{BmcMockWrapper, BmcMockWrapperHandle};
 use crate::config::{MachineATronContext, MachineConfig};
 use crate::dhcp_wrapper::{
     DhcpRelayError, DhcpRelayResult, DhcpRequestInfo, DhcpRequester, DhcpResponseInfo,
@@ -340,23 +340,6 @@ impl LiveState {
             None => "Unknown",
         }
     }
-}
-
-/// BmcRegistrationMode configures how each mock machine registers its BMC mock so that carbide can find it.
-#[derive(Debug, Clone)]
-pub enum BmcRegistrationMode {
-    /// BackingInstance: Register the axum Router of the mock into a shared registry. This is used
-    /// when running machine-a-tron as a kubernetes service, where we can only listen on a single
-    /// IP/port but need to mock multiple BMC's. A shared BMC mock is expected to be running, and
-    /// will delegate to these Routers for each BMC mock based on the `Forwarded` header in the
-    /// request from carbide-api.
-    BackingInstance(BmcMockRegistry),
-    /// None: Don't register anything, but instead listen on the actual IP address given via DHCP.
-    /// This is the most true-to-production mode, where we configure a real IP alias on a configured
-    /// interface for every BMC mock, and carbide talks to the BMC's real IP address. It requires
-    /// carbide to be able to reach these aliases, so it is only /// suitable for local use where
-    /// carbide and machine-a-tron are on the same host.
-    None(u16),
 }
 
 pub(super) enum PersistedMachine {
@@ -1268,7 +1251,7 @@ impl MachineStateMachine {
         &self,
         ip_address: Ipv4Addr,
     ) -> Result<(Option<Arc<BmcMockWrapperHandle>>, BmcState), MachineStateError> {
-        let mut bmc_mock = BmcMockWrapper::new(
+        let bmc_mock = BmcMockWrapper::new(
             &self.machine_info,
             self.app_context.clone(),
             Arc::new(LiveStateCallbacks::new(
@@ -1291,29 +1274,13 @@ impl MachineStateMachine {
                 .change_factory_default_password(pw);
         }
 
-        let maybe_bmc_mock_handle = match &self.app_context.bmc_registration_mode {
-            BmcRegistrationMode::None(port) => {
-                let address = SocketAddr::new(ip_address.into(), *port);
-                let handle = bmc_mock.start(address, true).await?;
-                self.live_state.write().unwrap().ssh_host_key =
-                    handle.ssh_handle.as_ref().map(|h| h.host_pubkey.clone());
-                Some(Arc::new(handle))
-            }
-            BmcRegistrationMode::BackingInstance(registry) => {
-                // Assume something has already launched a BMC-mock, our job is to just
-                // insert this bmc-mock's router into the registry so it can delegate to it
-                // by looking it up from the `Forwarded` header.
-                registry
-                    .write()
-                    .await
-                    .insert(ip_address.to_string(), bmc_mock.router().clone());
-                bmc_mock
-                    .start_shared_mode_consoles(std::net::IpAddr::V4(
-                        std::net::Ipv4Addr::UNSPECIFIED,
-                    ))
-                    .await?
-                    .map(Arc::new)
-            }
+        let maybe_bmc_mock_handle = {
+            self.app_context
+                .bmc_registry
+                .write()
+                .await
+                .insert(ip_address.to_string(), bmc_mock.router().clone());
+            bmc_mock.start().await?.map(Arc::new)
         };
         if let Some(ssh_host_key) = maybe_bmc_mock_handle
             .as_ref()
@@ -1406,8 +1373,6 @@ pub(super) enum MachineStateError {
     NoMachineDhcpInfo,
     #[error("error configuring listening address: {0}")]
     ListenAddressConfigError(#[from] AddressConfigError),
-    #[error("could not find certificates at {0}")]
-    MissingCertificates(String),
     #[error("error calling forge API: {0}")]
     ClientApi(#[from] ClientApiError),
     #[error("failed to get DHCP address: {0:?}")]
@@ -1436,8 +1401,6 @@ impl From<tonic::Status> for MachineStateError {
 pub(super) enum AddressConfigError {
     #[error("error running ip command: {0}")]
     Io(#[from] std::io::Error),
-    #[error("error running ip command: {0:?}, output: {1:?}")]
-    CommandFailure(Box<tokio::process::Command>, std::process::Output),
 }
 
 #[cfg(test)]

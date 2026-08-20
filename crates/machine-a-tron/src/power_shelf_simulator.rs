@@ -16,7 +16,7 @@
  */
 use std::borrow::Cow;
 use std::collections::VecDeque;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
@@ -322,7 +322,7 @@ impl PowerShelfActor {
             .as_ref()
             .ok_or(MachineStateError::NoBmcDhcpInfo)?;
         let machine_info = MachineInfo::Host(self.host_info.clone());
-        let mut bmc_mock = BmcMockWrapper::new(
+        let bmc_mock = BmcMockWrapper::new(
             &machine_info,
             self.app_context.clone(),
             Arc::new(PowerShelfCallbacks {
@@ -342,32 +342,13 @@ impl PowerShelfActor {
                 .change_factory_default_password(password);
         }
 
-        let bmc_handle = match &self.app_context.bmc_registration_mode {
-            crate::BmcRegistrationMode::None(port) => {
-                let handle = Arc::new(
-                    bmc_mock
-                        .start(
-                            SocketAddr::new(IpAddr::V4(dhcp_info.ip_address), *port),
-                            true,
-                        )
-                        .await?,
-                );
-                self.live_state.write().unwrap().ssh_host_key = handle
-                    .ssh_handle
-                    .as_ref()
-                    .map(|handle| handle.host_pubkey.clone());
-                Some(handle)
-            }
-            crate::BmcRegistrationMode::BackingInstance(registry) => {
-                registry
-                    .write()
-                    .await
-                    .insert(dhcp_info.ip_address.to_string(), bmc_mock.router().clone());
-                bmc_mock
-                    .start_shared_mode_consoles(IpAddr::V4(Ipv4Addr::UNSPECIFIED))
-                    .await?
-                    .map(Arc::new)
-            }
+        let bmc_handle = {
+            self.app_context
+                .bmc_registry
+                .write()
+                .await
+                .insert(dhcp_info.ip_address.to_string(), bmc_mock.router().clone());
+            bmc_mock.start().await?.map(Arc::new)
         };
 
         if let Some(ssh_host_key) = bmc_handle

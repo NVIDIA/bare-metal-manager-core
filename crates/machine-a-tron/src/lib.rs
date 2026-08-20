@@ -61,7 +61,6 @@ pub use device_simulator::{
 pub use dhcp_wrapper::{DhcpClient, UdpDhcpService};
 pub use dpu_machine::DpuMachineHandle;
 pub use machine_a_tron::{AppEvent, MachineATron};
-pub use machine_state_machine::BmcRegistrationMode;
 pub use mock_ssh_server::{
     Credentials as MockSshCredentials, MockSshServerHandle, PromptBehavior,
     spawn as spawn_mock_ssh_server,

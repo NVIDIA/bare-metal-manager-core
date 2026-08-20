@@ -1449,9 +1449,7 @@ where
         log_format: LogFormat::Compact,
         bmc_mock_port: 0, // unused, we're using dynamic ports on localhost
         bmc_mock_certs_dir: None,
-        interface: String::from("UNUSED"), // unused, we're using dynamic ports on localhost
         tui_enabled: false,
-        use_single_bmc_mock: false, // unused, we're constructing machines ourselves
         configure_carbide_bmc_proxy_host: None,
         persist_dir: None,
         cleanup_on_quit: false,
@@ -1472,7 +1470,7 @@ where
         mat_config,
         additional_api_urls,
         &test_env.root_dir,
-        Some(bmc_mock_registry.clone()),
+        bmc_mock_registry.clone(),
         TEST_MAC_POOL.clone(),
     )
     .await
