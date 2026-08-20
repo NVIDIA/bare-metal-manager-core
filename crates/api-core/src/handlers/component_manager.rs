@@ -442,14 +442,14 @@ async fn switch_firmware_statuses(
     api: &Api,
     switch_ids: &[SwitchId],
 ) -> Result<Vec<rpc::FirmwareUpdateStatus>, Status> {
-    let mut txn = api
+    let mut conn = api
         .database_connection
-        .begin()
+        .acquire()
         .await
-        .map_err(|e| Status::internal(format!("failed to begin transaction: {e}")))?;
+        .map_err(|e| Status::internal(format!("failed to acquire database connection: {e}")))?;
 
     let switches = db::switch::find_by(
-        &mut txn,
+        &mut conn,
         db::ObjectColumnFilter::List(db::switch::IdColumn, switch_ids),
     )
     .await
@@ -460,7 +460,7 @@ async fn switch_firmware_statuses(
         .collect::<HashSet<_>>()
         .into_iter()
         .collect();
-    drop(txn);
+    drop(conn);
 
     let racks = if rack_ids.is_empty() {
         vec![]
