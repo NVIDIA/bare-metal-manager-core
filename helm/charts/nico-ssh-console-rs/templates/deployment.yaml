@@ -35,6 +35,7 @@ spec:
             - /bin/sh
             - -c
             - |
+              ulimit -Sn {{ .Values.fileDescriptorLimit | int }} || exit 1
               if [ -x /opt/nico/ssh-console ]; then
                 exec /opt/nico/ssh-console run -c /etc/nico/ssh-console/config.toml
               else

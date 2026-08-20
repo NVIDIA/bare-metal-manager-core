@@ -3810,7 +3810,7 @@ fn health_reports_equal_ignoring_observed_at(
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases};
+    use carbide_test_support::{Case, Check, check_cases, check_values};
     use config_version::ConfigVersion;
     use model::site_explorer::PreingestionState;
 
@@ -3845,9 +3845,11 @@ mod tests {
         assert_eq!(oob, "5c:25:73:9e:ac:ea".parse().unwrap());
     }
 
+    const BF3_MODEL_VARIANTS: [&str; 2] = ["NVIDIA BlueField 3 DPU", "BlueField-3 DPU"];
+
     // Minimal BlueField-3 report with a single manager eth0 interface carrying
     // `eth0_mac`. Classifies as BF3 (system id "Bluefield" + Card1 BF3 chassis).
-    fn bf3_report_with_eth0(eth0_mac: &str) -> EndpointExplorationReport {
+    fn bf3_report_with_eth0(model: &str, eth0_mac: &str) -> EndpointExplorationReport {
         use model::site_explorer::{Chassis, ComputerSystem, EthernetInterface, Manager};
         EndpointExplorationReport {
             systems: vec![ComputerSystem {
@@ -3856,7 +3858,7 @@ mod tests {
             }],
             chassis: vec![Chassis {
                 id: "Card1".to_string(),
-                model: Some("NVIDIA BlueField 3 DPU".to_string()),
+                model: Some(model.to_string()),
                 ..Default::default()
             }],
             managers: vec![Manager {
@@ -3873,17 +3875,34 @@ mod tests {
 
     #[test]
     fn bmc_eth0_offset_skips_locally_administered_mac() {
-        // Transient pre-sync MAC (locally-administered bit set) must not derive
-        // a base MAC, even though the platform classifies and an eth0 exists.
-        let transient = bf3_report_with_eth0("9a:72:d5:07:ae:7e");
-        assert_eq!(bmc_eth0_to_base_mac_offset(&transient), Some(0x25));
-        assert!(derive_base_mac_from_bmc_eth0(&transient).is_none());
-
-        // Sanity: the same report with the real (globally-unique) eth0 derives.
-        let synced = bf3_report_with_eth0("5c:25:73:9e:ac:eb");
-        assert_eq!(
-            derive_base_mac_from_bmc_eth0(&synced),
-            Some("5c:25:73:9e:ac:c6".parse().unwrap())
+        check_values(
+            [
+                Check {
+                    scenario: "space-separated BF3 model with pre-sync eth0",
+                    input: (BF3_MODEL_VARIANTS[0], "9a:72:d5:07:ae:7e"),
+                    expect: None,
+                },
+                Check {
+                    scenario: "hyphenated BF3 model with pre-sync eth0",
+                    input: (BF3_MODEL_VARIANTS[1], "9a:72:d5:07:ae:7e"),
+                    expect: None,
+                },
+                Check {
+                    scenario: "space-separated BF3 model with synced eth0",
+                    input: (BF3_MODEL_VARIANTS[0], "5c:25:73:9e:ac:eb"),
+                    expect: Some("5c:25:73:9e:ac:c6".parse().unwrap()),
+                },
+                Check {
+                    scenario: "hyphenated BF3 model with synced eth0",
+                    input: (BF3_MODEL_VARIANTS[1], "5c:25:73:9e:ac:eb"),
+                    expect: Some("5c:25:73:9e:ac:c6".parse().unwrap()),
+                },
+            ],
+            |(model, eth0_mac)| {
+                let report = bf3_report_with_eth0(model, eth0_mac);
+                assert_eq!(bmc_eth0_to_base_mac_offset(&report), Some(0x25));
+                derive_base_mac_from_bmc_eth0(&report)
+            },
         );
     }
 
@@ -4125,6 +4144,12 @@ mod tests {
             ep
         };
 
+        let bf3_with_empty_sys_image = |model| {
+            let mut ep = explored_endpoint(bf3_report_with_eth0(model, "5c:25:73:9e:ac:eb"));
+            ep.report.service = with_sys_image("").report.service;
+            ep
+        };
+
         // Drop the firmware-inventory entry whose `id` matches `inventory_id`.
         let without_inventory = |inventory_id: &str| {
             let mut ep = endpoint();
@@ -4151,6 +4176,16 @@ mod tests {
                     scenario: "legacy sys-image MAC, sanitized",
                     input: endpoint(),
                     expect: Yields("B8:3F:D2:90:95:F4".parse().unwrap()),
+                },
+                Case {
+                    scenario: "space-separated BF3 model falls back to BMC eth0",
+                    input: bf3_with_empty_sys_image(BF3_MODEL_VARIANTS[0]),
+                    expect: Yields("5c:25:73:9e:ac:c6".parse().unwrap()),
+                },
+                Case {
+                    scenario: "hyphenated BF3 model falls back to BMC eth0",
+                    input: bf3_with_empty_sys_image(BF3_MODEL_VARIANTS[1]),
+                    expect: Yields("5c:25:73:9e:ac:c6".parse().unwrap()),
                 },
                 Case {
                     scenario: "legacy sys-image MAC fails sanitization",
