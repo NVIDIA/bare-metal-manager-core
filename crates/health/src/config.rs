@@ -1767,6 +1767,10 @@ pub struct NvueGnmiPaths {
     pub components_enabled: bool,
     pub interfaces_enabled: bool,
     pub platform_general_enabled: bool,
+
+    /// Collect leak sensor state from the NVOS platform-general gNMI tree.
+    /// Disabled by default because path support depends on the NVOS release.
+    pub leak_sensors_enabled: bool,
 }
 
 impl Default for NvueGnmiPaths {
@@ -1775,6 +1779,7 @@ impl Default for NvueGnmiPaths {
             components_enabled: true,
             interfaces_enabled: true,
             platform_general_enabled: true,
+            leak_sensors_enabled: false,
         }
     }
 }
@@ -3951,6 +3956,7 @@ platform_environment_leakage_enabled = false
                 components_enabled: bool,
                 interfaces_enabled: bool,
                 platform_general_enabled: bool,
+                leak_sensors_enabled: bool,
             },
         }
 
@@ -3978,6 +3984,7 @@ platform_environment_leakage_enabled = false
                         components_enabled: true,
                         interfaces_enabled: true,
                         platform_general_enabled: true,
+                        leak_sensors_enabled: false,
                     },
                 },
                 Check {
@@ -3994,6 +4001,7 @@ system_events_enabled = false
 components_enabled = false
 interfaces_enabled = true
 platform_general_enabled = false
+leak_sensors_enabled = true
 "#,
                     expect: Projection::Enabled {
                         port: 19339,
@@ -4004,6 +4012,7 @@ platform_general_enabled = false
                         components_enabled: false,
                         interfaces_enabled: true,
                         platform_general_enabled: false,
+                        leak_sensors_enabled: true,
                     },
                 },
                 Check {
@@ -4021,6 +4030,7 @@ system_events_subscription_enabled = false
                         components_enabled: true,
                         interfaces_enabled: true,
                         platform_general_enabled: true,
+                        leak_sensors_enabled: false,
                     },
                 },
                 Check {
@@ -4038,6 +4048,7 @@ events_enabled = false
                         components_enabled: true,
                         interfaces_enabled: true,
                         platform_general_enabled: true,
+                        leak_sensors_enabled: false,
                     },
                 },
             ],
@@ -4063,6 +4074,7 @@ events_enabled = false
                     components_enabled: gnmi.paths.components_enabled,
                     interfaces_enabled: gnmi.paths.interfaces_enabled,
                     platform_general_enabled: gnmi.paths.platform_general_enabled,
+                    leak_sensors_enabled: gnmi.paths.leak_sensors_enabled,
                 }
             },
         );

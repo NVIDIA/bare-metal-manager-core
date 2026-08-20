@@ -461,6 +461,9 @@ interfaces_enabled = true
 # Switch-level memory, disk utilization, and ambient temperature from
 # `/platform-general/state` (a singleton, not keyed by interface or component name).
 platform_general_enabled = true
+# Per-sensor leakage state from `/platform-general/leak-sensors/leak-sensor[id]/state/state`.
+# Enable only on NVOS releases that support this path. Default: false.
+leak_sensors_enabled = false
 
 # ==============================================================================
 # Processors
