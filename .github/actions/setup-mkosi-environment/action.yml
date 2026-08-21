@@ -13,9 +13,24 @@ inputs:
 runs:
   using: "composite"
   steps:
+    # add apt proxy cache, more details https://github.com/nv-gha-runners/setup-proxy-cache
+    - name: Setup proxy cache
+      uses: nv-gha-runners/setup-proxy-cache@14229018fe157c83e03c008f27d183d8e99bc67c
+      with:
+        enable-apt: true
+
     - name: Update package lists
       shell: bash
       run: |
+        # apt defaults to three tries against a 120s timeout, so one unhealthy
+        # mirror IP stalls for minutes before it gives up on a package. Failing
+        # faster and trying more often lands on a healthy IP sooner.
+        sudo tee /etc/apt/apt.conf.d/99-nico-acquire >/dev/null <<'EOF'
+        Acquire::Retries "10";
+        Acquire::http::Timeout "20";
+        Acquire::https::Timeout "20";
+        EOF
+
         sudo apt-get update
 
     - name: Install system dependencies
