@@ -1109,6 +1109,8 @@ paths:
         User must have authorization role with `PROVIDER_ADMIN` suffix.
 
         Infrastructure Provider updating the Site must be the owner of the Site. At present, there are no other Site-specific configurations modifiable by Tenant.
+
+        Providers can set `capabilities.powerProvisioning` to `disabled`, `external`, or `dps`. Omission or `null` preserves the current mode; the default mode is `disabled`.
       requestBody:
         content:
           application/json:
@@ -3161,6 +3163,8 @@ paths:
         Update an existing VPC
 
         Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix
+
+        A non-empty `powerResourceGroup` requires the Site's `powerProvisioning` mode to be `external` or `dps`; otherwise the request returns 412. Omission or `null` preserves the current association, while an empty string clears it even when power provisioning is disabled.
       requestBody:
         content:
           application/json:
@@ -7894,6 +7898,8 @@ paths:
         Update an Instance by ID
 
         Org must have a Tenant entity. Instance must belong to Tenant. User must have authorization role with `TENANT_ADMIN` suffix.
+
+        A non-empty `powerProfile` requires the Site's `powerProvisioning` mode to be `external` or `dps`; otherwise the request returns 412. Omission or `null` preserves the current profile, while an empty string clears it even when power provisioning is disabled.
       requestBody:
         content:
           application/json:
@@ -17996,7 +18002,7 @@ components:
             - 'null'
           description: Enable or disable image-based operating system support for the Site
         powerProvisioning:
-          anyOf:
+          oneOf:
             - $ref: '#/components/schemas/SitePowerProvisioningMode'
             - type: 'null'
           description: Select the owner of power provisioning for the Site. Omission or `null` preserves the current mode. Only Providers can update this field.

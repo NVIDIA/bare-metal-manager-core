@@ -227,7 +227,7 @@ func TestManageInstance_UpdateInstancesInDBVpcSelectionInventory(t *testing.T) {
 	)
 	require.NoError(t, err)
 	_, err = dbSession.DB.Exec(
-		"UPDATE instance SET power_profile = ?, updated = ? WHERE id = ?",
+		"UPDATE instance SET power_profile = ?, is_missing_on_site = true, updated = ? WHERE id = ?",
 		existingPowerProfile,
 		time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2),
 		nilConfigInstance.ID,
@@ -432,7 +432,7 @@ func TestManageInstance_UpdateInstancesInDBVpcSelectionInventory(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, nilConfigUnchanged.PowerProfile)
 	assert.Equal(t, existingPowerProfile, *nilConfigUnchanged.PowerProfile)
-	assert.False(t, nilConfigUnchanged.IsMissingOnSite)
+	assert.True(t, nilConfigUnchanged.IsMissingOnSite)
 
 	// Pending inventory is not authoritative enough to clear either resolution.
 	inventory.Instances[0].Status.Network.Interfaces[0].ResolvedVpcPrefixes = nil

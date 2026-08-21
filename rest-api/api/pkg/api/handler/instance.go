@@ -4015,7 +4015,7 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 			},
 			Config: &corev1.InstanceConfig{
 				NetworkSecurityGroupId: ui.NetworkSecurityGroupID,
-				PowerProfile:           apiRequest.PowerProfile,
+				PowerProfile:           ui.PowerProfile,
 				Tenant: &corev1.TenantConfig{
 					TenantOrganizationId: tenant.Org,
 					TenantKeysetIds:      instanceSshKeyGroupIds,

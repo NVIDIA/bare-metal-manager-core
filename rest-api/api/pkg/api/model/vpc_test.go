@@ -813,11 +813,12 @@ func TestAPIVpcCreateRequest_ToProto(t *testing.T) {
 	})
 
 	t.Run("forwards persisted power resource group", func(t *testing.T) {
-		powerResourceGroup := "power-rg-a"
-		vpc := &cdbm.Vpc{ID: id, Org: "org-1", Name: "vpc-a", PowerResourceGroup: &powerResourceGroup}
-		got := (APIVpcCreateRequest{PowerResourceGroup: &powerResourceGroup}).ToProto(vpc)
+		persistedPowerResourceGroup := "power-rg-persisted"
+		requestedPowerResourceGroup := "power-rg-requested"
+		vpc := &cdbm.Vpc{ID: id, Org: "org-1", Name: "vpc-a", PowerResourceGroup: &persistedPowerResourceGroup}
+		got := (APIVpcCreateRequest{PowerResourceGroup: &requestedPowerResourceGroup}).ToProto(vpc)
 		require.NotNil(t, got.PowerResourceGroup)
-		assert.Equal(t, powerResourceGroup, *got.PowerResourceGroup)
+		assert.Equal(t, persistedPowerResourceGroup, *got.PowerResourceGroup)
 	})
 }
 
@@ -937,9 +938,16 @@ func TestAPIVpcUpdateRequest_ToProto(t *testing.T) {
 		vpc := &cdbm.Vpc{ID: id, Name: "vpc-a"}
 		set := "power-rg-a"
 
-		assert.Nil(t, (APIVpcUpdateRequest{}).ToProto(vpc).PowerResourceGroup)
-		assert.Equal(t, set, *(APIVpcUpdateRequest{PowerResourceGroup: &set}).ToProto(vpc).PowerResourceGroup)
-		assert.Equal(t, "", *(APIVpcUpdateRequest{PowerResourceGroup: &empty}).ToProto(vpc).PowerResourceGroup)
+		got := (APIVpcUpdateRequest{}).ToProto(vpc)
+		assert.Nil(t, got.PowerResourceGroup)
+
+		got = (APIVpcUpdateRequest{PowerResourceGroup: &set}).ToProto(vpc)
+		require.NotNil(t, got.PowerResourceGroup)
+		assert.Equal(t, set, *got.PowerResourceGroup)
+
+		got = (APIVpcUpdateRequest{PowerResourceGroup: &empty}).ToProto(vpc)
+		require.NotNil(t, got.PowerResourceGroup)
+		assert.Equal(t, "", *got.PowerResourceGroup)
 	})
 }
 

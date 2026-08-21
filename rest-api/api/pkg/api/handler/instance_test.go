@@ -4229,6 +4229,10 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 
 	inst1 := testInstanceBuildInstance(t, dbSession, "test-instance-1", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cutil.GetPtr(mc1.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst1)
+	existingPowerProfile := "balanced"
+	_, updatePowerProfileErr := dbSession.DB.Exec("UPDATE instance SET power_profile = ? WHERE id = ?", existingPowerProfile, inst1.ID)
+	require.NoError(t, updatePowerProfileErr)
+	inst1.PowerProfile = &existingPowerProfile
 
 	inst2 := testInstanceBuildInstance(t, dbSession, "test-instance-name-updated", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cutil.GetPtr(mc2.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst2)
@@ -4782,6 +4786,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 		expectedNetworkSecurityGroupInherited *bool
 		expectedPropagationDetailedStatus     *string
 		expectedPropagationStatus             *string
+		expectedSitePowerProfile              *string
 		// When true, only assert len(siteReq.Config.Nvlink.GpuConfigs) matches the request (e.g. NVLink no-op where workflow uses DB order).
 		nvLinkGpuConfigsVerifyCountOnly bool
 		// When non-nil, expected len(siteReq.Config.Nvlink.GpuConfigs) for verifySiteControllerRequest (default: len(reqData.NVLinkInterfaces)).
@@ -4803,6 +4808,48 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 		verifySiteControllerRequest bool
 		verifyChildSpanner          bool
 	}{
+		{
+			name: "test Instance update preserves persisted power profile when omitted",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				scp:       scp,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: &model.APIInstanceUpdateRequest{
+					Name:       cutil.GetPtr("Test Instance preserved power profile"),
+					IpxeScript: os2.IpxeScript,
+				},
+				reqInstance:              inst1.ID.String(),
+				cleanInstanceToStatus:    inst1.Status,
+				reqOrg:                   tnOrg1,
+				reqUser:                  tnu1,
+				respCode:                 http.StatusOK,
+				expectedSitePowerProfile: &existingPowerProfile,
+			},
+			verifySiteControllerRequest: true,
+			verifyChildSpanner:          true,
+		},
+		{
+			name: "test Instance update rejects power profile when Site power provisioning is disabled",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				scp:       scp,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: &model.APIInstanceUpdateRequest{
+					PowerProfile: cutil.GetPtr("performance"),
+				},
+				reqInstance: inst1.ID.String(),
+				reqOrg:      tnOrg1,
+				reqUser:     tnu1,
+				respCode:    http.StatusPreconditionFailed,
+				respMessage: cutil.GetPtr("Site is not configured to accept power provisioning values"),
+			},
+		},
 		{
 			name: "test Instance update API endpoint success with InfiniBand Interfaces no-op when request matches READY rows on partition, device and device instance",
 			fields: fields{
@@ -7392,6 +7439,11 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 				}
 				require.NotNil(t, siteReq, "expected UpdateInstance workflow request for Instance %s", tt.args.reqInstance)
 				if siteReq != nil {
+					if tt.args.expectedSitePowerProfile != nil {
+						require.NotNil(t, siteReq.Config.PowerProfile)
+						assert.Equal(t, *tt.args.expectedSitePowerProfile, *siteReq.Config.PowerProfile)
+					}
+
 					// Verify the number of interfaces in the request as pending status
 					// which is the number of interfaces in the request
 					var reqInsIfcs []cdbm.Interface

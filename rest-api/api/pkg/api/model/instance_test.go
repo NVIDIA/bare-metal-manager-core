@@ -1060,6 +1060,71 @@ func TestAPIBatchInstanceCreateRequest_Validate(t *testing.T) {
 	}
 }
 
+func TestInstanceCreateRequestsValidatePowerProfile(t *testing.T) {
+	profiles := []struct {
+		name    string
+		value   *string
+		wantErr bool
+	}{
+		{name: "omitted"},
+		{name: "empty", value: cutil.GetPtr(""), wantErr: true},
+		{name: "non-empty", value: cutil.GetPtr("balanced")},
+	}
+
+	validators := []struct {
+		name     string
+		validate func(*string) error
+	}{
+		{
+			name: "single create",
+			validate: func(powerProfile *string) error {
+				return (APIInstanceCreateRequest{
+					Name:              "test-instance",
+					TenantID:          uuid.NewString(),
+					InstanceTypeID:    cutil.GetPtr(uuid.NewString()),
+					VpcID:             uuid.NewString(),
+					OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+					PowerProfile:      powerProfile,
+					Interfaces: []APIInterfaceCreateOrUpdateRequest{
+						{SubnetID: cutil.GetPtr(uuid.NewString())},
+					},
+				}).Validate()
+			},
+		},
+		{
+			name: "batch create",
+			validate: func(powerProfile *string) error {
+				return (APIBatchInstanceCreateRequest{
+					NamePrefix:        "test-batch",
+					Count:             2,
+					TenantID:          uuid.NewString(),
+					InstanceTypeID:    uuid.NewString(),
+					VpcID:             uuid.NewString(),
+					OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+					PowerProfile:      powerProfile,
+					Interfaces: []APIInterfaceCreateOrUpdateRequest{
+						{SubnetID: cutil.GetPtr(uuid.NewString())},
+					},
+				}).Validate()
+			},
+		},
+	}
+
+	for _, validator := range validators {
+		for _, profile := range profiles {
+			t.Run(validator.name+"/"+profile.name, func(t *testing.T) {
+				err := validator.validate(profile.value)
+				if profile.wantErr {
+					require.Error(t, err)
+					assert.Contains(t, err.Error(), "`powerProfile` must not be empty")
+					return
+				}
+				require.NoError(t, err)
+			})
+		}
+	}
+}
+
 func TestInstanceRequestsAcceptVpcSelectedSecondaryInterfaces(t *testing.T) {
 	tests := []struct {
 		name     string

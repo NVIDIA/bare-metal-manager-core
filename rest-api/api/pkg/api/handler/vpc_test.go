@@ -1730,6 +1730,25 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 		expectedRoutingProfileOverrides   *model.APIVpcRoutingProfileOverrides
 		expectNoRoutingProfileMutation    bool
 	}{
+		{
+			name: "test VPC update rejects power resource group when Site power provisioning is disabled",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: &model.APIVpcUpdateRequest{
+					PowerResourceGroup: cutil.GetPtr("resource-group"),
+				},
+				reqVPCID:    vpc.ID.String(),
+				reqVPC:      vpc,
+				reqOrg:      tnOrg,
+				reqUser:     tnu,
+				respCode:    http.StatusPreconditionFailed,
+				respMessage: "Site is not configured to accept power provisioning values",
+			},
+		},
 		// A present object replaces the FNN VPC's full inline definition.
 		{
 			name: "test VPC update replaces routing profile overrides",
