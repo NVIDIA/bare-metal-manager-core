@@ -468,7 +468,7 @@ impl TryFrom<rpc::machine_discovery::MemoryDeviceGroup>
     type Error = RpcDataConversionError;
 
     fn try_from(value: rpc::machine_discovery::MemoryDeviceGroup) -> Result<Self, Self::Error> {
-        if value.count > model::hardware_info::MAX_MEMORY_DEVICE_GROUP_COUNT {
+        if value.count > model::hardware_info::MAX_MEMORY_DEVICE_COUNT {
             return Err(RpcDataConversionError::InvalidValue(
                 "memory_device_groups[].count".to_string(),
                 value.count.to_string(),
@@ -533,13 +533,25 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
             dpu_info: info.dpu_info.map(DpuData::try_from).transpose()?,
             gpus: try_convert_vec(info.gpus)?,
             memory_devices: if !info.memory_device_groups.is_empty() {
-                info.memory_device_groups
+                let groups: Vec<_> = info
+                    .memory_device_groups
                     .into_iter()
                     .map(model::hardware_info::MemoryDeviceGroup::try_from)
                     .collect::<Result<Vec<_>, _>>()?
                     .into_iter()
                     .filter_map(model::hardware_info::MemoryDeviceGroup::nonzero)
-                    .collect()
+                    .collect();
+                let total: u64 = groups.iter().map(|g| u64::from(g.count)).sum();
+                if total > u64::from(model::hardware_info::MAX_MEMORY_DEVICE_COUNT) {
+                    return Err(RpcDataConversionError::InvalidValue(
+                        "memory_device_groups".to_string(),
+                        format!(
+                            "total memory device count {total} exceeds maximum of {}",
+                            model::hardware_info::MAX_MEMORY_DEVICE_COUNT
+                        ),
+                    ));
+                }
+                groups
             } else {
                 #[allow(deprecated)]
                 condense_memory_devices(info.memory_devices.into_iter().map(MemoryDevice::from))
@@ -2479,7 +2491,7 @@ mod tests {
         );
     }
 
-    // A `count` above `MAX_MEMORY_DEVICE_GROUP_COUNT` is rejected, otherwise
+    // A `count` above `MAX_MEMORY_DEVICE_COUNT` is rejected, otherwise
     // it would let `rehydrate` allocate an unbounded number of `MemoryDevice`s.
     #[test]
     fn discovery_info_conversion_rejects_excessive_memory_group_count() {
@@ -2487,8 +2499,31 @@ mod tests {
             memory_device_groups: vec![rpc::machine_discovery::MemoryDeviceGroup {
                 size_mb: Some(16384),
                 mem_type: Some("DDR5".to_string()),
-                count: model::hardware_info::MAX_MEMORY_DEVICE_GROUP_COUNT + 1,
+                count: model::hardware_info::MAX_MEMORY_DEVICE_COUNT + 1,
             }],
+            ..Default::default()
+        };
+        assert!(HardwareInfo::try_from(info).is_err());
+    }
+
+    // Distinct groups, each individually within `MAX_MEMORY_DEVICE_COUNT`, must
+    // be rejected if their total count across the whole list exceeds the max.
+    #[test]
+    fn discovery_info_conversion_rejects_distinct_groups_summing_above_max() {
+        let above_half_max = model::hardware_info::MAX_MEMORY_DEVICE_COUNT / 2 + 1;
+        let info = rpc::machine_discovery::DiscoveryInfo {
+            memory_device_groups: vec![
+                rpc::machine_discovery::MemoryDeviceGroup {
+                    size_mb: Some(16384),
+                    mem_type: Some("DDR5".to_string()),
+                    count: above_half_max,
+                },
+                rpc::machine_discovery::MemoryDeviceGroup {
+                    size_mb: Some(8192),
+                    mem_type: Some("DDR4".to_string()),
+                    count: above_half_max,
+                },
+            ],
             ..Default::default()
         };
         assert!(HardwareInfo::try_from(info).is_err());

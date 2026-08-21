@@ -245,7 +245,7 @@ fn default_count_one() -> u32 {
 /// real DIMM slot count (even the largest multi-socket servers top out in the low hundreds), so
 /// this only exists to keep [`MemoryDeviceGroup::rehydrate`] from allocating an unbounded number
 /// of [`MemoryDevice`]s for a malicious or corrupted `count`.
-pub const MAX_MEMORY_DEVICE_GROUP_COUNT: u32 = 8192;
+pub const MAX_MEMORY_DEVICE_COUNT: u32 = 8192;
 
 /// Condensed representation of one or more identical memory devices. This is the internal and
 /// storage form stored in [`HardwareInfo`]. Use [`condense_memory_devices`] to build from a flat
@@ -315,19 +315,19 @@ where
     use serde::de::Error;
     let raw = Vec::<MemoryDeviceGroup>::deserialize(deserializer)?;
     let mut merged: Vec<MemoryDeviceGroup> = Vec::new();
+    let mut total: u64 = 0;
     for group in raw.into_iter().filter_map(|g| g.nonzero()) {
+        total += u64::from(group.count);
+        if total > u64::from(MAX_MEMORY_DEVICE_COUNT) {
+            return Err(D::Error::custom(format!(
+                "total memory device count {total} exceeds maximum of {MAX_MEMORY_DEVICE_COUNT}"
+            )));
+        }
         match merged.last_mut() {
             Some(last) if last.size_mb == group.size_mb && last.mem_type == group.mem_type => {
                 last.count = last.count.saturating_add(group.count);
             }
             _ => merged.push(group),
-        }
-        let last = merged.last().expect("just inserted or updated an element");
-        if last.count > MAX_MEMORY_DEVICE_GROUP_COUNT {
-            return Err(D::Error::custom(format!(
-                "memory device group count {} exceeds maximum of {MAX_MEMORY_DEVICE_GROUP_COUNT}",
-                last.count
-            )));
         }
     }
     Ok(merged)
@@ -1444,7 +1444,7 @@ mod tests {
 
     #[test]
     fn deserialize_memory_devices_rejects_excessive_count() {
-        // A single group's `count` above `MAX_MEMORY_DEVICE_GROUP_COUNT` must be rejected,
+        // A single group's `count` above `MAX_MEMORY_DEVICE_COUNT` must be rejected,
         // otherwise it would let `rehydrate` allocate an unbounded number of `MemoryDevice`s.
         let json = format!(
             r#"{{
@@ -1453,7 +1453,7 @@ mod tests {
                     {{"size_mb": 8192, "mem_type": "DDR4", "count": {}}}
                 ]
             }}"#,
-            MAX_MEMORY_DEVICE_GROUP_COUNT + 1
+            MAX_MEMORY_DEVICE_COUNT + 1
         );
         assert!(serde_json::from_str::<HardwareInfo>(&json).is_err());
     }
@@ -1472,22 +1472,41 @@ mod tests {
                     {{"size_mb": 8192, "mem_type": "DDR4", "count": {max}}}
                 ]
             }}"#,
-            max = MAX_MEMORY_DEVICE_GROUP_COUNT
+            max = MAX_MEMORY_DEVICE_COUNT
+        );
+        assert!(serde_json::from_str::<HardwareInfo>(&json).is_err());
+    }
+
+    #[test]
+    fn deserialize_memory_devices_rejects_distinct_groups_summing_above_max() {
+        // Distinct (non-mergeable) groups, each individually within the max,
+        // must be rejected if their total across the whole list exceeds the
+        // max — the bound applies to the total device count, not just the
+        // count of any single group.
+        let above_half_max = MAX_MEMORY_DEVICE_COUNT / 2 + 1;
+        let json = format!(
+            r#"{{
+                "machine_type": "x86_64",
+                "memory_devices": [
+                    {{"size_mb": 8192, "mem_type": "DDR4", "count": {above_half_max}}},
+                    {{"size_mb": 32768, "mem_type": "DDR5", "count": {above_half_max}}}
+                ]
+            }}"#
         );
         assert!(serde_json::from_str::<HardwareInfo>(&json).is_err());
     }
 
     #[test]
     fn deserialize_memory_devices_merges_consecutive_groups_within_max_count() {
-        // Two consecutive identical groups whose merged total is still under
+        // Two consecutive identical groups whose merged total is still within
         // the max must merge correctly.
-        let half = MAX_MEMORY_DEVICE_GROUP_COUNT / 2;
+        let half_max = MAX_MEMORY_DEVICE_COUNT / 2;
         let json = format!(
             r#"{{
                 "machine_type": "x86_64",
                 "memory_devices": [
-                    {{"size_mb": 8192, "mem_type": "DDR4", "count": {half}}},
-                    {{"size_mb": 8192, "mem_type": "DDR4", "count": {half}}}
+                    {{"size_mb": 8192, "mem_type": "DDR4", "count": {half_max}}},
+                    {{"size_mb": 8192, "mem_type": "DDR4", "count": {half_max}}}
                 ]
             }}"#
         );
@@ -1497,7 +1516,7 @@ mod tests {
             vec![MemoryDeviceGroup {
                 size_mb: Some(8192),
                 mem_type: Some("DDR4".into()),
-                count: half.saturating_add(half),
+                count: half_max.saturating_add(half_max),
             }]
         );
     }
