@@ -8,6 +8,9 @@ on:
   push:
     branches:
       - "test/pdx-mirror-validation"
+      # NVIDIA's PR mirror pushes the PR head here, which is what actually runs
+      # CI on origin. Needed so this probe runs from PR #5255.
+      - "pull-request/5255"
   workflow_dispatch:
     inputs:
       iterations:
