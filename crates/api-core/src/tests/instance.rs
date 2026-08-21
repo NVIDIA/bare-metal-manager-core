@@ -3113,8 +3113,17 @@ async fn test_auto_vpc_prefix_selection_uses_static_first_fit(pool: PgPool) {
 #[crate::sqlx_test]
 async fn test_slaac_vpc_allocation_preserves_prefix_without_ipv6_address(pool: PgPool) {
     let fixture = create_auto_vpc_selection_fixture_with_slaac(pool, true).await;
+    let ineligible_ipv6_prefix =
+        IpNetwork::V6(Ipv6Network::new("fd42:2403:0:2::".parse().unwrap(), 126).unwrap());
+    let ineligible_ipv6_prefix_id = create_tenant_overlay_prefix_with_prefix(
+        &fixture.env,
+        fixture.vpc_id,
+        "ineligible SLAAC IPv6 candidate",
+        ineligible_ipv6_prefix,
+    )
+    .await;
     let ipv6_parent_prefix =
-        IpNetwork::V6(Ipv6Network::new("fd42:2403::".parse().unwrap(), 126).unwrap());
+        IpNetwork::V6(Ipv6Network::new("fd42:2403::".parse().unwrap(), 63).unwrap());
     let ipv6_prefix_id = create_tenant_overlay_prefix_with_prefix(
         &fixture.env,
         fixture.vpc_id,
@@ -3122,6 +3131,66 @@ async fn test_slaac_vpc_allocation_preserves_prefix_without_ipv6_address(pool: P
         ipv6_parent_prefix,
     )
     .await;
+
+    let historical_prefix = "fd42:2403:0:2::/127".parse::<IpNetwork>().unwrap();
+    let historical_allocator =
+        PrefixAllocator::new(ineligible_ipv6_prefix_id, ineligible_ipv6_prefix, None, 127).unwrap();
+    let mut txn = fixture.env.db_txn().await;
+    let (historical_segment_id, allocated_prefix) = allocate_test_network_segment(
+        &historical_allocator,
+        txn.as_mut(),
+        fixture.vpc_id,
+        Some(historical_prefix),
+    )
+    .await
+    .unwrap();
+    assert_eq!(allocated_prefix, historical_prefix);
+    let mut persisted_prefixes = db::network_prefix::find_by(
+        txn.as_mut(),
+        ObjectColumnFilter::One(db::network_prefix::SegmentIdColumn, &historical_segment_id),
+    )
+    .await
+    .unwrap();
+    assert_eq!(persisted_prefixes.len(), 1);
+    let persisted_prefix = persisted_prefixes.pop().unwrap();
+    txn.commit().await.unwrap();
+
+    // Keep an existing interface prefix as is. Check whether the VPC prefix can
+    // contain a /64 only when allocating a new interface prefix.
+    let mut historical_config =
+        InstanceNetworkConfig::for_vpc_prefix_id(ineligible_ipv6_prefix_id, Some(fixture.vpc_id));
+    historical_config.interfaces[0].network_segment_id = Some(historical_segment_id);
+    historical_config.interfaces[0]
+        .interface_prefixes
+        .insert(persisted_prefix.id, historical_prefix);
+    let expected_historical_config = historical_config.clone();
+    let mut txn = fixture.env.db_txn().await;
+    allocate_network(
+        &mut historical_config,
+        &fixture.tenant_organization_id,
+        txn.as_mut(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(historical_config, expected_historical_config);
+    let replayed_prefixes = db::network_prefix::find_allocation_occupancy(
+        txn.as_mut(),
+        ineligible_ipv6_prefix_id,
+        ineligible_ipv6_prefix,
+    )
+    .await
+    .unwrap();
+    assert_eq!(replayed_prefixes.len(), 1);
+    let replayed_prefix = &replayed_prefixes[0];
+    assert_eq!(replayed_prefix.id, persisted_prefix.id);
+    assert_eq!(replayed_prefix.segment_id, historical_segment_id);
+    assert_eq!(replayed_prefix.prefix, historical_prefix);
+    assert_eq!(
+        replayed_prefix.vpc_prefix_id,
+        Some(ineligible_ipv6_prefix_id)
+    );
+    assert_eq!(replayed_prefix.vpc_prefix, Some(ineligible_ipv6_prefix));
+    txn.rollback().await.unwrap();
 
     // Explicit address checks must distinguish the SLAAC policy from a prefix
     // family mismatch. Keep these cases in one table so primary and dual-stack
@@ -3140,6 +3209,8 @@ async fn test_slaac_vpc_allocation_preserves_prefix_without_ipv6_address(pool: P
     let mut mismatched_primary =
         InstanceNetworkConfig::for_vpc_prefix_id(ipv6_prefix_id, Some(fixture.vpc_id));
     mismatched_primary.interfaces[0].requested_ip_addr = Some("192.0.2.1".parse().unwrap());
+    let ineligible_parent =
+        InstanceNetworkConfig::for_vpc_prefix_id(ineligible_ipv6_prefix_id, Some(fixture.vpc_id));
     for (scenario, mut config, expected_error_fragments) in [
         (
             "IPv6-only primary request",
@@ -3155,6 +3226,14 @@ async fn test_slaac_vpc_allocation_preserves_prefix_without_ipv6_address(pool: P
             "IPv4 address with an IPv6 primary prefix",
             mismatched_primary,
             ["requested IP address", "does not match VPC prefix"],
+        ),
+        (
+            "SLAAC parent narrower than one interface prefix",
+            ineligible_parent,
+            [
+                "fd42:2403:0:2::/126",
+                "cannot contain a /64 interface prefix",
+            ],
         ),
     ] {
         let mut txn = fixture.env.db_txn().await;
@@ -3173,6 +3252,37 @@ async fn test_slaac_vpc_allocation_preserves_prefix_without_ipv6_address(pool: P
         );
         txn.rollback().await.unwrap();
     }
+
+    // An explicit VPC-prefix selection uses the same SLAAC carve policy as
+    // automatic selection. Roll it back so the lifecycle below can still
+    // exercise deterministic first-fit allocation from the same parent.
+    let mut explicit_config =
+        InstanceNetworkConfig::for_vpc_prefix_id(ipv6_prefix_id, Some(fixture.vpc_id));
+    let mut txn = fixture.env.db_txn().await;
+    allocate_network(
+        &mut explicit_config,
+        &fixture.tenant_organization_id,
+        txn.as_mut(),
+    )
+    .await
+    .unwrap();
+    let explicit_interface = &explicit_config.interfaces[0];
+    assert!(explicit_interface.ip_addrs.is_empty());
+    assert!(explicit_interface.interface_prefixes.is_empty());
+    let explicit_segment_id = explicit_interface.network_segment_id.unwrap();
+    let explicit_prefixes = db::network_prefix::find_by(
+        txn.as_mut(),
+        ObjectColumnFilter::One(db::network_prefix::SegmentIdColumn, &explicit_segment_id),
+    )
+    .await
+    .unwrap();
+    assert_eq!(explicit_prefixes.len(), 1);
+    assert_eq!(
+        explicit_prefixes[0].prefix,
+        "fd42:2403::/64".parse::<IpNetwork>().unwrap(),
+    );
+    assert_eq!(explicit_prefixes[0].vpc_prefix_id, Some(ipv6_prefix_id));
+    txn.rollback().await.unwrap();
 
     let (managed_host, instance) = allocate_auto_vpc_instance(
         &fixture,
@@ -3252,7 +3362,10 @@ async fn test_slaac_vpc_allocation_preserves_prefix_without_ipv6_address(pool: P
     let [network_prefix] = segment.prefixes.as_slice() else {
         panic!("expected one generated SLAAC IPv6 prefix");
     };
-    assert_eq!(network_prefix.prefix.prefix(), 127);
+    assert_eq!(
+        network_prefix.prefix,
+        "fd42:2403::/64".parse::<IpNetwork>().unwrap(),
+    );
     assert_eq!(
         interface.interface_prefixes.get(&network_prefix.id),
         Some(&network_prefix.prefix),
@@ -3407,9 +3520,13 @@ async fn test_slaac_vpc_allocation_preserves_prefix_without_ipv6_address(pool: P
     db::network_prefix::delete_for_segment(segment_id, txn.as_mut())
         .await
         .unwrap();
+    db::network_prefix::delete_for_segment(historical_segment_id, txn.as_mut())
+        .await
+        .unwrap();
     for vpc_prefix_id in [
         fixture.lower_ipv4_prefix_id,
         fixture.higher_ipv4_prefix_id,
+        ineligible_ipv6_prefix_id,
         ipv6_prefix_id,
     ] {
         db::vpc_prefix::final_delete(vpc_prefix_id, txn.as_mut())
@@ -3487,11 +3604,13 @@ async fn test_slaac_vpc_allocation_preserves_prefix_without_ipv6_address(pool: P
             .all(|address| address.is_ipv4())
     );
     assert_eq!(dual_interface.interface_prefixes.len(), 2);
-    assert!(
+    let expected_dual_ipv6_prefix = "fd42:2403:0:1::/64".parse::<IpNetwork>().unwrap();
+    assert_eq!(
         dual_interface
             .interface_prefixes
             .values()
-            .any(|prefix| prefix.is_ipv6())
+            .find(|prefix| prefix.is_ipv6()),
+        Some(&expected_dual_ipv6_prefix),
     );
     let dual_addresses =
         db::instance_address::find_by_segment_id(txn.as_mut(), &dual_stack_segment_id)
@@ -3528,6 +3647,29 @@ async fn test_slaac_vpc_allocation_preserves_prefix_without_ipv6_address(pool: P
         .find(|address| address.address_family() == rpc::forge::AddressFamily::V4)
         .expect("dual-stack IPv4 family entry");
     assert!(!dual_ipv4.ip.is_empty());
+
+    // The /63 provides exactly two /64 allocations. The ineligible /126 is
+    // ignored rather than surfacing an allocator validation error.
+    let mut exhausted_config =
+        automatic_network_config(fixture.vpc_id, InstanceInterfaceIpFamilyMode::Ipv6Only);
+    let mut txn = fixture.env.db_txn().await;
+    let error = allocate_network(
+        &mut exhausted_config,
+        &fixture.tenant_organization_id,
+        txn.as_mut(),
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        crate::CarbideError::ResourceExhausted(message)
+            if message
+                == format!(
+                    "no eligible IPv6 VPC prefix in VPC `{}` could allocate an interface linknet",
+                    fixture.vpc_id,
+                )
+    ));
+    txn.rollback().await.unwrap();
 }
 
 struct ManualSlaacSegmentFixture {
@@ -4425,7 +4567,10 @@ async fn assert_ipv6_only_resolution(
     .await
     .unwrap();
     assert_eq!(ipv6_only_segment[0].prefixes.len(), 1);
-    assert!(ipv6_only_segment[0].prefixes[0].prefix.is_ipv6());
+    assert_eq!(
+        ipv6_only_segment[0].prefixes[0].prefix,
+        "fd42:218::/127".parse::<IpNetwork>().unwrap(),
+    );
 
     let ipv6_only_addresses =
         db::instance_address::find_by_segment_id(txn.as_mut(), &ipv6_only_segment_id)

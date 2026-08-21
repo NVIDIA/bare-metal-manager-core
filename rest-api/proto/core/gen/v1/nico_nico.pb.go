@@ -10197,11 +10197,12 @@ type VpcConfig struct {
 	// persisted.
 	PowerResourceGroup *string `protobuf:"bytes,9,opt,name=power_resource_group,json=powerResourceGroup,proto3,oneof" json:"power_resource_group,omitempty"`
 	// Selects SLAAC allocation mode for instance IPv6 interfaces in this FNN
-	// VPC. When true, NICo retains the interface prefix without assigning a
-	// concrete IPv6 host address. This policy is fixed when the VPC is created
-	// and cannot be changed through `VpcUpdateRequest`. Allocating a /64 to each
-	// interface is tracked by
-	// https://github.com/NVIDIA/infra-controller/issues/2404. Core reports this
+	// VPC. When true, NICo allocates a /64 to each interface that includes IPv6
+	// and retains that prefix without assigning a concrete IPv6 host address.
+	// This policy is fixed when the VPC is created and cannot be changed through
+	// `VpcUpdateRequest`. NICo does not yet configure router advertisements;
+	// that support is tracked by
+	// https://github.com/NVIDIA/infra-controller/issues/2398. Core reports this
 	// field explicitly; an absent value indicates a response from a Core version
 	// that predates SLAAC support.
 	SlaacEnabled  *bool `protobuf:"varint,10,opt,name=slaac_enabled,json=slaacEnabled,proto3,oneof" json:"slaac_enabled,omitempty"`
@@ -10615,11 +10616,12 @@ type VpcCreationRequest struct {
 	// creation, omission or an empty value creates no association.
 	PowerResourceGroup *string `protobuf:"bytes,19,opt,name=power_resource_group,json=powerResourceGroup,proto3,oneof" json:"power_resource_group,omitempty"`
 	// Selects SLAAC allocation mode for instance IPv6 interfaces in this VPC.
-	// When true, this is supported only for FNN VPCs. False or omission disables
-	// SLAAC. Core evaluates this value only during VPC creation;
-	// `VpcUpdateRequest` cannot change the resulting policy. Allocating a /64 to
-	// each interface is tracked by
-	// https://github.com/NVIDIA/infra-controller/issues/2404.
+	// When true, this is supported only for FNN VPCs and Core allocates a /64 to
+	// each interface that includes IPv6 without assigning a concrete IPv6 host
+	// address. False or omission disables SLAAC. Core evaluates this value only
+	// during VPC creation; `VpcUpdateRequest` cannot change the resulting policy.
+	// NICo does not yet configure router advertisements; that support is tracked by
+	// https://github.com/NVIDIA/infra-controller/issues/2398.
 	SlaacEnabled  *bool `protobuf:"varint,20,opt,name=slaac_enabled,json=slaacEnabled,proto3,oneof" json:"slaac_enabled,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -11297,12 +11299,19 @@ func (x *VpcPrefixConfig) GetPrefix() string {
 }
 
 type VpcPrefixStatus struct {
-	state                    protoimpl.MessageState `protogen:"open.v1"`
-	Total_31Segments         uint32                 `protobuf:"varint,1,opt,name=total_31_segments,json=total31Segments,proto3" json:"total_31_segments,omitempty"`
-	Available_31Segments     uint32                 `protobuf:"varint,2,opt,name=available_31_segments,json=available31Segments,proto3" json:"available_31_segments,omitempty"`
-	TotalLinknetSegments     uint64                 `protobuf:"varint,3,opt,name=total_linknet_segments,json=totalLinknetSegments,proto3" json:"total_linknet_segments,omitempty"`
-	AvailableLinknetSegments uint64                 `protobuf:"varint,4,opt,name=available_linknet_segments,json=availableLinknetSegments,proto3" json:"available_linknet_segments,omitempty"`
-	Lifecycle                *LifecycleStatus       `protobuf:"bytes,5,opt,name=lifecycle,proto3" json:"lifecycle,omitempty"`
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	Total_31Segments     uint32                 `protobuf:"varint,1,opt,name=total_31_segments,json=total31Segments,proto3" json:"total_31_segments,omitempty"`
+	Available_31Segments uint32                 `protobuf:"varint,2,opt,name=available_31_segments,json=available31Segments,proto3" json:"available_31_segments,omitempty"`
+	// Total interface prefixes this VPC prefix can provide. IPv4 uses /31;
+	// stateful IPv6 uses /127; SLAAC IPv6 uses /64. An IPv6 VPC prefix must be
+	// wider than the interface prefix, so an exact /64 in SLAAC mode has zero
+	// interface capacity. Both capacity counters report values larger than
+	// uint64 as uint64 max.
+	TotalLinknetSegments uint64 `protobuf:"varint,3,opt,name=total_linknet_segments,json=totalLinknetSegments,proto3" json:"total_linknet_segments,omitempty"`
+	// Interface prefixes not currently occupied, using the same prefix length
+	// selected by the VPC mode as total_linknet_segments.
+	AvailableLinknetSegments uint64           `protobuf:"varint,4,opt,name=available_linknet_segments,json=availableLinknetSegments,proto3" json:"available_linknet_segments,omitempty"`
+	Lifecycle                *LifecycleStatus `protobuf:"bytes,5,opt,name=lifecycle,proto3" json:"lifecycle,omitempty"`
 	// Coarse tenant-facing state derived from lifecycle.state at the server side.
 	TenantState   TenantState `protobuf:"varint,6,opt,name=tenant_state,json=tenantState,proto3,enum=forge.TenantState" json:"tenant_state,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -27140,7 +27149,8 @@ type FlatInterfaceIpv6Config struct {
 	// has SLAAC enabled; in that case interface_prefix still identifies the
 	// prefix configured on the DPU interface.
 	Ip string `protobuf:"bytes,1,opt,name=ip,proto3" json:"ip,omitempty"`
-	// Interface-specific prefix allocation (e.g. "2001:db8::/127").
+	// Interface-specific prefix allocation. Stateful FNN uses a /127; SLAAC
+	// uses the /64 allocated to this interface.
 	InterfacePrefix string `protobuf:"bytes,2,opt,name=interface_prefix,json=interfacePrefix,proto3" json:"interface_prefix,omitempty"`
 	// SVI IP for L2 FNN segments — the DPU's IPv6 gateway address on the VLAN.
 	// Only set for L2 segments (can_stretch = true).
