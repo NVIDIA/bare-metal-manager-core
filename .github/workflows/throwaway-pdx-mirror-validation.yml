@@ -1,0 +1,123 @@
+# THROWAWAY: validates the NVIDIA PDX ubuntu-ports apt mirror on ARM64.
+# Safe to delete. Compares raw reliability of ports.ubuntu.com vs the PDX
+# mirror and confirms PDX can actually serve the build's apt packages.
+# Runs only on the test branch push and manual dispatch, never the full CI.
+name: (throwaway) PDX apt mirror validation
+
+on:
+  push:
+    branches:
+      - "test/pdx-mirror-validation"
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: "apt-get update attempts per mirror"
+        default: "10"
+      runner:
+        description: "runner label"
+        default: "linux-arm64-cpu4"
+
+permissions:
+  contents: read
+
+jobs:
+  mirror-check:
+    name: "mirror: ${{ matrix.mirror }}"
+    runs-on: ${{ inputs.runner || 'linux-arm64-cpu4' }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        mirror: [ports, pdx]
+    steps:
+      - name: Probe ${{ matrix.mirror }} mirror
+        shell: bash
+        env:
+          MIRROR: ${{ matrix.mirror }}
+          ITERATIONS: ${{ inputs.iterations || '10' }}
+        run: |
+          set -uo pipefail
+
+          . /etc/os-release
+          codename="${VERSION_CODENAME:?missing VERSION_CODENAME}"
+          echo "runner=$(uname -m) dpkg=$(dpkg --print-architecture) codename=${codename} mirror=${MIRROR}"
+
+          # Measure the mirror directly, not through any apt proxy cache.
+          sudo tee /etc/apt/apt.conf.d/99-validate-direct >/dev/null <<'EOF'
+          Acquire::http::Proxy "DIRECT";
+          Acquire::https::Proxy "DIRECT";
+          EOF
+
+          # Isolate to one mirror so only the ubuntu archive is measured.
+          sudo mkdir -p /etc/apt/sources.list.d.bak
+          sudo bash -c 'mv /etc/apt/sources.list.d/* /etc/apt/sources.list.d.bak/ 2>/dev/null || true'
+
+          if [ "${MIRROR}" = pdx ]; then
+            base="https://artifactory.pdx.nvidia.com/artifactory/ubuntu-ports-remote"
+          else
+            base="http://ports.ubuntu.com/ubuntu-ports"
+          fi
+
+          sudo tee /etc/apt/sources.list >/dev/null <<EOF
+          deb ${base} ${codename} main restricted universe multiverse
+          deb ${base} ${codename}-updates main restricted universe multiverse
+          deb ${base} ${codename}-backports main restricted universe multiverse
+          deb ${base} ${codename}-security main restricted universe multiverse
+          EOF
+
+          echo "=== sources ==="
+          cat /etc/apt/sources.list
+
+          # Raw reliability: retries off so each attempt is a single, honest try.
+          n="${ITERATIONS}"
+          fails=0
+          total=0
+          for i in $(seq 1 "$n"); do
+            s=$(date +%s%3N)
+            if sudo apt-get update \
+                 -o Acquire::Retries=0 \
+                 -o Acquire::http::Timeout=10 \
+                 -o Acquire::https::Timeout=10 >/tmp/u.log 2>&1; then
+              st=ok
+            else
+              st=FAIL
+              fails=$((fails + 1))
+            fi
+            e=$(date +%s%3N)
+            d=$((e - s))
+            total=$((total + d))
+            printf 'update %2d/%s  %-4s  %6dms\n' "$i" "$n" "$st" "$d"
+            [ "$st" = FAIL ] && tail -n 12 /tmp/u.log || true
+          done
+          avg=$((total / n))
+          echo "RESULT mirror=${MIRROR} update_fails=${fails}/${n} avg=${avg}ms"
+
+          # Record reliability before the (fallible) package fetch below.
+          {
+            echo "### ${MIRROR}"
+            echo ""
+            echo "| metric | value |"
+            echo "| --- | --- |"
+            echo "| mirror | \`${base}\` |"
+            echo "| apt-get update failures | ${fails}/${n} |"
+            echo "| avg update time | ${avg} ms |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Confirm the pool actually serves the real build packages (just the
+          # .debs, no dependency install) across main and universe.
+          fetch=fail
+          cd /tmp
+          if sudo apt-get update -o Acquire::Retries=3 >/dev/null 2>&1 \
+             && apt-get download mkosi debootstrap squashfs-tools protobuf-compiler libssl-dev >/tmp/dl.log 2>&1; then
+            fetch=ok
+          fi
+          echo "| package fetch (mkosi, debootstrap, squashfs-tools, protobuf-compiler, libssl-dev) | ${fetch} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "package fetch: ${fetch}"
+          [ "${fetch}" = ok ] || cat /tmp/dl.log || true
+
+          # Only the PDX leg gates the run. The ports leg is informational so its
+          # expected flakiness does not turn the job red.
+          if [ "${MIRROR}" = pdx ]; then
+            [ "${fails}" -lt "${n}" ] || { echo "PDX apt-get update failed on every attempt"; exit 1; }
+            [ "${fetch}" = ok ] || { echo "PDX could not serve required packages"; exit 1; }
+          fi
