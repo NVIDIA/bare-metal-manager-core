@@ -16,7 +16,56 @@ runs:
     - name: Update package lists
       shell: bash
       run: |
-        sudo apt-get update
+        set -euo pipefail
+
+        # apt defaults to three tries against a 120s timeout, so one unhealthy
+        # mirror IP stalls for minutes before it gives up on a package. Failing
+        # faster and trying more often lands on a healthy IP sooner.
+        #
+        # DEP-11 and Translation indexes are the ones the mirror most often 503s
+        # on, and nothing here resolves an AppStream id or reads a localised
+        # description. Not asking for them drops about fifteen requests per
+        # update, and with them their chance of failing.
+        sudo tee /etc/apt/apt.conf.d/99-nico-acquire >/dev/null <<'EOF'
+        Acquire::Retries "5";
+        Acquire::http::Timeout "20";
+        Acquire::https::Timeout "20";
+        Acquire::Languages "none";
+        Acquire::IndexTargets::deb::DEP-11::DefaultEnabled "false";
+        EOF
+
+        # Acquire::Retries only re-asks the same host, so the cloud regional
+        # mirror these runners point at returns 503 on every try while it is
+        # down. Walk independent origins instead, Canonical's own first and then
+        # two university mirrors. security.ubuntu.com is deliberately left
+        # alone, it is a separate origin and is not the one that fails.
+        if grep -qs ubuntu-ports /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null; then
+          repo_path=ubuntu-ports
+          fallbacks="https://ports.ubuntu.com/ubuntu-ports/
+                     https://mirrors.ocf.berkeley.edu/ubuntu-ports/
+                     https://mirrors.mit.edu/ubuntu-ports/"
+        else
+          repo_path=ubuntu
+          fallbacks="https://archive.ubuntu.com/ubuntu/
+                     https://mirrors.ocf.berkeley.edu/ubuntu/
+                     https://mirrors.mit.edu/ubuntu/"
+        fi
+
+        updated=0
+        if sudo apt-get update; then
+          updated=1
+        else
+          for base in ${fallbacks}; do
+            echo "::warning::apt-get update failed, retrying against ${base}"
+            sudo sed -i -E "\#security\.ubuntu\.com#! s#https?://[A-Za-z0-9._-]+/${repo_path}/?#${base}#g" \
+              /etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list 2>/dev/null || true
+            if sudo apt-get update; then
+              updated=1
+              break
+            fi
+          done
+        fi
+        [ "${updated}" = 1 ]
 
     - name: Install system dependencies
       shell: bash
