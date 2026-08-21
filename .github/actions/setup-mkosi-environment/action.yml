@@ -78,12 +78,12 @@ runs:
         # alone, it is a separate origin and is not the one that fails.
         if grep -qs ubuntu-ports /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null; then
           repo_path=ubuntu-ports
-          fallbacks="http://ports.ubuntu.com/ubuntu-ports/
+          fallbacks="https://ports.ubuntu.com/ubuntu-ports/
                      https://mirrors.ocf.berkeley.edu/ubuntu-ports/
                      https://mirrors.mit.edu/ubuntu-ports/"
         else
           repo_path=ubuntu
-          fallbacks="http://archive.ubuntu.com/ubuntu/
+          fallbacks="https://archive.ubuntu.com/ubuntu/
                      https://mirrors.ocf.berkeley.edu/ubuntu/
                      https://mirrors.mit.edu/ubuntu/"
         fi
