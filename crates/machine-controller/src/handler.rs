@@ -790,11 +790,9 @@ impl MachineStateHandler {
             }
         }
 
-        // Initial `mh reset` reprovision from a non-ready state. Mutually exclusive
-        // with the restart block above: that needs started_at.is_some(), this needs None.
-        if non_ready_initial_reprov_needed(&mh_snapshot.dpu_snapshots, &mh_state)
-            && can_start_non_ready_reprov(&mh_state)
-        {
+        // Initial `mh reset` from a non-ready state (eligibility enforced at the API).
+        // Excludes the restart path above, which needs started_at.is_some().
+        if non_ready_initial_reprov_needed(&mh_snapshot.dpu_snapshots, &mh_state) {
             let next = self.start_non_ready_reprov(&mh_state, mh_snapshot, ctx).await?;
             return Ok(StateHandlerOutcome::transition(next));
         }
@@ -2434,28 +2432,6 @@ fn non_ready_initial_reprov_needed(
             .as_ref()
             .is_some_and(|r| r.started_at.is_none() && r.triggered_from_non_ready_state)
     })
-}
-
-/// Authoritative allow-list of host states a non-ready reprovision may start from
-/// (the API-level gate is intentionally minimal). `Assigned` covers the
-/// live-tenant case, already acknowledged via `--allow-reset-with-instance`.
-fn can_start_non_ready_reprov(managed_state: &ManagedHostState) -> bool {
-    matches!(
-        managed_state,
-        ManagedHostState::DPUInit { .. }
-            | ManagedHostState::HostInit { .. }
-            | ManagedHostState::Validation { .. }
-            | ManagedHostState::WaitingForCleanup { .. }
-            | ManagedHostState::Measuring { .. }
-            | ManagedHostState::PreAssignedMeasuring { .. }
-            | ManagedHostState::PostAssignedMeasuring { .. }
-            | ManagedHostState::StartAssignmentCycle
-            | ManagedHostState::BomValidating { .. }
-            | ManagedHostState::HostReprovision { .. }
-            | ManagedHostState::Maintenance { .. }
-            | ManagedHostState::Assigned { .. }
-            | ManagedHostState::Failed { .. }
-    )
 }
 
 async fn handle_restart_verification(

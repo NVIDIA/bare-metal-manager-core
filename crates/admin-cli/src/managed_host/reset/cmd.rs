@@ -23,15 +23,16 @@ use crate::machine::{HealthReportTemplates, get_health_report};
 use crate::rpc::ApiClient;
 
 pub(super) async fn reset(api_client: &ApiClient, args: Args) -> CarbideCliResult<()> {
-    // The server requires a HostUpdateInProgress (PreventAllocations) alert before
-    // it accepts a reprovision; apply it here when a message is provided.
-    if let Some(update_message) = &args.update_message {
-        let report =
-            get_health_report(HealthReportTemplates::HostUpdate, Some(update_message.clone()));
-        api_client
-            .machine_insert_health_report_override(args.machine, report.into(), false)
-            .await?;
-    }
+    // The server requires a HostUpdateInProgress (PreventAllocations) alert before it
+    // accepts a reprovision. Always apply it, using the operator message when given.
+    let update_message = args
+        .update_message
+        .clone()
+        .unwrap_or_else(|| "reset triggered by admin-cli".to_string());
+    let report = get_health_report(HealthReportTemplates::HostUpdate, Some(update_message));
+    api_client
+        .machine_insert_health_report_override(args.machine, report.into(), false)
+        .await?;
 
     let req: DpuReprovisioningRequest = (&args).into();
     api_client.0.trigger_dpu_reprovisioning(req).await?;
