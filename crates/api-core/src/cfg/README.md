@@ -408,10 +408,10 @@ shipped configuration selects a plaintext mode.
 | ------- | ------ | --------- | ------------- |
 | `enabled` | `bool` | `true` | Enables hardware discovery. |
 | `run_interval` | `Duration` | `120s` | Interval between exploration runs. |
-| `concurrent_explorations` | `u64` | `30` | Max nodes explored in parallel. |
-| `explorations_per_run` | `u64` | `90` | Max nodes explored per run. |
+| `concurrent_explorations` | `u64` | `100` | Max nodes explored in parallel. |
+| `explorations_per_run` | `u64` | `360` | Max nodes explored per run. |
 | `create_machines` | `bool` | `true` | When false, SiteExplorer skips creating ManagedHost state machines; the DPU agent (scout) must self-register via DiscoverMachine gRPC endpoint with create_machine=true. Dynamically toggleable. |
-| `machines_created_per_run` | `u64` | `4` | Max ManagedHosts created per run. |
+| `machines_created_per_run` | `u64` | `100` | Max ManagedHosts created per run. |
 | `rotate_switch_nvos_credentials` | `bool` | `false` | Auto-rotate switch NVOS admin credentials. |
 | `override_target_ip` | `Option<String>` | — | **Deprecated.** Use `bmc_proxy`. Debug BMC IP override. |
 | `override_target_port` | `Option<u16>` | — | **Deprecated.** Use `bmc_proxy`. Debug BMC port override. |
