@@ -2274,21 +2274,20 @@ pub(in crate::tests) async fn network_configured_with_health_and_ext_services(
     } else {
         let mut interfaces = vec![];
         for iface in network_config.tenant_interfaces.iter() {
-            let observed_ipv6 = iface
-                .ipv6_interface_config
-                .as_ref()
-                .filter(|ipv6| !ipv6.ip.is_empty());
             interfaces.push(rpc::forge::InstanceInterfaceStatusObservation {
                 function_type: iface.function_type,
                 virtual_function_id: iface.virtual_function_id,
                 mac_address: None,
                 addresses: build_dual_stack_list(
                     iface.ip.clone(),
-                    observed_ipv6.map(|v6| v6.ip.clone()),
+                    iface.ipv6_interface_config.as_ref().map(|v6| v6.ip.clone()),
                 ),
                 prefixes: build_dual_stack_list(
                     iface.interface_prefix.clone(),
-                    observed_ipv6.map(|v6| v6.interface_prefix.clone()),
+                    iface
+                        .ipv6_interface_config
+                        .as_ref()
+                        .map(|v6| v6.interface_prefix.clone()),
                 ),
                 gateways: build_dual_stack_list(iface.gateway.clone(), None),
                 network_security_group: None,

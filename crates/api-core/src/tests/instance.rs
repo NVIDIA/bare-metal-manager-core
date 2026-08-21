@@ -3517,7 +3517,7 @@ async fn test_slaac_vpc_allocation_preserves_prefix_without_ipv6_address(pool: P
         .unwrap()
         .interfaces[0];
     assert!(status_interface.addresses.is_empty());
-    assert!(status_interface.prefixes.is_empty());
+    assert_eq!(status_interface.prefixes, ["fd42:2403::/64"]);
 
     // Re-read through the public API: the selected parent prefix remains
     // visible even though SLAAC deliberately has no concrete host address.
@@ -3532,7 +3532,7 @@ async fn test_slaac_vpc_allocation_preserves_prefix_without_ipv6_address(pool: P
     );
     let persisted_status_interface = &persisted_rpc.status().network().interfaces[0];
     assert!(persisted_status_interface.addresses.is_empty());
-    assert!(persisted_status_interface.prefixes.is_empty());
+    assert_eq!(persisted_status_interface.prefixes, ["fd42:2403::/64"]);
 
     let vpc_instance_ids = fixture
         .env
@@ -3792,13 +3792,12 @@ async fn test_slaac_vpc_allocation_preserves_prefix_without_ipv6_address(pool: P
             .unwrap()
             .is_ipv4()
     );
-    assert_eq!(dual_status_interface.prefixes.len(), 1);
-    assert!(
-        dual_status_interface.prefixes[0]
-            .parse::<IpNetwork>()
-            .unwrap()
-            .is_ipv4()
+    assert_eq!(dual_status_interface.prefixes.len(), 2);
+    assert_eq!(
+        dual_status_interface.prefixes[0],
+        format!("{}/32", dual_status_interface.addresses[0])
     );
+    assert_eq!(dual_status_interface.prefixes[1], "fd42:2403:0:1::/64");
 
     let dual_stack_instance_id = dual_stack_instance.id.unwrap();
     let mut txn = fixture.env.db_txn().await;

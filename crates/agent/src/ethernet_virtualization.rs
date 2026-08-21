@@ -1223,19 +1223,16 @@ pub(super) async fn interfaces(
                         version: nsg.version.clone(),
                     });
 
-            // A SLAAC interface retains its desired IPv6 prefix without a
-            // concrete host address. Status keeps address/prefix lists
-            // positionally aligned, so report that family only after an
-            // address is available.
-            let observed_ipv6 = iface
-                .ipv6_interface_config
-                .as_ref()
-                .filter(|ipv6| !ipv6.ip.is_empty());
-            let addresses =
-                build_dual_stack_list(iface.ip.clone(), observed_ipv6.map(|v6| v6.ip.clone()));
+            let addresses = build_dual_stack_list(
+                iface.ip.clone(),
+                iface.ipv6_interface_config.as_ref().map(|v6| v6.ip.clone()),
+            );
             let prefixes = build_dual_stack_list(
                 iface.interface_prefix.clone(),
-                observed_ipv6.map(|v6| v6.interface_prefix.clone()),
+                iface
+                    .ipv6_interface_config
+                    .as_ref()
+                    .map(|v6| v6.interface_prefix.clone()),
             );
             interfaces.push(rpc::InstanceInterfaceStatusObservation {
                 function_type: iface.function_type,
@@ -3748,7 +3745,7 @@ mod tests {
 
     #[tokio::test]
     #[allow(deprecated)]
-    async fn ipv6_status_projects_admin_and_tenant_slaac_differently() {
+    async fn ipv6_status_preserves_slaac_prefix_without_host_address() {
         for (
             scenario,
             use_admin_network,
@@ -3771,7 +3768,7 @@ mod tests {
                 "",
                 "2001:db8::/64",
                 vec![],
-                vec![],
+                vec!["2001:db8::/64"],
             ),
             (
                 "admin SLAAC prefix without a host address",

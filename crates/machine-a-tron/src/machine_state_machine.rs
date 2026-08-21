@@ -1110,18 +1110,17 @@ impl MachineStateMachine {
             instance_network_config_version =
                 Some(network_config.instance_network_config_version.clone());
 
-            // Tenant status consumers pair addresses and prefixes positionally. A SLAAC
-            // interface has no concrete IPv6 address yet, so omit that family from both.
             for iface in network_config.tenant_interfaces.iter() {
-                let observed_ipv6 = iface
-                    .ipv6_interface_config
-                    .as_ref()
-                    .filter(|ipv6| !ipv6.ip.is_empty());
-                let addresses =
-                    build_dual_stack_list(iface.ip.clone(), observed_ipv6.map(|v6| v6.ip.clone()));
+                let addresses = build_dual_stack_list(
+                    iface.ip.clone(),
+                    iface.ipv6_interface_config.as_ref().map(|v6| v6.ip.clone()),
+                );
                 let prefixes = build_dual_stack_list(
                     iface.interface_prefix.clone(),
-                    observed_ipv6.map(|v6| v6.interface_prefix.clone()),
+                    iface
+                        .ipv6_interface_config
+                        .as_ref()
+                        .map(|v6| v6.interface_prefix.clone()),
                 );
                 interfaces.push(rpc::forge::InstanceInterfaceStatusObservation {
                     function_type: iface.function_type,

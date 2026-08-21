@@ -20110,10 +20110,9 @@ type InstanceInterfaceStatus struct {
 	// The list will be empty if interface configuration hasn't been completed
 	// and therefore the address is unknown.
 	MacAddress *string `protobuf:"bytes,2,opt,name=mac_address,json=macAddress,proto3,oneof" json:"mac_address,omitempty"`
-	// The list of IP addresses that had been assigned to this interface,
-	// based on the requested subnet.
-	// IPv4 precedes IPv6 when both families are assigned.
-	// The list will be empty if interface configuration hasn't been completed
+	// The IP addresses reported for this interface, ordered IPv4 before IPv6.
+	// This list is independent from `prefixes` and is empty when no address is
+	// available.
 	Addresses []string `protobuf:"bytes,3,rep,name=addresses,proto3" json:"addresses,omitempty"`
 	// The explicitly configured gateways, in CIDR notation. There is at most one
 	// gateway per address family, associated with the same-family address and
@@ -20121,12 +20120,12 @@ type InstanceInterfaceStatus struct {
 	// be shorter than `addresses` and is not positionally aligned. IPv4 precedes
 	// IPv6 when both gateways are explicitly configured.
 	Gateways []string `protobuf:"bytes,4,rep,name=gateways,proto3" json:"gateways,omitempty"`
-	// The list of IP prefixes that have been assigned to this interface
-	// out of the requested subnet (where the prefix allocated to the interface
-	// may be a /30 in the case of FNN, or just a /32 in the case of ETV).
-	//
-	// There is one prefix for each entry in `addresses`, in the same
-	// IPv4-before-IPv6 order.
+	// The prefixes reported for this interface in CIDR notation, ordered IPv4
+	// before IPv6. Prefix lengths follow the selected network and allocation
+	// policy. This list is independent from `addresses`: SLAAC reports an IPv6
+	// prefix without a fixed host address. Consumers must match values by address
+	// family rather than list position. The list is empty when no prefix is
+	// available.
 	Prefixes       []string `protobuf:"bytes,5,rep,name=prefixes,proto3" json:"prefixes,omitempty"`
 	Device         *string  `protobuf:"bytes,6,opt,name=device,proto3,oneof" json:"device,omitempty"`
 	DeviceInstance uint32   `protobuf:"varint,7,opt,name=device_instance,json=deviceInstance,proto3" json:"device_instance,omitempty"`
@@ -31542,10 +31541,9 @@ type InstanceInterfaceStatusObservation struct {
 	// The list will be empty if interface configuration hasn't been completed
 	// and therefore the address is unknown.
 	MacAddress *string `protobuf:"bytes,3,opt,name=mac_address,json=macAddress,proto3,oneof" json:"mac_address,omitempty"`
-	// The list of IP addresses that had been assigned to this interface,
-	// based on the requested subnet.
-	// IPv4 precedes IPv6 when both families are assigned.
-	// The list will be empty if interface configuration hasn't been completed
+	// The IP addresses reported for this interface, ordered IPv4 before IPv6.
+	// This list is independent from `prefixes` and is empty when no address is
+	// available.
 	Addresses []string `protobuf:"bytes,4,rep,name=addresses,proto3" json:"addresses,omitempty"`
 	// The explicitly configured gateways, in CIDR notation. There is at most one
 	// gateway per address family, associated with the same-family address and
@@ -31553,12 +31551,12 @@ type InstanceInterfaceStatusObservation struct {
 	// be shorter than `addresses` and is not positionally aligned. IPv4 precedes
 	// IPv6 when both gateways are explicitly configured.
 	Gateways []string `protobuf:"bytes,5,rep,name=gateways,proto3" json:"gateways,omitempty"`
-	// The list of IP prefixes that have been assigned to this interface
-	// out of the requested subnet (where the prefix allocated to the interface
-	// may be a /30 in the case of FNN, or just a /32 in the case of ETV).
-	//
-	// There is one prefix for each entry in `addresses`, in the same
-	// IPv4-before-IPv6 order.
+	// The prefixes reported for this interface in CIDR notation, ordered IPv4
+	// before IPv6. Prefix lengths follow the selected network and allocation
+	// policy. This list is independent from `addresses`: SLAAC reports an IPv6
+	// prefix without a fixed host address. Consumers must match values by address
+	// family rather than list position. The list is empty when no prefix is
+	// available.
 	Prefixes []string `protobuf:"bytes,6,rep,name=prefixes,proto3" json:"prefixes,omitempty"`
 	// The NSG details for the observed NSG of the interface
 	NetworkSecurityGroup *NetworkSecurityGroupStatus `protobuf:"bytes,7,opt,name=network_security_group,json=networkSecurityGroup,proto3" json:"network_security_group,omitempty"`
