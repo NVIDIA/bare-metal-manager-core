@@ -482,9 +482,7 @@ impl TryFrom<rpc::machine_discovery::MemoryDeviceGroup>
     }
 }
 
-impl From<model::hardware_info::MemoryDeviceGroup>
-    for rpc::machine_discovery::MemoryDeviceGroup
-{
+impl From<model::hardware_info::MemoryDeviceGroup> for rpc::machine_discovery::MemoryDeviceGroup {
     fn from(value: model::hardware_info::MemoryDeviceGroup) -> Self {
         Self {
             size_mb: value.size_mb,
