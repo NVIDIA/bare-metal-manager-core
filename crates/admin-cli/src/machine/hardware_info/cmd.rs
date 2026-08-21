@@ -60,7 +60,7 @@ pub(super) async fn handle_show_machine_hardware_info(
     // (see rpc/build.rs), so clearing it drops the key entirely. Serializing `discovery_info`
     // directly (rather than through `serde_json::Value`) keeps the remaining fields in their
     // original struct declaration order without needing the `preserve_order` feature.
-    discovery_info.rehydrate_memory_devices();
+    discovery_info.rehydrate_memory_devices()?;
 
     match output_format {
         OutputFormat::Json => {

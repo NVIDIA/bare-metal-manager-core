@@ -71,11 +71,12 @@ message DiscoveryInfo {
   // identical devices are merged, so groups preserve the original discovery
   // order and the same (size_mb, mem_type) pair may appear in more than one
   // non-adjacent group. The sum of `count` across all groups is bounded
-  // (implementations should reject payloads whose total exceeds a few thousand
-  // devices, far beyond any real DIMM slot count) to avoid unbounded
-  // allocation when a group is expanded back into individual devices. Groups
-  // with count == 0 carry no information and are dropped by readers rather
-  // than treated as an error.
+  // (implementations should reject payloads whose total exceeds a fixed
+  // maximum, set far beyond any real DIMM slot count, to avoid unbounded
+  // allocation when a group is expanded back into individual devices; see
+  // MAX_MEMORY_DEVICE_COUNT in crates/api-model/src/hardware_info.rs for the
+  // current value). Groups with count == 0 carry no information and are
+  // dropped by readers rather than treated as an error.
   repeated MemoryDeviceGroup memory_device_groups = 17;
 }
 

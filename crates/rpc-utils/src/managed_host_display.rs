@@ -562,8 +562,9 @@ pub fn get_memory_details(memory_device_groups: &[MemoryDeviceGroup]) -> Option<
             byte_unit::Unit::MiB,
         )
         .unwrap_or_default();
-        total_size += size.as_u64() * group.count as u64;
-        total_count += group.count;
+        let group_size = size.as_u64().checked_mul(group.count as u64)?;
+        total_size = total_size.checked_add(group_size)?;
+        total_count = total_count.checked_add(group.count)?;
         *breakdown.entry(size).or_insert(0u32) += group.count;
     }
 
@@ -705,6 +706,12 @@ mod tests {
                     MemoryDeviceGroup { size_mb: Some(32768), mem_type: None, count: 2 },
                     memory(Some(65536)),
                 ] => Some("128 GiB (32 GiBx2, 64 GiBx1)".to_string()),
+            }
+
+            "overflowing total size" {
+                vec![
+                    MemoryDeviceGroup { size_mb: Some(u32::MAX), mem_type: None, count: u32::MAX },
+                ] => None,
             }
         );
     }

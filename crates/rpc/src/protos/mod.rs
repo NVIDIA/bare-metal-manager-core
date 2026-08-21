@@ -116,9 +116,26 @@ impl machine_discovery::DiscoveryInfo {
     /// `DiscoveryInfo.memory_device_groups`: groups win whenever at least one carries a
     /// nonzero count, even if `memory_devices` happens to already be populated (which a
     /// contract-following writer never does, but malformed input might).
+    ///
+    /// `MemoryDeviceGroup::rehydrate` only bounds the count of a single group. Malformed input
+    /// with many individually-valid groups could still expand to an unbounded `memory_devices`
+    /// list, so the aggregate count across all groups is checked here before allocating.
     #[allow(deprecated)]
-    pub fn rehydrate_memory_devices(&mut self) {
+    pub fn rehydrate_memory_devices(
+        &mut self,
+    ) -> Result<(), crate::errors::RpcDataConversionError> {
         if self.memory_device_groups.iter().any(|group| group.count > 0) {
+            let total: u64 = self
+                .memory_device_groups
+                .iter()
+                .map(|group| u64::from(group.count))
+                .sum();
+            if total > u64::from(machine_discovery::MemoryDeviceGroup::MAX_REHYDRATE_COUNT) {
+                return Err(crate::errors::RpcDataConversionError::MemoryDeviceCountExceeded(
+                    total,
+                    machine_discovery::MemoryDeviceGroup::MAX_REHYDRATE_COUNT,
+                ));
+            }
             self.memory_devices = self
                 .memory_device_groups
                 .iter()
@@ -126,6 +143,7 @@ impl machine_discovery::DiscoveryInfo {
                 .collect();
         }
         self.memory_device_groups.clear();
+        Ok(())
     }
 }
 
@@ -225,7 +243,7 @@ mod tests {
             }],
             ..Default::default()
         };
-        info.rehydrate_memory_devices();
+        info.rehydrate_memory_devices().unwrap();
         assert_eq!(
             info.memory_devices,
             vec![
@@ -259,7 +277,7 @@ mod tests {
             }],
             ..Default::default()
         };
-        info.rehydrate_memory_devices();
+        info.rehydrate_memory_devices().unwrap();
         assert_eq!(
             info.memory_devices,
             vec![MemoryDevice {
@@ -268,5 +286,27 @@ mod tests {
             }]
         );
         assert!(info.memory_device_groups.is_empty());
+    }
+
+    // Many individually-valid groups (each within `MAX_REHYDRATE_COUNT`) whose aggregate count
+    // exceeds the max must be rejected, since `MemoryDeviceGroup::rehydrate` only bounds a single
+    // group and would otherwise let this expand to an unbounded `memory_devices` list.
+    #[test]
+    #[allow(deprecated)]
+    fn rehydrate_rejects_many_groups_whose_aggregate_count_exceeds_max() {
+        let max = MemoryDeviceGroup::MAX_REHYDRATE_COUNT;
+        let group = MemoryDeviceGroup {
+            size_mb: Some(8192),
+            mem_type: Some("DDR4".to_string()),
+            count: max / 2 + 1,
+        };
+        let mut info = DiscoveryInfo {
+            memory_device_groups: vec![group.clone(), group],
+            ..Default::default()
+        };
+        assert!(matches!(
+            info.rehydrate_memory_devices(),
+            Err(crate::errors::RpcDataConversionError::MemoryDeviceCountExceeded(_, m)) if m == max
+        ));
     }
 }

@@ -97,10 +97,10 @@ type DiscoveryInfo struct {
 	Gpus []*Gpu `protobuf:"bytes,11,rep,name=gpus,proto3" json:"gpus,omitempty"`
 	// Deprecated: legacy flat list, one entry per physical DIMM. Writers must
 	// emit only memory_device_groups (field 17) and leave this field empty.
-	// Readers must still accept this field: when memory_device_groups is
-	// empty, readers fall back to condensing this field (see
-	// memory_device_groups for condensation rules). When memory_device_groups
-	// is non-empty, this field is ignored.
+	// Readers must still accept this field: when memory_device_groups has no
+	// group with count > 0 (including when it is empty), readers fall back to
+	// condensing this field (see memory_device_groups for condensation
+	// rules). Otherwise this field is ignored.
 	//
 	// Deprecated: Marked as deprecated in machine_discovery_nico.proto.
 	MemoryDevices []*MemoryDevice `protobuf:"bytes,12,rep,name=memory_devices,json=memoryDevices,proto3" json:"memory_devices,omitempty"`
@@ -113,15 +113,17 @@ type DiscoveryInfo struct {
 	// Condensed memory devices: consecutive runs of identical DIMMs (same
 	// size_mb and mem_type) rolled up into a single group with a count. This
 	// is the preferred field for new writes; readers use it exclusively
-	// whenever it is non-empty (see memory_devices, field 12, for the legacy
-	// fallback). Only adjacent identical devices are merged, so groups
-	// preserve the original discovery order and the same (size_mb, mem_type)
-	// pair may appear in more than one non-adjacent group. The sum of
-	// `count` across all groups is bounded (implementations should reject
-	// payloads whose total exceeds a few thousand devices, far beyond any
-	// real DIMM slot count) to avoid unbounded allocation when a group is
-	// expanded back into individual devices. Groups with count == 0 carry no
-	// information and are dropped by readers rather than treated as an error.
+	// whenever it contains at least one group with count > 0 (see
+	// memory_devices, field 12, for the legacy fallback). Only adjacent
+	// identical devices are merged, so groups preserve the original discovery
+	// order and the same (size_mb, mem_type) pair may appear in more than one
+	// non-adjacent group. The sum of `count` across all groups is bounded
+	// (implementations should reject payloads whose total exceeds a fixed
+	// maximum, set far beyond any real DIMM slot count, to avoid unbounded
+	// allocation when a group is expanded back into individual devices; see
+	// MAX_MEMORY_DEVICE_COUNT in crates/api-model/src/hardware_info.rs for the
+	// current value). Groups with count == 0 carry no information and are
+	// dropped by readers rather than treated as an error.
 	MemoryDeviceGroups []*MemoryDeviceGroup `protobuf:"bytes,17,rep,name=memory_device_groups,json=memoryDeviceGroups,proto3" json:"memory_device_groups,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache

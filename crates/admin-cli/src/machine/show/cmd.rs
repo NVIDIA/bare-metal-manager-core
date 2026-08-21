@@ -350,14 +350,14 @@ async fn show_all_machines(
             // output, which only ever had `memory_devices`.
             for machine in machines.machines.iter_mut() {
                 if let Some(discovery_info) = machine.discovery_info.as_mut() {
-                    discovery_info.rehydrate_memory_devices();
+                    discovery_info.rehydrate_memory_devices()?;
                 }
                 if let Some(discovery_info) = machine
                     .status
                     .as_mut()
                     .and_then(|s| s.discovery_info.as_mut())
                 {
-                    discovery_info.rehydrate_memory_devices();
+                    discovery_info.rehydrate_memory_devices()?;
                 }
             }
             async_writeln!(output_file, "{}", serde_json::to_string_pretty(&machines)?)?;
@@ -392,14 +392,14 @@ async fn show_machine_information(
             // clear it here so this raw dump stays byte-for-byte identical to the pre-condensing
             // output, which only ever had `memory_devices`.
             if let Some(discovery_info) = machine.discovery_info.as_mut() {
-                discovery_info.rehydrate_memory_devices();
+                discovery_info.rehydrate_memory_devices()?;
             }
             if let Some(discovery_info) = machine
                 .status
                 .as_mut()
                 .and_then(|s| s.discovery_info.as_mut())
             {
-                discovery_info.rehydrate_memory_devices();
+                discovery_info.rehydrate_memory_devices()?;
             }
             async_write!(output_file, "{}", serde_json::to_string_pretty(&machine)?)?
         }
