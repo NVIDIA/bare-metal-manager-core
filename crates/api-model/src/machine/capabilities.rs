@@ -349,8 +349,8 @@ impl MachineCapabilitiesSet {
                 .mem_type
                 .clone()
                 .unwrap_or_else(|| "unknown".to_string());
-            let total = (mem_info.size_mb.unwrap_or_default() as u64)
-                .saturating_mul(mem_info.count as u64);
+            let total =
+                (mem_info.size_mb.unwrap_or_default() as u64).saturating_mul(mem_info.count as u64);
 
             mem_map
                 .entry(name)
