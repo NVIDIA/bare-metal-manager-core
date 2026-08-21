@@ -36,6 +36,7 @@ use eyre::ContextCompat;
 use futures::FutureExt;
 use futures::future::join_all;
 use itertools::Itertools;
+use mac_address::MacAddress;
 use model::machine_boot_interface::BootInterfaceSelectionSource;
 use sqlx::{Postgres, Row};
 use tokio::time::sleep;
@@ -266,6 +267,11 @@ async fn test_integration() -> eyre::Result<()> {
         }
     }
 
+    metrics::wait_for_metric_line(
+        &test_env.carbide_metrics_addrs,
+        r#"carbide_site_explorer_boot_interface_selections_total{mechanism="redfish_chassis_id"}"#,
+    )
+    .await?;
     metrics::wait_for_metric_line(
         &test_env.carbide_metrics_addrs,
         r#"carbide_site_explorer_boot_interface_selections_total{mechanism="redfish_serial_number"}"#,
@@ -633,8 +639,17 @@ async fn test_machine_a_tron_multidpu(
             let segment_id = segment_id.to_string();
             let carbide_api_addrs = &test_env.carbide_api_addrs;
             let db_pool = test_env.db_pool.clone();
-            let expected_selection_source = (hw_type == HardwareType::WiwynnGB200Nvl)
-                .then_some(BootInterfaceSelectionSource::RedfishSerialNumber);
+            let expected_selection = (hw_type == HardwareType::WiwynnGB200Nvl).then(|| {
+                let dpu = machine_handle
+                    .host_info()
+                    .dpus
+                    .first()
+                    .expect("Wiwynn GB200 host should contain its Slot1 DPU");
+                (
+                    dpu.host_mac_address,
+                    BootInterfaceSelectionSource::RedfishChassisId,
+                )
+            });
             async move {
                 machine_handle
                     .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
@@ -642,9 +657,9 @@ async fn test_machine_a_tron_multidpu(
                 let machine_id = machine_handle
                     .observed_machine_id()
                     .expect("Machine ID should be set if host is ready");
-                if let Some(expected_selection_source) = expected_selection_source {
-                    let selection_source: BootInterfaceSelectionSource = sqlx::query_scalar(
-                        "SELECT selection_source
+                if let Some(expected_selection) = expected_selection {
+                    let selection: (MacAddress, BootInterfaceSelectionSource) = sqlx::query_as(
+                        "SELECT desired_mac_address, selection_source
                          FROM machine_boot_interfaces
                          WHERE machine_id = $1",
                     )
@@ -652,8 +667,8 @@ async fn test_machine_a_tron_multidpu(
                     .fetch_one(&db_pool)
                     .await?;
                     assert_eq!(
-                        selection_source, expected_selection_source,
-                        "GB200's Redfish serial fallback must survive the full ingestion handoff",
+                        selection, expected_selection,
+                        "GB200's Slot1 chassis selection must survive the full ingestion handoff",
                     );
                 }
                 tracing::info!(

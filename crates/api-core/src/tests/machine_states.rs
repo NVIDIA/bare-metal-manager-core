@@ -519,6 +519,7 @@ async fn test_machine_creator_created_host_advances_through_dpu_discovery(
         dpus: vec![ExploredDpu {
             bmc_ip: dpu_bmc_ip,
             host_pf_mac_address: Some(mock_dpu.host_mac_address),
+            host_chassis_id: None,
             report: dpu_report.clone(),
         }],
     };
