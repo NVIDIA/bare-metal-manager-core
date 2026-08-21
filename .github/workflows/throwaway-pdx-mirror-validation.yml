@@ -5,6 +5,10 @@
 #           runners have no DNS/route to it, so this leg is expected to fail)
 #   ocf   - https://mirrors.ocf.berkeley.edu/ubuntu-ports  (public fallback from #5253)
 #   mit   - https://mirrors.mit.edu/ubuntu-ports          (public fallback from #5253)
+#   edge        - https://edge.urm.nvidia.com/artifactory/ubuntu-ports-remote  (NVIDIA URM edge)
+#   artifactory - https://artifactory.nvidia.com/artifactory/ubuntu-ports-remote  (NVIDIA URM)
+# The NVIDIA Artifactory repo key (ubuntu-ports-remote) is assumed to match PDX;
+# a DNS error vs a 404 in a leg's log tells "unreachable" apart from "wrong path".
 # It measures raw apt-get update reliability and confirms each mirror can serve
 # the build packages. This does NOT pull in #5253's action changes; it only
 # exercises the mirror URLs. Safe to delete. Runs only on the test branch / PR
@@ -38,7 +42,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mirror: [ports, pdx, ocf, mit]
+        mirror: [ports, pdx, ocf, mit, edge, artifactory]
     steps:
       - name: Probe ${{ matrix.mirror }} mirror
         shell: bash
@@ -67,6 +71,9 @@ jobs:
             pdx)   base="https://artifactory.pdx.nvidia.com/artifactory/ubuntu-ports-remote" ;;
             ocf)   base="https://mirrors.ocf.berkeley.edu/ubuntu-ports" ;;
             mit)   base="https://mirrors.mit.edu/ubuntu-ports" ;;
+            # NVIDIA Artifactory repo key assumed to match PDX's ubuntu-ports-remote.
+            edge)        base="https://edge.urm.nvidia.com/artifactory/ubuntu-ports-remote" ;;
+            artifactory) base="https://artifactory.nvidia.com/artifactory/ubuntu-ports-remote" ;;
             *)     echo "unknown mirror ${MIRROR}"; exit 1 ;;
           esac
 
