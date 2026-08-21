@@ -1018,16 +1018,28 @@ impl HostMachineInfo {
 }
 
 impl MachineInfo {
-    pub fn supports_ipmi_console(&self) -> bool {
-        matches!(
-            self,
-            MachineInfo::Host(host)
-                if matches!(
-                    host.bmc_vendor(),
-                    redfish::oem::BmcVendor::Supermicro
-                        | redfish::oem::BmcVendor::Nvidia(_)
-                )
-        )
+    /// Returns whether machine-a-tron should start an IPMI console simulator for this profile.
+    pub fn needs_ipmi_console(&self) -> bool {
+        match self {
+            MachineInfo::Host(host) => match host.hw_type {
+                HardwareType::WiwynnGB200Nvl
+                | HardwareType::NvidiaDgxGb300
+                | HardwareType::SupermicroGb300Nvl
+                | HardwareType::NvidiaDgxVr
+                | HardwareType::NvidiaSwitchNd5200Ld
+                | HardwareType::NvidiaSwitchN5700Ld
+                | HardwareType::GenericSupermicro => true,
+                HardwareType::DellPowerEdgeR750
+                | HardwareType::DellPowerEdgeR760Bf4
+                | HardwareType::LenovoGB300Nvl
+                | HardwareType::LiteOnPowerShelf
+                | HardwareType::DeltaPowerShelf
+                | HardwareType::NvidiaDgxH100
+                | HardwareType::GenericAmi
+                | HardwareType::HpeProliantDl380aGen11 => false,
+            },
+            MachineInfo::Dpu(_) => false,
+        }
     }
 
     pub(super) fn oem_state(&self) -> redfish::oem::State {
