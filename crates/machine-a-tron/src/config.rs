@@ -17,7 +17,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bmc_mock::mac_address_pool::MacAddressPool;
@@ -497,11 +497,6 @@ pub struct MachineATronConfig {
     #[serde(default)]
     pub ipmi_reachable_port: Option<u16>,
 
-    /// Set this to configure the port to use when mocking a BMC SSH
-    /// server. If unset it will pick a random port.
-    #[serde(default)]
-    pub mock_bmc_ssh_port: Option<u16>,
-
     /// Set this to a hostname or IP If you want machine-a-tron to register its BMC-mock as the
     /// bmc_proxy host (this will be combined with bmc_mock_port.)
     pub configure_carbide_bmc_proxy_host: Option<String>,
@@ -946,8 +941,6 @@ pub struct MachineATronContext {
     pub forge_api_client: ForgeApiClient,
     pub dhcp_client: crate::dhcp_wrapper::DhcpClient,
     pub mac_address_pool: Arc<Mutex<MacAddressPool>>,
-    /// Client-reachable port of the shared host SSH listener in combined-BMC mode.
-    pub combined_bmc_ssh_port: OnceLock<u16>,
 }
 
 impl MachineATronContext {

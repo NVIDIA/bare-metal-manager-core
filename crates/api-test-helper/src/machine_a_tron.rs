@@ -93,7 +93,6 @@ pub async fn run_local(
         forge_api_client,
         dhcp_client,
         mac_address_pool,
-        combined_bmc_ssh_port: std::sync::OnceLock::new(),
     });
 
     let mat = MachineATron::new(app_context.clone());

@@ -319,6 +319,17 @@ impl SystemState {
         self.systems.iter().for_each(|s| s.on_boot_completed())
     }
 
+    /// Returns whether any system advertises an enabled SSH serial console.
+    pub fn has_enabled_ssh_serial_console(&self) -> bool {
+        self.systems.iter().any(|system| {
+            system
+                .config
+                .serial_console
+                .as_ref()
+                .is_some_and(redfish::serial_console::SerialConsole::has_enabled_ssh)
+        })
+    }
+
     /// Overrides the advertised SSH serial-console port only for systems whose
     /// hardware profile already declares an enabled SSH serial console.
     pub fn set_serial_console_ssh_port(&self, port: Option<u16>) -> bool {

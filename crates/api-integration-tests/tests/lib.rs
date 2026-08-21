@@ -1458,7 +1458,6 @@ where
         dpu_bmc_password: None,
         api_refresh_interval: Duration::from_millis(500),
         mock_bmc_ssh_server: false,
-        mock_bmc_ssh_port: None,
         enable_ipmi_simulation: false,
         ipmi_reachable_port: None,
         hw_mac_address_ranges: None,
