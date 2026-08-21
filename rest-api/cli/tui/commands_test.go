@@ -5,6 +5,7 @@ package tui
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -464,6 +465,46 @@ func TestReadyMachineItemsForSite_FiltersByStatusAndSite(t *testing.T) {
 	// every machine in the list shares an opaque serial-number prefix.
 	assert.Contains(t, got[0].Label, "m1", "label must include display name")
 	assert.Contains(t, got[0].Label, "1", "label must include machine ID")
+}
+
+func TestPromptInstanceInterfaces(t *testing.T) {
+	tests := []struct {
+		name        string
+		fetch       func(context.Context) ([]NamedItem, error)
+		expectError string
+	}{
+		{
+			name: "no VPC prefixes",
+			fetch: func(context.Context) ([]NamedItem, error) {
+				return nil, nil
+			},
+			expectError: "no vpc-prefixes available for the selected VPC",
+		},
+		{
+			name: "VPC prefix listing fails",
+			fetch: func(context.Context) ([]NamedItem, error) {
+				return nil, fmt.Errorf("list failed")
+			},
+			expectError: "listing vpc-prefixes: list failed",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resolver := NewResolver(NewCache())
+			resolver.RegisterFetcher("vpc-prefix", test.fetch)
+			session := &Session{Resolver: resolver}
+
+			interfaces, err := promptInstanceInterfaces(session, t.Context())
+
+			assert.Nil(t, interfaces)
+			if test.expectError == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.EqualError(t, err, test.expectError)
+		})
+	}
 }
 
 func TestMachineSelectLabel(t *testing.T) {

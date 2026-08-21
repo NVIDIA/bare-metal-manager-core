@@ -129,6 +129,17 @@ func TestCLIRegression_RealTerminalAndNonInteractive(t *testing.T) {
 		terminal.send(t, "\r")
 		terminal.waitFor(t, "VPC prefix created: tenant-prefix")
 
+		// Instance creation must stop before the API request when the selected
+		// VPC has no prefixes to attach as an interface.
+		terminal.send(t, "instance create\r")
+		terminal.waitFor(t, "VPC:")
+		terminal.send(t, "vpc-two\r")
+		terminal.waitFor(t, "Machine")
+		terminal.send(t, "\r")
+		terminal.waitFor(t, "Instance name")
+		terminal.send(t, "no-prefix-instance\r")
+		terminal.waitFor(t, "no vpc-prefixes available for the selected VPC")
+
 		// A lone Escape must cancel a real selector without waiting forever.
 		terminal.send(t, "scope site\r")
 		terminal.waitFor(t, "Site:")
@@ -304,6 +315,12 @@ func TestCLIRegression_RealTerminalAndNonInteractive(t *testing.T) {
 			prefixRequests[0].Body,
 		)
 
+		instanceRequests := recorder.matching(
+			http.MethodPost,
+			"/v2/org/acme/nico/instance",
+		)
+		assert.Empty(t, instanceRequests, "instance create without a VPC prefix must not reach the API")
+
 		bmcRequests := recorder.matching(
 			http.MethodPut,
 			"/v2/org/acme/nico/credential/bmc",
@@ -468,6 +485,9 @@ func newInteractiveRegressionHandler(recorder *cliRegressionRecorder) http.Handl
 			request.URL.Path == "/v2/org/acme/nico/vpc-prefix":
 			w.WriteHeader(http.StatusCreated)
 			_, _ = io.WriteString(w, `{"id":"prefix-1","name":"tenant-prefix","status":"Pending"}`)
+		case request.Method == http.MethodGet &&
+			request.URL.Path == "/v2/org/acme/nico/vpc-prefix":
+			_, _ = io.WriteString(w, `[]`)
 		case request.Method == http.MethodGet &&
 			request.URL.Path == "/v2/org/acme/nico/machine":
 			_, _ = io.WriteString(w, `[
