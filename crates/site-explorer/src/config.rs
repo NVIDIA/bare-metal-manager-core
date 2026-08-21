@@ -56,11 +56,9 @@ pub struct SiteExplorerConfig {
     )]
     pub run_interval: std::time::Duration,
     /// The maximum amount of nodes that are explored concurrently.
-    /// Default is 5.
     #[serde(default = "SiteExplorerConfig::default_concurrent_explorations")]
     pub concurrent_explorations: u64,
     /// How many routine (non-requested) endpoints should be explored in a single run.
-    /// Default is 90.
     /// This bounds only the background refresh work: previously unseen endpoints
     /// and stale endpoints whose reports we want to update. Endpoints with the
     /// `exploration_requested` flag set are always attempted, regardless of this
@@ -82,7 +80,7 @@ pub struct SiteExplorerConfig {
     )]
     pub create_machines: Arc<AtomicBool>,
 
-    /// How many ManagedHosts should be created in a single run. Default is 4.
+    /// How many ManagedHosts should be created in a single run.
     #[serde(default = "SiteExplorerConfig::default_machines_created_per_run")]
     pub machines_created_per_run: u64,
 
