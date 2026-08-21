@@ -48,7 +48,6 @@ pub struct SiteExplorerConfig {
     #[serde(skip)]
     pub retained_boot_interface_window: Option<chrono::Duration>,
     /// The interval at which site explorer runs.
-    /// Defaults to 5 Minutes if not specified.
     #[serde(
         default = "SiteExplorerConfig::default_run_interval",
         deserialize_with = "deserialize_duration",
