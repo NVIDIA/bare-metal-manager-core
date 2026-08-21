@@ -25920,8 +25920,11 @@ type ManagedHostNetworkConfigResponse struct {
 	EnableDhcp bool `protobuf:"varint,100,opt,name=enable_dhcp,json=enableDhcp,proto3" json:"enable_dhcp,omitempty"`
 	// Host primary interface id
 	HostInterfaceId *string `protobuf:"bytes,102,opt,name=host_interface_id,json=hostInterfaceId,proto3,oneof" json:"host_interface_id,omitempty"`
-	// temporary flag for telling a DPU how many links it needs to have up to be considered healthy.
-	// if not set, all links must be up.
+	// Minimum number of functioning DPU ToR links. The default is two. Zero
+	// disables ToR uplink health checks, one allows either link to satisfy the
+	// minimum, and values above two produce a configuration health alert. When
+	// checks are enabled, a failed primary link is still reported because PXE
+	// boot depends on it.
 	MinDpuFunctioningLinks *uint32 `protobuf:"varint,103,opt,name=min_dpu_functioning_links,json=minDpuFunctioningLinks,proto3,oneof" json:"min_dpu_functioning_links,omitempty"`
 	// Is it a primary DPU
 	IsPrimaryDpu bool `protobuf:"varint,104,opt,name=is_primary_dpu,json=isPrimaryDpu,proto3" json:"is_primary_dpu,omitempty"`
