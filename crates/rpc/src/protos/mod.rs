@@ -71,6 +71,15 @@ pub mod machine_discovery {
 }
 
 impl machine_discovery::MemoryDeviceGroup {
+    /// Mirrors `carbide_api_model::hardware_info::MAX_MEMORY_DEVICE_COUNT`. Duplicated here
+    /// (rather than depended on) because `carbide-api-model` is only an optional dependency of
+    /// this crate, gated behind the `model` feature, while this proto helper is unconditional.
+    ///
+    /// Bounds [`Self::rehydrate`] so it can't allocate an unbounded `Vec` even if a caller
+    /// invokes it on a group that bypassed the checked conversions in `rpc::model::hardware_info`
+    /// or `carbide-api-model` (which already reject any `count` above this limit).
+    const MAX_REHYDRATE_COUNT: u32 = 8192;
+
     /// Returns `Some(self)` when `count > 0`, `None` otherwise.
     ///
     /// Use at ingestion boundaries to drop proto groups that carry no devices.
@@ -79,13 +88,16 @@ impl machine_discovery::MemoryDeviceGroup {
     }
 
     /// Expands this group back into a flat iterator of individual [`machine_discovery::MemoryDevice`]s.
+    ///
+    /// `count` is capped at [`Self::MAX_REHYDRATE_COUNT`] so a corrupted or otherwise unvalidated
+    /// group can't force an unbounded allocation.
     pub fn rehydrate(&self) -> impl Iterator<Item = machine_discovery::MemoryDevice> + '_ {
         std::iter::repeat_n(
             machine_discovery::MemoryDevice {
                 size_mb: self.size_mb,
                 mem_type: self.mem_type.clone(),
             },
-            self.count as usize,
+            self.count.min(Self::MAX_REHYDRATE_COUNT) as usize,
         )
     }
 }
