@@ -12,7 +12,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	tmocks "go.temporal.io/sdk/mocks"
+	gcodes "google.golang.org/grpc/codes"
+	gstatus "google.golang.org/grpc/status"
 )
 
 func TestManageOsImage_CreateOsImageOnSite(t *testing.T) {
@@ -312,6 +315,9 @@ func TestManageOsImageInventory_DiscoverOsImageInventory(t *testing.T) {
 	type args struct {
 		wantTotalItems int
 		findIDsError   error
+		// fallbackError makes the fallback's own Core call fail, which is the path that used to
+		// publish the FAILED page twice under one workflow ID.
+		fallbackError error
 	}
 	tests := []struct {
 		name   string
@@ -344,6 +350,23 @@ func TestManageOsImageInventory_DiscoverOsImageInventory(t *testing.T) {
 				wantTotalItems: 195,
 			},
 		},
+		{
+			// osImageFindIDs always reports Unimplemented, so this exercises the fallback
+			// failing. The fallback owns its own failure reporting, so Cloud has to receive
+			// exactly one FAILED page rather than a second one under the same workflow ID.
+			name: "test collecting and publishing os image inventory fallback, collection fails",
+			fields: fields{
+				siteID:               uuid.New(),
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
+				temporalPublishQueue: "test-queue",
+				sitePageSize:         100,
+				cloudPageSize:        25,
+			},
+			args: args{
+				wantTotalItems: 195,
+				fallbackError:  gstatus.Error(gcodes.Internal, "Core is unavailable"),
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -367,6 +390,9 @@ func TestManageOsImageInventory_DiscoverOsImageInventory(t *testing.T) {
 			if tt.args.findIDsError != nil {
 				ctx = context.WithValue(ctx, "wantError", tt.args.findIDsError)
 			}
+			if tt.args.fallbackError != nil {
+				ctx = context.WithValue(ctx, "wantError", tt.args.fallbackError)
+			}
 
 			totalPages := tt.args.wantTotalItems / tt.fields.cloudPageSize
 			if tt.args.wantTotalItems%tt.fields.cloudPageSize > 0 {
@@ -374,6 +400,16 @@ func TestManageOsImageInventory_DiscoverOsImageInventory(t *testing.T) {
 			}
 
 			err := manageOsImage.DiscoverOsImageInventory(ctx)
+			if tt.args.fallbackError != nil {
+				assert.Error(t, err)
+
+				tc.AssertNumberOfCalls(t, "ExecuteWorkflow", 1)
+				inventory, ok := tc.Calls[0].Arguments[4].(*corev1.OsImageInventory)
+				require.True(t, ok)
+				assert.Equal(t, corev1.InventoryStatus_INVENTORY_STATUS_FAILED, inventory.InventoryStatus)
+				assert.Nil(t, inventory.InventoryPage, "a failure carries no paging metadata")
+				return
+			}
 			assert.NoError(t, err)
 
 			if tt.args.wantTotalItems == 0 {
