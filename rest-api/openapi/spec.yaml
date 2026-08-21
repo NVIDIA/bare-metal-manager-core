@@ -10861,6 +10861,8 @@ paths:
                       model: PowerEdge R750
                       serialNumber: SN-RACK-001
                       description: Primary compute rack
+                      nvLinkDomainIds:
+                        - 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
                       location:
                         region: us-east-1
                         datacenter: DC-01
@@ -10945,6 +10947,8 @@ paths:
                     model: PowerEdge R750
                     serialNumber: SN-RACK-001
                     description: Primary compute rack
+                    nvLinkDomainIds:
+                      - 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
                     location:
                       region: us-east-1
                       datacenter: DC-01
@@ -12886,6 +12890,7 @@ paths:
                         trayIdx: 0
                         hostId: 1
                       rackId: 550e8400-e29b-41d4-a716-446655440000
+                      nvLinkDomainId: 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
           headers:
             X-Pagination:
               schema:
@@ -12953,6 +12958,7 @@ paths:
                       trayIdx: 0
                       hostId: 1
                     rackId: 550e8400-e29b-41d4-a716-446655440000
+                    nvLinkDomainId: 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
         '403':
           $ref: '#/components/responses/ForbiddenError'
         '404':
@@ -22299,6 +22305,8 @@ components:
       title: Rack
       type: object
       description: Rack represents a physical rack in the datacenter
+      required:
+        - nvLinkDomainIds
       examples:
         - id: 550e8400-e29b-41d4-a716-446655440000
           name: Rack-01
@@ -22306,6 +22314,8 @@ components:
           model: PowerEdge R750
           serialNumber: SN-RACK-001
           description: Primary compute rack
+          nvLinkDomainIds:
+            - 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
           location:
             region: us-east-1
             datacenter: DC-01
@@ -22347,6 +22357,12 @@ components:
         description:
           type: string
           description: Description of the Rack
+        nvLinkDomainIds:
+          type: array
+          description: IDs of the NVLink Domains containing this Rack. Empty when the Rack is not assigned to an NVLink Domain.
+          items:
+            type: string
+            format: uuid
         location:
           $ref: '#/components/schemas/RackLocation'
           description: 'Physical or logical location of the Rack'
@@ -22539,6 +22555,8 @@ components:
       title: Tray
       type: object
       description: 'Tray represents a component within a rack (e.g. compute node, NVSwitch, power shelf)'
+      required:
+        - nvLinkDomainId
       examples:
         - id: 660e8400-e29b-41d4-a716-446655440001
           componentId: fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
@@ -22559,6 +22577,7 @@ components:
               macAddress: '00:11:22:33:44:55'
               ipAddress: 192.168.1.100
           rackId: 550e8400-e29b-41d4-a716-446655440000
+          nvLinkDomainId: 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
       properties:
         id:
           type: string
@@ -22624,6 +22643,12 @@ components:
           type: string
           format: uuid
           description: ID of the rack this tray belongs to
+        nvLinkDomainId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: ID of the NVLink Domain containing this Tray's Rack. Null when the Rack is not assigned to an NVLink Domain.
     TrayPosition:
       title: TrayPosition
       type: object

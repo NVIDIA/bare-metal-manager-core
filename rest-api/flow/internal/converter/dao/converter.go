@@ -96,6 +96,10 @@ func ComponentFrom(dao model.Component) *component.Component {
 	if dao.ComponentID != nil {
 		componentID = *dao.ComponentID
 	}
+	var nvlDomainID uuid.UUID
+	if dao.Rack != nil && dao.Rack.NVLDomainID != uuid.Nil {
+		nvlDomainID = dao.Rack.NVLDomainID
+	}
 
 	return &component.Component{
 		Type: ComponentTypeFrom(dao.Type),
@@ -116,6 +120,7 @@ func ComponentFrom(dao model.Component) *component.Component {
 		BmcsByType:  bmcsByType,
 		ComponentID: componentID,
 		RackID:      dao.RackID,
+		NVLDomainID: nvlDomainID,
 		PowerState:  powerStateFromDAO(dao.PowerState),
 		Status:      dao.Status,
 		LeakStatus:  dao.LeakStatus,
@@ -131,7 +136,11 @@ func RackFrom(dao *model.Rack) *rack.Rack {
 
 	components := make([]component.Component, 0, len(dao.Components))
 	for _, c := range dao.Components {
-		components = append(components, *ComponentFrom(c))
+		converted := ComponentFrom(c)
+		if dao.NVLDomainID != uuid.Nil {
+			converted.NVLDomainID = dao.NVLDomainID
+		}
+		components = append(components, *converted)
 	}
 
 	return &rack.Rack{
@@ -146,7 +155,8 @@ func RackFrom(dao *model.Rack) *rack.Rack {
 		Loc: location.New(
 			[]byte(utils.MapToJSONString(dao.Location)),
 		),
-		Components: components,
+		Components:  components,
+		NVLDomainID: dao.NVLDomainID,
 	}
 }
 
@@ -327,6 +337,7 @@ func RackTo(r *rack.Rack) *model.Rack {
 		Description:  description,
 		Location:     r.Loc.ToMap(),
 		Components:   components,
+		NVLDomainID:  r.NVLDomainID,
 	}
 }
 

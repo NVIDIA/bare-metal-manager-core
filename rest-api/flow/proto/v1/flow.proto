@@ -260,12 +260,14 @@ message Component {
     string power_state = 8;  // Current power state (synced from external system by inventory loop)
     ComponentOperationStatus status = 9;
     LeakStatus leak_status = 10;  // Coolant leak detection status (set by the leak-detection loop)
+    UUID nvl_domain_id = 11;  // NVLink Domain containing this component's rack; omitted when unassigned
 }
 
 message Rack {
     DeviceInfo info = 1;
     Location location = 2;
     repeated Component components = 3;
+    repeated UUID nvl_domain_ids = 4;  // NVLink Domains containing this rack; empty when unassigned
 }
 
 message Identifier {
