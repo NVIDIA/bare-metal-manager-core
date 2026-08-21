@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+mod batch_instance_allocation_validation;
 mod compute_allocation;
 mod connected_device;
 mod credential_rotation;
