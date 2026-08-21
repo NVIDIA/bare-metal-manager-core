@@ -879,6 +879,7 @@ impl MainLoop {
         let mut current_config_error = None;
         let mut is_healthy = false;
         let mut has_changed_configs = false;
+        let mut has_changed_hbn_config = false;
         let mut current_host_network_config_version = None;
         let mut current_instance_network_config_version = None;
         let mut current_instance_config_version = None;
@@ -1090,7 +1091,9 @@ impl MainLoop {
                             .await;
 
                     let joined_result = match (update_result, dhcp_result, astra_config_status) {
-                        (Ok(a), Ok(b), Ok(spx_net_status)) => Ok((a | b, spx_net_status)),
+                        (Ok(hbn_changed), Ok(dhcp_changed), Ok(spx_net_status)) => {
+                            Ok((hbn_changed, dhcp_changed, spx_net_status))
+                        }
                         (update_result, dhcp_result, astra_config_status) => {
                             let mut errors = Vec::new();
 
@@ -1108,10 +1111,11 @@ impl MainLoop {
                         }
                     };
                     match joined_result {
-                        Ok((has_changed, astra_config_status)) => {
+                        Ok((hbn_changed, dhcp_changed, astra_config_status)) => {
                             self.current_network_version
                                 .update_from(&conf, supplemental_config.as_deref());
-                            has_changed_configs = has_changed;
+                            has_changed_hbn_config = hbn_changed;
+                            has_changed_configs = hbn_changed || dhcp_changed;
                             if conf.astra_config.is_some() {
                                 status_out.astra_config_status = Some(astra_config_status);
                             }
@@ -1185,13 +1189,16 @@ impl MainLoop {
                 current_instance_config_version = status_out.instance_config_version.clone();
                 current_instance_id = status_out.instance_id.as_ref().map(|id| id.to_string());
 
+                let min_healthy_links = conf.min_dpu_functioning_links.unwrap_or(2) as usize;
                 let health_report = match self.nvue_context.as_ref() {
                     None => {
+                        // In `ContainerExec` mode, the DHCP flag represents a real local
+                        // reload, so keep the existing wait while that service restarts.
                         health::health_check(HealthCheckParams {
                             hbn_root: &self.agent_config.hbn.root_dir,
                             host_routes: &tenant_peers,
                             has_changed_configs,
-                            min_healthy_links: conf.min_dpu_functioning_links.unwrap_or(2),
+                            min_healthy_links,
                             route_servers: &conf.route_servers,
                             should_check_ipv6_unicast,
                             hbn_device_names: self.hbn_device_names.clone(),
@@ -1201,10 +1208,13 @@ impl MainLoop {
                         .await
                     }
                     Some(nvue_context) => {
+                        // DHCP gRPC reports every accepted request as changed, so only an
+                        // actual HBN update may trigger the NVUE wait after a config update.
                         health::nvue::NvueHealthCheck {
                             nvue_client: &nvue_context.nvue_client,
-                            min_healthy_links: conf.min_dpu_functioning_links.unwrap_or(2) as usize,
+                            min_healthy_links,
                             hbn_device_names: &self.hbn_device_names,
+                            has_changed_hbn_config,
                         }
                         .health_check()
                         .await

@@ -978,6 +978,7 @@ fn get_bf4_astra_config_files(
                     "ALLOW_SHARED_RQ=\"no\"\n",
                     "IPSEC_FULL_OFFLOAD=\"no\"\n",
                     "ENABLE_ESWITCH_MULTIPORT=\"yes\"\n",
+                    "SNAP_DMA_SF=\"no\"\n"
                 )
                 .to_string(),
             ),

@@ -96,6 +96,7 @@ images:
         - crates
         - include
         - dev/docker/Dockerfile.build-container-x86_64
+        - dev/docker/Dockerfile.build-container-aarch64
         - dev/deployment/devspace/Dockerfile.core-artifacts
         - dev/deployment/devspace/Dockerfile.core-artifacts.dockerignore
         - dev/deployment/devspace/Dockerfile.api
@@ -115,6 +116,7 @@ images:
         - .cargo
         - crates
         - dev/docker/Dockerfile.build-container-x86_64
+        - dev/docker/Dockerfile.build-container-aarch64
         - dev/deployment/devspace/Dockerfile.core-artifacts
         - dev/deployment/devspace/Dockerfile.core-artifacts.dockerignore
         - dev/deployment/devspace/Dockerfile.bmc-proxy
@@ -133,6 +135,7 @@ images:
         - crates
         - include
         - dev/docker/Dockerfile.build-container-x86_64
+        - dev/docker/Dockerfile.build-container-aarch64
         - dev/deployment/devspace/Dockerfile.core-artifacts
         - dev/deployment/devspace/Dockerfile.core-artifacts.dockerignore
         - dev/deployment/devspace/Dockerfile.machine-a-tron
@@ -185,6 +188,7 @@ images:
     context: rest-api
     buildKit: {}
     skipPush: true
+
 deployments:
   carbide-local:
     namespace: ${LOCAL_DEV_NAMESPACE}
@@ -245,7 +249,7 @@ deployments:
             port: 30388
           config:
             db:
-              host: postgres.postgres.svc.cluster.local
+              host: postgres.postgres.svc.cluster.local.
               name: ${LOCAL_DEV_REST_POSTGRES_DB}
               user: ${LOCAL_DEV_REST_POSTGRES_USER}
             keycloak:
@@ -260,12 +264,15 @@ deployments:
             dbCreds: db-creds
           config:
             db:
-              host: postgres.postgres.svc.cluster.local
+              host: postgres.postgres.svc.cluster.local.
               name: ${LOCAL_DEV_REST_POSTGRES_DB}
               user: ${LOCAL_DEV_REST_POSTGRES_USER}
         nico-rest-db:
+          waitForPostgres:
+            repository: postgres
+            tag: 14.5-alpine
           db:
-            host: postgres.postgres.svc.cluster.local
+            host: postgres.postgres.svc.cluster.local.
             name: ${LOCAL_DEV_REST_POSTGRES_DB}
             user: ${LOCAL_DEV_REST_POSTGRES_USER}
   nico-rest-site-agent:
@@ -306,8 +313,14 @@ hooks:
   - name: build-base-image
     events: ["before:build"]
     command: |-
-      docker image inspect build-container-localdev >/dev/null 2>&1 || \
-        docker build --pull=false -t build-container-localdev -f dev/docker/Dockerfile.build-container-x86_64 .
+      case "$(uname -m)" in
+        x86_64) BUILD_ARCH=x86_64 ;;
+        aarch64|arm64) BUILD_ARCH=aarch64 ;;
+        *) echo "Unsupported CPU architecture: $(uname -m)" >&2; exit 1 ;;
+      esac
+      docker build --pull=false \
+        -t build-container-localdev \
+        -f "dev/docker/Dockerfile.build-container-$BUILD_ARCH" .
   - name: load-images-into-local-cluster
     events: ["before:deploy"]
     command: |-

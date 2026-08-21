@@ -16,7 +16,7 @@ func TestExecution_Validate(t *testing.T) {
 	valid := Execution{
 		ExecutionState: ExecutionState{ExecutionStatusDetails: ExecutionStatusDetails{Status: ExecutionStatusPending}},
 		ExecutionIdentity: ExecutionIdentity{
-			EventID:    uuid.New(),
+			EventKey:   EventKey{SourceName: "test", SourceKey: "event-1"},
 			RuleID:     uuid.New(),
 			ActionName: "notify",
 		},
@@ -38,10 +38,10 @@ func TestExecution_Validate(t *testing.T) {
 			mutate:    func(execution *Execution) { execution.ID = uuid.Nil },
 			wantErr:   "execution id is required",
 		},
-		"missing event id": {
+		"missing event source name": {
 			execution: &valid,
-			mutate:    func(execution *Execution) { execution.EventID = uuid.Nil },
-			wantErr:   "event id is required",
+			mutate:    func(execution *Execution) { execution.EventKey.SourceName = "" },
+			wantErr:   "event source name is empty",
 		},
 		"missing rule id": {
 			execution: &valid,
@@ -109,7 +109,7 @@ func TestExecution_Validate(t *testing.T) {
 
 	t.Run("increments repeated deferred attempts", func(t *testing.T) {
 		execution, err := NewExecution(ExecutionIdentity{
-			EventID:    uuid.New(),
+			EventKey:   EventKey{SourceName: "test", SourceKey: "event-1"},
 			RuleID:     uuid.New(),
 			ActionName: "retry",
 		}, now)
@@ -499,106 +499,44 @@ func TestExecutionState_RetryDue(t *testing.T) {
 	require.False(t, (ExecutionState{ExecutionStatusDetails: ExecutionStatusDetails{Status: ExecutionStatusPending}}).RetryDue(now))
 }
 
-func TestExecution_TryDeduplicate(t *testing.T) {
-	createdAt := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
-	tests := map[string]struct {
-		dedupe     *Dedupe
-		observedAt time.Time
-		want       bool
-	}{
-		"nil deduplication policy": {observedAt: createdAt.Add(time.Second)},
-		"within window": {
-			dedupe:     &Dedupe{Window: time.Minute},
-			observedAt: createdAt.Add(time.Second),
-			want:       true,
-		},
-		"at window boundary": {
-			dedupe:     &Dedupe{Window: time.Minute},
-			observedAt: createdAt.Add(time.Minute),
-		},
-	}
-
-	for name, test := range tests {
-		t.Run(name, func(t *testing.T) {
-			execution := Execution{
-				CreatedAt:    createdAt,
-				UpdatedAt:    createdAt,
-				Observations: 1,
-			}
-			require.Equal(t, test.want, execution.TryDeduplicate(test.dedupe, test.observedAt))
-			if test.want {
-				require.Equal(t, 2, execution.Observations)
-				require.Equal(t, test.observedAt, execution.UpdatedAt)
-				return
-			}
-			require.Equal(t, 1, execution.Observations)
-			require.Equal(t, createdAt, execution.UpdatedAt)
-		})
-	}
-
-	t.Run("out-of-order observation preserves latest update time", func(t *testing.T) {
-		updatedAt := createdAt.Add(30 * time.Second)
-		execution := Execution{
-			CreatedAt:    createdAt,
-			UpdatedAt:    updatedAt,
-			Observations: 1,
-		}
-		require.True(
-			t,
-			execution.TryDeduplicate(
-				&Dedupe{Window: time.Minute},
-				createdAt.Add(time.Second),
-			),
-		)
-		require.Equal(t, 2, execution.Observations)
-		require.Equal(t, updatedAt, execution.UpdatedAt)
-	})
-}
-
 func TestExecutionIdentity(t *testing.T) {
-	eventID := uuid.New()
+	eventKey := EventKey{SourceName: "test", SourceKey: "event-1"}
 	ruleID := uuid.New()
 	identity := ExecutionIdentity{
-		EventID:        eventID,
-		RuleID:         ruleID,
-		ActionName:     "notify",
-		CorrelationKey: "incident-1",
+		EventKey:   eventKey,
+		RuleID:     ruleID,
+		ActionName: "notify",
 	}
 
-	t.Run("keys", func(t *testing.T) {
-		require.Equal(t, ExecutionDeliveryKey{
-			EventID:    eventID,
+	t.Run("key", func(t *testing.T) {
+		require.Equal(t, ExecutionKey{
+			EventKey:   eventKey,
 			RuleID:     ruleID,
 			ActionName: "notify",
-		}, identity.DeliveryKey())
-		require.Equal(t, ExecutionSemanticKey{
-			RuleID:         ruleID,
-			ActionName:     "notify",
-			CorrelationKey: "incident-1",
-		}, identity.SemanticKey())
+		}, identity.Key())
 	})
 
 	tests := map[string]struct {
 		identity ExecutionIdentity
 		wantErr  string
 	}{
-		"valid delivery": {
+		"valid": {
 			identity: ExecutionIdentity{
-				EventID:    eventID,
+				EventKey:   eventKey,
 				RuleID:     ruleID,
 				ActionName: "notify",
 			},
 		},
-		"missing event id": {
+		"missing event source name": {
 			identity: ExecutionIdentity{RuleID: ruleID, ActionName: "notify"},
-			wantErr:  "event id is required",
+			wantErr:  "event source name is empty",
 		},
 		"missing rule id": {
-			identity: ExecutionIdentity{EventID: eventID, ActionName: "notify"},
+			identity: ExecutionIdentity{EventKey: eventKey, ActionName: "notify"},
 			wantErr:  "event rule id is required",
 		},
 		"missing action name": {
-			identity: ExecutionIdentity{EventID: eventID, RuleID: ruleID},
+			identity: ExecutionIdentity{EventKey: eventKey, RuleID: ruleID},
 			wantErr:  "event rule action name is empty",
 		},
 	}
@@ -618,7 +556,7 @@ func TestExecutionIdentity(t *testing.T) {
 func TestNewExecution(t *testing.T) {
 	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
 	identity := ExecutionIdentity{
-		EventID:    uuid.New(),
+		EventKey:   EventKey{SourceName: "test", SourceKey: "event-1"},
 		RuleID:     uuid.New(),
 		ActionName: "notify",
 	}

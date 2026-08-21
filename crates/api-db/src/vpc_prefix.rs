@@ -17,6 +17,7 @@
 
 use std::collections::HashMap;
 
+use carbide_network::ip::IdentifyAddressFamily;
 pub use carbide_uuid::vpc::{VpcId, VpcPrefixId};
 use config_version::ConfigVersion;
 use ipnetwork::IpNetwork;
@@ -68,13 +69,37 @@ async fn network_prefix_occupancy_by_vpc_prefix_id(
     ))
 }
 
+/// Returns whether SLAAC is enabled for each requested VPC.
+///
+/// VPCs marked for deletion are included so existing prefix allocations keep
+/// the policy that was in effect when they were created.
+async fn slaac_enabled_by_vpc_id(
+    vpc_ids: &[VpcId],
+    txn: &mut PgConnection,
+) -> Result<HashMap<VpcId, bool>, DatabaseError> {
+    if vpc_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let query = "SELECT id, slaac_enabled FROM vpcs WHERE id = ANY($1)";
+    let vpc_modes: Vec<(VpcId, bool)> = sqlx::query_as(query)
+        .bind(vpc_ids)
+        .fetch_all(txn)
+        .await
+        .map_err(|error| DatabaseError::query(query, error))?;
+
+    Ok(vpc_modes.into_iter().collect())
+}
+
 async fn update_stats(
     prefixes: &mut [VpcPrefix],
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
     let vpc_prefix_ids: Vec<VpcPrefixId> = prefixes.iter().map(|prefix| prefix.id).collect();
+    let vpc_ids: Vec<VpcId> = prefixes.iter().map(|prefix| prefix.vpc_id).collect();
     let network_prefix_occupancy =
         network_prefix_occupancy_by_vpc_prefix_id(&vpc_prefix_ids, txn).await?;
+    let slaac_enabled_by_vpc = slaac_enabled_by_vpc_id(&vpc_ids, txn).await?;
 
     for vpc_prefix in prefixes {
         let occupied_prefixes = network_prefix_occupancy
@@ -82,22 +107,32 @@ async fn update_stats(
             .map(Vec::as_slice)
             .unwrap_or_default();
 
-        let linknet_prefix: u8 = if vpc_prefix.config.prefix.is_ipv4() {
-            31
-        } else {
-            127
-        };
+        let slaac_enabled = slaac_enabled_by_vpc
+            .get(&vpc_prefix.vpc_id)
+            .copied()
+            .ok_or_else(|| DatabaseError::Internal {
+                message: format!(
+                    "VPC prefix {} references missing VPC {}",
+                    vpc_prefix.id, vpc_prefix.vpc_id
+                ),
+            })?;
+        let allocation_prefix_len = model::vpc::instance_prefix_len(
+            vpc_prefix.config.prefix.address_family(),
+            slaac_enabled,
+        );
         let vpc_prefix_len = vpc_prefix.config.prefix.prefix();
-        let supports_full_root_linknet =
-            vpc_prefix.config.prefix.is_ipv4() && vpc_prefix_len == linknet_prefix;
-        let total = if linknet_prefix > vpc_prefix_len || supports_full_root_linknet {
-            1u128 << u32::from(linknet_prefix - vpc_prefix_len)
+        let total = if model::vpc::vpc_prefix_can_allocate_interface_prefix(
+            vpc_prefix.config.prefix.address_family(),
+            vpc_prefix_len,
+            allocation_prefix_len,
+        ) {
+            1u128 << u32::from(allocation_prefix_len - vpc_prefix_len)
         } else {
             0
         };
         let occupied = crate::network_prefix::occupied_prefix_count(
             vpc_prefix.config.prefix,
-            linknet_prefix,
+            allocation_prefix_len,
             occupied_prefixes.iter().copied(),
         );
         let available = total.saturating_sub(occupied);
@@ -108,16 +143,10 @@ async fn update_stats(
             vpc_prefix.status.available_31_segments = u32::try_from(available).unwrap_or(u32::MAX);
         }
 
-        // Family-aware linknet stats: /31 for IPv4 (RFC 3021), /127 for IPv6 (RFC 6164).
-        // Compute total and available linknet segments using math rather than
-        // enumeration. A VPC prefix of length L can hold 2^(linknet_prefix - L)
-        // linknets. For example, a /24 VPC holds 2^(31-24) = 128 possible /31
-        // subnets, and a /120 IPv6 VPC holds 2^(127-120) = 128 possible /127
-        // subnets. For very large IPv6 prefixes (e.g. /48 → 2^79 linknets),
-        // the result exceeds u64, so we cap at u64::MAX -- this is purely
-        // because we're building these values for metrics/display purposes,
-        // and these values get packed into a protobuf, which only supports
-        // u64. If it's a problem, we can split it over two u64.
+        // Capacity follows both the address family and the VPC mode: /31 for
+        // IPv4, /64 for SLAAC IPv6, and /127 for stateful IPv6. Compute it
+        // without enumerating prefixes. Results larger than the protobuf's u64
+        // fields are capped at u64::MAX.
         vpc_prefix.status.total_linknet_segments = u64::try_from(total).unwrap_or(u64::MAX);
         vpc_prefix.status.available_linknet_segments = u64::try_from(available).unwrap_or(u64::MAX);
     }
@@ -180,11 +209,13 @@ pub async fn get_for_allocation_by_ids(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
-/// Loads active automatic-allocation candidates for the requested VPCs.
+/// Loads active VPC prefixes for automatic allocation planning.
 ///
 /// Rows are returned in stable VPC/ID order so caller grouping preserves
 /// ascending IDs within each `(vpc_id, family)` lock group. Callers must freeze
 /// this result rather than re-ranking it using mutable capacity statistics.
+/// Prefix length eligibility depends on the owning VPC's allocation mode and
+/// must be applied by the caller after loading that configuration.
 pub async fn find_allocation_candidates(
     txn: &mut PgConnection,
     vpc_ids: &[VpcId],
@@ -195,12 +226,6 @@ pub async fn find_allocation_candidates(
         WHERE vpc_id = ANY($1)
           -- Soft-deleted prefixes are not eligible automatic candidates.
           AND deleted IS NULL
-          -- IPv4 supports a full-root /31 as its one generated linknet. IPv6
-          -- parents must remain wider than their generated /127 linknets.
-          AND (
-            (family(prefix) = 4 AND masklen(prefix) <= 31)
-            OR (family(prefix) = 6 AND masklen(prefix) < 127)
-          )
         -- Preserve ascending candidate IDs within each VPC/family lock group.
         ORDER BY vpc_id, id
     "#;
@@ -678,12 +703,14 @@ mod tests {
         .execute(&mut *txn)
         .await?;
         let candidates = find_allocation_candidates(&mut txn, &[vpc_id]).await?;
+        let mut expected_candidate_ids = vec![vpc_prefix_id, ipv6_vpc_prefix_id];
+        expected_candidate_ids.sort_unstable();
         assert_eq!(
             candidates
                 .iter()
                 .map(|candidate| candidate.id)
                 .collect::<Vec<_>>(),
-            vec![vpc_prefix_id]
+            expected_candidate_ids
         );
 
         let network_segment_id = NetworkSegmentId::new();
@@ -799,6 +826,170 @@ mod tests {
         assert_eq!(capacity.status.available_31_segments, 63);
         assert_eq!(capacity.status.total_linknet_segments, 128);
         assert_eq!(capacity.status.available_linknet_segments, 63);
+
+        txn.commit().await?;
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn capacity_stats_follow_vpc_allocation_mode(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        async fn insert_case(
+            txn: &mut PgConnection,
+            name: &str,
+            parent: IpNetwork,
+            occupied: Option<IpNetwork>,
+            slaac_enabled: bool,
+        ) -> Result<(VpcId, VpcPrefixId), sqlx::Error> {
+            let vpc_id = VpcId::new();
+            sqlx::query(
+                "INSERT INTO vpcs (id, name, organization_id, version, slaac_enabled) \
+                 VALUES ($1, $2, $3, $4, $5)",
+            )
+            .bind(vpc_id)
+            .bind(name)
+            .bind("capacity-tenant")
+            .bind(ConfigVersion::initial())
+            .bind(slaac_enabled)
+            .execute(&mut *txn)
+            .await?;
+
+            let vpc_prefix_id = VpcPrefixId::new();
+            sqlx::query(
+                "INSERT INTO network_vpc_prefixes (id, prefix, name, vpc_id) \
+                 VALUES ($1, $2, $3, $4)",
+            )
+            .bind(vpc_prefix_id)
+            .bind(parent)
+            .bind(name)
+            .bind(vpc_id)
+            .execute(&mut *txn)
+            .await?;
+
+            if let Some(occupied) = occupied {
+                let segment_id = NetworkSegmentId::new();
+                sqlx::query(
+                    "INSERT INTO network_segments (id, name, vpc_id, version) \
+                     VALUES ($1, $2, $3, $4)",
+                )
+                .bind(segment_id)
+                .bind(name)
+                .bind(vpc_id)
+                .bind(ConfigVersion::initial())
+                .execute(&mut *txn)
+                .await?;
+                sqlx::query(
+                    "INSERT INTO network_prefixes \
+                     (segment_id, prefix, vpc_prefix_id, vpc_prefix) \
+                     VALUES ($1, $2, $3, $4)",
+                )
+                .bind(segment_id)
+                .bind(occupied)
+                .bind(vpc_prefix_id)
+                .bind(parent)
+                .execute(txn)
+                .await?;
+            }
+
+            Ok((vpc_id, vpc_prefix_id))
+        }
+
+        struct CapacityCase {
+            name: &'static str,
+            parent: &'static str,
+            occupied: Option<&'static str>,
+            slaac_enabled: bool,
+            soft_delete_vpc: bool,
+            expected: (u64, u64),
+        }
+
+        let cases = [
+            CapacityCase {
+                name: "SLAAC /63 has two /64 allocations",
+                parent: "2001:db8:100::/63",
+                occupied: None,
+                slaac_enabled: true,
+                soft_delete_vpc: false,
+                expected: (2, 2),
+            },
+            CapacityCase {
+                name: "SLAAC /64 occupies one allocation",
+                parent: "2001:db8:200::/63",
+                occupied: Some("2001:db8:200::/64"),
+                slaac_enabled: true,
+                soft_delete_vpc: false,
+                expected: (2, 1),
+            },
+            CapacityCase {
+                name: "historical /127 on a soft-deleted VPC occupies one SLAAC allocation",
+                parent: "2001:db8:300::/63",
+                occupied: Some("2001:db8:300::/127"),
+                slaac_enabled: true,
+                soft_delete_vpc: true,
+                expected: (2, 1),
+            },
+            CapacityCase {
+                name: "stateful IPv6 retains /127 allocation capacity",
+                parent: "2001:db8:400::/126",
+                occupied: Some("2001:db8:400::/127"),
+                slaac_enabled: false,
+                soft_delete_vpc: false,
+                expected: (2, 1),
+            },
+            CapacityCase {
+                name: "exact SLAAC /64 parent retains the IPv6 strict-parent rule",
+                parent: "2001:db8:500::/64",
+                occupied: None,
+                slaac_enabled: true,
+                soft_delete_vpc: false,
+                expected: (0, 0),
+            },
+        ];
+
+        let mut txn = pool.begin().await?;
+        let mut expected_capacities = Vec::with_capacity(cases.len());
+        for case in cases {
+            let (vpc_id, vpc_prefix_id) = insert_case(
+                &mut txn,
+                case.name,
+                case.parent.parse()?,
+                case.occupied.map(str::parse).transpose()?,
+                case.slaac_enabled,
+            )
+            .await?;
+            if case.soft_delete_vpc {
+                sqlx::query("UPDATE vpcs SET deleted = NOW() WHERE id = $1")
+                    .bind(vpc_id)
+                    .execute(&mut *txn)
+                    .await?;
+            }
+            expected_capacities.push((case.name, vpc_prefix_id, case.expected));
+        }
+
+        let vpc_prefix_ids: Vec<_> = expected_capacities
+            .iter()
+            .map(|(_, vpc_prefix_id, _)| *vpc_prefix_id)
+            .collect();
+        let capacities: HashMap<_, _> = get_by_id(
+            &mut txn,
+            ObjectColumnFilter::List(IdColumn, &vpc_prefix_ids),
+            DeletedFilter::Exclude,
+        )
+        .await?
+        .into_iter()
+        .map(|prefix| (prefix.id, prefix.status))
+        .collect();
+
+        for (name, vpc_prefix_id, expected) in expected_capacities {
+            let status = &capacities[&vpc_prefix_id];
+            assert_eq!(status.total_linknet_segments, expected.0, "{} total", name);
+            assert_eq!(
+                status.available_linknet_segments, expected.1,
+                "{} available",
+                name
+            );
+        }
 
         txn.commit().await?;
         Ok(())

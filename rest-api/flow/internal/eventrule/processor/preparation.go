@@ -5,7 +5,6 @@ package processor
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
 	"github.com/google/uuid"
@@ -47,13 +46,6 @@ func (p *Processor) prepare(
 	)
 	if err != nil {
 		return preparedEvent{}, classifyRuleError(err)
-	}
-
-	if rule != nil && rule.Dedupe != nil && envelope.CorrelationKey == "" {
-		return preparedEvent{}, terminalError(fmt.Errorf(
-			"correlation key is required by rule %s dedupe policy",
-			rule.ID,
-		))
 	}
 
 	return preparedEvent{

@@ -6,7 +6,6 @@ package policy_test
 import (
 	"os"
 	"testing"
-	"time"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
 	policycodec "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/codec/policy"
@@ -24,13 +23,12 @@ func TestPolicyV1Fixture(t *testing.T) {
 	require.Equal(t, fullPolicy(), policy)
 }
 
-func TestPolicyV1WithoutDedupeFixture(t *testing.T) {
+func TestPolicyV1NoopFixture(t *testing.T) {
 	data, err := os.ReadFile("testdata/policy_v1_without_dedupe.json")
 	require.NoError(t, err)
 
 	policy, err := policycodec.Unmarshal(data)
 	require.NoError(t, err)
-	require.Nil(t, policy.Dedupe)
 	require.Len(t, policy.Actions, 1)
 	require.Equal(t, "noop", policy.Actions[0].Name)
 }
@@ -47,7 +45,7 @@ func TestPolicyRoundTrip(t *testing.T) {
 func TestPolicyRejectsUnknownVersionsAndFields(t *testing.T) {
 	tests := map[string]string{
 		"policy version": `{"version":2,"actions":[]}`,
-		"dedupe version": `{
+		"removed dedupe field": `{
 			"version":1,
 			"dedupe":{"version":2,"window":1},
 			"actions":[]
@@ -71,7 +69,6 @@ func TestPolicyRejectsUnknownVersionsAndFields(t *testing.T) {
 
 func fullPolicy() eventrule.Policy {
 	return eventrule.Policy{
-		Dedupe: &eventrule.Dedupe{Window: 5 * time.Minute},
 		Actions: []eventrule.Action{
 			{
 				Name: "submit",

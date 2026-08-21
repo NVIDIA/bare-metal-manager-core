@@ -21,6 +21,7 @@ use std::sync::Arc;
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
+use carbide_network::ip::IpAddressFamily;
 use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
@@ -56,7 +57,10 @@ use model::metadata::Metadata;
 use model::network_segment::NetworkSegmentType;
 use model::os::OperatingSystemVariant;
 use model::tenant::TenantOrganizationId;
-use model::vpc::{FabricInterfaceType, VpcVirtualizationTypeCapabilities};
+use model::vpc::{
+    FabricInterfaceType, VpcVirtualizationTypeCapabilities, instance_prefix_len,
+    vpc_prefix_can_allocate_interface_prefix,
+};
 use model::vpc_prefix::VpcPrefix;
 use sqlx::PgConnection;
 
@@ -334,11 +338,11 @@ impl AllocationAddressFamily {
         }
     }
 
-    /// Returns the point-to-point linknet length used for this family.
-    fn linknet_prefix(self) -> u8 {
+    /// Returns the representation used by the shared network model.
+    fn ip_address_family(self) -> IpAddressFamily {
         match self {
-            Self::Ipv4 => 31,
-            Self::Ipv6 => 127,
+            Self::Ipv4 => IpAddressFamily::Ipv4,
+            Self::Ipv6 => IpAddressFamily::Ipv6,
         }
     }
 
@@ -349,6 +353,26 @@ impl AllocationAddressFamily {
             Self::Ipv6 => "IPv6",
         }
     }
+}
+
+/// Validates that an explicitly selected parent can contain one interface prefix.
+fn validate_vpc_prefix_allocation_capacity(
+    vpc_prefix: &VpcPrefix,
+    family: AllocationAddressFamily,
+    allocation_prefix_len: u8,
+) -> CarbideResult<()> {
+    if vpc_prefix_can_allocate_interface_prefix(
+        family.ip_address_family(),
+        vpc_prefix.config.prefix.prefix(),
+        allocation_prefix_len,
+    ) {
+        return Ok(());
+    }
+
+    Err(CarbideError::InvalidArgument(format!(
+        "VPC prefix `{}` ({}) cannot contain a /{} interface prefix",
+        vpc_prefix.id, vpc_prefix.config.prefix, allocation_prefix_len,
+    )))
 }
 
 /// Selects the database operation and interface fields for a family allocation.
@@ -380,13 +404,15 @@ struct PrefixAllocationWork {
     // Canonical execution-group and candidate-revalidation identity.
     vpc_id: VpcId,
     family: AllocationAddressFamily,
+    // Frozen from the owning VPC's immutable SLAAC policy during planning.
+    allocation_prefix_len: u8,
 
     // Frozen ascending candidate IDs and their monotonically advancing cursor.
     // Candidate row state is re-read under lock during execution.
     candidates: Arc<[VpcPrefixId]>,
     candidate_index: usize,
 
-    // Selects create-versus-attach; explicit work may pin the exact /31 or /127.
+    // Selects create-versus-attach; explicit work may pin the selected interface prefix.
     slot: PrefixAllocationSlot,
     requested_prefix: Option<IpNetwork>,
 
@@ -488,6 +514,7 @@ async fn allocate_prefix_candidate_once(
     txn: &mut PgConnection,
     vpc_id: VpcId,
     family: AllocationAddressFamily,
+    allocation_prefix_len: u8,
     vpc_prefix_id: VpcPrefixId,
     operation: PrefixAllocationOperation,
     requested_prefix: Option<IpNetwork>,
@@ -512,7 +539,7 @@ async fn allocate_prefix_candidate_once(
         vpc_prefix.id,
         vpc_prefix.config.prefix,
         vpc_prefix.status.last_used_prefix,
-        family.linknet_prefix(),
+        allocation_prefix_len,
     )?;
     let allocated_prefix = if let Some(requested_prefix) = requested_prefix {
         allocator
@@ -564,6 +591,7 @@ async fn attempt_prefix_candidate(
     txn: &mut PgConnection,
     vpc_id: VpcId,
     family: AllocationAddressFamily,
+    allocation_prefix_len: u8,
     vpc_prefix_id: VpcPrefixId,
     operation: PrefixAllocationOperation,
     requested_prefix: Option<IpNetwork>,
@@ -574,6 +602,7 @@ async fn attempt_prefix_candidate(
             savepoint.as_pgconn(),
             vpc_id,
             family,
+            allocation_prefix_len,
             vpc_prefix_id,
             operation,
             requested_prefix,
@@ -780,28 +809,14 @@ async fn load_prefix_allocation_context(
         }
     }
 
-    // Freeze active automatic candidates for the lifetime of this request.
+    // Load active automatic candidates. Their eligibility depends on the
+    // owning VPC's SLAAC policy, which is loaded below.
     let automatic_candidate_vpc_ids = automatic_candidate_vpc_ids.into_iter().collect_vec();
     let automatic_prefixes = if automatic_candidate_vpc_ids.is_empty() {
         Vec::new()
     } else {
         db::vpc_prefix::find_allocation_candidates(txn, &automatic_candidate_vpc_ids).await?
     };
-    let mut automatic_candidates: BTreeMap<(VpcId, AllocationAddressFamily), Vec<VpcPrefixId>> =
-        BTreeMap::new();
-    for prefix in automatic_prefixes {
-        automatic_candidates
-            .entry((
-                prefix.vpc_id,
-                AllocationAddressFamily::from_network(prefix.config.prefix),
-            ))
-            .or_default()
-            .push(prefix.id);
-    }
-    let automatic_candidates: BTreeMap<_, Arc<[VpcPrefixId]>> = automatic_candidates
-        .into_iter()
-        .map(|(group, candidates)| (group, Arc::from(candidates)))
-        .collect();
 
     // Load every referenced VPC once for ownership and capability validation.
     let mut referenced_vpc_ids = automatic_vpc_ids.clone();
@@ -831,6 +846,33 @@ async fn load_prefix_allocation_context(
             )));
         }
     }
+
+    // Freeze only candidates that can contain an instance allocation under
+    // the owning VPC's policy.
+    let mut automatic_candidates: BTreeMap<(VpcId, AllocationAddressFamily), Vec<VpcPrefixId>> =
+        BTreeMap::new();
+    for prefix in automatic_prefixes {
+        let Some(vpc) = vpcs.get(&prefix.vpc_id) else {
+            continue;
+        };
+        let family = AllocationAddressFamily::from_network(prefix.config.prefix);
+        let allocation_prefix_len =
+            instance_prefix_len(family.ip_address_family(), vpc.config.slaac_enabled);
+        if vpc_prefix_can_allocate_interface_prefix(
+            family.ip_address_family(),
+            prefix.config.prefix.prefix(),
+            allocation_prefix_len,
+        ) {
+            automatic_candidates
+                .entry((prefix.vpc_id, family))
+                .or_default()
+                .push(prefix.id);
+        }
+    }
+    let automatic_candidates: BTreeMap<_, Arc<[VpcPrefixId]>> = automatic_candidates
+        .into_iter()
+        .map(|(group, candidates)| (group, Arc::from(candidates)))
+        .collect();
 
     Ok(Some(PrefixAllocationContext {
         explicit_prefixes,
@@ -918,6 +960,8 @@ fn plan_prefix_allocations(
                 }
 
                 for family in families {
+                    let allocation_prefix_len =
+                        instance_prefix_len(family.ip_address_family(), vpc.config.slaac_enabled);
                     let candidates = automatic_candidates
                         .get(&(selection.vpc_id, *family))
                         .cloned()
@@ -934,6 +978,7 @@ fn plan_prefix_allocations(
                         interface_index,
                         vpc_id: selection.vpc_id,
                         family: *family,
+                        allocation_prefix_len,
                         candidates,
                         candidate_index: 0,
                         // IPv4 creates a dual-stack segment before IPv6 attaches.
@@ -980,6 +1025,10 @@ fn plan_prefix_allocations(
 
             let primary_family =
                 AllocationAddressFamily::from_network(primary_prefix.config.prefix);
+            let primary_allocation_prefix_len = instance_prefix_len(
+                primary_family.ip_address_family(),
+                primary_vpc.config.slaac_enabled,
+            );
             if let Some(requested_ip_addr) = interface.requested_ip_addr
                 && AllocationAddressFamily::from_address(requested_ip_addr) != primary_family
             {
@@ -996,7 +1045,6 @@ fn plan_prefix_allocations(
                     primary_vpc.id,
                 )));
             }
-
             let secondary_prefix = if let Some(ipv6) = &interface.ipv6_interface_config {
                 if primary_family != AllocationAddressFamily::Ipv4 {
                     return Err(CarbideError::InvalidConfiguration(
@@ -1043,24 +1091,38 @@ fn plan_prefix_allocations(
                 continue;
             }
 
+            validate_vpc_prefix_allocation_capacity(
+                primary_prefix,
+                primary_family,
+                primary_allocation_prefix_len,
+            )?;
+
             works.push(PrefixAllocationWork {
                 target_index,
                 interface_index,
                 vpc_id: primary_prefix.vpc_id,
                 family: primary_family,
+                allocation_prefix_len: primary_allocation_prefix_len,
                 candidates: Arc::from(vec![*primary_prefix_id]),
                 candidate_index: 0,
                 slot: PrefixAllocationSlot::Primary,
                 requested_prefix: interface
                     .requested_ip_addr
                     .map(|address| {
-                        build_requested_linknet_prefix(address, primary_family.linknet_prefix())
+                        build_requested_linknet_prefix(address, primary_allocation_prefix_len)
                     })
                     .transpose()?,
                 automatic: false,
             });
 
             if let Some(secondary_prefix) = secondary_prefix {
+                let secondary_allocation_prefix_len =
+                    instance_prefix_len(IpAddressFamily::Ipv6, primary_vpc.config.slaac_enabled);
+                validate_vpc_prefix_allocation_capacity(
+                    secondary_prefix,
+                    AllocationAddressFamily::Ipv6,
+                    secondary_allocation_prefix_len,
+                )?;
                 let ipv6 = interface.ipv6_interface_config.as_ref().ok_or_else(|| {
                     CarbideError::internal(
                         "validated IPv6 allocation lost its interface configuration".to_string(),
@@ -1071,6 +1133,7 @@ fn plan_prefix_allocations(
                     interface_index,
                     vpc_id: secondary_prefix.vpc_id,
                     family: AllocationAddressFamily::Ipv6,
+                    allocation_prefix_len: secondary_allocation_prefix_len,
                     candidates: Arc::from(vec![secondary_prefix.id]),
                     candidate_index: 0,
                     slot: PrefixAllocationSlot::SecondaryIpv6,
@@ -1079,7 +1142,7 @@ fn plan_prefix_allocations(
                         .map(|address| {
                             build_requested_linknet_prefix(
                                 std::net::IpAddr::V6(address),
-                                AllocationAddressFamily::Ipv6.linknet_prefix(),
+                                secondary_allocation_prefix_len,
                             )
                         })
                         .transpose()?,
@@ -1223,6 +1286,7 @@ async fn execute_prefix_allocations(
                     txn,
                     work.vpc_id,
                     work.family,
+                    work.allocation_prefix_len,
                     candidate,
                     operation,
                     work.requested_prefix,

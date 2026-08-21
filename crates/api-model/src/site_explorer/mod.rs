@@ -608,6 +608,11 @@ pub struct ExploredDpu {
     /// The MAC address that is visible to the host (provided by the DPU)
     #[serde(with = "serialize_option_display", default)]
     pub host_pf_mac_address: Option<MacAddress>,
+    /// The trimmed, nonblank host BMC `Chassis.id` associated with this DPU's
+    /// serial number. Conflicting IDs leave this unset so Site Explorer can
+    /// fall back to ordering by DPU serial number.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_chassis_id: Option<String>,
 
     #[serde(skip)]
     pub report: Arc<EndpointExplorationReport>,
@@ -3479,13 +3484,14 @@ mod tests {
             dpus: vec![ExploredDpu {
                 bmc_ip: "1.2.3.5".parse().unwrap(),
                 host_pf_mac_address: Some("11:22:33:44:55:66".parse().unwrap()),
+                host_chassis_id: Some("Riser_Slot2_BlueField_3_Card".to_string()),
                 report: Default::default(),
             }],
         };
         let serialized = serde_json::to_string(&host).unwrap();
         assert_eq!(
             serialized,
-            r#"{"HostBmcIp":"1.2.3.4","Dpus":[{"BmcIp":"1.2.3.5","HostPfMacAddress":"11:22:33:44:55:66"}]}"#
+            r#"{"HostBmcIp":"1.2.3.4","Dpus":[{"BmcIp":"1.2.3.5","HostPfMacAddress":"11:22:33:44:55:66","HostChassisId":"Riser_Slot2_BlueField_3_Card"}]}"#
         );
         assert_eq!(
             serde_json::from_str::<ExploredManagedHost>(&serialized).unwrap(),
@@ -3497,6 +3503,7 @@ mod tests {
             dpus: vec![ExploredDpu {
                 bmc_ip: "1.2.3.5".parse().unwrap(),
                 host_pf_mac_address: None,
+                host_chassis_id: None,
                 report: Default::default(),
             }],
         };

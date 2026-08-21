@@ -1252,8 +1252,10 @@ pub struct L3Domain {
 /// IPv6 configuration for a port.
 #[derive(Clone, Deserialize, Debug)]
 pub struct Ipv6PortConfig {
-    /// DPU-side IPv6 address in CIDR notation (e.g. "2001:db8::0/127").
-    /// For FNN L3 linknets, this is the ::0 end of the /127 (RFC 6164).
+    /// IPv6 value configured on the DPU in CIDR notation (for example,
+    /// "2001:db8::0/127"). Stateful FNN uses the ::0 end of a /127 linknet
+    /// (RFC 6164). SLAAC carries the selected /64 without a concrete host
+    /// address.
     pub gateway_cidr: String,
     /// SVI IP for L2 segments -- the DPU's gateway address on the VLAN.
     pub svi_ip: Option<String>,
@@ -2336,7 +2338,12 @@ mod tests {
         port.host_route.clear();
         port.gateway_cidr.clear();
         port.host_ipv6 = Some(String::new());
+        port.host_ipv6_route = None;
         port.svi_ip = None;
+        port.ipv6_port_config
+            .as_mut()
+            .expect("fixture should have an IPv6 port config")
+            .gateway_cidr = "2001:db8::/64".into();
         port.vpc_prefixes
             .retain(|prefix| matches!(prefix.parse::<IpNet>(), Ok(IpNet::V6(_))));
 
@@ -2359,7 +2366,7 @@ mod tests {
 
         assert_eq!(
             yaml_mapping_keys(&set["interface"]["pf0vf0_if"]["ip"]["address"]),
-            address_set(&["2001:db8::0/127"]),
+            address_set(&["2001:db8::/64"]),
         );
         let bgp = &set["vrf"]["vpc_100"]["router"]["bgp"];
         assert!(

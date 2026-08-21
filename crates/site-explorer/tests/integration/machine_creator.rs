@@ -460,6 +460,7 @@ async fn explored_host_fixture(env: &Env, managed_host: &ManagedHostConfig) -> E
                 .dpus
                 .get(dpu.dpu_index as usize)
                 .map(|config| config.host_mac_address),
+            host_chassis_id: None,
             report: Arc::new(dpu.report),
         })
         .collect();

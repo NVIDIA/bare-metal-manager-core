@@ -954,9 +954,9 @@ mod test {
     fn slaac_ipv6_address_config() -> rpc::InterfaceAddressConfig {
         rpc::InterfaceAddressConfig {
             address_family: rpc::AddressFamily::V6.into(),
-            gateway: "2001:db8::/127".to_string(),
+            gateway: "2001:db8::/64".to_string(),
             ip: String::new(),
-            interface_prefix: "2001:db8::/127".to_string(),
+            interface_prefix: "2001:db8::/64".to_string(),
             prefix: "2001:db8::/64".to_string(),
             svi_ip: None,
         }
@@ -966,6 +966,7 @@ mod test {
     fn ipv6_interface_projection_requires_an_address_unless_slaac_is_enabled() {
         let address: IpAddr = "2001:db8::1".parse().unwrap();
         let prefix: IpNetwork = "2001:db8::/127".parse().unwrap();
+        let slaac_prefix: IpNetwork = "2001:db8::/64".parse().unwrap();
         let configured = rpc::FlatInterfaceIpv6Config {
             ip: address.to_string(),
             interface_prefix: prefix.to_string(),
@@ -973,7 +974,7 @@ mod test {
         };
         let slaac = rpc::FlatInterfaceIpv6Config {
             ip: String::new(),
-            interface_prefix: prefix.to_string(),
+            interface_prefix: slaac_prefix.to_string(),
             svi_ip: None,
         };
 
@@ -986,7 +987,7 @@ mod test {
                 (Some(address), Some(prefix), true) => Some(configured.clone()),
             }
             "SLAAC keeps a prefix without a host address" {
-                (None, Some(prefix), true) => Some(slaac),
+                (None, Some(slaac_prefix), true) => Some(slaac),
             }
             "non-SLAAC configuration with only a prefix remains absent" {
                 (None, Some(prefix), false) => None,
@@ -1049,7 +1050,7 @@ mod test {
                     rpc::FlatInterfaceConfig {
                         ipv6_interface_config: Some(rpc::FlatInterfaceIpv6Config {
                             ip: String::new(),
-                            interface_prefix: "2001:db8::/127".to_string(),
+                            interface_prefix: "2001:db8::/64".to_string(),
                             svi_ip: None,
                         }),
                         ..Default::default()
