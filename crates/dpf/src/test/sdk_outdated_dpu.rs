@@ -29,12 +29,14 @@ use async_trait::async_trait;
 use dashmap::DashMap;
 use kube::core::ObjectMeta;
 
+use crate::crds::dpfoperatorconfigs_generated::DPFOperatorConfig;
 use crate::crds::dpudeployments_generated::DPUDeployment;
 use crate::crds::dpus_generated::DPU;
 use crate::crds::dpuservicetemplates_generated::DPUServiceTemplate;
 use crate::error::DpfError;
 use crate::repository::{
-    DpuDeploymentRepository, DpuRepository, DpuServiceTemplateRepository, K8sConfigRepository,
+    DpfOperatorConfigRepository, DpuDeploymentRepository, DpuRepository,
+    DpuServiceTemplateRepository, K8sConfigRepository,
 };
 use crate::sdk::DpfSdkBuilder;
 
@@ -48,6 +50,7 @@ const OWNED_BY_LABEL: &str = "svc.dpu.nvidia.com/owned-by-dpudeployment";
 struct OutdatedDpuMock {
     dpus: Arc<DashMap<String, DPU>>,
     deployments: Arc<DashMap<String, DPUDeployment>>,
+    operator_config: Arc<DashMap<String, DPFOperatorConfig>>,
 }
 
 impl OutdatedDpuMock {
@@ -89,6 +92,16 @@ impl DpuRepository for OutdatedDpuMock {
         Fut: Future<Output = Result<(), DpfError>> + Send + 'static,
     {
         futures::future::pending()
+    }
+}
+
+#[async_trait]
+impl DpfOperatorConfigRepository for OutdatedDpuMock {
+    async fn get(&self, name: &str, _ns: &str) -> Result<Option<DPFOperatorConfig>, DpfError> {
+        Ok(self.operator_config.get(name).map(|c| c.clone()))
+    }
+    async fn patch(&self, _: &str, _: &str, _: serde_json::Value) -> Result<(), DpfError> {
+        Ok(())
     }
 }
 
