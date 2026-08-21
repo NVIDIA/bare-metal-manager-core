@@ -85,6 +85,7 @@ func TestMachineDetailToSpec(t *testing.T) {
 	assert.Equal(t, "SN-001", s.SerialNumber)
 	assert.Equal(t, "Foxconn", s.Manufacturer)
 	assert.Equal(t, "MGX-Compute-Gen2", s.Model)
+	assert.Equal(t, "compute node", s.Description)
 	assert.Equal(t, 5, s.SlotID)
 	assert.Equal(t, 1, s.TrayIndex)
 	assert.Equal(t, 3, s.HostID)
@@ -97,20 +98,24 @@ func TestSwitchDetailToSpec_TypeIsNVSwitch(t *testing.T) {
 	s := switchDetailToSpec(nicoapi.ExpectedSwitchDetail{
 		SwitchSerialNumber: "SW-1",
 		BMCMACAddress:      "00:00:00:00:00:01",
+		Description:        "fabric switch",
 		Labels:             map[string]string{labelComponentManufacturer: "NVIDIA"},
 	})
 	assert.Equal(t, devicetypes.ComponentTypeToString(devicetypes.ComponentTypeNVSwitch), s.Type)
 	assert.Equal(t, "SW-1", s.SerialNumber)
+	assert.Equal(t, "fabric switch", s.Description)
 }
 
 func TestPowerShelfDetailToSpec_TypeIsPowerShelf(t *testing.T) {
 	s := powerShelfDetailToSpec(nicoapi.ExpectedPowerShelfDetail{
 		ShelfSerialNumber: "PS-1",
 		BMCMACAddress:     "00:00:00:00:00:02",
+		Description:       "power shelf",
 		Labels:            map[string]string{labelComponentManufacturer: "NVIDIA"},
 	})
 	assert.Equal(t, devicetypes.ComponentTypeToString(devicetypes.ComponentTypePowerShelf), s.Type)
 	assert.Equal(t, "PS-1", s.SerialNumber)
+	assert.Equal(t, "power shelf", s.Description)
 }
 
 func TestSpecValid(t *testing.T) {
@@ -260,6 +265,7 @@ func TestComponentFromSpec(t *testing.T) {
 		SerialNumber: "SN-1",
 		Model:        "MGX",
 		Name:         "node-1",
+		Description:  "compute node",
 		SlotID:       5,
 		TrayIndex:    1,
 		HostID:       3,
@@ -270,6 +276,7 @@ func TestComponentFromSpec(t *testing.T) {
 	assert.Equal(t, "Foxconn", c.Manufacturer)
 	assert.Equal(t, "SN-1", c.SerialNumber)
 	assert.Equal(t, "MGX", c.Model)
+	assert.Equal(t, map[string]any{expectedDescriptionKey: "compute node"}, c.Description)
 	assert.Empty(t, c.FirmwareVersion, "firmware_version is owned by runtime sync, mirror must leave it unset")
 	assert.Equal(t, 5, c.SlotID)
 	assert.Equal(t, 1, c.TrayIndex)
@@ -306,6 +313,45 @@ func TestDiffComponentFields(t *testing.T) {
 		desired.FirmwareVersion = "2.0"
 		assert.Empty(t, diffComponentFields(base(), desired, expectedComponentSpec{}))
 	})
+
+	for _, tc := range []struct {
+		name        string
+		existing    map[string]any
+		expected    string
+		wantChanged bool
+	}{
+		{
+			name:        "new expected description is detected",
+			expected:    "new description",
+			wantChanged: true,
+		},
+		{
+			name:     "unchanged expected description produces no diff",
+			existing: map[string]any{expectedDescriptionKey: "same", "operator": "keep"},
+			expected: "same",
+		},
+		{
+			name:        "cleared expected description is detected",
+			existing:    map[string]any{expectedDescriptionKey: "old", "operator": "keep"},
+			wantChanged: true,
+		},
+		{
+			name:     "unrelated description entries do not produce a diff",
+			existing: map[string]any{"operator": "keep"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			existing := base()
+			existing.Description = tc.existing
+			diffs := diffComponentFields(existing, base(), expectedComponentSpec{Description: tc.expected})
+			if tc.wantChanged {
+				require.Len(t, diffs, 1)
+				assert.Equal(t, expectedDescriptionKey, diffs[0].field)
+			} else {
+				assert.Empty(t, diffs)
+			}
+		})
+	}
 
 	for name, mutate := range map[string]func(*model.Component){
 		"name":       func(c *model.Component) { c.Name = "n2" },
@@ -351,6 +397,10 @@ func TestApplyComponentChanges_DoesNotTouchIdentityOrRuntimeFields(t *testing.T)
 		Model:        "old-model",
 		RackID:       rackA,
 		ComponentID:  &extID, // runtime-owned, must not be touched
+		Description: map[string]any{
+			"nvos_ip":  "10.0.0.2",
+			"operator": "keep",
+		},
 	}
 	desired := &model.Component{
 		Name:   "new",
@@ -358,7 +408,7 @@ func TestApplyComponentChanges_DoesNotTouchIdentityOrRuntimeFields(t *testing.T)
 		RackID: rackB,
 	}
 
-	applyComponentChanges(existing, desired, expectedComponentSpec{})
+	applyComponentChanges(existing, desired, expectedComponentSpec{Description: "Core description"})
 
 	assert.Equal(t, "new", existing.Name)
 	assert.Equal(t, "new-model", existing.Model)
@@ -368,6 +418,24 @@ func TestApplyComponentChanges_DoesNotTouchIdentityOrRuntimeFields(t *testing.T)
 	assert.Equal(t, "SN-1", existing.SerialNumber, "SerialNumber is identity")
 	require.NotNil(t, existing.ComponentID)
 	assert.Equal(t, "runtime-id", *existing.ComponentID, "external_id is runtime-owned")
+	assert.Equal(t, "10.0.0.2", existing.Description["nvos_ip"], "runtime-owned description entry must survive")
+	assert.Equal(t, "keep", existing.Description["operator"], "operator-owned description entry must survive")
+	assert.Equal(t, "Core description", existing.Description[expectedDescriptionKey])
+}
+
+func TestComponentDescriptionWithExpected(t *testing.T) {
+	existing := map[string]any{
+		expectedDescriptionKey: "old",
+		"operator":             "keep",
+	}
+
+	updated := componentDescriptionWithExpected(existing, "new")
+	assert.Equal(t, map[string]any{expectedDescriptionKey: "new", "operator": "keep"}, updated)
+	assert.Equal(t, "old", existing[expectedDescriptionKey], "helper must not mutate the input map")
+
+	cleared := componentDescriptionWithExpected(updated, "")
+	assert.Equal(t, map[string]any{"operator": "keep"}, cleared)
+	assert.Nil(t, componentDescriptionWithExpected(map[string]any{expectedDescriptionKey: "old"}, ""))
 }
 
 func TestApplyComponentChanges_PreservedFieldsKeepFlowValue(t *testing.T) {

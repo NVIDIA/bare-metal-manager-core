@@ -56,8 +56,13 @@ func (d Dedupe) Validate() error {
 	return nil
 }
 
-// Validate checks deduplication configuration, actions, and action identity.
+// Validate checks deduplication configuration, actions, and action-name
+// uniqueness.
 func (p Policy) Validate() error {
+	if len(p.Actions) == 0 {
+		return fmt.Errorf("actions are required")
+	}
+
 	if p.Dedupe != nil {
 		if err := p.Dedupe.Validate(); err != nil {
 			return fmt.Errorf("dedupe: %w", err)

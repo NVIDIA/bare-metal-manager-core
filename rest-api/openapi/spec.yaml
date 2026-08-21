@@ -2778,6 +2778,7 @@ paths:
                       siteId: 72771e6a-6f5e-4de4-a5b9-1266c4197811
                       controllerVpcId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
                       networkVirtualizationType: ETHERNET_VIRTUALIZER
+                      slaacEnabled: false
                       requestedVni: 12001
                       vni: 12001
                       networkSecurityGroupId: c602eb90-3039-11f0-997a-b38d4fc8389e
@@ -2907,6 +2908,7 @@ paths:
                     siteId: 72771e6a-6f5e-4de4-a5b9-1266c4197811
                     controllerVpcId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
                     networkVirtualizationType: ETHERNET_VIRTUALIZER
+                    slaacEnabled: false
                     requestedVni: 12001
                     vni: 12001
                     nvLinkLogicalPartitionId: dd887330-dbd3-45ce-b400-c42fc8e47315
@@ -2925,10 +2927,63 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '409':
+          description: A VPC with the requested `id` or `name` already exists. This can also occur when inventory reconciliation completes before an ambiguous create is retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+              examples:
+                example-1:
+                  value:
+                    source: nico
+                    message: A Vpc with specified ID already exists
+                    data:
+                      id: 497f6eca-6276-4993-bfeb-53cbbbba6f08
+        '412':
+          description: The latest successfully stored configuration inventory for the selected Site does not report Core support for SLAAC, or Core rejects another create prerequisite. The inventory check fails before REST persistence or workflow dispatch; a Core rejection occurs after dispatch and the REST transaction is rolled back.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+              examples:
+                example-1:
+                  value:
+                    source: nico
+                    message: Site does not advertise support for SLAAC-enabled VPCs
+                    data: null
+        '500':
+          description: The API encountered an internal error resolving the selected Site client, persisting the VPC, starting the create workflow, or waiting for the workflow result. A failure before the workflow start request rolls back the REST transaction and no remote create is requested. An error returned while starting the workflow or waiting for its result also rolls back the REST transaction, but remote acceptance or creation may be unknown; a wait timeout triggers an attempted workflow termination.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+              examples:
+                example-1:
+                  value:
+                    source: nico
+                    message: Failed to retrieve client for Site
+                    data: null
+        '503':
+          description: Core or the selected Site Agent returned unavailable after the create workflow was dispatched. REST rolls back the transaction in progress, but the outcome in Core may be unknown.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+              examples:
+                example-1:
+                  value:
+                    source: nico
+                    message: Core unavailable after VPC create dispatch
+                    data: null
       description: |-
         Create a VPC for the org.
 
-        Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix
+        Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
+
+        When `slaacEnabled` is true, REST reads `vpcSlaac` from the latest successfully stored configuration inventory for the selected Site before persisting the VPC. Periodic Site inventory reports whether Core supports this feature, so the stored value can lag a Core rollout. False or missing `vpcSlaac` returns 412 before REST persistence or workflow dispatch. This flag reports Core support only; it does not verify DPU agent versions. When a new API server release is deployed, DPU agents roll forward, and instance network configuration may fail transiently until eligible agents converge. Core can also return 412 after dispatch for another create prerequisite. Failure to resolve the Site client or persist the VPC returns 500, rolls back the REST transaction, and does not request a remote create. An error returned while starting the workflow also returns 500 and may leave remote acceptance unknown. After the start request, an unavailable result returns 503, while a workflow wait timeout returns 500 and triggers an attempted workflow termination. Errors while starting or waiting for the workflow roll back the REST transaction, but do not guarantee that Core did not create the VPC; a later inventory reconciliation may recreate the REST record.
+
+        Safe recovery from an ambiguous create result requires supplying a stable `id` in the original request. After an ambiguous error while starting the workflow or after dispatch, callers should allow inventory reconciliation time, then retrieve that `id`. If the VPC is found, do not retry. If no record is found, reuse the same `id` for any retry; reusing the ID prevents a second Core VPC record, but the retry itself is not guaranteed to succeed and can return 409 if reconciliation completes concurrently.
       requestBody:
         content:
           application/json:
@@ -2942,6 +2997,7 @@ paths:
                   description: Virtual network for machines executing Spark jobs
                   siteId: 72771e6a-6f5e-4de4-a5b9-1266c4197811
                   networkVirtualizationType: ETHERNET_VIRTUALIZER
+                  slaacEnabled: false
                   vni: 12001
                   nvLinkLogicalPartitionId: dd887330-dbd3-45ce-b400-c42fc8e47315
                   labels:
@@ -2987,6 +3043,7 @@ paths:
                     siteId: 72771e6a-6f5e-4de4-a5b9-1266c4197811
                     controllerVpcId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
                     networkVirtualizationType: ETHERNET_VIRTUALIZER
+                    slaacEnabled: false
                     requestedVni: 12001
                     vni: 12001
                     nvLinkLogicalPartitionId: dd887330-dbd3-45ce-b400-c42fc8e47315
@@ -3076,6 +3133,7 @@ paths:
                     siteId: 72771e6a-6f5e-4de4-a5b9-1266c4197811
                     controllerVpcId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
                     networkVirtualizationType: ETHERNET_VIRTUALIZER
+                    slaacEnabled: false
                     requestedVni: 12001
                     vni: 12001
                     nvLinkLogicalPartitionId: dd887330-dbd3-45ce-b400-c42fc8e47315
@@ -3149,6 +3207,7 @@ paths:
                     siteId: 72771e6a-6f5e-4de4-a5b9-1266c4197811
                     controllerVpcId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
                     networkVirtualizationType: FNN
+                    slaacEnabled: false
                     requestedVni: 12001
                     vni: 12001
                     nvLinkLogicalPartitionId: dd887330-dbd3-45ce-b400-c42fc8e47315
@@ -8532,6 +8591,7 @@ paths:
                               nvLinkPartition: false
                               flow: false
                               imageBasedOperatingSystem: false
+                              vpcSlaac: false
                             status: Registered
                           status: Syncing
                           version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -8549,6 +8609,7 @@ paths:
                               nvLinkPartition: false
                               flow: false
                               imageBasedOperatingSystem: false
+                              vpcSlaac: false
                             status: Registered
                           status: Syncing
                           version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -8868,6 +8929,7 @@ paths:
                             nvLinkPartition: false
                             flow: false
                             imageBasedOperatingSystem: false
+                            vpcSlaac: false
                           status: Registered
                         status: Syncing
                         version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -8885,6 +8947,7 @@ paths:
                             nvLinkPartition: false
                             flow: false
                             imageBasedOperatingSystem: false
+                            vpcSlaac: false
                           status: Registered
                         status: Syncing
                         version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -10741,7 +10804,7 @@ paths:
                       components:
                         - id: 660e8400-e29b-41d4-a716-446655440001
                           componentId: fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
-                          type: ComponentTypeCompute
+                          type: Compute
                           name: Server-01
                           serialNumber: SN-SRV-001
                           manufacturer: Dell
@@ -10825,7 +10888,7 @@ paths:
                     components:
                       - id: 660e8400-e29b-41d4-a716-446655440001
                         componentId: fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
-                        type: ComponentTypeCompute
+                        type: Compute
                         name: Server-01
                         serialNumber: SN-SRV-001
                         manufacturer: Dell
@@ -10910,7 +10973,7 @@ paths:
                         expected:
                           id: 660e8400-e29b-41d4-a716-446655440001
                           componentId: comp-1
-                          type: ComponentTypeCompute
+                          type: Compute
                           name: Server-01
                           serialNumber: SN-SRV-001
                           manufacturer: Dell
@@ -11000,7 +11063,7 @@ paths:
                         expected:
                           id: 660e8400-e29b-41d4-a716-446655440001
                           componentId: comp-1
-                          type: ComponentTypeCompute
+                          type: Compute
                           name: Server-01
                           serialNumber: SN-SRV-001
                           manufacturer: Dell
@@ -12677,9 +12740,9 @@ paths:
         - schema:
             type: string
             enum:
-              - compute
-              - switch
-              - powershelf
+              - Compute
+              - NVSwitch
+              - PowerShelf
           name: type
           in: query
           description: Filter by tray type
@@ -12745,7 +12808,7 @@ paths:
                   value:
                     - id: 660e8400-e29b-41d4-a716-446655440001
                       componentId: fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
-                      type: compute
+                      type: Compute
                       name: compute-tray-1
                       manufacturer: NVIDIA
                       model: GB200
@@ -12812,7 +12875,7 @@ paths:
                   value:
                     id: 660e8400-e29b-41d4-a716-446655440001
                     componentId: fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
-                    type: compute
+                    type: Compute
                     name: compute-tray-1
                     manufacturer: NVIDIA
                     model: GB200
@@ -12888,9 +12951,9 @@ paths:
         - schema:
             type: string
             enum:
-              - compute
-              - switch
-              - powershelf
+              - Compute
+              - NVSwitch
+              - PowerShelf
           name: type
           in: query
           required: false
@@ -13978,6 +14041,7 @@ paths:
                               nvLinkPartition: false
                               flow: false
                               imageBasedOperatingSystem: false
+                              vpcSlaac: false
                             status: Registered
                           status: Syncing
                           version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -14099,6 +14163,7 @@ paths:
                           capabilities:
                             nativeNetworking: true
                             networkSecurityGroup: true
+                            vpcSlaac: false
                           status: Registered
                         status: Syncing
                         version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -14189,6 +14254,7 @@ paths:
                             nvLinkPartition: false
                             flow: false
                             imageBasedOperatingSystem: false
+                            vpcSlaac: false
                           status: Registered
                         status: Syncing
                         version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -14274,6 +14340,7 @@ paths:
                           capabilities:
                             nativeNetworking: true
                             networkSecurityGroup: true
+                            vpcSlaac: false
                           status: Registered
                         status: Syncing
                         version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -14288,6 +14355,7 @@ paths:
                           capabilities:
                             nativeNetworking: true
                             networkSecurityGroup: true
+                            vpcSlaac: false
                           status: Registered
                         status: Syncing
                         version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -17447,6 +17515,7 @@ components:
             nvLinkPartition: false
             flow: false
             imageBasedOperatingSystem: false
+            vpcSlaac: false
           isOnline: false
           status: Pending
           statusHistory:
@@ -17582,6 +17651,7 @@ components:
             nvLinkPartition: false
             flow: false
             imageBasedOperatingSystem: false
+            vpcSlaac: false
           status: Pending
       properties:
         id:
@@ -17639,6 +17709,10 @@ components:
         imageBasedOperatingSystem:
           type: boolean
           description: 'Whether the Site supports image-based operating system provisioning'
+        vpcSlaac:
+          type: boolean
+          readOnly: true
+          description: Whether the latest successfully stored Site configuration inventory reports that Core supports VPCs with SLAAC enabled. False also represents a missing Site configuration or an inventory report that omits the capability. This value is managed by Site configuration inventory and cannot be updated through the Site API.
     SiteMachineStats:
       title: SiteMachineStats
       type: object
@@ -18210,6 +18284,7 @@ components:
             env: dev
           controllerVpcId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
           networkVirtualizationType: ETHERNET_VIRTUALIZER
+          slaacEnabled: false
           requestedVni: 12001
           vni: 12001
           networkSecurityGroupId: c602eb90-3039-11f0-997a-b38d4fc8389e
@@ -18275,6 +18350,10 @@ components:
             - FNN
             - FLAT
           description: 'Network virtualization type of the VPC. Flat VPCs hold instances on zero-DPU hosts (or hosts with their DPU in NIC mode); their interfaces are bound to underlay (HostInband) network segments and NICo does not drive their data plane.'
+        slaacEnabled:
+          type: boolean
+          readOnly: true
+          description: Whether this VPC uses SLAAC allocation mode for instance IPv6 interfaces. This value is fixed when the VPC is created. Complete SLAAC support depends on allocating a `/64` to each interface, tracked by https://github.com/NVIDIA/infra-controller/issues/2404, and router advertisement (RA) support, tracked by https://github.com/NVIDIA/infra-controller/issues/2398.
         routingProfile:
           type:
             - string
@@ -18489,6 +18568,7 @@ components:
           description: Virtual network for machines executing Spark jobs
           siteId: 72771e6a-6f5e-4de4-a5b9-1266c4197811
           networkVirtualizationType: FNN
+          slaacEnabled: true
           routingProfile: internal
           vni: 12001
           nvLinkLogicalPartitionId: dd887330-dbd3-45ce-b400-c42fc8e47315
@@ -18523,6 +18603,10 @@ components:
             - FNN
             - FLAT
           description: 'Network virtualization type of the VPC. If no value is specified, then defaults to `FNN` if Site has native networking enabled, or `ETHERNET_VIRTUALIZER` if native networking is disabled. Flat VPCs hold instances on zero-DPU hosts (or hosts with their DPU in NIC mode) and are never auto-selected -- `FLAT` must be specified explicitly.'
+        slaacEnabled:
+          type: boolean
+          default: false
+          description: When true, Core retains an IPv6 interface prefix without assigning a concrete IPv6 host address. It is supported only for FNN VPCs and fixed during creation. False or omission disables SLAAC. Before persistence, REST requires `vpcSlaac` in the latest successfully stored configuration inventory for the selected Site. Periodic Site inventory reports whether Core supports this feature, so the stored value can lag a Core rollout. False or missing `vpcSlaac` returns 412 before REST persistence or workflow dispatch. This flag does not verify DPU agent versions. When a new API server release is deployed, DPU agents roll forward, and instance network configuration may fail transiently until eligible agents converge. Complete SLAAC support depends on allocating a `/64` to each interface, tracked by https://github.com/NVIDIA/infra-controller/issues/2404, and router advertisement (RA) support, tracked by https://github.com/NVIDIA/infra-controller/issues/2398.
         routingProfile:
           type:
             - string
@@ -19605,6 +19689,7 @@ components:
                   nvLinkPartition: false
                   flow: false
                   imageBasedOperatingSystem: false
+                  vpcSlaac: false
                 status: Registered
               status: Syncing
               version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -19622,6 +19707,7 @@ components:
                   nvLinkPartition: false
                   flow: false
                   imageBasedOperatingSystem: false
+                  vpcSlaac: false
                 status: Registered
               status: Syncing
               version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -19965,6 +20051,7 @@ components:
               nvLinkPartition: false
               flow: false
               imageBasedOperatingSystem: false
+              vpcSlaac: false
             status: Pending
           status: Syncing
           version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -22147,7 +22234,7 @@ components:
           components:
             - id: 660e8400-e29b-41d4-a716-446655440001
               componentId: fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
-              type: ComponentTypeCompute
+              type: Compute
               name: Server-01
               serialNumber: SN-SRV-001
               manufacturer: Dell
@@ -22298,7 +22385,7 @@ components:
           description: ID of the rack this component belongs to
         type:
           type: string
-          description: Type of the component (e.g. ComponentTypeCompute, ComponentTypeNVSwitch)
+          description: Type of the component (e.g. Compute, NVSwitch, PowerShelf)
         name:
           type: string
           description: Name of the component
@@ -22375,7 +22462,7 @@ components:
       examples:
         - id: 660e8400-e29b-41d4-a716-446655440001
           componentId: fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
-          type: compute
+          type: Compute
           name: compute-tray-1
           manufacturer: NVIDIA
           model: GB200
@@ -22403,9 +22490,9 @@ components:
         type:
           type: string
           enum:
-            - compute
-            - switch
-            - powershelf
+            - Compute
+            - NVSwitch
+            - PowerShelf
           description: Type of the tray
         name:
           type: string
@@ -22502,9 +22589,9 @@ components:
         type:
           type: string
           enum:
-            - compute
-            - switch
-            - powershelf
+            - Compute
+            - NVSwitch
+            - PowerShelf
           description: Filter by tray type
         componentIds:
           type: array
@@ -23815,7 +23902,7 @@ components:
       examples:
         - siteId: 550e8400-e29b-41d4-a716-446655440000
           filter:
-            type: switch
+            type: NVSwitch
           version: '24.11.0'
           targets: [bmc, nvos]
     UpdatePowerStateRequest:
@@ -27318,6 +27405,7 @@ components:
                   nvLinkPartition: false
                   flow: false
                   imageBasedOperatingSystem: false
+                  vpcSlaac: false
                 status: Registered
               status: Syncing
               version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -27420,6 +27508,7 @@ components:
               nvLinkPartition: false
               flow: false
               imageBasedOperatingSystem: false
+              vpcSlaac: false
             status: Pending
           status: Syncing
           version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3

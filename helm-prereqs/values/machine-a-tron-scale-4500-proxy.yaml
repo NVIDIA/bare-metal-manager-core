@@ -1,0 +1,126 @@
+# 4,500 hosts (13,500 machines) in SHARED-PROXY mode.
+#
+# Why this exists (#4732): controller mode gives every simulated BMC its own
+# ClusterIP Service. At 4,500 hosts that is ~13,500 Services, which is more than
+# a Kubernetes control plane comfortably handles -- API list latency climbs into
+# tens of seconds, CNI and DNS components start restarting, and the API server
+# becomes the bottleneck rather than the system under test.
+#
+# Shared-proxy mode needs ONE Service for the whole fleet: site-explorer dials
+# `bmc_proxy` and the Redfish client injects `Forwarded: host=<BMC IP>`, which
+# the mock's registry uses to pick the simulated BMC. BMC addresses come from
+# the simulated OOB prefix (SCALE_OOB_PREFIX), NOT from the Service CIDR.
+#
+# OOB demand is 3 addresses per host -- one per simulated BMC -- so 4,500 hosts
+# need 13,500 and a /18 fits. Do not widen these prefixes casually: address
+# allocation cost scales with subnet size (see the note in
+# setup-machine-a-tron.sh), so an oversized prefix reduces throughput.
+#
+# Single pod on purpose: the chart emits one `-bmc-mock` Service per entry in
+# `pods`, so a single routable proxy host requires a single pod. Resources are
+# sized for the whole fleet in one process accordingly.
+#
+# Run with:
+#   MAT_MODE=scale HOST_COUNT=4500 DPU_PER_HOST=2 \
+#     VALUES_FILE=.../machine-a-tron-scale-4500-proxy.yaml ./setup-machine-a-tron.sh -y
+# and WITHOUT MAT_MULTIPOD=1 -- that variable is what selects controller mode.
+image:
+  repository: ""
+  tag: ""
+  pullPolicy: IfNotPresent
+global:
+  imagePullSecrets:
+    - name: machine-a-tron-pull
+certificate:
+  uris:
+    - "spiffe://nico.local/nico-system/sa/machine-a-tron"
+machineATron:
+  nicoApiUrl: "https://nico-api.nico-system.svc.cluster.local:1079"
+  # The single BMC endpoint the whole fleet is reached through. Name comes from
+  # templates/service.yaml: "<chart name>-<pod key>-bmc-mock".
+  configureBmcProxyHost: "nico-machine-a-tron-default-bmc-mock.nico-mat.svc.cluster.local"
+  registerExpectedMachines: true
+  useSingleBmcMock: true
+macAddressPool:
+  enabled: true
+  basePrefix: "02:00"
+hwMacAddressRanges:
+  enabled: true
+  basePrefix: "02:01"
+# The entire point of this file: no per-BMC ClusterIP Services.
+mat-k8s-controller:
+  enabled: false
+# The chart ships a startupProbe with failureThreshold 20 (10 minutes). This
+# pod registers 13,500 machines before it binds the redfish port, which takes
+# far longer than that, and the startupProbe gates the generous liveness window
+# below -- so the chart default silently re-imposes a 10-minute bring-up limit
+# on a fleet sized for hours. The equivalent override exists in
+# machine-a-tron-scale.yaml, but THIS is the file the 4,500-host runs load.
+startupProbe:
+  tcpSocket:
+    port: redfish
+  periodSeconds: 30
+  failureThreshold: 1200
+  successThreshold: 1
+  timeoutSeconds: 10
+livenessProbe:
+  tcpSocket:
+    port: redfish
+  initialDelaySeconds: 120
+  periodSeconds: 30
+  failureThreshold: 240
+  successThreshold: 1
+  timeoutSeconds: 10
+readinessProbe:
+  tcpSocket:
+    port: redfish
+  initialDelaySeconds: 30
+  periodSeconds: 30
+  failureThreshold: 240
+  successThreshold: 1
+  timeoutSeconds: 5
+# One process now simulates all 13,500 machines instead of three sharing the
+# load, so this is deliberately larger than the multipod per-pod sizing.
+resources:
+  limits:
+    cpu: "32"
+    memory: 64Gi
+  requests:
+    cpu: "8"
+    memory: 16Gi
+pods:
+  # The chart's own values.yaml ships a mat-0 pod. Null it, or this file's
+  # default pod makes the render multi-pod, which the chart rejects unless
+  # mat-k8s-controller is enabled. Removing this line breaks every
+  # proxy-mode install, so keep it.
+  mat-0: null
+  default:
+    machines:
+      rack-machines: null
+      # MUST be keyed `dell-hosts`. setup-machine-a-tron.sh appends a second
+      # values file defining machines.dell-hosts with HOST_COUNT, and Helm
+      # deep-merges by KEY -- so a different key here makes Helm ADD a second
+      # machine group rather than override this one, and the fleet renders at
+      # twice the requested size. That doubles simulated address demand and can
+      # exhaust the configured prefixes. The render gate in
+      # setup-machine-a-tron.sh fails the run if it ever happens again.
+      dell-hosts:
+        hwType: dell_poweredge_r750
+        hostCount: 4500
+        dpuPerHostCount: 2
+        vpcCount: 0
+        subnetsPerVpc: 0
+        dpuRebootDelay: 1
+        hostRebootDelay: 1
+        scoutRunInterval: "300s"
+        runIntervalWorking: "5s"
+        runIntervalIdle: "60s"
+        networkStatusRunInterval: "120s"
+        # Simulated networks (Phase 5/6 constants), not Service CIDR carve-outs.
+        oobDhcpRelayAddress: "10.96.64.1"
+        adminDhcpRelayAddress: "10.102.0.1"
+        networkVirtualizationType: ""
+        dpusInNicMode: false
+extraEnv:
+  - name: RUST_LOG
+    value: "info"

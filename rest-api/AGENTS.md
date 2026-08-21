@@ -184,6 +184,10 @@ verification expectations.
 - When a test verifies a generated CLI command path, assert that the leaf
   command has a non-nil `Action`; path presence alone does not prove the
   command is runnable.
+- For a tenant-owned TUI resource picker, resolve the current tenant explicitly,
+  send its ID in the list request, and require each returned row to match that
+  exact tenant ID. Test a dual-role caller whose response also contains
+  provider-owned and other-tenant resources.
 - Tests that need a database use a PostgreSQL container (testcontainers-go
   or the Makefile-managed container).
 - Organize tests by the production function or method under test, not by individual
@@ -822,6 +826,21 @@ All commits **must** meet the following signing requirement:
 - Keep PRs focused on a single change.
 - Do not land unused code unless the PR is too large to review otherwise.
 - Ensure all CI checks pass before requesting review.
+- Before requesting review for a Go change, run `make lint-go` and inspect its
+  complete analyzer output. Its `golangci-lint` command uses
+  `--issues-exit-code 0`, so a successful command does not mean the output is
+  clean. Run `go tool golangci-lint run <changed-packages>` without that
+  override and fix every finding in the changed package.
+- When CLI flags override configuration, copy the complete configured object
+  first and overlay only explicitly set flags. Test no override, one override,
+  and unset configured fields so unrelated options cannot be discarded.
+- Before using an authentication or protocol convenience API, read its current
+  documentation for protocol-specific encoding rules. Exercise delimiters,
+  percent signs, plus signs, and other reserved characters through the real
+  encode and decode boundary.
+- Before requesting review, group every changed Go function's scenarios under
+  one table-driven top-level test. Treat scenario-specific top-level tests as a
+  review failure even when the test suite passes.
 
 ## CI / CD
 

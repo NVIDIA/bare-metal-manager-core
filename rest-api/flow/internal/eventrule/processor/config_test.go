@@ -29,7 +29,7 @@ func TestConfigValidate(t *testing.T) {
 		},
 		"missing target resolver": {
 			mutate:  func(config *Config) { config.Targets = nil },
-			wantErr: "target resolver is required",
+			wantErr: "target resolver registry is required",
 		},
 		"missing action executor": {
 			mutate:  func(config *Config) { config.Executor = nil },

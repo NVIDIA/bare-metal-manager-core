@@ -94,8 +94,8 @@ impl MachineATron {
                     machine_group,
                     dpu_per_host_count = machine.dpu_per_host_count,
                     dpus_in_nic_mode = machine.dpus_in_nic_mode,
-                    admin_dhcp_relay_address = %machine.admin_dhcp_relay_address,
-                    "host_inband_dhcp_relay_address is not configured for a zero-DPU or NIC-mode host; direct host DHCP will fall back to admin_dhcp_relay_address"
+                    underlay_dhcp_relay_address = %machine.underlay_dhcp_relay_address,
+                    "host_inband_dhcp_relay_address is not configured for a zero-DPU or NIC-mode host; direct host DHCP will fall back to underlay_dhcp_relay_address"
                 );
             }
         }

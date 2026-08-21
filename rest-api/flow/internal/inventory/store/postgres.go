@@ -213,7 +213,7 @@ func (s *PostgresStore) GetRackByIdentifier(
 		},
 		nil,
 		nil,
-		nil,
+		&dbquery.Pagination{Limit: 2},
 		nil,
 		withComponents,
 	)
@@ -222,13 +222,24 @@ func (s *PostgresStore) GetRackByIdentifier(
 		return nil, errors.GRPCErrorInternal(err.Error())
 	}
 
-	if len(rackDaos) == 0 {
-		return nil, errors.GRPCErrorNotFound(
-			fmt.Sprintf("rack %s", identifier.Name),
+	rackDao, err := uniqueRackByName(rackDaos, identifier.Name)
+	if err != nil {
+		return nil, err
+	}
+	return dao.RackFrom(rackDao), nil
+}
+
+func uniqueRackByName(racks []model.Rack, name string) (*model.Rack, error) {
+	switch len(racks) {
+	case 0:
+		return nil, errors.GRPCErrorNotFound(fmt.Sprintf("rack %s", name))
+	case 1:
+		return &racks[0], nil
+	default:
+		return nil, errors.GRPCErrorInvalidArgument(
+			fmt.Sprintf("rack name %q matches multiple racks; use rack id", name),
 		)
 	}
-
-	return dao.RackFrom(&rackDaos[0]), nil
 }
 
 // PatchRack updates an existing rack.

@@ -74,6 +74,61 @@ Top-level `global:` values are automatically passed to all subcharts.
 | `global.spiffe.trustDomain` | SPIFFE trust domain for mTLS | `nico.local` |
 | `global.labels` | Common labels applied to all resources | See `values.yaml` |
 
+### NVSwitch mTLS Certificates
+
+`nico-api.nvSwitchTls` can ask cert-manager to issue NICo's dedicated NMX-C
+client identity and, optionally, the NVSwitch server identity. Both leaves
+use the existing `nvSwitchTls.issuerRef`, which defaults to
+`vault-nico-issuer`. NMX-C/NVUE must trust the CA behind that issuer when NICo
+connects, and NICo uses the CA returned in its client Secret to verify the
+server certificate presented by the switch.
+
+The profiles are deliberately fixed to the capabilities each peer needs:
+
+- `nicoClient` uses `digital signature` and `client auth`. Its Secret is
+  mounted read-only in the nico-api container as `tls.crt`, `tls.key`, and
+  `ca.crt`.
+- `switchServer` uses `digital signature`, `server auth`, and `client auth`.
+  Its Secret is created in the NICo namespace but is never mounted into
+  nico-api. A switch installer or operator must copy the certificate, private
+  key, and CA to NMX-C/NVUE and bind them there.
+
+Both profiles are off by default. Enable `switchServer` only when this Helm
+release should own the server artifact. Configure `dnsNames` or `ipAddresses`,
+as appropriate, with a SAN that exactly matches `nmx_c_tls_authority` in the
+NICo site configuration.
+
+```yaml
+nico-api:
+  nvSwitchTls:
+    issuerRef:
+      kind: ClusterIssuer
+      name: vault-nico-issuer
+      group: cert-manager.io
+    nicoClient:
+      enabled: true
+      uris:
+        - spiffe://switch.local/nico-system/sa/nico-nmxc
+    switchServer:
+      enabled: true
+      dnsNames:
+        - nmxc.example.internal
+
+  siteConfig:
+    enabled: true
+    nicoApiSiteConfig: |
+      [nvlink_config]
+      enabled = true
+      nmx_c_tls_ca_cert_path = "/var/run/secrets/nvswitch-client/ca.crt"
+      nmx_c_tls_client_cert_path = "/var/run/secrets/nvswitch-client/tls.crt"
+      nmx_c_tls_client_key_path = "/var/run/secrets/nvswitch-client/tls.key"
+      nmx_c_tls_authority = "nmxc.example.internal"
+```
+
+The configured issuer and any cert-manager approver policy must allow both
+requested URI/DNS identities, durations, key profile, and usages. Creating the
+Kubernetes Secret does not install or bind the server identity on a switch.
+
 ### Grafana Dashboards
 
 The chart packages three dashboards built from NICo's exported Prometheus
@@ -308,6 +363,7 @@ names, SPIFFE identities, and trust domains are already `nico`-prefixed.
 > **Cutting over to nico naming on an existing site:** if you want to fully migrate an
 > existing site from `carbide`/`forge` naming to `nico` naming rather than preserving the
 > old names in-place, the safe procedure is:
+>
 > 1. Back up the PostgreSQL database (`pg_dump`).
 > 2. Uninstall the current release (`helm uninstall nico -n forge-system`).
 > 3. Re-install from scratch with the new defaults and your target namespace

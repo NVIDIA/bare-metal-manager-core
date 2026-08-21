@@ -31,6 +31,7 @@ use carbide_uuid::machine::MachineId;
 use prettytable::{Cell, Row, Table};
 use serde::Serialize;
 
+use super::super::SUMMARY_LABEL_WIDTH;
 use super::args::Args;
 use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
@@ -61,6 +62,8 @@ struct BootInterfacesReport {
 #[derive(Debug, Serialize)]
 struct ReconciliationReport {
     desired_boot_interface: Option<forgerpc::MachineBootInterface>,
+    selection_source: String,
+    selection_updated_at: Option<String>,
     desired_version: String,
     verified_version: Option<String>,
     observed_at: Option<String>,
@@ -158,9 +161,14 @@ impl From<RpcReconciliation> for ReconciliationReport {
                 |_| format!("Unknown({})", status.reconciliation_state),
                 |state| state.as_str_name().to_string(),
             );
+        let selection_source = status.selection_source().as_str().to_string();
 
         Self {
             desired_boot_interface: status.desired_boot_interface,
+            selection_source,
+            selection_updated_at: status
+                .selection_updated_at
+                .map(|timestamp| timestamp.to_string()),
             desired_version: status.desired_version,
             verified_version: status.verified_version,
             observed_at: status.observed_at.map(|timestamp| timestamp.to_string()),
@@ -202,6 +210,7 @@ pub(super) async fn handle_boot_interfaces(
 fn render_tables(report: &BootInterfacesReport) -> String {
     let mut out = String::new();
     let dash = |s: &Option<String>| s.as_deref().unwrap_or("-").to_string();
+    let summary_width = SUMMARY_LABEL_WIDTH;
 
     let machine_id = report
         .machine_id
@@ -324,15 +333,21 @@ fn render_tables(report: &BootInterfacesReport) -> String {
     // toward the persisted desired target.
     let _ = writeln!(
         out,
-        "\nEffective boot interface MAC: {}",
+        "\n{:<summary_width$} {}",
+        "Effective boot interface MAC:",
         dash(&report.effective_boot_interface_mac)
     );
     let _ = writeln!(
         out,
-        "Effective boot interface id:  {}",
+        "{:<summary_width$} {}",
+        "Effective boot interface id:",
         dash(&report.effective_boot_interface_id)
     );
-    let _ = writeln!(out, "Stores diverge on boot MAC:   {}", report.divergent);
+    let _ = writeln!(
+        out,
+        "{:<summary_width$} {}",
+        "Stores diverge on boot MAC:", report.divergent,
+    );
     if let Some(reconciliation) = &report.reconciliation {
         let desired_boot_interface = reconciliation
             .desired_boot_interface
@@ -353,10 +368,29 @@ fn render_tables(report: &BootInterfacesReport) -> String {
                 format!("{observed_at} ({kind})")
             },
         );
-        writeln!(out, "Desired boot interface:      {desired_boot_interface}").ok();
         writeln!(
             out,
-            "Reconciliation:              {} (desired {}, verified {})",
+            "{:<summary_width$} {desired_boot_interface}",
+            "Desired boot interface:",
+        )
+        .ok();
+        writeln!(
+            out,
+            "{:<summary_width$} {}",
+            "Selection source:", reconciliation.selection_source,
+        )
+        .ok();
+        writeln!(
+            out,
+            "{:<summary_width$} {}",
+            "Selection updated at:",
+            dash(&reconciliation.selection_updated_at),
+        )
+        .ok();
+        writeln!(
+            out,
+            "{:<summary_width$} {} (desired {}, verified {})",
+            "Reconciliation:",
             reconciliation.reconciliation_state,
             reconciliation.desired_version,
             dash(&reconciliation.verified_version),
@@ -364,20 +398,22 @@ fn render_tables(report: &BootInterfacesReport) -> String {
         .ok();
         writeln!(
             out,
-            "Machine controller:          {} (active {})",
+            "{:<summary_width$} {} (active {})",
+            "Machine controller:",
             reconciliation.machine_state,
             dash(&reconciliation.reconciling_version),
         )
         .ok();
-        writeln!(out, "Last observation:            {observation}").ok();
+        writeln!(out, "{:<summary_width$} {observation}", "Last observation:",).ok();
         writeln!(
             out,
-            "Reconciliation failure:      {}",
+            "{:<summary_width$} {}",
+            "Reconciliation failure:",
             dash(&reconciliation.failure),
         )
         .ok();
     } else {
-        writeln!(out, "Reconciliation:              -").ok();
+        writeln!(out, "{:<summary_width$} -", "Reconciliation:").ok();
     }
 
     out
@@ -425,6 +461,8 @@ mod tests {
                     mac_address: "aa:bb:cc:00:00:01".to_string(),
                     interface_id: Some("NIC.Slot.1-1-1".to_string()),
                 }),
+                selection_source: "RedfishUefiPci".to_string(),
+                selection_updated_at: Some("2026-06-01T12:00:00Z".to_string()),
                 desired_version: "V7-T700".to_string(),
                 verified_version: Some("V6-T600".to_string()),
                 observed_at: Some("2026-06-02T00:00:00Z".to_string()),
@@ -476,14 +514,16 @@ mod tests {
         // The effective pick and divergence flag.
         assert!(table.contains("Effective boot interface MAC: aa:bb:cc:00:00:01"));
         assert!(table.contains("Stores diverge on boot MAC:   true"));
-        assert!(table.contains("Desired boot interface:      aa:bb:cc:00:00:01 (NIC.Slot.1-1-1)"));
+        assert!(table.contains("Desired boot interface:       aa:bb:cc:00:00:01 (NIC.Slot.1-1-1)"));
+        assert!(table.contains("Selection source:             RedfishUefiPci"));
+        assert!(table.contains("Selection updated at:         2026-06-01T12:00:00Z"));
         assert!(
             table.contains(
-                "Reconciliation:              Failed (desired V7-T700, verified V6-T600)"
+                "Reconciliation:               Failed (desired V7-T700, verified V6-T600)"
             )
         );
-        assert!(table.contains("Machine controller:          BootConfiguring/Failed"));
-        assert!(table.contains("Reconciliation failure:      BIOS job retries exhausted"));
+        assert!(table.contains("Machine controller:           BootConfiguring/Failed"));
+        assert!(table.contains("Reconciliation failure:       BIOS job retries exhausted"));
     }
 
     #[test]
@@ -499,6 +539,7 @@ mod tests {
         assert!(json.contains("\"divergent\": true"));
         assert!(json.contains("\"reconciliation\""));
         assert!(json.contains("\"reconciliation_state\": \"Failed\""));
+        assert!(json.contains("\"selection_source\": \"RedfishUefiPci\""));
 
         // Round-trips into a generic JSON value with the expected structure.
         let value: serde_json::Value = serde_json::from_str(&json).expect("parse json");
@@ -514,6 +555,10 @@ mod tests {
         );
         assert_eq!(value["effective_boot_interface_mac"], "aa:bb:cc:00:00:01");
         assert_eq!(value["reconciliation"]["desired_version"], "V7-T700");
+        assert_eq!(
+            value["reconciliation"]["selection_updated_at"],
+            "2026-06-01T12:00:00Z"
+        );
         assert_eq!(
             value["reconciliation"]["failure"],
             "BIOS job retries exhausted"
@@ -531,6 +576,7 @@ mod tests {
         assert!(yaml.contains("primary_interface: true"));
         assert!(yaml.contains("reconciliation:"));
         assert!(yaml.contains("reconciliation_state: Failed"));
+        assert!(yaml.contains("selection_source: RedfishUefiPci"));
 
         // Round-trips back into a generic YAML value.
         let value: serde_yaml::Value = serde_yaml::from_str(&yaml).expect("parse yaml");
@@ -587,6 +633,9 @@ mod tests {
                 machine_state: "Assigned/Ready".to_string(),
                 reconciling_version: None,
                 failure: None,
+                selection_source: forgerpc::BootInterfaceSelectionSource::RedfishSerialNumber
+                    as i32,
+                selection_updated_at: Some(Default::default()),
             }),
         };
 
@@ -613,6 +662,11 @@ mod tests {
             .reconciliation
             .expect("desired reconciliation should be mapped");
         assert_eq!(reconciliation.reconciliation_state, "Pending");
+        assert_eq!(reconciliation.selection_source, "RedfishSerialNumber");
+        assert_eq!(
+            reconciliation.selection_updated_at.as_deref(),
+            Some("1970-01-01T00:00:00Z")
+        );
         assert_eq!(reconciliation.desired_version, "V7-T700");
         assert_eq!(reconciliation.verified_version.as_deref(), Some("V6-T600"));
         assert_eq!(
@@ -621,5 +675,39 @@ mod tests {
         );
         assert!(reconciliation.is_compatibility_baseline);
         assert_eq!(reconciliation.machine_state, "Assigned/Ready");
+    }
+
+    #[test]
+    fn reconciliation_projection_preserves_selection_source_and_time() {
+        value_scenarios!(run = |(selection_source, selection_updated_at)| {
+            let report = ReconciliationReport::from(RpcReconciliation {
+                selection_source,
+                selection_updated_at,
+                ..Default::default()
+            });
+            (report.selection_source, report.selection_updated_at)
+        };
+            "wire sentinel with absent time" {
+                (
+                    forgerpc::BootInterfaceSelectionSource::Unspecified as i32,
+                    None,
+                ) => ("Unspecified".to_string(), None),
+            }
+            "persisted unknown with absent time" {
+                (
+                    forgerpc::BootInterfaceSelectionSource::LegacyUnknown as i32,
+                    None,
+                ) => ("LegacyUnknown".to_string(), None),
+            }
+            "operator with present time" {
+                (
+                    forgerpc::BootInterfaceSelectionSource::Operator as i32,
+                    Some(Default::default()),
+                ) => (
+                    "Operator".to_string(),
+                    Some("1970-01-01T00:00:00Z".to_string()),
+                ),
+            }
+        );
     }
 }

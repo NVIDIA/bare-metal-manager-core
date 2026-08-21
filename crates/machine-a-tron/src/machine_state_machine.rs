@@ -29,7 +29,7 @@ use bmc_mock::{
     SystemPowerControl,
 };
 use carbide_network::virtualization::build_dual_stack_list;
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use rand::RngExt;
 use rpc::forge::{MachineArchitecture, MachineDiscoveryResult, ManagedHostNetworkConfigResponse};
 use rpc::forge_agent_control_response::Action;
@@ -48,7 +48,8 @@ use crate::dhcp_wrapper::{
 use crate::machine_fsm::{Action as FsmAction, DhcpType, Event, MachineFsm, Timer};
 use crate::machine_state_machine::MachineStateError::MissingMachineId;
 use crate::machine_utils::{
-    PxeError, PxeResponse, forge_agent_control, get_validation_id, send_pxe_boot_request,
+    PxeBootTarget, PxeError, PxeResponse, forge_agent_control, get_validation_id,
+    send_pxe_boot_request,
 };
 use crate::{Guid, InfinibandPortState, PersistedDevice, PersistedDpuMachine};
 
@@ -139,13 +140,29 @@ fn abandon_machine_actions_on_power_change(
 
 fn direct_dhcp_relay_address(
     is_host: bool,
-    admin_relay_address: Ipv4Addr,
+    underlay_relay_address: Ipv4Addr,
     host_inband_relay_address: Option<Ipv4Addr>,
 ) -> Ipv4Addr {
     if is_host {
-        host_inband_relay_address.unwrap_or(admin_relay_address)
+        host_inband_relay_address.unwrap_or(underlay_relay_address)
     } else {
-        admin_relay_address
+        underlay_relay_address
+    }
+}
+
+fn resolve_pxe_boot(
+    pxe_response: PxeResponse,
+    installed_os: OsImage,
+) -> Result<(OsImage, Option<MachineInterfaceId>), MachineStateError> {
+    let os_image = match pxe_response.boot_target {
+        PxeBootTarget::Exit => installed_os,
+        PxeBootTarget::Scout => OsImage::Scout,
+        PxeBootTarget::DpuAgent => OsImage::DpuAgent,
+    };
+
+    match pxe_response.machine_interface_id {
+        None if os_image != OsImage::None => Err(MachineStateError::MissingInterfaceId),
+        machine_interface_id => Ok((os_image, machine_interface_id)),
     }
 }
 
@@ -167,6 +184,7 @@ pub(super) struct MachineStateMachine {
     agent_polling_deadline: Option<(Instant, Timer)>,
     bmc_dhcp_info: Option<DhcpResponseInfo>,
     machine_dhcp_info: Option<DhcpResponseInfo>,
+    machine_interface_id: Option<MachineInterfaceId>,
     dhcp_retry: DhcpRetryState,
     machine_discovery_result: Option<MachineDiscoveryResult>,
 
@@ -370,6 +388,7 @@ impl MachineStateMachine {
             agent_polling_deadline: None,
             bmc_dhcp_info: None,
             machine_dhcp_info: None,
+            machine_interface_id: None,
             dhcp_retry: DhcpRetryState::default(),
             machine_discovery_result: None,
             installed_os: initial_os_image,
@@ -411,6 +430,7 @@ impl MachineStateMachine {
             bmc_state: None,
             bmc_injection: Arc::new(InjectionStore::new()),
             machine_dhcp_info: None,
+            machine_interface_id: None,
             dhcp_retry: DhcpRetryState::default(),
             machine_discovery_result: None,
             machine_on_deadline: None,
@@ -522,6 +542,7 @@ impl MachineStateMachine {
                 },
                 FsmAction::Dhcp(DhcpType::Machine) => match self.machine_dhcp_discovery().await {
                     Ok(machine_dhcp_info) => {
+                        self.machine_interface_id = None;
                         self.machine_dhcp_info = Some(machine_dhcp_info);
                         self.dhcp_retry.reset();
                         self.actions.pop_front();
@@ -530,7 +551,8 @@ impl MachineStateMachine {
                     Err(_) => return Some(self.next_dhcp_retry_delay(DhcpType::Machine)),
                 },
                 FsmAction::PxeBootRequest => match self.pxe_boot_request().await {
-                    Ok(os_image) => {
+                    Ok((os_image, machine_interface_id)) => {
+                        self.machine_interface_id = machine_interface_id;
                         // A netbooted DPU-agent image is this simulation's stand-in
                         // for the DPF BFB install writing the OS to the DPU's disk,
                         // so record it as installed at boot. NICo's PXE serves a DPU
@@ -633,6 +655,7 @@ impl MachineStateMachine {
                 }
                 FsmAction::CleanupOnPowerOff => {
                     self.actions.pop_front();
+                    self.machine_interface_id = None;
                     self.machine_discovery_result = None;
                     self.dpu_dhcp_relay_handle = None;
                 }
@@ -689,7 +712,7 @@ impl MachineStateMachine {
             .dhcp_client
             .request_ip(DhcpRequestInfo {
                 mac_address: self.machine_info.bmc_mac_address(),
-                relay_address: self.config.oob_dhcp_relay_address,
+                relay_address: self.config.bmc_dhcp_relay_address,
                 vendor_class: vendor_class(&self.machine_info, DhcpRequester::Bmc),
             })
             .await
@@ -754,7 +777,7 @@ impl MachineStateMachine {
         } else {
             let direct_relay_address = direct_dhcp_relay_address(
                 matches!(&self.machine_info, MachineInfo::Host(_)),
-                self.config.admin_dhcp_relay_address,
+                self.config.underlay_dhcp_relay_address,
                 self.config.host_inband_dhcp_relay_address,
             );
             tracing::debug!(
@@ -790,9 +813,11 @@ impl MachineStateMachine {
             })
     }
 
-    async fn pxe_boot_request(&self) -> Result<OsImage, MachineStateError> {
+    async fn pxe_boot_request(
+        &self,
+    ) -> Result<(OsImage, Option<MachineInterfaceId>), MachineStateError> {
         let Some(dhcp_info) = self.machine_dhcp_info.as_ref() else {
-            return Err(MachineStateError::MissingInterfaceId);
+            return Err(MachineStateError::NoMachineDhcpInfo);
         };
 
         let (architecture, product) = match self.machine_info {
@@ -814,36 +839,19 @@ impl MachineStateMachine {
         )
         .await?;
 
-        let os = match pxe_response {
-            PxeResponse::Exit => self.installed_os,
-            PxeResponse::Scout => OsImage::Scout,
-            PxeResponse::DpuAgent => OsImage::DpuAgent,
-        };
-        match os {
-            OsImage::None => Ok(os),
-            OsImage::DpuAgent => {
-                if matches!(self.machine_info, MachineInfo::Host(_)) {
-                    Err(MachineStateError::WrongOsForMachine(
-                        "ERROR: Running DpuAgent OS on a host machine, this should not happen."
-                            .to_string(),
-                    ))
-                } else {
-                    Ok(os)
-                }
+        let (os, machine_interface_id) = resolve_pxe_boot(pxe_response, self.installed_os)?;
+
+        match (&self.machine_info, os) {
+            (MachineInfo::Host(_), OsImage::DpuAgent) => Err(MachineStateError::WrongOsForMachine(
+                "ERROR: Running DpuAgent OS on a host machine, this should not happen.".to_string(),
+            )),
+            (MachineInfo::Dpu(_), OsImage::Scout) => {
+                tracing::warn!("ERROR: Running Scout OS on a DPU machine, this should not happen.");
+                Err(MachineStateError::WrongOsForMachine(
+                    "ERROR: Running Scout OS on a DPU machine, this should not happen.".to_string(),
+                ))
             }
-            OsImage::Scout => {
-                if matches!(self.machine_info, MachineInfo::Dpu(_)) {
-                    tracing::warn!(
-                        "ERROR: Running Scout OS on a DPU machine, this should not happen."
-                    );
-                    Err(MachineStateError::WrongOsForMachine(
-                        "ERROR: Running Scout OS on a DPU machine, this should not happen."
-                            .to_string(),
-                    ))
-                } else {
-                    Ok(os)
-                }
-            }
+            _ => Ok((os, machine_interface_id)),
         }
     }
 
@@ -851,12 +859,12 @@ impl MachineStateMachine {
         &self,
         os_image: OsImage,
     ) -> Result<Option<MachineDiscoveryResult>, MachineStateError> {
-        let Some(machine_dhcp_info) = self.machine_dhcp_info.as_ref() else {
+        if self.machine_dhcp_info.is_none() {
             return Err(MachineStateError::NoMachineDhcpInfo);
-        };
+        }
         // No machine_discovery_result means we just booted. Run discovery now.
         tracing::trace!("Running initial discovery after boot");
-        match self.run_machine_discovery(machine_dhcp_info).await {
+        match self.run_machine_discovery().await {
             Ok(result) => {
                 if os_image == OsImage::Scout {
                     let machine_id = result.machine_id.as_ref().ok_or(MissingMachineId)?;
@@ -1098,11 +1106,8 @@ impl MachineStateMachine {
         }
     }
 
-    async fn run_machine_discovery(
-        &self,
-        machine_dhcp_info: &DhcpResponseInfo,
-    ) -> Result<MachineDiscoveryResult, MachineStateError> {
-        let Some(machine_interface_id) = machine_dhcp_info.interface_id else {
+    async fn run_machine_discovery(&self) -> Result<MachineDiscoveryResult, MachineStateError> {
+        let Some(machine_interface_id) = self.machine_interface_id else {
             return Err(MachineStateError::MissingInterfaceId);
         };
 
@@ -1168,17 +1173,18 @@ impl MachineStateMachine {
             instance_network_config_version =
                 Some(network_config.instance_network_config_version.clone());
 
+            // Tenant status consumers pair addresses and prefixes positionally. A SLAAC
+            // interface has no concrete IPv6 address yet, so omit that family from both.
             for iface in network_config.tenant_interfaces.iter() {
-                let addresses = build_dual_stack_list(
-                    iface.ip.clone(),
-                    iface.ipv6_interface_config.as_ref().map(|v6| v6.ip.clone()),
-                );
+                let observed_ipv6 = iface
+                    .ipv6_interface_config
+                    .as_ref()
+                    .filter(|ipv6| !ipv6.ip.is_empty());
+                let addresses =
+                    build_dual_stack_list(iface.ip.clone(), observed_ipv6.map(|v6| v6.ip.clone()));
                 let prefixes = build_dual_stack_list(
                     iface.interface_prefix.clone(),
-                    iface
-                        .ipv6_interface_config
-                        .as_ref()
-                        .map(|v6| v6.interface_prefix.clone()),
+                    observed_ipv6.map(|v6| v6.interface_prefix.clone()),
                 );
                 interfaces.push(rpc::forge::InstanceInterfaceStatusObservation {
                     function_type: iface.function_type,
@@ -1421,13 +1427,94 @@ pub(super) enum AddressConfigError {
 
 #[cfg(test)]
 mod tests {
-    use carbide_test_support::{Check, check_values};
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, Check, check_cases, check_values};
 
     use super::*;
 
     #[test]
+    fn resolves_pxe_boot_identity_requirements() {
+        let machine_interface_id: MachineInterfaceId =
+            "0fd6e9a3-06fc-4a22-ad29-aca299677b00".parse().unwrap();
+
+        check_cases(
+            [
+                Case {
+                    scenario: "Scout netboot",
+                    input: (
+                        PxeResponse {
+                            boot_target: PxeBootTarget::Scout,
+                            machine_interface_id: Some(machine_interface_id),
+                        },
+                        OsImage::None,
+                    ),
+                    expect: Yields((OsImage::Scout, Some(machine_interface_id))),
+                },
+                Case {
+                    scenario: "DPU agent netboot",
+                    input: (
+                        PxeResponse {
+                            boot_target: PxeBootTarget::DpuAgent,
+                            machine_interface_id: Some(machine_interface_id),
+                        },
+                        OsImage::None,
+                    ),
+                    expect: Yields((OsImage::DpuAgent, Some(machine_interface_id))),
+                },
+                Case {
+                    scenario: "exit to installed Scout",
+                    input: (
+                        PxeResponse {
+                            boot_target: PxeBootTarget::Exit,
+                            machine_interface_id: Some(machine_interface_id),
+                        },
+                        OsImage::Scout,
+                    ),
+                    expect: Yields((OsImage::Scout, Some(machine_interface_id))),
+                },
+                Case {
+                    scenario: "unknown machine exits without an installed OS",
+                    input: (
+                        PxeResponse {
+                            boot_target: PxeBootTarget::Exit,
+                            machine_interface_id: None,
+                        },
+                        OsImage::None,
+                    ),
+                    expect: Yields((OsImage::None, None)),
+                },
+                Case {
+                    scenario: "Scout netboot without an interface ID",
+                    input: (
+                        PxeResponse {
+                            boot_target: PxeBootTarget::Scout,
+                            machine_interface_id: None,
+                        },
+                        OsImage::None,
+                    ),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "exit to installed Scout without an interface ID",
+                    input: (
+                        PxeResponse {
+                            boot_target: PxeBootTarget::Exit,
+                            machine_interface_id: None,
+                        },
+                        OsImage::Scout,
+                    ),
+                    expect: Fails,
+                },
+            ],
+            |(pxe_response, installed_os)| {
+                resolve_pxe_boot(pxe_response, installed_os).map_err(drop)
+            },
+        );
+    }
+
+    #[test]
     fn direct_dhcp_relay_selection() {
-        let admin = Ipv4Addr::new(172, 21, 0, 1);
+        let underlay = Ipv4Addr::new(172, 21, 0, 1);
         let host_inband = Ipv4Addr::new(172, 22, 0, 1);
 
         check_values(
@@ -1440,15 +1527,15 @@ mod tests {
                 Check {
                     scenario: "legacy host without HostInband configuration",
                     input: (true, None),
-                    expect: admin,
+                    expect: underlay,
                 },
                 Check {
                     scenario: "DPU ignores HostInband configuration",
                     input: (false, Some(host_inband)),
-                    expect: admin,
+                    expect: underlay,
                 },
             ],
-            |(is_host, host_inband)| direct_dhcp_relay_address(is_host, admin, host_inband),
+            |(is_host, host_inband)| direct_dhcp_relay_address(is_host, underlay, host_inband),
         );
     }
 

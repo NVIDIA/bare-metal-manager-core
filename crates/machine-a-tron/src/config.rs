@@ -101,10 +101,14 @@ pub struct MachineConfig {
         serialize_with = "as_std_duration"
     )]
     pub discovery_retry_interval: Duration,
-    pub oob_dhcp_relay_address: Ipv4Addr,
-    pub admin_dhcp_relay_address: Ipv4Addr,
+    /// Relay address for BMC DHCP traffic.
+    #[serde(alias = "oob_dhcp_relay_address")]
+    pub bmc_dhcp_relay_address: Ipv4Addr,
+    /// Shared Underlay relay for DPU OOB boot and switch NVOS DHCP traffic.
+    #[serde(alias = "admin_dhcp_relay_address")]
+    pub underlay_dhcp_relay_address: Ipv4Addr,
     /// Relay address used when a host DHCPs directly through a plain NIC rather than a managed DPU.
-    /// If omitted, direct host DHCP falls back to `admin_dhcp_relay_address` for compatibility.
+    /// If omitted, direct host DHCP falls back to `underlay_dhcp_relay_address` for compatibility.
     #[serde(default)]
     pub host_inband_dhcp_relay_address: Option<Ipv4Addr>,
 
@@ -177,8 +181,14 @@ pub struct WiwynnGb200RackConfig {
         serialize_with = "as_std_duration"
     )]
     pub discovery_retry_interval: Duration,
-    pub oob_dhcp_relay_address: Ipv4Addr,
-    pub admin_dhcp_relay_address: Ipv4Addr,
+    /// Relay address for BMC DHCP traffic.
+    #[serde(alias = "oob_dhcp_relay_address")]
+    pub bmc_dhcp_relay_address: Ipv4Addr,
+    /// Shared Underlay relay for DPU OOB boot and switch NVOS DHCP traffic.
+    #[serde(alias = "admin_dhcp_relay_address")]
+    pub underlay_dhcp_relay_address: Ipv4Addr,
+    /// Relay address used when a rack host DHCPs directly through a plain NIC.
+    /// If omitted, direct host DHCP falls back to `underlay_dhcp_relay_address` for compatibility.
     #[serde(default)]
     pub host_inband_dhcp_relay_address: Option<Ipv4Addr>,
     #[serde(
@@ -229,8 +239,8 @@ impl WiwynnGb200RackConfig {
             host_reboot_delay: self.host_reboot_delay,
             scout_run_interval: self.scout_run_interval,
             discovery_retry_interval: self.discovery_retry_interval,
-            oob_dhcp_relay_address: self.oob_dhcp_relay_address,
-            admin_dhcp_relay_address: self.admin_dhcp_relay_address,
+            bmc_dhcp_relay_address: self.bmc_dhcp_relay_address,
+            underlay_dhcp_relay_address: self.underlay_dhcp_relay_address,
             host_inband_dhcp_relay_address: self.host_inband_dhcp_relay_address,
             run_interval_working: self.run_interval_working,
             run_interval_idle: self.run_interval_idle,
@@ -260,8 +270,14 @@ pub struct LenovoGb300RackConfig {
         serialize_with = "as_std_duration"
     )]
     pub discovery_retry_interval: Duration,
-    pub oob_dhcp_relay_address: Ipv4Addr,
-    pub admin_dhcp_relay_address: Ipv4Addr,
+    /// Relay address for BMC DHCP traffic.
+    #[serde(alias = "oob_dhcp_relay_address")]
+    pub bmc_dhcp_relay_address: Ipv4Addr,
+    /// Shared Underlay relay for DPU OOB boot and switch NVOS DHCP traffic.
+    #[serde(alias = "admin_dhcp_relay_address")]
+    pub underlay_dhcp_relay_address: Ipv4Addr,
+    /// Relay address used when a rack host DHCPs directly through a plain NIC.
+    /// If omitted, direct host DHCP falls back to `underlay_dhcp_relay_address` for compatibility.
     #[serde(default)]
     pub host_inband_dhcp_relay_address: Option<Ipv4Addr>,
     #[serde(
@@ -312,8 +328,8 @@ impl LenovoGb300RackConfig {
             host_reboot_delay: self.host_reboot_delay,
             scout_run_interval: self.scout_run_interval,
             discovery_retry_interval: self.discovery_retry_interval,
-            oob_dhcp_relay_address: self.oob_dhcp_relay_address,
-            admin_dhcp_relay_address: self.admin_dhcp_relay_address,
+            bmc_dhcp_relay_address: self.bmc_dhcp_relay_address,
+            underlay_dhcp_relay_address: self.underlay_dhcp_relay_address,
             host_inband_dhcp_relay_address: self.host_inband_dhcp_relay_address,
             run_interval_working: self.run_interval_working,
             run_interval_idle: self.run_interval_idle,
@@ -986,9 +1002,11 @@ where
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
+    use std::fmt::Debug;
 
     use carbide_test_support::Outcome::*;
     use carbide_test_support::{Case, Check, check_cases, check_values};
+    use serde::de::DeserializeOwned;
 
     use super::*;
 
@@ -1014,9 +1032,9 @@ dpu_per_host_count = 2
 dpu_reboot_delay = 1 # in units of seconds
 host_reboot_delay = 1 # in units of seconds
 vpc_count = 0
-admin_dhcp_relay_address = "192.168.176.1"
+underlay_dhcp_relay_address = "192.168.176.1"
 host_inband_dhcp_relay_address = "192.168.177.1"
-oob_dhcp_relay_address = "192.168.192.1"
+bmc_dhcp_relay_address = "192.168.192.1"
 subnets_per_vpc = 0
 run_interval_working = "100ms"
 run_interval_idle = "1s"
@@ -1033,8 +1051,8 @@ scout_run_interval = "5s"
             host_reboot_delay: machine.host_reboot_delay,
             scout_run_interval: machine.scout_run_interval,
             discovery_retry_interval: machine.discovery_retry_interval,
-            oob_dhcp_relay_address: machine.oob_dhcp_relay_address,
-            admin_dhcp_relay_address: machine.admin_dhcp_relay_address,
+            bmc_dhcp_relay_address: machine.bmc_dhcp_relay_address,
+            underlay_dhcp_relay_address: machine.underlay_dhcp_relay_address,
             host_inband_dhcp_relay_address: machine.host_inband_dhcp_relay_address,
             run_interval_working: machine.run_interval_working,
             run_interval_idle: machine.run_interval_idle,
@@ -1052,8 +1070,8 @@ scout_run_interval = "5s"
             host_reboot_delay: machine.host_reboot_delay,
             scout_run_interval: machine.scout_run_interval,
             discovery_retry_interval: machine.discovery_retry_interval,
-            oob_dhcp_relay_address: machine.oob_dhcp_relay_address,
-            admin_dhcp_relay_address: machine.admin_dhcp_relay_address,
+            bmc_dhcp_relay_address: machine.bmc_dhcp_relay_address,
+            underlay_dhcp_relay_address: machine.underlay_dhcp_relay_address,
             host_inband_dhcp_relay_address: machine.host_inband_dhcp_relay_address,
             run_interval_working: machine.run_interval_working,
             run_interval_idle: machine.run_interval_idle,
@@ -1536,6 +1554,72 @@ server_address = "127.0.0.1:6767""#,
             .try_into()
             .expect("legacy config without host_inband_dhcp_relay_address should deserialize");
         assert_eq!(cfg.machines["config"].host_inband_dhcp_relay_address, None);
+    }
+
+    fn assert_relay_name_compatibility<T>(config: T)
+    where
+        T: Clone + Debug + DeserializeOwned + PartialEq + Serialize,
+    {
+        let canonical = toml::Value::try_from(config.clone())
+            .expect("relay configuration should serialize to TOML");
+        let canonical_table = canonical
+            .as_table()
+            .expect("relay configuration should serialize as a TOML table");
+        assert!(canonical_table.contains_key("bmc_dhcp_relay_address"));
+        assert!(canonical_table.contains_key("underlay_dhcp_relay_address"));
+        assert!(!canonical_table.contains_key("oob_dhcp_relay_address"));
+        assert!(!canonical_table.contains_key("admin_dhcp_relay_address"));
+
+        let mut legacy = canonical.clone();
+        let legacy_table = legacy
+            .as_table_mut()
+            .expect("relay configuration should serialize as a TOML table");
+        let bmc_relay = legacy_table
+            .remove("bmc_dhcp_relay_address")
+            .expect("canonical BMC relay should be present");
+        legacy_table.insert("oob_dhcp_relay_address".to_string(), bmc_relay);
+        let underlay_relay = legacy_table
+            .remove("underlay_dhcp_relay_address")
+            .expect("canonical Underlay relay should be present");
+        legacy_table.insert("admin_dhcp_relay_address".to_string(), underlay_relay);
+        let deserialized: T = legacy
+            .try_into()
+            .expect("legacy relay names should deserialize");
+        assert_eq!(deserialized, config);
+
+        let mut duplicate = canonical.clone();
+        let duplicate_table = duplicate
+            .as_table_mut()
+            .expect("relay configuration should serialize as a TOML table");
+        let bmc_relay = duplicate_table["bmc_dhcp_relay_address"].clone();
+        duplicate_table.insert("oob_dhcp_relay_address".to_string(), bmc_relay);
+        let underlay_relay = duplicate_table["underlay_dhcp_relay_address"].clone();
+        duplicate_table.insert("admin_dhcp_relay_address".to_string(), underlay_relay);
+        assert!(
+            duplicate.try_into::<T>().is_err(),
+            "canonical and legacy relay names must not be accepted together"
+        );
+
+        for missing_key in ["bmc_dhcp_relay_address", "underlay_dhcp_relay_address"] {
+            let mut missing = canonical.clone();
+            missing
+                .as_table_mut()
+                .expect("relay configuration should serialize as a TOML table")
+                .remove(missing_key);
+            assert!(
+                missing.try_into::<T>().is_err(),
+                "{missing_key} or its legacy alias must be configured"
+            );
+        }
+    }
+
+    #[test]
+    fn relay_names_are_backward_compatible() {
+        let machine = rack_config().machines["config"].as_ref().clone();
+
+        assert_relay_name_compatibility(machine.clone());
+        assert_relay_name_compatibility(wiwynn_gb200_rack_from_machine(&machine));
+        assert_relay_name_compatibility(lenovo_gb300_rack_from_machine(&machine));
     }
 
     #[test]

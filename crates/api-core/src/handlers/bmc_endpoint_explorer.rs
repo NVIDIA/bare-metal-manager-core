@@ -30,7 +30,8 @@ use model::expected_entity::ExpectedEntity;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{LoadSnapshotOptions, MachineInterfaceSnapshot, ManagedHostState};
 use model::machine_boot_interface::{
-    MachineBootInterface, MachineBootInterfaceTarget, canonical_redfish_boot_interface_id,
+    BootInterfaceSelectionAuthority, MachineBootInterface, MachineBootInterfaceTarget,
+    canonical_redfish_boot_interface_id,
 };
 use model::predicted_machine_interface::PredictedMachineInterface;
 use model::site_explorer::{BlueFieldOperatingMode, PreingestionState};
@@ -40,6 +41,18 @@ use tonic::{Request, Response, Status};
 use crate::CarbideError;
 use crate::api::{Api, log_machine_id, log_request_data, log_request_data_redacted};
 use crate::handlers::utils::{enqueue_boot_interface_reconciliation, resolve_bmc_address};
+
+/// Converts the admin request into the authority used by boot reconciliation.
+///
+/// An entered MAC is the request's evidence that the operator selected the
+/// target. Omitting it reapplies the stored target and must preserve the source
+/// and decision time that originally selected it.
+fn admin_selection_authority(entered_mac: Option<MacAddress>) -> BootInterfaceSelectionAuthority {
+    match entered_mac {
+        Some(_) => BootInterfaceSelectionAuthority::Operator,
+        None => BootInterfaceSelectionAuthority::Existing,
+    }
+}
 
 /// Resolves the boot interface an admin Redfish action should target.
 ///
@@ -101,7 +114,7 @@ fn resolve_admin_boot_interface_target(
 
     // The machine's unambiguous `MachineBootInterface` for `mac`, if known:
     // owned rows first, then predictions only when owned rows offer no id.
-    let known_pair_for = |mac: MacAddress| -> Option<MachineBootInterface> {
+    let pair_from_candidates = |mac: MacAddress| -> Option<MachineBootInterface> {
         let candidates = candidates?;
         let owned = unique_interface_id(
             candidates
@@ -137,24 +150,25 @@ fn resolve_admin_boot_interface_target(
         | Some(MachineBootInterfaceTarget::MacOnly(_))
         | None => None,
     };
-    // Resolution chose `mac`; use its `MachineBootInterface` when known, or
-    // `BootInterfaceTarget::MacOnly` when no `interface_id` has been captured.
-    let target_for = |mac: MacAddress, pair: Option<MachineBootInterface>| -> BootInterfaceTarget {
-        pair.map_or(BootInterfaceTarget::MacOnly(mac), BootInterfaceTarget::Pair)
+    // Resolution chose `mac`; use its candidate pair when known, or target the
+    // MAC alone when no `interface_id` has been captured.
+    let target_from_candidates = |mac: MacAddress| -> BootInterfaceTarget {
+        pair_from_candidates(mac)
+            .map_or(BootInterfaceTarget::MacOnly(mac), BootInterfaceTarget::Pair)
     };
 
     match entered_mac {
-        Some(mac) => Some(target_for(
-            mac,
-            known_pair_for(mac)
+        Some(mac) => Some(
+            pair_from_candidates(mac)
                 .or_else(|| desired_pair_for(mac))
                 .or_else(|| {
                     candidates
                         .is_none()
                         .then(|| stored.filter(|pair| pair.mac_address == mac))
                         .flatten()
-                }),
-        )),
+                })
+                .map_or(BootInterfaceTarget::MacOnly(mac), BootInterfaceTarget::Pair),
+        ),
         None => {
             let Some(candidates) = candidates else {
                 // No machine owns the endpoint -- the explored default
@@ -163,19 +177,21 @@ fn resolve_admin_boot_interface_target(
             };
             if let Some(desired) = desired {
                 return Some(match desired {
-                    MachineBootInterfaceTarget::Pair(pair) => {
-                        BootInterfaceTarget::Pair(pair.clone())
-                    }
+                    // An explicit administrative reapply may refresh the
+                    // Redfish ID from the current owned row. Passive Site
+                    // Explorer enrichment changes only a target that has no
+                    // interface ID, so an existing pair is never replaced
+                    // silently.
+                    MachineBootInterfaceTarget::Pair(pair) => BootInterfaceTarget::Pair(
+                        pair_from_candidates(pair.mac_address).unwrap_or_else(|| pair.clone()),
+                    ),
                     MachineBootInterfaceTarget::MacOnly(mac_address) => {
-                        target_for(*mac_address, known_pair_for(*mac_address))
+                        target_from_candidates(*mac_address)
                     }
                 });
             }
             if let Some(picked) = model::machine::pick_boot_interface(&candidates.interfaces) {
-                return Some(target_for(
-                    picked.mac_address,
-                    known_pair_for(picked.mac_address),
-                ));
+                return Some(target_from_candidates(picked.mac_address));
             }
             // The rows offered no boot candidate: the machine's predicted NICs
             // answer, via the shared `pick_boot_prediction` -- the declared
@@ -183,10 +199,7 @@ fn resolve_admin_boot_interface_target(
             // none declared primary the boot NIC is unknowable, so it returns
             // `None` and the action keeps requiring an explicit MAC.
             if let Some(predicted) = model::machine::pick_boot_prediction(&candidates.predicted) {
-                return Some(target_for(
-                    predicted.mac_address,
-                    known_pair_for(predicted.mac_address),
-                ));
+                return Some(target_from_candidates(predicted.mac_address));
             }
             // An owned machine resolves from its own data alone: no
             // unambiguous candidate means no target, and the action requires
@@ -611,7 +624,13 @@ pub(crate) async fn machine_setup(
         let reconciliation_eligible =
             boot_interface_reconciliation_eligible(&mut txn, Some(machine_id)).await?;
         let desired = MachineBootInterfaceTarget::from(&boot_interface);
-        db::machine_desired_boot_interface::force_set(&mut txn, &machine_id, &desired).await?;
+        db::machine_desired_boot_interface::force_reconcile(
+            &mut txn,
+            &machine_id,
+            &desired,
+            admin_selection_authority(entered_mac),
+        )
+        .await?;
         txn.commit().await?;
         enqueue_boot_interface_reconciliation(api, machine_id, reconciliation_eligible).await;
 
@@ -690,7 +709,13 @@ pub(crate) async fn set_dpu_first_boot_order(
         let reconciliation_eligible =
             boot_interface_reconciliation_eligible(&mut txn, Some(machine_id)).await?;
         let desired = MachineBootInterfaceTarget::from(&boot_interface);
-        db::machine_desired_boot_interface::force_set(&mut txn, &machine_id, &desired).await?;
+        db::machine_desired_boot_interface::force_reconcile(
+            &mut txn,
+            &machine_id,
+            &desired,
+            admin_selection_authority(entered_mac),
+        )
+        .await?;
         txn.commit().await?;
         enqueue_boot_interface_reconciliation(api, machine_id, reconciliation_eligible).await;
 
@@ -1431,7 +1456,7 @@ mod tests {
     }
 
     #[test]
-    fn no_mac_prefers_persisted_desired_over_the_primary_row() {
+    fn no_mac_keeps_the_desired_mac_and_refreshes_its_redfish_id() {
         let c = BootInterfaceCandidates {
             interfaces: vec![
                 row("00:00:5e:00:53:01", true, Some("NIC.Integrated.1-1-1")),
@@ -1439,7 +1464,8 @@ mod tests {
             ],
             predicted: vec![],
         };
-        let desired = MachineBootInterfaceTarget::Pair(pair("00:00:5e:00:53:02", "NIC.Slot.7-1-1"));
+        let desired =
+            MachineBootInterfaceTarget::Pair(pair("00:00:5e:00:53:02", "NIC.Remembered.7-1-1"));
 
         assert_eq!(
             resolve_admin_boot_interface_target(None, Some(&desired), Some(&c), None),

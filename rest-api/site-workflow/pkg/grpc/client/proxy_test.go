@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/grpcproxy"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -22,6 +23,7 @@ import (
 type fakeProxyConn struct {
 	lastMethod string
 	setValue   string
+	replyBytes []byte
 }
 
 func (f *fakeProxyConn) Invoke(_ context.Context, method string, _, reply any, _ ...grpc.CallOption) error {
@@ -29,6 +31,9 @@ func (f *fakeProxyConn) Invoke(_ context.Context, method string, _, reply any, _
 	msg, ok := reply.(proto.Message)
 	if !ok {
 		return errors.New("reply is not a proto.Message")
+	}
+	if f.replyBytes != nil {
+		return proto.Unmarshal(f.replyBytes, msg)
 	}
 	pm := msg.ProtoReflect()
 	fields := pm.Descriptor().Fields()
@@ -109,6 +114,21 @@ func TestInvokeProxyJSONConn(t *testing.T) {
 			assert.Empty(t, conn.lastMethod, "transport must not be invoked for an unknown method")
 		})
 	}
+
+	t.Run("core preserves advertised capabilities", func(t *testing.T) {
+		binaryReply, err := proto.Marshal(&corev1.BuildInfo{
+			Capabilities: []corev1.BuildCapability{
+				corev1.BuildCapability_BUILD_CAPABILITY_VPC_SLAAC,
+			},
+		})
+		require.NoError(t, err)
+
+		conn := &fakeProxyConn{replyBytes: binaryReply}
+		respJSON, err := invokeProxyJSONConn(context.Background(), conn, grpcproxy.Core, "Version", nil)
+		require.NoError(t, err)
+		assert.Equal(t, "/forge.Forge/Version", conn.lastMethod)
+		assert.JSONEq(t, `{"capabilities":["BUILD_CAPABILITY_VPC_SLAAC"]}`, string(respJSON))
+	})
 }
 
 func TestProxyMethodName(t *testing.T) {

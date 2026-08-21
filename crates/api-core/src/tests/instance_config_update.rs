@@ -1138,22 +1138,23 @@ struct VpcPrefixFixture {
     vpc_prefix_id: VpcPrefixId,
 }
 
-/// Active resources expected to survive replacing explicit-prefix intent with
-/// equivalent automatic VPC intent.
+/// Active resources expected to survive replacing an explicitly selected
+/// prefix with equivalent automatic VPC intent.
 struct ActiveVpcResources {
     network_segment_id: NetworkSegmentId,
     addresses: Vec<String>,
     internal_interface: model::instance::config::network::InstanceInterfaceConfig,
 }
 
-/// Creates an FNN VPC with IPv4 capacity so update scenarios reach automatic
-/// selection rather than fail its eligibility check.
+/// Creates an FNN VPC with the requested prefix capacity so update scenarios
+/// reach selector behavior rather than fail its eligibility check.
 async fn create_fnn_vpc_prefix_fixture(
     env: &TestEnv,
     tenant_organization_id: &str,
     vpc_name: &str,
     vpc_prefix_name: &str,
     prefix: &str,
+    slaac_enabled: bool,
 ) -> VpcPrefixFixture {
     // Automatic selection accepts only FNN VPCs.
     let vpc_id = env
@@ -1165,6 +1166,7 @@ async fn create_fnn_vpc_prefix_fixture(
                     ..Default::default()
                 })
                 .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+                .slaac_enabled(slaac_enabled)
                 .tonic_request(),
         )
         .await
@@ -1173,27 +1175,60 @@ async fn create_fnn_vpc_prefix_fixture(
         .id
         .unwrap();
 
-    // Attach the requested IPv4 candidate capacity to that VPC.
-    let vpc_prefix_id = env
-        .api
-        .create_vpc_prefix(Request::new(rpc::forge::VpcPrefixCreationRequest {
-            id: None,
-            prefix: String::new(),
-            vpc_id: Some(vpc_id),
-            site_prefix_id: None,
-            config: Some(rpc::forge::VpcPrefixConfig {
-                prefix: prefix.to_string(),
-            }),
-            metadata: Some(rpc::Metadata {
-                name: vpc_prefix_name.to_string(),
-                ..Default::default()
-            }),
-        }))
+    let prefix = prefix.parse::<ipnetwork::IpNetwork>().unwrap();
+    let vpc_prefix_id = if prefix.is_ipv6() {
+        // Persist IPv6 prefixes directly so tests of the update policy are
+        // independent of the fixture for Site fabric prefixes and its IPv4-only
+        // containment policy.
+        let mut txn = env.db_txn().await;
+        let vpc = db::vpc::find_by(
+            txn.as_mut(),
+            db::ObjectColumnFilter::One(db::vpc::IdColumn, &vpc_id),
+        )
         .await
         .unwrap()
-        .into_inner()
-        .id
+        .pop()
         .unwrap();
+        let vpc_prefix_id = db::vpc_prefix::persist(
+            model::vpc_prefix::NewVpcPrefix {
+                id: uuid::Uuid::new_v4().into(),
+                site_prefix_id: None,
+                vpc_id,
+                config: model::vpc_prefix::VpcPrefixConfig { prefix },
+                metadata: model::metadata::Metadata {
+                    name: vpc_prefix_name.to_string(),
+                    ..Default::default()
+                },
+            },
+            vpc.version,
+            &mut txn,
+        )
+        .await
+        .unwrap()
+        .id;
+        txn.commit().await.unwrap();
+        vpc_prefix_id
+    } else {
+        env.api
+            .create_vpc_prefix(Request::new(rpc::forge::VpcPrefixCreationRequest {
+                id: None,
+                prefix: String::new(),
+                vpc_id: Some(vpc_id),
+                site_prefix_id: None,
+                config: Some(rpc::forge::VpcPrefixConfig {
+                    prefix: prefix.to_string(),
+                }),
+                metadata: Some(rpc::Metadata {
+                    name: vpc_prefix_name.to_string(),
+                    ..Default::default()
+                }),
+            }))
+            .await
+            .unwrap()
+            .into_inner()
+            .id
+            .unwrap()
+    };
 
     VpcPrefixFixture {
         vpc_id,
@@ -1581,6 +1616,7 @@ async fn test_update_explicit_vpc_prefix_to_automatic_vpc_reuses_active_resource
         "explicit-to-automatic-vpc",
         "explicit-to-automatic-prefix",
         "192.1.4.0/25",
+        false,
     )
     .await;
     let mh = create_managed_host(&env).await;
@@ -1657,6 +1693,278 @@ async fn test_update_explicit_vpc_prefix_to_automatic_vpc_reuses_active_resource
     .await;
 }
 
+/// Existing resources must not erase a newly requested address before validating the family of an
+/// explicitly selected prefix and the SLAAC policy.
+#[crate::sqlx_test]
+async fn test_update_slaac_vpc_rejects_explicit_ipv6_before_resource_reuse(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let tenant = default_tenant_config();
+    let env =
+        create_test_env_with_overrides(pool, TestEnvOverrides::default().with_fnn_config(None))
+            .await;
+    create_fixture_tenant(&env, tenant.tenant_organization_id.clone())
+        .await
+        .unwrap();
+    let ipv6_fixture = create_fnn_vpc_prefix_fixture(
+        &env,
+        tenant.tenant_organization_id.as_str(),
+        "SLAAC update validation VPC",
+        "SLAAC update IPv6 prefix",
+        // One instance is created for every table row below. Until #2404
+        // changes the allocation size, each consumes a /127 linknet.
+        "fd42:2403:1::/120",
+        true,
+    )
+    .await;
+    let ipv4_prefix_id = env
+        .api
+        .create_vpc_prefix(Request::new(rpc::forge::VpcPrefixCreationRequest {
+            id: None,
+            prefix: String::new(),
+            vpc_id: Some(ipv6_fixture.vpc_id),
+            site_prefix_id: None,
+            config: Some(rpc::forge::VpcPrefixConfig {
+                // This one prefix backs every table row below; leave enough /31
+                // linknets for each initial instance allocation.
+                prefix: "192.1.4.0/28".to_string(),
+            }),
+            metadata: Some(rpc::Metadata {
+                name: "SLAAC update IPv4 prefix".to_string(),
+                ..Default::default()
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .id
+        .unwrap();
+
+    enum RequestedIpv6Shape {
+        Primary,
+        DualStackSidecar,
+    }
+
+    struct UpdateCase {
+        scenario: &'static str,
+        initial_network: rpc::InstanceNetworkConfig,
+        requested_address: &'static str,
+        shape: RequestedIpv6Shape,
+        expected_error_fragments: [&'static str; 2],
+    }
+
+    let ipv6_primary =
+        single_vpc_interface_network(NetworkDetails::VpcPrefixId(ipv6_fixture.vpc_prefix_id));
+    let mut dual_stack = single_vpc_interface_network(NetworkDetails::VpcPrefixId(ipv4_prefix_id));
+    dual_stack.interfaces[0].ipv6_interface_config =
+        Some(rpc::forge::InstanceInterfaceIpv6Config {
+            vpc_prefix_id: Some(ipv6_fixture.vpc_prefix_id),
+            ip_address: None,
+        });
+
+    // Keep both explicit IPv6 fields exposed to callers and the mismatch with the primary address
+    // family in one table so this earlier validation cannot drift from canonical allocation errors.
+    for (case_index, case) in [
+        UpdateCase {
+            scenario: "IPv6-only primary prefix",
+            initial_network: ipv6_primary.clone(),
+            requested_address: "fd42:2403:1::1",
+            shape: RequestedIpv6Shape::Primary,
+            expected_error_fragments: ["requested IPv6 address", "has SLAAC enabled"],
+        },
+        UpdateCase {
+            scenario: "dual-stack IPv6 sidecar",
+            initial_network: dual_stack,
+            requested_address: "fd42:2403:1::3",
+            shape: RequestedIpv6Shape::DualStackSidecar,
+            expected_error_fragments: ["requested IPv6 address", "has SLAAC enabled"],
+        },
+        UpdateCase {
+            scenario: "IPv6 request against an IPv4 primary prefix",
+            initial_network: single_vpc_interface_network(NetworkDetails::VpcPrefixId(
+                ipv4_prefix_id,
+            )),
+            requested_address: "fd42:2403:1::2",
+            shape: RequestedIpv6Shape::Primary,
+            expected_error_fragments: ["requested IP address", "does not match VPC prefix"],
+        },
+        UpdateCase {
+            scenario: "IPv4 request against an IPv6 primary prefix",
+            initial_network: ipv6_primary,
+            requested_address: "192.0.2.1",
+            shape: RequestedIpv6Shape::Primary,
+            expected_error_fragments: ["requested IP address", "does not match VPC prefix"],
+        },
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let managed_host = create_managed_host(&env).await;
+        let metadata = rpc::Metadata {
+            name: format!("SLAAC update validation {case_index}"),
+            description: case.scenario.to_string(),
+            labels: Vec::new(),
+        };
+        let initial_config = rpc::InstanceConfig {
+            tenant: Some(tenant.clone()),
+            os: Some(default_os_config()),
+            network: Some(case.initial_network),
+            infiniband: None,
+            network_security_group_id: None,
+            dpu_extension_services: None,
+            nvlink: None,
+            spxconfig: None,
+            power_profile: None,
+        };
+        let instance = managed_host
+            .instance_builer(&env)
+            .config(initial_config.clone())
+            .metadata(metadata.clone())
+            .build()
+            .await;
+
+        let mut txn = env.db_txn().await;
+        let before = instance.db_instance(&mut txn).await;
+        txn.rollback().await.unwrap();
+        assert!(before.update_network_config_request.is_none());
+
+        let mut requested_config = initial_config;
+        let requested_interface = &mut requested_config.network.as_mut().unwrap().interfaces[0];
+        match case.shape {
+            RequestedIpv6Shape::Primary => {
+                requested_interface.ip_address = Some(case.requested_address.to_string());
+            }
+            RequestedIpv6Shape::DualStackSidecar => {
+                requested_interface
+                    .ipv6_interface_config
+                    .as_mut()
+                    .unwrap()
+                    .ip_address = Some(case.requested_address.to_string());
+            }
+        }
+
+        let error = env
+            .api
+            .update_instance_config(
+                InstanceConfigUpdateRequest::builder()
+                    .instance_id(instance.id)
+                    .config(requested_config)
+                    .metadata(metadata)
+                    .tonic_request(),
+            )
+            .await
+            .expect_err(case.scenario);
+        assert_eq!(
+            error.code(),
+            tonic::Code::InvalidArgument,
+            "{}",
+            case.scenario
+        );
+        for expected_fragment in case.expected_error_fragments {
+            assert!(
+                error.message().contains(expected_fragment),
+                "unexpected {} error: {error}",
+                case.scenario,
+            );
+        }
+
+        let mut txn = env.db_txn().await;
+        let after = instance.db_instance(&mut txn).await;
+        txn.rollback().await.unwrap();
+        assert_eq!(
+            serde_json::to_value(&after.config).unwrap(),
+            serde_json::to_value(&before.config).unwrap(),
+            "{} changed config",
+            case.scenario,
+        );
+        assert_eq!(
+            after.config_version, before.config_version,
+            "{} changed config version",
+            case.scenario,
+        );
+        assert_eq!(
+            after.network_config_version, before.network_config_version,
+            "{} changed network config version",
+            case.scenario,
+        );
+        assert!(
+            after.update_network_config_request.is_none(),
+            "{} staged a pending network update",
+            case.scenario,
+        );
+    }
+
+    // Ownership validation must precede the SLAAC policy error so an update
+    // cannot disclose another tenant's VPC mode.
+    let foreign_tenant_organization_id = "slaac-update-foreign-tenant";
+    create_fixture_tenant(&env, foreign_tenant_organization_id)
+        .await
+        .unwrap();
+    let foreign_fixture = create_fnn_vpc_prefix_fixture(
+        &env,
+        foreign_tenant_organization_id,
+        "Foreign SLAAC update validation VPC",
+        "Foreign SLAAC update IPv6 prefix",
+        "fd42:2403:2::/126",
+        true,
+    )
+    .await;
+    let managed_host = create_managed_host(&env).await;
+    let metadata = rpc::Metadata {
+        name: "SLAAC update ownership validation".to_string(),
+        ..Default::default()
+    };
+    let initial_config = rpc::InstanceConfig {
+        tenant: Some(tenant.clone()),
+        os: Some(default_os_config()),
+        network: Some(single_vpc_interface_network(NetworkDetails::VpcPrefixId(
+            ipv4_prefix_id,
+        ))),
+        infiniband: None,
+        network_security_group_id: None,
+        dpu_extension_services: None,
+        nvlink: None,
+        spxconfig: None,
+        power_profile: None,
+    };
+    let instance = managed_host
+        .instance_builer(&env)
+        .config(initial_config.clone())
+        .metadata(metadata.clone())
+        .build()
+        .await;
+
+    let mut requested_config = initial_config;
+    let mut requested_network =
+        single_vpc_interface_network(NetworkDetails::VpcPrefixId(foreign_fixture.vpc_prefix_id));
+    requested_network.interfaces[0].ip_address = Some("fd42:2403:2::1".to_string());
+    requested_config.network = Some(requested_network);
+    let error = env
+        .api
+        .update_instance_config(
+            InstanceConfigUpdateRequest::builder()
+                .instance_id(instance.id)
+                .config(requested_config)
+                .metadata(metadata)
+                .tonic_request(),
+        )
+        .await
+        .expect_err("foreign VPC prefix must fail ownership validation");
+    assert_eq!(error.code(), tonic::Code::FailedPrecondition);
+    assert!(
+        error.message().contains("which is not owned by tenant")
+            && !error.message().contains("has SLAAC enabled"),
+        "unexpected ownership error: {error}",
+    );
+
+    let mut txn = env.db_txn().await;
+    let after = instance.db_instance(&mut txn).await;
+    txn.rollback().await.unwrap();
+    assert!(after.update_network_config_request.is_none());
+}
+
 /// Verifies VPC replacement, VF removal, and instance deletion release generated
 /// resources so allocations cannot leak across lifecycle changes.
 #[crate::sqlx_test]
@@ -1679,6 +1987,7 @@ async fn test_automatic_vpc_update_and_interface_removal_cleanup(
         "automatic-cleanup-vpc-a",
         "automatic-cleanup-prefix-a",
         "192.1.4.0/25",
+        false,
     )
     .await;
     let second_vpc = create_fnn_vpc_prefix_fixture(
@@ -1687,6 +1996,7 @@ async fn test_automatic_vpc_update_and_interface_removal_cleanup(
         "automatic-cleanup-vpc-b",
         "automatic-cleanup-prefix-b",
         "192.0.5.0/25",
+        false,
     )
     .await;
     let mh = create_managed_host(&env).await;

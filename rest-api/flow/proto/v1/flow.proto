@@ -522,6 +522,28 @@ message UpgradeFirmwareRequest {
     // that would otherwise block disruptive operations against tenanted
     // hardware. The bypass is recorded in the server log.
     bool override_readiness_check = 9;
+    // Optional, write-only authentication data for firmware downloads. It is
+    // not supported for DPU-only updates or by the legacy NICo compute
+    // firmware controller.
+    FirmwareAuthenticationData authentication_data = 10;
+}
+
+// FirmwareAuthenticationData selects either one value shared by every target
+// or values scoped to supported firmware tray types.
+message FirmwareAuthenticationData {
+    oneof value {
+        string shared = 1;
+        PerComponentFirmwareAuthenticationData per_component = 2;
+    }
+}
+
+// PerComponentFirmwareAuthenticationData carries independent authentication
+// data for each supported firmware tray type. An omitted field means that tray
+// type receives no authentication data.
+message PerComponentFirmwareAuthenticationData {
+    optional string compute = 1;
+    optional string nvswitch = 2;
+    optional string powershelf = 3;
 }
 
 // GetComponents - retrieves components from local database

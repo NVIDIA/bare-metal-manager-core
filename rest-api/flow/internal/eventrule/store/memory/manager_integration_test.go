@@ -64,7 +64,7 @@ func integrationCreate(eventType eventrule.Type, name string) eventrule.RuleCrea
 		Metadata:  eventrule.RuleMetadata{Name: name},
 		EventType: eventType,
 		Policy: eventrule.Policy{Actions: []eventrule.Action{
-			eventrule.NewAction("noop", eventrule.ActionCondition{}, eventrule.Noop{}),
+			{Name: "noop", Spec: &eventrule.Noop{}},
 		}},
 	}
 }
@@ -81,7 +81,7 @@ func integrationRule(
 		Enabled:   true,
 		EventType: eventType,
 		Policy: eventrule.Policy{Actions: []eventrule.Action{
-			eventrule.NewAction("noop", eventrule.ActionCondition{}, eventrule.Noop{}),
+			{Name: "noop", Spec: &eventrule.Noop{}},
 		}},
 	}
 }

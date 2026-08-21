@@ -77,9 +77,10 @@ func pullExpectedRacks(
 //     the caller only invokes this after a successful RPC, so empty is
 //     authoritative). A legacy row with neither external_id nor a complete
 //     (manufacturer, serial_number) identity is also soft-deleted because no
-//     future snapshot can correlate it. An unmatched legacy row with a
-//     complete natural key remains exempt and is warn-logged for migration.
-//     Soft-deleted rows Core doesn't report are left alone (already gone).
+//     future snapshot can correlate it. A legacy row with a complete natural
+//     key is adopted during step 2 when Core still reports that chassis;
+//     otherwise it is stale and is deleted too. Soft-deleted rows Core doesn't
+//     report are left alone (already gone).
 //
 // All writes for one pass happen in a single transaction so partial failures
 // can't leave the table half-mirrored.
@@ -115,56 +116,24 @@ func mirrorExpectedRacks(
 	}
 	var p plan
 
-	// Tombstones (soft-deleted rows) indexed by name. Used to GC stale rows
-	// that occupy the full unique rack_name_idx index before INSERT/UPDATE
-	// statements that would otherwise collide. Same row can be matched at
-	// most once: gcTombstoneForNameReuse deletes the entry after firing so
-	// we don't attempt to GC the same tombstone twice in the same cycle.
-	tombstonesByName := make(map[string]*model.Rack)
-	// liveByName: name -> id of every live (non-deleted) rack. rack_name_idx
-	// is a full unique index, so an INSERT or UPDATE that writes a name a
-	// different live rack already holds would roll back the whole cycle.
-	// The mirror skips the colliding write and logs instead. A soft-deleted
-	// row holding the name is handled separately by gcTombstoneForNameReuse.
-	liveByName := make(map[string]uuid.UUID)
-	for i := range flowRacks {
-		r := &flowRacks[i]
-		if r.DeletedAt != nil {
-			tombstonesByName[r.Name] = r
-			continue
-		}
-		liveByName[r.Name] = r.ID
-	}
-
 	// seenExtID: every Core rack_id still reported this cycle, recorded
 	// BEFORE any skip so the delete phase never drops a Flow rack Core is
 	// still listing (even one whose labels are momentarily incomplete).
 	// touchedIDs: Flow rack UUIDs the match path adopted / updated this
 	// cycle; the delete phase skips them so a rack_id rename (update to the
 	// new external_id) isn't immediately undone by a soft-delete keyed off
-	// the stale in-memory external_id. plannedNaturalKeys: complete natural
-	// keys already queued, to drop Core duplicates before they collide on the
-	// (manufacturer, serial) unique constraint.
+	// the stale in-memory external_id.
 	seenExtID := make(map[string]struct{}, len(coreRacks))
 	touchedIDs := make(map[uuid.UUID]struct{}, len(coreRacks))
-	plannedNaturalKeys := make(map[string]struct{}, len(coreRacks))
-	// plannedNames: names claimed by a write already queued this cycle, which
-	// liveByName cannot know about since it is built from the state at cycle
-	// start. See nameUnavailable.
-	plannedNames := make(map[string]struct{}, len(coreRacks))
-
-	// coreExtIDs / coreNaturalKeys: every rack_id and every complete chassis
-	// pair in this response. Both are precomputed because the guards reading
-	// them ask about Core rows the loops below have not reached yet, whereas
-	// seenExtID only fills in as it goes.
+	naturalKeyWinners := planRackNaturalKeyWinners(coreRacks, flowByNaturalKey)
+	// coreExtIDs contains every rack_id in this response. It is precomputed
+	// because natural-key adoption needs to know whether an external_id on a
+	// candidate row is still authoritative even when that Core row appears
+	// later in the response.
 	coreExtIDs := make(map[string]struct{}, len(coreRacks))
-	coreNaturalKeys := make(map[string]struct{}, len(coreRacks))
 	for _, cr := range coreRacks {
 		if cr.RackID != "" {
 			coreExtIDs[cr.RackID] = struct{}{}
-		}
-		if key := naturalKeyOrEmpty(cr.Labels[labelChassisManufacturer], cr.Labels[labelChassisSerialNumber]); key != "" {
-			coreNaturalKeys[key] = struct{}{}
 		}
 	}
 
@@ -191,18 +160,16 @@ func mirrorExpectedRacks(
 		// collides with nothing, so it needs no such check.
 		naturalKey := naturalKeyOrEmpty(built.Manufacturer, built.SerialNumber)
 		if naturalKey != "" {
-			_, planned := plannedNaturalKeys[naturalKey]
-			if planned {
+			if winner := naturalKeyWinners[naturalKey]; winner != cr.RackID {
 				log.Warn().
 					Str("rack_id", cr.RackID).
+					Str("winning_rack_id", winner).
 					Str("manufacturer", built.Manufacturer).
 					Str("serial", built.SerialNumber).
-					Msg("Expected-inventory mirror: Core reported this chassis on more than one expected rack; mirroring the later rack without chassis labels")
+					Msg("Expected-inventory mirror: Core reported this chassis on more than one expected rack; mirroring the non-owner without chassis labels")
 				built.Manufacturer = ""
 				built.SerialNumber = ""
 				naturalKey = ""
-			} else {
-				plannedNaturalKeys[naturalKey] = struct{}{}
 			}
 		}
 
@@ -215,23 +182,11 @@ func mirrorExpectedRacks(
 				needUpdate = true
 				result.resurrected++
 			}
-			clearChassisLabelsIfSlotTaken(&built, flowByNaturalKey, existing.ID, cr.RackID)
 			if patched := rackUpdatedFromCore(&candidate, &built); patched != nil {
 				candidate = *patched
 				needUpdate = true
 			}
-			if needUpdate && nameUnavailable(liveByName, plannedNames, candidate.Name, existing.ID) {
-				log.Warn().
-					Str("rack_id", cr.RackID).
-					Str("name", candidate.Name).
-					Str("rack_serial", candidate.SerialNumber).
-					Msg("Expected-inventory mirror: Core rack name already held by a different live Flow rack; skipping this update to avoid a unique-name abort (operator must resolve the duplicate name)")
-				result.skippedNameTaken++
-				touchedIDs[existing.ID] = struct{}{}
-				continue
-			}
 			if needUpdate {
-				plannedNames[candidate.Name] = struct{}{}
 				p.toUpdate = append(p.toUpdate, candidate)
 			}
 			touchedIDs[existing.ID] = struct{}{}
@@ -251,48 +206,25 @@ func mirrorExpectedRacks(
 				candidate.DeletedAt = nil
 				result.resurrected++
 			}
-			clearChassisLabelsIfSlotTaken(&built, flowByNaturalKey, existing.ID, cr.RackID)
 			if patched := rackUpdatedFromCore(&candidate, &built); patched != nil {
 				candidate = *patched
 			}
-			if nameUnavailable(liveByName, plannedNames, candidate.Name, existing.ID) {
-				log.Warn().
-					Str("rack_id", cr.RackID).
-					Str("name", candidate.Name).
-					Str("rack_serial", candidate.SerialNumber).
-					Msg("Expected-inventory mirror: Core rack name already held by a different live Flow rack; skipping this adoption to avoid a unique-name abort (operator must resolve the duplicate name)")
-				result.skippedNameTaken++
-				touchedIDs[existing.ID] = struct{}{}
-				continue
-			}
-			plannedNames[candidate.Name] = struct{}{}
 			p.toUpdate = append(p.toUpdate, candidate)
 			touchedIDs[existing.ID] = struct{}{}
 			result.adopted++
 			continue
 		}
 
-		if nameUnavailable(liveByName, plannedNames, built.Name, uuid.Nil) {
-			log.Warn().
-				Str("rack_id", cr.RackID).
-				Str("name", built.Name).
-				Str("rack_serial", built.SerialNumber).
-				Msg("Expected-inventory mirror: Core rack name already held by a different live Flow rack; skipping this insert to avoid a unique-name abort (operator must resolve the duplicate name)")
-			result.skippedNameTaken++
-			continue
-		}
-
-		clearChassisLabelsIfSlotTaken(&built, flowByNaturalKey, uuid.Nil, cr.RackID)
-		plannedNames[built.Name] = struct{}{}
 		p.toInsert = append(p.toInsert, built)
 	}
 
 	// Reconcile the delete side. Already soft-deleted rows are skipped: if
 	// Core still lists them, the match path above resurrected them; if not,
 	// they're correctly gone already. Live Flow rows whose external_id is set
-	// but absent from Core get soft-deleted. Legacy rows without any complete
-	// identity are also deleted; identifiable legacy rows remain eligible for
-	// later natural-key adoption.
+	// but absent from Core get soft-deleted. Every remaining live legacy row
+	// without external_id is also deleted: a complete natural-key match would
+	// already have been adopted above, so the rest are absent from the
+	// authoritative snapshot.
 	for i := range flowRacks {
 		r := &flowRacks[i]
 		if r.DeletedAt != nil {
@@ -313,25 +245,7 @@ func mirrorExpectedRacks(
 			p.toDelete = append(p.toDelete, *r)
 			continue
 		}
-		// External_id is NULL — never adopted. Without a complete natural key,
-		// this row cannot join the successful authoritative Core snapshot. Keeping
-		// it live also reserves its globally unique rack name, which can prevent a
-		// real Core rack from being mirrored. A complete but currently unmatched
-		// natural key remains a migration-compatible legacy row and may still be
-		// adopted by a later snapshot.
-		key := naturalKeyOrEmpty(r.Manufacturer, r.SerialNumber)
-		if key == "" {
-			p.toDelete = append(p.toDelete, *r)
-			continue
-		}
-		if _, adoptable := coreNaturalKeys[key]; !adoptable {
-			result.legacyExempt++
-			log.Warn().
-				Str("rack_name", r.Name).
-				Str("rack_serial", r.SerialNumber).
-				Str("rack_manufacturer", r.Manufacturer).
-				Msg("Expected-inventory mirror: identifiable legacy Flow rack not present in Core's expected inventory; left in place for possible later adoption")
-		}
+		p.toDelete = append(p.toDelete, *r)
 	}
 
 	if len(p.toInsert) == 0 && len(p.toUpdate) == 0 && len(p.toDelete) == 0 {
@@ -342,16 +256,28 @@ func mirrorExpectedRacks(
 	softDeleted := 0
 	if err := pool.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
 		for i := range p.toInsert {
-			if err := gcTombstoneForNameReuse(ctx, tx, tombstonesByName, p.toInsert[i].Name, uuid.Nil); err != nil {
-				return err
+			if chassisSlotOwnedByOther(flowByNaturalKey, &p.toInsert[i]) {
+				if err := releaseChassisSlot(ctx, tx, &p.toInsert[i], now); err != nil {
+					return err
+				}
 			}
-			if _, err := tx.NewInsert().Model(&p.toInsert[i]).Exec(ctx); err != nil {
+			insertResult, err := tx.NewInsert().Model(&p.toInsert[i]).Exec(ctx)
+			if err != nil {
 				return fmt.Errorf("insert rack %q: %w", p.toInsert[i].Name, err)
+			}
+			rowsAffected, err := insertResult.RowsAffected()
+			if err != nil {
+				return fmt.Errorf("count inserted rack %q: %w", p.toInsert[i].Name, err)
+			}
+			if rowsAffected != 1 {
+				return fmt.Errorf("insert rack %q affected %d rows, expected 1", p.toInsert[i].Name, rowsAffected)
 			}
 		}
 		for i := range p.toUpdate {
-			if err := gcTombstoneForNameReuse(ctx, tx, tombstonesByName, p.toUpdate[i].Name, p.toUpdate[i].ID); err != nil {
-				return err
+			if chassisSlotOwnedByOther(flowByNaturalKey, &p.toUpdate[i]) {
+				if err := releaseChassisSlot(ctx, tx, &p.toUpdate[i], now); err != nil {
+					return err
+				}
 			}
 			// Mirror-managed columns only; status / ingested_at / nvldomain_id
 			// belong to other paths. WhereAllWithDeleted is required so a
@@ -359,14 +285,22 @@ func mirrorExpectedRacks(
 			// bun otherwise appends "deleted_at IS NULL" to the UPDATE and the
 			// resurrect silently matches zero rows.
 			p.toUpdate[i].UpdatedAt = now
-			if _, err := tx.NewUpdate().
+			updateResult, err := tx.NewUpdate().
 				Model(&p.toUpdate[i]).
 				Column("name", "manufacturer", "serial_number", "description",
 					"location", "external_id", "deleted_at", "updated_at").
 				WhereAllWithDeleted().
 				Where("id = ?", p.toUpdate[i].ID).
-				Exec(ctx); err != nil {
+				Exec(ctx)
+			if err != nil {
 				return fmt.Errorf("update rack %q: %w", p.toUpdate[i].Name, err)
+			}
+			rowsAffected, err := updateResult.RowsAffected()
+			if err != nil {
+				return fmt.Errorf("count updated rack %q: %w", p.toUpdate[i].Name, err)
+			}
+			if rowsAffected != 1 {
+				return fmt.Errorf("update rack %q affected %d rows, expected 1", p.toUpdate[i].Name, rowsAffected)
 			}
 		}
 		for i := range p.toDelete {
@@ -389,8 +323,8 @@ func mirrorExpectedRacks(
 		// Tx rolled back: per-spec decisions logged above describe intent,
 		// not committed state. Strip success-side counters so the summary
 		// log reflects what actually landed (nothing). pulled,
-		// skippedNoIDOrKey and legacyExempt survive: they're decided
-		// before the tx opened and aren't invalidated by the rollback.
+		// skippedNoIDOrKey survives: it is decided before the tx opened and
+		// isn't invalidated by the rollback.
 		result.resurrected = 0
 		result.adopted = 0
 		return result
@@ -402,58 +336,21 @@ func mirrorExpectedRacks(
 	return result
 }
 
-// nameUnavailable reports whether writing name would collide on rack_name_idx:
-// either a live Flow rack other than selfID already holds it, or a write queued
-// earlier in this cycle has claimed it. selfID is uuid.Nil for an INSERT.
-//
-// The index is a full unique constraint and every write lands in one
-// transaction, so a collision rolls back the entire cycle rather than the one
-// offending write. That is why queued claims count: two Core racks can resolve
-// to the same name, and the second must be skipped rather than left to abort
-// everything.
-func nameUnavailable(
-	liveByName map[string]uuid.UUID,
-	plannedNames map[string]struct{},
-	name string,
-	selfID uuid.UUID,
+// chassisSlotOwnedByOther reports whether the initial Flow snapshot contains
+// another row holding the desired chassis pair. The transaction only needs a
+// release UPDATE in that case. This remains correct for swaps: both desired
+// pairs are occupied by another row in the initial snapshot, so both release
+// operations are planned before their corresponding authoritative updates.
+func chassisSlotOwnedByOther(
+	flowByNaturalKey map[string]*model.Rack,
+	desired *model.Rack,
 ) bool {
-	if _, planned := plannedNames[name]; planned {
-		return true
+	key := naturalKeyOrEmpty(desired.Manufacturer, desired.SerialNumber)
+	if key == "" {
+		return false
 	}
-	id, ok := liveByName[name]
-	return ok && id != selfID
-}
-
-// gcTombstoneForNameReuse hard-deletes a soft-deleted rack that's occupying
-// the supplied name so the caller's INSERT or UPDATE doesn't collide on
-// rack_name_idx (which is a full unique constraint and so applies to
-// tombstones too). excludeID lets the UPDATE path skip the row that's
-// itself being resurrected (the tombstone IS that row; deleting it would
-// erase what we're about to write). uuid.Nil for INSERT — no exclusion
-// needed. The map entry is removed on hit so a later op against the same
-// name doesn't replay the same delete.
-func gcTombstoneForNameReuse(
-	ctx context.Context,
-	tx bun.Tx,
-	tombstonesByName map[string]*model.Rack,
-	name string,
-	excludeID uuid.UUID,
-) error {
-	tomb, ok := tombstonesByName[name]
-	if !ok || tomb.ID == excludeID {
-		return nil
-	}
-	if _, err := tx.NewDelete().Model(tomb).Where("id = ?", tomb.ID).ForceDelete().Exec(ctx); err != nil {
-		return fmt.Errorf("GC stale rack tombstone occupying name %q: %w", name, err)
-	}
-	delete(tombstonesByName, name)
-	log.Info().
-		Str("rack_name", name).
-		Str("tombstone_id", tomb.ID.String()).
-		Str("tombstone_manufacturer", tomb.Manufacturer).
-		Str("tombstone_serial", tomb.SerialNumber).
-		Msg("Expected-inventory mirror: GC'd stale rack tombstone to free up name for reuse")
-	return nil
+	owner := flowByNaturalKey[key]
+	return owner != nil && owner.ID != desired.ID
 }
 
 // getAllRacksIncludingDeleted returns every rack in the Flow DB, soft-deleted
@@ -476,8 +373,9 @@ func getAllRacksIncludingDeleted(ctx context.Context, idb bun.IDB) ([]model.Rack
 // rack_id, so this is a Core-side data fault rather than an expected input.
 //
 // The chassis labels are copied through as-is, empty included. They are
-// descriptive metadata here, not identity, and the caller vets them against
-// rack_manufacturer_serial_idx before writing.
+// descriptive metadata here, not identity. The planner degrades duplicate
+// pairs within one Core response, and the transaction releases any stale Flow
+// holder before the external-id row claims its desired pair.
 func buildRackFromCore(cr nicoapi.ExpectedRackDetail) (model.Rack, bool) {
 	if cr.RackID == "" {
 		return model.Rack{}, false
@@ -485,9 +383,8 @@ func buildRackFromCore(cr nicoapi.ExpectedRackDetail) (model.Rack, bool) {
 
 	name := cr.Name
 	if name == "" {
-		// Flow's rack.name is NOT NULL with a unique index. Core's rack_id is
-		// operator-meaningful and unique, so it stands in until someone
-		// renames the rack through the PATCH path.
+		// Flow's rack.name is NOT NULL. Core's rack_id is operator-meaningful,
+		// so use it as the display name when Core has no name metadata.
 		name = cr.RackID
 	}
 
@@ -532,7 +429,7 @@ func rackLocationFromLabels(labels map[string]string) map[string]any {
 		out["region"] = v
 	}
 	if v := labels[labelLocationDatacenter]; v != "" {
-		out["datacenter"] = v
+		out["data_center"] = v
 	}
 	if v := labels[labelLocationRoom]; v != "" {
 		out["room"] = v
@@ -547,10 +444,10 @@ func rackLocationFromLabels(labels map[string]string) map[string]any {
 // overwritten from `fromCore`. Lifecycle (status / ingested_at) and
 // nvldomain_id belong to other paths and are left alone.
 //
-// A chassis label is filled in only when Flow's copy is empty: Core dropping a
-// label it used to send is a data gap, not an instruction to erase what Flow
-// already recorded. The caller has already blanked any pair that would collide
-// on rack_manufacturer_serial_idx.
+// A successful expected-inventory response is authoritative for all fields
+// copied by buildRackFromCore. Missing labels and metadata therefore clear the
+// corresponding Flow values. Runtime-owned fields are not part of fromCore and
+// remain untouched.
 //
 // Returns nil when no patchable field changed so the caller can skip a no-op
 // UPDATE.
@@ -562,15 +459,11 @@ func rackUpdatedFromCore(existing, fromCore *model.Rack) *model.Rack {
 		patched.Name = fromCore.Name
 		changed = true
 	}
-	// Only overwrite Description / Location when Core actually carries a
-	// value. buildRackFromCore leaves these nil when the labels are absent;
-	// overwriting with an empty/nil map would wipe operator-set rack metadata
-	// every cycle (and DeepEqual(nil, map{}) would also churn a no-op UPDATE).
-	if len(fromCore.Description) > 0 && !reflect.DeepEqual(existing.Description, fromCore.Description) {
+	if !reflect.DeepEqual(existing.Description, fromCore.Description) {
 		patched.Description = fromCore.Description
 		changed = true
 	}
-	if len(fromCore.Location) > 0 && !reflect.DeepEqual(existing.Location, fromCore.Location) {
+	if !reflect.DeepEqual(existing.Location, fromCore.Location) {
 		patched.Location = fromCore.Location
 		changed = true
 	}
@@ -579,11 +472,11 @@ func rackUpdatedFromCore(existing, fromCore *model.Rack) *model.Rack {
 		patched.ExternalID = fromCore.ExternalID
 		changed = true
 	}
-	if existing.Manufacturer == "" && fromCore.Manufacturer != "" {
+	if existing.Manufacturer != fromCore.Manufacturer {
 		patched.Manufacturer = fromCore.Manufacturer
 		changed = true
 	}
-	if existing.SerialNumber == "" && fromCore.SerialNumber != "" {
+	if existing.SerialNumber != fromCore.SerialNumber {
 		patched.SerialNumber = fromCore.SerialNumber
 		changed = true
 	}
@@ -610,31 +503,100 @@ func adoptableByNaturalKey(r *model.Rack, coreExtIDs map[string]struct{}) bool {
 	return !stillReported
 }
 
-// clearChassisLabelsIfSlotTaken blanks built's chassis labels when a Flow rack
-// other than selfID already holds that complete pair. selfID is uuid.Nil for an
-// INSERT. rack_manufacturer_serial_idx covers soft-deleted rows too, so writing
-// an occupied pair would abort the whole cycle; the rack is still mirrored under
-// its external_id, just without the labels.
-func clearChassisLabelsIfSlotTaken(
-	built *model.Rack,
+// planRackNaturalKeyWinners chooses one Core rack for each duplicated chassis
+// pair that Flow's unique index can represent only once. An external-id row
+// already holding the pair keeps it when that rack still claims it; otherwise
+// the lexicographically smallest rack_id wins so Core response order cannot
+// change ownership between reconciliation cycles.
+func planRackNaturalKeyWinners(
+	coreRacks []nicoapi.ExpectedRackDetail,
 	flowByNaturalKey map[string]*model.Rack,
-	selfID uuid.UUID,
-	rackID string,
-) {
-	key := naturalKeyOrEmpty(built.Manufacturer, built.SerialNumber)
-	if key == "" {
-		return
+) map[string]string {
+	claimants := make(map[string]map[string]struct{}, len(coreRacks))
+	for _, coreRack := range coreRacks {
+		if coreRack.RackID == "" {
+			continue
+		}
+		key := naturalKeyOrEmpty(
+			coreRack.Labels[labelChassisManufacturer],
+			coreRack.Labels[labelChassisSerialNumber],
+		)
+		if key == "" {
+			continue
+		}
+		if claimants[key] == nil {
+			claimants[key] = make(map[string]struct{})
+		}
+		claimants[key][coreRack.RackID] = struct{}{}
 	}
-	owner, ok := flowByNaturalKey[key]
-	if !ok || owner.ID == selfID {
-		return
+
+	winners := make(map[string]string, len(claimants))
+	for key, rackIDs := range claimants {
+		winner := ""
+		for rackID := range rackIDs {
+			if winner == "" || rackID < winner {
+				winner = rackID
+			}
+		}
+		if owner := flowByNaturalKey[key]; owner != nil && owner.ExternalID != nil {
+			if _, stillClaimsPair := rackIDs[*owner.ExternalID]; stillClaimsPair {
+				winner = *owner.ExternalID
+			}
+		}
+		winners[key] = winner
 	}
-	log.Warn().
-		Str("rack_id", rackID).
-		Str("manufacturer", built.Manufacturer).
-		Str("serial", built.SerialNumber).
-		Str("held_by_rack", owner.Name).
-		Msg("Expected-inventory mirror: another Flow rack already holds this chassis manufacturer and serial number; mirroring this rack without chassis labels")
-	built.Manufacturer = ""
-	built.SerialNumber = ""
+	return winners
+}
+
+// releaseChassisSlot clears a desired chassis pair from any other Flow row
+// before an INSERT or UPDATE claims it. external_id is the authoritative rack
+// identity, so a stale natural-key holder must not prevent Core from correcting
+// the external-id row. Clearing first also permits two racks to swap chassis
+// pairs within one transaction. The unique index guarantees at most one other
+// row can be changed.
+func releaseChassisSlot(
+	ctx context.Context,
+	tx bun.Tx,
+	desired *model.Rack,
+	now time.Time,
+) error {
+	if naturalKeyOrEmpty(desired.Manufacturer, desired.SerialNumber) == "" {
+		return nil
+	}
+
+	query := tx.NewUpdate().
+		Model(&model.Rack{}).
+		Set("manufacturer = NULL").
+		Set("serial_number = NULL").
+		Set("updated_at = ?", now).
+		Where("manufacturer = ?", desired.Manufacturer).
+		Where("serial_number = ?", desired.SerialNumber).
+		WhereAllWithDeleted()
+	if desired.ID != uuid.Nil {
+		query = query.Where("id <> ?", desired.ID)
+	}
+
+	updateResult, err := query.Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("release chassis slot for rack %q: %w", desired.Name, err)
+	}
+	rowsAffected, err := updateResult.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("count released chassis slots for rack %q: %w", desired.Name, err)
+	}
+	if rowsAffected > 1 {
+		return fmt.Errorf("release chassis slot for rack %q affected %d rows, expected at most 1", desired.Name, rowsAffected)
+	}
+	if rowsAffected == 1 {
+		rackID := ""
+		if desired.ExternalID != nil {
+			rackID = *desired.ExternalID
+		}
+		log.Info().
+			Str("rack_id", rackID).
+			Str("manufacturer", desired.Manufacturer).
+			Str("serial", desired.SerialNumber).
+			Msg("Expected-inventory mirror: released occupied chassis slot for authoritative rack update")
+	}
+	return nil
 }

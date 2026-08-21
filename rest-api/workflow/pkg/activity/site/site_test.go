@@ -1244,7 +1244,7 @@ func TestManageSite_UpdateSiteInDB(t *testing.T) {
 	mst := NewManageSite(resources.dbSession, nil, nil, nil)
 	siteDAO := cdbm.NewSiteDAO(resources.dbSession)
 
-	createSite := func(t *testing.T, version *string) *cdbm.Site {
+	createSite := func(t *testing.T, version *string, config *cdbm.SiteConfig) *cdbm.Site {
 		t.Helper()
 		site := &cdbm.Site{
 			ID:                       uuid.New(),
@@ -1257,6 +1257,7 @@ func TestManageSite_UpdateSiteInDB(t *testing.T) {
 			IsInfinityEnabled:        true,
 			Status:                   cdbm.SiteStatusRegistered,
 			CreatedBy:                resources.user.ID,
+			Config:                   config,
 		}
 		_, err := resources.dbSession.DB.NewInsert().Model(site).Exec(ctx)
 		require.NoError(t, err)
@@ -1264,46 +1265,145 @@ func TestManageSite_UpdateSiteInDB(t *testing.T) {
 	}
 
 	tests := []struct {
-		name             string
-		existingVersion  *string
-		buildInfo        *corev1.BuildInfo
-		wantVersion      *string
-		wantErr          bool
-		wantNonRetryable bool
-		useUnknownSiteID bool
+		name                  string
+		existingVersion       *string
+		existingConfig        *cdbm.SiteConfig
+		buildInfo             *corev1.BuildInfo
+		wantVersion           *string
+		wantVpcSlaac          bool
+		wantDBUpdate          bool
+		wantVpcSlaacKeyAbsent bool
+		wantErr               bool
+		wantNonRetryable      bool
+		useUnknownSiteID      bool
+		omitVpcSlaacKey       bool
 	}{
 		{
-			name:            "sets version when site has none",
+			name:            "updates version while VPC SLAAC remains false",
 			existingVersion: nil,
+			existingConfig:  &cdbm.SiteConfig{},
 			buildInfo:       &corev1.BuildInfo{BuildVersion: "1.2.3"},
 			wantVersion:     cutil.GetPtr("1.2.3"),
+			wantDBUpdate:    true,
 		},
 		{
-			name:            "updates version when different",
+			name:            "updates version and advertised VPC SLAAC together",
 			existingVersion: cutil.GetPtr("1.0.0"),
-			buildInfo:       &corev1.BuildInfo{BuildVersion: "2.0.0"},
-			wantVersion:     cutil.GetPtr("2.0.0"),
+			existingConfig:  &cdbm.SiteConfig{},
+			buildInfo: &corev1.BuildInfo{
+				BuildVersion: "2.0.0",
+				Capabilities: []corev1.BuildCapability{
+					corev1.BuildCapability_BUILD_CAPABILITY_VPC_SLAAC,
+				},
+			},
+			wantVersion:  cutil.GetPtr("2.0.0"),
+			wantVpcSlaac: true,
+			wantDBUpdate: true,
 		},
 		{
-			name:            "no-op when reported version matches stored version",
+			name:            "skips update when version and false VPC SLAAC match",
 			existingVersion: cutil.GetPtr("1.0.0"),
+			existingConfig:  &cdbm.SiteConfig{},
 			buildInfo:       &corev1.BuildInfo{BuildVersion: "1.0.0"},
 			wantVersion:     cutil.GetPtr("1.0.0"),
 		},
 		{
+			name:            "skips update when version and true VPC SLAAC match",
+			existingVersion: cutil.GetPtr("1.0.0"),
+			existingConfig:  &cdbm.SiteConfig{VpcSlaac: true},
+			buildInfo: &corev1.BuildInfo{
+				BuildVersion: "1.0.0",
+				Capabilities: []corev1.BuildCapability{
+					corev1.BuildCapability_BUILD_CAPABILITY_VPC_SLAAC,
+				},
+			},
+			wantVersion:  cutil.GetPtr("1.0.0"),
+			wantVpcSlaac: true,
+		},
+		{
 			name:            "preserves stored version when build info omits it",
 			existingVersion: cutil.GetPtr("1.0.0"),
+			existingConfig:  &cdbm.SiteConfig{},
 			buildInfo:       &corev1.BuildInfo{},
 			wantVersion:     cutil.GetPtr("1.0.0"),
 		},
 		{
-			name:            "no-op when site and build info both lack a version",
+			name:                  "leaves equivalent missing VPC SLAAC key untouched",
+			existingVersion:       cutil.GetPtr("1.0.0"),
+			existingConfig:        &cdbm.SiteConfig{NativeNetworking: true},
+			buildInfo:             &corev1.BuildInfo{BuildVersion: "1.0.0"},
+			wantVersion:           cutil.GetPtr("1.0.0"),
+			wantVpcSlaac:          false,
+			wantVpcSlaacKeyAbsent: true,
+			omitVpcSlaacKey:       true,
+		},
+		{
+			name:                  "updates version without adding an equivalent missing VPC SLAAC key",
+			existingVersion:       cutil.GetPtr("1.0.0"),
+			existingConfig:        &cdbm.SiteConfig{NativeNetworking: true},
+			buildInfo:             &corev1.BuildInfo{BuildVersion: "2.0.0"},
+			wantVersion:           cutil.GetPtr("2.0.0"),
+			wantVpcSlaac:          false,
+			wantDBUpdate:          true,
+			wantVpcSlaacKeyAbsent: true,
+			omitVpcSlaacKey:       true,
+		},
+		{
+			name:            "leaves version empty when site and build info both lack it",
 			existingVersion: nil,
+			existingConfig:  &cdbm.SiteConfig{},
 			buildInfo:       &corev1.BuildInfo{},
 			wantVersion:     nil,
 		},
 		{
+			name:            "updates advertised VPC SLAAC when version is unchanged",
+			existingVersion: cutil.GetPtr("1.0.0"),
+			existingConfig:  &cdbm.SiteConfig{},
+			buildInfo: &corev1.BuildInfo{
+				BuildVersion: "1.0.0",
+				Capabilities: []corev1.BuildCapability{
+					corev1.BuildCapability_BUILD_CAPABILITY_VPC_SLAAC,
+				},
+			},
+			wantVersion:  cutil.GetPtr("1.0.0"),
+			wantVpcSlaac: true,
+			wantDBUpdate: true,
+		},
+		{
+			name:            "clears stale VPC SLAAC when capability is absent",
+			existingVersion: cutil.GetPtr("1.0.0"),
+			existingConfig:  &cdbm.SiteConfig{VpcSlaac: true},
+			buildInfo:       &corev1.BuildInfo{BuildVersion: "1.0.0"},
+			wantVersion:     cutil.GetPtr("1.0.0"),
+			wantVpcSlaac:    false,
+			wantDBUpdate:    true,
+		},
+		{
+			name:            "initializes nil config with advertised VPC SLAAC",
+			existingVersion: cutil.GetPtr("1.0.0"),
+			existingConfig:  nil,
+			buildInfo: &corev1.BuildInfo{
+				BuildVersion: "1.0.0",
+				Capabilities: []corev1.BuildCapability{
+					corev1.BuildCapability_BUILD_CAPABILITY_VPC_SLAAC,
+				},
+			},
+			wantVersion:  cutil.GetPtr("1.0.0"),
+			wantVpcSlaac: true,
+			wantDBUpdate: true,
+		},
+		{
+			name:            "initializes nil config when VPC SLAAC is unsupported",
+			existingVersion: cutil.GetPtr("1.0.0"),
+			existingConfig:  nil,
+			buildInfo:       &corev1.BuildInfo{BuildVersion: "1.0.0"},
+			wantVersion:     cutil.GetPtr("1.0.0"),
+			wantVpcSlaac:    false,
+			wantDBUpdate:    true,
+		},
+		{
 			name:             "unknown site returns non-retryable error",
+			existingConfig:   &cdbm.SiteConfig{},
 			buildInfo:        &corev1.BuildInfo{BuildVersion: "1.2.3"},
 			wantErr:          true,
 			wantNonRetryable: true,
@@ -1313,14 +1413,30 @@ func TestManageSite_UpdateSiteInDB(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			site := createSite(t, tt.existingVersion)
+			site := createSite(t, tt.existingVersion, tt.existingConfig)
+			if tt.omitVpcSlaacKey {
+				_, err := resources.dbSession.DB.NewUpdate().
+					Model((*cdbm.Site)(nil)).
+					Set("config = config - 'vpc_slaac'").
+					Where("id = ?", site.ID).
+					Exec(ctx)
+				require.NoError(t, err)
+			}
+
+			originalUpdated := time.Date(2000, time.January, 1, 0, 0, 0, 0, time.UTC)
+			_, err := resources.dbSession.DB.NewUpdate().
+				Model((*cdbm.Site)(nil)).
+				Set("updated = ?", originalUpdated).
+				Where("id = ?", site.ID).
+				Exec(ctx)
+			require.NoError(t, err)
 
 			siteID := site.ID
 			if tt.useUnknownSiteID {
 				siteID = uuid.New()
 			}
 
-			err := mst.UpdateSiteInDB(ctx, siteID, tt.buildInfo)
+			err = mst.UpdateSiteInDB(ctx, siteID, tt.buildInfo)
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.wantNonRetryable {
@@ -1339,10 +1455,30 @@ func TestManageSite_UpdateSiteInDB(t *testing.T) {
 			require.NoError(t, err)
 			if tt.wantVersion == nil {
 				assert.Nil(t, got.SiteControllerVersion)
-				return
+			} else {
+				require.NotNil(t, got.SiteControllerVersion)
+				assert.Equal(t, *tt.wantVersion, *got.SiteControllerVersion)
 			}
-			require.NotNil(t, got.SiteControllerVersion)
-			assert.Equal(t, *tt.wantVersion, *got.SiteControllerVersion)
+			require.NotNil(t, got.Config)
+			assert.Equal(t, tt.wantVpcSlaac, got.Config.VpcSlaac)
+			if tt.wantDBUpdate {
+				assert.True(t, got.Updated.After(originalUpdated))
+			} else {
+				assert.True(t, got.Updated.Equal(originalUpdated))
+			}
+
+			var persistedVpcSlaac sql.NullBool
+			err = resources.dbSession.DB.NewRaw(
+				`SELECT (config->>'vpc_slaac')::boolean FROM site WHERE id = ?`,
+				site.ID,
+			).Scan(ctx, &persistedVpcSlaac)
+			require.NoError(t, err)
+			if tt.wantVpcSlaacKeyAbsent {
+				assert.False(t, persistedVpcSlaac.Valid)
+			} else {
+				require.True(t, persistedVpcSlaac.Valid)
+				assert.Equal(t, tt.wantVpcSlaac, persistedVpcSlaac.Bool)
+			}
 		})
 	}
 }

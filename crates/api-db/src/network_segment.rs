@@ -899,6 +899,13 @@ pub async fn mark_as_deleted(
             "Network Segment can't be deleted while addresses on the segment are allocated to instances".to_string(),
         ));
     }
+    let num_referencing_instances =
+        crate::instance::count_network_segment_references(txn, &value.id).await?;
+    if num_referencing_instances > 0 {
+        return DatabaseResult::Err(DatabaseError::NetworkSegmentDelete(format!(
+            "network segment can't be deleted while referenced by network configurations; referencing instance count: {num_referencing_instances}"
+        )));
+    }
 
     let query = "UPDATE network_segments SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING id";
     let id = sqlx::query_as(query)
@@ -910,16 +917,31 @@ pub async fn mark_as_deleted(
     Ok(id)
 }
 
+/// Physically deletes a segment after rechecking that no allocations reference it.
+///
+/// The caller's transaction retains the recheck's table lock through physical
+/// deletion, serializing with the allocator's exclusive lock on
+/// `instance_addresses`.
 pub async fn final_delete(
     segment_id: NetworkSegmentId,
-    txn: &mut PgConnection,
+    txn: &mut PgTransaction<'_>,
 ) -> Result<NetworkSegmentId, DatabaseError> {
-    crate::network_prefix::delete_for_segment(segment_id, txn).await?;
+    // Recheck inside the delete transaction. The table lock serializes this
+    // read against the allocator's exclusive lock on `instance_addresses`,
+    // closing the gap between the controller's drain decision and physical
+    // deletion.
+    if crate::instance_address::segment_has_allocations(txn.as_mut(), &segment_id).await? {
+        return Err(DatabaseError::NetworkSegmentDelete(
+            "network segment can't be deleted while allocations still reference it".to_string(),
+        ));
+    }
+
+    crate::network_prefix::delete_for_segment(segment_id, txn.as_mut()).await?;
 
     let query = "DELETE FROM network_segments WHERE id=$1::uuid RETURNING id";
     let segment: NetworkSegmentId = sqlx::query_as(query)
         .bind(segment_id)
-        .fetch_one(txn)
+        .fetch_one(txn.as_mut())
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 
@@ -1019,6 +1041,20 @@ pub async fn allocate_svi_ip(
     txn: &mut PgTransaction<'_>,
 ) -> Result<IpAddr, DatabaseError> {
     let mut first_svi_ip = None;
+
+    // A tenant prefix with fewer than three reserved addresses falls back to
+    // the instance address allocator. Take its table lock before touching any
+    // prefix row so this path uses the same lock order as segment deletion,
+    // including dual-stack segments whose prefixes reserve different numbers
+    // of addresses.
+    if value.config.segment_type.is_tenant()
+        && value
+            .prefixes
+            .iter()
+            .any(|prefix| prefix.svi_ip.is_none() && prefix.num_reserved < 3)
+    {
+        crate::instance_address::lock_table_for_allocation(txn.as_mut()).await?;
+    }
 
     for prefix in &value.prefixes {
         if prefix.svi_ip.is_some() {
@@ -1481,6 +1517,165 @@ mod tests {
             !segment_exists(&mut txn, "doomed").await?,
             "segment row should be gone after final_delete",
         );
+        Ok(())
+    }
+
+    /// `final_delete` must recheck the allocation predicate in its own
+    /// transaction so a network configuration that retains only a prefix
+    /// cannot disappear between the controller drain check and physical
+    /// deletion.
+    #[crate::sqlx_test]
+    async fn final_delete_rejects_instance_network_config_reference(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let segment_id = minimum_segment_data(&pool, "still-referenced").await?;
+        let machine_id = uuid::Uuid::new_v4();
+        let mut txn = pool.begin().await?;
+        sqlx::query("INSERT INTO machines (id, dpf) VALUES ($1, '{}'::jsonb)")
+            .bind(machine_id)
+            .execute(txn.as_mut())
+            .await?;
+        sqlx::query(
+            "INSERT INTO instances (machine_id, network_config) \
+             VALUES ($1, jsonb_build_object( \
+                 'interfaces', jsonb_build_array( \
+                     jsonb_build_object('network_segment_id', $2::text))))",
+        )
+        .bind(machine_id)
+        .bind(segment_id)
+        .execute(txn.as_mut())
+        .await?;
+
+        let error = final_delete(segment_id, &mut txn)
+            .await
+            .expect_err("referenced segment must remain present");
+        assert!(matches!(
+            error,
+            DatabaseError::NetworkSegmentDelete(message)
+                if message.contains("allocations still reference it")
+        ));
+        assert!(
+            segment_exists(txn.as_mut(), "still-referenced").await?,
+            "failed final deletion must retain the segment",
+        );
+        txn.rollback().await?;
+        Ok(())
+    }
+
+    /// SVI allocation must lock the `instance_addresses` table before it
+    /// updates any prefix row. Otherwise, a tenant segment whose prefixes
+    /// reserve different numbers of addresses can deadlock with final deletion:
+    /// allocation holds the first prefix row and waits for the table lock while
+    /// deletion holds the table lock and waits for that prefix row.
+    #[crate::sqlx_test]
+    async fn tenant_svi_allocation_locks_before_mixed_prefix_updates(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut setup_txn = pool.begin().await?;
+        let mut segment = persist(
+            NewNetworkSegment {
+                id: NetworkSegmentId::new(),
+                name: "mixed-svi-lock-order".to_string(),
+                subdomain_id: None,
+                vpc_id: None,
+                mtu: 1500,
+                prefixes: vec![
+                    NewNetworkPrefix {
+                        prefix: "198.51.100.0/29".parse()?,
+                        gateway: None,
+                        dhcpv6_link_address: None,
+                        num_reserved: 3,
+                    },
+                    NewNetworkPrefix {
+                        prefix: "2001:db8:2403::/64".parse()?,
+                        gateway: None,
+                        dhcpv6_link_address: None,
+                        num_reserved: 0,
+                    },
+                ],
+                vlan_id: None,
+                vni: None,
+                segment_type: NetworkSegmentType::Tenant,
+                can_stretch: Some(true),
+                allocation_strategy: Default::default(),
+                infer_slaac_eui64_addresses: false,
+            },
+            setup_txn.as_mut(),
+            NetworkSegmentControllerState::Ready,
+        )
+        .await?;
+        setup_txn.commit().await?;
+
+        // `json_agg` does not promise prefix order. Force the dangerous order:
+        // update the third address directly, then fall back to the allocator.
+        segment
+            .prefixes
+            .sort_by_key(|prefix| std::cmp::Reverse(prefix.num_reserved));
+        assert_eq!(segment.prefixes[0].num_reserved, 3);
+        assert_eq!(segment.prefixes[1].num_reserved, 0);
+
+        let mut deletion_txn = pool.begin().await?;
+        let deletion_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(deletion_txn.as_mut())
+            .await?;
+        sqlx::query("LOCK TABLE instance_addresses IN ACCESS SHARE MODE")
+            .execute(deletion_txn.as_mut())
+            .await?;
+
+        let allocation_pool = pool.clone();
+        let segment_id = segment.id;
+        let allocation_task = tokio::spawn(async move {
+            let mut txn = allocation_pool.begin().await.unwrap();
+            let result = allocate_svi_ip(&segment, &mut txn).await;
+            if result.is_ok() {
+                txn.commit().await.unwrap();
+            } else {
+                txn.rollback().await.unwrap();
+            }
+            result
+        });
+
+        // Wait until allocation reaches the table boundary held above. With
+        // the correct order it has not touched either prefix row yet.
+        let mut allocation_is_blocked = false;
+        for _ in 0..300 {
+            allocation_is_blocked = sqlx::query_scalar(
+                r#"SELECT EXISTS (
+                    SELECT 1
+                    FROM pg_stat_activity AS activity
+                    WHERE activity.datname = current_database()
+                      AND activity.wait_event_type = 'Lock'
+                      AND $1 = ANY(pg_blocking_pids(activity.pid))
+                      AND activity.query ILIKE
+                          '%LOCK TABLE instance_addresses IN ACCESS EXCLUSIVE MODE%'
+                )"#,
+            )
+            .bind(deletion_pid)
+            .fetch_one(&pool)
+            .await?;
+            if allocation_is_blocked {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        assert!(
+            allocation_is_blocked,
+            "SVI allocation never reached the lock on instance_addresses",
+        );
+
+        // Acquiring the table lock before the prefix lock lets this delete
+        // finish. Roll it back so the waiting allocator can resume against the
+        // restored rows.
+        assert_eq!(
+            final_delete(segment_id, &mut deletion_txn).await?,
+            segment_id,
+        );
+        deletion_txn.rollback().await?;
+
+        allocation_task
+            .await
+            .expect("SVI allocation task must complete")
+            .expect("SVI allocation must resume after deletion rollback");
         Ok(())
     }
 

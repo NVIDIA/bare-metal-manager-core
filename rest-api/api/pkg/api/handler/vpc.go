@@ -226,12 +226,20 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 		}
 	}
 
+	slaacEnabled := apiRequest.SlaacEnabled != nil && *apiRequest.SlaacEnabled
 	// Verify if site has been enabled for FNN type
 	if *networkVirtualizationType == cdbm.VpcFNN {
 		if !siteConfig.NativeNetworking {
 			logger.Warn().Msg(fmt.Sprintf("Site: %v specified in request data must have native networking enabled in order to create FNN VPCs", site.ID))
 			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Site specified in request data must have native networking enabled in order to create FNN VPCs", nil)
 		}
+	}
+	if slaacEnabled && *networkVirtualizationType != cdbm.VpcFNN {
+		logger.Warn().Str("networkVirtualizationType", *networkVirtualizationType).Msg("SLAAC is not supported for network virtualization type")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "`slaacEnabled` is only supported when network virtualization type is `FNN`", nil)
+	}
+	if slaacEnabled && !siteConfig.VpcSlaac {
+		return cutil.NewAPIErrorResponse(c, http.StatusPreconditionFailed, "Site does not advertise support for SLAAC-enabled VPCs", nil)
 	}
 
 	// TargetedInstanceCreation supplies both policies, but keep write authorization
@@ -349,6 +357,7 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 			TenantID:                  tenant.ID,
 			SiteID:                    site.ID,
 			NetworkVirtualizationType: networkVirtualizationType,
+			SlaacEnabled:              slaacEnabled,
 			RoutingProfile:            routingProfile,
 			RoutingProfileOverrides:   apiRequest.RoutingProfileOverrides.ToDB(),
 			NVLinkLogicalPartitionID:  defaultNvllPartitionId,
@@ -390,10 +399,9 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 		}
 		ssd = createdSsd
 
-		// Get the temporal client for the site we are working with.
-		stc, derr := cvh.scp.GetClientByID(vpc.SiteID)
-		if derr != nil {
-			logger.Error().Err(derr).Msg("failed to retrieve Temporal client for Site")
+		stc, clientErr := cvh.scp.GetClientByID(vpc.SiteID)
+		if clientErr != nil {
+			logger.Error().Err(clientErr).Msg("failed to retrieve Temporal client for Site")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 		}
 
