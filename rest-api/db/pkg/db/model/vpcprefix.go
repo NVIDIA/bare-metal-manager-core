@@ -552,11 +552,15 @@ func vpcPrefixUsageFromInterfaces(ctx context.Context, cidr string, ifcCountWith
 	}
 
 	validatedCidr := ipamPrefix.Cidr
-	netIpPrefix, err := netip.ParsePrefix(validatedCidr)
+	validIpPrefixFromCidr, err := netip.ParsePrefix(validatedCidr)
 	if err != nil {
 		return nil, err
 	}
 
+	// A /31 VpcPrefix is itself the single Interface slot, and IPAM refuses a child
+	// the same length as its parent. Every other length still goes through IPAM so
+	// that genuinely impossible allocations keep surfacing as errors.
+	acquiresChildPrefixes := validIpPrefixFromCidr.Bits() != vpcPrefixInterfaceBits
 	acquiredPrefixes := make(map[string]struct{})
 	for _, ipStr := range ips {
 		ipAddress, parseErr := netip.ParseAddr(strings.TrimSpace(ipStr))
@@ -564,7 +568,7 @@ func vpcPrefixUsageFromInterfaces(ctx context.Context, cidr string, ifcCountWith
 			continue
 		}
 
-		if !netIpPrefix.Contains(ipAddress) {
+		if !validIpPrefixFromCidr.Contains(ipAddress) {
 			continue
 		}
 
@@ -578,9 +582,11 @@ func vpcPrefixUsageFromInterfaces(ctx context.Context, cidr string, ifcCountWith
 			continue
 		}
 
-		_, acquireErr := ipamer.AcquireSpecificChildPrefix(ctx, validatedCidr, prefix)
-		if acquireErr != nil {
-			return nil, fmt.Errorf("failed to acquire Interface prefix %q from %q: %w", prefix, validatedCidr, acquireErr)
+		if acquiresChildPrefixes {
+			_, acquireErr := ipamer.AcquireSpecificChildPrefix(ctx, validatedCidr, prefix)
+			if acquireErr != nil {
+				return nil, fmt.Errorf("failed to acquire Interface prefix %q from %q: %w", prefix, validatedCidr, acquireErr)
+			}
 		}
 
 		acquiredPrefixes[prefix] = struct{}{}
@@ -593,6 +599,13 @@ func vpcPrefixUsageFromInterfaces(ctx context.Context, cidr string, ifcCountWith
 
 	usage := ipamPrefix.Usage()
 
+	// A /31 acquires no children, so IPAM reports zero for it. The locally tracked
+	// set is what consumed capacity there, and it must agree with AcquiredIPs below.
+	acquiredPrefixCount := usage.AcquiredPrefixes
+	if !acquiresChildPrefixes {
+		acquiredPrefixCount = uint64(len(acquiredPrefixes))
+	}
+
 	acquiredIPs := uint64(len(acquiredPrefixes))*vpcPrefixIPsPerInterface +
 		ifcCountWithoutIPs*vpcPrefixIPsPerInterface
 	if acquiredIPs > usage.AvailableIPs {
@@ -604,7 +617,7 @@ func vpcPrefixUsageFromInterfaces(ctx context.Context, cidr string, ifcCountWith
 		AcquiredIPs:               acquiredIPs,
 		AvailableSmallestPrefixes: usage.AvailableSmallestPrefixes,
 		AvailablePrefixes:         usage.AvailablePrefixes,
-		AcquiredPrefixes:          usage.AcquiredPrefixes,
+		AcquiredPrefixes:          acquiredPrefixCount,
 	}, nil
 }
 

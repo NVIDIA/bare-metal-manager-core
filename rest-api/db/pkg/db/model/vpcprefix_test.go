@@ -936,7 +936,6 @@ func TestVpcPrefixUsageFromInterfaces(t *testing.T) {
 		cidr                              string
 		ifcCountWithoutIPs                uint64
 		ips                               []string
-		expectError                       bool
 		expectedAvailableIPs              uint64
 		expectedAcquiredIPs               uint64
 		expectedAvailableSmallestPrefixes uint64
@@ -993,27 +992,36 @@ func TestVpcPrefixUsageFromInterfaces(t *testing.T) {
 			expectedAcquiredPrefixes:          0,
 		},
 		{
-			// A /31 is the smallest prefix length the API accepts, but IPAM cannot carve a
-			// /31 child out of a /31 parent, so an assigned address makes usage fail.
-			name:               "/31 prefix with one assigned IP returns a child prefix error",
-			cidr:               "10.0.0.0/31",
-			ifcCountWithoutIPs: 0,
-			ips:                []string{"10.0.0.1"},
-			expectError:        true,
+			// A /31 is the smallest prefix length the API accepts and cannot yield a /31
+			// child, so usage must still be reported rather than failing the request.
+			name:                              "/31 prefix with one assigned IP does not error",
+			cidr:                              "10.0.0.0/31",
+			ifcCountWithoutIPs:                0,
+			ips:                               []string{"10.0.0.1"},
+			expectedAvailableIPs:              2,
+			expectedAcquiredIPs:               2,
+			expectedAvailableSmallestPrefixes: 0,
+			expectedAcquiredPrefixes:          1,
 		},
 		{
-			name:               "/31 prefix with both addresses of the same /31 returns a child prefix error",
-			cidr:               "10.0.0.0/31",
-			ifcCountWithoutIPs: 0,
-			ips:                []string{"10.0.0.0", "10.0.0.1"},
-			expectError:        true,
+			name:                              "/31 prefix with both addresses of the same /31 counts once",
+			cidr:                              "10.0.0.0/31",
+			ifcCountWithoutIPs:                0,
+			ips:                               []string{"10.0.0.0", "10.0.0.1"},
+			expectedAvailableIPs:              2,
+			expectedAcquiredIPs:               2,
+			expectedAvailableSmallestPrefixes: 0,
+			expectedAcquiredPrefixes:          1,
 		},
 		{
-			name:               "/31 prefix with duplicate Ready and Deleting IP returns a child prefix error",
-			cidr:               "10.0.0.0/31",
-			ifcCountWithoutIPs: 0,
-			ips:                []string{"10.0.0.1", "10.0.0.1"},
-			expectError:        true,
+			name:                              "/31 prefix with duplicate Ready and Deleting IP counts once",
+			cidr:                              "10.0.0.0/31",
+			ifcCountWithoutIPs:                0,
+			ips:                               []string{"10.0.0.1", "10.0.0.1"},
+			expectedAvailableIPs:              2,
+			expectedAcquiredIPs:               2,
+			expectedAvailableSmallestPrefixes: 0,
+			expectedAcquiredPrefixes:          1,
 		},
 		{
 			name:                              "/31 prefix without interfaces is fully available",
@@ -1052,13 +1060,6 @@ func TestVpcPrefixUsageFromInterfaces(t *testing.T) {
 			t.Parallel()
 
 			usage, err := vpcPrefixUsageFromInterfaces(context.Background(), testCase.cidr, testCase.ifcCountWithoutIPs, testCase.ips)
-			if testCase.expectError {
-				require.Error(t, err)
-				assert.Nil(t, usage)
-
-				return
-			}
-
 			require.NoError(t, err)
 			require.NotNil(t, usage)
 			assert.Equal(t, testCase.expectedAvailableIPs, usage.AvailableIPs)
@@ -1091,7 +1092,6 @@ func TestVpcPrefixSQLDAO_GetPrefixUsage(t *testing.T) {
 		name                       string
 		prefixLength               int
 		interfaces                 []interfaceFixture
-		expectError                bool
 		expectedAvailableIPs       uint64
 		expectedAcquiredIPs        uint64
 		expectedAcquiredPrefixes   uint64
@@ -1185,14 +1185,19 @@ func TestVpcPrefixSQLDAO_GetPrefixUsage(t *testing.T) {
 			expectedAdmissionAllowed:   false,
 		},
 		{
-			// A /31 is the smallest VpcPrefix the API accepts, so this reaches the DAO,
-			// but IPAM cannot carve a /31 child out of it once an address is assigned.
-			name:         "/31 prefix with one Ready interface returns a child prefix error issue 4908 follow-up",
+			// A /31 is the smallest VpcPrefix the API accepts and holds exactly one
+			// Interface, so a single Ready row consumes it without erroring.
+			name:         "/31 prefix with one Ready interface is fully acquired issue 4908 follow-up",
 			prefixLength: 31,
 			interfaces: []interfaceFixture{
 				{status: InterfaceStatusReady, ipAddress: cutil.GetPtr("10.0.0.1")},
 			},
-			expectError: true,
+			expectedAvailableIPs:       2,
+			expectedAcquiredIPs:        2,
+			expectedAcquiredPrefixes:   1,
+			expectedAvailableSmallest:  0,
+			expectedFreeInterfaceSlots: 0,
+			expectedAdmissionAllowed:   false,
 		},
 		{
 			name:                       "/31 prefix without interfaces admits one interface",
@@ -1258,13 +1263,6 @@ func TestVpcPrefixSQLDAO_GetPrefixUsage(t *testing.T) {
 			}
 
 			usageByID, err := NewVpcPrefixDAO(dbSession).GetPrefixUsage(context.Background(), nil, vpcPrefix)
-			if testCase.expectError {
-				require.Error(t, err)
-				assert.Nil(t, usageByID)
-
-				return
-			}
-
 			require.NoError(t, err)
 
 			usage := usageByID[vpcPrefix.ID]
