@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-package handler
+package common
 
 import (
 	"net/http"
@@ -10,9 +10,10 @@ import (
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 )
 
-func validateSitePowerProvisioning(siteConfig *cdbm.SiteConfig, value *string) *cutil.APIError {
-	// Omission preserves the current value, and an explicit empty string clears
-	// it. Both remain valid when power provisioning is disabled.
+// ValidateSitePowerProvisioning checks whether a site accepts a power
+// provisioning value. Omission preserves the current value, and an explicit
+// empty string clears it, so both remain valid when provisioning is disabled.
+func ValidateSitePowerProvisioning(siteConfig *cdbm.SiteConfig, value *string) *cutil.APIError {
 	if value == nil || *value == "" {
 		return nil
 	}

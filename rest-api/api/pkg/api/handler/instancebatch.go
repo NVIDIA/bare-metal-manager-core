@@ -459,7 +459,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 			Msg("The Site where Instances are being created is not in Registered state")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "The Site where Instances are being created is not in Registered state", nil)
 	}
-	if apiErr := validateSitePowerProvisioning(site.Config, apiRequest.PowerProfile); apiErr != nil {
+	if apiErr := common.ValidateSitePowerProvisioning(site.Config, apiRequest.PowerProfile); apiErr != nil {
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 	}
 

@@ -213,7 +213,7 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 	if site.Config != nil {
 		siteConfig = site.Config
 	}
-	if apiErr := validateSitePowerProvisioning(siteConfig, apiRequest.PowerResourceGroup); apiErr != nil {
+	if apiErr := common.ValidateSitePowerProvisioning(siteConfig, apiRequest.PowerResourceGroup); apiErr != nil {
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 	}
 
@@ -722,7 +722,7 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 	if vpc.Site != nil && vpc.Site.Config != nil {
 		siteConfig = vpc.Site.Config
 	}
-	if apiErr := validateSitePowerProvisioning(siteConfig, apiRequest.PowerResourceGroup); apiErr != nil {
+	if apiErr := common.ValidateSitePowerProvisioning(siteConfig, apiRequest.PowerResourceGroup); apiErr != nil {
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 	}
 

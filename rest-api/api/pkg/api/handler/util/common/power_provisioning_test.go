@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-package handler
+package common
 
 import (
 	"net/http"
@@ -36,7 +36,7 @@ func TestValidateSitePowerProvisioning(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			apiErr := validateSitePowerProvisioning(tt.config, tt.value)
+			apiErr := ValidateSitePowerProvisioning(tt.config, tt.value)
 			if !tt.wantReject {
 				assert.Nil(t, apiErr)
 				return
