@@ -39,37 +39,10 @@ use crate::tests::common::api_fixtures::{TestEnvOverrides, create_test_env_with_
 use crate::tests::common::rpc_builder::{VpcCreationRequest, VpcDeletionRequest, VpcUpdateRequest};
 use crate::{DatabaseError, db_init};
 
-#[allow(deprecated)]
 fn forge_vpc_config(vpc: &rpc::forge::Vpc) -> &rpc::forge::VpcConfig {
     vpc.config
         .as_ref()
         .expect("structured config must be populated")
-}
-
-/// Backware compatibility: deprecated fields mirror structured config/status.
-/// TODO Remove after rest component migrates to config/status
-#[allow(deprecated)]
-fn assert_vpc_config_status_compat(vpc: &rpc::forge::Vpc) {
-    let config = forge_vpc_config(vpc);
-    assert_eq!(vpc.tenant_organization_id, config.tenant_organization_id);
-    assert_eq!(vpc.tenant_keyset_id, config.tenant_keyset_id);
-    assert_eq!(vpc.vni, config.vni);
-    assert_eq!(
-        vpc.network_virtualization_type,
-        config.network_virtualization_type
-    );
-    assert_eq!(
-        vpc.network_security_group_id,
-        config.network_security_group_id
-    );
-    assert_eq!(
-        vpc.default_nvlink_logical_partition_id,
-        config.default_nvlink_logical_partition_id
-    );
-    assert_eq!(vpc.routing_profile_type, config.routing_profile_type);
-
-    let status = vpc.status.as_ref().expect("status must be populated");
-    assert_eq!(vpc.deprecated_vni, status.vni);
 }
 
 #[crate::sqlx_test]
@@ -292,8 +265,10 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     // A VNI is allocated
     assert!(forge_vpc.status.as_ref().and_then(|s| s.vni).is_some());
     // The 'config' VNI and the status VNI match
-    assert_eq!(forge_vpc.vni, forge_vpc.status.as_ref().and_then(|s| s.vni));
-    assert_vpc_config_status_compat(&forge_vpc);
+    assert_eq!(
+        forge_vpc_config(&forge_vpc).vni,
+        forge_vpc.status.as_ref().and_then(|s| s.vni)
+    );
 
     // Create another VPC by explicitly selecting a VNI from
     // the allowed pool, but use the same VNI, so it should fail.
@@ -342,10 +317,12 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     // A VNI is allocated
     assert!(forge_vpc.status.as_ref().and_then(|s| s.vni).is_some());
     // The 'config' VNI is still None because this was an auto-allocated VNI
-    assert!(forge_vpc.vni.is_none());
+    assert!(forge_vpc_config(&forge_vpc).vni.is_none());
     // We default to EthernetVirtualizer (proto value 0).
-    assert_eq!(forge_vpc.network_virtualization_type, Some(0));
-    assert_vpc_config_status_compat(&forge_vpc);
+    assert_eq!(
+        forge_vpc_config(&forge_vpc).network_virtualization_type,
+        Some(0)
+    );
 
     let no_org_vpc = env
         .api
@@ -1540,14 +1517,6 @@ async fn create_vpc_with_labels(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
         "Forge_unit_tests"
     );
     assert_eq!(
-        fetched_vpc.tenant_organization_id,
-        fetched_vpc
-            .config
-            .as_ref()
-            .expect("config")
-            .tenant_organization_id
-    );
-    assert_eq!(
         fetched_vpc.metadata.clone().unwrap().description,
         "this VPC must have labels."
     );
@@ -1897,7 +1866,6 @@ async fn create_update_network_security_group_for_vpc(
         forge_vpc_config(&vpc).network_security_group_id.as_deref(),
         Some(good_network_security_group_id)
     );
-    assert_vpc_config_status_compat(&vpc);
 
     let vpc_id = vpc.id;
 
@@ -1936,7 +1904,6 @@ async fn create_update_network_security_group_for_vpc(
         forge_vpc_config(&vpc).network_security_group_id.as_deref(),
         Some(good_network_security_group_id)
     );
-    assert_vpc_config_status_compat(&vpc);
 
     // Update again to clear the the NSG attachment.
     let vpc = env
@@ -1955,7 +1922,6 @@ async fn create_update_network_security_group_for_vpc(
 
     // Make sure the VPC has no NSG ID
     assert!(forge_vpc_config(&vpc).network_security_group_id.is_none());
-    assert_vpc_config_status_compat(&vpc);
 
     Ok(())
 }
@@ -2101,7 +2067,6 @@ async fn create_flat_vpc_succeeds_without_routing_profile(
         vpc.status.as_ref().and_then(|s| s.vni).is_some(),
         "Flat VPCs still allocate a VNI for pluggable SDN hooks (e.g. switch-side VTEPs)",
     );
-    assert_vpc_config_status_compat(&vpc);
 
     Ok(())
 }

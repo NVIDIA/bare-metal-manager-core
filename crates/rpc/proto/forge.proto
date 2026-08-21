@@ -1815,9 +1815,8 @@ message Vpc {
   option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.VpcId id = 1;
   reserved 2;  // was: string name, replaced with metadata.name
-  // Deprecated: use config.tenant_organization_id
-  // TODO change to reserved once rest component uses `VpcConfig`
-  string tenantOrganizationId = 3 [deprecated = true]; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
+  reserved 3;  // was: string tenantOrganizationId, replaced with config.tenant_organization_id
+  reserved "tenantOrganizationId";
 
   string version = 99;
 
@@ -1826,39 +1825,33 @@ message Vpc {
   google.protobuf.Timestamp updated = 5;
   google.protobuf.Timestamp deleted = 6;
 
-  // Deprecated: use config.tenant_keyset_id
-  // TODO Change to reserved once rest component uses `VpcConfig`
-  optional string tenantKeysetId = 7 [deprecated = true]; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
+  reserved 7;  // was: string tenantKeysetId, replaced with config.tenant_keyset_id
+  reserved "tenantKeysetId";
 
-  // Deprecated: use status.vni
-  // TODO change to reserved once rest component uses `VpcStatus`
-  optional uint32 deprecated_vni = 8 [deprecated = true];
+  reserved 8;  // was: uint32 deprecated_vni, replaced with status.vni
+  reserved "deprecated_vni";
 
-  // Deprecated: use config.network_virtualization_type
-  // TODO change to reserved once rest component uses `VpcConfig`
-  optional VpcVirtualizationType network_virtualization_type = 9 [deprecated = true];
+  reserved 9;  // was: VpcVirtualizationType network_virtualization_type, replaced with config.network_virtualization_type
+  reserved "network_virtualization_type";
   Metadata metadata = 10;
 
-  // Deprecated: use config.network_security_group_id
-  // TODO Change to reserved once rest component uses `VpcConfig`
-  optional string network_security_group_id  = 11 [deprecated = true];
+  reserved 11;  // was: string network_security_group_id, replaced with config.network_security_group_id
+  reserved "network_security_group_id";
 
   // dpa_vni
   reserved 12;
+  reserved "dpa_vni";
 
-  // Deprecated: use config.default_nvlink_logical_partition_id
-  // TODO change to reserved once rest component uses `VpcConfig`
-  optional common.NVLinkLogicalPartitionId default_nvlink_logical_partition_id = 13 [deprecated = true];
+  reserved 13;  // was: common.NVLinkLogicalPartitionId default_nvlink_logical_partition_id, replaced with config.default_nvlink_logical_partition_id
+  reserved "default_nvlink_logical_partition_id";
 
   optional VpcStatus status = 14;
 
-  // Deprecated: use config.vni
-  // TODO change to reserved once rest component uses `VpcConfig`
-  optional uint32 vni = 15 [deprecated = true];
+  reserved 15;  // was: uint32 vni, replaced with config.vni
+  reserved "vni";
 
-  // Deprecated: use config.routing_profile_type
-  // TODO change to reserved once rest-component uses `VpcConfig`
-  optional string routing_profile_type = 16 [deprecated = true];
+  reserved 16;  // was: string routing_profile_type, replaced with config.routing_profile_type
+  reserved "routing_profile_type";
 
   VpcConfig config = 17;
 }

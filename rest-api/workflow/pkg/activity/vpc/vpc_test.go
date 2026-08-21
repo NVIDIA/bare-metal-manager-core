@@ -351,7 +351,9 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 		ctrlVpc := &corev1.Vpc{
 			Id:   &corev1.VpcId{Value: pagedVpcs[i].ControllerVpcID.String()},
 			Name: pagedVpcs[i].Name,
-			Vni:  util.GetUint32Ptr(uint32(i)),
+			Config: &corev1.VpcConfig{
+				Vni: util.GetUint32Ptr(uint32(i)),
+			},
 			Status: &corev1.VpcStatus{
 				Vni: util.GetUint32Ptr(uint32(i)),
 			},

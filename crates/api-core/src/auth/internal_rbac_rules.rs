@@ -955,8 +955,8 @@ impl InternalRBACRules {
     pub(super) fn allowed(&self, msg: &str, user_principals: &[crate::auth::Principal]) -> bool {
         if let Some(perm_info) = self.perms.get(msg) {
             if user_principals.is_empty() {
-                // No proper cert presented, but we will allow stuff that allows just Anonymous
-                return perm_info.principals.as_slice() == [Principal::Anonymous];
+                // No proper cert presented, but we allow any rule that lists Anonymous.
+                return perm_info.principals.contains(&Principal::Anonymous);
             }
             user_principals.iter().any(|user_principal| {
                 perm_info
@@ -1111,6 +1111,17 @@ mod rbac_rule_tests {
                 None,
             ))],
         ));
+    }
+
+    #[test]
+    fn anonymous_rules_allow_certless_callers() {
+        // Certless callers must be allowed when a rule lists Anonymous among other principals.
+        for method in ["GetJWKS", "GetOpenIDConfiguration"] {
+            assert!(
+                InternalRBACRules::allowed_from_static(method, &[]),
+                "{method}"
+            );
+        }
     }
 
     #[test]
