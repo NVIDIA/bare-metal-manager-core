@@ -421,6 +421,12 @@ func TestManageInstanceInventory_DiscoverInstanceInventory(t *testing.T) {
 		// dropInstancesPerPage makes Core return fewer Instances than the IDs asked for, which
 		// is what a delete landing between FindInstanceIds and FindInstancesByIds looks like.
 		dropInstancesPerPage int
+		// rejectEveryFetch makes Core reject a request for even one ID, leaving the site page
+		// ladder nothing smaller to fall back to.
+		rejectEveryFetch bool
+		// cancelContext expires the activity context before the run starts, standing in for the
+		// activity deadline passing during collection.
+		cancelContext bool
 		// wantPageItems is the Instance count of each published page, in publish order.
 		wantPageItems []int
 		wantErr       bool
@@ -598,8 +604,9 @@ func TestManageInstanceInventory_DiscoverInstanceInventory(t *testing.T) {
 			},
 		},
 		{
-			// Core still rejects the floor of 10, so nothing is published and the activity fails.
-			name: "test collecting and publishing instance inventory, site page hits its floor",
+			// Core rejects anything above 5, so the ladder walks all the way to a single item
+			// and the run still completes rather than failing every tick.
+			name: "test collecting and publishing instance inventory, site page ladder reaches one item",
 			fields: fields{
 				siteID:               uuid.New(),
 				coreGrpcAtomicClient: coreGrpcAtomicClient,
@@ -610,16 +617,60 @@ func TestManageInstanceInventory_DiscoverInstanceInventory(t *testing.T) {
 			args: args{
 				wantTotalItems: 100,
 				maxRequestIDs:  5,
-				wantErr:        true,
+				wantPageItems:  []int{25, 25, 25, 25},
+			},
+		},
+		{
+			// Core rejects even a single item, so there is nothing smaller left to try and the
+			// activity fails with the failure reported to Cloud.
+			name: "test collecting and publishing instance inventory, site page ladder is exhausted",
+			fields: fields{
+				siteID:               uuid.New(),
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
+				temporalPublishQueue: "test-queue",
+				sitePageSize:         100,
+				cloudPageSize:        25,
+			},
+			args: args{
+				wantTotalItems:   100,
+				rejectEveryFetch: true,
+				wantErr:          true,
+			},
+		},
+		{
+			// The failure is often the activity deadline itself, so reporting it has to survive
+			// a context that is already dead. Publishing on the caller's context would mean the
+			// one case Cloud most needs to hear about is the one it never hears.
+			name: "test collecting and publishing instance inventory, failure reported on a dead context",
+			fields: fields{
+				siteID:               uuid.New(),
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
+				temporalPublishQueue: "test-queue",
+				sitePageSize:         100,
+				cloudPageSize:        25,
+			},
+			args: args{
+				wantTotalItems:   100,
+				rejectEveryFetch: true,
+				cancelContext:    true,
+				wantErr:          true,
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// The publish context is bounded by a deferred cancel, so its liveness has to be
+			// recorded while the call is happening rather than inspected afterwards.
+			publishCtxErrs := []error{}
 			tc := &tmocks.Client{}
 			tc.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"),
-				mock.AnythingOfType("string"), mock.AnythingOfType("uuid.UUID"), mock.Anything).Return(wrun, nil)
+				mock.AnythingOfType("string"), mock.AnythingOfType("uuid.UUID"), mock.Anything).
+				Run(func(args mock.Arguments) {
+					publishCtx, ok := args.Get(0).(context.Context)
+					require.True(t, ok)
+					publishCtxErrs = append(publishCtxErrs, publishCtx.Err())
+				}).Return(wrun, nil)
 			tc.AssertNumberOfCalls(t, "ExecuteWorkflow", 0)
 
 			manageInstance := NewManageInstanceInventory(ManageInventoryConfig{
@@ -639,6 +690,15 @@ func TestManageInstanceInventory_DiscoverInstanceInventory(t *testing.T) {
 			if tt.args.maxRequestIDs > 0 {
 				ctx = context.WithValue(ctx, "maxRequestIDs", tt.args.maxRequestIDs)
 			}
+			if tt.args.rejectEveryFetch {
+				// A cap of zero rejects any request, however few IDs it carries.
+				ctx = context.WithValue(ctx, "maxRequestIDs", 0)
+			}
+			if tt.args.cancelContext {
+				cancelledCtx, cancel := context.WithCancel(ctx)
+				cancel()
+				ctx = cancelledCtx
+			}
 			if tt.args.dropInstancesPerPage > 0 {
 				ctx = context.WithValue(ctx, "dropInstancesPerPage", tt.args.dropInstancesPerPage)
 			}
@@ -654,6 +714,11 @@ func TestManageInstanceInventory_DiscoverInstanceInventory(t *testing.T) {
 				require.True(t, ok)
 				assert.Equal(t, corev1.InventoryStatus_INVENTORY_STATUS_FAILED, inventory.InventoryStatus)
 				assert.Nil(t, inventory.InventoryPage, "a failure carries no paging metadata")
+
+				// The report detaches from the caller, so it goes out on a live context even
+				// when the run failed because that context expired.
+				require.Len(t, publishCtxErrs, 1)
+				assert.NoError(t, publishCtxErrs[0], "the failure report must not inherit a dead context")
 				return
 			}
 			assert.NoError(t, err)
