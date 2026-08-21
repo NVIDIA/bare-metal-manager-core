@@ -557,6 +557,9 @@ pub fn get_memory_details(memory_device_groups: &[MemoryDeviceGroup]) -> Option<
     let mut total_size = 0u64;
     let mut total_count = 0u32;
     for group in memory_device_groups {
+        if group.count == 0 {
+            continue;
+        }
         let size = byte_unit::Byte::from_f64_with_unit(
             group.size_mb.unwrap_or(0) as f64,
             byte_unit::Unit::MiB,
@@ -712,6 +715,13 @@ mod tests {
                 vec![
                     MemoryDeviceGroup { size_mb: Some(u32::MAX), mem_type: None, count: u32::MAX },
                 ] => None,
+            }
+
+            "mixed zero and nonzero count groups" {
+                vec![
+                    MemoryDeviceGroup { size_mb: Some(65536), mem_type: None, count: 0 },
+                    MemoryDeviceGroup { size_mb: Some(32768), mem_type: None, count: 2 },
+                ] => Some("64 GiB (32 GiBx2)".to_string()),
             }
         );
     }
