@@ -3064,7 +3064,7 @@ impl ComputeTrayManager for RmsBackend {
                                     machine_id = %identity.identity.node_id,
                                     job_id = %job_id,
                                     error = %e,
-                                    "failed to persist RMS firmware job ID to database"
+                                    "failed to persist backend firmware job ID to database"
                                 );
                             }
                         } else {
@@ -3145,7 +3145,7 @@ impl ComputeTrayManager for RmsBackend {
                         tracing::warn!(
                             bmc_ip = %bmc_ip,
                             error = %e,
-                            "failed to fetch persisted RMS firmware job ID from database"
+                            "failed to fetch persisted backend firmware job ID from database"
                         );
                         None
                     }

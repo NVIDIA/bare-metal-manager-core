@@ -3166,9 +3166,9 @@ pub async fn find_rms_identities_by_bmc_ips(
     Ok(rows)
 }
 
-/// Persist the RMS firmware-object job ID for a machine that was updated via
+/// Persist the backend firmware-object job ID for a machine that was updated via
 /// --bypass-state-controller. This survives nico-api restarts so that
-/// get_firmware_status can keep querying RMS even after the in-memory map is
+/// get_firmware_status can keep querying the backend even after the in-memory map is
 /// cleared.
 pub async fn save_backend_firmware_object_job_id(
     db: &sqlx::PgPool,

@@ -2629,7 +2629,7 @@ enum FirmwareStatusRouting {
     /// The CM is in state-controller mode: the request is split by whether each
     /// machine has a persisted `backend_firmware_object_job_id`.
     Partitioned {
-        /// IDs with a persisted RMS job — route to `compute_tray` so callers
+        /// IDs with a persisted backend job — route to `compute_tray` so callers
         /// can poll the live in-flight state.
         persisted: Vec<MachineId>,
         /// Remaining IDs — route to `machine_firmware_statuses` (DB-only).
@@ -2637,14 +2637,14 @@ enum FirmwareStatusRouting {
     },
 }
 
-/// Partition `machine_ids` into those that have a persisted RMS
+/// Partition `machine_ids` into those that have a persisted backend
 /// firmware-object job ID and those that do not.
 ///
 /// Returns `(persisted_ids, fallback_ids)`:
 /// - `persisted_ids` — IDs where the loaded machine has a non-null
 ///   `backend_firmware_object_job_id`; route to `compute_tray`.
 /// - `fallback_ids` — remaining IDs; route to `machine_firmware_statuses`.
-fn partition_by_rms_job_id(
+fn partition_by_backend_job_id(
     machine_ids: &[MachineId],
     machines_by_id: &HashMap<MachineId, Machine>,
 ) -> (Vec<MachineId>, Vec<MachineId>) {
@@ -2669,7 +2669,7 @@ fn select_firmware_status_routing(
     if !use_state_controller {
         FirmwareStatusRouting::DirectDispatch
     } else {
-        let (persisted, fallback) = partition_by_rms_job_id(machine_ids, machines_by_id);
+        let (persisted, fallback) = partition_by_backend_job_id(machine_ids, machines_by_id);
         FirmwareStatusRouting::Partitioned {
             persisted,
             fallback,
@@ -4230,12 +4230,7 @@ mod tests {
             "[{}] success flag",
             c.label
         );
-        assert_eq!(
-            status.state,
-            c.expected_state as i32,
-            "[{}] state",
-            c.label
-        );
+        assert_eq!(status.state, c.expected_state as i32, "[{}] state", c.label);
         assert_eq!(
             status.target_version, c.target_version,
             "[{}] target_version",
@@ -4270,7 +4265,7 @@ mod tests {
                 target_version: "1.2.3",
                 error: Some("flash failed"),
                 machine_id: Some(id),
-                expected_component_id: id_str.clone(),
+                expected_component_id: id_str,
                 expected_state: rpc::FirmwareUpdateState::FwStateFailed,
                 expected_success: false,
             },
@@ -4302,7 +4297,7 @@ mod tests {
 
         let mut machine_with_rms_job = machine_with_id(standalone_machine(), id_a);
         machine_with_rms_job.status.backend_firmware_object_job_id =
-            Some("rms-job-bypass-abc".to_string());
+            Some("backend-job-bypass-abc".to_string());
 
         let machines = HashMap::from([
             (id_a, machine_with_rms_job),
