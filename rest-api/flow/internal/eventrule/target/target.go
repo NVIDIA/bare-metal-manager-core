@@ -38,9 +38,6 @@ type Resolver interface {
 	Resolve(context.Context, ResolveRequest) ([]Target, error)
 }
 
-// ResolverFunc resolves one target request.
-type ResolverFunc func(context.Context, ResolveRequest) ([]Target, error)
-
 // Validate checks that the target has a supported kind and canonical identity.
 func (t Target) Validate() error {
 	if err := t.Kind.Validate(); err != nil {

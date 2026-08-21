@@ -32,7 +32,7 @@ The default stack includes:
 - cert-manager
 - the CloudNativePG operator and one PostgreSQL cluster
 - Vault in local development mode
-- NICo API, BMC proxy, and machine-a-tron
+- NICo API, BMC proxy, DHCP server, and machine-a-tron
 - Temporal and its local namespaces
 - Keycloak and the `nico-dev` realm
 - NICo REST API, database migrations, certificate manager, site manager,

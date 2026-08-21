@@ -116,6 +116,12 @@ pub(crate) async fn create(
             .map_err(CarbideError::from)?;
     }
 
+    if vpc_creation_request.slaac_enabled == Some(true) {
+        requested_virtualization_type
+            .ensure_supports_slaac()
+            .map_err(CarbideError::from)?;
+    }
+
     let requested_profile_type = vpc_creation_request.routing_profile_type.clone();
     let mut new_vpc = NewVpc::try_from(request.into_inner())?;
 
@@ -277,6 +283,12 @@ pub(crate) async fn update_virtualization(
         kind: "vpc",
         id: updater.id.to_string(),
     })?;
+    if current_vpc.config.slaac_enabled {
+        updater
+            .network_virtualization_type
+            .ensure_supports_slaac()
+            .map_err(|error| CarbideError::FailedPrecondition(error.to_string()))?;
+    }
     if updater.network_virtualization_type != VpcVirtualizationType::Fnn
         && db::vpc_prefix::has_tenant_managed_site_prefix(&mut txn, current_vpc.id).await?
     {

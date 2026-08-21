@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/authz"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/secret"
 	cmconfig "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/config"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 )
@@ -181,3 +183,45 @@ func TestLoadAuthorizationConfig(t *testing.T) {
 }
 
 const allowedServiceIdentityForTest = "spiffe://example.test/ns/site/sa/site-workflow"
+
+func TestLoadDataCipherFromEnv(t *testing.T) {
+	validKey := base64.StdEncoding.EncodeToString(make([]byte, 32))
+	emptyKey := ""
+	tests := []struct {
+		name        string
+		keyContents *string
+		wantErr     string
+	}{
+		{name: "missing environment variable", wantErr: secret.EncryptionKeyPathEnvVar + " is not set"},
+		{name: "valid key", keyContents: &validKey},
+		{
+			name:        "invalid key",
+			keyContents: &emptyKey,
+			wantErr:     "data encryption key is empty",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(secret.EncryptionKeyPathEnvVar, "")
+			if tt.keyContents != nil {
+				path := filepath.Join(t.TempDir(), "encryption-key")
+				require.NoError(
+					t,
+					os.WriteFile(path, []byte(*tt.keyContents), 0o600),
+				)
+				t.Setenv(secret.EncryptionKeyPathEnvVar, path)
+			}
+
+			cipher, err := loadDataCipherFromEnv()
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				require.Nil(t, cipher)
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, cipher)
+		})
+	}
+}

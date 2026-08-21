@@ -21,7 +21,10 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use carbide_dpf::types::{DpuServiceVersion, HostDpfSnapshot, ServiceTemplateVersion};
+use carbide_dpf::types::{
+    DetachedDpuServiceDefinition, DpuServiceObservation, DpuServiceVersion, HostDpfSnapshot,
+    ServiceTemplateVersion,
+};
 use carbide_dpf::{
     BmcPasswordProvider, DPU_ENABLED_NODE_LABEL, DpfError, DpfSdk, DpuDeploymentType,
     DpuDeviceInfo, DpuNodeInfo, DpuPhase, DpuWatcher, KubeRepository, ResourceLabeler,
@@ -144,6 +147,35 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
     /// Reports `true` for a DPU it cannot evaluate, so callers gated on "this
     /// DPU is already up to date" fail closed.
     async fn is_dpu_outdated(&self, dpu_name: &str) -> Result<bool, DpfError>;
+
+    /// Create a direct, detached DPUService for an extension service.
+    async fn create_dpu_service(
+        &self,
+        service: &DetachedDpuServiceDefinition,
+    ) -> Result<DpuServiceObservation, DpfError>;
+
+    /// Get any observed DPUService by name for an extension service.
+    async fn get_dpu_service(
+        &self,
+        service_name: &str,
+    ) -> Result<Option<DpuServiceObservation>, DpfError>;
+
+    /// Merge-patch a detached DPUService for an extension service.
+    async fn patch_dpu_service(
+        &self,
+        service_name: &str,
+        patch: serde_json::Value,
+    ) -> Result<(), DpfError>;
+
+    /// Delete a detached DPUService for an extension service.
+    async fn delete_dpu_service(&self, service_name: &str) -> Result<(), DpfError>;
+
+    /// Merge changes into a DPUDevice's DPU-cluster node labels.
+    async fn merge_dpu_device_node_labels(
+        &self,
+        dpu_device_name: &str,
+        changes: BTreeMap<String, Option<String>>,
+    ) -> Result<(), DpfError>;
 }
 
 /// Check whether the DPUNode and DPUDevice CRs are missing for the given host.
@@ -713,5 +745,41 @@ impl DpfOperations for DpfSdkOps {
             });
         }
         Ok(out)
+    }
+
+    async fn create_dpu_service(
+        &self,
+        service: &DetachedDpuServiceDefinition,
+    ) -> Result<DpuServiceObservation, DpfError> {
+        self.sdk.create_dpu_service(service).await
+    }
+
+    async fn get_dpu_service(
+        &self,
+        service_name: &str,
+    ) -> Result<Option<DpuServiceObservation>, DpfError> {
+        self.sdk.get_dpu_service(service_name).await
+    }
+
+    async fn patch_dpu_service(
+        &self,
+        service_name: &str,
+        patch: serde_json::Value,
+    ) -> Result<(), DpfError> {
+        self.sdk.patch_dpu_service(service_name, patch).await
+    }
+
+    async fn delete_dpu_service(&self, service_name: &str) -> Result<(), DpfError> {
+        self.sdk.delete_dpu_service(service_name).await
+    }
+
+    async fn merge_dpu_device_node_labels(
+        &self,
+        dpu_device_name: &str,
+        changes: BTreeMap<String, Option<String>>,
+    ) -> Result<(), DpfError> {
+        self.sdk
+            .merge_dpu_device_node_labels(dpu_device_name, changes)
+            .await
     }
 }

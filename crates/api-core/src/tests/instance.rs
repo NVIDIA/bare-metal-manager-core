@@ -56,7 +56,7 @@ use model::instance::config::extension_services::InstanceExtensionServicesConfig
 use model::instance::config::infiniband::InstanceInfinibandConfig;
 use model::instance::config::network::{
     DeviceLocator, InstanceInterfaceIpFamilyMode, InstanceInterfaceVpcSelection,
-    InstanceNetworkConfig, InterfaceFunctionId, NetworkDetails,
+    InstanceNetworkConfig, InterfaceFunctionId, Ipv6InterfaceConfig, NetworkDetails,
 };
 use model::instance::config::nvlink::InstanceNvLinkConfig;
 use model::instance::config::spx::InstanceSpxConfig;
@@ -64,9 +64,9 @@ use model::instance::status::network::{
     InstanceInterfaceStatusObservation, InstanceNetworkStatusObservation,
 };
 use model::machine::{
-    AttestationMode, CleanupContext, CleanupState, FailureDetails, InstanceState, MachineState,
-    MachineValidatingState, ManagedHostState, MeasuringState, NetworkConfigUpdateState,
-    SpdmMeasuringState, ValidationState,
+    AttestationMode, CleanupContext, CleanupState, FailureDetails, InstanceState, Machine,
+    MachineState, MachineValidatingState, ManagedHostState, MeasuringState,
+    NetworkConfigUpdateState, SpdmMeasuringState, ValidationState,
 };
 use model::metadata::Metadata;
 use model::network_prefix::NewNetworkPrefix;
@@ -3109,6 +3109,697 @@ async fn test_auto_vpc_prefix_selection_uses_static_first_fit(pool: PgPool) {
     assert_dual_stack_resolution(&fixture, &dual_stack_prefixes).await;
 }
 
+/// SLAAC retains the selected IPv6 linknet without materializing a host address.
+#[crate::sqlx_test]
+async fn test_slaac_vpc_allocation_preserves_prefix_without_ipv6_address(pool: PgPool) {
+    let fixture = create_auto_vpc_selection_fixture_with_slaac(pool, true).await;
+    let ipv6_parent_prefix =
+        IpNetwork::V6(Ipv6Network::new("fd42:2403::".parse().unwrap(), 126).unwrap());
+    let ipv6_prefix_id = create_tenant_overlay_prefix_with_prefix(
+        &fixture.env,
+        fixture.vpc_id,
+        "SLAAC IPv6 candidate",
+        ipv6_parent_prefix,
+    )
+    .await;
+
+    // Explicit address checks must distinguish the SLAAC policy from a prefix
+    // family mismatch. Keep these cases in one table so primary and dual-stack
+    // sidecar validation cannot drift.
+    let mut ipv6_only =
+        InstanceNetworkConfig::for_vpc_prefix_id(ipv6_prefix_id, Some(fixture.vpc_id));
+    ipv6_only.interfaces[0].requested_ip_addr = Some("fd42:2403::1".parse().unwrap());
+    let mut dual_stack = InstanceNetworkConfig::for_vpc_prefix_id(
+        fixture.lower_ipv4_prefix_id,
+        Some(fixture.vpc_id),
+    );
+    dual_stack.interfaces[0].ipv6_interface_config = Some(Ipv6InterfaceConfig {
+        vpc_prefix_id: ipv6_prefix_id,
+        requested_ip_addr: Some("fd42:2403::3".parse().unwrap()),
+    });
+    let mut mismatched_primary =
+        InstanceNetworkConfig::for_vpc_prefix_id(ipv6_prefix_id, Some(fixture.vpc_id));
+    mismatched_primary.interfaces[0].requested_ip_addr = Some("192.0.2.1".parse().unwrap());
+    for (scenario, mut config, expected_error_fragments) in [
+        (
+            "IPv6-only primary request",
+            ipv6_only,
+            ["requested IPv6 address", "has SLAAC enabled"],
+        ),
+        (
+            "dual-stack IPv6 sidecar request",
+            dual_stack,
+            ["requested IPv6 address", "has SLAAC enabled"],
+        ),
+        (
+            "IPv4 address with an IPv6 primary prefix",
+            mismatched_primary,
+            ["requested IP address", "does not match VPC prefix"],
+        ),
+    ] {
+        let mut txn = fixture.env.db_txn().await;
+        let error = allocate_network(&mut config, &fixture.tenant_organization_id, &mut txn)
+            .await
+            .expect_err(scenario);
+        assert!(
+            matches!(
+                &error,
+                crate::CarbideError::InvalidArgument(message)
+                    if expected_error_fragments
+                        .iter()
+                        .all(|fragment| message.contains(fragment))
+            ),
+            "unexpected {scenario} error: {error}",
+        );
+        txn.rollback().await.unwrap();
+    }
+
+    let (managed_host, instance) = allocate_auto_vpc_instance(
+        &fixture,
+        rpc::forge::InstanceInterfaceIpFamilyMode::Ipv6Only,
+        "automatic-SLAAC-ipv6-selection",
+    )
+    .await;
+    let segment_id = assert_auto_rpc_resolution(
+        &instance,
+        fixture.vpc_id,
+        rpc::forge::InstanceInterfaceIpFamilyMode::Ipv6Only,
+        None,
+        Some(ipv6_prefix_id),
+    );
+    let status_interface = &instance
+        .status
+        .as_ref()
+        .unwrap()
+        .network
+        .as_ref()
+        .unwrap()
+        .interfaces[0];
+    assert!(status_interface.addresses.is_empty());
+    assert!(status_interface.prefixes.is_empty());
+
+    // Re-read through the public API: the selected parent prefix remains
+    // visible even though SLAAC deliberately has no concrete host address.
+    let instance_id = instance.id.unwrap();
+    let persisted_rpc = fixture.env.one_instance(instance_id).await;
+    assert_auto_rpc_resolution(
+        persisted_rpc.inner(),
+        fixture.vpc_id,
+        rpc::forge::InstanceInterfaceIpFamilyMode::Ipv6Only,
+        None,
+        Some(ipv6_prefix_id),
+    );
+    let persisted_status_interface = &persisted_rpc.status().network().interfaces[0];
+    assert!(persisted_status_interface.addresses.is_empty());
+    assert!(persisted_status_interface.prefixes.is_empty());
+
+    let vpc_instance_ids = fixture
+        .env
+        .api
+        .find_instance_ids(Request::new(rpc::forge::InstanceSearchFilter {
+            label: None,
+            tenant_org_id: None,
+            vpc_id: Some(fixture.vpc_id.to_string()),
+            instance_type_id: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .instance_ids;
+    assert!(
+        vpc_instance_ids.contains(&instance_id),
+        "searching by VPC must retain an addressless SLAAC instance",
+    );
+
+    let mut txn = fixture.env.db_txn().await;
+    let snapshot = db::instance::find_by_id(txn.as_mut(), instance_id)
+        .await
+        .unwrap()
+        .expect("persisted SLAAC instance");
+    let interface = &snapshot.config.network.interfaces[0];
+    assert!(interface.ip_addrs.is_empty());
+
+    let segments = db::network_segment::find_by(
+        txn.as_mut(),
+        ObjectColumnFilter::One(IdColumn, &segment_id),
+        NetworkSegmentSearchConfig::default(),
+    )
+    .await
+    .unwrap();
+    let [segment] = segments.as_slice() else {
+        panic!("expected one generated SLAAC segment");
+    };
+    let [network_prefix] = segment.prefixes.as_slice() else {
+        panic!("expected one generated SLAAC IPv6 prefix");
+    };
+    assert_eq!(network_prefix.prefix.prefix(), 127);
+    assert_eq!(
+        interface.interface_prefixes.get(&network_prefix.id),
+        Some(&network_prefix.prefix),
+    );
+    assert!(
+        db::instance_address::find_by_segment_id(txn.as_mut(), &segment_id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        db::instance::count_network_segment_references(txn.as_mut(), &segment_id)
+            .await
+            .unwrap(),
+        1,
+    );
+    assert_eq!(
+        db::instance::count_vpc_references(txn.as_mut(), &fixture.vpc_id)
+            .await
+            .unwrap(),
+        1,
+    );
+    assert!(
+        db::instance_address::segment_has_allocations(txn.as_mut(), &segment_id)
+            .await
+            .unwrap()
+    );
+    let segment_delete_error = db::network_segment::mark_as_deleted(segment, txn.as_mut())
+        .await
+        .expect_err("SLAAC config must keep its segment with no host address in use");
+    assert!(matches!(
+        segment_delete_error,
+        db::DatabaseError::NetworkSegmentDelete(message)
+            if message.contains("referencing instance count: 1")
+    ));
+    txn.commit().await.unwrap();
+
+    // New agents prefer the address list shared by both address families,
+    // while older agents read the nested IPv6 config. Both receive the prefix
+    // and an intentionally empty host IP for SLAAC.
+    let managed_config = fixture
+        .env
+        .api
+        .get_managed_host_network_config(Request::new(
+            rpc::forge::ManagedHostNetworkConfigRequest {
+                dpu_machine_id: managed_host.dpu().id.into(),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    let [tenant_interface] = managed_config.tenant_interfaces.as_slice() else {
+        panic!("expected one SLAAC tenant interface");
+    };
+    let expected_fqdn_label = instance_id.to_string();
+    assert_eq!(
+        tenant_interface
+            .fqdn
+            .split_once('.')
+            .map(|(label, _)| label),
+        Some(expected_fqdn_label.as_str()),
+    );
+    let ipv6 = tenant_interface
+        .ipv6_interface_config
+        .as_ref()
+        .expect("SLAAC IPv6 interface config");
+    assert!(ipv6.ip.is_empty());
+    assert_eq!(ipv6.interface_prefix, network_prefix.prefix.to_string());
+    let [address] = tenant_interface.addresses.as_slice() else {
+        panic!("expected one SLAAC IPv6 family entry");
+    };
+    assert_eq!(address.address_family(), rpc::forge::AddressFamily::V6);
+    assert!(address.ip.is_empty());
+    assert_eq!(address.interface_prefix, network_prefix.prefix.to_string());
+
+    // A retry sees the retained interface prefix as the durable allocation
+    // result and does not consume another linknet.
+    let mut retried_network = snapshot.config.network.clone();
+    let expected_network = retried_network.clone();
+    let mut txn = fixture.env.db_txn().await;
+    allocate_network(
+        &mut retried_network,
+        &fixture.tenant_organization_id,
+        txn.as_mut(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(retried_network, expected_network);
+    txn.rollback().await.unwrap();
+
+    // During a network update, both the old and new configurations can still
+    // own resources. Allocations that retain only a prefix in either half must
+    // retain their segment and VPC even though they have no normalized row in
+    // `instance_addresses`.
+    let mut pending_old = snapshot.config.network.clone();
+    let pending_old_segment_id = NetworkSegmentId::new();
+    let pending_old_vpc_id = VpcId::new();
+    pending_old.interfaces[0].network_segment_id = Some(pending_old_segment_id);
+    pending_old.interfaces[0].vpc_id = Some(pending_old_vpc_id);
+    let mut pending_new = snapshot.config.network.clone();
+    let pending_new_segment_id = NetworkSegmentId::new();
+    let pending_new_vpc_id = VpcId::new();
+    pending_new.interfaces[0].network_segment_id = Some(pending_new_segment_id);
+    pending_new.interfaces[0].vpc_id = Some(pending_new_vpc_id);
+
+    let mut txn = fixture.env.db_txn().await;
+    db::instance::trigger_update_network_config_request(
+        &instance_id,
+        &pending_old,
+        &pending_new,
+        &mut txn,
+    )
+    .await
+    .unwrap();
+    for (scenario, pending_segment_id, pending_vpc_id) in [
+        (
+            "pending old config",
+            pending_old_segment_id,
+            pending_old_vpc_id,
+        ),
+        (
+            "pending new config",
+            pending_new_segment_id,
+            pending_new_vpc_id,
+        ),
+    ] {
+        assert_eq!(
+            db::instance::count_network_segment_references(txn.as_mut(), &pending_segment_id,)
+                .await
+                .unwrap(),
+            1,
+            "{scenario} segment reference",
+        );
+        assert!(
+            db::instance_address::segment_has_allocations(txn.as_mut(), &pending_segment_id)
+                .await
+                .unwrap(),
+            "{scenario} segment must remain in use",
+        );
+        assert_eq!(
+            db::instance::count_vpc_references(txn.as_mut(), &pending_vpc_id)
+                .await
+                .unwrap(),
+            1,
+            "{scenario} VPC reference",
+        );
+    }
+
+    // This transaction will be rolled back. Remove the prefix rows so that
+    // only the reference from the instance config guards VPC deletion in this
+    // test.
+    db::network_prefix::delete_for_segment(segment_id, txn.as_mut())
+        .await
+        .unwrap();
+    for vpc_prefix_id in [
+        fixture.lower_ipv4_prefix_id,
+        fixture.higher_ipv4_prefix_id,
+        ipv6_prefix_id,
+    ] {
+        db::vpc_prefix::final_delete(vpc_prefix_id, txn.as_mut())
+            .await
+            .unwrap();
+    }
+    let locked_vpcs = db::vpc::find_by_with_lock(
+        txn.as_mut(),
+        ObjectColumnFilter::One(db::vpc::IdColumn, &fixture.vpc_id),
+        db::vpc::VpcRowLock::Mutation,
+    )
+    .await
+    .unwrap();
+    assert_eq!(locked_vpcs.len(), 1);
+    let vpc_delete_error = db::vpc::try_delete(txn.as_mut(), fixture.vpc_id)
+        .await
+        .expect_err("SLAAC config must keep its VPC in use");
+    assert!(matches!(
+        vpc_delete_error,
+        db::DatabaseError::FailedPrecondition(message)
+            if message.contains("instance network configurations still reference it")
+    ));
+    txn.rollback().await.unwrap();
+
+    // The remaining IPv6 linknet can still back a dual-stack interface. Only
+    // IPv4 is materialized; IPv6 retains its selected prefix for SLAAC.
+    let (dual_stack_host, dual_stack_instance) = allocate_auto_vpc_instance(
+        &fixture,
+        rpc::forge::InstanceInterfaceIpFamilyMode::DualStack,
+        "automatic-SLAAC-dual-stack-selection",
+    )
+    .await;
+    let dual_stack_segment_id = assert_auto_rpc_resolution(
+        &dual_stack_instance,
+        fixture.vpc_id,
+        rpc::forge::InstanceInterfaceIpFamilyMode::DualStack,
+        Some(fixture.lower_ipv4_prefix_id),
+        Some(ipv6_prefix_id),
+    );
+    let dual_status_interface = &dual_stack_instance
+        .status
+        .as_ref()
+        .unwrap()
+        .network
+        .as_ref()
+        .unwrap()
+        .interfaces[0];
+    assert_eq!(dual_status_interface.addresses.len(), 1);
+    assert!(
+        dual_status_interface.addresses[0]
+            .parse::<IpAddr>()
+            .unwrap()
+            .is_ipv4()
+    );
+    assert_eq!(dual_status_interface.prefixes.len(), 1);
+    assert!(
+        dual_status_interface.prefixes[0]
+            .parse::<IpNetwork>()
+            .unwrap()
+            .is_ipv4()
+    );
+
+    let dual_stack_instance_id = dual_stack_instance.id.unwrap();
+    let mut txn = fixture.env.db_txn().await;
+    let dual_snapshot = db::instance::find_by_id(txn.as_mut(), dual_stack_instance_id)
+        .await
+        .unwrap()
+        .expect("persisted dual-stack SLAAC instance");
+    let dual_interface = &dual_snapshot.config.network.interfaces[0];
+    assert_eq!(dual_interface.ip_addrs.len(), 1);
+    assert!(
+        dual_interface
+            .ip_addrs
+            .values()
+            .all(|address| address.is_ipv4())
+    );
+    assert_eq!(dual_interface.interface_prefixes.len(), 2);
+    assert!(
+        dual_interface
+            .interface_prefixes
+            .values()
+            .any(|prefix| prefix.is_ipv6())
+    );
+    let dual_addresses =
+        db::instance_address::find_by_segment_id(txn.as_mut(), &dual_stack_segment_id)
+            .await
+            .unwrap();
+    assert_eq!(dual_addresses.len(), 1);
+    assert!(dual_addresses[0].address.is_ipv4());
+    txn.commit().await.unwrap();
+
+    let dual_managed_config = fixture
+        .env
+        .api
+        .get_managed_host_network_config(Request::new(
+            rpc::forge::ManagedHostNetworkConfigRequest {
+                dpu_machine_id: dual_stack_host.dpu().id.into(),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    let [dual_tenant_interface] = dual_managed_config.tenant_interfaces.as_slice() else {
+        panic!("expected one dual-stack SLAAC tenant interface");
+    };
+    let dual_ipv6 = dual_tenant_interface
+        .addresses
+        .iter()
+        .find(|address| address.address_family() == rpc::forge::AddressFamily::V6)
+        .expect("dual-stack SLAAC IPv6 family entry");
+    assert!(dual_ipv6.ip.is_empty());
+    assert!(!dual_ipv6.interface_prefix.is_empty());
+    let dual_ipv4 = dual_tenant_interface
+        .addresses
+        .iter()
+        .find(|address| address.address_family() == rpc::forge::AddressFamily::V4)
+        .expect("dual-stack IPv4 family entry");
+    assert!(!dual_ipv4.ip.is_empty());
+}
+
+struct ManualSlaacSegmentFixture {
+    env: TestEnv,
+    vpc_id: VpcId,
+    segment_id: NetworkSegmentId,
+}
+
+/// Creates a tenant-owned FNN VPC with SLAAC enabled and one manually managed
+/// segment. Keeping the segment independent of a `VpcPrefix` row lets the
+/// lifecycle tests isolate VPC and segment deletion from the VPC prefix
+/// controller.
+async fn create_manual_slaac_segment_fixture(
+    pool: PgPool,
+    segment_name: &str,
+    prefix: IpNetwork,
+) -> ManualSlaacSegmentFixture {
+    let env =
+        create_test_env_with_overrides(pool, TestEnvOverrides::default().with_fnn_config(None))
+            .await;
+    create_fixture_tenant(&env, FIXTURE_TENANT_ORG_ID)
+        .await
+        .unwrap();
+
+    let vpc_id = env
+        .api
+        .create_vpc(
+            VpcCreationRequest::builder(FIXTURE_TENANT_ORG_ID)
+                .metadata(Metadata {
+                    name: format!("{segment_name}-vpc"),
+                    ..Default::default()
+                })
+                .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+                .slaac_enabled(true)
+                .tonic_request(),
+        )
+        .await
+        .unwrap()
+        .into_inner()
+        .id
+        .unwrap();
+
+    let segment_id = NetworkSegmentId::new();
+    let mut txn = env.db_txn().await;
+    db::network_segment::persist(
+        NewNetworkSegment {
+            id: segment_id,
+            name: segment_name.to_string(),
+            subdomain_id: None,
+            vpc_id: Some(vpc_id),
+            mtu: 9000,
+            prefixes: vec![NewNetworkPrefix {
+                prefix,
+                gateway: None,
+                dhcpv6_link_address: None,
+                num_reserved: 0,
+            }],
+            vlan_id: None,
+            vni: None,
+            segment_type: NetworkSegmentType::Tenant,
+            can_stretch: Some(false),
+            allocation_strategy: Default::default(),
+            infer_slaac_eui64_addresses: false,
+        },
+        txn.as_mut(),
+        NetworkSegmentControllerState::Ready,
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    ManualSlaacSegmentFixture {
+        env,
+        vpc_id,
+        segment_id,
+    }
+}
+
+/// Seeds the parent row needed by address allocation and returns its machine
+/// snapshot. The empty network config makes later lifecycle ownership writes
+/// explicit in each test.
+async fn seed_empty_instance_for_network_allocation(
+    env: &TestEnv,
+) -> (InstanceId, Machine, ConfigVersion) {
+    let managed_host = create_managed_host(env).await;
+    let instance_id = InstanceId::new();
+    let network_config_version = ConfigVersion::initial();
+    let mut txn = env.db_txn().await;
+    let machine = managed_host.host().db_machine(&mut txn).await;
+    sqlx::query(
+        "INSERT INTO instances (id, machine_id, network_config, network_config_version, \
+                                nvlink_config) \
+         VALUES ($1, $2, '{\"interfaces\": []}'::jsonb, $3, \
+                 '{\"gpu_configs\": []}'::jsonb)",
+    )
+    .bind(instance_id)
+    .bind(managed_host.id)
+    .bind(network_config_version)
+    .execute(txn.as_mut())
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+    (instance_id, machine, network_config_version)
+}
+
+/// A segment cannot keep a soft-deleted VPC usable or silently lose its SLAAC policy.
+#[crate::sqlx_test]
+async fn test_deleted_slaac_vpc_rejects_manual_segment_address_allocation(pool: PgPool) {
+    let fixture = create_manual_slaac_segment_fixture(
+        pool,
+        "deletion-first-SLAAC-segment",
+        IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(10, 240, 3, 0), 30).unwrap()),
+    )
+    .await;
+    let (instance_id, machine, _) = seed_empty_instance_for_network_allocation(&fixture.env).await;
+
+    // Let deletion acquire its read lock on instance_addresses and retain it
+    // until the competing allocator is proven to be waiting on that transaction.
+    let mut deletion_txn = fixture.env.db_txn().await;
+    let deletion_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(deletion_txn.as_mut())
+        .await
+        .unwrap();
+    let locked_vpcs = db::vpc::find_by_with_lock(
+        deletion_txn.as_mut(),
+        ObjectColumnFilter::One(db::vpc::IdColumn, &fixture.vpc_id),
+        db::vpc::VpcRowLock::Mutation,
+    )
+    .await
+    .unwrap();
+    assert_eq!(locked_vpcs.len(), 1);
+    assert!(
+        db::vpc::try_delete(deletion_txn.as_mut(), fixture.vpc_id)
+            .await
+            .unwrap()
+            .is_some()
+    );
+
+    let allocation_pool = fixture.env.pool.clone();
+    let network_config =
+        InstanceNetworkConfig::for_segment_ids(&[fixture.segment_id], &[], &[fixture.vpc_id]);
+    let allocation_task = tokio::spawn(async move {
+        let mut txn = allocation_pool.begin().await.unwrap();
+        let result =
+            db::instance_address::allocate(txn.as_mut(), instance_id, network_config, &machine)
+                .await;
+        txn.rollback().await.unwrap();
+        result
+    });
+    wait_until_query_blocked_by(
+        &fixture.env.pool,
+        deletion_pid,
+        "LOCK TABLE instance_addresses IN ACCESS EXCLUSIVE MODE",
+    )
+    .await;
+    deletion_txn.commit().await.unwrap();
+
+    let allocation_error = allocation_task
+        .await
+        .unwrap()
+        .expect_err("allocator must observe the deletion that won serialization");
+    assert!(matches!(
+        allocation_error,
+        db::DatabaseError::FailedPrecondition(message)
+            if message.contains("only 0 active VPCs were found")
+    ));
+
+    let mut txn = fixture.env.db_txn().await;
+    assert_eq!(
+        db::instance_address::count_by_segment_id(txn.as_mut(), &fixture.segment_id)
+            .await
+            .unwrap(),
+        0,
+        "the losing allocation must not materialize an address",
+    );
+    txn.rollback().await.unwrap();
+}
+
+/// If allocation wins serialization, final deletion must wait for its commit
+/// and then retain a segment referenced only by SLAAC prefix configuration.
+#[crate::sqlx_test]
+async fn test_slaac_allocation_blocks_and_defeats_segment_final_delete(pool: PgPool) {
+    let fixture = create_manual_slaac_segment_fixture(
+        pool,
+        "allocation-first-SLAAC-segment",
+        IpNetwork::V6(Ipv6Network::new("fd42:2403:feed::".parse().unwrap(), 64).unwrap()),
+    )
+    .await;
+    let (instance_id, machine, network_config_version) =
+        seed_empty_instance_for_network_allocation(&fixture.env).await;
+
+    let mut allocation_txn = fixture.env.db_txn().await;
+    let allocation_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(allocation_txn.as_mut())
+        .await
+        .unwrap();
+    let network_config =
+        InstanceNetworkConfig::for_segment_ids(&[fixture.segment_id], &[], &[fixture.vpc_id]);
+    let allocated = db::instance_address::allocate(
+        allocation_txn.as_mut(),
+        instance_id,
+        network_config,
+        &machine,
+    )
+    .await
+    .unwrap();
+    assert!(allocated.interfaces[0].ip_addrs.is_empty());
+    assert_eq!(allocated.interfaces[0].interface_prefixes.len(), 1);
+    db::instance::update_network_config(
+        allocation_txn.as_mut(),
+        instance_id,
+        network_config_version,
+        &allocated,
+        false,
+    )
+    .await
+    .unwrap();
+
+    let deletion_pool = fixture.env.pool.clone();
+    let segment_id = fixture.segment_id;
+    let deletion_task = tokio::spawn(async move {
+        let mut txn = deletion_pool.begin().await.unwrap();
+        let result = db::network_segment::final_delete(segment_id, &mut txn).await;
+        txn.rollback().await.unwrap();
+        result
+    });
+    wait_until_query_blocked_by(
+        &fixture.env.pool,
+        allocation_pid,
+        "FROM machine_interfaces WHERE segment_id = $1",
+    )
+    .await;
+    allocation_txn.commit().await.unwrap();
+
+    let deletion_error = deletion_task
+        .await
+        .unwrap()
+        .expect_err("an instance config that retains only a prefix must retain the segment");
+    assert!(matches!(
+        deletion_error,
+        db::DatabaseError::NetworkSegmentDelete(message)
+            if message.contains("allocations still reference it")
+    ));
+
+    let mut txn = fixture.env.db_txn().await;
+    assert!(
+        !db::network_segment::find_by(
+            txn.as_mut(),
+            ObjectColumnFilter::One(IdColumn, &fixture.segment_id),
+            NetworkSegmentSearchConfig::default(),
+        )
+        .await
+        .unwrap()
+        .is_empty(),
+        "failed final deletion must retain the segment",
+    );
+    assert!(
+        db::instance_address::find_by_segment_id(txn.as_mut(), &fixture.segment_id)
+            .await
+            .unwrap()
+            .is_empty(),
+        "SLAAC allocation must retain only its prefix",
+    );
+    assert_eq!(
+        db::instance::count_network_segment_references(txn.as_mut(), &fixture.segment_id)
+            .await
+            .unwrap(),
+        1,
+    );
+    txn.rollback().await.unwrap();
+}
+
 /// Verifies a rare overlap from outside parent-prefix serialization retries
 /// instead of surfacing exclusion-constraint contention as allocation failure.
 #[crate::sqlx_test]
@@ -3156,7 +3847,7 @@ async fn test_auto_vpc_prefix_selection_retries_concurrent_network_prefix_insert
         fixture.vpc_id,
         fixture.tenant_organization_id.clone(),
     ));
-    wait_until_prefix_allocator_blocked_by(
+    wait_until_query_blocked_by(
         &fixture.env.pool,
         blocker_pid,
         "INSERT INTO network_prefixes",
@@ -3223,8 +3914,7 @@ async fn test_auto_vpc_prefix_selection_rechecks_concurrent_candidate_deletion(p
         fixture.vpc_id,
         fixture.tenant_organization_id.clone(),
     ));
-    wait_until_prefix_allocator_blocked_by(&fixture.env.pool, blocker_pid, "FOR NO KEY UPDATE")
-        .await;
+    wait_until_query_blocked_by(&fixture.env.pool, blocker_pid, "FOR NO KEY UPDATE").await;
     blocker.commit().await.unwrap();
 
     // The locking re-read must reject the deleted row and fall through.
@@ -3280,8 +3970,7 @@ async fn test_auto_vpc_prefix_selection_freezes_concurrent_candidate_insert(pool
         fixture.vpc_id,
         fixture.tenant_organization_id.clone(),
     ));
-    wait_until_prefix_allocator_blocked_by(&fixture.env.pool, blocker_pid, "FOR NO KEY UPDATE")
-        .await;
+    wait_until_query_blocked_by(&fixture.env.pool, blocker_pid, "FOR NO KEY UPDATE").await;
 
     // Add usable capacity only after discovery, then let the frozen request continue.
     let inserted_prefix_id = create_tenant_overlay_prefix_with_prefix(
@@ -3456,6 +4145,14 @@ struct AutoVpcDualStackPrefixes {
 /// Creates an FNN VPC and derives candidate roles from prefix ID order so
 /// static first-fit assertions remain deterministic.
 async fn create_auto_vpc_selection_fixture(pool: PgPool) -> AutoVpcSelectionFixture {
+    create_auto_vpc_selection_fixture_with_slaac(pool, false).await
+}
+
+/// Creates the fixture for automatic selection with an explicit VPC SLAAC policy.
+async fn create_auto_vpc_selection_fixture_with_slaac(
+    pool: PgPool,
+    slaac_enabled: bool,
+) -> AutoVpcSelectionFixture {
     // Build the shared environment without site-level FNN configuration and
     // register the tenant used by every scenario.
     let env =
@@ -3475,6 +4172,7 @@ async fn create_auto_vpc_selection_fixture(pool: PgPool) -> AutoVpcSelectionFixt
                     ..Default::default()
                 })
                 .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+                .slaac_enabled(slaac_enabled)
                 .tonic_request(),
         )
         .await
@@ -3551,8 +4249,8 @@ async fn assert_static_ipv4_first_fit(fixture: &AutoVpcSelectionFixture) {
     }
 }
 
-/// Verifies shared allocation logic does not weaken tenant ownership for
-/// explicit-prefix requests.
+/// Verifies shared allocation logic does not weaken tenant ownership when a
+/// request selects a prefix explicitly.
 async fn assert_explicit_prefix_tenant_ownership(fixture: &AutoVpcSelectionFixture) {
     // Request an existing explicit prefix under a different tenant identity.
     let mut explicit_config = InstanceNetworkConfig::for_vpc_prefix_id(
@@ -3924,8 +4622,8 @@ fn automatic_network_config(
     vpc_id: VpcId,
     family_mode: InstanceInterfaceIpFamilyMode,
 ) -> InstanceNetworkConfig {
-    // Seed the interface shape with the explicit-prefix constructor, then replace
-    // its dummy prefix with unresolved automatic intent.
+    // Seed the interface shape with the constructor for an explicitly selected
+    // prefix, then replace its dummy prefix with unresolved automatic intent.
     let mut config = InstanceNetworkConfig::for_vpc_prefix_id(VpcPrefixId::new(), Some(vpc_id));
     let interface = &mut config.interfaces[0];
     interface.network_details = None;
@@ -3959,14 +4657,10 @@ async fn allocate_automatic_ipv4_network(
     }
 }
 
-/// Waits for the allocator to reach the expected lock boundary so concurrency
-/// tests release blockers deterministically rather than by timing.
-async fn wait_until_prefix_allocator_blocked_by(
-    pool: &PgPool,
-    blocker_pid: i32,
-    query_fragment: &str,
-) {
-    // Poll for up to 30 seconds to let the spawned allocator reach the held lock.
+/// Waits for a query to reach the expected lock boundary so concurrency tests
+/// release blockers deterministically rather than by timing.
+async fn wait_until_query_blocked_by(pool: &PgPool, blocker_pid: i32, query_fragment: &str) {
+    // Poll for up to 30 seconds to let the spawned query reach the held lock.
     for _ in 0..300 {
         let blocked: bool = sqlx::query_scalar(
             r#"
@@ -3975,7 +4669,7 @@ async fn wait_until_prefix_allocator_blocked_by(
                     FROM pg_stat_activity AS activity
                     WHERE activity.datname = current_database()
                       AND activity.wait_event_type = 'Lock'
-                      -- Match only allocator work blocked by this test's transaction.
+                      -- Match only work blocked by this test's transaction.
                       AND $1 = ANY(pg_blocking_pids(activity.pid))
                       AND activity.query ILIKE '%' || $2 || '%'
                 )
@@ -3992,7 +4686,7 @@ async fn wait_until_prefix_allocator_blocked_by(
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
-    panic!("prefix allocator never blocked on {query_fragment}");
+    panic!("query never blocked on {query_fragment}");
 }
 
 /// Builds unresolved external selector intent so public-boundary tests do not
@@ -6047,7 +6741,7 @@ async fn test_allocate_instance_with_multiple_fnn_vpc_prefixes(
         .expect("FNN instance allocation across multiple VPCs should succeed")
         .into_inner();
 
-    // Verify the response resolved both prefix-backed interfaces.
+    // Verify the response resolved both interfaces that selected prefixes.
     let interfaces = &instance
         .config
         .as_ref()

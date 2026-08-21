@@ -59,6 +59,7 @@ fn vpc_config(vpc: &forgerpc::Vpc) -> forgerpc::VpcConfig {
             routing_profile_type: vpc.routing_profile_type.clone(),
             routing_profile_overrides: None,
             power_resource_group: None,
+            slaac_enabled: None,
         }
     }
 }

@@ -4,6 +4,7 @@
 package service
 
 import (
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/authz"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/secret"
 	pkgcerts "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/certs"
 )
 
@@ -229,6 +231,7 @@ func TestConfigValidate(t *testing.T) {
 				DevMode:       tt.devMode,
 				CertConfig:    tt.certConf,
 				Authorization: authorization,
+				DataCipher:    testDataCipher(t),
 			}
 			err := c.Validate()
 
@@ -304,6 +307,7 @@ func TestConfigValidateAuthorization(t *testing.T) {
 			config := Config{
 				CertConfig:    test.certConfig,
 				Authorization: test.authorization,
+				DataCipher:    testDataCipher(t),
 			}
 			err := config.Validate()
 			if test.wantErr != "" {
@@ -313,4 +317,24 @@ func TestConfigValidateAuthorization(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+func TestConfigValidateRequiresDataCipher(t *testing.T) {
+	t.Setenv("CERTDIR", t.TempDir())
+	t.Setenv(EnvVarName, string(envDevelopment))
+
+	err := (Config{
+		Authorization: authz.Config{Mode: authz.ModeAudit},
+	}).Validate()
+
+	require.EqualError(t, err, "data encryption cipher is required")
+}
+
+func testDataCipher(t *testing.T) *secret.Cipher {
+	t.Helper()
+
+	key := make([]byte, 32)
+	cipher, err := secret.NewCipher(base64.StdEncoding.EncodeToString(key))
+	require.NoError(t, err)
+	return cipher
 }

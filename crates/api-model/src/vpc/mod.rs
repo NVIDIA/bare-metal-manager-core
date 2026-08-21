@@ -50,6 +50,8 @@ pub struct VpcConfig {
     pub routing_profile_type: Option<String>,
     pub routing_profile_overrides: Option<VpcRoutingProfileOverrides>,
     pub power_resource_group: Option<String>,
+    /// Whether the VPC uses SLAAC allocation mode for instance IPv6 interfaces.
+    pub slaac_enabled: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -98,6 +100,8 @@ pub struct NewVpc {
     pub routing_profile_overrides: Option<VpcRoutingProfileOverrides>,
     pub power_resource_group: Option<String>,
     pub vni: Option<i32>,
+    /// Whether the VPC uses SLAAC allocation mode for instance IPv6 interfaces.
+    pub slaac_enabled: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -153,6 +157,7 @@ impl<'r> sqlx::FromRow<'r, PgRow> for Vpc {
                     )?
                     .map(|profile| profile.0),
                 power_resource_group: row.try_get("power_resource_group")?,
+                slaac_enabled: row.try_get("slaac_enabled")?,
                 vni: row.try_get("vni")?,
                 default_nvlink_logical_partition_id: None,
             },

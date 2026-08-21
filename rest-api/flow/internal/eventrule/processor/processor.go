@@ -19,7 +19,7 @@ type Processor struct {
 	inventory  *inventoryresolver.Resolver
 	rules      RuleResolver
 	executions eventrule.ExecutionStore
-	targets    target.Resolver
+	targets    *target.Registry
 	executor   executor.Executor
 }
 
@@ -48,7 +48,7 @@ func (p *Processor) Process(ctx context.Context, envelope eventrule.Envelope) er
 	var actionErrors []error
 	for _, action := range prepared.Rule.Actions {
 		if err := p.processAction(ctx, prepared, action); err != nil {
-			actionErrors = append(actionErrors, fmt.Errorf("action %q: %w", action.ID, err))
+			actionErrors = append(actionErrors, fmt.Errorf("action %q: %w", action.Name, err))
 		}
 	}
 

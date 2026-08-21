@@ -41,7 +41,8 @@ use crate::machine::{
     ManagedHostState, ReprovisionRequest, UpgradeDecision,
 };
 use crate::machine_boot_interface::{
-    BootInterfaceStatusObservation, MachineBootInterfaceTarget, canonical_redfish_boot_interface_id,
+    BootInterfaceSelection, BootInterfaceSelectionSource, BootInterfaceStatusObservation,
+    MachineBootInterfaceTarget, canonical_redfish_boot_interface_id,
 };
 use crate::metadata::Metadata;
 use crate::power_manager::PowerOptions;
@@ -113,6 +114,11 @@ pub struct MachineSnapshotPgJson {
     pub desired_boot_interface_mac: Option<MacAddress>,
     pub desired_boot_interface_id: Option<String>,
     pub desired_boot_interface_version: Option<String>,
+    /// Selection source paired with the desired boot interface columns.
+    pub boot_interface_selection_source: Option<BootInterfaceSelectionSource>,
+    /// Decision time for `boot_interface_selection_source`; legacy selections
+    /// may not have one.
+    pub boot_interface_selection_updated_at: Option<DateTime<Utc>>,
     pub boot_interface_verified_version: Option<String>,
     pub boot_interface_observed_at: Option<DateTime<Utc>>,
     #[serde(default)]
@@ -179,6 +185,35 @@ fn decode_desired_boot_interface(
     }
 }
 
+/// Reconstructs selection metadata while rejecting column states that disagree
+/// with the presence of a desired boot interface.
+fn decode_boot_interface_selection(
+    desired_boot_interface_is_set: bool,
+    source: Option<BootInterfaceSelectionSource>,
+    updated_at: Option<DateTime<Utc>>,
+) -> sqlx::Result<Option<BootInterfaceSelection>> {
+    match (desired_boot_interface_is_set, source, updated_at) {
+        (false, None, None) => Ok(None),
+        (true, Some(BootInterfaceSelectionSource::LegacyUnknown), updated_at) => {
+            Ok(Some(BootInterfaceSelection {
+                source: BootInterfaceSelectionSource::LegacyUnknown,
+                updated_at,
+            }))
+        }
+        (true, Some(source), Some(updated_at)) => Ok(Some(BootInterfaceSelection {
+            source,
+            updated_at: Some(updated_at),
+        })),
+        _ => Err(sqlx::Error::ColumnDecode {
+            index: "boot_interface_selection_(source,updated_at)".to_string(),
+            source: Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "boot interface selection source must be set exactly when a desired boot interface exists, and attributed selections require a selection time",
+            )),
+        }),
+    }
+}
+
 fn decode_boot_interface_status_observation(
     config_version: Option<String>,
     observed_at: Option<DateTime<Utc>>,
@@ -234,6 +269,11 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             value.desired_boot_interface_mac,
             value.desired_boot_interface_id,
             value.desired_boot_interface_version,
+        )?;
+        let boot_interface_selection = decode_boot_interface_selection(
+            desired_boot_interface.is_some(),
+            value.boot_interface_selection_source,
+            value.boot_interface_selection_updated_at,
         )?;
         let boot_interface_status_observation = decode_boot_interface_status_observation(
             value.boot_interface_verified_version,
@@ -300,6 +340,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
                 dpf: value.dpf,
                 hw_sku: value.hw_sku,
                 desired_boot_interface,
+                boot_interface_selection,
                 maintenance_reference,
                 maintenance_start_time,
             },
@@ -384,6 +425,13 @@ mod tests {
         config_version: Option<String>,
         observed_at: Option<DateTime<Utc>>,
         assumed: bool,
+    }
+
+    #[derive(Debug)]
+    struct SelectionInput {
+        desired_boot_interface_is_set: bool,
+        source: Option<BootInterfaceSelectionSource>,
+        updated_at: Option<DateTime<Utc>>,
     }
 
     fn summarize(value: Option<Versioned<MachineBootInterfaceTarget>>) -> Decoded {
@@ -514,6 +562,97 @@ mod tests {
              }| {
                 decode_desired_boot_interface(mac_address, interface_id, version)
                     .map(summarize)
+                    .map_err(drop)
+            },
+        );
+    }
+
+    #[test]
+    fn boot_interface_selection_columns_decode_atomically() {
+        let updated_at = DateTime::from_timestamp(1_722_000_000, 123_000_000)
+            .expect("fixture timestamp is valid");
+
+        check_cases(
+            [
+                Case {
+                    scenario: "no desired target and no selection",
+                    input: SelectionInput {
+                        desired_boot_interface_is_set: false,
+                        source: None,
+                        updated_at: None,
+                    },
+                    expect: Yields(None),
+                },
+                Case {
+                    scenario: "pre-tracking selection",
+                    input: SelectionInput {
+                        desired_boot_interface_is_set: true,
+                        source: Some(BootInterfaceSelectionSource::LegacyUnknown),
+                        updated_at: None,
+                    },
+                    expect: Yields(Some(BootInterfaceSelection {
+                        source: BootInterfaceSelectionSource::LegacyUnknown,
+                        updated_at: None,
+                    })),
+                },
+                Case {
+                    scenario: "actively recorded unknown selection",
+                    input: SelectionInput {
+                        desired_boot_interface_is_set: true,
+                        source: Some(BootInterfaceSelectionSource::LegacyUnknown),
+                        updated_at: Some(updated_at),
+                    },
+                    expect: Yields(Some(BootInterfaceSelection {
+                        source: BootInterfaceSelectionSource::LegacyUnknown,
+                        updated_at: Some(updated_at),
+                    })),
+                },
+                Case {
+                    scenario: "attributed selection",
+                    input: SelectionInput {
+                        desired_boot_interface_is_set: true,
+                        source: Some(BootInterfaceSelectionSource::ExpectedMachine),
+                        updated_at: Some(updated_at),
+                    },
+                    expect: Yields(Some(BootInterfaceSelection {
+                        source: BootInterfaceSelectionSource::ExpectedMachine,
+                        updated_at: Some(updated_at),
+                    })),
+                },
+                Case {
+                    scenario: "source without desired target",
+                    input: SelectionInput {
+                        desired_boot_interface_is_set: false,
+                        source: Some(BootInterfaceSelectionSource::ExpectedMachine),
+                        updated_at: Some(updated_at),
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "desired target without source",
+                    input: SelectionInput {
+                        desired_boot_interface_is_set: true,
+                        source: None,
+                        updated_at: None,
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "attributed source without decision time",
+                    input: SelectionInput {
+                        desired_boot_interface_is_set: true,
+                        source: Some(BootInterfaceSelectionSource::ExpectedMachine),
+                        updated_at: None,
+                    },
+                    expect: Fails,
+                },
+            ],
+            |SelectionInput {
+                 desired_boot_interface_is_set,
+                 source,
+                 updated_at,
+             }| {
+                decode_boot_interface_selection(desired_boot_interface_is_set, source, updated_at)
                     .map_err(drop)
             },
         );

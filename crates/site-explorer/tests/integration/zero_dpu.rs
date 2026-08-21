@@ -30,7 +30,9 @@ use mac_address::MacAddress;
 use model::expected_machine::{
     ExpectedInterface, ExpectedInterfaceRole, ExpectedMachine, ExpectedMachineData, HostDpuPolicy,
 };
-use model::machine_boot_interface::{MachineBootInterface, MachineBootInterfaceTarget};
+use model::machine_boot_interface::{
+    BootInterfaceSelectionSource, MachineBootInterface, MachineBootInterfaceTarget,
+};
 use model::test_support::ManagedHostConfig;
 
 struct ZeroDpuEnv {
@@ -755,7 +757,8 @@ async fn test_exploration_refreshes_pending_predicted_boot_interface_id(
 /// A BMC may report onboard System interfaces first and learn the declared
 /// boot NIC later through supplemental adapter-Port inventory. The refresh
 /// must add that hardware-discovered NIC to the existing predicted host and
-/// make it the MAC-only boot target without requiring another force-delete.
+/// make it the boot target with only its MAC and record `ExpectedMachine` as
+/// its selection source, without requiring another forced deletion.
 #[sqlx_test]
 async fn test_exploration_refresh_adds_declared_adapter_port_to_predicted_host(
     pool: PgPool,
@@ -898,6 +901,19 @@ async fn test_exploration_refresh_adds_declared_adapter_port_to_predicted_host(
     assert_eq!(
         desired.value,
         MachineBootInterfaceTarget::MacOnly(declared_port_mac),
+    );
+    let selection_source: BootInterfaceSelectionSource = sqlx::query_scalar(
+        "SELECT selection_source
+         FROM machine_boot_interfaces
+         WHERE machine_id = $1",
+    )
+    .bind(machine_id)
+    .fetch_one(txn.as_mut())
+    .await?;
+    assert_eq!(
+        selection_source,
+        BootInterfaceSelectionSource::ExpectedMachine,
+        "the refresh must retain that ExpectedMachine selected the declared Port",
     );
     txn.rollback().await?;
 

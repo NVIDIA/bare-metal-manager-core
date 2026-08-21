@@ -11,6 +11,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
 	identifier "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/Identifier"
@@ -380,6 +382,26 @@ func TestResolveTargetSpecToRacks_RackFetchError(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Nil(t, result)
+}
+
+func TestResolveTargetSpecToRacks_RackFetchErrorTakesPrecedenceOverNilRack(t *testing.T) {
+	ctx := context.Background()
+	fetcher := newMockTargetFetcher()
+	fetcher.getRackErr = status.Error(codes.InvalidArgument, "rack name matches multiple racks; use rack id")
+
+	targetSpec := &operation.TargetSpec{
+		Racks: []operation.RackTarget{
+			{Identifier: identifier.Identifier{Name: "shared"}},
+		},
+	}
+
+	result, err := resolveTargetSpecToRacks(ctx, fetcher, targetSpec)
+
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.Equal(t, codes.InvalidArgument, status.Code(err))
+	assert.ErrorContains(t, err, "rack name matches multiple racks; use rack id")
+	assert.NotContains(t, err.Error(), "rack not found")
 }
 
 func TestResolveTargetSpecToRacks_NVLinkDomainTargets(t *testing.T) {

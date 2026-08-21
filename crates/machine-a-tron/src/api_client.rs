@@ -493,6 +493,7 @@ impl ApiClient {
                 routing_profile_type: None,
                 routing_profile_overrides: None,
                 power_resource_group: None,
+                slaac_enabled: None,
                 metadata: Some(rpc::forge::Metadata {
                     name: format!("vpc_{vpc_count}"),
                     description: "".to_string(),

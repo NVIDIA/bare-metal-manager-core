@@ -11,7 +11,7 @@ import (
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/target"
-	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/rack"
 	"github.com/google/uuid"
 )
@@ -47,11 +47,11 @@ func RegisterTargetResolvers(
 	return registry.Register(
 		TypeHardwareLeakDetected,
 		eventrule.TargetStrategyAffectedComponents,
-		resolver.resolveAffectedComponents,
+		resolver,
 	)
 }
 
-func (r *targetResolver) resolveAffectedComponents(
+func (r *targetResolver) Resolve(
 	ctx context.Context,
 	request target.ResolveRequest,
 ) ([]target.Target, error) {
@@ -151,17 +151,17 @@ func DefaultRule() eventrule.Rule {
 		EventType:   TypeHardwareLeakDetected,
 		Policy: eventrule.Policy{
 			Actions: []eventrule.Action{
-				eventrule.NewAction(
-					"power_off_affected_components",
-					eventrule.ActionCondition{},
-					eventrule.SubmitTask{
-						OperationType:    taskcommon.TaskTypePowerControl,
-						OperationCode:    taskcommon.OpCodePowerControlForcePowerOff,
+				{
+					Name: "power_off_affected_components",
+					Spec: &eventrule.SubmitTask{
+						Operation: &operations.PowerControlTaskInfo{
+							Operation: operations.PowerOperationForcePowerOff,
+						},
 						TargetStrategy:   eventrule.TargetStrategyAffectedComponents,
 						ConflictStrategy: eventrule.ConflictStrategyQueue,
 						Description:      "Leakage response",
 					},
-				),
+				},
 			},
 		},
 	}

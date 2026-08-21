@@ -136,7 +136,8 @@ func TestPowerControl_RejectsUnsupportedOperation(t *testing.T) {
 }
 
 func TestFirmwareControl_HappyPath(t *testing.T) {
-	m := New(nicoapi.NewMockClient(), nil)
+	client := nicoapi.NewMockClient()
+	m := New(client, nil)
 
 	target := common.Target{
 		Type:         devicetypes.ComponentTypeCompute,
@@ -147,8 +148,14 @@ func TestFirmwareControl_HappyPath(t *testing.T) {
 		Operation:     operations.FirmwareOperationUpgrade,
 		TargetVersion: "fw-bundle-id-v1",
 		SubTargets:    []string{"bmc", "bios"},
+		AccessToken:   "compute-token",
 	})
 	require.NoError(t, err)
+	require.Equal(
+		t,
+		"compute-token",
+		client.LastUpdateComponentFirmwareRequest().GetAccessToken(),
+	)
 }
 
 func TestFirmwareControl_RejectsUnknownSubTarget(t *testing.T) {
@@ -200,6 +207,33 @@ func TestFirmwareControl_DpuOnlyTarget(t *testing.T) {
 	power := client.InstancePowerCalls()
 	require.Len(t, power, 1)
 	assert.True(t, power[0].ApplyUpdates)
+}
+
+func TestFirmwareControl_DpuOnlyRejectsAuthenticationData(t *testing.T) {
+	client := nicoapi.NewMockClient()
+	m := New(client, nil)
+	target := common.Target{
+		Type:         devicetypes.ComponentTypeCompute,
+		ComponentIDs: []string{testHostMachineID},
+	}
+
+	err := m.FirmwareControl(
+		context.Background(),
+		target,
+		operations.FirmwareControlTaskInfo{
+			Operation:   operations.FirmwareOperationUpgrade,
+			SubTargets:  []string{"dpu"},
+			AccessToken: "compute-token",
+		},
+	)
+
+	require.ErrorContains(
+		t,
+		err,
+		"dpu-only firmware updates do not support authentication data",
+	)
+	require.Nil(t, client.LastUpdateComponentFirmwareRequest())
+	require.Empty(t, client.DpuReprovisioningTriggers())
 }
 
 // TestFirmwareControl_MixedDpuAndComputeTargets pins the

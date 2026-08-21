@@ -40,6 +40,7 @@ impl Forge for MockApiServer {
             rust_version: v!(rust_version).to_string(),
             build_user: v!(build_user).to_string(),
             build_hostname: v!(build_hostname).to_string(),
+            capabilities: vec![],
             runtime_config: None,
         }))
     }

@@ -236,7 +236,7 @@ func (r ExecutionResult) stateAt(now time.Time) ExecutionState {
 type ExecutionIdentity struct {
 	EventID        uuid.UUID
 	RuleID         uuid.UUID
-	ActionID       string
+	ActionName     string
 	CorrelationKey string
 }
 
@@ -248,7 +248,7 @@ func (i ExecutionIdentity) Validate() error {
 	if i.RuleID == uuid.Nil {
 		return fmt.Errorf("event rule id is required")
 	}
-	if err := validateRequiredString("event rule action id", i.ActionID); err != nil {
+	if err := validateRequiredString("event rule action name", i.ActionName); err != nil {
 		return err
 	}
 	return validateOptionalString("event correlation_key", i.CorrelationKey)
@@ -256,25 +256,25 @@ func (i ExecutionIdentity) Validate() error {
 
 // ExecutionDeliveryKey identifies one rule action for one delivered event.
 type ExecutionDeliveryKey struct {
-	EventID  uuid.UUID
-	RuleID   uuid.UUID
-	ActionID string
+	EventID    uuid.UUID
+	RuleID     uuid.UUID
+	ActionName string
 }
 
 // ExecutionSemanticKey identifies one correlated rule action
 // independently of an individual event delivery.
 type ExecutionSemanticKey struct {
 	RuleID         uuid.UUID
-	ActionID       string
+	ActionName     string
 	CorrelationKey string
 }
 
 // DeliveryKey returns the delivery identity.
 func (i ExecutionIdentity) DeliveryKey() ExecutionDeliveryKey {
 	return ExecutionDeliveryKey{
-		EventID:  i.EventID,
-		RuleID:   i.RuleID,
-		ActionID: i.ActionID,
+		EventID:    i.EventID,
+		RuleID:     i.RuleID,
+		ActionName: i.ActionName,
 	}
 }
 
@@ -282,7 +282,7 @@ func (i ExecutionIdentity) DeliveryKey() ExecutionDeliveryKey {
 func (i ExecutionIdentity) SemanticKey() ExecutionSemanticKey {
 	return ExecutionSemanticKey{
 		RuleID:         i.RuleID,
-		ActionID:       i.ActionID,
+		ActionName:     i.ActionName,
 		CorrelationKey: i.CorrelationKey,
 	}
 }

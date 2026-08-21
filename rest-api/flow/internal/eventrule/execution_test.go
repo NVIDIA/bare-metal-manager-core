@@ -16,9 +16,9 @@ func TestExecution_Validate(t *testing.T) {
 	valid := Execution{
 		ExecutionState: ExecutionState{ExecutionStatusDetails: ExecutionStatusDetails{Status: ExecutionStatusPending}},
 		ExecutionIdentity: ExecutionIdentity{
-			EventID:  uuid.New(),
-			RuleID:   uuid.New(),
-			ActionID: "notify",
+			EventID:    uuid.New(),
+			RuleID:     uuid.New(),
+			ActionName: "notify",
 		},
 		ID:           uuid.New(),
 		Observations: 1,
@@ -48,10 +48,10 @@ func TestExecution_Validate(t *testing.T) {
 			mutate:    func(execution *Execution) { execution.RuleID = uuid.Nil },
 			wantErr:   "event rule id is required",
 		},
-		"missing action id": {
+		"missing action name": {
 			execution: &valid,
-			mutate:    func(execution *Execution) { execution.ActionID = "" },
-			wantErr:   "event rule action id is empty",
+			mutate:    func(execution *Execution) { execution.ActionName = "" },
+			wantErr:   "event rule action name is empty",
 		},
 		"zero observations": {
 			execution: &valid,
@@ -109,9 +109,9 @@ func TestExecution_Validate(t *testing.T) {
 
 	t.Run("increments repeated deferred attempts", func(t *testing.T) {
 		execution, err := NewExecution(ExecutionIdentity{
-			EventID:  uuid.New(),
-			RuleID:   uuid.New(),
-			ActionID: "retry",
+			EventID:    uuid.New(),
+			RuleID:     uuid.New(),
+			ActionName: "retry",
 		}, now)
 		require.NoError(t, err)
 
@@ -561,19 +561,19 @@ func TestExecutionIdentity(t *testing.T) {
 	identity := ExecutionIdentity{
 		EventID:        eventID,
 		RuleID:         ruleID,
-		ActionID:       "notify",
+		ActionName:     "notify",
 		CorrelationKey: "incident-1",
 	}
 
 	t.Run("keys", func(t *testing.T) {
 		require.Equal(t, ExecutionDeliveryKey{
-			EventID:  eventID,
-			RuleID:   ruleID,
-			ActionID: "notify",
+			EventID:    eventID,
+			RuleID:     ruleID,
+			ActionName: "notify",
 		}, identity.DeliveryKey())
 		require.Equal(t, ExecutionSemanticKey{
 			RuleID:         ruleID,
-			ActionID:       "notify",
+			ActionName:     "notify",
 			CorrelationKey: "incident-1",
 		}, identity.SemanticKey())
 	})
@@ -584,22 +584,22 @@ func TestExecutionIdentity(t *testing.T) {
 	}{
 		"valid delivery": {
 			identity: ExecutionIdentity{
-				EventID:  eventID,
-				RuleID:   ruleID,
-				ActionID: "notify",
+				EventID:    eventID,
+				RuleID:     ruleID,
+				ActionName: "notify",
 			},
 		},
 		"missing event id": {
-			identity: ExecutionIdentity{RuleID: ruleID, ActionID: "notify"},
+			identity: ExecutionIdentity{RuleID: ruleID, ActionName: "notify"},
 			wantErr:  "event id is required",
 		},
 		"missing rule id": {
-			identity: ExecutionIdentity{EventID: eventID, ActionID: "notify"},
+			identity: ExecutionIdentity{EventID: eventID, ActionName: "notify"},
 			wantErr:  "event rule id is required",
 		},
-		"missing action id": {
+		"missing action name": {
 			identity: ExecutionIdentity{EventID: eventID, RuleID: ruleID},
-			wantErr:  "event rule action id is empty",
+			wantErr:  "event rule action name is empty",
 		},
 	}
 
@@ -618,9 +618,9 @@ func TestExecutionIdentity(t *testing.T) {
 func TestNewExecution(t *testing.T) {
 	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
 	identity := ExecutionIdentity{
-		EventID:  uuid.New(),
-		RuleID:   uuid.New(),
-		ActionID: "notify",
+		EventID:    uuid.New(),
+		RuleID:     uuid.New(),
+		ActionName: "notify",
 	}
 
 	t.Run("new pending execution", func(t *testing.T) {
