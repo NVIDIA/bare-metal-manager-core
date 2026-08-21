@@ -9,10 +9,14 @@
 #   artifactory - https://artifactory.nvidia.com/artifactory/ubuntu-ports-remote  (NVIDIA URM)
 # The NVIDIA Artifactory repo key (ubuntu-ports-remote) is assumed to match PDX;
 # a DNS error vs a 404 in a leg's log tells "unreachable" apart from "wrong path".
-# It measures raw apt-get update reliability and confirms each mirror can serve
-# the build packages. This does NOT pull in #5253's action changes; it only
-# exercises the mirror URLs. Safe to delete. Runs only on the test branch / PR
-# mirror, never the full CI.
+#
+# Each leg does three things: (1) a curl loop that rates raw connectivity
+# (DNS/TCP/TLS/HTTP timing) independent of apt, (2) an apt-get update loop with
+# retries off and the index cache wiped before every attempt so each try is a
+# full download rather than a 304 conditional GET, and (3) a package fetch to
+# confirm the pool serves the build's debs. This does NOT pull in #5253's action
+# changes; it only exercises the mirror URLs. Safe to delete. Runs only on the
+# test branch / PR mirror, never the full CI.
 name: (throwaway) apt mirror validation
 
 on:
@@ -25,7 +29,7 @@ on:
   workflow_dispatch:
     inputs:
       iterations:
-        description: "apt-get update attempts per mirror"
+        description: "attempts per mirror (curl and apt each)"
         default: "10"
       runner:
         description: "runner label"
@@ -87,16 +91,59 @@ jobs:
           echo "=== sources ==="
           cat /etc/apt/sources.list
 
-          # Raw reliability: retries off so each attempt is a single, honest try.
           n="${ITERATIONS}"
+
+          # --- Raw connectivity via curl, independent of apt. Hits the top-level
+          # InRelease directly and records DNS/TCP/TLS/total timing plus status.
+          # rc != 0 is a transport failure (DNS/TCP/TLS); an HTTP code that is
+          # not 200/304 means the host is reachable but the path is wrong.
+          url="${base}/dists/${codename}/InRelease"
+          echo "=== curl connectivity: ${url} ==="
+          c_fails=0
+          c_total_ms=0
+          last_rc=0
+          last_code=000
+          for i in $(seq 1 "$n"); do
+            out=$(curl -sS -o /dev/null --max-time 15 --noproxy '*' \
+                  -w '%{http_code} %{time_namelookup} %{time_connect} %{time_appconnect} %{time_total}' \
+                  "$url" 2>/tmp/curlerr.log)
+            rc=$?
+            code=$(printf '%s' "$out" | awk '{print $1}')
+            dns=$(printf '%s' "$out" | awk '{print $2}')
+            conn=$(printf '%s' "$out" | awk '{print $3}')
+            tls=$(printf '%s' "$out" | awk '{print $4}')
+            tot=$(printf '%s' "$out" | awk '{print $5}')
+            tms=$(awk -v t="${tot:-0}" 'BEGIN{printf "%d", t*1000}')
+            c_total_ms=$((c_total_ms + tms))
+            last_rc=$rc
+            last_code=${code:-000}
+            if [ "$rc" -eq 0 ] && { [ "$code" = 200 ] || [ "$code" = 304 ]; }; then
+              cst=ok
+            else
+              cst=FAIL
+              c_fails=$((c_fails + 1))
+            fi
+            printf 'curl %2d/%s  %-4s  rc=%-2s http=%s  dns=%ss conn=%ss tls=%ss total=%sms\n' \
+              "$i" "$n" "$cst" "$rc" "${code:-000}" "${dns:-?}" "${conn:-?}" "${tls:-?}" "$tms"
+            [ "$cst" = FAIL ] && { echo "  curl stderr:"; cat /tmp/curlerr.log; } || true
+          done
+          c_avg=$((c_total_ms / n))
+          echo "RESULT-CURL mirror=${MIRROR} curl_fails=${c_fails}/${n} avg=${c_avg}ms last_rc=${last_rc} last_http=${last_code}"
+
+          # --- apt-get update reliability. Retries off and the index cache wiped
+          # before each attempt so every try is a full download, not a 304.
           fails=0
           total=0
           for i in $(seq 1 "$n"); do
+            sudo rm -rf /var/lib/apt/lists/*
+            sudo mkdir -p /var/lib/apt/lists/partial
             s=$(date +%s%3N)
             if sudo apt-get update \
                  -o Acquire::Retries=0 \
                  -o Acquire::http::Timeout=10 \
-                 -o Acquire::https::Timeout=10 >/tmp/u.log 2>&1; then
+                 -o Acquire::https::Timeout=10 \
+                 -o Acquire::http::No-Cache=true \
+                 -o Acquire::https::No-Cache=true >/tmp/u.log 2>&1; then
               st=ok
             else
               st=FAIL
@@ -111,13 +158,16 @@ jobs:
           avg=$((total / n))
           echo "RESULT mirror=${MIRROR} update_fails=${fails}/${n} avg=${avg}ms"
 
-          # Record reliability before the (fallible) package fetch below.
+          # Summary table (curl + apt), recorded before the fallible fetch below.
           {
             echo "### ${MIRROR}"
             echo ""
             echo "| metric | value |"
             echo "| --- | --- |"
             echo "| mirror | \`${base}\` |"
+            echo "| curl connectivity failures | ${c_fails}/${n} |"
+            echo "| avg curl time | ${c_avg} ms |"
+            echo "| last curl result | rc=${last_rc} http=${last_code} |"
             echo "| apt-get update failures | ${fails}/${n} |"
             echo "| avg update time | ${avg} ms |"
           } >> "$GITHUB_STEP_SUMMARY"
