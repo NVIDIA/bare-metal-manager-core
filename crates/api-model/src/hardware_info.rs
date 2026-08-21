@@ -279,7 +279,7 @@ impl MemoryDeviceGroup {
                 size_mb: self.size_mb,
                 mem_type: self.mem_type.clone(),
             },
-            self.count as usize,
+            self.count.min(MAX_MEMORY_DEVICE_COUNT) as usize,
         )
     }
 }
