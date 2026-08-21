@@ -769,6 +769,7 @@ impl MainLoop {
         let mut current_config_error = None;
         let mut is_healthy = false;
         let mut has_changed_configs = false;
+        let mut has_changed_hbn_config = false;
         let mut current_host_network_config_version = None;
         let mut current_instance_network_config_version = None;
         let mut current_instance_config_version = None;
@@ -823,6 +824,7 @@ impl MainLoop {
                     .collect();
 
                 let tenant_peers = ethernet_virtualization::tenant_peers(&conf);
+                let mut should_check_ipv6_unicast = false;
                 if self.is_hbn_up {
                     // First thing is to read the existing HBN version and properly set the hbn device names
                     // associated with that version.
@@ -875,10 +877,12 @@ impl MainLoop {
                     }
 
                     tracing::trace!(network_config = ?conf, "Desired network config");
-                    // Get the actual virtualization type to use for configuring
-                    // an interface, where we'll default to reading the one provided
-                    // by the Carbide API, with the ability to override via RunOptions.
+                    // Resolve the virtualization type used to generate HBN
+                    // configuration, including any RunOptions override. The IPv6
+                    // health gate follows that same effective value.
                     let virtualization_type = effective_virtualization_type(&conf, &self.options)?;
+                    should_check_ipv6_unicast =
+                        ipv6_unicast_health_enabled(&conf, virtualization_type);
 
                     let dhcp_result = ethernet_virtualization::update_dhcp(
                         &self.agent_config.hbn.root_dir,
@@ -983,7 +987,9 @@ impl MainLoop {
                             .await;
 
                     let joined_result = match (update_result, dhcp_result, astra_config_status) {
-                        (Ok(a), Ok(b), Ok(spx_net_status)) => Ok((a | b, spx_net_status)),
+                        (Ok(hbn_changed), Ok(dhcp_changed), Ok(spx_net_status)) => {
+                            Ok((hbn_changed, dhcp_changed, spx_net_status))
+                        }
                         (update_result, dhcp_result, astra_config_status) => {
                             let mut errors = Vec::new();
 
@@ -1001,9 +1007,10 @@ impl MainLoop {
                         }
                     };
                     match joined_result {
-                        Ok((has_changed, astra_config_status)) => {
+                        Ok((hbn_changed, dhcp_changed, astra_config_status)) => {
                             self.current_network_version.update_from(&conf);
-                            has_changed_configs = has_changed;
+                            has_changed_hbn_config = hbn_changed;
+                            has_changed_configs = hbn_changed || dhcp_changed;
                             if conf.astra_config.is_some() {
                                 status_out.astra_config_status = Some(astra_config_status);
                             }
@@ -1077,14 +1084,18 @@ impl MainLoop {
                 current_instance_config_version = status_out.instance_config_version.clone();
                 current_instance_id = status_out.instance_id.as_ref().map(|id| id.to_string());
 
+                let min_healthy_links = conf.min_dpu_functioning_links.unwrap_or(2) as usize;
                 let health_report = match self.nvue_context.as_ref() {
                     None => {
+                        // In `ContainerExec` mode, the DHCP flag represents a real local
+                        // reload, so keep the existing wait while that service restarts.
                         health::health_check(HealthCheckParams {
                             hbn_root: &self.agent_config.hbn.root_dir,
                             host_routes: &tenant_peers,
                             has_changed_configs,
-                            min_healthy_links: conf.min_dpu_functioning_links.unwrap_or(2),
+                            min_healthy_links,
                             route_servers: &conf.route_servers,
+                            should_check_ipv6_unicast,
                             hbn_device_names: self.hbn_device_names.clone(),
                             include_dhcp_server: !conf.use_admin_network || conf.is_primary_dpu,
                             run_restricted_mode_check: false,
@@ -1092,10 +1103,13 @@ impl MainLoop {
                         .await
                     }
                     Some(nvue_context) => {
+                        // DHCP gRPC reports every accepted request as changed, so only an
+                        // actual HBN update may trigger the NVUE wait after a config update.
                         health::nvue::NvueHealthCheck {
                             nvue_client: &nvue_context.nvue_client,
-                            min_healthy_links: conf.min_dpu_functioning_links.unwrap_or(2) as usize,
+                            min_healthy_links,
                             hbn_device_names: &self.hbn_device_names,
+                            has_changed_hbn_config,
                         }
                         .health_check()
                         .await
@@ -1298,6 +1312,23 @@ impl MainLoop {
             loop_period: Default::default(),
         }
     }
+}
+
+/// Enables IPv6-unicast health only after the effective FNN configuration has
+/// the dedicated IPv6 loopback used by that underlay.
+///
+/// FNN templates activate the address family before the loopback pool is
+/// available, so FRR summary-key presence cannot serve as the activation
+/// signal.
+fn ipv6_unicast_health_enabled(
+    conf: &ManagedHostNetworkConfigResponse,
+    virtualization_type: VpcVirtualizationType,
+) -> bool {
+    virtualization_type == VpcVirtualizationType::Fnn
+        && conf
+            .managed_host_config
+            .as_ref()
+            .is_some_and(|config| config.loopback_ip_v6.is_some())
 }
 
 /// effective_virtualization_type returns the virtualization type
@@ -1648,6 +1679,77 @@ ATF: v2.2(release):4.9.3-")
 #[cfg(test)]
 mod test {
     use super::*;
+
+    enum ManagedHostConfigInput {
+        Missing,
+        WithoutIpv6Loopback,
+        WithIpv6Loopback(&'static str),
+    }
+
+    struct Ipv6UnicastHealthRow {
+        virtualization_type: VpcVirtualizationType,
+        managed_host_config: ManagedHostConfigInput,
+    }
+
+    #[test]
+    fn ipv6_unicast_health_requires_fnn_with_an_ipv6_loopback() {
+        use carbide_test_support::value_scenarios;
+
+        value_scenarios!(run = |row: Ipv6UnicastHealthRow| {
+            let managed_host_config = match row.managed_host_config {
+                ManagedHostConfigInput::Missing => None,
+                ManagedHostConfigInput::WithoutIpv6Loopback => {
+                    Some(rpc::ManagedHostNetworkConfig {
+                        loopback_ip: "10.0.0.1".to_string(),
+                        loopback_ip_v6: None,
+                        quarantine_state: None,
+                    })
+                }
+                ManagedHostConfigInput::WithIpv6Loopback(loopback_ip_v6) => {
+                    Some(rpc::ManagedHostNetworkConfig {
+                        loopback_ip: "10.0.0.1".to_string(),
+                        loopback_ip_v6: Some(loopback_ip_v6.to_string()),
+                        quarantine_state: None,
+                    })
+                }
+            };
+            let conf = ManagedHostNetworkConfigResponse {
+                managed_host_config,
+                ..Default::default()
+            };
+            ipv6_unicast_health_enabled(&conf, row.virtualization_type)
+        };
+            "FNN with a reserved IPv6 loopback" {
+                Ipv6UnicastHealthRow {
+                    virtualization_type: VpcVirtualizationType::Fnn,
+                    managed_host_config: ManagedHostConfigInput::WithIpv6Loopback("2001:db8::1"),
+                } => true,
+            }
+
+            "inactive IPv6 underlay" {
+                Ipv6UnicastHealthRow {
+                    virtualization_type: VpcVirtualizationType::Fnn,
+                    managed_host_config: ManagedHostConfigInput::Missing,
+                } => false,
+                Ipv6UnicastHealthRow {
+                    virtualization_type: VpcVirtualizationType::Fnn,
+                    managed_host_config: ManagedHostConfigInput::WithoutIpv6Loopback,
+                } => false,
+                Ipv6UnicastHealthRow {
+                    virtualization_type: VpcVirtualizationType::EthernetVirtualizer,
+                    managed_host_config: ManagedHostConfigInput::WithIpv6Loopback("2001:db8::1"),
+                } => false,
+                Ipv6UnicastHealthRow {
+                    virtualization_type: VpcVirtualizationType::EthernetVirtualizerWithNvue,
+                    managed_host_config: ManagedHostConfigInput::WithIpv6Loopback("2001:db8::1"),
+                } => false,
+                Ipv6UnicastHealthRow {
+                    virtualization_type: VpcVirtualizationType::Flat,
+                    managed_host_config: ManagedHostConfigInput::WithIpv6Loopback("2001:db8::1"),
+                } => false,
+            }
+        );
+    }
 
     #[test]
     fn test_current_network_version_hashes_nested_managed_host_config() {
