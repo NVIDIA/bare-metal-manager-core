@@ -84,7 +84,6 @@ mod rack_health;
 mod rack_state_controller;
 mod redfish_actions;
 mod resource_pool;
-mod service_health_metrics;
 mod set_primary_interface;
 mod site_explorer;
 mod site_prefix;
