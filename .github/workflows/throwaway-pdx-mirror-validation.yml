@@ -1,14 +1,13 @@
 # THROWAWAY: compares apt mirror options for the arm64 mkosi build on the
 # nv-gha-runners. Legs:
-#   ports - http://ports.ubuntu.com/ubuntu-ports        (the flaky default baseline)
-#   pdx   - NVIDIA PDX Artifactory ubuntu-ports-remote  (kept for the record; the
-#           runners have no DNS/route to it, so this leg is expected to fail)
+#   ports - http://ports.ubuntu.com/ubuntu-ports           (the flaky default baseline)
 #   ocf   - https://mirrors.ocf.berkeley.edu/ubuntu-ports  (public fallback from #5253)
-#   mit   - https://mirrors.mit.edu/ubuntu-ports          (public fallback from #5253)
-#   edge        - https://edge.urm.nvidia.com/artifactory/ubuntu-ports-remote  (NVIDIA URM edge)
-#   artifactory - https://artifactory.nvidia.com/artifactory/ubuntu-ports-remote  (NVIDIA URM)
-# The NVIDIA Artifactory repo key (ubuntu-ports-remote) is assumed to match PDX;
-# a DNS error vs a 404 in a leg's log tells "unreachable" apart from "wrong path".
+#   mit   - https://mirrors.mit.edu/ubuntu-ports           (public fallback from #5253)
+#   urm   - https://urm.nvidia.com/artifactory/ubuntu-ports-remote  (NVIDIA URM, anon)
+# Dropped after earlier runs: pdx (no DNS from the runners), edge.urm (reachable
+# but hosts no ubuntu-ports repo, 404) and artifactory.nvidia.com (401, needs
+# auth). urm.nvidia.com carries ubuntu-ports-remote and serves InRelease +
+# Packages anonymously; this run checks whether the runners can reach it.
 #
 # Each leg does three things: (1) a curl loop that rates raw connectivity
 # (DNS/TCP/TLS/HTTP timing) independent of apt, (2) an apt-get update loop with
@@ -46,7 +45,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mirror: [ports, pdx, ocf, mit, edge, artifactory]
+        mirror: [ports, ocf, mit, urm]
     steps:
       - name: Probe ${{ matrix.mirror }} mirror
         shell: bash
@@ -72,12 +71,9 @@ jobs:
 
           case "${MIRROR}" in
             ports) base="http://ports.ubuntu.com/ubuntu-ports" ;;
-            pdx)   base="https://artifactory.pdx.nvidia.com/artifactory/ubuntu-ports-remote" ;;
             ocf)   base="https://mirrors.ocf.berkeley.edu/ubuntu-ports" ;;
             mit)   base="https://mirrors.mit.edu/ubuntu-ports" ;;
-            # NVIDIA Artifactory repo key assumed to match PDX's ubuntu-ports-remote.
-            edge)        base="https://edge.urm.nvidia.com/artifactory/ubuntu-ports-remote" ;;
-            artifactory) base="https://artifactory.nvidia.com/artifactory/ubuntu-ports-remote" ;;
+            urm)   base="https://urm.nvidia.com/artifactory/ubuntu-ports-remote" ;;
             *)     echo "unknown mirror ${MIRROR}"; exit 1 ;;
           esac
 
