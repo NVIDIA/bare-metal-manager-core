@@ -116,6 +116,7 @@ pub(crate) struct PowerShelfActor {
     actions: VecDeque<Action>,
     run_alarm: Option<AlarmId>,
     power_cycle_alarm: Option<AlarmId>,
+    dhcp_retry_alarm: Option<AlarmId>,
 }
 
 impl PowerShelfActor {
@@ -144,6 +145,7 @@ impl PowerShelfActor {
             actions: actions.into_iter().collect(),
             run_alarm: None,
             power_cycle_alarm: None,
+            dhcp_retry_alarm: None,
         }
     }
 
@@ -183,6 +185,7 @@ impl PowerShelfActor {
             actions: actions.into_iter().collect(),
             run_alarm: None,
             power_cycle_alarm: None,
+            dhcp_retry_alarm: None,
         }
     }
 
@@ -247,9 +250,32 @@ impl PowerShelfActor {
                             error = %error,
                             "Power-shelf BMC DHCP failed",
                         );
-                        return Some(self.config.run_interval_working);
+                        self.actions.pop_front();
+                        self.fsm_event(Event::dhcp_failed());
                     }
                 },
+                Action::ScheduleDhcpRetry { delay } => {
+                    tracing::debug!(
+                        retry_delay_milliseconds = delay.as_millis(),
+                        "scheduled power-shelf DHCP retry"
+                    );
+                    self.dhcp_retry_alarm = Some(
+                        mailbox
+                            .replace_alarm(
+                                self.dhcp_retry_alarm.take(),
+                                saturating_add_duration_to_instant(Instant::now(), delay),
+                                PowerShelfMessage::DhcpRetryExpired,
+                            )
+                            .expect("running actor mailbox must be open"),
+                    );
+                    self.actions.pop_front();
+                }
+                Action::CancelDhcpRetry => {
+                    if let Some(alarm_id) = self.dhcp_retry_alarm.take() {
+                        mailbox.cancel(alarm_id);
+                    }
+                    self.actions.pop_front();
+                }
                 Action::SetupBmc => match self.setup_bmc(mailbox).await {
                     Ok(()) => {
                         self.actions.pop_front();
@@ -421,6 +447,7 @@ impl PowerShelfActor {
 enum PowerShelfMessage {
     Run,
     PowerCycleExpired,
+    DhcpRetryExpired,
     SetPaused(bool),
     Bmc(BmcCommand),
     Stop,
@@ -437,6 +464,10 @@ impl ActorCallbacks<PowerShelfMessage> for PowerShelfActor {
             PowerShelfMessage::PowerCycleExpired => {
                 self.power_cycle_alarm = None;
                 self.fsm_event(Event::TimerAlert(Timer::PowerCycle));
+            }
+            PowerShelfMessage::DhcpRetryExpired => {
+                self.dhcp_retry_alarm = None;
+                self.fsm_event(Event::DhcpRetryExpired);
             }
             PowerShelfMessage::Stop => return ActorResult::Stop,
             PowerShelfMessage::SetPaused(paused) => {

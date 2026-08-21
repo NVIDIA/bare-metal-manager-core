@@ -22,6 +22,8 @@ mod config;
 mod control_router;
 mod device_handle;
 mod device_simulator;
+mod dhcp_retry_fsm;
+mod dhcp_retry_runtime;
 mod dhcp_wrapper;
 mod dhcp_wrapper_udp;
 mod discovery_info;
