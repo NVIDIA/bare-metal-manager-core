@@ -26,7 +26,7 @@ use model::hardware_info::{
     BlockDevice, CpuInfo, DmiData, DpuData, Gpu, GpuPlatformInfo, HardwareInfo,
     InfinibandInterface, LldpSwitchData, MachineInventory, MachineInventorySoftwareComponent,
     MachineNvLinkInfo, MemoryDevice, NetworkInterface, NvLinkGpu, NvmeDevice, PciDeviceProperties,
-    TpmDescription, TpmEkCertificate, condense_memory_devices,
+    TpmDescription, TpmEkCertificate, condense_groups, condense_memory_devices,
 };
 
 use crate as rpc;
@@ -533,25 +533,17 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
             dpu_info: info.dpu_info.map(DpuData::try_from).transpose()?,
             gpus: try_convert_vec(info.gpus)?,
             memory_devices: if !info.memory_device_groups.is_empty() {
-                let groups: Vec<_> = info
+                let groups = info
                     .memory_device_groups
                     .into_iter()
                     .map(model::hardware_info::MemoryDeviceGroup::try_from)
-                    .collect::<Result<Vec<_>, _>>()?
-                    .into_iter()
-                    .filter_map(model::hardware_info::MemoryDeviceGroup::nonzero)
-                    .collect();
-                let total: u64 = groups.iter().map(|g| u64::from(g.count)).sum();
-                if total > u64::from(model::hardware_info::MAX_MEMORY_DEVICE_COUNT) {
-                    return Err(RpcDataConversionError::InvalidValue(
+                    .collect::<Result<Vec<_>, _>>()?;
+                condense_groups(groups).map_err(|e| {
+                    RpcDataConversionError::InvalidValue(
                         "memory_device_groups".to_string(),
-                        format!(
-                            "total memory device count {total} exceeds maximum of {}",
-                            model::hardware_info::MAX_MEMORY_DEVICE_COUNT
-                        ),
-                    ));
-                }
-                groups
+                        e.to_string(),
+                    )
+                })?
             } else {
                 #[allow(deprecated)]
                 condense_memory_devices(info.memory_devices.into_iter().map(MemoryDevice::from))
@@ -2493,6 +2485,43 @@ mod tests {
                 size_mb: Some(16384),
                 mem_type: Some("DDR5".to_string()),
                 count: 4,
+            }]
+        );
+    }
+
+    // Groups with the same `(size_mb, mem_type)` separated by a dropped
+    // zero-count group must merge into a single group, matching the invariant
+    // enforced on every other ingestion path (legacy flat format, JSON
+    // deserialization).
+    #[test]
+    fn discovery_info_conversion_merges_groups_across_dropped_zero_count_group() {
+        let info = rpc::machine_discovery::DiscoveryInfo {
+            memory_device_groups: vec![
+                rpc::machine_discovery::MemoryDeviceGroup {
+                    size_mb: Some(16384),
+                    mem_type: Some("DDR5".to_string()),
+                    count: 4,
+                },
+                rpc::machine_discovery::MemoryDeviceGroup {
+                    size_mb: Some(8192),
+                    mem_type: Some("DDR4".to_string()),
+                    count: 0,
+                },
+                rpc::machine_discovery::MemoryDeviceGroup {
+                    size_mb: Some(16384),
+                    mem_type: Some("DDR5".to_string()),
+                    count: 2,
+                },
+            ],
+            ..Default::default()
+        };
+        let hw = HardwareInfo::try_from(info).unwrap();
+        assert_eq!(
+            hw.memory_devices,
+            vec![MemoryDeviceGroup {
+                size_mb: Some(16384),
+                mem_type: Some("DDR5".to_string()),
+                count: 6,
             }]
         );
     }

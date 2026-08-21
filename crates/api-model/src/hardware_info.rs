@@ -287,8 +287,10 @@ impl MemoryDeviceGroup {
 /// Rolls up already-grouped [`MemoryDeviceGroup`]s, merging consecutive groups with the same
 /// `(size_mb, mem_type)` and dropping zero-count groups. This is the single point through which
 /// every path that produces stored [`MemoryDeviceGroup`]s (condensing a flat device list,
-/// deserializing) must pass, so `total count > MAX_MEMORY_DEVICE_COUNT` can never be persisted.
-fn condense_groups(
+/// deserializing, converting from the RPC `memory_device_groups` field) must pass, so
+/// `total count > MAX_MEMORY_DEVICE_COUNT` can never be persisted and every ingestion path yields
+/// the same normalized form.
+pub fn condense_groups(
     groups: impl IntoIterator<Item = MemoryDeviceGroup>,
 ) -> Result<Vec<MemoryDeviceGroup>, HardwareInfoError> {
     let mut merged: Vec<MemoryDeviceGroup> = Vec::new();
