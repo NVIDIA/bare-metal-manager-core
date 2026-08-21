@@ -1,8 +1,15 @@
-# THROWAWAY: validates the NVIDIA PDX ubuntu-ports apt mirror on ARM64.
-# Safe to delete. Compares raw reliability of ports.ubuntu.com vs the PDX
-# mirror and confirms PDX can actually serve the build's apt packages.
-# Runs only on the test branch push and manual dispatch, never the full CI.
-name: (throwaway) PDX apt mirror validation
+# THROWAWAY: compares apt mirror options for the arm64 mkosi build on the
+# nv-gha-runners. Legs:
+#   ports - http://ports.ubuntu.com/ubuntu-ports        (the flaky default baseline)
+#   pdx   - NVIDIA PDX Artifactory ubuntu-ports-remote  (kept for the record; the
+#           runners have no DNS/route to it, so this leg is expected to fail)
+#   ocf   - https://mirrors.ocf.berkeley.edu/ubuntu-ports  (public fallback from #5253)
+#   mit   - https://mirrors.mit.edu/ubuntu-ports          (public fallback from #5253)
+# It measures raw apt-get update reliability and confirms each mirror can serve
+# the build packages. This does NOT pull in #5253's action changes; it only
+# exercises the mirror URLs. Safe to delete. Runs only on the test branch / PR
+# mirror, never the full CI.
+name: (throwaway) apt mirror validation
 
 on:
   push:
@@ -31,7 +38,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mirror: [ports, pdx]
+        mirror: [ports, pdx, ocf, mit]
     steps:
       - name: Probe ${{ matrix.mirror }} mirror
         shell: bash
@@ -55,11 +62,13 @@ jobs:
           sudo mkdir -p /etc/apt/sources.list.d.bak
           sudo bash -c 'mv /etc/apt/sources.list.d/* /etc/apt/sources.list.d.bak/ 2>/dev/null || true'
 
-          if [ "${MIRROR}" = pdx ]; then
-            base="https://artifactory.pdx.nvidia.com/artifactory/ubuntu-ports-remote"
-          else
-            base="http://ports.ubuntu.com/ubuntu-ports"
-          fi
+          case "${MIRROR}" in
+            ports) base="http://ports.ubuntu.com/ubuntu-ports" ;;
+            pdx)   base="https://artifactory.pdx.nvidia.com/artifactory/ubuntu-ports-remote" ;;
+            ocf)   base="https://mirrors.ocf.berkeley.edu/ubuntu-ports" ;;
+            mit)   base="https://mirrors.mit.edu/ubuntu-ports" ;;
+            *)     echo "unknown mirror ${MIRROR}"; exit 1 ;;
+          esac
 
           sudo tee /etc/apt/sources.list >/dev/null <<EOF
           deb ${base} ${codename} main restricted universe multiverse
@@ -118,9 +127,5 @@ jobs:
           echo "package fetch: ${fetch}"
           [ "${fetch}" = ok ] || cat /tmp/dl.log || true
 
-          # Only the PDX leg gates the run. The ports leg is informational so its
-          # expected flakiness does not turn the job red.
-          if [ "${MIRROR}" = pdx ]; then
-            [ "${fails}" -lt "${n}" ] || { echo "PDX apt-get update failed on every attempt"; exit 1; }
-            [ "${fetch}" = ok ] || { echo "PDX could not serve required packages"; exit 1; }
-          fi
+          # All legs are informational so the comparison stays green and the
+          # numbers in the job summary are the deliverable.
