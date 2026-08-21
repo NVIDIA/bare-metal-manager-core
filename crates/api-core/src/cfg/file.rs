@@ -3061,19 +3061,10 @@ pub struct RackStateControllerConfig {
     #[serde(default = "StateControllerConfig::default")]
     pub controller: StateControllerConfig,
 
-    /// Switch mTLS services configured on scoped switches before NMX cluster
-    /// setup proceeds. When omitted or empty, defaults to ScaleUpFabric manager
-    /// and telemetry interface services.
-    ///
-    /// Configured in `nico-api-config.toml`:
-    ///
-    /// ```toml
-    /// [rack_state_controller]
-    /// nmx_cluster_switch_mtls_services = [
-    ///   "scale_up_fabric_manager",
-    ///   "scale_up_fabric_telemetry_interface",
-    /// ]
-    /// ```
+    /// Switch mTLS services for NMX cluster setup. Accepted and ignored: rack
+    /// maintenance does not configure switch certificates. Per-switch
+    /// certificate configuration uses
+    /// `[switch_state_controller].switch_mtls_services`.
     #[serde(default)]
     pub nmx_cluster_switch_mtls_services: Vec<component_manager::config::SwitchMtlsService>,
 }

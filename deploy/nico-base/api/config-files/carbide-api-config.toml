@@ -120,9 +120,8 @@ test_selection_mode = "EnableAll"
 # Optional per-site mTLS certificate bindings:
 # - [switch_state_controller].switch_mtls_services applies to each switch and
 #   defaults to all four SwitchMtlsService values.
-# - [rack_state_controller].nmx_cluster_switch_mtls_services applies to the
-#   primary switch and defaults to scale_up_fabric_manager and
-#   scale_up_fabric_telemetry_interface.
+# - [rack_state_controller].nmx_cluster_switch_mtls_services is accepted and
+#   ignored. Rack maintenance does not configure switch certificates.
 # A non-empty list replaces its default; an omitted or empty list uses it.
 # Service selection does not enable the underlying service. See
 # docs/architecture/state_machines/switch_configure_certificate.md for service

@@ -448,7 +448,7 @@ TOML section: `[rack_state_controller]`.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `controller` | `StateControllerConfig` | *(default)* | Common state controller timing (see [StateControllerConfig](#statecontrollerconfig)). |
-| `nmx_cluster_switch_mtls_services` | `Vec<SwitchMtlsService>` | `scale_up_fabric_manager`, `scale_up_fabric_telemetry_interface` | mTLS certificate bindings applied to the primary switch before NMX cluster setup. A non-empty list replaces the default. Omission and `[]` both use the default. |
+| `nmx_cluster_switch_mtls_services` | `Vec<SwitchMtlsService>` | `scale_up_fabric_manager`, `scale_up_fabric_telemetry_interface` | **Deprecated.** Accepted and ignored. Rack maintenance does not configure switch certificates; per-switch certificate configuration uses [`switch_mtls_services`](#switchstatecontrollerconfig). |
 
 ### `SwitchStateControllerConfig`
 
@@ -822,7 +822,7 @@ be propagated there by DPF.
 | `client_cert` | `Option<String>` | — | Path to the client certificate PEM for mTLS. |
 | `client_key` | `Option<String>` | — | Path to the client private key PEM for mTLS. |
 | `enforce_tls` | `bool` | `true` | Enforce TLS when connecting to RMS. |
-| `scale_up_fabric_manager_api_version` | `ScaleUpFabricManagerApiVersion` | `v1` | ScaleUpFabric Manager configuration API: `v1` uses the synchronous call after disabling ScaleUpFabric state; `v2` submits an asynchronous job and polls it to completion. |
+| `scale_up_fabric_manager_api_version` | `ScaleUpFabricManagerApiVersion` | `v2` | **Deprecated.** Accepted and ignored. Accepts `v1` or `v2`; any other value fails config load. ScaleUpFabricManager configuration submits an asynchronous job and polls it to completion. |
 
 ### `SpdmConfig`
 
