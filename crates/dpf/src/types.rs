@@ -606,6 +606,71 @@ impl ServiceDefinition {
     }
 }
 
+/// Desired definition of a direct, detached DPUService.
+///
+/// This is deliberately distinct from [`ServiceDefinition`], which produces a
+/// DPUServiceTemplate/DPUServiceConfiguration pair for DPUDeployment. A
+/// detached service has no DPUDeployment, service ID, interfaces, config
+/// ports, or DPU-cluster selector.
+#[derive(Debug, Clone)]
+pub struct DetachedDpuServiceDefinition {
+    pub name: String,
+    pub namespace: String,
+    pub labels: BTreeMap<String, String>,
+    pub helm_chart: DetachedHelmChart,
+    pub deploy_in_cluster: bool,
+    pub security_privileged: bool,
+    /// Exact-match node labels for the detached service's DaemonSet. The SDK
+    /// renders these as one NodeSelector term with `In` expressions.
+    pub node_selector_labels: BTreeMap<String, String>,
+}
+
+/// Helm-chart fields required by a [`DetachedDpuServiceDefinition`].
+#[derive(Debug, Clone)]
+pub struct DetachedHelmChart {
+    pub repo_url: String,
+    pub chart: String,
+    pub version: String,
+    pub release_name: String,
+    pub values: Option<BTreeMap<String, serde_json::Value>>,
+}
+
+/// SDK-owned view of any observed DPUService.
+///
+/// This can represent a direct service or a DPUDeployment-generated service.
+/// Optional fields deliberately preserve what the API returned; callers must
+/// validate ownership before treating it as a detached NICo service.
+#[derive(Debug, Clone)]
+pub struct DpuServiceObservation {
+    pub name: Option<String>,
+    pub namespace: Option<String>,
+    pub labels: BTreeMap<String, String>,
+    pub helm_chart: DpuServiceHelmChartObservation,
+    pub deploy_in_cluster: Option<bool>,
+    pub dpu_cluster_selector_present: bool,
+    pub interfaces_present: bool,
+    pub paused: Option<bool>,
+    pub security_privileged: Option<bool>,
+    /// Serialized Kubernetes NodeSelector, retained for immutable ownership
+    /// validation.
+    pub service_daemon_set_node_selector: Option<serde_json::Value>,
+    pub service_id: Option<String>,
+    pub config_ports_present: bool,
+    /// Whether Kubernetes has accepted deletion and the CR is retained only
+    /// while finalizers remove its dependent resources.
+    pub is_deleting: bool,
+}
+
+/// Helm-chart fields as observed on a live DPUService.
+#[derive(Debug, Clone)]
+pub struct DpuServiceHelmChartObservation {
+    pub repo_url: String,
+    pub chart: Option<String>,
+    pub version: String,
+    pub release_name: Option<String>,
+    pub values: Option<BTreeMap<String, serde_json::Value>>,
+}
+
 /// Deployment type of a DPU — used to route devices to the correct
 /// DPUDeployment and select the appropriate DPUFlavor configuration.
 ///

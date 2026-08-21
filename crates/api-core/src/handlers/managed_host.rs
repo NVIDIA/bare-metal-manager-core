@@ -113,11 +113,13 @@ pub(crate) async fn set_primary_interface(
 }
 
 /// Moves the database primary to the selected interface and records that exact
-/// row as the host's desired boot target.
+/// interface as the host's desired boot target.
 ///
-/// The transaction locks admin segments, host interfaces, and then the host
-/// machine in the same order as Site Explorer. Once it commits, the machine
-/// controller owns the Redfish write and any reboot needed to converge it.
+/// The transaction locks the related admin segments and host interfaces, then
+/// the host `Machine` and assigned `Instance`. This keeps deletion from
+/// committing between the snapshot and the related writes. Once the transaction
+/// commits, the machine controller owns the Redfish write and any reboot needed
+/// to converge it.
 async fn set_primary_interface_core(
     api: &Api,
     host_machine_id: MachineId,
@@ -231,7 +233,8 @@ async fn set_primary_interface_core(
     let primary_interface_mac_address = new_primary_interface.mac_address;
     let boot_interface_id = new_primary_interface.boot_interface_id.clone();
     let boot_target = boot_target_for_interface(primary_interface_mac_address, boot_interface_id);
-    let instance = db::instance::find_by_machine_id(&mut txn, &host_machine_id).await?;
+    let instance =
+        db::instance::find_live_by_machine_id_for_update(&mut txn, &host_machine_id).await?;
     let should_enqueue =
         matches!(machine.current_state(), ManagedHostState::Ready) && instance.is_none();
 

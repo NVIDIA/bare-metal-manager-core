@@ -13,7 +13,7 @@
 # IMPORTANT — the redirect is driven by nico-core, not this chart. nico-core's
 # site_explorer config must contain (note the CROSS-NAMESPACE FQDN):
 #   [site_explorer]
-#   bmc_proxy = "nico-machine-a-tron-bmc-mock.nico-mat.svc.cluster.local:1266"
+#   bmc_proxy = "nico-machine-a-tron-default-bmc-mock.nico-mat.svc.cluster.local:1266"
 # (Field is `bmc_proxy`, a single "host:port" string. The older
 #  override_target_ip/override_target_port fields are DEPRECATED, and
 #  override_target_host was never a valid field. setup-machine-a-tron.sh sets
@@ -58,7 +58,11 @@ machineATron:
   # MUST be the cross-namespace FQDN (site-explorer is in nico-system and cannot
   # resolve the bare name). Update the ".nico-mat." segment if you deploy to a
   # different namespace.
-  configureBmcProxyHost: "nico-machine-a-tron-bmc-mock.nico-mat.svc.cluster.local"
+  # Name comes from templates/service.yaml: "<release>-<pod key>-bmc-mock".
+  # The pod key below is `default`, so the Service is
+  # nico-machine-a-tron-default-bmc-mock -- omitting the key resolves to
+  # nothing and every endpoint fails with ConnectionRefused.
+  configureBmcProxyHost: "nico-machine-a-tron-default-bmc-mock.nico-mat.svc.cluster.local"
   # Auto-register each mock host as an expected_machine (matched by BMC MAC).
   # REQUIRED for end-to-end: site-explorer's MachineCreator refuses to create a
   # managed host when no expected_machines row matches the discovered BMC MAC

@@ -149,7 +149,7 @@ pub(crate) struct CliOptions {
 #[derive(PartialEq, Eq, ValueEnum, Clone, Debug)]
 #[clap(rename_all = "kebab_case")]
 pub(crate) enum SortField {
-    #[clap(help = "Sort by the primary id")]
+    #[clap(help = "Sort by the primary ID")]
     PrimaryId,
     #[clap(help = "Sort by state")]
     State,

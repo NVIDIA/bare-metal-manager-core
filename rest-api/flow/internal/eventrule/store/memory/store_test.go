@@ -42,7 +42,7 @@ func TestBindingScansIgnoreUnrelatedInvalidRecords(t *testing.T) {
 		Name:      "test",
 		EventType: "test.event",
 		Policy: eventrule.Policy{Actions: []eventrule.Action{
-			eventrule.NewAction("noop", eventrule.ActionCondition{}, eventrule.Noop{}),
+			{Name: "noop", Spec: &eventrule.Noop{}},
 		}},
 	})
 	require.NoError(t, err)
@@ -79,7 +79,7 @@ func TestStore_CreateExecutionRejectsDanglingIndexes(t *testing.T) {
 			identity := eventrule.ExecutionIdentity{
 				EventID:        uuid.New(),
 				RuleID:         uuid.New(),
-				ActionID:       "action",
+				ActionName:     "action",
 				CorrelationKey: "incident-1",
 			}
 			dedupe := &eventrule.Dedupe{Window: time.Minute}

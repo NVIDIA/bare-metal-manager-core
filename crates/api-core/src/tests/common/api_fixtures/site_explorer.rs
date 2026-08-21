@@ -238,19 +238,30 @@ impl<'a> MockExploredHost<'a> {
     pub(in crate::tests) async fn discover_dhcp_host_bmc<
         F: FnOnce(tonic::Result<tonic::Response<forge::DhcpRecord>>, &mut Self) -> eyre::Result<()>,
     >(
+        self,
+        f: F,
+    ) -> eyre::Result<Self> {
+        self.discover_dhcp_host_bmc_from_relay(FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.ip(), f)
+            .await
+    }
+
+    /// Simulate the host's BMC interface getting DHCP through a caller-selected relay.
+    ///
+    /// Yields the result to the passed closure.
+    pub(in crate::tests) async fn discover_dhcp_host_bmc_from_relay<
+        F: FnOnce(tonic::Result<tonic::Response<forge::DhcpRecord>>, &mut Self) -> eyre::Result<()>,
+    >(
         mut self,
+        relay_address: IpAddr,
         f: F,
     ) -> eyre::Result<Self> {
         let result = self
             .test_env
             .api
             .discover_dhcp(
-                DhcpDiscovery::builder(
-                    self.managed_host.bmc_mac_address,
-                    FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.ip(),
-                )
-                .vendor_string("SomeVendor")
-                .tonic_request(),
+                DhcpDiscovery::builder(self.managed_host.bmc_mac_address, relay_address)
+                    .vendor_string("SomeVendor")
+                    .tonic_request(),
             )
             .await;
 

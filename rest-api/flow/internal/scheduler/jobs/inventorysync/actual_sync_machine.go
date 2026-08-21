@@ -54,9 +54,10 @@ func filterHostMachineDetails(machineDetails []nicoapi.MachineDetail) []nicoapi.
 //  2. NICo GetMachines: fetch runtime inventory and keep the HOST details used
 //     for linking, direct writes, and missing_in_expected detection
 //  3. Link by BMC MAC (from step 2 data) → direct-write external_id
-//  4. NICo GetPowerStates: direct-write power_state
-//  5. Direct-write firmware_version (from step 2 data)
-//  6. NICo GetMachinePositionInfo: compare validation fields, return drifts
+//  4. Reconcile associated DPU BMC children by MAC from the same snapshot
+//  5. NICo GetPowerStates: direct-write power_state
+//  6. Direct-write firmware_version (from step 2 data)
+//  7. NICo GetMachinePositionInfo: compare validation fields, return drifts
 //
 // Correlation/identity key: BMC MAC address (serial number is not used).
 // Validation fields (compared for drift): slot_id, tray_index, host_id
@@ -112,6 +113,17 @@ func syncMachines(
 		}
 	}
 
+	// Project the DPU children from the same complete Core machine snapshot.
+	// DPU machine IDs resolve host associations only for this pass; Flow keeps
+	// the DPU BMC MAC as the durable identity. Validation and all DB mutations
+	// happen transactionally, so an incomplete association cannot apply a
+	// partial DPU inventory snapshot.
+	dpuSyncOK := true
+	if err := reconcileDpuBMCs(ctx, pool, allMachineDetails, components); err != nil {
+		log.Error().Err(err).Msg("Unable to reconcile Core DPU inventory")
+		dpuSyncOK = false
+	}
+
 	// Build lookup maps for matched components
 	var machineIDs []string
 	componentsByExternalID := make(map[string]*model.Component)
@@ -124,19 +136,19 @@ func syncMachines(
 	}
 
 	if len(machineIDs) == 0 {
-		return received, buildDriftsForUnmatchedComponents(components, hostMachineDetails), true
+		return received, buildDriftsForUnmatchedComponents(components, hostMachineDetails), dpuSyncOK
 	}
 
-	// Step 4: Direct-write power_state (requires separate NICo API)
+	// Step 5: Direct-write power_state (requires separate NICo API)
 	syncPowerStates(ctx, pool, nicoClient, machineIDs, componentsByExternalID)
 
-	// Step 5: Direct-write firmware_version (from pre-fetched details, no extra API call)
+	// Step 6: Direct-write firmware_version (from pre-fetched details, no extra API call)
 	syncFirmwareVersions(ctx, pool, detailByID, componentsByExternalID)
 
-	// Step 5b: Direct-write derived ComponentOperationStatus (from pre-fetched detail.State).
+	// Step 6b: Direct-write derived ComponentOperationStatus (from pre-fetched detail.State).
 	syncMachineStatuses(ctx, pool, detailByID, componentsByExternalID)
 
-	// Step 6: Fetch positions and build drift records (requires separate NICo API)
+	// Step 7: Fetch positions and build drift records (requires separate NICo API)
 	machinePositions, err := nicoClient.GetMachinePositionInfo(ctx, machineIDs)
 	if err != nil {
 		log.Error().Msgf("Unable to retrieve machine positions from NICo: %v", err)
@@ -213,7 +225,7 @@ func syncMachines(
 	}
 
 	log.Info().Msgf("Machine sync: %d drift(s) out of %d component(s)", len(drifts), len(components))
-	return received, drifts, true
+	return received, drifts, dpuSyncOK
 }
 
 // buildDriftsForUnmatchedComponents returns missing_in_actual drifts for all

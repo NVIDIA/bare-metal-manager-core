@@ -1612,11 +1612,6 @@ jobs:
           "make sync-protobuf (from the repository root)"
 
   lint-police:
-    # Merge validation uses the PR API to resolve `.base.ref`, then fetches
-    # that branch before creating the local merge result. It never edits the PR.
-    permissions:
-      contents: read
-      pull-requests: read
     needs:
       - prepare
       - build-container-x86_64
@@ -1628,39 +1623,20 @@ jobs:
         username: ${{ secrets.NICO_SOURCE_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
         password: ${{ secrets.NICO_SOURCE_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
     steps:
+      # The PR mirror's `github.sha` is the submitted head commit. Keep lint on
+      # the same revision as the other PR checks and builds. Validation of the
+      # exact queued revision is tracked at:
+      # https://github.com/NVIDIA/infra-controller/issues/4587
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          ref: ${{ github.sha }}
           persist-credentials: false
 
-      - name: Build pull request merge result
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          set -o pipefail
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          PR_NUMBER="${GITHUB_REF_NAME##pull-request/}"
-          if ! TARGET="$(
-            curl -sf \
-              -H "Authorization: Bearer $GITHUB_TOKEN" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
-              | jq -r '.base.ref'
-          )"; then
-            echo "Could not query the base ref for PR ${PR_NUMBER}." >&2
-            echo "Confirm the lint-police job still declares 'pull-requests: read'." >&2
-            exit 1
-          fi
-          if [[ -z "${TARGET}" || "${TARGET}" == "null" ]]; then
-            echo "Could not resolve the base ref for PR ${PR_NUMBER}." >&2
-            exit 1
-          fi
-          git fetch --no-tags origin "${TARGET}:refs/remotes/origin/${TARGET}"
-          git -c user.name="CI merge validation" \
-            -c user.email=ci@example.invalid \
-            merge --no-commit --no-ff "origin/${TARGET}"
+      # Checkout scopes its safe-directory entry to a temporary HOME. The
+      # remaining steps run as root against the runner-owned bind mount.
+      - name: Trust the workspace in this container
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Validate Cargo metadata
         run: cargo metadata --locked --no-deps --format-version 1 >/dev/null
