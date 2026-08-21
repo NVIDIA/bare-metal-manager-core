@@ -532,7 +532,7 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
             tpm_ek_certificate: tpm_ek_certificate.map(TpmEkCertificate::from),
             dpu_info: info.dpu_info.map(DpuData::try_from).transpose()?,
             gpus: try_convert_vec(info.gpus)?,
-            memory_devices: if !info.memory_device_groups.is_empty() {
+            memory_devices: if info.memory_device_groups.iter().any(|g| g.count > 0) {
                 let groups = info
                     .memory_device_groups
                     .into_iter()
@@ -2485,6 +2485,42 @@ mod tests {
                 size_mb: Some(16384),
                 mem_type: Some("DDR5".to_string()),
                 count: 4,
+            }]
+        );
+    }
+
+    // When every group in `memory_device_groups` has count == 0, the field is
+    // logically empty.  Per the wire contract, readers must fall back to the
+    // legacy `memory_devices` field instead of treating the all-zero groups as
+    // authoritative and discarding the legacy data.
+    #[test]
+    fn discovery_info_conversion_falls_back_to_legacy_when_all_groups_are_zero_count() {
+        #[allow(deprecated)]
+        let info = rpc::machine_discovery::DiscoveryInfo {
+            memory_device_groups: vec![rpc::machine_discovery::MemoryDeviceGroup {
+                size_mb: Some(8192),
+                mem_type: Some("DDR4".to_string()),
+                count: 0,
+            }],
+            memory_devices: vec![
+                rpc::machine_discovery::MemoryDevice {
+                    size_mb: Some(16384),
+                    mem_type: Some("DDR5".to_string()),
+                },
+                rpc::machine_discovery::MemoryDevice {
+                    size_mb: Some(16384),
+                    mem_type: Some("DDR5".to_string()),
+                },
+            ],
+            ..Default::default()
+        };
+        let hw = HardwareInfo::try_from(info).unwrap();
+        assert_eq!(
+            hw.memory_devices,
+            vec![MemoryDeviceGroup {
+                size_mb: Some(16384),
+                mem_type: Some("DDR5".to_string()),
+                count: 2,
             }]
         );
     }

@@ -185,7 +185,7 @@ impl From<Machine> for ManagedHostOutput {
             .map(|di| di.infiniband_interfaces.len())
             .unwrap_or_default();
         let host_memory = discovery_info.as_ref().and_then(|di| {
-            if !di.memory_device_groups.is_empty() {
+            if di.memory_device_groups.iter().any(|g| g.count > 0) {
                 let valid: Vec<_> = di
                     .memory_device_groups
                     .iter()
@@ -719,6 +719,37 @@ mod tests {
                 Some(Timestamp::from(UNIX_EPOCH + Duration::from_secs(1_700_000_000))) => Some("2023-11-14 22:13:20 UTC".to_string()),
             }
         );
+    }
+
+    // When every group in `memory_device_groups` has count == 0, the field is
+    // logically empty. Per the wire contract, display must fall back to the
+    // legacy `memory_devices` field.
+    #[test]
+    #[allow(deprecated)]
+    fn managed_host_output_falls_back_to_legacy_memory_when_all_groups_are_zero_count() {
+        let host_memory = ManagedHostOutput::from(Machine {
+            discovery_info: Some(DiscoveryInfo {
+                memory_device_groups: vec![MemoryDeviceGroup {
+                    size_mb: Some(8192),
+                    mem_type: Some("DDR4".to_string()),
+                    count: 0,
+                }],
+                memory_devices: vec![
+                    rpc::machine_discovery::MemoryDevice {
+                        size_mb: Some(16384),
+                        mem_type: Some("DDR5".to_string()),
+                    },
+                    rpc::machine_discovery::MemoryDevice {
+                        size_mb: Some(16384),
+                        mem_type: Some("DDR5".to_string()),
+                    },
+                ],
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .host_memory;
+        assert_eq!(host_memory, Some("32 GiB (16 GiBx2)".to_string()));
     }
 
     #[test]

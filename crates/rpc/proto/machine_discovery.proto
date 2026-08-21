@@ -42,10 +42,10 @@ message DiscoveryInfo {
 
   // Deprecated: legacy flat list, one entry per physical DIMM. Writers must
   // emit only memory_device_groups (field 17) and leave this field empty.
-  // Readers must still accept this field: when memory_device_groups is
-  // empty, readers fall back to condensing this field (see
-  // memory_device_groups for condensation rules). When memory_device_groups
-  // is non-empty, this field is ignored.
+  // Readers must still accept this field: when memory_device_groups has no
+  // group with count > 0 (including when it is empty), readers fall back to
+  // condensing this field (see memory_device_groups for condensation
+  // rules). Otherwise this field is ignored.
   repeated MemoryDevice memory_devices = 12 [deprecated = true];
 
   // output of dmidecode -t 43 (TPM description)
@@ -61,15 +61,16 @@ message DiscoveryInfo {
   // Condensed memory devices: consecutive runs of identical DIMMs (same
   // size_mb and mem_type) rolled up into a single group with a count. This
   // is the preferred field for new writes; readers use it exclusively
-  // whenever it is non-empty (see memory_devices, field 12, for the legacy
-  // fallback). Only adjacent identical devices are merged, so groups
-  // preserve the original discovery order and the same (size_mb, mem_type)
-  // pair may appear in more than one non-adjacent group. The sum of
-  // `count` across all groups is bounded (implementations should reject
-  // payloads whose total exceeds a few thousand devices, far beyond any
-  // real DIMM slot count) to avoid unbounded allocation when a group is
-  // expanded back into individual devices. Groups with count == 0 carry no
-  // information and are dropped by readers rather than treated as an error.
+  // whenever it contains at least one group with count > 0 (see
+  // memory_devices, field 12, for the legacy fallback). Only adjacent
+  // identical devices are merged, so groups preserve the original discovery
+  // order and the same (size_mb, mem_type) pair may appear in more than one
+  // non-adjacent group. The sum of `count` across all groups is bounded
+  // (implementations should reject payloads whose total exceeds a few thousand
+  // devices, far beyond any real DIMM slot count) to avoid unbounded
+  // allocation when a group is expanded back into individual devices. Groups
+  // with count == 0 carry no information and are dropped by readers rather
+  // than treated as an error.
   repeated MemoryDeviceGroup memory_device_groups = 17;
 }
 

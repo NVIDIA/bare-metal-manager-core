@@ -111,9 +111,14 @@ impl machine_discovery::DiscoveryInfo {
     ///
     /// Group order (and thus device order) is preserved: groups only merge consecutive
     /// identical devices, and `rehydrate()` expands each group to `count` copies in place.
+    ///
+    /// Mirrors the "which field is authoritative" rule documented on
+    /// `DiscoveryInfo.memory_device_groups`: groups win whenever at least one carries a
+    /// nonzero count, even if `memory_devices` happens to already be populated (which a
+    /// contract-following writer never does, but malformed input might).
     #[allow(deprecated)]
     pub fn rehydrate_memory_devices(&mut self) {
-        if self.memory_devices.is_empty() && !self.memory_device_groups.is_empty() {
+        if self.memory_device_groups.iter().any(|group| group.count > 0) {
             self.memory_devices = self
                 .memory_device_groups
                 .iter()
@@ -194,4 +199,74 @@ pub mod nmx_c_client {
 #[rustfmt::skip]
 pub mod nmx_c_converters {
     include!(concat!(env!("OUT_DIR"), "/nmx_c_converters.rs"));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::machine_discovery::{DiscoveryInfo, MemoryDevice, MemoryDeviceGroup};
+
+    // When `memory_device_groups` has at least one nonzero-count group, it is
+    // authoritative even if `memory_devices` already happens to be populated
+    // (only possible from malformed input, since a contract-following writer
+    // never populates both at once). Rehydrating must reflect the group data,
+    // not silently keep the stale legacy field.
+    #[test]
+    #[allow(deprecated)]
+    fn rehydrate_prefers_nonzero_groups_over_a_populated_legacy_field() {
+        let mut info = DiscoveryInfo {
+            memory_device_groups: vec![MemoryDeviceGroup {
+                size_mb: Some(16384),
+                mem_type: Some("DDR5".to_string()),
+                count: 2,
+            }],
+            memory_devices: vec![MemoryDevice {
+                size_mb: Some(8192),
+                mem_type: Some("DDR4".to_string()),
+            }],
+            ..Default::default()
+        };
+        info.rehydrate_memory_devices();
+        assert_eq!(
+            info.memory_devices,
+            vec![
+                MemoryDevice {
+                    size_mb: Some(16384),
+                    mem_type: Some("DDR5".to_string()),
+                },
+                MemoryDevice {
+                    size_mb: Some(16384),
+                    mem_type: Some("DDR5".to_string()),
+                },
+            ]
+        );
+        assert!(info.memory_device_groups.is_empty());
+    }
+
+    // All-zero-count groups carry no information, so a populated legacy field
+    // is left as is.
+    #[test]
+    #[allow(deprecated)]
+    fn rehydrate_keeps_legacy_field_when_groups_are_all_zero_count() {
+        let mut info = DiscoveryInfo {
+            memory_device_groups: vec![MemoryDeviceGroup {
+                size_mb: Some(16384),
+                mem_type: Some("DDR5".to_string()),
+                count: 0,
+            }],
+            memory_devices: vec![MemoryDevice {
+                size_mb: Some(8192),
+                mem_type: Some("DDR4".to_string()),
+            }],
+            ..Default::default()
+        };
+        info.rehydrate_memory_devices();
+        assert_eq!(
+            info.memory_devices,
+            vec![MemoryDevice {
+                size_mb: Some(8192),
+                mem_type: Some("DDR4".to_string()),
+            }]
+        );
+        assert!(info.memory_device_groups.is_empty());
+    }
 }

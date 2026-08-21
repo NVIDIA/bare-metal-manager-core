@@ -1352,59 +1352,107 @@ mod tests {
         );
     }
 
-    // Zero-count entries in stored JSON are silently dropped:
-    //   - a zero-count group with a unique key is absent from the output entirely
-    //   - nonzero groups with the same key merge normally
-    //   - a zero-count group followed by a nonzero group with the same key does not
-    //     increase the merged count
     #[test]
-    fn deserialize_memory_devices_drops_zero_count_groups() {
-        let json = r#"{
-            "machine_type": "x86_64",
-            "memory_devices": [
-                {"size_mb": 8192,  "mem_type": "DDR4", "count": 0},
-                {"size_mb": 16384, "mem_type": "DDR5", "count": 2},
-                {"size_mb": 16384, "mem_type": "DDR5", "count": 1},
-                {"size_mb": 32768, "mem_type": "DDR5", "count": 0},
-                {"size_mb": 32768, "mem_type": "DDR5", "count": 5}
-            ]
-        }"#;
-        let info: HardwareInfo = serde_json::from_str(json).unwrap();
-        assert_eq!(
-            info.memory_devices,
-            vec![
-                MemoryDeviceGroup {
-                    size_mb: Some(16384),
-                    mem_type: Some("DDR5".into()),
-                    count: 3,
-                },
-                MemoryDeviceGroup {
-                    size_mb: Some(32768),
-                    mem_type: Some("DDR5".into()),
-                    count: 5,
-                },
-            ]
-        );
-    }
+    fn deserialize_memory_devices_count_handling() {
+        let half_max = MAX_MEMORY_DEVICE_COUNT / 2;
+        value_scenarios!(
+            run = |json: String| serde_json::from_str::<HardwareInfo>(&json).unwrap().memory_devices;
 
-    // Pre-condensed JSON (written before `count` existed) omits the field entirely;
-    // it must deserialize as a single device rather than failing or defaulting to zero.
-    #[test]
-    fn deserialize_memory_devices_defaults_omitted_count_to_one() {
-        let json = r#"{
-            "machine_type": "x86_64",
-            "memory_devices": [
-                {"size_mb": 8192, "mem_type": "DDR4"}
-            ]
-        }"#;
-        let info: HardwareInfo = serde_json::from_str(json).unwrap();
-        assert_eq!(
-            info.memory_devices,
-            vec![MemoryDeviceGroup {
-                size_mb: Some(8192),
-                mem_type: Some("DDR4".into()),
-                count: 1,
-            }]
+            // Pre-condensed JSON (written before `count` existed) omits the field
+            // entirely; it must deserialize as a single device rather than failing or
+            // defaulting to zero.
+            "omitted count defaults to one" {
+                r#"{
+                    "machine_type": "x86_64",
+                    "memory_devices": [
+                        {"size_mb": 8192, "mem_type": "DDR4"}
+                    ]
+                }"#.to_string() => vec![MemoryDeviceGroup {
+                    size_mb: Some(8192),
+                    mem_type: Some("DDR4".into()),
+                    count: 1,
+                }],
+            }
+
+            // Zero-count entries in stored JSON are silently dropped:
+            //   - a zero-count group with a unique key is absent from the output entirely
+            //   - nonzero groups with the same key merge normally
+            //   - a zero-count group followed by a nonzero group with the same key does not
+            //     increase the merged count
+            "zero-count groups are dropped" {
+                r#"{
+                    "machine_type": "x86_64",
+                    "memory_devices": [
+                        {"size_mb": 8192,  "mem_type": "DDR4", "count": 0},
+                        {"size_mb": 16384, "mem_type": "DDR5", "count": 2},
+                        {"size_mb": 16384, "mem_type": "DDR5", "count": 1},
+                        {"size_mb": 32768, "mem_type": "DDR5", "count": 0},
+                        {"size_mb": 32768, "mem_type": "DDR5", "count": 5}
+                    ]
+                }"#.to_string() => vec![
+                    MemoryDeviceGroup {
+                        size_mb: Some(16384),
+                        mem_type: Some("DDR5".into()),
+                        count: 3,
+                    },
+                    MemoryDeviceGroup {
+                        size_mb: Some(32768),
+                        mem_type: Some("DDR5".into()),
+                        count: 5,
+                    },
+                ],
+            }
+
+            // Two consecutive identical groups whose merged total is still within the
+            // max must merge correctly.
+            "consecutive identical groups within max count are merged" {
+                format!(
+                    r#"{{
+                        "machine_type": "x86_64",
+                        "memory_devices": [
+                            {{"size_mb": 8192, "mem_type": "DDR4", "count": {half_max}}},
+                            {{"size_mb": 8192, "mem_type": "DDR4", "count": {half_max}}}
+                        ]
+                    }}"#
+                ) => vec![MemoryDeviceGroup {
+                    size_mb: Some(8192),
+                    mem_type: Some("DDR4".into()),
+                    count: half_max.saturating_add(half_max),
+                }],
+            }
+
+            "non-consecutive groups are preserved" {
+                r#"{
+                    "machine_type": "x86_64",
+                    "memory_devices": [
+                        {"size_mb": 8192, "mem_type": "DDR4", "count": 2},
+                        {"size_mb": 32768, "mem_type": "DDR5", "count": 4},
+                        {"size_mb": 8192, "mem_type": "DDR4", "count": 1},
+                        {"size_mb": 32768, "mem_type": "DDR5", "count": 2}
+                    ]
+                }"#.to_string() => vec![
+                    MemoryDeviceGroup {
+                        size_mb: Some(8192),
+                        mem_type: Some("DDR4".into()),
+                        count: 2,
+                    },
+                    MemoryDeviceGroup {
+                        size_mb: Some(32768),
+                        mem_type: Some("DDR5".into()),
+                        count: 4,
+                    },
+                    MemoryDeviceGroup {
+                        size_mb: Some(8192),
+                        mem_type: Some("DDR4".into()),
+                        count: 1,
+                    },
+                    MemoryDeviceGroup {
+                        size_mb: Some(32768),
+                        mem_type: Some("DDR5".into()),
+                        count: 2,
+                    },
+                ],
+            }
         );
     }
 
@@ -1525,67 +1573,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn deserialize_memory_devices_merges_consecutive_groups_within_max_count() {
-        // Two consecutive identical groups whose merged total is still within
-        // the max must merge correctly.
-        let half_max = MAX_MEMORY_DEVICE_COUNT / 2;
-        let json = format!(
-            r#"{{
-                "machine_type": "x86_64",
-                "memory_devices": [
-                    {{"size_mb": 8192, "mem_type": "DDR4", "count": {half_max}}},
-                    {{"size_mb": 8192, "mem_type": "DDR4", "count": {half_max}}}
-                ]
-            }}"#
-        );
-        let info: HardwareInfo = serde_json::from_str(&json).unwrap();
-        assert_eq!(
-            info.memory_devices,
-            vec![MemoryDeviceGroup {
-                size_mb: Some(8192),
-                mem_type: Some("DDR4".into()),
-                count: half_max.saturating_add(half_max),
-            }]
-        );
-    }
-
-    #[test]
-    fn deserialize_memory_devices_preserves_non_consecutive_groups() {
-        let json = r#"{
-            "machine_type": "x86_64",
-            "memory_devices": [
-                {"size_mb": 8192, "mem_type": "DDR4", "count": 2},
-                {"size_mb": 32768, "mem_type": "DDR5", "count": 4},
-                {"size_mb": 8192, "mem_type": "DDR4", "count": 1},
-                {"size_mb": 32768, "mem_type": "DDR5", "count": 2}
-            ]
-        }"#;
-        let info: HardwareInfo = serde_json::from_str(json).unwrap();
-        assert_eq!(
-            info.memory_devices,
-            vec![
-                MemoryDeviceGroup {
-                    size_mb: Some(8192),
-                    mem_type: Some("DDR4".into()),
-                    count: 2,
-                },
-                MemoryDeviceGroup {
-                    size_mb: Some(32768),
-                    mem_type: Some("DDR5".into()),
-                    count: 4,
-                },
-                MemoryDeviceGroup {
-                    size_mb: Some(8192),
-                    mem_type: Some("DDR4".into()),
-                    count: 1,
-                },
-                MemoryDeviceGroup {
-                    size_mb: Some(32768),
-                    mem_type: Some("DDR5".into()),
-                    count: 2,
-                },
-            ]
-        );
-    }
 }
