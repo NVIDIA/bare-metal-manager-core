@@ -2036,6 +2036,25 @@ mod tests {
         );
     }
 
+    /// Both BF4 scripts must invoke both operator hooks; the post-ovs one is
+    /// appended separately from the base and is easy to drop.
+    #[test]
+    fn bf4_scripts_invoke_both_operator_hooks() {
+        for script in [
+            get_bf4_ovs_defaults_with_topology(None),
+            get_bf4_ovs_defaults_with_topology(Some(&intercept_bridging())),
+            get_bf4_astra_ovs_defaults(),
+        ] {
+            for hook in ["pre-ovs", "post-ovs"] {
+                let path = format!("/opt/dpf/extra-script-{hook}.sh");
+                assert!(
+                    script.contains(&format!("if [ -x {path} ]; then {path}; fi")),
+                    "missing guarded {hook} hook"
+                );
+            }
+        }
+    }
+
     /// Verifies the retained OVN oneshot is installed after network readiness and either OVS unit.
     #[test]
     fn ovn_encap_oneshot_has_required_systemd_ordering() {
