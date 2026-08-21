@@ -71,9 +71,11 @@ pub mod machine_discovery {
 }
 
 impl machine_discovery::MemoryDeviceGroup {
-    /// Mirrors `carbide_api_model::hardware_info::MAX_MEMORY_DEVICE_COUNT`. Duplicated here
-    /// (rather than depended on) because `carbide-api-model` is only an optional dependency of
-    /// this crate, gated behind the `model` feature, while this proto helper is unconditional.
+    /// Mirrors `carbide_api_model::hardware_info::MAX_MEMORY_DEVICE_COUNT`
+    /// (`crates/api-model/src/hardware_info.rs`). Duplicated here (rather than depended on)
+    /// because `carbide-api-model` is only an optional dependency of this crate, gated behind
+    /// the `model` feature, while this proto helper is unconditional. Update both if this value
+    /// changes.
     ///
     /// Bounds [`Self::rehydrate`] so it can't allocate an unbounded `Vec` even if a caller
     /// invokes it on a group that bypassed the checked conversions in `rpc::model::hardware_info`

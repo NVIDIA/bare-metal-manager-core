@@ -555,6 +555,12 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
             } else {
                 #[allow(deprecated)]
                 condense_memory_devices(info.memory_devices.into_iter().map(MemoryDevice::from))
+                    .map_err(|e| {
+                        RpcDataConversionError::InvalidValue(
+                            "memory_devices".to_string(),
+                            e.to_string(),
+                        )
+                    })?
             },
             tpm_description: info.tpm_description.map(std::convert::Into::into),
         })
@@ -2524,6 +2530,23 @@ mod tests {
                     count: above_half_max,
                 },
             ],
+            ..Default::default()
+        };
+        assert!(HardwareInfo::try_from(info).is_err());
+    }
+
+    // The legacy flat `memory_devices` field (used when `memory_device_groups` is empty) must
+    // also be rejected once condensing it would exceed `MAX_MEMORY_DEVICE_COUNT`.
+    #[test]
+    fn discovery_info_conversion_rejects_excessive_legacy_memory_device_count() {
+        #[allow(deprecated)]
+        let info = rpc::machine_discovery::DiscoveryInfo {
+            memory_devices: (0..model::hardware_info::MAX_MEMORY_DEVICE_COUNT + 1)
+                .map(|_| rpc::machine_discovery::MemoryDevice {
+                    size_mb: Some(16384),
+                    mem_type: Some("DDR5".to_string()),
+                })
+                .collect(),
             ..Default::default()
         };
         assert!(HardwareInfo::try_from(info).is_err());

@@ -245,6 +245,11 @@ fn default_count_one() -> u32 {
 /// real DIMM slot count (even the largest multi-socket servers top out in the low hundreds), so
 /// this only exists to keep [`MemoryDeviceGroup::rehydrate`] from allocating an unbounded number
 /// of [`MemoryDevice`]s for a malicious or corrupted `count`.
+///
+/// Mirrored by `rpc::protos::machine_discovery::MemoryDeviceGroup::MAX_REHYDRATE_COUNT`
+/// (`crates/rpc/src/protos/mod.rs`), which can't depend on this constant directly because
+/// `carbide-api-model` is only an optional dependency of `carbide-rpc`. Update both if this
+/// value changes.
 pub const MAX_MEMORY_DEVICE_COUNT: u32 = 8192;
 
 /// Condensed representation of one or more identical memory devices. This is the internal and
@@ -279,25 +284,43 @@ impl MemoryDeviceGroup {
     }
 }
 
-/// Rolls up a flat sequence of [`MemoryDevice`]s into condensed [`MemoryDeviceGroup`]s.
-/// Devices with the same `(size_mb, mem_type)` are combined into a single group.
-pub fn condense_memory_devices(
-    devices: impl IntoIterator<Item = MemoryDevice>,
-) -> Vec<MemoryDeviceGroup> {
-    let mut groups: Vec<MemoryDeviceGroup> = Vec::new();
-    for device in devices {
-        match groups.last_mut() {
-            Some(last) if last.size_mb == device.size_mb && last.mem_type == device.mem_type => {
-                last.count = last.count.saturating_add(1);
+/// Rolls up already-grouped [`MemoryDeviceGroup`]s, merging consecutive groups with the same
+/// `(size_mb, mem_type)` and dropping zero-count groups. This is the single point through which
+/// every path that produces stored [`MemoryDeviceGroup`]s (condensing a flat device list,
+/// deserializing) must pass, so `total count > MAX_MEMORY_DEVICE_COUNT` can never be persisted.
+fn condense_groups(
+    groups: impl IntoIterator<Item = MemoryDeviceGroup>,
+) -> Result<Vec<MemoryDeviceGroup>, HardwareInfoError> {
+    let mut merged: Vec<MemoryDeviceGroup> = Vec::new();
+    let mut total: u64 = 0;
+    for group in groups.into_iter().filter_map(MemoryDeviceGroup::nonzero) {
+        total += u64::from(group.count);
+        if total > u64::from(MAX_MEMORY_DEVICE_COUNT) {
+            return Err(HardwareInfoError::MemoryDeviceCountExceeded(total));
+        }
+        match merged.last_mut() {
+            Some(last) if last.size_mb == group.size_mb && last.mem_type == group.mem_type => {
+                last.count = last.count.saturating_add(group.count);
             }
-            _ => groups.push(MemoryDeviceGroup {
-                size_mb: device.size_mb,
-                mem_type: device.mem_type,
-                count: 1,
-            }),
+            _ => merged.push(group),
         }
     }
-    groups
+    Ok(merged)
+}
+
+/// Rolls up a flat sequence of [`MemoryDevice`]s into condensed [`MemoryDeviceGroup`]s.
+/// Consecutive devices with the same `(size_mb, mem_type)` are combined into a single group, so
+/// the original discovery order is preserved, and the same `(size_mb, mem_type)` pair may appear
+/// in several non-adjacent groups. Fails if the total device count exceeds
+/// [`MAX_MEMORY_DEVICE_COUNT`].
+pub fn condense_memory_devices(
+    devices: impl IntoIterator<Item = MemoryDevice>,
+) -> Result<Vec<MemoryDeviceGroup>, HardwareInfoError> {
+    condense_groups(devices.into_iter().map(|device| MemoryDeviceGroup {
+        size_mb: device.size_mb,
+        mem_type: device.mem_type,
+        count: 1,
+    }))
 }
 
 /// Serde deserializer for `HardwareInfo.memory_devices` that handles both the condensed
@@ -314,23 +337,7 @@ where
     use serde::Deserialize as _;
     use serde::de::Error;
     let raw = Vec::<MemoryDeviceGroup>::deserialize(deserializer)?;
-    let mut merged: Vec<MemoryDeviceGroup> = Vec::new();
-    let mut total: u64 = 0;
-    for group in raw.into_iter().filter_map(|g| g.nonzero()) {
-        total += u64::from(group.count);
-        if total > u64::from(MAX_MEMORY_DEVICE_COUNT) {
-            return Err(D::Error::custom(format!(
-                "total memory device count {total} exceeds maximum of {MAX_MEMORY_DEVICE_COUNT}"
-            )));
-        }
-        match merged.last_mut() {
-            Some(last) if last.size_mb == group.size_mb && last.mem_type == group.mem_type => {
-                last.count = last.count.saturating_add(group.count);
-            }
-            _ => merged.push(group),
-        }
-    }
-    Ok(merged)
+    condense_groups(raw).map_err(D::Error::custom)
 }
 
 /// TPM endorsement key certificate
@@ -396,6 +403,9 @@ pub enum HardwareInfoError {
 
     #[error("missing hardware info: {0}")]
     MissingHardwareInfo(#[from] MissingHardwareInfo),
+
+    #[error("total memory device count {0} exceeds maximum of {MAX_MEMORY_DEVICE_COUNT}")]
+    MemoryDeviceCountExceeded(u64),
 }
 
 impl HardwareInfo {
@@ -1416,7 +1426,7 @@ mod tests {
             },
         ];
         assert_eq!(
-            condense_memory_devices(devices),
+            condense_memory_devices(devices).unwrap(),
             vec![
                 MemoryDeviceGroup {
                     size_mb: Some(8192),
