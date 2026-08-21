@@ -11,12 +11,36 @@ import (
 
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
+	"github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/util"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	tClient "go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/converter"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
+)
+
+const (
+	// sitePageSizeStep is how much the Core fetch page shrinks after a response that exceeds
+	// the gRPC client receive limit.
+	sitePageSizeStep = 10
+	// minSitePageSize floors the Core fetch ladder. A response of this many items that still
+	// does not fit means a single item is enormous, so the activity fails rather than keep
+	// stepping down.
+	minSitePageSize = 10
+
+	// cloudPageSizeStep is how much the published page shrinks when a page exceeds the budget.
+	cloudPageSizeStep = 5
+
+	// maxPublishPayloadBytes budgets one published inventory page at 1.9 MiB, under the 2 MiB
+	// blob Temporal rejects (limit.blobSize.error). The remaining margin is not accounting for
+	// anything: payloadSize already measures the Site ID argument and the payload framing. It
+	// covers a deployment that configures a lower limit than the Site Agent can see, and the
+	// cost of guessing wrong, since a rejected page fails the activity and leaves inventory
+	// stale until the next cron tick.
+	maxPublishPayloadBytes = 1945 * 1024
 )
 
 type ManageInventoryConfig struct {
@@ -68,32 +92,14 @@ func (pii *pagedInventoryInput) buildPage() *corev1.InventoryPage {
 	}
 }
 
-func buildPagedInventoryInput(totalCount int, pageSize int) *pagedInventoryInput {
-	input := &pagedInventoryInput{
-		totalItems: totalCount,
-		pageSize:   pageSize,
-	}
-	input.totalPages = totalCount / pageSize
-	if totalCount%pageSize > 0 {
-		input.totalPages++
-	}
-	return input
-}
-
 func (impl *manageInventoryImpl[K, R, P]) CollectAndPublishInventory(ctx context.Context, logger *zerolog.Logger) error {
-	// Define workflow options
-	workflowOptions := tClient.StartWorkflowOptions{
-		ID:        fmt.Sprintf("update-%s-inventory-%s", strings.ToLower(impl.itemType), impl.config.SiteID.String()),
-		TaskQueue: impl.config.TemporalPublishQueue,
-	}
-
-	// define workflow name
-	workflowName := fmt.Sprintf("Update%sInventory", impl.itemType)
 	// get Core gRPC client
 	grpcClient := impl.config.CoreGrpcAtomicClient.GetClient()
 	if grpcClient == nil {
 		return cClient.ErrCoreGrpcClientNotConnected
 	}
+
+	collector := impl.newCollector(grpcClient)
 
 	// find IDs
 	allIDs, err := impl.internalFindIDs(ctx, grpcClient)
@@ -101,87 +107,50 @@ func (impl *manageInventoryImpl[K, R, P]) CollectAndPublishInventory(ctx context
 		if grpcStatus, ok := status.FromError(err); ok {
 			if grpcStatus.Code() == codes.Unimplemented {
 				log.Info().Msg("Using fallback API to get inventory")
-				if err = impl.collectAndPublishFallback(ctx, logger, grpcClient, workflowName, workflowOptions); err == nil {
+				if err = impl.collectAndPublishFallback(ctx, logger, grpcClient); err == nil {
 					return err
 				}
 			}
 		}
 		logger.Warn().Err(err).Msg("Failed to retrieve IDs using Core gRPC API")
 		// Error encountered before we've published anything, report inventory collection error to Cloud
-		pagedInput := buildPagedInventoryInput(0, impl.config.CloudPageSize)
-		pagedInput.status = corev1.InventoryStatus_INVENTORY_STATUS_FAILED
-		pagedInput.statusMessage = err.Error()
-		inventory := impl.internalPagedInventory([]K{}, []R{}, pagedInput)
-		if _, execErr := impl.config.TemporalPublishClient.ExecuteWorkflow(context.Background(), workflowOptions, workflowName, impl.config.SiteID, inventory); execErr != nil {
+		if execErr := collector.publishStatusOnly(corev1.InventoryStatus_INVENTORY_STATUS_FAILED, err.Error()); execErr != nil {
 			logger.Error().Err(execErr).Msg("Failed to publish inventory error to Cloud")
 			return execErr
 		}
 		return err
 	}
 
-	// build paged inventory input with common values
-	pagedInput := buildPagedInventoryInput(len(allIDs), impl.config.CloudPageSize)
-	if pagedInput.totalItems == 0 {
-		pagedInput.pageNumber = 1
-		pagedInput.status = corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS
-		pagedInput.statusMessage = "No items reported by Site Controller"
-		inventoryPage := impl.internalPagedInventory([]K{}, []R{}, pagedInput)
-
+	collector.allIDs = allIDs
+	if len(allIDs) == 0 {
 		logger.Info().Msg("Publishing empty inventory page to Cloud")
-
-		if _, err := impl.config.TemporalPublishClient.ExecuteWorkflow(context.Background(), workflowOptions, workflowName, impl.config.SiteID, inventoryPage); err != nil {
+		if err = collector.publishStatusOnly(corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS, "No items reported by Site Controller"); err != nil {
 			logger.Error().Err(err).Msg("Failed to publish inventory to Cloud")
 			return err
 		}
+		return nil
 	}
 
-	// Iterate through all pages and publish inventory
-	cloudEffectivePage := 1
-	sitePagedIDs := cClient.SliceToChunks(allIDs, impl.config.SitePageSize)
-	for sitePage, siteItemIDs := range sitePagedIDs {
-		// find items by IDs
-		siteItems, err := impl.internalFindByIDs(ctx, grpcClient, siteItemIDs)
+	// Fetch the inventory a site page at a time and publish each site page onwards to Cloud, so
+	// only one site page is held in memory at a time.
+	for remainingIDs := allIDs; len(remainingIDs) > 0; {
+		siteItems, consumed, err := collector.fetchSitePage(ctx, logger, remainingIDs)
 		if err != nil {
-			logger.Warn().Err(err).Int("Site Page", sitePage+1).Msg("Failed to retrieve using Core gRPC API")
+			logger.Warn().Err(err).Int("Site Page", collector.sitePagesFetched+1).Msg("Failed to retrieve using Core gRPC API")
 			return err
 		}
+		remainingIDs = remainingIDs[consumed:]
 
 		// We could return an error, but that might get us caught in
 		// a scenerio where deletes on site between FindIDs and FindByIDs
 		// calls creates a mismatch that fails.  If we log the error, we could
 		// alert on it without letting it break inventory entirely.
-		if len(siteItems) != len(siteItemIDs) {
+		if len(siteItems) != consumed {
 			logger.Error().Msg("size of FindByIDs set does not match size of FindIDs set")
 		}
 
-		// publish inventory to Cloud in separate chunks
-		cloudItems := cClient.SliceToChunks(siteItems, impl.config.CloudPageSize)
-		for _, items := range cloudItems {
-			workflowOptions := tClient.StartWorkflowOptions{
-				ID:        fmt.Sprintf("%v-%v", workflowOptions.ID, cloudEffectivePage),
-				TaskQueue: workflowOptions.TaskQueue,
-			}
-			// Create an inventory page
-			pagedInput.pageNumber = cloudEffectivePage
-			pagedInput.status = corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS
-			pagedInput.statusMessage = "Successfully retrieved from Site Controller"
-			inventoryPage := impl.internalPagedInventory(allIDs, items, pagedInput)
-
-			// Handle any requested post processing
-			if impl.internalPagedInventoryPostProcess != nil {
-				inventoryPage, err = impl.internalPagedInventoryPostProcess(ctx, grpcClient, inventoryPage)
-				if err != nil {
-					return err
-				}
-			}
-
-			// publish
-			logger.Info().Msgf("Publishing inventory page %d to Cloud", cloudEffectivePage)
-			if _, err = impl.config.TemporalPublishClient.ExecuteWorkflow(context.Background(), workflowOptions, workflowName, impl.config.SiteID, inventoryPage); err != nil {
-				logger.Error().Err(err).Int("Cloud Page", cloudEffectivePage).Msg("Failed to publish inventory to Cloud")
-				return err
-			}
-			cloudEffectivePage++
+		if err = collector.publishItems(ctx, logger, siteItems); err != nil {
+			return err
 		}
 	}
 
@@ -189,68 +158,206 @@ func (impl *manageInventoryImpl[K, R, P]) CollectAndPublishInventory(ctx context
 }
 
 func (impl *manageInventoryImpl[K, R, P]) collectAndPublishFallback(ctx context.Context, logger *zerolog.Logger,
-	grpcClient *cClient.CoreGrpcClient, workflowName string, workflowOptions tClient.StartWorkflowOptions) error {
+	grpcClient *cClient.CoreGrpcClient) error {
 	if impl.internalFindFallback == nil {
 		return errors.New("no fallback find function defined")
 	}
+	collector := impl.newCollector(grpcClient)
+
 	allIDs, siteItems, err := impl.internalFindFallback(ctx, grpcClient)
 	if err != nil {
 		logger.Warn().Err(err).Msg("Failed to retrieve using Site Controller fallback API")
 		// Error encountered before we've published anything, report inventory collection error to Cloud
-		pagedInput := buildPagedInventoryInput(0, impl.config.CloudPageSize)
-		pagedInput.status = corev1.InventoryStatus_INVENTORY_STATUS_FAILED
-		pagedInput.statusMessage = err.Error()
-		inventory := impl.internalPagedInventory([]K{}, []R{}, pagedInput)
-		if _, execErr := impl.config.TemporalPublishClient.ExecuteWorkflow(context.Background(), workflowOptions, workflowName, impl.config.SiteID, inventory); execErr != nil {
+		if execErr := collector.publishStatusOnly(corev1.InventoryStatus_INVENTORY_STATUS_FAILED, err.Error()); execErr != nil {
 			logger.Error().Err(execErr).Msg("Failed to publish inventory error to Cloud")
 			return execErr
 		}
 		return err
 	}
 
-	// build paged inventory input with common values
-	pagedInput := buildPagedInventoryInput(len(allIDs), impl.config.CloudPageSize)
-	if pagedInput.totalItems == 0 {
-		pagedInput.pageNumber = 1
-		pagedInput.status = corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS
-		pagedInput.statusMessage = "No items reported by Site Controller"
-		inventoryPage := impl.internalPagedInventory([]K{}, []R{}, pagedInput)
-
+	collector.allIDs = allIDs
+	if len(allIDs) == 0 {
 		logger.Info().Msg("Publishing empty inventory page to Cloud")
-
-		if _, err := impl.config.TemporalPublishClient.ExecuteWorkflow(context.Background(), workflowOptions, workflowName, impl.config.SiteID, inventoryPage); err != nil {
+		if err = collector.publishStatusOnly(corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS, "No items reported by Site Controller"); err != nil {
 			logger.Error().Err(err).Msg("Failed to publish inventory to Cloud")
 			return err
 		}
+		return nil
 	}
 
-	// publish inventory to Cloud in separate chunks
-	cloudItems := cClient.SliceToChunks(siteItems, impl.config.CloudPageSize)
-	for page, items := range cloudItems {
-		workflowOptions := tClient.StartWorkflowOptions{
-			ID:        fmt.Sprintf("%v-%v", workflowOptions.ID, page),
-			TaskQueue: workflowOptions.TaskQueue,
-		}
-		// Create an inventory page
-		pagedInput.pageNumber = page + 1
-		pagedInput.status = corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS
-		pagedInput.statusMessage = "Successfully retrieved from Site Controller"
-		inventoryPage := impl.internalPagedInventory(allIDs, items, pagedInput)
+	return collector.publishItems(ctx, logger, siteItems)
+}
 
-		// Handle any requested post processing
-		if impl.internalPagedInventoryPostProcess != nil {
-			inventoryPage, err = impl.internalPagedInventoryPostProcess(ctx, grpcClient, inventoryPage)
-			if err != nil {
-				return err
-			}
-		}
+// inventoryCollector fetches inventory from Core and publishes it to Cloud a page at a time.
+// Both page sizes only ever decrease, so each ladder is walked once per run rather than on
+// every page.
+type inventoryCollector[K any, R any, P any] struct {
+	impl          *manageInventoryImpl[K, R, P]
+	grpcClient    *cClient.CoreGrpcClient
+	workflowName  string
+	workflowID    string
+	dataConverter converter.DataConverter
+	allIDs        []K
 
-		// publish
-		logger.Info().Msgf("Publishing inventory page %d to Cloud", page+1)
-		if _, err = impl.config.TemporalPublishClient.ExecuteWorkflow(context.Background(), workflowOptions, workflowName, impl.config.SiteID, inventoryPage); err != nil {
-			logger.Error().Err(err).Int("Cloud Page", page+1).Msg("Failed to publish inventory to Cloud")
+	sitePageSize     int
+	cloudPageSize    int
+	sitePagesFetched int
+	pagesPublished   int
+	itemsPublished   int
+}
+
+func (impl *manageInventoryImpl[K, R, P]) newCollector(grpcClient *cClient.CoreGrpcClient) *inventoryCollector[K, R, P] {
+	return &inventoryCollector[K, R, P]{
+		impl:          impl,
+		grpcClient:    grpcClient,
+		workflowName:  fmt.Sprintf("Update%sInventory", impl.itemType),
+		workflowID:    fmt.Sprintf("update-%s-inventory-%s", strings.ToLower(impl.itemType), impl.config.SiteID.String()),
+		dataConverter: util.NewTemporalDataConverter(),
+		// Both loops advance by the page size, so a caller that left either unset would spin
+		// forever on empty pages instead of failing.
+		sitePageSize:  max(1, impl.config.SitePageSize),
+		cloudPageSize: max(1, impl.config.CloudPageSize),
+	}
+}
+
+// fetchSitePage retrieves one page of items from Core and reports how many IDs it consumed. A
+// response larger than the client receive limit comes back as ResourceExhausted, so the page
+// size steps down and the same IDs are requested again.
+func (col *inventoryCollector[K, R, P]) fetchSitePage(ctx context.Context, logger *zerolog.Logger, ids []K) ([]R, int, error) {
+	for {
+		pageIDs := ids[:min(col.sitePageSize, len(ids))]
+		items, err := col.impl.internalFindByIDs(ctx, col.grpcClient, pageIDs)
+		if err == nil {
+			col.sitePagesFetched++
+			return items, len(pageIDs), nil
+		}
+		if status.Code(err) != codes.ResourceExhausted || len(pageIDs) <= minSitePageSize {
+			return nil, 0, err
+		}
+		col.sitePageSize = max(minSitePageSize, len(pageIDs)-sitePageSizeStep)
+		logger.Warn().Err(err).Int("Site Page Size", col.sitePageSize).
+			Msg("Core response exceeded the gRPC receive limit, retrying with a smaller site page")
+	}
+}
+
+// publishItems cuts one site page of items into published pages and sends each to Cloud.
+func (col *inventoryCollector[K, R, P]) publishItems(ctx context.Context, logger *zerolog.Logger, items []R) error {
+	for len(items) > 0 {
+		page, pageItems, err := col.buildPageWithinBudget(ctx, logger, items)
+		if err != nil {
 			return err
 		}
+
+		logger.Info().Msgf("Publishing inventory page %d to Cloud", col.pagesPublished+1)
+		if err = col.execute(page); err != nil {
+			logger.Error().Err(err).Int("Cloud Page", col.pagesPublished+1).Msg("Failed to publish inventory to Cloud")
+			return err
+		}
+
+		col.pagesPublished++
+		col.itemsPublished += pageItems
+		items = items[pageItems:]
 	}
 	return nil
+}
+
+// buildPageWithinBudget builds the next page from the front of items, stepping the publish page
+// size down until the serialized page fits the budget. A single item over the budget is
+// published anyway, because dropping it would silently lose inventory.
+func (col *inventoryCollector[K, R, P]) buildPageWithinBudget(ctx context.Context, logger *zerolog.Logger, items []R) (P, int, error) {
+	for {
+		pageItems := min(col.cloudPageSize, len(items))
+		page, err := col.buildInventoryPage(ctx, items[:pageItems], pageItems)
+		if err != nil {
+			return page, 0, err
+		}
+
+		size, err := col.payloadSize(page)
+		if err != nil {
+			logger.Error().Err(err).Msg("Failed to measure the size of an inventory page")
+			return page, 0, err
+		}
+		if size <= maxPublishPayloadBytes {
+			return page, pageItems, nil
+		}
+		if pageItems == 1 {
+			logger.Error().Int("Payload Bytes", size).Int("Budget Bytes", maxPublishPayloadBytes).
+				Msg("A single inventory item exceeds the publish budget, publishing it anyway")
+			return page, pageItems, nil
+		}
+
+		// Step down from what this page actually held rather than from the configured size, so a
+		// short trailing page reaches a fitting size in one step instead of several.
+		col.cloudPageSize = max(1, pageItems-cloudPageSizeStep)
+		logger.Warn().Int("Payload Bytes", size).Int("Cloud Page Size", col.cloudPageSize).
+			Msg("Inventory page exceeded the publish budget, rebuilding with fewer items")
+	}
+}
+
+func (col *inventoryCollector[K, R, P]) buildInventoryPage(ctx context.Context, items []R, pageItems int) (P, error) {
+	input := &pagedInventoryInput{
+		totalItems:    len(col.allIDs),
+		pageSize:      pageItems,
+		pageNumber:    col.pagesPublished + 1,
+		status:        corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+		statusMessage: "Successfully retrieved from Site Controller",
+	}
+	// The Cloud worker treats a page whose CurrentPage equals TotalPages as the last one and runs
+	// its deletion sweep there, so the total is derived from what is left rather than fixed up
+	// front, which the publish page size stepping down would invalidate. With nothing left this
+	// is exactly pageNumber; with items left it is always greater, so no earlier page can be
+	// mistaken for the last one.
+	remainingItems := input.totalItems - col.itemsPublished - pageItems
+	input.totalPages = input.pageNumber + ceilDiv(remainingItems, col.cloudPageSize)
+
+	page := col.impl.internalPagedInventory(col.allIDs, items, input)
+
+	// Handle any requested post processing
+	if col.impl.internalPagedInventoryPostProcess != nil {
+		return col.impl.internalPagedInventoryPostProcess(ctx, col.grpcClient, page)
+	}
+	return page, nil
+}
+
+// payloadSize reports how many bytes the workflow arguments occupy once serialized, measured
+// with the converter the publish client uses so it matches what Temporal receives.
+func (col *inventoryCollector[K, R, P]) payloadSize(page P) (int, error) {
+	payloads, err := col.dataConverter.ToPayloads(col.impl.config.SiteID, page)
+	if err != nil {
+		return 0, err
+	}
+	return proto.Size(payloads), nil
+}
+
+// publishStatusOnly publishes a single page carrying a status and no items, used when the Site
+// reported nothing and when collection failed before any page went out. It keeps the unpaged
+// workflow ID and reports the configured page size, which is what Cloud has always received for
+// these two cases.
+func (col *inventoryCollector[K, R, P]) publishStatusOnly(inventoryStatus corev1.InventoryStatus, statusMessage string) error {
+	page := col.impl.internalPagedInventory([]K{}, []R{}, &pagedInventoryInput{
+		pageSize:      col.cloudPageSize,
+		pageNumber:    1,
+		status:        inventoryStatus,
+		statusMessage: statusMessage,
+	})
+	_, err := col.impl.config.TemporalPublishClient.ExecuteWorkflow(context.Background(), tClient.StartWorkflowOptions{
+		ID:        col.workflowID,
+		TaskQueue: col.impl.config.TemporalPublishQueue,
+	}, col.workflowName, col.impl.config.SiteID, page)
+	return err
+}
+
+func (col *inventoryCollector[K, R, P]) execute(page P) error {
+	_, err := col.impl.config.TemporalPublishClient.ExecuteWorkflow(context.Background(), tClient.StartWorkflowOptions{
+		ID:        fmt.Sprintf("%v-%v", col.workflowID, col.pagesPublished+1),
+		TaskQueue: col.impl.config.TemporalPublishQueue,
+	}, col.workflowName, col.impl.config.SiteID, page)
+	return err
+}
+
+func ceilDiv(dividend, divisor int) int {
+	if divisor <= 0 || dividend <= 0 {
+		return 0
+	}
+	return (dividend + divisor - 1) / divisor
 }
