@@ -476,7 +476,7 @@ rules:
     verbs: ["get", "create", "patch"]
   - apiGroups: [""]
     resources: ["configmaps"]
-    verbs: ["get", "create", "patch"]
+    verbs: ["create"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

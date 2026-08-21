@@ -56,9 +56,11 @@ rules:
     resources: ["secrets"]
     verbs: ["get", "create", "patch"]
   # Extra-script ConfigMaps the BF4 DPUFlavors source via contentFrom.
+  # Create only: their content belongs to the operator, so NICo must not be able
+  # to update or overwrite them.
   - apiGroups: [""]
     resources: ["configmaps"]
-    verbs: ["get", "create", "patch"]
+    verbs: ["create"]
 ---
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1

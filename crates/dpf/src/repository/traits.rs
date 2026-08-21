@@ -259,6 +259,17 @@ pub trait K8sConfigRepository: Send + Sync {
         name: &str,
         namespace: &str,
     ) -> Result<Option<BTreeMap<String, String>>, DpfError>;
+    /// Create a ConfigMap, reporting `false` when one already exists.
+    ///
+    /// Distinct from `apply_configmap`, which force-applies and would overwrite
+    /// content the object already holds.
+    async fn create_configmap(
+        &self,
+        name: &str,
+        namespace: &str,
+        data: BTreeMap<String, String>,
+    ) -> Result<bool, DpfError>;
+
     async fn apply_configmap(
         &self,
         name: &str,

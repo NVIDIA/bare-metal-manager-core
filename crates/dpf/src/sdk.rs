@@ -519,40 +519,32 @@ fn extra_script_configmap_names(deployment_type: DpuDeploymentType) -> &'static 
 
 /// Seed the extra-script ConfigMaps a BF4 DPUFlavor sources via `contentFrom`.
 ///
-/// Create-if-absent, not apply: `apply_configmap` is a force server-side apply and
-/// would overwrite the operator's script on every carbide-api restart.
+/// Create-only. NICo never updates these: the content belongs to the operator, so
+/// an existing ConfigMap is left exactly as found. A plain create is also atomic,
+/// so an edit racing this cannot be clobbered.
 async fn create_extra_script_configmaps<R: K8sConfigRepository>(
     repo: &R,
     namespace: &str,
     deployment_type: DpuDeploymentType,
 ) -> Result<(), DpfError> {
     for name in extra_script_configmap_names(deployment_type) {
-        // Keyed on the script key, not mere existence: `get_configmap` returns
-        // `data`, so a ConfigMap without this key must still be seeded.
-        let has_script = repo
-            .get_configmap(name, namespace)
-            .await?
-            .is_some_and(|data| data.contains_key(EXTRA_SCRIPT_CONFIGMAP_KEY));
-        if has_script {
-            tracing::debug!(
-                configmap = %name,
-                %namespace,
-                key = EXTRA_SCRIPT_CONFIGMAP_KEY,
-                "Extra-script ConfigMap already carries its script; leaving it alone"
-            );
-            continue;
-        }
-
         let data = BTreeMap::from([(
             EXTRA_SCRIPT_CONFIGMAP_KEY.to_string(),
             EXTRA_SCRIPT_PLACEHOLDER.to_string(),
         )]);
-        repo.apply_configmap(name, namespace, data).await?;
-        tracing::info!(
-            configmap = %name,
-            %namespace,
-            "Created extra-script ConfigMap with a no-op placeholder script"
-        );
+        if repo.create_configmap(name, namespace, data).await? {
+            tracing::info!(
+                configmap = %name,
+                %namespace,
+                "Created extra-script ConfigMap with a no-op placeholder script"
+            );
+        } else {
+            tracing::debug!(
+                configmap = %name,
+                %namespace,
+                "Extra-script ConfigMap already exists; leaving it untouched"
+            );
+        }
     }
     Ok(())
 }
@@ -3780,6 +3772,15 @@ mod tests {
 
     #[async_trait]
     impl crate::repository::K8sConfigRepository for SdkMock {
+        async fn create_configmap(
+            &self,
+            _name: &str,
+            _ns: &str,
+            _data: BTreeMap<String, String>,
+        ) -> Result<bool, DpfError> {
+            Ok(true)
+        }
+
         async fn get_configmap(
             &self,
             _name: &str,
@@ -4463,6 +4464,15 @@ mod tests {
 
     #[async_trait]
     impl crate::repository::K8sConfigRepository for SecretTrackingMock {
+        async fn create_configmap(
+            &self,
+            _name: &str,
+            _ns: &str,
+            _data: BTreeMap<String, String>,
+        ) -> Result<bool, DpfError> {
+            Ok(true)
+        }
+
         async fn get_configmap(
             &self,
             _: &str,
@@ -5536,18 +5546,31 @@ mod extra_script_configmap_tests {
         ) -> Result<Option<BTreeMap<String, String>>, DpfError> {
             Ok(self.existing.lock().unwrap().get(name).cloned())
         }
-        async fn apply_configmap(
+        async fn create_configmap(
             &self,
             name: &str,
             _ns: &str,
             data: BTreeMap<String, String>,
-        ) -> Result<(), DpfError> {
+        ) -> Result<bool, DpfError> {
+            let mut existing = self.existing.lock().unwrap();
+            if existing.contains_key(name) {
+                return Ok(false);
+            }
             self.applied
                 .lock()
                 .unwrap()
                 .push((name.to_string(), data.clone()));
-            self.existing.lock().unwrap().insert(name.to_string(), data);
-            Ok(())
+            existing.insert(name.to_string(), data);
+            Ok(true)
+        }
+
+        async fn apply_configmap(
+            &self,
+            _name: &str,
+            _ns: &str,
+            _data: BTreeMap<String, String>,
+        ) -> Result<(), DpfError> {
+            unreachable!("seeding must never apply; it is create-only")
         }
         async fn get_secret(
             &self,
@@ -5641,20 +5664,28 @@ mod extra_script_configmap_tests {
         );
     }
 
-    /// A ConfigMap lacking the script key must still be seeded.
+    /// Seeding is create-only, so an existing ConfigMap is never written to,
+    /// whatever it holds. NICo has no `update` on these at the RBAC layer either.
     #[tokio::test]
-    async fn a_configmap_without_the_script_key_is_still_seeded() {
+    async fn an_existing_configmap_is_never_written_to() {
         for seeded in [
             BTreeMap::new(),
             BTreeMap::from([("other".into(), "x".into())]),
         ] {
-            let mock = ConfigMapMock::seeded("extra-script-pre-ovs-bf4-astra", seeded);
+            let mock = ConfigMapMock::seeded("extra-script-pre-ovs-bf4-astra", seeded.clone());
             create_extra_script_configmaps(&mock, NS, DpuDeploymentType::Bf4Astra)
                 .await
                 .expect("seeding succeeds");
-            assert!(
-                mock.applied_names()
-                    .contains(&"extra-script-pre-ovs-bf4-astra".to_string())
+
+            assert_eq!(
+                mock.applied_names(),
+                vec!["extra-script-post-ovs-bf4-astra"],
+                "only the absent ConfigMap is created"
+            );
+            assert_eq!(
+                mock.existing.lock().unwrap()["extra-script-pre-ovs-bf4-astra"],
+                seeded,
+                "the existing ConfigMap is left byte-for-byte alone"
             );
         }
     }

@@ -99,11 +99,8 @@ fn get_bf4_ovs_defaults_base() -> String {
         "_ovs-vsctl() {\n",
         "    ovs-vsctl --timeout 15 \"$@\"\n",
         "}\n",
-        // Exported so the operator hook scripts inherit the helper, as on Astra.
+        // Exported so the post-OVS hook inherits the helper, as on Astra.
         "export -f _ovs-vsctl\n",
-
-        // Guarded: agent-applied, so absent on the first boot.
-        "if [ -x /opt/dpf/extra-script-pre-ovs.sh ]; then /opt/dpf/extra-script-pre-ovs.sh; fi\n",
 
         "# Remove default OVS configuration on the DPU and ensure no leftovers on the OVS kernel side\n",
         "for i in $(seq 1 99); do\n",
@@ -165,6 +162,7 @@ fn get_default_ovs_defaults_with_topology(topology: Option<&DpfInterceptBridging
 fn get_bf4_ovs_defaults_with_topology(topology: Option<&DpfInterceptBridging>) -> String {
     // Explicit bash, as on Astra: the base uses `export -f`, which errors under dash.
     let mut script = String::from("#!/bin/bash\n");
+    append_pre_ovs_hook(&mut script);
     // Preflight is prepended so no inherited or configured OVS operation can run first.
     script.push_str(&topology.map_or_else(String::new, render_bf4_pf_preflight));
     script.push_str(&get_bf4_ovs_defaults_base());
@@ -178,14 +176,19 @@ fn get_bf4_ovs_defaults_with_topology(topology: Option<&DpfInterceptBridging>) -
             }
         });
     }
-    // After every bridge and port, but before the encap-IP tail the
-    // `ovs_bootstrap_ends_with_ovn_encap_ip_configuration` contract requires last.
-    append_post_ovs_hook(&mut script);
     append_ovn_encap_ip_bootstrap(&mut script);
+    append_post_ovs_hook(&mut script);
     script
 }
 
-/// Appends the operator's post-OVS hook, guarded because it is agent-applied.
+/// Appends the operator's pre-OVS hook, which runs before anything else.
+fn append_pre_ovs_hook(script: &mut String) {
+    script.push_str(
+        "if [ -x /opt/dpf/extra-script-pre-ovs.sh ]; then /opt/dpf/extra-script-pre-ovs.sh; fi\n",
+    );
+}
+
+/// Appends the operator's post-OVS hook, which runs last.
 fn append_post_ovs_hook(script: &mut String) {
     script.push_str(
         "if [ -x /opt/dpf/extra-script-post-ovs.sh ]; then /opt/dpf/extra-script-post-ovs.sh; fi\n",
@@ -324,6 +327,7 @@ fn bf4_pf_variable(controller_id: u8, pf_id: u8) -> String {
 fn get_bf4_astra_ovs_defaults() -> String {
     concat!(
         "#!/bin/bash\n",
+        "if [ -x /opt/dpf/extra-script-pre-ovs.sh ]; then /opt/dpf/extra-script-pre-ovs.sh; fi\n",
         "# Shared helper used by the called scripts; exported so they inherit it\n",
         "\n",
         "# create an entry in /etc/hosts to allow self hostname resolution: (bug fix)\n",
@@ -334,14 +338,12 @@ fn get_bf4_astra_ovs_defaults() -> String {
         "}\n",
         "export -f _ovs-vsctl\n",
         "\n",
-        // Guarded: agent-applied, so absent on the first boot.
-        "if [ -x /opt/dpf/extra-script-pre-ovs.sh ]; then /opt/dpf/extra-script-pre-ovs.sh; fi\n",
         "# 1. Configure OVS bridges and xplane ports\n",
         "/etc/mellanox/ovs-script.sh\n",
-        "if [ -x /opt/dpf/extra-script-post-ovs.sh ]; then /opt/dpf/extra-script-post-ovs.sh; fi\n",
         "\n",
         "# 2. Configure rail bridge addressing (netplan)\n",
         "/etc/mellanox/xplane-bridge.sh\n",
+        "if [ -x /opt/dpf/extra-script-post-ovs.sh ]; then /opt/dpf/extra-script-post-ovs.sh; fi\n",
     )
     .to_string()
 }
@@ -2030,27 +2032,81 @@ mod tests {
                 get_default_ovs_defaults_with_topology(None) => true,
             }
 
+            // BF4 runs the operator's post-OVS hook last, so the encap-IP block is
+            // the final NICo-authored step rather than the final line.
             "generic BF4 provisioning" {
-                get_bf4_ovs_defaults_with_topology(None) => true,
+                get_bf4_ovs_defaults_with_topology(None) => false,
             }
         );
+        assert!(get_bf4_ovs_defaults_with_topology(None).contains(&expected));
     }
 
-    /// Both BF4 scripts must invoke both operator hooks; the post-ovs one is
-    /// appended separately from the base and is easy to drop.
+    /// Every BF4 script must run the pre hook before any OVS work and the post
+    /// hook after all of it. The post hook is appended separately and is easy to
+    /// drop or misplace.
     #[test]
-    fn bf4_scripts_invoke_both_operator_hooks() {
+    fn bf4_scripts_run_pre_hook_first_and_post_hook_last() {
         for script in [
             get_bf4_ovs_defaults_with_topology(None),
             get_bf4_ovs_defaults_with_topology(Some(&intercept_bridging())),
             get_bf4_astra_ovs_defaults(),
         ] {
+            let guard = |hook: &str| {
+                let path = format!("/opt/dpf/extra-script-{hook}.sh");
+                let line = format!("if [ -x {path} ]; then {path}; fi");
+                script
+                    .find(&line)
+                    .unwrap_or_else(|| panic!("missing guarded {hook} hook"))
+            };
+            let (pre, post) = (guard("pre-ovs"), guard("post-ovs"));
+
+            let first_ovs = script
+                .find("ovs")
+                .expect("script must contain OVS configuration");
+            assert!(pre < first_ovs, "pre-ovs hook must precede all OVS work");
+            assert_eq!(
+                post + script[post..].len(),
+                script.len(),
+                "post-ovs hook must be the last line"
+            );
+            assert!(script[post..].lines().count() == 1, "nothing may follow it");
+        }
+    }
+
+    /// The hook files must keep referencing the ConfigMaps the SDK seeds, under
+    /// the key it writes, and stay executable agent-applied files.
+    #[test]
+    fn bf4_hook_config_files_reference_their_configmaps() {
+        for (files, suffix) in [
+            (
+                get_config_files(&None, DpuDeploymentType::Bf4Generic, None).unwrap(),
+                "bf4-generic",
+            ),
+            (get_bf4_astra_config_files(&None).unwrap(), "bf4-astra"),
+        ] {
             for hook in ["pre-ovs", "post-ovs"] {
                 let path = format!("/opt/dpf/extra-script-{hook}.sh");
-                assert!(
-                    script.contains(&format!("if [ -x {path} ]; then {path}; fi")),
-                    "missing guarded {hook} hook"
+                let file = files
+                    .iter()
+                    .find(|f| f.path == path)
+                    .unwrap_or_else(|| panic!("{suffix}: no config file for {path}"));
+                let key_ref = file
+                    .content_from
+                    .as_ref()
+                    .and_then(|c| c.config_map_key_ref.as_ref())
+                    .unwrap_or_else(|| panic!("{suffix}: {path} must use configMapKeyRef"));
+
+                assert_eq!(
+                    key_ref.name.as_deref(),
+                    Some(&*format!("extra-script-{hook}-{suffix}"))
                 );
+                assert_eq!(key_ref.key, "script");
+                assert_eq!(file.permissions.as_deref(), Some("0755"));
+                assert!(matches!(
+                    file.r#type,
+                    Some(DpuFlavorConfigFilesType::AgentApplied)
+                ));
+                assert!(file.raw.is_none(), "{suffix}: raw and contentFrom conflict");
             }
         }
     }
