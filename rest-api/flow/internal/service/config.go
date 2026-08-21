@@ -9,13 +9,13 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/encryption"
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/endpoint"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/authz"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/certs"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/clients/temporal"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/config"
-	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/secret"
 	cmconfig "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/config"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providerapi"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor"
@@ -69,7 +69,7 @@ type Config struct {
 	FlowConfig       config.Config
 	CMConfig         cmconfig.Config
 	ProviderRegistry *providerapi.ProviderRegistry
-	DataCipher       *secret.Cipher
+	DataCipher       *encryption.Cipher
 
 	// DevMode enables developer options such as gRPC reflection and debug
 	// logging. Must not be set in staging/production environments.

@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.temporal.io/sdk/worker"
 
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/encryption"
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/endpoint"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/clients/temporal"
-	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/secret"
 )
 
 func TestConfigValidateRequiresDataCipher(t *testing.T) {
@@ -32,7 +32,7 @@ func TestConfigValidateRequiresDataCipher(t *testing.T) {
 
 func TestConfigValidateAcceptsDataCipher(t *testing.T) {
 	key := make([]byte, 32)
-	cipher, err := secret.NewCipher(base64.StdEncoding.EncodeToString(key))
+	cipher, err := encryption.NewCipher(base64.StdEncoding.EncodeToString(key))
 	require.NoError(t, err)
 	conf := Config{
 		ClientConf: temporal.Config{

@@ -15,13 +15,13 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/encryption"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/converter/protobuf"
 	dbquery "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/query"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/firmwareauth"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
 	operationrun "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun"
 	operationrunmanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun/manager"
-	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/secret"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 	pb "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/proto/v1"
@@ -92,7 +92,7 @@ func TestCreateOperationRunEncryptsFirmwareAuthenticationData(t *testing.T) {
 func TestCreateOperationRunAuthenticationDataStatusCodes(t *testing.T) {
 	tests := []struct {
 		name               string
-		cipher             *secret.Cipher
+		cipher             *encryption.Cipher
 		authenticationData *pb.FirmwareAuthenticationData
 		subTargets         []string
 		wantCode           codes.Code

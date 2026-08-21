@@ -11,7 +11,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/secret"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/encryption"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/firmwarecomponents"
 	pb "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/proto/v1"
@@ -47,10 +47,10 @@ func IsInvalidData(err error) bool {
 // encrypts it. An absent or explicitly empty value is represented by nil so
 // callers can omit it from persisted payloads.
 func Encrypt(
-	cipher *secret.Cipher,
+	cipher *encryption.Cipher,
 	authenticationData *pb.FirmwareAuthenticationData,
 	subTargets []string,
-) (*secret.EncryptedData, error) {
+) (*encryption.EncryptedData, error) {
 	empty, err := validate(authenticationData)
 	if err != nil {
 		return nil, &InvalidDataError{err: err}
@@ -86,8 +86,8 @@ func Encrypt(
 // component type. A shared value applies to every supported component type. A
 // missing per-component field means that type receives no authentication data.
 func DecryptFor(
-	cipher *secret.Cipher,
-	encrypted *secret.EncryptedData,
+	cipher *encryption.Cipher,
+	encrypted *encryption.EncryptedData,
 	componentType devicetypes.ComponentType,
 ) (string, error) {
 	if encrypted == nil {

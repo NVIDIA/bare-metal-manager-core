@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/authz"
-	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/secret"
 	cmconfig "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/config"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 )
@@ -192,7 +191,7 @@ func TestLoadDataCipherFromEnv(t *testing.T) {
 		keyContents *string
 		wantErr     string
 	}{
-		{name: "missing environment variable", wantErr: secret.EncryptionKeyPathEnvVar + " is not set"},
+		{name: "missing environment variable", wantErr: dataEncryptionKeyPathEnvVar + " is not set"},
 		{name: "valid key", keyContents: &validKey},
 		{
 			name:        "invalid key",
@@ -203,14 +202,14 @@ func TestLoadDataCipherFromEnv(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(secret.EncryptionKeyPathEnvVar, "")
+			t.Setenv(dataEncryptionKeyPathEnvVar, "")
 			if tt.keyContents != nil {
 				path := filepath.Join(t.TempDir(), "encryption-key")
 				require.NoError(
 					t,
 					os.WriteFile(path, []byte(*tt.keyContents), 0o600),
 				)
-				t.Setenv(secret.EncryptionKeyPathEnvVar, path)
+				t.Setenv(dataEncryptionKeyPathEnvVar, path)
 			}
 
 			cipher, err := loadDataCipherFromEnv()

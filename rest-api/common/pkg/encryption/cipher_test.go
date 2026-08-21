@@ -1,10 +1,11 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-package secret
+package encryption
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -163,6 +164,25 @@ func TestCipherEncryptedDataEnvelope(t *testing.T) {
 	plaintext, err := cipher.DecryptData(encrypted, additionalData)
 	require.NoError(t, err)
 	require.Equal(t, []byte("download-credential"), plaintext)
+
+	t.Run("JSON wire shape", func(t *testing.T) {
+		candidate := EncryptedData{
+			Version:    1,
+			KeyID:      "key-id",
+			Ciphertext: []byte{0x01, 0x02},
+		}
+		wire, err := json.Marshal(candidate)
+		require.NoError(t, err)
+		require.JSONEq(
+			t,
+			`{"version":1,"key_id":"key-id","ciphertext":"AQI="}`,
+			string(wire),
+		)
+
+		var restored EncryptedData
+		require.NoError(t, json.Unmarshal(wire, &restored))
+		require.Equal(t, candidate, restored)
+	})
 
 	t.Run("wrong purpose AAD", func(t *testing.T) {
 		_, err := cipher.DecryptData(encrypted, []byte("flow:another-purpose"))

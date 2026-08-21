@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// Package secret encrypts sensitive Flow data before it is persisted or sent
-// through Temporal.
-package secret
+// Package encryption provides versioned authenticated encryption for sensitive
+// data persisted or sent through workflow systems.
+package encryption
 
 import (
 	"crypto/aes"
@@ -19,10 +19,6 @@ import (
 	"os"
 	"strings"
 )
-
-// EncryptionKeyPathEnvVar names the environment variable containing the path
-// to Flow's mounted data-encryption key.
-const EncryptionKeyPathEnvVar = "FLOW_DATA_ENCRYPTION_KEY_PATH"
 
 // EncryptedDataVersion identifies the persisted ciphertext envelope format.
 const EncryptedDataVersion uint32 = 1
