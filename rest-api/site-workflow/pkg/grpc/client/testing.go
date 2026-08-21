@@ -334,7 +334,7 @@ func (mcgsc *MockCoreGrpcServiceClient) FindInstancesByIds(ctx context.Context, 
 	out := &corev1.InstanceList{}
 	if in != nil {
 		ids := in.InstanceIds
-		if dropPerPage > 0 && len(ids) > dropPerPage {
+		if dropPerPage > 0 && len(ids) >= dropPerPage {
 			ids = ids[:len(ids)-dropPerPage]
 		}
 		for _, id := range ids {

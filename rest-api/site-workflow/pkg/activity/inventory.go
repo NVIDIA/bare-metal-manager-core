@@ -169,13 +169,13 @@ func (impl *manageInventoryImpl[K, R, P]) CollectAndPublishInventory(ctx context
 			collector.itemsMissing += consumed - len(siteItems)
 		}
 
-		err = collector.publishItems(ctx, logger, siteItems)
+		err = collector.bufferItems(ctx, logger, siteItems)
 		if err != nil {
 			return err
 		}
 	}
 
-	return nil
+	return collector.flush(ctx, logger)
 }
 
 // collectAndPublishFallback collects the whole inventory in one call, for a Core that does not
@@ -211,7 +211,11 @@ func (impl *manageInventoryImpl[K, R, P]) collectAndPublishFallback(ctx context.
 		return nil
 	}
 
-	return collector.publishItems(ctx, logger, siteItems)
+	err = collector.bufferItems(ctx, logger, siteItems)
+	if err != nil {
+		return err
+	}
+	return collector.flush(ctx, logger)
 }
 
 // inventoryCollector fetches inventory from Core and publishes it to Cloud a page at a time.
@@ -233,6 +237,9 @@ type inventoryCollector[K any, R any, P any] struct {
 	// itemsMissing counts IDs that FindIDs reported but FindByIDs did not return, which is what
 	// a delete landing between the two calls looks like.
 	itemsMissing int
+	// pending holds items fetched but not yet published. It never exceeds one page, because the
+	// tail stays here until the caller flushes it.
+	pending []R
 }
 
 // newCollector prepares the per-run state the collector carries across site pages.
@@ -270,25 +277,58 @@ func (col *inventoryCollector[K, R, P]) fetchSitePage(ctx context.Context, logge
 	}
 }
 
-// publishItems cuts one site page of items into published pages and sends each to Cloud.
-func (col *inventoryCollector[K, R, P]) publishItems(ctx context.Context, logger *zerolog.Logger, items []R) error {
-	for len(items) > 0 {
-		page, pageItems, err := col.buildPageWithinBudget(ctx, logger, items)
+// bufferItems takes one site page of items and publishes whole pages from everything buffered
+// so far, always holding at least one item back. Retaining the tail is what lets flush know the
+// page carrying it is the last one, which is how Cloud recognizes a complete run. It also fills
+// pages across site page boundaries instead of flushing a short page at each one.
+func (col *inventoryCollector[K, R, P]) bufferItems(ctx context.Context, logger *zerolog.Logger, items []R) error {
+	col.pending = append(col.pending, items...)
+	// Strictly greater, so a full buffer still leaves something for flush to carry.
+	for len(col.pending) > col.cloudPageSize {
+		err := col.publishNextPage(ctx, logger)
 		if err != nil {
 			return err
 		}
-
-		logger.Info().Msgf("Publishing inventory page %d to Cloud", col.pagesPublished+1)
-		err = col.execute(ctx, page)
-		if err != nil {
-			logger.Error().Err(err).Int("Cloud Page", col.pagesPublished+1).Msg("Failed to publish inventory to Cloud")
-			return err
-		}
-
-		col.pagesPublished++
-		col.itemsPublished += pageItems
-		items = items[pageItems:]
 	}
+	return nil
+}
+
+// flush publishes whatever is still buffered once every site page has been fetched, so the last
+// page it sends reports itself as the final page.
+func (col *inventoryCollector[K, R, P]) flush(ctx context.Context, logger *zerolog.Logger) error {
+	for len(col.pending) > 0 {
+		err := col.publishNextPage(ctx, logger)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Core reported IDs but returned no object for any of them. Publishing the ID list with no
+	// items lets Cloud reconcile against a complete run instead of receiving nothing and holding
+	// the previous inventory. Every reported ID is present, so nothing gets deleted.
+	if col.pagesPublished == 0 {
+		return col.publishNextPage(ctx, logger)
+	}
+	return nil
+}
+
+// publishNextPage builds one page from the front of the buffer and sends it to Cloud.
+func (col *inventoryCollector[K, R, P]) publishNextPage(ctx context.Context, logger *zerolog.Logger) error {
+	page, pageItems, err := col.buildPageWithinBudget(ctx, logger, col.pending)
+	if err != nil {
+		return err
+	}
+
+	logger.Info().Msgf("Publishing inventory page %d to Cloud", col.pagesPublished+1)
+	err = col.execute(ctx, page)
+	if err != nil {
+		logger.Error().Err(err).Int("Cloud Page", col.pagesPublished+1).Msg("Failed to publish inventory to Cloud")
+		return err
+	}
+
+	col.pagesPublished++
+	col.itemsPublished += pageItems
+	col.pending = col.pending[pageItems:]
 	return nil
 }
 
@@ -311,9 +351,12 @@ func (col *inventoryCollector[K, R, P]) buildPageWithinBudget(ctx context.Contex
 		if size <= maxPublishPayloadBytes {
 			return page, pageItems, nil
 		}
-		if pageItems == 1 {
+		// At one item there is nothing left to split, and at zero the page is carrying only the
+		// ID list, which no page size can shrink. Publishing either anyway beats dropping
+		// inventory or looping on a size that cannot come down.
+		if pageItems <= 1 {
 			logger.Error().Int("Payload Bytes", size).Int("Budget Bytes", maxPublishPayloadBytes).
-				Msg("A single inventory item exceeds the publish budget, publishing it anyway")
+				Int("Page Items", pageItems).Msg("An inventory page exceeds the publish budget, publishing it anyway")
 			return page, pageItems, nil
 		}
 
@@ -337,8 +380,9 @@ func (col *inventoryCollector[K, R, P]) buildInventoryPage(ctx context.Context, 
 	}
 	// The Cloud worker runs its deletion sweep on the page where CurrentPage equals TotalPages, so
 	// the total is derived from what is left rather than fixed up front, which the publish page
-	// size stepping down would invalidate. Discounting itemsMissing keeps the last page exact, and
-	// because it only grows as site pages arrive a mid-run total can read high but never low.
+	// size stepping down would invalidate. This reduces to unfetched IDs plus buffered items, so
+	// it reaches zero only on the page that carries the last of both. Discounting itemsMissing is
+	// what keeps an item Core never returned from holding the total above the page number.
 	remainingItems := input.totalItems - col.itemsMissing - col.itemsPublished - pageItems
 	input.totalPages = input.pageNumber + ceilDiv(remainingItems, col.cloudPageSize)
 

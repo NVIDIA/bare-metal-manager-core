@@ -459,8 +459,9 @@ func TestManageInstanceInventory_DiscoverInstanceInventory(t *testing.T) {
 			},
 		},
 		{
-			// Core rejects 100, 90, ... down to 40, so the site page settles at 40 and the
-			// publish page stays at 25, splitting each site page into 25 then 15.
+			// Core rejects 100, 90, ... down to 40, so the site page settles at 40. Buffering
+			// carries the remainder of each site page into the next, so the published pages stay
+			// full instead of flushing a short one at every boundary.
 			name: "test collecting and publishing instance inventory, site page steps down",
 			fields: fields{
 				siteID:               uuid.New(),
@@ -472,7 +473,7 @@ func TestManageInstanceInventory_DiscoverInstanceInventory(t *testing.T) {
 			args: args{
 				wantTotalItems: 100,
 				maxRequestIDs:  45,
-				wantPageItems:  []int{25, 15, 25, 15, 20},
+				wantPageItems:  []int{25, 25, 25, 25},
 			},
 		},
 		{
@@ -505,7 +506,7 @@ func TestManageInstanceInventory_DiscoverInstanceInventory(t *testing.T) {
 				wantTotalItems:  60,
 				padBytesPerItem: 115 * 1024,
 				maxRequestIDs:   45,
-				wantPageItems:   []int{15, 15, 10, 15, 5},
+				wantPageItems:   []int{15, 15, 15, 15},
 			},
 		},
 		{
@@ -544,8 +545,8 @@ func TestManageInstanceInventory_DiscoverInstanceInventory(t *testing.T) {
 			},
 		},
 		{
-			// Across several site pages the shortfall is only known page by page, so the total
-			// reads high mid-run and settles exactly on the last page.
+			// Across several site pages the shortfall is only known page by page, and the tail
+			// stays buffered until every page has been fetched, so the total settles exactly.
 			name: "test collecting and publishing instance inventory, Instances missing across site pages",
 			fields: fields{
 				siteID:               uuid.New(),
@@ -557,7 +558,43 @@ func TestManageInstanceInventory_DiscoverInstanceInventory(t *testing.T) {
 			args: args{
 				wantTotalItems:       250,
 				dropInstancesPerPage: 3,
-				wantPageItems:        []int{25, 25, 25, 22, 25, 25, 25, 22, 25, 22},
+				wantPageItems:        []int{25, 25, 25, 25, 25, 25, 25, 25, 25, 16},
+			},
+		},
+		{
+			// The trailing site page holds exactly 10 IDs and Core returns none of them, so no
+			// page is published from it. Holding the tail back is what keeps the page before it
+			// from claiming a total it cannot reach.
+			name: "test collecting and publishing instance inventory, trailing site page returns nothing",
+			fields: fields{
+				siteID:               uuid.New(),
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
+				temporalPublishQueue: "test-queue",
+				sitePageSize:         100,
+				cloudPageSize:        25,
+			},
+			args: args{
+				wantTotalItems:       110,
+				dropInstancesPerPage: 10,
+				wantPageItems:        []int{25, 25, 25, 15},
+			},
+		},
+		{
+			// Core reported IDs but returned no object for any of them. Cloud still gets one
+			// page carrying the full ID list, so it reconciles against a complete run and
+			// deletes nothing rather than receiving silence.
+			name: "test collecting and publishing instance inventory, Core returns no Instances at all",
+			fields: fields{
+				siteID:               uuid.New(),
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
+				temporalPublishQueue: "test-queue",
+				sitePageSize:         100,
+				cloudPageSize:        25,
+			},
+			args: args{
+				wantTotalItems:       50,
+				dropInstancesPerPage: 50,
+				wantPageItems:        []int{0},
 			},
 		},
 		{
