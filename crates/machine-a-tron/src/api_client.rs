@@ -330,6 +330,8 @@ impl ApiClient {
                 delete_bmc_interfaces: true,
                 delete_bmc_credentials: false,
                 allow_delete_with_orphaned_dpf_crds: false,
+                delete_bmc_suppressions: false,
+                delete_retained_boot_interfaces: false,
             })
             .await
             .map_err(ClientApiError::InvocationError)
@@ -491,6 +493,7 @@ impl ApiClient {
                 routing_profile_type: None,
                 routing_profile_overrides: None,
                 power_resource_group: None,
+                slaac_enabled: None,
                 metadata: Some(rpc::forge::Metadata {
                     name: format!("vpc_{vpc_count}"),
                     description: "".to_string(),

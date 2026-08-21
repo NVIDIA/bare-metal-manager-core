@@ -512,6 +512,7 @@ func TestCreateSiteHandler_Handle(t *testing.T) {
 				require.NotNil(t, rst.Capabilities)
 				assert.True(t, rst.Capabilities.NativeNetworking)
 				assert.True(t, rst.Capabilities.NetworkSecurityGroup)
+				assert.False(t, rst.Capabilities.VpcSlaac)
 
 				createdSiteID, perr := uuid.Parse(rst.ID)
 				require.NoError(t, perr)
@@ -522,6 +523,7 @@ func TestCreateSiteHandler_Handle(t *testing.T) {
 				require.NotNil(t, createdSite.Config)
 				assert.True(t, createdSite.Config.NativeNetworking)
 				assert.True(t, createdSite.Config.NetworkSecurityGroup)
+				assert.False(t, createdSite.Config.VpcSlaac)
 
 				if !tt.siteMgrDisabled {
 					assert.NotNil(t, rst.RegistrationToken)
@@ -585,7 +587,7 @@ func TestUpdateSiteHandler_Handle(t *testing.T) {
 	st2 := testSiteBuildSite(t, dbSession, ip, "test-site-2", cdbm.SiteStatusError, ipu, nil, nil, nil)
 	st3 := testSiteBuildSite(t, dbSession, ip, "test-site-3", cdbm.SiteStatusRegistered, ipu, nil, nil, nil)
 	st4 := testSiteBuildSite(t, dbSession, ip, "test-site-4", cdbm.SiteStatusRegistered, ipu, nil, nil, nil)
-	st5 := testSiteBuildSite(t, dbSession, ip, "test-site-5", cdbm.SiteStatusRegistered, ipu, nil, nil, &cdbm.SiteConfig{NativeNetworking: true, NetworkSecurityGroup: true})
+	st5 := testSiteBuildSite(t, dbSession, ip, "test-site-5", cdbm.SiteStatusRegistered, ipu, nil, nil, &cdbm.SiteConfig{NativeNetworking: true, NetworkSecurityGroup: true, VpcSlaac: true})
 	st6 := testSiteBuildSite(t, dbSession, ip, "test-site-6", cdbm.SiteStatusRegistered, ipu, nil, nil, &cdbm.SiteConfig{NativeNetworking: true, NetworkSecurityGroup: true})
 
 	common.TestBuildTenantSite(t, dbSession, tn, st6, tnu)
@@ -619,10 +621,12 @@ func TestUpdateSiteHandler_Handle(t *testing.T) {
 		wantErr            bool
 		query              url.Values
 		wantStatus         *string
+		respMessage        string
 		siteMgrErr         bool
 		csmEnabled         bool
 		verifyTenantUpdate bool
 		verifyChildSpanner bool
+		verifyVpcSlaac     bool
 	}{
 		{
 			name: "test Site update API endpoint success",
@@ -648,6 +652,26 @@ func TestUpdateSiteHandler_Handle(t *testing.T) {
 			csmEnabled:         true,
 			wantErr:            false,
 			verifyChildSpanner: true,
+		},
+		{
+			name: "test Site update API endpoint rejects Provider modification of inventory capability",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        &tmocks.Client{},
+				cfg:       cfg,
+			},
+			args: args{
+				site: st5,
+				org:  ipOrg,
+				user: ipu,
+				reqData: &model.APISiteUpdateRequest{
+					Capabilities: &model.APISiteCapabilitiesUpdateRequest{VpcSlaac: cutil.GetPtr(false)},
+				},
+			},
+			csmEnabled:     true,
+			wantErr:        true,
+			respMessage:    model.ErrMsgNotConfigurableByProvider,
+			verifyVpcSlaac: true,
 		},
 		{
 			name: "test Site update API endpoint success modifying capabilities",
@@ -966,6 +990,15 @@ func TestUpdateSiteHandler_Handle(t *testing.T) {
 				t.Logf("body: %s", rec.Body.Bytes())
 			}
 			require.Equal(t, tt.wantErr, rec.Code != http.StatusOK)
+			if tt.respMessage != "" {
+				assert.Contains(t, rec.Body.String(), tt.respMessage)
+			}
+			if tt.verifyVpcSlaac {
+				storedSite, getErr := cdbm.NewSiteDAO(tt.fields.dbSession).GetByID(ctx, nil, tt.args.site.ID, nil, false)
+				require.NoError(t, getErr)
+				require.NotNil(t, storedSite.Config)
+				assert.True(t, storedSite.Config.VpcSlaac)
+			}
 
 			rst := &model.APISite{}
 
@@ -1043,6 +1076,11 @@ func TestUpdateSiteHandler_Handle(t *testing.T) {
 							assert.Equal(t, tt.args.site.Config.NetworkSecurityGroup, rst.Capabilities.NetworkSecurityGroup)
 						}
 					}
+					expectedVpcSlaac := false
+					if tt.args.site.Config != nil {
+						expectedVpcSlaac = tt.args.site.Config.VpcSlaac
+					}
+					assert.Equal(t, expectedVpcSlaac, rst.Capabilities.VpcSlaac)
 				}
 
 				if updated {

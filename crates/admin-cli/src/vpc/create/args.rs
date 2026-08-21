@@ -77,6 +77,7 @@ impl From<Args> for forge::VpcCreationRequest {
             routing_profile_type: None,
             routing_profile_overrides: None,
             power_resource_group: None,
+            slaac_enabled: None,
         }
     }
 }

@@ -379,14 +379,23 @@ install_go() {
 }
 
 install_rust() {
+  local install_args=(toolchain install "${RUST_VERSION}" --profile minimal)
+
   if [[ ! -x "${USER_HOME}/.cargo/bin/rustup" ]]; then
     log "Installing rustup for ${DEV_USER}"
     run_as_user bash -c \
       'curl --proto "=https" --tlsv1.2 -fsS https://sh.rustup.rs | sh -s -- -y --no-modify-path --profile minimal'
   fi
 
+  if ! run_as_user rustup which --toolchain "${RUST_VERSION}" rustc \
+    >/dev/null 2>&1; then
+    log "Rust ${RUST_VERSION} is missing or incomplete; forcing repair"
+    install_args+=(--force)
+  fi
+
   log "Installing Rust ${RUST_VERSION}"
-  run_as_user rustup toolchain install "${RUST_VERSION}" --profile minimal
+  run_as_user rustup "${install_args[@]}"
+  run_as_user rustup which --toolchain "${RUST_VERSION}" rustc >/dev/null
   run_as_user rustup component add \
     --toolchain "${RUST_VERSION}" \
     clippy \

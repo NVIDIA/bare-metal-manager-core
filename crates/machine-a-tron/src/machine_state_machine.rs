@@ -140,13 +140,13 @@ fn abandon_machine_actions_on_power_change(
 
 fn direct_dhcp_relay_address(
     is_host: bool,
-    admin_relay_address: Ipv4Addr,
+    underlay_relay_address: Ipv4Addr,
     host_inband_relay_address: Option<Ipv4Addr>,
 ) -> Ipv4Addr {
     if is_host {
-        host_inband_relay_address.unwrap_or(admin_relay_address)
+        host_inband_relay_address.unwrap_or(underlay_relay_address)
     } else {
-        admin_relay_address
+        underlay_relay_address
     }
 }
 
@@ -264,6 +264,7 @@ pub(super) struct LiveState {
     pub(super) machine_ip: Option<Ipv4Addr>,
     pub(super) bmc_ip: Option<Ipv4Addr>,
     pub(super) ipmi_endpoint: Option<IpmiEndpoint>,
+    pub(super) ssh_endpoint_port: Option<u16>,
     pub(super) booted_os: MaybeOsImage,
     pub(super) next_boot_kind: Option<BootOptionKind>,
     pub(super) installed_os: OsImage,
@@ -292,6 +293,7 @@ impl Default for LiveState {
             machine_ip: None,
             bmc_ip: None,
             ipmi_endpoint: None,
+            ssh_endpoint_port: None,
             booted_os: Default::default(),
             next_boot_kind: None,
             installed_os: Default::default(),
@@ -712,7 +714,7 @@ impl MachineStateMachine {
             .dhcp_client
             .request_ip(DhcpRequestInfo {
                 mac_address: self.machine_info.bmc_mac_address(),
-                relay_address: self.config.oob_dhcp_relay_address,
+                relay_address: self.config.bmc_dhcp_relay_address,
                 vendor_class: vendor_class(&self.machine_info, DhcpRequester::Bmc),
             })
             .await
@@ -777,7 +779,7 @@ impl MachineStateMachine {
         } else {
             let direct_relay_address = direct_dhcp_relay_address(
                 matches!(&self.machine_info, MachineInfo::Host(_)),
-                self.config.admin_dhcp_relay_address,
+                self.config.underlay_dhcp_relay_address,
                 self.config.host_inband_dhcp_relay_address,
             );
             tracing::debug!(
@@ -1006,6 +1008,10 @@ impl MachineStateMachine {
             .bmc_mock
             .as_ref()
             .and_then(|bmc_mock| bmc_mock.ipmi_endpoint());
+        live_state.ssh_endpoint_port = self
+            .bmc_mock
+            .as_ref()
+            .and_then(|bmc_mock| bmc_mock.ssh_endpoint_port());
         live_state.installed_os = self.installed_os;
         if let Some(machine_id) = self.machine_id()
             && live_state.observed_machine_id != Some(machine_id)
@@ -1173,17 +1179,18 @@ impl MachineStateMachine {
             instance_network_config_version =
                 Some(network_config.instance_network_config_version.clone());
 
+            // Tenant status consumers pair addresses and prefixes positionally. A SLAAC
+            // interface has no concrete IPv6 address yet, so omit that family from both.
             for iface in network_config.tenant_interfaces.iter() {
-                let addresses = build_dual_stack_list(
-                    iface.ip.clone(),
-                    iface.ipv6_interface_config.as_ref().map(|v6| v6.ip.clone()),
-                );
+                let observed_ipv6 = iface
+                    .ipv6_interface_config
+                    .as_ref()
+                    .filter(|ipv6| !ipv6.ip.is_empty());
+                let addresses =
+                    build_dual_stack_list(iface.ip.clone(), observed_ipv6.map(|v6| v6.ip.clone()));
                 let prefixes = build_dual_stack_list(
                     iface.interface_prefix.clone(),
-                    iface
-                        .ipv6_interface_config
-                        .as_ref()
-                        .map(|v6| v6.interface_prefix.clone()),
+                    observed_ipv6.map(|v6| v6.interface_prefix.clone()),
                 );
                 interfaces.push(rpc::forge::InstanceInterfaceStatusObservation {
                     function_type: iface.function_type,
@@ -1301,11 +1308,20 @@ impl MachineStateMachine {
                     .await
                     .insert(ip_address.to_string(), bmc_mock.router().clone());
                 bmc_mock
-                    .start_ipmi_only(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED))
+                    .start_shared_mode_consoles(std::net::IpAddr::V4(
+                        std::net::Ipv4Addr::UNSPECIFIED,
+                    ))
                     .await?
                     .map(Arc::new)
             }
         };
+        if let Some(ssh_host_key) = maybe_bmc_mock_handle
+            .as_ref()
+            .and_then(|handle| handle.ssh_handle.as_ref())
+            .map(|handle| handle.host_pubkey.clone())
+        {
+            self.live_state.write().unwrap().ssh_host_key = Some(ssh_host_key);
+        }
         Ok((maybe_bmc_mock_handle, bmc_mock.state().clone()))
     }
 
@@ -1513,7 +1529,7 @@ mod tests {
 
     #[test]
     fn direct_dhcp_relay_selection() {
-        let admin = Ipv4Addr::new(172, 21, 0, 1);
+        let underlay = Ipv4Addr::new(172, 21, 0, 1);
         let host_inband = Ipv4Addr::new(172, 22, 0, 1);
 
         check_values(
@@ -1526,15 +1542,15 @@ mod tests {
                 Check {
                     scenario: "legacy host without HostInband configuration",
                     input: (true, None),
-                    expect: admin,
+                    expect: underlay,
                 },
                 Check {
                     scenario: "DPU ignores HostInband configuration",
                     input: (false, Some(host_inband)),
-                    expect: admin,
+                    expect: underlay,
                 },
             ],
-            |(is_host, host_inband)| direct_dhcp_relay_address(is_host, admin, host_inband),
+            |(is_host, host_inband)| direct_dhcp_relay_address(is_host, underlay, host_inband),
         );
     }
 

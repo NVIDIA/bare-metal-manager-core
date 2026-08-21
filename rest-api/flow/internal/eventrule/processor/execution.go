@@ -40,12 +40,10 @@ func (p *Processor) processAction(
 	execution, err := p.executions.CreateExecution(
 		ctx,
 		eventrule.ExecutionIdentity{
-			EventID:        prepared.Envelope.ID,
-			RuleID:         prepared.Rule.ID,
-			ActionName:     action.Name,
-			CorrelationKey: prepared.Envelope.CorrelationKey,
+			EventKey:   prepared.Envelope.Key,
+			RuleID:     prepared.Rule.ID,
+			ActionName: action.Name,
 		},
-		prepared.Rule.Dedupe.Clone(),
 	)
 	if err != nil || execution == nil {
 		return err
@@ -71,14 +69,11 @@ func (p *Processor) resolveTargets(
 		return nil, nil
 	}
 
-	targets, err := p.targets.Resolve(
-		ctx,
-		target.ResolveRequest{
-			Envelope: prepared.Envelope,
-			Resource: prepared.Resource,
-			Strategy: strategy,
-		},
-	)
+	targets, err := p.resolveTargetRequest(ctx, target.ResolveRequest{
+		Envelope: prepared.Envelope,
+		Resource: prepared.Resource,
+		Strategy: strategy,
+	})
 	if err != nil {
 		if isTerminalTargetError(err) {
 			result := eventrule.FailedExecutionResult(err.Error())
@@ -98,6 +93,33 @@ func (p *Processor) resolveTargets(
 			eventrule.ExecutionReasonNoTargets,
 		)
 		return nil, &result
+	}
+
+	return targets, nil
+}
+
+func (p *Processor) resolveTargetRequest(
+	ctx context.Context,
+	request target.ResolveRequest,
+) ([]target.Target, error) {
+	resolver, err := p.targets.Lookup(request.Envelope.Type, request.Strategy)
+	if err != nil {
+		return nil, err
+	}
+
+	targets, err := resolver.Resolve(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	for i, resolved := range targets {
+		if err := resolved.Validate(); err != nil {
+			return nil, fmt.Errorf(
+				"%w: resolver target %d: %v",
+				target.ErrUnresolvable,
+				i,
+				err,
+			)
+		}
 	}
 
 	return targets, nil

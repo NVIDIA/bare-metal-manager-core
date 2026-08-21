@@ -34,11 +34,11 @@ func TestProcessor_Process(t *testing.T) {
 		ruleErr          error
 		invalidEnvelope  bool
 		noTargets        bool
+		invalidTarget    bool
 		targetErr        error
 		executorErr      error
 		cancelContext    bool
 		invalidResult    bool
-		dedupe           *eventrule.Dedupe
 		wantErr          error
 		wantStatus       eventrule.ExecutionStatus
 		wantReason       eventrule.ExecutionReason
@@ -64,17 +64,6 @@ func TestProcessor_Process(t *testing.T) {
 				Spec: &eventrule.Noop{},
 			}),
 		},
-		"dedupe without correlation key fails before condition skip": {
-			rule: processorRuntimeRule(eventrule.Action{
-				Name: "skip",
-				Condition: eventrule.ActionCondition{
-					ComponentTypes: []flowtypes.ComponentType{flowtypes.ComponentTypeNVSwitch},
-				},
-				Spec: &eventrule.Noop{},
-			}),
-			dedupe:  &eventrule.Dedupe{Window: time.Minute},
-			wantErr: ErrTerminal,
-		},
 		"noop completes on creator fast path": {
 			rule:             processorRuntimeRule(noopAction("noop")),
 			wantStatus:       eventrule.ExecutionStatusCompleted,
@@ -99,6 +88,13 @@ func TestProcessor_Process(t *testing.T) {
 			targetErr:      fmt.Errorf("%w: invalid topology", eventtarget.ErrUnresolvable),
 			wantStatus:     eventrule.ExecutionStatusFailed,
 			wantMessage:    "event target cannot be resolved: invalid topology",
+			wantExecutions: 1,
+		},
+		"invalid resolved target fails": {
+			rule:           processorRuntimeRule(submitAction("submit")),
+			invalidTarget:  true,
+			wantStatus:     eventrule.ExecutionStatusFailed,
+			wantMessage:    "event target cannot be resolved: resolver target 0: target id is required",
 			wantExecutions: 1,
 		},
 		"unresolvable inventory target fails": {
@@ -174,7 +170,6 @@ func TestProcessor_Process(t *testing.T) {
 			rule := test.rule
 			if rule != nil {
 				cloned := rule.Clone()
-				cloned.Dedupe = test.dedupe.Clone()
 				rule = &cloned
 			}
 			ctx, cancel := context.WithCancel(context.Background())
@@ -182,13 +177,13 @@ func TestProcessor_Process(t *testing.T) {
 
 			var executorRuns int
 			targets := defaultTargetResolver(rackID)
-			if test.noTargets || test.targetErr != nil {
-				targets = targetResolverFunc(func(
-					context.Context,
-					eventtarget.ResolveRequest,
-				) ([]eventtarget.Target, error) {
-					return nil, test.targetErr
-				})
+			if test.noTargets || test.invalidTarget || test.targetErr != nil {
+				targets = &testTargetResolver{err: test.targetErr}
+				if test.invalidTarget {
+					targets = &testTargetResolver{targets: []eventtarget.Target{{
+						Kind: eventrule.ResourceKindRack,
+					}}}
+				}
 			}
 			execute := executorFunc(func(
 				_ context.Context,
@@ -217,7 +212,7 @@ func TestProcessor_Process(t *testing.T) {
 			)
 			envelope := runtimeEnvelope(rackID)
 			if test.invalidEnvelope {
-				envelope.ID = uuid.Nil
+				envelope.Key = eventrule.EventKey{}
 			}
 
 			err := processor.Process(ctx, envelope)
@@ -260,11 +255,10 @@ func TestProcessor_persistExecution(t *testing.T) {
 	created, err := store.CreateExecution(
 		context.Background(),
 		eventrule.ExecutionIdentity{
-			EventID:    uuid.New(),
+			EventKey:   eventrule.EventKey{SourceName: "test", SourceKey: "event-1"},
 			RuleID:     uuid.New(),
 			ActionName: "action",
 		},
-		nil,
 	)
 	require.NoError(t, err)
 
@@ -288,24 +282,35 @@ func TestProcessor_persistExecution(t *testing.T) {
 }
 
 func testProcessDeduplication(t *testing.T) {
-	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
 	rackID := uuid.New()
 	tests := map[string]struct {
-		dedupe        *eventrule.Dedupe
-		secondEventID uuid.UUID
+		secondKey        eventrule.EventKey
+		wantRuns         int
+		wantExecutions   int
+		wantObservations int
 	}{
-		"delivery duplicate": {},
-		"semantic duplicate across event IDs": {
-			dedupe:        &eventrule.Dedupe{Window: time.Minute},
-			secondEventID: uuid.New(),
+		"same event key": {
+			wantRuns:         1,
+			wantExecutions:   1,
+			wantObservations: 2,
+		},
+		"different source key": {
+			secondKey:      eventrule.EventKey{SourceName: "test", SourceKey: "event-2"},
+			wantRuns:       2,
+			wantExecutions: 2,
+		},
+		"different source name": {
+			secondKey:      eventrule.EventKey{SourceName: "other", SourceKey: "event-1"},
+			wantRuns:       2,
+			wantExecutions: 2,
 		},
 	}
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
+			now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
 			store := memorystore.NewWithClock(func() time.Time { return now })
 			rule := processorRuntimeRule(noopAction("noop"))
-			rule.Dedupe = test.dedupe
 			var runs int
 			processor := runtimeProcessor(
 				t, rackID, rule, nil, store, defaultTargetResolver(rackID),
@@ -318,22 +323,25 @@ func testProcessDeduplication(t *testing.T) {
 				}),
 			)
 			first := runtimeEnvelope(rackID)
-			first.CorrelationKey = "incident-1"
 			second := first
-			if test.secondEventID != uuid.Nil {
-				second.ID = test.secondEventID
+			if test.secondKey != (eventrule.EventKey{}) {
+				second.Key = test.secondKey
 			}
 
 			require.NoError(t, processor.Process(context.Background(), first))
 			now = now.Add(time.Second)
 			require.NoError(t, processor.Process(context.Background(), second))
-			require.Equal(t, 1, runs)
+			require.Equal(t, test.wantRuns, runs)
 
 			executions, err := store.Executions()
 			require.NoError(t, err)
-			require.Len(t, executions, 1)
-			require.Equal(t, 2, executions[0].Observations)
-			require.Equal(t, eventrule.ExecutionStatusCompleted, executions[0].Status)
+			require.Len(t, executions, test.wantExecutions)
+			for _, execution := range executions {
+				require.Equal(t, eventrule.ExecutionStatusCompleted, execution.Status)
+			}
+			if test.wantObservations > 0 {
+				require.Equal(t, test.wantObservations, executions[0].Observations)
+			}
 		})
 	}
 }
@@ -349,13 +357,10 @@ func testProcessDeferredRedelivery(t *testing.T) {
 		processorRuntimeRule(submitAction("submit")),
 		nil,
 		store,
-		targetResolverFunc(func(
-			context.Context,
-			eventtarget.ResolveRequest,
-		) ([]eventtarget.Target, error) {
-			resolverRuns++
-			return nil, errors.New("inventory unavailable")
-		}),
+		&testTargetResolver{
+			err:  errors.New("inventory unavailable"),
+			runs: &resolverRuns,
+		},
 		executorFunc(func(
 			context.Context,
 			eventexecutor.ExecutionRequest,
@@ -491,7 +496,7 @@ func runtimeProcessor(
 		},
 		Rules:      resolver,
 		Executions: store,
-		Targets:    targets,
+		Targets:    targetRegistry(t, targets),
 		Executor:   execute,
 	})
 	require.NoError(t, err)
@@ -517,7 +522,7 @@ func newTestProcessor(
 		Inventory:  inventory,
 		Rules:      rules,
 		Executions: memorystore.New(),
-		Targets:    defaultTargetResolver(uuid.New()),
+		Targets:    eventtarget.New(),
 		Executor: executorFunc(func(
 			_ context.Context,
 			request eventexecutor.ExecutionRequest,
@@ -539,7 +544,7 @@ func processorRuntimeRule(actions ...eventrule.Action) *eventrule.Rule {
 
 func runtimeEnvelope(rackID uuid.UUID) eventrule.Envelope {
 	return eventrule.Envelope{
-		ID:       uuid.New(),
+		Key:      eventrule.EventKey{SourceName: "test", SourceKey: uuid.NewString()},
 		Type:     "test.event",
 		Resource: eventrule.Resource{Kind: eventrule.ResourceKindRack, ID: rackID},
 	}
@@ -569,25 +574,41 @@ func successResult(request eventexecutor.ExecutionRequest) eventrule.ExecutionRe
 	return eventrule.CompletedExecutionResult()
 }
 
-type targetResolverFunc func(
-	context.Context,
-	eventtarget.ResolveRequest,
-) ([]eventtarget.Target, error)
-
-func (f targetResolverFunc) Resolve(
-	ctx context.Context,
-	request eventtarget.ResolveRequest,
-) ([]eventtarget.Target, error) {
-	return f(ctx, request)
+func targetRegistry(
+	t *testing.T,
+	resolver eventtarget.Resolver,
+) *eventtarget.Registry {
+	t.Helper()
+	registry := eventtarget.New()
+	require.NoError(t, registry.Register(
+		"test.event",
+		eventrule.TargetStrategyRack,
+		resolver,
+	))
+	return registry
 }
 
 func defaultTargetResolver(rackID uuid.UUID) eventtarget.Resolver {
-	return targetResolverFunc(func(
-		context.Context,
-		eventtarget.ResolveRequest,
-	) ([]eventtarget.Target, error) {
-		return []eventtarget.Target{{Kind: eventrule.ResourceKindRack, ID: rackID}}, nil
-	})
+	return &testTargetResolver{targets: []eventtarget.Target{{
+		Kind: eventrule.ResourceKindRack,
+		ID:   rackID,
+	}}}
+}
+
+type testTargetResolver struct {
+	targets []eventtarget.Target
+	err     error
+	runs    *int
+}
+
+func (r *testTargetResolver) Resolve(
+	context.Context,
+	eventtarget.ResolveRequest,
+) ([]eventtarget.Target, error) {
+	if r.runs != nil {
+		(*r.runs)++
+	}
+	return r.targets, r.err
 }
 
 type executorFunc func(
@@ -613,7 +634,7 @@ func validProcessorConfig() Config {
 			return nil, nil
 		}),
 		Executions: memorystore.New(),
-		Targets:    defaultTargetResolver(uuid.New()),
+		Targets:    eventtarget.New(),
 		Executor: executorFunc(func(
 			_ context.Context,
 			request eventexecutor.ExecutionRequest,
@@ -648,7 +669,6 @@ func (s transitionContextStore) TransitionExecution(
 func (s createFailingStore) CreateExecution(
 	_ context.Context,
 	identity eventrule.ExecutionIdentity,
-	_ *eventrule.Dedupe,
 ) (*eventrule.Execution, error) {
 	return nil, s.errors[identity.ActionName]
 }

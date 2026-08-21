@@ -198,7 +198,7 @@ data:
     {{- end }}
 
     publicClient:
-      hostPort: "{{ include "temporal.componentname" (list $ "frontend") }}:{{ $.Values.server.frontend.service.port }}"
+      hostPort: "{{ include "temporal.componentname" (list $ "frontend") }}.{{ $.Release.Namespace }}.svc.cluster.local.:{{ $.Values.server.frontend.service.port }}"
 
     dynamicConfigClient:
       filepath: "/etc/temporal/dynamic_config/dynamic_config.yaml"

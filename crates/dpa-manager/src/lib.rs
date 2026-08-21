@@ -29,7 +29,9 @@ use db::{self, TransactionVending};
 use metrics::{DpaMonitorIterationFinished, DpaMonitorMetrics};
 use model::dpa_interface::{DpaInterface, DpaInterfaceControllerState, DpaSearchConfig};
 use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot};
+use model::machine::{
+    HostHealthConfig, LoadSnapshotOptions, ManagedHostState, ManagedHostStateSnapshot,
+};
 use mqttea::client::MqtteaClient;
 use sqlx::{PgConnection, PgPool, PgTransaction};
 use tokio::task::JoinSet;
@@ -275,6 +277,13 @@ impl DpaMonitor {
         metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult> {
         use card_handler::handler_for;
+
+        if matches!(mh.managed_state, ManagedHostState::Decommissioning { .. }) {
+            return Ok(HandlerResult {
+                new_state: None,
+                txn: None,
+            });
+        }
 
         let interface_type = mh.dpa_interface_snapshots[idx].interface_type;
         let handler = handler_for(interface_type);

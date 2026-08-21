@@ -663,6 +663,12 @@ impl MachineHandle {
         }))
     }
 
+    #[cfg(test)]
+    pub(crate) fn with_control_test_ssh_endpoint(self, port: u16) -> Self {
+        self.0.live_state.write().unwrap().ssh_endpoint_port = Some(port);
+        self
+    }
+
     pub(super) fn mat_id(&self) -> Uuid {
         self.0.mat_id
     }
@@ -785,6 +791,7 @@ impl MachineHandle {
                 ip: live_state.bmc_ip.map(|ip| ip.to_string()),
                 redfish: EndpointStatus::redfish(config),
                 ipmi: live_state.ipmi_endpoint.map(Into::into),
+                ssh: live_state.ssh_endpoint_port.map(EndpointStatus::ssh),
             },
             dpus: self.0.dpus.iter().map(|dpu| dpu.status(config)).collect(),
         }

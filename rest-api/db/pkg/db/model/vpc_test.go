@@ -968,6 +968,7 @@ func TestVpcSQLDAO_CreateFromParams(t *testing.T) {
 		tenantID                               uuid.UUID
 		siteID                                 uuid.UUID
 		networkVirtualizationType              *string
+		slaacEnabled                           bool
 		routingProfile                         *string
 		routingProfileOverrides                *VpcRoutingProfileOverrides
 		controllerVpcID                        *uuid.UUID
@@ -1012,6 +1013,7 @@ func TestVpcSQLDAO_CreateFromParams(t *testing.T) {
 		TenantID:                  tn.ID,
 		SiteID:                    st.ID,
 		NetworkVirtualizationType: cutil.GetPtr(VpcEthernetVirtualizer),
+		SlaacEnabled:              true,
 		RoutingProfile:            cutil.GetPtr("INTERNAL"),
 		RoutingProfileOverrides:   routingProfileOverrides,
 		ControllerVpcID:           cutil.GetPtr(uuid.New()),
@@ -1060,6 +1062,7 @@ func TestVpcSQLDAO_CreateFromParams(t *testing.T) {
 				tenantID:                               vpc.TenantID,
 				siteID:                                 vpc.SiteID,
 				networkVirtualizationType:              vpc.NetworkVirtualizationType,
+				slaacEnabled:                           vpc.SlaacEnabled,
 				routingProfile:                         vpc.RoutingProfile,
 				routingProfileOverrides:                vpc.RoutingProfileOverrides,
 				controllerVpcID:                        vpc.ControllerVpcID,
@@ -1092,6 +1095,7 @@ func TestVpcSQLDAO_CreateFromParams(t *testing.T) {
 				TenantID:                               tt.args.tenantID,
 				SiteID:                                 tt.args.siteID,
 				NetworkVirtualizationType:              tt.args.networkVirtualizationType,
+				SlaacEnabled:                           tt.args.slaacEnabled,
 				RoutingProfile:                         tt.args.routingProfile,
 				RoutingProfileOverrides:                tt.args.routingProfileOverrides,
 				ControllerVpcID:                        tt.args.controllerVpcID,
@@ -1113,6 +1117,7 @@ func TestVpcSQLDAO_CreateFromParams(t *testing.T) {
 			assert.Equal(t, tt.want.TenantID, got.TenantID)
 			assert.Equal(t, tt.want.SiteID, got.SiteID)
 			assert.Equal(t, *tt.want.NetworkVirtualizationType, *got.NetworkVirtualizationType)
+			assert.Equal(t, tt.want.SlaacEnabled, got.SlaacEnabled)
 			assert.Equal(t, len(tt.want.Labels), len(got.Labels))
 			assert.Equal(t, *tt.want.ControllerVpcID, *got.ControllerVpcID)
 			assert.Equal(t, tt.want.RoutingProfile, got.RoutingProfile)
@@ -1130,6 +1135,7 @@ func TestVpcSQLDAO_CreateFromParams(t *testing.T) {
 			// A fresh read proves the JSONB override value was persisted.
 			persisted, gerr := vsd.GetByID(tt.args.ctx, nil, got.ID, nil)
 			require.NoError(t, gerr)
+			assert.Equal(t, tt.want.SlaacEnabled, persisted.SlaacEnabled)
 			assert.Equal(t, tt.want.RoutingProfileOverrides, persisted.RoutingProfileOverrides)
 
 			if tt.verifyChildSpanner {
@@ -1187,6 +1193,7 @@ func TestVpcSQLDAO_Update(t *testing.T) {
 		Vni:                       cutil.GetPtr(888),
 		Status:                    VpcStatusReady,
 		IsMissingOnSite:           true,
+		SlaacEnabled:              true,
 		Labels: map[string]string{
 			"zone": "west1",
 		},
@@ -1223,6 +1230,7 @@ func TestVpcSQLDAO_Update(t *testing.T) {
 		labels                                 map[string]string
 		Status                                 string
 		IsMissingOnSite                        bool
+		SlaacEnabled                           bool
 	}
 	tests := []struct {
 		name               string
@@ -1254,6 +1262,7 @@ func TestVpcSQLDAO_Update(t *testing.T) {
 				labels:                                 uvpc.Labels,
 				Status:                                 uvpc.Status,
 				IsMissingOnSite:                        uvpc.IsMissingOnSite,
+				SlaacEnabled:                           uvpc.SlaacEnabled,
 			},
 			want:               uvpc,
 			wantErr:            false,
@@ -1282,6 +1291,7 @@ func TestVpcSQLDAO_Update(t *testing.T) {
 				Labels:                                 tt.args.labels,
 				Status:                                 &tt.args.Status,
 				IsMissingOnSite:                        &tt.args.IsMissingOnSite,
+				SlaacEnabled:                           &tt.args.SlaacEnabled,
 			}
 
 			got, err := vsd.Update(tt.args.ctx, nil, input)
@@ -1293,6 +1303,7 @@ func TestVpcSQLDAO_Update(t *testing.T) {
 			assert.Equal(t, tt.want.Name, got.Name)
 			assert.Equal(t, *tt.want.Description, *got.Description)
 			assert.Equal(t, *tt.want.NetworkVirtualizationType, *got.NetworkVirtualizationType)
+			assert.Equal(t, tt.want.SlaacEnabled, got.SlaacEnabled)
 			assert.Equal(t, tt.want.RoutingProfile, got.RoutingProfile)
 			assert.Equal(t, tt.want.RoutingProfileOverrides, got.RoutingProfileOverrides)
 			assert.Equal(t, tt.want.EffectiveRoutingProfile, got.EffectiveRoutingProfile)
@@ -1314,6 +1325,7 @@ func TestVpcSQLDAO_Update(t *testing.T) {
 			// A fresh read verifies both JSONB columns, not only the update return value.
 			persisted, gerr := vsd.GetByID(tt.args.ctx, nil, got.ID, nil)
 			require.NoError(t, gerr)
+			assert.Equal(t, tt.want.SlaacEnabled, persisted.SlaacEnabled)
 			assert.Equal(t, tt.want.RoutingProfileOverrides, persisted.RoutingProfileOverrides)
 			assert.Equal(t, tt.want.EffectiveRoutingProfile, persisted.EffectiveRoutingProfile)
 
@@ -1327,6 +1339,24 @@ func TestVpcSQLDAO_Update(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("persists an explicit SLAAC disable", func(t *testing.T) {
+		vpcDAO := NewVpcDAO(dbSession)
+		persisted, err := vpcDAO.GetByID(ctx, nil, vpc.ID, nil)
+		require.NoError(t, err)
+		require.True(t, persisted.SlaacEnabled)
+
+		updated, err := vpcDAO.Update(ctx, nil, VpcUpdateInput{
+			VpcID:        vpc.ID,
+			SlaacEnabled: cutil.GetPtr(false),
+		})
+		require.NoError(t, err)
+		assert.False(t, updated.SlaacEnabled)
+
+		persisted, err = vpcDAO.GetByID(ctx, nil, vpc.ID, nil)
+		require.NoError(t, err)
+		assert.False(t, persisted.SlaacEnabled)
+	})
 
 	t.Run("preserves an omitted effective routing profile", func(t *testing.T) {
 		// Updating desired overrides alone must not clear cached controller state.
@@ -1684,6 +1714,7 @@ func TestVpc_ToProto(t *testing.T) {
 			NetworkSecurityGroupID:    &nsg,
 			NVLinkLogicalPartitionID:  &nvllpID,
 			NetworkVirtualizationType: &fnn,
+			SlaacEnabled:              true,
 			RoutingProfile:            &routingProfile,
 			Vni:                       &requestedVni,
 			ActiveVni:                 &activeVni,
@@ -1711,6 +1742,8 @@ func TestVpc_ToProto(t *testing.T) {
 		assert.Equal(t, nvllpID.String(), got.Config.DefaultNvlinkLogicalPartitionId.Value)
 		require.NotNil(t, got.Config.NetworkVirtualizationType)
 		assert.Equal(t, corev1.VpcVirtualizationType_FNN, *got.Config.NetworkVirtualizationType)
+		require.NotNil(t, got.Config.SlaacEnabled)
+		assert.True(t, *got.Config.SlaacEnabled)
 		require.NotNil(t, got.Config.Vni)
 		assert.Equal(t, uint32(requestedVni), *got.Config.Vni)
 		require.NotNil(t, got.Config.RoutingProfileType)
@@ -1720,14 +1753,6 @@ func TestVpc_ToProto(t *testing.T) {
 		require.NotNil(t, got.Status)
 		require.NotNil(t, got.Status.Vni)
 		assert.Equal(t, uint32(activeVni), *got.Status.Vni)
-
-		// Deprecated flat mirrors are no longer populated.
-		assert.Empty(t, got.TenantOrganizationId)
-		assert.Nil(t, got.NetworkVirtualizationType)
-		assert.Nil(t, got.Vni)
-		assert.Nil(t, got.DeprecatedVni)
-		assert.Nil(t, got.RoutingProfileType)
-		assert.Nil(t, got.NetworkSecurityGroupId)
 	})
 
 	t.Run("nil description and labels yield zero-value metadata", func(t *testing.T) {
@@ -1739,6 +1764,8 @@ func TestVpc_ToProto(t *testing.T) {
 		require.NotNil(t, got.Config)
 		assert.Nil(t, got.Config.NetworkSecurityGroupId)
 		assert.Nil(t, got.Config.DefaultNvlinkLogicalPartitionId)
+		require.NotNil(t, got.Config.SlaacEnabled)
+		assert.False(t, *got.Config.SlaacEnabled)
 	})
 
 	t.Run("uses ControllerVpcID for the proto Id when set", func(t *testing.T) {
@@ -1839,6 +1866,7 @@ func TestVpc_FromProto(t *testing.T) {
 				TenantOrganizationId:            "org-1",
 				NetworkSecurityGroupId:          &nsg,
 				NetworkVirtualizationType:       &fnnEnum,
+				SlaacEnabled:                    cutil.GetPtr(true),
 				Vni:                             &requestedVni,
 				RoutingProfileType:              &routingProfile,
 				DefaultNvlinkLogicalPartitionId: &corev1.NVLinkLogicalPartitionId{Value: nvllpID.String()},
@@ -1859,6 +1887,7 @@ func TestVpc_FromProto(t *testing.T) {
 		assert.Equal(t, "nsg-1", *v.NetworkSecurityGroupID)
 		require.NotNil(t, v.NetworkVirtualizationType)
 		assert.Equal(t, VpcFNN, *v.NetworkVirtualizationType)
+		assert.True(t, v.SlaacEnabled)
 		require.NotNil(t, v.Vni)
 		assert.Equal(t, int(requestedVni), *v.Vni)
 		require.NotNil(t, v.ActiveVni)
@@ -1891,12 +1920,7 @@ func TestVpc_FromProto(t *testing.T) {
 		}
 	})
 
-	t.Run("clears stale fields and ignores deprecated flat fields", func(t *testing.T) {
-		// A fully populated receiver plus a proto carrying only the
-		// deprecated flat mirrors (no `config`/`status`) proves two
-		// properties at once: every optional field is reset to its zero
-		// value (clean reset, not a partial merge) and none of the flat
-		// values leak into the entity.
+	t.Run("clears stale fields when structured fields are absent", func(t *testing.T) {
 		staleNvllp := uuid.New()
 		staleNSG := "stale-nsg"
 		staleVirt := VpcFNN
@@ -1905,19 +1929,13 @@ func TestVpc_FromProto(t *testing.T) {
 		staleActive := 7001
 		staleDesc := "stale"
 
-		flatNvllp := uuid.New()
-		flatNSG := "nsg-flat"
-		flatVirt := corev1.VpcVirtualizationType_FNN
-		flatRequestedVni := uint32(15001)
-		flatAllocatedVni := uint32(15002)
-		flatRouting := "EXTERNAL"
-
 		v := &Vpc{
 			ID:                        id,
 			Org:                       "stale-org",
 			Description:               &staleDesc,
 			NetworkSecurityGroupID:    &staleNSG,
 			NetworkVirtualizationType: &staleVirt,
+			SlaacEnabled:              true,
 			RoutingProfile:            &staleRouting,
 			Vni:                       &staleRequested,
 			ActiveVni:                 &staleActive,
@@ -1927,21 +1945,15 @@ func TestVpc_FromProto(t *testing.T) {
 			Labels:                    map[string]string{"old": "val"},
 		}
 		v.FromProto(&corev1.Vpc{
-			Id:                              &corev1.VpcId{Value: id.String()},
-			TenantOrganizationId:            "org-flat",
-			NetworkSecurityGroupId:          &flatNSG,
-			NetworkVirtualizationType:       &flatVirt,
-			Vni:                             &flatRequestedVni,
-			DeprecatedVni:                   &flatAllocatedVni,
-			RoutingProfileType:              &flatRouting,
-			DefaultNvlinkLogicalPartitionId: &corev1.NVLinkLogicalPartitionId{Value: flatNvllp.String()},
-			Metadata:                        &corev1.Metadata{Name: "reset"},
+			Id:       &corev1.VpcId{Value: id.String()},
+			Metadata: &corev1.Metadata{Name: "reset"},
 		})
 
 		assert.Equal(t, "reset", v.Name)
 		assert.Empty(t, v.Org)
 		assert.Nil(t, v.NetworkSecurityGroupID)
 		assert.Nil(t, v.NetworkVirtualizationType)
+		assert.False(t, v.SlaacEnabled)
 		assert.Nil(t, v.RoutingProfile)
 		assert.Nil(t, v.Vni)
 		assert.Nil(t, v.ActiveVni)
@@ -2003,6 +2015,7 @@ func TestVpc_ToProtoFromProto_RoundTrip(t *testing.T) {
 		Org:                       "org-rt",
 		Name:                      "vpc-rt",
 		NetworkVirtualizationType: &fnn,
+		SlaacEnabled:              true,
 		NetworkSecurityGroupID:    &nsg,
 		RoutingProfile:            &routing,
 		Vni:                       &requested,
@@ -2034,6 +2047,7 @@ func TestVpc_ToProtoFromProto_RoundTrip(t *testing.T) {
 	assert.Equal(t, orig.Name, got.Name)
 	assert.Equal(t, orig.Org, got.Org)
 	assert.Equal(t, orig.NetworkVirtualizationType, got.NetworkVirtualizationType)
+	assert.Equal(t, orig.SlaacEnabled, got.SlaacEnabled)
 	assert.Equal(t, orig.NetworkSecurityGroupID, got.NetworkSecurityGroupID)
 	assert.Equal(t, orig.RoutingProfile, got.RoutingProfile)
 	assert.Equal(t, orig.Vni, got.Vni)

@@ -152,7 +152,7 @@ pub(crate) async fn run_baseline_test_environment(
                     MockBmcHandle::Ipmi(_) => "Supermicro",
                 },
                 bmc_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
-                bmc_ssh_port: match &bmc_handle {
+                serial_console_ssh_port: match &bmc_handle {
                     MockBmcHandle::Ssh(s) => Some(s.port),
                     MockBmcHandle::Ipmi(_) => None,
                 },

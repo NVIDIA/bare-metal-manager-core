@@ -32,6 +32,8 @@ type SiteCapabilities struct {
 	Flow *bool `json:"flow,omitempty"`
 	// Whether the Site supports image-based operating system provisioning
 	ImageBasedOperatingSystem *bool `json:"imageBasedOperatingSystem,omitempty"`
+	// Whether the latest successfully stored Site configuration inventory reports that Core supports VPCs with SLAAC enabled. False also represents a missing Site configuration or an inventory report that omits the capability. This value is managed by Site configuration inventory and cannot be updated through the Site API.
+	VpcSlaac *bool `json:"vpcSlaac,omitempty"`
 }
 
 // NewSiteCapabilities instantiates a new SiteCapabilities object
@@ -211,6 +213,38 @@ func (o *SiteCapabilities) SetImageBasedOperatingSystem(v bool) {
 	o.ImageBasedOperatingSystem = &v
 }
 
+// GetVpcSlaac returns the VpcSlaac field value if set, zero value otherwise.
+func (o *SiteCapabilities) GetVpcSlaac() bool {
+	if o == nil || IsNil(o.VpcSlaac) {
+		var ret bool
+		return ret
+	}
+	return *o.VpcSlaac
+}
+
+// GetVpcSlaacOk returns a tuple with the VpcSlaac field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *SiteCapabilities) GetVpcSlaacOk() (*bool, bool) {
+	if o == nil || IsNil(o.VpcSlaac) {
+		return nil, false
+	}
+	return o.VpcSlaac, true
+}
+
+// HasVpcSlaac returns a boolean if a field has been set.
+func (o *SiteCapabilities) HasVpcSlaac() bool {
+	if o != nil && !IsNil(o.VpcSlaac) {
+		return true
+	}
+
+	return false
+}
+
+// SetVpcSlaac gets a reference to the given bool and assigns it to the VpcSlaac field.
+func (o *SiteCapabilities) SetVpcSlaac(v bool) {
+	o.VpcSlaac = &v
+}
+
 func (o SiteCapabilities) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -235,6 +269,9 @@ func (o SiteCapabilities) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.ImageBasedOperatingSystem) {
 		toSerialize["imageBasedOperatingSystem"] = o.ImageBasedOperatingSystem
+	}
+	if !IsNil(o.VpcSlaac) {
+		toSerialize["vpcSlaac"] = o.VpcSlaac
 	}
 	return toSerialize, nil
 }

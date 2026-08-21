@@ -19,7 +19,7 @@ type Processor struct {
 	inventory  *inventoryresolver.Resolver
 	rules      RuleResolver
 	executions eventrule.ExecutionStore
-	targets    target.Resolver
+	targets    *target.Registry
 	executor   executor.Executor
 }
 

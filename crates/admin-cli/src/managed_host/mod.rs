@@ -16,6 +16,7 @@
  */
 
 mod debug_bundle;
+mod decommission;
 mod maintenance;
 mod power_options;
 mod quarantine;
@@ -64,4 +65,6 @@ pub(crate) enum Cmd {
     SetPrimaryDpu(set_primary_dpu::Args),
     #[clap(about = "Download debug bundle with logs for a specific host")]
     DebugBundle(debug_bundle::Args),
+    #[clap(about = "Start decommissioning a managed host")]
+    Decommission(decommission::Args),
 }

@@ -327,6 +327,36 @@ fn interface_address_configs(
     addresses
 }
 
+/// Builds the legacy IPv6 projection used by DPU agents.
+///
+/// Existing non-SLAAC configurations still require a concrete host address.
+/// SLAAC instead sends the selected interface prefix with an intentionally
+/// empty host address so the agent can configure the IPv6 prefix in the DPU.
+/// Router advertisement (RA) support is tracked by
+/// https://github.com/NVIDIA/infra-controller/issues/2398.
+fn build_ipv6_interface_config(
+    address: Option<IpAddr>,
+    interface_prefix: Option<IpNetwork>,
+    svi_ip: Option<String>,
+    slaac_enabled: bool,
+) -> Option<rpc::FlatInterfaceIpv6Config> {
+    match (address, interface_prefix, slaac_enabled) {
+        (Some(address), interface_prefix, _) => Some(rpc::FlatInterfaceIpv6Config {
+            ip: address.to_string(),
+            interface_prefix: interface_prefix
+                .map(|prefix| prefix.to_string())
+                .unwrap_or_default(),
+            svi_ip,
+        }),
+        (None, Some(interface_prefix), true) => Some(rpc::FlatInterfaceIpv6Config {
+            ip: String::new(),
+            interface_prefix: interface_prefix.to_string(),
+            svi_ip,
+        }),
+        (None, _, _) => None,
+    }
+}
+
 // This writer keeps the deprecated fields populated for older agents during the rollout.
 #[allow(deprecated)]
 pub(crate) async fn admin_network(
@@ -691,6 +721,7 @@ pub(crate) async fn tenant_network(
     };
 
     let vpc_vni = vpc.as_ref().and_then(|v| v.status.vni).unwrap_or_default() as u32;
+    let slaac_enabled = vpc.as_ref().is_some_and(|vpc| vpc.config.slaac_enabled);
 
     // Resolve the routing profile from the VPC attached to this interface.
     let (vpc_routing_profile, interface_routing_profile) = match (vpc.as_ref(), fnn_config) {
@@ -832,13 +863,12 @@ pub(crate) async fn tenant_network(
             })?,
         internal_uuid: Some(iface.internal_uuid.into()),
         mtu: u32::try_from(segment.config.mtu).ok(),
-        ipv6_interface_config: v6_address.map(|a| rpc::FlatInterfaceIpv6Config {
-            ip: a.to_string(),
-            interface_prefix: v6_interface_prefix
-                .map(|p| p.to_string())
-                .unwrap_or_default(),
-            svi_ip: svi_ip_v6,
-        }),
+        ipv6_interface_config: build_ipv6_interface_config(
+            v6_address,
+            v6_interface_prefix,
+            svi_ip_v6,
+            slaac_enabled,
+        ),
         vpc_routing_profile,
         interface_routing_profile,
         addresses: vec![],
@@ -921,6 +951,66 @@ mod test {
         }
     }
 
+    fn slaac_ipv6_address_config() -> rpc::InterfaceAddressConfig {
+        rpc::InterfaceAddressConfig {
+            address_family: rpc::AddressFamily::V6.into(),
+            gateway: "2001:db8::/64".to_string(),
+            ip: String::new(),
+            interface_prefix: "2001:db8::/64".to_string(),
+            prefix: "2001:db8::/64".to_string(),
+            svi_ip: None,
+        }
+    }
+
+    #[test]
+    fn ipv6_interface_projection_requires_an_address_unless_slaac_is_enabled() {
+        let address: IpAddr = "2001:db8::1".parse().unwrap();
+        let prefix: IpNetwork = "2001:db8::/127".parse().unwrap();
+        let slaac_prefix: IpNetwork = "2001:db8::/64".parse().unwrap();
+        let configured = rpc::FlatInterfaceIpv6Config {
+            ip: address.to_string(),
+            interface_prefix: prefix.to_string(),
+            svi_ip: None,
+        };
+        let slaac = rpc::FlatInterfaceIpv6Config {
+            ip: String::new(),
+            interface_prefix: slaac_prefix.to_string(),
+            svi_ip: None,
+        };
+
+        value_scenarios!(
+            run = |(address, prefix, slaac_enabled)| {
+                build_ipv6_interface_config(address, prefix, None, slaac_enabled)
+            };
+            "ordinary IPv6 configuration" {
+                (Some(address), Some(prefix), false) => Some(configured.clone()),
+                (Some(address), Some(prefix), true) => Some(configured.clone()),
+            }
+            "SLAAC keeps a prefix without a host address" {
+                (None, Some(slaac_prefix), true) => Some(slaac),
+            }
+            "non-SLAAC configuration with only a prefix remains absent" {
+                (None, Some(prefix), false) => None,
+            }
+            "SLAAC without a selected prefix remains absent" {
+                (None, None, true) => None,
+            }
+            "non-SLAAC configuration without an address or prefix remains absent" {
+                (None, None, false) => None,
+            }
+            "legacy address without an interface prefix remains projected" {
+                (Some(address), None, false) => Some(rpc::FlatInterfaceIpv6Config {
+                    interface_prefix: String::new(),
+                    ..configured.clone()
+                }),
+                (Some(address), None, true) => Some(rpc::FlatInterfaceIpv6Config {
+                    interface_prefix: String::new(),
+                    ..configured
+                }),
+            }
+        );
+    }
+
     #[test]
     fn interface_address_configs_mirror_legacy_fields_in_family_order() {
         value_scenarios!(
@@ -954,6 +1044,19 @@ mod test {
                     })),
                     Some("2001:db8::/64"),
                 ) => vec![ipv4_address_config()],
+            }
+            "SLAAC prefix without a host address" {
+                (
+                    rpc::FlatInterfaceConfig {
+                        ipv6_interface_config: Some(rpc::FlatInterfaceIpv6Config {
+                            ip: String::new(),
+                            interface_prefix: "2001:db8::/64".to_string(),
+                            svi_ip: None,
+                        }),
+                        ..Default::default()
+                    },
+                    Some("2001:db8::/64"),
+                ) => vec![slaac_ipv6_address_config()],
             }
             "dual-stack config" {
                 (

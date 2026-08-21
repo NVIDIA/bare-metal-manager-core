@@ -53,6 +53,11 @@ pub enum BmcEvent {
 }
 
 impl BmcState {
+    /// Overrides the client-reachable SSH serial-console port on supported systems.
+    pub fn set_serial_console_ssh_port(&self, port: Option<u16>) -> bool {
+        self.system_state.set_serial_console_ssh_port(port)
+    }
+
     pub fn on_event(&self, event: &BmcEvent) {
         match event {
             BmcEvent::PowerOn => {

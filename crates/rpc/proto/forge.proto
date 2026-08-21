@@ -338,6 +338,9 @@ service Forge {
   // appropriate customer-facing workflow available or where those workflows fail.
   rpc AdminForceDeleteMachine(AdminForceDeleteMachineRequest) returns (AdminForceDeleteMachineResponse);
 
+  // Starts the managed host decommissioning workflow. The host must be Ready.
+  rpc DecommissionManagedHost(DecommissionManagedHostRequest) returns (DecommissionManagedHostResponse);
+
   // List existing resource pools and their stats
   rpc AdminListResourcePools(ListResourcePoolsRequest) returns (ResourcePools);
 
@@ -1530,6 +1533,13 @@ message VersionRequest {
   bool display_config = 1;
 }
 
+// Capabilities advertised by a Core build. Callers must treat an absent
+// capability as unsupported so requests fail closed against older builds.
+enum BuildCapability {
+  BUILD_CAPABILITY_UNSPECIFIED = 0;
+  BUILD_CAPABILITY_VPC_SLAAC = 1;
+}
+
 message BuildInfo {
   option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   option (carbide.codegen.v1.message_derive) = "serde::Serialize";
@@ -1539,6 +1549,10 @@ message BuildInfo {
   string rust_version = 4; // rustc 1.68.0 (2c8cc3432 2023-03-06)
   string build_user = 5; // graham
   string build_hostname = 6; // fedora
+  // An empty `capabilities` list advertises no optional capabilities.
+  // Callers ignore unknown values and treat an absent recognized capability
+  // as unsupported.
+  repeated BuildCapability capabilities = 7;
 
   optional RuntimeConfig runtime_config = 50;
 }
@@ -1773,6 +1787,16 @@ message VpcConfig {
   // means that the VPC has no associated resource group; empty values are not
   // persisted.
   optional string power_resource_group = 9;
+  // Selects SLAAC allocation mode for instance IPv6 interfaces in this FNN
+  // VPC. When true, NICo allocates a /64 to each interface that includes IPv6
+  // and retains that prefix without assigning a concrete IPv6 host address.
+  // This policy is fixed when the VPC is created and cannot be changed through
+  // `VpcUpdateRequest`. NICo does not yet configure router advertisements;
+  // that support is tracked by
+  // https://github.com/NVIDIA/infra-controller/issues/2398. Core reports this
+  // field explicitly; an absent value indicates a response from a Core version
+  // that predates SLAAC support.
+  optional bool slaac_enabled = 10;
 }
 
 message VpcStatus {
@@ -1791,9 +1815,8 @@ message Vpc {
   option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.VpcId id = 1;
   reserved 2;  // was: string name, replaced with metadata.name
-  // Deprecated: use config.tenant_organization_id
-  // TODO change to reserved once rest component uses `VpcConfig`
-  string tenantOrganizationId = 3 [deprecated = true]; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
+  reserved 3;  // was: string tenantOrganizationId, replaced with config.tenant_organization_id
+  reserved "tenantOrganizationId";
 
   string version = 99;
 
@@ -1802,39 +1825,33 @@ message Vpc {
   google.protobuf.Timestamp updated = 5;
   google.protobuf.Timestamp deleted = 6;
 
-  // Deprecated: use config.tenant_keyset_id
-  // TODO Change to reserved once rest component uses `VpcConfig`
-  optional string tenantKeysetId = 7 [deprecated = true]; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
+  reserved 7;  // was: string tenantKeysetId, replaced with config.tenant_keyset_id
+  reserved "tenantKeysetId";
 
-  // Deprecated: use status.vni
-  // TODO change to reserved once rest component uses `VpcStatus`
-  optional uint32 deprecated_vni = 8 [deprecated = true];
+  reserved 8;  // was: uint32 deprecated_vni, replaced with status.vni
+  reserved "deprecated_vni";
 
-  // Deprecated: use config.network_virtualization_type
-  // TODO change to reserved once rest component uses `VpcConfig`
-  optional VpcVirtualizationType network_virtualization_type = 9 [deprecated = true];
+  reserved 9;  // was: VpcVirtualizationType network_virtualization_type, replaced with config.network_virtualization_type
+  reserved "network_virtualization_type";
   Metadata metadata = 10;
 
-  // Deprecated: use config.network_security_group_id
-  // TODO Change to reserved once rest component uses `VpcConfig`
-  optional string network_security_group_id  = 11 [deprecated = true];
+  reserved 11;  // was: string network_security_group_id, replaced with config.network_security_group_id
+  reserved "network_security_group_id";
 
   // dpa_vni
   reserved 12;
+  reserved "dpa_vni";
 
-  // Deprecated: use config.default_nvlink_logical_partition_id
-  // TODO change to reserved once rest component uses `VpcConfig`
-  optional common.NVLinkLogicalPartitionId default_nvlink_logical_partition_id = 13 [deprecated = true];
+  reserved 13;  // was: common.NVLinkLogicalPartitionId default_nvlink_logical_partition_id, replaced with config.default_nvlink_logical_partition_id
+  reserved "default_nvlink_logical_partition_id";
 
   optional VpcStatus status = 14;
 
-  // Deprecated: use config.vni
-  // TODO change to reserved once rest component uses `VpcConfig`
-  optional uint32 vni = 15 [deprecated = true];
+  reserved 15;  // was: uint32 vni, replaced with config.vni
+  reserved "vni";
 
-  // Deprecated: use config.routing_profile_type
-  // TODO change to reserved once rest-component uses `VpcConfig`
-  optional string routing_profile_type = 16 [deprecated = true];
+  reserved 16;  // was: string routing_profile_type, replaced with config.routing_profile_type
+  reserved "routing_profile_type";
 
   VpcConfig config = 17;
 }
@@ -1881,6 +1898,14 @@ message VpcCreationRequest {
   // Resource group managed by the external power provisioning service. During
   // creation, omission or an empty value creates no association.
   optional string power_resource_group = 19;
+  // Selects SLAAC allocation mode for instance IPv6 interfaces in this VPC.
+  // When true, this is supported only for FNN VPCs and Core allocates a /64 to
+  // each interface that includes IPv6 without assigning a concrete IPv6 host
+  // address. False or omission disables SLAAC. Core evaluates this value only
+  // during VPC creation; `VpcUpdateRequest` cannot change the resulting policy.
+  // NICo does not yet configure router advertisements; that support is tracked by
+  // https://github.com/NVIDIA/infra-controller/issues/2398.
+  optional bool slaac_enabled = 20;
 }
 
 enum VpcVirtualizationType {
@@ -2016,7 +2041,14 @@ message VpcPrefixStatus {
   option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   uint32 total_31_segments = 1;
   uint32 available_31_segments = 2;
+  // Total interface prefixes this VPC prefix can provide. IPv4 uses /31;
+  // stateful IPv6 uses /127; SLAAC IPv6 uses /64. An IPv6 VPC prefix must be
+  // wider than the interface prefix, so an exact /64 in SLAAC mode has zero
+  // interface capacity. Both capacity counters report values larger than
+  // uint64 as uint64 max.
   uint64 total_linknet_segments = 3;
+  // Interface prefixes not currently occupied, using the same prefix length
+  // selected by the VPC mode as total_linknet_segments.
   uint64 available_linknet_segments = 4;
   LifecycleStatus lifecycle = 5;
 
@@ -3696,7 +3728,7 @@ message InstanceInterfaceStatus {
   // The logical VPC this interface belongs to.
   optional common.VpcId vpc_id = 8;
 
-  // Prefixes resolved from explicit-prefix or automatic VPC intent.
+  // Prefixes resolved from explicit selections or automatic VPC intent.
   optional InstanceInterfaceResolvedVpcPrefixes resolved_vpc_prefixes = 9;
 }
 
@@ -5087,9 +5119,12 @@ message FlatInterfaceRoutingProfile {
 // API to the DPU agent as part of FlatInterfaceConfig.
 message FlatInterfaceIpv6Config {
   option (carbide.codegen.v1.message_derive) = "serde::Serialize";
-  // Host IPv6 address (e.g. "2001:db8::1").
+  // Host IPv6 address (e.g. "2001:db8::1"). Empty only when the owning VPC
+  // has SLAAC enabled; in that case interface_prefix still identifies the
+  // prefix configured on the DPU interface.
   string ip = 1;
-  // Interface-specific prefix allocation (e.g. "2001:db8::/127").
+  // Interface-specific prefix allocation. Stateful FNN uses a /127; SLAAC
+  // uses the /64 allocated to this interface.
   string interface_prefix = 2;
   // SVI IP for L2 FNN segments — the DPU's IPv6 gateway address on the VLAN.
   // Only set for L2 segments (can_stretch = true).
@@ -5160,6 +5195,24 @@ message AdminForceDeleteMachineRequest {
 
   // Allow force delete of machine with orphaned dpf crds
   bool allow_delete_with_orphaned_dpf_crds = 5;
+
+  // Delete Site Explorer and DHCP BMC suppressions for the host/DPU BMC MACs
+  // and underlay (OOB) interface MACs. Without this, rediscovery may stay
+  // suppressed after the machine rows are gone.
+  bool delete_bmc_suppressions = 6;
+
+  // Remove retained boot-interface pairs for the host/DPU BMC and interface
+  // MACs. By default, deleting interfaces keeps those pairs so a re-ingested
+  // machine can recover its boot target; set this when a clean rediscovery
+  // without prior boot-target memory is intended.
+  bool delete_retained_boot_interfaces = 7;
+}
+
+message DecommissionManagedHostRequest {
+  common.MachineId machine_id = 1;
+}
+
+message DecommissionManagedHostResponse {
 }
 
 // Response to AdminForceDeleteMachine call
@@ -5316,6 +5369,8 @@ message BMCMetaDataGetResponse {
   optional uint32 ssh_port = 6;
   optional uint32 ipmi_port = 7;
   optional string vendor = 8;
+  // SSH port for the managed system's serial console, not the manager CLI.
+  optional uint32 serial_console_ssh_port = 9;
 }
 
 message MachineCredentialsUpdateRequest {
@@ -10389,7 +10444,8 @@ message InterfaceAddressConfig {
   // IPv4 gateway CIDR. For IPv6, the DPU-side port/linknet CIDR used as
   // gateway_cidr, matching FlatInterfaceIpv6Config.interface_prefix.
   string gateway = 2;
-  // Host address, without a prefix length.
+  // Host address, without a prefix length. Empty only for a V6 entry whose
+  // owning VPC has SLAAC enabled; interface_prefix remains populated then.
   string ip = 3;
   // Prefix allocated to this interface, such as an FNN linknet or host route.
   string interface_prefix = 4;

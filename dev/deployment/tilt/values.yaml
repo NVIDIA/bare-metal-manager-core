@@ -182,6 +182,27 @@ nico-dhcp:
         ntpServer: 127.0.0.1
         provisioningServer: 127.0.0.1
 
+nico-ssh-console-rs:
+  enabled: true
+  configFiles:
+    config: |
+      listen_address = "[::]:22"
+      metrics_address = "[::]:9009"
+      carbide_url = "https://nico-api.nico-system.svc.cluster.local:1079"
+      forge_root_ca_path = "/var/run/secrets/spiffe.io/ca.crt"
+      client_cert_path = "/var/run/secrets/spiffe.io/tls.crt"
+      client_key_path = "/var/run/secrets/spiffe.io/tls.key"
+      host_key = "/etc/ssh/ssh_host_ed25519_key"
+      hosts = true
+      dpus = true
+      insecure = true
+      override_bmc_ssh_host = "nico-machine-a-tron-mat-0-ssh.nico-system.svc.cluster.local"
+      api_poll_interval = "1s"
+      reconnect_interval_base = "1s"
+      reconnect_interval_max = "10s"
+      console_logging_enabled = true
+      console_logs_path = "/var/log/consoles"
+
 nico-machine-a-tron:
   enabled: true
   machineATron:
@@ -205,6 +226,8 @@ nico-machine-a-tron:
         use_single_bmc_mock = true
         mock_bmc_ssh_server = true
         mock_bmc_ssh_port = 2222
+        enable_ipmi_simulation = true
+        ipmi_reachable_port = 0
         persist_dir = "/tmp/machine-a-tron-data"
         cleanup_on_quit = false
         register_expected_machines = true

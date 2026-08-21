@@ -5,6 +5,7 @@ package tui
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +20,52 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestFetchVPCPrefixIPBlocksUsesCurrentTenantScope(t *testing.T) {
+	providerRequests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v2/org/acme/nico/infrastructure-provider/current":
+			providerRequests++
+			_, _ = io.WriteString(w, `{"id":"provider-a"}`)
+		case "/v2/org/acme/nico/tenant/current":
+			_, _ = io.WriteString(w, `{"id":"tenant-a"}`)
+		case "/v2/org/acme/nico/ipblock":
+			assert.Equal(t, "site-a", r.URL.Query().Get("siteId"))
+			assert.Equal(t, "tenant-a", r.URL.Query().Get("tenantId"))
+			assert.Empty(t, r.URL.Query().Get("infrastructureProviderId"))
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `[{"id":"provider-id","name":"provider","siteId":"site-a","status":"Ready","tenantId":null},{"id":"other-tenant-id","name":"other tenant","siteId":"site-a","status":"Ready","tenantId":"tenant-b"},{"id":"tenant-id","name":"tenant","siteId":"site-a","status":"Ready","tenantId":"tenant-a"}]`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := appcli.NewClient(server.URL, "acme", "token", nil, false)
+	session := NewSession(client, "acme", "")
+	session.Scope.SiteID = "site-a"
+	ctx := context.Background()
+
+	providerID, err := session.getInfrastructureProviderID(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "provider-a", providerID)
+
+	items, tenantID, err := session.fetchVPCPrefixIPBlocks(ctx)
+
+	require.NoError(t, err)
+	assert.Equal(t, "tenant-a", tenantID)
+	assert.Equal(t, 1, providerRequests)
+	require.Len(t, items, 3)
+	assert.Empty(t, items[0].Extra["tenantId"])
+	assert.Equal(t, "tenant-b", items[1].Extra["tenantId"])
+	assert.Equal(t, "tenant-a", items[2].Extra["tenantId"])
+
+	selectItems := buildIPBlockSelectItems(items, tenantID)
+	require.Len(t, selectItems, 2)
+	assert.Equal(t, "tenant-id", selectItems[0].ID)
+	assert.Equal(t, ipBlockManualEntrySentinel, selectItems[1].ID)
+}
 
 type specializedRequestSnapshot struct {
 	method        string
@@ -404,6 +451,50 @@ func TestSpecializedCommand_StructuredAPIErrorsRemainActionable(t *testing.T) {
 	assert.Contains(t, runErr.Error(), "API error 422: metadata unavailable")
 	assert.Contains(t, runErr.Error(), `"field":"siteId"`)
 	assert.NotContains(t, output, "metadata unavailable")
+}
+
+func TestCmdInstanceUpdate_SendsAttributeOnlyPatch(t *testing.T) {
+	var requestCount atomic.Int32
+	requests := make(chan specializedRequestSnapshot, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestNumber := requestCount.Add(1)
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		snapshot := specializedRequestSnapshot{
+			method: r.Method,
+			path:   r.URL.Path,
+			body:   string(body),
+		}
+		if requestNumber == 1 {
+			requests <- snapshot
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"instance-1","name":"new-name"}`)
+	}))
+	defer server.Close()
+
+	session := NewSession(
+		appcli.NewClient(server.URL, "acme", "token", nil, false),
+		"acme",
+		"",
+	)
+	session.Cache.Set("instance", []NamedItem{{Name: "instance-one", ID: "instance-1"}})
+	session.Cache.Set("operating-system", []NamedItem{})
+
+	output, runErr := runSpecializedCommandWithInput(t, "new-name\n\nn\n", func() error {
+		return specializedRegressionCommand(t, "instance update").Run(session, []string{"instance-1"})
+	})
+
+	require.NoError(t, runErr)
+	request := <-requests
+	assert.Equal(t, int32(1), requestCount.Load())
+	assert.Equal(t, http.MethodPatch, request.method)
+	assert.Equal(t, "/v2/org/acme/nico/instance/instance-1", request.path)
+	assert.JSONEq(t, `{"name":"new-name"}`, request.body)
+	assert.Contains(t, output, "Instance updated: new-name (instance-1)")
 }
 
 func specializedRegressionCommand(t *testing.T, name string) Command {

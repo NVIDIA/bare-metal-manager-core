@@ -3169,7 +3169,7 @@ async fn test_legacy_bmc_update_preserves_interface_behavior_and_restores_naming
     let external_ip: std::net::IpAddr = "203.0.113.211".parse()?;
     let mut txn = env.pool.begin().await?;
     let static_assignments = db::network_segment::static_assignments(txn.as_mut()).await?;
-    db::network_segment::final_delete(static_assignments.id, txn.as_mut()).await?;
+    db::network_segment::final_delete(static_assignments.id, &mut txn).await?;
     assert!(
         db::network_segment::for_prefix_containing_address(txn.as_mut(), external_ip)
             .await?

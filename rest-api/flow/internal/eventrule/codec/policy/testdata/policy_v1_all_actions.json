@@ -1,9 +1,5 @@
 {
   "version": 1,
-  "dedupe": {
-    "version": 1,
-    "window": 300000000000
-  },
   "actions": [
     {
       "version": 1,

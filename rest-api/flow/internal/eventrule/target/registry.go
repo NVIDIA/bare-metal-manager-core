@@ -4,7 +4,6 @@
 package target
 
 import (
-	"context"
 	"fmt"
 	"sync"
 
@@ -16,32 +15,33 @@ type resolverKey struct {
 	strategy  eventrule.TargetStrategy
 }
 
-// Registry dispatches generic and event-specific target strategies.
+// Registry stores generic and event-specific target resolvers.
 type Registry struct {
 	mu            sync.RWMutex
-	generic       map[eventrule.TargetStrategy]ResolverFunc
-	eventSpecific map[resolverKey]ResolverFunc
+	generic       map[eventrule.TargetStrategy]Resolver
+	eventSpecific map[resolverKey]Resolver
 }
 
 // New constructs a registry containing the generic component, rack, and
 // affected-components strategies.
 func New() *Registry {
 	return &Registry{
-		generic: map[eventrule.TargetStrategy]ResolverFunc{
-			eventrule.TargetStrategyComponent:          resolveComponent,
-			eventrule.TargetStrategyRack:               resolveRack,
-			eventrule.TargetStrategyAffectedComponents: resolveAffectedComponents,
+		generic: map[eventrule.TargetStrategy]Resolver{
+			eventrule.TargetStrategyComponent:          componentResolver{},
+			eventrule.TargetStrategyRack:               rackResolver{},
+			eventrule.TargetStrategyAffectedComponents: affectedComponentsResolver{},
 		},
-		eventSpecific: make(map[resolverKey]ResolverFunc),
+		eventSpecific: make(map[resolverKey]Resolver),
 	}
 }
 
-// Register associates an event-specific strategy with its resolver. An
-// event-specific resolver takes precedence over the generic strategy resolver.
+// Register associates an event-specific strategy with a Resolver
+// implementation. An event-specific resolver takes precedence over the generic
+// strategy resolver.
 func (r *Registry) Register(
 	eventType eventrule.Type,
 	strategy eventrule.TargetStrategy,
-	resolver ResolverFunc,
+	resolver Resolver,
 ) error {
 	if r == nil {
 		return fmt.Errorf("target resolver registry is nil")
@@ -55,10 +55,12 @@ func (r *Registry) Register(
 	if !strategy.RequiresResolution() {
 		return fmt.Errorf("target strategy %q does not require resolution", strategy)
 	}
+	// Check the interface itself only. Registrations are controlled by this
+	// service, so a typed-nil implementation is a programming bug and does not
+	// justify reflection-based validation here.
 	if resolver == nil {
 		return fmt.Errorf("target resolver is required")
 	}
-
 	key := resolverKey{eventType: eventType, strategy: strategy}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -73,47 +75,36 @@ func (r *Registry) Register(
 	return nil
 }
 
-// Resolve dispatches a request to its generic or event-specific target
-// resolver.
-func (r *Registry) Resolve(
-	ctx context.Context,
-	request ResolveRequest,
-) ([]Target, error) {
+// Lookup returns the event-specific resolver when registered, otherwise the
+// generic resolver for the strategy. It returns either a non-nil resolver and
+// a nil error, or a nil resolver and a non-nil error; it never returns
+// (nil, nil).
+func (r *Registry) Lookup(
+	eventType eventrule.Type,
+	strategy eventrule.TargetStrategy,
+) (Resolver, error) {
 	if r == nil {
-		return nil, fmt.Errorf("target resolver registry is nil")
+		return nil, fmt.Errorf("%w: target resolver registry is nil", ErrUnresolvable)
+	}
+	if err := eventType.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: event type: %v", ErrUnresolvable, err)
+	}
+	if err := strategy.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: target strategy: %v", ErrUnresolvable, err)
 	}
 
-	if err := request.Resource.Validate(); err != nil {
-		return nil, fmt.Errorf("%w: target resource: %v", ErrUnresolvable, err)
-	}
-
-	resolver := r.resolver(request.Envelope.Type, request.Strategy)
+	resolver := r.lookup(eventType, strategy)
 	if resolver == nil {
 		return nil, fmt.Errorf(
 			"%w: "+
 				"no target resolver for event type %q and strategy %q",
 			ErrUnresolvable,
-			request.Envelope.Type,
-			request.Strategy,
+			eventType,
+			strategy,
 		)
 	}
 
-	targets, err := resolver(ctx, request)
-	if err != nil {
-		return nil, err
-	}
-	for i, resolved := range targets {
-		if err := resolved.Validate(); err != nil {
-			return nil, fmt.Errorf(
-				"%w: resolver target %d: %v",
-				ErrUnresolvable,
-				i,
-				err,
-			)
-		}
-	}
-
-	return targets, nil
+	return resolver, nil
 }
 
 // ValidateRule checks that every task action in a valid rule has a registered
@@ -132,7 +123,7 @@ func (r *Registry) ValidateRule(rule *eventrule.Rule) error {
 		if !strategy.RequiresResolution() {
 			continue
 		}
-		if r.resolver(rule.EventType, strategy) == nil {
+		if _, err := r.Lookup(rule.EventType, strategy); err != nil {
 			return fmt.Errorf(
 				"event rule %s action %q has no target resolver for strategy %q",
 				rule.ID,
@@ -145,10 +136,10 @@ func (r *Registry) ValidateRule(rule *eventrule.Rule) error {
 	return nil
 }
 
-func (r *Registry) resolver(
+func (r *Registry) lookup(
 	eventType eventrule.Type,
 	strategy eventrule.TargetStrategy,
-) ResolverFunc {
+) Resolver {
 	key := resolverKey{eventType: eventType, strategy: strategy}
 
 	r.mu.RLock()
@@ -160,5 +151,3 @@ func (r *Registry) resolver(
 
 	return r.generic[strategy]
 }
-
-var _ Resolver = (*Registry)(nil)

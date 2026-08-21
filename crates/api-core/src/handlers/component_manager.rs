@@ -1586,6 +1586,72 @@ async fn machine_firmware_statuses(
         .collect())
 }
 
+/// Query the compute-tray CM backend for firmware status of the given
+/// `machine_ids`, resolving each ID to a BMC endpoint first.
+///
+/// Returns one [`rpc::FirmwareUpdateStatus`] per input ID. IDs that cannot be
+/// resolved (missing machine, no BMC MAC/IP, or no credentials) produce an
+/// inline error entry; successfully queried IDs carry the backend result.
+fn map_compute_tray_firmware_status(
+    s: component_manager::compute_tray_manager::ComputeTrayFirmwareUpdateStatus,
+    ip_to_machine_id: &HashMap<IpAddr, MachineId>,
+) -> rpc::FirmwareUpdateStatus {
+    let id = ip_to_machine_id
+        .get(&s.bmc_ip)
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| s.bmc_ip.to_string());
+    rpc::FirmwareUpdateStatus {
+        result: Some(if s.error.is_none() {
+            success_result(&id)
+        } else {
+            error_result(&id, s.error.unwrap_or_default())
+        }),
+        state: map_fw_state(s.state),
+        target_version: s.target_version,
+        updated_at: None,
+    }
+}
+
+async fn compute_tray_firmware_statuses(
+    cm: &ComponentManager,
+    api: &Api,
+    machines_by_id: &HashMap<MachineId, Machine>,
+    machine_ids: &[MachineId],
+) -> Result<Vec<rpc::FirmwareUpdateStatus>, Status> {
+    let resolved = resolve_compute_tray_endpoints_from_machines(
+        api.credential_manager.as_ref(),
+        machines_by_id,
+        machine_ids,
+    )
+    .await;
+
+    let mut statuses: Vec<_> = resolved
+        .unresolved
+        .iter()
+        .map(|u| rpc::FirmwareUpdateStatus {
+            result: Some(error_result(&u.id.to_string(), u.reason.clone())),
+            state: rpc::FirmwareUpdateState::FwStateUnknown as i32,
+            target_version: String::new(),
+            updated_at: None,
+        })
+        .collect();
+
+    if !resolved.resolved.endpoints.is_empty() {
+        let backend_statuses = cm
+            .compute_tray
+            .get_firmware_status(&resolved.resolved.endpoints)
+            .await
+            .map_err(component_manager_error_to_status)?;
+        statuses.extend(
+            backend_statuses
+                .into_iter()
+                .map(|s| map_compute_tray_firmware_status(s, &resolved.resolved.ip_to_machine_id)),
+        );
+    }
+
+    Ok(statuses)
+}
+
 // ---- Power Control ----
 
 pub(crate) async fn component_power_control(
@@ -2554,6 +2620,63 @@ pub(crate) async fn update_component_firmware(
 
 // ---- Firmware Status ----
 
+/// The routing decision for a compute-tray firmware-status request when a
+/// `ComponentManager` is present.
+enum FirmwareStatusRouting {
+    /// The CM is in direct-dispatch mode (`!use_state_controller`): all
+    /// requested IDs are sent to the compute-tray backend.
+    DirectDispatch,
+    /// The CM is in state-controller mode: the request is split by whether each
+    /// machine has a persisted `backend_firmware_object_job_id`.
+    Partitioned {
+        /// IDs with a persisted backend job — route to `compute_tray` so callers
+        /// can poll the live in-flight state.
+        persisted: Vec<MachineId>,
+        /// Remaining IDs — route to `machine_firmware_statuses` (DB-only).
+        fallback: Vec<MachineId>,
+    },
+}
+
+/// Partition `machine_ids` into those that have a persisted backend
+/// firmware-object job ID and those that do not.
+///
+/// Returns `(persisted_ids, fallback_ids)`:
+/// - `persisted_ids` — IDs where the loaded machine has a non-null
+///   `backend_firmware_object_job_id`; route to `compute_tray`.
+/// - `fallback_ids` — remaining IDs; route to `machine_firmware_statuses`.
+fn partition_by_backend_job_id(
+    machine_ids: &[MachineId],
+    machines_by_id: &HashMap<MachineId, Machine>,
+) -> (Vec<MachineId>, Vec<MachineId>) {
+    machine_ids.iter().copied().partition(|id| {
+        machines_by_id
+            .get(id)
+            .is_some_and(|m| m.status.backend_firmware_object_job_id.is_some())
+    })
+}
+
+/// Choose how to route a batch of `machine_ids` for firmware-status retrieval.
+///
+/// When `use_state_controller` is `false` (direct-dispatch mode) all IDs are
+/// forwarded to the compute-tray backend. Otherwise the IDs are partitioned by
+/// the presence of a persisted `backend_firmware_object_job_id`: those with a job
+/// go to the live backend; the rest fall back to the DB-only path.
+fn select_firmware_status_routing(
+    use_state_controller: bool,
+    machine_ids: &[MachineId],
+    machines_by_id: &HashMap<MachineId, Machine>,
+) -> FirmwareStatusRouting {
+    if !use_state_controller {
+        FirmwareStatusRouting::DirectDispatch
+    } else {
+        let (persisted, fallback) = partition_by_backend_job_id(machine_ids, machines_by_id);
+        FirmwareStatusRouting::Partitioned {
+            persisted,
+            fallback,
+        }
+    }
+}
+
 pub(crate) async fn get_component_firmware_status(
     api: &Api,
     request: Request<rpc::GetComponentFirmwareStatusRequest>,
@@ -2641,7 +2764,49 @@ pub(crate) async fn get_component_firmware_status(
                 return Err(Status::invalid_argument("machine_ids must not be empty"));
             }
 
-            machine_firmware_statuses(api, &list.machine_ids).await?
+            // In direct-dispatch mode all IDs go to the compute-tray backend.
+            // In state-controller mode the batch is partitioned: IDs with a
+            // persisted backend_firmware_object_job_id (set when a firmware update
+            // was dispatched via --bypass-state-controller) are polled from the
+            // live backend; the rest use the DB-only machine_firmware_statuses()
+            // path.
+            if let Some(cm) = api.component_manager.as_ref() {
+                let machines_by_id = load_machines_by_id(api, &list.machine_ids).await?;
+
+                match select_firmware_status_routing(
+                    cm.compute_tray_use_state_controller,
+                    &list.machine_ids,
+                    &machines_by_id,
+                ) {
+                    FirmwareStatusRouting::DirectDispatch => {
+                        compute_tray_firmware_statuses(cm, api, &machines_by_id, &list.machine_ids)
+                            .await?
+                    }
+                    FirmwareStatusRouting::Partitioned {
+                        persisted,
+                        fallback,
+                    } => {
+                        let mut statuses = Vec::with_capacity(list.machine_ids.len());
+                        if !persisted.is_empty() {
+                            statuses.extend(
+                                compute_tray_firmware_statuses(
+                                    cm,
+                                    api,
+                                    &machines_by_id,
+                                    &persisted,
+                                )
+                                .await?,
+                            );
+                        }
+                        if !fallback.is_empty() {
+                            statuses.extend(machine_firmware_statuses(api, &fallback).await?);
+                        }
+                        statuses
+                    }
+                }
+            } else {
+                machine_firmware_statuses(api, &list.machine_ids).await?
+            }
         }
         rpc::get_component_firmware_status_request::Target::RackIds(list) => {
             if list.rack_ids.is_empty() {
@@ -4019,5 +4184,201 @@ mod tests {
         assert_eq!(resolved.resolved.endpoints.len(), 1);
         assert_eq!(resolved.resolved.endpoints[0].bmc_ip, bmc_ip);
         assert_eq!(resolved.resolved.ip_to_machine_id.get(&bmc_ip), Some(&id));
+    }
+
+    // ---- map_compute_tray_firmware_status ----
+
+    use component_manager::compute_tray_manager::ComputeTrayFirmwareUpdateStatus;
+
+    struct FwStatusCase {
+        label: &'static str,
+        bmc_ip: IpAddr,
+        state: FirmwareState,
+        target_version: &'static str,
+        error: Option<&'static str>,
+        /// When `Some`, the IP is present in `ip_to_machine_id`.
+        machine_id: Option<MachineId>,
+        expected_component_id: String,
+        expected_state: rpc::FirmwareUpdateState,
+        expected_success: bool,
+    }
+
+    fn run_fw_status_case(c: &FwStatusCase) {
+        let mut ip_to_machine_id = HashMap::new();
+        if let Some(id) = c.machine_id {
+            ip_to_machine_id.insert(c.bmc_ip, id);
+        }
+
+        let raw = ComputeTrayFirmwareUpdateStatus {
+            bmc_ip: c.bmc_ip,
+            state: c.state,
+            target_version: c.target_version.to_string(),
+            error: c.error.map(str::to_string),
+        };
+
+        let status = map_compute_tray_firmware_status(raw, &ip_to_machine_id);
+
+        let result = status.result.as_ref().expect("result must be set");
+        assert_eq!(
+            result.component_id, c.expected_component_id,
+            "[{}] component_id",
+            c.label
+        );
+        assert_eq!(
+            result.error.is_empty(),
+            c.expected_success,
+            "[{}] success flag",
+            c.label
+        );
+        assert_eq!(status.state, c.expected_state as i32, "[{}] state", c.label);
+        assert_eq!(
+            status.target_version, c.target_version,
+            "[{}] target_version",
+            c.label
+        );
+    }
+
+    #[test]
+    fn map_compute_tray_firmware_status_cases() {
+        let known_ip: IpAddr = "10.0.0.1".parse().unwrap();
+        let unknown_ip: IpAddr = "10.0.0.2".parse().unwrap();
+        let id = host_machine_id();
+        let id_str = id.to_string();
+        let unknown_ip_str = unknown_ip.to_string();
+
+        let cases = [
+            FwStatusCase {
+                label: "success — ip resolves to machine id",
+                bmc_ip: known_ip,
+                state: FirmwareState::Completed,
+                target_version: "1.2.3",
+                error: None,
+                machine_id: Some(id),
+                expected_component_id: id_str.clone(),
+                expected_state: rpc::FirmwareUpdateState::FwStateCompleted,
+                expected_success: true,
+            },
+            FwStatusCase {
+                label: "backend error — component id still resolved",
+                bmc_ip: known_ip,
+                state: FirmwareState::Failed,
+                target_version: "1.2.3",
+                error: Some("flash failed"),
+                machine_id: Some(id),
+                expected_component_id: id_str,
+                expected_state: rpc::FirmwareUpdateState::FwStateFailed,
+                expected_success: false,
+            },
+            FwStatusCase {
+                label: "unknown bmc ip — falls back to ip string",
+                bmc_ip: unknown_ip,
+                state: FirmwareState::InProgress,
+                target_version: "1.2.3",
+                error: None,
+                machine_id: None,
+                expected_component_id: unknown_ip_str,
+                expected_state: rpc::FirmwareUpdateState::FwStateInProgress,
+                expected_success: true,
+            },
+        ];
+
+        for c in &cases {
+            run_fw_status_case(c);
+        }
+    }
+
+    // ---- firmware-status routing decision ----
+
+    #[test]
+    fn firmware_status_routing_covers_all_dispatch_paths() {
+        let id_a = host_machine_id();
+        let id_b = dpu_machine_id(0);
+        let id_c = dpu_machine_id(1);
+
+        let mut machine_with_rms_job = machine_with_id(standalone_machine(), id_a);
+        machine_with_rms_job.status.backend_firmware_object_job_id =
+            Some("backend-job-bypass-abc".to_string());
+
+        let machines = HashMap::from([
+            (id_a, machine_with_rms_job),
+            (id_b, machine_with_id(standalone_machine(), id_b)),
+            (id_c, machine_with_id(standalone_machine(), id_c)),
+        ]);
+
+        struct Case {
+            scenario: &'static str,
+            use_state_controller: bool,
+            ids: &'static [usize],
+            expect_direct: bool,
+            expect_persisted_indices: &'static [usize],
+            expect_fallback_indices: &'static [usize],
+        }
+
+        let all_ids = [id_a, id_b, id_c];
+
+        let cases = [
+            Case {
+                scenario: "direct dispatch: !use_state_controller sends all to compute_tray",
+                use_state_controller: false,
+                ids: &[0, 1],
+                expect_direct: true,
+                expect_persisted_indices: &[],
+                expect_fallback_indices: &[],
+            },
+            Case {
+                scenario: "state-controller mode, no persisted jobs: all fall back to DB path",
+                use_state_controller: true,
+                ids: &[1, 2],
+                expect_direct: false,
+                expect_persisted_indices: &[],
+                expect_fallback_indices: &[1, 2],
+            },
+            Case {
+                scenario: "state-controller mode, mixed batch: persisted to compute_tray, rest to DB",
+                use_state_controller: true,
+                ids: &[0, 1, 2],
+                expect_direct: false,
+                expect_persisted_indices: &[0],
+                expect_fallback_indices: &[1, 2],
+            },
+        ];
+
+        for case in &cases {
+            let ids: Vec<MachineId> = case.ids.iter().map(|&i| all_ids[i]).collect();
+            let expect_persisted: Vec<MachineId> = case
+                .expect_persisted_indices
+                .iter()
+                .map(|&i| all_ids[i])
+                .collect();
+            let expect_fallback: Vec<MachineId> = case
+                .expect_fallback_indices
+                .iter()
+                .map(|&i| all_ids[i])
+                .collect();
+
+            let routing =
+                select_firmware_status_routing(case.use_state_controller, &ids, &machines);
+            match routing {
+                FirmwareStatusRouting::DirectDispatch => {
+                    assert!(
+                        case.expect_direct,
+                        "{}: expected Partitioned but got DirectDispatch",
+                        case.scenario,
+                    );
+                }
+                FirmwareStatusRouting::Partitioned {
+                    persisted,
+                    fallback,
+                } => {
+                    assert!(
+                        !case.expect_direct,
+                        "{}: expected DirectDispatch but got Partitioned",
+                        case.scenario,
+                    );
+                    assert_eq!(persisted, expect_persisted, "{}", case.scenario);
+                    assert_eq!(fallback, expect_fallback, "{}", case.scenario);
+                }
+            }
+        }
     }
 }

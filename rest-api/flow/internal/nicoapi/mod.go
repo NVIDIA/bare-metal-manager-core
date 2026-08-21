@@ -236,7 +236,6 @@ type Client interface {
 	FindMachineControllerStates(ctx context.Context, machineIDs []string) (map[string]string, error)
 
 	// DecommissionMachine initiates decommissioning of the given machine via Core.
-	// TODO: Core Decommission Machine RPC pending.
 	DecommissionMachine(ctx context.Context, machineID string) error
 
 	// DecommissionSwitch initiates decommissioning of the given switch via Core.

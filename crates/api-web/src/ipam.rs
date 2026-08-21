@@ -567,12 +567,11 @@ pub(super) async fn overlay_html(AxumState(state): AxumState<Arc<Api>>) -> Respo
         .map(|vpc| {
             let id = vpc.id.map(|id| id.to_string()).unwrap_or_default();
             let prefixes = prefixes_by_vpc.remove(&id).unwrap_or_default();
-            #[allow(deprecated)]
             let tenant = vpc
                 .config
                 .as_ref()
                 .map(|config| config.tenant_organization_id.clone())
-                .unwrap_or_else(|| vpc.tenant_organization_id.clone());
+                .unwrap_or_default();
             OverlayVpcDisplay {
                 id,
                 name: vpc

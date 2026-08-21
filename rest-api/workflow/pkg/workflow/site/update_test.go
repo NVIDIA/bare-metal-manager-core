@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
@@ -28,7 +27,7 @@ func TestUpdateSiteConfigInventory(t *testing.T) {
 		updateSiteInDBErr    error
 		updateIPBlocksErr    error
 		wantErr              bool
-		wantErrContains      string
+		wantErrContains      []string
 		expectUpdateSiteInDB bool
 		expectUpdateIPBlocks bool
 		expectRecordLatency  bool
@@ -45,27 +44,46 @@ func TestUpdateSiteConfigInventory(t *testing.T) {
 			expectRecordLatency:  true,
 		},
 		{
-			name:                 "ActivityFails",
+			name:                 "UpdateIPBlocksInDBFails",
 			prefixes:             []string{"10.0.0.0/16"},
 			buildVersion:         "1.2.3",
 			updateIPBlocksErr:    errors.New("failed to update Site IP Blocks"),
 			wantErr:              true,
-			wantErrContains:      "failed to update Site IP Blocks",
+			wantErrContains:      []string{"failed to update Site IP Blocks"},
 			expectUpdateSiteInDB: true,
 			expectUpdateIPBlocks: true,
 			expectRecordLatency:  true,
 			recordLatencyFailed:  true,
 		},
 		{
-			// UpdateSiteInDB failures are logged and do not stop the workflow
-			// from creating Site fabric IP Blocks from the reported prefixes.
+			// UpdateSiteInDB failures do not stop the workflow from creating Site
+			// fabric IP Blocks, but they still fail the inventory workflow.
 			name:                 "UpdateSiteInDBFailsContinues",
 			prefixes:             []string{"10.0.0.0/16"},
 			buildVersion:         "1.2.3",
 			updateSiteInDBErr:    errors.New("failed to update Site metadata"),
+			wantErr:              true,
+			wantErrContains:      []string{"failed to update Site metadata"},
 			expectUpdateSiteInDB: true,
 			expectUpdateIPBlocks: true,
 			expectRecordLatency:  true,
+			recordLatencyFailed:  true,
+		},
+		{
+			name:              "BothInventoryUpdatesFail",
+			prefixes:          []string{"10.0.0.0/16"},
+			buildVersion:      "1.2.3",
+			updateSiteInDBErr: errors.New("failed to update Site metadata"),
+			updateIPBlocksErr: errors.New("failed to update Site IP Blocks"),
+			wantErr:           true,
+			wantErrContains: []string{
+				"failed to update Site metadata",
+				"failed to update Site IP Blocks",
+			},
+			expectUpdateSiteInDB: true,
+			expectUpdateIPBlocks: true,
+			expectRecordLatency:  true,
+			recordLatencyFailed:  true,
 		},
 		{
 			name:      "InvalidSiteID",
@@ -111,7 +129,7 @@ func TestUpdateSiteConfigInventory(t *testing.T) {
 			}
 			if tt.expectRecordLatency {
 				env.RegisterActivity(metricsManager.RecordLatency)
-				onLatency := env.OnActivity(
+				env.OnActivity(
 					metricsManager.RecordLatency,
 					mock.Anything,
 					siteID,
@@ -119,9 +137,6 @@ func TestUpdateSiteConfigInventory(t *testing.T) {
 					tt.recordLatencyFailed,
 					mock.Anything,
 				).Return(nil)
-				if tt.recordLatencyFailed {
-					onLatency.Maybe()
-				}
 			}
 
 			env.ExecuteWorkflow(UpdateSiteConfigInventory, siteIDStr, buildInfo)
@@ -134,13 +149,9 @@ func TestUpdateSiteConfigInventory(t *testing.T) {
 			}
 
 			require.Error(t, err)
-			if tt.wantErrContains == "" {
-				return
+			for _, wantErr := range tt.wantErrContains {
+				assert.ErrorContains(t, err, wantErr)
 			}
-
-			var applicationErr *temporal.ApplicationError
-			require.True(t, errors.As(err, &applicationErr))
-			assert.Equal(t, tt.wantErrContains, applicationErr.Error())
 		})
 	}
 }

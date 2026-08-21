@@ -2983,6 +2983,7 @@ async fn test_select_host_primary_interface(
         explored_dpus.push(ExploredDpu {
             bmc_ip: IpAddr::from_str(format!("192.168.1.{i}").as_str())?,
             host_pf_mac_address: Some(mock_dpu.host_mac_address),
+            host_chassis_id: None,
             report: dpu_report,
         });
     }
@@ -3001,7 +3002,7 @@ async fn test_select_host_primary_interface(
 
     // Preserve the all-or-nothing PCI rule: one matching DPU interface without
     // a UEFI path disables PCI selection for the whole host, allowing the
-    // existing stable fallback that orders by serial number to run.
+    // provisional chassis or serial ordering to run.
     let mut incomplete_pci_report = host_report.clone();
     let missing_path_mac = mock_dpus[0].host_mac_address;
     incomplete_pci_report.systems[0]

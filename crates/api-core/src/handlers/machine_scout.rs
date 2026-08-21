@@ -19,9 +19,9 @@ use ::rpc::model::machine::get_action_for_dpu_state;
 use ::rpc::{forge as rpc, forge_agent_control_response as fac, scout_firmware_upgrade as sfu};
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
-    BomValidating, CleanupContext, CleanupState, FailureCause, FailureDetails, FailureSource,
-    HostReprovisionState, InstanceState, MachineState, MachineValidatingState, ManagedHostState,
-    MeasuringState, StateMachineArea, ValidationState,
+    BomValidating, CleanupContext, CleanupState, DecommissioningState, DeconfiguringHostState,
+    FailureCause, FailureDetails, FailureSource, HostReprovisionState, InstanceState, MachineState,
+    MachineValidatingState, ManagedHostState, MeasuringState, StateMachineArea, ValidationState,
 };
 use model::machine_validation::{MachineValidationState, MachineValidationStatus};
 use tonic::{Request, Response, Status};
@@ -329,6 +329,26 @@ pub(crate) async fn forge_agent_control(
                             machine_id = %machine_id,
                             error = %e,
                             "Failed to process Scout request",
+                        );
+                        (Action::noop(), None)
+                    }
+                }
+            }
+
+            ManagedHostState::Decommissioning {
+                decommissioning_state:
+                    DecommissioningState::DeconfiguringHost {
+                        deconfiguring_state: DeconfiguringHostState::WaitForSuperNicLockdown,
+                    },
+            } => {
+                txn.commit().await?;
+                match crate::handlers::svpc::process_scout_req(api, machine_id).await {
+                    Ok(action) => (action, None),
+                    Err(error) => {
+                        tracing::error!(
+                            machine_id = %machine_id,
+                            error = %error,
+                            "Failed to build SuperNIC unlock action during host decommissioning",
                         );
                         (Action::noop(), None)
                     }

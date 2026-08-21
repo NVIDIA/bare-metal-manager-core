@@ -34,41 +34,15 @@ use rpc::forge::forge_server::Forge;
 
 use crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
 use crate::tests::common;
+use crate::tests::common::api_fixtures::tenant::create_fixture_tenant;
 use crate::tests::common::api_fixtures::{TestEnvOverrides, create_test_env_with_overrides};
 use crate::tests::common::rpc_builder::{VpcCreationRequest, VpcDeletionRequest, VpcUpdateRequest};
 use crate::{DatabaseError, db_init};
 
-#[allow(deprecated)]
 fn forge_vpc_config(vpc: &rpc::forge::Vpc) -> &rpc::forge::VpcConfig {
     vpc.config
         .as_ref()
         .expect("structured config must be populated")
-}
-
-/// Backware compatibility: deprecated fields mirror structured config/status.
-/// TODO Remove after rest component migrates to config/status
-#[allow(deprecated)]
-fn assert_vpc_config_status_compat(vpc: &rpc::forge::Vpc) {
-    let config = forge_vpc_config(vpc);
-    assert_eq!(vpc.tenant_organization_id, config.tenant_organization_id);
-    assert_eq!(vpc.tenant_keyset_id, config.tenant_keyset_id);
-    assert_eq!(vpc.vni, config.vni);
-    assert_eq!(
-        vpc.network_virtualization_type,
-        config.network_virtualization_type
-    );
-    assert_eq!(
-        vpc.network_security_group_id,
-        config.network_security_group_id
-    );
-    assert_eq!(
-        vpc.default_nvlink_logical_partition_id,
-        config.default_nvlink_logical_partition_id
-    );
-    assert_eq!(vpc.routing_profile_type, config.routing_profile_type);
-
-    let status = vpc.status.as_ref().expect("status must be populated");
-    assert_eq!(vpc.deprecated_vni, status.vni);
 }
 
 #[crate::sqlx_test]
@@ -291,8 +265,10 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     // A VNI is allocated
     assert!(forge_vpc.status.as_ref().and_then(|s| s.vni).is_some());
     // The 'config' VNI and the status VNI match
-    assert_eq!(forge_vpc.vni, forge_vpc.status.as_ref().and_then(|s| s.vni));
-    assert_vpc_config_status_compat(&forge_vpc);
+    assert_eq!(
+        forge_vpc_config(&forge_vpc).vni,
+        forge_vpc.status.as_ref().and_then(|s| s.vni)
+    );
 
     // Create another VPC by explicitly selecting a VNI from
     // the allowed pool, but use the same VNI, so it should fail.
@@ -341,10 +317,12 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     // A VNI is allocated
     assert!(forge_vpc.status.as_ref().and_then(|s| s.vni).is_some());
     // The 'config' VNI is still None because this was an auto-allocated VNI
-    assert!(forge_vpc.vni.is_none());
+    assert!(forge_vpc_config(&forge_vpc).vni.is_none());
     // We default to EthernetVirtualizer (proto value 0).
-    assert_eq!(forge_vpc.network_virtualization_type, Some(0));
-    assert_vpc_config_status_compat(&forge_vpc);
+    assert_eq!(
+        forge_vpc_config(&forge_vpc).network_virtualization_type,
+        Some(0)
+    );
 
     let no_org_vpc = env
         .api
@@ -758,6 +736,151 @@ async fn vpc_without_fnn_rejects_routing_profile_fields(
     Ok(())
 }
 
+/// SLAAC is immutable VPC creation policy and is supported only by FNN.
+#[crate::sqlx_test]
+async fn test_slaac_vpc_creation_contract(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env =
+        create_test_env_with_overrides(pool, TestEnvOverrides::default().with_fnn_config(None))
+            .await;
+    let tenant_organization_id = "slaac-vpc-tenant";
+    create_fixture_tenant(&env, tenant_organization_id).await?;
+
+    check_cases_async(
+        [
+            Case {
+                scenario: "default Ethernet virtualization",
+                input: VpcCreationRequest::builder(tenant_organization_id)
+                    .metadata(Metadata {
+                        name: "SLAAC on ETV".to_string(),
+                        ..Default::default()
+                    })
+                    .slaac_enabled(true)
+                    .tonic_request(),
+                expect: FailsWith(true),
+            },
+            Case {
+                scenario: "Flat virtualization",
+                input: VpcCreationRequest::builder(tenant_organization_id)
+                    .metadata(Metadata {
+                        name: "SLAAC on Flat".to_string(),
+                        ..Default::default()
+                    })
+                    .network_virtualization_type(rpc::forge::VpcVirtualizationType::Flat as i32)
+                    .slaac_enabled(true)
+                    .tonic_request(),
+                expect: FailsWith(true),
+            },
+        ],
+        |request| {
+            let api = env.api.clone();
+            async move {
+                api.create_vpc(request).await.map(drop).map_err(|error| {
+                    error.code() == tonic::Code::InvalidArgument
+                        && error
+                            .message()
+                            .contains("VPCs do not support SLAAC allocation mode")
+                })
+            }
+        },
+    )
+    .await;
+
+    let omitted = env
+        .api
+        .create_vpc(
+            VpcCreationRequest::builder(tenant_organization_id)
+                .metadata(Metadata {
+                    name: "FNN without SLAAC".to_string(),
+                    ..Default::default()
+                })
+                .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+                .tonic_request(),
+        )
+        .await?
+        .into_inner();
+    assert_eq!(forge_vpc_config(&omitted).slaac_enabled, Some(false));
+
+    let explicitly_disabled = env
+        .api
+        .create_vpc(
+            VpcCreationRequest::builder(tenant_organization_id)
+                .metadata(Metadata {
+                    name: "FNN with SLAAC explicitly disabled".to_string(),
+                    ..Default::default()
+                })
+                .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+                .slaac_enabled(false)
+                .tonic_request(),
+        )
+        .await?
+        .into_inner();
+    assert_eq!(
+        forge_vpc_config(&explicitly_disabled).slaac_enabled,
+        Some(false)
+    );
+
+    // VPC creation succeeds before any IPv6 (or other) VPC prefix exists.
+    let created = env
+        .api
+        .create_vpc(
+            VpcCreationRequest::builder(tenant_organization_id)
+                .metadata(Metadata {
+                    name: "SLAAC on FNN".to_string(),
+                    ..Default::default()
+                })
+                .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+                .slaac_enabled(true)
+                .tonic_request(),
+        )
+        .await?
+        .into_inner();
+    let vpc_id = created.id.expect("created VPC ID");
+    assert_eq!(forge_vpc_config(&created).slaac_enabled, Some(true));
+
+    let mut txn = env.pool.begin().await?;
+    assert!(
+        db::vpc_prefix::find_by_vpc(txn.as_mut(), vpc_id)
+            .await?
+            .is_empty()
+    );
+    let persisted = db::vpc::find_by(
+        txn.as_mut(),
+        ObjectColumnFilter::One(vpc::IdColumn, &vpc_id),
+    )
+    .await?
+    .pop()
+    .expect("persisted SLAAC VPC");
+    assert!(persisted.config.slaac_enabled);
+    txn.commit().await?;
+
+    // The separate virtualization update API cannot violate the rule that
+    // SLAAC is supported only for FNN because `slaac_enabled` is fixed when the
+    // VPC is created.
+    let error = env
+        .api
+        .update_vpc_virtualization(tonic::Request::new(
+            rpc::forge::VpcUpdateVirtualizationRequest {
+                id: Some(vpc_id),
+                if_version_match: None,
+                network_virtualization_type: Some(
+                    rpc::forge::VpcVirtualizationType::EthernetVirtualizer as i32,
+                ),
+            },
+        ))
+        .await
+        .expect_err("a SLAAC VPC must remain FNN");
+    assert_eq!(error.code(), tonic::Code::FailedPrecondition);
+    assert!(
+        error
+            .message()
+            .contains("VPCs do not support SLAAC allocation mode")
+    );
+
+    Ok(())
+}
+
 /// Verifies override updates require a currently resolvable named base so the
 /// API cannot persist policy that the FNN data plane is unable to render.
 #[crate::sqlx_test]
@@ -804,6 +927,7 @@ async fn update_vpc_rejects_unresolvable_routing_profile_base(
             routing_profile_overrides: None,
             power_resource_group: Some("stale-power-group".to_string()),
             vni: None,
+            slaac_enabled: false,
         },
         VpcStatus { vni: None },
         &mut txn,
@@ -1393,14 +1517,6 @@ async fn create_vpc_with_labels(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
         "Forge_unit_tests"
     );
     assert_eq!(
-        fetched_vpc.tenant_organization_id,
-        fetched_vpc
-            .config
-            .as_ref()
-            .expect("config")
-            .tenant_organization_id
-    );
-    assert_eq!(
         fetched_vpc.metadata.clone().unwrap().description,
         "this VPC must have labels."
     );
@@ -1750,7 +1866,6 @@ async fn create_update_network_security_group_for_vpc(
         forge_vpc_config(&vpc).network_security_group_id.as_deref(),
         Some(good_network_security_group_id)
     );
-    assert_vpc_config_status_compat(&vpc);
 
     let vpc_id = vpc.id;
 
@@ -1789,7 +1904,6 @@ async fn create_update_network_security_group_for_vpc(
         forge_vpc_config(&vpc).network_security_group_id.as_deref(),
         Some(good_network_security_group_id)
     );
-    assert_vpc_config_status_compat(&vpc);
 
     // Update again to clear the the NSG attachment.
     let vpc = env
@@ -1808,7 +1922,6 @@ async fn create_update_network_security_group_for_vpc(
 
     // Make sure the VPC has no NSG ID
     assert!(forge_vpc_config(&vpc).network_security_group_id.is_none());
-    assert_vpc_config_status_compat(&vpc);
 
     Ok(())
 }
@@ -1954,7 +2067,6 @@ async fn create_flat_vpc_succeeds_without_routing_profile(
         vpc.status.as_ref().and_then(|s| s.vni).is_some(),
         "Flat VPCs still allocate a VNI for pluggable SDN hooks (e.g. switch-side VTEPs)",
     );
-    assert_vpc_config_status_compat(&vpc);
 
     Ok(())
 }

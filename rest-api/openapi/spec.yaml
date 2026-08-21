@@ -2778,6 +2778,7 @@ paths:
                       siteId: 72771e6a-6f5e-4de4-a5b9-1266c4197811
                       controllerVpcId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
                       networkVirtualizationType: ETHERNET_VIRTUALIZER
+                      slaacEnabled: false
                       requestedVni: 12001
                       vni: 12001
                       networkSecurityGroupId: c602eb90-3039-11f0-997a-b38d4fc8389e
@@ -2907,6 +2908,7 @@ paths:
                     siteId: 72771e6a-6f5e-4de4-a5b9-1266c4197811
                     controllerVpcId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
                     networkVirtualizationType: ETHERNET_VIRTUALIZER
+                    slaacEnabled: false
                     requestedVni: 12001
                     vni: 12001
                     nvLinkLogicalPartitionId: dd887330-dbd3-45ce-b400-c42fc8e47315
@@ -2925,10 +2927,63 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '409':
+          description: A VPC with the requested `id` or `name` already exists. This can also occur when inventory reconciliation completes before an ambiguous create is retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+              examples:
+                example-1:
+                  value:
+                    source: nico
+                    message: A Vpc with specified ID already exists
+                    data:
+                      id: 497f6eca-6276-4993-bfeb-53cbbbba6f08
+        '412':
+          description: The latest successfully stored configuration inventory for the selected Site does not report Core support for SLAAC, or Core rejects another create prerequisite. The inventory check fails before REST persistence or workflow dispatch; a Core rejection occurs after dispatch and the REST transaction is rolled back.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+              examples:
+                example-1:
+                  value:
+                    source: nico
+                    message: Site does not advertise support for SLAAC-enabled VPCs
+                    data: null
+        '500':
+          description: The API encountered an internal error resolving the selected Site client, persisting the VPC, starting the create workflow, or waiting for the workflow result. A failure before the workflow start request rolls back the REST transaction and no remote create is requested. An error returned while starting the workflow or waiting for its result also rolls back the REST transaction, but remote acceptance or creation may be unknown; a wait timeout triggers an attempted workflow termination.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+              examples:
+                example-1:
+                  value:
+                    source: nico
+                    message: Failed to retrieve client for Site
+                    data: null
+        '503':
+          description: Core or the selected Site Agent returned unavailable after the create workflow was dispatched. REST rolls back the transaction in progress, but the outcome in Core may be unknown.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+              examples:
+                example-1:
+                  value:
+                    source: nico
+                    message: Core unavailable after VPC create dispatch
+                    data: null
       description: |-
         Create a VPC for the org.
 
-        Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix
+        Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
+
+        When `slaacEnabled` is true, REST reads `vpcSlaac` from the latest successfully stored configuration inventory for the selected Site before persisting the VPC. Periodic Site inventory reports whether Core supports this feature, so the stored value can lag a Core rollout. False or missing `vpcSlaac` returns 412 before REST persistence or workflow dispatch. This flag reports Core support only; it does not verify DPU agent versions. When a new API server release is deployed, DPU agents roll forward, and instance network configuration may fail transiently until eligible agents converge. Core can also return 412 after dispatch for another create prerequisite. Failure to resolve the Site client or persist the VPC returns 500, rolls back the REST transaction, and does not request a remote create. An error returned while starting the workflow also returns 500 and may leave remote acceptance unknown. After the start request, an unavailable result returns 503, while a workflow wait timeout returns 500 and triggers an attempted workflow termination. Errors while starting or waiting for the workflow roll back the REST transaction, but do not guarantee that Core did not create the VPC; a later inventory reconciliation may recreate the REST record.
+
+        Safe recovery from an ambiguous create result requires supplying a stable `id` in the original request. After an ambiguous error while starting the workflow or after dispatch, callers should allow inventory reconciliation time, then retrieve that `id`. If the VPC is found, do not retry. If no record is found, reuse the same `id` for any retry; reusing the ID prevents a second Core VPC record, but the retry itself is not guaranteed to succeed and can return 409 if reconciliation completes concurrently.
       requestBody:
         content:
           application/json:
@@ -2942,6 +2997,7 @@ paths:
                   description: Virtual network for machines executing Spark jobs
                   siteId: 72771e6a-6f5e-4de4-a5b9-1266c4197811
                   networkVirtualizationType: ETHERNET_VIRTUALIZER
+                  slaacEnabled: false
                   vni: 12001
                   nvLinkLogicalPartitionId: dd887330-dbd3-45ce-b400-c42fc8e47315
                   labels:
@@ -2987,6 +3043,7 @@ paths:
                     siteId: 72771e6a-6f5e-4de4-a5b9-1266c4197811
                     controllerVpcId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
                     networkVirtualizationType: ETHERNET_VIRTUALIZER
+                    slaacEnabled: false
                     requestedVni: 12001
                     vni: 12001
                     nvLinkLogicalPartitionId: dd887330-dbd3-45ce-b400-c42fc8e47315
@@ -3076,6 +3133,7 @@ paths:
                     siteId: 72771e6a-6f5e-4de4-a5b9-1266c4197811
                     controllerVpcId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
                     networkVirtualizationType: ETHERNET_VIRTUALIZER
+                    slaacEnabled: false
                     requestedVni: 12001
                     vni: 12001
                     nvLinkLogicalPartitionId: dd887330-dbd3-45ce-b400-c42fc8e47315
@@ -3149,6 +3207,7 @@ paths:
                     siteId: 72771e6a-6f5e-4de4-a5b9-1266c4197811
                     controllerVpcId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
                     networkVirtualizationType: FNN
+                    slaacEnabled: false
                     requestedVni: 12001
                     vni: 12001
                     nvLinkLogicalPartitionId: dd887330-dbd3-45ce-b400-c42fc8e47315
@@ -3475,8 +3534,8 @@ paths:
           in: query
           name: includeUsageStats
           description: >-
-            When true, each VPC Prefix object includes usage statistics using the same structure as IP Block usage.
-            Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a VPC Prefix consumes a `/31` prefix.
+            When true, each VPC Prefix with IPv4 includes IPv4 usage statistics using the same structure as IP Block usage.
+            Usage is derived from associated Ethernet interfaces and their IPv4 addresses. IP usage counts two addresses per interface, while prefix usage counts each distinct `/31` containing an assigned IPv4 address.
         - schema:
             $ref: '#/components/schemas/PageNumber'
             example: 1
@@ -3579,8 +3638,8 @@ paths:
           in: query
           name: includeUsageStats
           description: |-
-            When true, each VPC Prefix object includes usage statistics using the same structure as IP Block usage.
-            Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a VPC Prefix consumes a `/31` prefix.
+            When true, a VPC Prefix with IPv4 includes IPv4 usage statistics using the same structure as IP Block usage.
+            Usage is derived from associated Ethernet interfaces and their IPv4 addresses. IP usage counts two addresses per interface, while prefix usage counts each distinct `/31` containing an assigned IPv4 address.
     delete:
       summary: Delete VPC Prefix
       operationId: delete-vpc-prefix
@@ -8532,6 +8591,7 @@ paths:
                               nvLinkPartition: false
                               flow: false
                               imageBasedOperatingSystem: false
+                              vpcSlaac: false
                             status: Registered
                           status: Syncing
                           version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -8549,6 +8609,7 @@ paths:
                               nvLinkPartition: false
                               flow: false
                               imageBasedOperatingSystem: false
+                              vpcSlaac: false
                             status: Registered
                           status: Syncing
                           version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -8868,6 +8929,7 @@ paths:
                             nvLinkPartition: false
                             flow: false
                             imageBasedOperatingSystem: false
+                            vpcSlaac: false
                           status: Registered
                         status: Syncing
                         version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -8885,6 +8947,7 @@ paths:
                             nvLinkPartition: false
                             flow: false
                             imageBasedOperatingSystem: false
+                            vpcSlaac: false
                           status: Registered
                         status: Syncing
                         version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -10111,6 +10174,71 @@ paths:
         attached to the Machine, `acknowledgeAttachedInstance` must be `true`.
         
         Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
+  '/v2/org/{org}/nico/machine/{machineId}/decommission':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+        name: machineId
+        in: path
+        required: true
+        description: ID of the Machine
+    post:
+      summary: Decommission a Machine
+      tags:
+        - Machine
+      responses:
+        '202':
+          description: Machine decommissioning was accepted and will proceed asynchronously.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              examples:
+                accepted:
+                  value:
+                    message: Machine decommissioning request was accepted
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '412':
+          description: The Machine cannot be decommissioned in its current Core state or its DPUs do not support the required BFB installation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+        '503':
+          description: Core is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+        '504':
+          description: The Core proxy request timed out.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+      operationId: decommission-machine
+      description: |-
+        Start decommissioning a Machine. The Machine must be in Core's `Ready`
+        state, and every attached DPU must support BFB installation through
+        Redfish. The operation is asynchronous; use the Machine status to
+        observe workflow progress.
+
+        Org must have an Infrastructure Provider entity and own the Site that
+        the Machine belongs to. User must have authorization role with
+        `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/machine/{machineId}/validation/run':
     parameters:
       - schema:
@@ -13978,6 +14106,7 @@ paths:
                               nvLinkPartition: false
                               flow: false
                               imageBasedOperatingSystem: false
+                              vpcSlaac: false
                             status: Registered
                           status: Syncing
                           version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -14099,6 +14228,7 @@ paths:
                           capabilities:
                             nativeNetworking: true
                             networkSecurityGroup: true
+                            vpcSlaac: false
                           status: Registered
                         status: Syncing
                         version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -14189,6 +14319,7 @@ paths:
                             nvLinkPartition: false
                             flow: false
                             imageBasedOperatingSystem: false
+                            vpcSlaac: false
                           status: Registered
                         status: Syncing
                         version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -14274,6 +14405,7 @@ paths:
                           capabilities:
                             nativeNetworking: true
                             networkSecurityGroup: true
+                            vpcSlaac: false
                           status: Registered
                         status: Syncing
                         version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -14288,6 +14420,7 @@ paths:
                           capabilities:
                             nativeNetworking: true
                             networkSecurityGroup: true
+                            vpcSlaac: false
                           status: Registered
                         status: Syncing
                         version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -16846,6 +16979,7 @@ components:
             assigned: 12
             ready: 5
             error: 2
+            decommissioning: 0
             decommissioned: 0
             unknown: 0
           ipBlock:
@@ -16881,6 +17015,7 @@ components:
           assigned: 12
           ready: 5
           error: 2
+          decommissioning: 0
           decommissioned: 0
           unknown: 0
       properties:
@@ -16902,6 +17037,9 @@ components:
         error:
           type: integer
           description: 'Number of Machines in Error status'
+        decommissioning:
+          type: integer
+          description: 'Number of Machines in Decommissioning status'
         decommissioned:
           type: integer
           description: 'Number of Machines in Decommissioned status'
@@ -17403,6 +17541,7 @@ components:
               Maintenance: 0
               InUse: 3
               Error: 5
+              Decommissioning: 0
               Decommissioned: 0
               Unknown: 0
             totalByHealth:
@@ -17427,6 +17566,9 @@ components:
               Error:
                 healthy: 2
                 unhealthy: 3
+              Decommissioning:
+                healthy: 0
+                unhealthy: 0
               Decommissioned:
                 healthy: 0
                 unhealthy: 0
@@ -17447,6 +17589,7 @@ components:
             nvLinkPartition: false
             flow: false
             imageBasedOperatingSystem: false
+            vpcSlaac: false
           isOnline: false
           status: Pending
           statusHistory:
@@ -17582,6 +17725,7 @@ components:
             nvLinkPartition: false
             flow: false
             imageBasedOperatingSystem: false
+            vpcSlaac: false
           status: Pending
       properties:
         id:
@@ -17639,6 +17783,10 @@ components:
         imageBasedOperatingSystem:
           type: boolean
           description: 'Whether the Site supports image-based operating system provisioning'
+        vpcSlaac:
+          type: boolean
+          readOnly: true
+          description: Whether the latest successfully stored Site configuration inventory reports that Core supports VPCs with SLAAC enabled. False also represents a missing Site configuration or an inventory report that omits the capability. This value is managed by Site configuration inventory and cannot be updated through the Site API.
     SiteMachineStats:
       title: SiteMachineStats
       type: object
@@ -17692,6 +17840,9 @@ components:
         Decommissioned:
           type: integer
           description: 'Number of Machines in Decommissioned status'
+        Decommissioning:
+          type: integer
+          description: 'Number of Machines in Decommissioning status'
         Error:
           type: integer
           description: 'Number of Machines in Error status'
@@ -17721,6 +17872,9 @@ components:
         Decommissioned:
           $ref: '#/components/schemas/SiteMachineStatsByHealth'
           description: 'Health breakdown for Machines in Decommissioned status'
+        Decommissioning:
+          $ref: '#/components/schemas/SiteMachineStatsByHealth'
+          description: 'Health breakdown for Machines in Decommissioning status'
         Error:
           $ref: '#/components/schemas/SiteMachineStatsByHealth'
           description: 'Health breakdown for Machines in Error status'
@@ -18210,6 +18364,7 @@ components:
             env: dev
           controllerVpcId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
           networkVirtualizationType: ETHERNET_VIRTUALIZER
+          slaacEnabled: false
           requestedVni: 12001
           vni: 12001
           networkSecurityGroupId: c602eb90-3039-11f0-997a-b38d4fc8389e
@@ -18275,6 +18430,10 @@ components:
             - FNN
             - FLAT
           description: 'Network virtualization type of the VPC. Flat VPCs hold instances on zero-DPU hosts (or hosts with their DPU in NIC mode); their interfaces are bound to underlay (HostInband) network segments and NICo does not drive their data plane.'
+        slaacEnabled:
+          type: boolean
+          readOnly: true
+          description: Whether this VPC uses SLAAC allocation mode for instance IPv6 interfaces. When true, Core allocates a `/64` to each interface that includes IPv6 and retains the prefix without assigning a concrete IPv6 host address. This value is fixed when the VPC is created. NICo does not yet configure router advertisements (RAs); that support is tracked by https://github.com/NVIDIA/infra-controller/issues/2398.
         routingProfile:
           type:
             - string
@@ -18489,6 +18648,7 @@ components:
           description: Virtual network for machines executing Spark jobs
           siteId: 72771e6a-6f5e-4de4-a5b9-1266c4197811
           networkVirtualizationType: FNN
+          slaacEnabled: true
           routingProfile: internal
           vni: 12001
           nvLinkLogicalPartitionId: dd887330-dbd3-45ce-b400-c42fc8e47315
@@ -18523,6 +18683,10 @@ components:
             - FNN
             - FLAT
           description: 'Network virtualization type of the VPC. If no value is specified, then defaults to `FNN` if Site has native networking enabled, or `ETHERNET_VIRTUALIZER` if native networking is disabled. Flat VPCs hold instances on zero-DPU hosts (or hosts with their DPU in NIC mode) and are never auto-selected -- `FLAT` must be specified explicitly.'
+        slaacEnabled:
+          type: boolean
+          default: false
+          description: When true, Core allocates a `/64` to each instance interface that includes IPv6 and retains the prefix without assigning a concrete IPv6 host address. It is supported only for FNN VPCs and fixed during creation. False or omission disables SLAAC. Before persistence, REST requires `vpcSlaac` in the latest successfully stored configuration inventory for the selected Site. Periodic Site inventory reports whether Core supports this feature, so the stored value can lag a Core rollout. False or missing `vpcSlaac` returns 412 before REST persistence or workflow dispatch. This flag does not verify DPU agent versions. When a new API server release is deployed, DPU agents roll forward, and instance network configuration may fail transiently until eligible agents converge. NICo does not yet configure router advertisements (RAs); that support is tracked by https://github.com/NVIDIA/infra-controller/issues/2398.
         routingProfile:
           type:
             - string
@@ -18886,7 +19050,7 @@ components:
           $ref: '#/components/schemas/IpBlockUsageStats'
           readOnly: true
           description: |-
-            Present when query parameter `includeUsageStats=true`. Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a VPC Prefix consumes a `/31` prefix.
+            Present when query parameter `includeUsageStats=true` and the VPC Prefix has IPv4. This statistic reports IPv4 usage only. IP usage counts two addresses per associated Ethernet interface, while prefix usage counts each distinct `/31` containing an assigned IPv4 address.
         statusHistory:
           type: array
           items:
@@ -19605,6 +19769,7 @@ components:
                   nvLinkPartition: false
                   flow: false
                   imageBasedOperatingSystem: false
+                  vpcSlaac: false
                 status: Registered
               status: Syncing
               version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -19622,6 +19787,7 @@ components:
                   nvLinkPartition: false
                   flow: false
                   imageBasedOperatingSystem: false
+                  vpcSlaac: false
                 status: Registered
               status: Syncing
               version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -19965,6 +20131,7 @@ components:
               nvLinkPartition: false
               flow: false
               imageBasedOperatingSystem: false
+              vpcSlaac: false
             status: Pending
           status: Syncing
           version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -24192,6 +24359,7 @@ components:
         - Maintenance
         - InUse
         - Error
+        - Decommissioning
         - Decommissioned
         - Unknown
     MachineSummary:
@@ -27318,6 +27486,7 @@ components:
                   nvLinkPartition: false
                   flow: false
                   imageBasedOperatingSystem: false
+                  vpcSlaac: false
                 status: Registered
               status: Syncing
               version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -27420,6 +27589,7 @@ components:
               nvLinkPartition: false
               flow: false
               imageBasedOperatingSystem: false
+              vpcSlaac: false
             status: Pending
           status: Syncing
           version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3

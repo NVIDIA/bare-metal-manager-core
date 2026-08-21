@@ -341,6 +341,7 @@ pub(super) async fn update_nvue(
     update_flavor: NvueUpdateFlavor<'_>,
     nc: &rpc::ManagedHostNetworkConfigResponse,
     hbn_device_names: HBNDeviceNames,
+    supplemental_config: Option<&str>,
 ) -> eyre::Result<bool> {
     let hbn_version = match update_flavor {
         NvueUpdateFlavor::StartupFile { .. } => hbn::read_version().await?,
@@ -480,8 +481,10 @@ pub(super) async fn update_nvue(
                 }
             };
 
-            // For FNN interfaces with IPv6, the DPU-side address is the network
-            // address of the /127 linknet (the ::0 end). The ::1 end is the host.
+            // For stateful FNN interfaces with IPv6, the address configured on
+            // the DPU is the network address of the /127 linknet (the ::0 end).
+            // The ::1 end is the host. SLAAC instead carries the selected /64
+            // without a concrete host address.
             ifs.push(nvue::PortConfig {
                 interface_name: name,
                 is_phy: net.function_type == rpc::InterfaceFunctionType::Physical as i32,
@@ -652,6 +655,19 @@ pub(super) async fn update_nvue(
 
     // next_contents is a YAML-serialized NVUE config.
     let next_contents = nvue::build(conf)?;
+
+    // Merging before the write/push keeps the supplemental content part of the
+    // same atomic NVUE revision on both apply flavors. A blank file (empty or
+    // whitespace-only, hence the trim: a pre-created ConfigMap or a stray
+    // trailing newline) means "no patch" rather than failing reconciliation;
+    // a malformed one fails loudly instead of being silently dropped.
+    let next_contents = match supplemental_config.map(str::trim) {
+        Some(patch) if !patch.is_empty() => {
+            crate::supplemental_config::merge_into_nvue_yaml(&next_contents, patch)
+                .wrap_err("merging supplemental network config")?
+        }
+        _ => next_contents,
+    };
 
     match update_flavor {
         NvueUpdateFlavor::StartupFile {
@@ -1207,16 +1223,19 @@ pub(super) async fn interfaces(
                         version: nsg.version.clone(),
                     });
 
-            let addresses = build_dual_stack_list(
-                iface.ip.clone(),
-                iface.ipv6_interface_config.as_ref().map(|v6| v6.ip.clone()),
-            );
+            // A SLAAC interface retains its desired IPv6 prefix without a
+            // concrete host address. Status keeps address/prefix lists
+            // positionally aligned, so report that family only after an
+            // address is available.
+            let observed_ipv6 = iface
+                .ipv6_interface_config
+                .as_ref()
+                .filter(|ipv6| !ipv6.ip.is_empty());
+            let addresses =
+                build_dual_stack_list(iface.ip.clone(), observed_ipv6.map(|v6| v6.ip.clone()));
             let prefixes = build_dual_stack_list(
                 iface.interface_prefix.clone(),
-                iface
-                    .ipv6_interface_config
-                    .as_ref()
-                    .map(|v6| v6.interface_prefix.clone()),
+                observed_ipv6.map(|v6| v6.interface_prefix.clone()),
             );
             interfaces.push(rpc::InstanceInterfaceStatusObservation {
                 function_type: iface.function_type,
@@ -1994,6 +2013,7 @@ mod tests {
             update_flavor,
             &network_config,
             HBNDeviceNames::hbn_23(),
+            None,
         )
         .await?;
         assert!(
@@ -2044,6 +2064,7 @@ mod tests {
             update_flavor,
             &network_config,
             HBNDeviceNames::hbn_23(),
+            None,
         )
         .await?;
         assert!(
@@ -2094,6 +2115,7 @@ mod tests {
             update_flavor,
             &network_config,
             HBNDeviceNames::hbn_23(),
+            None,
         )
         .await?;
         assert!(
@@ -2153,6 +2175,7 @@ mod tests {
             update_flavor,
             &network_config,
             HBNDeviceNames::hbn_23(),
+            None,
         )
         .await?;
         assert!(
@@ -2192,6 +2215,7 @@ mod tests {
                 update_flavor,
                 &network_config,
                 HBNDeviceNames::hbn_23(),
+                None,
             )
             .await
             .unwrap_err()
@@ -2231,6 +2255,7 @@ mod tests {
             update_flavor,
             &network_config,
             HBNDeviceNames::hbn_23(),
+            None,
         )
         .await?;
         assert!(
@@ -2285,6 +2310,7 @@ mod tests {
             update_flavor,
             &network_config,
             HBNDeviceNames::hbn_23(),
+            None,
         )
         .await?;
         assert!(
@@ -2342,6 +2368,7 @@ mod tests {
             update_flavor,
             &network_config,
             HBNDeviceNames::hbn_23(),
+            None,
         )
         .await?;
         assert!(
@@ -2408,6 +2435,7 @@ mod tests {
             update_flavor,
             &network_config,
             HBNDeviceNames::hbn_23(),
+            None,
         )
         .await?;
         assert!(
@@ -2464,6 +2492,7 @@ mod tests {
             update_flavor,
             &network_config,
             HBNDeviceNames::hbn_23(),
+            None,
         )
         .await?;
         assert!(
@@ -3719,30 +3748,70 @@ mod tests {
 
     #[tokio::test]
     #[allow(deprecated)]
-    async fn ipv6_only_status_omits_empty_ipv4_compatibility_values() {
-        let network_config = rpc::ManagedHostNetworkConfigResponse {
-            tenant_interfaces: vec![rpc::FlatInterfaceConfig {
+    async fn ipv6_status_projects_admin_and_tenant_slaac_differently() {
+        for (
+            scenario,
+            use_admin_network,
+            ip,
+            interface_prefix,
+            expected_addresses,
+            expected_prefixes,
+        ) in [
+            (
+                "tenant interface with a concrete IPv6 host address",
+                false,
+                "2001:db8::1",
+                "2001:db8::/127",
+                vec!["2001:db8::1"],
+                vec!["2001:db8::/127"],
+            ),
+            (
+                "tenant SLAAC prefix without a host address",
+                false,
+                "",
+                "2001:db8::/64",
+                vec![],
+                vec![],
+            ),
+            (
+                "admin SLAAC prefix without a host address",
+                true,
+                "",
+                "2001:db8::/64",
+                vec![],
+                vec!["2001:db8::/64"],
+            ),
+        ] {
+            let iface = rpc::FlatInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical.into(),
                 vlan_id: 100,
                 ipv6_interface_config: Some(rpc::FlatInterfaceIpv6Config {
-                    ip: "2001:db8::1".to_string(),
-                    interface_prefix: "2001:db8::/127".to_string(),
+                    ip: ip.to_string(),
+                    interface_prefix: interface_prefix.to_string(),
                     svi_ip: None,
                 }),
                 ..Default::default()
-            }],
-            ..Default::default()
-        };
+            };
+            let network_config = rpc::ManagedHostNetworkConfigResponse {
+                use_admin_network,
+                admin_interface: use_admin_network.then_some(iface.clone()),
+                tenant_interfaces: (!use_admin_network)
+                    .then_some(vec![iface])
+                    .unwrap_or_default(),
+                ..Default::default()
+            };
 
-        assert!(tenant_peers(&network_config).is_empty());
+            assert!(tenant_peers(&network_config).is_empty(), "{scenario}");
 
-        let observations = interfaces(&network_config, "02:00:00:00:00:01".parse().unwrap(), None)
-            .await
-            .unwrap();
+            let observations =
+                interfaces(&network_config, "02:00:00:00:00:01".parse().unwrap(), None)
+                    .await
+                    .unwrap();
 
-        assert_eq!(observations.len(), 1);
-        assert_eq!(observations[0].addresses, vec!["2001:db8::1"]);
-        assert_eq!(observations[0].prefixes, vec!["2001:db8::/127"]);
-        assert!(observations[0].gateways.is_empty());
+            assert_eq!(observations.len(), 1, "{scenario}");
+            assert_eq!(observations[0].addresses, expected_addresses, "{scenario}");
+            assert_eq!(observations[0].prefixes, expected_prefixes, "{scenario}");
+            assert!(observations[0].gateways.is_empty(), "{scenario}");
+        }
     }
 }
