@@ -92,6 +92,11 @@ func (pii *pagedInventoryInput) buildPage() *corev1.InventoryPage {
 	}
 }
 
+// CollectAndPublishInventory fetches the inventory from Core a site page at a time and publishes
+// each page onwards to Cloud, so only one site page is held in memory. Both page sizes adapt: the
+// Core fetch shrinks when a response outgrows the gRPC receive limit, and a published page shrinks
+// until it fits Temporal's blob limit. A failure before any page goes out is reported to Cloud as
+// a FAILED status page.
 func (impl *manageInventoryImpl[K, R, P]) CollectAndPublishInventory(ctx context.Context, logger *zerolog.Logger) error {
 	// get Core gRPC client
 	grpcClient := impl.config.CoreGrpcAtomicClient.GetClient()
@@ -104,17 +109,16 @@ func (impl *manageInventoryImpl[K, R, P]) CollectAndPublishInventory(ctx context
 	// find IDs
 	allIDs, err := impl.internalFindIDs(ctx, grpcClient)
 	if err != nil {
-		if grpcStatus, ok := status.FromError(err); ok {
-			if grpcStatus.Code() == codes.Unimplemented {
-				log.Info().Msg("Using fallback API to get inventory")
-				if err = impl.collectAndPublishFallback(ctx, logger, grpcClient); err == nil {
-					return err
-				}
-			}
+		// The fallback reports its own failures, so returning here keeps a failed fallback from
+		// publishing a second FAILED page under the same workflow ID.
+		if status.Code(err) == codes.Unimplemented && impl.internalFindFallback != nil {
+			log.Info().Msg("Using fallback API to get inventory")
+			return impl.collectAndPublishFallback(ctx, logger, grpcClient)
 		}
 		logger.Warn().Err(err).Msg("Failed to retrieve IDs using Core gRPC API")
 		// Error encountered before we've published anything, report inventory collection error to Cloud
-		if execErr := collector.publishStatusOnly(corev1.InventoryStatus_INVENTORY_STATUS_FAILED, err.Error()); execErr != nil {
+		execErr := collector.publishStatusOnly(ctx, corev1.InventoryStatus_INVENTORY_STATUS_FAILED, err.Error())
+		if execErr != nil {
 			logger.Error().Err(execErr).Msg("Failed to publish inventory error to Cloud")
 			return execErr
 		}
@@ -124,7 +128,8 @@ func (impl *manageInventoryImpl[K, R, P]) CollectAndPublishInventory(ctx context
 	collector.allIDs = allIDs
 	if len(allIDs) == 0 {
 		logger.Info().Msg("Publishing empty inventory page to Cloud")
-		if err = collector.publishStatusOnly(corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS, "No items reported by Site Controller"); err != nil {
+		err = collector.publishStatusOnly(ctx, corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS, "No items reported by Site Controller")
+		if err != nil {
 			logger.Error().Err(err).Msg("Failed to publish inventory to Cloud")
 			return err
 		}
@@ -132,11 +137,22 @@ func (impl *manageInventoryImpl[K, R, P]) CollectAndPublishInventory(ctx context
 	}
 
 	// Fetch the inventory a site page at a time and publish each site page onwards to Cloud, so
-	// only one site page is held in memory at a time.
-	for remainingIDs := allIDs; len(remainingIDs) > 0; {
+	// only one site page is held in memory at a time. The cursor advances by however many IDs the
+	// fetch consumed, which shrinks when the site page ladder steps down.
+	remainingIDs := allIDs
+	for len(remainingIDs) > 0 {
 		siteItems, consumed, err := collector.fetchSitePage(ctx, logger, remainingIDs)
 		if err != nil {
 			logger.Warn().Err(err).Int("Site Page", collector.sitePagesFetched+1).Msg("Failed to retrieve using Core gRPC API")
+			// Nothing reached Cloud yet, so report the failure the way the find path does.
+			// After a partial publish the pages already sent carry the run, and the unpaged
+			// workflow ID a status page uses would say nothing about where it stopped.
+			if collector.pagesPublished == 0 {
+				execErr := collector.publishStatusOnly(ctx, corev1.InventoryStatus_INVENTORY_STATUS_FAILED, err.Error())
+				if execErr != nil {
+					logger.Error().Err(execErr).Msg("Failed to publish inventory error to Cloud")
+				}
+			}
 			return err
 		}
 		remainingIDs = remainingIDs[consumed:]
@@ -147,9 +163,14 @@ func (impl *manageInventoryImpl[K, R, P]) CollectAndPublishInventory(ctx context
 		// alert on it without letting it break inventory entirely.
 		if len(siteItems) != consumed {
 			logger.Error().Msg("size of FindByIDs set does not match size of FindIDs set")
+			// The page total is derived from the ID count, so an item Core did not return would
+			// leave the last page short of its total and skip the Cloud deletion sweep for the
+			// whole run. Discount what is missing to keep the last page recognizable.
+			collector.itemsMissing += consumed - len(siteItems)
 		}
 
-		if err = collector.publishItems(ctx, logger, siteItems); err != nil {
+		err = collector.publishItems(ctx, logger, siteItems)
+		if err != nil {
 			return err
 		}
 	}
@@ -157,6 +178,9 @@ func (impl *manageInventoryImpl[K, R, P]) CollectAndPublishInventory(ctx context
 	return nil
 }
 
+// collectAndPublishFallback collects the whole inventory in one call, for a Core that does not
+// implement the paged find API. It owns reporting its own failures to Cloud, so callers return its
+// result rather than publishing a status page of their own.
 func (impl *manageInventoryImpl[K, R, P]) collectAndPublishFallback(ctx context.Context, logger *zerolog.Logger,
 	grpcClient *cClient.CoreGrpcClient) error {
 	if impl.internalFindFallback == nil {
@@ -168,7 +192,8 @@ func (impl *manageInventoryImpl[K, R, P]) collectAndPublishFallback(ctx context.
 	if err != nil {
 		logger.Warn().Err(err).Msg("Failed to retrieve using Site Controller fallback API")
 		// Error encountered before we've published anything, report inventory collection error to Cloud
-		if execErr := collector.publishStatusOnly(corev1.InventoryStatus_INVENTORY_STATUS_FAILED, err.Error()); execErr != nil {
+		execErr := collector.publishStatusOnly(ctx, corev1.InventoryStatus_INVENTORY_STATUS_FAILED, err.Error())
+		if execErr != nil {
 			logger.Error().Err(execErr).Msg("Failed to publish inventory error to Cloud")
 			return execErr
 		}
@@ -178,7 +203,8 @@ func (impl *manageInventoryImpl[K, R, P]) collectAndPublishFallback(ctx context.
 	collector.allIDs = allIDs
 	if len(allIDs) == 0 {
 		logger.Info().Msg("Publishing empty inventory page to Cloud")
-		if err = collector.publishStatusOnly(corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS, "No items reported by Site Controller"); err != nil {
+		err = collector.publishStatusOnly(ctx, corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS, "No items reported by Site Controller")
+		if err != nil {
 			logger.Error().Err(err).Msg("Failed to publish inventory to Cloud")
 			return err
 		}
@@ -204,8 +230,12 @@ type inventoryCollector[K any, R any, P any] struct {
 	sitePagesFetched int
 	pagesPublished   int
 	itemsPublished   int
+	// itemsMissing counts IDs that FindIDs reported but FindByIDs did not return, which is what
+	// a delete landing between the two calls looks like.
+	itemsMissing int
 }
 
+// newCollector prepares the per-run state the collector carries across site pages.
 func (impl *manageInventoryImpl[K, R, P]) newCollector(grpcClient *cClient.CoreGrpcClient) *inventoryCollector[K, R, P] {
 	return &inventoryCollector[K, R, P]{
 		impl:          impl,
@@ -249,7 +279,8 @@ func (col *inventoryCollector[K, R, P]) publishItems(ctx context.Context, logger
 		}
 
 		logger.Info().Msgf("Publishing inventory page %d to Cloud", col.pagesPublished+1)
-		if err = col.execute(page); err != nil {
+		err = col.execute(ctx, page)
+		if err != nil {
 			logger.Error().Err(err).Int("Cloud Page", col.pagesPublished+1).Msg("Failed to publish inventory to Cloud")
 			return err
 		}
@@ -294,6 +325,8 @@ func (col *inventoryCollector[K, R, P]) buildPageWithinBudget(ctx context.Contex
 	}
 }
 
+// buildInventoryPage assembles one page and its paging metadata, then applies whatever post
+// processing the resource type asked for.
 func (col *inventoryCollector[K, R, P]) buildInventoryPage(ctx context.Context, items []R, pageItems int) (P, error) {
 	input := &pagedInventoryInput{
 		totalItems:    len(col.allIDs),
@@ -302,12 +335,11 @@ func (col *inventoryCollector[K, R, P]) buildInventoryPage(ctx context.Context, 
 		status:        corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
 		statusMessage: "Successfully retrieved from Site Controller",
 	}
-	// The Cloud worker treats a page whose CurrentPage equals TotalPages as the last one and runs
-	// its deletion sweep there, so the total is derived from what is left rather than fixed up
-	// front, which the publish page size stepping down would invalidate. With nothing left this
-	// is exactly pageNumber; with items left it is always greater, so no earlier page can be
-	// mistaken for the last one.
-	remainingItems := input.totalItems - col.itemsPublished - pageItems
+	// The Cloud worker runs its deletion sweep on the page where CurrentPage equals TotalPages, so
+	// the total is derived from what is left rather than fixed up front, which the publish page
+	// size stepping down would invalidate. Discounting itemsMissing keeps the last page exact, and
+	// because it only grows as site pages arrive a mid-run total can read high but never low.
+	remainingItems := input.totalItems - col.itemsMissing - col.itemsPublished - pageItems
 	input.totalPages = input.pageNumber + ceilDiv(remainingItems, col.cloudPageSize)
 
 	page := col.impl.internalPagedInventory(col.allIDs, items, input)
@@ -333,28 +365,31 @@ func (col *inventoryCollector[K, R, P]) payloadSize(page P) (int, error) {
 // reported nothing and when collection failed before any page went out. It keeps the unpaged
 // workflow ID and reports the configured page size, which is what Cloud has always received for
 // these two cases.
-func (col *inventoryCollector[K, R, P]) publishStatusOnly(inventoryStatus corev1.InventoryStatus, statusMessage string) error {
+func (col *inventoryCollector[K, R, P]) publishStatusOnly(ctx context.Context, inventoryStatus corev1.InventoryStatus,
+	statusMessage string) error {
 	page := col.impl.internalPagedInventory([]K{}, []R{}, &pagedInventoryInput{
 		pageSize:      col.cloudPageSize,
 		pageNumber:    1,
 		status:        inventoryStatus,
 		statusMessage: statusMessage,
 	})
-	_, err := col.impl.config.TemporalPublishClient.ExecuteWorkflow(context.Background(), tClient.StartWorkflowOptions{
+	_, err := col.impl.config.TemporalPublishClient.ExecuteWorkflow(ctx, tClient.StartWorkflowOptions{
 		ID:        col.workflowID,
 		TaskQueue: col.impl.config.TemporalPublishQueue,
 	}, col.workflowName, col.impl.config.SiteID, page)
 	return err
 }
 
-func (col *inventoryCollector[K, R, P]) execute(page P) error {
-	_, err := col.impl.config.TemporalPublishClient.ExecuteWorkflow(context.Background(), tClient.StartWorkflowOptions{
+// execute starts the Cloud workflow for one published page.
+func (col *inventoryCollector[K, R, P]) execute(ctx context.Context, page P) error {
+	_, err := col.impl.config.TemporalPublishClient.ExecuteWorkflow(ctx, tClient.StartWorkflowOptions{
 		ID:        fmt.Sprintf("%v-%v", col.workflowID, col.pagesPublished+1),
 		TaskQueue: col.impl.config.TemporalPublishQueue,
 	}, col.workflowName, col.impl.config.SiteID, page)
 	return err
 }
 
+// ceilDiv divides and rounds up, reporting zero for a non-positive dividend or divisor.
 func ceilDiv(dividend, divisor int) int {
 	if divisor <= 0 || dividend <= 0 {
 		return 0

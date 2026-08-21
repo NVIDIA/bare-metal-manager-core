@@ -418,6 +418,9 @@ func TestManageInstanceInventory_DiscoverInstanceInventory(t *testing.T) {
 		// maxRequestIDs makes Core answer a FindInstancesByIds request carrying more IDs than
 		// this with ResourceExhausted, forcing the site page size down.
 		maxRequestIDs int
+		// dropInstancesPerPage makes Core return fewer Instances than the IDs asked for, which
+		// is what a delete landing between FindInstanceIds and FindInstancesByIds looks like.
+		dropInstancesPerPage int
 		// wantPageItems is the Instance count of each published page, in publish order.
 		wantPageItems []int
 		wantErr       bool
@@ -523,6 +526,41 @@ func TestManageInstanceInventory_DiscoverInstanceInventory(t *testing.T) {
 			},
 		},
 		{
+			// Core drops 3 Instances between the two calls, so 97 items cover 100 IDs. The last
+			// page still has to report CurrentPage equal to TotalPages, or Cloud skips its
+			// deletion sweep for the whole run.
+			name: "test collecting and publishing instance inventory, Core returns fewer Instances than IDs",
+			fields: fields{
+				siteID:               uuid.New(),
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
+				temporalPublishQueue: "test-queue",
+				sitePageSize:         100,
+				cloudPageSize:        25,
+			},
+			args: args{
+				wantTotalItems:       100,
+				dropInstancesPerPage: 3,
+				wantPageItems:        []int{25, 25, 25, 22},
+			},
+		},
+		{
+			// Across several site pages the shortfall is only known page by page, so the total
+			// reads high mid-run and settles exactly on the last page.
+			name: "test collecting and publishing instance inventory, Instances missing across site pages",
+			fields: fields{
+				siteID:               uuid.New(),
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
+				temporalPublishQueue: "test-queue",
+				sitePageSize:         100,
+				cloudPageSize:        25,
+			},
+			args: args{
+				wantTotalItems:       250,
+				dropInstancesPerPage: 3,
+				wantPageItems:        []int{25, 25, 25, 22, 25, 25, 25, 22, 25, 22},
+			},
+		},
+		{
 			// Core still rejects the floor of 10, so nothing is published and the activity fails.
 			name: "test collecting and publishing instance inventory, site page hits its floor",
 			fields: fields{
@@ -564,11 +602,21 @@ func TestManageInstanceInventory_DiscoverInstanceInventory(t *testing.T) {
 			if tt.args.maxRequestIDs > 0 {
 				ctx = context.WithValue(ctx, "maxRequestIDs", tt.args.maxRequestIDs)
 			}
+			if tt.args.dropInstancesPerPage > 0 {
+				ctx = context.WithValue(ctx, "dropInstancesPerPage", tt.args.dropInstancesPerPage)
+			}
 
 			err := manageInstance.DiscoverInstanceInventory(ctx)
 			if tt.args.wantErr {
 				assert.Error(t, err)
-				tc.AssertNumberOfCalls(t, "ExecuteWorkflow", 0)
+
+				// Nothing was collected, so Cloud gets one page carrying the failure rather
+				// than silence, which would leave it serving the previous inventory.
+				tc.AssertNumberOfCalls(t, "ExecuteWorkflow", 1)
+				inventory, ok := tc.Calls[0].Arguments[4].(*corev1.InstanceInventory)
+				require.True(t, ok)
+				assert.Equal(t, corev1.InventoryStatus_INVENTORY_STATUS_FAILED, inventory.InventoryStatus)
+				assert.Nil(t, inventory.InventoryPage, "a failure carries no paging metadata")
 				return
 			}
 			assert.NoError(t, err)

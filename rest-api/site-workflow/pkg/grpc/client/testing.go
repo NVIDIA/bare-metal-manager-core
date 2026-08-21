@@ -321,14 +321,23 @@ func (mcgsc *MockCoreGrpcServiceClient) FindInstancesByIds(ctx context.Context, 
 
 	// Inflates every Instance so a published inventory page can outgrow the Temporal blob budget.
 	var padding *string
-	if padBytes, _ := ctx.Value("instancePadBytes").(int); padBytes > 0 {
+	padBytes, _ := ctx.Value("instancePadBytes").(int)
+	if padBytes > 0 {
 		pad := strings.Repeat("a", padBytes)
 		padding = &pad
 	}
 
+	// Stands in for Instances deleted between FindInstanceIds and FindInstancesByIds, which is
+	// how Core comes to return fewer Instances than the IDs asked for.
+	dropPerPage, _ := ctx.Value("dropInstancesPerPage").(int)
+
 	out := &corev1.InstanceList{}
 	if in != nil {
-		for _, id := range in.InstanceIds {
+		ids := in.InstanceIds
+		if dropPerPage > 0 && len(ids) > dropPerPage {
+			ids = ids[:len(ids)-dropPerPage]
+		}
+		for _, id := range ids {
 			out.Instances = append(out.Instances, &corev1.Instance{
 				Id:               id,
 				TpmEkCertificate: padding,
