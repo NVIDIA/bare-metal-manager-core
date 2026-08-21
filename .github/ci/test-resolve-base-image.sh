@@ -102,11 +102,16 @@ for dfname in "${dockerfiles[@]}"; do
 done
 rm -rf "${work}"
 
-# 5. A transient registry error is retried (3 attempts) and then fails open.
+# 5. A transient registry error is retried (3 attempts) and then fails open. The
+#    503 below is simulated by the docker stub; the resolver's real retry
+#    diagnostics are left visible and framed so a log reader knows they are
+#    expected. The retry itself is verified via the call counter.
+echo "[test] simulating a transient registry failure; the following 503 errors are EXPECTED and not a real outage:" >&2
 call_log="$(mktemp)"
 export TRANSIENT_REF="reg/build-container-x86_64:${tag}" CALL_LOG="${call_log}"
 retry_out="$(run_gate "${repo_root}" "" reg reg 2.1.0 "")"
 unset TRANSIENT_REF CALL_LOG
+echo "[test] end of expected 503 errors" >&2
 grep -q '^build_container_x86_64_run=true$' <<< "${retry_out}" || fail "transient error should fail open to a build"
 attempts="$(grep -c . "${call_log}")"
 [[ "${attempts}" -eq 3 ]] || fail "expected 3 inspect attempts on transient error, got ${attempts}"
