@@ -278,6 +278,13 @@ async fn test_integration() -> eyre::Result<()> {
         r#"carbide_site_explorer_boot_interface_selections_total{mechanism="redfish_serial_number"}"#,
     )
     .await?;
+    // MaT exercises a host with multiple DPUs whose lowest Scout PCI slot
+    // matches its stored boot interface.
+    metrics::wait_for_metric_line(
+        &test_env.carbide_metrics_addrs,
+        r#"carbide_scout_pci_evaluations_total{result="agreement"}"#,
+    )
+    .await?;
 
     let metric_infos = metrics::collect_metric_infos(&test_env.carbide_metrics_addrs)?;
     assert!(
@@ -285,6 +292,12 @@ async fn test_integration() -> eyre::Result<()> {
             metric.name == "carbide_site_explorer_boot_interface_selections_total"
         }),
         "the multi-DPU integration paths must exercise boot-interface selection observability",
+    );
+    assert!(
+        metric_infos
+            .iter()
+            .any(|metric| metric.name == "carbide_scout_pci_evaluations_total"),
+        "the MaT Scout path must exercise PCI evaluation observability",
     );
     generate_core_metric_docs(&test_env.carbide_metrics_addrs);
 
