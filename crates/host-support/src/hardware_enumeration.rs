@@ -921,8 +921,8 @@ fn enumerate_hardware_inner(
     })
 }
 
-/// Rolls up a flat list of RPC [`MemoryDevice`]s into [`MemoryDeviceGroup`]s,
-/// merging devices with the same `(size_mb, mem_type)` into a single group.
+/// Rolls up a flat list of RPC [`MemoryDevice`]s into [`MemoryDeviceGroup`]s, merging consecutive
+/// devices with the same `(size_mb, mem_type)` into a single group.
 ///
 /// Fails if the total device count exceeds [`MemoryDeviceGroup::MAX_REHYDRATE_COUNT`], so a
 /// malformed SMBIOS table can't produce discovery data that only fails later, at RPC conversion.

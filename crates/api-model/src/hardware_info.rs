@@ -1387,6 +1387,27 @@ mod tests {
         );
     }
 
+    // Pre-condensed JSON (written before `count` existed) omits the field entirely;
+    // it must deserialize as a single device rather than failing or defaulting to zero.
+    #[test]
+    fn deserialize_memory_devices_defaults_omitted_count_to_one() {
+        let json = r#"{
+            "machine_type": "x86_64",
+            "memory_devices": [
+                {"size_mb": 8192, "mem_type": "DDR4"}
+            ]
+        }"#;
+        let info: HardwareInfo = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            info.memory_devices,
+            vec![MemoryDeviceGroup {
+                size_mb: Some(8192),
+                mem_type: Some("DDR4".into()),
+                count: 1,
+            }]
+        );
+    }
+
     #[test]
     fn condense_memory_devices_preserves_non_consecutive_groups() {
         let devices = vec![
