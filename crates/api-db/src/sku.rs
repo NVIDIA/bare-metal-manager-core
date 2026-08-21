@@ -852,6 +852,7 @@ pub async fn generate_sku_from_machine_at_version_5(
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::{Check, check_values};
     use model::hardware_info::MemoryDeviceGroup;
     use model::test_support::machine_snapshot::host_machine;
 
@@ -889,77 +890,71 @@ mod tests {
 
     #[test]
     fn generate_base_sku_from_hardware_groups_memory_devices() {
-        struct Case {
-            name: &'static str,
-            devices: Vec<MemoryDeviceGroup>,
-            expected: Vec<SkuComponentMemory>,
-        }
-
-        let cases = vec![
-            Case {
-                name: "no memory devices produce no memory components",
-                devices: vec![],
-                expected: vec![],
-            },
-            Case {
-                name: "a single group becomes a single component",
-                devices: vec![group(Some("DDR5"), Some(65536), 8)],
-                expected: vec![mem("DDR5", 65536, 8)],
-            },
-            Case {
-                name: "groups with distinct type or size stay separate",
-                devices: vec![
-                    group(Some("DDR5"), Some(65536), 8),
-                    group(Some("DDR5"), Some(32768), 4),
-                    group(Some("DDR4"), Some(65536), 2),
-                ],
-                expected: vec![
-                    mem("DDR5", 65536, 8),
-                    mem("DDR5", 32768, 4),
-                    mem("DDR4", 65536, 2),
-                ],
-            },
-            Case {
-                name: "non-consecutive groups with the same type and size merge",
-                devices: vec![
-                    group(Some("DDR5"), Some(65536), 4),
-                    group(Some("DDR4"), Some(32768), 1),
-                    group(Some("DDR5"), Some(65536), 4),
-                ],
-                expected: vec![mem("DDR5", 65536, 8), mem("DDR4", 32768, 1)],
-            },
-            Case {
-                name: "groups without a size are dropped from the SKU",
-                devices: vec![
-                    group(Some("DDR5"), None, 4),
-                    group(Some("DDR5"), Some(65536), 1),
-                ],
-                expected: vec![mem("DDR5", 65536, 1)],
-            },
-            Case {
-                name: "a missing memory type defaults to an empty string",
-                devices: vec![group(None, Some(65536), 2)],
-                expected: vec![mem("", 65536, 2)],
-            },
-            Case {
-                name: "merged counts saturate instead of overflowing",
-                devices: vec![
-                    group(Some("DDR5"), Some(u32::MAX), u32::MAX),
-                    group(Some("DDR5"), Some(u32::MAX), u32::MAX),
-                ],
-                expected: vec![mem("DDR5", u32::MAX, u32::MAX)],
-            },
-        ];
-
-        for case in cases {
-            let mut expected = case.expected;
-            expected.sort();
-            assert_eq!(
-                generated_memory(case.devices),
-                expected,
-                "case: {}",
-                case.name
-            );
-        }
+        check_values(
+            [
+                Check {
+                    scenario: "no memory devices produce no memory components",
+                    input: vec![],
+                    expect: vec![],
+                },
+                Check {
+                    scenario: "a single group becomes a single component",
+                    input: vec![group(Some("DDR5"), Some(65536), 8)],
+                    expect: vec![mem("DDR5", 65536, 8)],
+                },
+                Check {
+                    scenario: "groups with distinct type or size stay separate",
+                    input: vec![
+                        group(Some("DDR5"), Some(65536), 8),
+                        group(Some("DDR5"), Some(32768), 4),
+                        group(Some("DDR4"), Some(65536), 2),
+                    ],
+                    expect: {
+                        let mut expect = vec![
+                            mem("DDR5", 65536, 8),
+                            mem("DDR5", 32768, 4),
+                            mem("DDR4", 65536, 2),
+                        ];
+                        expect.sort();
+                        expect
+                    },
+                },
+                Check {
+                    scenario: "non-consecutive groups with the same type and size merge",
+                    input: vec![
+                        group(Some("DDR5"), Some(65536), 4),
+                        group(Some("DDR4"), Some(32768), 1),
+                        group(Some("DDR5"), Some(65536), 4),
+                    ],
+                    expect: {
+                        let mut expect = vec![mem("DDR5", 65536, 8), mem("DDR4", 32768, 1)];
+                        expect.sort();
+                        expect
+                    },
+                },
+                Check {
+                    scenario: "groups without a size are dropped from the SKU",
+                    input: vec![
+                        group(Some("DDR5"), None, 4),
+                        group(Some("DDR5"), Some(65536), 1),
+                    ],
+                    expect: vec![mem("DDR5", 65536, 1)],
+                },
+                Check {
+                    scenario: "a missing memory type defaults to an empty string",
+                    input: vec![group(None, Some(65536), 2)],
+                    expect: vec![mem("", 65536, 2)],
+                },
+                Check {
+                    scenario: "merged counts saturate instead of overflowing",
+                    input: vec![
+                        group(Some("DDR5"), Some(u32::MAX), u32::MAX),
+                        group(Some("DDR5"), Some(u32::MAX), u32::MAX),
+                    ],
+                    expect: vec![mem("DDR5", u32::MAX, u32::MAX)],
+                },
+            ],
+            generated_memory,
+        );
     }
 }
