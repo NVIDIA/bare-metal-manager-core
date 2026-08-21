@@ -61,7 +61,6 @@ impl From<&Args> for DpuReprovisioningRequest {
             mode: Mode::Set as i32,
             initiator: UpdateInitiator::AdminCli as i32,
             update_firmware: false,
-            allow_reset_with_instance: args.allow_reset_with_instance,
         }
     }
 }

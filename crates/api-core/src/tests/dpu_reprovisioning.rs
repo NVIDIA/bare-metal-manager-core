@@ -273,9 +273,15 @@ async fn prepare_dpu_reprovision_host_boot_check(
     )
     .await
     .unwrap();
-    db::machine::trigger_dpu_reprovisioning_request(&dpu_machine.id, &mut txn, "AdminCli", true, false)
-        .await
-        .unwrap();
+    db::machine::trigger_dpu_reprovisioning_request(
+        &dpu_machine.id,
+        &mut txn,
+        "AdminCli",
+        true,
+        false,
+    )
+    .await
+    .unwrap();
     txn.commit().await.unwrap();
 
     dpu_machine
@@ -592,7 +598,6 @@ async fn test_dpu_for_reprovisioning_fail_if_maintenance_not_set(pool: sqlx::PgP
                     mode: rpc::forge::dpu_reprovisioning_request::Mode::Set as i32,
                     initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
                     update_firmware: true,
-                    allow_reset_with_instance: false,
                 },
             ))
             .await
@@ -614,7 +619,6 @@ async fn test_dpu_for_reprovisioning_fail_if_state_is_not_ready(pool: sqlx::PgPo
                     mode: rpc::forge::dpu_reprovisioning_request::Mode::Set as i32,
                     initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
                     update_firmware: true,
-                    allow_reset_with_instance: false,
                 },
             ))
             .await
@@ -1158,7 +1162,6 @@ async fn test_dpu_for_set_but_clear_failed(pool: sqlx::PgPool) {
                     mode: rpc::forge::dpu_reprovisioning_request::Mode::Clear as i32,
                     initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
                     update_firmware: true,
-                    allow_reset_with_instance: false,
                 },
             ))
             .await
@@ -1495,7 +1498,6 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
                     mode: Mode::Restart as i32,
                     initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
                     update_firmware: false,
-                    allow_reset_with_instance: false,
                 },
             ))
             .await
@@ -1574,9 +1576,15 @@ async fn test_restart_dpu_reprov_unassigned_host_boot_failure(pool: sqlx::PgPool
 
     let failed_at = Utc::now();
     let mut txn = env.pool.begin().await.unwrap();
-    db::machine::trigger_dpu_reprovisioning_request(&dpu_machine.id, &mut txn, "AdminCli", true, false)
-        .await
-        .unwrap();
+    db::machine::trigger_dpu_reprovisioning_request(
+        &dpu_machine.id,
+        &mut txn,
+        "AdminCli",
+        true,
+        false,
+    )
+    .await
+    .unwrap();
     db::machine::update_dpu_reprovision_explicit_start_time(&dpu_machine.id, failed_at, &mut txn)
         .await
         .unwrap();
@@ -2215,7 +2223,6 @@ async fn test_instance_reprov_restart_failed_impl(pool: sqlx::PgPool) {
                     mode: Mode::Restart as i32,
                     initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
                     update_firmware: false,
-                    allow_reset_with_instance: false,
                 },
             ))
             .await
@@ -2332,7 +2339,6 @@ async fn test_dpu_for_reprovisioning_cannot_restart_if_not_started(pool: sqlx::P
                 mode: rpc::forge::dpu_reprovisioning_request::Mode::Restart as i32,
                 initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
                 update_firmware: true,
-                allow_reset_with_instance: false,
             },
         ))
         .await

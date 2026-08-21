@@ -18,11 +18,24 @@
 use ::rpc::forge::DpuReprovisioningRequest;
 
 use super::args::Args;
-use crate::errors::CarbideCliResult;
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::machine::{HealthReportTemplates, get_health_report};
 use crate::rpc::ApiClient;
 
 pub(super) async fn reset(api_client: &ApiClient, args: Args) -> CarbideCliResult<()> {
+    // Refuse to disrupt a live tenant instance unless the operator acknowledged it.
+    if !args.allow_reset_with_instance
+        && api_client
+            .0
+            .find_instance_by_machine_id(args.machine)
+            .await
+            .is_ok_and(|i| !i.instances.is_empty())
+    {
+        return Err(CarbideCliError::GenericError(
+            "machine is assigned to a live instance; pass --allow-reset-with-instance to acknowledge disrupting it".to_string(),
+        ));
+    }
+
     // The server requires a HostUpdateInProgress (PreventAllocations) alert before it
     // accepts a reprovision. Always apply it, using the operator message when given.
     let update_message = args

@@ -23,6 +23,7 @@ use std::time::Duration;
 
 use ::rpc::forge as rpc;
 use ::rpc::forge::forge_server::Forge;
+use carbide_dpf::types::{DpuDeviceSummary, DpuNodeSummary, HostDpfSnapshot};
 use carbide_dpf::{DpfError, DpuDeploymentType, DpuPhase, DpuServiceVersion};
 use carbide_machine_controller::dpf::{DpfOperations, MockDpfOperations};
 use carbide_redfish::libredfish::test_support::{RedfishSimAction, RedfishSimPlatformAction};
@@ -53,6 +54,27 @@ fn default_mock(deployment_type: DpuDeploymentType) -> MockDpfOperations {
         .returning(move |__, _| Ok(deployment_type));
     mock.expect_verify_node_labels().returning(|_, _| Ok(true));
     mock
+}
+
+fn dpf_snapshot_with_crs(dpu_count: usize) -> HostDpfSnapshot {
+    HostDpfSnapshot {
+        dpu_node: Some(DpuNodeSummary {
+            name: "node-mock".to_string(),
+            labels: Default::default(),
+            annotations: Default::default(),
+            dpu_device_refs: (0..dpu_count).map(|i| format!("device-{i}")).collect(),
+        }),
+        dpu_devices: (0..dpu_count)
+            .map(|i| DpuDeviceSummary {
+                name: format!("device-{i}"),
+                labels: Default::default(),
+                bmc_ip: None,
+                bmc_port: None,
+                serial_number: String::new(),
+            })
+            .collect(),
+        dpus: vec![],
+    }
 }
 
 #[crate::sqlx_test]
@@ -303,7 +325,11 @@ async fn test_dpf_inventory_uses_host_context_and_preserves_last_good_value(pool
 /// and the reprovision request must be cleared on that fork so it cannot re-trigger.
 #[crate::sqlx_test]
 async fn test_reprov_from_non_ready_state_reenters_dpu_init(pool: sqlx::PgPool) {
-    let dpf_sdk: Arc<dyn DpfOperations> = Arc::new(default_mock(DpuDeploymentType::Bf3));
+    let mut mock = default_mock(DpuDeploymentType::Bf3);
+    mock.expect_snapshot_host()
+        .returning(|_| Ok(dpf_snapshot_with_crs(1)));
+    mock.expect_reprovision_dpu().returning(|_, _| Ok(()));
+    let dpf_sdk: Arc<dyn DpfOperations> = Arc::new(mock);
 
     let mut config = get_config();
     config.dpf = dpf_config();

@@ -75,18 +75,18 @@ use model::machine::nvlink::nvlink_config_synced;
 use model::machine::{
     AttestationMode, BomValidating, BomValidatingContext, CleanupContext, CleanupState,
     CreateBossVolumeContext, CreateBossVolumeState, DecommissioningState, DpuDiscoveringState,
-    DpuInitNextStateResolver, DpuInitState, DpuReprovisionStates, FactoryResetBmcState, FailureCause,
-    FailureDetails,
-    FailureSource, HostPlatformConfigurationState, HostReprovisionState, InitialResetPhase,
-    InstallDpuOsState, InstanceNextStateResolver, InstanceState, LockdownInfo, LockdownState,
-    MAX_FIRMWARE_UPGRADE_RETRIES, Machine, MachineLastRebootRequested,
-    MachineLastRebootRequestedMode, MachineNextStateResolver, MachineState,
-    MachineValidationContext, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
-    NetworkConfigUpdateState, NextStateBFBSupport, PerformPowerOperation, PowerDrainState,
-    PowerState, ReadyBootConfigPostLockAction, ReadyBootConfigState, ReprovisionState, RetryInfo,
-    SecureEraseBossContext, SecureEraseBossState, SetBootOrderInfo, SetBootOrderState,
-    SetSecureBootState, SpdmMeasuringState, StateMachineArea, UefiSetupInfo, UefiSetupState,
-    UnlockHostState, ValidationState, dpf_based_dpu_provisioning_possible, get_display_ids,
+    DpuInitNextStateResolver, DpuInitState, DpuReprovisionStates, FactoryResetBmcState,
+    FailureCause, FailureDetails, FailureSource, HostPlatformConfigurationState,
+    HostReprovisionState, InitialResetPhase, InstallDpuOsState, InstanceNextStateResolver,
+    InstanceState, LockdownInfo, LockdownState, MAX_FIRMWARE_UPGRADE_RETRIES, Machine,
+    MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineNextStateResolver,
+    MachineState, MachineValidationContext, ManagedHostState, ManagedHostStateSnapshot,
+    MeasuringState, NetworkConfigUpdateState, NextStateBFBSupport, PerformPowerOperation,
+    PowerDrainState, PowerState, ReadyBootConfigPostLockAction, ReadyBootConfigState,
+    ReprovisionState, RetryInfo, SecureEraseBossContext, SecureEraseBossState, SetBootOrderInfo,
+    SetBootOrderState, SetSecureBootState, SpdmMeasuringState, StateMachineArea, UefiSetupInfo,
+    UefiSetupState, UnlockHostState, ValidationState, dpf_based_dpu_provisioning_possible,
+    get_display_ids,
 };
 use model::machine_boot_interface::MachineBootInterfaceTarget;
 use model::power_manager::PowerHandlingOutcome;
@@ -793,7 +793,7 @@ impl MachineStateHandler {
         // Initial `mh reset` from a non-ready state (eligibility enforced at the API).
         // Excludes the restart path above, which needs started_at.is_some().
         if non_ready_initial_reprov_needed(&mh_snapshot.dpu_snapshots, &mh_state) {
-            let next = self.start_non_ready_reprov(&mh_state, mh_snapshot, ctx).await?;
+            let next = self.start_non_ready_reprov(mh_snapshot, ctx).await?;
             return Ok(StateHandlerOutcome::transition(next));
         }
 
@@ -2284,7 +2284,6 @@ impl MachineStateHandler {
     /// all DPUs and then run full ingestion, abandoning whatever the host was doing.
     async fn start_non_ready_reprov(
         &self,
-        managed_state: &ManagedHostState,
         state: &ManagedHostStateSnapshot,
         ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     ) -> Result<ManagedHostState, StateHandlerError> {
@@ -2304,12 +2303,16 @@ impl MachineStateHandler {
                 });
         }
 
-        // Abandoning a Failed state: drop the stale failure record.
-        if let ManagedHostState::Failed { machine_id, .. } = managed_state {
+        // A reset abandons whatever failed before it. Any surviving failure record on
+        // the host or a reprovisioning DPU would re-park the host via `get_failed_state`
+        // on the next sweep, so clear them all regardless of the current state variant.
+        ctx.pending_db_writes
+            .push(MachineWriteOp::ClearFailureDetails {
+                machine_id: state.host_snapshot.id,
+            });
+        for dpu in &dpus_for_reprov {
             ctx.pending_db_writes
-                .push(MachineWriteOp::ClearFailureDetails {
-                    machine_id: *machine_id,
-                });
+                .push(MachineWriteOp::ClearFailureDetails { machine_id: dpu.id });
         }
 
         set_managed_host_topology_update_needed(

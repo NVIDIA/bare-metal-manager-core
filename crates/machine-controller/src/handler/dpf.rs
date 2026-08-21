@@ -584,7 +584,10 @@ async fn handle_dpf_device_ready(
     // Full-ingestion exit (DPUReprovision → DPUInit) skips RebootHost, where the
     // standard path clears reprovision_requested. Clear it here in the same txn,
     // else the Ready handler re-triggers reprovision when the host reaches Ready.
-    if matches!(next, ManagedHostState::DPUInit { .. }) {
+    // Scope to the reprovision fork; ordinary DPUInit ingestion has nothing to clear.
+    if matches!(next, ManagedHostState::DPUInit { .. })
+        && matches!(state.managed_state, ManagedHostState::DPUReprovision { .. })
+    {
         let mut txn = ctx.services.db_pool.begin().await?;
         for dpu in &state.dpu_snapshots {
             db::machine::clear_dpu_reprovisioning_request(&mut txn, &dpu.id, false).await?;
