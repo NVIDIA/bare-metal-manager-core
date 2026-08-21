@@ -79,6 +79,7 @@ type Site struct {
 	SerialConsoleMaxSessionLength *int                    `bun:"serial_console_max_session_length"`
 	IsInfinityEnabled             bool                    `bun:"is_infinity_enabled,notnull"`
 	InventoryReceived             *time.Time              `bun:"inventory_received"`
+	InventoryIntervalSeconds      *int                    `bun:"inventory_interval_seconds"`
 	Status                        string                  `bun:"status,notnull"`
 	Created                       time.Time               `bun:"created,nullzero,notnull,default:current_timestamp"`
 	Updated                       time.Time               `bun:"updated,nullzero,notnull,default:current_timestamp"`
@@ -150,6 +151,7 @@ type SiteUpdateInput struct {
 	SerialConsoleMaxSessionLength *int
 	IsInfinityEnabled             *bool
 	InventoryReceived             *time.Time
+	InventoryIntervalSeconds      *int
 	Status                        *string
 	Location                      *SiteLocation
 	Contact                       *SiteContact
@@ -546,6 +548,12 @@ func (ssd SiteSQLDAO) Update(ctx context.Context, tx *db.Tx, input SiteUpdateInp
 		st.InventoryReceived = input.InventoryReceived
 		updatedFields = append(updatedFields, "inventory_received")
 		ssd.tracerSpan.SetAttribute(stDAOSpan, "inventory_received", *input.InventoryReceived)
+	}
+
+	if input.InventoryIntervalSeconds != nil {
+		st.InventoryIntervalSeconds = input.InventoryIntervalSeconds
+		updatedFields = append(updatedFields, "inventory_interval_seconds")
+		ssd.tracerSpan.SetAttribute(stDAOSpan, "inventory_interval_seconds", *input.InventoryIntervalSeconds)
 	}
 
 	if input.Status != nil {

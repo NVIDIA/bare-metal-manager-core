@@ -276,7 +276,9 @@ func main() {
 
 		// Site workflows
 		w.RegisterWorkflow(siteWorkflow.UpdateAgentCertExpiry)
+		// V1 stays registered so a Site running an older Site Agent keeps reporting.
 		w.RegisterWorkflow(siteWorkflow.UpdateSiteConfigInventory)
+		w.RegisterWorkflow(siteWorkflow.UpdateSiteConfigInventoryV2)
 
 		// SSHKeyGroup workflows
 		w.RegisterWorkflow(sshKeyGroupWorkflow.UpdateSSHKeyGroupInventory)
