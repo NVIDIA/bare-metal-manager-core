@@ -42,9 +42,9 @@ use common::api_fixtures::network_segment::{
 use common::api_fixtures::tpm_attestation::{CA_CERT_SERIALIZED, EK_CERT_SERIALIZED};
 use common::api_fixtures::{
     TestEnv, TestManagedHost, create_managed_host, create_managed_host_with_config,
-    create_test_env, create_test_env_with_overrides, get_config,
+    create_test_env, create_test_env_with_overrides, get_config, simulate_hardware_health_report,
 };
-use health_report::HealthReport;
+use health_report::{HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthReport};
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use measured_boot::bundle::MeasurementBundle;
@@ -5513,6 +5513,62 @@ async fn load_host_state(env: &TestEnv, host_id: &MachineId) -> ManagedHostState
     .expect("host should exist")
     .current_state()
     .clone()
+}
+
+#[crate::sqlx_test]
+async fn test_waiting_for_reboot_checks_health_for_zero_dpu(pool: sqlx::PgPool) {
+    let (env, mh) = zero_dpu_host_with_instance(pool).await;
+    let host_id = mh.host().id;
+    set_assigned_state(&env, &host_id, InstanceState::WaitingForRebootToReady).await;
+
+    let health_source = "test-reboot-health-gate";
+    let mut blocking_health = HealthReport::empty(health_source.to_string());
+    blocking_health.alerts.push(HealthProbeAlert {
+        id: HealthProbeId::sku_validation(),
+        target: None,
+        in_alert_since: None,
+        message: "test host health alert".to_string(),
+        tenant_message: None,
+        classifications: vec![HealthAlertClassification::prevent_host_state_changes()],
+    });
+    simulate_hardware_health_report(&env, &host_id, blocking_health).await;
+
+    // The aggregate health gate applies even when the host has no managed DPU.
+    env.run_machine_state_controller_iteration().await;
+    assert_eq!(
+        load_host_state(&env, &host_id).await,
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::WaitingForRebootToReady,
+        }
+    );
+
+    let mut txn = env.db_txn().await;
+    let host_machine = mh.host().db_machine(&mut txn).await;
+    let Some(PersistentStateHandlerOutcome::Wait { reason, .. }) =
+        &host_machine.controller_state_outcome
+    else {
+        panic!("host health alert should persist a Wait outcome");
+    };
+    assert_eq!(
+        reason,
+        "Waiting for lifecycle-blocking host health alerts to clear before PXE reboot"
+    );
+    txn.commit().await.unwrap();
+
+    // Clearing the alert preserves the normal zero DPU reboot path.
+    simulate_hardware_health_report(
+        &env,
+        &host_id,
+        HealthReport::empty(health_source.to_string()),
+    )
+    .await;
+    env.run_machine_state_controller_iteration().await;
+    assert_eq!(
+        load_host_state(&env, &host_id).await,
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::Ready,
+        }
+    );
 }
 
 #[crate::sqlx_test]

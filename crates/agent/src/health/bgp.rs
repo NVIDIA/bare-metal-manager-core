@@ -15,18 +15,19 @@
  * limitations under the License.
  */
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
+use health_report::HealthAlertClassification;
 use serde::Deserialize;
 
-use super::{failed, make_alert, passed, probe_ids};
+use super::{failed, make_alert, make_classified_alert, passed, probe_ids};
 use crate::{HBNDeviceNames, hbn};
 
 /// `BgpHealthCheckParams` contains the configured peers, uplinks, and address
 /// families that the BGP health check should require.
 pub(super) struct BgpHealthCheckParams<'a> {
     pub(super) host_routes: &'a [&'a str],
-    pub(super) min_healthy_links: u32,
+    pub(super) min_healthy_links: usize,
     pub(super) route_servers: &'a [String],
     pub(super) should_check_ipv6_unicast: bool,
     pub(super) hbn_device_names: &'a HBNDeviceNames,
@@ -67,7 +68,7 @@ pub(super) async fn check_bgp_stats(
         }
     };
 
-    if params.should_check_ipv6_unicast && bgp_summary_parsed {
+    if params.should_check_ipv6_unicast && bgp_summary_parsed && params.min_healthy_links > 0 {
         match hbn::run_in_container(
             container_id,
             &["vtysh", "-c", "show bgp ipv6 unicast summary failed json"],
@@ -90,7 +91,7 @@ pub(super) async fn check_bgp_stats(
         }
     }
 
-    health_data.into_health_report(hr);
+    health_data.into_health_report(hr, params.min_healthy_links, params.hbn_device_names);
 }
 
 pub fn check_daemon_enabled(hr: &mut health_report::HealthReport, hbn_daemons_file: &str) {
@@ -185,31 +186,30 @@ fn verify_bgp_summary(
 fn check_bgp_tor_routes(
     s: &BgpStats,
     health_data: &mut BgpHealthData,
-    min_healthy_links: u32,
+    min_healthy_links: usize,
     hbn_device_names: &HBNDeviceNames,
 ) {
-    for port_id in 0..min_healthy_links {
-        let mut message = None;
-        // The number of healthy links should never be above the total number of avail links
-        let Some(port_name) = hbn_device_names
-            .uplinks
-            .get(port_id as usize)
-            .map(|s| s.to_string())
-        else {
-            // This case should not happen, and will only happen if a configuration error at runtime is applied
-            // such as having 7 min_healthy_links but we only have 2 ports
-            let error = format!(
-                "The number of min healthy links: {min_healthy_links} \
-                was bigger than the number of uplinks defined by the hbn device names: {}",
-                hbn_device_names.uplinks.len()
-            );
-            if !health_data.other_errors.contains(&error) {
-                health_data.other_errors.push(error);
-            }
-            return;
-        };
+    if min_healthy_links > hbn_device_names.uplinks.len() {
+        let error = format!(
+            "The number of min healthy links: {min_healthy_links} \
+            was bigger than the number of uplinks defined by the hbn device names: {}",
+            hbn_device_names.uplinks.len()
+        );
+        if !health_data.other_errors.contains(&error) {
+            health_data.other_errors.push(error);
+        }
+    }
 
-        let session_data = s.peers.get(&port_name);
+    if min_healthy_links == 0 {
+        return;
+    }
+
+    // A positive minimum is a health threshold, not a positional limit on
+    // which physical sessions should be inspected.
+    for &port_name in &hbn_device_names.uplinks {
+        let mut message = None;
+
+        let session_data = s.peers.get(port_name);
         match session_data {
             Some(session) => {
                 if session.state != "Established" {
@@ -227,7 +227,12 @@ fn check_bgp_tor_routes(
         }
 
         if let Some(message) = message {
-            health_data.unhealthy_tor_peers.insert(port_name, message);
+            health_data
+                .tor_session_failures
+                .insert(port_name.to_string());
+            health_data
+                .unhealthy_tor_peers
+                .insert(port_name.to_string(), message);
         }
     }
 }
@@ -238,7 +243,7 @@ fn check_bgp_stats_unicast(
     name: &str,
     s: &BgpStats,
     health_data: &mut BgpHealthData,
-    min_healthy_links: u32,
+    min_healthy_links: usize,
     hbn_device_names: &HBNDeviceNames,
 ) {
     check_bgp_tor_routes(s, health_data, min_healthy_links, hbn_device_names);
@@ -260,7 +265,7 @@ fn check_bgp_stats_ipv6_unicast(
     name: &str,
     s: &BgpStats,
     health_data: &mut BgpHealthData,
-    min_healthy_links: u32,
+    min_healthy_links: usize,
     hbn_device_names: &HBNDeviceNames,
 ) {
     check_bgp_stats_unicast(name, s, health_data, min_healthy_links, hbn_device_names);
@@ -274,16 +279,18 @@ fn check_bgp_stats_ipv6_unicast(
     }
 }
 
-/// Maps FRR's address-family-specific failed-peer view back to the required
-/// physical uplinks.
+/// Maps FRR's failed peer view for one address family back to the required uplinks.
 ///
 /// The regular summary's peer state describes the shared BGP transport. The
 /// filtered view also includes established peers whose remote did not
-/// negotiate IPv6-unicast.
+/// negotiate IPv6 unicast. The configured minimum limits this check to the
+/// required uplinks, so a minimum of one requires only the primary uplink to
+/// negotiate IPv6 unicast. Transport health is evaluated separately for both
+/// sessions, so this limit does not hide a total uplink outage.
 fn verify_failed_ipv6_unicast_peers(
     health_data: &mut BgpHealthData,
     failed_peers_json: &str,
-    min_healthy_links: u32,
+    min_healthy_links: usize,
     hbn_device_names: &HBNDeviceNames,
 ) {
     let failed_summary: BgpFailedSummary = match serde_json::from_str(failed_peers_json) {
@@ -296,11 +303,7 @@ fn verify_failed_ipv6_unicast_peers(
         }
     };
 
-    for &port_name in hbn_device_names
-        .uplinks
-        .iter()
-        .take(min_healthy_links as usize)
-    {
+    for &port_name in hbn_device_names.uplinks.iter().take(min_healthy_links) {
         if failed_summary.peers.contains_key(port_name) {
             health_data
                 .unhealthy_tor_peers
@@ -315,7 +318,7 @@ fn check_bgp_stats_ipv4_unicast(
     s: &BgpStats,
     health_data: &mut BgpHealthData,
     host_routes: &[&str],
-    min_healthy_links: u32,
+    min_healthy_links: usize,
     hbn_device_names: &HBNDeviceNames,
 ) {
     check_bgp_stats_unicast(name, s, health_data, min_healthy_links, hbn_device_names);
@@ -336,7 +339,7 @@ fn check_bgp_stats_l2_vpn_evpn(
     s: &BgpStats,
     health_data: &mut BgpHealthData,
     route_servers: &[String],
-    min_healthy_links: u32,
+    min_healthy_links: usize,
     hbn_device_names: &HBNDeviceNames,
 ) {
     // In case Route servers are not specified, the peer list should contain only
@@ -394,16 +397,25 @@ fn check_bgp_stats_l2_vpn_evpn(
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct BgpHealthData {
-    // ToR state appears in multiple address-family summaries. Keying by port
+    // ToR state appears in summaries for multiple address families. Keying by port
     // emits one alert for each physical link.
     pub unhealthy_tor_peers: HashMap<String, String>,
+    // Only transport/session failures should affect allocation policy for the
+    // primary uplink. Failures to negotiate an address family reuse the same
+    // probe ID but do not mean the ToR session itself is unavailable.
+    pub tor_session_failures: HashSet<String>,
     pub unhealthy_route_server_peers: Vec<(String, String)>,
     pub unexpected_peers: Vec<(String, String)>,
     pub other_errors: Vec<String>,
 }
 
 impl BgpHealthData {
-    pub fn into_health_report(mut self, hr: &mut health_report::HealthReport) {
+    pub fn into_health_report(
+        mut self,
+        hr: &mut health_report::HealthReport,
+        min_healthy_links: usize,
+        hbn_device_names: &HBNDeviceNames,
+    ) {
         if self.other_errors.is_empty() {
             passed(hr, probe_ids::BgpStats.clone(), None);
         } else {
@@ -413,15 +425,50 @@ impl BgpHealthData {
             failed(hr, probe_ids::BgpStats.clone(), None, err_msg);
         }
 
-        let num_unhealthy_tors = self.unhealthy_tor_peers.len();
-        // TODO: This is correct for environments with both DPU ports connected
-        let unhealthy_tors_critical = num_unhealthy_tors > 1;
-        for (port_name, message) in self.unhealthy_tor_peers.into_iter() {
-            hr.alerts.push(make_alert(
+        let healthy_uplink_count = hbn_device_names
+            .uplinks
+            .len()
+            .saturating_sub(self.tor_session_failures.len());
+        let minimum_satisfied = healthy_uplink_count >= min_healthy_links;
+        let [primary_uplink, _] = hbn_device_names.uplinks;
+
+        // Apply the configured redundancy suppression before preserving the
+        // legacy policy that two unhealthy physical uplinks are blocking. The
+        // effective set includes address family negotiation warnings as well as
+        // transport failures.
+        let mut effective_unhealthy_tors = self.unhealthy_tor_peers;
+        if min_healthy_links == 0 {
+            effective_unhealthy_tors.clear();
+        } else if minimum_satisfied {
+            for secondary_uplink in hbn_device_names.uplinks.iter().skip(1) {
+                if self.tor_session_failures.contains(*secondary_uplink) {
+                    effective_unhealthy_tors.remove(*secondary_uplink);
+                }
+            }
+        }
+        let multiple_unhealthy_tors = effective_unhealthy_tors.len() > 1;
+
+        // Emit the unhealthy uplinks that remain after applying the configured
+        // redundancy policy, with classifications based on their role and count.
+        for (port_name, message) in effective_unhealthy_tors {
+            let is_primary_session_failure =
+                port_name == primary_uplink && self.tor_session_failures.contains(&port_name);
+
+            let health_classifications = if multiple_unhealthy_tors {
+                vec![
+                    HealthAlertClassification::prevent_allocations(),
+                    HealthAlertClassification::prevent_host_state_changes(),
+                ]
+            } else if is_primary_session_failure {
+                vec![HealthAlertClassification::prevent_allocations()]
+            } else {
+                vec![]
+            };
+            hr.alerts.push(make_classified_alert(
                 probe_ids::BgpPeeringTor.clone(),
                 Some(port_name),
                 message,
-                unhealthy_tors_critical,
+                health_classifications,
             ));
         }
 
@@ -547,15 +594,50 @@ mod tests {
         expected_alerts: Vec<health_report::HealthProbeAlert>,
     }
 
-    /// Builds a TOR-peering alert for `port`, the most common alert these
+    /// Test-only names for the exact classification sets expected by table rows.
+    ///
+    /// This builds the vectors without production classification helpers, so
+    /// the tests can catch policy regressions.
+    #[derive(Clone, Copy)]
+    enum ExpectedClassifications {
+        /// Contains no classifications; the alert remains visible.
+        Unclassified,
+        /// Contains only `PreventAllocations`.
+        PreventAllocations,
+        /// Contains `PreventAllocations` and `PreventHostStateChanges`.
+        PreventAllocationsAndHostStateChanges,
+    }
+
+    impl ExpectedClassifications {
+        fn health_classifications(self) -> Vec<HealthAlertClassification> {
+            match self {
+                Self::Unclassified => vec![],
+                Self::PreventAllocations => {
+                    vec![HealthAlertClassification::prevent_allocations()]
+                }
+                Self::PreventAllocationsAndHostStateChanges => vec![
+                    HealthAlertClassification::prevent_allocations(),
+                    HealthAlertClassification::prevent_host_state_changes(),
+                ],
+            }
+        }
+    }
+
+    /// Builds a ToR BGP peering alert for `port`, the most common alert these
     /// scenarios produce.
-    fn tor_alert(port: &str, message: &str, critical: bool) -> health_report::HealthProbeAlert {
-        make_alert(
-            probe_ids::BgpPeeringTor.clone(),
-            Some(port.to_string()),
-            message.to_string(),
-            critical,
-        )
+    fn tor_alert(
+        port: &str,
+        message: &str,
+        expected_classifications: ExpectedClassifications,
+    ) -> health_report::HealthProbeAlert {
+        health_report::HealthProbeAlert {
+            id: health_report::HealthProbeId::bgp_peering_tor(),
+            target: Some(port.to_string()),
+            in_alert_since: None,
+            message: message.to_string(),
+            tenant_message: None,
+            classifications: expected_classifications.health_classifications(),
+        }
     }
 
     #[test]
@@ -570,7 +652,7 @@ mod tests {
                     expected_alerts: vec![],
                 },
                 Row {
-                    scenario: "both TOR peers down is critical",
+                    scenario: "both ToR peers block allocations and state changes",
                     json: BGP_SUMMARY_JSON_NO_ROUTE_SERVER_FAILED_TOR_PEERS,
                     host_routes: &[],
                     route_servers: &[],
@@ -578,24 +660,24 @@ mod tests {
                         tor_alert(
                             "p0_if",
                             "Session p0_if is not Established, but in state Idle",
-                            true,
+                            ExpectedClassifications::PreventAllocationsAndHostStateChanges,
                         ),
                         tor_alert(
                             "p1_if",
                             "Session p1_if is not Established, but in state Idle",
-                            true,
+                            ExpectedClassifications::PreventAllocationsAndHostStateChanges,
                         ),
                     ],
                 },
                 Row {
-                    scenario: "single TOR peer down is not critical",
+                    scenario: "failed primary prevents allocations but not state changes",
                     json: BGP_SUMMARY_JSON_NO_ROUTE_SERVER_SINGLE_FAILED_TOR_PEER,
                     host_routes: &[],
                     route_servers: &[],
                     expected_alerts: vec![tor_alert(
                         "p0_if",
                         "Session p0_if is not Established, but in state Idle",
-                        false,
+                        ExpectedClassifications::PreventAllocations,
                     )],
                 },
                 Row {
@@ -627,12 +709,12 @@ mod tests {
                         tor_alert(
                             "p0_if",
                             "Expected session for p0_if was not found in BGP peer data",
-                            true,
+                            ExpectedClassifications::PreventAllocationsAndHostStateChanges,
                         ),
                         tor_alert(
                             "p1_if",
                             "Expected session for p1_if was not found in BGP peer data",
-                            true,
+                            ExpectedClassifications::PreventAllocationsAndHostStateChanges,
                         ),
                         make_alert(
                             probe_ids::UnexpectedBgpPeer.clone(),
@@ -666,12 +748,12 @@ mod tests {
                         tor_alert(
                             "p0_if",
                             "Session p0_if is not Established, but in state Idle",
-                            true,
+                            ExpectedClassifications::PreventAllocationsAndHostStateChanges,
                         ),
                         tor_alert(
                             "p1_if",
                             "Session p1_if is not Established, but in state Idle",
-                            true,
+                            ExpectedClassifications::PreventAllocationsAndHostStateChanges,
                         ),
                     ],
                 },
@@ -688,9 +770,13 @@ mod tests {
                 }
             }),
             |row: Row| {
+                // Exercise the full ContainerExec/FRR path by collecting
+                // failures, then converting them into the public health alerts.
                 let route_servers: Vec<String> =
                     row.route_servers.iter().map(|s| s.to_string()).collect();
-                let mut hr = health_report::HealthReport::empty("forge-dpu-agent".to_string());
+                let hbn_device_names = HBNDeviceNames::hbn_23();
+                let mut report =
+                    health_report::HealthReport::empty("forge-dpu-agent".to_string());
                 let mut health_data = BgpHealthData::default();
                 verify_bgp_summary(
                     &mut health_data,
@@ -700,13 +786,392 @@ mod tests {
                         min_healthy_links: 2,
                         route_servers: &route_servers,
                         should_check_ipv6_unicast: false,
-                        hbn_device_names: &HBNDeviceNames::hbn_23(),
+                        hbn_device_names: &hbn_device_names,
                     },
                 );
-                health_data.into_health_report(&mut hr);
-                let mut alerts = hr.alerts;
+                health_data.into_health_report(&mut report, 2, &hbn_device_names);
+                let mut alerts = report.alerts;
                 sort_alerts(&mut alerts);
                 alerts
+            },
+        );
+    }
+
+    /// Inputs for one ContainerExec/FRR ToR health policy scenario.
+    struct TorHealthInput {
+        /// Configured minimum passed to failure collection and alert classification.
+        min_healthy_links: usize,
+        /// FRR BGP transport state reported for the primary uplink.
+        p0_state: &'static str,
+        /// Compact test encoding for the secondary uplink state.
+        ///
+        /// Real FRR transport states pass through unchanged.
+        /// `ESTABLISHED_WITHOUT_IPV6_UNICAST` instead represents an established
+        /// session that appears in FRR's separate failed IPv6 unicast summary.
+        p1_state: &'static str,
+        /// Whether the primary appears in FRR's failed IPv6 unicast summary.
+        p0_ipv6_unicast_failed: bool,
+    }
+
+    /// Marks an established p1 session whose IPv6 unicast negotiation failed.
+    const ESTABLISHED_WITHOUT_IPV6_UNICAST: &str = "EstablishedWithoutIpv6Unicast";
+
+    #[test]
+    fn bgp_health_data_classifies_redundant_uplink_failures() {
+        check_values(
+            [
+                Check {
+                    scenario: "minimum zero ignores two established sessions",
+                    input: TorHealthInput {
+                        min_healthy_links: 0,
+                        p0_state: "Established",
+                        p1_state: "Established",
+                        p0_ipv6_unicast_failed: false,
+                    },
+                    expect: vec![],
+                },
+                Check {
+                    scenario: "minimum zero ignores a failed primary session",
+                    input: TorHealthInput {
+                        min_healthy_links: 0,
+                        p0_state: "Idle",
+                        p1_state: "Established",
+                        p0_ipv6_unicast_failed: false,
+                    },
+                    expect: vec![],
+                },
+                Check {
+                    scenario: "minimum zero ignores a failed secondary session",
+                    input: TorHealthInput {
+                        min_healthy_links: 0,
+                        p0_state: "Established",
+                        p1_state: "Idle",
+                        p0_ipv6_unicast_failed: false,
+                    },
+                    expect: vec![],
+                },
+                Check {
+                    scenario: "minimum zero ignores two failed sessions",
+                    input: TorHealthInput {
+                        min_healthy_links: 0,
+                        p0_state: "Idle",
+                        p1_state: "Idle",
+                        p0_ipv6_unicast_failed: false,
+                    },
+                    expect: vec![],
+                },
+                Check {
+                    scenario: "minimum zero ignores session and negotiation failures",
+                    input: TorHealthInput {
+                        min_healthy_links: 0,
+                        p0_state: "Established",
+                        p1_state: "Idle",
+                        p0_ipv6_unicast_failed: true,
+                    },
+                    expect: vec![],
+                },
+                Check {
+                    scenario: "minimum one accepts two established sessions",
+                    input: TorHealthInput {
+                        min_healthy_links: 1,
+                        p0_state: "Established",
+                        p1_state: "Established",
+                        p0_ipv6_unicast_failed: false,
+                    },
+                    expect: vec![],
+                },
+                Check {
+                    scenario: "minimum one keeps a failed primary as an allocation blocker",
+                    input: TorHealthInput {
+                        min_healthy_links: 1,
+                        p0_state: "Idle",
+                        p1_state: "Established",
+                        p0_ipv6_unicast_failed: false,
+                    },
+                    expect: vec![tor_alert(
+                        "p0_if",
+                        "Session p0_if is not Established, but in state Idle",
+                        ExpectedClassifications::PreventAllocations,
+                    )],
+                },
+                Check {
+                    scenario: "minimum one suppresses a failed redundant secondary",
+                    input: TorHealthInput {
+                        min_healthy_links: 1,
+                        p0_state: "Established",
+                        p1_state: "Idle",
+                        p0_ipv6_unicast_failed: false,
+                    },
+                    expect: vec![],
+                },
+                Check {
+                    scenario: "minimum one blocks when both sessions fail",
+                    input: TorHealthInput {
+                        min_healthy_links: 1,
+                        p0_state: "Idle",
+                        p1_state: "Idle",
+                        p0_ipv6_unicast_failed: false,
+                    },
+                    expect: vec![
+                        tor_alert(
+                            "p0_if",
+                            "Session p0_if is not Established, but in state Idle",
+                            ExpectedClassifications::PreventAllocationsAndHostStateChanges,
+                        ),
+                        tor_alert(
+                            "p1_if",
+                            "Session p1_if is not Established, but in state Idle",
+                            ExpectedClassifications::PreventAllocationsAndHostStateChanges,
+                        ),
+                    ],
+                },
+                Check {
+                    scenario: "minimum two accepts two established sessions",
+                    input: TorHealthInput {
+                        min_healthy_links: 2,
+                        p0_state: "Established",
+                        p1_state: "Established",
+                        p0_ipv6_unicast_failed: false,
+                    },
+                    expect: vec![],
+                },
+                Check {
+                    scenario: "minimum two keeps a failed primary as an allocation blocker",
+                    input: TorHealthInput {
+                        min_healthy_links: 2,
+                        p0_state: "Idle",
+                        p1_state: "Established",
+                        p0_ipv6_unicast_failed: false,
+                    },
+                    expect: vec![tor_alert(
+                        "p0_if",
+                        "Session p0_if is not Established, but in state Idle",
+                        ExpectedClassifications::PreventAllocations,
+                    )],
+                },
+                Check {
+                    scenario: "minimum two keeps a failed secondary visible",
+                    input: TorHealthInput {
+                        min_healthy_links: 2,
+                        p0_state: "Established",
+                        p1_state: "Idle",
+                        p0_ipv6_unicast_failed: false,
+                    },
+                    expect: vec![tor_alert(
+                        "p1_if",
+                        "Session p1_if is not Established, but in state Idle",
+                        ExpectedClassifications::Unclassified,
+                    )],
+                },
+                Check {
+                    scenario: "minimum two blocks when both sessions fail",
+                    input: TorHealthInput {
+                        min_healthy_links: 2,
+                        p0_state: "Idle",
+                        p1_state: "Idle",
+                        p0_ipv6_unicast_failed: false,
+                    },
+                    expect: vec![
+                        tor_alert(
+                            "p0_if",
+                            "Session p0_if is not Established, but in state Idle",
+                            ExpectedClassifications::PreventAllocationsAndHostStateChanges,
+                        ),
+                        tor_alert(
+                            "p1_if",
+                            "Session p1_if is not Established, but in state Idle",
+                            ExpectedClassifications::PreventAllocationsAndHostStateChanges,
+                        ),
+                    ],
+                },
+                Check {
+                    scenario: "minimum one retains a primary negotiation warning",
+                    input: TorHealthInput {
+                        min_healthy_links: 1,
+                        p0_state: "Established",
+                        p1_state: "Established",
+                        p0_ipv6_unicast_failed: true,
+                    },
+                    expect: vec![tor_alert(
+                        "p0_if",
+                        "Session p0_if did not negotiate IPv6-unicast",
+                        ExpectedClassifications::Unclassified,
+                    )],
+                },
+                Check {
+                    scenario: "minimum one retains primary negotiation warning and suppresses failed secondary",
+                    input: TorHealthInput {
+                        min_healthy_links: 1,
+                        p0_state: "Established",
+                        p1_state: "Idle",
+                        p0_ipv6_unicast_failed: true,
+                    },
+                    expect: vec![tor_alert(
+                        "p0_if",
+                        "Session p0_if did not negotiate IPv6-unicast",
+                        ExpectedClassifications::Unclassified,
+                    )],
+                },
+                Check {
+                    scenario: "minimum two keeps a lone primary negotiation warning unclassified",
+                    input: TorHealthInput {
+                        min_healthy_links: 2,
+                        p0_state: "Established",
+                        p1_state: "Established",
+                        p0_ipv6_unicast_failed: true,
+                    },
+                    expect: vec![tor_alert(
+                        "p0_if",
+                        "Session p0_if did not negotiate IPv6-unicast",
+                        ExpectedClassifications::Unclassified,
+                    )],
+                },
+                Check {
+                    scenario: "minimum two blocks a failed primary session with a secondary negotiation warning",
+                    input: TorHealthInput {
+                        min_healthy_links: 2,
+                        p0_state: "Idle",
+                        p1_state: ESTABLISHED_WITHOUT_IPV6_UNICAST,
+                        p0_ipv6_unicast_failed: false,
+                    },
+                    expect: vec![
+                        tor_alert(
+                            "p0_if",
+                            "Session p0_if is not Established, but in state Idle",
+                            ExpectedClassifications::PreventAllocationsAndHostStateChanges,
+                        ),
+                        tor_alert(
+                            "p1_if",
+                            "Session p1_if did not negotiate IPv6-unicast",
+                            ExpectedClassifications::PreventAllocationsAndHostStateChanges,
+                        ),
+                    ],
+                },
+                Check {
+                    scenario: "minimum two blocks a primary negotiation warning with a failed secondary session",
+                    input: TorHealthInput {
+                        min_healthy_links: 2,
+                        p0_state: "Established",
+                        p1_state: "Idle",
+                        p0_ipv6_unicast_failed: true,
+                    },
+                    expect: vec![
+                        tor_alert(
+                            "p0_if",
+                            "Session p0_if did not negotiate IPv6-unicast",
+                            ExpectedClassifications::PreventAllocationsAndHostStateChanges,
+                        ),
+                        tor_alert(
+                            "p1_if",
+                            "Session p1_if is not Established, but in state Idle",
+                            ExpectedClassifications::PreventAllocationsAndHostStateChanges,
+                        ),
+                    ],
+                },
+                Check {
+                    scenario: "minimum two blocks negotiation warnings on both uplinks",
+                    input: TorHealthInput {
+                        min_healthy_links: 2,
+                        p0_state: "Established",
+                        p1_state: ESTABLISHED_WITHOUT_IPV6_UNICAST,
+                        p0_ipv6_unicast_failed: true,
+                    },
+                    expect: vec![
+                        tor_alert(
+                            "p0_if",
+                            "Session p0_if did not negotiate IPv6-unicast",
+                            ExpectedClassifications::PreventAllocationsAndHostStateChanges,
+                        ),
+                        tor_alert(
+                            "p1_if",
+                            "Session p1_if did not negotiate IPv6-unicast",
+                            ExpectedClassifications::PreventAllocationsAndHostStateChanges,
+                        ),
+                    ],
+                },
+                Check {
+                    scenario: "minimum above configured uplink count remains a configuration error",
+                    input: TorHealthInput {
+                        min_healthy_links: 3,
+                        p0_state: "Established",
+                        p1_state: "Established",
+                        p0_ipv6_unicast_failed: false,
+                    },
+                    expect: vec![make_alert(
+                        probe_ids::BgpStats.clone(),
+                        None,
+                        "Failures while gathering BGP health data:\nThe number of min healthy links: 3 was bigger than the number of uplinks defined by the hbn device names: 2".to_string(),
+                        true,
+                    )],
+                },
+            ],
+            |input| {
+                // FRR reports transport state and IPv6 unicast negotiation
+                // failures separately. Build both inputs before combining them.
+                let hbn_device_names = HBNDeviceNames::hbn_23();
+                let (p1_session_state, p1_ipv6_unicast_failed) = match input.p1_state {
+                    ESTABLISHED_WITHOUT_IPV6_UNICAST => ("Established", true),
+                    state => (state, false),
+                };
+                let stats = BgpStats {
+                    dynamic_peers: 0,
+                    peers: HashMap::from([
+                        (
+                            "p0_if".to_string(),
+                            BgpPeer {
+                                state: input.p0_state.to_string(),
+                            },
+                        ),
+                        (
+                            "p1_if".to_string(),
+                            BgpPeer {
+                                state: p1_session_state.to_string(),
+                            },
+                        ),
+                    ]),
+                };
+                let mut health_data = BgpHealthData::default();
+                check_bgp_tor_routes(
+                    &stats,
+                    &mut health_data,
+                    input.min_healthy_links,
+                    &hbn_device_names,
+                );
+
+                // Model the separate FRR summary only when an uplink failed
+                // IPv6 unicast negotiation.
+                let failed_ipv6_unicast_json =
+                    match (input.p0_ipv6_unicast_failed, p1_ipv6_unicast_failed) {
+                        (false, false) => None,
+                        (true, false) => {
+                            Some(r#"{"peers":{"p0_if":{}},"failedPeers":1}"#)
+                        }
+                        (false, true) => {
+                            Some(r#"{"peers":{"p1_if":{}},"failedPeers":1}"#)
+                        }
+                        (true, true) => Some(
+                            r#"{"peers":{"p0_if":{},"p1_if":{}},"failedPeers":2}"#,
+                        ),
+                    };
+                if let Some(failed_ipv6_unicast_json) = failed_ipv6_unicast_json {
+                    verify_failed_ipv6_unicast_peers(
+                        &mut health_data,
+                        failed_ipv6_unicast_json,
+                        input.min_healthy_links,
+                        &hbn_device_names,
+                    );
+                }
+
+                // Convert the combined FRR results into the exact public alert
+                // set asserted by each row.
+                let mut report = health_report::HealthReport::empty("forge-dpu-agent".to_string());
+                health_data.into_health_report(
+                    &mut report,
+                    input.min_healthy_links,
+                    &hbn_device_names,
+                );
+                sort_alerts(&mut report.alerts);
+                report.alerts
             },
         );
     }
@@ -805,6 +1270,7 @@ mod tests {
                             "p0_if".to_string(),
                             "Session p0_if is not Established, but in state Idle".to_string(),
                         )]),
+                        tor_session_failures: HashSet::from(["p0_if".to_string()]),
                         ..Default::default()
                     },
                 },
@@ -905,13 +1371,14 @@ mod tests {
 
     struct FailedIpv6SummaryInput {
         json: &'static str,
-        min_healthy_links: u32,
+        min_healthy_links: usize,
         existing_p0_error: Option<&'static str>,
     }
 
     #[derive(Debug, PartialEq, Eq)]
     struct FailedIpv6SummaryOutcome {
         unhealthy_tor_peers: HashMap<String, String>,
+        tor_session_failures: HashSet<String>,
         other_error_count: usize,
         has_deserialization_error: bool,
     }
@@ -929,6 +1396,7 @@ mod tests {
                     },
                     expect: FailedIpv6SummaryOutcome {
                         unhealthy_tor_peers: HashMap::new(),
+                        tor_session_failures: HashSet::new(),
                         other_error_count: 0,
                         has_deserialization_error: false,
                     },
@@ -945,6 +1413,7 @@ mod tests {
                             "p0_if".to_string(),
                             "Session p0_if did not negotiate IPv6-unicast".to_string(),
                         )]),
+                        tor_session_failures: HashSet::new(),
                         other_error_count: 0,
                         has_deserialization_error: false,
                     },
@@ -958,6 +1427,7 @@ mod tests {
                     },
                     expect: FailedIpv6SummaryOutcome {
                         unhealthy_tor_peers: HashMap::new(),
+                        tor_session_failures: HashSet::new(),
                         other_error_count: 0,
                         has_deserialization_error: false,
                     },
@@ -980,6 +1450,7 @@ mod tests {
                                 "Session p1_if did not negotiate IPv6-unicast".to_string(),
                             ),
                         ]),
+                        tor_session_failures: HashSet::new(),
                         other_error_count: 0,
                         has_deserialization_error: false,
                     },
@@ -996,6 +1467,7 @@ mod tests {
                             "p0_if".to_string(),
                             "Session p0_if is in state Idle".to_string(),
                         )]),
+                        tor_session_failures: HashSet::from(["p0_if".to_string()]),
                         other_error_count: 0,
                         has_deserialization_error: false,
                     },
@@ -1009,6 +1481,7 @@ mod tests {
                     },
                     expect: FailedIpv6SummaryOutcome {
                         unhealthy_tor_peers: HashMap::new(),
+                        tor_session_failures: HashSet::new(),
                         other_error_count: 1,
                         has_deserialization_error: true,
                     },
@@ -1022,6 +1495,7 @@ mod tests {
                     },
                     expect: FailedIpv6SummaryOutcome {
                         unhealthy_tor_peers: HashMap::new(),
+                        tor_session_failures: HashSet::new(),
                         other_error_count: 1,
                         has_deserialization_error: true,
                     },
@@ -1033,6 +1507,7 @@ mod tests {
                     health_data
                         .unhealthy_tor_peers
                         .insert("p0_if".to_string(), error.to_string());
+                    health_data.tor_session_failures.insert("p0_if".to_string());
                 }
 
                 verify_failed_ipv6_unicast_peers(
@@ -1047,6 +1522,7 @@ mod tests {
                 });
                 FailedIpv6SummaryOutcome {
                     unhealthy_tor_peers: health_data.unhealthy_tor_peers,
+                    tor_session_failures: health_data.tor_session_failures,
                     other_error_count: health_data.other_errors.len(),
                     has_deserialization_error,
                 }
