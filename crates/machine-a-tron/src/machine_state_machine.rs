@@ -140,13 +140,13 @@ fn abandon_machine_actions_on_power_change(
 
 fn direct_dhcp_relay_address(
     is_host: bool,
-    admin_relay_address: Ipv4Addr,
+    underlay_relay_address: Ipv4Addr,
     host_inband_relay_address: Option<Ipv4Addr>,
 ) -> Ipv4Addr {
     if is_host {
-        host_inband_relay_address.unwrap_or(admin_relay_address)
+        host_inband_relay_address.unwrap_or(underlay_relay_address)
     } else {
-        admin_relay_address
+        underlay_relay_address
     }
 }
 
@@ -712,7 +712,7 @@ impl MachineStateMachine {
             .dhcp_client
             .request_ip(DhcpRequestInfo {
                 mac_address: self.machine_info.bmc_mac_address(),
-                relay_address: self.config.oob_dhcp_relay_address,
+                relay_address: self.config.bmc_dhcp_relay_address,
                 vendor_class: vendor_class(&self.machine_info, DhcpRequester::Bmc),
             })
             .await
@@ -777,7 +777,7 @@ impl MachineStateMachine {
         } else {
             let direct_relay_address = direct_dhcp_relay_address(
                 matches!(&self.machine_info, MachineInfo::Host(_)),
-                self.config.admin_dhcp_relay_address,
+                self.config.underlay_dhcp_relay_address,
                 self.config.host_inband_dhcp_relay_address,
             );
             tracing::debug!(
@@ -1514,7 +1514,7 @@ mod tests {
 
     #[test]
     fn direct_dhcp_relay_selection() {
-        let admin = Ipv4Addr::new(172, 21, 0, 1);
+        let underlay = Ipv4Addr::new(172, 21, 0, 1);
         let host_inband = Ipv4Addr::new(172, 22, 0, 1);
 
         check_values(
@@ -1527,15 +1527,15 @@ mod tests {
                 Check {
                     scenario: "legacy host without HostInband configuration",
                     input: (true, None),
-                    expect: admin,
+                    expect: underlay,
                 },
                 Check {
                     scenario: "DPU ignores HostInband configuration",
                     input: (false, Some(host_inband)),
-                    expect: admin,
+                    expect: underlay,
                 },
             ],
-            |(is_host, host_inband)| direct_dhcp_relay_address(is_host, admin, host_inband),
+            |(is_host, host_inband)| direct_dhcp_relay_address(is_host, underlay, host_inband),
         );
     }
 

@@ -1713,9 +1713,9 @@ async fn test_update_slaac_vpc_rejects_explicit_ipv6_before_resource_reuse(
         tenant.tenant_organization_id.as_str(),
         "SLAAC update validation VPC",
         "SLAAC update IPv6 prefix",
-        // One instance is created for every table row below. Until #2404
-        // changes the allocation size, each consumes a /127 linknet.
-        "fd42:2403:1::/120",
+        // Three table rows allocate an IPv6 prefix before exercising update
+        // validation. A /62 supplies four SLAAC /64 allocations.
+        "fd42:2403:1::/62",
         true,
     )
     .await;

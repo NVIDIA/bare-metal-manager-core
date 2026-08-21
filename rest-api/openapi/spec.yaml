@@ -3534,8 +3534,8 @@ paths:
           in: query
           name: includeUsageStats
           description: >-
-            When true, each VPC Prefix object includes usage statistics using the same structure as IP Block usage.
-            Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a VPC Prefix consumes a `/31` prefix.
+            When true, each VPC Prefix with IPv4 includes IPv4 usage statistics using the same structure as IP Block usage.
+            Usage is derived from associated Ethernet interfaces and their IPv4 addresses. IP usage counts two addresses per interface, while prefix usage counts each distinct `/31` containing an assigned IPv4 address.
         - schema:
             $ref: '#/components/schemas/PageNumber'
             example: 1
@@ -3638,8 +3638,8 @@ paths:
           in: query
           name: includeUsageStats
           description: |-
-            When true, each VPC Prefix object includes usage statistics using the same structure as IP Block usage.
-            Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a VPC Prefix consumes a `/31` prefix.
+            When true, a VPC Prefix with IPv4 includes IPv4 usage statistics using the same structure as IP Block usage.
+            Usage is derived from associated Ethernet interfaces and their IPv4 addresses. IP usage counts two addresses per interface, while prefix usage counts each distinct `/31` containing an assigned IPv4 address.
     delete:
       summary: Delete VPC Prefix
       operationId: delete-vpc-prefix
@@ -18433,7 +18433,7 @@ components:
         slaacEnabled:
           type: boolean
           readOnly: true
-          description: Whether this VPC uses SLAAC allocation mode for instance IPv6 interfaces. This value is fixed when the VPC is created. Complete SLAAC support depends on allocating a `/64` to each interface, tracked by https://github.com/NVIDIA/infra-controller/issues/2404, and router advertisement (RA) support, tracked by https://github.com/NVIDIA/infra-controller/issues/2398.
+          description: Whether this VPC uses SLAAC allocation mode for instance IPv6 interfaces. When true, Core allocates a `/64` to each interface that includes IPv6 and retains the prefix without assigning a concrete IPv6 host address. This value is fixed when the VPC is created. NICo does not yet configure router advertisements (RAs); that support is tracked by https://github.com/NVIDIA/infra-controller/issues/2398.
         routingProfile:
           type:
             - string
@@ -18686,7 +18686,7 @@ components:
         slaacEnabled:
           type: boolean
           default: false
-          description: When true, Core retains an IPv6 interface prefix without assigning a concrete IPv6 host address. It is supported only for FNN VPCs and fixed during creation. False or omission disables SLAAC. Before persistence, REST requires `vpcSlaac` in the latest successfully stored configuration inventory for the selected Site. Periodic Site inventory reports whether Core supports this feature, so the stored value can lag a Core rollout. False or missing `vpcSlaac` returns 412 before REST persistence or workflow dispatch. This flag does not verify DPU agent versions. When a new API server release is deployed, DPU agents roll forward, and instance network configuration may fail transiently until eligible agents converge. Complete SLAAC support depends on allocating a `/64` to each interface, tracked by https://github.com/NVIDIA/infra-controller/issues/2404, and router advertisement (RA) support, tracked by https://github.com/NVIDIA/infra-controller/issues/2398.
+          description: When true, Core allocates a `/64` to each instance interface that includes IPv6 and retains the prefix without assigning a concrete IPv6 host address. It is supported only for FNN VPCs and fixed during creation. False or omission disables SLAAC. Before persistence, REST requires `vpcSlaac` in the latest successfully stored configuration inventory for the selected Site. Periodic Site inventory reports whether Core supports this feature, so the stored value can lag a Core rollout. False or missing `vpcSlaac` returns 412 before REST persistence or workflow dispatch. This flag does not verify DPU agent versions. When a new API server release is deployed, DPU agents roll forward, and instance network configuration may fail transiently until eligible agents converge. NICo does not yet configure router advertisements (RAs); that support is tracked by https://github.com/NVIDIA/infra-controller/issues/2398.
         routingProfile:
           type:
             - string
@@ -19050,7 +19050,7 @@ components:
           $ref: '#/components/schemas/IpBlockUsageStats'
           readOnly: true
           description: |-
-            Present when query parameter `includeUsageStats=true`. Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a VPC Prefix consumes a `/31` prefix.
+            Present when query parameter `includeUsageStats=true` and the VPC Prefix has IPv4. This statistic reports IPv4 usage only. IP usage counts two addresses per associated Ethernet interface, while prefix usage counts each distinct `/31` containing an assigned IPv4 address.
         statusHistory:
           type: array
           items:

@@ -6,7 +6,6 @@ package eventrule
 import (
 	"slices"
 	"testing"
-	"time"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	flowtypes "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
@@ -320,7 +319,6 @@ func TestRuleValidatesPolicy(t *testing.T) {
 		Enabled:   true,
 		EventType: "test.event",
 		Policy: Policy{
-			Dedupe:  &Dedupe{Window: 5 * time.Minute},
 			Actions: []Action{action},
 		},
 	}

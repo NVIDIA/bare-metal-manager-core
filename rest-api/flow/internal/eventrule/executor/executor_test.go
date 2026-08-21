@@ -67,7 +67,7 @@ func newValidExecutionRequest(t *testing.T) ExecutionRequest {
 	t.Helper()
 	now := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
 	execution, err := eventrule.NewExecution(eventrule.ExecutionIdentity{
-		EventID:    uuid.New(),
+		EventKey:   eventrule.EventKey{SourceName: "test", SourceKey: "event-1"},
 		RuleID:     uuid.New(),
 		ActionName: "noop",
 	}, now)

@@ -5750,6 +5750,59 @@ fn check_host_health_for_alerts(state: &ManagedHostStateSnapshot) -> Result<(), 
     }
 }
 
+const PRIMARY_DPU_BGP_WAIT_REASON: &str =
+    "Waiting for the primary DPU p0 BGP session to be established";
+const HOST_HEALTH_WAIT_REASON: &str =
+    "Waiting for lifecycle-blocking host health alerts to clear before PXE reboot";
+
+/// Returns whether the DPU agent marked a ToR BGP alert as unsafe for PXE allocation.
+fn is_pxe_blocking_bgp_alert(alert: &HealthProbeAlert) -> bool {
+    alert.id == HealthProbeId::bgp_peering_tor()
+        && alert
+            .classifications
+            .contains(&HealthAlertClassification::prevent_allocations())
+}
+
+/// Checks whether a health report contains a BGP alert that should block PXE.
+fn report_has_pxe_blocking_bgp_alert(report: &HealthReport) -> bool {
+    report.alerts.iter().any(is_pxe_blocking_bgp_alert)
+}
+
+/// Checks whether effective health data contains the p0 BGP condition that blocks PXE.
+///
+/// The agent marks a failed p0 session with `PreventAllocations` because PXE
+/// boot depends on p0. A host Replace report overrides all DPU reports.
+/// Otherwise, only the primary attached DPU is checked: its Replace report
+/// overrides its Merge reports, and any Merge report may contain the blocking
+/// BGP alert when there is no Replace report.
+fn primary_dpu_has_pxe_blocking_bgp_alert(state: &ManagedHostStateSnapshot) -> bool {
+    if let Some(host_replace_report) = state.host_snapshot.health_reports.replace.as_ref() {
+        return report_has_pxe_blocking_bgp_alert(host_replace_report);
+    }
+
+    let Some(primary_dpu_id) = state.host_snapshot.primary_attached_dpu_machine_id() else {
+        return false;
+    };
+
+    let Some(primary_dpu) = state
+        .dpu_snapshots
+        .iter()
+        .find(|dpu| dpu.id == primary_dpu_id)
+    else {
+        return false;
+    };
+
+    if let Some(dpu_replace_report) = primary_dpu.health_reports.replace.as_ref() {
+        return report_has_pxe_blocking_bgp_alert(dpu_replace_report);
+    }
+
+    primary_dpu
+        .health_reports
+        .merges
+        .values()
+        .any(report_has_pxe_blocking_bgp_alert)
+}
+
 /// Whether a captured desired target can be replaced before this substate runs.
 ///
 /// Pure checks and pre-write states can adopt newer intent. Vendor jobs,
@@ -7825,6 +7878,12 @@ impl StateHandler for InstanceStateHandler {
                         }
                     };
 
+                    if primary_dpu_has_pxe_blocking_bgp_alert(mh_snapshot) {
+                        return Ok(StateHandlerOutcome::wait(
+                            PRIMARY_DPU_BGP_WAIT_REASON.to_string(),
+                        ));
+                    }
+
                     // Check whether the IB config is synced
                     if let Err(not_synced_reason) = ib_config_synced(
                         mh_snapshot
@@ -7939,6 +7998,29 @@ impl StateHandler for InstanceStateHandler {
                     })
                 }
                 InstanceState::WaitingForRebootToReady => {
+                    // Deletion and custom iPXE requests intentionally bypass these readiness
+                    // checks. During normal provisioning, recheck aggregate health for every host.
+                    // Hosts with managed DPUs also recheck the primary DPU p0 BGP alert. This
+                    // closes the gap between the network configuration check and the restart.
+                    if instance.deleted.is_none() && !instance.custom_pxe_reboot_requested {
+                        match check_host_health_for_alerts(mh_snapshot) {
+                            Ok(()) => {}
+                            Err(StateHandlerError::HealthProbeAlert) => {
+                                return Ok(StateHandlerOutcome::wait(
+                                    HOST_HEALTH_WAIT_REASON.to_string(),
+                                ));
+                            }
+                            Err(error) => return Err(error),
+                        }
+                        if mh_snapshot.has_managed_dpus()
+                            && primary_dpu_has_pxe_blocking_bgp_alert(mh_snapshot)
+                        {
+                            return Ok(StateHandlerOutcome::wait(
+                                PRIMARY_DPU_BGP_WAIT_REASON.to_string(),
+                            ));
+                        }
+                    }
+
                     // If custom_pxe_reboot_requested is set, this reboot was triggered by
                     // the tenant requested a boot with custom iPXE. Clear the request flag.
                     // The use_custom_pxe_on_boot flag was already set by the API handler.
@@ -13509,6 +13591,65 @@ mod tests {
     use regex::Regex;
 
     use super::*;
+
+    #[test]
+    fn pxe_blocking_bgp_alert_requires_probe_and_allocation_classification() {
+        check_values(
+            [
+                Check {
+                    scenario: "allocation-blocking ToR alert",
+                    input: (
+                        HealthProbeId::bgp_peering_tor(),
+                        vec![HealthAlertClassification::prevent_allocations()],
+                    ),
+                    expect: true,
+                },
+                Check {
+                    scenario: "critical ToR alert also blocks PXE",
+                    input: (
+                        HealthProbeId::bgp_peering_tor(),
+                        vec![
+                            HealthAlertClassification::prevent_allocations(),
+                            HealthAlertClassification::prevent_host_state_changes(),
+                        ],
+                    ),
+                    expect: true,
+                },
+                Check {
+                    scenario: "visible ToR alert does not block PXE",
+                    input: (HealthProbeId::bgp_peering_tor(), vec![]),
+                    expect: false,
+                },
+                Check {
+                    scenario: "host-state classification alone is not the p0 signal",
+                    input: (
+                        HealthProbeId::bgp_peering_tor(),
+                        vec![HealthAlertClassification::prevent_host_state_changes()],
+                    ),
+                    expect: false,
+                },
+                Check {
+                    scenario: "different allocation-blocking probe",
+                    input: (
+                        HealthProbeId::from_str("BgpPeeringRouteServer")
+                            .expect("valid test probe id"),
+                        vec![HealthAlertClassification::prevent_allocations()],
+                    ),
+                    expect: false,
+                },
+            ],
+            |(id, classifications)| {
+                is_pxe_blocking_bgp_alert(&HealthProbeAlert {
+                    id,
+                    target: None,
+                    in_alert_since: None,
+                    message: "test alert".to_string(),
+                    tenant_message: None,
+                    classifications,
+                })
+            },
+        );
+    }
 
     #[test]
     fn dpu_restart_requires_a_stable_power_state() {

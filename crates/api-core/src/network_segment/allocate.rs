@@ -23,6 +23,7 @@ use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use model::network_prefix::NewNetworkPrefix;
 use model::network_segment::{AllocationStrategy, NewNetworkSegment};
+use model::vpc::vpc_prefix_can_allocate_interface_prefix;
 use sqlx::PgConnection;
 
 use crate::{CarbideError, CarbideResult};
@@ -68,9 +69,10 @@ fn networks_overlap(a: IpNetwork, b: IpNetwork) -> bool {
 
 /// Returns the number of leading endpoints reserved on a generated linknet.
 ///
-/// IPv4 reserves its DPU endpoint through the explicit gateway. IPv6 cannot
-/// persist a gateway, so reserve `::0` explicitly and allocate `::1` to the
-/// instance.
+/// IPv4 reserves its DPU endpoint through the explicit gateway. Stateful IPv6
+/// cannot persist a gateway, so it reserves `::0` explicitly and allocates
+/// `::1` to the instance. SLAAC retains the whole generated prefix without
+/// allocating a concrete host address.
 fn generated_linknet_num_reserved(prefix: IpNetwork) -> i32 {
     if prefix.is_ipv6() { 1 } else { 0 }
 }
@@ -118,9 +120,11 @@ impl PrefixAllocator {
                 "prefix length {prefix} exceeds maximum for address family ({max_bits})"
             )));
         }
-        let is_single_ipv4_linknet =
-            vpc_prefix.is_ipv4() && vpc_prefix.prefix() == 31 && prefix == 31;
-        if prefix <= vpc_prefix.prefix() && !is_single_ipv4_linknet {
+        if !vpc_prefix_can_allocate_interface_prefix(
+            vpc_prefix.address_family(),
+            vpc_prefix.prefix(),
+            prefix,
+        ) {
             return Err(CarbideError::InvalidArgument(format!(
                 "prefix length {prefix} must be greater than VPC prefix length {}, except for an IPv4 /31",
                 vpc_prefix.prefix()
@@ -146,9 +150,8 @@ impl PrefixAllocator {
         let name = format!("vpc_prefix_{}", prefix.network());
         let segment_id = NetworkSegmentId::new();
 
-        // Note: There is a database constraint `no_gateway_on_ipv6` ensuring
-        // IPv6 prefixes must have gateway IS NULL. IPv6 uses RAs (Router
-        // Advertisements) instead of explicit gateways.
+        // The `no_gateway_on_ipv6` database constraint requires IPv6 prefixes
+        // to omit an explicit gateway.
         let gateway = if prefix.is_ipv4() {
             Some(prefix.network())
         } else {
@@ -202,7 +205,8 @@ impl PrefixAllocator {
         segment_id: NetworkSegmentId,
         prefix: IpNetwork,
     ) -> CarbideResult<IpNetwork> {
-        // IPv6 gateways are None (uses Router Advertisements).
+        // The `no_gateway_on_ipv6` database constraint requires IPv6 prefixes
+        // to omit an explicit gateway.
         let gateway = if prefix.is_ipv4() {
             Some(prefix.network())
         } else {
@@ -231,8 +235,8 @@ impl PrefixAllocator {
 
     /// Returns the next unoccupied child prefix using the persisted next-fit cursor.
     ///
-    /// Occupied ranges are searched as linknet-index intervals so broad IPv6
-    /// allocations do not require enumerating their constituent /127 prefixes.
+    /// Occupied ranges are searched as child prefix index intervals so broad
+    /// IPv6 allocations do not require enumerating every constituent prefix.
     pub(crate) async fn next_free_prefix(
         &self,
         txn: &mut PgConnection,
@@ -371,6 +375,7 @@ mod test {
             "valid child prefixes" {
                 ("192.0.2.0/30", 31) => true,
                 ("192.0.2.0/31", 31) => true,
+                ("2001:db8::/63", 64) => true,
                 ("2001:db8::/126", 127) => true,
             }
 
@@ -379,6 +384,8 @@ mod test {
                 ("192.0.2.0/31", 30) => false,
                 ("192.0.2.1/32", 32) => false,
                 ("192.0.2.0/24", 33) => false,
+                ("2001:db8::/64", 64) => false,
+                ("2001:db8::/126", 64) => false,
                 ("2001:db8::/127", 127) => false,
                 ("2001:db8::1/128", 128) => false,
                 ("2001:db8::/64", 129) => false,
@@ -406,5 +413,16 @@ mod test {
                 "case: {name}",
             );
         }
+    }
+
+    #[test]
+    fn historical_stateful_prefix_occupies_its_slaac_allocation() {
+        let parent = "2001:db8::/63".parse().unwrap();
+        let historical_prefix = "2001:db8::/127".parse().unwrap();
+        let occupied =
+            db::network_prefix::occupied_prefix_intervals(parent, 64, [historical_prefix]);
+
+        assert_eq!(occupied, vec![(0, 0)]);
+        assert_eq!(first_unoccupied_index(&occupied, 0, 1), Some(1));
     }
 }

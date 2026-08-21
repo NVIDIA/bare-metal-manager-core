@@ -39,6 +39,38 @@ func TestParseSeverity(t *testing.T) {
 	}
 }
 
+func TestEventKey_Validate(t *testing.T) {
+	tests := map[string]struct {
+		key     EventKey
+		wantErr string
+	}{
+		"valid non-UUID source key": {
+			key: EventKey{SourceName: "leakage", SourceKey: "rack/r1:occurrence-42"},
+		},
+		"missing source name": {
+			key: EventKey{SourceKey: "event-1"}, wantErr: "event source name is empty",
+		},
+		"invalid source name": {
+			key:     EventKey{SourceName: "Leakage", SourceKey: "event-1"},
+			wantErr: "event source name",
+		},
+		"missing source key": {
+			key: EventKey{SourceName: "leakage"}, wantErr: "event source key is empty",
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := test.key.Validate()
+			if test.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, test.wantErr)
+		})
+	}
+}
+
 func TestEnvelopeValidatePayload(t *testing.T) {
 	tests := map[string]struct {
 		payload json.RawMessage
@@ -56,7 +88,7 @@ func TestEnvelopeValidatePayload(t *testing.T) {
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			envelope := Envelope{
-				ID:       uuid.New(),
+				Key:      EventKey{SourceName: "test", SourceKey: "event-1"},
 				Type:     "test.event",
 				Resource: Resource{Kind: ResourceKindRack},
 				Payload:  test.payload,
@@ -74,7 +106,7 @@ func TestEnvelopeValidatePayload(t *testing.T) {
 
 func TestEnvelopeAllowsUnspecifiedSeverity(t *testing.T) {
 	envelope := Envelope{
-		ID:       uuid.New(),
+		Key:      EventKey{SourceName: "test", SourceKey: "event-1"},
 		Type:     "test.event",
 		Severity: SeverityUnspecified,
 		Resource: Resource{Kind: ResourceKindRack},

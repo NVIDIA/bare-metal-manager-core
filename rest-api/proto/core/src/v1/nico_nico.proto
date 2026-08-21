@@ -1730,11 +1730,12 @@ message VpcConfig {
   // persisted.
   optional string power_resource_group = 9;
   // Selects SLAAC allocation mode for instance IPv6 interfaces in this FNN
-  // VPC. When true, NICo retains the interface prefix without assigning a
-  // concrete IPv6 host address. This policy is fixed when the VPC is created
-  // and cannot be changed through `VpcUpdateRequest`. Allocating a /64 to each
-  // interface is tracked by
-  // https://github.com/NVIDIA/infra-controller/issues/2404. Core reports this
+  // VPC. When true, NICo allocates a /64 to each interface that includes IPv6
+  // and retains that prefix without assigning a concrete IPv6 host address.
+  // This policy is fixed when the VPC is created and cannot be changed through
+  // `VpcUpdateRequest`. NICo does not yet configure router advertisements;
+  // that support is tracked by
+  // https://github.com/NVIDIA/infra-controller/issues/2398. Core reports this
   // field explicitly; an absent value indicates a response from a Core version
   // that predates SLAAC support.
   optional bool slaac_enabled = 10;
@@ -1845,11 +1846,12 @@ message VpcCreationRequest {
   // creation, omission or an empty value creates no association.
   optional string power_resource_group = 19;
   // Selects SLAAC allocation mode for instance IPv6 interfaces in this VPC.
-  // When true, this is supported only for FNN VPCs. False or omission disables
-  // SLAAC. Core evaluates this value only during VPC creation;
-  // `VpcUpdateRequest` cannot change the resulting policy. Allocating a /64 to
-  // each interface is tracked by
-  // https://github.com/NVIDIA/infra-controller/issues/2404.
+  // When true, this is supported only for FNN VPCs and Core allocates a /64 to
+  // each interface that includes IPv6 without assigning a concrete IPv6 host
+  // address. False or omission disables SLAAC. Core evaluates this value only
+  // during VPC creation; `VpcUpdateRequest` cannot change the resulting policy.
+  // NICo does not yet configure router advertisements; that support is tracked by
+  // https://github.com/NVIDIA/infra-controller/issues/2398.
   optional bool slaac_enabled = 20;
 }
 
@@ -1982,7 +1984,14 @@ message VpcPrefixConfig {
 message VpcPrefixStatus {
   uint32 total_31_segments = 1;
   uint32 available_31_segments = 2;
+  // Total interface prefixes this VPC prefix can provide. IPv4 uses /31;
+  // stateful IPv6 uses /127; SLAAC IPv6 uses /64. An IPv6 VPC prefix must be
+  // wider than the interface prefix, so an exact /64 in SLAAC mode has zero
+  // interface capacity. Both capacity counters report values larger than
+  // uint64 as uint64 max.
   uint64 total_linknet_segments = 3;
+  // Interface prefixes not currently occupied, using the same prefix length
+  // selected by the VPC mode as total_linknet_segments.
   uint64 available_linknet_segments = 4;
   LifecycleStatus lifecycle = 5;
 
@@ -4940,7 +4949,8 @@ message FlatInterfaceIpv6Config {
   // has SLAAC enabled; in that case interface_prefix still identifies the
   // prefix configured on the DPU interface.
   string ip = 1;
-  // Interface-specific prefix allocation (e.g. "2001:db8::/127").
+  // Interface-specific prefix allocation. Stateful FNN uses a /127; SLAAC
+  // uses the /64 allocated to this interface.
   string interface_prefix = 2;
   // SVI IP for L2 FNN segments — the DPU's IPv6 gateway address on the VLAN.
   // Only set for L2 segments (can_stretch = true).

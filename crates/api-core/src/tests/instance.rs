@@ -51,6 +51,7 @@ use futures_util::future::join_all;
 use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
 use itertools::Itertools;
 use mac_address::MacAddress;
+use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::dpu_machine_update::DpuMachineUpdate;
 use model::instance::config::extension_services::InstanceExtensionServicesConfig;
 use model::instance::config::infiniband::InstanceInfinibandConfig;
@@ -1357,6 +1358,216 @@ async fn test_instance_deletion_before_provisioning_finishes(
 
     // Now go through regular deletion
     mh.delete_instance(&env, instance_id).await;
+}
+
+#[crate::sqlx_test]
+async fn test_instance_waits_for_primary_dpu_bgp_before_pxe_reboot(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    const PRIMARY_DPU_BGP_WAIT_REASON: &str =
+        "Waiting for the primary DPU p0 BGP session to be established";
+    const HOST_HEALTH_WAIT_REASON: &str =
+        "Waiting for lifecycle-blocking host health alerts to clear before PXE reboot";
+
+    fn dpu_health_alert(
+        id: &str,
+        target: Option<&str>,
+        classifications: Vec<health_report::HealthAlertClassification>,
+    ) -> rpc::health::HealthReport {
+        rpc::health::HealthReport {
+            source: "forge-dpu-agent".to_string(),
+            triggered_by: None,
+            observed_at: None,
+            successes: vec![],
+            alerts: vec![rpc::health::HealthProbeAlert {
+                id: id.to_string(),
+                target: target.map(str::to_string),
+                in_alert_since: None,
+                message: "test lifecycle gate".to_string(),
+                tenant_message: None,
+                classifications: classifications
+                    .into_iter()
+                    .map(|classification| classification.to_string())
+                    .collect(),
+            }],
+        }
+    }
+
+    fn post_config_wait_health() -> rpc::health::HealthReport {
+        dpu_health_alert(
+            "PostConfigCheckWait",
+            None,
+            vec![
+                health_report::HealthAlertClassification::prevent_allocations(),
+                health_report::HealthAlertClassification::prevent_host_state_changes(),
+            ],
+        )
+    }
+
+    fn bgp_tor_health(target: &str, prevent_allocations: bool) -> rpc::health::HealthReport {
+        let classifications = prevent_allocations
+            .then(health_report::HealthAlertClassification::prevent_allocations)
+            .into_iter()
+            .collect();
+        dpu_health_alert(
+            health_report::HealthProbeId::bgp_peering_tor().as_str(),
+            Some(target),
+            classifications,
+        )
+    }
+
+    fn pxe_blocking_bgp_merge(source: &str) -> health_report::HealthReport {
+        health_report::HealthReport {
+            source: source.to_string(),
+            triggered_by: None,
+            observed_at: None,
+            successes: vec![],
+            alerts: vec![health_report::HealthProbeAlert {
+                id: health_report::HealthProbeId::bgp_peering_tor(),
+                target: Some("p0_if".to_string()),
+                in_alert_since: None,
+                message: "test additive PXE gate".to_string(),
+                tenant_message: None,
+                classifications: vec![
+                    health_report::HealthAlertClassification::prevent_allocations(),
+                ],
+            }],
+        }
+    }
+
+    async fn assert_instance_state(env: &TestEnv, mh: &TestManagedHost, expected: InstanceState) {
+        let mut txn = env.db_txn().await;
+        assert_eq!(
+            mh.host().db_machine(&mut txn).await.current_state(),
+            &ManagedHostState::Assigned {
+                instance_state: expected,
+            }
+        );
+        txn.commit().await.unwrap();
+    }
+
+    async fn assert_pxe_reboot_wait_outcome(
+        env: &TestEnv,
+        mh: &TestManagedHost,
+        expected_reason: &str,
+    ) {
+        let mut txn = env.db_txn().await;
+        let host_machine = mh.host().db_machine(&mut txn).await;
+        let Some(PersistentStateHandlerOutcome::Wait {
+            reason,
+            source_ref: Some(source_ref),
+        }) = &host_machine.controller_state_outcome
+        else {
+            panic!("The PXE reboot gate should persist a Wait outcome with a source reference");
+        };
+        assert_eq!(reason, expected_reason);
+        assert!(source_ref.file.ends_with("/handler.rs"));
+        txn.commit().await.unwrap();
+    }
+
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let mh = create_managed_host(&env).await;
+    let dpu_id = mh.dpu().id;
+
+    let config = InstanceConfig::default_tenant_and_os()
+        .network(single_interface_network_config(segment_id));
+    env.api
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(mh.host().id)
+                .config(config)
+                .metadata(rpc::Metadata {
+                    name: "test_instance".to_string(),
+                    description: "tests/instance".to_string(),
+                    labels: Vec::new(),
+                })
+                .tonic_request(),
+        )
+        .await
+        .expect("Create instance failed.");
+
+    env.run_network_segment_controller_iteration().await;
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        10,
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::WaitingForNetworkConfig,
+        },
+    )
+    .await;
+
+    // Both the configuration settle period and a failed p0 session hold the
+    // initial network configuration gate.
+    network_configured_with_health(&env, &dpu_id, Some(post_config_wait_health())).await;
+    env.run_machine_state_controller_iteration().await;
+    assert_instance_state(&env, &mh, InstanceState::WaitingForNetworkConfig).await;
+
+    network_configured_with_health(&env, &dpu_id, Some(bgp_tor_health("p0_if", true))).await;
+    env.run_machine_state_controller_iteration().await;
+    assert_instance_state(&env, &mh, InstanceState::WaitingForNetworkConfig).await;
+
+    // An empty DPU Replace report masks the agent Merge report and allows
+    // provisioning to advance to the reboot gate.
+    send_health_report_entry(
+        &env,
+        &dpu_id,
+        (
+            health_report::HealthReport::empty("test-pxe-bgp-override".to_string()),
+            health_report::HealthReportApplyMode::Replace,
+        ),
+    )
+    .await;
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        1,
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::WaitingForRebootToReady,
+        },
+    )
+    .await;
+
+    // Removing the Replace report exposes the agent p0 alert again, so the
+    // reboot gate must recheck it before restarting the host.
+    remove_health_report_entry(&env, &dpu_id, "test-pxe-bgp-override".to_string()).await;
+    env.run_machine_state_controller_iteration().await;
+    assert_instance_state(&env, &mh, InstanceState::WaitingForRebootToReady).await;
+    assert_pxe_reboot_wait_outcome(&env, &mh, PRIMARY_DPU_BGP_WAIT_REASON).await;
+
+    // The reboot gate also rechecks health alerts that block host state
+    // changes and persists a diagnosable wait reason.
+    network_configured_with_health(&env, &dpu_id, Some(post_config_wait_health())).await;
+    env.run_machine_state_controller_iteration().await;
+    assert_instance_state(&env, &mh, InstanceState::WaitingForRebootToReady).await;
+    assert_pxe_reboot_wait_outcome(&env, &mh, HOST_HEALTH_WAIT_REASON).await;
+
+    // A visible p1 alert permits reboot, but an additional primary DPU Merge
+    // report that carries the p0 classification still blocks it.
+    network_configured_with_health(&env, &dpu_id, Some(bgp_tor_health("p1_if", false))).await;
+    send_health_report_entry(
+        &env,
+        &dpu_id,
+        (
+            pxe_blocking_bgp_merge("test-pxe-bgp-merge"),
+            health_report::HealthReportApplyMode::Merge,
+        ),
+    )
+    .await;
+    env.run_machine_state_controller_iteration().await;
+    assert_instance_state(&env, &mh, InstanceState::WaitingForRebootToReady).await;
+
+    // Clearing the last PXE blocking Merge report lets provisioning reach Ready.
+    remove_health_report_entry(&env, &dpu_id, "test-pxe-bgp-merge".to_string()).await;
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        1,
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::Ready,
+        },
+    )
+    .await;
 }
 
 #[crate::sqlx_test]
@@ -3113,8 +3324,17 @@ async fn test_auto_vpc_prefix_selection_uses_static_first_fit(pool: PgPool) {
 #[crate::sqlx_test]
 async fn test_slaac_vpc_allocation_preserves_prefix_without_ipv6_address(pool: PgPool) {
     let fixture = create_auto_vpc_selection_fixture_with_slaac(pool, true).await;
+    let ineligible_ipv6_prefix =
+        IpNetwork::V6(Ipv6Network::new("fd42:2403:0:2::".parse().unwrap(), 126).unwrap());
+    let ineligible_ipv6_prefix_id = create_tenant_overlay_prefix_with_prefix(
+        &fixture.env,
+        fixture.vpc_id,
+        "ineligible SLAAC IPv6 candidate",
+        ineligible_ipv6_prefix,
+    )
+    .await;
     let ipv6_parent_prefix =
-        IpNetwork::V6(Ipv6Network::new("fd42:2403::".parse().unwrap(), 126).unwrap());
+        IpNetwork::V6(Ipv6Network::new("fd42:2403::".parse().unwrap(), 63).unwrap());
     let ipv6_prefix_id = create_tenant_overlay_prefix_with_prefix(
         &fixture.env,
         fixture.vpc_id,
@@ -3122,6 +3342,66 @@ async fn test_slaac_vpc_allocation_preserves_prefix_without_ipv6_address(pool: P
         ipv6_parent_prefix,
     )
     .await;
+
+    let historical_prefix = "fd42:2403:0:2::/127".parse::<IpNetwork>().unwrap();
+    let historical_allocator =
+        PrefixAllocator::new(ineligible_ipv6_prefix_id, ineligible_ipv6_prefix, None, 127).unwrap();
+    let mut txn = fixture.env.db_txn().await;
+    let (historical_segment_id, allocated_prefix) = allocate_test_network_segment(
+        &historical_allocator,
+        txn.as_mut(),
+        fixture.vpc_id,
+        Some(historical_prefix),
+    )
+    .await
+    .unwrap();
+    assert_eq!(allocated_prefix, historical_prefix);
+    let mut persisted_prefixes = db::network_prefix::find_by(
+        txn.as_mut(),
+        ObjectColumnFilter::One(db::network_prefix::SegmentIdColumn, &historical_segment_id),
+    )
+    .await
+    .unwrap();
+    assert_eq!(persisted_prefixes.len(), 1);
+    let persisted_prefix = persisted_prefixes.pop().unwrap();
+    txn.commit().await.unwrap();
+
+    // Keep an existing interface prefix as is. Check whether the VPC prefix can
+    // contain a /64 only when allocating a new interface prefix.
+    let mut historical_config =
+        InstanceNetworkConfig::for_vpc_prefix_id(ineligible_ipv6_prefix_id, Some(fixture.vpc_id));
+    historical_config.interfaces[0].network_segment_id = Some(historical_segment_id);
+    historical_config.interfaces[0]
+        .interface_prefixes
+        .insert(persisted_prefix.id, historical_prefix);
+    let expected_historical_config = historical_config.clone();
+    let mut txn = fixture.env.db_txn().await;
+    allocate_network(
+        &mut historical_config,
+        &fixture.tenant_organization_id,
+        txn.as_mut(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(historical_config, expected_historical_config);
+    let replayed_prefixes = db::network_prefix::find_allocation_occupancy(
+        txn.as_mut(),
+        ineligible_ipv6_prefix_id,
+        ineligible_ipv6_prefix,
+    )
+    .await
+    .unwrap();
+    assert_eq!(replayed_prefixes.len(), 1);
+    let replayed_prefix = &replayed_prefixes[0];
+    assert_eq!(replayed_prefix.id, persisted_prefix.id);
+    assert_eq!(replayed_prefix.segment_id, historical_segment_id);
+    assert_eq!(replayed_prefix.prefix, historical_prefix);
+    assert_eq!(
+        replayed_prefix.vpc_prefix_id,
+        Some(ineligible_ipv6_prefix_id)
+    );
+    assert_eq!(replayed_prefix.vpc_prefix, Some(ineligible_ipv6_prefix));
+    txn.rollback().await.unwrap();
 
     // Explicit address checks must distinguish the SLAAC policy from a prefix
     // family mismatch. Keep these cases in one table so primary and dual-stack
@@ -3140,6 +3420,8 @@ async fn test_slaac_vpc_allocation_preserves_prefix_without_ipv6_address(pool: P
     let mut mismatched_primary =
         InstanceNetworkConfig::for_vpc_prefix_id(ipv6_prefix_id, Some(fixture.vpc_id));
     mismatched_primary.interfaces[0].requested_ip_addr = Some("192.0.2.1".parse().unwrap());
+    let ineligible_parent =
+        InstanceNetworkConfig::for_vpc_prefix_id(ineligible_ipv6_prefix_id, Some(fixture.vpc_id));
     for (scenario, mut config, expected_error_fragments) in [
         (
             "IPv6-only primary request",
@@ -3155,6 +3437,14 @@ async fn test_slaac_vpc_allocation_preserves_prefix_without_ipv6_address(pool: P
             "IPv4 address with an IPv6 primary prefix",
             mismatched_primary,
             ["requested IP address", "does not match VPC prefix"],
+        ),
+        (
+            "SLAAC parent narrower than one interface prefix",
+            ineligible_parent,
+            [
+                "fd42:2403:0:2::/126",
+                "cannot contain a /64 interface prefix",
+            ],
         ),
     ] {
         let mut txn = fixture.env.db_txn().await;
@@ -3173,6 +3463,37 @@ async fn test_slaac_vpc_allocation_preserves_prefix_without_ipv6_address(pool: P
         );
         txn.rollback().await.unwrap();
     }
+
+    // An explicit VPC-prefix selection uses the same SLAAC carve policy as
+    // automatic selection. Roll it back so the lifecycle below can still
+    // exercise deterministic first-fit allocation from the same parent.
+    let mut explicit_config =
+        InstanceNetworkConfig::for_vpc_prefix_id(ipv6_prefix_id, Some(fixture.vpc_id));
+    let mut txn = fixture.env.db_txn().await;
+    allocate_network(
+        &mut explicit_config,
+        &fixture.tenant_organization_id,
+        txn.as_mut(),
+    )
+    .await
+    .unwrap();
+    let explicit_interface = &explicit_config.interfaces[0];
+    assert!(explicit_interface.ip_addrs.is_empty());
+    assert!(explicit_interface.interface_prefixes.is_empty());
+    let explicit_segment_id = explicit_interface.network_segment_id.unwrap();
+    let explicit_prefixes = db::network_prefix::find_by(
+        txn.as_mut(),
+        ObjectColumnFilter::One(db::network_prefix::SegmentIdColumn, &explicit_segment_id),
+    )
+    .await
+    .unwrap();
+    assert_eq!(explicit_prefixes.len(), 1);
+    assert_eq!(
+        explicit_prefixes[0].prefix,
+        "fd42:2403::/64".parse::<IpNetwork>().unwrap(),
+    );
+    assert_eq!(explicit_prefixes[0].vpc_prefix_id, Some(ipv6_prefix_id));
+    txn.rollback().await.unwrap();
 
     let (managed_host, instance) = allocate_auto_vpc_instance(
         &fixture,
@@ -3252,7 +3573,10 @@ async fn test_slaac_vpc_allocation_preserves_prefix_without_ipv6_address(pool: P
     let [network_prefix] = segment.prefixes.as_slice() else {
         panic!("expected one generated SLAAC IPv6 prefix");
     };
-    assert_eq!(network_prefix.prefix.prefix(), 127);
+    assert_eq!(
+        network_prefix.prefix,
+        "fd42:2403::/64".parse::<IpNetwork>().unwrap(),
+    );
     assert_eq!(
         interface.interface_prefixes.get(&network_prefix.id),
         Some(&network_prefix.prefix),
@@ -3407,9 +3731,13 @@ async fn test_slaac_vpc_allocation_preserves_prefix_without_ipv6_address(pool: P
     db::network_prefix::delete_for_segment(segment_id, txn.as_mut())
         .await
         .unwrap();
+    db::network_prefix::delete_for_segment(historical_segment_id, txn.as_mut())
+        .await
+        .unwrap();
     for vpc_prefix_id in [
         fixture.lower_ipv4_prefix_id,
         fixture.higher_ipv4_prefix_id,
+        ineligible_ipv6_prefix_id,
         ipv6_prefix_id,
     ] {
         db::vpc_prefix::final_delete(vpc_prefix_id, txn.as_mut())
@@ -3487,11 +3815,13 @@ async fn test_slaac_vpc_allocation_preserves_prefix_without_ipv6_address(pool: P
             .all(|address| address.is_ipv4())
     );
     assert_eq!(dual_interface.interface_prefixes.len(), 2);
-    assert!(
+    let expected_dual_ipv6_prefix = "fd42:2403:0:1::/64".parse::<IpNetwork>().unwrap();
+    assert_eq!(
         dual_interface
             .interface_prefixes
             .values()
-            .any(|prefix| prefix.is_ipv6())
+            .find(|prefix| prefix.is_ipv6()),
+        Some(&expected_dual_ipv6_prefix),
     );
     let dual_addresses =
         db::instance_address::find_by_segment_id(txn.as_mut(), &dual_stack_segment_id)
@@ -3528,6 +3858,29 @@ async fn test_slaac_vpc_allocation_preserves_prefix_without_ipv6_address(pool: P
         .find(|address| address.address_family() == rpc::forge::AddressFamily::V4)
         .expect("dual-stack IPv4 family entry");
     assert!(!dual_ipv4.ip.is_empty());
+
+    // The /63 provides exactly two /64 allocations. The ineligible /126 is
+    // ignored rather than surfacing an allocator validation error.
+    let mut exhausted_config =
+        automatic_network_config(fixture.vpc_id, InstanceInterfaceIpFamilyMode::Ipv6Only);
+    let mut txn = fixture.env.db_txn().await;
+    let error = allocate_network(
+        &mut exhausted_config,
+        &fixture.tenant_organization_id,
+        txn.as_mut(),
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        crate::CarbideError::ResourceExhausted(message)
+            if message
+                == format!(
+                    "no eligible IPv6 VPC prefix in VPC `{}` could allocate an interface linknet",
+                    fixture.vpc_id,
+                )
+    ));
+    txn.rollback().await.unwrap();
 }
 
 struct ManualSlaacSegmentFixture {
@@ -4427,7 +4780,10 @@ async fn assert_ipv6_only_resolution(
     .await
     .unwrap();
     assert_eq!(ipv6_only_segment[0].prefixes.len(), 1);
-    assert!(ipv6_only_segment[0].prefixes[0].prefix.is_ipv6());
+    assert_eq!(
+        ipv6_only_segment[0].prefixes[0].prefix,
+        "fd42:218::/127".parse::<IpNetwork>().unwrap(),
+    );
 
     let ipv6_only_addresses =
         db::instance_address::find_by_segment_id(txn.as_mut(), &ipv6_only_segment_id)

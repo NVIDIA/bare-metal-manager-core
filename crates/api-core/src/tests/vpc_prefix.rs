@@ -44,6 +44,7 @@ use crate::tests::common::api_fixtures::{
     self, TEST_SITE_PREFIXES, TestEnv, TestEnvOverrides, create_managed_host, create_test_env,
     create_test_env_with_overrides, get_vpc_fixture_id,
 };
+use crate::tests::common::postgres::wait_for_blocked_query;
 use crate::tests::common::rpc_builder::VpcCreationRequest;
 
 const REFERENCED_VPC_PREFIX: &str = "192.0.4.0/24";
@@ -134,39 +135,6 @@ fn site_prefix_child_request(
         }),
         site_prefix_id,
     }
-}
-
-/// Waits until one database query is blocked by a known transaction.
-async fn wait_until_query_is_blocked_by(
-    pool: &PgPool,
-    blocker_pid: i32,
-    query_fragment: &str,
-) -> i32 {
-    for _ in 0..300 {
-        let blocked_pid: Option<i32> = sqlx::query_scalar(
-            r#"
-                SELECT activity.pid
-                FROM pg_stat_activity AS activity
-                WHERE activity.datname = current_database()
-                  AND activity.wait_event_type = 'Lock'
-                  AND $1 = ANY(pg_blocking_pids(activity.pid))
-                  AND activity.query ILIKE '%' || $2 || '%'
-                ORDER BY activity.pid
-                LIMIT 1
-            "#,
-        )
-        .bind(blocker_pid)
-        .bind(query_fragment)
-        .fetch_optional(pool)
-        .await
-        .expect("database lock state should be readable");
-        if let Some(blocked_pid) = blocked_pid {
-            return blocked_pid;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    }
-
-    panic!("query containing {query_fragment:?} never waited for database lock");
 }
 
 #[derive(serde::Deserialize)]
@@ -1504,7 +1472,7 @@ async fn omitted_site_prefix_id_serializes_with_tenant_root_creation(
     let request = site_prefix_child_request(vpc_prefix_id, vpc_id, None, "10.81.1.0/24");
     let api = env.api.clone();
     let create = tokio::spawn(async move { api.create_vpc_prefix(Request::new(request)).await });
-    wait_until_query_is_blocked_by(&env.pool, blocker_pid, "site_prefixes:tenant:").await;
+    wait_for_blocked_query(&env.pool, blocker_pid, "site_prefixes:tenant:").await;
 
     site_prefix_create.commit().await?;
     let error = create.await?.unwrap_err();
@@ -1547,7 +1515,7 @@ async fn omitted_site_prefix_id_serializes_with_first_operator_root_reconciliati
     let request = site_prefix_child_request(vpc_prefix_id, vpc_id, None, "198.19.1.0/24");
     let api = env.api.clone();
     let create = tokio::spawn(async move { api.create_vpc_prefix(Request::new(request)).await });
-    wait_until_query_is_blocked_by(&env.pool, blocker_pid, "pg_advisory_xact_lock_shared").await;
+    wait_for_blocked_query(&env.pool, blocker_pid, "pg_advisory_xact_lock_shared").await;
 
     reconciliation.commit().await?;
     let created = create.await??.into_inner();
@@ -1595,7 +1563,7 @@ async fn vpc_prefix_create_rechecks_parent_after_concurrent_retirement(
         site_prefix_child_request(vpc_prefix_id, vpc_id, Some(site_prefix_id), "10.60.1.0/24");
     let api = env.api.clone();
     let create = tokio::spawn(async move { api.create_vpc_prefix(Request::new(request)).await });
-    wait_until_query_is_blocked_by(&env.pool, blocker_pid, "site_prefixes").await;
+    wait_for_blocked_query(&env.pool, blocker_pid, "site_prefixes").await;
 
     retirement.commit().await?;
     let error = create.await?.unwrap_err();
@@ -1719,7 +1687,7 @@ async fn tenant_managed_lineage_blocks_virtualization_transition_and_race(
         }))
         .await
     });
-    wait_until_query_is_blocked_by(&env.pool, blocker_pid, "vpcs").await;
+    wait_for_blocked_query(&env.pool, blocker_pid, "vpcs").await;
     child_create.commit().await?;
 
     let error = update.await?.unwrap_err();

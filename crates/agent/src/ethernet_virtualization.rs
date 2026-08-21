@@ -480,8 +480,10 @@ pub(super) async fn update_nvue(
                 }
             };
 
-            // For FNN interfaces with IPv6, the DPU-side address is the network
-            // address of the /127 linknet (the ::0 end). The ::1 end is the host.
+            // For stateful FNN interfaces with IPv6, the address configured on
+            // the DPU is the network address of the /127 linknet (the ::0 end).
+            // The ::1 end is the host. SLAAC instead carries the selected /64
+            // without a concrete host address.
             ifs.push(nvue::PortConfig {
                 interface_name: name,
                 is_phy: net.function_type == rpc::InterfaceFunctionType::Physical as i32,
@@ -3723,11 +3725,19 @@ mod tests {
     #[tokio::test]
     #[allow(deprecated)]
     async fn ipv6_status_projects_admin_and_tenant_slaac_differently() {
-        for (scenario, use_admin_network, ip, expected_addresses, expected_prefixes) in [
+        for (
+            scenario,
+            use_admin_network,
+            ip,
+            interface_prefix,
+            expected_addresses,
+            expected_prefixes,
+        ) in [
             (
                 "tenant interface with a concrete IPv6 host address",
                 false,
                 "2001:db8::1",
+                "2001:db8::/127",
                 vec!["2001:db8::1"],
                 vec!["2001:db8::/127"],
             ),
@@ -3735,6 +3745,7 @@ mod tests {
                 "tenant SLAAC prefix without a host address",
                 false,
                 "",
+                "2001:db8::/64",
                 vec![],
                 vec![],
             ),
@@ -3742,8 +3753,9 @@ mod tests {
                 "admin SLAAC prefix without a host address",
                 true,
                 "",
+                "2001:db8::/64",
                 vec![],
-                vec!["2001:db8::/127"],
+                vec!["2001:db8::/64"],
             ),
         ] {
             let iface = rpc::FlatInterfaceConfig {
@@ -3751,7 +3763,7 @@ mod tests {
                 vlan_id: 100,
                 ipv6_interface_config: Some(rpc::FlatInterfaceIpv6Config {
                     ip: ip.to_string(),
-                    interface_prefix: "2001:db8::/127".to_string(),
+                    interface_prefix: interface_prefix.to_string(),
                     svi_ip: None,
                 }),
                 ..Default::default()

@@ -390,6 +390,8 @@ pub(crate) enum SiteExplorerIterationFinished {
 enum BootInterfaceSelectionMechanism {
     ExpectedMachine,
     RedfishUefiPci,
+    /// Natural ordering of the host BMC `Chassis.id` values selected the first DPU.
+    RedfishChassisId,
     RedfishSerialNumber,
 }
 
@@ -411,6 +413,9 @@ pub(crate) enum BootInterfaceSelected {
 
     #[event(labels(mechanism = RedfishUefiPci))]
     RedfishUefiPci {},
+
+    #[event(labels(mechanism = RedfishChassisId))]
+    RedfishChassisId {},
 
     #[event(
         labels(mechanism = RedfishSerialNumber),
@@ -441,6 +446,7 @@ impl BootInterfaceSelected {
         match source {
             BootInterfaceSelectionSource::ExpectedMachine => Some(Self::ExpectedMachine {}),
             BootInterfaceSelectionSource::RedfishUefiPci => Some(Self::RedfishUefiPci {}),
+            BootInterfaceSelectionSource::RedfishChassisId => Some(Self::RedfishChassisId {}),
             BootInterfaceSelectionSource::RedfishSerialNumber => Some(Self::RedfishSerialNumber {
                 host_bmc_ip_address,
                 dpu_count,
@@ -449,7 +455,6 @@ impl BootInterfaceSelected {
             }),
             BootInterfaceSelectionSource::Operator
             | BootInterfaceSelectionSource::LegacyUnknown
-            | BootInterfaceSelectionSource::RedfishChassisId
             | BootInterfaceSelectionSource::ScoutReportPci => None,
         }
     }
@@ -1445,6 +1450,23 @@ mod tests {
                     counter_delta: 1.0,
                 },
             }
+            "RedfishChassisId selection is metric-only" {
+                BootInterfaceSelectionCase {
+                    source: BootInterfaceSelectionSource::RedfishChassisId,
+                    mechanism: "redfish_chassis_id",
+                } => BootInterfaceSelectionObservation {
+                    log_count: 0,
+                    level: None,
+                    message: None,
+                    event_name: None,
+                    metric_name: None,
+                    host_bmc_ip_address: None,
+                    dpu_count: None,
+                    selected_mac_address: None,
+                    selected_dpu_serial_number: None,
+                    counter_delta: 1.0,
+                },
+            }
             "RedfishSerialNumber selection retains its DEBUG diagnostic" {
                 BootInterfaceSelectionCase {
                     source: BootInterfaceSelectionSource::RedfishSerialNumber,
@@ -1483,9 +1505,6 @@ mod tests {
             }
             "legacy unknown selection" {
                 BootInterfaceSelectionSource::LegacyUnknown => true,
-            }
-            "Redfish chassis-id selection" {
-                BootInterfaceSelectionSource::RedfishChassisId => true,
             }
             "Scout report PCI selection" {
                 BootInterfaceSelectionSource::ScoutReportPci => true,

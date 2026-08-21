@@ -44,7 +44,7 @@ pub(super) struct BmcMockWrapper {
     bmc_mock_router: Router,
     bmc_mock_state: BmcState,
     hostname: Arc<dyn HostnameQuerying>,
-    supports_ipmi_console: bool,
+    needs_ipmi_console: bool,
     stable_id: String,
 }
 
@@ -74,7 +74,7 @@ impl BmcMockWrapper {
             bmc_mock_router,
             bmc_mock_state,
             hostname,
-            supports_ipmi_console: machine_info.supports_ipmi_console(),
+            needs_ipmi_console: machine_info.needs_ipmi_console(),
             stable_id: host_id.to_string(),
         }
     }
@@ -182,7 +182,7 @@ impl BmcMockWrapper {
     }
 
     /// Starts only the optional IPMI simulator when Redfish is served by a shared BMC mock.
-    /// Returns `None` when IPMI simulation is disabled or the machine does not support IPMI SOL.
+    /// Returns `None` when IPMI simulation is disabled or the machine does not need an IPMI console.
     pub(super) async fn start_ipmi_only(
         &self,
         bind_ip: std::net::IpAddr,
@@ -201,7 +201,7 @@ impl BmcMockWrapper {
         &self,
         bind_ip: std::net::IpAddr,
     ) -> Result<Option<IpmiSimHandle>, MachineStateError> {
-        if !self.app_context.app_config.enable_ipmi_simulation || !self.supports_ipmi_console {
+        if !self.app_context.app_config.enable_ipmi_simulation || !self.needs_ipmi_console {
             return Ok(None);
         }
 

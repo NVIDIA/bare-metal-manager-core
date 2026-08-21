@@ -25,6 +25,7 @@ use ::carbide_utils::HostPortPair;
 use ::machine_a_tron::{
     BmcMockRegistry, DeviceHandle, DhcpType, LogFormat, MachineATronConfig, MachineConfig,
 };
+use api_test_helper::api_server::{TEST_BMC_DHCP_RELAY_ADDRESS, TEST_BMC_NETWORK_PREFIX};
 use api_test_helper::utils::TestApiServerArgs;
 use api_test_helper::{
     IntegrationTestEnvironment, domain, instance, machine, metrics, subnet, tenant, utils, vpc,
@@ -36,12 +37,13 @@ use eyre::ContextCompat;
 use futures::FutureExt;
 use futures::future::join_all;
 use itertools::Itertools;
+use mac_address::MacAddress;
 use model::machine_boot_interface::BootInterfaceSelectionSource;
 use sqlx::{Postgres, Row};
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
 
-const DPU_UNDERLAY_DHCP_RELAY_ADDRESS: Ipv4Addr = Ipv4Addr::new(172, 20, 1, 1);
+const UNDERLAY_DHCP_RELAY_ADDRESS: Ipv4Addr = Ipv4Addr::new(172, 20, 1, 1);
 
 #[ctor::ctor(unsafe)]
 fn setup() {
@@ -152,7 +154,7 @@ async fn test_integration() -> eyre::Result<()> {
             &test_env,
             &bmc_address_registry,
             &managed_segment_id,
-            DPU_UNDERLAY_DHCP_RELAY_ADDRESS,
+            UNDERLAY_DHCP_RELAY_ADDRESS,
         )
         .boxed(),
         test_machine_a_tron_multidpu(
@@ -160,7 +162,7 @@ async fn test_integration() -> eyre::Result<()> {
             &test_env,
             &bmc_address_registry,
             &managed_segment_id,
-            DPU_UNDERLAY_DHCP_RELAY_ADDRESS,
+            UNDERLAY_DHCP_RELAY_ADDRESS,
         )
         .boxed(),
         test_machine_a_tron_multidpu(
@@ -168,7 +170,7 @@ async fn test_integration() -> eyre::Result<()> {
             &test_env,
             &bmc_address_registry,
             &managed_segment_id,
-            DPU_UNDERLAY_DHCP_RELAY_ADDRESS,
+            UNDERLAY_DHCP_RELAY_ADDRESS,
         )
         .boxed(),
         test_machine_a_tron_multidpu(
@@ -176,7 +178,7 @@ async fn test_integration() -> eyre::Result<()> {
             &test_env,
             &bmc_address_registry,
             &managed_segment_id,
-            DPU_UNDERLAY_DHCP_RELAY_ADDRESS,
+            UNDERLAY_DHCP_RELAY_ADDRESS,
         )
         .boxed(),
         test_machine_a_tron_multidpu(
@@ -184,7 +186,7 @@ async fn test_integration() -> eyre::Result<()> {
             &test_env,
             &bmc_address_registry,
             &managed_segment_id,
-            DPU_UNDERLAY_DHCP_RELAY_ADDRESS,
+            UNDERLAY_DHCP_RELAY_ADDRESS,
         )
         .boxed(),
         test_machine_a_tron_multidpu(
@@ -192,7 +194,7 @@ async fn test_integration() -> eyre::Result<()> {
             &test_env,
             &bmc_address_registry,
             &managed_segment_id,
-            DPU_UNDERLAY_DHCP_RELAY_ADDRESS,
+            UNDERLAY_DHCP_RELAY_ADDRESS,
         )
         .boxed(),
         test_machine_a_tron_zerodpu(
@@ -246,7 +248,7 @@ async fn test_integration() -> eyre::Result<()> {
             tenant_org_id,
             &v4_vpc_prefix_id,
             &v6_vpc_prefix_id,
-            DPU_UNDERLAY_DHCP_RELAY_ADDRESS,
+            UNDERLAY_DHCP_RELAY_ADDRESS,
         )
         .boxed(),
         test_machine_a_tron_dual_stack_l2(
@@ -254,7 +256,7 @@ async fn test_integration() -> eyre::Result<()> {
             &test_env,
             &bmc_address_registry,
             &dual_stack_l2_segment_id,
-            DPU_UNDERLAY_DHCP_RELAY_ADDRESS,
+            UNDERLAY_DHCP_RELAY_ADDRESS,
         )
         .boxed(),
     ]);
@@ -266,6 +268,11 @@ async fn test_integration() -> eyre::Result<()> {
         }
     }
 
+    metrics::wait_for_metric_line(
+        &test_env.carbide_metrics_addrs,
+        r#"carbide_site_explorer_boot_interface_selections_total{mechanism="redfish_chassis_id"}"#,
+    )
+    .await?;
     metrics::wait_for_metric_line(
         &test_env.carbide_metrics_addrs,
         r#"carbide_site_explorer_boot_interface_selections_total{mechanism="redfish_serial_number"}"#,
@@ -481,7 +488,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
         false,
         &test_env,
         &bmc_address_registry,
-        DPU_UNDERLAY_DHCP_RELAY_ADDRESS,
+        UNDERLAY_DHCP_RELAY_ADDRESS,
         |machine_handle| {
             let db_pool = db_pool.clone();
             let carbide_api_addrs = carbide_api_addrs.to_vec();
@@ -619,7 +626,7 @@ async fn test_machine_a_tron_multidpu(
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
     segment_id: &str,
-    admin_dhcp_relay_address: Ipv4Addr,
+    underlay_dhcp_relay_address: Ipv4Addr,
 ) -> eyre::Result<()> {
     run_machine_a_tron_machine_test(
         hw_type,
@@ -628,13 +635,22 @@ async fn test_machine_a_tron_multidpu(
         false,
         test_env,
         bmc_mock_registry,
-        admin_dhcp_relay_address,
+        underlay_dhcp_relay_address,
         |machine_handle| {
             let segment_id = segment_id.to_string();
             let carbide_api_addrs = &test_env.carbide_api_addrs;
             let db_pool = test_env.db_pool.clone();
-            let expected_selection_source = (hw_type == HardwareType::WiwynnGB200Nvl)
-                .then_some(BootInterfaceSelectionSource::RedfishSerialNumber);
+            let expected_selection = (hw_type == HardwareType::WiwynnGB200Nvl).then(|| {
+                let dpu = machine_handle
+                    .host_info()
+                    .dpus
+                    .first()
+                    .expect("Wiwynn GB200 host should contain its Slot1 DPU");
+                (
+                    dpu.host_mac_address,
+                    BootInterfaceSelectionSource::RedfishChassisId,
+                )
+            });
             async move {
                 machine_handle
                     .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
@@ -642,9 +658,9 @@ async fn test_machine_a_tron_multidpu(
                 let machine_id = machine_handle
                     .observed_machine_id()
                     .expect("Machine ID should be set if host is ready");
-                if let Some(expected_selection_source) = expected_selection_source {
-                    let selection_source: BootInterfaceSelectionSource = sqlx::query_scalar(
-                        "SELECT selection_source
+                if let Some(expected_selection) = expected_selection {
+                    let selection: (MacAddress, BootInterfaceSelectionSource) = sqlx::query_as(
+                        "SELECT desired_mac_address, selection_source
                          FROM machine_boot_interfaces
                          WHERE machine_id = $1",
                     )
@@ -652,8 +668,8 @@ async fn test_machine_a_tron_multidpu(
                     .fetch_one(&db_pool)
                     .await?;
                     assert_eq!(
-                        selection_source, expected_selection_source,
-                        "GB200's Redfish serial fallback must survive the full ingestion handoff",
+                        selection, expected_selection,
+                        "GB200's Slot1 chassis selection must survive the full ingestion handoff",
                     );
                 }
                 tracing::info!(
@@ -734,7 +750,7 @@ async fn test_machine_a_tron_zerodpu(
         false,
         test_env,
         bmc_mock_registry,
-        DPU_UNDERLAY_DHCP_RELAY_ADDRESS,
+        UNDERLAY_DHCP_RELAY_ADDRESS,
         |machine_handle| {
             let carbide_api_addrs = &test_env.carbide_api_addrs;
             let flat_vpc_id = flat_vpc_id.to_string();
@@ -796,7 +812,7 @@ async fn test_machine_a_tron_nic_mode(
         true,
         test_env,
         bmc_mock_registry,
-        DPU_UNDERLAY_DHCP_RELAY_ADDRESS,
+        UNDERLAY_DHCP_RELAY_ADDRESS,
         |machine_handle| {
             let carbide_api_addrs = &test_env.carbide_api_addrs;
             let flat_vpc_id = flat_vpc_id.to_string();
@@ -967,7 +983,7 @@ async fn test_machine_a_tron_dpu_to_nic_mode_reregistration(
     hw_type: HardwareType,
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
-    admin_dhcp_relay_address: Ipv4Addr,
+    underlay_dhcp_relay_address: Ipv4Addr,
 ) -> eyre::Result<()> {
     run_machine_a_tron_machine_test(
         hw_type,
@@ -978,7 +994,7 @@ async fn test_machine_a_tron_dpu_to_nic_mode_reregistration(
         false,
         test_env,
         bmc_mock_registry,
-        admin_dhcp_relay_address,
+        underlay_dhcp_relay_address,
         |machine_handle| {
             let carbide_api_addrs = &test_env.carbide_api_addrs;
             async move {
@@ -1196,7 +1212,7 @@ async fn test_machine_a_tron_dual_stack(
     tenant_organization_id: &str,
     v4_vpc_prefix_id: &str,
     v6_vpc_prefix_id: &str,
-    admin_dhcp_relay_address: Ipv4Addr,
+    underlay_dhcp_relay_address: Ipv4Addr,
 ) -> eyre::Result<()> {
     run_machine_a_tron_machine_test(
         hw_type,
@@ -1205,7 +1221,7 @@ async fn test_machine_a_tron_dual_stack(
         false,
         test_env,
         bmc_mock_registry,
-        admin_dhcp_relay_address,
+        underlay_dhcp_relay_address,
         |machine_handle| {
             let v4_prefix_id = v4_vpc_prefix_id.to_string();
             let v6_prefix_id = v6_vpc_prefix_id.to_string();
@@ -1309,7 +1325,7 @@ async fn test_machine_a_tron_dual_stack_l2(
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
     dual_stack_segment_id: &str,
-    admin_dhcp_relay_address: Ipv4Addr,
+    underlay_dhcp_relay_address: Ipv4Addr,
 ) -> eyre::Result<()> {
     run_machine_a_tron_machine_test(
         hw_type,
@@ -1318,7 +1334,7 @@ async fn test_machine_a_tron_dual_stack_l2(
         false,
         test_env,
         bmc_mock_registry,
-        admin_dhcp_relay_address,
+        underlay_dhcp_relay_address,
         |machine_handle| {
             let segment_id = dual_stack_segment_id.to_string();
             let carbide_api_addrs = &test_env.carbide_api_addrs;
@@ -1380,7 +1396,7 @@ async fn run_machine_a_tron_machine_test<F, O>(
     dpus_in_nic_mode: bool,
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
-    admin_dhcp_relay_address: Ipv4Addr,
+    underlay_dhcp_relay_address: Ipv4Addr,
     run_assertions: F,
 ) -> eyre::Result<()>
 where
@@ -1408,13 +1424,11 @@ where
                 dpu_per_host_count,
                 dpu_reboot_delay: 1,
                 host_reboot_delay: 1,
-                // MAT currently uses this legacy-named field for DPU OS DHCP. Route that
-                // request through Underlay so it matches the predicted DPU interface.
-                admin_dhcp_relay_address,
+                underlay_dhcp_relay_address,
                 // Keep this distinct from the DPU Underlay relay so NIC-mode tests fail if
                 // machine-a-tron sends direct host DHCP through the DPU network.
                 host_inband_dhcp_relay_address: Some(Ipv4Addr::new(10, 10, 11, 2)),
-                oob_dhcp_relay_address: Ipv4Addr::new(172, 20, 1, 1),
+                bmc_dhcp_relay_address: TEST_BMC_DHCP_RELAY_ADDRESS,
                 vpc_count: 0,
                 subnets_per_vpc: 0,
                 run_interval_idle: Duration::from_secs(1),
@@ -1464,7 +1478,19 @@ where
     .await
     .unwrap();
 
-    let results = join_all(provisionable_handles.into_iter().map(run_assertions)).await;
+    let results = join_all(provisionable_handles.into_iter().map(|machine_handle| {
+        let relay_assertion_handle = machine_handle.clone();
+        let assertions = run_assertions(machine_handle);
+        async move {
+            assertions.await?;
+            assert_relay_selection(
+                &relay_assertion_handle,
+                dpus_in_nic_mode,
+                underlay_dhcp_relay_address,
+            )
+        }
+    }))
+    .await;
     let result_count = results.len();
     let assertion_result: eyre::Result<()> = results.into_iter().try_collect();
     let shutdown_result = mat_handle.shutdown().await;
@@ -1472,6 +1498,39 @@ where
     assert_eq!(result_count, host_count as usize);
     assertion_result?;
     shutdown_result
+}
+
+fn assert_relay_selection(
+    machine_handle: &DeviceHandle,
+    dpus_in_nic_mode: bool,
+    underlay_dhcp_relay_address: Ipv4Addr,
+) -> eyre::Result<()> {
+    let host_bmc_ip = machine_handle
+        .bmc_ip()
+        .context("host BMC DHCP did not return an address")?;
+    eyre::ensure!(
+        TEST_BMC_NETWORK_PREFIX.contains(&host_bmc_ip),
+        "host BMC DHCP used the underlay relay: {host_bmc_ip}"
+    );
+
+    for dpu in machine_handle.dpus() {
+        let details = dpu.host_details();
+        let dpu_bmc_ip: Ipv4Addr = details.oob_ip.parse()?;
+        eyre::ensure!(
+            TEST_BMC_NETWORK_PREFIX.contains(&dpu_bmc_ip),
+            "DPU BMC DHCP used the underlay relay: {dpu_bmc_ip}"
+        );
+
+        if !dpus_in_nic_mode {
+            let dpu_underlay_ip: Ipv4Addr = details.machine_ip.parse()?;
+            eyre::ensure!(
+                dpu_underlay_ip.octets()[..3] == underlay_dhcp_relay_address.octets()[..3],
+                "DPU OOB boot DHCP used the BMC relay: {dpu_underlay_ip}"
+            );
+        }
+    }
+
+    Ok(())
 }
 
 // Get the current number of rows in the dns_records view,
