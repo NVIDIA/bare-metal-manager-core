@@ -1454,58 +1454,54 @@ mod tests {
         );
     }
 
+    // The total device count bound (`MAX_MEMORY_DEVICE_COUNT`) must hold regardless of
+    // how the count is distributed across the input: in a single group, split across
+    // consecutive (mergeable) groups, or split across distinct (non-mergeable) groups.
+    // Otherwise `rehydrate` could be made to allocate an unbounded number of
+    // `MemoryDevice`s. serde_json::Error is not PartialEq, so failures are asserted as
+    // `Fails`.
     #[test]
-    fn deserialize_memory_devices_rejects_excessive_count() {
-        // A single group's `count` above `MAX_MEMORY_DEVICE_COUNT` must be rejected,
-        // otherwise it would let `rehydrate` allocate an unbounded number of `MemoryDevice`s.
-        let json = format!(
-            r#"{{
-                "machine_type": "x86_64",
-                "memory_devices": [
-                    {{"size_mb": 8192, "mem_type": "DDR4", "count": {}}}
-                ]
-            }}"#,
-            MAX_MEMORY_DEVICE_COUNT + 1
-        );
-        assert!(serde_json::from_str::<HardwareInfo>(&json).is_err());
-    }
+    fn deserialize_memory_devices_rejects_excessive_counts() {
+        scenarios!(
+            run = |json: String| serde_json::from_str::<HardwareInfo>(&json).map(drop).map_err(drop);
+            "single group count above max is rejected" {
+                format!(
+                    r#"{{
+                        "machine_type": "x86_64",
+                        "memory_devices": [
+                            {{"size_mb": 8192, "mem_type": "DDR4", "count": {}}}
+                        ]
+                    }}"#,
+                    MAX_MEMORY_DEVICE_COUNT + 1
+                ) => Fails,
+            }
 
-    #[test]
-    fn deserialize_memory_devices_rejects_merged_count_above_max() {
-        // Two consecutive identical groups, each individually within the max, must be
-        // rejected if their merged total exceeds the max — otherwise the
-        // per-group check at deserialize time could be bypassed by splitting a
-        // large count across multiple consecutive groups.
-        let json = format!(
-            r#"{{
-                "machine_type": "x86_64",
-                "memory_devices": [
-                    {{"size_mb": 8192, "mem_type": "DDR4", "count": {max}}},
-                    {{"size_mb": 8192, "mem_type": "DDR4", "count": {max}}}
-                ]
-            }}"#,
-            max = MAX_MEMORY_DEVICE_COUNT
-        );
-        assert!(serde_json::from_str::<HardwareInfo>(&json).is_err());
-    }
+            "merged count of consecutive identical groups above max is rejected" {
+                format!(
+                    r#"{{
+                        "machine_type": "x86_64",
+                        "memory_devices": [
+                            {{"size_mb": 8192, "mem_type": "DDR4", "count": {max}}},
+                            {{"size_mb": 8192, "mem_type": "DDR4", "count": {max}}}
+                        ]
+                    }}"#,
+                    max = MAX_MEMORY_DEVICE_COUNT
+                ) => Fails,
+            }
 
-    #[test]
-    fn deserialize_memory_devices_rejects_distinct_groups_summing_above_max() {
-        // Distinct (non-mergeable) groups, each individually within the max,
-        // must be rejected if their total across the whole list exceeds the
-        // max — the bound applies to the total device count, not just the
-        // count of any single group.
-        let above_half_max = MAX_MEMORY_DEVICE_COUNT / 2 + 1;
-        let json = format!(
-            r#"{{
-                "machine_type": "x86_64",
-                "memory_devices": [
-                    {{"size_mb": 8192, "mem_type": "DDR4", "count": {above_half_max}}},
-                    {{"size_mb": 32768, "mem_type": "DDR5", "count": {above_half_max}}}
-                ]
-            }}"#
+            "distinct groups summing above max is rejected" {
+                format!(
+                    r#"{{
+                        "machine_type": "x86_64",
+                        "memory_devices": [
+                            {{"size_mb": 8192, "mem_type": "DDR4", "count": {above_half_max}}},
+                            {{"size_mb": 32768, "mem_type": "DDR5", "count": {above_half_max}}}
+                        ]
+                    }}"#,
+                    above_half_max = MAX_MEMORY_DEVICE_COUNT / 2 + 1
+                ) => Fails,
+            }
         );
-        assert!(serde_json::from_str::<HardwareInfo>(&json).is_err());
     }
 
     #[test]

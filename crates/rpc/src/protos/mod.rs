@@ -80,7 +80,7 @@ impl machine_discovery::MemoryDeviceGroup {
     /// Bounds [`Self::rehydrate`] so it can't allocate an unbounded `Vec` even if a caller
     /// invokes it on a group that bypassed the checked conversions in `rpc::model::hardware_info`
     /// or `carbide-api-model` (which already reject any `count` above this limit).
-    const MAX_REHYDRATE_COUNT: u32 = 8192;
+    pub const MAX_REHYDRATE_COUNT: u32 = 8192;
 
     /// Returns `Some(self)` when `count > 0`, `None` otherwise.
     ///
