@@ -342,15 +342,15 @@ impl MachineCapabilitiesSet {
         //  Process memory data
         //
 
-        let mut mem_map = HashMap::<String, usize>::new();
+        let mut mem_map = HashMap::<String, u64>::new();
 
         for mem_info in hardware_info.memory_devices.iter() {
             let name = mem_info
                 .mem_type
                 .clone()
                 .unwrap_or_else(|| "unknown".to_string());
-            let total = (mem_info.size_mb.unwrap_or_default() as usize)
-                .saturating_mul(mem_info.count as usize);
+            let total = (mem_info.size_mb.unwrap_or_default() as u64)
+                .saturating_mul(mem_info.count as u64);
 
             mem_map
                 .entry(name)
@@ -1054,8 +1054,9 @@ mod tests {
 
     #[test]
     fn memory_capacity_sums_without_u32_overflow() {
-        // `size_mb * count` is computed on 64-bit-wide operands so a group whose
-        // product exceeds u32::MAX is represented exactly rather than clamped.
+        // `size_mb * count` is computed on 64-bit operands (regardless of the
+        // target's pointer width) so a group whose product exceeds u32::MAX is
+        // represented exactly rather than clamped.
         let run = |(size_mb, count): (u32, u32)| {
             let hardware_info = HardwareInfo {
                 memory_devices: vec![MemoryDeviceGroup {
@@ -1079,7 +1080,7 @@ mod tests {
             }
 
             "product exceeds u32::MAX" {
-                (u32::MAX, 2u32) => Some(format!("{} MB", (u32::MAX as usize) * 2)),
+                (u32::MAX, 2u32) => Some(format!("{} MB", (u32::MAX as u64) * 2)),
             }
         );
     }
