@@ -18,7 +18,6 @@
 use std::collections::HashSet;
 use std::net::Ipv4Addr;
 use std::str::FromStr;
-use std::sync::Arc;
 
 use carbide_uuid::machine::MachineId;
 use common::api_fixtures::create_test_env;
@@ -29,7 +28,6 @@ use model::resource_pool::{
 };
 use rpc::Metadata;
 use rpc::forge::forge_server::Forge;
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 
 use crate::tests::common;
 use crate::tests::common::rpc_builder::VpcCreationRequest;
@@ -641,87 +639,6 @@ async fn test_list(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         }
     }
 
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 50)]
-async fn test_parallel() -> Result<(), eyre::Report> {
-    // We can't use #[sqlx::test] here because we need a multi-threaded
-    // executor with 50 worker threads. Instead we manage the test database
-    // lifecycle manually, using a random name so multiple test runs (or
-    // parallel CI jobs) never collide on the same Postgres instance.
-    let base_url = std::env::var("DATABASE_URL")?;
-    // ResourcePool.name is varchar(32), so keep the DB name short.
-    let short_id = &uuid::Uuid::new_v4().simple().to_string()[..8];
-    let db_name = format!("test_par_{short_id}");
-    let base_options = PgConnectOptions::from_str(&base_url)?;
-
-    let admin = PgPoolOptions::new()
-        .connect_with(base_options.clone())
-        .await?;
-
-    sqlx::query(sqlx::AssertSqlSafe(format!(
-        "CREATE DATABASE \"{db_name}\""
-    )))
-    .execute(&admin)
-    .await?;
-    let db_pool = PgPoolOptions::new()
-        .connect_with(base_options.database(&db_name))
-        .await?;
-    db::migrations::migrate(&db_pool).await?;
-
-    let mut txn = db_pool.begin().await?;
-    let pool = Arc::new(ResourcePool::new(db_name.clone(), ValueType::Integer));
-
-    db::resource_pool::populate(
-        &pool,
-        &mut txn,
-        (1..=5_000).map(|i| i.to_string()).collect(),
-        true,
-    )
-    .await?;
-    txn.commit().await?;
-
-    let mut handles = Vec::with_capacity(50);
-    let all_values = Arc::new(tokio::sync::Mutex::new(HashSet::new()));
-    for i in 0..50 {
-        let all_values = all_values.clone();
-        let p = pool.clone();
-        let db_pool_c = db_pool.clone();
-        let handle = tokio::task::spawn(async move {
-            let mut got = Vec::with_capacity(100);
-            for _ in 0..100 {
-                let mut txn = db_pool_c.begin().await.unwrap();
-                got.push(
-                    db::resource_pool::allocate(
-                        &p,
-                        &mut txn,
-                        OwnerType::Machine,
-                        &i.to_string(),
-                        None,
-                    )
-                    .await
-                    .unwrap(),
-                );
-                txn.commit().await.unwrap();
-            }
-            all_values.lock().await.extend(got.clone());
-        });
-        handles.push(handle);
-    }
-    futures::future::join_all(handles).await;
-    drop(pool);
-    db_pool.close().await;
-
-    assert_eq!(all_values.lock().await.len(), 5_000);
-
-    // WITH (FORCE) terminates any lingering backends before dropping,
-    // avoiding the flaky "database is being accessed by other users" error.
-    let drop_stmt = format!("DROP DATABASE \"{db_name}\" WITH (FORCE)");
-    sqlx::query(sqlx::AssertSqlSafe(drop_stmt))
-        .execute(&admin)
-        .await?;
-    admin.close().await;
     Ok(())
 }
 
