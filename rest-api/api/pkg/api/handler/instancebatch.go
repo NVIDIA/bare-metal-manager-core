@@ -459,10 +459,9 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 			Msg("The Site where Instances are being created is not in Registered state")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "The Site where Instances are being created is not in Registered state", nil)
 	}
-	if apiErr := common.ValidateSitePowerProvisioning(site.Config, apiRequest.PowerProfile); apiErr != nil {
+	if apiErr := common.ValidateSitePowerManagement(site.Config, apiRequest.PowerProfile); apiErr != nil {
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 	}
-
 	// Load and validate subnets and VPC prefixes (batch query for efficiency)
 	subnetDAO := cdbm.NewSubnetDAO(bcih.dbSession)
 	vpDAO := cdbm.NewVpcPrefixDAO(bcih.dbSession)

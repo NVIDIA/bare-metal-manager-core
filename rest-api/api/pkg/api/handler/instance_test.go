@@ -1447,7 +1447,7 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 		verifyChildSpanner       bool
 	}{
 		{
-			name: "test Instance create API endpoint rejects power profile when Site power provisioning is disabled",
+			name: "test Instance create API endpoint rejects power profile when DPS power management is disabled",
 			fields: fields{
 				dbSession: dbSession,
 				tc:        tc,
@@ -1470,7 +1470,7 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqOrg:      tnOrg,
 				reqUser:     tnu1,
 				respCode:    http.StatusPreconditionFailed,
-				respMessage: "Site is not configured to accept power provisioning values",
+				respMessage: "Site does not have DPS power management enabled",
 			},
 			wantErr: false,
 		},
@@ -4832,7 +4832,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			verifyChildSpanner:          true,
 		},
 		{
-			name: "test Instance update rejects power profile when Site power provisioning is disabled",
+			name: "test Instance update rejects power profile when DPS power management is disabled",
 			fields: fields{
 				dbSession: dbSession,
 				tc:        tc,
@@ -4847,7 +4847,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 				reqOrg:      tnOrg1,
 				reqUser:     tnu1,
 				respCode:    http.StatusPreconditionFailed,
-				respMessage: cutil.GetPtr("Site is not configured to accept power provisioning values"),
+				respMessage: cutil.GetPtr("Site does not have DPS power management enabled"),
 			},
 		},
 		{

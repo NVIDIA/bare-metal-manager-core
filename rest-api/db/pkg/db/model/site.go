@@ -48,33 +48,14 @@ var (
 // Config stays flat so PostgreSQL JSONB concatenation can apply partial
 // updates without replacing unrelated settings.
 type SiteConfig struct {
-	NetworkSecurityGroup             bool   `json:"network_security_group"`
-	NativeNetworking                 bool   `json:"native_networking"`
-	VpcSlaac                         bool   `json:"vpc_slaac"`
-	NVLinkPartition                  bool   `json:"nvlink_partition"`
-	Flow                             bool   `json:"flow"`
-	ImageBasedOperatingSystem        bool   `json:"image_based_operating_system"`
-	PowerProvisioning                string `json:"power_provisioning"`
-	MaxNetworkSecurityGroupRuleCount *int   `json:"max_network_security_group_rule_count"`
-}
-
-const (
-	SitePowerProvisioningDisabled = "disabled"
-	SitePowerProvisioningExternal = "external"
-)
-
-// PowerProvisioningMode returns the configured power-provisioning owner. A
-// missing or unknown value is disabled so existing Sites fail safe.
-func (cfg *SiteConfig) PowerProvisioningMode() string {
-	if cfg == nil {
-		return SitePowerProvisioningDisabled
-	}
-	switch cfg.PowerProvisioning {
-	case SitePowerProvisioningExternal:
-		return cfg.PowerProvisioning
-	default:
-		return SitePowerProvisioningDisabled
-	}
+	NetworkSecurityGroup             bool `json:"network_security_group"`
+	NativeNetworking                 bool `json:"native_networking"`
+	VpcSlaac                         bool `json:"vpc_slaac"`
+	NVLinkPartition                  bool `json:"nvlink_partition"`
+	Flow                             bool `json:"flow"`
+	ImageBasedOperatingSystem        bool `json:"image_based_operating_system"`
+	DPSPowerManagement               bool `json:"dps_power_management"`
+	MaxNetworkSecurityGroupRuleCount *int `json:"max_network_security_group_rule_count"`
 }
 
 // Site represents entries in the site table
@@ -143,14 +124,14 @@ type SiteCreateInput struct {
 }
 
 type SiteConfigUpdateInput struct {
-	NetworkSecurityGroup             *bool   `json:"network_security_group,omitempty"`
-	NativeNetworking                 *bool   `json:"native_networking,omitempty"`
-	VpcSlaac                         *bool   `json:"vpc_slaac,omitempty"`
-	NVLinkPartition                  *bool   `json:"nvlink_partition,omitempty"`
-	Flow                             *bool   `json:"flow,omitempty"`
-	ImageBasedOperatingSystem        *bool   `json:"image_based_operating_system,omitempty"`
-	PowerProvisioning                *string `json:"power_provisioning,omitempty"`
-	MaxNetworkSecurityGroupRuleCount *int    `json:"max_network_security_group_rule_count,omitempty"`
+	NetworkSecurityGroup             *bool `json:"network_security_group,omitempty"`
+	NativeNetworking                 *bool `json:"native_networking,omitempty"`
+	VpcSlaac                         *bool `json:"vpc_slaac,omitempty"`
+	NVLinkPartition                  *bool `json:"nvlink_partition,omitempty"`
+	Flow                             *bool `json:"flow,omitempty"`
+	ImageBasedOperatingSystem        *bool `json:"image_based_operating_system,omitempty"`
+	DPSPowerManagement               *bool `json:"dps_power_management,omitempty"`
+	MaxNetworkSecurityGroupRuleCount *int  `json:"max_network_security_group_rule_count,omitempty"`
 }
 
 type SiteUpdateInput struct {
@@ -177,14 +158,14 @@ type SiteUpdateInput struct {
 }
 
 type SiteConfigFilterInput struct {
-	NetworkSecurityGroup             *bool   `json:"network_security_group,omitempty"`
-	NativeNetworking                 *bool   `json:"native_networking,omitempty"`
-	VpcSlaac                         *bool   `json:"vpc_slaac,omitempty"`
-	NVLinkPartition                  *bool   `json:"nvlink_partition,omitempty"`
-	Flow                             *bool   `json:"flow,omitempty"`
-	ImageBasedOperatingSystem        *bool   `json:"image_based_operating_system,omitempty"`
-	PowerProvisioning                *string `json:"power_provisioning,omitempty"`
-	MaxNetworkSecurityGroupRuleCount *int    `json:"max_network_security_group_rule_count,omitempty"`
+	NetworkSecurityGroup             *bool `json:"network_security_group,omitempty"`
+	NativeNetworking                 *bool `json:"native_networking,omitempty"`
+	VpcSlaac                         *bool `json:"vpc_slaac,omitempty"`
+	NVLinkPartition                  *bool `json:"nvlink_partition,omitempty"`
+	Flow                             *bool `json:"flow,omitempty"`
+	ImageBasedOperatingSystem        *bool `json:"image_based_operating_system,omitempty"`
+	DPSPowerManagement               *bool `json:"dps_power_management,omitempty"`
+	MaxNetworkSecurityGroupRuleCount *int  `json:"max_network_security_group_rule_count,omitempty"`
 }
 
 type SiteFilterInput struct {

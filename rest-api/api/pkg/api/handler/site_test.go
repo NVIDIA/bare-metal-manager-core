@@ -513,7 +513,7 @@ func TestCreateSiteHandler_Handle(t *testing.T) {
 				assert.True(t, rst.Capabilities.NativeNetworking)
 				assert.True(t, rst.Capabilities.NetworkSecurityGroup)
 				assert.False(t, rst.Capabilities.VpcSlaac)
-				assert.Equal(t, cdbm.SitePowerProvisioningDisabled, rst.Capabilities.PowerProvisioning)
+				assert.False(t, rst.Capabilities.DPSPowerManagement)
 
 				createdSiteID, perr := uuid.Parse(rst.ID)
 				require.NoError(t, perr)
@@ -695,7 +695,7 @@ func TestUpdateSiteHandler_Handle(t *testing.T) {
 			verifyChildSpanner: true,
 		},
 		{
-			name: "test Site update API endpoint success enabling external power provisioning",
+			name: "test Site update API endpoint success enabling DPS power management",
 			fields: fields{
 				dbSession: dbSession,
 				tc:        &tmocks.Client{},
@@ -706,7 +706,7 @@ func TestUpdateSiteHandler_Handle(t *testing.T) {
 				org:  ipOrg,
 				user: ipu,
 				reqData: &model.APISiteUpdateRequest{
-					Capabilities: &model.APISiteCapabilitiesUpdateRequest{PowerProvisioning: cutil.GetPtr(cdbm.SitePowerProvisioningExternal)},
+					Capabilities: &model.APISiteCapabilitiesUpdateRequest{DPSPowerManagement: cutil.GetPtr(true)},
 				},
 			},
 			csmEnabled:         true,
@@ -1096,8 +1096,8 @@ func TestUpdateSiteHandler_Handle(t *testing.T) {
 						} else {
 							assert.Equal(t, tt.args.site.Config.NetworkSecurityGroup, rst.Capabilities.NetworkSecurityGroup)
 						}
-						if tt.args.reqData.Capabilities.PowerProvisioning != nil {
-							assert.Equal(t, *tt.args.reqData.Capabilities.PowerProvisioning, rst.Capabilities.PowerProvisioning)
+						if tt.args.reqData.Capabilities.DPSPowerManagement != nil {
+							assert.Equal(t, *tt.args.reqData.Capabilities.DPSPowerManagement, rst.Capabilities.DPSPowerManagement)
 							updated = true
 						}
 					}

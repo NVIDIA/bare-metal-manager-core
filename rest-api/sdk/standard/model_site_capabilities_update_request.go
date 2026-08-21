@@ -32,8 +32,8 @@ type SiteCapabilitiesUpdateRequest struct {
 	Flow NullableBool `json:"flow,omitempty"`
 	// Enable or disable image-based operating system support for the Site
 	ImageBasedOperatingSystem NullableBool `json:"imageBasedOperatingSystem,omitempty"`
-	// Select the owner of power provisioning for the Site. Omission or `null` preserves the current mode. Only Providers can update this field.
-	PowerProvisioning NullableSitePowerProvisioningMode `json:"powerProvisioning,omitempty"`
+	// Enable or disable DPS power management for the Site. Omission or `null` preserves the current value. Only Providers can update this field.
+	DpsPowerManagement NullableBool `json:"dpsPowerManagement,omitempty"`
 }
 
 // NewSiteCapabilitiesUpdateRequest instantiates a new SiteCapabilitiesUpdateRequest object
@@ -268,47 +268,47 @@ func (o *SiteCapabilitiesUpdateRequest) UnsetImageBasedOperatingSystem() {
 	o.ImageBasedOperatingSystem.Unset()
 }
 
-// GetPowerProvisioning returns the PowerProvisioning field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *SiteCapabilitiesUpdateRequest) GetPowerProvisioning() SitePowerProvisioningMode {
-	if o == nil || IsNil(o.PowerProvisioning.Get()) {
-		var ret SitePowerProvisioningMode
+// GetDpsPowerManagement returns the DpsPowerManagement field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *SiteCapabilitiesUpdateRequest) GetDpsPowerManagement() bool {
+	if o == nil || IsNil(o.DpsPowerManagement.Get()) {
+		var ret bool
 		return ret
 	}
-	return *o.PowerProvisioning.Get()
+	return *o.DpsPowerManagement.Get()
 }
 
-// GetPowerProvisioningOk returns a tuple with the PowerProvisioning field value if set, nil otherwise
+// GetDpsPowerManagementOk returns a tuple with the DpsPowerManagement field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *SiteCapabilitiesUpdateRequest) GetPowerProvisioningOk() (*SitePowerProvisioningMode, bool) {
+func (o *SiteCapabilitiesUpdateRequest) GetDpsPowerManagementOk() (*bool, bool) {
 	if o == nil {
 		return nil, false
 	}
-	return o.PowerProvisioning.Get(), o.PowerProvisioning.IsSet()
+	return o.DpsPowerManagement.Get(), o.DpsPowerManagement.IsSet()
 }
 
-// HasPowerProvisioning returns a boolean if a field has been set.
-func (o *SiteCapabilitiesUpdateRequest) HasPowerProvisioning() bool {
-	if o != nil && o.PowerProvisioning.IsSet() {
+// HasDpsPowerManagement returns a boolean if a field has been set.
+func (o *SiteCapabilitiesUpdateRequest) HasDpsPowerManagement() bool {
+	if o != nil && o.DpsPowerManagement.IsSet() {
 		return true
 	}
 
 	return false
 }
 
-// SetPowerProvisioning gets a reference to the given NullableSitePowerProvisioningMode and assigns it to the PowerProvisioning field.
-func (o *SiteCapabilitiesUpdateRequest) SetPowerProvisioning(v SitePowerProvisioningMode) {
-	o.PowerProvisioning.Set(&v)
+// SetDpsPowerManagement gets a reference to the given NullableBool and assigns it to the DpsPowerManagement field.
+func (o *SiteCapabilitiesUpdateRequest) SetDpsPowerManagement(v bool) {
+	o.DpsPowerManagement.Set(&v)
 }
 
-// SetPowerProvisioningNil sets the value for PowerProvisioning to be an explicit nil
-func (o *SiteCapabilitiesUpdateRequest) SetPowerProvisioningNil() {
-	o.PowerProvisioning.Set(nil)
+// SetDpsPowerManagementNil sets the value for DpsPowerManagement to be an explicit nil
+func (o *SiteCapabilitiesUpdateRequest) SetDpsPowerManagementNil() {
+	o.DpsPowerManagement.Set(nil)
 }
 
-// UnsetPowerProvisioning ensures that no value is present for PowerProvisioning, not even an explicit nil
-func (o *SiteCapabilitiesUpdateRequest) UnsetPowerProvisioning() {
-	o.PowerProvisioning.Unset()
+// UnsetDpsPowerManagement ensures that no value is present for DpsPowerManagement, not even an explicit nil
+func (o *SiteCapabilitiesUpdateRequest) UnsetDpsPowerManagement() {
+	o.DpsPowerManagement.Unset()
 }
 
 func (o SiteCapabilitiesUpdateRequest) MarshalJSON() ([]byte, error) {
@@ -336,8 +336,8 @@ func (o SiteCapabilitiesUpdateRequest) ToMap() (map[string]interface{}, error) {
 	if o.ImageBasedOperatingSystem.IsSet() {
 		toSerialize["imageBasedOperatingSystem"] = o.ImageBasedOperatingSystem.Get()
 	}
-	if o.PowerProvisioning.IsSet() {
-		toSerialize["powerProvisioning"] = o.PowerProvisioning.Get()
+	if o.DpsPowerManagement.IsSet() {
+		toSerialize["dpsPowerManagement"] = o.DpsPowerManagement.Get()
 	}
 	return toSerialize, nil
 }

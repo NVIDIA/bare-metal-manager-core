@@ -42,7 +42,7 @@ type BatchInstanceCreateRequest struct {
 	UserData NullableString `json:"userData,omitempty"`
 	// Must be specified if iPXE Script field is empty
 	OperatingSystemId NullableString `json:"operatingSystemId,omitempty"`
-	// External power provisioning profile to apply to every Instance in the batch. A non-empty value requires the Site's `powerProvisioning` mode to be `external`.
+	// Power profile to apply to every Instance in the batch. A non-empty value requires the Site's `dpsPowerManagement` capability to be `true`.
 	PowerProfile NullableString `json:"powerProfile,omitempty"`
 	// ID of a Network Security Group to attach to all instances
 	NetworkSecurityGroupId NullableString `json:"networkSecurityGroupId,omitempty"`

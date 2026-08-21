@@ -538,7 +538,7 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 		expectRolledBack   bool
 	}{
 		{
-			name: "test VPC create API endpoint rejects power resource group when Site power provisioning is disabled",
+			name: "test VPC create API endpoint rejects power resource group when DPS power management is disabled",
 			fields: fields{
 				dbSession: dbSession,
 				tc:        tc,
@@ -553,7 +553,7 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 				reqOrg:      tnOrg,
 				reqUser:     tnu,
 				respCode:    http.StatusPreconditionFailed,
-				respMessage: "Site is not configured to accept power provisioning values",
+				respMessage: "Site does not have DPS power management enabled",
 			},
 			wantErr:          false,
 			expectNoMutation: true,
@@ -1731,7 +1731,7 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 		expectNoRoutingProfileMutation    bool
 	}{
 		{
-			name: "test VPC update rejects power resource group when Site power provisioning is disabled",
+			name: "test VPC update rejects power resource group when DPS power management is disabled",
 			fields: fields{
 				dbSession: dbSession,
 				tc:        tc,
@@ -1746,7 +1746,7 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 				reqOrg:      tnOrg,
 				reqUser:     tnu,
 				respCode:    http.StatusPreconditionFailed,
-				respMessage: "Site is not configured to accept power provisioning values",
+				respMessage: "Site does not have DPS power management enabled",
 			},
 		},
 		// A present object replaces the FNN VPC's full inline definition.

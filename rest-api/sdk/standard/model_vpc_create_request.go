@@ -40,7 +40,7 @@ type VpcCreateRequest struct {
 	RoutingProfile NullableString `json:"routingProfile,omitempty"`
 	// Routing-profile properties to overlay on the resolved named profile. Only supported for FNN VPCs and requires `TargetedInstanceCreation` to be effective for the Tenant at the VPC's Site. `routingProfile` may be omitted when the Site and Tenant configuration select a named profile.
 	RoutingProfileOverrides NullableVpcRoutingProfileOverrides `json:"routingProfileOverrides,omitempty"`
-	// External power provisioning resource group to associate with the VPC. A non-empty value requires the Site's `powerProvisioning` mode to be `external`.
+	// Power resource group to associate with the VPC. A non-empty value requires the Site's `dpsPowerManagement` capability to be `true`.
 	PowerResourceGroup NullableString `json:"powerResourceGroup,omitempty"`
 	// ID of the Network Security Group to attach to the VPC
 	NetworkSecurityGroupId NullableString `json:"networkSecurityGroupId,omitempty"`

@@ -54,12 +54,12 @@ func (ascr APISiteCreateRequest) Validate() error {
 }
 
 type APISiteCapabilitiesUpdateRequest struct {
-	NativeNetworking          *bool   `json:"nativeNetworking"`
-	NetworkSecurityGroup      *bool   `json:"networkSecurityGroup"`
-	NVLinkPartition           *bool   `json:"nvLinkPartition"`
-	Flow                      *bool   `json:"flow"`
-	ImageBasedOperatingSystem *bool   `json:"imageBasedOperatingSystem"`
-	PowerProvisioning         *string `json:"powerProvisioning"`
+	NativeNetworking          *bool `json:"nativeNetworking"`
+	NetworkSecurityGroup      *bool `json:"networkSecurityGroup"`
+	NVLinkPartition           *bool `json:"nvLinkPartition"`
+	Flow                      *bool `json:"flow"`
+	ImageBasedOperatingSystem *bool `json:"imageBasedOperatingSystem"`
+	DPSPowerManagement        *bool `json:"dpsPowerManagement"`
 	// VpcSlaac is accepted by the binder so update attempts can be rejected
 	// explicitly. Site config inventory is the only writer for this field.
 	VpcSlaac *bool `json:"vpcSlaac"`
@@ -91,8 +91,8 @@ func (ascur APISiteCapabilitiesUpdateRequest) ToSiteConfig(existing *cdbm.SiteCo
 		cfg.ImageBasedOperatingSystem = *ascur.ImageBasedOperatingSystem
 	}
 
-	if ascur.PowerProvisioning != nil {
-		cfg.PowerProvisioning = *ascur.PowerProvisioning
+	if ascur.DPSPowerManagement != nil {
+		cfg.DPSPowerManagement = *ascur.DPSPowerManagement
 	}
 
 	return cfg
@@ -141,10 +141,6 @@ func (asur APISiteUpdateRequest) Validate(isProvider bool, isTenant bool) error 
 		)
 		if err == nil && asur.Capabilities != nil {
 			err = validation.ValidateStruct(asur.Capabilities,
-				validation.Field(&asur.Capabilities.PowerProvisioning, validation.In(
-					cdbm.SitePowerProvisioningDisabled,
-					cdbm.SitePowerProvisioningExternal,
-				).Error("must be disabled or external")),
 				validation.Field(&asur.Capabilities.VpcSlaac, validation.Nil.Error(ErrMsgNotConfigurableByProvider)),
 			)
 		}
@@ -330,19 +326,17 @@ func NewAPISite(dbs cdbm.Site, dbsds []cdbm.StatusDetail, ts *cdbm.TenantSite) A
 
 // APISiteCapabilities holds the model of site capabilities
 type APISiteCapabilities struct {
-	NativeNetworking          bool   `json:"nativeNetworking"`
-	NetworkSecurityGroup      bool   `json:"networkSecurityGroup"`
-	NVLinkPartition           bool   `json:"nvLinkPartition"`
-	Flow                      bool   `json:"flow"`
-	ImageBasedOperatingSystem bool   `json:"imageBasedOperatingSystem"`
-	VpcSlaac                  bool   `json:"vpcSlaac"`
-	PowerProvisioning         string `json:"powerProvisioning"`
+	NativeNetworking          bool `json:"nativeNetworking"`
+	NetworkSecurityGroup      bool `json:"networkSecurityGroup"`
+	NVLinkPartition           bool `json:"nvLinkPartition"`
+	Flow                      bool `json:"flow"`
+	ImageBasedOperatingSystem bool `json:"imageBasedOperatingSystem"`
+	VpcSlaac                  bool `json:"vpcSlaac"`
+	DPSPowerManagement        bool `json:"dpsPowerManagement"`
 }
 
 func siteConfigToAPISiteCapabilities(cfg *cdbm.SiteConfig) *APISiteCapabilities {
-	apiCaps := &APISiteCapabilities{
-		PowerProvisioning: cfg.PowerProvisioningMode(),
-	}
+	apiCaps := &APISiteCapabilities{}
 
 	if cfg != nil {
 		apiCaps.NativeNetworking = cfg.NativeNetworking
@@ -351,6 +345,7 @@ func siteConfigToAPISiteCapabilities(cfg *cdbm.SiteConfig) *APISiteCapabilities 
 		apiCaps.Flow = cfg.Flow
 		apiCaps.ImageBasedOperatingSystem = cfg.ImageBasedOperatingSystem
 		apiCaps.VpcSlaac = cfg.VpcSlaac
+		apiCaps.DPSPowerManagement = cfg.DPSPowerManagement
 	}
 
 	return apiCaps

@@ -34,8 +34,8 @@ type SiteCapabilities struct {
 	ImageBasedOperatingSystem *bool `json:"imageBasedOperatingSystem,omitempty"`
 	// Whether the latest successfully stored Site configuration inventory reports that Core supports VPCs with SLAAC enabled. False also represents a missing Site configuration or an inventory report that omits the capability. This value is managed by Site configuration inventory and cannot be updated through the Site API.
 	VpcSlaac *bool `json:"vpcSlaac,omitempty"`
-	// Controls whether this Site accepts power resource groups and power profiles. The default is `disabled`.
-	PowerProvisioning *SitePowerProvisioningMode `json:"powerProvisioning,omitempty"`
+	// Whether this Site accepts non-empty power resource groups and power profiles for DPS power management. When false, omission and explicit clearing remain allowed.
+	DpsPowerManagement *bool `json:"dpsPowerManagement,omitempty"`
 }
 
 // NewSiteCapabilities instantiates a new SiteCapabilities object
@@ -44,6 +44,8 @@ type SiteCapabilities struct {
 // will change when the set of required properties is changed
 func NewSiteCapabilities() *SiteCapabilities {
 	this := SiteCapabilities{}
+	var dpsPowerManagement bool = false
+	this.DpsPowerManagement = &dpsPowerManagement
 	return &this
 }
 
@@ -52,6 +54,8 @@ func NewSiteCapabilities() *SiteCapabilities {
 // but it doesn't guarantee that properties required by API are set
 func NewSiteCapabilitiesWithDefaults() *SiteCapabilities {
 	this := SiteCapabilities{}
+	var dpsPowerManagement bool = false
+	this.DpsPowerManagement = &dpsPowerManagement
 	return &this
 }
 
@@ -247,36 +251,36 @@ func (o *SiteCapabilities) SetVpcSlaac(v bool) {
 	o.VpcSlaac = &v
 }
 
-// GetPowerProvisioning returns the PowerProvisioning field value if set, zero value otherwise.
-func (o *SiteCapabilities) GetPowerProvisioning() SitePowerProvisioningMode {
-	if o == nil || IsNil(o.PowerProvisioning) {
-		var ret SitePowerProvisioningMode
+// GetDpsPowerManagement returns the DpsPowerManagement field value if set, zero value otherwise.
+func (o *SiteCapabilities) GetDpsPowerManagement() bool {
+	if o == nil || IsNil(o.DpsPowerManagement) {
+		var ret bool
 		return ret
 	}
-	return *o.PowerProvisioning
+	return *o.DpsPowerManagement
 }
 
-// GetPowerProvisioningOk returns a tuple with the PowerProvisioning field value if set, nil otherwise
+// GetDpsPowerManagementOk returns a tuple with the DpsPowerManagement field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SiteCapabilities) GetPowerProvisioningOk() (*SitePowerProvisioningMode, bool) {
-	if o == nil || IsNil(o.PowerProvisioning) {
+func (o *SiteCapabilities) GetDpsPowerManagementOk() (*bool, bool) {
+	if o == nil || IsNil(o.DpsPowerManagement) {
 		return nil, false
 	}
-	return o.PowerProvisioning, true
+	return o.DpsPowerManagement, true
 }
 
-// HasPowerProvisioning returns a boolean if a field has been set.
-func (o *SiteCapabilities) HasPowerProvisioning() bool {
-	if o != nil && !IsNil(o.PowerProvisioning) {
+// HasDpsPowerManagement returns a boolean if a field has been set.
+func (o *SiteCapabilities) HasDpsPowerManagement() bool {
+	if o != nil && !IsNil(o.DpsPowerManagement) {
 		return true
 	}
 
 	return false
 }
 
-// SetPowerProvisioning gets a reference to the given SitePowerProvisioningMode and assigns it to the PowerProvisioning field.
-func (o *SiteCapabilities) SetPowerProvisioning(v SitePowerProvisioningMode) {
-	o.PowerProvisioning = &v
+// SetDpsPowerManagement gets a reference to the given bool and assigns it to the DpsPowerManagement field.
+func (o *SiteCapabilities) SetDpsPowerManagement(v bool) {
+	o.DpsPowerManagement = &v
 }
 
 func (o SiteCapabilities) MarshalJSON() ([]byte, error) {
@@ -307,8 +311,8 @@ func (o SiteCapabilities) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.VpcSlaac) {
 		toSerialize["vpcSlaac"] = o.VpcSlaac
 	}
-	if !IsNil(o.PowerProvisioning) {
-		toSerialize["powerProvisioning"] = o.PowerProvisioning
+	if !IsNil(o.DpsPowerManagement) {
+		toSerialize["dpsPowerManagement"] = o.DpsPowerManagement
 	}
 	return toSerialize, nil
 }

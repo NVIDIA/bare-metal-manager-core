@@ -128,7 +128,6 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 		logger.Warn().Msg(fmt.Sprintf("Site: %v specified in request data must be in Registered state in order to proceed", site.ID))
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Site specified in request data must be in Registered state in order to proceed", nil)
 	}
-
 	// Get Tenant for this org
 	tenant, err := common.GetTenantForOrg(ctx, nil, cvh.dbSession, org)
 	if err != nil {
@@ -213,7 +212,7 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 	if site.Config != nil {
 		siteConfig = site.Config
 	}
-	if apiErr := common.ValidateSitePowerProvisioning(siteConfig, apiRequest.PowerResourceGroup); apiErr != nil {
+	if apiErr := common.ValidateSitePowerManagement(siteConfig, apiRequest.PowerResourceGroup); apiErr != nil {
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 	}
 
@@ -610,7 +609,6 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 		logger.Error().Err(err).Msg("error retrieving VPC DB entity")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve VPC", nil)
 	}
-
 	// Get Tenant for this org
 	tenant, err := common.GetTenantForOrg(ctx, nil, uvh.dbSession, org)
 	if err != nil {
@@ -722,7 +720,7 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 	if vpc.Site != nil && vpc.Site.Config != nil {
 		siteConfig = vpc.Site.Config
 	}
-	if apiErr := common.ValidateSitePowerProvisioning(siteConfig, apiRequest.PowerResourceGroup); apiErr != nil {
+	if apiErr := common.ValidateSitePowerManagement(siteConfig, apiRequest.PowerResourceGroup); apiErr != nil {
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 	}
 

@@ -1110,7 +1110,7 @@ paths:
 
         Infrastructure Provider updating the Site must be the owner of the Site. At present, there are no other Site-specific configurations modifiable by Tenant.
 
-        Providers can set `capabilities.powerProvisioning` to `disabled` or `external`. Omission or `null` preserves the current mode; the default mode is `disabled`.
+        Providers can set `capabilities.dpsPowerManagement` to control whether the Site accepts power profiles and resource groups. Omission or `null` preserves the current value; the default is `false`.
       requestBody:
         content:
           application/json:
@@ -2943,7 +2943,7 @@ paths:
                     data:
                       id: 497f6eca-6276-4993-bfeb-53cbbbba6f08
         '412':
-          description: The latest successfully stored configuration inventory for the selected Site does not report Core support for SLAAC, the Site's `powerProvisioning` capability is `disabled` while the request specifies a non-empty power resource group, or Core rejects another create prerequisite. Site capability checks fail before REST persistence or workflow dispatch; a Core rejection occurs after dispatch and the REST transaction is rolled back.
+          description: The latest successfully stored configuration inventory for the selected Site does not report Core support for SLAAC, the Site's `dpsPowerManagement` capability is `false` while the request specifies a non-empty power resource group, or Core rejects another create prerequisite. Site capability checks fail before REST persistence or workflow dispatch; a Core rejection occurs after dispatch and the REST transaction is rolled back.
           content:
             application/json:
               schema:
@@ -3155,7 +3155,7 @@ paths:
         '403':
           $ref: '#/components/responses/ForbiddenError'
         '412':
-          description: The Site's `powerProvisioning` capability is `disabled`, so a non-empty power resource group cannot be accepted.
+          description: The Site's `dpsPowerManagement` capability is `false`, so a non-empty power resource group cannot be accepted.
           $ref: '#/components/responses/GenericHttpError'
       tags:
         - VPC
@@ -3164,7 +3164,7 @@ paths:
 
         Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix
 
-        A non-empty `powerResourceGroup` requires the Site's `powerProvisioning` mode to be `external`; otherwise the request returns 412. Omission or `null` preserves the current association, while an empty string clears it even when power provisioning is disabled.
+        A non-empty `powerResourceGroup` requires the Site's `dpsPowerManagement` capability to be `true`; otherwise the request returns 412. Omission or `null` preserves the current association, while an empty string clears it even when DPS power management is disabled.
       requestBody:
         content:
           application/json:
@@ -7299,7 +7299,7 @@ paths:
         '403':
           $ref: '#/components/responses/ForbiddenError'
         '412':
-          description: The Site's `powerProvisioning` capability is `disabled`, so a non-empty power profile cannot be accepted.
+          description: The Site's `dpsPowerManagement` capability is `false`, so a non-empty power profile cannot be accepted.
           $ref: '#/components/responses/GenericHttpError'
         '429':
           $ref: '#/components/responses/ResourceExhaustedError'
@@ -7485,7 +7485,7 @@ paths:
         '403':
           $ref: '#/components/responses/ForbiddenError'
         '412':
-          description: The Site's `powerProvisioning` capability is `disabled`, so a non-empty power profile cannot be accepted.
+          description: The Site's `dpsPowerManagement` capability is `false`, so a non-empty power profile cannot be accepted.
           $ref: '#/components/responses/GenericHttpError'
         '429':
           $ref: '#/components/responses/ResourceExhaustedError'
@@ -7890,7 +7890,7 @@ paths:
         '403':
           $ref: '#/components/responses/ForbiddenError'
         '412':
-          description: The Site's `powerProvisioning` capability is `disabled`, so a non-empty power profile cannot be accepted.
+          description: The Site's `dpsPowerManagement` capability is `false`, so a non-empty power profile cannot be accepted.
           $ref: '#/components/responses/GenericHttpError'
         '429':
           $ref: '#/components/responses/ResourceExhaustedError'
@@ -7899,7 +7899,7 @@ paths:
 
         Org must have a Tenant entity. Instance must belong to Tenant. User must have authorization role with `TENANT_ADMIN` suffix.
 
-        A non-empty `powerProfile` requires the Site's `powerProvisioning` mode to be `external`; otherwise the request returns 412. Omission or `null` preserves the current profile, while an empty string clears it even when power provisioning is disabled.
+        A non-empty `powerProfile` requires the Site's `dpsPowerManagement` capability to be `true`; otherwise the request returns 412. Omission or `null` preserves the current profile, while an empty string clears it even when DPS power management is disabled.
       requestBody:
         content:
           application/json:
@@ -17787,14 +17787,6 @@ components:
         - Pending
         - Registered
         - Error
-    SitePowerProvisioningMode:
-      title: SitePowerProvisioningMode
-      type: string
-      description: Controls whether power provisioning values are rejected (`disabled`) or managed by a service external to NICo (`external`). Missing or unrecognized stored values are reported and enforced as `disabled`.
-      default: disabled
-      enum:
-        - disabled
-        - external
     SiteCapabilities:
       title: SiteCapabilities
       type: object
@@ -17819,9 +17811,10 @@ components:
           type: boolean
           readOnly: true
           description: Whether the latest successfully stored Site configuration inventory reports that Core supports VPCs with SLAAC enabled. False also represents a missing Site configuration or an inventory report that omits the capability. This value is managed by Site configuration inventory and cannot be updated through the Site API.
-        powerProvisioning:
-          $ref: '#/components/schemas/SitePowerProvisioningMode'
-          description: Controls whether this Site accepts power resource groups and power profiles. The default is `disabled`.
+        dpsPowerManagement:
+          type: boolean
+          default: false
+          description: Whether this Site accepts non-empty power resource groups and power profiles for DPS power management. When false, omission and explicit clearing remain allowed.
     SiteMachineStats:
       title: SiteMachineStats
       type: object
@@ -18000,11 +17993,11 @@ components:
             - boolean
             - 'null'
           description: Enable or disable image-based operating system support for the Site
-        powerProvisioning:
-          oneOf:
-            - $ref: '#/components/schemas/SitePowerProvisioningMode'
-            - type: 'null'
-          description: Select the owner of power provisioning for the Site. Omission or `null` preserves the current mode. Only Providers can update this field.
+        dpsPowerManagement:
+          type:
+            - boolean
+            - 'null'
+          description: Enable or disable DPS power management for the Site. Omission or `null` preserves the current value. Only Providers can update this field.
     SiteUpdateRequest:
       title: SiteUpdateRequest
       type: object
@@ -18749,7 +18742,7 @@ components:
             - string
             - 'null'
           minLength: 1
-          description: External power provisioning resource group to associate with the VPC. A non-empty value requires the Site's `powerProvisioning` mode to be `external`.
+          description: Power resource group to associate with the VPC. A non-empty value requires the Site's `dpsPowerManagement` capability to be `true`.
         networkSecurityGroupId:
           type:
             - string
@@ -18814,7 +18807,7 @@ components:
           type:
             - string
             - 'null'
-          description: External power provisioning resource group to associate with the VPC. A non-empty value requires the Site's `powerProvisioning` mode to be `external`. Omission or `null` preserves the current association; an empty string clears it even when power provisioning is disabled.
+          description: Power resource group to associate with the VPC. A non-empty value requires the Site's `dpsPowerManagement` capability to be `true`. Omission or `null` preserves the current association; an empty string clears it when DPS power management is disabled.
         labels:
           $ref: '#/components/schemas/Labels'
           description: 'Update labels of the VPC. Up to 10 key-value pairs can be specified. The labels will be replaced with the labels sent in the request. Any labels not included in the request will be removed. To retain existing labels, fetch them first and include them in this request.'
@@ -21378,7 +21371,7 @@ components:
             - string
             - 'null'
           minLength: 1
-          description: External power provisioning profile to apply to the Instance. A non-empty value requires the Site's `powerProvisioning` mode to be `external`.
+          description: Power profile to apply to the Instance. A non-empty value requires the Site's `dpsPowerManagement` capability to be `true`.
         networkSecurityGroupId:
           type:
             - string
@@ -21533,7 +21526,7 @@ components:
             - string
             - 'null'
           minLength: 1
-          description: External power provisioning profile to apply to every Instance in the batch. A non-empty value requires the Site's `powerProvisioning` mode to be `external`.
+          description: Power profile to apply to every Instance in the batch. A non-empty value requires the Site's `dpsPowerManagement` capability to be `true`.
         networkSecurityGroupId:
           type:
             - string
@@ -21715,7 +21708,7 @@ components:
           type:
             - string
             - 'null'
-          description: External power provisioning profile to apply to the Instance. A non-empty value requires the Site's `powerProvisioning` mode to be `external`. Omission or `null` preserves the current profile; an empty string clears it even when power provisioning is disabled.
+          description: Power profile to apply to the Instance. A non-empty value requires the Site's `dpsPowerManagement` capability to be `true`. Omission or `null` preserves the current profile; an empty string clears it when DPS power management is disabled.
         userData:
           type:
             - string
