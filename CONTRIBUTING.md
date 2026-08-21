@@ -276,6 +276,18 @@ for the requested behavior.
 - Be responsive to feedback and code review comments.
 - Ensure all CI checks pass before requesting review.
 
+## Continuous Integration
+
+CI content-addresses the base and builder container images (`build-container-*`,
+`runtime-container-*`, `build-artifacts-container-*`): each is tagged by a hash of its
+Dockerfile plus any files it `COPY`s, built only when that definition changes and reused
+otherwise (see `.github/ci/resolve-base-image.sh`).
+
+To force a rebuild of all of them, include `ci-rebuild-base-containers` in a commit message.
+It is a case-sensitive substring match on the pushed tip commit, so add it to the latest
+commit of a push to `main`, a `pull-request/*` branch or a tag. Use it to refresh a
+re-published base image or the unpinned installs in those Dockerfiles.
+
 ## Build Guide
 
 For pinned dependency updates, image testing, and build optimization trade-offs, see the

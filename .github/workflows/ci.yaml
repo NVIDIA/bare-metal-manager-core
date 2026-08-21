@@ -51,6 +51,9 @@ jobs:
       - name: Test PR secret-scan range resolver
         run: bash .github/ci/test-resolve-pr-scan-range.sh
 
+      - name: Test base image resolver
+        run: bash .github/ci/test-resolve-base-image.sh
+
       - name: Detect non-rest changes
         id: non-rest-changes
         if: startsWith(github.ref, 'refs/heads/pull-request/')
@@ -147,23 +150,11 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Detect build-container-x86_64 changes
+      - name: Detect proto and source changes
         id: build-container-changes
         uses: dorny/paths-filter@v3
         with:
           filters: |
-            build_container:
-              - 'dev/docker/Dockerfile.build-container-x86_64'
-            runtime_container:
-              - 'dev/docker/Dockerfile.runtime-container-x86_64'
-            runtime_container_aarch64:
-              - 'dev/docker/Dockerfile.runtime-container-aarch64'
-            build_container_aarch64:
-              - 'dev/docker/Dockerfile.build-container-aarch64'
-            build_artifacts_x86_64:
-              - 'dev/docker/Dockerfile.build-artifacts-container-x86_64'
-            build_artifacts_aarch64:
-              - 'dev/docker/Dockerfile.build-artifacts-container-aarch64'
             proto_files:
               - '**/*.proto'
             core_rpc_proto_files:
@@ -346,44 +337,20 @@ jobs:
           echo "|-----------|--------|" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`${EXTRAS_IMAGE}\` | \`${EXTRAS_REF}\` |" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Decide if build-container-x86_64 must run
+      - name: Resolve base and builder container tags
         id: base-container-gate
         env:
           TARGET_REGISTRY: ${{ steps.registry.outputs.registry }}
           SOURCE_REGISTRY: ${{ steps.registry.outputs.source_registry }}
-          EVENT_NAME: ${{ github.event_name }}
           COMMIT_MESSAGE: ${{ github.event.head_commit.message || '' }}
           VERSION: ${{ steps.version.outputs.version }}
-          BUILD_CONTAINER_X86_64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.build_container }}
-          RUNTIME_CONTAINER_X86_64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.runtime_container }}
-          RUNTIME_CONTAINER_AARCH64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.runtime_container_aarch64 }}
-          BUILD_CONTAINER_AARCH64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.build_container_aarch64 }}
-          BUILD_ARTIFACTS_X86_64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.build_artifacts_x86_64 }}
-          BUILD_ARTIFACTS_AARCH64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.build_artifacts_aarch64 }}
           PROTO_FILES_CHANGED: ${{ steps.build-container-changes.outputs.proto_files }}
           CORE_RPC_PROTO_FILES_CHANGED: ${{ steps.build-container-changes.outputs.core_rpc_proto_files }}
           SOURCE_FILES_CHANGED: ${{ steps.build-container-changes.outputs.source_files }}
         run: |
-          build_container_x86_64_run=false
-          runtime_container_x86_64_run=false
-          build_container_aarch64_run=false
-          runtime_container_aarch64_run=false
-          build_artifacts_container_x86_64_run=false
-          build_artifacts_container_aarch64_run=false
           proto_files_changed=false
           core_rpc_proto_files_changed=false
           source_files_changed=false
-
-          if [[ "${COMMIT_MESSAGE}" =~ ci-rebuild-base-containers ]]; then
-            build_container_x86_64_run=true
-            runtime_container_x86_64_run=true
-            build_container_aarch64_run=true
-            runtime_container_aarch64_run=true
-            build_artifacts_container_x86_64_run=true
-            build_artifacts_container_aarch64_run=true
-          elif [[ "${BUILD_CONTAINER_X86_64_DOCKERFILE_CHANGED}" == "true" ]]; then
-            build_container_x86_64_run=true
-          fi
 
           if [[ "${PROTO_FILES_CHANGED}" == "true" ]]; then
              proto_files_changed=true
@@ -397,32 +364,6 @@ jobs:
              source_files_changed=true
           fi
 
-          if [[ "${RUNTIME_CONTAINER_X86_64_DOCKERFILE_CHANGED}" == "true" ]]; then
-            runtime_container_x86_64_run=true
-          fi
-
-          if [[ "${RUNTIME_CONTAINER_AARCH64_DOCKERFILE_CHANGED}" == "true" ]]; then
-            runtime_container_aarch64_run=true
-          fi
-
-          if [[ "${BUILD_CONTAINER_AARCH64_DOCKERFILE_CHANGED}" == "true" ]]; then
-            build_container_aarch64_run=true
-          fi
-
-          if [[ "${BUILD_ARTIFACTS_X86_64_DOCKERFILE_CHANGED}" == "true" ]]; then
-            build_artifacts_container_x86_64_run=true
-          fi
-
-          if [[ "${BUILD_ARTIFACTS_AARCH64_DOCKERFILE_CHANGED}" == "true" ]]; then
-            build_artifacts_container_aarch64_run=true
-          fi
-
-          echo "build_container_x86_64_run=${build_container_x86_64_run}" >> "$GITHUB_OUTPUT"
-          echo "runtime_container_x86_64_run=${runtime_container_x86_64_run}" >> "$GITHUB_OUTPUT"
-          echo "build_container_aarch64_run=${build_container_aarch64_run}" >> "$GITHUB_OUTPUT"
-          echo "runtime_container_aarch64_run=${runtime_container_aarch64_run}" >> "$GITHUB_OUTPUT"
-          echo "build_artifacts_container_x86_64_run=${build_artifacts_container_x86_64_run}" >> "$GITHUB_OUTPUT"
-          echo "build_artifacts_container_aarch64_run=${build_artifacts_container_aarch64_run}" >> "$GITHUB_OUTPUT"
           echo "proto_files_changed=${proto_files_changed}" >> "$GITHUB_OUTPUT"
           echo "core_rpc_proto_files_changed=${core_rpc_proto_files_changed}" >> "$GITHUB_OUTPUT"
           echo "source_files_changed=${source_files_changed}" >> "$GITHUB_OUTPUT"
@@ -430,65 +371,9 @@ jobs:
           MAJOR_MINOR=$(echo "${VERSION}" | cut -d. -f1,2)
           echo "major_minor_version=${MAJOR_MINOR}" >> "$GITHUB_OUTPUT"
 
-          if [[ "$build_container_x86_64_run" == "true" ]]; then
-            echo "build_container_x86_64_version=${VERSION}" >> "$GITHUB_OUTPUT"
-            echo "build_container_x86_64_ref=${TARGET_REGISTRY}/build-container-x86_64:${VERSION}" >> "$GITHUB_OUTPUT"
-            echo "build_container_x86_64_version_latest=${TARGET_REGISTRY}/build-container-x86_64:${MAJOR_MINOR}-latest" >> "$GITHUB_OUTPUT"
-          else
-            echo "build_container_x86_64_version=latest" >> "$GITHUB_OUTPUT"
-            echo "build_container_x86_64_ref=${SOURCE_REGISTRY}/build-container-x86_64:latest" >> "$GITHUB_OUTPUT"
-            echo "build_container_x86_64_version_latest=" >> "$GITHUB_OUTPUT"
-          fi
-
-          if [[ "$runtime_container_x86_64_run" == "true" ]]; then
-            echo "runtime_container_x86_64_version=${VERSION}" >> "$GITHUB_OUTPUT"
-            echo "runtime_container_x86_64_ref=${TARGET_REGISTRY}/runtime-container-x86_64:${VERSION}" >> "$GITHUB_OUTPUT"
-            echo "runtime_container_x86_64_version_latest=${TARGET_REGISTRY}/runtime-container-x86_64:${MAJOR_MINOR}-latest" >> "$GITHUB_OUTPUT"
-          else
-            echo "runtime_container_x86_64_version=latest" >> "$GITHUB_OUTPUT"
-            echo "runtime_container_x86_64_ref=${SOURCE_REGISTRY}/runtime-container-x86_64:latest" >> "$GITHUB_OUTPUT"
-            echo "runtime_container_x86_64_version_latest=" >> "$GITHUB_OUTPUT"
-          fi
-
-          if [[ "$build_container_aarch64_run" == "true" ]]; then
-            echo "build_container_aarch64_version=${VERSION}" >> "$GITHUB_OUTPUT"
-            echo "build_container_aarch64_ref=${TARGET_REGISTRY}/build-container-aarch64:${VERSION}" >> "$GITHUB_OUTPUT"
-            echo "build_container_aarch64_version_latest=${TARGET_REGISTRY}/build-container-aarch64:${MAJOR_MINOR}-latest" >> "$GITHUB_OUTPUT"
-          else
-            echo "build_container_aarch64_version=latest" >> "$GITHUB_OUTPUT"
-            echo "build_container_aarch64_ref=${SOURCE_REGISTRY}/build-container-aarch64:latest" >> "$GITHUB_OUTPUT"
-            echo "build_container_aarch64_version_latest=" >> "$GITHUB_OUTPUT"
-          fi
-
-          if [[ "$runtime_container_aarch64_run" == "true" ]]; then
-            echo "runtime_container_aarch64_version=${VERSION}" >> "$GITHUB_OUTPUT"
-            echo "runtime_container_aarch64_ref=${TARGET_REGISTRY}/runtime-container-aarch64:${VERSION}" >> "$GITHUB_OUTPUT"
-            echo "runtime_container_aarch64_version_latest=${TARGET_REGISTRY}/runtime-container-aarch64:${MAJOR_MINOR}-latest" >> "$GITHUB_OUTPUT"
-          else
-            echo "runtime_container_aarch64_version=latest" >> "$GITHUB_OUTPUT"
-            echo "runtime_container_aarch64_ref=${SOURCE_REGISTRY}/runtime-container-aarch64:latest" >> "$GITHUB_OUTPUT"
-            echo "runtime_container_aarch64_version_latest=" >> "$GITHUB_OUTPUT"
-          fi
-
-          if [[ "$build_artifacts_container_x86_64_run" == "true" ]]; then
-            echo "build_artifacts_container_x86_64_version=${VERSION}" >> "$GITHUB_OUTPUT"
-            echo "build_artifacts_container_x86_64_ref=${TARGET_REGISTRY}/build-artifacts-container-x86_64:${VERSION}" >> "$GITHUB_OUTPUT"
-            echo "build_artifacts_container_x86_64_version_latest=${TARGET_REGISTRY}/build-artifacts-container-x86_64:${MAJOR_MINOR}-latest" >> "$GITHUB_OUTPUT"
-          else
-            echo "build_artifacts_container_x86_64_version=latest" >> "$GITHUB_OUTPUT"
-            echo "build_artifacts_container_x86_64_ref=${SOURCE_REGISTRY}/build-artifacts-container-x86_64:latest" >> "$GITHUB_OUTPUT"
-            echo "build_artifacts_container_x86_64_version_latest=" >> "$GITHUB_OUTPUT"
-          fi
-
-          if [[ "$build_artifacts_container_aarch64_run" == "true" ]]; then
-            echo "build_artifacts_container_aarch64_version=${VERSION}" >> "$GITHUB_OUTPUT"
-            echo "build_artifacts_container_aarch64_ref=${TARGET_REGISTRY}/build-artifacts-container-aarch64:${VERSION}" >> "$GITHUB_OUTPUT"
-            echo "build_artifacts_container_aarch64_version_latest=${TARGET_REGISTRY}/build-artifacts-container-aarch64:${MAJOR_MINOR}-latest" >> "$GITHUB_OUTPUT"
-          else
-            echo "build_artifacts_container_aarch64_version=latest" >> "$GITHUB_OUTPUT"
-            echo "build_artifacts_container_aarch64_ref=${SOURCE_REGISTRY}/build-artifacts-container-aarch64:latest" >> "$GITHUB_OUTPUT"
-            echo "build_artifacts_container_aarch64_version_latest=" >> "$GITHUB_OUTPUT"
-          fi
+          # Lookup the container image to determine if it has already been built.
+          # Sets `[build|build_artifacts|runtime]_container_[x86_64|aarch64]_run=true` for any image that needs to be built.
+          bash .github/ci/resolve-base-image.sh >> "$GITHUB_OUTPUT"
 
       - name: Decide release container publish strategy
         id: release-gate
