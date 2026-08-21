@@ -849,3 +849,117 @@ pub async fn generate_sku_from_machine_at_version_5(
 
     Ok(sku)
 }
+
+#[cfg(test)]
+mod tests {
+    use model::hardware_info::MemoryDeviceGroup;
+    use model::test_support::machine_snapshot::host_machine;
+
+    use super::*;
+
+    fn group(mem_type: Option<&str>, size_mb: Option<u32>, count: u32) -> MemoryDeviceGroup {
+        MemoryDeviceGroup {
+            size_mb,
+            mem_type: mem_type.map(str::to_owned),
+            count,
+        }
+    }
+
+    fn mem(memory_type: &str, capacity_mb: u32, count: u32) -> SkuComponentMemory {
+        SkuComponentMemory {
+            memory_type: memory_type.to_owned(),
+            capacity_mb,
+            count,
+        }
+    }
+
+    /// Runs `generate_base_sku_from_hardware` over `devices` and returns the resulting
+    /// memory components, sorted for order-independent comparison.
+    fn generated_memory(devices: Vec<MemoryDeviceGroup>) -> Vec<SkuComponentMemory> {
+        let machine = host_machine();
+        let hardware_info = HardwareInfo {
+            memory_devices: devices,
+            ..Default::default()
+        };
+        let sku = generate_base_sku_from_hardware(&machine, CURRENT_SKU_VERSION, &hardware_info);
+        let mut memory = sku.components.memory;
+        memory.sort();
+        memory
+    }
+
+    #[test]
+    fn generate_base_sku_from_hardware_groups_memory_devices() {
+        struct Case {
+            name: &'static str,
+            devices: Vec<MemoryDeviceGroup>,
+            expected: Vec<SkuComponentMemory>,
+        }
+
+        let cases = vec![
+            Case {
+                name: "no memory devices produce no memory components",
+                devices: vec![],
+                expected: vec![],
+            },
+            Case {
+                name: "a single group becomes a single component",
+                devices: vec![group(Some("DDR5"), Some(65536), 8)],
+                expected: vec![mem("DDR5", 65536, 8)],
+            },
+            Case {
+                name: "groups with distinct type or size stay separate",
+                devices: vec![
+                    group(Some("DDR5"), Some(65536), 8),
+                    group(Some("DDR5"), Some(32768), 4),
+                    group(Some("DDR4"), Some(65536), 2),
+                ],
+                expected: vec![
+                    mem("DDR5", 65536, 8),
+                    mem("DDR5", 32768, 4),
+                    mem("DDR4", 65536, 2),
+                ],
+            },
+            Case {
+                name: "non-consecutive groups with the same type and size merge",
+                devices: vec![
+                    group(Some("DDR5"), Some(65536), 4),
+                    group(Some("DDR4"), Some(32768), 1),
+                    group(Some("DDR5"), Some(65536), 4),
+                ],
+                expected: vec![mem("DDR5", 65536, 8), mem("DDR4", 32768, 1)],
+            },
+            Case {
+                name: "groups without a size are dropped from the SKU",
+                devices: vec![
+                    group(Some("DDR5"), None, 4),
+                    group(Some("DDR5"), Some(65536), 1),
+                ],
+                expected: vec![mem("DDR5", 65536, 1)],
+            },
+            Case {
+                name: "a missing memory type defaults to an empty string",
+                devices: vec![group(None, Some(65536), 2)],
+                expected: vec![mem("", 65536, 2)],
+            },
+            Case {
+                name: "merged counts saturate instead of overflowing",
+                devices: vec![
+                    group(Some("DDR5"), Some(u32::MAX), u32::MAX),
+                    group(Some("DDR5"), Some(u32::MAX), u32::MAX),
+                ],
+                expected: vec![mem("DDR5", u32::MAX, u32::MAX)],
+            },
+        ];
+
+        for case in cases {
+            let mut expected = case.expected;
+            expected.sort();
+            assert_eq!(
+                generated_memory(case.devices),
+                expected,
+                "case: {}",
+                case.name
+            );
+        }
+    }
+}

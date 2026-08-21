@@ -534,3 +534,108 @@ pub fn managed_host_state_snapshot() -> ManagedHostStateSnapshot {
         rack_health_overrides: None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    /// `HardwareInfo.memory_devices` accepts both the condensed `{size_mb, mem_type, count}`
+    /// shape and the legacy flat shape (`{size_mb, mem_type}`, one object per DIMM, implicit
+    /// `count: 1`). Consecutive entries with the same `(size_mb, mem_type)` merge regardless of
+    /// which shape produced them.
+    #[test]
+    fn hardware_info_normalizes_mixed_legacy_and_counted_memory_devices() {
+        struct Case {
+            name: &'static str,
+            memory_devices_json: serde_json::Value,
+            expected: Vec<MemoryDeviceGroup>,
+        }
+
+        let cases = vec![
+            Case {
+                name: "legacy entries without count merge like a single counted group",
+                memory_devices_json: json!([
+                    {"size_mb": 16384, "mem_type": "DDR5"},
+                    {"size_mb": 16384, "mem_type": "DDR5"},
+                    {"size_mb": 16384, "mem_type": "DDR5"}
+                ]),
+                expected: vec![MemoryDeviceGroup {
+                    size_mb: Some(16384),
+                    mem_type: Some("DDR5".into()),
+                    count: 3,
+                }],
+            },
+            Case {
+                name: "a legacy entry directly followed by a counted entry of the same key merges",
+                memory_devices_json: json!([
+                    {"size_mb": 16384, "mem_type": "DDR5"},
+                    {"size_mb": 16384, "mem_type": "DDR5", "count": 4}
+                ]),
+                expected: vec![MemoryDeviceGroup {
+                    size_mb: Some(16384),
+                    mem_type: Some("DDR5".into()),
+                    count: 5,
+                }],
+            },
+            Case {
+                name: "a counted entry directly followed by a legacy entry of the same key merges",
+                memory_devices_json: json!([
+                    {"size_mb": 16384, "mem_type": "DDR5", "count": 4},
+                    {"size_mb": 16384, "mem_type": "DDR5"}
+                ]),
+                expected: vec![MemoryDeviceGroup {
+                    size_mb: Some(16384),
+                    mem_type: Some("DDR5".into()),
+                    count: 5,
+                }],
+            },
+            Case {
+                name: "legacy and counted entries with different keys stay separate",
+                memory_devices_json: json!([
+                    {"size_mb": 8192, "mem_type": "DDR4"},
+                    {"size_mb": 16384, "mem_type": "DDR5", "count": 4},
+                    {"size_mb": 8192, "mem_type": "DDR4"}
+                ]),
+                expected: vec![
+                    MemoryDeviceGroup {
+                        size_mb: Some(8192),
+                        mem_type: Some("DDR4".into()),
+                        count: 1,
+                    },
+                    MemoryDeviceGroup {
+                        size_mb: Some(16384),
+                        mem_type: Some("DDR5".into()),
+                        count: 4,
+                    },
+                    MemoryDeviceGroup {
+                        size_mb: Some(8192),
+                        mem_type: Some("DDR4".into()),
+                        count: 1,
+                    },
+                ],
+            },
+            Case {
+                // Ties the legacy wire shape back to the fixture host's own memory
+                // layout: 8 flat DIMM entries should normalize to exactly what
+                // `host_hardware_info()` already carries as a single counted group.
+                name: "a full host's worth of legacy DIMMs matches the fixture's counted group",
+                memory_devices_json: json!(
+                    std::iter::repeat_n(json!({"size_mb": 65536, "mem_type": "DDR5"}), 8)
+                        .collect::<Vec<_>>()
+                ),
+                expected: host_hardware_info().memory_devices,
+            },
+        ];
+
+        for case in cases {
+            let json = json!({
+                "machine_type": "x86_64",
+                "memory_devices": case.memory_devices_json,
+            });
+            let info: HardwareInfo = serde_json::from_value(json).unwrap();
+            assert_eq!(info.memory_devices, case.expected, "case: {}", case.name);
+        }
+    }
+}
