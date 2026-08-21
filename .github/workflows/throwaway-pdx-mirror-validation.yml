@@ -15,7 +15,7 @@ on:
         default: "10"
       runner:
         description: "runner label"
-        default: "linux-arm64-cpu4"
+        default: "linux-arm64-cpu16"
 
 permissions:
   contents: read
@@ -23,7 +23,7 @@ permissions:
 jobs:
   mirror-check:
     name: "mirror: ${{ matrix.mirror }}"
-    runs-on: ${{ inputs.runner || 'linux-arm64-cpu4' }}
+    runs-on: ${{ inputs.runner || 'linux-arm64-cpu16' }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
