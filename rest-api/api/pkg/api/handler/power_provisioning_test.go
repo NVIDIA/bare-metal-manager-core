@@ -28,7 +28,7 @@ func TestValidateSitePowerProvisioning(t *testing.T) {
 		{name: "disabled mode rejects value", config: &cdbm.SiteConfig{PowerProvisioning: cdbm.SitePowerProvisioningDisabled}, value: &value, wantReject: true},
 		{name: "unknown mode fails safe", config: &cdbm.SiteConfig{PowerProvisioning: "unknown"}, value: &value, wantReject: true},
 		{name: "external mode accepts value", config: &cdbm.SiteConfig{PowerProvisioning: cdbm.SitePowerProvisioningExternal}, value: &value},
-		{name: "DPS mode accepts value", config: &cdbm.SiteConfig{PowerProvisioning: cdbm.SitePowerProvisioningDPS}, value: &value},
+		{name: "unsupported DPS mode rejects value", config: &cdbm.SiteConfig{PowerProvisioning: "dps"}, value: &value, wantReject: true},
 		{name: "disabled mode accepts omission", config: &cdbm.SiteConfig{PowerProvisioning: cdbm.SitePowerProvisioningDisabled}},
 		{name: "disabled mode accepts clear", config: &cdbm.SiteConfig{PowerProvisioning: cdbm.SitePowerProvisioningDisabled}, value: &empty},
 		{name: "disabled mode rejects whitespace value", config: &cdbm.SiteConfig{PowerProvisioning: cdbm.SitePowerProvisioningDisabled}, value: &whitespace, wantReject: true},

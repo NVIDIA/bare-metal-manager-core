@@ -30,7 +30,7 @@ func TestSiteConfigPowerProvisioningMode(t *testing.T) {
 		{name: "missing mode", cfg: &SiteConfig{}, want: SitePowerProvisioningDisabled},
 		{name: "disabled", cfg: &SiteConfig{PowerProvisioning: SitePowerProvisioningDisabled}, want: SitePowerProvisioningDisabled},
 		{name: "external", cfg: &SiteConfig{PowerProvisioning: SitePowerProvisioningExternal}, want: SitePowerProvisioningExternal},
-		{name: "DPS", cfg: &SiteConfig{PowerProvisioning: SitePowerProvisioningDPS}, want: SitePowerProvisioningDPS},
+		{name: "unsupported DPS fails safe", cfg: &SiteConfig{PowerProvisioning: "dps"}, want: SitePowerProvisioningDisabled},
 		{name: "unknown fails safe", cfg: &SiteConfig{PowerProvisioning: "unknown"}, want: SitePowerProvisioningDisabled},
 	}
 

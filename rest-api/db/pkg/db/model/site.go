@@ -61,7 +61,6 @@ type SiteConfig struct {
 const (
 	SitePowerProvisioningDisabled = "disabled"
 	SitePowerProvisioningExternal = "external"
-	SitePowerProvisioningDPS      = "dps"
 )
 
 // PowerProvisioningMode returns the configured power-provisioning owner. A
@@ -71,7 +70,7 @@ func (cfg *SiteConfig) PowerProvisioningMode() string {
 		return SitePowerProvisioningDisabled
 	}
 	switch cfg.PowerProvisioning {
-	case SitePowerProvisioningExternal, SitePowerProvisioningDPS:
+	case SitePowerProvisioningExternal:
 		return cfg.PowerProvisioning
 	default:
 		return SitePowerProvisioningDisabled

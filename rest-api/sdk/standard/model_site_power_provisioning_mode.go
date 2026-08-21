@@ -18,21 +18,19 @@ import (
 	"fmt"
 )
 
-// SitePowerProvisioningMode Controls whether power provisioning values are rejected (`disabled`), managed by a service external to NICo (`external`), or managed by NICo through DPS Max-Q (`dps`). Missing or unrecognized stored values are reported and enforced as `disabled`.
+// SitePowerProvisioningMode Controls whether power provisioning values are rejected (`disabled`) or managed by a service external to NICo (`external`). Missing or unrecognized stored values are reported and enforced as `disabled`.
 type SitePowerProvisioningMode string
 
 // List of SitePowerProvisioningMode
 const (
 	SITEPOWERPROVISIONINGMODE_DISABLED SitePowerProvisioningMode = "disabled"
 	SITEPOWERPROVISIONINGMODE_EXTERNAL SitePowerProvisioningMode = "external"
-	SITEPOWERPROVISIONINGMODE_DPS      SitePowerProvisioningMode = "dps"
 )
 
 // All allowed values of SitePowerProvisioningMode enum
 var AllowedSitePowerProvisioningModeEnumValues = []SitePowerProvisioningMode{
 	"disabled",
 	"external",
-	"dps",
 }
 
 func (v *SitePowerProvisioningMode) UnmarshalJSON(src []byte) error {

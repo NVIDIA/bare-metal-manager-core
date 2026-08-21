@@ -1573,7 +1573,7 @@ UpdateInstance Update Instance
 
 Org must have a Tenant entity. Instance must belong to Tenant. User must have authorization role with `TENANT_ADMIN` suffix.
 
-A non-empty `powerProfile` requires the Site's `powerProvisioning` mode to be `external` or `dps`; otherwise the request returns 412. Omission or `null` preserves the current profile, while an empty string clears it even when power provisioning is disabled.
+A non-empty `powerProfile` requires the Site's `powerProvisioning` mode to be `external`; otherwise the request returns 412. Omission or `null` preserves the current profile, while an empty string clears it even when power provisioning is disabled.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org

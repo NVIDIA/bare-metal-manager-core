@@ -398,14 +398,14 @@ func TestAPISiteUpdateRequest_Validate(t *testing.T) {
 			wantErr:    false,
 		},
 		{
-			name: "validate update request success, Provider enabling DPS power provisioning",
+			name: "validate update request failure, Provider enabling unsupported DPS power provisioning",
 			fields: fields{
 				Capabilities: &APISiteCapabilitiesUpdateRequest{
-					PowerProvisioning: cutil.GetPtr(cdbm.SitePowerProvisioningDPS),
+					PowerProvisioning: cutil.GetPtr("dps"),
 				},
 			},
 			isProvider: true,
-			wantErr:    false,
+			wantErr:    true,
 		},
 		{
 			name: "validate update request success, Provider disabling power provisioning",
@@ -490,9 +490,9 @@ func TestSiteConfigToAPISiteCapabilities(t *testing.T) {
 		},
 		{
 			name:                  "stored capabilities",
-			cfg:                   &cdbm.SiteConfig{VpcSlaac: true, PowerProvisioning: cdbm.SitePowerProvisioningDPS},
+			cfg:                   &cdbm.SiteConfig{VpcSlaac: true, PowerProvisioning: cdbm.SitePowerProvisioningExternal},
 			wantVpcSlaac:          true,
-			wantPowerProvisioning: cdbm.SitePowerProvisioningDPS,
+			wantPowerProvisioning: cdbm.SitePowerProvisioningExternal,
 		},
 		{
 			name:                  "unknown power provisioning mode fails safe",

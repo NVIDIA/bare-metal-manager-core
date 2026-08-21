@@ -40,7 +40,7 @@ type InstanceUpdateRequest struct {
 	SshKeyGroupIds []string `json:"sshKeyGroupIds,omitempty"`
 	// ID of the Network Security Group to attach to the Instance
 	NetworkSecurityGroupId NullableString `json:"networkSecurityGroupId,omitempty"`
-	// External power provisioning profile to apply to the Instance. A non-empty value requires the Site's `powerProvisioning` mode to be `external` or `dps`. Omission or `null` preserves the current profile; an empty string clears it even when power provisioning is disabled.
+	// External power provisioning profile to apply to the Instance. A non-empty value requires the Site's `powerProvisioning` mode to be `external`. Omission or `null` preserves the current profile; an empty string clears it even when power provisioning is disabled.
 	PowerProfile NullableString `json:"powerProfile,omitempty"`
 	// Any user-data to be sent to the booting OS.  For example, cloud-init data.
 	UserData NullableString `json:"userData,omitempty"`

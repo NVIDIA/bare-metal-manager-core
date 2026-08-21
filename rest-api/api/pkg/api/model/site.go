@@ -144,8 +144,7 @@ func (asur APISiteUpdateRequest) Validate(isProvider bool, isTenant bool) error 
 				validation.Field(&asur.Capabilities.PowerProvisioning, validation.In(
 					cdbm.SitePowerProvisioningDisabled,
 					cdbm.SitePowerProvisioningExternal,
-					cdbm.SitePowerProvisioningDPS,
-				).Error("must be disabled, external, or dps")),
+				).Error("must be disabled or external")),
 				validation.Field(&asur.Capabilities.VpcSlaac, validation.Nil.Error(ErrMsgNotConfigurableByProvider)),
 			)
 		}

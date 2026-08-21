@@ -1110,7 +1110,7 @@ paths:
 
         Infrastructure Provider updating the Site must be the owner of the Site. At present, there are no other Site-specific configurations modifiable by Tenant.
 
-        Providers can set `capabilities.powerProvisioning` to `disabled`, `external`, or `dps`. Omission or `null` preserves the current mode; the default mode is `disabled`.
+        Providers can set `capabilities.powerProvisioning` to `disabled` or `external`. Omission or `null` preserves the current mode; the default mode is `disabled`.
       requestBody:
         content:
           application/json:
@@ -3164,7 +3164,7 @@ paths:
 
         Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix
 
-        A non-empty `powerResourceGroup` requires the Site's `powerProvisioning` mode to be `external` or `dps`; otherwise the request returns 412. Omission or `null` preserves the current association, while an empty string clears it even when power provisioning is disabled.
+        A non-empty `powerResourceGroup` requires the Site's `powerProvisioning` mode to be `external`; otherwise the request returns 412. Omission or `null` preserves the current association, while an empty string clears it even when power provisioning is disabled.
       requestBody:
         content:
           application/json:
@@ -7899,7 +7899,7 @@ paths:
 
         Org must have a Tenant entity. Instance must belong to Tenant. User must have authorization role with `TENANT_ADMIN` suffix.
 
-        A non-empty `powerProfile` requires the Site's `powerProvisioning` mode to be `external` or `dps`; otherwise the request returns 412. Omission or `null` preserves the current profile, while an empty string clears it even when power provisioning is disabled.
+        A non-empty `powerProfile` requires the Site's `powerProvisioning` mode to be `external`; otherwise the request returns 412. Omission or `null` preserves the current profile, while an empty string clears it even when power provisioning is disabled.
       requestBody:
         content:
           application/json:
@@ -17790,12 +17790,11 @@ components:
     SitePowerProvisioningMode:
       title: SitePowerProvisioningMode
       type: string
-      description: Controls whether power provisioning values are rejected (`disabled`), managed by a service external to NICo (`external`), or managed by NICo through DPS Max-Q (`dps`). Missing or unrecognized stored values are reported and enforced as `disabled`.
+      description: Controls whether power provisioning values are rejected (`disabled`) or managed by a service external to NICo (`external`). Missing or unrecognized stored values are reported and enforced as `disabled`.
       default: disabled
       enum:
         - disabled
         - external
-        - dps
     SiteCapabilities:
       title: SiteCapabilities
       type: object
@@ -18750,7 +18749,7 @@ components:
             - string
             - 'null'
           minLength: 1
-          description: External power provisioning resource group to associate with the VPC. A non-empty value requires the Site's `powerProvisioning` mode to be `external` or `dps`.
+          description: External power provisioning resource group to associate with the VPC. A non-empty value requires the Site's `powerProvisioning` mode to be `external`.
         networkSecurityGroupId:
           type:
             - string
@@ -18815,7 +18814,7 @@ components:
           type:
             - string
             - 'null'
-          description: External power provisioning resource group to associate with the VPC. A non-empty value requires the Site's `powerProvisioning` mode to be `external` or `dps`. Omission or `null` preserves the current association; an empty string clears it even when power provisioning is disabled.
+          description: External power provisioning resource group to associate with the VPC. A non-empty value requires the Site's `powerProvisioning` mode to be `external`. Omission or `null` preserves the current association; an empty string clears it even when power provisioning is disabled.
         labels:
           $ref: '#/components/schemas/Labels'
           description: 'Update labels of the VPC. Up to 10 key-value pairs can be specified. The labels will be replaced with the labels sent in the request. Any labels not included in the request will be removed. To retain existing labels, fetch them first and include them in this request.'
@@ -21379,7 +21378,7 @@ components:
             - string
             - 'null'
           minLength: 1
-          description: External power provisioning profile to apply to the Instance. A non-empty value requires the Site's `powerProvisioning` mode to be `external` or `dps`.
+          description: External power provisioning profile to apply to the Instance. A non-empty value requires the Site's `powerProvisioning` mode to be `external`.
         networkSecurityGroupId:
           type:
             - string
@@ -21534,7 +21533,7 @@ components:
             - string
             - 'null'
           minLength: 1
-          description: External power provisioning profile to apply to every Instance in the batch. A non-empty value requires the Site's `powerProvisioning` mode to be `external` or `dps`.
+          description: External power provisioning profile to apply to every Instance in the batch. A non-empty value requires the Site's `powerProvisioning` mode to be `external`.
         networkSecurityGroupId:
           type:
             - string
@@ -21716,7 +21715,7 @@ components:
           type:
             - string
             - 'null'
-          description: External power provisioning profile to apply to the Instance. A non-empty value requires the Site's `powerProvisioning` mode to be `external` or `dps`. Omission or `null` preserves the current profile; an empty string clears it even when power provisioning is disabled.
+          description: External power provisioning profile to apply to the Instance. A non-empty value requires the Site's `powerProvisioning` mode to be `external`. Omission or `null` preserves the current profile; an empty string clears it even when power provisioning is disabled.
         userData:
           type:
             - string
