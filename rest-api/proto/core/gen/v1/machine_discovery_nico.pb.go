@@ -95,7 +95,12 @@ type DiscoveryInfo struct {
 	DpuInfo *DpuData `protobuf:"bytes,10,opt,name=dpu_info,json=dpuInfo,proto3,oneof" json:"dpu_info,omitempty"`
 	// Enumerates GPU devices on the host
 	Gpus []*Gpu `protobuf:"bytes,11,rep,name=gpus,proto3" json:"gpus,omitempty"`
-	// Deprecated: use memory_device_groups (field 17) for new writes. Kept for reading old data.
+	// Deprecated: legacy flat list, one entry per physical DIMM. Writers must
+	// emit only memory_device_groups (field 17) and leave this field empty.
+	// Readers must still accept this field: when memory_device_groups is
+	// empty, readers fall back to condensing this field (see
+	// memory_device_groups for condensation rules). When memory_device_groups
+	// is non-empty, this field is ignored.
 	//
 	// Deprecated: Marked as deprecated in machine_discovery_nico.proto.
 	MemoryDevices []*MemoryDevice `protobuf:"bytes,12,rep,name=memory_devices,json=memoryDevices,proto3" json:"memory_devices,omitempty"`
@@ -105,7 +110,18 @@ type DiscoveryInfo struct {
 	AttestKeyInfo  *AttestKeyInfo   `protobuf:"bytes,15,opt,name=attest_key_info,json=attestKeyInfo,proto3" json:"attest_key_info,omitempty"`
 	// CPU info on the host per model (even though only one model is expected)
 	CpuInfo []*CpuInfo `protobuf:"bytes,16,rep,name=cpu_info,json=cpuInfo,proto3" json:"cpu_info,omitempty"`
-	// Condensed memory devices: multiple identical DIMMs rolled up with a count.
+	// Condensed memory devices: consecutive runs of identical DIMMs (same
+	// size_mb and mem_type) rolled up into a single group with a count. This
+	// is the preferred field for new writes; readers use it exclusively
+	// whenever it is non-empty (see memory_devices, field 12, for the legacy
+	// fallback). Only adjacent identical devices are merged, so groups
+	// preserve the original discovery order and the same (size_mb, mem_type)
+	// pair may appear in more than one non-adjacent group. The sum of
+	// `count` across all groups is bounded (implementations should reject
+	// payloads whose total exceeds a few thousand devices, far beyond any
+	// real DIMM slot count) to avoid unbounded allocation when a group is
+	// expanded back into individual devices. Groups with count == 0 carry no
+	// information and are dropped by readers rather than treated as an error.
 	MemoryDeviceGroups []*MemoryDeviceGroup `protobuf:"bytes,17,rep,name=memory_device_groups,json=memoryDeviceGroups,proto3" json:"memory_device_groups,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
@@ -1461,10 +1477,15 @@ func (x *Gpu) GetPlatformInfo() *GpuPlatformInfo {
 	return nil
 }
 
+// A single physical memory device (DIMM). Deprecated in favor of
+// MemoryDeviceGroup; see DiscoveryInfo.memory_devices (field 12).
 type MemoryDevice struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	SizeMb        *uint32                `protobuf:"varint,1,opt,name=size_mb,json=sizeMb,proto3,oneof" json:"size_mb,omitempty"`
-	MemType       *string                `protobuf:"bytes,2,opt,name=mem_type,json=memType,proto3,oneof" json:"mem_type,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Capacity in MiB. Absent when the size could not be determined.
+	SizeMb *uint32 `protobuf:"varint,1,opt,name=size_mb,json=sizeMb,proto3,oneof" json:"size_mb,omitempty"`
+	// Memory type, e.g. "DDR4", "DDR5". Absent when the type could not be
+	// determined.
+	MemType       *string `protobuf:"bytes,2,opt,name=mem_type,json=memType,proto3,oneof" json:"mem_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1513,11 +1534,19 @@ func (x *MemoryDevice) GetMemType() string {
 	return ""
 }
 
+// A run of `count` consecutive, identical DIMMs: same size_mb and same
+// mem_type (including both being absent). See DiscoveryInfo.memory_device_groups
+// (field 17) for condensation, ordering, and bounds semantics.
 type MemoryDeviceGroup struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	SizeMb        *uint32                `protobuf:"varint,1,opt,name=size_mb,json=sizeMb,proto3,oneof" json:"size_mb,omitempty"`
-	MemType       *string                `protobuf:"bytes,2,opt,name=mem_type,json=memType,proto3,oneof" json:"mem_type,omitempty"`
-	Count         uint32                 `protobuf:"varint,3,opt,name=count,proto3" json:"count,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Same semantics as MemoryDevice.size_mb; shared by every device in the group.
+	SizeMb *uint32 `protobuf:"varint,1,opt,name=size_mb,json=sizeMb,proto3,oneof" json:"size_mb,omitempty"`
+	// Same semantics as MemoryDevice.mem_type; shared by every device in the group.
+	MemType *string `protobuf:"bytes,2,opt,name=mem_type,json=memType,proto3,oneof" json:"mem_type,omitempty"`
+	// Number of identical devices this group represents. Zero-count groups
+	// are dropped by readers rather than rejected. The sum of `count` across
+	// all groups in a DiscoveryInfo is bounded; see field 17 above.
+	Count         uint32 `protobuf:"varint,3,opt,name=count,proto3" json:"count,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
