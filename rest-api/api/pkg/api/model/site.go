@@ -341,7 +341,9 @@ type APISiteCapabilities struct {
 }
 
 func siteConfigToAPISiteCapabilities(cfg *cdbm.SiteConfig) *APISiteCapabilities {
-	apiCaps := &APISiteCapabilities{}
+	apiCaps := &APISiteCapabilities{
+		PowerProvisioning: cfg.PowerProvisioningMode(),
+	}
 
 	if cfg != nil {
 		apiCaps.NativeNetworking = cfg.NativeNetworking
@@ -349,7 +351,6 @@ func siteConfigToAPISiteCapabilities(cfg *cdbm.SiteConfig) *APISiteCapabilities 
 		apiCaps.NVLinkPartition = cfg.NVLinkPartition
 		apiCaps.Flow = cfg.Flow
 		apiCaps.ImageBasedOperatingSystem = cfg.ImageBasedOperatingSystem
-		apiCaps.PowerProvisioning = cfg.PowerProvisioningMode(),
 		apiCaps.VpcSlaac = cfg.VpcSlaac
 	}
 
