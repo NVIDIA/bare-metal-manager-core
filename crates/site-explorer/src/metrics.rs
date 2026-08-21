@@ -24,6 +24,8 @@ use ::carbide_utils::metrics::SharedMetricsHolder;
 use carbide_instrument::{Event, LabelValue};
 use carbide_metrics_utils::OtelView;
 use carbide_uuid::machine::MachineType;
+use mac_address::MacAddress;
+use model::machine_boot_interface::BootInterfaceSelectionSource;
 use model::site_explorer::{EndpointExplorationError, MachineExpectation};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Histogram, Meter};
@@ -380,6 +382,82 @@ pub(crate) enum SiteExplorerIterationFinished {
         #[context]
         error: String,
     },
+}
+
+/// Selection mechanisms Site Explorer currently uses for managed hosts with
+/// multiple DPUs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+enum BootInterfaceSelectionMechanism {
+    ExpectedMachine,
+    RedfishUefiPci,
+    /// Natural ordering of the host BMC `Chassis.id` values selected the first DPU.
+    RedfishChassisId,
+    RedfishSerialNumber,
+}
+
+/// One successful boot interface selection during a Site Explorer pass for a
+/// host with more than one explored DPU and effective DPU policy `Manage`.
+#[derive(Event)]
+#[event(
+    event_name = "boot_interface_selected",
+    metric_name = "carbide_site_explorer_boot_interface_selections_total",
+    component = "site-explorer",
+    log = off,
+    metric = counter,
+    describe = "Number of successful Site Explorer boot interface selections for hosts with more than one explored DPU and effective DPU policy Manage, by selection mechanism.",
+    labels(mechanism: BootInterfaceSelectionMechanism),
+)]
+pub(crate) enum BootInterfaceSelected {
+    #[event(labels(mechanism = ExpectedMachine))]
+    ExpectedMachine {},
+
+    #[event(labels(mechanism = RedfishUefiPci))]
+    RedfishUefiPci {},
+
+    #[event(labels(mechanism = RedfishChassisId))]
+    RedfishChassisId {},
+
+    #[event(
+        labels(mechanism = RedfishSerialNumber),
+        log = debug,
+        message = "Selected boot interface using Redfish serial ordering"
+    )]
+    RedfishSerialNumber {
+        #[context]
+        host_bmc_ip_address: IpAddr,
+        #[context]
+        dpu_count: usize,
+        #[context]
+        selected_mac_address: String,
+        #[context]
+        selected_dpu_serial_number: Option<String>,
+    },
+}
+
+impl BootInterfaceSelected {
+    /// Builds an Event only for mechanisms handled by this Site Explorer flow.
+    pub(crate) fn from_selection_source(
+        source: BootInterfaceSelectionSource,
+        host_bmc_ip_address: IpAddr,
+        dpu_count: usize,
+        selected_mac_address: MacAddress,
+        selected_dpu_serial_number: Option<String>,
+    ) -> Option<Self> {
+        match source {
+            BootInterfaceSelectionSource::ExpectedMachine => Some(Self::ExpectedMachine {}),
+            BootInterfaceSelectionSource::RedfishUefiPci => Some(Self::RedfishUefiPci {}),
+            BootInterfaceSelectionSource::RedfishChassisId => Some(Self::RedfishChassisId {}),
+            BootInterfaceSelectionSource::RedfishSerialNumber => Some(Self::RedfishSerialNumber {
+                host_bmc_ip_address,
+                dpu_count,
+                selected_mac_address: selected_mac_address.to_string(),
+                selected_dpu_serial_number,
+            }),
+            BootInterfaceSelectionSource::Operator
+            | BootInterfaceSelectionSource::LegacyUnknown
+            | BootInterfaceSelectionSource::ScoutReportPci => None,
+        }
+    }
 }
 
 /// The step that left a machine's RMS location data incomplete.
@@ -1268,6 +1346,168 @@ mod tests {
             "NIC policy registration keeps the legacy label" {
                 DpuMigrationSignal::RegisteredZeroDpuForNic =>
                     "registered_zero_dpu_for_nic_mode".to_string(),
+            }
+        );
+    }
+
+    #[derive(Clone, Copy)]
+    struct BootInterfaceSelectionCase {
+        source: BootInterfaceSelectionSource,
+        mechanism: &'static str,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct BootInterfaceSelectionObservation {
+        log_count: usize,
+        level: Option<tracing::Level>,
+        message: Option<String>,
+        event_name: Option<String>,
+        metric_name: Option<String>,
+        host_bmc_ip_address: Option<String>,
+        dpu_count: Option<String>,
+        selected_mac_address: Option<String>,
+        selected_dpu_serial_number: Option<String>,
+        counter_delta: f64,
+    }
+
+    #[test]
+    fn boot_interface_selection_mechanisms_have_bounded_labels_and_expected_logs() {
+        const METRIC: &str = "carbide_site_explorer_boot_interface_selections_total";
+
+        value_scenarios!(
+            run = |BootInterfaceSelectionCase { source, mechanism }| {
+                let metrics = MetricsCapture::start();
+                let logs = capture_logs(|| {
+                    emit(
+                        BootInterfaceSelected::from_selection_source(
+                            source,
+                            "192.0.2.10".parse().unwrap(),
+                            2,
+                            "02:00:00:00:00:01".parse().unwrap(),
+                            Some("DPU-SERIAL-1".to_string()),
+                        )
+                        .expect("supported Site Explorer selection source"),
+                    );
+                });
+                let log = logs.first();
+
+                BootInterfaceSelectionObservation {
+                    log_count: logs.len(),
+                    level: log.map(|log| log.level),
+                    message: log.map(|log| log.message.clone()),
+                    event_name: log
+                        .and_then(|log| log.field("event_name"))
+                        .map(str::to_string),
+                    metric_name: log
+                        .and_then(|log| log.field("metric_name"))
+                        .map(str::to_string),
+                    host_bmc_ip_address: log
+                        .and_then(|log| log.field("host_bmc_ip_address"))
+                        .map(str::to_string),
+                    dpu_count: log
+                        .and_then(|log| log.field("dpu_count"))
+                        .map(str::to_string),
+                    selected_mac_address: log
+                        .and_then(|log| log.field("selected_mac_address"))
+                        .map(str::to_string),
+                    selected_dpu_serial_number: log
+                        .and_then(|log| log.field("selected_dpu_serial_number"))
+                        .map(str::to_string),
+                    counter_delta: metrics.counter_delta(METRIC, &[("mechanism", mechanism)]),
+                }
+            };
+            "ExpectedMachine selection is metric-only" {
+                BootInterfaceSelectionCase {
+                    source: BootInterfaceSelectionSource::ExpectedMachine,
+                    mechanism: "expected_machine",
+                } => BootInterfaceSelectionObservation {
+                    log_count: 0,
+                    level: None,
+                    message: None,
+                    event_name: None,
+                    metric_name: None,
+                    host_bmc_ip_address: None,
+                    dpu_count: None,
+                    selected_mac_address: None,
+                    selected_dpu_serial_number: None,
+                    counter_delta: 1.0,
+                },
+            }
+            "RedfishUefiPci selection is metric-only" {
+                BootInterfaceSelectionCase {
+                    source: BootInterfaceSelectionSource::RedfishUefiPci,
+                    mechanism: "redfish_uefi_pci",
+                } => BootInterfaceSelectionObservation {
+                    log_count: 0,
+                    level: None,
+                    message: None,
+                    event_name: None,
+                    metric_name: None,
+                    host_bmc_ip_address: None,
+                    dpu_count: None,
+                    selected_mac_address: None,
+                    selected_dpu_serial_number: None,
+                    counter_delta: 1.0,
+                },
+            }
+            "RedfishChassisId selection is metric-only" {
+                BootInterfaceSelectionCase {
+                    source: BootInterfaceSelectionSource::RedfishChassisId,
+                    mechanism: "redfish_chassis_id",
+                } => BootInterfaceSelectionObservation {
+                    log_count: 0,
+                    level: None,
+                    message: None,
+                    event_name: None,
+                    metric_name: None,
+                    host_bmc_ip_address: None,
+                    dpu_count: None,
+                    selected_mac_address: None,
+                    selected_dpu_serial_number: None,
+                    counter_delta: 1.0,
+                },
+            }
+            "RedfishSerialNumber selection retains its DEBUG diagnostic" {
+                BootInterfaceSelectionCase {
+                    source: BootInterfaceSelectionSource::RedfishSerialNumber,
+                    mechanism: "redfish_serial_number",
+                } => BootInterfaceSelectionObservation {
+                    log_count: 1,
+                    level: Some(tracing::Level::DEBUG),
+                    message: Some(
+                        "Selected boot interface using Redfish serial ordering".to_string(),
+                    ),
+                    event_name: Some("boot_interface_selected".to_string()),
+                    metric_name: Some(METRIC.to_string()),
+                    host_bmc_ip_address: Some("192.0.2.10".to_string()),
+                    dpu_count: Some("2".to_string()),
+                    selected_mac_address: Some("02:00:00:00:00:01".to_string()),
+                    selected_dpu_serial_number: Some("DPU-SERIAL-1".to_string()),
+                    counter_delta: 1.0,
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn unsupported_boot_interface_selection_sources_do_not_construct_an_event() {
+        value_scenarios!(
+            run = |source| BootInterfaceSelected::from_selection_source(
+                source,
+                "192.0.2.10".parse().unwrap(),
+                2,
+                "02:00:00:00:00:01".parse().unwrap(),
+                Some("DPU-SERIAL-1".to_string()),
+            )
+            .is_none();
+            "operator selection" {
+                BootInterfaceSelectionSource::Operator => true,
+            }
+            "legacy unknown selection" {
+                BootInterfaceSelectionSource::LegacyUnknown => true,
+            }
+            "Scout report PCI selection" {
+                BootInterfaceSelectionSource::ScoutReportPci => true,
             }
         );
     }

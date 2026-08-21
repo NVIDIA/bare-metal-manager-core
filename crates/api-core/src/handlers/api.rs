@@ -26,6 +26,10 @@ use tonic::{Request, Response, Status};
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 
+fn advertised_build_capabilities() -> Vec<i32> {
+    vec![rpc::BuildCapability::VpcSlaac as i32]
+}
+
 pub(crate) fn version(
     api: &Api,
     request: Request<rpc::VersionRequest>,
@@ -40,6 +44,7 @@ pub(crate) fn version(
         rust_version: carbide_version::v!(rust_version).to_string(),
         build_user: carbide_version::v!(build_user).to_string(),
         build_hostname: carbide_version::v!(build_hostname).to_string(),
+        capabilities: advertised_build_capabilities(),
 
         runtime_config: if version_request.display_config {
             Some(api.runtime_config.redacted().into())
@@ -188,4 +193,14 @@ pub(crate) fn set_dynamic_config(
         }
     }
     Ok(Response::new(()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn advertised_build_capabilities_include_vpc_slaac() {
+        assert!(advertised_build_capabilities().contains(&(rpc::BuildCapability::VpcSlaac as i32)));
+    }
 }

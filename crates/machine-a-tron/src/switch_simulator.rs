@@ -323,7 +323,7 @@ impl SwitchActor {
             .dhcp_client
             .request_ip(DhcpRequestInfo {
                 mac_address: self.host_info.bmc_mac_address,
-                relay_address: self.config.oob_dhcp_relay_address,
+                relay_address: self.config.bmc_dhcp_relay_address,
                 vendor_class: vendor_class(&machine_info, DhcpRequester::Bmc),
             })
             .await
@@ -342,7 +342,7 @@ impl SwitchActor {
             .dhcp_client
             .request_ip(DhcpRequestInfo {
                 mac_address: *nvos_mac_address,
-                relay_address: self.config.admin_dhcp_relay_address,
+                relay_address: self.config.underlay_dhcp_relay_address,
                 // No DHCP option 60 value has been verified for NVOS.
                 vendor_class: None,
             })

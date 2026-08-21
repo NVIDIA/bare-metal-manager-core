@@ -14,14 +14,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRegistry_Resolve(t *testing.T) {
+func TestRegistry_Lookup(t *testing.T) {
 	componentID := uuid.New()
 	rackID := uuid.New()
 	tests := []struct {
-		name    string
-		request ResolveRequest
-		want    []Target
-		wantErr string
+		name          string
+		request       ResolveRequest
+		want          []Target
+		wantErr       string
+		wantLookupErr string
 	}{
 		{
 			name: "component",
@@ -52,14 +53,6 @@ func TestRegistry_Resolve(t *testing.T) {
 			wantErr: "requires a component resource",
 		},
 		{
-			name: "component requires identity",
-			request: targetRequest(
-				eventrule.TargetStrategyComponent,
-				eventrule.ResolvedResource{Kind: eventrule.ResourceKindComponent},
-			),
-			wantErr: "resolved resource id is required",
-		},
-		{
 			name: "rack from component",
 			request: targetRequest(
 				eventrule.TargetStrategyRack,
@@ -71,14 +64,6 @@ func TestRegistry_Resolve(t *testing.T) {
 				},
 			),
 			want: []Target{{Kind: eventrule.ResourceKindRack, ID: rackID}},
-		},
-		{
-			name: "rack requires identity",
-			request: targetRequest(
-				eventrule.TargetStrategyRack,
-				eventrule.ResolvedResource{Kind: eventrule.ResourceKindRack},
-			),
-			wantErr: "resolved resource id is required",
 		},
 		{
 			name: "affected components from component",
@@ -106,7 +91,7 @@ func TestRegistry_Resolve(t *testing.T) {
 			want: []Target{{Kind: eventrule.ResourceKindRack, ID: rackID}},
 		},
 		{
-			name: "unregistered event-specific strategy",
+			name: "invalid strategy",
 			request: targetRequest(
 				eventrule.TargetStrategy("unknown"),
 				eventrule.ResolvedResource{
@@ -116,14 +101,38 @@ func TestRegistry_Resolve(t *testing.T) {
 					ComponentType: flowtypes.ComponentTypeCompute,
 				},
 			),
-			wantErr: "no target resolver",
+			wantLookupErr: "unknown target strategy",
+		},
+		{
+			name: "strategy without resolver",
+			request: targetRequest(
+				eventrule.TargetStrategyNone,
+				eventrule.ResolvedResource{
+					Kind:          eventrule.ResourceKindComponent,
+					ID:            componentID,
+					RackID:        rackID,
+					ComponentType: flowtypes.ComponentTypeCompute,
+				},
+			),
+			wantLookupErr: "no target resolver",
 		},
 	}
 
 	registry := New()
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			resolved, err := registry.Resolve(context.Background(), test.request)
+			resolver, err := registry.Lookup(
+				test.request.Envelope.Type,
+				test.request.Strategy,
+			)
+			if test.wantLookupErr != "" {
+				require.ErrorContains(t, err, test.wantLookupErr)
+				require.Nil(t, resolver)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, resolver)
+			resolved, err := resolver.Resolve(context.Background(), test.request)
 			if test.wantErr != "" {
 				require.ErrorContains(t, err, test.wantErr)
 				require.Nil(t, resolved)
@@ -140,12 +149,10 @@ func TestRegistry_Resolve(t *testing.T) {
 		require.NoError(t, registry.Register(
 			"hardware.leak.detected",
 			eventrule.TargetStrategyComponent,
-			func(context.Context, ResolveRequest) ([]Target, error) {
-				return want, nil
-			},
+			&staticResolver{targets: want},
 		))
 
-		resolved, err := registry.Resolve(context.Background(), targetRequest(
+		request := targetRequest(
 			eventrule.TargetStrategyComponent,
 			eventrule.ResolvedResource{
 				Kind:          eventrule.ResourceKindComponent,
@@ -153,42 +160,18 @@ func TestRegistry_Resolve(t *testing.T) {
 				RackID:        rackID,
 				ComponentType: flowtypes.ComponentTypeCompute,
 			},
-		))
+		)
+		resolver, err := registry.Lookup(request.Envelope.Type, request.Strategy)
+		require.NoError(t, err)
+		require.NotNil(t, resolver)
+		resolved, err := resolver.Resolve(context.Background(), request)
 		require.NoError(t, err)
 		require.Equal(t, want, resolved)
-	})
-
-	t.Run("invalid resolver result is unresolvable", func(t *testing.T) {
-		registry := New()
-		require.NoError(t, registry.Register(
-			"hardware.leak.detected",
-			eventrule.TargetStrategyComponent,
-			func(context.Context, ResolveRequest) ([]Target, error) {
-				return []Target{{Kind: eventrule.ResourceKindComponent}}, nil
-			},
-		))
-
-		resolved, err := registry.Resolve(context.Background(), targetRequest(
-			eventrule.TargetStrategyComponent,
-			eventrule.ResolvedResource{
-				Kind:          eventrule.ResourceKindComponent,
-				ID:            componentID,
-				RackID:        rackID,
-				ComponentType: flowtypes.ComponentTypeCompute,
-			},
-		))
-		require.ErrorIs(t, err, ErrUnresolvable)
-		require.Nil(t, resolved)
 	})
 }
 
 func TestRegistry_Register(t *testing.T) {
-	resolver := ResolverFunc(func(
-		context.Context,
-		ResolveRequest,
-	) ([]Target, error) {
-		return nil, nil
-	})
+	resolver := &staticResolver{}
 
 	t.Run("event-specific strategy", func(t *testing.T) {
 		require.NoError(t, New().Register(
@@ -217,6 +200,22 @@ func TestRegistry_Register(t *testing.T) {
 			resolver,
 		))
 	})
+	t.Run("struct resolver", func(t *testing.T) {
+		registered := &staticResolver{}
+		registry := New()
+		require.NoError(t, registry.Register(
+			"hardware.leak.detected",
+			eventrule.TargetStrategyAffectedComponents,
+			registered,
+		))
+
+		resolved, err := registry.Lookup(
+			"hardware.leak.detected",
+			eventrule.TargetStrategyAffectedComponents,
+		)
+		require.NoError(t, err)
+		require.Same(t, registered, resolved)
+	})
 	t.Run("nil resolver", func(t *testing.T) {
 		require.Error(t, New().Register(
 			"hardware.leak.detected",
@@ -240,9 +239,7 @@ func TestRegistry_ValidateRule(t *testing.T) {
 		require.NoError(t, registry.Register(
 			rule.EventType,
 			eventrule.TargetStrategyAffectedComponents,
-			func(context.Context, ResolveRequest) ([]Target, error) {
-				return nil, nil
-			},
+			&staticResolver{},
 		))
 		require.NoError(t, registry.ValidateRule(rule))
 	})
@@ -274,6 +271,17 @@ func TestRegistry_ValidateRule(t *testing.T) {
 			})
 		}
 	})
+}
+
+type staticResolver struct {
+	targets []Target
+}
+
+func (r *staticResolver) Resolve(
+	context.Context,
+	ResolveRequest,
+) ([]Target, error) {
+	return r.targets, nil
 }
 
 func targetRequest(

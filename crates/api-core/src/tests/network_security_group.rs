@@ -1084,6 +1084,98 @@ async fn test_network_security_group_propagation_ten_of_ten_dpus(
     test_network_security_group_propagation_impl(pool, 10, 10).await
 }
 
+/// VPC propagation follows persisted interface ownership even when SLAAC has
+/// no concrete row in `instance_addresses`.
+#[crate::sqlx_test]
+async fn test_vpc_network_security_group_propagation_includes_addressless_interface(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    populate_network_security_groups(env.api.clone()).await;
+
+    let tenant_organization_id = "Tenant1";
+    let network_security_group_id = "fd3ab096-d811-11ef-8fe9-7be4b2483448";
+    let vpc_id = VpcId::new();
+    let instance_id = InstanceId::new();
+    let segment_ids = env
+        .create_vpc_and_tenant_segments_with_vpc_details(
+            VpcCreationRequest::builder(tenant_organization_id)
+                .id(vpc_id)
+                .metadata(Metadata::new_with_default_name())
+                .network_security_group_id(network_security_group_id)
+                .rpc(),
+            1,
+        )
+        .await;
+    let [segment_id] = segment_ids.as_slice() else {
+        panic!("expected one tenant segment");
+    };
+    let segment_id = *segment_id;
+    let managed_host = site_explorer::new_host(&env, ManagedHostConfig::default()).await?;
+    env.api
+        .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
+            machine_id: Some(managed_host.host_snapshot.id),
+            config: Some(rpc::InstanceConfig {
+                tenant: Some(default_tenant_config()),
+                os: Some(default_os_config()),
+                network: Some(single_interface_network_config(segment_id)),
+                infiniband: None,
+                network_security_group_id: None,
+                dpu_extension_services: None,
+                nvlink: None,
+                spxconfig: None,
+                power_profile: None,
+            }),
+            instance_id: Some(instance_id),
+            instance_type_id: None,
+            metadata: Some(rpc::Metadata {
+                name: "addressless-vpc-nsg-instance".to_string(),
+                ..Default::default()
+            }),
+            allow_unhealthy_machine: false,
+        }))
+        .await?;
+
+    // Model the missing normalized address row that matters for SLAAC while
+    // retaining the resolved VPC and segment references written by allocation.
+    let mut txn = env.db_txn().await;
+    sqlx::query("DELETE FROM instance_addresses WHERE instance_id = $1")
+        .bind(instance_id)
+        .execute(txn.as_mut())
+        .await?;
+    txn.commit().await?;
+
+    let propagation = env
+        .api
+        .get_network_security_group_propagation_status(tonic::Request::new(
+            rpc::forge::GetNetworkSecurityGroupPropagationStatusRequest {
+                network_security_group_ids: None,
+                vpc_ids: vec![vpc_id.to_string()],
+                instance_ids: vec![],
+            },
+        ))
+        .await?
+        .into_inner();
+    let [vpc_status] = propagation.vpcs.as_slice() else {
+        panic!("expected one VPC propagation result");
+    };
+    assert_eq!(vpc_status.id, vpc_id.to_string());
+    assert_eq!(
+        vpc_status.status,
+        rpc::forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusNone as i32,
+    );
+    assert_eq!(
+        vpc_status.related_instance_ids,
+        vec![instance_id.to_string()]
+    );
+    assert_eq!(
+        vpc_status.unpropagated_instance_ids,
+        vec![instance_id.to_string()],
+    );
+
+    Ok(())
+}
+
 async fn test_network_security_group_propagation_impl(
     pool: sqlx::PgPool,
     dpu_count: usize,

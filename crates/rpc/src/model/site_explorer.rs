@@ -486,6 +486,7 @@ mod tests {
         ExploredDpu {
             bmc_ip: address.parse().expect("valid DPU BMC IP"),
             host_pf_mac_address: mac_address.map(|mac| mac.parse().expect("valid test MAC")),
+            host_chassis_id: None,
             report: Arc::new(EndpointExplorationReport::default()),
         }
     }

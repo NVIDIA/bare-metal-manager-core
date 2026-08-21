@@ -53,7 +53,7 @@ func AllCommands() []Command {
 		{Name: "instance list", Description: "List all instances", Run: cmdInstanceList},
 		{Name: "instance get", Description: "Get instance details", Run: cmdInstanceGet},
 		{Name: "instance create", Description: "Create an instance on a machine", Run: cmdInstanceCreate},
-		{Name: "instance update", Description: "Update an instance (rename, change OS, rotate ssh key groups, trigger reboot)", Run: cmdInstanceUpdate},
+		{Name: "instance update", Description: "Update an instance (rename, change OS, rotate ssh key groups)", Run: cmdInstanceUpdate},
 		{Name: "instance reboot", Description: "Reboot an instance, optionally with custom iPXE / pending updates", Run: cmdInstanceReboot},
 		{Name: "instance delete", Description: "Delete an instance", Run: cmdInstanceDelete},
 
@@ -967,8 +967,9 @@ func cmdMachineList(s *Session, args []string) error {
 	fmt.Fprintf(os.Stderr, "%d items\n", len(items))
 	defer printLabelHint(os.Stderr, items, merged)
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tSTATUS\tBLOCKED BY\tSITE\tVPC\tLABELS\tID")
+	fmt.Fprintln(tw, "NAME\tIP ADDRESS\tSTATUS\tBLOCKED BY\tSITE\tVPC\tLABELS\tID")
 	for _, item := range items {
+		ipAddress := firstMachineIPAddress(item.Raw)
 		siteName := s.Resolver.ResolveID("site", item.Extra["siteId"])
 		vpcNames := strings.TrimSpace(vpcNamesByMachineID[item.ID])
 		if vpcNames == "" {
@@ -978,9 +979,37 @@ func cmdMachineList(s *Session, args []string) error {
 		if blockedBy == "" {
 			blockedBy = "-"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", item.Name, item.Status, blockedBy, siteName, vpcNames, formatLabels(item.Labels, 60), item.ID)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", item.Name, ipAddress, item.Status, blockedBy, siteName, vpcNames, formatLabels(item.Labels, 60), item.ID)
 	}
 	return tw.Flush()
+}
+
+func firstMachineIPAddress(raw interface{}) string {
+	machine, ok := raw.(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	interfaces, ok := machine["machineInterfaces"].([]interface{})
+	if !ok {
+		return ""
+	}
+	for _, rawInterface := range interfaces {
+		machineInterface, ok := rawInterface.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		ipAddresses, ok := machineInterface["ipAddresses"].([]interface{})
+		if !ok {
+			continue
+		}
+		for _, rawIPAddress := range ipAddresses {
+			ipAddress, ok := rawIPAddress.(string)
+			if ok && strings.TrimSpace(ipAddress) != "" {
+				return ipAddress
+			}
+		}
+	}
+	return ""
 }
 
 // blockingHealthAlert captures the fields from MachineHealthProbeAlert that we
@@ -2297,15 +2326,15 @@ const ipBlockManualEntrySentinel = "__manual__"
 // blocks are visible, when listing fails, or when the operator opts out via
 // the trailing sentinel (NVBug 6105076).
 func promptVPCPrefixIPBlockID(s *Session, ctx context.Context) (string, error) {
-	blocks, err := s.Resolver.Fetch(ctx, "ip-block")
+	blocks, tenantID, err := s.fetchVPCPrefixIPBlocks(ctx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s could not list IP blocks (%v); falling back to manual entry\n", Dim("note:"), err)
+		fmt.Fprintf(os.Stderr, "%s could not list current tenant IP blocks (%v); falling back to manual entry\n", Dim("note:"), err)
 		return promptIPBlockIDRaw()
 	}
-	items := buildIPBlockSelectItems(blocks)
+	items := buildIPBlockSelectItems(blocks, tenantID)
 	if len(items) == 1 {
-		// Only the manual-entry sentinel: no IP blocks for this site.
-		fmt.Fprintf(os.Stderr, "%s no IP blocks found for this site; enter an IP block ID manually\n", Dim("note:"))
+		// Only the manual-entry sentinel: no usable tenant IP blocks for this site.
+		fmt.Fprintf(os.Stderr, "%s no Ready tenant IP blocks found for this site; create an allocation or enter an IP block ID manually\n", Dim("note:"))
 		return promptIPBlockIDRaw()
 	}
 	selected, err := Select("IP block:", items)
@@ -2326,15 +2355,19 @@ func promptIPBlockIDRaw() (string, error) {
 	return strings.TrimSpace(raw), nil
 }
 
-// buildIPBlockSelectItems turns the resolver's IP block list into picker
-// options whose ID is the IP block UUID and whose label surfaces the block
-// name (falling back to the UUID when unnamed) plus status. A trailing
-// manual-entry sentinel is always appended -- even for an empty list -- so the
-// operator can still type a raw UUID for a block that isn't listed in the
-// current scope. Blocks without an ID are skipped.
-func buildIPBlockSelectItems(blocks []NamedItem) []SelectItem {
+// buildIPBlockSelectItems turns the resolver's Ready tenant IP blocks into
+// picker options whose ID is the IP block UUID and whose label surfaces the
+// block name (falling back to the UUID when unnamed) plus status. Provider IP
+// blocks and tenant IP blocks that are not Ready cannot back a VPC prefix and
+// are skipped. A trailing manual-entry sentinel is always appended so the
+// operator can still type a raw UUID for a block that isn't listed.
+func buildIPBlockSelectItems(blocks []NamedItem, tenantID string) []SelectItem {
+	tenantID = strings.TrimSpace(tenantID)
 	items := make([]SelectItem, 0, len(blocks)+1)
 	for _, b := range blocks {
+		if strings.TrimSpace(b.Extra["tenantId"]) != tenantID || !strings.EqualFold(strings.TrimSpace(b.Status), "Ready") {
+			continue
+		}
 		id := strings.TrimSpace(b.ID)
 		if id == "" {
 			continue
@@ -2918,20 +2951,14 @@ func promptOptionalResourceIDs(s *Session, ctx context.Context, resourceType, si
 	}
 }
 
-// instanceUpdateInputs collects the optional fields exposed by the TUI
-// instance update form. Extracted so cmdInstanceUpdate stays linear and
-// cmdInstanceReboot can drive a stripped-down version of the same flow.
-type instanceUpdateInputs struct {
-	name                 string
-	description          string
-	osID                 string
-	sshKeyGroupIDs       []string
-	triggerReboot        bool
-	rebootWithCustomIpxe bool
-	applyUpdatesOnReboot bool
+type instanceAttributeUpdateInputs struct {
+	name           string
+	description    string
+	osID           string
+	sshKeyGroupIDs []string
 }
 
-func (u instanceUpdateInputs) toBody() map[string]interface{} {
+func (u instanceAttributeUpdateInputs) attributeBody() map[string]interface{} {
 	body := map[string]interface{}{}
 	if strings.TrimSpace(u.name) != "" {
 		body["name"] = strings.TrimSpace(u.name)
@@ -2945,14 +2972,21 @@ func (u instanceUpdateInputs) toBody() map[string]interface{} {
 	if len(u.sshKeyGroupIDs) > 0 {
 		body["sshKeyGroupIds"] = u.sshKeyGroupIDs
 	}
-	if u.triggerReboot {
-		body["triggerReboot"] = true
-		if u.rebootWithCustomIpxe {
-			body["rebootWithCustomIpxe"] = true
-		}
-		if u.applyUpdatesOnReboot {
-			body["applyUpdatesOnReboot"] = true
-		}
+	return body
+}
+
+type instanceRebootInputs struct {
+	rebootWithCustomIpxe bool
+	applyUpdatesOnReboot bool
+}
+
+func (u instanceRebootInputs) rebootBody() map[string]interface{} {
+	body := map[string]interface{}{"triggerReboot": true}
+	if u.rebootWithCustomIpxe {
+		body["rebootWithCustomIpxe"] = true
+	}
+	if u.applyUpdatesOnReboot {
+		body["applyUpdatesOnReboot"] = true
 	}
 	return body
 }
@@ -2963,7 +2997,7 @@ func cmdInstanceUpdate(s *Session, args []string) error {
 	if err != nil {
 		return err
 	}
-	inputs := instanceUpdateInputs{}
+	inputs := instanceAttributeUpdateInputs{}
 	inputs.name, err = PromptText("New name (optional)", false)
 	if err != nil {
 		return err
@@ -2998,22 +3032,7 @@ func cmdInstanceUpdate(s *Session, args []string) error {
 		}
 	}
 
-	inputs.triggerReboot, err = PromptConfirm("Trigger reboot now?")
-	if err != nil {
-		return err
-	}
-	if inputs.triggerReboot {
-		inputs.rebootWithCustomIpxe, err = PromptConfirm("Reboot with custom iPXE (one-time)?")
-		if err != nil {
-			return err
-		}
-		inputs.applyUpdatesOnReboot, err = PromptConfirm("Apply pending updates on reboot?")
-		if err != nil {
-			return err
-		}
-	}
-
-	body := inputs.toBody()
+	body := inputs.attributeBody()
 	if len(body) == 0 {
 		return fmt.Errorf("no updates provided")
 	}
@@ -3031,6 +3050,7 @@ func cmdInstanceUpdate(s *Session, args []string) error {
 		return fmt.Errorf("parsing response: %w", err)
 	}
 	fmt.Printf("%s Instance updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
+	fmt.Fprintf(os.Stderr, "%s run `instance reboot` when ready\n", Dim("note:"))
 	return nil
 }
 
@@ -3053,11 +3073,10 @@ func cmdInstanceReboot(s *Session, args []string) error {
 		return err
 	}
 
-	body := instanceUpdateInputs{
-		triggerReboot:        true,
+	body := instanceRebootInputs{
 		rebootWithCustomIpxe: rebootWithCustomIpxe,
 		applyUpdatesOnReboot: applyUpdatesOnReboot,
-	}.toBody()
+	}.rebootBody()
 
 	LogCmd(s, "instance", "update", item.ID, "--trigger-reboot=true")
 	bodyJSON, _ := json.Marshal(body)

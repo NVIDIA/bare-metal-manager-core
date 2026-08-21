@@ -266,6 +266,8 @@ type APIVpcCreateRequest struct {
 	SiteID string `json:"siteId"`
 	// NetworkVirtualizationType is a VPC virtualization type
 	NetworkVirtualizationType *string `json:"networkVirtualizationType"`
+	// SlaacEnabled selects SLAAC allocation mode for instance IPv6 interfaces.
+	SlaacEnabled *bool `json:"slaacEnabled"`
 	// Labels is a key value objects
 	Labels map[string]string `json:"labels"`
 	// NetworkSecurityGroupID is the ID if a desired
@@ -388,6 +390,7 @@ func (ascr APIVpcCreateRequest) ToProto(vpc *cdbm.Vpc) *corev1.VpcCreationReques
 		Name:                            vpcProto.Name,
 		TenantOrganizationId:            config.TenantOrganizationId,
 		NetworkVirtualizationType:       config.NetworkVirtualizationType,
+		SlaacEnabled:                    ascr.SlaacEnabled,
 		RoutingProfileType:              routingProfile,
 		RoutingProfileOverrides:         ascr.RoutingProfileOverrides.ToDB().ToProto(),
 		NetworkSecurityGroupId:          config.NetworkSecurityGroupId,
@@ -520,6 +523,8 @@ type APIVpc struct {
 	Site *APISiteSummary `json:"site,omitempty"`
 	// NetworkVirtualizationType is a VPC virtualization type
 	NetworkVirtualizationType *string `json:"networkVirtualizationType"`
+	// SlaacEnabled indicates whether the VPC uses SLAAC allocation mode.
+	SlaacEnabled bool `json:"slaacEnabled"`
 	// ControllerVpcID is the ID of the corresponding VPC in Site Controller
 	ControllerVpcID *string `json:"controllerVpcId"`
 	// Labels is VPC labels specified by user
@@ -571,6 +576,7 @@ func NewAPIVpc(dbVpc cdbm.Vpc, dbsds []cdbm.StatusDetail, includeEffectiveRoutin
 		Status:                                 dbVpc.Status,
 		NetworkSecurityGroupID:                 dbVpc.NetworkSecurityGroupID,
 		NetworkSecurityGroupPropagationDetails: NewAPINetworkSecurityGroupPropagationDetails(dbVpc.NetworkSecurityGroupPropagationDetails),
+		SlaacEnabled:                           dbVpc.SlaacEnabled,
 		Created:                                dbVpc.Created,
 		Updated:                                dbVpc.Updated,
 		RequestedVni:                           dbVpc.Vni,

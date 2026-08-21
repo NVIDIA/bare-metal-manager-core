@@ -20,6 +20,7 @@ use std::str::FromStr;
 use carbide_uuid::extension_service::ExtensionServiceId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::nvlink::NvLinkLogicalPartitionId;
 use carbide_uuid::vpc::VpcId;
 use chrono::prelude::*;
@@ -94,6 +95,122 @@ pub async fn count_ids(
         .map_err(|e| DatabaseError::new("instance::count_ids", e))
 }
 
+/// Adds the rows for every configuration that can still own network resources
+/// for an instance. The current value is in `network_config`; both configurations
+/// in `update_network_config_request` can still own resources until the update
+/// releases the old ones.
+///
+/// A SLAAC interface can retain a prefix without creating a row in
+/// `instance_addresses`, so searches and deletion checks cannot use address
+/// rows as their only source. Callers must name the outer table `instances`
+/// because this expression refers to it directly.
+fn push_network_config_rows(builder: &mut sqlx::QueryBuilder<sqlx::Postgres>) {
+    builder.push(
+        "jsonb_array_elements(jsonb_build_array(
+            instances.network_config,
+            instances.update_network_config_request->'old_config',
+            instances.update_network_config_request->'new_config'
+        )) AS configs(config)",
+    );
+}
+
+/// Adds a predicate that matches an instance whose configurations can still
+/// own resources from `segment_id`.
+pub(super) fn push_network_segment_reference_exists(
+    builder: &mut sqlx::QueryBuilder<sqlx::Postgres>,
+    segment_id: NetworkSegmentId,
+) {
+    builder.push(
+        "EXISTS (
+            SELECT 1
+            FROM ",
+    );
+    push_network_config_rows(builder);
+    builder.push(
+        "
+            WHERE EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements(
+                    COALESCE(configs.config->'interfaces', '[]'::jsonb)
+                ) AS interfaces(interface)
+                WHERE (interfaces.interface->>'network_segment_id')::uuid = ",
+    );
+    builder.push_bind(segment_id);
+    builder.push(
+        "
+            )
+        )",
+    );
+}
+
+/// Adds a predicate that matches an instance whose configurations can still
+/// own resources from `vpc_id`. It deliberately excludes normalized rows in
+/// `instance_addresses`; callers that need those rows add that predicate
+/// separately.
+fn push_network_config_vpc_reference_exists(
+    builder: &mut sqlx::QueryBuilder<sqlx::Postgres>,
+    vpc_id: VpcId,
+) {
+    builder.push(
+        "EXISTS (
+            SELECT 1
+            FROM (SELECT ",
+    );
+    builder.push_bind(vpc_id);
+    builder.push(
+        "::uuid AS vpc_id) AS target
+            WHERE EXISTS (
+                SELECT 1
+                FROM ",
+    );
+    push_network_config_rows(builder);
+    builder.push(
+        "
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements(
+                        COALESCE(configs.config->'interfaces', '[]'::jsonb)
+                    ) AS interfaces(interface)
+                    WHERE (interfaces.interface->>'vpc_id')::uuid = target.vpc_id
+                    OR EXISTS (
+                        SELECT 1
+                        FROM network_segments
+                        WHERE id = (interfaces.interface->>'network_segment_id')::uuid
+                          AND vpc_id = target.vpc_id
+                    )
+                )
+                OR (configs.config #>> '{auto_config,vpc_id}')::uuid = target.vpc_id
+            )
+        )",
+    );
+}
+
+/// Adds the VPC predicate used by instance search.
+///
+/// An interface can name its VPC directly or through its network segment, and
+/// an unresolved automatic configuration keeps the requested VPC in
+/// `auto_config`. The address lookup preserves the existing behavior for
+/// stateful allocations, while [`push_network_config_vpc_reference_exists`]
+/// keeps SLAAC interfaces without host addresses visible.
+fn push_vpc_search_filter(builder: &mut sqlx::QueryBuilder<sqlx::Postgres>, vpc_id: VpcId) {
+    builder.push(
+        " AND (
+            EXISTS (
+                SELECT 1
+                FROM instance_addresses
+                WHERE instance_addresses.instance_id = instances.id
+                  AND instance_addresses.vpc_id = ",
+    );
+    builder.push_bind(vpc_id);
+    builder.push(
+        "
+            )
+            OR ",
+    );
+    push_network_config_vpc_reference_exists(builder, vpc_id);
+    builder.push(")");
+}
+
 /// Appends the `InstanceSearchFilter` predicate onto a query builder whose SQL
 /// already ends in `... WHERE TRUE `. Shared by [`find_ids`] and [`count_ids`]
 /// so the row-returning and counting queries filter identically.
@@ -147,19 +264,8 @@ fn push_search_filter(
     }
 
     if let Some(vpc_id) = filter.vpc_id {
-        // vpc_id needs to be converted to a UUID type. We could
-        // just do a uuid::Uuid, but it seems more appropriate and
-        // correct to convert it into a VpcId (which is what it
-        // *actually* is, and has the necessary sqlx bindings).
         let vpc_id = VpcId::from_str(&vpc_id).map_err(DatabaseError::from)?;
-        builder.push(" AND id IN (");
-        builder.push(
-            "SELECT instances.id FROM instances
-INNER JOIN instance_addresses ON instance_addresses.instance_id = instances.id
-WHERE instance_addresses.vpc_id = ",
-        );
-        builder.push_bind(vpc_id);
-        builder.push(")");
+        push_vpc_search_filter(builder, vpc_id);
     }
 
     Ok(())
@@ -445,6 +551,49 @@ pub async fn any_instance_referencing_nvlink_logical_partition(
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))
+}
+
+/// Counts instances whose current or pending network configuration references
+/// `segment_id` through an interface.
+///
+/// Both configurations in a pending update can still own resources until the
+/// update completes. Instances with a deletion timestamp remain owners until
+/// physical deletion finishes termination. Each instance is counted at most
+/// once even when several configurations or interfaces contain the same
+/// reference.
+pub async fn count_network_segment_references(
+    txn: &mut PgConnection,
+    segment_id: &NetworkSegmentId,
+) -> Result<usize, DatabaseError> {
+    let mut builder = sqlx::QueryBuilder::new("SELECT count(*) FROM instances WHERE ");
+    push_network_segment_reference_exists(&mut builder, *segment_id);
+
+    let reference_count: i64 = builder
+        .build_query_scalar()
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(builder.sql(), e))?;
+
+    Ok(reference_count.max(0) as usize)
+}
+
+/// Counts instances whose current or pending network configuration refers to
+/// `vpc_id` through an interface, its network segment, or an automatic
+/// configuration request.
+pub async fn count_vpc_references(
+    txn: &mut PgConnection,
+    vpc_id: &VpcId,
+) -> Result<usize, DatabaseError> {
+    let mut builder = sqlx::QueryBuilder::new("SELECT count(*) FROM instances WHERE ");
+    push_network_config_vpc_reference_exists(&mut builder, *vpc_id);
+
+    let reference_count: i64 = builder
+        .build_query_scalar()
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(builder.sql(), e))?;
+
+    Ok(reference_count.max(0) as usize)
 }
 
 pub async fn use_custom_ipxe_on_next_boot(
@@ -1606,6 +1755,161 @@ mod tests {
             format!("instance {instance_id} is being deleted"),
         );
         reader.rollback().await.unwrap();
+    }
+
+    /// A soft-deleted instance retains its network resources until physical
+    /// deletion completes the asynchronous termination workflow.
+    #[crate::sqlx_test]
+    async fn network_reference_counts_retain_soft_deleted_instances(pool: sqlx::PgPool) {
+        let mut txn = pool.begin().await.unwrap();
+        let instance_id = seed_instance(&mut txn, 0x44, None).await;
+        let segment_id = NetworkSegmentId::new();
+        let vpc_id = VpcId::new();
+        sqlx::query(
+            "UPDATE instances SET network_config = jsonb_build_object( \
+                 'interfaces', jsonb_build_array(jsonb_build_object( \
+                     'network_segment_id', $2::text, 'vpc_id', $3::text))) \
+             WHERE id = $1",
+        )
+        .bind(instance_id)
+        .bind(segment_id)
+        .bind(vpc_id)
+        .execute(txn.as_mut())
+        .await
+        .unwrap();
+
+        assert_eq!(
+            count_network_segment_references(txn.as_mut(), &segment_id)
+                .await
+                .unwrap(),
+            1,
+        );
+        assert_eq!(
+            count_vpc_references(txn.as_mut(), &vpc_id).await.unwrap(),
+            1,
+        );
+
+        mark_as_deleted(instance_id, txn.as_mut()).await.unwrap();
+        assert_eq!(
+            count_network_segment_references(txn.as_mut(), &segment_id)
+                .await
+                .unwrap(),
+            1,
+        );
+        assert_eq!(
+            count_vpc_references(txn.as_mut(), &vpc_id).await.unwrap(),
+            1,
+        );
+        assert!(
+            crate::instance_address::segment_has_allocations(txn.as_mut(), &segment_id)
+                .await
+                .unwrap()
+        );
+
+        delete(instance_id, txn.as_mut()).await.unwrap();
+        assert_eq!(
+            count_network_segment_references(txn.as_mut(), &segment_id)
+                .await
+                .unwrap(),
+            0,
+        );
+        assert_eq!(
+            count_vpc_references(txn.as_mut(), &vpc_id).await.unwrap(),
+            0,
+        );
+        assert!(
+            !crate::instance_address::segment_has_allocations(txn.as_mut(), &segment_id)
+                .await
+                .unwrap()
+        );
+    }
+
+    /// VPC ownership can remain only in a segment relation or unresolved
+    /// automatic intent. Pending updates keep current, old, and new configs
+    /// live, but one instance still contributes only one reference.
+    #[crate::sqlx_test]
+    async fn count_vpc_references_covers_every_config_location(pool: sqlx::PgPool) {
+        let mut txn = pool.begin().await.unwrap();
+        let vpc_id = VpcId::new();
+        let segment_id = NetworkSegmentId::new();
+        sqlx::query(
+            "INSERT INTO vpcs (id, name, version) \
+             VALUES ($1, 'network-reference-vpc', 'V1-T0')",
+        )
+        .bind(vpc_id)
+        .execute(txn.as_mut())
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO network_segments (id, name, version, vpc_id) \
+             VALUES ($1, 'network-reference-segment', 'V1-T0', $2)",
+        )
+        .bind(segment_id)
+        .bind(vpc_id)
+        .execute(txn.as_mut())
+        .await
+        .unwrap();
+
+        let segment_owned_instance = seed_instance(&mut txn, 0x45, None).await;
+        sqlx::query(
+            "UPDATE instances SET network_config = jsonb_build_object( \
+                 'interfaces', jsonb_build_array(jsonb_build_object( \
+                     'network_segment_id', $2::text))) \
+             WHERE id = $1",
+        )
+        .bind(segment_owned_instance)
+        .bind(segment_id)
+        .execute(txn.as_mut())
+        .await
+        .unwrap();
+
+        let automatic_instance = seed_instance(&mut txn, 0x46, None).await;
+        sqlx::query(
+            "UPDATE instances SET network_config = jsonb_build_object( \
+                 'interfaces', jsonb_build_array(), \
+                 'auto_config', jsonb_build_object('vpc_id', $2::text)) \
+             WHERE id = $1",
+        )
+        .bind(automatic_instance)
+        .bind(vpc_id)
+        .execute(txn.as_mut())
+        .await
+        .unwrap();
+
+        let pending_instance = seed_instance(&mut txn, 0x47, None).await;
+        sqlx::query(
+            "UPDATE instances SET \
+                 network_config = jsonb_build_object( \
+                     'interfaces', jsonb_build_array(jsonb_build_object( \
+                         'vpc_id', $2::text))), \
+                 update_network_config_request = jsonb_build_object( \
+                     'old_config', jsonb_build_object( \
+                         'interfaces', jsonb_build_array(jsonb_build_object( \
+                             'network_segment_id', $3::text))), \
+                     'new_config', jsonb_build_object( \
+                         'interfaces', jsonb_build_array(), \
+                         'auto_config', jsonb_build_object('vpc_id', $2::text))) \
+             WHERE id = $1",
+        )
+        .bind(pending_instance)
+        .bind(vpc_id)
+        .bind(segment_id)
+        .execute(txn.as_mut())
+        .await
+        .unwrap();
+
+        assert_eq!(
+            count_vpc_references(txn.as_mut(), &vpc_id).await.unwrap(),
+            3,
+            "each instance must be counted once regardless of where the reference appears",
+        );
+        assert_eq!(
+            count_vpc_references(txn.as_mut(), &VpcId::new())
+                .await
+                .unwrap(),
+            0,
+            "unrelated VPCs must not match nested configuration fields",
+        );
     }
 }
 

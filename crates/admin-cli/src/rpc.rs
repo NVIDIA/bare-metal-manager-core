@@ -1273,6 +1273,7 @@ impl ApiClient {
                 routing_profile_type: None,
                 routing_profile_overrides: None,
                 power_resource_group: None,
+                slaac_enabled: None,
                 tenant_organization_id: "devenv_test_org".to_string(),
                 tenant_keyset_id: None,
                 network_virtualization_type: Some(
@@ -1338,6 +1339,7 @@ impl ApiClient {
                 routing_profile_type: None,
                 routing_profile_overrides: None,
                 power_resource_group: None,
+                slaac_enabled: None,
                 tenant_organization_id: "devenv_test_org".to_string(),
                 tenant_keyset_id: None,
                 network_virtualization_type: Some(VpcVirtualizationType::Flat.into()),

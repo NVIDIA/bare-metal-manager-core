@@ -485,6 +485,8 @@ pub fn machine_snapshot_pg_json(machine_id: MachineId) -> MachineSnapshotPgJson 
         desired_boot_interface_mac: None,
         desired_boot_interface_id: None,
         desired_boot_interface_version: None,
+        boot_interface_selection_source: None,
+        boot_interface_selection_updated_at: None,
         boot_interface_verified_version: None,
         boot_interface_observed_at: None,
         boot_interface_observation_assumed: false,

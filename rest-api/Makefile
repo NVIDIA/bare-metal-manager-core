@@ -561,34 +561,8 @@ kind-reset-infra: docker-build-local
 	kubectl -n temporal rollout status deployment/temporal-matching --timeout=360s || true
 	kubectl -n temporal rollout status deployment/temporal-worker --timeout=360s || true
 	@echo "Creating Temporal namespaces with TLS (idempotent, with retry)..."
-	@# rollout status reporting the frontend Available does not guarantee it is
-	@# yet serving registration RPCs, so a single-shot create can lose the race
-	@# and (previously) be silently swallowed by `|| true`, leaving the cloud
-	@# worker stuck in CrashLoopBackOff ("Namespace cloud is not found").
-	@# The loop's success condition is a confirmed `describe`, not a successful
-	@# `create`: `create` returning OK does not guarantee the namespace is
-	@# immediately visible (propagation lag), so we re-check with `describe` and
-	@# retry transient NOT_FOUND responses. Fail loudly if it never confirms.
 	@for ns in cloud site; do \
-		echo "Registering Temporal namespace: $$ns"; \
-		ok=""; \
-		for attempt in $$(seq 1 30); do \
-			if kubectl -n temporal exec deploy/temporal-admintools -- temporal operator namespace describe --namespace $$ns --address temporal-frontend.temporal:7233 \
-				--tls-cert-path /var/secrets/temporal/certs/server-interservice/tls.crt \
-				--tls-key-path /var/secrets/temporal/certs/server-interservice/tls.key \
-				--tls-ca-path /var/secrets/temporal/certs/server-interservice/ca.crt \
-				--tls-server-name interservice.server.temporal.local >/dev/null 2>&1; then \
-				echo "  namespace $$ns confirmed"; ok=1; break; \
-			fi; \
-			kubectl -n temporal exec deploy/temporal-admintools -- temporal operator namespace create --namespace $$ns --address temporal-frontend.temporal:7233 \
-				--tls-cert-path /var/secrets/temporal/certs/server-interservice/tls.crt \
-				--tls-key-path /var/secrets/temporal/certs/server-interservice/tls.key \
-				--tls-ca-path /var/secrets/temporal/certs/server-interservice/ca.crt \
-				--tls-server-name interservice.server.temporal.local || true; \
-			echo "  attempt $$attempt: namespace $$ns not confirmed yet, retrying in 5s..."; \
-			sleep 5; \
-		done; \
-		[ -n "$$ok" ] || { echo "ERROR: Temporal namespace $$ns was not created" >&2; exit 1; }; \
+		./scripts/setup-local.sh temporal-namespace "$$ns" || exit 1; \
 	done
 	@echo "Temporal Helm deployment ready"
 

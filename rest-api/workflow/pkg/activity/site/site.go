@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/netip"
+	"slices"
 	"strings"
 	"time"
 
@@ -74,9 +75,9 @@ type ManageSite struct {
 
 // Activity functions
 
-// UpdateSiteMetadataInDB is a Temporal activity that updates the Site metadata in the DB.
+// UpdateSiteInDB is a Temporal activity that updates the Site metadata in the DB.
 func (mst ManageSite) UpdateSiteInDB(ctx context.Context, siteID uuid.UUID, buildInfo *corev1.BuildInfo) error {
-	logger := log.With().Str("Activity", "UpdateSiteMetadataInDB").Str("Site ID", siteID.String()).Logger()
+	logger := log.With().Str("Activity", "UpdateSiteInDB").Str("Site ID", siteID.String()).Logger()
 
 	logger.Info().Msg("starting activity")
 
@@ -93,17 +94,34 @@ func (mst ManageSite) UpdateSiteInDB(ctx context.Context, siteID uuid.UUID, buil
 		return err
 	}
 
-	// Update build version for Site
+	vpcSlaac := slices.Contains(buildInfo.GetCapabilities(), corev1.BuildCapability_BUILD_CAPABILITY_VPC_SLAAC)
+	updateInput := cdbm.SiteUpdateInput{
+		SiteID: site.ID,
+	}
+
+	// Build capabilities are an inventory snapshot, so an absent capability
+	// clears a previously advertised value. Avoid rewriting an equivalent
+	// config; a missing vpc_slaac key decodes to the same false value.
+	if site.Config == nil || site.Config.VpcSlaac != vpcSlaac {
+		updateInput.Config = &cdbm.SiteConfigUpdateInput{
+			VpcSlaac: &vpcSlaac,
+		}
+	}
+
+	// Update build version for Site when Core reports a changed, non-empty value.
 	siteControllerVersion := buildInfo.GetBuildVersion()
 	if siteControllerVersion != "" && (site.SiteControllerVersion == nil || (site.SiteControllerVersion != nil && *site.SiteControllerVersion != siteControllerVersion)) {
-		_, err = siteDAO.Update(ctx, nil, cdbm.SiteUpdateInput{
-			SiteID:                site.ID,
-			SiteControllerVersion: &siteControllerVersion,
-		})
-		if err != nil {
-			logger.Error().Err(err).Msg("failed to update Site controller version in DB")
-			return err
-		}
+		updateInput.SiteControllerVersion = &siteControllerVersion
+	}
+
+	if updateInput.Config == nil && updateInput.SiteControllerVersion == nil {
+		return nil
+	}
+
+	_, err = siteDAO.Update(ctx, nil, updateInput)
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to update Site metadata in DB")
+		return err
 	}
 
 	return nil

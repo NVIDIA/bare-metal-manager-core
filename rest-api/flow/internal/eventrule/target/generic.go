@@ -10,7 +10,9 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
 )
 
-func resolveComponent(
+type componentResolver struct{}
+
+func (componentResolver) Resolve(
 	_ context.Context,
 	request ResolveRequest,
 ) ([]Target, error) {
@@ -29,7 +31,9 @@ func resolveComponent(
 	}}, nil
 }
 
-func resolveRack(
+type rackResolver struct{}
+
+func (rackResolver) Resolve(
 	_ context.Context,
 	request ResolveRequest,
 ) ([]Target, error) {
@@ -39,15 +43,17 @@ func resolveRack(
 	}}, nil
 }
 
-func resolveAffectedComponents(
+type affectedComponentsResolver struct{}
+
+func (affectedComponentsResolver) Resolve(
 	ctx context.Context,
 	request ResolveRequest,
 ) ([]Target, error) {
 	switch request.Resource.Kind {
 	case eventrule.ResourceKindComponent:
-		return resolveComponent(ctx, request)
+		return (componentResolver{}).Resolve(ctx, request)
 	case eventrule.ResourceKindRack:
-		return resolveRack(ctx, request)
+		return (rackResolver{}).Resolve(ctx, request)
 	default:
 		return nil, fmt.Errorf(
 			"%w: "+

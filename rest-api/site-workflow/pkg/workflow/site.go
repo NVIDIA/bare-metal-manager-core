@@ -12,9 +12,10 @@ import (
 	"go.temporal.io/sdk/workflow"
 )
 
-// DiscoverSiteConfigInventory collects the Site Config inventory (today the
-// Site fabric prefixes) and publishes it to the Cloud workflow, which creates
-// the matching Site-level IP Blocks.
+// DiscoverSiteConfigInventory collects Core build metadata, advertised
+// capabilities, and runtime configuration. It publishes that snapshot to the
+// Cloud workflow, which stores the Core version and SLAAC capability and
+// creates IP Blocks for the Site fabric prefixes.
 func DiscoverSiteConfigInventory(ctx workflow.Context) error {
 	logger := temporallog.With(workflow.GetLogger(ctx), "Workflow", "DiscoverSiteConfigInventory")
 

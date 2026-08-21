@@ -69,8 +69,9 @@ pub async fn persist(
     let query =
                 "INSERT INTO vpcs (id, name, organization_id, network_security_group_id, version, network_virtualization_type,
                 description,
-                labels, routing_profile_type, routing_profile_overrides, vni, status, power_resource_group)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *";
+                labels, routing_profile_type, routing_profile_overrides, vni, status, power_resource_group,
+                slaac_enabled)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *";
     sqlx::query_as(query)
         .bind(value.id)
         .bind(&value.metadata.name)
@@ -85,6 +86,7 @@ pub async fn persist(
         .bind(value.vni)
         .bind(sqlx::types::Json(&status))
         .bind(value.power_resource_group)
+        .bind(value.slaac_enabled)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))
@@ -242,6 +244,8 @@ pub async fn find_by_name(txn: impl DbReader<'_>, name: &str) -> Result<Vec<Vpc>
     find_by(txn, ObjectColumnFilter::One(NameColumn, &name)).await
 }
 
+/// Finds the VPC attached to `segment_id`, including a soft-deleted VPC while
+/// its segment is retained for controller cleanup.
 pub async fn find_by_segment(
     txn: impl DbReader<'_>,
     segment_id: NetworkSegmentId,
@@ -265,18 +269,25 @@ pub async fn find_by_segment(
 /// Tries to delete a VPC.
 ///
 /// If the VPC existed at the point of deletion, this returns the last known information about the VPC.
-/// If the VPC was already deleted, this returns Ok(`None`), even if historical orphaned
-/// VPC-prefix rows still reference it.
+/// If the VPC was already deleted, this returns Ok(`None`), even if historical
+/// records still reference it.
 ///
 /// Callers that coordinate VPC-attached child mutations must acquire
 /// [`VpcRowLock::Mutation`] on this VPC before calling this function.
 pub async fn try_delete(txn: &mut PgConnection, id: VpcId) -> Result<Option<Vpc>, DatabaseError> {
-    // Block deletion of active VPCs while any active or soft-deleted prefix row still references
-    // them. The EXISTS clause preserves the existing Ok(None) behavior for already-deleted VPCs,
-    // including legacy cases where old prefix rows may still reference the deleted parent.
-    let vpc_prefix_count_query = "SELECT count(*) FROM network_vpc_prefixes
-        WHERE vpc_id=$1
-        AND EXISTS (SELECT 1 FROM vpcs WHERE id=$1 AND deleted IS NULL)";
+    let active_vpc_query = "SELECT EXISTS(SELECT 1 FROM vpcs WHERE id=$1 AND deleted IS NULL)";
+    let is_active: bool = sqlx::query_scalar(active_vpc_query)
+        .bind(id)
+        .fetch_one(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::query(active_vpc_query, e))?;
+    if !is_active {
+        return Ok(None);
+    }
+
+    // Block deletion while any active or soft-deleted prefix row still
+    // references this active VPC.
+    let vpc_prefix_count_query = "SELECT count(*) FROM network_vpc_prefixes WHERE vpc_id=$1";
     let vpc_prefix_count: i64 = sqlx::query_scalar(vpc_prefix_count_query)
         .bind(id)
         .fetch_one(&mut *txn)
@@ -300,6 +311,13 @@ pub async fn try_delete(txn: &mut PgConnection, id: VpcId) -> Result<Option<Vpc>
     if instance_address_count > 0 {
         return Err(DatabaseError::FailedPrecondition(format!(
             "VPC {id} cannot be deleted while {instance_address_count} instance addresses still reference it"
+        )));
+    }
+
+    let instance_config_reference_count = crate::instance::count_vpc_references(txn, &id).await?;
+    if instance_config_reference_count > 0 {
+        return Err(DatabaseError::FailedPrecondition(format!(
+            "VPC {id} cannot be deleted while {instance_config_reference_count} instance network configurations still reference it"
         )));
     }
 
@@ -487,5 +505,45 @@ pub async fn increment_vpc_version(
             expected_version.to_string(),
         )),
         Err(e) => Err(DatabaseError::query(update_query, e)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Repeating deletion preserves its `Ok(None)` contract even if retained
+    /// instance JSON still references the historical VPC.
+    #[crate::sqlx_test]
+    async fn try_delete_ignores_references_to_already_deleted_vpc(pool: sqlx::PgPool) {
+        let vpc_id = VpcId::new();
+        let machine_id = uuid::Uuid::new_v4();
+        let mut txn = pool.begin().await.unwrap();
+        sqlx::query(
+            "INSERT INTO vpcs (id, name, version, deleted) \
+             VALUES ($1, 'already-deleted-vpc', 'V1-T0', NOW())",
+        )
+        .bind(vpc_id)
+        .execute(txn.as_mut())
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO machines (id, dpf) VALUES ($1, '{}'::jsonb)")
+            .bind(machine_id)
+            .execute(txn.as_mut())
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO instances (machine_id, network_config) \
+             VALUES ($1, jsonb_build_object( \
+                 'interfaces', jsonb_build_array(jsonb_build_object('vpc_id', $2::text))))",
+        )
+        .bind(machine_id)
+        .bind(vpc_id)
+        .execute(txn.as_mut())
+        .await
+        .unwrap();
+
+        assert!(try_delete(txn.as_mut(), vpc_id).await.unwrap().is_none());
+        txn.rollback().await.unwrap();
     }
 }

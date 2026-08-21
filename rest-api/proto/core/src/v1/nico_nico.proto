@@ -1506,6 +1506,13 @@ message VersionRequest {
   bool display_config = 1;
 }
 
+// Capabilities advertised by a Core build. Callers must treat an absent
+// capability as unsupported so requests fail closed against older builds.
+enum BuildCapability {
+  BUILD_CAPABILITY_UNSPECIFIED = 0;
+  BUILD_CAPABILITY_VPC_SLAAC = 1;
+}
+
 message BuildInfo {
   string build_version = 1; // v2023.06-rc2-1-gc5c05de3
   string build_date = 2; // 2023-06-05
@@ -1513,6 +1520,10 @@ message BuildInfo {
   string rust_version = 4; // rustc 1.68.0 (2c8cc3432 2023-03-06)
   string build_user = 5; // graham
   string build_hostname = 6; // fedora
+  // An empty `capabilities` list advertises no optional capabilities.
+  // Callers ignore unknown values and treat an absent recognized capability
+  // as unsupported.
+  repeated BuildCapability capabilities = 7;
 
   optional RuntimeConfig runtime_config = 50;
 }
@@ -1715,6 +1726,15 @@ message VpcConfig {
   // means that the VPC has no associated resource group; empty values are not
   // persisted.
   optional string power_resource_group = 9;
+  // Selects SLAAC allocation mode for instance IPv6 interfaces in this FNN
+  // VPC. When true, NICo retains the interface prefix without assigning a
+  // concrete IPv6 host address. This policy is fixed when the VPC is created
+  // and cannot be changed through `VpcUpdateRequest`. Allocating a /64 to each
+  // interface is tracked by
+  // https://github.com/NVIDIA/infra-controller/issues/2404. Core reports this
+  // field explicitly; an absent value indicates a response from a Core version
+  // that predates SLAAC support.
+  optional bool slaac_enabled = 10;
 }
 
 message VpcStatus {
@@ -1814,6 +1834,13 @@ message VpcCreationRequest {
   // Resource group managed by the external power provisioning service. During
   // creation, omission or an empty value creates no association.
   optional string power_resource_group = 19;
+  // Selects SLAAC allocation mode for instance IPv6 interfaces in this VPC.
+  // When true, this is supported only for FNN VPCs. False or omission disables
+  // SLAAC. Core evaluates this value only during VPC creation;
+  // `VpcUpdateRequest` cannot change the resulting policy. Allocating a /64 to
+  // each interface is tracked by
+  // https://github.com/NVIDIA/infra-controller/issues/2404.
+  optional bool slaac_enabled = 20;
 }
 
 enum VpcVirtualizationType {
@@ -3558,7 +3585,7 @@ message InstanceInterfaceStatus {
   // The logical VPC this interface belongs to.
   optional common.VpcId vpc_id = 8;
 
-  // Prefixes resolved from explicit-prefix or automatic VPC intent.
+  // Prefixes resolved from explicit selections or automatic VPC intent.
   optional InstanceInterfaceResolvedVpcPrefixes resolved_vpc_prefixes = 9;
 }
 
@@ -4899,7 +4926,9 @@ message FlatInterfaceRoutingProfile {
 // IPv6 configuration for an FNN interface that includes IPv6, sent from the
 // API to the DPU agent as part of FlatInterfaceConfig.
 message FlatInterfaceIpv6Config {
-  // Host IPv6 address (e.g. "2001:db8::1").
+  // Host IPv6 address (e.g. "2001:db8::1"). Empty only when the owning VPC
+  // has SLAAC enabled; in that case interface_prefix still identifies the
+  // prefix configured on the DPU interface.
   string ip = 1;
   // Interface-specific prefix allocation (e.g. "2001:db8::/127").
   string interface_prefix = 2;
@@ -9723,6 +9752,31 @@ message RetainedBootInterface {
   google.protobuf.Timestamp recorded_at = 3;
 }
 
+// Why the current desired boot interface target was selected. The target
+// interface may belong to a DPU in DPU or NIC mode, or it may be an integrated
+// or onboard NIC. This records the selection mechanism or authority; it does
+// not describe reconciliation state.
+enum BootInterfaceSelectionSource {
+  // Wire sentinel for an omitted field or a server that does not report this
+  // contract. This is not a persisted selection source.
+  BOOT_INTERFACE_SELECTION_SOURCE_UNSPECIFIED = 0;
+  // An ExpectedMachine primary declaration selected the interface.
+  BOOT_INTERFACE_SELECTION_SOURCE_EXPECTED_MACHINE = 1;
+  // An operator selected the interface through an administrative write.
+  BOOT_INTERFACE_SELECTION_SOURCE_OPERATOR = 2;
+  // Redfish UEFI PCI path ordering selected the interface.
+  BOOT_INTERFACE_SELECTION_SOURCE_REDFISH_UEFI_PCI = 3;
+  // Redfish chassis identifier ordering selected the interface.
+  BOOT_INTERFACE_SELECTION_SOURCE_REDFISH_CHASSIS_ID = 4;
+  // Redfish DPU serial number ordering selected the interface.
+  BOOT_INTERFACE_SELECTION_SOURCE_REDFISH_SERIAL_NUMBER = 5;
+  // Host PCI data in a Scout report selected the interface.
+  BOOT_INTERFACE_SELECTION_SOURCE_SCOUT_REPORT_PCI = 6;
+  // Explicit persisted value for selections that predate source tracking or
+  // whose current source cannot be recovered.
+  BOOT_INTERFACE_SELECTION_SOURCE_LEGACY_UNKNOWN = 7;
+}
+
 message GetMachineBootInterfacesResponse {
   // The desired boot-interface generation, its latest persisted observation,
   // and any machine-controller work currently reconciling it.
@@ -9767,6 +9821,14 @@ message GetMachineBootInterfacesResponse {
     optional string reconciling_version = 8;
     // Persisted terminal boot-reconciliation failure, when one exists.
     optional string failure = 9;
+    // Mechanism or authority that selected the current desired target. When
+    // omitted, the proto3 zero value `UNSPECIFIED` means the server reported no
+    // source; that wire sentinel is distinct from persisted `LEGACY_UNKNOWN`.
+    BootInterfaceSelectionSource selection_source = 10;
+    // Time the current target and source decision was established. Adding a
+    // Redfish interface ID for the same MAC preserves it. Absent for legacy
+    // rows whose selection history predates source tracking.
+    google.protobuf.Timestamp selection_updated_at = 11;
   }
 
   common.MachineId machine_id = 1;
@@ -9952,7 +10014,8 @@ message InterfaceAddressConfig {
   // IPv4 gateway CIDR. For IPv6, the DPU-side port/linknet CIDR used as
   // gateway_cidr, matching FlatInterfaceIpv6Config.interface_prefix.
   string gateway = 2;
-  // Host address, without a prefix length.
+  // Host address, without a prefix length. Empty only for a V6 entry whose
+  // owning VPC has SLAAC enabled; interface_prefix remains populated then.
   string ip = 3;
   // Prefix allocated to this interface, such as an FNN linknet or host route.
   string interface_prefix = 4;

@@ -493,9 +493,11 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub network_security_group: NetworkSecurityGroupConfig,
 
-    /// Minimum functioning DPU links required for the DPU
-    /// to be considered healthy. If unset, all links must
-    /// be functional.
+    /// Controls the DPU ToR BGP health checks. If unset, both uplinks are
+    /// checked; zero disables the checks, and values above two produce a
+    /// configuration health alert. With one, either established link satisfies
+    /// the minimum, but a failed p0 is still reported because PXE boot depends
+    /// on the primary session.
     #[serde(default)]
     pub min_dpu_functioning_links: Option<u32>,
 
@@ -4377,6 +4379,7 @@ mod tests {
             routing_profile_type: routing_profile_type.map(str::to_string),
             routing_profile_overrides,
             power_resource_group: None,
+            slaac_enabled: false,
         }
     }
 

@@ -26,9 +26,12 @@
 
 use carbide_redfish::libredfish::test_support::RedfishSimAction;
 use carbide_uuid::machine::MachineId;
+use chrono::{DateTime, Utc};
 use ipnetwork::IpNetwork;
 use model::machine::{InstanceState, ManagedHostState};
-use model::machine_boot_interface::MachineBootInterfaceTarget;
+use model::machine_boot_interface::{
+    BootInterfaceSelectionSource, MachineBootInterface, MachineBootInterfaceTarget,
+};
 use model::network_segment::NetworkSegmentType;
 use model::test_support::ManagedHostConfig;
 use rpc::forge;
@@ -183,6 +186,166 @@ async fn test_set_dpu_first_persists_managed_host_intent_without_redfish(
         .expect("the managed request should persist its selected target");
     assert_eq!(desired.value, original_target);
     assert_ne!(desired.version, reapplied.version);
+
+    Ok(())
+}
+
+// Reapplying an automatically selected target is not itself a selection. Only
+// an entered MAC establishes explicit operator authority.
+#[crate::sqlx_test]
+async fn test_managed_reapply_preserves_selection_until_operator_enters_a_mac(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = api_fixtures::create_test_env(pool).await;
+    let host =
+        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::default().with_dpu_count(2))
+            .await?;
+    let host_id = host.host_snapshot.id;
+    let desired = db::machine_desired_boot_interface::get(&env.pool, &host_id)
+        .await?
+        .expect("ingestion should select a desired target");
+    let expected_pair = match &desired.value {
+        MachineBootInterfaceTarget::Pair(pair) => pair.clone(),
+        MachineBootInterfaceTarget::MacOnly(_) => {
+            panic!("managed fixture should resolve a complete Redfish boot-interface pair")
+        }
+    };
+    let sentinel =
+        DateTime::from_timestamp(1_700_000_000, 123_000_000).expect("fixture selection timestamp");
+    sqlx::query(
+        "UPDATE machine_boot_interfaces
+         SET desired_interface_id = NULL,
+             selection_updated_at = $1
+         WHERE machine_id = $2",
+    )
+    .bind(sentinel)
+    .bind(host_id)
+    .execute(&env.pool)
+    .await?;
+    let selection = || async {
+        sqlx::query_as::<_, (BootInterfaceSelectionSource, Option<DateTime<Utc>>)>(
+            "SELECT selection_source, selection_updated_at
+             FROM machine_boot_interfaces
+             WHERE machine_id = $1",
+        )
+        .bind(host_id)
+        .fetch_one(&env.pool)
+        .await
+    };
+    let automatic_selection = selection().await?;
+    assert_ne!(
+        automatic_selection.0,
+        BootInterfaceSelectionSource::Operator
+    );
+    assert_eq!(automatic_selection.1, Some(sentinel));
+
+    env.api
+        .set_dpu_first_boot_order(tonic::Request::new(forge::SetDpuFirstBootOrderRequest {
+            machine_id: Some(host_id.to_string()),
+            bmc_endpoint_request: None,
+            boot_interface_mac: None,
+        }))
+        .await?;
+    assert_eq!(
+        selection().await?,
+        automatic_selection,
+        "reapplying the resolved target must preserve why it was selected",
+    );
+    assert_eq!(
+        db::machine_desired_boot_interface::get(&env.pool, &host_id)
+            .await?
+            .expect("reapply should retain a target")
+            .value,
+        MachineBootInterfaceTarget::Pair(expected_pair),
+        "reapply should restore the resolved Redfish id without reselecting the interface",
+    );
+
+    env.api
+        .set_dpu_first_boot_order(tonic::Request::new(forge::SetDpuFirstBootOrderRequest {
+            machine_id: Some(host_id.to_string()),
+            bmc_endpoint_request: None,
+            boot_interface_mac: Some(desired.value.mac_address().to_string()),
+        }))
+        .await?;
+    let operator_selection = selection().await?;
+    assert_eq!(operator_selection.0, BootInterfaceSelectionSource::Operator);
+    assert_ne!(
+        operator_selection.1, automatic_selection.1,
+        "an entered MAC must timestamp the operator authority change",
+    );
+
+    Ok(())
+}
+
+// A managed reapply refreshes a changed vendor native Redfish ID for the same
+// physical interface. Learning that metadata does not reselect the interface,
+// so the recorded selection source and decision time remain unchanged.
+#[crate::sqlx_test]
+async fn test_managed_reapply_refreshes_same_mac_redfish_id_without_reselecting(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = api_fixtures::create_test_env(pool).await;
+    let host =
+        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::default().with_dpu_count(2))
+            .await?;
+    let host_id = host.host_snapshot.id;
+    let before = db::machine_desired_boot_interface::get(&env.pool, &host_id)
+        .await?
+        .expect("ingestion should select a desired target");
+    let before_pair = match &before.value {
+        MachineBootInterfaceTarget::Pair(pair) => pair,
+        MachineBootInterfaceTarget::MacOnly(_) => {
+            panic!("managed fixture should resolve a complete Redfish boot-interface pair")
+        }
+    };
+    let selection_before =
+        sqlx::query_as::<_, (BootInterfaceSelectionSource, Option<DateTime<Utc>>)>(
+            "SELECT selection_source, selection_updated_at
+         FROM machine_boot_interfaces
+         WHERE machine_id = $1",
+        )
+        .bind(host_id)
+        .fetch_one(&env.pool)
+        .await?;
+    let refreshed_interface_id = format!("{}.refreshed", before_pair.interface_id);
+    let mut txn = env.pool.begin().await?;
+    db::machine_interface::set_boot_interface_id(
+        before_pair.mac_address,
+        &refreshed_interface_id,
+        txn.as_mut(),
+    )
+    .await?;
+    txn.commit().await?;
+
+    env.api
+        .set_dpu_first_boot_order(tonic::Request::new(forge::SetDpuFirstBootOrderRequest {
+            machine_id: Some(host_id.to_string()),
+            bmc_endpoint_request: None,
+            boot_interface_mac: None,
+        }))
+        .await?;
+
+    let after = db::machine_desired_boot_interface::get(&env.pool, &host_id)
+        .await?
+        .expect("managed reapply should retain a desired target");
+    assert_eq!(
+        after.value,
+        MachineBootInterfaceTarget::Pair(MachineBootInterface {
+            mac_address: before_pair.mac_address,
+            interface_id: refreshed_interface_id,
+        }),
+    );
+    assert_ne!(after.version, before.version);
+    let selection_after =
+        sqlx::query_as::<_, (BootInterfaceSelectionSource, Option<DateTime<Utc>>)>(
+            "SELECT selection_source, selection_updated_at
+         FROM machine_boot_interfaces
+         WHERE machine_id = $1",
+        )
+        .bind(host_id)
+        .fetch_one(&env.pool)
+        .await?;
+    assert_eq!(selection_after, selection_before);
 
     Ok(())
 }

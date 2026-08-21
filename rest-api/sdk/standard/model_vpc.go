@@ -39,6 +39,8 @@ type VPC struct {
 	ControllerVpcId NullableString `json:"controllerVpcId,omitempty"`
 	// Network virtualization type of the VPC. Flat VPCs hold instances on zero-DPU hosts (or hosts with their DPU in NIC mode); their interfaces are bound to underlay (HostInband) network segments and NICo does not drive their data plane.
 	NetworkVirtualizationType NullableString `json:"networkVirtualizationType,omitempty"`
+	// Whether this VPC uses SLAAC allocation mode for instance IPv6 interfaces. This value is fixed when the VPC is created. Complete SLAAC support depends on allocating a `/64` to each interface, tracked by https://github.com/NVIDIA/infra-controller/issues/2404, and router advertisement (RA) support, tracked by https://github.com/NVIDIA/infra-controller/issues/2398.
+	SlaacEnabled *bool `json:"slaacEnabled,omitempty"`
 	// Routing profile type for the VPC. Populated when Site has Native Networking enabled and network virtualization type is `FNN`.
 	RoutingProfile NullableString `json:"routingProfile,omitempty"`
 	// Routing-profile properties set directly on the VPC. Unset properties inherit from the named routing profile.
@@ -371,6 +373,38 @@ func (o *VPC) SetNetworkVirtualizationTypeNil() {
 // UnsetNetworkVirtualizationType ensures that no value is present for NetworkVirtualizationType, not even an explicit nil
 func (o *VPC) UnsetNetworkVirtualizationType() {
 	o.NetworkVirtualizationType.Unset()
+}
+
+// GetSlaacEnabled returns the SlaacEnabled field value if set, zero value otherwise.
+func (o *VPC) GetSlaacEnabled() bool {
+	if o == nil || IsNil(o.SlaacEnabled) {
+		var ret bool
+		return ret
+	}
+	return *o.SlaacEnabled
+}
+
+// GetSlaacEnabledOk returns a tuple with the SlaacEnabled field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *VPC) GetSlaacEnabledOk() (*bool, bool) {
+	if o == nil || IsNil(o.SlaacEnabled) {
+		return nil, false
+	}
+	return o.SlaacEnabled, true
+}
+
+// HasSlaacEnabled returns a boolean if a field has been set.
+func (o *VPC) HasSlaacEnabled() bool {
+	if o != nil && !IsNil(o.SlaacEnabled) {
+		return true
+	}
+
+	return false
+}
+
+// SetSlaacEnabled gets a reference to the given bool and assigns it to the SlaacEnabled field.
+func (o *VPC) SetSlaacEnabled(v bool) {
+	o.SlaacEnabled = &v
 }
 
 // GetRoutingProfile returns the RoutingProfile field value if set, zero value otherwise (both if not set or set to explicit null).
@@ -888,6 +922,9 @@ func (o VPC) ToMap() (map[string]interface{}, error) {
 	}
 	if o.NetworkVirtualizationType.IsSet() {
 		toSerialize["networkVirtualizationType"] = o.NetworkVirtualizationType.Get()
+	}
+	if !IsNil(o.SlaacEnabled) {
+		toSerialize["slaacEnabled"] = o.SlaacEnabled
 	}
 	if o.RoutingProfile.IsSet() {
 		toSerialize["routingProfile"] = o.RoutingProfile.Get()

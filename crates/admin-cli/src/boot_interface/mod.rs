@@ -30,6 +30,9 @@ use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
 
+/// Align summary values across both boot interface inspection commands.
+const SUMMARY_LABEL_WIDTH: usize = 29;
+
 #[derive(Parser, Debug, Dispatch)]
 pub(crate) enum Cmd {
     // Note for the abouts below: possessives are deliberately avoided -- the
