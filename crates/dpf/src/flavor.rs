@@ -24,8 +24,10 @@ use kube::core::ObjectMeta;
 use sha2::{Digest, Sha256};
 
 use crate::crds::dpuflavors_generated::{
-    DPUFlavor, DpuFlavorConfigFiles, DpuFlavorConfigFilesOperation, DpuFlavorContainerdConfig,
-    DpuFlavorDpuMode, DpuFlavorEwNicConfigurations, DpuFlavorEwNicConfigurationsNetworkBay,
+    DPUFlavor, DpuFlavorConfigFiles, DpuFlavorConfigFilesContentFrom,
+    DpuFlavorConfigFilesContentFromConfigMapKeyRef, DpuFlavorConfigFilesOperation,
+    DpuFlavorConfigFilesType, DpuFlavorContainerdConfig, DpuFlavorDpuMode,
+    DpuFlavorEwNicConfigurations, DpuFlavorEwNicConfigurationsNetworkBay,
     DpuFlavorEwNicConfigurationsRawNvConfig, DpuFlavorEwNicConfigurationsSpectrumXOptimized,
     DpuFlavorEwNicConfigurationsSpectrumXOptimizedMultiplaneMode,
     DpuFlavorEwNicConfigurationsSpectrumXOptimizedOverlay, DpuFlavorGrub, DpuFlavorNvconfig,
@@ -97,6 +99,11 @@ fn get_bf4_ovs_defaults_base() -> String {
         "_ovs-vsctl() {\n",
         "    ovs-vsctl --timeout 15 \"$@\"\n",
         "}\n",
+        // Exported so the operator hook scripts inherit the helper, as on Astra.
+        "export -f _ovs-vsctl\n",
+
+        // Guarded: agent-applied, so absent on the first boot.
+        "if [ -x /opt/dpf/extra-script-pre-ovs.sh ]; then /opt/dpf/extra-script-pre-ovs.sh; fi\n",
 
         "# Remove default OVS configuration on the DPU and ensure no leftovers on the OVS kernel side\n",
         "for i in $(seq 1 99); do\n",
@@ -130,9 +137,12 @@ fn get_bf4_ovs_defaults_base() -> String {
         "_ovs-vsctl set Interface p0 mtu_request=9216\n",
         "_ovs-vsctl set Port p0 external_ids:dpf-type=physical\n",
 
+        // br-hbn is absent on a fresh DPU, so a bare del-br would fail the run.
+        "_ovs-vsctl --if-exists del-br br-hbn\n",
         "_ovs-vsctl --may-exist add-br br-hbn\n",
         "_ovs-vsctl set bridge br-hbn datapath_type=netdev\n",
         "_ovs-vsctl set bridge br-hbn fail_mode=secure\n",
+
         "mst start\n",
     )
     .to_string()
@@ -153,8 +163,10 @@ fn get_default_ovs_defaults_with_topology(topology: Option<&DpfInterceptBridging
 
 /// Builds the generic-BF4 OVS bootstrap after preflighting every configured PF.
 fn get_bf4_ovs_defaults_with_topology(topology: Option<&DpfInterceptBridging>) -> String {
+    // Explicit bash, as on Astra: the base uses `export -f`, which errors under dash.
+    let mut script = String::from("#!/bin/bash\n");
     // Preflight is prepended so no inherited or configured OVS operation can run first.
-    let mut script = topology.map_or_else(String::new, render_bf4_pf_preflight);
+    script.push_str(&topology.map_or_else(String::new, render_bf4_pf_preflight));
     script.push_str(&get_bf4_ovs_defaults_base());
     if let Some(topology) = topology {
         append_peer_bridge_bootstrap(&mut script, topology, |interface| {
@@ -166,8 +178,18 @@ fn get_bf4_ovs_defaults_with_topology(topology: Option<&DpfInterceptBridging>) -
             }
         });
     }
+    // After every bridge and port, but before the encap-IP tail the
+    // `ovs_bootstrap_ends_with_ovn_encap_ip_configuration` contract requires last.
+    append_post_ovs_hook(&mut script);
     append_ovn_encap_ip_bootstrap(&mut script);
     script
+}
+
+/// Appends the operator's post-OVS hook, guarded because it is agent-applied.
+fn append_post_ovs_hook(script: &mut String) {
+    script.push_str(
+        "if [ -x /opt/dpf/extra-script-post-ovs.sh ]; then /opt/dpf/extra-script-post-ovs.sh; fi\n",
+    );
 }
 
 /// Appends the per-DPU OVN address update to provisioning-time OVS configuration.
@@ -312,8 +334,11 @@ fn get_bf4_astra_ovs_defaults() -> String {
         "}\n",
         "export -f _ovs-vsctl\n",
         "\n",
+        // Guarded: agent-applied, so absent on the first boot.
+        "if [ -x /opt/dpf/extra-script-pre-ovs.sh ]; then /opt/dpf/extra-script-pre-ovs.sh; fi\n",
         "# 1. Configure OVS bridges and xplane ports\n",
         "/etc/mellanox/ovs-script.sh\n",
+        "if [ -x /opt/dpf/extra-script-post-ovs.sh ]; then /opt/dpf/extra-script-post-ovs.sh; fi\n",
         "\n",
         "# 2. Configure rail bridge addressing (netplan)\n",
         "/etc/mellanox/xplane-bridge.sh\n",
@@ -866,6 +891,40 @@ fn get_config_files(
             raw: Some(raw),
             content_from: None,
             r#type: None,
+        });
+    }
+
+    // ROLLOUT SAFETY: these entries change the flavor hash, so adding them
+    // reprovisions every existing BF4 DPU once. ConfigMap edits do not.
+    if deployment_type == DpuDeploymentType::Bf4Generic {
+        config_files.push(DpuFlavorConfigFiles {
+            content_from: Some(DpuFlavorConfigFilesContentFrom {
+                config_map_key_ref: Some(DpuFlavorConfigFilesContentFromConfigMapKeyRef {
+                    name: Some("extra-script-pre-ovs-bf4-generic".to_string()),
+                    key: "script".to_string(),
+                    optional: None,
+                }),
+            }),
+            operation: Some(DpuFlavorConfigFilesOperation::Override),
+            path: "/opt/dpf/extra-script-pre-ovs.sh".to_string(),
+            permissions: Some("0755".to_string()),
+            raw: None,
+            r#type: Some(DpuFlavorConfigFilesType::AgentApplied),
+        });
+        config_files.push(DpuFlavorConfigFiles {
+            // CRD allows exactly one of `raw` and `contentFrom`.
+            content_from: Some(DpuFlavorConfigFilesContentFrom {
+                config_map_key_ref: Some(DpuFlavorConfigFilesContentFromConfigMapKeyRef {
+                    name: Some("extra-script-post-ovs-bf4-generic".to_string()),
+                    key: "script".to_string(),
+                    optional: None,
+                }),
+            }),
+            operation: Some(DpuFlavorConfigFilesOperation::Override),
+            path: "/opt/dpf/extra-script-post-ovs.sh".to_string(),
+            permissions: Some("0755".to_string()),
+            raw: None,
+            r#type: Some(DpuFlavorConfigFilesType::AgentApplied),
         });
     }
 
@@ -1480,6 +1539,35 @@ fn get_bf4_astra_config_files(
                 .to_string(),
             ),
             r#type: None,
+        },
+        DpuFlavorConfigFiles {
+            content_from: Some(DpuFlavorConfigFilesContentFrom {
+                config_map_key_ref: Some(DpuFlavorConfigFilesContentFromConfigMapKeyRef {
+                    name: Some("extra-script-pre-ovs-bf4-astra".to_string()),
+                    key: "script".to_string(),
+                    optional: None,
+                }),
+            }),
+            operation: Some(DpuFlavorConfigFilesOperation::Override),
+            path: "/opt/dpf/extra-script-pre-ovs.sh".to_string(),
+            permissions: Some("0755".to_string()),
+            raw: None,
+            r#type: Some(DpuFlavorConfigFilesType::AgentApplied),
+        },
+        DpuFlavorConfigFiles {
+            // CRD allows exactly one of `raw` and `contentFrom`.
+            content_from: Some(DpuFlavorConfigFilesContentFrom {
+                config_map_key_ref: Some(DpuFlavorConfigFilesContentFromConfigMapKeyRef {
+                    name: Some("extra-script-post-ovs-bf4-astra".to_string()),
+                    key: "script".to_string(),
+                    optional: None,
+                }),
+            }),
+            operation: Some(DpuFlavorConfigFilesOperation::Override),
+            path: "/opt/dpf/extra-script-post-ovs.sh".to_string(),
+            permissions: Some("0755".to_string()),
+            raw: None,
+            r#type: Some(DpuFlavorConfigFilesType::AgentApplied),
         },
     ];
 
@@ -2402,12 +2490,12 @@ mod tests {
                     .count();
                 (files.len(), proxy_file_count)
             };
-            "no proxy keeps only the six Astra base files" {
-                None => (6, 0),
+            "no proxy keeps only the eight Astra base files" {
+                None => (8, 0),
             }
 
             "configured proxy appends exactly one proxy file" {
-                proxy("http://proxy:3128", &["10.0.0.0/8", "localhost"]) => (7, 1),
+                proxy("http://proxy:3128", &["10.0.0.0/8", "localhost"]) => (9, 1),
             }
         );
     }
