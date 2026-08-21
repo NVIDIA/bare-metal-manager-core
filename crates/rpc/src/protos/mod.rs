@@ -124,17 +124,23 @@ impl machine_discovery::DiscoveryInfo {
     pub fn rehydrate_memory_devices(
         &mut self,
     ) -> Result<(), crate::errors::RpcDataConversionError> {
-        if self.memory_device_groups.iter().any(|group| group.count > 0) {
+        if self
+            .memory_device_groups
+            .iter()
+            .any(|group| group.count > 0)
+        {
             let total: u64 = self
                 .memory_device_groups
                 .iter()
                 .map(|group| u64::from(group.count))
                 .sum();
             if total > u64::from(machine_discovery::MemoryDeviceGroup::MAX_REHYDRATE_COUNT) {
-                return Err(crate::errors::RpcDataConversionError::MemoryDeviceCountExceeded(
-                    total,
-                    machine_discovery::MemoryDeviceGroup::MAX_REHYDRATE_COUNT,
-                ));
+                return Err(
+                    crate::errors::RpcDataConversionError::MemoryDeviceCountExceeded(
+                        total,
+                        machine_discovery::MemoryDeviceGroup::MAX_REHYDRATE_COUNT,
+                    ),
+                );
             }
             self.memory_devices = self
                 .memory_device_groups
