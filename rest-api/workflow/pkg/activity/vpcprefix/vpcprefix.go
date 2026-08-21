@@ -406,6 +406,21 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 		if lockErr != nil {
 			return nil, fmt.Errorf("unable to create VPC Prefix found on Site: failed to acquire advisory lock on IP Block, DB error: %w", lockErr)
 		}
+
+		// Refresh FullGrant under the lock; the candidate scan above read it before the
+		// lock, so a concurrent create may have flipped it since. Both IPAM helpers gate
+		// on this flag, and a full grant acquires no child prefix, so the usage check in
+		// CreateChildIpamEntryForIPBlock cannot catch a stale value.
+		freshIPBlock, reloadIPBlockErr := cdbm.NewIPBlockDAO(mvp.dbSession).GetByID(ctx, tx, ipBlock.ID, nil)
+		if reloadIPBlockErr != nil {
+			return nil, fmt.Errorf("unable to create VPC Prefix found on Site: failed to reload IP Block under advisory lock, DB error: %w", reloadIPBlockErr)
+		}
+		ipBlock = freshIPBlock
+		if ipBlock.FullGrant {
+			logger.Warn().Msgf("unable to create VPC Prefix found on Site: IP Block %s was fully granted concurrently", ipBlock.ID)
+			return nil, nil
+		}
+
 		ipamStorage := ipam.NewIpamStorage(mvp.dbSession.DB, tx.GetBunTx())
 		// Soft-skips after IPAM mutation must return a non-nil error so WithTxResult
 		// rolls back (e.g. FullGrant=true from CreateChildIpamEntryForIPBlock).
