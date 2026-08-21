@@ -22,6 +22,7 @@ use std::sync::Arc;
 use std::time::{self, Duration};
 
 use ::carbide_utils::HostPortPair;
+use ::machine_a_tron::lifecycle_timings::{LifecycleTimingOverrides, PartialLifecycleTimings};
 use ::machine_a_tron::{
     BmcMockRegistry, DeviceHandle, DhcpType, LogFormat, MachineATronConfig, MachineConfig,
 };
@@ -1437,6 +1438,17 @@ where
                 dpu_per_host_count,
                 dpu_reboot_delay: 1,
                 host_reboot_delay: 1,
+                timing_overrides: Some(LifecycleTimingOverrides {
+                    host: PartialLifecycleTimings {
+                        reboot: Some(Duration::from_secs(1)),
+                        ..Default::default()
+                    },
+                    dpu: PartialLifecycleTimings {
+                        reboot: Some(Duration::from_secs(1)),
+                        ..Default::default()
+                    },
+                }),
+                acceleration_factor: 1.0,
                 underlay_dhcp_relay_address,
                 // Keep this distinct from the DPU Underlay relay so NIC-mode tests fail if
                 // machine-a-tron sends direct host DHCP through the DPU network.

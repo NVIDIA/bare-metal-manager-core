@@ -25,8 +25,7 @@ use bmc_mock::injection::InjectionStore;
 use bmc_mock::ipmi_sim::IpmiEndpoint;
 use bmc_mock::{
     BmcCommand, BmcEvent, BmcState, BootOptionKind, Callbacks, HostnameQuerying, MachineInfo,
-    MockPowerState, POWER_CYCLE_DELAY, SetSystemPowerError, SetSystemPowerResult,
-    SystemPowerControl,
+    MockPowerState, SetSystemPowerError, SetSystemPowerResult, SystemPowerControl,
 };
 use carbide_network::virtualization::build_dual_stack_list;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
@@ -44,6 +43,7 @@ use crate::dhcp_wrapper::{
     DhcpRelayError, DhcpRelayResult, DhcpRequestInfo, DhcpRequester, DhcpResponseInfo,
     DpuDhcpRelay, vendor_class,
 };
+use crate::lifecycle_timings::{LifecycleTimings, PlatformTimingProfile};
 use crate::machine_fsm::{Action as FsmAction, DhcpType, Event, MachineFsm, Timer};
 use crate::machine_state_machine::MachineStateError::MissingMachineId;
 use crate::machine_utils::{
@@ -137,6 +137,7 @@ pub(super) struct MachineStateMachine {
     machine_info: MachineInfo,
     bmc_command_channel: mpsc::UnboundedSender<BmcCommand>,
     config: Arc<MachineConfig>,
+    resolved_timings: LifecycleTimings,
     app_context: Arc<MachineATronContext>,
     dpu_dhcp_relay: Option<DpuDhcpRelay>,
     dpu_dhcp_relay_handle: Option<DpuDhcpRelayHandle>,
@@ -293,6 +294,47 @@ pub(super) enum PersistedMachine {
 }
 
 impl MachineStateMachine {
+    /// Resolve the per-role [`LifecycleTimings`] for this machine from its config.
+    ///
+    /// Selects host or DPU timings from the [`PlatformTimingProfile`] based on
+    /// `machine_info`. Called once at construction time; the result is stored on
+    /// the state machine so timer arms read a single field rather than branching
+    /// on `machine_info` and reaching into the config.
+    fn resolve_timings(machine_info: &MachineInfo, config: &MachineConfig) -> LifecycleTimings {
+        let profile = PlatformTimingProfile::for_hardware_type(&config.hw_type);
+        let base = match machine_info {
+            MachineInfo::Dpu(_) => profile.dpu,
+            MachineInfo::Host(_) => profile.host,
+        };
+        let overrides_for_role = config
+            .timing_overrides
+            .as_ref()
+            .map(|o| match machine_info {
+                MachineInfo::Dpu(_) => &o.dpu,
+                MachineInfo::Host(_) => &o.host,
+            });
+        let after_overrides = match overrides_for_role {
+            Some(o) => base.with_overrides(o),
+            None => base,
+        };
+        let resolved = after_overrides.scale(config.acceleration_factor);
+        tracing::info!(
+            hw_type = ?config.hw_type,
+            role = match machine_info {
+                MachineInfo::Dpu(_) => "dpu",
+                MachineInfo::Host(_) => "host",
+            },
+            acceleration_factor = config.acceleration_factor,
+            has_overrides = overrides_for_role.is_some(),
+            reboot = ?resolved.reboot,
+            power_on_os_ready = ?resolved.power_on_os_ready,
+            power_off_force = ?resolved.power_off_force,
+            bmc_reset = ?resolved.bmc_reset,
+            "Resolved lifecycle timings"
+        );
+        resolved
+    }
+
     pub(super) fn from_persisted(
         persisted_machine: PersistedMachine,
         machine_info: MachineInfo,
@@ -307,6 +349,7 @@ impl MachineStateMachine {
             PersistedMachine::Dpu(d) => (d.installed_os, None),
         };
         let (fsm, actions) = MachineFsm::init(true, Self::is_bmc_only(&machine_info, &config));
+        let resolved_timings = Self::resolve_timings(&machine_info, &config);
         MachineStateMachine {
             fsm,
             actions: actions.into_iter().collect(),
@@ -330,6 +373,7 @@ impl MachineStateMachine {
             machine_info,
             bmc_command_channel,
             config,
+            resolved_timings,
             app_context,
             dpu_dhcp_relay,
             dpu_dhcp_relay_handle: None,
@@ -347,6 +391,7 @@ impl MachineStateMachine {
         mat_host_id: Uuid,
     ) -> MachineStateMachine {
         let (fsm, actions) = MachineFsm::init(false, Self::is_bmc_only(&machine_info, &config));
+        let resolved_timings = Self::resolve_timings(&machine_info, &config);
         MachineStateMachine {
             live_state: Arc::new(RwLock::new(LiveState::for_machine(
                 &machine_info,
@@ -370,6 +415,7 @@ impl MachineStateMachine {
             machine_info,
             bmc_command_channel,
             config,
+            resolved_timings,
             app_context,
             dpu_dhcp_relay,
             dpu_dhcp_relay_handle: None,
@@ -438,15 +484,20 @@ impl MachineStateMachine {
                     Err(_) => return Some(self.config.run_interval_working),
                 },
                 FsmAction::SetTimer(Timer::PowerCycle) => {
-                    self.power_cycle_deadline = Some(Instant::now() + POWER_CYCLE_DELAY);
+                    tracing::info!(
+                        duration = ?self.resolved_timings.power_off_force,
+                        "Timer armed: PowerCycle (power_off_force)"
+                    );
+                    self.power_cycle_deadline =
+                        Some(Instant::now() + self.resolved_timings.power_off_force);
                     self.actions.pop_front();
                 }
                 FsmAction::SetTimer(Timer::MachineOn) => {
-                    let delay = match self.machine_info {
-                        MachineInfo::Dpu(_) => self.config.dpu_reboot_delay,
-                        MachineInfo::Host(_) => self.config.host_reboot_delay,
-                    };
-                    self.machine_on_deadline = Some(Instant::now() + Duration::from_secs(delay));
+                    tracing::info!(
+                        duration = ?self.resolved_timings.reboot,
+                        "Timer armed: MachineOn (reboot)"
+                    );
+                    self.machine_on_deadline = Some(Instant::now() + self.resolved_timings.reboot);
                     self.actions.pop_front();
                 }
                 FsmAction::SetTimer(Timer::ScoutAgentControlPoll) => {
