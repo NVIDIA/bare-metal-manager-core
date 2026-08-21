@@ -1469,6 +1469,7 @@ fn get_bf4_astra_config_files(
                     "    \"MT26206064FY|242|243\"\n",
                     "    \"MT26206064MA|244|245\"\n",
                     "    \"MT26206064KK|246|247\"\n",
+                    "    \"MT2617601WT5|248|249\"\n",
                     ")\n",
                     "\n",
                     "# Define Subnet Prefixes as an associative array indexed by \"rail,sw_plane\"\n",
