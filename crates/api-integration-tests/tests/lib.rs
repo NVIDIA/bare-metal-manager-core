@@ -40,7 +40,6 @@ use futures::future::join_all;
 use itertools::Itertools;
 use mac_address::MacAddress;
 use model::machine_boot_interface::BootInterfaceSelectionSource;
-use sqlx::{Postgres, Row};
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
 
@@ -493,7 +492,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
 
     // Before the initial host bootstrap, the dns_records view
     // should contain 0 entries.
-    assert_eq!(0i64, get_dns_record_count(&db_pool).await);
+    assert_eq!(0i64, db::test_support::dns::record_count(&db_pool).await);
 
     run_machine_a_tron_machine_test(
         HardwareType::DellPowerEdgeR750,
@@ -516,7 +515,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
                 // - 2x "human friendly" (ADM) for Host + DPU.
                 // - 2x Machine ID (BMC) for Host + DPU.
                 // - 2x Machine ID (ADM) for Host + DPU.
-                assert_eq!(8i64, get_dns_record_count(&db_pool).await);
+                assert_eq!(8i64, db::test_support::dns::record_count(&db_pool).await);
 
                 // Metrics are only updated after the machine state controller run one more
                 // time since the emitted metrics are for states at the start of the iteration.
@@ -1315,19 +1314,4 @@ fn assert_relay_selection(
     }
 
     Ok(())
-}
-
-// Get the current number of rows in the dns_records view,
-// which is expected to start at 0, and then progress, as
-// the test continues.
-//
-// TODO(chet): Find a common place for this and the same exact
-// function in api/tests/dns.rs to exist, instead of it being
-// in two places.
-pub async fn get_dns_record_count(pool: &sqlx::Pool<Postgres>) -> i64 {
-    let mut txn = pool.begin().await.unwrap();
-    let query = "SELECT COUNT(*) as row_cnt FROM dns_records";
-    let rows = sqlx::query::<_>(query).fetch_one(&mut *txn).await.unwrap();
-    txn.commit().await.unwrap();
-    rows.try_get("row_cnt").unwrap()
 }
