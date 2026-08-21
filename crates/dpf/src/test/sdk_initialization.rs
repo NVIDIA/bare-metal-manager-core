@@ -399,13 +399,21 @@ impl DpuServiceInterfaceRepository for InitializationMock {
 
 #[async_trait]
 impl K8sConfigRepository for InitializationMock {
+    /// Create-only, like the real repository: an existing ConfigMap is reported
+    /// back rather than overwritten.
     async fn create_configmap(
         &self,
-        _name: &str,
-        _ns: &str,
-        _data: BTreeMap<String, String>,
+        name: &str,
+        ns: &str,
+        data: BTreeMap<String, String>,
     ) -> Result<bool, DpfError> {
-        Ok(true)
+        match self.configs.entry(ns_key(ns, name)) {
+            dashmap::mapref::entry::Entry::Occupied(_) => Ok(false),
+            dashmap::mapref::entry::Entry::Vacant(slot) => {
+                slot.insert(data);
+                Ok(true)
+            }
+        }
     }
 
     async fn get_configmap(
@@ -1120,4 +1128,64 @@ async fn service_versions_fail_when_referenced_template_is_missing() {
     assert!(message.contains(
         "DPUServiceTemplate z-missing not found for service z-missing in DPUDeployment deployment"
     ));
+}
+
+/// Re-initialization must not overwrite an operator's extra-script content.
+///
+/// carbide-api seeds these ConfigMaps on every startup, so the create-only path
+/// is the only thing standing between a restart and a clobbered site script.
+#[tokio::test]
+async fn reinitialization_preserves_operator_extra_scripts() {
+    let mock = InitializationMock::default();
+    let sdk = crate::sdk::DpfSdkBuilder::new(mock.clone(), TEST_NS, "test-password".to_string())
+        .with_labeler(InitializationLabeler)
+        .build_without_resources()
+        .await
+        .unwrap();
+
+    let services = [
+        DTS_SERVICE_NAME,
+        DOCA_HBN_SERVICE_NAME,
+        DPU_AGENT_SERVICE_NAME,
+        DHCP_SERVER_SERVICE_NAME,
+        FMDS_SERVICE_NAME,
+        OTEL_COLLECTOR_SERVICE_NAME,
+    ]
+    .into_iter()
+    .map(|name| ServiceDefinition::new(name, "repo", "chart", "1.0.0"))
+    .collect::<Vec<_>>();
+    let config = InitDpfResourcesConfig {
+        bluefield_software: Some(BlueFieldSoftwareParams {
+            os_iso: "http://example.com/bf4.iso".to_string(),
+            pldm_fw_bundle: Some("http://example.com/bf4.pldm".to_string()),
+        }),
+        deployment_name: "bf4-deployment".to_string(),
+        flavor_name: "bf4-flavor".to_string(),
+        services,
+        deployment_type: DpuDeploymentType::Bf4Generic,
+        ..Default::default()
+    };
+
+    sdk.create_initialization_objects(&config).await.unwrap();
+
+    let key = ns_key(TEST_NS, "extra-script-pre-ovs-bf4-generic");
+    assert!(
+        mock.configs.contains_key(&key),
+        "first initialization seeds the hook ConfigMap"
+    );
+
+    // Stand in for an operator replacing the placeholder with a site script.
+    let operator_script = "#!/usr/bin/env bash\necho site-specific\n";
+    mock.configs.insert(
+        key.clone(),
+        BTreeMap::from([("script".to_string(), operator_script.to_string())]),
+    );
+
+    sdk.create_initialization_objects(&config).await.unwrap();
+
+    assert_eq!(
+        mock.configs.get(&key).unwrap().get("script").unwrap(),
+        operator_script,
+        "a restart must leave the operator's script alone"
+    );
 }

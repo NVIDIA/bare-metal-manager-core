@@ -2046,30 +2046,39 @@ mod tests {
     /// drop or misplace.
     #[test]
     fn bf4_scripts_run_pre_hook_first_and_post_hook_last() {
-        for script in [
-            get_bf4_ovs_defaults_with_topology(None),
-            get_bf4_ovs_defaults_with_topology(Some(&intercept_bridging())),
-            get_bf4_astra_ovs_defaults(),
+        // Matched against a real OVS operation, not the substring "ovs", which
+        // also occurs inside the pre-hook's own filename.
+        for (script, first_ovs_operation) in [
+            (
+                get_bf4_ovs_defaults_with_topology(None),
+                "ovs-vsctl --if-exists del-br",
+            ),
+            (
+                get_bf4_ovs_defaults_with_topology(Some(&intercept_bridging())),
+                "ovs-vsctl --if-exists del-br",
+            ),
+            (get_bf4_astra_ovs_defaults(), "/etc/mellanox/ovs-script.sh"),
         ] {
             let guard = |hook: &str| {
                 let path = format!("/opt/dpf/extra-script-{hook}.sh");
                 let line = format!("if [ -x {path} ]; then {path}; fi");
-                script
+                let at = script
                     .find(&line)
-                    .unwrap_or_else(|| panic!("missing guarded {hook} hook"))
+                    .unwrap_or_else(|| panic!("missing guarded {hook} hook"));
+                (at, line)
             };
-            let (pre, post) = (guard("pre-ovs"), guard("post-ovs"));
+            let (pre, _) = guard("pre-ovs");
+            let (_, post_line) = guard("post-ovs");
 
             let first_ovs = script
-                .find("ovs")
-                .expect("script must contain OVS configuration");
+                .find(first_ovs_operation)
+                .expect("script must contain an OVS operation");
             assert!(pre < first_ovs, "pre-ovs hook must precede all OVS work");
             assert_eq!(
-                post + script[post..].len(),
-                script.len(),
-                "post-ovs hook must be the last line"
+                script.trim_end().lines().last(),
+                Some(post_line.as_str()),
+                "post-ovs hook must be the final line"
             );
-            assert!(script[post..].lines().count() == 1, "nothing may follow it");
         }
     }
 
