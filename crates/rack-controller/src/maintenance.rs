@@ -741,7 +741,7 @@ async fn transition_to_rack_error(
     ctx: &mut StateHandlerContext<'_, RackStateHandlerContextObjects>,
 ) -> Result<StateHandlerOutcome<RackState>, StateHandlerError> {
     let cause = cause.into();
-    tracing::warn!(rack_id = %rack_id, %cause, "Rack firmware upgrade failed before polling started");
+    tracing::warn!(rack_id = %rack_id, %cause, "Rack maintenance failed, transitioning to Error");
     let outcome = StateHandlerOutcome::transition(RackState::Error { cause });
     clear_maintenance_requested_on_error(rack_id, state, outcome, ctx).await
 }
@@ -3051,6 +3051,22 @@ pub async fn handle_maintenance(
                 wait_for_scale_up_fabric_manager_job(id, state, ctx, rack_profile_id, scope, job_id)
                     .await
             }
+            retired @ (ConfigureNmxClusterState::ConfigureCertificates {}
+            | ConfigureNmxClusterState::DisableScaleUpFabricState
+            | ConfigureNmxClusterState::ConfigureScaleUpFabricManager
+            | ConfigureNmxClusterState::WaitForFabricStatus) => {
+                transition_to_rack_error(
+                    id,
+                    state,
+                    format!(
+                        "rack is persisted in ConfigureNmxCluster({retired}), a sub-state this \
+                         version does not run; maintenance cannot resume and the rack requires \
+                         manual intervention"
+                    ),
+                    ctx,
+                )
+                .await
+            }
         },
         RackMaintenanceState::PowerSequence { rack_power } => match rack_power {
             RackPowerState::PoweringOn => {
@@ -3124,10 +3140,9 @@ mod tests {
 
     use super::{
         DeviceFirmwareOutcome, DeviceFirmwareProgress, apply_nvos_job_status_response,
-        delete_rack_maintenance_access_token,
-        filter_inventory_by_scope, firmware_device_status, first_maintenance_state,
-        next_state_after_configure, next_state_after_firmware, next_state_after_nvos,
-        next_state_if_activity_not_requested, profile_hardware_type_or_any,
+        delete_rack_maintenance_access_token, filter_inventory_by_scope, firmware_device_status,
+        first_maintenance_state, next_state_after_configure, next_state_after_firmware,
+        next_state_after_nvos, next_state_if_activity_not_requested, profile_hardware_type_or_any,
         summarize_firmware_outcomes, validate_complete_nmx_fabric_inventory,
     };
 

@@ -39,9 +39,8 @@ use model::expected_rack::ExpectedRack;
 use model::rack::{
     ConfigureNmxClusterState, FirmwareUpgradeDeviceStatus, FirmwareUpgradeJob,
     FirmwareUpgradeState, MaintenanceActivity, MaintenanceScope, NvosUpdateState, Rack, RackConfig,
-    RackFirmwareUpgradeState, RackFirmwareUpgradeStatus,
-    RackMaintenanceState, RackPowerState, RackState, RackValidationState, SwitchNvosUpdateState,
-    SwitchNvosUpdateStatus,
+    RackFirmwareUpgradeState, RackFirmwareUpgradeStatus, RackMaintenanceState, RackPowerState,
+    RackState, RackValidationState, SwitchNvosUpdateState, SwitchNvosUpdateStatus,
 };
 use model::rack_type::{
     RackCapabilitiesSet, RackCapabilityCompute, RackCapabilityPowerShelf, RackCapabilitySwitch,
@@ -3737,6 +3736,78 @@ async fn test_configure_nmx_cluster_v2_completed_job_with_unknown_profile_stops_
             .submitted_batch_get_scale_up_fabric_service_status_requests()
             .await
             .is_empty()
+    );
+
+    Ok(())
+}
+
+/// Verifies that a rack persisted in a `ConfigureNmxCluster` sub-state this
+/// version does not run transitions to `Error` rather than resuming, and that
+/// `maintenance_requested` is cleared so the rack does not loop back into
+/// maintenance.
+#[crate::sqlx_test]
+async fn test_configure_nmx_cluster_retired_sub_state_transitions_to_error(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_with_overrides(pool.clone(), TestEnvOverrides::default()).await;
+
+    let rack_id = new_rack_id();
+    let mut txn = pool.acquire().await?;
+
+    db_rack::create(
+        &mut txn,
+        &rack_id,
+        Some(&RackProfileId::new("Empty")),
+        &RackConfig {
+            maintenance_requested: Some(MaintenanceScope::default()),
+            ..Default::default()
+        },
+        None,
+    )
+    .await?;
+
+    drop(txn);
+
+    let mut rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
+
+    let handler_instance = RackStateHandler::default();
+
+    let mut services = env.rack_state_handler_services();
+    let mut metrics = RackMetrics::default();
+    let mut db_writes = DbWriteBatch::default();
+
+    let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
+        services: &mut services,
+        metrics: &mut metrics,
+        pending_db_writes: &mut db_writes,
+    };
+
+    let retired_state = RackState::Maintenance {
+        maintenance_state: RackMaintenanceState::ConfigureNmxCluster {
+            configure_nmx_cluster: ConfigureNmxClusterState::WaitForFabricStatus,
+        },
+    };
+
+    let outcome = handler_instance
+        .handle_object_state(&rack_id, &mut rack, &retired_state, &mut ctx)
+        .await?;
+
+    let StateHandlerOutcome::Transition { next_state, .. } = outcome else {
+        panic!("expected a transition out of a retired sub-state");
+    };
+
+    let RackState::Error { cause } = &next_state else {
+        panic!("expected Error, got {next_state:?}");
+    };
+
+    assert!(
+        cause.contains("WaitForFabricStatus"),
+        "cause should name the retired sub-state, got {cause}"
+    );
+
+    assert!(
+        rack.config.maintenance_requested.is_none(),
+        "maintenance_requested should be cleared so the rack does not re-enter maintenance"
     );
 
     Ok(())

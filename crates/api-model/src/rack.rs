@@ -462,6 +462,11 @@ impl Display for RackMaintenanceState {
 /// completes, NICo reads the observed fabric status, validates the
 /// RMS-selected primary, persists it with the per-switch Fabric Manager
 /// status, and advances to the next requested maintenance activity.
+///
+/// The remaining variants name sub-states of a workflow this version does not
+/// run. A `controller_state` row can still hold one, so they are decoded to
+/// keep that row from failing the batch queries that load every rack.
+/// Maintenance cannot resume from them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConfigureNmxClusterState {
     Start,
@@ -470,6 +475,19 @@ pub enum ConfigureNmxClusterState {
         /// RMS job identifier returned by submission.
         job_id: String,
     },
+
+    /// Retired sub-state. The braces make this a struct variant, which absorbs
+    /// the payload the retired workflow wrote; a unit variant would reject it.
+    ConfigureCertificates {},
+
+    /// Retired sub-state.
+    DisableScaleUpFabricState,
+
+    /// Retired sub-state.
+    ConfigureScaleUpFabricManager,
+
+    /// Retired sub-state.
+    WaitForFabricStatus,
 }
 
 impl Display for ConfigureNmxClusterState {
@@ -479,6 +497,16 @@ impl Display for ConfigureNmxClusterState {
             ConfigureNmxClusterState::WaitForScaleUpFabricManagerJob { job_id } => {
                 write!(f, "WaitForScaleUpFabricManagerJob({job_id})")
             }
+            ConfigureNmxClusterState::ConfigureCertificates {} => {
+                write!(f, "ConfigureCertificates")
+            }
+            ConfigureNmxClusterState::DisableScaleUpFabricState => {
+                write!(f, "DisableScaleUpFabricState")
+            }
+            ConfigureNmxClusterState::ConfigureScaleUpFabricManager => {
+                write!(f, "ConfigureScaleUpFabricManager")
+            }
+            ConfigureNmxClusterState::WaitForFabricStatus => write!(f, "WaitForFabricStatus"),
         }
     }
 }
@@ -832,6 +860,70 @@ mod tests {
     use carbide_uuid::switch::{SwitchIdSource, SwitchType};
 
     use super::*;
+
+    // ConfigureNmxClusterState wire compatibility
+
+    /// Pins the shapes a `controller_state` row can hold for a rack that was
+    /// mid-maintenance under the retired synchronous workflow. Decoding these
+    /// keeps one such row from failing the batch queries that load every rack.
+    #[test]
+    fn configure_nmx_cluster_state_decodes_retired_sub_states() {
+        for (encoded, expected) in [
+            (
+                serde_json::json!("DisableScaleUpFabricState"),
+                ConfigureNmxClusterState::DisableScaleUpFabricState,
+            ),
+            (
+                serde_json::json!("ConfigureScaleUpFabricManager"),
+                ConfigureNmxClusterState::ConfigureScaleUpFabricManager,
+            ),
+            (
+                serde_json::json!("WaitForFabricStatus"),
+                ConfigureNmxClusterState::WaitForFabricStatus,
+            ),
+            (
+                serde_json::json!({"ConfigureCertificates": {"configure_certificate": "Start"}}),
+                ConfigureNmxClusterState::ConfigureCertificates {},
+            ),
+            (
+                serde_json::json!({
+                    "ConfigureCertificates": {
+                        "configure_certificate": {
+                            "WaitForComplete": {"jobs": [{"switch_id": "s", "job_id": "j"}]}
+                        }
+                    }
+                }),
+                ConfigureNmxClusterState::ConfigureCertificates {},
+            ),
+        ] {
+            let decoded: ConfigureNmxClusterState = serde_json::from_value(encoded.clone())
+                .unwrap_or_else(|error| panic!("{encoded} should decode: {error}"));
+
+            assert_eq!(decoded, expected);
+        }
+    }
+
+    #[test]
+    fn rack_state_decodes_retired_nmx_sub_state_without_failing_the_row() {
+        let persisted = serde_json::json!({
+            "state": "maintenance",
+            "maintenance_state": {
+                "ConfigureNmxCluster": {"configure_nmx_cluster": "WaitForFabricStatus"}
+            }
+        });
+
+        let state: RackState =
+            serde_json::from_value(persisted).expect("persisted rack state should decode");
+
+        assert_eq!(
+            state,
+            RackState::Maintenance {
+                maintenance_state: RackMaintenanceState::ConfigureNmxCluster {
+                    configure_nmx_cluster: ConfigureNmxClusterState::WaitForFabricStatus,
+                },
+            }
+        );
+    }
 
     // ── MaintenanceScope ────────────────────────────────────────────────
 
