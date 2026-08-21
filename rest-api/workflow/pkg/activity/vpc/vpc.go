@@ -177,6 +177,15 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 		reportedVpc := &cdbm.Vpc{}
 		reportedVpc.FromProto(controllerVpc)
 
+		var slaacEnabled *bool
+		reportedConfig := controllerVpc.GetConfig()
+		if reportedConfig != nil && reportedConfig.SlaacEnabled != nil {
+			reportedSlaacEnabled := reportedConfig.GetSlaacEnabled()
+			if vpc.SlaacEnabled != reportedSlaacEnabled {
+				slaacEnabled = cwutil.GetPtr(reportedSlaacEnabled)
+			}
+		}
+
 		// Initialized Network virtualization type
 		var networkVirtualizationType *string
 		// If the VPC in the DB has Network Virtualization Type, but Site reported different one then update it
@@ -193,6 +202,7 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 
 		needsUpdate := isMissingOnSite != nil ||
 			controllerVpcID != nil ||
+			slaacEnabled != nil ||
 			networkVirtualizationType != nil ||
 			!util.PtrsEqual(vpc.RoutingProfile, reportedRoutingProfile) ||
 			!reflect.DeepEqual(vpc.RoutingProfileOverrides, reportedRoutingProfileOverrides) ||
@@ -272,6 +282,7 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 				NetworkSecurityGroupID:                 reportedNSGID,
 				NetworkSecurityGroupPropagationDetails: sitePropagationStatus,
 				NetworkVirtualizationType:              networkVirtualizationType,
+				SlaacEnabled:                           slaacEnabled,
 				RoutingProfile:                         reportedRoutingProfile,
 				RoutingProfileOverrides:                reportedRoutingProfileOverrides,
 				EffectiveRoutingProfile:                reportedEffectiveRoutingProfile,
@@ -544,6 +555,7 @@ func (mv ManageVpc) createOrUpdateVpcFromSite(
 			SiteID:                                 site.ID,
 			NVLinkLogicalPartitionID:               nvllpID,
 			NetworkVirtualizationType:              reportedVpc.NetworkVirtualizationType,
+			SlaacEnabled:                           reportedVpc.SlaacEnabled,
 			RoutingProfile:                         reportedVpc.RoutingProfile,
 			RoutingProfileOverrides:                reportedVpc.RoutingProfileOverrides,
 			EffectiveRoutingProfile:                reportedVpc.EffectiveRoutingProfile,

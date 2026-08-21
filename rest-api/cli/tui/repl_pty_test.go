@@ -120,6 +120,24 @@ func TestCLIRegression_RealTerminalAndNonInteractive(t *testing.T) {
 		terminal.send(t, "\r")
 		terminal.waitFor(t, "No scope set.")
 
+		// VPC prefix creation must offer only Ready tenant-owned IP blocks.
+		terminal.send(t, "scope site site-one\r")
+		terminal.waitFor(t, "Scope set: site =")
+		terminal.send(t, "vpc-prefix create\r")
+		terminal.waitFor(t, "VPC:")
+		terminal.send(t, "\r")
+		terminal.waitFor(t, "VPC prefix name")
+		terminal.send(t, "tenant-prefix\r")
+		terminal.waitFor(t, "Prefix length (8-31)")
+		terminal.send(t, "24\r")
+		terminal.waitFor(t, "IP block:")
+		prefixPickerTranscript := terminal.transcript()
+		assert.Contains(t, prefixPickerTranscript, "tenant-ready")
+		assert.NotContains(t, prefixPickerTranscript, "provider-ready")
+		assert.NotContains(t, prefixPickerTranscript, "tenant-pending")
+		terminal.send(t, "\r")
+		terminal.waitFor(t, "VPC prefix created: tenant-prefix")
+
 		// A lone Escape must cancel a real selector without waiting forever.
 		terminal.send(t, "scope site\r")
 		terminal.waitFor(t, "Site:")
@@ -282,6 +300,17 @@ func TestCLIRegression_RealTerminalAndNonInteractive(t *testing.T) {
 			t,
 			`{"siteId":"site-1","vpc1Id":"vpc-1","vpc2Id":"vpc-2"}`,
 			peeringRequests[0].Body,
+		)
+
+		prefixRequests := recorder.matching(
+			http.MethodPost,
+			"/v2/org/acme/nico/vpc-prefix",
+		)
+		require.Len(t, prefixRequests, 1)
+		assert.JSONEq(
+			t,
+			`{"name":"tenant-prefix","vpcId":"vpc-1","ipBlockId":"tenant-ready-id","prefixLength":24}`,
+			prefixRequests[0].Body,
 		)
 
 		bmcRequests := recorder.matching(
@@ -449,6 +478,24 @@ func newInteractiveRegressionHandler(recorder *cliRegressionRecorder) http.Handl
 				{"id":"vpc-1","name":"vpc-one","siteId":"site-1","status":"Ready"},
 				{"id":"vpc-2","name":"vpc-two","siteId":"site-1","status":"Ready"}
 			]`)
+		case request.Method == http.MethodGet &&
+			request.URL.Path == "/v2/org/acme/nico/infrastructure-provider/current":
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = io.WriteString(w, `{"message":"not a provider"}`)
+		case request.Method == http.MethodGet &&
+			request.URL.Path == "/v2/org/acme/nico/tenant/current":
+			_, _ = io.WriteString(w, `{"id":"tenant-1"}`)
+		case request.Method == http.MethodGet &&
+			request.URL.Path == "/v2/org/acme/nico/ipblock":
+			_, _ = io.WriteString(w, `[
+				{"id":"provider-ready-id","name":"provider-ready","siteId":"site-1","status":"Ready","tenantId":null},
+				{"id":"tenant-pending-id","name":"tenant-pending","siteId":"site-1","status":"Pending","tenantId":"tenant-1"},
+				{"id":"tenant-ready-id","name":"tenant-ready","siteId":"site-1","status":"Ready","tenantId":"tenant-1"}
+			]`)
+		case request.Method == http.MethodPost &&
+			request.URL.Path == "/v2/org/acme/nico/vpc-prefix":
+			w.WriteHeader(http.StatusCreated)
+			_, _ = io.WriteString(w, `{"id":"prefix-1","name":"tenant-prefix","status":"Pending"}`)
 		case request.Method == http.MethodGet &&
 			request.URL.Path == "/v2/org/acme/nico/machine":
 			_, _ = io.WriteString(w, `[

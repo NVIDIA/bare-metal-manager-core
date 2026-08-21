@@ -480,6 +480,122 @@ func compType() string {
 	return devicetypes.ComponentTypeToString(devicetypes.ComponentTypeCompute)
 }
 
+func TestMirrorComponents_DescriptionLifecycle(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		componentType devicetypes.ComponentType
+		serial        string
+		mac           string
+	}{
+		{"ExpectedMachine", devicetypes.ComponentTypeCompute, "DESC-COMPUTE", "aa:bb:cc:dd:ef:01"},
+		{"ExpectedSwitch", devicetypes.ComponentTypeNVSwitch, "DESC-SWITCH", "aa:bb:cc:dd:ef:02"},
+		{"ExpectedPowerShelf", devicetypes.ComponentTypePowerShelf, "DESC-POWER", "aa:bb:cc:dd:ef:03"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, pool := mirrorTestPool(t)
+			componentType := devicetypes.ComponentTypeToString(tc.componentType)
+			spec := expectedComponentSpec{
+				Type:         componentType,
+				Manufacturer: "Mfg",
+				SerialNumber: tc.serial,
+				Name:         tc.serial,
+				Description:  "initial description",
+				BMC:          expectedBMCSpec{MACAddress: tc.mac},
+			}
+
+			mirrorExpectedComponents(ctx, pool, componentType, []expectedComponentSpec{spec}, map[string]uuid.UUID{})
+
+			loadComponent := func() model.Component {
+				var component model.Component
+				err := pool.DB.NewSelect().Model(&component).
+					Where("manufacturer = ? AND serial_number = ?", spec.Manufacturer, spec.SerialNumber).
+					Scan(ctx)
+				require.NoError(t, err)
+				return component
+			}
+
+			component := loadComponent()
+			assert.Equal(t, "initial description", component.Description[expectedDescriptionKey])
+
+			component.Description["operator"] = "keep"
+			component.Description["nvos_ip"] = "10.0.0.2"
+			_, err := pool.DB.NewUpdate().Model(&component).Column("description").WherePK().Exec(ctx)
+			require.NoError(t, err)
+
+			spec.Description = "updated description"
+			mirrorExpectedComponents(ctx, pool, componentType, []expectedComponentSpec{spec}, map[string]uuid.UUID{})
+			component = loadComponent()
+			assert.Equal(t, "updated description", component.Description[expectedDescriptionKey])
+			assert.Equal(t, "keep", component.Description["operator"])
+			assert.Equal(t, "10.0.0.2", component.Description["nvos_ip"])
+
+			spec.Description = ""
+			mirrorExpectedComponents(ctx, pool, componentType, []expectedComponentSpec{spec}, map[string]uuid.UUID{})
+			component = loadComponent()
+			assert.NotContains(t, component.Description, expectedDescriptionKey)
+			assert.Equal(t, "keep", component.Description["operator"])
+			assert.Equal(t, "10.0.0.2", component.Description["nvos_ip"])
+		})
+	}
+}
+
+func TestUpdateMirroredComponent_PreservesRuntimeWriteAfterReconciliationRead(t *testing.T) {
+	for _, tc := range []struct {
+		name                string
+		expectedDescription string
+		wantExpected        bool
+	}{
+		{"set expected description", "updated description", true},
+		{"clear expected description", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, pool := mirrorTestPool(t)
+			component := model.Component{
+				Type:         compType(),
+				Manufacturer: "Mfg",
+				SerialNumber: "INTERLEAVE-" + tc.name,
+				Name:         "before",
+				Description: map[string]any{
+					expectedDescriptionKey: "initial description",
+					"operator":             "keep",
+				},
+			}
+			require.NoError(t, component.Create(ctx, pool.DB))
+
+			var reconciliationSnapshot model.Component
+			require.NoError(t, pool.DB.NewSelect().Model(&reconciliationSnapshot).Where("id = ?", component.ID).Scan(ctx))
+
+			// Simulate runtime sync committing after reconciliation read the row
+			// but before the mirror writes its planned update.
+			_, err := pool.DB.NewUpdate().
+				Model((*model.Component)(nil)).
+				Set(
+					"description = jsonb_set(COALESCE(description, '{}'::jsonb), ARRAY[?::text], to_jsonb(?::text), true)",
+					nvosIPDescriptionKey,
+					"10.0.0.2",
+				).
+				Where("id = ?", component.ID).
+				Exec(ctx)
+			require.NoError(t, err)
+
+			reconciliationSnapshot.Name = "after"
+			reconciliationSnapshot.UpdatedAt = time.Now()
+			require.NoError(t, updateMirroredComponent(ctx, pool.DB, &reconciliationSnapshot, tc.expectedDescription))
+
+			var updated model.Component
+			require.NoError(t, pool.DB.NewSelect().Model(&updated).Where("id = ?", component.ID).Scan(ctx))
+			assert.Equal(t, "after", updated.Name)
+			assert.Equal(t, "10.0.0.2", updated.Description[nvosIPDescriptionKey])
+			assert.Equal(t, "keep", updated.Description["operator"])
+			if tc.wantExpected {
+				assert.Equal(t, tc.expectedDescription, updated.Description[expectedDescriptionKey])
+			} else {
+				assert.NotContains(t, updated.Description, expectedDescriptionKey)
+			}
+		})
+	}
+}
+
 // #11: a successful but empty Core response soft-deletes all Flow components
 // of the type.
 func TestMirrorComponents_EmptyCoreSoftDeletesAll(t *testing.T) {

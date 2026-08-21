@@ -315,6 +315,7 @@ type Vpc struct {
 	NVLinkLogicalPartitionID               *uuid.UUID                              `bun:"nvlink_logical_partition_id,type:uuid"`
 	NVLinkLogicalPartition                 *NVLinkLogicalPartition                 `bun:"rel:belongs-to,join:nvlink_logical_partition_id=id"`
 	NetworkVirtualizationType              *string                                 `bun:"network_virtualization_type"`
+	SlaacEnabled                           bool                                    `bun:"slaac_enabled,notnull"`
 	RoutingProfile                         *string                                 `bun:"routing_profile"`
 	RoutingProfileOverrides                *VpcRoutingProfileOverrides             `bun:"routing_profile_overrides,type:jsonb"`
 	EffectiveRoutingProfile                *VpcEffectiveRoutingProfile             `bun:"effective_routing_profile,type:jsonb"`
@@ -389,6 +390,7 @@ func (vpc *Vpc) ToProto() *corev1.Vpc {
 		RoutingProfileType:              vpc.RoutingProfile,
 		RoutingProfileOverrides:         vpc.RoutingProfileOverrides.ToProto(),
 		NetworkVirtualizationType:       networkVirtualizationType,
+		SlaacEnabled:                    cutil.GetPtr(vpc.SlaacEnabled),
 	}
 
 	proto := &corev1.Vpc{
@@ -429,6 +431,9 @@ func (vpc *Vpc) ToProto() *corev1.Vpc {
 //     OR when the proto value is invalid (e.g. an unparseable UUID).
 //     This makes `FromProto` a clean reset rather than a partial
 //     merge, matching the Expected* pattern.
+//   - SLAAC defaults to false when its wire value is absent. Inventory
+//     reconciliation checks wire presence before applying that value to an
+//     existing database row.
 func (vpc *Vpc) FromProto(proto *corev1.Vpc) {
 	if proto == nil {
 		return
@@ -448,6 +453,7 @@ func (vpc *Vpc) FromProto(proto *corev1.Vpc) {
 	}
 
 	vpc.Org = cfg.TenantOrganizationId
+	vpc.SlaacEnabled = cfg.GetSlaacEnabled()
 	vpc.NetworkSecurityGroupID = cfg.NetworkSecurityGroupId
 	vpc.RoutingProfile = cfg.RoutingProfileType
 	vpc.RoutingProfileOverrides = nil
@@ -509,6 +515,7 @@ type VpcCreateInput struct {
 	SiteID                                 uuid.UUID
 	NVLinkLogicalPartitionID               *uuid.UUID
 	NetworkVirtualizationType              *string
+	SlaacEnabled                           bool
 	RoutingProfile                         *string
 	RoutingProfileOverrides                *VpcRoutingProfileOverrides
 	ControllerVpcID                        *uuid.UUID
@@ -528,6 +535,7 @@ type VpcUpdateInput struct {
 	Name                                   *string
 	Description                            *string
 	NetworkVirtualizationType              *string
+	SlaacEnabled                           *bool
 	RoutingProfile                         *string
 	RoutingProfileOverrides                *VpcRoutingProfileOverrides
 	EffectiveRoutingProfile                *VpcEffectiveRoutingProfile
@@ -897,6 +905,7 @@ func (vsd VpcSQLDAO) Create(ctx context.Context, tx *db.Tx, input VpcCreateInput
 		SiteID:                                 input.SiteID,
 		NVLinkLogicalPartitionID:               input.NVLinkLogicalPartitionID,
 		NetworkVirtualizationType:              input.NetworkVirtualizationType,
+		SlaacEnabled:                           input.SlaacEnabled,
 		RoutingProfile:                         input.RoutingProfile,
 		RoutingProfileOverrides:                input.RoutingProfileOverrides,
 		ControllerVpcID:                        input.ControllerVpcID,
@@ -962,6 +971,12 @@ func (vsd VpcSQLDAO) Update(ctx context.Context, tx *db.Tx, input VpcUpdateInput
 		v.NetworkVirtualizationType = input.NetworkVirtualizationType
 		updatedFields = append(updatedFields, "network_virtualization_type")
 		vsd.tracerSpan.SetAttribute(vpcDAOSpan, "network_virtualization_type", *input.NetworkVirtualizationType)
+	}
+
+	if input.SlaacEnabled != nil {
+		v.SlaacEnabled = *input.SlaacEnabled
+		updatedFields = append(updatedFields, "slaac_enabled")
+		vsd.tracerSpan.SetAttribute(vpcDAOSpan, "slaac_enabled", *input.SlaacEnabled)
 	}
 
 	if input.ControllerVpcID != nil {

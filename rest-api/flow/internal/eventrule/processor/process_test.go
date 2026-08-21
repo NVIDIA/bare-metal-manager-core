@@ -34,6 +34,7 @@ func TestProcessor_Process(t *testing.T) {
 		ruleErr          error
 		invalidEnvelope  bool
 		noTargets        bool
+		invalidTarget    bool
 		targetErr        error
 		executorErr      error
 		cancelContext    bool
@@ -99,6 +100,13 @@ func TestProcessor_Process(t *testing.T) {
 			targetErr:      fmt.Errorf("%w: invalid topology", eventtarget.ErrUnresolvable),
 			wantStatus:     eventrule.ExecutionStatusFailed,
 			wantMessage:    "event target cannot be resolved: invalid topology",
+			wantExecutions: 1,
+		},
+		"invalid resolved target fails": {
+			rule:           processorRuntimeRule(submitAction("submit")),
+			invalidTarget:  true,
+			wantStatus:     eventrule.ExecutionStatusFailed,
+			wantMessage:    "event target cannot be resolved: resolver target 0: target id is required",
 			wantExecutions: 1,
 		},
 		"unresolvable inventory target fails": {
@@ -182,13 +190,13 @@ func TestProcessor_Process(t *testing.T) {
 
 			var executorRuns int
 			targets := defaultTargetResolver(rackID)
-			if test.noTargets || test.targetErr != nil {
-				targets = targetResolverFunc(func(
-					context.Context,
-					eventtarget.ResolveRequest,
-				) ([]eventtarget.Target, error) {
-					return nil, test.targetErr
-				})
+			if test.noTargets || test.invalidTarget || test.targetErr != nil {
+				targets = &testTargetResolver{err: test.targetErr}
+				if test.invalidTarget {
+					targets = &testTargetResolver{targets: []eventtarget.Target{{
+						Kind: eventrule.ResourceKindRack,
+					}}}
+				}
 			}
 			execute := executorFunc(func(
 				_ context.Context,
@@ -349,13 +357,10 @@ func testProcessDeferredRedelivery(t *testing.T) {
 		processorRuntimeRule(submitAction("submit")),
 		nil,
 		store,
-		targetResolverFunc(func(
-			context.Context,
-			eventtarget.ResolveRequest,
-		) ([]eventtarget.Target, error) {
-			resolverRuns++
-			return nil, errors.New("inventory unavailable")
-		}),
+		&testTargetResolver{
+			err:  errors.New("inventory unavailable"),
+			runs: &resolverRuns,
+		},
 		executorFunc(func(
 			context.Context,
 			eventexecutor.ExecutionRequest,
@@ -491,7 +496,7 @@ func runtimeProcessor(
 		},
 		Rules:      resolver,
 		Executions: store,
-		Targets:    targets,
+		Targets:    targetRegistry(t, targets),
 		Executor:   execute,
 	})
 	require.NoError(t, err)
@@ -517,7 +522,7 @@ func newTestProcessor(
 		Inventory:  inventory,
 		Rules:      rules,
 		Executions: memorystore.New(),
-		Targets:    defaultTargetResolver(uuid.New()),
+		Targets:    eventtarget.New(),
 		Executor: executorFunc(func(
 			_ context.Context,
 			request eventexecutor.ExecutionRequest,
@@ -569,25 +574,41 @@ func successResult(request eventexecutor.ExecutionRequest) eventrule.ExecutionRe
 	return eventrule.CompletedExecutionResult()
 }
 
-type targetResolverFunc func(
-	context.Context,
-	eventtarget.ResolveRequest,
-) ([]eventtarget.Target, error)
-
-func (f targetResolverFunc) Resolve(
-	ctx context.Context,
-	request eventtarget.ResolveRequest,
-) ([]eventtarget.Target, error) {
-	return f(ctx, request)
+func targetRegistry(
+	t *testing.T,
+	resolver eventtarget.Resolver,
+) *eventtarget.Registry {
+	t.Helper()
+	registry := eventtarget.New()
+	require.NoError(t, registry.Register(
+		"test.event",
+		eventrule.TargetStrategyRack,
+		resolver,
+	))
+	return registry
 }
 
 func defaultTargetResolver(rackID uuid.UUID) eventtarget.Resolver {
-	return targetResolverFunc(func(
-		context.Context,
-		eventtarget.ResolveRequest,
-	) ([]eventtarget.Target, error) {
-		return []eventtarget.Target{{Kind: eventrule.ResourceKindRack, ID: rackID}}, nil
-	})
+	return &testTargetResolver{targets: []eventtarget.Target{{
+		Kind: eventrule.ResourceKindRack,
+		ID:   rackID,
+	}}}
+}
+
+type testTargetResolver struct {
+	targets []eventtarget.Target
+	err     error
+	runs    *int
+}
+
+func (r *testTargetResolver) Resolve(
+	context.Context,
+	eventtarget.ResolveRequest,
+) ([]eventtarget.Target, error) {
+	if r.runs != nil {
+		(*r.runs)++
+	}
+	return r.targets, r.err
 }
 
 type executorFunc func(
@@ -613,7 +634,7 @@ func validProcessorConfig() Config {
 			return nil, nil
 		}),
 		Executions: memorystore.New(),
-		Targets:    defaultTargetResolver(uuid.New()),
+		Targets:    eventtarget.New(),
 		Executor: executorFunc(func(
 			_ context.Context,
 			request eventexecutor.ExecutionRequest,

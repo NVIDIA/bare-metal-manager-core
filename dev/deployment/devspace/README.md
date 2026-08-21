@@ -101,7 +101,7 @@ Important:
 - For external Vault, either keep `LOCAL_DEV_VAULT_AUTH_MODE=root-token` or supply your own compatible auth setup.
 - `LOCAL_DEV_INSTALL_TEMPORAL=0` and `LOCAL_DEV_INSTALL_KEYCLOAK=0` skip those managed services.
 - `LOCAL_DEV_INSTALL_REST_PREREQS=0` preserves the Core-only bootstrap behavior.
-- A full-stack deployment expects PostgreSQL at `postgres.postgres.svc.cluster.local` and requires the `nico_rest`, `keycloak`, `temporal`, and `temporal_visibility` databases and roles when the local PostgreSQL installation is skipped. A nondefault PostgreSQL host is supported only by the Core-only path.
+- A full-stack deployment requires the `nico_rest`, `keycloak`, `temporal`, and `temporal_visibility` databases and roles when the local PostgreSQL installation is skipped. The REST API, workflow, and migration components use the absolute `postgres.postgres.svc.cluster.local.` Service DNS name. The trailing dot prevents the pod resolver from appending search domains while allowing Kubernetes to update the Service address normally. A nondefault PostgreSQL host is supported only by the Core-only path.
 - The Core and REST services share one PostgreSQL server but use separate `nico` and `nico_rest` databases because both schemas contain tables such as `machines` and `instances`.
 
 ## Build And Deploy
@@ -121,15 +121,30 @@ DevSpace will:
 - inject the built image names and DevSpace-generated tags into both deployments at runtime
 - register a local REST site, configure its Temporal namespace, and confirm that the site agent establishes a Core gRPC connection
 
-The image builds are configured in [`devspace.yaml`](../../../devspace.yaml). DevSpace first checks whether `build-container-localdev` already exists locally and reuses it if present; otherwise it builds it from [`dev/docker/Dockerfile.build-container-x86_64`](../../../dev/docker/Dockerfile.build-container-x86_64). In the first build stage, a single shared builder compiles the API, admin CLI, BMC proxy, and machine-a-tron binaries while the REST images build in parallel. The builder exports those binaries to the local `nico-devspace-core-artifacts` image. In the second stage, the three Core runtime Dockerfiles copy their binaries from that image in parallel and add only their distinct runtime packages and assets. DevSpace always invokes these lightweight second-stage builds because its custom-build change cache can outlive the corresponding local Docker images; Docker still reuses unchanged layers. BuildKit cache mounts are used for Cargo registry, Cargo git checkouts, and Cargo target output so rebuilds stay fast without copying host build artifacts into the image.
+The image builds are configured in [`devspace.yaml`](../../../devspace.yaml). DevSpace always invokes the native [`dev/docker/Dockerfile.build-container-x86_64`](../../../dev/docker/Dockerfile.build-container-x86_64) or [`dev/docker/Dockerfile.build-container-aarch64`](../../../dev/docker/Dockerfile.build-container-aarch64) build so Docker notices architecture and Dockerfile changes while reusing unchanged layers from its cache. In the first build stage, a single shared builder compiles the API, admin CLI, BMC proxy, and machine-a-tron binaries while the REST images build in parallel. The builder exports those binaries to the local `nico-devspace-core-artifacts` image. In the second stage, the three Core runtime Dockerfiles copy their binaries from that image in parallel and add only their distinct runtime packages and assets. DevSpace always invokes these lightweight second-stage builds because its custom-build change cache can outlive the corresponding local Docker images; Docker still reuses unchanged layers. BuildKit cache mounts are used for Cargo registry, Cargo git checkouts, and Cargo target output so rebuilds stay fast without copying host build artifacts into the image.
 
-Host setup preloads PostgreSQL 14.5 and aliases it as 14.4 inside the kind node because the REST migration wait container requires 14.4; this avoids pulling a second PostgreSQL image.
+Host setup preloads PostgreSQL 14.5 for the DevSpace REST migration wait container. It also aliases that cached image as 14.4 inside the kind node for the standalone REST local deployment path, avoiding a second PostgreSQL image pull.
+
+After deploying, [`setup-devspace-on-host.sh`](setup-devspace-on-host.sh)
+checks PostgreSQL, every Temporal server deployment, and a functional Temporal
+namespace query. It observes Temporal container restart counts while repeating
+the namespace query and fails the setup if a container restarts during that
+window. A successful process exit therefore means the workflow backend remained
+usable through the final health check, not only that its Kubernetes readiness
+probe passed earlier in the bootstrap.
+
+The local Temporal server uses the absolute
+`temporal-frontend.temporal.svc.cluster.local.` Service DNS name for its public
+client. This avoids resolver search-domain expansion and works on both supported
+host architectures.
 
 The DevSpace images also use Dockerfile-specific ignore files. [`Dockerfile.core-artifacts.dockerignore`](Dockerfile.core-artifacts.dockerignore) provides the union of the source needed by the four binaries, while [`Dockerfile.api.dockerignore`](Dockerfile.api.dockerignore), [`Dockerfile.bmc-proxy.dockerignore`](Dockerfile.bmc-proxy.dockerignore), and [`Dockerfile.machine-a-tron.dockerignore`](Dockerfile.machine-a-tron.dockerignore) limit the runtime-image contexts. This keeps the top-level [`.dockerignore`](../../../.dockerignore) aligned with the main branch for CI and release builds.
 
+The local REST Dockerfiles inherit BuildKit's target operating system and architecture. Native AMD64 hosts therefore produce AMD64 binaries, while native ARM64 hosts produce ARM64 binaries for the corresponding runtime images.
+
 DevSpace watches the Rust workspace, toolchain metadata, and the runtime Dockerfiles to decide when the shared Core artifacts need rebuilding. It always runs the three second-stage Core runtime builds to guarantee their generated tags exist locally. On kind clusters, the pre-deploy hooks then load all Core and REST images into the cluster selected by the current kube context.
 
-The `nico-machine-a-tron` Helm subchart configuration is in [`values.base.yaml`](values.base.yaml). The local API and BMC proxy configs point BMC traffic at `nico-machine-a-tron-mat-0-bmc-mock.nico-system.svc.cluster.local:1266`.
+The `nico-machine-a-tron` Helm subchart configuration is in [`values.base.yaml`](values.base.yaml). The post-deploy setup resolves the `nico-machine-a-tron-mat-0-bmc-mock` Service ClusterIP and sets Core's runtime BMC proxy to that literal address. After allowing earlier requests to drain, it clears cached lockout-protection errors and refreshes existing host and DPU BMC endpoint records reported by machine-a-tron; endpoints not yet recorded on a clean install are left for normal discovery. This avoids hostname connection failures on affected ARM64 hosts and works unchanged on AMD64.
 
 Common usage:
 
@@ -208,8 +223,15 @@ devspace deploy --profile core-only
 If you want to understand what DevSpace is doing for the runtime images, the configured build is effectively:
 
 ```bash
-docker image inspect build-container-localdev >/dev/null 2>&1 || docker build --pull=false -t build-container-localdev -f dev/docker/Dockerfile.build-container-x86_64 .
-docker build --pull=false -t nico-devspace-core-artifacts -f dev/deployment/devspace/Dockerfile.core-artifacts .
+case "$(uname -m)" in
+  x86_64) build_arch=x86_64 ;;
+  aarch64|arm64) build_arch=aarch64 ;;
+  *) echo "Unsupported CPU architecture: $(uname -m)" >&2; exit 1 ;;
+esac
+docker build --pull=false -t build-container-localdev \
+  -f "dev/docker/Dockerfile.build-container-${build_arch}" .
+docker build --pull=false -t nico-devspace-core-artifacts \
+  -f dev/deployment/devspace/Dockerfile.core-artifacts .
 docker build -t "nico-api:<devspace-generated-tag>" -f dev/deployment/devspace/Dockerfile.api .
 docker build -t "nico-bmc-proxy:<devspace-generated-tag>" -f dev/deployment/devspace/Dockerfile.bmc-proxy .
 docker build -t "machine-a-tron:<devspace-generated-tag>" -f dev/deployment/devspace/Dockerfile.machine-a-tron .
@@ -235,6 +257,8 @@ devspace purge -n nico-system
 ```
 
 When the current context is `kind-<cluster>`, the purge pipeline deletes and recreates that kind cluster with the same node image, then bootstraps clean prerequisites. This removes all Kubernetes state, including the Core and REST databases, Temporal namespaces and history, Vault data, Keycloak data, certificates, site registration, Helm releases (including machine-a-tron), CRDs, and persistent volumes.
+
+The local REST migration hook uses the same PostgreSQL `14.5-alpine` image as the bootstrapped database, so the freshly pulled image is reused after cluster recreation.
 
 On any other Kubernetes context, the pipeline delegates to DevSpace's default purge behavior. It removes the deployments managed by this project without replacing the cluster or reinstalling separately managed prerequisites.
 
