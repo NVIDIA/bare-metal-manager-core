@@ -225,7 +225,6 @@ nico-machine-a-tron:
         bmc_mock_port = 1266
         mock_bmc_ssh_server = true
         enable_ipmi_simulation = true
-        ipmi_reachable_port = 0
         persist_dir = "/tmp/machine-a-tron-data"
         cleanup_on_quit = false
         register_expected_machines = true

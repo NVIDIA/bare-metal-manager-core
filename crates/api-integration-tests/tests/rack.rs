@@ -205,7 +205,6 @@ async fn run_machine_a_tron_racks_test(
         api_refresh_interval: Duration::from_millis(500),
         mock_bmc_ssh_server: false,
         enable_ipmi_simulation: false,
-        ipmi_reachable_port: None,
         hw_mac_address_ranges: None,
         mac_address_pool: None,
         ufm_mock: Default::default(),
