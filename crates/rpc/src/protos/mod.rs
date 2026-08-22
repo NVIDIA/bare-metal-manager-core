@@ -70,7 +70,9 @@ pub mod machine_discovery {
     include!(concat!(env!("OUT_DIR"), "/machine_discovery.rs"));
 }
 
-impl carbide_utils::memory_device_group::MemoryDeviceGroupLike for machine_discovery::MemoryDeviceGroup {
+impl carbide_utils::memory_device_group::MemoryDeviceGroupLike
+    for machine_discovery::MemoryDeviceGroup
+{
     fn size_mb(&self) -> Option<u32> {
         self.size_mb
     }
@@ -134,7 +136,9 @@ impl machine_discovery::DiscoveryInfo {
     /// display formatting) must call this rather than re-deriving the predicate, so the rule
     /// can't drift between call sites.
     pub fn memory_groups_are_authoritative(&self) -> bool {
-        self.memory_device_groups.iter().any(|group| group.count > 0)
+        self.memory_device_groups
+            .iter()
+            .any(|group| group.count > 0)
     }
 
     /// Rehydrates the deprecated flat `memory_devices` list from `memory_device_groups` and
