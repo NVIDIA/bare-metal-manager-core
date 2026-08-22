@@ -259,7 +259,7 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 
 	vpc7 := testVPCBuildVPC(t, dbSession, "test-vpc-7", ip, tn, st, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), cutil.GetPtr(uuid.New()), nil, tnu, cdbm.VpcStatusReady)
 	// Set created earlier than the inventory receipt interval
-	_, err := dbSession.DB.Exec("UPDATE vpc SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)), vpc7.ID.String())
+	_, err := dbSession.DB.Exec("UPDATE vpc SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.DefaultInventoryReceiptInterval)*2), vpc7.ID.String())
 	assert.NoError(t, err)
 
 	vpc8 := testVPCBuildVPC(t, dbSession, "test-vpc-8", ip, tn, st, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), cutil.GetPtr(uuid.New()), nil, tnu, cdbm.VpcStatusReady)
@@ -270,7 +270,7 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 
 	vpc11 := testVPCBuildVPC(t, dbSession, "test-vpc-11", ip, tn, st, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), cutil.GetPtr(uuid.New()), nil, tnu, cdbm.VpcStatusReady)
 	// Set created earlier than the inventory receipt interval
-	_, err = dbSession.DB.Exec("UPDATE vpc SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)), vpc11.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE vpc SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.DefaultInventoryReceiptInterval)*2), vpc11.ID.String())
 	assert.NoError(t, err)
 
 	vpcDAO := cdbm.NewVpcDAO(dbSession)
@@ -344,7 +344,7 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 
 		vpc := testVPCBuildVPC(t, dbSession, fmt.Sprintf("test-vpc-paged-%d", i), ip, tn, st3, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), cutil.GetPtr(uuid.New()), labels, tnu, cdbm.VpcStatusReady)
 		// Update creation timestamp to be earlier than inventory processing interval
-		_, err = dbSession.DB.Exec("UPDATE vpc SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval*2)), vpc.ID.String())
+		_, err = dbSession.DB.Exec("UPDATE vpc SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.DefaultInventoryReceiptInterval*2)), vpc.ID.String())
 		assert.NoError(t, err)
 		pagedVpcs = append(pagedVpcs, vpc)
 		pagedInvIds = append(pagedInvIds, vpc.ControllerVpcID.String())

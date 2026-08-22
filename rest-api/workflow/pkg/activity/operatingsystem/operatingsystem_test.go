@@ -372,7 +372,7 @@ func TestManageOsImage_UpdateOsImageInDB_IgnoresIpxeAssociations(t *testing.T) {
 
 	// Backdate both associations past the inventory-receipt grace window so the
 	// missing-on-Site path is reachable.
-	past := time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval * 2))
+	past := time.Now().Add(-time.Duration(cutil.DefaultInventoryReceiptInterval * 2))
 	_, err = dbSession.DB.Exec("UPDATE operating_system_site_association SET created = ? WHERE id IN (?, ?)", past, imgOssa.ID.String(), ipxeOssa.ID.String())
 	require.NoError(t, err)
 

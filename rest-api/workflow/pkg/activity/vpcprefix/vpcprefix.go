@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -216,7 +215,7 @@ func (mvp ManageVpcPrefix) UpdateVpcPrefixesInDB(ctx context.Context, siteID uui
 			}
 		} else {
 			// Was this created within inventory receipt interval? If so, we may be processing an older inventory
-			if time.Since(vpcPrefix.Created) < cwutil.InventoryReceiptInterval {
+			if site.IsTimeWithinStaleInventoryThreshold(vpcPrefix.Created) {
 				continue
 			}
 

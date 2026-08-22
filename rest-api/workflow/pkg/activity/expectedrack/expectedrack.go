@@ -8,7 +8,6 @@ import (
 	"errors"
 	"reflect"
 
-	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
@@ -55,7 +54,7 @@ func (mer ManageExpectedRack) UpdateExpectedRacksInDB(ctx context.Context, siteI
 
 	// Ensure Site exists
 	stDAO := cdbm.NewSiteDAO(mer.dbSession)
-	_, err := stDAO.GetByID(ctx, nil, siteID, nil, false)
+	site, err := stDAO.GetByID(ctx, nil, siteID, nil, false)
 	if err != nil {
 		if errors.Is(err, cdb.ErrDoesNotExist) {
 			logger.Warn().Err(err).Msg("received inventory for unknown or deleted Site")
@@ -168,7 +167,7 @@ func (mer ManageExpectedRack) UpdateExpectedRacksInDB(ctx context.Context, siteI
 				continue
 			}
 			// Avoid destructive actions inside race-condition window
-			if util.IsTimeWithinStaleInventoryThreshold(er.Updated) {
+			if site.IsTimeWithinStaleInventoryThreshold(er.Updated) {
 				continue
 			}
 			logger.Info().Str("ExpectedRackID", er.ID.String()).Str("RackID", er.RackID).Msg("deleting ExpectedRack from DB since it was no longer reported in inventory from Site")

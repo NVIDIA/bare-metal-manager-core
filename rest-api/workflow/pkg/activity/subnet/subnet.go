@@ -266,7 +266,7 @@ func (ms ManageSubnet) UpdateSubnetsInDB(ctx context.Context, siteID uuid.UUID, 
 			}
 		} else if subnet.ControllerNetworkSegmentID != nil {
 			// Was this created within inventory receipt interval? If so, we may be processing an older inventory
-			if time.Since(subnet.Created) < cwutil.InventoryReceiptInterval {
+			if site.IsTimeWithinStaleInventoryThreshold(subnet.Created) {
 				continue
 			}
 

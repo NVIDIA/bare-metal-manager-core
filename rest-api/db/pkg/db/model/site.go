@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
@@ -99,6 +100,19 @@ type SiteLocation struct {
 
 type SiteContact struct {
 	Email string `json:"email"`
+}
+
+// IsTimeWithinStaleInventoryThreshold reports whether actionTime is recent enough that an
+// arriving inventory may predate it, which means the inventory should not be acted on for that
+// object. The threshold follows the collection interval the Site Agent reports, and falls back
+// to the default for a Site that has not reported one yet, so an unreported Site keeps the
+// protection it had before the field existed.
+func (st *Site) IsTimeWithinStaleInventoryThreshold(actionTime time.Time) bool {
+	interval := cutil.DefaultInventoryReceiptInterval
+	if st != nil && st.InventoryIntervalSeconds != nil && *st.InventoryIntervalSeconds > 0 {
+		interval = time.Duration(*st.InventoryIntervalSeconds) * time.Second
+	}
+	return time.Since(actionTime) < interval+cutil.StaleInventoryBuffer
 }
 
 type SiteCreateInput struct {

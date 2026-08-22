@@ -189,11 +189,13 @@ func TestManageSku_PagedDeletion(t *testing.T) {
 	ip := cwu.TestBuildInfrastructureProvider(t, dbSession, "test-provider", ipOrg, ipu)
 	site := cwu.TestBuildSite(t, dbSession, ip, "test-site", cdbm.SiteStatusRegistered, nil, ipu)
 
-	// Seed three SKUs (ensure SiteID is set)
+	// Seed three SKUs (ensure SiteID is set). Backdate them past the staleness threshold so the
+	// deletion sweep is not deferred.
 	ssd := cdbm.NewSkuDAO(dbSession)
 	seed := []string{"sku-1", "sku-2", "sku-3"}
+	seedCreated := time.Now().Add(-2 * cutil.DefaultInventoryReceiptInterval)
 	for _, id := range seed {
-		_, err := dbSession.DB.NewInsert().Model(&cdbm.SKU{ID: id, SiteID: site.ID, Components: &cdbm.SkuComponents{}}).Exec(ctx)
+		_, err := dbSession.DB.NewInsert().Model(&cdbm.SKU{ID: id, SiteID: site.ID, Created: seedCreated, Components: &cdbm.SkuComponents{}}).Exec(ctx)
 		assert.NoError(t, err)
 	}
 
@@ -229,4 +231,89 @@ func TestManageSku_PagedDeletion(t *testing.T) {
 	assert.True(t, found[seed[0]])
 	assert.True(t, found[seed[1]])
 	assert.False(t, found[seed[2]])
+}
+
+func TestManageSku_DeletionRespectsStaleInventoryThreshold(t *testing.T) {
+	testCases := []struct {
+		name           string
+		createdAgo     time.Duration
+		intervalSecs   *int
+		expectSurvives bool
+	}{
+		{
+			name:           "created within the default threshold survives",
+			createdAgo:     time.Second,
+			expectSurvives: true,
+		},
+		{
+			name:       "created past the default threshold is deleted",
+			createdAgo: 2 * cutil.DefaultInventoryReceiptInterval,
+		},
+		{
+			name:           "created within a longer reported interval survives",
+			createdAgo:     2 * cutil.DefaultInventoryReceiptInterval,
+			intervalSecs:   cutil.GetPtr(int((10 * cutil.DefaultInventoryReceiptInterval).Seconds())),
+			expectSurvives: true,
+		},
+		{
+			name:         "created past a shorter reported interval is deleted",
+			createdAgo:   time.Minute,
+			intervalSecs: cutil.GetPtr(1),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			_ = config.GetTestConfig()
+
+			dbSession := cwu.TestInitDB(t)
+			defer dbSession.Close()
+			cwu.TestSetupSchema(t, dbSession)
+
+			ipOrg := "test-ip-org"
+			ipRoles := []string{"FORGE_PROVIDER_ADMIN"}
+			ipu := cwu.TestBuildUser(t, dbSession, uuid.NewString(), []string{ipOrg}, ipRoles)
+			ip := cwu.TestBuildInfrastructureProvider(t, dbSession, "test-provider", ipOrg, ipu)
+			site := cwu.TestBuildSite(t, dbSession, ip, "test-site", cdbm.SiteStatusRegistered, nil, ipu)
+
+			if tc.intervalSecs != nil {
+				stDAO := cdbm.NewSiteDAO(dbSession)
+				_, uerr := stDAO.Update(ctx, nil, cdbm.SiteUpdateInput{
+					SiteID:                   site.ID,
+					InventoryIntervalSeconds: tc.intervalSecs,
+				})
+				assert.NoError(t, uerr)
+			}
+
+			// Created carries Core's timestamp, which is what the guard compares against.
+			id := "sku-guarded"
+			_, err := dbSession.DB.NewInsert().Model(&cdbm.SKU{
+				ID:         id,
+				SiteID:     site.ID,
+				Created:    time.Now().Add(-tc.createdAgo),
+				Components: &cdbm.SkuComponents{},
+			}).Exec(ctx)
+			assert.NoError(t, err)
+
+			ms := NewManageSku(dbSession, cwu.TestTemporalSiteClientPool(t))
+
+			// A successful final page that omits the seeded SKU entirely.
+			inv := &corev1.SkuInventory{
+				Skus:            []*corev1.Sku{},
+				InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+				InventoryPage:   &corev1.InventoryPage{CurrentPage: 1, TotalPages: 1, PageSize: 1, TotalItems: 0},
+			}
+			assert.NoError(t, ms.UpdateSkusInDB(ctx, site.ID, inv))
+
+			ssd := cdbm.NewSkuDAO(dbSession)
+			_, total, gerr := ssd.GetAll(ctx, nil, cdbm.SkuFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(100)})
+			assert.NoError(t, gerr)
+			if tc.expectSurvives {
+				assert.Equal(t, 1, total, "SKU newer than the threshold should not be deleted")
+			} else {
+				assert.Equal(t, 0, total, "SKU older than the threshold should be deleted")
+			}
+		})
+	}
 }

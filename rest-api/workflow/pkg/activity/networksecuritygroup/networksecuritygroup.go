@@ -6,7 +6,6 @@ package networksecuritygroup
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
@@ -206,7 +205,7 @@ func (mv ManageNetworkSecurityGroup) UpdateNetworkSecurityGroupsInDB(ctx context
 				// inventory, so make sure the object has existed for at least as
 				// long as our inventory interval with a little buffer to make
 				// sure we aren't in lock-step.
-				if time.Since(networkSecurityGroup.Created) < cwutil.InventoryReceiptInterval+(time.Second*5) {
+				if site.IsTimeWithinStaleInventoryThreshold(networkSecurityGroup.Created) {
 					slogger.Info().Msg("not going to delete yet because group is newer than the inventory interval")
 
 					continue

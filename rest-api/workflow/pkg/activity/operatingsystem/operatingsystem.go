@@ -227,7 +227,7 @@ func (mos ManageOsImage) UpdateOsImagesInDB(ctx context.Context, siteID uuid.UUI
 			}
 		} else {
 			// Was this created within inventory receipt interval? If so, we may be processing an older inventory
-			if time.Since(ossa.Created) < cutil.InventoryReceiptInterval {
+			if site.IsTimeWithinStaleInventoryThreshold(ossa.Created) {
 				continue
 			}
 

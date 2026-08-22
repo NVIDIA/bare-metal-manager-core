@@ -402,7 +402,7 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 			}
 		} else if vpc.ControllerVpcID != nil {
 			// Was this created within inventory receipt interval? If so, we may be processing an older inventory
-			if time.Since(vpc.Created) < cwutil.InventoryReceiptInterval {
+			if site.IsTimeWithinStaleInventoryThreshold(vpc.Created) {
 				continue
 			}
 

@@ -210,17 +210,17 @@ func TestManageNetworkSecurityGroup_UpdateNetworkSecurityGroupsInDB(t *testing.T
 
 	networkSecurityGroup5 := testNetworkSecurityGroupBuildNetworkSecurityGroup(t, dbSession, "test-networkSecurityGroup-5", st, tn, tnu, cdbm.NetworkSecurityGroupStatusError)
 
-	_, err := dbSession.DB.Exec("UPDATE network_security_group SET deleted = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval*2)), networkSecurityGroup5.ID)
+	_, err := dbSession.DB.Exec("UPDATE network_security_group SET deleted = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.DefaultInventoryReceiptInterval*2)), networkSecurityGroup5.ID)
 	assert.NoError(t, err)
 
 	networkSecurityGroup6 := testNetworkSecurityGroupBuildNetworkSecurityGroup(t, dbSession, "test-networkSecurityGroup-6", st, tn, tnu, cdbm.NetworkSecurityGroupStatusError)
 
-	_, err = dbSession.DB.Exec("UPDATE network_security_group SET deleted = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval*2)), networkSecurityGroup6.ID)
+	_, err = dbSession.DB.Exec("UPDATE network_security_group SET deleted = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.DefaultInventoryReceiptInterval*2)), networkSecurityGroup6.ID)
 	assert.NoError(t, err)
 
 	networkSecurityGroup7 := testNetworkSecurityGroupBuildNetworkSecurityGroup(t, dbSession, "test-networkSecurityGroup-7", st, tn, tnu, cdbm.NetworkSecurityGroupStatusReady)
 	// Set created earlier than the inventory receipt interval
-	_, err = dbSession.DB.Exec("UPDATE network_security_group SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval*2)), networkSecurityGroup7.ID)
+	_, err = dbSession.DB.Exec("UPDATE network_security_group SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.DefaultInventoryReceiptInterval*2)), networkSecurityGroup7.ID)
 	assert.NoError(t, err)
 
 	networkSecurityGroup8 := testNetworkSecurityGroupBuildNetworkSecurityGroup(t, dbSession, "test-networkSecurityGroup-8", st, tn, tnu, cdbm.NetworkSecurityGroupStatusReady)
@@ -231,7 +231,7 @@ func TestManageNetworkSecurityGroup_UpdateNetworkSecurityGroupsInDB(t *testing.T
 
 	networkSecurityGroup11 := testNetworkSecurityGroupBuildNetworkSecurityGroup(t, dbSession, "test-networkSecurityGroup-11", st, tn, tnu, cdbm.NetworkSecurityGroupStatusReady)
 	// Set created earlier than the inventory receipt interval
-	_, err = dbSession.DB.Exec("UPDATE network_security_group SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)), networkSecurityGroup11.ID)
+	_, err = dbSession.DB.Exec("UPDATE network_security_group SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.DefaultInventoryReceiptInterval)*2), networkSecurityGroup11.ID)
 	assert.NoError(t, err)
 
 	networkSecurityGroupDAO := cdbm.NewNetworkSecurityGroupDAO(dbSession)
@@ -246,7 +246,7 @@ func TestManageNetworkSecurityGroup_UpdateNetworkSecurityGroupsInDB(t *testing.T
 	for i := 0; i < 38; i++ {
 		networkSecurityGroup := testNetworkSecurityGroupBuildNetworkSecurityGroup(t, dbSession, fmt.Sprintf("test-networkSecurityGroup-paged-%d", i), st3, tn, tnu, cdbm.NetworkSecurityGroupStatusReady)
 		// Update creation timestamp to be earlier than inventory processing interval
-		_, err = dbSession.DB.Exec("UPDATE network_security_group SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval*2)), networkSecurityGroup.ID)
+		_, err = dbSession.DB.Exec("UPDATE network_security_group SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.DefaultInventoryReceiptInterval*2)), networkSecurityGroup.ID)
 		assert.NoError(t, err)
 		pagedNetworkSecurityGroups = append(pagedNetworkSecurityGroups, networkSecurityGroup)
 		pagedInvIds = append(pagedInvIds, networkSecurityGroup.ID)

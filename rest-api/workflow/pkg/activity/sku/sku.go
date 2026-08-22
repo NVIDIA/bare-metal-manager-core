@@ -45,7 +45,7 @@ func (ms ManageSku) UpdateSkusInDB(ctx context.Context, siteID uuid.UUID, skuInv
 
 	// Ensure Site exists
 	stDAO := cdbm.NewSiteDAO(ms.dbSession)
-	_, err := stDAO.GetByID(ctx, nil, siteID, nil, false)
+	site, err := stDAO.GetByID(ctx, nil, siteID, nil, false)
 	if err != nil {
 		if errors.Is(err, cdb.ErrDoesNotExist) {
 			logger.Warn().Err(err).Msg("received inventory for unknown or deleted Site")
@@ -164,15 +164,24 @@ func (ms ManageSku) UpdateSkusInDB(ctx context.Context, siteID uuid.UUID, skuInv
 	}
 
 	// Delete any SKU present in DB not present in NICo.
-	// We only act if this is the last page (or paging disabled) and outside race window.
+	// We only act if this is the last page (or paging disabled).
 	// The source of truth for NICo is reportedIDs.
 	if skuInventory.InventoryPage == nil || skuInventory.InventoryPage.TotalPages == 0 || (skuInventory.InventoryPage.CurrentPage == skuInventory.InventoryPage.TotalPages) {
 		for _, sk := range existingSkus {
 			if _, keep := reportedIDs[sk.ID]; keep {
 				continue
 			}
+			// Created is Core's own creation time, so a SKU newer than the interval may be
+			// absent from this inventory only because it did not exist when the Site collected
+			// it. The delete is not recoverable, so defer to the next run.
+			if site.IsTimeWithinStaleInventoryThreshold(sk.Created) {
+				logger.Info().Str("SkuId", sk.ID).Msg("not deleting SKU yet because it is newer than the inventory interval")
+
+				continue
+			}
 			logger.Info().Str("SkuId", sk.ID).Msg("deleting SKU from DB since it was no longer reported in inventory from Site")
-			if derr := skuDAO.Delete(ctx, nil, sk.ID); derr != nil {
+			derr := skuDAO.Delete(ctx, nil, sk.ID)
+			if derr != nil {
 				logger.Error().Err(derr).Str("SkuID", sk.ID).Msg("failed to delete SKU from DB")
 			}
 		}

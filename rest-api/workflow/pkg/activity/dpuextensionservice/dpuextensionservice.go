@@ -233,7 +233,7 @@ func (mde ManageDpuExtensionService) UpdateDpuExtensionServicesInDB(ctx context.
 		slogger := logger.With().Str("DPU Extension Service ID", dpuExtensionService.ID.String()).Logger()
 
 		// Avoid these actions if the object was updated since the inventory was received
-		if util.IsTimeWithinStaleInventoryThreshold(dpuExtensionService.Updated) {
+		if site.IsTimeWithinStaleInventoryThreshold(dpuExtensionService.Updated) {
 			continue
 		}
 

@@ -125,8 +125,8 @@ func TestManageExpectedMachine_UpdateExpectedMachinesInDB(t *testing.T) {
 
 		// Update creation and update timestamp to be earlier than inventory processing interval
 		_, uerr := dbSession.DB.Exec("UPDATE expected_machine SET created = ?, updated = ? WHERE id = ?",
-			time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval*2)),
-			time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval*2)),
+			time.Now().Add(-time.Duration(cutil.DefaultInventoryReceiptInterval*2)),
+			time.Now().Add(-time.Duration(cutil.DefaultInventoryReceiptInterval*2)),
 			em.ID.String())
 		assert.NoError(t, uerr)
 
@@ -740,37 +740,6 @@ func TestNewManageExpectedMachine(t *testing.T) {
 			got := NewManageExpectedMachine(tt.args.dbSession, tt.args.siteClientPool)
 			assert.Equal(t, tt.want.dbSession, got.dbSession, "dbSession should match")
 			assert.Equal(t, tt.want.siteClientPool, got.siteClientPool, "siteClientPool should match")
-		})
-	}
-}
-
-func TestStaleInventoryThresholdCondition(t *testing.T) {
-	tests := []struct {
-		name       string
-		actionTime time.Time
-		want       bool
-	}{
-		{
-			name:       "recent action within stale inventory threshold",
-			actionTime: time.Now(),
-			want:       true,
-		},
-		{
-			name:       "action just outside stale inventory threshold",
-			actionTime: time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval + time.Second*15)),
-			want:       false,
-		},
-		{
-			name:       "old action well outside stale inventory threshold",
-			actionTime: time.Now().Add(-time.Hour),
-			want:       false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := cwu.IsTimeWithinStaleInventoryThreshold(tt.actionTime); got != tt.want {
-				t.Errorf("IsTimeWithinStaleInventoryThreshold() = %v, want %v", got, tt.want)
-			}
 		})
 	}
 }

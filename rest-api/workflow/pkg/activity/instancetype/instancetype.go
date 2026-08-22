@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
@@ -130,7 +129,7 @@ func (mv ManageInstanceType) UpdateInstanceTypesInDB(ctx context.Context, siteID
 				// inventory, so make sure the object has existed for at least as
 				// long as our inventory interval with a little buffer to make
 				// sure we aren't in lock-step.
-				if time.Since(instanceType.Created) < cwutil.InventoryReceiptInterval+(time.Second*5) {
+				if site.IsTimeWithinStaleInventoryThreshold(instanceType.Created) {
 					continue
 				}
 
