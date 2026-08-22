@@ -871,9 +871,17 @@ func (c *grpcClient) FindMachineControllerStates(ctx context.Context, machineIds
 }
 
 // DecommissionMachine initiates decommissioning of the given machine via Core.
-// TODO: Core Decommission Machine RPC pending — stub returns not-implemented.
-func (c *grpcClient) DecommissionMachine(_ context.Context, machineID string) error {
-	return fmt.Errorf("not yet implemented: Core DecommissionMachine RPC pending (machine %s)", machineID)
+func (c *grpcClient) DecommissionMachine(ctx context.Context, machineID string) error {
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	_, err := c.gclient.DecommissionManagedHost(ctx, &corev1.DecommissionManagedHostRequest{
+		MachineId: &corev1.MachineId{Id: machineID},
+	})
+	if err != nil {
+		return fmt.Errorf("decommission machine %s: %w", machineID, err)
+	}
+	return nil
 }
 
 // DecommissionSwitch initiates decommissioning of the given switch via Core.

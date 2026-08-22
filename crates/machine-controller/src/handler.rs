@@ -74,10 +74,10 @@ use model::machine::infiniband::{IbConfigNotSyncedReason, ib_config_synced};
 use model::machine::nvlink::nvlink_config_synced;
 use model::machine::{
     AttestationMode, BomValidating, BomValidatingContext, CleanupContext, CleanupState,
-    CreateBossVolumeContext, CreateBossVolumeState, DpuDiscoveringState, DpuInitNextStateResolver,
-    DpuInitState, FactoryResetBmcState, FailureCause, FailureDetails, FailureSource,
-    HostPlatformConfigurationState, HostReprovisionState, InitialResetPhase, InstallDpuOsState,
-    InstanceNextStateResolver, InstanceState, LockdownInfo, LockdownState,
+    CreateBossVolumeContext, CreateBossVolumeState, DecommissioningState, DpuDiscoveringState,
+    DpuInitNextStateResolver, DpuInitState, FactoryResetBmcState, FailureCause, FailureDetails,
+    FailureSource, HostPlatformConfigurationState, HostReprovisionState, InitialResetPhase,
+    InstallDpuOsState, InstanceNextStateResolver, InstanceState, LockdownInfo, LockdownState,
     MAX_FIRMWARE_UPGRADE_RETRIES, Machine, MachineLastRebootRequested,
     MachineLastRebootRequestedMode, MachineNextStateResolver, MachineState,
     MachineValidationContext, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
@@ -121,6 +121,7 @@ use crate::{MeasuringOutcome, get_measuring_prerequisites, handle_measuring_stat
 pub mod attestation;
 mod bios_config;
 mod boot_interface_observation;
+mod decommissioning;
 mod dpf;
 mod dpu_action_handler;
 mod dpu_uefi_rotation;
@@ -905,6 +906,20 @@ impl MachineStateHandler {
                     return Ok(outcome);
                 }
 
+                // Health and maintenance handling take precedence. The request remains pending
+                // until the host is safely Ready, then is cleared in the state-transition
+                // transaction.
+                if mh_snapshot.host_snapshot.decommission_requested {
+                    let mut txn = ctx.services.db_pool.begin().await?;
+                    db::machine::clear_decommission_requested(&mut txn, *host_machine_id).await?;
+                    return Ok(StateHandlerOutcome::transition(
+                        ManagedHostState::Decommissioning {
+                            decommissioning_state: DecommissioningState::SuppressingSiteExplorer,
+                        },
+                    )
+                    .with_txn(txn));
+                }
+
                 // An already-committed instance wins before disruptive boot
                 // reconciliation. Allocation locks the machine row, while its
                 // eligibility check rejects an earlier pending desired version.
@@ -1136,6 +1151,58 @@ impl MachineStateHandler {
                 // so it cannot preempt lifecycle or operator-requested actions.
                 boot_interface_observation::observe_verified_boot_interface(ctx, mh_snapshot).await
             }
+
+            ManagedHostState::Decommissioning {
+                decommissioning_state,
+            } => match decommissioning_state {
+                DecommissioningState::SuppressingSiteExplorer => {
+                    decommissioning::handle_suppressing_site_explorer(mh_snapshot, ctx).await
+                }
+                DecommissioningState::DeconfiguringHost {
+                    deconfiguring_state,
+                } => {
+                    decommissioning::handle_deconfiguring_host(
+                        deconfiguring_state,
+                        mh_snapshot,
+                        ctx,
+                    )
+                    .await
+                }
+                DecommissioningState::DeconfiguringDpus { dpu_states } => {
+                    decommissioning::handle_deconfiguring_dpus(
+                        dpu_states,
+                        mh_snapshot,
+                        ctx,
+                        self.dpu_handler.dpf_sdk.as_deref(),
+                    )
+                    .await
+                }
+                DecommissioningState::SuppressingOobDhcp => {
+                    decommissioning::handle_suppressing_oob_dhcp(mh_snapshot, ctx).await
+                }
+                DecommissioningState::PowerCyclingHost => {
+                    decommissioning::handle_power_cycling_host(mh_snapshot, ctx).await
+                }
+                DecommissioningState::WaitingForOobDhcpAcknowledgement => {
+                    decommissioning::handle_waiting_for_oob_dhcp_acknowledgement(mh_snapshot, ctx)
+                        .await
+                }
+                DecommissioningState::SuppressingBmcDhcp => {
+                    decommissioning::handle_suppressing_bmc_dhcp(mh_snapshot, ctx).await
+                }
+                DecommissioningState::FactoryResettingBmcs { completed } => {
+                    decommissioning::handle_factory_resetting_bmcs(completed, mh_snapshot, ctx)
+                        .await
+                }
+                DecommissioningState::WaitingForBmcDhcpAcknowledgement => {
+                    decommissioning::handle_waiting_for_bmc_dhcp_acknowledgement(mh_snapshot, ctx)
+                        .await
+                }
+                DecommissioningState::DeletingManagedCredentials => {
+                    decommissioning::handle_deleting_managed_credentials(mh_snapshot, ctx).await
+                }
+                DecommissioningState::Decommissioned => Ok(StateHandlerOutcome::do_nothing()),
+            },
 
             ManagedHostState::BootConfiguring {
                 desired_version,

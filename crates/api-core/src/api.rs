@@ -1206,6 +1206,13 @@ impl Forge for Api {
         crate::handlers::machine::admin_force_delete_machine(self, request).await
     }
 
+    async fn decommission_managed_host(
+        &self,
+        request: Request<rpc::DecommissionManagedHostRequest>,
+    ) -> Result<Response<rpc::DecommissionManagedHostResponse>, Status> {
+        crate::handlers::managed_host::decommission_managed_host(self, request).await
+    }
+
     /// Example TOML data in request.text:
     ///
     /// [lo-ip]

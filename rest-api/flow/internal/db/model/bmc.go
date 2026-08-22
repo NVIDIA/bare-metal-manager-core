@@ -91,9 +91,10 @@ func GetComponentByBMCMAC(
 	var bmc BMC
 	err := idb.NewSelect().
 		Model(&bmc).
-		Where("mac_address = ?", macAddress).
+		Where("b.mac_address = ?", macAddress).
 		Relation("Component").
 		Relation("Component.BMCs").
+		Relation("Component.Rack").
 		Scan(ctx)
 	if err != nil {
 		return nil, err

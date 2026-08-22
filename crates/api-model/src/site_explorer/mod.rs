@@ -1494,6 +1494,9 @@ pub struct ComputerSystem {
     pub sku: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub boot_order: Option<BootOrder>,
+    /// SSH port for the system's Redfish serial-console service.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub serial_console_ssh_port: Option<u16>,
 }
 
 pub fn base_mac_deserialize<'a, D>(deserializer: D) -> Result<Option<BaseMac>, D::Error>
@@ -3552,6 +3555,7 @@ mod tests {
                 power_state: PowerState::On,
                 sku: None,
                 boot_order: None,
+                serial_console_ssh_port: None,
             }],
             chassis: vec![Chassis {
                 id: "NIC.Slot.1".to_string(),
@@ -3624,6 +3628,7 @@ mod tests {
                 power_state: PowerState::On,
                 sku: None,
                 boot_order: None,
+                serial_console_ssh_port: None,
             }],
             chassis: vec![Chassis {
                 id: "NIC.Slot.1".to_string(),

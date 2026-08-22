@@ -16,7 +16,6 @@ const policyVersionV1 = 1
 
 type policyV1 struct {
 	Version int               `json:"version"`
-	Dedupe  json.RawMessage   `json:"dedupe,omitempty"`
 	Actions []json.RawMessage `json:"actions"`
 }
 
@@ -24,15 +23,6 @@ func marshalPolicyV1(policy eventrule.Policy) (json.RawMessage, error) {
 	persisted := policyV1{
 		Version: policyVersionV1,
 		Actions: make([]json.RawMessage, len(policy.Actions)),
-	}
-
-	if policy.Dedupe != nil {
-		dedupe, err := marshalDedupe(*policy.Dedupe)
-		if err != nil {
-			return nil, err
-		}
-
-		persisted.Dedupe = dedupe
 	}
 
 	for i, action := range policy.Actions {
@@ -67,15 +57,6 @@ func unmarshalPolicyV1(data json.RawMessage) (eventrule.Policy, error) {
 
 	policy := eventrule.Policy{
 		Actions: make([]eventrule.Action, len(persisted.Actions)),
-	}
-
-	if persisted.Dedupe != nil {
-		dedupe, err := unmarshalDedupe(persisted.Dedupe)
-		if err != nil {
-			return eventrule.Policy{}, err
-		}
-
-		policy.Dedupe = dedupe
 	}
 
 	for i, action := range persisted.Actions {

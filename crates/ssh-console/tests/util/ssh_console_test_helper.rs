@@ -58,7 +58,7 @@ pub(crate) async fn spawn(
         override_bmcs: None,
         dpus: false,
         insecure: false,
-        override_bmc_ssh_port: Some(2222),
+        override_bmc_ssh_port: None,
         override_ipmi_port: Some(1623),
         insecure_ipmi_ciphers: true,
         force_deactivate_conflicting_ipmi_sol_sessions: config_overrides

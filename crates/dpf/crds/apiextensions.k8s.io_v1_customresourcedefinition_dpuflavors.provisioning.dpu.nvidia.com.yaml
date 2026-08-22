@@ -341,8 +341,10 @@ spec:
                           - P1
                           type: string
                         parameters:
-                          description: Parameters are the parameters to be set for
-                            the device.
+                          description: |-
+                            Parameters are the parameters to be set for the device.
+                            DELAY_HOST_OS_INIT=ENABLE_USER (0x3) holds the host at UEFI and is rejected by the DPU agent
+                            outside zero-trust, where the agent needs the host to reach the kube-apiserver.
                           items:
                             maxLength: 200
                             pattern: ^[^=\s]+=[^\s]*$
@@ -367,7 +369,7 @@ spec:
                 description: |-
                   hostOSInit configures when the DPU agent releases host OS init after DELAY_HOST_OS_INIT=0x3
                   (ENABLE_USER) is set in nvconfig. Omitted releaseAfter defaults to dpuServiceCriticalPodsReady
-                  at agent runtime.
+                  at agent runtime. Has no effect unless nvconfig requests that hold.
                 properties:
                   releaseAfter:
                     description: |-
@@ -410,8 +412,10 @@ spec:
                       - P1
                       type: string
                     parameters:
-                      description: Parameters are the parameters to be set for the
-                        device.
+                      description: |-
+                        Parameters are the parameters to be set for the device.
+                        DELAY_HOST_OS_INIT=ENABLE_USER (0x3) holds the host at UEFI and is rejected by the DPU agent
+                        outside zero-trust, where the agent needs the host to reach the kube-apiserver.
                       items:
                         maxLength: 200
                         pattern: ^[^=\s]+=[^\s]*$

@@ -15,75 +15,64 @@
  * limitations under the License.
  */
 
+use carbide_test_harness::prelude::*;
+use carbide_test_harness::test_support::fixture_config::{
+    FixtureDefault as _, ManagedHostConfigExt as _,
+};
 use carbide_uuid::machine::{MachineId, MachineIdSource, MachineInterfaceId, MachineType};
-use ipnetwork::IpNetwork;
+use model::expected_machine::{ExpectedMachineData, HostDpuPolicy};
 use model::test_support::ManagedHostConfig;
 use rpc::forge;
 use rpc::forge::forge_server::Forge;
-
-use crate::test_support::fixture_config::{FixtureDefault as _, ManagedHostConfigExt as _};
-use crate::tests::common::api_fixtures;
-use crate::tests::common::api_fixtures::network_segment::{
-    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
-    FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY, create_admin_network_segment,
-    create_host_inband_network_segment, create_underlay_network_segment,
-};
 
 // On a zero-DPU host, set-primary-dpu has no DPU to resolve to an interface, so
 // the alias rejects up-front with `FailedPrecondition` and a message that names
 // the underlying reason -- rather than failing later, more confusingly, when the
 // DPU-to-interface lookup comes up empty.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_set_primary_dpu_rejects_zero_dpu_host(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Zero-DPU host ingestion needs a HostInband network segment whose CIDR
     // covers the relay address; the default test env doesn't define one.
-    let env = api_fixtures::create_test_env_with_overrides(
-        pool,
-        api_fixtures::TestEnvOverrides {
-            site_prefixes: Some(vec![
-                IpNetwork::new(
-                    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.network(),
-                    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.prefix(),
-                )
-                .unwrap(),
-                IpNetwork::new(
-                    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.network(),
-                    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.prefix(),
-                )
-                .unwrap(),
-                IpNetwork::new(
-                    FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.network(),
-                    FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.prefix(),
-                )
-                .unwrap(),
-            ]),
-            create_network_segments: Some(false),
-            ..Default::default()
-        },
-    )
-    .await;
+    let env = TestHarness::builder(pool)
+        .with_resource_pools(
+            ResourcePoolBuilder::default()
+                .with_vlan_ids(1, 3)
+                .with_vnis(10_001, 10_003)
+                .build(),
+        )
+        .build()
+        .await;
+    let domain = env.test_domain().await;
+    let network_controller = env.network_controller();
+    let underlay_segment = network_controller.create_underlay_segment(&domain).await;
     // HostInband segments must live in a Flat VPC. The test doesn't otherwise
     // need a non-Flat VPC, so create only a Flat one for the segment.
-    let flat_vpc_id = api_fixtures::network_segment::create_default_flat_vpc(
-        &env.api,
-        "set-primary-dpu flat vpc",
-    )
-    .await;
-    create_underlay_network_segment(&env.api).await;
-    create_admin_network_segment(&env.api).await;
-    create_host_inband_network_segment(&env.api, Some(flat_vpc_id)).await;
-    env.run_network_segment_controller_iteration().await;
-    env.run_network_segment_controller_iteration().await;
+    network_controller.create_admin_segment(&domain).await;
+    let host_inband_segment = network_controller.create_host_inband_segment(&domain).await;
 
-    let zero_dpu_host =
-        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::zero_dpu()).await?;
+    let site_explorer = env.default_test_site_explorer();
+    let config = ManagedHostConfig::zero_dpu();
+    let expected_machine_data = ExpectedMachineData {
+        serial_number: config.serial.clone(),
+        dpu_policy: HostDpuPolicy::Ignore,
+        ..Default::default()
+    };
+    let (mut zero_dpu_host, _) = env
+        .managed_host_builder(&site_explorer, underlay_segment)
+        .with_config(config.with_expected_machine_data(expected_machine_data))
+        .build()
+        .await;
+    zero_dpu_host
+        .host
+        .discover_primary_iface(host_inband_segment)
+        .await;
 
     let result = env
-        .api
+        .api()
         .set_primary_dpu(tonic::Request::new(forge::SetPrimaryDpuRequest {
-            host_machine_id: Some(zero_dpu_host.host_snapshot.id),
+            host_machine_id: Some(zero_dpu_host.host.id),
             // Any well-formed DPU id; the handler bails before reading it.
             dpu_machine_id: Some(MachineId::new(
                 MachineIdSource::ProductBoardChassisSerial,
@@ -114,15 +103,23 @@ async fn test_set_primary_dpu_rejects_zero_dpu_host(
 // `set_primary_dpu` resolves the requested DPU from the host's locked
 // interface rows. A stale DPU id must fail before either the primary flag or
 // desired target changes.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_set_primary_dpu_rejects_a_stale_host_relationship_without_writes(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = api_fixtures::create_test_env(pool).await;
-    let host =
-        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::default().with_dpu_count(2))
-            .await?;
-    let host_id = host.host_snapshot.id;
+    let env = TestHarness::builder(pool).build().await;
+    let domain = env.test_domain().await;
+    let network_controller = env.network_controller();
+    let underlay_segment = network_controller.create_underlay_segment(&domain).await;
+    let admin_segment = network_controller.create_admin_segment(&domain).await;
+    let site_explorer = env.default_test_site_explorer();
+    let (mut host, _) = env
+        .managed_host_builder(&site_explorer, underlay_segment)
+        .with_config(ManagedHostConfig::default().with_dpu_count(2))
+        .build()
+        .await;
+    host.host.discover_primary_iface(admin_segment).await;
+    let host_id = host.host.id;
 
     let (original_primary_id, stale_interface_id, stale_dpu_id, surviving_dpu_id): (
         MachineInterfaceId,
@@ -130,7 +127,7 @@ async fn test_set_primary_dpu_rejects_a_stale_host_relationship_without_writes(
         MachineId,
         MachineId,
     ) = {
-        let mut txn = env.pool.begin().await?;
+        let mut txn = env.db_txn().await;
         let interfaces = db::machine_interface::find_by_machine_ids(txn.as_mut(), &[host_id])
             .await?
             .remove(&host_id)
@@ -167,18 +164,19 @@ async fn test_set_primary_dpu_rejects_a_stale_host_relationship_without_writes(
     sqlx::query("UPDATE machine_interfaces SET attached_dpu_machine_id = $1 WHERE id = $2")
         .bind(surviving_dpu_id)
         .bind(stale_interface_id)
-        .execute(&env.pool)
+        .execute(&env.api().database_connection)
         .await?;
-    let desired_before = db::machine_desired_boot_interface::get(&env.pool, &host_id)
-        .await?
-        .expect("ingestion should initialize the desired target");
+    let desired_before =
+        db::machine_desired_boot_interface::get(&env.api().database_connection, &host_id)
+            .await?
+            .expect("ingestion should initialize the desired target");
     sqlx::query("DELETE FROM machine_state_controller_queued_objects WHERE object_id = $1")
         .bind(host_id.to_string())
-        .execute(&env.pool)
+        .execute(&env.api().database_connection)
         .await?;
 
     let error = env
-        .api
+        .api()
         .set_primary_dpu(tonic::Request::new(forge::SetPrimaryDpuRequest {
             host_machine_id: Some(host_id),
             dpu_machine_id: Some(stale_dpu_id),
@@ -195,7 +193,7 @@ async fn test_set_primary_dpu_rejects_a_stale_host_relationship_without_writes(
     );
 
     let primary_ids = {
-        let mut txn = env.pool.begin().await?;
+        let mut txn = env.db_txn().await;
         let primary_ids = db::machine_interface::find_by_machine_ids(txn.as_mut(), &[host_id])
             .await?
             .remove(&host_id)
@@ -208,9 +206,10 @@ async fn test_set_primary_dpu_rejects_a_stale_host_relationship_without_writes(
         primary_ids
     };
     assert_eq!(primary_ids, vec![original_primary_id]);
-    let desired_after = db::machine_desired_boot_interface::get(&env.pool, &host_id)
-        .await?
-        .expect("the original desired target should remain");
+    let desired_after =
+        db::machine_desired_boot_interface::get(&env.api().database_connection, &host_id)
+            .await?
+            .expect("the original desired target should remain");
     assert_eq!(desired_after.value, desired_before.value);
     assert_eq!(desired_after.version, desired_before.version);
 
@@ -222,7 +221,7 @@ async fn test_set_primary_dpu_rejects_a_stale_host_relationship_without_writes(
         )",
     )
     .bind(host_id.to_string())
-    .fetch_one(&env.pool)
+    .fetch_one(&env.api().database_connection)
     .await?;
     assert!(
         !is_queued,

@@ -27,6 +27,10 @@ const EncryptionKeyPathEnvVar = "FLOW_DATA_ENCRYPTION_KEY_PATH"
 // EncryptedDataVersion identifies the persisted ciphertext envelope format.
 const EncryptedDataVersion uint32 = 1
 
+// encryptedDataEnvelopeDomain is part of the persisted envelope contract.
+// Changing it makes existing ciphertext undecryptable.
+const encryptedDataEnvelopeDomain = "flow-encrypted-data-envelope"
+
 // EncryptedData is a serializable, versioned ciphertext envelope. KeyID is a
 // non-secret SHA-256 fingerprint used to reject key mismatches explicitly and
 // to support a future multi-key rotation workflow.
@@ -192,7 +196,7 @@ func envelopeAdditionalData(
 	keyID string,
 ) []byte {
 	hash := sha256.New()
-	_, _ = hash.Write([]byte("flow-encrypted-data-envelope"))
+	_, _ = hash.Write([]byte(encryptedDataEnvelopeDomain))
 	var versionBytes [4]byte
 	binary.BigEndian.PutUint32(versionBytes[:], version)
 	_, _ = hash.Write(versionBytes[:])

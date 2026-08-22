@@ -25,37 +25,20 @@ type memoryExecution struct {
 func (s *Store) CreateExecution(
 	_ context.Context,
 	identity eventrule.ExecutionIdentity,
-	dedupe *eventrule.Dedupe,
 ) (*eventrule.Execution, error) {
 	if err := identity.Validate(); err != nil {
 		return nil, err
-	}
-	if dedupe != nil {
-		if err := dedupe.Validate(); err != nil {
-			return nil, fmt.Errorf("execution dedupe: %w", err)
-		}
-		if identity.CorrelationKey == "" {
-			return nil, fmt.Errorf(
-				"correlation key is required by rule %s dedupe policy",
-				identity.RuleID,
-			)
-		}
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := s.now().UTC()
 
-	if id, exists := s.executionsByDelivery[identity.DeliveryKey()]; exists {
+	if id, exists := s.executionsByKey[identity.Key()]; exists {
 		return nil, s.recordDuplicate(id, now)
 	}
 
-	deduplicated, err := s.dedupeExecution(identity, dedupe, now)
-	if err != nil || deduplicated {
-		return nil, err
-	}
-
-	return s.newExecution(identity, dedupe != nil, now)
+	return s.newExecution(identity, now)
 }
 
 // TransitionExecution atomically persists an attempt result.
@@ -141,39 +124,8 @@ func (s *Store) recordDuplicate(id uuid.UUID, observedAt time.Time) error {
 	return s.setExecution(execution)
 }
 
-func (s *Store) dedupeExecution(
-	identity eventrule.ExecutionIdentity,
-	dedupe *eventrule.Dedupe,
-	now time.Time,
-) (bool, error) {
-	if dedupe == nil {
-		return false, nil
-	}
-
-	executionIDs := s.executionsBySemantic[identity.SemanticKey()]
-	for _, id := range executionIDs {
-		execution, err := s.execution(id)
-		if err != nil {
-			return false, err
-		}
-
-		if !execution.TryDeduplicate(dedupe, now) {
-			continue
-		}
-
-		if err := s.setExecution(execution); err != nil {
-			return false, err
-		}
-
-		return true, nil
-	}
-
-	return false, nil
-}
-
 func (s *Store) newExecution(
 	identity eventrule.ExecutionIdentity,
-	semanticDedupe bool,
 	now time.Time,
 ) (*eventrule.Execution, error) {
 	execution, err := eventrule.NewExecution(identity, now)
@@ -187,15 +139,7 @@ func (s *Store) newExecution(
 
 	record := &memoryExecution{persisted: *persisted}
 	s.executions[execution.ID] = record
-	s.executionsByDelivery[identity.DeliveryKey()] = execution.ID
-
-	if semanticDedupe {
-		semanticKey := identity.SemanticKey()
-		s.executionsBySemantic[semanticKey] = append(
-			s.executionsBySemantic[semanticKey],
-			execution.ID,
-		)
-	}
+	s.executionsByKey[identity.Key()] = execution.ID
 
 	return s.execution(execution.ID)
 }

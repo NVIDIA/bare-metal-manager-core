@@ -94,9 +94,11 @@ impl NetworkPrefix {
     /// `smells_like_fnn` recognizes narrow segment prefixes generated from a
     /// VPC prefix when the persisted `can_stretch` value is unavailable.
     ///
-    /// FNN uses `/31` IPv4 and `/127` IPv6 linknets. The heuristic starts one
-    /// bit wider (`/30` or `/126`) to preserve the existing IPv4 tolerance,
-    /// but only matches rows associated with a `VpcPrefixId`.
+    /// This compatibility fallback recognizes legacy FNN `/31` IPv4 and `/127`
+    /// IPv6 linknets. It starts one bit wider (`/30` or `/126`) to preserve the
+    /// existing IPv4 tolerance, but only matches rows associated with a
+    /// `VpcPrefixId`. New generated segments, including SLAAC `/64` prefixes,
+    /// persist `can_stretch` explicitly and do not depend on this heuristic.
     pub fn smells_like_fnn(&self) -> bool {
         self.vpc_prefix_id.is_some()
             && match self.prefix {

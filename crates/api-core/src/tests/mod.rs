@@ -68,6 +68,7 @@ mod machine_topology;
 mod machine_update_manager;
 mod machine_validation;
 mod maintenance;
+mod managed_host_decommissioning;
 #[cfg(feature = "linux-build")]
 mod measured_boot;
 mod network_security_group;
@@ -84,7 +85,6 @@ mod rack_state_controller;
 mod redfish_actions;
 mod resource_pool;
 mod service_health_metrics;
-mod set_primary_dpu;
 mod set_primary_interface;
 mod site_explorer;
 mod site_prefix;

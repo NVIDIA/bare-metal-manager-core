@@ -22,6 +22,8 @@ mod config;
 mod control_router;
 mod device_handle;
 mod device_simulator;
+mod dhcp_retry_fsm;
+mod dhcp_retry_runtime;
 mod dhcp_wrapper;
 mod dhcp_wrapper_udp;
 mod discovery_info;
@@ -61,7 +63,6 @@ pub use device_simulator::{
 pub use dhcp_wrapper::{DhcpClient, UdpDhcpService};
 pub use dpu_machine::DpuMachineHandle;
 pub use machine_a_tron::{AppEvent, MachineATron};
-pub use machine_state_machine::BmcRegistrationMode;
 pub use mock_ssh_server::{
     Credentials as MockSshCredentials, MockSshServerHandle, PromptBehavior,
     spawn as spawn_mock_ssh_server,

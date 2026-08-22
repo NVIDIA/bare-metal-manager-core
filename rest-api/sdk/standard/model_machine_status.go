@@ -23,14 +23,15 @@ type MachineStatus string
 
 // List of MachineStatus
 const (
-	MACHINESTATUS_INITIALIZING   MachineStatus = "Initializing"
-	MACHINESTATUS_READY          MachineStatus = "Ready"
-	MACHINESTATUS_RESET          MachineStatus = "Reset"
-	MACHINESTATUS_MAINTENANCE    MachineStatus = "Maintenance"
-	MACHINESTATUS_IN_USE         MachineStatus = "InUse"
-	MACHINESTATUS_ERROR          MachineStatus = "Error"
-	MACHINESTATUS_DECOMMISSIONED MachineStatus = "Decommissioned"
-	MACHINESTATUS_UNKNOWN        MachineStatus = "Unknown"
+	MACHINESTATUS_INITIALIZING    MachineStatus = "Initializing"
+	MACHINESTATUS_READY           MachineStatus = "Ready"
+	MACHINESTATUS_RESET           MachineStatus = "Reset"
+	MACHINESTATUS_MAINTENANCE     MachineStatus = "Maintenance"
+	MACHINESTATUS_IN_USE          MachineStatus = "InUse"
+	MACHINESTATUS_ERROR           MachineStatus = "Error"
+	MACHINESTATUS_DECOMMISSIONING MachineStatus = "Decommissioning"
+	MACHINESTATUS_DECOMMISSIONED  MachineStatus = "Decommissioned"
+	MACHINESTATUS_UNKNOWN         MachineStatus = "Unknown"
 )
 
 // All allowed values of MachineStatus enum
@@ -41,6 +42,7 @@ var AllowedMachineStatusEnumValues = []MachineStatus{
 	"Maintenance",
 	"InUse",
 	"Error",
+	"Decommissioning",
 	"Decommissioned",
 	"Unknown",
 }

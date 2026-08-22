@@ -47,6 +47,84 @@ fn boot_target_for_interface(
     }
 }
 
+pub(crate) async fn decommission_managed_host(
+    api: &Api,
+    request: Request<rpc::DecommissionManagedHostRequest>,
+) -> Result<Response<rpc::DecommissionManagedHostResponse>, Status> {
+    log_request_data(&request);
+    let machine_id = convert_and_log_machine_id(request.into_inner().machine_id.as_ref())?;
+    if machine_id.machine_type().is_dpu() {
+        return Err(CarbideError::InvalidArgument(format!(
+            "machine {machine_id} is a DPU, not a managed host"
+        ))
+        .into());
+    }
+
+    let mut txn = api.txn_begin().await?;
+    let machine = db::machine::find_one(
+        &mut txn,
+        &machine_id,
+        MachineSearchConfig {
+            for_update: true,
+            ..Default::default()
+        },
+    )
+    .await?
+    .ok_or_else(|| CarbideError::NotFoundError {
+        kind: "managed host",
+        id: machine_id.to_string(),
+    })?;
+
+    if !matches!(machine.current_state(), ManagedHostState::Ready) {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "managed host {machine_id} must be in the ready state to be decommissioned (current state: {})",
+            machine.current_state()
+        ))
+        .into());
+    }
+
+    let dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &machine_id).await?;
+    let unsupported_dpus = dpus
+        .iter()
+        .filter(|dpu| !dpu.status.bmc_info.supports_bfb_install())
+        .map(|dpu| {
+            format!(
+                "{} (BMC firmware {})",
+                dpu.id,
+                dpu.status
+                    .bmc_info
+                    .firmware_version
+                    .as_deref()
+                    .unwrap_or("unknown")
+            )
+        })
+        .collect::<Vec<_>>();
+    if !unsupported_dpus.is_empty() {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "managed host {machine_id} cannot be decommissioned because its dpus do not support bfb installation through redfish: {}",
+            unsupported_dpus.join(", ")
+        ))
+        .into());
+    }
+
+    db::machine::set_decommission_requested(&mut txn, machine_id).await?;
+    txn.commit().await?;
+
+    if let Err(error) = api
+        .machine_state_handler_enqueuer
+        .enqueue_object(&machine_id)
+        .await
+    {
+        tracing::warn!(
+            %machine_id,
+            %error,
+            "Failed to enqueue managed host after recording decommission request",
+        );
+    }
+
+    Ok(Response::new(rpc::DecommissionManagedHostResponse {}))
+}
+
 /// Identifies the row directly or through the DPU attached to it.
 #[derive(Clone, Copy)]
 enum PrimaryInterfaceSelector {

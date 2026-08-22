@@ -99,6 +99,14 @@ impl GnmiSampleProcessor {
             } else if let Some(comp) = find_elem_key_ref(&combined, "component", "name") {
                 entities.insert(("component", comp));
                 self.process_component_metric(&combined, comp, val);
+            } else if let Some(sensor) = find_elem_key_ref(&combined, "leak-sensor", "id") {
+                entities.insert(("leak-sensor", sensor));
+
+                if leaf_matches(&combined, &["leak-sensor", "state", "state"]) {
+                    let current = leakage_state_to_state(typed_value_to_string(val).as_deref());
+
+                    self.emit_state_set("leakage_state", "sensor", sensor, current, LEAKAGE_STATES);
+                }
             } else if combined.iter().any(|e| e.name == "platform-general") {
                 // switch-level singleton: no name key, counted as one entity.
                 entities.insert(("platform-general", ""));
@@ -889,6 +897,18 @@ const FEC_HIST_NAMES: [&str; 16] = [
     "interface_fec_hist_15",
 ];
 
+const LEAKAGE_STATES: &[&str] = &["ok", "leak", "unknown"];
+
+/// Maps NVUE leakage sensor strings to the emitted StateSet domain.
+/// Missing or unrecognized values are emitted as `unknown`.
+fn leakage_state_to_state(state: Option<&str>) -> &'static str {
+    match state.map(str::trim) {
+        Some(s) if s.eq_ignore_ascii_case("ok") => "ok",
+        Some(s) if s.eq_ignore_ascii_case("leak") => "leak",
+        _ => "unknown",
+    }
+}
+
 const OPER_STATUS_STATES: &[&str] = &["up", "down"];
 
 /// oper-status string -> current StateSet state. "up" when the source reads
@@ -1312,6 +1332,76 @@ mod tests {
 
         let count = proc.process_notification(&notification);
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn leak_sensor_states_emit_distinct_state_sets() {
+        let sink = Arc::new(CapturingSink::default());
+        let mut proc = test_processor();
+        proc.data_sink = Some(sink.clone());
+
+        let cases = [("LEAK0", "ok"), ("LEAK1", "leak"), ("LEAK2", "unknown")];
+
+        let notification = proto::Notification {
+            timestamp: 0,
+            prefix: None,
+            update: cases
+                .iter()
+                .map(|(sensor, state)| proto::Update {
+                    path: Some(proto::Path {
+                        elem: vec![
+                            make_path_elem("platform-general", &[]),
+                            make_path_elem("leak-sensors", &[]),
+                            make_path_elem("leak-sensor", &[("id", sensor)]),
+                            make_path_elem("state", &[]),
+                            make_path_elem("state", &[]),
+                        ],
+                        ..Default::default()
+                    }),
+                    val: Some(make_typed_value_string(state)),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        };
+
+        assert_eq!(proc.process_notification(&notification), cases.len());
+
+        let events = sink.events.lock().expect("lock poisoned");
+
+        let samples = events
+            .iter()
+            .map(|(_, event)| {
+                let CollectorEvent::Metric(sample) = event else {
+                    panic!("expected a Metric event");
+                };
+
+                sample.as_ref()
+            })
+            .collect::<Vec<_>>();
+
+        for (sensor, state) in cases {
+            let sensor_samples = samples
+                .iter()
+                .copied()
+                .filter(|sample| {
+                    sample
+                        .labels
+                        .iter()
+                        .any(|(key, value)| key == "sensor" && value == sensor)
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+
+            assert_state_set(
+                &sensor_samples,
+                "leakage_state",
+                "sensor",
+                sensor,
+                LEAKAGE_STATES,
+                state,
+            );
+        }
     }
 
     #[test]

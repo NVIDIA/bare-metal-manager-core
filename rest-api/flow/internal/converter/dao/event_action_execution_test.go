@@ -18,10 +18,12 @@ func TestEventActionExecutionRoundTrip(t *testing.T) {
 	base := eventrule.Execution{
 		ExecutionState: eventrule.ExecutionState{ExecutionStatusDetails: eventrule.ExecutionStatusDetails{Status: eventrule.ExecutionStatusPending}},
 		ExecutionIdentity: eventrule.ExecutionIdentity{
-			EventID:        uuid.New(),
-			RuleID:         uuid.New(),
-			ActionName:     "notify",
-			CorrelationKey: "incident-1",
+			EventKey: eventrule.EventKey{
+				SourceName: "test",
+				SourceKey:  "event-1",
+			},
+			RuleID:     uuid.New(),
+			ActionName: "notify",
 		},
 		ID:           uuid.New(),
 		Observations: 2,
@@ -84,7 +86,7 @@ func TestEventActionExecutionFrom(t *testing.T) {
 	valid, err := EventActionExecutionTo(&eventrule.Execution{
 		ExecutionState: eventrule.ExecutionState{ExecutionStatusDetails: eventrule.ExecutionStatusDetails{Status: eventrule.ExecutionStatusPending}},
 		ExecutionIdentity: eventrule.ExecutionIdentity{
-			EventID:    uuid.New(),
+			EventKey:   eventrule.EventKey{SourceName: "test", SourceKey: "event-1"},
 			RuleID:     uuid.New(),
 			ActionName: "notify",
 		},

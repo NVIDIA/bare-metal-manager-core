@@ -752,6 +752,19 @@ pub async fn update_bios_password_set_time(
     Ok(())
 }
 
+pub async fn clear_bios_password_set_time(
+    machine_id: &MachineId,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE machines SET bios_password_set_time=NULL WHERE id=$1 RETURNING id";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map(|_| ())
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
 pub async fn update_discovery_time(
     machine_id: &MachineId,
     txn: &mut PgConnection,
@@ -2581,6 +2594,32 @@ pub async fn set_machine_maintenance_requested(
     Ok(())
 }
 
+pub async fn set_decommission_requested(
+    txn: &mut PgConnection,
+    machine_id: MachineId,
+) -> DatabaseResult<()> {
+    let query = "UPDATE machines SET decommission_requested = TRUE WHERE id = $1 RETURNING id";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map(|_| ())
+        .map_err(|error| DatabaseError::new("set_decommission_requested", error))
+}
+
+pub async fn clear_decommission_requested(
+    txn: &mut PgConnection,
+    machine_id: MachineId,
+) -> DatabaseResult<()> {
+    let query = "UPDATE machines SET decommission_requested = FALSE WHERE id = $1 RETURNING id";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map(|_| ())
+        .map_err(|error| DatabaseError::new("clear_decommission_requested", error))
+}
+
 pub async fn clear_machine_maintenance_requested(
     txn: &mut PgConnection,
     machine_id: MachineId,
@@ -3164,6 +3203,40 @@ pub async fn find_rms_identities_by_bmc_ips(
         }
     }
     Ok(rows)
+}
+
+/// Persist the backend firmware-object job ID for a machine that was updated via
+/// --bypass-state-controller. This survives nico-api restarts so that
+/// get_firmware_status can keep querying the backend even after the in-memory map is
+/// cleared.
+pub async fn save_backend_firmware_object_job_id(
+    db: &sqlx::PgPool,
+    machine_id: &str,
+    job_id: &str,
+) -> DatabaseResult<()> {
+    let sql =
+        "UPDATE machines SET backend_firmware_object_job_id = $1 WHERE id::text = $2 RETURNING id";
+    sqlx::query(sql)
+        .bind(job_id)
+        .bind(machine_id)
+        .execute(db)
+        .await
+        .map_err(|e| DatabaseError::new(sql, e))?;
+    Ok(())
+}
+
+/// Fetch the persisted backend firmware-object job ID for a machine, if any.
+pub async fn get_backend_firmware_object_job_id(
+    db: &sqlx::PgPool,
+    machine_id: &str,
+) -> DatabaseResult<Option<String>> {
+    let sql = "SELECT backend_firmware_object_job_id FROM machines WHERE id::text = $1";
+    let row: Option<(Option<String>,)> = sqlx::query_as(sql)
+        .bind(machine_id)
+        .fetch_optional(db)
+        .await
+        .map_err(|e| DatabaseError::new(sql, e))?;
+    Ok(row.and_then(|(job_id,)| job_id))
 }
 
 pub fn count_healthy_unhealthy_host_machines(

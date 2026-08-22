@@ -192,6 +192,8 @@ fn parse_force_delete() {
     assert!(!matches.get_flag("delete_interfaces"));
     assert!(!matches.get_flag("allow_delete_with_instance"));
     assert!(!matches.get_flag("allow_delete_with_orphaned_dpf_crds"));
+    assert!(!matches.get_flag("delete_bmc_suppressions"));
+    assert!(!matches.get_flag("delete_retained_boot_interfaces"));
 }
 
 // parse_auto_update_enable ensures auto-update parses

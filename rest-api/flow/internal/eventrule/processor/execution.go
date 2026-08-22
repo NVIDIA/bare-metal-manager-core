@@ -40,12 +40,10 @@ func (p *Processor) processAction(
 	execution, err := p.executions.CreateExecution(
 		ctx,
 		eventrule.ExecutionIdentity{
-			EventID:        prepared.Envelope.ID,
-			RuleID:         prepared.Rule.ID,
-			ActionName:     action.Name,
-			CorrelationKey: prepared.Envelope.CorrelationKey,
+			EventKey:   prepared.Envelope.Key,
+			RuleID:     prepared.Rule.ID,
+			ActionName: action.Name,
 		},
-		prepared.Rule.Dedupe.Clone(),
 	)
 	if err != nil || execution == nil {
 		return err

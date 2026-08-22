@@ -608,6 +608,29 @@ impl K8sConfigRepository for KubeRepository {
         }
     }
 
+    async fn create_configmap(
+        &self,
+        name: &str,
+        namespace: &str,
+        data: BTreeMap<String, String>,
+    ) -> Result<bool, DpfError> {
+        let api: Api<ConfigMap> = Api::namespaced(self.client.clone(), namespace);
+        let cm = ConfigMap {
+            metadata: kube::core::ObjectMeta {
+                name: Some(name.to_string()),
+                namespace: Some(namespace.to_string()),
+                ..Default::default()
+            },
+            data: Some(data),
+            ..Default::default()
+        };
+        match api.create(&PostParams::default(), &cm).await {
+            Ok(_) => Ok(true),
+            Err(kube::Error::Api(err)) if err.is_already_exists() => Ok(false),
+            Err(err) => Err(err.into()),
+        }
+    }
+
     async fn apply_configmap(
         &self,
         name: &str,

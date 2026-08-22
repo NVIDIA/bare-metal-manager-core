@@ -3774,20 +3774,109 @@ mod tests {
     use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
     use carbide_uuid::rack::RackId;
     use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
+    use librms::protos::rack_manager as rms;
     use model::rack::{
         ConfigureNmxClusterState, FirmwareUpgradeDeviceInfo, FirmwareUpgradeState,
-        MaintenanceActivity, MaintenanceScope, NvosUpdateState, RackMaintenanceState,
-        RackPowerState,
+        MaintenanceActivity, MaintenanceScope, NvosUpdateState, NvosUpdateSwitchStatus,
+        RackMaintenanceState, RackPowerState,
     };
     use model::rack_type::{RackHardwareType, RackProductFamily, RackProfile};
 
     use super::{
-        DeviceFirmwareOutcome, DeviceFirmwareProgress, build_switch_device_info_request,
-        delete_rack_maintenance_access_token, filter_inventory_by_scope, firmware_device_status,
-        first_maintenance_state, next_state_after_configure, next_state_after_firmware,
-        next_state_after_nvos, next_state_if_activity_not_requested, profile_hardware_type_or_any,
+        DeviceFirmwareOutcome, DeviceFirmwareProgress, apply_nvos_job_status_response,
+        build_switch_device_info_request, delete_rack_maintenance_access_token,
+        filter_inventory_by_scope, firmware_device_status, first_maintenance_state,
+        next_state_after_configure, next_state_after_firmware, next_state_after_nvos,
+        next_state_if_activity_not_requested, profile_hardware_type_or_any,
         summarize_firmware_outcomes, validate_complete_nmx_fabric_inventory,
     };
+
+    #[test]
+    fn test_nvos_polling_updates_node_id_and_maps_running_to_in_progress() {
+        let mut switch = NvosUpdateSwitchStatus {
+            node_id: "old-node-id".into(),
+            mac: "00:11:22:33:44:55".into(),
+            bmc_ip: "10.0.0.10".into(),
+            nvos_ip: "192.168.10.10".into(),
+            status: "pending".into(),
+            job_id: Some("job-1".into()),
+            error_message: Some("stale error".into()),
+        };
+
+        apply_nvos_job_status_response(
+            &mut switch,
+            "job-1",
+            Ok(rms::GetSwitchSystemImageJobStatusResponse {
+                status: rms::ReturnCode::Success as i32,
+                state: "RUNNING".into(),
+                node_id: "new-node-id".into(),
+                ..Default::default()
+            }),
+        );
+
+        assert_eq!(switch.node_id, "new-node-id");
+        assert_eq!(switch.status, "in_progress");
+        assert_eq!(switch.error_message, None);
+    }
+
+    #[test]
+    fn test_nvos_polling_maps_failed_state_and_uses_error_message() {
+        let mut switch = NvosUpdateSwitchStatus {
+            node_id: "node-id".into(),
+            mac: "00:11:22:33:44:55".into(),
+            bmc_ip: "10.0.0.10".into(),
+            nvos_ip: "192.168.10.10".into(),
+            status: "in_progress".into(),
+            job_id: Some("job-2".into()),
+            error_message: None,
+        };
+
+        apply_nvos_job_status_response(
+            &mut switch,
+            "job-2",
+            Ok(rms::GetSwitchSystemImageJobStatusResponse {
+                status: rms::ReturnCode::Success as i32,
+                state: "failed".into(),
+                error_message: "image install failed".into(),
+                ..Default::default()
+            }),
+        );
+
+        assert_eq!(switch.status, "failed");
+        assert_eq!(
+            switch.error_message.as_deref(),
+            Some("image install failed")
+        );
+    }
+
+    #[test]
+    fn test_nvos_polling_unknown_state_preserves_status_and_sets_error() {
+        let mut switch = NvosUpdateSwitchStatus {
+            node_id: "node-id".into(),
+            mac: "00:11:22:33:44:55".into(),
+            bmc_ip: "10.0.0.10".into(),
+            nvos_ip: "192.168.10.10".into(),
+            status: "pending".into(),
+            job_id: Some("job-3".into()),
+            error_message: None,
+        };
+
+        apply_nvos_job_status_response(
+            &mut switch,
+            "job-3",
+            Ok(rms::GetSwitchSystemImageJobStatusResponse {
+                status: rms::ReturnCode::Success as i32,
+                state: "mystery".into(),
+                ..Default::default()
+            }),
+        );
+
+        assert_eq!(switch.status, "pending");
+        assert_eq!(
+            switch.error_message.as_deref(),
+            Some("Unknown RMS switch image job state mystery")
+        );
+    }
 
     fn test_machine_id(seed: u8) -> MachineId {
         let mut hash = [0u8; 32];

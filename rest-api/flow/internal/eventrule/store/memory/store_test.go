@@ -64,34 +64,15 @@ func TestBindingScansIgnoreUnrelatedInvalidRecords(t *testing.T) {
 
 func TestStore_CreateExecutionRejectsDanglingIndexes(t *testing.T) {
 	now := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
-	tests := map[string]func(*Store, eventrule.ExecutionIdentity){
-		"delivery": func(store *Store, identity eventrule.ExecutionIdentity) {
-			store.executionsByDelivery[identity.DeliveryKey()] = uuid.New()
-		},
-		"semantic": func(store *Store, identity eventrule.ExecutionIdentity) {
-			store.executionsBySemantic[identity.SemanticKey()] = []uuid.UUID{uuid.New()}
-		},
+	store := NewWithClock(func() time.Time { return now })
+	identity := eventrule.ExecutionIdentity{
+		EventKey:   eventrule.EventKey{SourceName: "test", SourceKey: "event-1"},
+		RuleID:     uuid.New(),
+		ActionName: "action",
 	}
+	store.executionsByKey[identity.Key()] = uuid.New()
 
-	for name, corrupt := range tests {
-		t.Run(name, func(t *testing.T) {
-			store := NewWithClock(func() time.Time { return now })
-			identity := eventrule.ExecutionIdentity{
-				EventID:        uuid.New(),
-				RuleID:         uuid.New(),
-				ActionName:     "action",
-				CorrelationKey: "incident-1",
-			}
-			dedupe := &eventrule.Dedupe{Window: time.Minute}
-			corrupt(store, identity)
-
-			execution, err := store.CreateExecution(
-				context.Background(),
-				identity,
-				dedupe,
-			)
-			require.ErrorIs(t, err, eventrule.ErrExecutionNotFound)
-			require.Nil(t, execution)
-		})
-	}
+	execution, err := store.CreateExecution(context.Background(), identity)
+	require.ErrorIs(t, err, eventrule.ErrExecutionNotFound)
+	require.Nil(t, execution)
 }

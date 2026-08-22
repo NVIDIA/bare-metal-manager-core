@@ -240,6 +240,18 @@ impl DeviceHandle {
     }
 
     #[cfg(test)]
+    pub(crate) fn with_control_test_ssh_endpoint(self, port: u16) -> Self {
+        match self.0 {
+            DeviceHandleInner::Machine(handle) => {
+                Self::machine(handle.with_control_test_ssh_endpoint(port))
+            }
+            DeviceHandleInner::Switch(_) | DeviceHandleInner::PowerShelf(_) => {
+                unreachable!("control-test SSH endpoint is only configured for machines")
+            }
+        }
+    }
+
+    #[cfg(test)]
     pub(crate) fn for_control_test_in_section(machine_config_section: &str) -> Self {
         Self::machine(MachineHandle::for_control_test_in_section(
             Vec::new(),

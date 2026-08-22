@@ -1082,6 +1082,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "ipnetwork",
+ "json-patch",
  "lazy_static",
  "libc",
  "mac_address",

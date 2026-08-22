@@ -28,16 +28,10 @@ func RunExecutionContract(t *testing.T, factory ExecutionFactory) {
 	t.Run("reject invalid creation", func(t *testing.T) {
 		testExecutionInvalidCreation(t, factory)
 	})
-	t.Run("delivery deduplication", func(t *testing.T) {
+	t.Run("event key deduplication", func(t *testing.T) {
 		testExecutionDeliveryDeduplication(t, factory)
 	})
-	t.Run("semantic deduplication", func(t *testing.T) {
-		testExecutionSemanticDeduplication(t, factory)
-	})
-	t.Run("semantic deduplication window expiry", func(t *testing.T) {
-		testExecutionSemanticDedupeWindowExpiry(t, factory)
-	})
-	t.Run("concurrent delivery deduplication", func(t *testing.T) {
+	t.Run("concurrent event key deduplication", func(t *testing.T) {
 		testExecutionConcurrentDeliveryDeduplication(t, factory)
 	})
 	t.Run("persist result", func(t *testing.T) {
@@ -59,27 +53,8 @@ func testExecutionInvalidCreation(
 	created, err := store.CreateExecution(
 		context.Background(),
 		eventrule.ExecutionIdentity{},
-		nil,
 	)
-	require.ErrorContains(t, err, "event id is required")
-	require.Nil(t, created)
-
-	identity := newExecutionIdentity()
-	created, err = store.CreateExecution(
-		context.Background(),
-		identity,
-		&eventrule.Dedupe{Window: time.Minute},
-	)
-	require.ErrorContains(t, err, "correlation key is required")
-	require.Nil(t, created)
-
-	identity.CorrelationKey = "incident-1"
-	created, err = store.CreateExecution(
-		context.Background(),
-		identity,
-		&eventrule.Dedupe{},
-	)
-	require.ErrorContains(t, err, "dedupe window must be positive")
+	require.ErrorContains(t, err, "event source name is empty")
 	require.Nil(t, created)
 }
 
@@ -89,7 +64,6 @@ func testExecutionCreation(t *testing.T, factory ExecutionFactory) {
 	created, err := factory(&now).CreateExecution(
 		context.Background(),
 		newExecutionIdentity(),
-		nil,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, created)
@@ -105,7 +79,7 @@ func testExecutionTransition(t *testing.T, factory ExecutionFactory) {
 	ctx := context.Background()
 	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
 	store := factory(&now)
-	created, err := store.CreateExecution(ctx, newExecutionIdentity(), nil)
+	created, err := store.CreateExecution(ctx, newExecutionIdentity())
 	require.NoError(t, err)
 	require.NotNil(t, created)
 
@@ -180,61 +154,22 @@ func testExecutionDeliveryDeduplication(
 	store := factory(&now)
 	identity := newExecutionIdentity()
 
-	created, err := store.CreateExecution(ctx, identity, nil)
+	created, err := store.CreateExecution(ctx, identity)
 	require.NoError(t, err)
 	require.NotNil(t, created)
 
 	now = now.Add(time.Second)
-	duplicate, err := store.CreateExecution(ctx, identity, nil)
+	duplicate, err := store.CreateExecution(ctx, identity)
 	require.NoError(t, err)
 	require.Nil(t, duplicate)
-}
 
-func testExecutionSemanticDeduplication(
-	t *testing.T,
-	factory ExecutionFactory,
-) {
-	t.Helper()
-	ctx := context.Background()
-	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
-	store := factory(&now)
-	identity := newExecutionIdentity()
-	identity.CorrelationKey = "incident-1"
-	dedupe := &eventrule.Dedupe{Window: time.Minute}
-
-	created, err := store.CreateExecution(ctx, identity, dedupe)
+	transitioned, err := store.TransitionExecution(
+		ctx,
+		created.ID,
+		eventrule.CompletedExecutionResult(),
+	)
 	require.NoError(t, err)
-	require.NotNil(t, created)
-
-	identity.EventID = uuid.New()
-	now = now.Add(time.Second)
-	duplicate, err := store.CreateExecution(ctx, identity, dedupe)
-	require.NoError(t, err)
-	require.Nil(t, duplicate)
-}
-
-func testExecutionSemanticDedupeWindowExpiry(
-	t *testing.T,
-	factory ExecutionFactory,
-) {
-	t.Helper()
-	ctx := context.Background()
-	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
-	store := factory(&now)
-	identity := newExecutionIdentity()
-	identity.CorrelationKey = "incident-1"
-	dedupe := &eventrule.Dedupe{Window: time.Minute}
-
-	first, err := store.CreateExecution(ctx, identity, dedupe)
-	require.NoError(t, err)
-	require.NotNil(t, first)
-
-	identity.EventID = uuid.New()
-	now = now.Add(dedupe.Window)
-	second, err := store.CreateExecution(ctx, identity, dedupe)
-	require.NoError(t, err)
-	require.NotNil(t, second)
-	require.NotEqual(t, first.ID, second.ID)
+	require.Equal(t, 2, transitioned.Observations)
 }
 
 func testExecutionConcurrentDeliveryDeduplication(
@@ -257,7 +192,6 @@ func testExecutionConcurrentDeliveryDeduplication(
 			created, err := store.CreateExecution(
 				context.Background(),
 				identity,
-				nil,
 			)
 			results <- created
 			errs <- err
@@ -281,7 +215,7 @@ func testExecutionConcurrentDeliveryDeduplication(
 
 func newExecutionIdentity() eventrule.ExecutionIdentity {
 	return eventrule.ExecutionIdentity{
-		EventID:    uuid.New(),
+		EventKey:   eventrule.EventKey{SourceName: "test", SourceKey: uuid.NewString()},
 		RuleID:     uuid.New(),
 		ActionName: "action",
 	}

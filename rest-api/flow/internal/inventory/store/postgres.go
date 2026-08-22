@@ -409,7 +409,8 @@ func (s *PostgresStore) GetComponentsByExternalIDs(
 	var componentModels []model.Component
 	err := s.pg.DB.NewSelect().
 		Model(&componentModels).
-		Where("external_id IN (?)", bun.In(externalIDs)).
+		Where("c.external_id IN (?)", bun.In(externalIDs)).
+		Relation("Rack").
 		Scan(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query components by external IDs: %w", err)

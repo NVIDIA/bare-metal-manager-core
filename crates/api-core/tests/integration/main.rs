@@ -44,6 +44,7 @@ mod rack_find;
 mod rack_profile;
 mod route_servers;
 mod scout_firmware_upgrade_status;
+mod set_primary_dpu;
 mod static_address_management;
 mod storage;
 mod switch_find;

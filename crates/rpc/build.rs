@@ -36,6 +36,9 @@ const PROTO_FILES: &[&str] = &[
 const INCLUDE_PATHS: &[&str] = &["proto"];
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("cargo:rerun-if-changed=proto");
+    println!("cargo:rerun-if-changed=../agent/proto");
+
     let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
     // Write generated code to OUT_DIR rather than back into the source tree.
     // Consumers pull these in via:

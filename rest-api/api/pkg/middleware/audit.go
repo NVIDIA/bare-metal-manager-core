@@ -70,6 +70,17 @@ var obfuscateFields = []string{
 	"publicKey",
 	"defaultBmcUsername",
 	"defaultBmcPassword",
+	"authenticationData",
+}
+
+const auditObfuscatedValue = "*******************"
+
+func obfuscateRequestBody(body map[string]interface{}) {
+	for _, field := range obfuscateFields {
+		if _, ok := body[field]; ok {
+			body[field] = auditObfuscatedValue
+		}
+	}
 }
 
 type ResponseError struct {
@@ -107,11 +118,7 @@ func AuditBody(dbSession *cdb.Session) echo.MiddlewareFunc {
 				if err := json.Unmarshal(reqBody, &bodyMap); err != nil {
 					log.Error().Err(err).Msgf("failed to unmarshall body for audit entry %s", auditEntryID)
 				}
-				for _, field := range obfuscateFields {
-					if _, ok := bodyMap[field]; ok {
-						bodyMap[field] = "*******************"
-					}
-				}
+				obfuscateRequestBody(bodyMap)
 				updateInput.Body = bodyMap
 			}
 			// update

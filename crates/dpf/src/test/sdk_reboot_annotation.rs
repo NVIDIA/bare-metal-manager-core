@@ -95,6 +95,15 @@ impl DpuNodeRepository for RebootAnnotationMock {
 
 #[async_trait]
 impl K8sConfigRepository for RebootAnnotationMock {
+    async fn create_configmap(
+        &self,
+        _name: &str,
+        _ns: &str,
+        _data: BTreeMap<String, String>,
+    ) -> Result<bool, DpfError> {
+        Ok(true)
+    }
+
     async fn get_configmap(
         &self,
         _: &str,

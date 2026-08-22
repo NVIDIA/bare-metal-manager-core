@@ -39,7 +39,7 @@ type VPC struct {
 	ControllerVpcId NullableString `json:"controllerVpcId,omitempty"`
 	// Network virtualization type of the VPC. Flat VPCs hold instances on zero-DPU hosts (or hosts with their DPU in NIC mode); their interfaces are bound to underlay (HostInband) network segments and NICo does not drive their data plane.
 	NetworkVirtualizationType NullableString `json:"networkVirtualizationType,omitempty"`
-	// Whether this VPC uses SLAAC allocation mode for instance IPv6 interfaces. This value is fixed when the VPC is created. Complete SLAAC support depends on allocating a `/64` to each interface, tracked by https://github.com/NVIDIA/infra-controller/issues/2404, and router advertisement (RA) support, tracked by https://github.com/NVIDIA/infra-controller/issues/2398.
+	// Whether this VPC uses SLAAC allocation mode for instance IPv6 interfaces. When true, Core allocates a `/64` to each interface that includes IPv6 and retains the prefix without assigning a concrete IPv6 host address. This value is fixed when the VPC is created. NICo does not yet configure router advertisements (RAs); that support is tracked by https://github.com/NVIDIA/infra-controller/issues/2398.
 	SlaacEnabled *bool `json:"slaacEnabled,omitempty"`
 	// Routing profile type for the VPC. Populated when Site has Native Networking enabled and network virtualization type is `FNN`.
 	RoutingProfile NullableString `json:"routingProfile,omitempty"`

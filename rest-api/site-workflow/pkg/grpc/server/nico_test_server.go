@@ -182,9 +182,11 @@ func (f *NICoServerImpl) CreateVpc(c context.Context, req *corev1.VpcCreationReq
 	}
 
 	nv := &corev1.Vpc{
-		Id:                   &corev1.VpcId{Value: nid},
-		Name:                 req.Name,
-		TenantOrganizationId: req.TenantOrganizationId,
+		Id:   &corev1.VpcId{Value: nid},
+		Name: req.Name,
+		Config: &corev1.VpcConfig{
+			TenantOrganizationId: req.TenantOrganizationId,
+		},
 	}
 	f.v[nid] = nv
 

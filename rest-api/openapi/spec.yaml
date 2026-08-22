@@ -3534,8 +3534,8 @@ paths:
           in: query
           name: includeUsageStats
           description: >-
-            When true, each VPC Prefix object includes usage statistics using the same structure as IP Block usage.
-            Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a VPC Prefix consumes a `/31` prefix.
+            When true, each VPC Prefix with IPv4 includes IPv4 usage statistics using the same structure as IP Block usage.
+            Usage is derived from associated Ethernet interfaces and their IPv4 addresses. IP usage counts two addresses per interface, while prefix usage counts each distinct `/31` containing an assigned IPv4 address.
         - schema:
             $ref: '#/components/schemas/PageNumber'
             example: 1
@@ -3638,8 +3638,8 @@ paths:
           in: query
           name: includeUsageStats
           description: |-
-            When true, each VPC Prefix object includes usage statistics using the same structure as IP Block usage.
-            Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a VPC Prefix consumes a `/31` prefix.
+            When true, a VPC Prefix with IPv4 includes IPv4 usage statistics using the same structure as IP Block usage.
+            Usage is derived from associated Ethernet interfaces and their IPv4 addresses. IP usage counts two addresses per interface, while prefix usage counts each distinct `/31` containing an assigned IPv4 address.
     delete:
       summary: Delete VPC Prefix
       operationId: delete-vpc-prefix
@@ -10174,6 +10174,71 @@ paths:
         attached to the Machine, `acknowledgeAttachedInstance` must be `true`.
         
         Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
+  '/v2/org/{org}/nico/machine/{machineId}/decommission':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+        name: machineId
+        in: path
+        required: true
+        description: ID of the Machine
+    post:
+      summary: Decommission a Machine
+      tags:
+        - Machine
+      responses:
+        '202':
+          description: Machine decommissioning was accepted and will proceed asynchronously.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              examples:
+                accepted:
+                  value:
+                    message: Machine decommissioning request was accepted
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '412':
+          description: The Machine cannot be decommissioned in its current Core state or its DPUs do not support the required BFB installation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+        '503':
+          description: Core is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+        '504':
+          description: The Core proxy request timed out.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+      operationId: decommission-machine
+      description: |-
+        Start decommissioning a Machine. The Machine must be in Core's `Ready`
+        state, and every attached DPU must support BFB installation through
+        Redfish. The operation is asynchronous; use the Machine status to
+        observe workflow progress.
+
+        Org must have an Infrastructure Provider entity and own the Site that
+        the Machine belongs to. User must have authorization role with
+        `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/machine/{machineId}/validation/run':
     parameters:
       - schema:
@@ -10796,6 +10861,8 @@ paths:
                       model: PowerEdge R750
                       serialNumber: SN-RACK-001
                       description: Primary compute rack
+                      nvLinkDomainIds:
+                        - 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
                       location:
                         region: us-east-1
                         datacenter: DC-01
@@ -10880,6 +10947,8 @@ paths:
                     model: PowerEdge R750
                     serialNumber: SN-RACK-001
                     description: Primary compute rack
+                    nvLinkDomainIds:
+                      - 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
                     location:
                       region: us-east-1
                       datacenter: DC-01
@@ -12821,6 +12890,7 @@ paths:
                         trayIdx: 0
                         hostId: 1
                       rackId: 550e8400-e29b-41d4-a716-446655440000
+                      nvLinkDomainId: 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
           headers:
             X-Pagination:
               schema:
@@ -12888,6 +12958,7 @@ paths:
                       trayIdx: 0
                       hostId: 1
                     rackId: 550e8400-e29b-41d4-a716-446655440000
+                    nvLinkDomainId: 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
         '403':
           $ref: '#/components/responses/ForbiddenError'
         '404':
@@ -16914,6 +16985,7 @@ components:
             assigned: 12
             ready: 5
             error: 2
+            decommissioning: 0
             decommissioned: 0
             unknown: 0
           ipBlock:
@@ -16949,6 +17021,7 @@ components:
           assigned: 12
           ready: 5
           error: 2
+          decommissioning: 0
           decommissioned: 0
           unknown: 0
       properties:
@@ -16970,6 +17043,9 @@ components:
         error:
           type: integer
           description: 'Number of Machines in Error status'
+        decommissioning:
+          type: integer
+          description: 'Number of Machines in Decommissioning status'
         decommissioned:
           type: integer
           description: 'Number of Machines in Decommissioned status'
@@ -17471,6 +17547,7 @@ components:
               Maintenance: 0
               InUse: 3
               Error: 5
+              Decommissioning: 0
               Decommissioned: 0
               Unknown: 0
             totalByHealth:
@@ -17495,6 +17572,9 @@ components:
               Error:
                 healthy: 2
                 unhealthy: 3
+              Decommissioning:
+                healthy: 0
+                unhealthy: 0
               Decommissioned:
                 healthy: 0
                 unhealthy: 0
@@ -17766,6 +17846,9 @@ components:
         Decommissioned:
           type: integer
           description: 'Number of Machines in Decommissioned status'
+        Decommissioning:
+          type: integer
+          description: 'Number of Machines in Decommissioning status'
         Error:
           type: integer
           description: 'Number of Machines in Error status'
@@ -17795,6 +17878,9 @@ components:
         Decommissioned:
           $ref: '#/components/schemas/SiteMachineStatsByHealth'
           description: 'Health breakdown for Machines in Decommissioned status'
+        Decommissioning:
+          $ref: '#/components/schemas/SiteMachineStatsByHealth'
+          description: 'Health breakdown for Machines in Decommissioning status'
         Error:
           $ref: '#/components/schemas/SiteMachineStatsByHealth'
           description: 'Health breakdown for Machines in Error status'
@@ -18353,7 +18439,7 @@ components:
         slaacEnabled:
           type: boolean
           readOnly: true
-          description: Whether this VPC uses SLAAC allocation mode for instance IPv6 interfaces. This value is fixed when the VPC is created. Complete SLAAC support depends on allocating a `/64` to each interface, tracked by https://github.com/NVIDIA/infra-controller/issues/2404, and router advertisement (RA) support, tracked by https://github.com/NVIDIA/infra-controller/issues/2398.
+          description: Whether this VPC uses SLAAC allocation mode for instance IPv6 interfaces. When true, Core allocates a `/64` to each interface that includes IPv6 and retains the prefix without assigning a concrete IPv6 host address. This value is fixed when the VPC is created. NICo does not yet configure router advertisements (RAs); that support is tracked by https://github.com/NVIDIA/infra-controller/issues/2398.
         routingProfile:
           type:
             - string
@@ -18606,7 +18692,7 @@ components:
         slaacEnabled:
           type: boolean
           default: false
-          description: When true, Core retains an IPv6 interface prefix without assigning a concrete IPv6 host address. It is supported only for FNN VPCs and fixed during creation. False or omission disables SLAAC. Before persistence, REST requires `vpcSlaac` in the latest successfully stored configuration inventory for the selected Site. Periodic Site inventory reports whether Core supports this feature, so the stored value can lag a Core rollout. False or missing `vpcSlaac` returns 412 before REST persistence or workflow dispatch. This flag does not verify DPU agent versions. When a new API server release is deployed, DPU agents roll forward, and instance network configuration may fail transiently until eligible agents converge. Complete SLAAC support depends on allocating a `/64` to each interface, tracked by https://github.com/NVIDIA/infra-controller/issues/2404, and router advertisement (RA) support, tracked by https://github.com/NVIDIA/infra-controller/issues/2398.
+          description: When true, Core allocates a `/64` to each instance interface that includes IPv6 and retains the prefix without assigning a concrete IPv6 host address. It is supported only for FNN VPCs and fixed during creation. False or omission disables SLAAC. Before persistence, REST requires `vpcSlaac` in the latest successfully stored configuration inventory for the selected Site. Periodic Site inventory reports whether Core supports this feature, so the stored value can lag a Core rollout. False or missing `vpcSlaac` returns 412 before REST persistence or workflow dispatch. This flag does not verify DPU agent versions. When a new API server release is deployed, DPU agents roll forward, and instance network configuration may fail transiently until eligible agents converge. NICo does not yet configure router advertisements (RAs); that support is tracked by https://github.com/NVIDIA/infra-controller/issues/2398.
         routingProfile:
           type:
             - string
@@ -18970,7 +19056,7 @@ components:
           $ref: '#/components/schemas/IpBlockUsageStats'
           readOnly: true
           description: |-
-            Present when query parameter `includeUsageStats=true`. Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a VPC Prefix consumes a `/31` prefix.
+            Present when query parameter `includeUsageStats=true` and the VPC Prefix has IPv4. This statistic reports IPv4 usage only. IP usage counts two addresses per associated Ethernet interface, while prefix usage counts each distinct `/31` containing an assigned IPv4 address.
         statusHistory:
           type: array
           items:
@@ -22219,6 +22305,8 @@ components:
       title: Rack
       type: object
       description: Rack represents a physical rack in the datacenter
+      required:
+        - nvLinkDomainIds
       examples:
         - id: 550e8400-e29b-41d4-a716-446655440000
           name: Rack-01
@@ -22226,6 +22314,8 @@ components:
           model: PowerEdge R750
           serialNumber: SN-RACK-001
           description: Primary compute rack
+          nvLinkDomainIds:
+            - 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
           location:
             region: us-east-1
             datacenter: DC-01
@@ -22267,6 +22357,12 @@ components:
         description:
           type: string
           description: Description of the Rack
+        nvLinkDomainIds:
+          type: array
+          description: IDs of the NVLink Domains containing this Rack. Empty when the Rack is not assigned to an NVLink Domain.
+          items:
+            type: string
+            format: uuid
         location:
           $ref: '#/components/schemas/RackLocation'
           description: 'Physical or logical location of the Rack'
@@ -22459,6 +22555,8 @@ components:
       title: Tray
       type: object
       description: 'Tray represents a component within a rack (e.g. compute node, NVSwitch, power shelf)'
+      required:
+        - nvLinkDomainId
       examples:
         - id: 660e8400-e29b-41d4-a716-446655440001
           componentId: fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
@@ -22479,6 +22577,7 @@ components:
               macAddress: '00:11:22:33:44:55'
               ipAddress: 192.168.1.100
           rackId: 550e8400-e29b-41d4-a716-446655440000
+          nvLinkDomainId: 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
       properties:
         id:
           type: string
@@ -22544,6 +22643,12 @@ components:
           type: string
           format: uuid
           description: ID of the rack this tray belongs to
+        nvLinkDomainId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: ID of the NVLink Domain containing this Tray's Rack. Null when the Rack is not assigned to an NVLink Domain.
     TrayPosition:
       title: TrayPosition
       type: object
@@ -22707,6 +22812,13 @@ components:
             - string
             - 'null'
           description: Target firmware version.
+        authenticationData:
+          $ref: '#/components/schemas/FirmwareAuthenticationData'
+          writeOnly: true
+          description: |-
+            Optional, write-only authentication data for firmware downloads.
+            Not supported for DPU-only updates or by the legacy NICo compute
+            firmware controller.
         ruleId:
           type: string
           format: uuid
@@ -23884,6 +23996,13 @@ components:
             listed explicitly. `version` is ignored on the `dpu`
             branch; the target firmware version comes from site
             configuration.
+        authenticationData:
+          $ref: '#/components/schemas/FirmwareAuthenticationData'
+          writeOnly: true
+          description: |-
+            Optional, write-only authentication data for firmware downloads.
+            Not supported for DPU-only updates or by the legacy NICo compute
+            firmware controller.
         ruleId:
           type: string
           format: uuid
@@ -23967,6 +24086,50 @@ components:
       examples:
         - taskIds:
             - 550e8400-e29b-41d4-a716-446655440000
+    FirmwareAuthenticationData:
+      title: FirmwareAuthenticationData
+      type: object
+      additionalProperties: false
+      description: |-
+        Optional, write-only authentication data for firmware downloads.
+        Exactly one of `shared` or `perComponent` must be present. Empty string
+        values mean no authentication data for the corresponding target.
+
+        Authentication data is not supported for DPU-only updates or by the
+        legacy NICo compute firmware controller.
+      properties:
+        shared:
+          type: string
+          writeOnly: true
+          description: Authentication data shared by every supported firmware target.
+        perComponent:
+          $ref: '#/components/schemas/PerComponentFirmwareAuthenticationData'
+          writeOnly: true
+      oneOf:
+        - required:
+            - shared
+        - required:
+            - perComponent
+    PerComponentFirmwareAuthenticationData:
+      title: PerComponentFirmwareAuthenticationData
+      type: object
+      additionalProperties: false
+      description: |-
+        Authentication data scoped to supported firmware tray types. An
+        omitted field means that tray type receives no authentication data.
+      properties:
+        compute:
+          type: string
+          writeOnly: true
+          description: Authentication data for compute tray firmware downloads.
+        nvswitch:
+          type: string
+          writeOnly: true
+          description: Authentication data for NVSwitch tray firmware downloads.
+        powershelf:
+          type: string
+          writeOnly: true
+          description: Authentication data for power shelf firmware downloads.
     FirmwareUpdateRequest:
       title: FirmwareUpdateRequest
       type: object
@@ -24021,6 +24184,13 @@ components:
             listed explicitly. `version` is ignored on the `dpu`
             branch; the target firmware version comes from site
             configuration.
+        authenticationData:
+          $ref: '#/components/schemas/FirmwareAuthenticationData'
+          writeOnly: true
+          description: |-
+            Optional, write-only authentication data for firmware downloads.
+            Not supported for DPU-only updates or by the legacy NICo compute
+            firmware controller.
         ruleId:
           type: string
           format: uuid
@@ -24279,6 +24449,7 @@ components:
         - Maintenance
         - InUse
         - Error
+        - Decommissioning
         - Decommissioned
         - Unknown
     MachineSummary:

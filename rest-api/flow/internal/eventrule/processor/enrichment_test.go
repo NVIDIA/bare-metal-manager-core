@@ -173,7 +173,7 @@ func TestEnrichRackUsesResolvedResourceAsRack(t *testing.T) {
 
 func validEnvelope(resource eventrule.Resource) eventrule.Envelope {
 	return eventrule.Envelope{
-		ID:       uuid.New(),
+		Key:      eventrule.EventKey{SourceName: "test", SourceKey: uuid.NewString()},
 		Type:     "test.event",
 		Resource: resource,
 	}
