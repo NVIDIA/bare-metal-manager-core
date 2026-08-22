@@ -66,9 +66,9 @@ use crate::ethernet_virtualization::validate_instance_interface_routing_profiles
 use crate::handlers::utils::convert_and_log_machine_id;
 use crate::instance::{
     InstanceAllocationRequest, allocate_ib_port_guid, allocate_instance, allocate_network,
-    allocate_spx_port_mac, validate_ib_partition_ownership,
-    validate_instance_vfs_against_dpf_topology, validate_os_definition_usable,
-    validate_spx_partition_ownership,
+    allocate_spx_port_mac, ib_memberships_from_config, load_ib_partition_pkeys,
+    validate_ib_partition_ownership, validate_instance_vfs_against_dpf_topology,
+    validate_os_definition_usable, validate_spx_partition_ownership,
 };
 use crate::{CarbideError, CarbideResult};
 
@@ -696,6 +696,11 @@ async fn handle_instance_release_from_regular_tenant_and_report_issue(
 /// (and regular-tenant issue) health logic so the repair system can clear or update overrides, then returns
 /// success without calling `mark_as_deleted` again.
 ///
+/// **Membership serialization:** The release transaction locks and rereads the
+/// authoritative `Instance`, then records its exact IB memberships in the same
+/// transaction that marks the live `Instance` for deletion. An already-deleted
+/// retry does not resolve or record memberships.
+///
 /// ## Repair Tenant Workflow
 /// When `is_repair_tenant=true`, this indicates the RepairSystem is releasing an instance after
 /// attempting repairs. The function:
@@ -725,33 +730,39 @@ pub(crate) async fn release(
 
     let mut txn = api.txn_begin().await?;
 
-    let instance = db::instance::find_by_id(&mut txn, instance_id)
+    // Take the Instance lock before any optional Machine health update. IB
+    // config changes use the same Instance-before-Machine order, and a
+    // controller DELETE must acquire this Instance record before proceeding.
+    let instance = db::instance::find_by_id_for_update(txn.as_mut(), instance_id)
         .await?
         .ok_or_else(|| CarbideError::NotFoundError {
             kind: "instance",
             id: instance_id.to_string(),
         })?;
+    let machine_id = instance.machine_id;
+    let instance_is_live = instance.deleted.is_none();
+    let is_repair_tenant = delete_instance.is_repair_tenant == Some(true);
 
-    log_machine_id(&instance.machine_id);
-    log_tenant_organization_id(instance.config.tenant.tenant_organization_id.as_str());
+    log_machine_id(&machine_id);
+    log_tenant_organization_id(instance.tenant_organization_id.as_str());
     log_delete_attribution(delete_instance.delete_attribution.as_ref());
 
-    // Only enforce PreventInstanceDeletion for a real release (instance not yet marked deleted). Repair-tenant
-    // follow-up calls after deletion may still need to adjust health overrides below.
-    if instance.deleted.is_none() {
+    // Only enforce PreventInstanceDeletion for a real release. Repair tenant
+    // follow-up calls after deletion may still adjust health below.
+    if instance_is_live {
         ensure_instance_release_not_blocked_by_prevent_instance_deletion(
             &mut txn,
-            &instance.machine_id,
+            &machine_id,
             api.runtime_config.host_health,
         )
         .await?;
     }
 
     // Instance Release called from the Repair tenant.
-    if delete_instance.is_repair_tenant == Some(true) {
+    if is_repair_tenant {
         tracing::info!(
             %instance_id,
-            machine_id = %instance.machine_id,
+            %machine_id,
             has_issues = delete_instance.issue.is_some(),
             "Instance release requested by repair tenant"
         );
@@ -759,7 +770,7 @@ pub(crate) async fn release(
         // Get machine details for repair tenant workflow
         let machine = db::machine::find_one(
             &mut txn,
-            &instance.machine_id,
+            &machine_id,
             MachineSearchConfig {
                 for_update: false,
                 ..Default::default()
@@ -768,16 +779,16 @@ pub(crate) async fn release(
         .await?
         .ok_or_else(|| CarbideError::NotFoundError {
             kind: "machine",
-            id: instance.machine_id.to_string(),
+            id: machine_id.to_string(),
         })?;
 
         // Handle repair tenant workflow
         handle_instance_release_from_repair_tenant(
             &mut txn,
-            &instance.machine_id,
+            &machine_id,
             delete_instance.issue.as_ref(),
             &machine,
-            instance.config.tenant.tenant_organization_id.as_str(),
+            instance.tenant_organization_id.as_str(),
         )
         .await
         .map_err(|e| CarbideError::Internal {
@@ -789,10 +800,10 @@ pub(crate) async fn release(
 
         handle_instance_release_from_regular_tenant_and_report_issue(
             &mut txn,
-            &instance.machine_id,
+            &machine_id,
             issue,
             auto_repair_enabled,
-            instance.config.tenant.tenant_organization_id.as_str(),
+            instance.tenant_organization_id.as_str(),
         )
         .await
         .map_err(|e| CarbideError::Internal {
@@ -800,7 +811,7 @@ pub(crate) async fn release(
         })?;
     }
 
-    if instance.deleted.is_some() {
+    if !instance_is_live {
         tracing::info!(
             %instance_id,
             "Instance is already marked for deletion.",
@@ -809,9 +820,11 @@ pub(crate) async fn release(
         return Ok(Response::new(rpc::InstanceReleaseResult {}));
     }
 
-    // TODO: This is racy. If the instance just got deleted we still
-    // see an error here that is not returned as `NotFound` error. Ideally
-    // we convert this case of the DatabaseError into NotFound too.
+    let pkeys = load_ib_partition_pkeys(txn.as_mut(), &[&instance.infiniband_config]).await?;
+    let memberships = ib_memberships_from_config(&instance.infiniband_config, &pkeys);
+    for membership in memberships {
+        db::retired_ib_membership::record(txn.as_mut(), &membership).await?;
+    }
     db::instance::mark_as_deleted(instance_id, &mut txn).await?;
 
     txn.commit().await?;
@@ -1236,53 +1249,79 @@ pub(crate) async fn update_instance_config(
     metadata.validate(true).map_err(|e| {
         CarbideError::InvalidArgument(format!("instance metadata is not valid: {e}"))
     })?;
-
     let mut txn = api.txn_begin().await?;
 
-    let instance = db::instance::find_by_id(&mut txn, instance_id)
-        .await?
+    let (machine_id, initial_config_version) = {
+        // Capture the Instance before any IB lock wait. If another request
+        // updates it while this request waits, this version remains the
+        // implicit optimistic token rather than silently rebasing.
+        let request_start_instance = db::instance::find_by_id(&mut txn, instance_id)
+            .await?
+            .ok_or(CarbideError::NotFoundError {
+                kind: "instance",
+                id: instance_id.to_string(),
+            })?;
+        (
+            request_start_instance.machine_id,
+            request_start_instance.config_version,
+        )
+    };
+
+    let mut mh_snapshot = db::managed_host::load_snapshot(
+        &mut txn,
+        &machine_id,
+        LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
+    )
+    .await?
+    .ok_or(CarbideError::NotFoundError {
+        kind: "machine",
+        id: machine_id.to_string(),
+    })?;
+    // We assign `initial_instance` from this first snapshot as the baseline for
+    // request validation and resource updates. An IB change later locks the
+    // Instance and Machine, reloads the snapshot, and uses the refreshed
+    // `instance` below.
+    let initial_instance = mh_snapshot
+        .instance
+        .as_ref()
+        .filter(|instance| instance.id == instance_id)
         .ok_or(CarbideError::NotFoundError {
             kind: "instance",
             id: instance_id.to_string(),
         })?;
 
-    // power_profile was added to the complete-config update request after the
-    // API was deployed. Preserve the stored value when older clients omit it;
-    // an explicit empty string is the wire representation for clearing it.
-    config.power_profile = match config.power_profile.take() {
-        Some(profile) if profile.is_empty() => None,
-        Some(profile) => Some(profile),
-        None => instance.config.power_profile.clone(),
-    };
+    log_machine_id(&initial_instance.machine_id);
+    log_tenant_organization_id(
+        initial_instance
+            .config
+            .tenant
+            .tenant_organization_id
+            .as_str(),
+    );
 
-    log_machine_id(&instance.machine_id);
-    log_tenant_organization_id(instance.config.tenant.tenant_organization_id.as_str());
-
-    let mh_snapshot = db::managed_host::load_snapshot(
-        &mut txn,
-        &instance.machine_id,
-        LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
-    )
-    .await?
-    .ok_or(CarbideError::NotFoundError {
-        kind: "instance",
-        id: instance_id.to_string(),
-    })?;
-
-    if mh_snapshot
-        .instance
-        .as_ref()
-        .map(|instance| instance.deleted.is_some())
-        .unwrap_or(true)
-    {
+    if initial_instance.deleted.is_some() {
         return Err(CarbideError::InvalidArgument(
             "configuration for a terminating instance can not be changed".to_string(),
         )
         .into());
     }
 
+    let ib_config_update_requested = initial_instance
+        .config
+        .infiniband
+        .is_ib_config_update_requested(&config.infiniband);
+
+    // power_profile was added to the complete config update request after the
+    // API was deployed. Preserve the stored value when older clients omit it;
+    // an explicit empty string is the wire representation for clearing it.
+    config.power_profile = match config.power_profile.take() {
+        Some(profile) if profile.is_empty() => None,
+        Some(profile) => Some(profile),
+        None => initial_instance.config.power_profile.clone(),
+    };
+
     if uses_deprecated_auto_without_config {
-        let Some(auto_config) = instance.config.network.auto_config else {
+        let Some(auto_config) = initial_instance.config.network.auto_config else {
             return Err(CarbideError::InvalidArgument(
                 "cannot enable automatic networking on an existing instance through deprecated `InstanceNetworkConfig.auto`"
                     .to_string(),
@@ -1293,7 +1332,7 @@ pub(crate) async fn update_instance_config(
     }
 
     // Check whether the update is allowed
-    instance
+    initial_instance
         .config
         .verify_update_allowed_to(&config)
         .map_err(CarbideError::from)?;
@@ -1302,7 +1341,7 @@ pub(crate) async fn update_instance_config(
 
     let expected_version = match request.if_version_match {
         Some(version) => version.parse().map_err(CarbideError::from)?,
-        None => instance.config_version,
+        None => initial_config_version,
     };
 
     // If an NSG is applied, we need to do a little more validation.
@@ -1390,22 +1429,85 @@ pub(crate) async fn update_instance_config(
 
     update_instance_network_config(
         &api.runtime_config,
-        &instance,
+        initial_instance,
         &mut config.network,
         &mh_snapshot,
         &mut txn,
     )
     .await?;
 
+    // Complete config requests acquire shared resource locks and perform any
+    // network change above. An IB change then locks and rereads the Instance
+    // (or confirms the lock taken by that network change), followed by the
+    // Machine lock used by the IB monitor and force-delete. Reread after both
+    // locks so no IB or later specialized config mutation uses stale state.
+    if ib_config_update_requested {
+        let locked_instance = db::instance::find_by_id_for_update(txn.as_mut(), instance_id)
+            .await?
+            .ok_or(CarbideError::NotFoundError {
+                kind: "instance",
+                id: instance_id.to_string(),
+            })?;
+
+        if locked_instance.deleted.is_some() {
+            return Err(CarbideError::InvalidArgument(
+                "configuration for a terminating instance can not be changed".to_string(),
+            )
+            .into());
+        }
+
+        let machine_id = locked_instance.machine_id;
+        if db::machine::find_one(
+            &mut txn,
+            &machine_id,
+            MachineSearchConfig {
+                for_update: true,
+                ..Default::default()
+            },
+        )
+        .await?
+        .is_none()
+        {
+            return Err(CarbideError::NotFoundError {
+                kind: "machine",
+                id: machine_id.to_string(),
+            }
+            .into());
+        }
+
+        mh_snapshot = db::managed_host::load_snapshot(
+            &mut txn,
+            &machine_id,
+            LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
+        )
+        .await?
+        .ok_or(CarbideError::NotFoundError {
+            kind: "machine",
+            id: machine_id.to_string(),
+        })?;
+    }
+
+    // Use the Instance from the latest managed-host snapshot for the remaining
+    // updates. For an IB change, this is the authoritative reread after locking
+    // both the Instance and Machine records.
+    let instance = mh_snapshot
+        .instance
+        .as_ref()
+        .filter(|instance| instance.id == instance_id)
+        .ok_or(CarbideError::NotFoundError {
+            kind: "instance",
+            id: instance_id.to_string(),
+        })?;
+
     // Checks if the instance IB configuration was updated
     // If yes - assign devices (GUIDs) to the new configuration, update
     // the database and increment the IB version number
-    update_instance_infiniband_config(&mh_snapshot, &instance, &mut config.infiniband, &mut txn)
+    update_instance_infiniband_config(&mh_snapshot, instance, &mut config.infiniband, &mut txn)
         .await?;
 
     update_instance_extension_services_config(
         &mh_snapshot,
-        &instance,
+        instance,
         &mut config.extension_services,
         &mut txn,
     )
@@ -1416,14 +1518,14 @@ pub(crate) async fn update_instance_config(
         nvlink = ?config.nvlink,
         "Updating instance NVLink configuration",
     );
-    update_instance_nvlink_config(&mh_snapshot, &instance, &config.nvlink, &mut txn).await?;
+    update_instance_nvlink_config(&mh_snapshot, instance, &config.nvlink, &mut txn).await?;
 
     tracing::debug!(
         instance_id = %instance.id,
         spx_config = ?config.spxconfig,
         "Updating instance SPX configuration",
     );
-    update_instance_spx_config(&mh_snapshot, &instance, &mut config.spxconfig, &mut txn).await?;
+    update_instance_spx_config(&mh_snapshot, instance, &mut config.spxconfig, &mut txn).await?;
 
     db::instance::update_config(&mut txn, instance.id, expected_version, config, metadata).await?;
 
@@ -1748,10 +1850,6 @@ async fn update_instance_infiniband_config(
         return Err(ConfigValidationError::InvalidState.into());
     }
 
-    if instance.deleted.is_some() {
-        return Err(ConfigValidationError::InstanceDeletionIsRequested.into());
-    }
-
     validate_ib_partition_ownership(
         txn,
         &instance.config.tenant.tenant_organization_id,
@@ -1764,6 +1862,11 @@ async fn update_instance_infiniband_config(
 
     *ib_config = ib_config_with_ports;
 
+    let pkeys =
+        load_ib_partition_pkeys(txn.as_mut(), &[&instance.config.infiniband, &*ib_config]).await?;
+    let current_memberships = ib_memberships_from_config(&instance.config.infiniband, &pkeys);
+    let requested_memberships = ib_memberships_from_config(ib_config, &pkeys);
+
     // Persist the GUID for Infiniband configuration.
     // We need to increment the version number.
     db::instance::update_ib_config(
@@ -1774,6 +1877,19 @@ async fn update_instance_infiniband_config(
         true,
     )
     .await?;
+
+    // The `Instance` and `Machine` records remain locked through this
+    // transaction. Apply every resolvable side of the transition in exact tuple
+    // order, so even inconsistent duplicate assignments cannot invert locks in
+    // the retirement table. An incomplete interface cannot identify a tuple to
+    // record or remove.
+    for membership in current_memberships.symmetric_difference(&requested_memberships) {
+        if requested_memberships.contains(membership) {
+            db::retired_ib_membership::remove_for_reuse(txn.as_mut(), membership).await?;
+        } else {
+            db::retired_ib_membership::record(txn.as_mut(), membership).await?;
+        }
+    }
 
     Ok(())
 }
