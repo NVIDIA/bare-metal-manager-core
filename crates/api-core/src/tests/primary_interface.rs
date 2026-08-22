@@ -18,11 +18,11 @@
 use std::str::FromStr;
 
 use carbide_redfish::libredfish::test_support::RedfishSimAction;
-use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use ipnetwork::IpNetwork;
+use model::allocation_type::AllocationType;
 use model::machine::{InstanceState, ManagedHostState};
 use model::machine_boot_interface::{BootInterfaceSelectionSource, MachineBootInterfaceTarget};
 use model::network_segment::NetworkSegmentType;
@@ -39,40 +39,126 @@ use crate::tests::common::api_fixtures::network_segment::{
     create_host_inband_network_segment, create_underlay_network_segment,
 };
 
-#[derive(Debug, PartialEq)]
-struct SetPrimaryPersistenceState {
-    interface_primaries: Vec<(String, bool)>,
-    interface_addresses: Vec<(String, String, String)>,
-    machine_network_configs: Vec<(String, String, String)>,
-    instance_network_config: (String, String),
-    desired_boot_interface: Option<(Option<String>, Option<String>, Option<String>)>,
+#[derive(Debug, PartialEq, sqlx::FromRow)]
+struct InterfaceIdentityState {
+    id: String,
+    machine_id: Option<String>,
+    attached_dpu_machine_id: Option<String>,
+    segment_id: String,
+    mac_address: String,
+    boot_interface_id: Option<String>,
+    interface_type: String,
+    association_type: Option<String>,
 }
 
+#[derive(Debug, PartialEq, sqlx::FromRow)]
+struct InterfacePresentationState {
+    id: String,
+    primary_interface: bool,
+    hostname: String,
+    domain_id: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, sqlx::FromRow)]
+struct InterfaceAddressState {
+    id: String,
+    interface_id: String,
+    address: String,
+    allocation_type: AllocationType,
+}
+
+#[derive(Debug, PartialEq, sqlx::FromRow)]
+struct MachineNetworkConfigState {
+    id: String,
+    network_config: String,
+    network_config_version: ConfigVersion,
+}
+
+#[derive(Debug, PartialEq, sqlx::FromRow)]
+struct InstanceNetworkConfigState {
+    id: String,
+    network_config: String,
+    network_config_version: ConfigVersion,
+}
+
+#[derive(Debug, PartialEq, sqlx::FromRow)]
+struct BootInterfacePersistenceState {
+    machine_version: ConfigVersion,
+    desired_mac_address: String,
+    desired_interface_id: Option<String>,
+    desired_version: ConfigVersion,
+    verified_version: Option<ConfigVersion>,
+    observed_at: Option<DateTime<Utc>>,
+    assumed: bool,
+    selection_source: BootInterfaceSelectionSource,
+    selection_updated_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, PartialEq)]
+struct SetPrimaryPersistenceState {
+    interface_identities: Vec<InterfaceIdentityState>,
+    interface_presentations: Vec<InterfacePresentationState>,
+    interface_addresses: Vec<InterfaceAddressState>,
+    machine_network_configs: Vec<MachineNetworkConfigState>,
+    instance_network_configs: Vec<InstanceNetworkConfigState>,
+    desired_boot_interface: Option<BootInterfacePersistenceState>,
+}
+
+impl SetPrimaryPersistenceState {
+    fn presentation(&self, interface_id: &str) -> &InterfacePresentationState {
+        self.interface_presentations
+            .iter()
+            .find(|interface| interface.id == interface_id)
+            .expect("selected interface should remain present")
+    }
+}
+
+// Snapshot of every persisted field that a primary interface update can change.
 async fn load_set_primary_persistence_state(
     pool: &sqlx::PgPool,
     host_id: MachineId,
-    instance_id: InstanceId,
 ) -> Result<SetPrimaryPersistenceState, sqlx::Error> {
     Ok(SetPrimaryPersistenceState {
-        interface_primaries: sqlx::query_as(
-            "SELECT id::text, primary_interface FROM machine_interfaces \
-             WHERE machine_id = $1 ORDER BY id",
+        interface_identities: sqlx::query_as(
+            "SELECT id::text,
+                    machine_id::text,
+                    attached_dpu_machine_id::text,
+                    segment_id::text,
+                    mac_address::text,
+                    boot_interface_id,
+                    interface_type::text,
+                    association_type::text
+             FROM machine_interfaces
+             WHERE machine_id = $1
+             ORDER BY id",
+        )
+        .bind(host_id)
+        .fetch_all(pool)
+        .await?,
+        interface_presentations: sqlx::query_as(
+            "SELECT id::text, primary_interface, hostname, domain_id::text
+             FROM machine_interfaces
+             WHERE machine_id = $1
+             ORDER BY id",
         )
         .bind(host_id)
         .fetch_all(pool)
         .await?,
         interface_addresses: sqlx::query_as(
-            "SELECT address.interface_id::text, address.address::text, address.allocation_type \
+            "SELECT address.id::text,
+                    address.interface_id::text,
+                    address.address::text,
+                    address.allocation_type
              FROM machine_interface_addresses address \
              JOIN machine_interfaces interface ON interface.id = address.interface_id \
              WHERE interface.machine_id = $1 \
-             ORDER BY address.interface_id, address.address, address.allocation_type",
+             ORDER BY address.id",
         )
         .bind(host_id)
         .fetch_all(pool)
         .await?,
         machine_network_configs: sqlx::query_as(
-            "SELECT id::text, network_config::text, network_config_version::text \
+            "SELECT id::text, network_config::text, network_config_version \
              FROM machines \
              WHERE id IN (SELECT id FROM machine_group_member_ids($1)) \
              ORDER BY id",
@@ -80,16 +166,28 @@ async fn load_set_primary_persistence_state(
         .bind(host_id)
         .fetch_all(pool)
         .await?,
-        instance_network_config: sqlx::query_as(
-            "SELECT network_config::text, network_config_version::text \
-             FROM instances WHERE id = $1",
+        instance_network_configs: sqlx::query_as(
+            "SELECT id::text, network_config::text, network_config_version
+             FROM instances
+             WHERE machine_id = $1
+             ORDER BY id",
         )
-        .bind(instance_id)
-        .fetch_one(pool)
+        .bind(host_id)
+        .fetch_all(pool)
         .await?,
         desired_boot_interface: sqlx::query_as(
-            "SELECT desired_mac_address::text, desired_interface_id, desired_version::text \
-             FROM machine_boot_interfaces WHERE machine_id = $1",
+            "SELECT machine.version AS machine_version,
+                    boot_interface.desired_mac_address::text AS desired_mac_address,
+                    boot_interface.desired_interface_id,
+                    boot_interface.desired_version,
+                    boot_interface.verified_version,
+                    boot_interface.observed_at,
+                    boot_interface.assumed,
+                    boot_interface.selection_source,
+                    boot_interface.selection_updated_at
+             FROM machine_boot_interfaces boot_interface
+             JOIN machines machine ON machine.id = boot_interface.machine_id
+             WHERE boot_interface.machine_id = $1",
         )
         .bind(host_id)
         .fetch_optional(pool)
@@ -514,6 +612,7 @@ async fn test_set_primary_interface_promotes_a_non_primary_interface(
         .expect("a host interface always supplies a MAC");
         (original_primary_id, promote.id, promote_target)
     };
+    let state_before = load_set_primary_persistence_state(&env.pool, host_id).await?;
 
     let timepoint = env.redfish_sim.timepoint();
     env.api
@@ -532,32 +631,147 @@ async fn test_set_primary_interface_promotes_a_non_primary_interface(
         "the managed request should leave Redfish convergence to machine-controller",
     );
 
-    // The primary flag moved onto the promoted interface, and off the old one.
-    let after = {
-        let mut txn = env.pool.begin().await?;
-        db::machine_interface::find_by_machine_ids(txn.as_mut(), &[host_id])
-            .await?
-            .remove(&host_id)
-            .expect("host should still have interface rows")
-    };
-    let primaries_now: Vec<_> = after
+    let state_after = load_set_primary_persistence_state(&env.pool, host_id).await?;
+    let original_primary_id = original_primary_id.to_string();
+    let promote_id_string = promote_id.to_string();
+
+    // Comparing the immutable projection catches row recreation or a host/DPU
+    // reassociation hidden by a correct primary flag.
+    assert_eq!(
+        state_after.interface_identities,
+        state_before.interface_identities,
+    );
+
+    let primaries_now: Vec<_> = state_after
+        .interface_presentations
         .iter()
-        .filter(|i| i.primary_interface)
-        .map(|i| i.id)
+        .filter(|interface| interface.primary_interface)
+        .map(|interface| interface.id.as_str())
         .collect();
     assert_eq!(
         primaries_now,
-        vec![promote_id],
+        vec![promote_id_string.as_str()],
         "exactly the promoted interface should be primary",
     );
     assert!(
-        !after
+        !state_after
+            .interface_presentations
             .iter()
-            .find(|i| i.id == original_primary_id)
-            .unwrap()
+            .find(|interface| interface.id == original_primary_id)
+            .expect("the original interface should remain present")
             .primary_interface,
         "the previously-primary interface should no longer be primary",
     );
+
+    let mut expected_addresses = state_before.interface_addresses.clone();
+    let mut moved_address_count = 0;
+    for address in &mut expected_addresses {
+        if address.interface_id == original_primary_id
+            && address.allocation_type == AllocationType::Dhcp
+        {
+            address.interface_id.clone_from(&promote_id_string);
+            moved_address_count += 1;
+        }
+    }
+    assert!(
+        moved_address_count > 0,
+        "the ingestion primary should own an Admin DHCP address",
+    );
+    assert_eq!(
+        state_after.interface_addresses, expected_addresses,
+        "the same Admin allocation rows should move to the promoted interface",
+    );
+
+    let original_before = state_before.presentation(&original_primary_id);
+    let original_after = state_after.presentation(&original_primary_id);
+    let promoted_after = state_after.presentation(&promote_id_string);
+    assert_eq!(
+        (promoted_after.hostname.as_str(), &promoted_after.domain_id),
+        (
+            original_before.hostname.as_str(),
+            &original_before.domain_id
+        ),
+        "the Admin DNS identity should follow the address to the new primary",
+    );
+    assert_eq!(
+        original_after.domain_id, None,
+        "the dormant interface should no longer publish an Admin DNS name",
+    );
+
+    let mut expected_group_ids = vec![host_id.to_string()];
+    expected_group_ids.extend(
+        state_before
+            .interface_identities
+            .iter()
+            .filter_map(|interface| interface.attached_dpu_machine_id.clone()),
+    );
+    expected_group_ids.sort();
+    expected_group_ids.dedup();
+    assert_eq!(
+        state_before
+            .machine_network_configs
+            .iter()
+            .map(|machine| machine.id.clone())
+            .collect::<Vec<_>>(),
+        expected_group_ids,
+        "the network generation should cover the host and both attached DPUs",
+    );
+    assert_eq!(
+        state_after.machine_network_configs.len(),
+        state_before.machine_network_configs.len(),
+    );
+    for (before, after) in state_before
+        .machine_network_configs
+        .iter()
+        .zip(&state_after.machine_network_configs)
+    {
+        assert_eq!(after.id, before.id);
+        assert_eq!(after.network_config, before.network_config);
+        assert_eq!(
+            after.network_config_version.version_nr(),
+            before.network_config_version.version_nr() + 1,
+            "{} should advance exactly one network generation",
+            after.id,
+        );
+    }
+
+    let boot_before = state_before
+        .desired_boot_interface
+        .as_ref()
+        .expect("ingestion should initialize the desired target");
+    let boot_after = state_after
+        .desired_boot_interface
+        .as_ref()
+        .expect("the update should retain the desired boot interface row");
+    assert_eq!(
+        boot_after.desired_mac_address,
+        promote_target.mac_address().to_string(),
+    );
+    assert_eq!(
+        boot_after.desired_interface_id.as_deref(),
+        promote_target.interface_id(),
+    );
+    assert_eq!(
+        boot_after.desired_version.version_nr(),
+        boot_before.desired_version.version_nr() + 1,
+    );
+    assert_eq!(boot_after.verified_version, boot_before.verified_version);
+    assert_eq!(boot_after.observed_at, boot_before.observed_at);
+    assert_eq!(boot_after.assumed, boot_before.assumed);
+    assert_eq!(
+        boot_after.selection_source,
+        BootInterfaceSelectionSource::Operator,
+    );
+    assert!(
+        boot_after.selection_updated_at > boot_before.selection_updated_at,
+        "a new operator selection should record a later decision time",
+    );
+    assert_eq!(
+        boot_after.machine_version.version_nr(),
+        boot_before.machine_version.version_nr() + 1,
+        "the desired-target change should advance the aggregate once",
+    );
+
     let desired = db::machine_desired_boot_interface::get(&env.pool, &host_id)
         .await?
         .expect("the selected target should be persisted");
@@ -665,17 +879,12 @@ async fn test_set_primary_interface_rolls_back_primary_and_desired_together(
             .await?;
     let host_id = host.host_snapshot.id;
 
-    let (original_primary_id, promote_id) = {
+    let promote_id = {
         let mut txn = env.pool.begin().await?;
         let interfaces = db::machine_interface::find_by_machine_ids(txn.as_mut(), &[host_id])
             .await?
             .remove(&host_id)
             .expect("host should have interface rows");
-        let original_primary_id = interfaces
-            .iter()
-            .find(|interface| interface.primary_interface)
-            .expect("host should start with a primary interface")
-            .id;
         let promote_id = interfaces
             .iter()
             .find(|interface| {
@@ -684,11 +893,9 @@ async fn test_set_primary_interface_rolls_back_primary_and_desired_together(
             .expect("host should have a non-primary DPU-backed interface")
             .id;
         txn.commit().await?;
-        (original_primary_id, promote_id)
+        promote_id
     };
-    let desired_before = db::machine_desired_boot_interface::get(&env.pool, &host_id)
-        .await?
-        .expect("ingestion should initialize the desired target");
+    let state_before = load_set_primary_persistence_state(&env.pool, host_id).await?;
 
     sqlx::raw_sql(
         r#"
@@ -722,26 +929,88 @@ async fn test_set_primary_interface_rolls_back_primary_and_desired_together(
         .expect_err("the injected desired-target write must fail the request");
     assert_eq!(error.code(), tonic::Code::Internal);
 
-    let primary_ids = {
+    let state_after = load_set_primary_persistence_state(&env.pool, host_id).await?;
+    assert_eq!(
+        state_after, state_before,
+        "a late desired boot interface failure must roll back the transaction",
+    );
+
+    Ok(())
+}
+
+// The host row lock prevents version changes between the read and update. Returning no row is an
+// internal consistency error, so the transaction must roll back the earlier writes.
+#[crate::sqlx_test]
+async fn test_set_primary_interface_rolls_back_when_network_update_returns_no_row(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = api_fixtures::create_test_env(pool).await;
+    let host =
+        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::default().with_dpu_count(2))
+            .await?;
+    let host_id = host.host_snapshot.id;
+
+    let promote_id = {
         let mut txn = env.pool.begin().await?;
-        let primary_ids = db::machine_interface::find_by_machine_ids(txn.as_mut(), &[host_id])
+        let interfaces = db::machine_interface::find_by_machine_ids(txn.as_mut(), &[host_id])
             .await?
             .remove(&host_id)
-            .expect("host should still have interface rows")
-            .into_iter()
-            .filter(|interface| interface.primary_interface)
-            .map(|interface| interface.id)
-            .collect::<Vec<_>>();
+            .expect("host should have interface rows");
+        let promote_id = interfaces
+            .iter()
+            .find(|interface| {
+                !interface.primary_interface && interface.attached_dpu_machine_id.is_some()
+            })
+            .expect("host should have a non-primary DPU-backed interface")
+            .id;
         txn.commit().await?;
-        primary_ids
+        promote_id
     };
-    assert_eq!(primary_ids, vec![original_primary_id]);
+    let state_before = load_set_primary_persistence_state(&env.pool, host_id).await?;
 
-    let desired_after = db::machine_desired_boot_interface::get(&env.pool, &host_id)
-        .await?
-        .expect("the original desired target should remain");
-    assert_eq!(desired_after.value, desired_before.value);
-    assert_eq!(desired_after.version, desired_before.version);
+    // A NULL BEFORE-trigger result exercises the no-row path despite the host lock.
+    sqlx::raw_sql(
+        r#"
+        CREATE FUNCTION suppress_machine_network_config_update()
+        RETURNS trigger
+        LANGUAGE plpgsql
+        AS $$
+        BEGIN
+            RETURN NULL;
+        END;
+        $$;
+
+        CREATE TRIGGER suppress_machine_network_config_update
+        BEFORE UPDATE OF network_config ON machines
+        FOR EACH ROW
+        EXECUTE FUNCTION suppress_machine_network_config_update();
+        "#,
+    )
+    .execute(&env.pool)
+    .await?;
+
+    let error = env
+        .api
+        .set_primary_interface(tonic::Request::new(forge::SetPrimaryInterfaceRequest {
+            host_machine_id: Some(host_id),
+            interface_id: Some(promote_id),
+            force_reconcile: false,
+            ..Default::default()
+        }))
+        .await
+        .expect_err("the suppressed network configuration update should fail the request");
+    assert_eq!(error.code(), tonic::Code::Internal);
+    assert!(
+        error.message().contains("network configuration update"),
+        "expected the network configuration update error, got: {}",
+        error.message(),
+    );
+
+    let state_after = load_set_primary_persistence_state(&env.pool, host_id).await?;
+    assert_eq!(
+        state_after, state_before,
+        "a missing network configuration update must roll back the transaction",
+    );
 
     Ok(())
 }
@@ -785,11 +1054,10 @@ async fn test_set_primary_interface_rejects_deleted_instance_and_rolls_back_writ
         (current_primary_id, promote_id)
     };
 
-    let state_before = load_set_primary_persistence_state(&env.pool, host_id, instance.id).await?;
-
     let mut deletion = env.pool.begin().await?;
     db::instance::mark_as_deleted(instance.id, deletion.as_mut()).await?;
     deletion.commit().await?;
+    let state_before = load_set_primary_persistence_state(&env.pool, host_id).await?;
 
     struct Case {
         name: &'static str,
@@ -826,8 +1094,7 @@ async fn test_set_primary_interface_rejects_deleted_instance_and_rolls_back_writ
             format!("instance {} is being deleted", instance.id),
         );
 
-        let state_after =
-            load_set_primary_persistence_state(&env.pool, host_id, instance.id).await?;
+        let state_after = load_set_primary_persistence_state(&env.pool, host_id).await?;
         assert_eq!(state_after, state_before, "{} persisted state", case.name);
     }
 
@@ -982,11 +1249,7 @@ async fn test_set_primary_interface_hands_ready_intent_to_the_controller(
     Ok(())
 }
 
-// A DPU-managed host's primary must stay on the Admin segment (the admin DHCP
-// address + DNS identity follow it, and admin-address reconciliation requires a
-// primary among the host's DPU-backed admin interfaces). set_primary_interface
-// rejects a non-admin target up-front -- BEFORE touching the BMC -- rather than
-// failing deeper in reconciliation with the boot order already changed.
+// Hosts with DPU-backed Admin interfaces reject primary targets outside Admin.
 #[crate::sqlx_test]
 async fn test_set_primary_interface_rejects_non_admin_interface_on_dpu_host(
     pool: sqlx::PgPool,
@@ -1190,7 +1453,6 @@ async fn test_set_primary_interface_repairs_dpu_host_with_no_admin_primary(
         .execute(&env.pool)
         .await?;
 
-    // Promoting the Admin interface must succeed (repair), not error after the BMC call.
     env.api
         .set_primary_interface(tonic::Request::new(forge::SetPrimaryInterfaceRequest {
             host_machine_id: Some(host_id),
