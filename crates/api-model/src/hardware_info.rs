@@ -246,11 +246,10 @@ fn default_count_one() -> u32 {
 /// this only exists to keep [`MemoryDeviceGroup::rehydrate`] from allocating an unbounded number
 /// of [`MemoryDevice`]s for a malicious or corrupted `count`.
 ///
-/// Mirrored by `rpc::protos::machine_discovery::MemoryDeviceGroup::MAX_REHYDRATE_COUNT`
-/// (`crates/rpc/src/protos/mod.rs`), which can't depend on this constant directly because
-/// `carbide-api-model` is only an optional dependency of `carbide-rpc`. Update both if this
-/// value changes.
-pub const MAX_MEMORY_DEVICE_COUNT: u32 = 8192;
+/// Re-exported from `carbide_utils` so `rpc::protos::machine_discovery::MemoryDeviceGroup`
+/// (`crates/rpc/src/protos/mod.rs`) can use the same value without depending on
+/// `carbide-api-model`, which is only an optional dependency of `carbide-rpc`.
+pub const MAX_MEMORY_DEVICE_COUNT: u32 = carbide_utils::MAX_MEMORY_DEVICE_COUNT;
 
 /// Condensed representation of one or more identical memory devices. This is the internal and
 /// storage form stored in [`HardwareInfo`]. Use [`condense_memory_devices`] to build from a flat
@@ -262,6 +261,24 @@ pub struct MemoryDeviceGroup {
     /// Number of identical DIMMs. Defaults to 1 when deserializing pre-condensed data.
     #[serde(default = "default_count_one")]
     pub count: u32,
+}
+
+impl carbide_utils::memory_device_group::MemoryDeviceGroupLike for MemoryDeviceGroup {
+    fn size_mb(&self) -> Option<u32> {
+        self.size_mb
+    }
+
+    fn mem_type(&self) -> &Option<String> {
+        &self.mem_type
+    }
+
+    fn count(&self) -> u32 {
+        self.count
+    }
+
+    fn add_count(&mut self, extra: u32) {
+        self.count = self.count.saturating_add(extra);
+    }
 }
 
 impl MemoryDeviceGroup {
@@ -293,21 +310,11 @@ impl MemoryDeviceGroup {
 pub fn condense_groups(
     groups: impl IntoIterator<Item = MemoryDeviceGroup>,
 ) -> Result<Vec<MemoryDeviceGroup>, HardwareInfoError> {
-    let mut merged: Vec<MemoryDeviceGroup> = Vec::new();
-    let mut total: u64 = 0;
-    for group in groups.into_iter().filter_map(MemoryDeviceGroup::nonzero) {
-        total += u64::from(group.count);
-        if total > u64::from(MAX_MEMORY_DEVICE_COUNT) {
-            return Err(HardwareInfoError::MemoryDeviceCountExceeded(total));
-        }
-        match merged.last_mut() {
-            Some(last) if last.size_mb == group.size_mb && last.mem_type == group.mem_type => {
-                last.count = last.count.saturating_add(group.count);
-            }
-            _ => merged.push(group),
-        }
-    }
-    Ok(merged)
+    carbide_utils::memory_device_group::condense_memory_device_groups(
+        groups,
+        MAX_MEMORY_DEVICE_COUNT,
+        HardwareInfoError::MemoryDeviceCountExceeded,
+    )
 }
 
 /// Rolls up a flat sequence of [`MemoryDevice`]s into condensed [`MemoryDeviceGroup`]s.

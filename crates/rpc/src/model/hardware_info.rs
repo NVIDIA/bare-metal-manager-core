@@ -496,6 +496,7 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
     type Error = RpcDataConversionError;
 
     fn try_from(info: rpc::machine_discovery::DiscoveryInfo) -> Result<Self, Self::Error> {
+        let memory_groups_are_authoritative = info.memory_groups_are_authoritative();
         let tpm_ek_certificate = info
             .tpm_ek_certificate
             .map(|base64| {
@@ -532,7 +533,7 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
             tpm_ek_certificate: tpm_ek_certificate.map(TpmEkCertificate::from),
             dpu_info: info.dpu_info.map(DpuData::try_from).transpose()?,
             gpus: try_convert_vec(info.gpus)?,
-            memory_devices: if info.memory_device_groups.iter().any(|g| g.count > 0) {
+            memory_devices: if memory_groups_are_authoritative {
                 let groups = info
                     .memory_device_groups
                     .into_iter()

@@ -365,7 +365,14 @@ async fn show_all_machines(
     match output_format {
         OutputFormat::Json => {
             for machine in machines.machines.iter_mut() {
-                rehydrate_machine_memory_devices(machine)?;
+                if let Err(e) = rehydrate_machine_memory_devices(machine) {
+                    // we log the error but continue the iteration, so one machine with
+                    // malformed memory_device_groups doesn't blank out the whole listing
+                    eprintln!(
+                        "Could not rehydrate memory devices for machine {}: {e}",
+                        machine.id.map(|id| id.to_string()).unwrap_or_default()
+                    );
+                }
             }
             async_writeln!(output_file, "{}", serde_json::to_string_pretty(&machines)?)?;
         }

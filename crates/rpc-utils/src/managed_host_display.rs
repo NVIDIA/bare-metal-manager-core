@@ -185,7 +185,7 @@ impl From<Machine> for ManagedHostOutput {
             .map(|di| di.infiniband_interfaces.len())
             .unwrap_or_default();
         let host_memory = discovery_info.as_ref().and_then(|di| {
-            if di.memory_device_groups.iter().any(|g| g.count > 0) {
+            if di.memory_groups_are_authoritative() {
                 let valid: Vec<_> = di
                     .memory_device_groups
                     .iter()

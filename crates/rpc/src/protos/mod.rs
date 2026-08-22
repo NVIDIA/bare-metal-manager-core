@@ -70,17 +70,36 @@ pub mod machine_discovery {
     include!(concat!(env!("OUT_DIR"), "/machine_discovery.rs"));
 }
 
+impl carbide_utils::memory_device_group::MemoryDeviceGroupLike for machine_discovery::MemoryDeviceGroup {
+    fn size_mb(&self) -> Option<u32> {
+        self.size_mb
+    }
+
+    fn mem_type(&self) -> &Option<String> {
+        &self.mem_type
+    }
+
+    fn count(&self) -> u32 {
+        self.count
+    }
+
+    fn add_count(&mut self, extra: u32) {
+        self.count = self.count.saturating_add(extra);
+    }
+}
+
 impl machine_discovery::MemoryDeviceGroup {
-    /// Mirrors `carbide_api_model::hardware_info::MAX_MEMORY_DEVICE_COUNT`
-    /// (`crates/api-model/src/hardware_info.rs`). Duplicated here (rather than depended on)
-    /// because `carbide-api-model` is only an optional dependency of this crate, gated behind
-    /// the `model` feature, while this proto helper is unconditional. Update both if this value
-    /// changes.
+    /// Same value as `carbide_api_model::hardware_info::MAX_MEMORY_DEVICE_COUNT`
+    /// (`crates/api-model/src/hardware_info.rs`) — both are re-exports of
+    /// `carbide_utils::MAX_MEMORY_DEVICE_COUNT`, so they can't drift apart. Defined via
+    /// `carbide-utils` (rather than `carbide-api-model` directly) because `carbide-api-model` is
+    /// only an optional dependency of this crate, gated behind the `model` feature, while this
+    /// proto helper is unconditional.
     ///
     /// Bounds [`Self::rehydrate`] so it can't allocate an unbounded `Vec` even if a caller
     /// invokes it on a group that bypassed the checked conversions in `rpc::model::hardware_info`
     /// or `carbide-api-model` (which already reject any `count` above this limit).
-    pub const MAX_REHYDRATE_COUNT: u32 = 8192;
+    pub const MAX_REHYDRATE_COUNT: u32 = carbide_utils::MAX_MEMORY_DEVICE_COUNT;
 
     /// Returns `Some(self)` when `count > 0`, `None` otherwise.
     ///
@@ -105,17 +124,25 @@ impl machine_discovery::MemoryDeviceGroup {
 }
 
 impl machine_discovery::DiscoveryInfo {
+    /// Returns `true` when `memory_device_groups` is authoritative over the deprecated flat
+    /// `memory_devices` list: at least one group carries a nonzero count, even if
+    /// `memory_devices` happens to already be populated (which a contract-following writer
+    /// never does, but malformed input might).
+    ///
+    /// This is the single "which field is authoritative" check — every path that has to choose
+    /// between `memory_device_groups` and `memory_devices` (RPC-to-model conversion, rehydration,
+    /// display formatting) must call this rather than re-deriving the predicate, so the rule
+    /// can't drift between call sites.
+    pub fn memory_groups_are_authoritative(&self) -> bool {
+        self.memory_device_groups.iter().any(|group| group.count > 0)
+    }
+
     /// Rehydrates the deprecated flat `memory_devices` list from `memory_device_groups` and
     /// clears the groups, so a raw dump of this `DiscoveryInfo` stays byte-for-byte identical
     /// to the pre-condensing output, which only ever had `memory_devices`.
     ///
     /// Group order (and thus device order) is preserved: groups only merge consecutive
     /// identical devices, and `rehydrate()` expands each group to `count` copies in place.
-    ///
-    /// Mirrors the "which field is authoritative" rule documented on
-    /// `DiscoveryInfo.memory_device_groups`: groups win whenever at least one carries a
-    /// nonzero count, even if `memory_devices` happens to already be populated (which a
-    /// contract-following writer never does, but malformed input might).
     ///
     /// `MemoryDeviceGroup::rehydrate` only bounds the count of a single group. Malformed input
     /// with many individually-valid groups could still expand to an unbounded `memory_devices`
@@ -124,11 +151,7 @@ impl machine_discovery::DiscoveryInfo {
     pub fn rehydrate_memory_devices(
         &mut self,
     ) -> Result<(), crate::errors::RpcDataConversionError> {
-        if self
-            .memory_device_groups
-            .iter()
-            .any(|group| group.count > 0)
-        {
+        if self.memory_groups_are_authoritative() {
             let total: u64 = self
                 .memory_device_groups
                 .iter()

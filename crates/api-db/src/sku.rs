@@ -346,6 +346,28 @@ pub async fn generate_sku_from_machine_at_version(
     }
 }
 
+fn memory_components_from_hardware_info(
+    hardware_info: &HardwareInfo,
+) -> (BTreeMap<(String, u32), SkuComponentMemory>, u64) {
+    let mut mem_components: BTreeMap<(String, u32), SkuComponentMemory> = BTreeMap::default();
+    let mut total_mem = 0u64;
+    for mem in &hardware_info.memory_devices {
+        if let Some(cap) = mem.size_mb {
+            total_mem = total_mem.saturating_add((cap as u64).saturating_mul(mem.count as u64));
+            let key = (mem.mem_type.clone().unwrap_or_default(), cap);
+            mem_components
+                .entry(key.clone())
+                .and_modify(|entry| entry.count = entry.count.saturating_add(mem.count))
+                .or_insert(SkuComponentMemory {
+                    capacity_mb: key.1,
+                    memory_type: key.0,
+                    count: mem.count,
+                });
+        }
+    }
+    (mem_components, total_mem)
+}
+
 pub async fn generate_sku_from_machine_at_version_0_or_1(
     txn: impl DbReader<'_>,
     machine_id: &MachineId,
@@ -406,22 +428,7 @@ pub async fn generate_sku_from_machine_at_version_0_or_1(
             });
     }
 
-    let mut mem_components: BTreeMap<(String, u32), SkuComponentMemory> = BTreeMap::default();
-    let mut total_mem = 0u64;
-    for mem in &hardware_info.memory_devices {
-        if let Some(cap) = mem.size_mb {
-            total_mem = total_mem.saturating_add((cap as u64).saturating_mul(mem.count as u64));
-            let key = (mem.mem_type.clone().unwrap_or_default(), cap);
-            mem_components
-                .entry(key.clone())
-                .and_modify(|entry| entry.count = entry.count.saturating_add(mem.count))
-                .or_insert(SkuComponentMemory {
-                    capacity_mb: key.1,
-                    memory_type: key.0,
-                    count: mem.count,
-                });
-        }
-    }
+    let (mem_components, total_mem) = memory_components_from_hardware_info(hardware_info);
 
     let ib_capabilities = MachineCapabilityInfiniband::from_ib_interfaces_and_status(
         &hardware_info.infiniband_interfaces,
@@ -546,22 +553,7 @@ pub fn generate_base_sku_from_hardware(
         .sorted()
         .collect();
 
-    let mut mem_components: BTreeMap<(String, u32), SkuComponentMemory> = BTreeMap::default();
-    let mut total_mem = 0u64;
-    for mem in &hardware_info.memory_devices {
-        if let Some(cap) = mem.size_mb {
-            total_mem = total_mem.saturating_add((cap as u64).saturating_mul(mem.count as u64));
-            let key = (mem.mem_type.clone().unwrap_or_default(), cap);
-            mem_components
-                .entry(key.clone())
-                .and_modify(|entry| entry.count = entry.count.saturating_add(mem.count))
-                .or_insert(SkuComponentMemory {
-                    capacity_mb: key.1,
-                    memory_type: key.0,
-                    count: mem.count,
-                });
-        }
-    }
+    let (mem_components, total_mem) = memory_components_from_hardware_info(hardware_info);
 
     let infiniband_devices: Vec<SkuComponentInfinibandDevices> = capabilities
         .infiniband

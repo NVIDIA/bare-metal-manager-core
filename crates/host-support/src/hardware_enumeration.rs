@@ -64,6 +64,8 @@ pub enum HardwareEnumerationError {
     InvalidMacAddress(String),
     #[error("{0}")]
     UnsupportedCpuArchitecture(String),
+    #[error("discovered memory device count {total} exceeds maximum of {max}")]
+    MemoryDeviceCountExceeded { total: u64, max: u32 },
     #[error("command error {0}")]
     CmdError(#[from] CmdError),
 }
@@ -929,28 +931,19 @@ fn enumerate_hardware_inner(
 fn condense_rpc_memory_devices(
     devices: Vec<MemoryDevice>,
 ) -> Result<Vec<MemoryDeviceGroup>, HardwareEnumerationError> {
-    let mut groups: Vec<MemoryDeviceGroup> = Vec::new();
-    let mut total: u32 = 0;
-    for device in devices {
-        total = total.saturating_add(1);
-        if total > MemoryDeviceGroup::MAX_REHYDRATE_COUNT {
-            return Err(HardwareEnumerationError::GenericError(format!(
-                "discovered memory device count {total} exceeds maximum of {}",
-                MemoryDeviceGroup::MAX_REHYDRATE_COUNT
-            )));
-        }
-        match groups.last_mut() {
-            Some(last) if last.size_mb == device.size_mb && last.mem_type == device.mem_type => {
-                last.count = last.count.saturating_add(1);
-            }
-            _ => groups.push(MemoryDeviceGroup {
-                size_mb: device.size_mb,
-                mem_type: device.mem_type,
-                count: 1,
-            }),
-        }
-    }
-    Ok(groups)
+    let groups = devices.into_iter().map(|device| MemoryDeviceGroup {
+        size_mb: device.size_mb,
+        mem_type: device.mem_type,
+        count: 1,
+    });
+    carbide_utils::memory_device_group::condense_memory_device_groups(
+        groups,
+        MemoryDeviceGroup::MAX_REHYDRATE_COUNT,
+        |total| HardwareEnumerationError::MemoryDeviceCountExceeded {
+            total,
+            max: MemoryDeviceGroup::MAX_REHYDRATE_COUNT,
+        },
+    )
 }
 
 /// Path where the host's `/proc/cpuinfo` is bind-mounted inside the init container.
