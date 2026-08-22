@@ -3,11 +3,12 @@
 
 syntax = "proto3";
 
-package carbide.proto.compiler.fixture.invalid;
+package carbide.proto.compiler.fixture.invalid_extern_path;
 
 import "codegen/v1/derive.proto";
 import "codegen/v1/extern_path.proto";
 
 message InvalidMessage {
-  option (carbide.codegen.v1.message_derive) = "serde::Serialize +";
+  option (carbide.codegen.v1.message_extern_path) = "::invalid::Type +";
+  string value = 1;
 }
