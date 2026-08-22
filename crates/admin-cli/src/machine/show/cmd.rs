@@ -367,7 +367,15 @@ async fn show_all_machines(
             for machine in machines.machines.iter_mut() {
                 if let Err(e) = rehydrate_machine_memory_devices(machine) {
                     // we log the error but continue the iteration, so one machine with
-                    // malformed memory_device_groups doesn't blank out the whole listing
+                    // malformed memory_device_groups doesn't blank out the whole listing.
+                    // rehydrate_memory_devices() leaves memory_device_groups uncleared on
+                    // error, so this machine's JSON keeps the grouped shape instead of the
+                    // legacy memory_devices shape other machines get. That's intentional:
+                    // clearing the groups here would force us to either fabricate a
+                    // memory_devices list from data we just rejected, or emit an empty one
+                    // that looks like "no memory" — both are misleading. Surfacing the raw,
+                    // ungrouped-but-unconverted data is more honest than a plausible-looking
+                    // but wrong legacy-shaped record.
                     eprintln!(
                         "Could not rehydrate memory devices for machine {}: {e}",
                         machine.id.map(|id| id.to_string()).unwrap_or_default()

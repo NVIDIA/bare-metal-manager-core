@@ -127,4 +127,11 @@ mod tests {
         let err = condense_memory_device_groups(groups, 8, |total| total).unwrap_err();
         assert_eq!(err, 10);
     }
+
+    #[test]
+    fn accepts_aggregate_count_equal_to_max() {
+        let groups = vec![group(16384, "DDR5", 5), group(32768, "DDR4", 5)];
+        let merged = condense_memory_device_groups(groups.clone(), 10, |total| total).unwrap();
+        assert_eq!(merged, groups);
+    }
 }
