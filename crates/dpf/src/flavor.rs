@@ -2393,6 +2393,17 @@ mod tests {
             .as_ref()
             .and_then(|ovs| ovs.raw_config_script.as_ref())
             .unwrap();
+        let ovs_setup_script = flavor
+            .spec
+            .config_files
+            .as_ref()
+            .and_then(|files| {
+                files
+                    .iter()
+                    .find(|file| file.path == "/etc/mellanox/ovs-script.sh")
+            })
+            .and_then(|file| file.raw.as_ref())
+            .unwrap();
 
         value_scenarios!(
             run = |valid| valid;
@@ -2464,6 +2475,13 @@ mod tests {
                     ovs_script.contains("/etc/mellanox/ovs-script.sh")
                         && ovs_script.contains("/etc/mellanox/xplane-bridge.sh")
                 ) => true,
+            }
+
+            "OVS bootstrap recreates the HBN bridge" {
+                ovs_setup_script
+                    .find("_ovs-vsctl --if-exists del-br br-hbn")
+                    .zip(ovs_setup_script.find("_ovs-vsctl --may-exist add-br br-hbn"))
+                    .is_some_and(|(delete_bridge, add_bridge)| delete_bridge < add_bridge) => true,
             }
 
             "Spectrum-X config has the Adaptive Routing Force setting" {
