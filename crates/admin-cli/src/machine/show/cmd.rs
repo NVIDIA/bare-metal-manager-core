@@ -626,46 +626,26 @@ mod tests {
 
     #[test]
     #[allow(deprecated)]
-    fn top_level_aggregate_count_above_max_is_rejected() {
+    fn aggregate_count_above_max_is_rejected() {
         let max = MemoryDeviceGroup::MAX_REHYDRATE_COUNT;
         let big_group = group(8192, "DDR4", max / 2 + 1);
-        let mut machine = machine_with_discovery_info(
-            Some(DiscoveryInfo {
-                memory_device_groups: vec![big_group.clone(), big_group],
-                ..Default::default()
-            }),
-            None,
-        );
+        let big_discovery_info = || DiscoveryInfo {
+            memory_device_groups: vec![big_group.clone(), big_group.clone()],
+            ..Default::default()
+        };
 
-        let err = rehydrate_machine_memory_devices(&mut machine).unwrap_err();
-        assert!(matches!(
-            err,
-            CarbideCliError::RpcDataConversionError(
-                RpcDataConversionError::MemoryDeviceCountExceeded(_, m)
-            ) if m == max
-        ));
-    }
-
-    #[test]
-    #[allow(deprecated)]
-    fn status_aggregate_count_above_max_is_rejected() {
-        let max = MemoryDeviceGroup::MAX_REHYDRATE_COUNT;
-        let big_group = group(8192, "DDR4", max / 2 + 1);
-        let mut machine = machine_with_discovery_info(
-            None,
-            Some(DiscoveryInfo {
-                memory_device_groups: vec![big_group.clone(), big_group],
-                ..Default::default()
-            }),
-        );
-
-        let err = rehydrate_machine_memory_devices(&mut machine).unwrap_err();
-        assert!(matches!(
-            err,
-            CarbideCliError::RpcDataConversionError(
-                RpcDataConversionError::MemoryDeviceCountExceeded(_, m)
-            ) if m == max
-        ));
+        for mut machine in [
+            machine_with_discovery_info(Some(big_discovery_info()), None),
+            machine_with_discovery_info(None, Some(big_discovery_info())),
+        ] {
+            let err = rehydrate_machine_memory_devices(&mut machine).unwrap_err();
+            assert!(matches!(
+                err,
+                CarbideCliError::RpcDataConversionError(
+                    RpcDataConversionError::MemoryDeviceCountExceeded(_, m)
+                ) if m == max
+            ));
+        }
     }
 
     #[test]
