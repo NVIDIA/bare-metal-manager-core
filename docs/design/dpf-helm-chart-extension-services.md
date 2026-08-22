@@ -145,8 +145,8 @@ DPUService value unset.
 When NICo creates a `DPF_HELM_CHART` extension service, it creates a detached
 `DPUService` and deterministically generates
 `DPUService.spec.serviceDaemonSet.nodeSelector` from the extension-service
-UUID. DPF exposes this selector to the Helm chart as
-`.Values.serviceDaemonSet.nodeSelector`.
+UUID ([Section 3.3.3](#333-dpuservice-specification)). DPF exposes this
+selector to the Helm chart as `.Values.serviceDaemonSet.nodeSelector`.
 
 At this point, the selector does not match any target DPU, so the `DPUService`
 can exist while its workload remains detached.
@@ -158,7 +158,8 @@ DPF propagates those labels to the corresponding Nodes in the DPU cluster.
 
 The Nodes then satisfy the selector rendered by the Helm chart, making the
 service workload eligible to run on those DPUs. The detailed attachment and
-`DPUDevice` label-reconciliation flow is described in Section 3.6.
+`DPUDevice` label-reconciliation flow is described in
+[Section 3.6.2](#362-label-placement-reconciliation).
 
 ### 3.1 Credential Pre-provisioning
 
