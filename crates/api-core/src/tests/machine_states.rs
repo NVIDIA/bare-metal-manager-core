@@ -96,7 +96,7 @@ use crate::tests::common::api_fixtures::instance::{
 };
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, create_managed_host_with_ek, discovery_completed, forge_agent_control,
-    on_demand_machine_validation, update_time_params,
+    on_demand_machine_validation, reboot_completed, update_time_params,
 };
 use crate::tests::common::attestation::spdm_attestation_run_to_failed_then_to_success;
 use crate::tests::instance_ipxe_behaviors::create_instance;
@@ -5935,6 +5935,83 @@ async fn load_host_state(env: &TestEnv, host_id: &MachineId) -> ManagedHostState
 }
 
 #[crate::sqlx_test]
+async fn test_waiting_for_reboot_requires_completion_when_phone_home_disabled(pool: sqlx::PgPool) {
+    let (env, mh) = zero_dpu_host_with_instance(pool).await;
+    let host_id = mh.host().id;
+    let mut txn = env.db_txn().await;
+    let snapshot = mh.snapshot(&mut txn).await;
+    assert!(!snapshot.instance.unwrap().config.os.phone_home_enabled);
+    txn.commit().await.unwrap();
+
+    set_assigned_state(&env, &host_id, InstanceState::WaitingForRebootToReady).await;
+    env.run_machine_state_controller_iteration().await;
+
+    assert_eq!(
+        load_host_state(&env, &host_id).await,
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::WaitingForRebootToReady,
+        }
+    );
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    let mut restart = host.status.last_reboot_requested.unwrap();
+    assert_eq!(restart.restart_verified, Some(false));
+    assert_eq!(restart.verification_attempts, Some(0));
+
+    restart.restart_verified = None;
+    restart.verification_attempts = None;
+    sqlx::query("UPDATE machines SET last_reboot_requested=$1 WHERE id=$2")
+        .bind(sqlx::types::Json(restart))
+        .bind(host_id)
+        .execute(txn.as_mut())
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    env.run_machine_state_controller_iteration().await;
+    assert_eq!(
+        load_host_state(&env, &host_id).await,
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::WaitingForRebootToReady,
+        }
+    );
+
+    reboot_completed(&env, host_id).await;
+    env.run_machine_state_controller_iteration().await;
+    assert_eq!(
+        load_host_state(&env, &host_id).await,
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::Ready,
+        }
+    );
+}
+
+#[crate::sqlx_test]
+async fn test_waiting_for_reboot_accepts_bmc_verification(pool: sqlx::PgPool) {
+    let (env, mh) = zero_dpu_host_with_instance(pool).await;
+    let host_id = mh.host().id;
+    set_assigned_state(&env, &host_id, InstanceState::WaitingForRebootToReady).await;
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    let restart = host.status.last_reboot_requested.unwrap();
+    db::machine::update_restart_verification_status(&host_id, restart, Some(true), 0, txn.as_mut())
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    env.run_machine_state_controller_iteration().await;
+    assert_eq!(
+        load_host_state(&env, &host_id).await,
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::Ready,
+        }
+    );
+}
+
+#[crate::sqlx_test]
 async fn test_waiting_for_reboot_checks_health_for_zero_dpu(pool: sqlx::PgPool) {
     let (env, mh) = zero_dpu_host_with_instance(pool).await;
     let host_id = mh.host().id;
@@ -5981,6 +6058,15 @@ async fn test_waiting_for_reboot_checks_health_for_zero_dpu(pool: sqlx::PgPool) 
         HealthReport::empty(health_source.to_string()),
     )
     .await;
+    env.run_machine_state_controller_iteration().await;
+    assert_eq!(
+        load_host_state(&env, &host_id).await,
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::WaitingForRebootToReady,
+        }
+    );
+
+    reboot_completed(&env, host_id).await;
     env.run_machine_state_controller_iteration().await;
     assert_eq!(
         load_host_state(&env, &host_id).await,

@@ -8032,17 +8032,44 @@ impl StateHandler for InstanceStateHandler {
                             });
                     }
 
-                    // Reboot host
+                    let host = &mh_snapshot.host_snapshot;
+                    if let Some(restart) = host
+                        .status
+                        .last_reboot_requested
+                        .as_ref()
+                        .filter(|restart| restart.time > host.state.version.timestamp())
+                    {
+                        let restart_completed = host
+                            .status
+                            .last_reboot_time
+                            .is_some_and(|completed| completed > restart.time);
+                        if restart_completed || restart.restart_verified == Some(true) {
+                            return Ok(StateHandlerOutcome::transition(
+                                ManagedHostState::Assigned {
+                                    instance_state: InstanceState::Ready,
+                                },
+                            ));
+                        }
+
+                        let status = trigger_reboot_if_needed(
+                            host,
+                            mh_snapshot,
+                            None,
+                            &self.reachability_params,
+                            ctx,
+                        )
+                        .await?;
+                        return Ok(StateHandlerOutcome::wait(format!(
+                            "Waiting for host restart completion or verification. {}",
+                            status.status
+                        )));
+                    }
+
                     handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::ForceRestart)
                         .await?;
-
-                    // Instance is ready.
-                    // We can not determine if machine is rebooted successfully or not. Just leave
-                    // it like this and declare Instance Ready.
-                    let next_state = ManagedHostState::Assigned {
-                        instance_state: InstanceState::Ready,
-                    };
-                    Ok(StateHandlerOutcome::transition(next_state))
+                    Ok(StateHandlerOutcome::wait(
+                        "Waiting for host restart completion or verification.".to_string(),
+                    ))
                 }
                 InstanceState::Ready => {
                     // Machine is up after reboot. Hurray. Instance is up.
