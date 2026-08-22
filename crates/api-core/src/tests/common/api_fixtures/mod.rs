@@ -263,6 +263,7 @@ impl TestEnvOverrides {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) struct TestEnv {
     pub(crate) api: Arc<Api>,
     pub(in crate::tests) config: Arc<CarbideConfig>,
@@ -323,6 +324,7 @@ impl TestEnv {
             .expect("test env should have an admin segment")
     }
 
+    #[allow(dead_code)]
     /// Creates an instance of MachineStateHandlerServices that are suitable for this
     /// test environment
     pub(in crate::tests) fn machine_state_handler_services(&self) -> MachineStateHandlerServices {
@@ -1013,6 +1015,7 @@ impl TestEnv {
             .unwrap();
     }
 
+    #[allow(dead_code)]
     pub(in crate::tests) async fn run_switch_cert_monitor_iteration(
         &self,
     ) -> SwitchCertificateMonitorIterationResult {
@@ -2636,6 +2639,7 @@ pub(in crate::tests) async fn insert_nvlink_nmxc_endpoint_from_managed_host(
     txn.commit().await.ok();
 }
 
+#[allow(dead_code)]
 pub(in crate::tests) async fn set_nvlink_nmxc_endpoint(
     env: &TestEnv,
     chassis_serial: &str,

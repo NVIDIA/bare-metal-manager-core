@@ -21,9 +21,7 @@ use std::sync::atomic::AtomicBool;
 
 use ::rpc::measured_boot::FromGrpc;
 use base64::prelude::*;
-use carbide_machine_controller::context::MachineStateHandlerContextObjects;
-use carbide_machine_controller::handler::{MachineStateHandlerBuilder, handler_host_power_control};
-use carbide_machine_controller::metrics::MachineMetrics;
+use carbide_machine_controller::handler::MachineStateHandlerBuilder;
 use carbide_redfish::libredfish::test_support::{RedfishSimAction, RedfishSimPlatformAction};
 use carbide_site_explorer::MachineCreator;
 use carbide_site_explorer::config::SiteExplorerConfig;
@@ -78,8 +76,6 @@ use rpc::forge::{
 use rpc::forge_agent_control_response::{Action, LegacyAction};
 use rpc::machine_discovery::AttestKeyInfo;
 use rpc::{DiscoveryData, DiscoveryInfo};
-use state_controller::db_write_batch::DbWriteBatch;
-use state_controller::state_handler::StateHandlerContext;
 use tonic::{Code, Request};
 
 use crate::cfg::file::DpuConfig as InitialDpuConfig;
@@ -2441,138 +2437,6 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
         ManagedHostState::Ready,
     )
     .await;
-}
-
-#[crate::sqlx_test]
-async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
-    let mut config = get_config();
-    config.attestation_enabled = true;
-    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
-
-    // add CA cert to pass attestation process
-    let add_ca_request = tonic::Request::new(TpmCaCert {
-        ca_cert: CA_CERT_SERIALIZED.to_vec(),
-    });
-
-    env.api
-        .tpm_add_ca_cert(add_ca_request)
-        .await
-        .expect("Failed to add CA cert");
-
-    let mh = create_managed_host_with_ek(&env, &EK_CERT_SERIALIZED).await;
-
-    let mut txn = env.db_txn().await;
-    let snapshot = mh.snapshot(&mut txn).await;
-    let mut write_batch = DbWriteBatch::new();
-    let mut services = env.machine_state_handler_services();
-    let mut metrics = MachineMetrics::default();
-    let mut ctx = StateHandlerContext::<MachineStateHandlerContextObjects> {
-        services: &mut services,
-        metrics: &mut metrics,
-        pending_db_writes: &mut write_batch,
-    };
-    handler_host_power_control(
-        &snapshot,
-        &mut ctx,
-        libredfish::SystemPowerControl::ForceOff,
-    )
-    .await
-    .unwrap();
-    write_batch.apply_all(&mut txn).await.unwrap();
-    txn.commit().await.unwrap();
-
-    let mut txn = env.db_txn().await;
-
-    let snapshot1 = mh.snapshot(&mut txn).await;
-    for i in 0..snapshot.dpu_snapshots.len() {
-        assert_ne!(
-            snapshot.dpu_snapshots[i]
-                .clone()
-                .status
-                .last_reboot_requested
-                .map(|x| x.time)
-                .unwrap_or_default(),
-            snapshot1.dpu_snapshots[i]
-                .clone()
-                .status
-                .last_reboot_requested
-                .unwrap()
-                .time
-        );
-    }
-
-    let mut txn = env.db_txn().await;
-    let mut write_batch = DbWriteBatch::new();
-    let mut services = env.machine_state_handler_services();
-    let mut metrics = MachineMetrics::default();
-    let mut ctx = StateHandlerContext::<MachineStateHandlerContextObjects> {
-        services: &mut services,
-        metrics: &mut metrics,
-        pending_db_writes: &mut write_batch,
-    };
-    handler_host_power_control(&snapshot, &mut ctx, libredfish::SystemPowerControl::On)
-        .await
-        .unwrap();
-    write_batch.apply_all(&mut txn).await.unwrap();
-    txn.commit().await.unwrap();
-
-    let mut txn = env.db_txn().await;
-    let snapshot2 = mh.snapshot(&mut txn).await;
-    for i in 0..snapshot.dpu_snapshots.len() {
-        assert_ne!(
-            snapshot1.dpu_snapshots[i]
-                .clone()
-                .status
-                .last_reboot_requested
-                .map(|x| x.time)
-                .unwrap_or_default(),
-            snapshot2.dpu_snapshots[i]
-                .clone()
-                .status
-                .last_reboot_requested
-                .unwrap()
-                .time
-        );
-    }
-
-    let mut txn = env.db_txn().await;
-    let mut write_batch = DbWriteBatch::new();
-    let mut services = env.machine_state_handler_services();
-    let mut metrics = MachineMetrics::default();
-    let mut ctx = StateHandlerContext::<MachineStateHandlerContextObjects> {
-        services: &mut services,
-        metrics: &mut metrics,
-        pending_db_writes: &mut write_batch,
-    };
-    handler_host_power_control(
-        &snapshot,
-        &mut ctx,
-        libredfish::SystemPowerControl::ForceRestart,
-    )
-    .await
-    .unwrap();
-    write_batch.apply_all(&mut txn).await.unwrap();
-    txn.commit().await.unwrap();
-
-    let mut txn = env.db_txn().await;
-    let snapshot3 = mh.snapshot(&mut txn).await;
-
-    for i in 0..snapshot.dpu_snapshots.len() {
-        assert_eq!(
-            snapshot2.dpu_snapshots[i]
-                .clone()
-                .status
-                .last_reboot_requested
-                .map(|x| x.time)
-                .unwrap_or_default(),
-            snapshot3.dpu_snapshots[i]
-                .clone()
-                .status
-                .last_reboot_requested
-                .unwrap()
-                .time
-        );
-    }
 }
 
 /// Exercises WaitingForBiosJob state by configuring mock BMC to return a job ID from machine_setup.

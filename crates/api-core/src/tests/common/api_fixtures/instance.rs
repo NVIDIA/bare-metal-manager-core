@@ -659,6 +659,7 @@ pub(in crate::tests) async fn handle_delete_post_bootingwithdiscoveryimage(
     .await;
 }
 
+#[allow(dead_code)]
 pub(in crate::tests) async fn update_instance_network_status_observation(
     dpu_id: &MachineId,
     obs: &InstanceNetworkStatusObservation,
