@@ -1603,11 +1603,12 @@ pub struct DpfConfig {
     /// keep their hold either way.
     #[serde(default = "default_to_true")]
     pub dpu_service_sync_enabled: bool,
-    /// Optional override for the Kubernetes `imagePullSecrets` entry used to pull the
-    /// docker images of the mandatory services. When set, it is applied to every
-    /// mandatory service except `dts` and `doca_hbn`, which take a pull secret only
-    /// from their per-service config. This also overrides any `docker_image_pull_secret`
-    /// set in those per-service sections.
+    /// Optional override for the Kubernetes `imagePullSecrets` entry used to pull service
+    /// docker images. When set, it is applied to every mandatory service except `dts` and
+    /// `doca_hbn`, which take a pull secret only from their per-service config. It is also
+    /// the fallback for deployment-specific extra services, whose own pull-secret setting
+    /// takes precedence. This overrides any `docker_image_pull_secret` set in the applicable
+    /// mandatory-service sections.
     #[serde(default)]
     pub docker_image_pull_secret: Option<String>,
     /// Selects how the DPF-managed DPU agent obtains the API trust anchor.
@@ -1616,6 +1617,10 @@ pub struct DpfConfig {
     /// Mandatory Helm services to deploy alongside DPF.
     #[serde(default)]
     pub services: Box<DpfMandatoryServicesConfig>,
+    /// Deployment-type-specific Helm services.  Extra services are
+    /// assigned to a deployment type by the resolver.
+    #[serde(default)]
+    pub extra_services: DpfExtraServicesConfig,
     /// Optional proxy configuration for the DPU. When set, containerd on the DPU is
     /// configured to route outbound HTTPS traffic through the specified proxy.
     #[serde(default)]
@@ -1636,6 +1641,7 @@ impl Default for DpfConfig {
             docker_image_pull_secret: None,
             dpu_agent_bootstrap_ca: DpfDpuAgentBootstrapCa::default(),
             services: Box::default(),
+            extra_services: DpfExtraServicesConfig::default(),
             proxy: None,
             deployments: DpfDeploymentsConfig::default(),
         }
@@ -1669,12 +1675,16 @@ impl DpfConfig {
 
     /// Returns the services for `deployment`: the deployment's own
     /// [`DpfDeploymentConfig::services`] override when set, otherwise the top-level
-    /// [`Self::services`], plus its deployment-specific extra services. The optional
-    /// [`Self::docker_image_pull_secret`] override is applied to the mandatory services
+    /// [`Self::services`], plus the extra services supported by `deployment_type`. A
+    /// deployment-specific extra-service entry replaces the site-wide definition for that
+    /// deployment. The optional
+    /// [`Self::docker_image_pull_secret`] override is applied to the mandatory services and,
+    /// when an extra service has no per-service secret, to the selected extra services
     /// (see [`Self::resolved_mandatory_services`]).
     pub fn resolved_services_for(
         &self,
         deployment: &DpfDeploymentConfig,
+        deployment_type: DpuDeploymentType,
     ) -> DpfResolvedMandatoryServicesConfig {
         let mut base = deployment
             .services
@@ -1683,10 +1693,19 @@ impl DpfConfig {
             .unwrap_or_else(|| (*self.services).clone());
         self.apply_pull_secret_override(&mut base);
 
-        DpfResolvedMandatoryServicesConfig {
-            base,
-            extra: deployment.extra_services.clone(),
+        let mut extra = self.extra_services.for_deployment_type(deployment_type);
+        for extra_service in extra_service_types(deployment_type) {
+            if let Some(override_config) = deployment.extra_services.get(extra_service) {
+                override_config.apply_to(
+                    extra
+                        .get_mut(extra_service)
+                        .expect("selected extra service must have a site-wide definition"),
+                );
+            }
         }
+        self.apply_extra_pull_secret_override(&mut extra);
+
+        DpfResolvedMandatoryServicesConfig { base, extra }
     }
 
     /// Applies the optional [`Self::docker_image_pull_secret`] override to every
@@ -1699,6 +1718,23 @@ impl DpfConfig {
             services.dhcp_server.docker_image_pull_secret = secret.clone();
             services.fmds.docker_image_pull_secret = secret.clone();
             services.otel.docker_image_pull_secret = secret;
+        }
+    }
+
+    /// Uses the top-level pull secret for selected extra services that have not set their own.
+    /// A site-wide or deployment-local extra-service secret takes precedence, so one deployment
+    /// can pull an Astra image from a different private registry.
+    fn apply_extra_pull_secret_override(
+        &self,
+        services: &mut BTreeMap<DpfExtraService, DpfServiceConfig>,
+    ) {
+        let Some(secret) = &self.docker_image_pull_secret else {
+            return;
+        };
+        for service in services.values_mut() {
+            if service.docker_image_pull_secret.is_none() {
+                service.docker_image_pull_secret = Some(secret.clone());
+            }
         }
     }
 }
@@ -1835,6 +1871,87 @@ impl DpfExtraService {
     }
 }
 
+/// Helm extra services that supplement the mandatory DPF services for specific deployment types.
+///
+/// The site-wide definitions use the same partial-override rules as
+/// [`DpfMandatoryServicesConfig`]. [`DpfConfig::resolved_services_for`]
+/// picks the extra services valid for a deployment type, and skips
+/// them if the extra service is not valid for a deployment type. For
+/// example, configuring a Weave service never adds it to BF3
+/// or generic BF4 deployments.
+#[derive(Clone, Debug, Serialize)]
+pub struct DpfExtraServicesConfig {
+    pub doca_weave_dhcp_agent: DpfServiceConfig,
+    pub doca_weave_flow_controller: DpfServiceConfig,
+    pub doca_xplane: DpfServiceConfig,
+}
+
+impl DpfExtraServicesConfig {
+    fn for_deployment_type(
+        &self,
+        deployment_type: DpuDeploymentType,
+    ) -> BTreeMap<DpfExtraService, DpfServiceConfig> {
+        extra_service_types(deployment_type)
+            .iter()
+            .map(|service| (*service, self.config_for(*service).clone()))
+            .collect()
+    }
+
+    fn config_for(&self, service: DpfExtraService) -> &DpfServiceConfig {
+        match service {
+            DpfExtraService::DocaWeaveDhcpAgent => &self.doca_weave_dhcp_agent,
+            DpfExtraService::DocaWeaveFlowController => &self.doca_weave_flow_controller,
+            DpfExtraService::DocaXplane => &self.doca_xplane,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for DpfExtraServicesConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let configured = BTreeMap::<String, serde_json::Value>::deserialize(deserializer)?;
+        let mut services = Self::default();
+        for (name, configured) in configured {
+            const SERVICE_FIELDS: &[&str] = &[
+                "doca_weave_dhcp_agent",
+                "doca_weave_flow_controller",
+                "doca_xplane",
+            ];
+            let service = match name.as_str() {
+                "doca_weave_dhcp_agent" => &mut services.doca_weave_dhcp_agent,
+                "doca_weave_flow_controller" => &mut services.doca_weave_flow_controller,
+                "doca_xplane" => &mut services.doca_xplane,
+                _ => return Err(serde::de::Error::unknown_field(&name, SERVICE_FIELDS)),
+            };
+            let merged = Figment::from(Serialized::defaults(std::mem::take(service)))
+                .merge(Serialized::defaults(configured))
+                .extract();
+            *service = match merged {
+                Ok(service) => service,
+                Err(error) => match error.kind {
+                    figment::error::Kind::UnknownField(field, expected) => {
+                        return Err(serde::de::Error::unknown_field(&field, expected));
+                    }
+                    _ => return Err(serde::de::Error::custom(error)),
+                },
+            };
+        }
+        Ok(services)
+    }
+}
+
+impl Default for DpfExtraServicesConfig {
+    fn default() -> Self {
+        Self {
+            doca_weave_dhcp_agent: DpfExtraService::DocaWeaveDhcpAgent.default_config(),
+            doca_weave_flow_controller: DpfExtraService::DocaWeaveFlowController.default_config(),
+            doca_xplane: DpfExtraService::DocaXplane.default_config(),
+        }
+    }
+}
+
 /// `DpfResolvedMandatoryServicesConfig` - the compounded list of mandatory services
 /// depending on deployment type.
 pub struct DpfResolvedMandatoryServicesConfig {
@@ -1870,6 +1987,60 @@ pub struct DpfServiceConfig {
     /// Tables merge recursively. Scalars and arrays replace generated values.
     #[serde(default)]
     pub extra_helm_values: Option<serde_json::Map<String, serde_json::Value>>,
+}
+
+/// Partial deployment-local override for an extra DPF service.
+///
+/// The resolver applies this after the built-in and site-wide definitions, so a deployment can
+/// pin one field such as `helm_version` without repeating its shared registry and image fields.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DpfServiceConfigOverride {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub helm_repo_url: Option<String>,
+    #[serde(default)]
+    pub helm_chart: Option<String>,
+    #[serde(default)]
+    pub helm_version: Option<String>,
+    #[serde(default)]
+    pub docker_repo_url: Option<String>,
+    #[serde(default)]
+    pub docker_image_tag: Option<String>,
+    #[serde(default)]
+    pub docker_image_pull_secret: Option<String>,
+    #[serde(default)]
+    pub extra_helm_values: Option<serde_json::Map<String, serde_json::Value>>,
+}
+
+impl DpfServiceConfigOverride {
+    fn apply_to(&self, config: &mut DpfServiceConfig) {
+        if let Some(value) = &self.name {
+            config.name.clone_from(value);
+        }
+        if let Some(value) = &self.helm_repo_url {
+            config.helm_repo_url.clone_from(value);
+        }
+        if let Some(value) = &self.helm_chart {
+            config.helm_chart.clone_from(value);
+        }
+        if let Some(value) = &self.helm_version {
+            config.helm_version.clone_from(value);
+        }
+        if let Some(value) = &self.docker_repo_url {
+            config.docker_repo_url.clone_from(value);
+        }
+        if let Some(value) = &self.docker_image_tag {
+            config.docker_image_tag.clone_from(value);
+        }
+        if let Some(value) = &self.docker_image_pull_secret {
+            config.docker_image_pull_secret = Some(value.clone());
+        }
+        if let Some(value) = &self.extra_helm_values {
+            config.extra_helm_values = Some(value.clone());
+        }
+    }
 }
 
 /// Per-deployment DPF configuration for named entries under `[dpf.deployments]`.
@@ -1911,9 +2082,9 @@ pub struct DpfDeploymentConfig {
 
     /// Deployment-specific Helm services. BF4 Astra receives built-in DOCA Weave
     /// DHCP agent, Weave flow controller, and DOCA Xplane definitions; configured
-    /// entries replace matching defaults.
+    /// entries overlay the corresponding site-wide extra-service definition.
     #[serde(default)]
-    pub extra_services: BTreeMap<DpfExtraService, DpfServiceConfig>,
+    pub extra_services: BTreeMap<DpfExtraService, DpfServiceConfigOverride>,
 }
 
 impl Default for DpfDeploymentConfig {
@@ -1953,7 +2124,8 @@ pub struct DpfBlueFieldSoftwareConfig {
 /// Named DPUDeployment configurations under `[dpf.deployments]`.
 /// Each entry creates its own provisioning source, DPUFlavor, and DPUDeployment
 /// CR at startup.
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct DpfDeploymentsConfig {
     /// BF3 deployment. Present by default with sensible values; override individual
     /// fields in `[dpf.deployments.bf3]` when the site uses non-default names or BFBs.
@@ -1967,58 +2139,7 @@ pub struct DpfDeploymentsConfig {
     pub bf4_astra: Option<DpfDeploymentConfig>,
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct DpfDeploymentsConfigDef {
-    #[serde(default)]
-    bf3: DpfDeploymentConfig,
-    #[serde(default)]
-    bf4_generic: Option<DpfDeploymentConfig>,
-    #[serde(default)]
-    bf4_astra: Option<DpfDeploymentConfig>,
-}
-
-impl<'de> Deserialize<'de> for DpfDeploymentsConfig {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let config = DpfDeploymentsConfigDef::deserialize(deserializer)?;
-        let mut deployments = Self {
-            bf3: config.bf3,
-            bf4_generic: config.bf4_generic,
-            bf4_astra: config.bf4_astra,
-        };
-        deployments.apply_extra_service_defaults();
-        Ok(deployments)
-    }
-}
-
 impl DpfDeploymentsConfig {
-    fn apply_extra_service_defaults(&mut self) {
-        Self::apply_extra_service_defaults_for(&mut self.bf3, DpuDeploymentType::Bf3);
-        if let Some(deployment) = &mut self.bf4_generic {
-            Self::apply_extra_service_defaults_for(deployment, DpuDeploymentType::Bf4Generic);
-        }
-        if let Some(deployment) = &mut self.bf4_astra {
-            Self::apply_extra_service_defaults_for(deployment, DpuDeploymentType::Bf4Astra);
-        }
-    }
-
-    fn apply_extra_service_defaults_for(
-        deployment: &mut DpfDeploymentConfig,
-        deployment_type: DpuDeploymentType,
-    ) {
-        let configured = std::mem::take(&mut deployment.extra_services);
-        deployment.extra_services = extra_service_types(deployment_type)
-            .iter()
-            .copied()
-            .map(|service| (service, service.default_config()))
-            .collect();
-        // A configured entry replaces only that service's built-in definition.
-        deployment.extra_services.extend(configured);
-    }
-
     /// Returns all active deployment configs as `(name, config)` pairs.
     /// Add new deployments here when they are introduced.
     fn all(&self) -> Vec<(&'static str, &DpfDeploymentConfig)> {
@@ -7491,21 +7612,14 @@ flavor_name = "astra-flavor"
 deployment_name = "astra-deployment"
 node_label_key = "carbide.nvidia.com/astra"
 
+[extra_services.doca_weave_dhcp_agent]
+docker_image_tag = "site-tag"
+
 [deployments.bf4_astra.extra_services.doca_weave_dhcp_agent]
-name = "doca-weave-dhcp-agent"
-helm_repo_url = "https://helm.example.test/doca"
-helm_chart = "doca-weave-dhcp-agent"
 helm_version = "development-version"
-docker_repo_url = "registry.example.test/doca-weave-dhcp-agent"
-docker_image_tag = "development-tag"
 
 [deployments.bf4_astra.extra_services.doca_weave_flow_controller]
-name = "doca-weave-flow-controller"
-helm_repo_url = "https://helm.example.test/doca"
-helm_chart = "doca-weave-flow-controller"
 helm_version = "flow-controller-dev"
-docker_repo_url = "registry.example.test/doca-weave-flow-controller"
-docker_image_tag = "flow-controller-tag"
 "#,
         )
         .unwrap();
@@ -7515,16 +7629,19 @@ docker_image_tag = "flow-controller-tag"
             .extra_services
             .get(&DpfExtraService::DocaWeaveDhcpAgent)
             .unwrap();
-        assert_eq!(configured.helm_version, "development-version");
+        assert_eq!(
+            configured.helm_version.as_deref(),
+            Some("development-version")
+        );
 
-        let resolved = config.resolved_services_for(deployment);
+        let resolved = config.resolved_services_for(deployment, DpuDeploymentType::Bf4Astra);
         assert_eq!(
             resolved
                 .extra
                 .get(&DpfExtraService::DocaWeaveDhcpAgent)
                 .unwrap()
                 .docker_image_tag,
-            "development-tag"
+            "site-tag"
         );
         assert_eq!(
             resolved
@@ -7556,7 +7673,7 @@ node_label_key = "carbide.nvidia.com/astra"
         )
         .unwrap();
         let deployment = config.deployments.bf4_astra.as_ref().unwrap();
-        let resolved = config.resolved_services_for(deployment);
+        let resolved = config.resolved_services_for(deployment, DpuDeploymentType::Bf4Astra);
         let dhcp_agent = resolved
             .extra
             .get(&DpfExtraService::DocaWeaveDhcpAgent)
@@ -7587,6 +7704,58 @@ node_label_key = "carbide.nvidia.com/astra"
             xplane.helm_version,
             crate::dpf_services::default_doca_xplane_service().helm_version
         );
+    }
+
+    #[test]
+    fn site_extra_services_are_configurable_only_for_supported_deployments() {
+        let config = toml::from_str::<DpfConfig>(
+            r#"
+docker_image_pull_secret = "top-level-pull-secret"
+
+[extra_services.doca_weave_dhcp_agent]
+helm_version = "site-weave-version"
+docker_image_pull_secret = "site-dpf-image-pull-secret"
+
+[extra_services.doca_weave_flow_controller]
+helm_repo_url = "oci://registry.example.test/doca"
+"#,
+        )
+        .unwrap();
+
+        let deployment = DpfDeploymentConfig::default();
+        for deployment_type in [DpuDeploymentType::Bf3, DpuDeploymentType::Bf4Generic] {
+            assert!(
+                config
+                    .resolved_services_for(&deployment, deployment_type)
+                    .extra
+                    .is_empty()
+            );
+        }
+
+        let astra = config.resolved_services_for(&deployment, DpuDeploymentType::Bf4Astra);
+        assert_eq!(
+            astra.extra[&DpfExtraService::DocaWeaveDhcpAgent].helm_version,
+            "site-weave-version"
+        );
+        assert_eq!(
+            astra.extra[&DpfExtraService::DocaWeaveDhcpAgent]
+                .docker_image_pull_secret
+                .as_deref(),
+            Some("site-dpf-image-pull-secret")
+        );
+        assert_eq!(
+            astra.extra[&DpfExtraService::DocaWeaveFlowController].helm_repo_url,
+            "oci://registry.example.test/doca"
+        );
+        for service in [
+            DpfExtraService::DocaWeaveFlowController,
+            DpfExtraService::DocaXplane,
+        ] {
+            assert_eq!(
+                astra.extra[&service].docker_image_pull_secret.as_deref(),
+                Some("top-level-pull-secret")
+            );
+        }
     }
 
     #[test]

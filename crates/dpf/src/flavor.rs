@@ -1039,7 +1039,7 @@ fn get_bf4_astra_config_files(
                     "ALLOW_SHARED_RQ=\"no\"\n",
                     "IPSEC_FULL_OFFLOAD=\"no\"\n",
                     "ENABLE_ESWITCH_MULTIPORT=\"yes\"\n",
-                    "SNAP_DMA_SF=\"no\"\n"
+                    "SNAP_DMA_SF=\"no\"\n",
                 )
                 .to_string(),
             ),
@@ -1354,6 +1354,9 @@ fn get_bf4_astra_config_files(
                     "_ovs-vsctl --may-exist add-br br-sfc\n",
                     "_ovs-vsctl set bridge br-sfc datapath_type=netdev\n",
                     "_ovs-vsctl set bridge br-sfc fail_mode=secure\n",
+
+                    // br-hbn is absent on a fresh DPU, so a bare del-br would fail the run.
+                    "_ovs-vsctl --if-exists del-br br-hbn\n",
                     "_ovs-vsctl --may-exist add-br br-hbn\n",
                     "_ovs-vsctl set bridge br-hbn datapath_type=netdev\n",
                     "_ovs-vsctl set bridge br-hbn fail_mode=secure\n",
@@ -1435,6 +1438,7 @@ fn get_bf4_astra_config_files(
                     "        done\n",
                     "    done\n",
                     "done\n",
+                    "mst start\n",
                 )
                 .to_string(),
             ),
