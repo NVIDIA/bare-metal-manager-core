@@ -34,6 +34,7 @@ mod expected_switch;
 mod explored_endpoint_find;
 mod extension_service;
 mod finder;
+mod firmware_component_manager;
 mod host_bmc_firmware_test;
 mod host_firmware_config;
 mod ib_fabric_monitor;
