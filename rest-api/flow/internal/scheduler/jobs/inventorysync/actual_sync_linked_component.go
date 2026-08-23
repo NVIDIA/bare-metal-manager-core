@@ -235,8 +235,11 @@ func applyComponentExternalIDUpdates(
 		return updates[i].component.ID.String() < updates[j].component.ID.String()
 	})
 	if err := pool.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		// Release every changing external ID before assigning replacements. The
+		// database enforces uniqueness on (type, external_id), so updating the
+		// rows directly can fail when two same-type components exchange IDs.
 		for _, update := range updates {
-			patch := model.Component{ID: update.component.ID, ComponentID: update.externalID}
+			patch := model.Component{ID: update.component.ID}
 			result, err := tx.NewUpdate().Model(&patch).
 				Column("external_id").
 				Where("id = ?", update.component.ID).
@@ -251,6 +254,31 @@ func applyComponentExternalIDUpdates(
 			if rowsAffected != 1 {
 				return fmt.Errorf(
 					"update %s component %s external ID affected %d rows, expected 1",
+					resource,
+					update.component.ID,
+					rowsAffected,
+				)
+			}
+		}
+		for _, update := range updates {
+			if update.externalID == nil {
+				continue
+			}
+			patch := model.Component{ID: update.component.ID, ComponentID: update.externalID}
+			result, err := tx.NewUpdate().Model(&patch).
+				Column("external_id").
+				Where("id = ?", update.component.ID).
+				Exec(ctx)
+			if err != nil {
+				return fmt.Errorf("assign %s component %s external ID: %w", resource, update.component.ID, err)
+			}
+			rowsAffected, err := result.RowsAffected()
+			if err != nil {
+				return fmt.Errorf("count assigned %s component %s external ID rows: %w", resource, update.component.ID, err)
+			}
+			if rowsAffected != 1 {
+				return fmt.Errorf(
+					"assign %s component %s external ID affected %d rows, expected 1",
 					resource,
 					update.component.ID,
 					rowsAffected,

@@ -224,6 +224,138 @@ func TestReconcileLinkedActualComponentsMixedUnknownActual(t *testing.T) {
 	assert.Equal(t, "core-switch-unknown", *drifts[0].ExternalID)
 }
 
+func TestReconcileLinkedActualComponentsSwapsExternalIDs(t *testing.T) {
+	ctx, pool := mirrorTestPool(t)
+	first := createLinkedTestComponent(
+		t,
+		ctx,
+		pool,
+		devicetypes.ComponentTypeNVSwitch,
+		"aa:bb:cc:dd:ee:32",
+		strPtr("core-switch-first"),
+	)
+	second := createLinkedTestComponent(
+		t,
+		ctx,
+		pool,
+		devicetypes.ComponentTypeNVSwitch,
+		"aa:bb:cc:dd:ee:33",
+		strPtr("core-switch-second"),
+	)
+	expected, err := model.GetComponentsByType(ctx, pool.DB, devicetypes.ComponentTypeNVSwitch)
+	require.NoError(t, err)
+
+	_, matched, drifts, ok := reconcileActualControllerDevices(
+		ctx,
+		pool,
+		"NVSwitch",
+		expected,
+		[]actualControllerDevice{
+			{controllerMAC: "aa:bb:cc:dd:ee:32", externalID: "core-switch-second"},
+			{controllerMAC: "aa:bb:cc:dd:ee:33", externalID: "core-switch-first"},
+		},
+	)
+
+	require.True(t, ok)
+	assert.Empty(t, drifts)
+	assert.Equal(t, first.ID, matched["core-switch-second"].ID)
+	assert.Equal(t, second.ID, matched["core-switch-first"].ID)
+	assert.Equal(t, "core-switch-second", *loadLinkedTestComponent(t, ctx, pool, first.ID).ComponentID)
+	assert.Equal(t, "core-switch-first", *loadLinkedTestComponent(t, ctx, pool, second.ID).ComponentID)
+}
+
+func TestReconcileLinkedActualComponentsRejectsConflictingObservedIdentity(t *testing.T) {
+	testCases := []struct {
+		name     string
+		observed []actualControllerDevice
+	}{
+		{
+			name: "duplicate controller MAC",
+			observed: []actualControllerDevice{
+				{controllerMAC: "aa:bb:cc:dd:ee:34", externalID: "core-switch-new"},
+				{controllerMAC: "AA-BB-CC-DD-EE-34", externalID: "core-switch-conflict"},
+			},
+		},
+		{
+			name: "runtime ID mapped to multiple controller MACs",
+			observed: []actualControllerDevice{
+				{controllerMAC: "aa:bb:cc:dd:ee:34", externalID: "core-switch-new"},
+				{controllerMAC: "aa:bb:cc:dd:ee:35", externalID: "core-switch-new"},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, pool := mirrorTestPool(t)
+			component := createLinkedTestComponent(
+				t,
+				ctx,
+				pool,
+				devicetypes.ComponentTypeNVSwitch,
+				"aa:bb:cc:dd:ee:34",
+				strPtr("core-switch-old"),
+			)
+			expected, err := model.GetComponentsByType(ctx, pool.DB, devicetypes.ComponentTypeNVSwitch)
+			require.NoError(t, err)
+
+			_, matched, drifts, ok := reconcileActualControllerDevices(
+				ctx,
+				pool,
+				"NVSwitch",
+				expected,
+				tc.observed,
+			)
+
+			assert.False(t, ok)
+			assert.Nil(t, matched)
+			assert.Nil(t, drifts)
+			persisted := loadLinkedTestComponent(t, ctx, pool, component.ID)
+			require.NotNil(t, persisted.ComponentID)
+			assert.Equal(t, "core-switch-old", *persisted.ComponentID)
+		})
+	}
+}
+
+func TestReconcileLinkedActualComponentsReportsAmbiguousExpectedIdentity(t *testing.T) {
+	ctx, pool := mirrorTestPool(t)
+	first := createLinkedTestComponent(
+		t,
+		ctx,
+		pool,
+		devicetypes.ComponentTypeNVSwitch,
+		"aa:bb:cc:dd:ee:36",
+		strPtr("core-switch-first"),
+	)
+	second := createLinkedTestComponent(
+		t,
+		ctx,
+		pool,
+		devicetypes.ComponentTypeNVSwitch,
+		"AA-BB-CC-DD-EE-36",
+		strPtr("core-switch-second"),
+	)
+	expected, err := model.GetComponentsByType(ctx, pool.DB, devicetypes.ComponentTypeNVSwitch)
+	require.NoError(t, err)
+
+	_, matched, drifts, ok := reconcileActualControllerDevices(
+		ctx,
+		pool,
+		"NVSwitch",
+		expected,
+		[]actualControllerDevice{{controllerMAC: "aa:bb:cc:dd:ee:36", externalID: "core-switch-observed"}},
+	)
+
+	require.True(t, ok)
+	assert.Empty(t, matched)
+	require.Len(t, drifts, 3)
+	assert.Equal(t, model.DriftTypeMissingInActual, drifts[0].DriftType)
+	assert.Equal(t, model.DriftTypeMissingInActual, drifts[1].DriftType)
+	assert.Equal(t, model.DriftTypeMissingInExpected, drifts[2].DriftType)
+	assert.Nil(t, loadLinkedTestComponent(t, ctx, pool, first.ID).ComponentID)
+	assert.Nil(t, loadLinkedTestComponent(t, ctx, pool, second.ID).ComponentID)
+}
+
 func TestReconcileLinkedActualComponentsInvalidMixedSnapshotIsNotApplied(t *testing.T) {
 	ctx, pool := mirrorTestPool(t)
 	component := createLinkedTestComponent(
