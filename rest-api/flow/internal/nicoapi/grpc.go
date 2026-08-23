@@ -192,6 +192,76 @@ func (c *grpcClient) GetMachines(ctx context.Context) ([]MachineDetail, error) {
 	return result, nil
 }
 
+// GetSwitches retrieves a complete active-switch snapshot. ID discovery and
+// detail lookup each receive the configured RPC timeout so a slow first call
+// cannot starve the second call. FindSwitchesByIds is routed through the shared
+// batching client, which also verifies response completeness.
+func (c *grpcClient) GetSwitches(ctx context.Context) ([]ObservedControllerDevice, error) {
+	idsCtx, idsCancel := context.WithTimeout(ctx, c.grpcTimeout)
+	idsResponse, err := c.gclient.FindSwitchIds(idsCtx, &corev1.SwitchSearchFilter{})
+	idsCancel()
+	if err != nil {
+		return nil, fmt.Errorf("FindSwitchIds for actual inventory: %w", err)
+	}
+
+	switchIDs := idsResponse.GetIds()
+	if len(switchIDs) == 0 {
+		return []ObservedControllerDevice{}, nil
+	}
+
+	detailsCtx, detailsCancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer detailsCancel()
+	response, err := c.gclient.FindSwitchesByIds(detailsCtx, &corev1.SwitchesByIdsRequest{
+		SwitchIds: switchIDs,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("FindSwitchesByIds for actual inventory: %w", err)
+	}
+
+	result := make([]ObservedControllerDevice, 0, len(response.GetSwitches()))
+	for _, sw := range response.GetSwitches() {
+		result = append(result, ObservedControllerDevice{
+			ID:     sw.GetId().GetId(),
+			BmcMac: sw.GetBmcInfo().GetMac(),
+		})
+	}
+	return result, nil
+}
+
+// GetPowerShelves is the power-shelf equivalent of GetSwitches, including the
+// independent per-RPC timeout and complete batched detail lookup.
+func (c *grpcClient) GetPowerShelves(ctx context.Context) ([]ObservedControllerDevice, error) {
+	idsCtx, idsCancel := context.WithTimeout(ctx, c.grpcTimeout)
+	idsResponse, err := c.gclient.FindPowerShelfIds(idsCtx, &corev1.PowerShelfSearchFilter{})
+	idsCancel()
+	if err != nil {
+		return nil, fmt.Errorf("FindPowerShelfIds for actual inventory: %w", err)
+	}
+
+	shelfIDs := idsResponse.GetIds()
+	if len(shelfIDs) == 0 {
+		return []ObservedControllerDevice{}, nil
+	}
+
+	detailsCtx, detailsCancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer detailsCancel()
+	response, err := c.gclient.FindPowerShelvesByIds(detailsCtx, &corev1.PowerShelvesByIdsRequest{
+		PowerShelfIds: shelfIDs,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("FindPowerShelvesByIds for actual inventory: %w", err)
+	}
+
+	result := make([]ObservedControllerDevice, 0, len(response.GetPowerShelves()))
+	for _, shelf := range response.GetPowerShelves() {
+		result = append(result, ObservedControllerDevice{
+			ID:     shelf.GetId().GetId(),
+			BmcMac: shelf.GetBmcInfo().GetMac(),
+		})
+	}
+	return result, nil
+}
+
 // GetLeakingMachineIds retrieves IDs of all machines which are leaking and are powered on.
 // The search filter passed in to FindMachineIds limits the results to these two conditions.
 func (c *grpcClient) GetLeakingMachineIds(ctx context.Context) ([]string, error) {
@@ -1570,6 +1640,14 @@ func (c *grpcClient) SetSwitchNvosIP(switchID, ip string) {
 }
 
 func (c *grpcClient) SetPowerShelfControllerState(shelfID, state string) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) SetObservedSwitches(devices []ObservedControllerDevice) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) SetObservedPowerShelves(devices []ObservedControllerDevice) {
 	panic("Not a unit test")
 }
 

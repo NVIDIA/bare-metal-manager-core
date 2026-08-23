@@ -24,9 +24,14 @@ type recordingForgeClient struct {
 	versionErr      error
 	versionErrors   []error
 	versionDelay    time.Duration
+	switchIDDelay   time.Duration
 	switchDelay     time.Duration
+	shelfIDDelay    time.Duration
+	shelfDelay      time.Duration
 	versionRequests []*corev1.VersionRequest
 	machineIDs      []string
+	switchIDs       []string
+	shelfIDs        []string
 	machineBatches  [][]string
 	switchBatches   [][]string
 	shelfBatches    [][]string
@@ -95,6 +100,36 @@ func (c *recordingForgeClient) FindMachinesByIds(
 	return &corev1.MachineList{Machines: machines}, nil
 }
 
+func (c *recordingForgeClient) FindSwitchIds(
+	ctx context.Context,
+	_ *corev1.SwitchSearchFilter,
+	_ ...grpc.CallOption,
+) (*corev1.SwitchIdList, error) {
+	if c.switchIDDelay > 0 {
+		select {
+		case <-time.After(c.switchIDDelay):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	return &corev1.SwitchIdList{Ids: stringsToSwitchIds(c.switchIDs)}, nil
+}
+
+func (c *recordingForgeClient) FindPowerShelfIds(
+	ctx context.Context,
+	_ *corev1.PowerShelfSearchFilter,
+	_ ...grpc.CallOption,
+) (*corev1.PowerShelfIdList, error) {
+	if c.shelfIDDelay > 0 {
+		select {
+		case <-time.After(c.shelfIDDelay):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	return &corev1.PowerShelfIdList{Ids: stringsToPowerShelfIds(c.shelfIDs)}, nil
+}
+
 func (c *recordingForgeClient) FindSwitchesByIds(
 	ctx context.Context,
 	request *corev1.SwitchesByIdsRequest,
@@ -122,11 +157,13 @@ func (c *recordingForgeClient) FindSwitchesByIds(
 	for _, id := range batch {
 		if id != omitID {
 			nvosIP := "ip-" + id
+			bmcMAC := "mac-" + id
 			switches = append(switches, &corev1.Switch{
 				Id:              &corev1.SwitchId{Id: id},
 				RackId:          &corev1.RackId{Id: "rack-" + id},
 				ControllerState: "state-" + id,
 				NvosInfo:        &corev1.SwitchNvosInfo{Ip: &nvosIP},
+				BmcInfo:         &corev1.BmcInfo{Mac: &bmcMAC},
 			})
 		}
 	}
@@ -134,7 +171,7 @@ func (c *recordingForgeClient) FindSwitchesByIds(
 }
 
 func (c *recordingForgeClient) FindPowerShelvesByIds(
-	_ context.Context,
+	ctx context.Context,
 	request *corev1.PowerShelvesByIdsRequest,
 	_ ...grpc.CallOption,
 ) (*corev1.PowerShelfList, error) {
@@ -143,7 +180,15 @@ func (c *recordingForgeClient) FindPowerShelvesByIds(
 	c.shelfBatches = append(c.shelfBatches, batch)
 	failed := c.failCall == len(c.shelfBatches)
 	omitID := c.omitID
+	delay := c.shelfDelay
 	c.mu.Unlock()
+	if delay > 0 {
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	if failed {
 		return nil, errors.New("injected power shelf lookup failure")
 	}
@@ -151,10 +196,12 @@ func (c *recordingForgeClient) FindPowerShelvesByIds(
 	shelves := make([]*corev1.PowerShelf, 0, len(batch))
 	for _, id := range batch {
 		if id != omitID {
+			bmcMAC := "mac-" + id
 			shelves = append(shelves, &corev1.PowerShelf{
 				Id:              &corev1.PowerShelfId{Id: id},
 				RackId:          &corev1.RackId{Id: "rack-" + id},
 				ControllerState: "state-" + id,
+				BmcInfo:         &corev1.BmcInfo{Mac: &bmcMAC},
 			})
 		}
 	}
@@ -163,6 +210,103 @@ func (c *recordingForgeClient) FindPowerShelvesByIds(
 
 func newRecordingGRPCClient(fake *recordingForgeClient) *grpcClient {
 	return &grpcClient{gclient: newBatchingForgeClient(fake), grpcTimeout: time.Second}
+}
+
+func stringsToSwitchIds(ids []string) []*corev1.SwitchId {
+	result := make([]*corev1.SwitchId, 0, len(ids))
+	for _, id := range ids {
+		result = append(result, &corev1.SwitchId{Id: id})
+	}
+	return result
+}
+
+func stringsToPowerShelfIds(ids []string) []*corev1.PowerShelfId {
+	result := make([]*corev1.PowerShelfId, 0, len(ids))
+	for _, id := range ids {
+		result = append(result, &corev1.PowerShelfId{Id: id})
+	}
+	return result
+}
+
+func TestGrpcClient_ActualInventoryRPCsHaveIndependentTimeouts(t *testing.T) {
+	testCases := []struct {
+		name   string
+		fake   *recordingForgeClient
+		invoke func(context.Context, *grpcClient) ([]ObservedControllerDevice, error)
+	}{
+		{
+			name: "switches",
+			fake: &recordingForgeClient{
+				switchIDs:     []string{"switch-1"},
+				switchIDDelay: 120 * time.Millisecond,
+				switchDelay:   120 * time.Millisecond,
+			},
+			invoke: func(ctx context.Context, client *grpcClient) ([]ObservedControllerDevice, error) {
+				return client.GetSwitches(ctx)
+			},
+		},
+		{
+			name: "power shelves",
+			fake: &recordingForgeClient{
+				shelfIDs:     []string{"shelf-1"},
+				shelfIDDelay: 120 * time.Millisecond,
+				shelfDelay:   120 * time.Millisecond,
+			},
+			invoke: func(ctx context.Context, client *grpcClient) ([]ObservedControllerDevice, error) {
+				return client.GetPowerShelves(ctx)
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := newRecordingGRPCClient(tc.fake)
+			client.grpcTimeout = 200 * time.Millisecond
+
+			devices, err := tc.invoke(context.Background(), client)
+
+			require.NoError(t, err)
+			require.Len(t, devices, 1)
+			assert.NotEmpty(t, devices[0].ID)
+			assert.NotEmpty(t, devices[0].BmcMac)
+		})
+	}
+}
+
+func TestGrpcClient_ActualInventoryEmptyIDsAvoidDetailLookup(t *testing.T) {
+	testCases := []struct {
+		name       string
+		invoke     func(context.Context, *grpcClient) ([]ObservedControllerDevice, error)
+		batchCalls func(*recordingForgeClient) [][]string
+	}{
+		{
+			name: "switches",
+			invoke: func(ctx context.Context, client *grpcClient) ([]ObservedControllerDevice, error) {
+				return client.GetSwitches(ctx)
+			},
+			batchCalls: func(fake *recordingForgeClient) [][]string { return fake.switchBatches },
+		},
+		{
+			name: "power shelves",
+			invoke: func(ctx context.Context, client *grpcClient) ([]ObservedControllerDevice, error) {
+				return client.GetPowerShelves(ctx)
+			},
+			batchCalls: func(fake *recordingForgeClient) [][]string { return fake.shelfBatches },
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &recordingForgeClient{}
+
+			devices, err := tc.invoke(context.Background(), newRecordingGRPCClient(fake))
+
+			require.NoError(t, err)
+			assert.Empty(t, devices)
+			assert.Empty(t, tc.batchCalls(fake))
+			assert.Empty(t, fake.versionRequests)
+		})
+	}
 }
 
 func TestGrpcClient_ByIDLookupsHonorCoreBatchLimit(t *testing.T) {
@@ -205,6 +349,14 @@ func TestGrpcClient_ByIDLookupsHonorCoreBatchLimit(t *testing.T) {
 			batchCalls: func(fake *recordingForgeClient) [][]string { return fake.switchBatches },
 		},
 		{
+			name: "active switches",
+			invoke: func(ctx context.Context, client *grpcClient, _ []string) (int, error) {
+				values, err := client.GetSwitches(ctx)
+				return len(values), err
+			},
+			batchCalls: func(fake *recordingForgeClient) [][]string { return fake.switchBatches },
+		},
+		{
 			name: "switch rack IDs",
 			invoke: func(ctx context.Context, client *grpcClient, ids []string) (int, error) {
 				values, err := client.FindSwitchRackIDs(ctx, ids)
@@ -229,6 +381,14 @@ func TestGrpcClient_ByIDLookupsHonorCoreBatchLimit(t *testing.T) {
 			batchCalls: func(fake *recordingForgeClient) [][]string { return fake.switchBatches },
 		},
 		{
+			name: "active power shelves",
+			invoke: func(ctx context.Context, client *grpcClient, _ []string) (int, error) {
+				values, err := client.GetPowerShelves(ctx)
+				return len(values), err
+			},
+			batchCalls: func(fake *recordingForgeClient) [][]string { return fake.shelfBatches },
+		},
+		{
 			name: "power shelf rack IDs",
 			invoke: func(ctx context.Context, client *grpcClient, ids []string) (int, error) {
 				values, err := client.FindPowerShelfRackIDs(ctx, ids)
@@ -251,6 +411,8 @@ func TestGrpcClient_ByIDLookupsHonorCoreBatchLimit(t *testing.T) {
 			fake := &recordingForgeClient{
 				runtimeConfig: &corev1.RuntimeConfig{MaxFindByIds: 2},
 				machineIDs:    ids,
+				switchIDs:     ids,
+				shelfIDs:      ids,
 			}
 			count, err := test.invoke(context.Background(), newRecordingGRPCClient(fake), ids)
 
