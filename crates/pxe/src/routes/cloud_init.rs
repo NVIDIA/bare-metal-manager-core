@@ -907,7 +907,7 @@ mod tests {
             .unwrap();
         let text = std::str::from_utf8(&body).unwrap();
         assert!(
-            text.contains("local-hostname: my-node"),
+            text.contains("local-hostname: \"my-node\""),
             "meta-data should contain local-hostname, got: {text}"
         );
     }

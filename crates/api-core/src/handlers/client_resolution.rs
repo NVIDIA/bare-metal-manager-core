@@ -19,6 +19,7 @@ use std::collections::HashSet;
 use std::net::IpAddr;
 
 use ::rpc::forge as rpc;
+use model::instance::config::tenant_config::HOSTNAME_RE;
 use model::instance::snapshot::InstanceSnapshot;
 use model::machine::{InstanceState, MachineInterfaceSnapshot, ManagedHostState};
 use sqlx::PgConnection;
@@ -179,18 +180,31 @@ pub(super) async fn resolve_cloud_init_instructions(
     };
 
     match resolved_ip {
-        ResolvedClient::Instance(instance) => Ok(rpc::CloudInitInstructions {
-            custom_cloud_init: instance.config.os.user_data,
-            discovery_instructions: None,
-            metadata: Some(rpc::CloudInitMetaData {
-                instance_id: instance.id.to_string(),
-                cloud_name,
-                platform,
-                local_hostname: instance.metadata.name.clone(),
-            }),
-            api_url_override: None,
-            pxe_url_override: None,
-        }),
+        ResolvedClient::Instance(instance) => {
+            let local_hostname = if HOSTNAME_RE.is_match(&instance.metadata.name) {
+                instance.metadata.name.clone()
+            } else {
+                tracing::warn!(
+                    instance_id=%instance.id,
+                    instance_name=%instance.metadata.name,
+                    "instance name is not a valid hostname; omitting local-hostname from cloud-init meta-data"
+                );
+                String::new()
+            };
+
+            Ok(rpc::CloudInitInstructions {
+                custom_cloud_init: instance.config.os.user_data,
+                discovery_instructions: None,
+                metadata: Some(rpc::CloudInitMetaData {
+                    instance_id: instance.id.to_string(),
+                    cloud_name,
+                    platform,
+                    local_hostname,
+                }),
+                api_url_override: None,
+                pxe_url_override: None,
+            })
+        }
         ResolvedClient::MachineInterface(machine_interface) => {
             let domain_id = machine_interface.domain_id.ok_or_else(|| {
                 CarbideError::internal(format!(

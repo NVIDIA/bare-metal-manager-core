@@ -396,3 +396,114 @@ async fn test_cloud_init_local_hostname_set_from_instance_name(pool: sqlx::PgPoo
         "local_hostname must match the instance name so cloud-init sets the OS hostname"
     );
 }
+
+#[crate::sqlx_test]
+async fn test_cloud_init_local_hostname_omitted_when_instance_name_is_not_a_valid_hostname(
+    pool: sqlx::PgPool,
+) {
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides {
+            site_prefixes: Some(vec![
+                IpNetwork::new(
+                    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.network(),
+                    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.prefix(),
+                )
+                .unwrap(),
+                IpNetwork::new(
+                    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.network(),
+                    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.prefix(),
+                )
+                .unwrap(),
+            ]),
+            ..Default::default()
+        },
+    )
+    .await;
+    create_host_inband_network_segment(&env.api, None).await;
+    let vpc_id = create_default_flat_vpc(&env.api, "flat-vpc").await;
+    env.run_network_segment_controller_iteration().await;
+    env.run_network_segment_controller_iteration().await;
+
+    let mh = create_managed_host_with_config(&env, ManagedHostConfig::zero_dpu()).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host_interfaces = db::machine_interface::find_by_machine_ids(txn.as_mut(), &[mh.host().id])
+        .await
+        .unwrap();
+    let host_ip = host_interfaces[&mh.host().id][0].addresses[0];
+    txn.rollback().await.unwrap();
+
+    // Instance metadata names are free-form (unlike TenantConfig::hostname),
+    // so a name like this is accepted at allocation time but is not a legal
+    // DNS hostname.
+    let instance_name = "Worker Zero!";
+    let instance = env
+        .api
+        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
+            machine_id: Some(mh.host().id),
+            instance_type_id: None,
+            config: Some(rpc::InstanceConfig {
+                tenant: Some(rpc::TenantConfig {
+                    tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
+                    tenant_keyset_ids: vec![],
+                    hostname: None,
+                }),
+                os: Some(default_os_config()),
+                network: Some(rpc::forge::InstanceNetworkConfig {
+                    interfaces: vec![],
+                    #[allow(deprecated)]
+                    auto: true,
+                    auto_config: Some(rpc::forge::InstanceNetworkAutoConfig {
+                        vpc_id: Some(vpc_id),
+                    }),
+                }),
+                infiniband: None,
+                network_security_group_id: None,
+                dpu_extension_services: None,
+                nvlink: None,
+                spxconfig: None,
+            }),
+            instance_id: None,
+            metadata: Some(rpc::forge::Metadata {
+                name: instance_name.to_string(),
+                description: String::new(),
+                labels: vec![],
+            }),
+            allow_unhealthy_machine: false,
+        }))
+        .await
+        .expect("instance allocation with name should succeed")
+        .into_inner();
+    let instance_id = instance.id.expect("allocated instance should have an ID");
+
+    // Advance to Assigned/Ready so the Instance path is taken
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        10,
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::Ready,
+        },
+    )
+    .await;
+
+    let cloud_init = env
+        .api
+        .get_cloud_init_instructions(tonic::Request::new(
+            rpc::forge::CloudInitInstructionsRequest {
+                ip: host_ip.to_string(),
+            },
+        ))
+        .await
+        .expect("get_cloud_init_instructions returned an error")
+        .into_inner();
+
+    let meta = cloud_init
+        .metadata
+        .expect("tenant cloud-init should include metadata");
+    assert_eq!(meta.instance_id, instance_id.to_string());
+    assert_eq!(
+        meta.local_hostname, "",
+        "local_hostname must be omitted when the instance name is not a legal DNS hostname"
+    );
+}
