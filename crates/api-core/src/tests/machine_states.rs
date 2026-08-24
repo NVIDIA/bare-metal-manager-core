@@ -5955,27 +5955,10 @@ async fn test_waiting_for_reboot_requires_completion_when_phone_home_disabled(po
 
     let mut txn = env.db_txn().await;
     let host = mh.host().db_machine(&mut txn).await;
-    let mut restart = host.status.last_reboot_requested.unwrap();
+    let restart = host.status.last_reboot_requested.unwrap();
     assert_eq!(restart.restart_verified, Some(false));
     assert_eq!(restart.verification_attempts, Some(0));
-
-    restart.restart_verified = None;
-    restart.verification_attempts = None;
-    sqlx::query("UPDATE machines SET last_reboot_requested=$1 WHERE id=$2")
-        .bind(sqlx::types::Json(restart))
-        .bind(host_id)
-        .execute(txn.as_mut())
-        .await
-        .unwrap();
     txn.commit().await.unwrap();
-
-    env.run_machine_state_controller_iteration().await;
-    assert_eq!(
-        load_host_state(&env, &host_id).await,
-        ManagedHostState::Assigned {
-            instance_state: InstanceState::WaitingForRebootToReady,
-        }
-    );
 
     reboot_completed(&env, host_id).await;
     env.run_machine_state_controller_iteration().await;
@@ -5984,6 +5967,57 @@ async fn test_waiting_for_reboot_requires_completion_when_phone_home_disabled(po
         ManagedHostState::Assigned {
             instance_state: InstanceState::Ready,
         }
+    );
+}
+
+#[crate::sqlx_test]
+async fn test_waiting_for_reboot_exhausted_verification_is_non_destructive(pool: sqlx::PgPool) {
+    let (env, mh) = zero_dpu_host_with_instance(pool).await;
+    let host_id = mh.host().id;
+    set_assigned_state(&env, &host_id, InstanceState::WaitingForRebootToReady).await;
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    let restart_time = host.status.last_reboot_requested.unwrap().time;
+    txn.commit().await.unwrap();
+    update_time_params(
+        &env.pool,
+        &host,
+        5,
+        Some(restart_time - Duration::minutes(2)),
+    )
+    .await;
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    let restart = host.status.last_reboot_requested.unwrap();
+    db::machine::update_restart_verification_status(
+        &host_id,
+        restart,
+        Some(false),
+        2,
+        txn.as_mut(),
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    let checkpoint = env.redfish_sim.timepoint();
+    env.run_machine_state_controller_iteration().await;
+
+    assert_eq!(
+        load_host_state(&env, &host_id).await,
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::WaitingForRebootToReady,
+        }
+    );
+    let actions = env.redfish_sim.actions_since(&checkpoint).all_hosts();
+    assert!(
+        actions
+            .iter()
+            .all(|action| !matches!(action, RedfishSimAction::Power(_))),
+        "exhausted verification must not repeat a power action, got: {actions:?}"
     );
 }
 

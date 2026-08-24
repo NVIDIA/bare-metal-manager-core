@@ -2334,6 +2334,22 @@ async fn handle_restart_verification(
     if let Some(last_reboot) = &mh_snapshot.host_snapshot.status.last_reboot_requested
         && last_reboot.restart_verified == Some(false)
     {
+        if mh_snapshot
+            .host_snapshot
+            .status
+            .last_reboot_time
+            .is_some_and(|completed| completed > last_reboot.time)
+        {
+            ctx.pending_db_writes
+                .push(MachineWriteOp::UpdateRestartVerificationStatus {
+                    machine_id: mh_snapshot.host_snapshot.id,
+                    current_reboot: *last_reboot,
+                    verified: Some(true),
+                    attempts: 0,
+                });
+            return Ok(None);
+        }
+
         let verification_attempts = last_reboot.verification_attempts.unwrap_or(0);
 
         let host_redfish_client = match ctx
@@ -2392,6 +2408,25 @@ async fn handle_restart_verification(
         }
 
         if verification_attempts >= MAX_VERIFICATION_ATTEMPTS {
+            if matches!(
+                &mh_snapshot.managed_state,
+                ManagedHostState::Assigned {
+                    instance_state: InstanceState::WaitingForRebootToReady,
+                }
+            ) {
+                ctx.pending_db_writes
+                    .push(MachineWriteOp::UpdateRestartVerificationStatus {
+                        machine_id: mh_snapshot.host_snapshot.id,
+                        current_reboot: *last_reboot,
+                        verified: None,
+                        attempts: 0,
+                    });
+                return Ok(Some(StateHandlerOutcome::wait(
+                    "Waiting for host restart completion after BMC verification attempts were exhausted."
+                        .to_string(),
+                )));
+            }
+
             host_redfish_client
                 .power(SystemPowerControl::ForceRestart)
                 .await
@@ -8051,18 +8086,9 @@ impl StateHandler for InstanceStateHandler {
                             ));
                         }
 
-                        let status = trigger_reboot_if_needed(
-                            host,
-                            mh_snapshot,
-                            None,
-                            &self.reachability_params,
-                            ctx,
-                        )
-                        .await?;
-                        return Ok(StateHandlerOutcome::wait(format!(
-                            "Waiting for host restart completion or verification. {}",
-                            status.status
-                        )));
+                        return Ok(StateHandlerOutcome::wait(
+                            "Waiting for host restart completion or verification.".to_string(),
+                        ));
                     }
 
                     handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::ForceRestart)
