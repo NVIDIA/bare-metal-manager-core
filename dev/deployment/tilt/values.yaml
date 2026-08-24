@@ -242,6 +242,7 @@ nico-machine-a-tron:
         ids = ["rack-001"]
         dpu_reboot_delay = 20
         host_reboot_delay = 10
+        acceleration_factor = 0.01
         discovery_retry_interval = "5s"
         oob_dhcp_relay_address = "192.168.192.1"
         admin_dhcp_relay_address = "192.168.176.1"
@@ -254,6 +255,7 @@ nico-machine-a-tron:
         dpu_per_host_count = 2
         dpu_reboot_delay = 1
         host_reboot_delay = 1
+        acceleration_factor = 0.01
         scout_run_interval = "60s"
         discovery_retry_interval = "5s"
         run_interval_working = "1s"

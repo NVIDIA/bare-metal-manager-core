@@ -181,6 +181,8 @@ machineDefaults:
   subnetsPerVpc: 0
   dpuRebootDelay: 1
   hostRebootDelay: 1
+  ## Positive multiplier applied after timing overrides. Default 1.0; values below 1 speed up the simulation.
+  accelerationFactor: 1.0
   scoutRunInterval: "60s"
   ## Delay after a failed DiscoverMachine call; the default matches the production DPU agent.
   discoveryRetryInterval: "60s"
