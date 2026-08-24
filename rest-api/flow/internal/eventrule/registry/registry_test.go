@@ -45,18 +45,18 @@ func TestRegistryLookup(t *testing.T) {
 	registry, err := New(rule)
 	require.NoError(t, err)
 
-	rule.Actions[0].ID = "changed-after-registration"
+	rule.Actions[0].Name = "changed-after-registration"
 
 	byID, err := registry.GetByID(context.Background(), rule.ID)
 	require.NoError(t, err)
 	require.Equal(t, rule.ID, byID.ID)
-	require.Equal(t, "noop", byID.Actions[0].ID)
-	byID.Actions[0].ID = "changed"
+	require.Equal(t, "noop", byID.Actions[0].Name)
+	byID.Actions[0].Name = "changed"
 
 	byType, err := registry.GetByEventType(context.Background(), rule.EventType)
 	require.NoError(t, err)
 	require.Equal(t, rule.ID, byType.ID)
-	require.Equal(t, "noop", byType.Actions[0].ID)
+	require.Equal(t, "noop", byType.Actions[0].Name)
 }
 
 func TestGetByEventTypeDetectsInconsistentRegistry(t *testing.T) {
@@ -79,7 +79,7 @@ func testRule(id uuid.UUID, eventType eventrule.Type) *eventrule.Rule {
 		Enabled:   true,
 		EventType: eventType,
 		Policy: eventrule.Policy{Actions: []eventrule.Action{
-			eventrule.NewAction("noop", eventrule.ActionCondition{}, eventrule.Noop{}),
+			{Name: "noop", Spec: &eventrule.Noop{}},
 		}},
 	}
 }

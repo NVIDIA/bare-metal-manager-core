@@ -946,6 +946,7 @@ async fn fetch_system(client: &dyn Redfish) -> Result<FetchedSystem, EndpointExp
             power_state: system.power_state.into_model(),
             sku: system.sku,
             boot_order,
+            serial_console_ssh_port: None,
         },
         is_dpu,
         is_host: !(is_dpu || is_switch || is_powershelf),

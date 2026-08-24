@@ -14,7 +14,9 @@ API version: 2.0.0
 package standard
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 )
 
 // checks if the Tray type satisfies the MappedNullable interface at compile time
@@ -52,14 +54,19 @@ type Tray struct {
 	Bmcs []BMCInfo `json:"bmcs,omitempty"`
 	// ID of the rack this tray belongs to
 	RackId *string `json:"rackId,omitempty"`
+	// ID of the NVLink Domain containing this Tray's Rack. Null when the Rack is not assigned to an NVLink Domain.
+	NvLinkDomainId NullableString `json:"nvLinkDomainId"`
 }
+
+type _Tray Tray
 
 // NewTray instantiates a new Tray object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewTray() *Tray {
+func NewTray(nvLinkDomainId NullableString) *Tray {
 	this := Tray{}
+	this.NvLinkDomainId = nvLinkDomainId
 	return &this
 }
 
@@ -551,6 +558,32 @@ func (o *Tray) SetRackId(v string) {
 	o.RackId = &v
 }
 
+// GetNvLinkDomainId returns the NvLinkDomainId field value
+// If the value is explicit nil, the zero value for string will be returned
+func (o *Tray) GetNvLinkDomainId() string {
+	if o == nil || o.NvLinkDomainId.Get() == nil {
+		var ret string
+		return ret
+	}
+
+	return *o.NvLinkDomainId.Get()
+}
+
+// GetNvLinkDomainIdOk returns a tuple with the NvLinkDomainId field value
+// and a boolean to check if the value has been set.
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+func (o *Tray) GetNvLinkDomainIdOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.NvLinkDomainId.Get(), o.NvLinkDomainId.IsSet()
+}
+
+// SetNvLinkDomainId sets field value
+func (o *Tray) SetNvLinkDomainId(v string) {
+	o.NvLinkDomainId.Set(&v)
+}
+
 func (o Tray) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -606,7 +639,44 @@ func (o Tray) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.RackId) {
 		toSerialize["rackId"] = o.RackId
 	}
+	toSerialize["nvLinkDomainId"] = o.NvLinkDomainId.Get()
 	return toSerialize, nil
+}
+
+func (o *Tray) UnmarshalJSON(data []byte) (err error) {
+	// This validates that all required properties are included in the JSON object
+	// by unmarshalling the object into a generic map with string keys and checking
+	// that every required field exists as a key in the generic map.
+	requiredProperties := []string{
+		"nvLinkDomainId",
+	}
+
+	allProperties := make(map[string]interface{})
+
+	err = json.Unmarshal(data, &allProperties)
+
+	if err != nil {
+		return err
+	}
+
+	for _, requiredProperty := range requiredProperties {
+		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
+			return fmt.Errorf("no value given for required property %v", requiredProperty)
+		}
+	}
+
+	varTray := _Tray{}
+
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	err = decoder.Decode(&varTray)
+
+	if err != nil {
+		return err
+	}
+
+	*o = Tray(varTray)
+
+	return err
 }
 
 type NullableTray struct {

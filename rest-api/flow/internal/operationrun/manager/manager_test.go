@@ -29,13 +29,16 @@ func TestCreatePersistsRunAndPlannedTargets(t *testing.T) {
 	manager := newTestManager(t, store, planner.New(&mockTargetLookup{
 		defaultScope: testExecutionTargets(3),
 	}, planner.Config{}))
+	run := testOperationRun(t)
+	run.TotalPhases = 99
 
-	got, err := manager.Create(context.Background(), testOperationRun(t))
+	got, err := manager.Create(context.Background(), run)
 	require.NoError(t, err)
 	require.Equal(t, runID, got)
 
 	require.Equal(t, 1, store.txCalls)
 	require.Equal(t, 1, store.createCalls)
+	require.Equal(t, int32(2), store.createdRun.TotalPhases)
 	require.Len(t, store.createdTargets, 3)
 	require.Equal(t, []int32{0, 0, 1}, targetPhaseIndexes(store.createdTargets))
 	require.Equal(t, []int32{0, 1, 2}, targetSequenceIndexes(store.createdTargets))
@@ -52,6 +55,39 @@ func TestCreateRejectsEmptyPlannedTargetsBeforeStoreWrite(t *testing.T) {
 	_, err := manager.Create(context.Background(), testOperationRun(t))
 	require.ErrorIs(t, err, ErrNoPlannedTargets)
 	require.ErrorContains(t, err, "operation run has no planned targets")
+	require.Zero(t, store.txCalls)
+	require.Zero(t, store.createCalls)
+	require.Zero(t, store.createTargetsCalls)
+}
+
+func TestCreateRejectsPhaseThatRoundsToZeroBeforeStoreWrite(t *testing.T) {
+	store := &mockStore{runID: uuid.New()}
+	manager := newTestManager(t, store, planner.New(&mockTargetLookup{
+		defaultScope: testExecutionTargets(2),
+	}, planner.Config{}))
+	run := testOperationRun(t)
+
+	var options operationrun.Options
+	require.NoError(t, operationrun.UnmarshalConfig(run.Options, &options))
+	options.PhasePolicy.Plan = &operationrun.PercentagePhases{
+		Phases: []operationrun.PercentagePhase{
+			{Percentage: 10},
+			{Percentage: 30},
+			{Percentage: 60},
+		},
+	}
+	var err error
+	run.Options, err = operationrun.MarshalConfig(options)
+	require.NoError(t, err)
+
+	_, err = manager.Create(context.Background(), run)
+
+	require.ErrorIs(t, err, ErrOperationRunInvalidPlan)
+	require.ErrorContains(
+		t,
+		err,
+		"percentage phase 2 resolves to zero targets for 2 selected targets",
+	)
 	require.Zero(t, store.txCalls)
 	require.Zero(t, store.createCalls)
 	require.Zero(t, store.createTargetsCalls)
@@ -327,6 +363,31 @@ func TestAdvancePhaseChecksExpectedPhase(t *testing.T) {
 	require.ErrorIs(t, err, ErrOperationRunInvalidState)
 	require.ErrorContains(t, err, "expected phase 2, next phase is 1")
 	require.Zero(t, store.updateRunCalls)
+}
+
+func TestAdvancePhaseRejectsExpectedIndexAcrossLegacyEmptyPhases(t *testing.T) {
+	runID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	store := &mockStore{
+		lockRun: testLockedRun(
+			t,
+			runID,
+			operationrun.OperationRunStatusPaused,
+			operationrun.OperationRunStatusReasonPhaseGate,
+		),
+		lockedTargets: []*operationrun.OperationRunTarget{
+			testOperationRunTarget(runID, 0, operationrun.OperationRunTargetStatusCompleted),
+			testOperationRunTarget(runID, 3, operationrun.OperationRunTargetStatusPending),
+		},
+	}
+	store.lockRun.TotalPhases = 4
+	manager := newTestManager(t, store, planner.New(&mockTargetLookup{}, planner.Config{}))
+	expectedPhase := int32(3)
+
+	got, err := manager.AdvancePhase(context.Background(), runID, &expectedPhase)
+
+	require.Nil(t, got)
+	require.ErrorIs(t, err, ErrOperationRunInvalidState)
+	require.ErrorContains(t, err, "expected phase 3, next phase is 1")
 }
 
 func TestAdvancePhaseCompletesAllTerminalRun(t *testing.T) {
@@ -724,19 +785,14 @@ func (m *mockStore) GetTargetPhaseAggregate(
 	runID uuid.UUID,
 	currentPhaseIndex int32,
 ) (operationrun.TargetPhaseAggregate, error) {
-	var totalPhases int32
 	completedStats := operationrun.PhaseStats{PhaseIndex: max(currentPhaseIndex-1, 0)}
 	for _, target := range m.lockedTargets {
-		if target.PhaseIndex+1 > totalPhases {
-			totalPhases = target.PhaseIndex + 1
-		}
 		if target.PhaseIndex < currentPhaseIndex {
 			completedStats.AddTarget(target)
 		}
 	}
 
 	return operationrun.TargetPhaseAggregate{
-		TotalPhases:         totalPhases,
 		CompletedPhaseStats: completedStats,
 	}, nil
 }
@@ -894,6 +950,7 @@ func testLockedRun(
 	run.ID = id
 	run.Status = status
 	run.StatusReason = reason
+	run.TotalPhases = 2
 	return run
 }
 

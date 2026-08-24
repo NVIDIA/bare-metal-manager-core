@@ -303,6 +303,10 @@ impl InternalRBACRules {
         x.perm("FindExploredMlxDeviceHostIds", vec![ForgeAdminCLI]);
         x.perm("FindExploredMlxDevicesByIds", vec![ForgeAdminCLI]);
         x.perm("AdminForceDeleteMachine", vec![ForgeAdminCLI, Machineatron]);
+        x.perm(
+            "DecommissionManagedHost",
+            vec![ForgeAdminCLI, Machineatron, Flow],
+        );
         x.perm("AdminForceDeleteRack", vec![ForgeAdminCLI, Machineatron]);
         x.perm("AdminForceDeleteSwitch", vec![ForgeAdminCLI, Machineatron]);
         x.perm(
@@ -544,6 +548,7 @@ impl InternalRBACRules {
         x.perm("SetDpuFirstBootOrder", vec![ForgeAdminCLI]);
         x.perm("OnDemandMachineValidation", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("OnDemandRackMaintenance", vec![ForgeAdminCLI]);
+        x.perm("TerminateRackMaintenance", vec![ForgeAdminCLI]);
         x.perm("TpmAddCaCert", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("TpmShowCaCerts", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("TpmShowUnmatchedEkCerts", vec![ForgeAdminCLI, SiteAgent]);
@@ -958,8 +963,8 @@ impl InternalRBACRules {
     pub(super) fn allowed(&self, msg: &str, user_principals: &[crate::auth::Principal]) -> bool {
         if let Some(perm_info) = self.perms.get(msg) {
             if user_principals.is_empty() {
-                // No proper cert presented, but we will allow stuff that allows just Anonymous
-                return perm_info.principals.as_slice() == [Principal::Anonymous];
+                // No proper cert presented, but we allow any rule that lists Anonymous.
+                return perm_info.principals.contains(&Principal::Anonymous);
             }
             user_principals.iter().any(|user_principal| {
                 perm_info
@@ -1114,6 +1119,17 @@ mod rbac_rule_tests {
                 None,
             ))],
         ));
+    }
+
+    #[test]
+    fn anonymous_rules_allow_certless_callers() {
+        // Certless callers must be allowed when a rule lists Anonymous among other principals.
+        for method in ["GetJWKS", "GetOpenIDConfiguration"] {
+            assert!(
+                InternalRBACRules::allowed_from_static(method, &[]),
+                "{method}"
+            );
+        }
     }
 
     #[test]

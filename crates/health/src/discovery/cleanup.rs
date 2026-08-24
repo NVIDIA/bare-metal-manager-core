@@ -220,7 +220,7 @@ pub(super) fn stop_ineligible_nmxc_collectors(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+
     use std::sync::Arc;
 
     use super::*;
@@ -242,35 +242,6 @@ mod tests {
 
     fn noop_collector() -> Collector {
         Collector::spawn_task(|_| async {})
-    }
-
-    #[test]
-    fn test_removed_keys_union_logic() {
-        let mut maps = HashMap::new();
-        maps.insert(
-            CollectorKind::Sensor,
-            HashMap::from([("a".to_string(), 1), ("b".to_string(), 2)]),
-        );
-        maps.insert(
-            CollectorKind::Logs,
-            HashMap::from([("b".to_string(), 3), ("c".to_string(), 4)]),
-        );
-        maps.insert(CollectorKind::Firmware, HashMap::new());
-        maps.insert(CollectorKind::LeakDetector, HashMap::new());
-        maps.insert(CollectorKind::Nmxt, HashMap::new());
-        maps.insert(CollectorKind::Nmxc, HashMap::new());
-        maps.insert(CollectorKind::NvueRest, HashMap::new());
-
-        let active = HashSet::from(["b".to_string()]);
-
-        let removed: HashSet<String> = maps
-            .values()
-            .flat_map(|map| map.keys())
-            .filter(|key| !active.contains(*key))
-            .cloned()
-            .collect();
-
-        assert_eq!(removed, HashSet::from(["a".to_string(), "c".to_string()]));
     }
 
     #[tokio::test]

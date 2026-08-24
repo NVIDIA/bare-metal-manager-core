@@ -2216,6 +2216,8 @@ func ExecuteFirmwareUpdateWorkflow(
 	targetSpec *flowv1.OperationTargetSpec,
 	version *string,
 	targets []string,
+	authenticationData *flowv1.FirmwareAuthenticationData,
+	siteID string,
 	ruleID *string,
 	overrideReadinessCheck bool,
 	workflowID string,
@@ -2228,14 +2230,26 @@ func ExecuteFirmwareUpdateWorkflow(
 		Description:            fmt.Sprintf("API firmware update %s", entityName),
 		RuleId:                 GetFlowUUIDPtr(ruleID),
 		OverrideReadinessCheck: overrideReadinessCheck,
+		AuthenticationData:     authenticationData,
+	}
+
+	conflictPolicy := temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING
+	if authenticationData != nil {
+		// A deterministic ID could attach a request carrying different
+		// credentials to an in-flight execution for the same target. A random,
+		// non-secret suffix prevents credential substitution without exposing a
+		// credential digest in Temporal metadata.
+		workflowID += "-" + uuid.NewString()
+		conflictPolicy = temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_UNSPECIFIED
 	}
 
 	var flowResponse flowv1.SubmitTaskResponse
-	proxyErr := ProxyFlowGRPC(
+	proxyErr := ProxyFlowGRPCWithSecrets(
 		ctx, c, logger, stc,
 		flowv1.Flow_UpgradeFirmware_FullMethodName,
 		flowRequest, &flowResponse,
-		FlowWorkflowID(workflowID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		FlowWorkflowID(workflowID), conflictPolicy,
+		siteID, "authenticationData",
 	)
 	if proxyErr != nil {
 		return nil, proxyErr

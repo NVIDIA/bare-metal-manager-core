@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::str::FromStr;
 
 use ::rpc::errors::RpcDataConversionError;
@@ -26,7 +27,7 @@ use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::network::NetworkSegmentId;
-use carbide_uuid::vpc::VpcId;
+use carbide_uuid::vpc::{VpcId, VpcPrefixId};
 use db::{
     DatabaseError, ObjectColumnFilter, WithTransaction, extension_service, network_security_group,
 };
@@ -53,6 +54,7 @@ use model::machine::{
 use model::metadata::Metadata;
 use model::network_segment::{NetworkSegmentSearchConfig, NetworkSegmentType};
 use model::os::OperatingSystem;
+use model::tenant::TenantOrganizationId;
 use model::vpc::{FabricInterfaceType, VpcVirtualizationTypeCapabilities};
 use serde_json::json;
 use sqlx::PgConnection;
@@ -1541,11 +1543,22 @@ async fn update_instance_network_config(
         return Err(ConfigValidationError::InstanceDeletionIsRequested.into());
     }
 
+    // Preserve caller intent long enough to enforce prefix family and VPC allocation policy.
+    // Resource reuse below deliberately restores stored requested addresses for matching explicit
+    // prefixes, which must not erase a newly requested address before validation.
+    validate_primary_address_update_intent_before_resource_reuse(
+        network,
+        &instance.config.tenant.tenant_organization_id,
+        txn,
+    )
+    .await?;
+
     // This is the use case of adding/removing new VF.
     // Copy the resources if same interface and network are mentioned.
     network.copy_existing_resources(&instance.config.network);
 
-    // Resolve prefix-backed network resources before validating the generated segment IDs.
+    // Resolve resources associated with network prefixes before validating the generated
+    // segment IDs.
     allocate_network(network, &instance.config.tenant.tenant_organization_id, txn).await?;
     network
         .validate(
@@ -1576,6 +1589,102 @@ async fn update_instance_network_config(
         txn,
     )
     .await?;
+
+    Ok(())
+}
+
+/// Validates explicit primary update intent before stored resources can replace it.
+///
+/// Resource reuse intentionally restores the stored primary requested address before normal
+/// allocation validation. Validate that caller intent here so it cannot be erased. An IPv6
+/// sidecar participates in resource identity, so a changed sidecar reaches the canonical
+/// allocation validator without this earlier check.
+async fn validate_primary_address_update_intent_before_resource_reuse(
+    network: &InstanceNetworkConfig,
+    tenant_organization_id: &TenantOrganizationId,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<(), CarbideError> {
+    let requested_prefixes: Vec<(VpcPrefixId, IpAddr)> = network
+        .interfaces
+        .iter()
+        .filter_map(|interface| {
+            interface.requested_ip_addr.and_then(|address| {
+                match interface.network_details.as_ref() {
+                    Some(model::instance::config::network::NetworkDetails::VpcPrefixId(
+                        vpc_prefix_id,
+                    )) => Some((*vpc_prefix_id, address)),
+                    _ => None,
+                }
+            })
+        })
+        .collect();
+
+    if requested_prefixes.is_empty() {
+        return Ok(());
+    }
+
+    // Load the same persisted prefix and VPC policy used by allocation. Missing or deleted
+    // selections remain the allocation path's responsibility so it retains its canonical errors.
+    let mut vpc_prefix_ids = requested_prefixes
+        .iter()
+        .map(|(vpc_prefix_id, _)| *vpc_prefix_id)
+        .collect_vec();
+    vpc_prefix_ids.sort_unstable();
+    vpc_prefix_ids.dedup();
+    let prefixes = db::vpc_prefix::get_for_allocation_by_ids(txn.as_mut(), &vpc_prefix_ids)
+        .await?
+        .into_iter()
+        .map(|prefix| (prefix.id, prefix))
+        .collect::<HashMap<_, _>>();
+
+    let mut vpc_ids = prefixes
+        .values()
+        .filter(|prefix| !prefix.is_marked_as_deleted())
+        .map(|prefix| prefix.vpc_id)
+        .collect_vec();
+    vpc_ids.sort_unstable();
+    vpc_ids.dedup();
+    let vpcs = if vpc_ids.is_empty() {
+        HashMap::new()
+    } else {
+        db::vpc::find_by(
+            txn.as_mut(),
+            ObjectColumnFilter::List(db::vpc::IdColumn, &vpc_ids),
+        )
+        .await?
+        .into_iter()
+        .map(|vpc| (vpc.id, vpc))
+        .collect::<HashMap<_, _>>()
+    };
+
+    for (vpc_prefix_id, requested_ip_addr) in requested_prefixes {
+        let Some(prefix) = prefixes
+            .get(&vpc_prefix_id)
+            .filter(|prefix| !prefix.is_marked_as_deleted())
+        else {
+            continue;
+        };
+        let Some(vpc) = vpcs.get(&prefix.vpc_id) else {
+            continue;
+        };
+        if vpc.config.tenant_organization_id != tenant_organization_id.to_string() {
+            return Err(CarbideError::FailedPrecondition(format!(
+                "VPC prefix `{vpc_prefix_id}` belongs to VPC `{}`, which is not owned by tenant `{tenant_organization_id}`",
+                vpc.id,
+            )));
+        }
+        if prefix.config.prefix.is_ipv6() != requested_ip_addr.is_ipv6() {
+            return Err(CarbideError::InvalidArgument(format!(
+                "requested IP address `{requested_ip_addr}` does not match VPC prefix `{vpc_prefix_id}`",
+            )));
+        }
+        if prefix.config.prefix.is_ipv6() && vpc.config.slaac_enabled {
+            return Err(CarbideError::InvalidArgument(format!(
+                "requested IPv6 address `{requested_ip_addr}` is invalid because VPC `{}` has SLAAC enabled",
+                vpc.id,
+            )));
+        }
+    }
 
     Ok(())
 }

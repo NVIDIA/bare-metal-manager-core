@@ -22,8 +22,8 @@ use bmc_mock::mac_address_pool::MacAddressPool;
 use forge_tls::client_config::get_root_ca_path;
 use futures::future::try_join_all;
 use machine_a_tron::{
-    BmcMockRegistry, BmcRegistrationMode, DeviceHandle, DhcpClient, MachineATron,
-    MachineATronConfig, MachineATronContext, UdpDhcpService, api_throttler,
+    BmcMockRegistry, DeviceHandle, DhcpClient, MachineATron, MachineATronConfig,
+    MachineATronContext, UdpDhcpService, api_throttler,
 };
 use rpc::forge_api_client::FailOverOn;
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig, RetryConfig};
@@ -41,7 +41,7 @@ pub async fn run_local(
     app_config: MachineATronConfig,
     additional_api_urls: Vec<String>,
     repo_root: &Path,
-    bmc_address_registry: Option<BmcMockRegistry>,
+    bmc_address_registry: BmcMockRegistry,
     mac_address_pool: Arc<Mutex<MacAddressPool>>,
 ) -> eyre::Result<(Vec<DeviceHandle>, MachineATronHandle)> {
     app_config.validate()?;
@@ -84,11 +84,7 @@ pub async fn run_local(
         DhcpClient::start(&app_config, forge_api_client.clone().into()).await?;
 
     let app_context = Arc::new(MachineATronContext {
-        bmc_registration_mode: if let Some(bmc_address_registry) = bmc_address_registry.as_ref() {
-            BmcRegistrationMode::BackingInstance(bmc_address_registry.clone())
-        } else {
-            BmcRegistrationMode::None(app_config.bmc_mock_port)
-        },
+        bmc_registry: bmc_address_registry.clone(),
         app_config,
         forge_client_config,
         bmc_mock_certs_dir: Some(repo_root.join("crates/bmc-mock")),

@@ -231,59 +231,38 @@ func (r ExecutionResult) stateAt(now time.Time) ExecutionState {
 	return state
 }
 
-// ExecutionIdentity contains the source fields used to derive an
-// execution's delivery and semantic-deduplication keys.
+// ExecutionIdentity contains the source fields used to derive an execution's
+// mandatory deduplication key.
 type ExecutionIdentity struct {
-	EventID        uuid.UUID
-	RuleID         uuid.UUID
-	ActionID       string
-	CorrelationKey string
+	EventKey   EventKey
+	RuleID     uuid.UUID
+	ActionName string
 }
 
 // Validate checks the execution identity.
 func (i ExecutionIdentity) Validate() error {
-	if i.EventID == uuid.Nil {
-		return fmt.Errorf("event id is required")
+	if err := i.EventKey.Validate(); err != nil {
+		return err
 	}
 	if i.RuleID == uuid.Nil {
 		return fmt.Errorf("event rule id is required")
 	}
-	if err := validateRequiredString("event rule action id", i.ActionID); err != nil {
-		return err
-	}
-	return validateOptionalString("event correlation_key", i.CorrelationKey)
+	return validateRequiredString("event rule action name", i.ActionName)
 }
 
-// ExecutionDeliveryKey identifies one rule action for one delivered event.
-type ExecutionDeliveryKey struct {
-	EventID  uuid.UUID
-	RuleID   uuid.UUID
-	ActionID string
+// ExecutionKey identifies one rule action for one source event.
+type ExecutionKey struct {
+	EventKey   EventKey
+	RuleID     uuid.UUID
+	ActionName string
 }
 
-// ExecutionSemanticKey identifies one correlated rule action
-// independently of an individual event delivery.
-type ExecutionSemanticKey struct {
-	RuleID         uuid.UUID
-	ActionID       string
-	CorrelationKey string
-}
-
-// DeliveryKey returns the delivery identity.
-func (i ExecutionIdentity) DeliveryKey() ExecutionDeliveryKey {
-	return ExecutionDeliveryKey{
-		EventID:  i.EventID,
-		RuleID:   i.RuleID,
-		ActionID: i.ActionID,
-	}
-}
-
-// SemanticKey returns the semantic-deduplication identity.
-func (i ExecutionIdentity) SemanticKey() ExecutionSemanticKey {
-	return ExecutionSemanticKey{
-		RuleID:         i.RuleID,
-		ActionID:       i.ActionID,
-		CorrelationKey: i.CorrelationKey,
+// Key returns the mandatory deduplication identity.
+func (i ExecutionIdentity) Key() ExecutionKey {
+	return ExecutionKey{
+		EventKey:   i.EventKey,
+		RuleID:     i.RuleID,
+		ActionName: i.ActionName,
 	}
 }
 
@@ -296,24 +275,6 @@ type Execution struct {
 	Attempts     int
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
-}
-
-func (e *Execution) recordObservation(now time.Time) {
-	e.Observations++
-	if now.After(e.UpdatedAt) {
-		e.UpdatedAt = now
-	}
-}
-
-// TryDeduplicate reports whether an observation is within the deduplication
-// window and records it when it is.
-func (e *Execution) TryDeduplicate(dedupe *Dedupe, observedAt time.Time) bool {
-	if dedupe == nil || !dedupe.WithinWindow(e.CreatedAt, observedAt) {
-		return false
-	}
-
-	e.recordObservation(observedAt)
-	return true
 }
 
 // TransitionTo validates and applies an attempt result at the given time. A

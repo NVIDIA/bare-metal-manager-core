@@ -1220,6 +1220,13 @@ impl Forge for Api {
         crate::handlers::machine::admin_force_delete_machine(self, request).await
     }
 
+    async fn decommission_managed_host(
+        &self,
+        request: Request<rpc::DecommissionManagedHostRequest>,
+    ) -> Result<Response<rpc::DecommissionManagedHostResponse>, Status> {
+        crate::handlers::managed_host::decommission_managed_host(self, request).await
+    }
+
     /// Example TOML data in request.text:
     ///
     /// [lo-ip]
@@ -2458,6 +2465,13 @@ impl Forge for Api {
         request: Request<rpc::RackMaintenanceOnDemandRequest>,
     ) -> Result<Response<rpc::RackMaintenanceOnDemandResponse>, Status> {
         crate::handlers::rack::on_demand_rack_maintenance(self, request).await
+    }
+
+    async fn terminate_rack_maintenance(
+        &self,
+        request: Request<rpc::RackMaintenanceTerminateRequest>,
+    ) -> Result<Response<rpc::RackMaintenanceTerminateResponse>, Status> {
+        crate::handlers::rack::terminate_rack_maintenance(self, request).await
     }
 
     async fn tpm_add_ca_cert(

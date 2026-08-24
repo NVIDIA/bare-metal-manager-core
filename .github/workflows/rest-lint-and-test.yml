@@ -62,7 +62,7 @@ jobs:
 
   lint-go:
     name: Lint Go
-    runs-on: linux-amd64-cpu4
+    runs-on: linux-amd64-cpu8
     continue-on-error: false
     steps:
       - name: Checkout code
@@ -113,7 +113,7 @@ jobs:
 
   openapi-breaking-changes:
     name: OpenAPI Breaking Changes Check
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu4
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -137,8 +137,8 @@ jobs:
           base: '${{ steps.openapi-base.outputs.merge_base }}:rest-api/openapi/spec.yaml'
           revision: ':rest-api/openapi/spec.yaml'
           fail-on: ERR
-          # Allowlist the intentional one-time rename of the BMC credential
-          # `kind` enum values to CapitalCase; see the referenced ignore file.
+          # Allowlist reviewed one-time API contract corrections; see the
+          # referenced ignore file for each accepted breaking-change report.
           err-ignore: 'rest-api/openapi/oasdiff-breaking-changes-ignore.txt'
 
   check-generated-files:
@@ -248,7 +248,7 @@ jobs:
 
   test:
     name: Test (${{ matrix.module }})
-    runs-on: linux-amd64-cpu4
+    runs-on: linux-amd64-cpu8
     continue-on-error: false
     strategy:
       fail-fast: false

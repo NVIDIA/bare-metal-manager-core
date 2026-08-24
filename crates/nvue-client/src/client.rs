@@ -25,7 +25,7 @@ use reqwest::{Client, ClientBuilder, Method, Response, Url};
 pub use serde_json::Value as JsonValue;
 
 use crate::config::{NvueConfig, NvueConfigWithHeader, NvueRevision};
-use crate::types::bgp::BgpVrfInfo;
+use crate::types::bgp::{BgpNeighbors, BgpVrfInfo};
 use crate::types::revision::{RevisionApplyStatus, RevisionData, RevisionIssueSummary};
 
 /// Repeated NVUE field-selection query parameters.
@@ -223,16 +223,46 @@ impl NvueClient {
         );
         let mut request = self.request(Method::GET, &path)?.build()?;
 
-        if !filter.is_empty() {
-            let mut query_pairs = request.url_mut().query_pairs_mut();
-            for (key, value) in filter.query_pairs() {
-                query_pairs.append_pair(key, value);
-            }
-        }
+        append_filter_query_pairs(&mut request, &filter);
 
         let response = self.execute("get_bgp_vrf_info", request).await?;
         let bgp_vrf_info = response.json().await?;
         Ok(bgp_vrf_info)
+    }
+
+    /// Return BGP neighbor data for a VRF.
+    ///
+    /// This calls `GET /nvue_v1/vrf/{vrf-id}/router/bgp/neighbor` without field filters.
+    /// The `vrf_id` path segment is URL-encoded before the request is built.
+    pub async fn get_bgp_neighbors(
+        &self,
+        vrf_id: &str,
+    ) -> Result<Option<BgpNeighbors>, NvueClientError> {
+        self.get_bgp_neighbors_filtered(vrf_id, FieldFilter::new())
+            .await
+    }
+
+    /// Return BGP neighbor data for a VRF, applying NVUE field-selection filters.
+    ///
+    /// This calls `GET /nvue_v1/vrf/{vrf-id}/router/bgp/neighbor`. Non-empty
+    /// filters are encoded as repeated `include` and `omit` query parameters.
+    /// The `vrf_id` path segment is URL-encoded before the request is built.
+    pub async fn get_bgp_neighbors_filtered(
+        &self,
+        vrf_id: &str,
+        filter: FieldFilter,
+    ) -> Result<Option<BgpNeighbors>, NvueClientError> {
+        let path = format!(
+            "/nvue_v1/vrf/{encoded_vrf_id}/router/bgp/neighbor",
+            encoded_vrf_id = urlencoding::encode(vrf_id),
+        );
+        let mut request = self.request(Method::GET, &path)?.build()?;
+
+        append_filter_query_pairs(&mut request, &filter);
+
+        let response = self.execute("get_bgp_neighbors_filtered", request).await?;
+        let bgp_neighbors = response.json().await?;
+        Ok(bgp_neighbors)
     }
 
     /// Create a new NVUE config revision, returning the revision ID.
@@ -390,6 +420,17 @@ impl NvueClient {
         let resonse_body: BTreeMap<String, _> = response.json().await?;
         let response = resonse_body.into_values().collect();
         Ok(response)
+    }
+}
+
+fn append_filter_query_pairs(request: &mut reqwest::Request, filter: &FieldFilter) {
+    if filter.is_empty() {
+        return;
+    }
+
+    let mut query_pairs = request.url_mut().query_pairs_mut();
+    for (key, value) in filter.query_pairs() {
+        query_pairs.append_pair(key, value);
     }
 }
 

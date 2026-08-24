@@ -2778,6 +2778,7 @@ paths:
                       siteId: 72771e6a-6f5e-4de4-a5b9-1266c4197811
                       controllerVpcId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
                       networkVirtualizationType: ETHERNET_VIRTUALIZER
+                      slaacEnabled: false
                       requestedVni: 12001
                       vni: 12001
                       networkSecurityGroupId: c602eb90-3039-11f0-997a-b38d4fc8389e
@@ -2907,6 +2908,7 @@ paths:
                     siteId: 72771e6a-6f5e-4de4-a5b9-1266c4197811
                     controllerVpcId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
                     networkVirtualizationType: ETHERNET_VIRTUALIZER
+                    slaacEnabled: false
                     requestedVni: 12001
                     vni: 12001
                     nvLinkLogicalPartitionId: dd887330-dbd3-45ce-b400-c42fc8e47315
@@ -2925,10 +2927,63 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '409':
+          description: A VPC with the requested `id` or `name` already exists. This can also occur when inventory reconciliation completes before an ambiguous create is retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+              examples:
+                example-1:
+                  value:
+                    source: nico
+                    message: A Vpc with specified ID already exists
+                    data:
+                      id: 497f6eca-6276-4993-bfeb-53cbbbba6f08
+        '412':
+          description: The latest successfully stored configuration inventory for the selected Site does not report Core support for SLAAC, or Core rejects another create prerequisite. The inventory check fails before REST persistence or workflow dispatch; a Core rejection occurs after dispatch and the REST transaction is rolled back.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+              examples:
+                example-1:
+                  value:
+                    source: nico
+                    message: Site does not advertise support for SLAAC-enabled VPCs
+                    data: null
+        '500':
+          description: The API encountered an internal error resolving the selected Site client, persisting the VPC, starting the create workflow, or waiting for the workflow result. A failure before the workflow start request rolls back the REST transaction and no remote create is requested. An error returned while starting the workflow or waiting for its result also rolls back the REST transaction, but remote acceptance or creation may be unknown; a wait timeout triggers an attempted workflow termination.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+              examples:
+                example-1:
+                  value:
+                    source: nico
+                    message: Failed to retrieve client for Site
+                    data: null
+        '503':
+          description: Core or the selected Site Agent returned unavailable after the create workflow was dispatched. REST rolls back the transaction in progress, but the outcome in Core may be unknown.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+              examples:
+                example-1:
+                  value:
+                    source: nico
+                    message: Core unavailable after VPC create dispatch
+                    data: null
       description: |-
         Create a VPC for the org.
 
-        Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix
+        Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
+
+        When `slaacEnabled` is true, REST reads `vpcSlaac` from the latest successfully stored configuration inventory for the selected Site before persisting the VPC. Periodic Site inventory reports whether Core supports this feature, so the stored value can lag a Core rollout. False or missing `vpcSlaac` returns 412 before REST persistence or workflow dispatch. This flag reports Core support only; it does not verify DPU agent versions. When a new API server release is deployed, DPU agents roll forward, and instance network configuration may fail transiently until eligible agents converge. Core can also return 412 after dispatch for another create prerequisite. Failure to resolve the Site client or persist the VPC returns 500, rolls back the REST transaction, and does not request a remote create. An error returned while starting the workflow also returns 500 and may leave remote acceptance unknown. After the start request, an unavailable result returns 503, while a workflow wait timeout returns 500 and triggers an attempted workflow termination. Errors while starting or waiting for the workflow roll back the REST transaction, but do not guarantee that Core did not create the VPC; a later inventory reconciliation may recreate the REST record.
+
+        Safe recovery from an ambiguous create result requires supplying a stable `id` in the original request. After an ambiguous error while starting the workflow or after dispatch, callers should allow inventory reconciliation time, then retrieve that `id`. If the VPC is found, do not retry. If no record is found, reuse the same `id` for any retry; reusing the ID prevents a second Core VPC record, but the retry itself is not guaranteed to succeed and can return 409 if reconciliation completes concurrently.
       requestBody:
         content:
           application/json:
@@ -2942,6 +2997,7 @@ paths:
                   description: Virtual network for machines executing Spark jobs
                   siteId: 72771e6a-6f5e-4de4-a5b9-1266c4197811
                   networkVirtualizationType: ETHERNET_VIRTUALIZER
+                  slaacEnabled: false
                   vni: 12001
                   nvLinkLogicalPartitionId: dd887330-dbd3-45ce-b400-c42fc8e47315
                   labels:
@@ -2987,6 +3043,7 @@ paths:
                     siteId: 72771e6a-6f5e-4de4-a5b9-1266c4197811
                     controllerVpcId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
                     networkVirtualizationType: ETHERNET_VIRTUALIZER
+                    slaacEnabled: false
                     requestedVni: 12001
                     vni: 12001
                     nvLinkLogicalPartitionId: dd887330-dbd3-45ce-b400-c42fc8e47315
@@ -3076,6 +3133,7 @@ paths:
                     siteId: 72771e6a-6f5e-4de4-a5b9-1266c4197811
                     controllerVpcId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
                     networkVirtualizationType: ETHERNET_VIRTUALIZER
+                    slaacEnabled: false
                     requestedVni: 12001
                     vni: 12001
                     nvLinkLogicalPartitionId: dd887330-dbd3-45ce-b400-c42fc8e47315
@@ -3149,6 +3207,7 @@ paths:
                     siteId: 72771e6a-6f5e-4de4-a5b9-1266c4197811
                     controllerVpcId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
                     networkVirtualizationType: FNN
+                    slaacEnabled: false
                     requestedVni: 12001
                     vni: 12001
                     nvLinkLogicalPartitionId: dd887330-dbd3-45ce-b400-c42fc8e47315
@@ -3475,8 +3534,8 @@ paths:
           in: query
           name: includeUsageStats
           description: >-
-            When true, each VPC Prefix object includes usage statistics using the same structure as IP Block usage.
-            Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a VPC Prefix consumes a `/31` prefix.
+            When true, each VPC Prefix with IPv4 includes IPv4 usage statistics using the same structure as IP Block usage.
+            Usage is derived from associated Ethernet interfaces and their IPv4 addresses. IP usage counts two addresses per interface, while prefix usage counts each distinct `/31` containing an assigned IPv4 address.
         - schema:
             $ref: '#/components/schemas/PageNumber'
             example: 1
@@ -3579,8 +3638,8 @@ paths:
           in: query
           name: includeUsageStats
           description: |-
-            When true, each VPC Prefix object includes usage statistics using the same structure as IP Block usage.
-            Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a VPC Prefix consumes a `/31` prefix.
+            When true, a VPC Prefix with IPv4 includes IPv4 usage statistics using the same structure as IP Block usage.
+            Usage is derived from associated Ethernet interfaces and their IPv4 addresses. IP usage counts two addresses per interface, while prefix usage counts each distinct `/31` containing an assigned IPv4 address.
     delete:
       summary: Delete VPC Prefix
       operationId: delete-vpc-prefix
@@ -8532,6 +8591,7 @@ paths:
                               nvLinkPartition: false
                               flow: false
                               imageBasedOperatingSystem: false
+                              vpcSlaac: false
                             status: Registered
                           status: Syncing
                           version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -8549,6 +8609,7 @@ paths:
                               nvLinkPartition: false
                               flow: false
                               imageBasedOperatingSystem: false
+                              vpcSlaac: false
                             status: Registered
                           status: Syncing
                           version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -8868,6 +8929,7 @@ paths:
                             nvLinkPartition: false
                             flow: false
                             imageBasedOperatingSystem: false
+                            vpcSlaac: false
                           status: Registered
                         status: Syncing
                         version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -8885,6 +8947,7 @@ paths:
                             nvLinkPartition: false
                             flow: false
                             imageBasedOperatingSystem: false
+                            vpcSlaac: false
                           status: Registered
                         status: Syncing
                         version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -10111,6 +10174,71 @@ paths:
         attached to the Machine, `acknowledgeAttachedInstance` must be `true`.
         
         Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
+  '/v2/org/{org}/nico/machine/{machineId}/decommission':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+        name: machineId
+        in: path
+        required: true
+        description: ID of the Machine
+    post:
+      summary: Decommission a Machine
+      tags:
+        - Machine
+      responses:
+        '202':
+          description: Machine decommissioning was accepted and will proceed asynchronously.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              examples:
+                accepted:
+                  value:
+                    message: Machine decommissioning request was accepted
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '412':
+          description: The Machine cannot be decommissioned in its current Core state or its DPUs do not support the required BFB installation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+        '503':
+          description: Core is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+        '504':
+          description: The Core proxy request timed out.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+      operationId: decommission-machine
+      description: |-
+        Start decommissioning a Machine. The Machine must be in Core's `Ready`
+        state, and every attached DPU must support BFB installation through
+        Redfish. The operation is asynchronous; use the Machine status to
+        observe workflow progress.
+
+        Org must have an Infrastructure Provider entity and own the Site that
+        the Machine belongs to. User must have authorization role with
+        `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/machine/{machineId}/validation/run':
     parameters:
       - schema:
@@ -10733,6 +10861,8 @@ paths:
                       model: PowerEdge R750
                       serialNumber: SN-RACK-001
                       description: Primary compute rack
+                      nvLinkDomainIds:
+                        - 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
                       location:
                         region: us-east-1
                         datacenter: DC-01
@@ -10741,7 +10871,7 @@ paths:
                       components:
                         - id: 660e8400-e29b-41d4-a716-446655440001
                           componentId: fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
-                          type: ComponentTypeCompute
+                          type: Compute
                           name: Server-01
                           serialNumber: SN-SRV-001
                           manufacturer: Dell
@@ -10817,6 +10947,8 @@ paths:
                     model: PowerEdge R750
                     serialNumber: SN-RACK-001
                     description: Primary compute rack
+                    nvLinkDomainIds:
+                      - 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
                     location:
                       region: us-east-1
                       datacenter: DC-01
@@ -10825,7 +10957,7 @@ paths:
                     components:
                       - id: 660e8400-e29b-41d4-a716-446655440001
                         componentId: fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
-                        type: ComponentTypeCompute
+                        type: Compute
                         name: Server-01
                         serialNumber: SN-SRV-001
                         manufacturer: Dell
@@ -10910,7 +11042,7 @@ paths:
                         expected:
                           id: 660e8400-e29b-41d4-a716-446655440001
                           componentId: comp-1
-                          type: ComponentTypeCompute
+                          type: Compute
                           name: Server-01
                           serialNumber: SN-SRV-001
                           manufacturer: Dell
@@ -11000,7 +11132,7 @@ paths:
                         expected:
                           id: 660e8400-e29b-41d4-a716-446655440001
                           componentId: comp-1
-                          type: ComponentTypeCompute
+                          type: Compute
                           name: Server-01
                           serialNumber: SN-SRV-001
                           manufacturer: Dell
@@ -12677,9 +12809,9 @@ paths:
         - schema:
             type: string
             enum:
-              - compute
-              - switch
-              - powershelf
+              - Compute
+              - NVSwitch
+              - PowerShelf
           name: type
           in: query
           description: Filter by tray type
@@ -12745,7 +12877,7 @@ paths:
                   value:
                     - id: 660e8400-e29b-41d4-a716-446655440001
                       componentId: fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
-                      type: compute
+                      type: Compute
                       name: compute-tray-1
                       manufacturer: NVIDIA
                       model: GB200
@@ -12758,6 +12890,7 @@ paths:
                         trayIdx: 0
                         hostId: 1
                       rackId: 550e8400-e29b-41d4-a716-446655440000
+                      nvLinkDomainId: 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
           headers:
             X-Pagination:
               schema:
@@ -12812,7 +12945,7 @@ paths:
                   value:
                     id: 660e8400-e29b-41d4-a716-446655440001
                     componentId: fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
-                    type: compute
+                    type: Compute
                     name: compute-tray-1
                     manufacturer: NVIDIA
                     model: GB200
@@ -12825,6 +12958,7 @@ paths:
                       trayIdx: 0
                       hostId: 1
                     rackId: 550e8400-e29b-41d4-a716-446655440000
+                    nvLinkDomainId: 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
         '403':
           $ref: '#/components/responses/ForbiddenError'
         '404':
@@ -12888,9 +13022,9 @@ paths:
         - schema:
             type: string
             enum:
-              - compute
-              - switch
-              - powershelf
+              - Compute
+              - NVSwitch
+              - PowerShelf
           name: type
           in: query
           required: false
@@ -13978,6 +14112,7 @@ paths:
                               nvLinkPartition: false
                               flow: false
                               imageBasedOperatingSystem: false
+                              vpcSlaac: false
                             status: Registered
                           status: Syncing
                           version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -14099,6 +14234,7 @@ paths:
                           capabilities:
                             nativeNetworking: true
                             networkSecurityGroup: true
+                            vpcSlaac: false
                           status: Registered
                         status: Syncing
                         version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -14189,6 +14325,7 @@ paths:
                             nvLinkPartition: false
                             flow: false
                             imageBasedOperatingSystem: false
+                            vpcSlaac: false
                           status: Registered
                         status: Syncing
                         version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -14274,6 +14411,7 @@ paths:
                           capabilities:
                             nativeNetworking: true
                             networkSecurityGroup: true
+                            vpcSlaac: false
                           status: Registered
                         status: Syncing
                         version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -14288,6 +14426,7 @@ paths:
                           capabilities:
                             nativeNetworking: true
                             networkSecurityGroup: true
+                            vpcSlaac: false
                           status: Registered
                         status: Syncing
                         version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -15531,7 +15670,8 @@ components:
             - LockdownIKM
         targetVersion:
           type: integer
-          format: int64
+          format: uint32
+          minimum: 0
           description: Newly published site-wide target version that devices converge to.
         started:
           type:
@@ -15552,19 +15692,23 @@ components:
       properties:
         targetVersion:
           type: integer
-          format: int64
+          format: uint32
+          minimum: 0
           description: Current site-wide target version for this family.
         converged:
           type: integer
-          format: int64
+          format: uint64
+          minimum: 0
           description: Number of devices at or beyond the target version.
         pending:
           type: integer
-          format: int64
+          format: uint64
+          minimum: 0
           description: Number of devices not yet converged and eligible to rotate.
         quarantined:
           type: integer
-          format: int64
+          format: uint64
+          minimum: 0
           description: Number of devices currently in a rotation backoff window.
         quarantinedDeviceMacs:
           type:
@@ -15601,13 +15745,15 @@ components:
           type:
             - integer
             - 'null'
-          format: int64
+          format: uint32
+          minimum: 0
           description: Credential version live on the hardware. Null when not yet established.
         rotatingToVersion:
           type:
             - integer
             - 'null'
-          format: int64
+          format: uint32
+          minimum: 0
           description: Set while a rotation is mid-flight on this device.
         converged:
           type: boolean
@@ -15623,7 +15769,8 @@ components:
           description: When the current backoff window expires; set only while quarantined.
         rotateAttempts:
           type: integer
-          format: int64
+          format: uint32
+          minimum: 0
           description: Number of rotation attempts recorded for this device.
         lastAttempted:
           type:
@@ -16332,6 +16479,7 @@ components:
           description: When `true`, install only the artifacts explicitly listed for this version.
         powerDrainsNeeded:
           type: integer
+          format: uint32
           minimum: 0
           description: Optional number of power drains required after installing this version.
         preUpdateResets:
@@ -16689,6 +16837,7 @@ components:
           $ref: '#/components/schemas/MachineValidationStatus'
         durationToCompleteSecs:
           type: integer
+          format: int64
           description: Estimated maximum duration of the validation run in seconds. A value of zero can mean the estimate has not yet been calculated.
     MachineValidationStatus:
       type: object
@@ -16714,9 +16863,13 @@ components:
             - Skipped
         total:
           type: integer
+          format: uint32
+          minimum: 0
           description: Total number of validation tests in the run.
         completed:
           type: integer
+          format: uint32
+          minimum: 0
           description: Number of validation tests that have completed.
     MachineValidationResult:
       type: object
@@ -16832,6 +16985,7 @@ components:
             assigned: 12
             ready: 5
             error: 2
+            decommissioning: 0
             decommissioned: 0
             unknown: 0
           ipBlock:
@@ -16867,6 +17021,7 @@ components:
           assigned: 12
           ready: 5
           error: 2
+          decommissioning: 0
           decommissioned: 0
           unknown: 0
       properties:
@@ -16888,6 +17043,9 @@ components:
         error:
           type: integer
           description: 'Number of Machines in Error status'
+        decommissioning:
+          type: integer
+          description: 'Number of Machines in Decommissioning status'
         decommissioned:
           type: integer
           description: 'Number of Machines in Decommissioned status'
@@ -17389,6 +17547,7 @@ components:
               Maintenance: 0
               InUse: 3
               Error: 5
+              Decommissioning: 0
               Decommissioned: 0
               Unknown: 0
             totalByHealth:
@@ -17413,6 +17572,9 @@ components:
               Error:
                 healthy: 2
                 unhealthy: 3
+              Decommissioning:
+                healthy: 0
+                unhealthy: 0
               Decommissioned:
                 healthy: 0
                 unhealthy: 0
@@ -17433,6 +17595,7 @@ components:
             nvLinkPartition: false
             flow: false
             imageBasedOperatingSystem: false
+            vpcSlaac: false
           isOnline: false
           status: Pending
           statusHistory:
@@ -17568,6 +17731,7 @@ components:
             nvLinkPartition: false
             flow: false
             imageBasedOperatingSystem: false
+            vpcSlaac: false
           status: Pending
       properties:
         id:
@@ -17625,6 +17789,10 @@ components:
         imageBasedOperatingSystem:
           type: boolean
           description: 'Whether the Site supports image-based operating system provisioning'
+        vpcSlaac:
+          type: boolean
+          readOnly: true
+          description: Whether the latest successfully stored Site configuration inventory reports that Core supports VPCs with SLAAC enabled. False also represents a missing Site configuration or an inventory report that omits the capability. This value is managed by Site configuration inventory and cannot be updated through the Site API.
     SiteMachineStats:
       title: SiteMachineStats
       type: object
@@ -17678,6 +17846,9 @@ components:
         Decommissioned:
           type: integer
           description: 'Number of Machines in Decommissioned status'
+        Decommissioning:
+          type: integer
+          description: 'Number of Machines in Decommissioning status'
         Error:
           type: integer
           description: 'Number of Machines in Error status'
@@ -17707,6 +17878,9 @@ components:
         Decommissioned:
           $ref: '#/components/schemas/SiteMachineStatsByHealth'
           description: 'Health breakdown for Machines in Decommissioned status'
+        Decommissioning:
+          $ref: '#/components/schemas/SiteMachineStatsByHealth'
+          description: 'Health breakdown for Machines in Decommissioning status'
         Error:
           $ref: '#/components/schemas/SiteMachineStatsByHealth'
           description: 'Health breakdown for Machines in Error status'
@@ -18196,6 +18370,7 @@ components:
             env: dev
           controllerVpcId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
           networkVirtualizationType: ETHERNET_VIRTUALIZER
+          slaacEnabled: false
           requestedVni: 12001
           vni: 12001
           networkSecurityGroupId: c602eb90-3039-11f0-997a-b38d4fc8389e
@@ -18261,6 +18436,10 @@ components:
             - FNN
             - FLAT
           description: 'Network virtualization type of the VPC. Flat VPCs hold instances on zero-DPU hosts (or hosts with their DPU in NIC mode); their interfaces are bound to underlay (HostInband) network segments and NICo does not drive their data plane.'
+        slaacEnabled:
+          type: boolean
+          readOnly: true
+          description: Whether this VPC uses SLAAC allocation mode for instance IPv6 interfaces. When true, Core allocates a `/64` to each interface that includes IPv6 and retains the prefix without assigning a concrete IPv6 host address. This value is fixed when the VPC is created. NICo does not yet configure router advertisements (RAs); that support is tracked by https://github.com/NVIDIA/infra-controller/issues/2398.
         routingProfile:
           type:
             - string
@@ -18337,13 +18516,13 @@ components:
       properties:
         asn:
           type: integer
-          format: int64
+          format: uint32
           minimum: 0
           maximum: 4294967295
           description: Autonomous system number.
         vni:
           type: integer
-          format: int64
+          format: uint32
           minimum: 0
           maximum: 4294967295
           description: Route-target VNI.
@@ -18429,7 +18608,7 @@ components:
           description: Operator-controlled internal-routing classification inherited from the named profile.
         accessTier:
           type: integer
-          format: int64
+          format: uint32
           minimum: 0
           maximum: 4294967295
           description: Operator-controlled access tier inherited from the named profile.
@@ -18475,6 +18654,7 @@ components:
           description: Virtual network for machines executing Spark jobs
           siteId: 72771e6a-6f5e-4de4-a5b9-1266c4197811
           networkVirtualizationType: FNN
+          slaacEnabled: true
           routingProfile: internal
           vni: 12001
           nvLinkLogicalPartitionId: dd887330-dbd3-45ce-b400-c42fc8e47315
@@ -18509,6 +18689,10 @@ components:
             - FNN
             - FLAT
           description: 'Network virtualization type of the VPC. If no value is specified, then defaults to `FNN` if Site has native networking enabled, or `ETHERNET_VIRTUALIZER` if native networking is disabled. Flat VPCs hold instances on zero-DPU hosts (or hosts with their DPU in NIC mode) and are never auto-selected -- `FLAT` must be specified explicitly.'
+        slaacEnabled:
+          type: boolean
+          default: false
+          description: When true, Core allocates a `/64` to each instance interface that includes IPv6 and retains the prefix without assigning a concrete IPv6 host address. It is supported only for FNN VPCs and fixed during creation. False or omission disables SLAAC. Before persistence, REST requires `vpcSlaac` in the latest successfully stored configuration inventory for the selected Site. Periodic Site inventory reports whether Core supports this feature, so the stored value can lag a Core rollout. False or missing `vpcSlaac` returns 412 before REST persistence or workflow dispatch. This flag does not verify DPU agent versions. When a new API server release is deployed, DPU agents roll forward, and instance network configuration may fail transiently until eligible agents converge. NICo does not yet configure router advertisements (RAs); that support is tracked by https://github.com/NVIDIA/infra-controller/issues/2398.
         routingProfile:
           type:
             - string
@@ -18872,7 +19056,7 @@ components:
           $ref: '#/components/schemas/IpBlockUsageStats'
           readOnly: true
           description: |-
-            Present when query parameter `includeUsageStats=true`. Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a VPC Prefix consumes a `/31` prefix.
+            Present when query parameter `includeUsageStats=true` and the VPC Prefix has IPv4. This statistic reports IPv4 usage only. IP usage counts two addresses per associated Ethernet interface, while prefix usage counts each distinct `/31` containing an assigned IPv4 address.
         statusHistory:
           type: array
           items:
@@ -19591,6 +19775,7 @@ components:
                   nvLinkPartition: false
                   flow: false
                   imageBasedOperatingSystem: false
+                  vpcSlaac: false
                 status: Registered
               status: Syncing
               version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -19608,6 +19793,7 @@ components:
                   nvLinkPartition: false
                   flow: false
                   imageBasedOperatingSystem: false
+                  vpcSlaac: false
                 status: Registered
               status: Syncing
               version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -19951,6 +20137,7 @@ components:
               nvLinkPartition: false
               flow: false
               imageBasedOperatingSystem: false
+              vpcSlaac: false
             status: Pending
           status: Syncing
           version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -20577,12 +20764,16 @@ components:
           type:
             - integer
             - 'null'
+          format: uint32
+          minimum: 0
           description: Count of the Capability component
         inactiveDevices:
           type: array
           description: 'Indices of those devices that are inactive, only valid for InfiniBand Capability type'
           items:
             type: integer
+            format: uint32
+            minimum: 0
         deviceType:
           type:
             - string
@@ -22066,11 +22257,15 @@ components:
           type:
             - integer
             - 'null'
+          format: uint32
+          minimum: 0
           description: 'Number of Cores in the Capability component, if applicable'
         threads:
           type:
             - integer
             - 'null'
+          format: uint32
+          minimum: 0
           description: 'Number of Threads in the Capability component, if applicable'
         capacity:
           type:
@@ -22092,10 +22287,14 @@ components:
           description: A list of inactive devices
           items:
             type: integer
+            format: uint32
+            minimum: 0
         count:
           type:
             - integer
             - 'null'
+          format: uint32
+          minimum: 0
           description: Count of the Capability component
         deviceType:
           type:
@@ -22106,6 +22305,8 @@ components:
       title: Rack
       type: object
       description: Rack represents a physical rack in the datacenter
+      required:
+        - nvLinkDomainIds
       examples:
         - id: 550e8400-e29b-41d4-a716-446655440000
           name: Rack-01
@@ -22113,6 +22314,8 @@ components:
           model: PowerEdge R750
           serialNumber: SN-RACK-001
           description: Primary compute rack
+          nvLinkDomainIds:
+            - 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
           location:
             region: us-east-1
             datacenter: DC-01
@@ -22121,7 +22324,7 @@ components:
           components:
             - id: 660e8400-e29b-41d4-a716-446655440001
               componentId: fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
-              type: ComponentTypeCompute
+              type: Compute
               name: Server-01
               serialNumber: SN-SRV-001
               manufacturer: Dell
@@ -22154,6 +22357,12 @@ components:
         description:
           type: string
           description: Description of the Rack
+        nvLinkDomainIds:
+          type: array
+          description: IDs of the NVLink Domains containing this Rack. Empty when the Rack is not assigned to an NVLink Domain.
+          items:
+            type: string
+            format: uuid
         location:
           $ref: '#/components/schemas/RackLocation'
           description: 'Physical or logical location of the Rack'
@@ -22191,18 +22400,23 @@ components:
             $ref: '#/components/schemas/ComponentDiff'
         totalDiffs:
           type: integer
+          format: int32
           description: Total number of component differences found
         missingCount:
           type: integer
+          format: int32
           description: Number of components expected but missing from the source system
         unexpectedCount:
           type: integer
+          format: int32
           description: Number of components found in the source system but not expected
         mismatchCount:
           type: integer
+          format: int32
           description: Number of components present in both but with field differences
         matchCount:
           type: integer
+          format: int32
           description: Number of components that match between expected and actual
     ComponentDiff:
       title: ComponentDiff
@@ -22267,7 +22481,7 @@ components:
           description: ID of the rack this component belongs to
         type:
           type: string
-          description: Type of the component (e.g. ComponentTypeCompute, ComponentTypeNVSwitch)
+          description: Type of the component (e.g. Compute, NVSwitch, PowerShelf)
         name:
           type: string
           description: Name of the component
@@ -22288,12 +22502,15 @@ components:
           description: Firmware version of the component
         slotId:
           type: integer
+          format: int32
           description: Slot ID of the component within the rack
         trayIdx:
           type: integer
+          format: int32
           description: Tray index of the component
         hostId:
           type: integer
+          format: int32
           description: Host ID of the component
         bmcs:
           type: array
@@ -22338,10 +22555,12 @@ components:
       title: Tray
       type: object
       description: 'Tray represents a component within a rack (e.g. compute node, NVSwitch, power shelf)'
+      required:
+        - nvLinkDomainId
       examples:
         - id: 660e8400-e29b-41d4-a716-446655440001
           componentId: fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
-          type: compute
+          type: Compute
           name: compute-tray-1
           manufacturer: NVIDIA
           model: GB200
@@ -22358,6 +22577,7 @@ components:
               macAddress: '00:11:22:33:44:55'
               ipAddress: 192.168.1.100
           rackId: 550e8400-e29b-41d4-a716-446655440000
+          nvLinkDomainId: 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
       properties:
         id:
           type: string
@@ -22369,9 +22589,9 @@ components:
         type:
           type: string
           enum:
-            - compute
-            - switch
-            - powershelf
+            - Compute
+            - NVSwitch
+            - PowerShelf
           description: Type of the tray
         name:
           type: string
@@ -22423,6 +22643,12 @@ components:
           type: string
           format: uuid
           description: ID of the rack this tray belongs to
+        nvLinkDomainId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: ID of the NVLink Domain containing this Tray's Rack. Null when the Rack is not assigned to an NVLink Domain.
     TrayPosition:
       title: TrayPosition
       type: object
@@ -22430,12 +22656,15 @@ components:
       properties:
         slotId:
           type: integer
+          format: int32
           description: Slot number of the tray in the rack
         trayIdx:
           type: integer
+          format: int32
           description: Index of the tray within its slot
         hostId:
           type: integer
+          format: int32
           description: Host ID associated with the tray
     RackFilter:
       title: RackFilter
@@ -22465,9 +22694,9 @@ components:
         type:
           type: string
           enum:
-            - compute
-            - switch
-            - powershelf
+            - Compute
+            - NVSwitch
+            - PowerShelf
           description: Filter by tray type
         componentIds:
           type: array
@@ -22583,6 +22812,13 @@ components:
             - string
             - 'null'
           description: Target firmware version.
+        authenticationData:
+          $ref: '#/components/schemas/FirmwareAuthenticationData'
+          writeOnly: true
+          description: |-
+            Optional, write-only authentication data for firmware downloads.
+            Not supported for DPU-only updates or by the legacy NICo compute
+            firmware controller.
         ruleId:
           type: string
           format: uuid
@@ -23095,6 +23331,7 @@ components:
           description: Optional human-readable detail for the current status.
         totalPhases:
           type: integer
+          format: int32
           description: Total number of phases the selected targets were divided into.
         created:
           type: string
@@ -23145,9 +23382,11 @@ components:
       properties:
         phaseIndex:
           type: integer
+          format: int32
           description: Zero-based index of the phase this scope refers to.
         selectedTargets:
           type: integer
+          format: int32
           description: Number of targets selected within the scope.
         outcomeCounts:
           $ref: '#/components/schemas/TaskRunOutcomeCounts'
@@ -23163,15 +23402,19 @@ components:
       properties:
         completed:
           type: integer
+          format: int32
           description: Targets that completed successfully.
         failed:
           type: integer
+          format: int32
           description: Targets that failed.
         terminated:
           type: integer
+          format: int32
           description: Targets that were terminated (e.g. by cancellation).
         skipped:
           type: integer
+          format: int32
           description: Targets that were skipped.
     TaskRunTarget:
       title: TaskRunTarget
@@ -23204,9 +23447,11 @@ components:
           description: ID of the Rack this target operates on.
         sequenceIndex:
           type: integer
+          format: int32
           description: Position of this target in the Task Run's overall processing order.
         phaseIndex:
           type: integer
+          format: int32
           description: Zero-based index of the phase this target belongs to.
         taskId:
           type:
@@ -23264,6 +23509,7 @@ components:
           description: ID of the Site that owns the Task Run.
         expectedPhaseIndex:
           type: integer
+          format: int32
           description: |-
             Optional guard: when set, the phase that would be opened must match
             this zero-based index, otherwise the advance is rejected.
@@ -23333,6 +23579,7 @@ components:
       properties:
         percent:
           type: integer
+          format: int32
           minimum: 1
           maximum: 100
           description: Percentage of candidate Racks to select.
@@ -23348,6 +23595,7 @@ components:
       properties:
         maxConcurrentTargets:
           type: integer
+          format: int32
           minimum: 1
           description: |-
             Caps how many targets may have active child Tasks at once. Must be
@@ -23395,6 +23643,7 @@ components:
           description: Whether the ratio is evaluated over the current phase or the cumulative run.
         thresholdPercent:
           type: integer
+          format: int32
           minimum: 1
           maximum: 100
           description: Failure-rate percentage at which the gate trips.
@@ -23414,6 +23663,7 @@ components:
           description: Whether the count is evaluated over the current phase or the cumulative run.
         thresholdCount:
           type: integer
+          format: int32
           minimum: 1
           description: Number of failed targets at which the gate trips.
     TaskRunConflictPolicy:
@@ -23487,18 +23737,25 @@ components:
     TaskRunEqualPhases:
       title: TaskRunEqualPhases
       type: object
-      description: Splits targets into `phaseCount` roughly equal phases.
+      description: |-
+        Splits targets into `phaseCount` roughly equal phases. The request is
+        rejected when `phaseCount` exceeds the number of selected targets,
+        because every configured phase must contain at least one target.
       required:
         - phaseCount
       properties:
         phaseCount:
           type: integer
+          format: int32
           minimum: 1
           description: Number of equally sized phases.
     TaskRunPercentagePhases:
       title: TaskRunPercentagePhases
       type: object
-      description: Splits targets by percentage. Values must sum to 100.
+      description: |-
+        Splits targets by percentage. Values must sum to 100. A configured
+        phase must resolve to at least one selected target after rounding or
+        the request is rejected.
       required:
         - phases
       properties:
@@ -23508,6 +23765,7 @@ components:
           description: Per-phase percentages, in phase order; must sum to 100.
           items:
             type: integer
+            format: int32
             minimum: 1
             maximum: 100
     TaskRunCountPhases:
@@ -23523,6 +23781,7 @@ components:
           description: Per-phase target counts, in phase order.
           items:
             type: integer
+            format: int32
             minimum: 1
     TaskRunOperation:
       title: TaskRunOperation
@@ -23737,6 +23996,13 @@ components:
             listed explicitly. `version` is ignored on the `dpu`
             branch; the target firmware version comes from site
             configuration.
+        authenticationData:
+          $ref: '#/components/schemas/FirmwareAuthenticationData'
+          writeOnly: true
+          description: |-
+            Optional, write-only authentication data for firmware downloads.
+            Not supported for DPU-only updates or by the legacy NICo compute
+            firmware controller.
         ruleId:
           type: string
           format: uuid
@@ -23755,7 +24021,7 @@ components:
       examples:
         - siteId: 550e8400-e29b-41d4-a716-446655440000
           filter:
-            type: switch
+            type: NVSwitch
           version: '24.11.0'
           targets: [bmc, nvos]
     UpdatePowerStateRequest:
@@ -23820,6 +24086,50 @@ components:
       examples:
         - taskIds:
             - 550e8400-e29b-41d4-a716-446655440000
+    FirmwareAuthenticationData:
+      title: FirmwareAuthenticationData
+      type: object
+      additionalProperties: false
+      description: |-
+        Optional, write-only authentication data for firmware downloads.
+        Exactly one of `shared` or `perComponent` must be present. Empty string
+        values mean no authentication data for the corresponding target.
+
+        Authentication data is not supported for DPU-only updates or by the
+        legacy NICo compute firmware controller.
+      properties:
+        shared:
+          type: string
+          writeOnly: true
+          description: Authentication data shared by every supported firmware target.
+        perComponent:
+          $ref: '#/components/schemas/PerComponentFirmwareAuthenticationData'
+          writeOnly: true
+      oneOf:
+        - required:
+            - shared
+        - required:
+            - perComponent
+    PerComponentFirmwareAuthenticationData:
+      title: PerComponentFirmwareAuthenticationData
+      type: object
+      additionalProperties: false
+      description: |-
+        Authentication data scoped to supported firmware tray types. An
+        omitted field means that tray type receives no authentication data.
+      properties:
+        compute:
+          type: string
+          writeOnly: true
+          description: Authentication data for compute tray firmware downloads.
+        nvswitch:
+          type: string
+          writeOnly: true
+          description: Authentication data for NVSwitch tray firmware downloads.
+        powershelf:
+          type: string
+          writeOnly: true
+          description: Authentication data for power shelf firmware downloads.
     FirmwareUpdateRequest:
       title: FirmwareUpdateRequest
       type: object
@@ -23874,6 +24184,13 @@ components:
             listed explicitly. `version` is ignored on the `dpu`
             branch; the target firmware version comes from site
             configuration.
+        authenticationData:
+          $ref: '#/components/schemas/FirmwareAuthenticationData'
+          writeOnly: true
+          description: |-
+            Optional, write-only authentication data for firmware downloads.
+            Not supported for DPU-only updates or by the legacy NICo compute
+            firmware controller.
         ruleId:
           type: string
           format: uuid
@@ -24132,6 +24449,7 @@ components:
         - Maintenance
         - InUse
         - Error
+        - Decommissioning
         - Decommissioned
         - Unknown
     MachineSummary:
@@ -24828,6 +25146,7 @@ components:
           description: 'Bios path of the Machine''s NetworkInterface'
         numaNode:
           type: integer
+          format: int32
           description: 'Info of numa node Machine''s NetworkInterface'
         description:
           type:
@@ -24874,6 +25193,7 @@ components:
           description: 'Bios path of the Machine''s InfiniBandInterface'
         numaNode:
           type: integer
+          format: int32
           description: 'Info of numa node Machine''s InfiniBandInterface'
         description:
           type:
@@ -26288,6 +26608,7 @@ components:
         schemaVersion:
           type: integer
           format: uint32
+          minimum: 0
           description: Core SKU schema version when available
           readOnly: true
         deviceType:
@@ -26436,10 +26757,12 @@ components:
         threadCount:
           type: integer
           format: uint32
+          minimum: 0
           description: Number of threads for the CPU
         count:
           type: integer
           format: uint32
+          minimum: 0
           description: Number of CPUs present
     SkuGpu:
       title: SkuGpu
@@ -26463,6 +26786,7 @@ components:
         count:
           type: integer
           format: uint32
+          minimum: 0
           description: Number of GPUs present
     SkuMemory:
       title: SkuMemory
@@ -26476,6 +26800,7 @@ components:
         capacityMb:
           type: integer
           format: uint32
+          minimum: 0
           description: Capacity in megabytes
         memoryType:
           type: string
@@ -26483,6 +26808,7 @@ components:
         count:
           type: integer
           format: uint32
+          minimum: 0
           description: Number of memory modules present
     SkuStorage:
       title: SkuStorage
@@ -26516,23 +26842,27 @@ components:
         capacityMb:
           type: integer
           format: uint32
+          minimum: 0
           readOnly: true
           description: Storage capacity in megabytes used for schema version 4 matching. Read-only in REST mutation requests and preserved in responses for legacy SKUs. Schema version 5 uses minSizeMiB and maxSizeMiB instead.
         count:
           type: integer
           format: uint32
+          minimum: 0
           description: Number of storage devices present
         minSizeMiB:
           type:
             - integer
             - 'null'
           format: uint32
+          minimum: 0
           description: Inclusive minimum size in MiB for each storage device. Null or omission means no lower bound. Used for SKU schema version 5 and later.
         maxSizeMiB:
           type:
             - integer
             - 'null'
           format: uint32
+          minimum: 0
           description: Inclusive maximum size in MiB for each storage device. Null or omission means no upper bound. Used for SKU schema version 5 and later.
         pciPatterns:
           type: array
@@ -26571,6 +26901,7 @@ components:
         count:
           type: integer
           format: uint32
+          minimum: 0
           description: Number of ethernet devices present
         isConnected:
           type: boolean
@@ -26594,6 +26925,7 @@ components:
         count:
           type: integer
           format: uint32
+          minimum: 0
           description: Number of infiniband devices present
         inactiveDevices:
           type: array
@@ -26601,6 +26933,7 @@ components:
           items:
             type: integer
             format: uint32
+            minimum: 0
     SkuTpm:
       title: SkuTpm
       type: object
@@ -26766,12 +27099,14 @@ components:
       properties:
         availableIPs:
           type: integer
-          format: int64
+          format: uint64
+          minimum: 0
           description: Total number of IP addresses in the block (acquired and unused)
           readOnly: true
         acquiredIPs:
           type: integer
-          format: int64
+          format: uint64
+          minimum: 0
           description: Number of individual IP addresses acquired from the block
           readOnly: true
         availablePrefixes:
@@ -26786,11 +27121,13 @@ components:
           type: integer
           description: |
             Total number of /30 prefixes that can still be acquired from this block (only reduced if prefixes are acquired, not reduced by acquired IPs)
-          format: int64
+          format: uint64
+          minimum: 0
           readOnly: true
         acquiredPrefixes:
           type: integer
-          format: int64
+          format: uint64
+          minimum: 0
           description: Total number of prefixes (of any size) acquired from this block
       description: Usage statistics for an IP Block, VPC Prefix or Subnet
     IpBlockCreateRequest:
@@ -27119,6 +27456,8 @@ components:
           example: PERMIT
         priority:
           type: integer
+          minimum: 0
+          maximum: 60000
           description: 'Rule priority used to order evaluation'
         sourcePrefix:
           type: string
@@ -27237,6 +27576,7 @@ components:
                   nvLinkPartition: false
                   flow: false
                   imageBasedOperatingSystem: false
+                  vpcSlaac: false
                 status: Registered
               status: Syncing
               version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -27339,6 +27679,7 @@ components:
               nvLinkPartition: false
               flow: false
               imageBasedOperatingSystem: false
+              vpcSlaac: false
             status: Pending
           status: Syncing
           version: a94a8fe5ccb19ba61c4c0873d391e987982fbbd3
@@ -28078,6 +28419,7 @@ components:
           description: API execution time
         durationMs:
           type: integer
+          format: int64
           description: API execution duration in milliseconds
         apiVersion:
           type: string
@@ -28425,6 +28767,7 @@ components:
             type: string
         tokenTtlSeconds:
           type: integer
+          format: uint32
           minimum: 1
           description: |-
             Issued-token TTL in seconds. Required in the REST request
@@ -28498,6 +28841,7 @@ components:
             type: string
         tokenTtlSeconds:
           type: integer
+          format: uint32
           minimum: 1
           description: |-
             Issued-token TTL in seconds. Required in the REST request
@@ -28523,6 +28867,7 @@ components:
             previous key.
         signingKeyOverlapSeconds:
           type: integer
+          format: uint32
           minimum: 1
           description: |-
             Required when `rotateKey` is `true`. Number of seconds
@@ -28567,6 +28912,8 @@ components:
             type: string
         tokenTtlSeconds:
           type: integer
+          format: uint32
+          minimum: 0
           description: 'Lifetime of issued Tenant identity tokens, in seconds'
         subjectPrefix:
           type: string
@@ -28926,6 +29273,7 @@ components:
         asn:
           type: integer
           format: uint32
+          minimum: 0
           description: Autonomous System Number for BGP routing
         dhcpServers:
           type: array
@@ -28972,6 +29320,7 @@ components:
             - integer
             - 'null'
           format: uint32
+          minimum: 0
           description: VPC VNI identifier
         routeServers:
           type: array
@@ -29020,6 +29369,7 @@ components:
             - integer
             - 'null'
           format: uint32
+          minimum: 0
           description: Minimum number of functioning DPU links required
         isPrimaryDpu:
           type: boolean
@@ -29029,10 +29379,12 @@ components:
             - integer
             - 'null'
           format: uint32
+          minimum: 0
           description: Layer 3 VNI used for internet access
         datacenterAsn:
           type: integer
           format: uint32
+          minimum: 0
           description: Datacenter Autonomous System Number
         anycastSitePrefixes:
           type: array
@@ -29044,12 +29396,14 @@ components:
             - integer
             - 'null'
           format: uint32
+          minimum: 0
           description: Autonomous System Number for the tenant host
         siteGlobalVpcVni:
           type:
             - integer
             - 'null'
           format: uint32
+          minimum: 0
           description: Site-global VPC VNI identifier
       required:
         - asn
@@ -29100,10 +29454,12 @@ components:
         vlanId:
           type: integer
           format: uint32
+          minimum: 0
           description: VLAN ID
         vni:
           type: integer
           format: uint32
+          minimum: 0
           description: VXLAN Network Identifier
         gateway:
           type: string
@@ -29119,6 +29475,7 @@ components:
             - integer
             - 'null'
           format: uint32
+          minimum: 0
           description: Virtual function ID if applicable
         vpcPrefixes:
           type: array
@@ -29139,6 +29496,7 @@ components:
         vpcVni:
           type: integer
           format: uint32
+          minimum: 0
           description: VPC VXLAN Network Identifier
         sviIp:
           type:
@@ -29163,12 +29521,14 @@ components:
           items:
             type: integer
             format: uint32
+            minimum: 0
           description: List of peered VPC VNIs
         mtu:
           type:
             - integer
             - 'null'
           format: uint32
+          minimum: 0
           description: Maximum transmission unit (MTU) for the interface
         networkSecurityGroup:
           $ref: '#/components/schemas/InterfaceNetworkSecurityGroupConfig'

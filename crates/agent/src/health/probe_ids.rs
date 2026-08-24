@@ -24,7 +24,7 @@ lazy_static::lazy_static! {
     pub static ref DhcpRelay: HealthProbeId = "DhcpRelay".parse().unwrap();
     pub static ref DhcpServer: HealthProbeId = "DhcpServer".parse().unwrap();
     pub static ref BgpStats: HealthProbeId = "BgpStats".parse().unwrap();
-    pub static ref BgpPeeringTor: HealthProbeId = "BgpPeeringTor".parse().unwrap();
+    pub static ref BgpPeeringTor: HealthProbeId = HealthProbeId::bgp_peering_tor();
     pub static ref BgpPeeringRouteServer: HealthProbeId = "BgpPeeringRouteServer".parse().unwrap();
     pub static ref UnexpectedBgpPeer: HealthProbeId = "UnexpectedBgpPeer".parse().unwrap();
     pub static ref Ifreload: HealthProbeId = "Ifreload".parse().unwrap();

@@ -58,7 +58,7 @@ func TestNewAPIRoutes(t *testing.T) {
 		"expected-rack":             7,
 		"expected-switch":           5,
 		"instance-type":             5,
-		"machine":                   15,
+		"machine":                   16,
 		"allocation":                6,
 		"subnet":                    5,
 		"machine-instance-type":     3,
@@ -140,6 +140,7 @@ func TestNewAPIRoutes(t *testing.T) {
 			assertRouteExists(t, got, http.MethodPut, machineAdminPath+"/health-report")
 			assertRouteExists(t, got, http.MethodDelete, machineAdminPath+"/health-report/:source")
 			assertRouteExists(t, got, http.MethodPatch, machineAdminPath+"/power")
+			assertRouteExists(t, got, http.MethodPost, machineAdminPath+"/decommission")
 			assertRouteExists(t, got, http.MethodPost, machineAdminPath+"/validation/run")
 			assertRouteExists(t, got, http.MethodGet, machineAdminPath+"/validation/run")
 			assertRouteExists(t, got, http.MethodGet, machineAdminPath+"/validation/result")

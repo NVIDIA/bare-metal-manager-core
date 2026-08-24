@@ -20,6 +20,7 @@ use std::str::FromStr;
 use carbide_uuid::extension_service::ExtensionServiceId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::nvlink::NvLinkLogicalPartitionId;
 use carbide_uuid::vpc::VpcId;
 use chrono::prelude::*;
@@ -94,6 +95,122 @@ pub async fn count_ids(
         .map_err(|e| DatabaseError::new("instance::count_ids", e))
 }
 
+/// Adds the rows for every configuration that can still own network resources
+/// for an instance. The current value is in `network_config`; both configurations
+/// in `update_network_config_request` can still own resources until the update
+/// releases the old ones.
+///
+/// A SLAAC interface can retain a prefix without creating a row in
+/// `instance_addresses`, so searches and deletion checks cannot use address
+/// rows as their only source. Callers must name the outer table `instances`
+/// because this expression refers to it directly.
+fn push_network_config_rows(builder: &mut sqlx::QueryBuilder<sqlx::Postgres>) {
+    builder.push(
+        "jsonb_array_elements(jsonb_build_array(
+            instances.network_config,
+            instances.update_network_config_request->'old_config',
+            instances.update_network_config_request->'new_config'
+        )) AS configs(config)",
+    );
+}
+
+/// Adds a predicate that matches an instance whose configurations can still
+/// own resources from `segment_id`.
+pub(super) fn push_network_segment_reference_exists(
+    builder: &mut sqlx::QueryBuilder<sqlx::Postgres>,
+    segment_id: NetworkSegmentId,
+) {
+    builder.push(
+        "EXISTS (
+            SELECT 1
+            FROM ",
+    );
+    push_network_config_rows(builder);
+    builder.push(
+        "
+            WHERE EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements(
+                    COALESCE(configs.config->'interfaces', '[]'::jsonb)
+                ) AS interfaces(interface)
+                WHERE (interfaces.interface->>'network_segment_id')::uuid = ",
+    );
+    builder.push_bind(segment_id);
+    builder.push(
+        "
+            )
+        )",
+    );
+}
+
+/// Adds a predicate that matches an instance whose configurations can still
+/// own resources from `vpc_id`. It deliberately excludes normalized rows in
+/// `instance_addresses`; callers that need those rows add that predicate
+/// separately.
+fn push_network_config_vpc_reference_exists(
+    builder: &mut sqlx::QueryBuilder<sqlx::Postgres>,
+    vpc_id: VpcId,
+) {
+    builder.push(
+        "EXISTS (
+            SELECT 1
+            FROM (SELECT ",
+    );
+    builder.push_bind(vpc_id);
+    builder.push(
+        "::uuid AS vpc_id) AS target
+            WHERE EXISTS (
+                SELECT 1
+                FROM ",
+    );
+    push_network_config_rows(builder);
+    builder.push(
+        "
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements(
+                        COALESCE(configs.config->'interfaces', '[]'::jsonb)
+                    ) AS interfaces(interface)
+                    WHERE (interfaces.interface->>'vpc_id')::uuid = target.vpc_id
+                    OR EXISTS (
+                        SELECT 1
+                        FROM network_segments
+                        WHERE id = (interfaces.interface->>'network_segment_id')::uuid
+                          AND vpc_id = target.vpc_id
+                    )
+                )
+                OR (configs.config #>> '{auto_config,vpc_id}')::uuid = target.vpc_id
+            )
+        )",
+    );
+}
+
+/// Adds the VPC predicate used by instance search.
+///
+/// An interface can name its VPC directly or through its network segment, and
+/// an unresolved automatic configuration keeps the requested VPC in
+/// `auto_config`. The address lookup preserves the existing behavior for
+/// stateful allocations, while [`push_network_config_vpc_reference_exists`]
+/// keeps SLAAC interfaces without host addresses visible.
+fn push_vpc_search_filter(builder: &mut sqlx::QueryBuilder<sqlx::Postgres>, vpc_id: VpcId) {
+    builder.push(
+        " AND (
+            EXISTS (
+                SELECT 1
+                FROM instance_addresses
+                WHERE instance_addresses.instance_id = instances.id
+                  AND instance_addresses.vpc_id = ",
+    );
+    builder.push_bind(vpc_id);
+    builder.push(
+        "
+            )
+            OR ",
+    );
+    push_network_config_vpc_reference_exists(builder, vpc_id);
+    builder.push(")");
+}
+
 /// Appends the `InstanceSearchFilter` predicate onto a query builder whose SQL
 /// already ends in `... WHERE TRUE `. Shared by [`find_ids`] and [`count_ids`]
 /// so the row-returning and counting queries filter identically.
@@ -147,19 +264,8 @@ fn push_search_filter(
     }
 
     if let Some(vpc_id) = filter.vpc_id {
-        // vpc_id needs to be converted to a UUID type. We could
-        // just do a uuid::Uuid, but it seems more appropriate and
-        // correct to convert it into a VpcId (which is what it
-        // *actually* is, and has the necessary sqlx bindings).
         let vpc_id = VpcId::from_str(&vpc_id).map_err(DatabaseError::from)?;
-        builder.push(" AND id IN (");
-        builder.push(
-            "SELECT instances.id FROM instances
-INNER JOIN instance_addresses ON instance_addresses.instance_id = instances.id
-WHERE instance_addresses.vpc_id = ",
-        );
-        builder.push_bind(vpc_id);
-        builder.push(")");
+        push_vpc_search_filter(builder, vpc_id);
     }
 
     Ok(())
@@ -346,6 +452,40 @@ pub async fn find_by_machine_id(
     find_by_id(txn, instance_id).await
 }
 
+/// Locks and returns the live `Instance` assigned to one `Machine`.
+///
+/// A returned record remains locked until the caller's transaction ends. `None`
+/// means the `Machine` has no assigned `Instance`. If the assigned `Instance` is
+/// already marked for deletion, the lookup returns
+/// [`DatabaseError::FailedPrecondition`] instead of a snapshot that a caller
+/// could use for later writes.
+pub async fn find_live_by_machine_id_for_update(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+) -> Result<Option<InstanceSnapshot>, DatabaseError> {
+    let query = "SELECT row_to_json(i.*) AS instance, row_to_json(o.*) AS operating_system
+        FROM instances i
+        LEFT JOIN operating_systems o ON i.operating_system_id = o.id AND o.deleted IS NULL
+        WHERE i.machine_id = $1
+        FOR UPDATE OF i";
+    let Some(instance_and_os_row) = sqlx::query_as::<_, InstanceAndOsRow>(query)
+        .bind(machine_id)
+        .fetch_optional(txn)
+        .await
+        .map_err(|error| DatabaseError::query(query, error))?
+    else {
+        return Ok(None);
+    };
+    let instance: InstanceSnapshot = instance_and_os_row.try_into()?;
+    if instance.deleted.is_some() {
+        return Err(DatabaseError::FailedPrecondition(format!(
+            "instance {} is being deleted",
+            instance.id
+        )));
+    }
+    Ok(Some(instance))
+}
+
 pub async fn find_by_machine_ids(
     txn: &mut PgConnection,
     machine_ids: &[&MachineId],
@@ -413,6 +553,49 @@ pub async fn any_instance_referencing_nvlink_logical_partition(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
+/// Counts instances whose current or pending network configuration references
+/// `segment_id` through an interface.
+///
+/// Both configurations in a pending update can still own resources until the
+/// update completes. Instances with a deletion timestamp remain owners until
+/// physical deletion finishes termination. Each instance is counted at most
+/// once even when several configurations or interfaces contain the same
+/// reference.
+pub async fn count_network_segment_references(
+    txn: &mut PgConnection,
+    segment_id: &NetworkSegmentId,
+) -> Result<usize, DatabaseError> {
+    let mut builder = sqlx::QueryBuilder::new("SELECT count(*) FROM instances WHERE ");
+    push_network_segment_reference_exists(&mut builder, *segment_id);
+
+    let reference_count: i64 = builder
+        .build_query_scalar()
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(builder.sql(), e))?;
+
+    Ok(reference_count.max(0) as usize)
+}
+
+/// Counts instances whose current or pending network configuration refers to
+/// `vpc_id` through an interface, its network segment, or an automatic
+/// configuration request.
+pub async fn count_vpc_references(
+    txn: &mut PgConnection,
+    vpc_id: &VpcId,
+) -> Result<usize, DatabaseError> {
+    let mut builder = sqlx::QueryBuilder::new("SELECT count(*) FROM instances WHERE ");
+    push_network_config_vpc_reference_exists(&mut builder, *vpc_id);
+
+    let reference_count: i64 = builder
+        .build_query_scalar()
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(builder.sql(), e))?;
+
+    Ok(reference_count.max(0) as usize)
+}
+
 pub async fn use_custom_ipxe_on_next_boot(
     machine_id: &MachineId,
     boot_with_custom_ipxe: bool,
@@ -466,6 +649,29 @@ pub async fn update_network_config(
     .await
 }
 
+/// Distinguishes a missing or deleted `Instance` from a version conflict after
+/// an optimistic configuration update affects no records.
+async fn ensure_live_for_config_update(
+    txn: &mut PgConnection,
+    instance_id: InstanceId,
+) -> Result<(), DatabaseError> {
+    let query = "SELECT deleted IS NULL FROM instances WHERE id=$1 FOR UPDATE";
+    let live: Option<bool> = sqlx::query_scalar(query)
+        .bind(instance_id)
+        .fetch_optional(txn)
+        .await
+        .map_err(|error| DatabaseError::query(query, error))?;
+    match live {
+        Some(true) => Ok(()),
+        Some(false) => Err(DatabaseError::FailedPrecondition(format!(
+            "instance {instance_id} is being deleted"
+        ))),
+        None => Err(DatabaseError::FailedPrecondition(format!(
+            "instance {instance_id} does not exist"
+        ))),
+    }
+}
+
 pub async fn update_phone_home_last_contact(
     txn: &mut PgConnection,
     instance_id: InstanceId,
@@ -515,8 +721,10 @@ pub async fn clear_phone_home_last_contact(
 /// - instance network and infiniband configurations
 /// - tenant organization IDs
 ///
-/// This method does not check if the instance still exists.
-/// A previous `Instance::find` call should fulfill this purpose.
+/// The update applies only while the instance exists, is not marked deleted,
+/// and still has `expected_version`. A deleted or missing instance reports a
+/// failed precondition; a live instance with another version reports a
+/// concurrent modification.
 pub async fn update_config(
     txn: &mut PgConnection,
     instance_id: InstanceId,
@@ -546,7 +754,7 @@ pub async fn update_config(
             os_image_id=$7, keyset_ids=$8,
             name=$9, description=$10, labels=$11::json, network_security_group_id=$14,
             power_profile=$15
-            WHERE id=$12 AND config_version=$13
+            WHERE id=$12 AND config_version=$13 AND deleted IS NULL
             RETURNING id";
     let query_result: Result<(InstanceId,), _> = sqlx::query_as(query)
         .bind(next_version)
@@ -564,24 +772,28 @@ pub async fn update_config(
         .bind(expected_version)
         .bind(config.network_security_group_id)
         .bind(config.power_profile)
-        .fetch_one(txn)
+        .fetch_one(&mut *txn)
         .await;
 
     match query_result {
         Ok((_instance_id,)) => Ok(()),
-        Err(e) => Err(match e {
-            sqlx::Error::RowNotFound => {
-                DatabaseError::ConcurrentModificationError("instance", expected_version.to_string())
-            }
-            e => DatabaseError::query(query, e),
-        }),
+        Err(sqlx::Error::RowNotFound) => {
+            ensure_live_for_config_update(txn, instance_id).await?;
+            Err(DatabaseError::ConcurrentModificationError(
+                "instance",
+                expected_version.to_string(),
+            ))
+        }
+        Err(error) => Err(DatabaseError::query(query, error)),
     }
 }
 
 /// Updates the Operating System
 ///
-/// This method does not check if the instance still exists.
-/// A previous `Instance::find` call should fulfill this purpose.
+/// The update applies only while the instance exists, is not marked deleted,
+/// and still has `expected_version`. A deleted or missing instance reports a
+/// failed precondition; a live instance with another version reports a
+/// concurrent modification.
 pub async fn update_os(
     txn: &mut PgConnection,
     instance_id: InstanceId,
@@ -607,7 +819,7 @@ pub async fn update_os(
 
     let query = "UPDATE instances SET config_version=$1,
             operating_system_id=$2, os_ipxe_script=$3, os_user_data=$4, os_always_boot_with_ipxe=$5, os_phone_home_enabled=$6, os_image_id=$7
-            WHERE id=$8 AND config_version=$9
+            WHERE id=$8 AND config_version=$9 AND deleted IS NULL
             RETURNING id";
     let query_result: Result<(InstanceId,), _> = sqlx::query_as(query)
         .bind(next_version)
@@ -619,17 +831,19 @@ pub async fn update_os(
         .bind(os_image_id)
         .bind(instance_id)
         .bind(expected_version)
-        .fetch_one(txn)
+        .fetch_one(&mut *txn)
         .await;
 
     match query_result {
         Ok((_instance_id,)) => Ok(()),
-        Err(e) => Err(match e {
-            sqlx::Error::RowNotFound => {
-                DatabaseError::ConcurrentModificationError("instance", expected_version.to_string())
-            }
-            e => DatabaseError::query(query, e),
-        }),
+        Err(sqlx::Error::RowNotFound) => {
+            ensure_live_for_config_update(txn, instance_id).await?;
+            Err(DatabaseError::ConcurrentModificationError(
+                "instance",
+                expected_version.to_string(),
+            ))
+        }
+        Err(error) => Err(DatabaseError::query(query, error)),
     }
 }
 
@@ -1316,6 +1530,386 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(snapshots.len(), 2);
+    }
+
+    /// General and OS updates distinguish missing and deleted `Instance`s from
+    /// live records whose version has changed.
+    #[crate::sqlx_test]
+    async fn config_writers_return_distinct_errors_for_missing_deleted_and_stale_records(
+        pool: sqlx::PgPool,
+    ) {
+        enum StaleUpdate {
+            Config,
+            OperatingSystem,
+        }
+
+        enum RowState {
+            Deleted,
+            Missing,
+            LiveWithNewerVersion,
+        }
+
+        let cases = [
+            (
+                "deleted general config",
+                0x44,
+                StaleUpdate::Config,
+                RowState::Deleted,
+            ),
+            (
+                "deleted operating system",
+                0x45,
+                StaleUpdate::OperatingSystem,
+                RowState::Deleted,
+            ),
+            (
+                "live stale general config",
+                0x46,
+                StaleUpdate::Config,
+                RowState::LiveWithNewerVersion,
+            ),
+            (
+                "live stale operating system",
+                0x47,
+                StaleUpdate::OperatingSystem,
+                RowState::LiveWithNewerVersion,
+            ),
+            (
+                "missing general config",
+                0x48,
+                StaleUpdate::Config,
+                RowState::Missing,
+            ),
+            (
+                "missing operating system",
+                0x49,
+                StaleUpdate::OperatingSystem,
+                RowState::Missing,
+            ),
+        ];
+
+        for (case_name, machine_seed, stale_update, row_state) in cases {
+            let mut setup = pool.begin().await.unwrap();
+            let instance_id = seed_instance(&mut setup, machine_seed, None).await;
+            setup.commit().await.unwrap();
+
+            let stale_snapshot = find_by_id(&pool, instance_id).await.unwrap().unwrap();
+            let expected_version = stale_snapshot.config_version;
+            let mut prepare = pool.begin().await.unwrap();
+            let persisted_version = match row_state {
+                RowState::Deleted => {
+                    mark_as_deleted(instance_id, prepare.as_mut())
+                        .await
+                        .unwrap();
+                    Some(expected_version)
+                }
+                RowState::Missing => {
+                    delete(instance_id, prepare.as_mut()).await.unwrap();
+                    None
+                }
+                RowState::LiveWithNewerVersion => {
+                    let newer_version = expected_version.increment();
+                    sqlx::query("UPDATE instances SET config_version = $1 WHERE id = $2")
+                        .bind(newer_version)
+                        .bind(instance_id)
+                        .execute(prepare.as_mut())
+                        .await
+                        .unwrap();
+                    Some(newer_version)
+                }
+            };
+            prepare.commit().await.unwrap();
+
+            let mut update = pool.begin().await.unwrap();
+            let error = match stale_update {
+                StaleUpdate::Config => {
+                    update_config(
+                        update.as_mut(),
+                        instance_id,
+                        expected_version,
+                        stale_snapshot.config,
+                        stale_snapshot.metadata,
+                    )
+                    .await
+                }
+                StaleUpdate::OperatingSystem => {
+                    update_os(
+                        update.as_mut(),
+                        instance_id,
+                        expected_version,
+                        stale_snapshot.config.os,
+                    )
+                    .await
+                }
+            }
+            .expect_err("a stale writer must not update the instance");
+
+            match row_state {
+                RowState::Deleted => {
+                    assert!(matches!(&error, DatabaseError::FailedPrecondition(_)));
+                    assert_eq!(
+                        error.to_string(),
+                        format!("instance {instance_id} is being deleted"),
+                        "unexpected error for {case_name}",
+                    );
+                }
+                RowState::Missing => {
+                    assert!(matches!(&error, DatabaseError::FailedPrecondition(_)));
+                    assert_eq!(
+                        error.to_string(),
+                        format!("instance {instance_id} does not exist"),
+                        "unexpected error for {case_name}",
+                    );
+                }
+                RowState::LiveWithNewerVersion => assert!(
+                    matches!(
+                        &error,
+                        DatabaseError::ConcurrentModificationError("instance", version)
+                            if version == &expected_version.to_string()
+                    ),
+                    "unexpected error for {case_name}: {error:?}",
+                ),
+            }
+            update.rollback().await.unwrap();
+
+            let version_after_rejection: Option<ConfigVersion> =
+                sqlx::query_scalar("SELECT config_version FROM instances WHERE id = $1")
+                    .bind(instance_id)
+                    .fetch_optional(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(
+                version_after_rejection, persisted_version,
+                "the rejected {case_name} update changed the instance version",
+            );
+        }
+    }
+
+    #[crate::sqlx_test]
+    async fn live_machine_lookup_locks_the_instance_row(pool: sqlx::PgPool) {
+        let machine_id = MachineId::new(
+            MachineIdSource::ProductBoardChassisSerial,
+            [0x48; 32],
+            MachineType::Host,
+        );
+        let unassigned_machine_id = MachineId::new(
+            MachineIdSource::ProductBoardChassisSerial,
+            [0x49; 32],
+            MachineType::Host,
+        );
+        let mut setup = pool.begin().await.unwrap();
+        let instance_id = seed_instance(&mut setup, 0x48, None).await;
+        sqlx::query("INSERT INTO machines (id, dpf) VALUES ($1, '{}'::jsonb)")
+            .bind(unassigned_machine_id)
+            .execute(setup.as_mut())
+            .await
+            .unwrap();
+        setup.commit().await.unwrap();
+
+        let mut reader = pool.begin().await.unwrap();
+        assert!(
+            find_live_by_machine_id_for_update(reader.as_mut(), &unassigned_machine_id)
+                .await
+                .unwrap()
+                .is_none(),
+            "an unassigned machine must return no instance",
+        );
+        let instance = find_live_by_machine_id_for_update(reader.as_mut(), &machine_id)
+            .await
+            .unwrap()
+            .expect("the machine should have an assigned instance");
+        assert_eq!(instance.id, instance_id);
+
+        let mut deletion = pool.begin().await.unwrap();
+        sqlx::query("SET LOCAL lock_timeout = '100ms'")
+            .execute(deletion.as_mut())
+            .await
+            .unwrap();
+        let error = sqlx::query("UPDATE instances SET deleted = NOW() WHERE id = $1")
+            .bind(instance_id)
+            .execute(deletion.as_mut())
+            .await
+            .expect_err("deletion must wait for the instance reader");
+        assert_eq!(
+            error
+                .as_database_error()
+                .and_then(sqlx::error::DatabaseError::code)
+                .as_deref(),
+            Some("55P03"),
+        );
+        deletion.rollback().await.unwrap();
+        reader.rollback().await.unwrap();
+
+        let mut deletion = pool.begin().await.unwrap();
+        mark_as_deleted(instance_id, deletion.as_mut())
+            .await
+            .unwrap();
+        deletion.commit().await.unwrap();
+
+        let mut reader = pool.begin().await.unwrap();
+        let error = find_live_by_machine_id_for_update(reader.as_mut(), &machine_id)
+            .await
+            .expect_err("a deleted instance must not be returned for writes");
+        assert_eq!(
+            error.to_string(),
+            format!("instance {instance_id} is being deleted"),
+        );
+        reader.rollback().await.unwrap();
+    }
+
+    /// A soft-deleted instance retains its network resources until physical
+    /// deletion completes the asynchronous termination workflow.
+    #[crate::sqlx_test]
+    async fn network_reference_counts_retain_soft_deleted_instances(pool: sqlx::PgPool) {
+        let mut txn = pool.begin().await.unwrap();
+        let instance_id = seed_instance(&mut txn, 0x44, None).await;
+        let segment_id = NetworkSegmentId::new();
+        let vpc_id = VpcId::new();
+        sqlx::query(
+            "UPDATE instances SET network_config = jsonb_build_object( \
+                 'interfaces', jsonb_build_array(jsonb_build_object( \
+                     'network_segment_id', $2::text, 'vpc_id', $3::text))) \
+             WHERE id = $1",
+        )
+        .bind(instance_id)
+        .bind(segment_id)
+        .bind(vpc_id)
+        .execute(txn.as_mut())
+        .await
+        .unwrap();
+
+        assert_eq!(
+            count_network_segment_references(txn.as_mut(), &segment_id)
+                .await
+                .unwrap(),
+            1,
+        );
+        assert_eq!(
+            count_vpc_references(txn.as_mut(), &vpc_id).await.unwrap(),
+            1,
+        );
+
+        mark_as_deleted(instance_id, txn.as_mut()).await.unwrap();
+        assert_eq!(
+            count_network_segment_references(txn.as_mut(), &segment_id)
+                .await
+                .unwrap(),
+            1,
+        );
+        assert_eq!(
+            count_vpc_references(txn.as_mut(), &vpc_id).await.unwrap(),
+            1,
+        );
+        assert!(
+            crate::instance_address::segment_has_allocations(txn.as_mut(), &segment_id)
+                .await
+                .unwrap()
+        );
+
+        delete(instance_id, txn.as_mut()).await.unwrap();
+        assert_eq!(
+            count_network_segment_references(txn.as_mut(), &segment_id)
+                .await
+                .unwrap(),
+            0,
+        );
+        assert_eq!(
+            count_vpc_references(txn.as_mut(), &vpc_id).await.unwrap(),
+            0,
+        );
+        assert!(
+            !crate::instance_address::segment_has_allocations(txn.as_mut(), &segment_id)
+                .await
+                .unwrap()
+        );
+    }
+
+    /// VPC ownership can remain only in a segment relation or unresolved
+    /// automatic intent. Pending updates keep current, old, and new configs
+    /// live, but one instance still contributes only one reference.
+    #[crate::sqlx_test]
+    async fn count_vpc_references_covers_every_config_location(pool: sqlx::PgPool) {
+        let mut txn = pool.begin().await.unwrap();
+        let vpc_id = VpcId::new();
+        let segment_id = NetworkSegmentId::new();
+        sqlx::query(
+            "INSERT INTO vpcs (id, name, version) \
+             VALUES ($1, 'network-reference-vpc', 'V1-T0')",
+        )
+        .bind(vpc_id)
+        .execute(txn.as_mut())
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO network_segments (id, name, version, vpc_id) \
+             VALUES ($1, 'network-reference-segment', 'V1-T0', $2)",
+        )
+        .bind(segment_id)
+        .bind(vpc_id)
+        .execute(txn.as_mut())
+        .await
+        .unwrap();
+
+        let segment_owned_instance = seed_instance(&mut txn, 0x45, None).await;
+        sqlx::query(
+            "UPDATE instances SET network_config = jsonb_build_object( \
+                 'interfaces', jsonb_build_array(jsonb_build_object( \
+                     'network_segment_id', $2::text))) \
+             WHERE id = $1",
+        )
+        .bind(segment_owned_instance)
+        .bind(segment_id)
+        .execute(txn.as_mut())
+        .await
+        .unwrap();
+
+        let automatic_instance = seed_instance(&mut txn, 0x46, None).await;
+        sqlx::query(
+            "UPDATE instances SET network_config = jsonb_build_object( \
+                 'interfaces', jsonb_build_array(), \
+                 'auto_config', jsonb_build_object('vpc_id', $2::text)) \
+             WHERE id = $1",
+        )
+        .bind(automatic_instance)
+        .bind(vpc_id)
+        .execute(txn.as_mut())
+        .await
+        .unwrap();
+
+        let pending_instance = seed_instance(&mut txn, 0x47, None).await;
+        sqlx::query(
+            "UPDATE instances SET \
+                 network_config = jsonb_build_object( \
+                     'interfaces', jsonb_build_array(jsonb_build_object( \
+                         'vpc_id', $2::text))), \
+                 update_network_config_request = jsonb_build_object( \
+                     'old_config', jsonb_build_object( \
+                         'interfaces', jsonb_build_array(jsonb_build_object( \
+                             'network_segment_id', $3::text))), \
+                     'new_config', jsonb_build_object( \
+                         'interfaces', jsonb_build_array(), \
+                         'auto_config', jsonb_build_object('vpc_id', $2::text))) \
+             WHERE id = $1",
+        )
+        .bind(pending_instance)
+        .bind(vpc_id)
+        .bind(segment_id)
+        .execute(txn.as_mut())
+        .await
+        .unwrap();
+
+        assert_eq!(
+            count_vpc_references(txn.as_mut(), &vpc_id).await.unwrap(),
+            3,
+            "each instance must be counted once regardless of where the reference appears",
+        );
+        assert_eq!(
+            count_vpc_references(txn.as_mut(), &VpcId::new())
+                .await
+                .unwrap(),
+            0,
+            "unrelated VPCs must not match nested configuration fields",
+        );
     }
 }
 

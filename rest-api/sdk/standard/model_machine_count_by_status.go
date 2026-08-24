@@ -34,6 +34,8 @@ type MachineCountByStatus struct {
 	Ready *int32 `json:"ready,omitempty"`
 	// Number of Machines in Error status
 	Error *int32 `json:"error,omitempty"`
+	// Number of Machines in Decommissioning status
+	Decommissioning *int32 `json:"decommissioning,omitempty"`
 	// Number of Machines in Decommissioned status
 	Decommissioned *int32 `json:"decommissioned,omitempty"`
 	// Number of Machines in Unknown status
@@ -249,6 +251,38 @@ func (o *MachineCountByStatus) SetError(v int32) {
 	o.Error = &v
 }
 
+// GetDecommissioning returns the Decommissioning field value if set, zero value otherwise.
+func (o *MachineCountByStatus) GetDecommissioning() int32 {
+	if o == nil || IsNil(o.Decommissioning) {
+		var ret int32
+		return ret
+	}
+	return *o.Decommissioning
+}
+
+// GetDecommissioningOk returns a tuple with the Decommissioning field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *MachineCountByStatus) GetDecommissioningOk() (*int32, bool) {
+	if o == nil || IsNil(o.Decommissioning) {
+		return nil, false
+	}
+	return o.Decommissioning, true
+}
+
+// HasDecommissioning returns a boolean if a field has been set.
+func (o *MachineCountByStatus) HasDecommissioning() bool {
+	if o != nil && !IsNil(o.Decommissioning) {
+		return true
+	}
+
+	return false
+}
+
+// SetDecommissioning gets a reference to the given int32 and assigns it to the Decommissioning field.
+func (o *MachineCountByStatus) SetDecommissioning(v int32) {
+	o.Decommissioning = &v
+}
+
 // GetDecommissioned returns the Decommissioned field value if set, zero value otherwise.
 func (o *MachineCountByStatus) GetDecommissioned() int32 {
 	if o == nil || IsNil(o.Decommissioned) {
@@ -340,6 +374,9 @@ func (o MachineCountByStatus) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Error) {
 		toSerialize["error"] = o.Error
+	}
+	if !IsNil(o.Decommissioning) {
+		toSerialize["decommissioning"] = o.Decommissioning
 	}
 	if !IsNil(o.Decommissioned) {
 		toSerialize["decommissioned"] = o.Decommissioned

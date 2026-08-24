@@ -7,7 +7,6 @@ package storetest
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
 	"github.com/google/uuid"
@@ -68,9 +67,8 @@ func testRuleLifecycle(t *testing.T, factory RuleBindingFactory) {
 		Name:        "updated",
 		Description: "updated description",
 	}))
-	require.NoError(t, rules.SetDedupe(ctx, rule.ID, &eventrule.Dedupe{Window: time.Minute}))
 	require.NoError(t, rules.ReplaceActions(ctx, rule.ID, []eventrule.Action{
-		eventrule.NewAction("replacement", eventrule.ActionCondition{}, eventrule.Noop{}),
+		{Name: "replacement", Spec: &eventrule.Noop{}},
 	}))
 	require.NoError(t, rules.SetEnabled(ctx, rule.ID, true))
 
@@ -78,15 +76,9 @@ func testRuleLifecycle(t *testing.T, factory RuleBindingFactory) {
 	require.NoError(t, err)
 	assert.Equal(t, "updated", updated.Name)
 	assert.Equal(t, "updated description", updated.Description)
-	assert.Equal(t, time.Minute, updated.Dedupe.Window)
-	assert.Equal(t, "replacement", updated.Actions[0].ID)
+	assert.Equal(t, "replacement", updated.Actions[0].Name)
 	assert.True(t, updated.Enabled)
 	assert.False(t, updated.UpdatedAt.Before(updated.CreatedAt))
-
-	require.NoError(t, rules.SetDedupe(ctx, rule.ID, nil))
-	updated, err = rules.GetByID(ctx, rule.ID)
-	require.NoError(t, err)
-	assert.Nil(t, updated.Dedupe)
 
 	enabled := true
 	listed, err := rules.List(ctx, eventrule.RuleFilter{
@@ -110,12 +102,9 @@ func testRuleLifecycle(t *testing.T, factory RuleBindingFactory) {
 				eventrule.RuleMetadata{Name: "updated"},
 			)
 		},
-		"set dedupe": func() error {
-			return rules.SetDedupe(ctx, unknownID, nil)
-		},
 		"replace actions": func() error {
 			return rules.ReplaceActions(ctx, unknownID, []eventrule.Action{
-				eventrule.NewAction("noop", eventrule.ActionCondition{}, eventrule.Noop{}),
+				{Name: "noop", Spec: &eventrule.Noop{}},
 			})
 		},
 		"delete": func() error {
@@ -258,7 +247,7 @@ func newRule(eventType eventrule.Type) *eventrule.Rule {
 		EventType: eventType,
 		Policy: eventrule.Policy{
 			Actions: []eventrule.Action{
-				eventrule.NewAction("noop", eventrule.ActionCondition{}, eventrule.Noop{}),
+				{Name: "noop", Spec: &eventrule.Noop{}},
 			},
 		},
 	}

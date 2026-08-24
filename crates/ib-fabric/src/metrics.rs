@@ -153,6 +153,9 @@ enum IbMonitorPartialFailureStage {
 enum IbMonitorPkeyReconciliationFailureStage {
     ResolvePartitionId,
     ResolvePartition,
+    ResolveFabricOwnership,
+    ResolveMachineOwnership,
+    ResolveMembershipState,
 }
 
 /// `IbFabricDataLoadFailed` records the stage that left one fabric's cached
@@ -319,7 +322,54 @@ pub(crate) enum IbMonitorPkeyReconciliationSkipped {
         #[context]
         pkey: String,
     },
+
+    #[event(
+        labels(failure_stage = IbMonitorPkeyReconciliationFailureStage::ResolveFabricOwnership),
+        log = warn,
+        message = "Skipping retired PKey reconciliation because more than one fabric reports the GUID"
+    )]
+    DuplicateFabricOwnership {
+        #[context]
+        fabric: String,
+        #[context]
+        guid: String,
+        #[context]
+        pkey: String,
+    },
+
+    #[event(
+        labels(failure_stage = IbMonitorPkeyReconciliationFailureStage::ResolveMachineOwnership),
+        log = warn,
+        message = "Skipping retired PKey reconciliation because more than one Machine claims the GUID"
+    )]
+    DuplicateMachineOwnership {
+        #[context]
+        fabric: String,
+        #[context]
+        guid: String,
+        #[context]
+        pkey: String,
+    },
+
+    #[event(
+        labels(failure_stage = IbMonitorPkeyReconciliationFailureStage::ResolveMembershipState),
+        log = error,
+        message = "Skipping retired PKey reconciliation because current membership state could not be verified"
+    )]
+    MembershipStateLookupFailed {
+        #[context]
+        fabric: String,
+        #[context]
+        guid: String,
+        #[context]
+        pkey: String,
+        #[context]
+        machine_id: String,
+        #[context]
+        error: String,
+    },
 }
+
 /// Registers the observable instruments used by `IbFabricMonitor`.
 struct IbFabricMonitorInstruments;
 
@@ -639,15 +689,7 @@ enum UfmOperationStatus {
     // If you add anything here, adjust the values function below
 }
 
-impl UfmOperationStatus {
-    /// The closed status vocabulary. `UfmGuidPkeyChangeFinished`'s variants now
-    /// enumerate the (operation, status) space directly, so this survives to
-    /// pin the vocabulary in tests.
-    #[cfg(test)]
-    fn values() -> impl Iterator<Item = Self> {
-        [Self::Ok, Self::Error].into_iter()
-    }
-}
+impl UfmOperationStatus {}
 
 /// `ConfiguredFabric` is the reviewed escape hatch for the existing `fabric`
 /// label. Values come from `IbFabricMonitor`'s startup configuration, and the
@@ -955,6 +997,9 @@ mod tests {
         UpdateMachineStatusObservation,
         ResolvePartitionId,
         ResolvePartition,
+        DuplicateFabricOwnership,
+        DuplicateMachineOwnership,
+        MembershipStateLookupFailed,
     }
 
     #[derive(Debug, PartialEq)]
@@ -969,6 +1014,7 @@ mod tests {
         endpoints: Option<String>,
         error: Option<String>,
         machine_id: Option<String>,
+        guid: Option<String>,
         pkey: Option<String>,
         counter_delta: f64,
     }
@@ -978,6 +1024,7 @@ mod tests {
         const ENDPOINTS: &str = "https://ufm-1,https://ufm-2";
         const ERROR: &str = "simulated failure";
         const FABRIC: &str = "fabric-1";
+        const GUID: &str = "guid-1";
         const MACHINE_ID: &str = "machine-1";
         const METRIC: &str = "carbide_ib_monitor_partial_failures_total";
         const PKEY: &str = "0x101";
@@ -998,6 +1045,7 @@ mod tests {
                         endpoints: Some(ENDPOINTS.to_string()),
                         error: Some(ERROR.to_string()),
                         machine_id: None,
+                        guid: None,
                         pkey: None,
                         counter_delta: 1.0,
                     },
@@ -1016,6 +1064,7 @@ mod tests {
                         endpoints: Some(ENDPOINTS.to_string()),
                         error: Some(ERROR.to_string()),
                         machine_id: None,
+                        guid: None,
                         pkey: None,
                         counter_delta: 1.0,
                     },
@@ -1034,6 +1083,7 @@ mod tests {
                         endpoints: Some(ENDPOINTS.to_string()),
                         error: Some(ERROR.to_string()),
                         machine_id: None,
+                        guid: None,
                         pkey: None,
                         counter_delta: 1.0,
                     },
@@ -1052,6 +1102,7 @@ mod tests {
                         endpoints: Some(ENDPOINTS.to_string()),
                         error: Some(ERROR.to_string()),
                         machine_id: None,
+                        guid: None,
                         pkey: None,
                         counter_delta: 1.0,
                     },
@@ -1072,6 +1123,7 @@ mod tests {
                         endpoints: None,
                         error: Some(ERROR.to_string()),
                         machine_id: None,
+                        guid: None,
                         pkey: None,
                         counter_delta: 1.0,
                     },
@@ -1094,6 +1146,7 @@ mod tests {
                         endpoints: None,
                         error: Some(ERROR.to_string()),
                         machine_id: Some(MACHINE_ID.to_string()),
+                        guid: None,
                         pkey: None,
                         counter_delta: 1.0,
                     },
@@ -1114,6 +1167,7 @@ mod tests {
                         endpoints: None,
                         error: None,
                         machine_id: None,
+                        guid: None,
                         pkey: Some(PKEY.to_string()),
                         counter_delta: 1.0,
                     },
@@ -1134,6 +1188,70 @@ mod tests {
                         endpoints: None,
                         error: None,
                         machine_id: None,
+                        guid: None,
+                        pkey: Some(PKEY.to_string()),
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "duplicate fabric ownership",
+                    input: PartialFailureCase::DuplicateFabricOwnership,
+                    expect: PartialFailureObservation {
+                        log_count: 1,
+                        level: tracing::Level::WARN,
+                        message: "Skipping retired PKey reconciliation because more than one fabric reports the GUID".to_string(),
+                        event_name: Some(
+                            "ib_monitor_pkey_reconciliation_skipped".to_string(),
+                        ),
+                        metric_name: Some(METRIC.to_string()),
+                        failure_stage: Some("resolve_fabric_ownership".to_string()),
+                        fabric: Some(FABRIC.to_string()),
+                        endpoints: None,
+                        error: None,
+                        machine_id: None,
+                        guid: Some(GUID.to_string()),
+                        pkey: Some(PKEY.to_string()),
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "duplicate Machine ownership",
+                    input: PartialFailureCase::DuplicateMachineOwnership,
+                    expect: PartialFailureObservation {
+                        log_count: 1,
+                        level: tracing::Level::WARN,
+                        message: "Skipping retired PKey reconciliation because more than one Machine claims the GUID".to_string(),
+                        event_name: Some(
+                            "ib_monitor_pkey_reconciliation_skipped".to_string(),
+                        ),
+                        metric_name: Some(METRIC.to_string()),
+                        failure_stage: Some("resolve_machine_ownership".to_string()),
+                        fabric: Some(FABRIC.to_string()),
+                        endpoints: None,
+                        error: None,
+                        machine_id: None,
+                        guid: Some(GUID.to_string()),
+                        pkey: Some(PKEY.to_string()),
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "membership state lookup",
+                    input: PartialFailureCase::MembershipStateLookupFailed,
+                    expect: PartialFailureObservation {
+                        log_count: 1,
+                        level: tracing::Level::ERROR,
+                        message: "Skipping retired PKey reconciliation because current membership state could not be verified".to_string(),
+                        event_name: Some(
+                            "ib_monitor_pkey_reconciliation_skipped".to_string(),
+                        ),
+                        metric_name: Some(METRIC.to_string()),
+                        failure_stage: Some("resolve_membership_state".to_string()),
+                        fabric: Some(FABRIC.to_string()),
+                        endpoints: None,
+                        error: Some(ERROR.to_string()),
+                        machine_id: Some(MACHINE_ID.to_string()),
+                        guid: Some(GUID.to_string()),
                         pkey: Some(PKEY.to_string()),
                         counter_delta: 1.0,
                     },
@@ -1153,6 +1271,15 @@ mod tests {
                     }
                     PartialFailureCase::ResolvePartitionId => "resolve_partition_id",
                     PartialFailureCase::ResolvePartition => "resolve_partition",
+                    PartialFailureCase::DuplicateFabricOwnership => {
+                        "resolve_fabric_ownership"
+                    }
+                    PartialFailureCase::DuplicateMachineOwnership => {
+                        "resolve_machine_ownership"
+                    }
+                    PartialFailureCase::MembershipStateLookupFailed => {
+                        "resolve_membership_state"
+                    }
                 };
                 let metrics = MetricsCapture::start();
                 let endpoints = vec![
@@ -1196,6 +1323,29 @@ mod tests {
                     PartialFailureCase::ResolvePartition => {
                         emit(IbMonitorPkeyReconciliationSkipped::PartitionMissing { pkey: PKEY.to_string() });
                     }
+                    PartialFailureCase::DuplicateFabricOwnership => {
+                        emit(IbMonitorPkeyReconciliationSkipped::DuplicateFabricOwnership {
+                            fabric: FABRIC.to_string(),
+                            guid: GUID.to_string(),
+                            pkey: PKEY.to_string(),
+                        });
+                    }
+                    PartialFailureCase::DuplicateMachineOwnership => {
+                        emit(IbMonitorPkeyReconciliationSkipped::DuplicateMachineOwnership {
+                            fabric: FABRIC.to_string(),
+                            guid: GUID.to_string(),
+                            pkey: PKEY.to_string(),
+                        });
+                    }
+                    PartialFailureCase::MembershipStateLookupFailed => {
+                        emit(IbMonitorPkeyReconciliationSkipped::MembershipStateLookupFailed {
+                            fabric: FABRIC.to_string(),
+                            guid: GUID.to_string(),
+                            pkey: PKEY.to_string(),
+                            machine_id: MACHINE_ID.to_string(),
+                            error: ERROR.to_string(),
+                        });
+                    }
                 });
                 let log = logs.first().expect("partial failure Event logged");
 
@@ -1210,6 +1360,7 @@ mod tests {
                     endpoints: log.field("endpoints").map(str::to_string),
                     error: log.field("error").map(str::to_string),
                     machine_id: log.field("machine_id").map(str::to_string),
+                    guid: log.field("guid").map(str::to_string),
                     pkey: log.field("pkey").map(str::to_string),
                     counter_delta: metrics
                         .counter_delta(METRIC, &[("failure_stage", failure_stage_label)]),
@@ -1445,34 +1596,5 @@ mod tests {
                 );
             }
         }
-    }
-
-    #[test]
-    fn enumerates_ufm_operations_and_statuses() {
-        assert_eq!(
-            UfmOperation::values().collect::<Vec<_>>(),
-            vec![
-                UfmOperation::BindGuidToPkey,
-                UfmOperation::UnbindGuidFromPkey
-            ]
-        );
-        assert_eq!(
-            UfmOperationStatus::values().collect::<Vec<_>>(),
-            vec![UfmOperationStatus::Ok, UfmOperationStatus::Error]
-        );
-    }
-
-    #[test]
-    fn creates_empty_monitor_metrics() {
-        let metrics = IbFabricMonitorMetrics::new();
-
-        assert_eq!(metrics.num_fabrics, 0);
-        assert!(metrics.fabrics.is_empty());
-        assert_eq!(metrics.num_machine_ib_status_updates, 0);
-        assert!(metrics.num_machines_by_port_states.is_empty());
-        assert!(metrics.num_machines_by_ports_with_partitions.is_empty());
-        assert_eq!(metrics.num_machines_with_missing_pkeys, 0);
-        assert_eq!(metrics.num_machines_with_unexpected_pkeys, 0);
-        assert_eq!(metrics.num_machines_with_unknown_pkeys, 0);
     }
 }

@@ -30,6 +30,8 @@ type BatchRackFirmwareUpdateRequest struct {
 	Filter *RackFilter `json:"filter,omitempty"`
 	// Target firmware version.
 	Version NullableString `json:"version,omitempty"`
+	// Optional, write-only authentication data for firmware downloads. Not supported for DPU-only updates or by the legacy NICo compute firmware controller.
+	AuthenticationData NullableFirmwareAuthenticationData `json:"authenticationData,omitempty"`
 	// Optional Operation Rule UUID. When set, pins every task spawned by this batch to the named rule and overrides Flow's default rule resolution.
 	RuleId *string `json:"ruleId,omitempty"`
 	// When true, proceed even if one or more target components (or hosts on the owning rack for rack-scoped components) are reported as not ready by their persisted status. Intended for operator-supervised maintenance.
@@ -159,6 +161,49 @@ func (o *BatchRackFirmwareUpdateRequest) UnsetVersion() {
 	o.Version.Unset()
 }
 
+// GetAuthenticationData returns the AuthenticationData field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *BatchRackFirmwareUpdateRequest) GetAuthenticationData() FirmwareAuthenticationData {
+	if o == nil || IsNil(o.AuthenticationData.Get()) {
+		var ret FirmwareAuthenticationData
+		return ret
+	}
+	return *o.AuthenticationData.Get()
+}
+
+// GetAuthenticationDataOk returns a tuple with the AuthenticationData field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+func (o *BatchRackFirmwareUpdateRequest) GetAuthenticationDataOk() (*FirmwareAuthenticationData, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.AuthenticationData.Get(), o.AuthenticationData.IsSet()
+}
+
+// HasAuthenticationData returns a boolean if a field has been set.
+func (o *BatchRackFirmwareUpdateRequest) HasAuthenticationData() bool {
+	if o != nil && o.AuthenticationData.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetAuthenticationData gets a reference to the given NullableFirmwareAuthenticationData and assigns it to the AuthenticationData field.
+func (o *BatchRackFirmwareUpdateRequest) SetAuthenticationData(v FirmwareAuthenticationData) {
+	o.AuthenticationData.Set(&v)
+}
+
+// SetAuthenticationDataNil sets the value for AuthenticationData to be an explicit nil
+func (o *BatchRackFirmwareUpdateRequest) SetAuthenticationDataNil() {
+	o.AuthenticationData.Set(nil)
+}
+
+// UnsetAuthenticationData ensures that no value is present for AuthenticationData, not even an explicit nil
+func (o *BatchRackFirmwareUpdateRequest) UnsetAuthenticationData() {
+	o.AuthenticationData.Unset()
+}
+
 // GetRuleId returns the RuleId field value if set, zero value otherwise.
 func (o *BatchRackFirmwareUpdateRequest) GetRuleId() string {
 	if o == nil || IsNil(o.RuleId) {
@@ -239,6 +284,9 @@ func (o BatchRackFirmwareUpdateRequest) ToMap() (map[string]interface{}, error) 
 	}
 	if o.Version.IsSet() {
 		toSerialize["version"] = o.Version.Get()
+	}
+	if o.AuthenticationData.IsSet() {
+		toSerialize["authenticationData"] = o.AuthenticationData.Get()
 	}
 	if !IsNil(o.RuleId) {
 		toSerialize["ruleId"] = o.RuleId

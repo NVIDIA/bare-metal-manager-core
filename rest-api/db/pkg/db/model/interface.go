@@ -7,6 +7,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/netip"
+	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
@@ -114,6 +117,7 @@ type Interface struct {
 	VpcIPFamilyMode      *InterfaceVpcIPFamilyMode      `bun:"vpc_ip_family_mode"`
 	VpcPrefixID          *uuid.UUID                     `bun:"vpc_prefix_id,type:uuid"`
 	VpcPrefix            *VpcPrefix                     `bun:"rel:belongs-to,join:vpc_prefix_id=id"`
+	SecondaryVpcPrefixID *uuid.UUID                     `bun:"secondary_vpc_prefix_id,type:uuid"`
 	MachineInterfaceID   *uuid.UUID                     `bun:"machine_interface_id,type:uuid"`
 	MachineInterface     *MachineInterface              `bun:"rel:belongs-to,join:machine_interface_id=id"`
 	Device               *string                        `bun:"device"`
@@ -129,6 +133,45 @@ type Interface struct {
 	Updated              time.Time                      `bun:"updated,nullzero,notnull,default:current_timestamp"`
 	Deleted              *time.Time                     `bun:"deleted,soft_delete"`
 	CreatedBy            uuid.UUID                      `bun:"type:uuid,notnull"`
+}
+
+// EthernetInterfaceKey returns a stable string key for the Interface fields controlled by an update request.
+func (ifc Interface) EthernetInterfaceKey() string {
+	values := url.Values{}
+	if ifc.SubnetID != nil {
+		values.Set("subnet_id", ifc.SubnetID.String())
+	}
+
+	if ifc.VpcID != nil {
+		values.Set("vpc_id", ifc.VpcID.String())
+		if ifc.VpcIPFamilyMode != nil {
+			values.Set("vpc_ip_family_mode", string(*ifc.VpcIPFamilyMode))
+		}
+	} else if ifc.VpcPrefixID != nil {
+		// A Core-selected VPC interface may also have a resolved prefix. Its
+		// desired identity remains the VPC selector, not that resolved result.
+		values.Set("vpc_prefix_id", ifc.VpcPrefixID.String())
+	}
+
+	values.Set("is_physical", strconv.FormatBool(ifc.IsPhysical))
+	if ifc.VirtualFunctionID != nil {
+		values.Set("virtual_function_id", strconv.Itoa(*ifc.VirtualFunctionID))
+	}
+	if ifc.Device != nil {
+		values.Set("device", *ifc.Device)
+	}
+	if ifc.DeviceInstance != nil {
+		values.Set("device_instance", strconv.Itoa(*ifc.DeviceInstance))
+	}
+	if ifc.RequestedIpAddress != nil {
+		values.Set("requested_ip_address", *ifc.RequestedIpAddress)
+	}
+	if ifc.InlineRoutingProfile != nil {
+		values.Set("has_inline_routing_profile", "true")
+		values["inline_routing_prefix"] = append([]string(nil), ifc.InlineRoutingProfile.AllowedAnycastPrefixes...)
+	}
+
+	return values.Encode()
 }
 
 // InterfaceCreateInput input parameters for Create method
@@ -156,6 +199,7 @@ type InterfaceUpdateInput struct {
 	VpcID                *uuid.UUID
 	VpcIPFamilyMode      *InterfaceVpcIPFamilyMode
 	VpcPrefixID          *uuid.UUID
+	SecondaryVpcPrefixID *uuid.UUID
 	Device               *string
 	DeviceInstance       *int
 	VirtualFunctionID    *int
@@ -182,6 +226,7 @@ type InterfaceFilterInput struct {
 type InterfaceClearInput struct {
 	InterfaceID          uuid.UUID
 	VpcPrefixID          bool
+	SecondaryVpcPrefixID bool
 	RequestedIpAddress   bool
 	InlineRoutingProfile bool
 }
@@ -305,7 +350,11 @@ func (ifcd InterfaceSQLDAO) setQueryWithFilter(filter InterfaceFilterInput, quer
 	}
 
 	if filter.VpcPrefixID != nil {
-		query = query.Where("ifc.vpc_prefix_id = ?", *filter.VpcPrefixID)
+		query = query.Where(
+			"(ifc.vpc_prefix_id = ? OR ifc.secondary_vpc_prefix_id = ?)",
+			*filter.VpcPrefixID,
+			*filter.VpcPrefixID,
+		)
 
 		if interfaceDAOSpan != nil {
 			ifcd.tracerSpan.SetAttribute(interfaceDAOSpan, "vpc_prefix_id", filter.VpcPrefixID.String())
@@ -456,6 +505,14 @@ func (ifcd InterfaceSQLDAO) Update(ctx context.Context, tx *db.Tx, input Interfa
 			ifcd.tracerSpan.SetAttribute(interfaceDAOSpan, "vpc_prefix_id", input.VpcPrefixID.String())
 		}
 	}
+	if input.SecondaryVpcPrefixID != nil {
+		is.SecondaryVpcPrefixID = input.SecondaryVpcPrefixID
+		updatedFields = append(updatedFields, "secondary_vpc_prefix_id")
+
+		if interfaceDAOSpan != nil {
+			ifcd.tracerSpan.SetAttribute(interfaceDAOSpan, "secondary_vpc_prefix_id", input.SecondaryVpcPrefixID.String())
+		}
+	}
 	if input.Device != nil {
 		is.Device = input.Device
 		updatedFields = append(updatedFields, "device")
@@ -503,6 +560,13 @@ func (ifcd InterfaceSQLDAO) Update(ctx context.Context, tx *db.Tx, input Interfa
 		}
 	}
 	if input.IpAddresses != nil {
+		for _, ipAddress := range input.IpAddresses {
+			_, parseErr := netip.ParseAddr(ipAddress)
+			if parseErr != nil {
+				return nil, fmt.Errorf("invalid Interface IP address %q: %w", ipAddress, parseErr)
+			}
+		}
+
 		is.IPAddresses = input.IpAddresses
 		updatedFields = append(updatedFields, "ip_addresses")
 
@@ -692,6 +756,10 @@ func (ifcd InterfaceSQLDAO) Clear(ctx context.Context, tx *db.Tx, input Interfac
 	if input.VpcPrefixID {
 		i.VpcPrefixID = nil
 		updatedFields = append(updatedFields, "vpc_prefix_id")
+	}
+	if input.SecondaryVpcPrefixID {
+		i.SecondaryVpcPrefixID = nil
+		updatedFields = append(updatedFields, "secondary_vpc_prefix_id")
 	}
 	if input.RequestedIpAddress {
 		i.RequestedIpAddress = nil

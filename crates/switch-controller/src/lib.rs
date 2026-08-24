@@ -37,3 +37,4 @@ pub mod ready;
 pub mod reprovisioning;
 pub mod rotating_bmc;
 pub mod validating;
+pub mod write_ops;

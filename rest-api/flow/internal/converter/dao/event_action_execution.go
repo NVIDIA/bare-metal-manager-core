@@ -25,19 +25,19 @@ func EventActionExecutionTo(
 		nextAttemptAt = &next
 	}
 	return &dbmodel.EventActionExecution{
-		ID:             execution.ID,
-		EventID:        execution.EventID,
-		RuleID:         execution.RuleID,
-		ActionID:       execution.ActionID,
-		CorrelationKey: execution.CorrelationKey,
-		Status:         string(execution.Status),
-		Reason:         string(execution.Reason),
-		Observations:   execution.Observations,
-		Attempts:       execution.Attempts,
-		StatusMessage:  execution.StatusMessage,
-		CreatedAt:      execution.CreatedAt,
-		UpdatedAt:      execution.UpdatedAt,
-		NextAttemptAt:  nextAttemptAt,
+		ID:            execution.ID,
+		SourceName:    execution.EventKey.SourceName,
+		SourceKey:     execution.EventKey.SourceKey,
+		RuleID:        execution.RuleID,
+		ActionName:    execution.ActionName,
+		Status:        string(execution.Status),
+		Reason:        string(execution.Reason),
+		Observations:  execution.Observations,
+		Attempts:      execution.Attempts,
+		StatusMessage: execution.StatusMessage,
+		CreatedAt:     execution.CreatedAt,
+		UpdatedAt:     execution.UpdatedAt,
+		NextAttemptAt: nextAttemptAt,
 	}, nil
 }
 
@@ -63,10 +63,12 @@ func EventActionExecutionFrom(
 			NextAttemptAt: nextAttemptAt,
 		},
 		ExecutionIdentity: eventrule.ExecutionIdentity{
-			EventID:        persisted.EventID,
-			RuleID:         persisted.RuleID,
-			ActionID:       persisted.ActionID,
-			CorrelationKey: persisted.CorrelationKey,
+			EventKey: eventrule.EventKey{
+				SourceName: persisted.SourceName,
+				SourceKey:  persisted.SourceKey,
+			},
+			RuleID:     persisted.RuleID,
+			ActionName: persisted.ActionName,
 		},
 		ID:           persisted.ID,
 		Observations: persisted.Observations,

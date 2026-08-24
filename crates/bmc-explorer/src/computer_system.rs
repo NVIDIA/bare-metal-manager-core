@@ -34,6 +34,7 @@ use nv_redfish::ethernet_interface::{EthernetInterface, UefiDevicePath as EthUef
 use nv_redfish::oem::nvidia::NvidiaComputerSystem;
 use nv_redfish::pcie_device::PcieDevice;
 use nv_redfish::resource::PowerState;
+use nv_redfish::schema::computer_system::SerialConsoleProtocol;
 use nv_redfish::{Bmc, Resource, ResourceProvidesStatus};
 use regex::Regex;
 
@@ -295,6 +296,24 @@ impl<B: Bmc> ExploredComputerSystem<B> {
                     .unwrap_or_default()
             });
 
+        let serial_console_ssh_port = self
+            .system
+            .raw()
+            .serial_console
+            .as_ref()
+            .and_then(|serial_console| serial_console.ssh.as_ref())
+            .map(enabled_serial_console_ssh_port)
+            .transpose()
+            .unwrap_or_else(|invalid_port| {
+                tracing::warn!(
+                    system_id = %self.system.id(),
+                    serial_console_ssh_port = invalid_port,
+                    "Ignoring invalid SSH serial-console port reported by Redfish",
+                );
+                None
+            })
+            .flatten();
+
         Ok(ModelComputerSystem {
             ethernet_interfaces,
             id: self.system.id().to_string(),
@@ -310,6 +329,7 @@ impl<B: Bmc> ExploredComputerSystem<B> {
             power_state,
             sku: self.system.sku().map(|v| v.to_string()),
             boot_order,
+            serial_console_ssh_port,
         })
     }
 
@@ -694,11 +714,64 @@ fn pcie_device_to_model<B: Bmc>(
     })
 }
 
+fn enabled_serial_console_ssh_port(ssh: &SerialConsoleProtocol) -> Result<Option<u16>, i64> {
+    ssh.service_enabled
+        .filter(|enabled| *enabled)
+        .and_then(|_| ssh.port.flatten())
+        .map(|port| {
+            let converted = u16::try_from(port).map_err(|_| port)?;
+            (converted != 0).then_some(converted).ok_or(port)
+        })
+        .transpose()
+}
+
 #[cfg(test)]
 mod tests {
     use carbide_test_support::value_scenarios;
 
-    use super::is_usable_ethernet_mac_address;
+    use super::{
+        SerialConsoleProtocol, enabled_serial_console_ssh_port, is_usable_ethernet_mac_address,
+    };
+
+    #[test]
+    fn extracts_only_enabled_valid_ssh_serial_console_ports() {
+        let cases = [
+            ("enabled", Some(true), Some(Some(2200)), Ok(Some(2200))),
+            ("disabled", Some(false), Some(Some(2200)), Ok(None)),
+            ("enabled state absent", None, Some(Some(2200)), Ok(None)),
+            ("port absent", Some(true), None, Ok(None)),
+            ("port null", Some(true), Some(None), Ok(None)),
+            ("zero port", Some(true), Some(Some(0)), Err(())),
+            ("negative port", Some(true), Some(Some(-1)), Err(())),
+            (
+                "maximum port",
+                Some(true),
+                Some(Some(i64::from(u16::MAX))),
+                Ok(Some(u16::MAX)),
+            ),
+            (
+                "port above u16 range",
+                Some(true),
+                Some(Some(i64::from(u16::MAX) + 1)),
+                Err(()),
+            ),
+        ];
+
+        for (name, service_enabled, port, expected) in cases {
+            assert_eq!(
+                enabled_serial_console_ssh_port(&SerialConsoleProtocol {
+                    service_enabled,
+                    port,
+                    shared_with_manager_cli: None,
+                    console_entry_command: None,
+                    hot_key_sequence_display: None,
+                })
+                .map_err(drop),
+                expected,
+                "{name}",
+            );
+        }
+    }
 
     #[test]
     fn usable_ethernet_mac_address_cases() {

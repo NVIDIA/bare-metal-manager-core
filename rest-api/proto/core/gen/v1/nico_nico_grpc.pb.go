@@ -184,6 +184,7 @@ const (
 	Forge_FindExploredMlxDevicesByIds_FullMethodName                        = "/forge.Forge/FindExploredMlxDevicesByIds"
 	Forge_UpdateMachineHardwareInfo_FullMethodName                          = "/forge.Forge/UpdateMachineHardwareInfo"
 	Forge_AdminForceDeleteMachine_FullMethodName                            = "/forge.Forge/AdminForceDeleteMachine"
+	Forge_DecommissionManagedHost_FullMethodName                            = "/forge.Forge/DecommissionManagedHost"
 	Forge_AdminListResourcePools_FullMethodName                             = "/forge.Forge/AdminListResourcePools"
 	Forge_AdminGrowResourcePool_FullMethodName                              = "/forge.Forge/AdminGrowResourcePool"
 	Forge_UpdateMachineMetadata_FullMethodName                              = "/forge.Forge/UpdateMachineMetadata"
@@ -358,6 +359,7 @@ const (
 	Forge_IsInfiniteBootEnabled_FullMethodName                              = "/forge.Forge/IsInfiniteBootEnabled"
 	Forge_OnDemandMachineValidation_FullMethodName                          = "/forge.Forge/OnDemandMachineValidation"
 	Forge_OnDemandRackMaintenance_FullMethodName                            = "/forge.Forge/OnDemandRackMaintenance"
+	Forge_TerminateRackMaintenance_FullMethodName                           = "/forge.Forge/TerminateRackMaintenance"
 	Forge_TpmAddCaCert_FullMethodName                                       = "/forge.Forge/TpmAddCaCert"
 	Forge_TpmShowCaCerts_FullMethodName                                     = "/forge.Forge/TpmShowCaCerts"
 	Forge_TpmShowUnmatchedEkCerts_FullMethodName                            = "/forge.Forge/TpmShowUnmatchedEkCerts"
@@ -787,6 +789,8 @@ type ForgeClient interface {
 	// AdminForceDeleteMachine is a lower level admin tool for cases where there is no
 	// appropriate customer-facing workflow available or where those workflows fail.
 	AdminForceDeleteMachine(ctx context.Context, in *AdminForceDeleteMachineRequest, opts ...grpc.CallOption) (*AdminForceDeleteMachineResponse, error)
+	// Starts the managed host decommissioning workflow. The host must be Ready.
+	DecommissionManagedHost(ctx context.Context, in *DecommissionManagedHostRequest, opts ...grpc.CallOption) (*DecommissionManagedHostResponse, error)
 	// List existing resource pools and their stats
 	AdminListResourcePools(ctx context.Context, in *ListResourcePoolsRequest, opts ...grpc.CallOption) (*ResourcePools, error)
 	// Add capacity to a resource pool
@@ -1098,6 +1102,8 @@ type ForgeClient interface {
 	OnDemandMachineValidation(ctx context.Context, in *MachineValidationOnDemandRequest, opts ...grpc.CallOption) (*MachineValidationOnDemandResponse, error)
 	// On-demand rack maintenance (full rack or partial)
 	OnDemandRackMaintenance(ctx context.Context, in *RackMaintenanceOnDemandRequest, opts ...grpc.CallOption) (*RackMaintenanceOnDemandResponse, error)
+	// Terminate active rack maintenance and transition the rack to Error.
+	TerminateRackMaintenance(ctx context.Context, in *RackMaintenanceTerminateRequest, opts ...grpc.CallOption) (*RackMaintenanceTerminateResponse, error)
 	// TPM CA certs Management
 	// rpc TpmDeleteCaCert(TpmCaCertDetails) returns (google.protobuf.Empty);
 	TpmAddCaCert(ctx context.Context, in *TpmCaCert, opts ...grpc.CallOption) (*TpmCaAddedCaStatus, error)
@@ -2998,6 +3004,16 @@ func (c *forgeClient) AdminForceDeleteMachine(ctx context.Context, in *AdminForc
 	return out, nil
 }
 
+func (c *forgeClient) DecommissionManagedHost(ctx context.Context, in *DecommissionManagedHostRequest, opts ...grpc.CallOption) (*DecommissionManagedHostResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DecommissionManagedHostResponse)
+	err := c.cc.Invoke(ctx, Forge_DecommissionManagedHost_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *forgeClient) AdminListResourcePools(ctx context.Context, in *ListResourcePoolsRequest, opts ...grpc.CallOption) (*ResourcePools, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ResourcePools)
@@ -4732,6 +4748,16 @@ func (c *forgeClient) OnDemandRackMaintenance(ctx context.Context, in *RackMaint
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RackMaintenanceOnDemandResponse)
 	err := c.cc.Invoke(ctx, Forge_OnDemandRackMaintenance_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) TerminateRackMaintenance(ctx context.Context, in *RackMaintenanceTerminateRequest, opts ...grpc.CallOption) (*RackMaintenanceTerminateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RackMaintenanceTerminateResponse)
+	err := c.cc.Invoke(ctx, Forge_TerminateRackMaintenance_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -6482,6 +6508,8 @@ type ForgeServer interface {
 	// AdminForceDeleteMachine is a lower level admin tool for cases where there is no
 	// appropriate customer-facing workflow available or where those workflows fail.
 	AdminForceDeleteMachine(context.Context, *AdminForceDeleteMachineRequest) (*AdminForceDeleteMachineResponse, error)
+	// Starts the managed host decommissioning workflow. The host must be Ready.
+	DecommissionManagedHost(context.Context, *DecommissionManagedHostRequest) (*DecommissionManagedHostResponse, error)
 	// List existing resource pools and their stats
 	AdminListResourcePools(context.Context, *ListResourcePoolsRequest) (*ResourcePools, error)
 	// Add capacity to a resource pool
@@ -6793,6 +6821,8 @@ type ForgeServer interface {
 	OnDemandMachineValidation(context.Context, *MachineValidationOnDemandRequest) (*MachineValidationOnDemandResponse, error)
 	// On-demand rack maintenance (full rack or partial)
 	OnDemandRackMaintenance(context.Context, *RackMaintenanceOnDemandRequest) (*RackMaintenanceOnDemandResponse, error)
+	// Terminate active rack maintenance and transition the rack to Error.
+	TerminateRackMaintenance(context.Context, *RackMaintenanceTerminateRequest) (*RackMaintenanceTerminateResponse, error)
 	// TPM CA certs Management
 	// rpc TpmDeleteCaCert(TpmCaCertDetails) returns (google.protobuf.Empty);
 	TpmAddCaCert(context.Context, *TpmCaCert) (*TpmCaAddedCaStatus, error)
@@ -7558,6 +7588,9 @@ func (UnimplementedForgeServer) UpdateMachineHardwareInfo(context.Context, *Upda
 func (UnimplementedForgeServer) AdminForceDeleteMachine(context.Context, *AdminForceDeleteMachineRequest) (*AdminForceDeleteMachineResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method AdminForceDeleteMachine not implemented")
 }
+func (UnimplementedForgeServer) DecommissionManagedHost(context.Context, *DecommissionManagedHostRequest) (*DecommissionManagedHostResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DecommissionManagedHost not implemented")
+}
 func (UnimplementedForgeServer) AdminListResourcePools(context.Context, *ListResourcePoolsRequest) (*ResourcePools, error) {
 	return nil, status.Error(codes.Unimplemented, "method AdminListResourcePools not implemented")
 }
@@ -8079,6 +8112,9 @@ func (UnimplementedForgeServer) OnDemandMachineValidation(context.Context, *Mach
 }
 func (UnimplementedForgeServer) OnDemandRackMaintenance(context.Context, *RackMaintenanceOnDemandRequest) (*RackMaintenanceOnDemandResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method OnDemandRackMaintenance not implemented")
+}
+func (UnimplementedForgeServer) TerminateRackMaintenance(context.Context, *RackMaintenanceTerminateRequest) (*RackMaintenanceTerminateResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method TerminateRackMaintenance not implemented")
 }
 func (UnimplementedForgeServer) TpmAddCaCert(context.Context, *TpmCaCert) (*TpmCaAddedCaStatus, error) {
 	return nil, status.Error(codes.Unimplemented, "method TpmAddCaCert not implemented")
@@ -11436,6 +11472,24 @@ func _Forge_AdminForceDeleteMachine_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_DecommissionManagedHost_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DecommissionManagedHostRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).DecommissionManagedHost(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_DecommissionManagedHost_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).DecommissionManagedHost(ctx, req.(*DecommissionManagedHostRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Forge_AdminListResourcePools_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListResourcePoolsRequest)
 	if err := dec(in); err != nil {
@@ -14564,6 +14618,24 @@ func _Forge_OnDemandRackMaintenance_Handler(srv interface{}, ctx context.Context
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ForgeServer).OnDemandRackMaintenance(ctx, req.(*RackMaintenanceOnDemandRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_TerminateRackMaintenance_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RackMaintenanceTerminateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).TerminateRackMaintenance(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_TerminateRackMaintenance_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).TerminateRackMaintenance(ctx, req.(*RackMaintenanceTerminateRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -17837,6 +17909,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Forge_AdminForceDeleteMachine_Handler,
 		},
 		{
+			MethodName: "DecommissionManagedHost",
+			Handler:    _Forge_DecommissionManagedHost_Handler,
+		},
+		{
 			MethodName: "AdminListResourcePools",
 			Handler:    _Forge_AdminListResourcePools_Handler,
 		},
@@ -18531,6 +18607,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "OnDemandRackMaintenance",
 			Handler:    _Forge_OnDemandRackMaintenance_Handler,
+		},
+		{
+			MethodName: "TerminateRackMaintenance",
+			Handler:    _Forge_TerminateRackMaintenance_Handler,
 		},
 		{
 			MethodName: "TpmAddCaCert",

@@ -63,7 +63,6 @@ You can test this against a running machine-a-tron cluster by configuring the cl
 
 ```
 mock_bmc_ssh_server = true
-use_single_bmc_mock = false
 interface = "lo"
 ```
 

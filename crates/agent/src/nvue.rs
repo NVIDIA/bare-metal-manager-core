@@ -379,7 +379,10 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             Index: format!("{}", (base_i + 1) * 10),
             VlanID: network.vlan,
             HostIP: network.host_ip.clone(),
-            HostIPv6: network.host_ipv6.clone(),
+            HostIPv6: network
+                .host_ipv6
+                .clone()
+                .filter(|address| !address.is_empty()),
             HostRoute: network.host_route.clone(),
             HostIPv6Route: network.host_ipv6_route.clone(),
             // HasRoutingProfile means this port has an interface override; otherwise templates inherit from the VPC profile.
@@ -438,6 +441,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         if port.HasFmdsGateway {
             fmds_gateway_matched = true;
         }
+        let port_has_neighbor = !port.HostIP.is_empty() || port.HostIPv6.is_some();
 
         let (vpc_peer_ipv4, vpc_peer_ipv6) =
             split_prefixes_by_family(&network.vpc_peer_prefixes, None, 1);
@@ -462,6 +466,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
                 }
                 v.PortPrefixes.extend_from_slice(&port.VpcPrefixes);
                 v.PortPrefixesIpv6.extend_from_slice(&port.VpcPrefixesIpv6);
+                v.HasNeighbors |= port_has_neighbor;
                 v.PortConfigs.push(port.clone());
             })
             .or_insert_with(|| TmplVpc {
@@ -469,6 +474,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
                 L3VNI: l3_vni,
                 HasVrfLoopback: network.tenant_vrf_loopback_ip.is_some(),
                 VrfLoopback: network.tenant_vrf_loopback_ip.unwrap_or_default(),
+                HasNeighbors: port_has_neighbor,
                 PortConfigs: vec![port.clone()],
                 HasVpcPeerPrefixes: !vpc_peer_ipv4.is_empty(),
                 VpcPeerPrefixes: vpc_peer_ipv4,
@@ -1246,8 +1252,10 @@ pub struct L3Domain {
 /// IPv6 configuration for a port.
 #[derive(Clone, Deserialize, Debug)]
 pub struct Ipv6PortConfig {
-    /// DPU-side IPv6 address in CIDR notation (e.g. "2001:db8::0/127").
-    /// For FNN L3 linknets, this is the ::0 end of the /127 (RFC 6164).
+    /// IPv6 value configured on the DPU in CIDR notation (for example,
+    /// "2001:db8::0/127"). Stateful FNN uses the ::0 end of a /127 linknet
+    /// (RFC 6164). SLAAC carries the selected /64 without a concrete host
+    /// address.
     pub gateway_cidr: String,
     /// SVI IP for L2 segments -- the DPU's gateway address on the VLAN.
     pub svi_ip: Option<String>,
@@ -1531,6 +1539,7 @@ struct TmplVpc {
     HasVrfLoopback: bool,
     VrfLoopback: String,
 
+    HasNeighbors: bool,
     PortConfigs: Vec<TmplConfigPort>,
 
     HasVpcPeerPrefixes: bool,
@@ -2328,7 +2337,13 @@ mod tests {
         port.host_ip.clear();
         port.host_route.clear();
         port.gateway_cidr.clear();
+        port.host_ipv6 = Some(String::new());
+        port.host_ipv6_route = None;
         port.svi_ip = None;
+        port.ipv6_port_config
+            .as_mut()
+            .expect("fixture should have an IPv6 port config")
+            .gateway_cidr = "2001:db8::/64".into();
         port.vpc_prefixes
             .retain(|prefix| matches!(prefix.parse::<IpNet>(), Ok(IpNet::V6(_))));
 
@@ -2338,6 +2353,11 @@ mod tests {
             .expect("fixture should have an access VLAN");
         vlan.ip.clear();
         vlan.network.clear();
+        vlan.ipv6_vlan_config
+            .as_mut()
+            .expect("fixture should have an IPv6 VLAN config")
+            .ip
+            .clear();
 
         let output = build(conf).expect("build should succeed");
         let docs: serde_yaml::Value =
@@ -2346,10 +2366,17 @@ mod tests {
 
         assert_eq!(
             yaml_mapping_keys(&set["interface"]["pf0vf0_if"]["ip"]["address"]),
-            address_set(&["2001:db8::0/127"]),
+            address_set(&["2001:db8::/64"]),
         );
-        let neighbors = &set["vrf"]["vpc_100"]["router"]["bgp"]["neighbor"];
-        assert_eq!(yaml_mapping_keys(neighbors), address_set(&["2001:db8::1"]),);
+        let bgp = &set["vrf"]["vpc_100"]["router"]["bgp"];
+        assert!(
+            bgp.get("neighbor").is_none(),
+            "interface with no host address must omit the empty neighbor map"
+        );
+        assert!(
+            !has_null_leaf(&docs),
+            "interface with no host address rendered a null config leaf:\n\n{output}"
+        );
     }
 
     #[test]

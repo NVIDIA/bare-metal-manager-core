@@ -37,7 +37,7 @@ listed in chronological order regardless of this value.\
 \
 *Possible values:*
 
-- primary-id: Sort by the primary id
+- primary-id: Sort by the primary ID
 
 - state: Sort by state
 

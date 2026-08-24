@@ -38,6 +38,8 @@ const (
 	MachineStatusInUse = "InUse"
 	// MachineStatusError indicates that the Machine is in error state
 	MachineStatusError = "Error"
+	// MachineStatusDecommissioning indicates that the Machine is being decommissioned
+	MachineStatusDecommissioning = "Decommissioning"
 	// MachineStatusDecommissioned indicates that the Machine was decommissioned
 	MachineStatusDecommissioned = "Decommissioned"
 	// MachineStatusUnknown indicates that the Machine status cannot be determined
@@ -60,14 +62,15 @@ var (
 	}
 	// MachineStatusMap is a list of valid status for the Machine model
 	MachineStatusMap = map[string]bool{
-		MachineStatusInitializing:   true,
-		MachineStatusReady:          true,
-		MachineStatusReset:          true,
-		MachineStatusMaintenance:    true,
-		MachineStatusInUse:          true,
-		MachineStatusError:          true,
-		MachineStatusDecommissioned: true,
-		MachineStatusUnknown:        true,
+		MachineStatusInitializing:    true,
+		MachineStatusReady:           true,
+		MachineStatusReset:           true,
+		MachineStatusMaintenance:     true,
+		MachineStatusInUse:           true,
+		MachineStatusError:           true,
+		MachineStatusDecommissioning: true,
+		MachineStatusDecommissioned:  true,
+		MachineStatusUnknown:         true,
 	}
 )
 
@@ -522,15 +525,16 @@ func (msd MachineSQLDAO) GetCountByStatus(ctx context.Context, tx *db.Tx, infras
 
 	// creare results map by holding key as status value with total count
 	results := map[string]int{
-		"total":                     0,
-		MachineStatusUnknown:        0,
-		MachineStatusInitializing:   0,
-		MachineStatusReady:          0,
-		MachineStatusInUse:          0,
-		MachineStatusDecommissioned: 0,
-		MachineStatusError:          0,
-		MachineStatusReset:          0,
-		MachineStatusMaintenance:    0,
+		"total":                      0,
+		MachineStatusUnknown:         0,
+		MachineStatusInitializing:    0,
+		MachineStatusReady:           0,
+		MachineStatusInUse:           0,
+		MachineStatusDecommissioning: 0,
+		MachineStatusDecommissioned:  0,
+		MachineStatusError:           0,
+		MachineStatusReset:           0,
+		MachineStatusMaintenance:     0,
 	}
 	if len(statusQueryResults) > 0 {
 		for _, statusMap := range statusQueryResults {

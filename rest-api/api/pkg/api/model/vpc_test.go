@@ -379,29 +379,13 @@ func TestAPIVpcRoutingProfileOverrides_Validate(t *testing.T) {
 			profile: &APIVpcRoutingProfileOverrides{
 				RouteTargetImports: &APIVpcRouteTargets{
 					{ASN: 0, VNI: 0},
-					{ASN: int(math.MaxUint32), VNI: int(math.MaxUint32)},
+					{ASN: math.MaxUint32, VNI: math.MaxUint32},
 				},
 				RouteTargetsOnExports:        &APIVpcRouteTargets{},
 				AcceptedLeaksFromUnderlay:    &[]string{"10.0.0.1/24", "10.0.0.1/24", "2001:db8::1/64"},
 				AllowedAnycastPrefixes:       &[]string{},
 				LeakDefaultRouteFromUnderlay: cutil.GetPtr(false),
 			},
-		},
-		// Negative values cannot be represented by the unsigned protobuf fields.
-		{
-			name: "rejects negative route targets",
-			profile: &APIVpcRoutingProfileOverrides{
-				RouteTargetImports: &APIVpcRouteTargets{{ASN: -1, VNI: 1}},
-			},
-			wantErr: true,
-		},
-		// Values above uint32 would otherwise be truncated during conversion.
-		{
-			name: "rejects overflowing route targets",
-			profile: &APIVpcRoutingProfileOverrides{
-				RouteTargetsOnExports: &APIVpcRouteTargets{{ASN: 1, VNI: int(math.MaxUint32) + 1}},
-			},
-			wantErr: true,
 		},
 		// Malformed prefixes must not reach Core's IpNetwork parser.
 		{
@@ -565,6 +549,7 @@ func TestNewAPIVpc(t *testing.T) {
 		TenantID:                  uuid.New(),
 		SiteID:                    uuid.New(),
 		NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcEthernetVirtualizer),
+		SlaacEnabled:              true,
 		RoutingProfile:            cutil.GetPtr(apiVpcRoutingProfileSiteInternal),
 		ControllerVpcID:           cutil.GetPtr(uuid.New()),
 		// The normal expectation is that Vni and ActiveVni match or
@@ -615,6 +600,7 @@ func TestNewAPIVpc(t *testing.T) {
 				TenantID:                  util.GetUUIDPtrToStrPtr(&dbVpc.TenantID),
 				SiteID:                    util.GetUUIDPtrToStrPtr(&dbVpc.SiteID),
 				NetworkVirtualizationType: dbVpc.NetworkVirtualizationType,
+				SlaacEnabled:              true,
 				RoutingProfile:            cutil.GetPtr(APIVpcRoutingProfileInternal),
 				ControllerVpcID:           util.GetUUIDPtrToStrPtr(dbVpc.ControllerVpcID),
 				RequestedVni:              dbVpc.Vni,
@@ -648,6 +634,7 @@ func TestNewAPIVpc(t *testing.T) {
 				TenantID:                  util.GetUUIDPtrToStrPtr(&dbVpc.TenantID),
 				SiteID:                    util.GetUUIDPtrToStrPtr(&dbVpc.SiteID),
 				NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFNN),
+				SlaacEnabled:              true,
 				RoutingProfile:            cutil.GetPtr(APIVpcRoutingProfileInternal),
 				ControllerVpcID:           util.GetUUIDPtrToStrPtr(dbVpc.ControllerVpcID),
 				RequestedVni:              dbVpc.Vni,
@@ -675,6 +662,7 @@ func TestNewAPIVpc(t *testing.T) {
 			assert.Equal(t, *tt.want.TenantID, *got.TenantID)
 			assert.Equal(t, *tt.want.SiteID, *got.SiteID)
 			assert.Equal(t, tt.want.NetworkVirtualizationType, got.NetworkVirtualizationType)
+			assert.Equal(t, tt.want.SlaacEnabled, got.SlaacEnabled)
 			assert.Equal(t, tt.want.RoutingProfile, got.RoutingProfile)
 			assert.Equal(t, *tt.want.ControllerVpcID, *got.ControllerVpcID)
 			if tt.want.Vni != nil {
@@ -720,7 +708,7 @@ func TestNewAPIVpc(t *testing.T) {
 		privileged := NewAPIVpc(profileVpc, nil, true)
 		require.NotNil(t, privileged.EffectiveRoutingProfile)
 		assert.True(t, privileged.EffectiveRoutingProfile.Internal)
-		assert.Equal(t, 7, privileged.EffectiveRoutingProfile.AccessTier)
+		assert.Equal(t, uint32(7), privileged.EffectiveRoutingProfile.AccessTier)
 		assert.NotNil(t, privileged.EffectiveRoutingProfile.AcceptedLeaksFromUnderlay)
 		assert.Empty(t, privileged.EffectiveRoutingProfile.AcceptedLeaksFromUnderlay)
 		assert.NotNil(t, privileged.EffectiveRoutingProfile.AllowedAnycastPrefixes)
@@ -750,8 +738,10 @@ func TestAPIVpcCreateRequest_ToProto(t *testing.T) {
 			Labels:                    map[string]string{"env": "prod"},
 		}
 		vni := 4242
+		slaacEnabled := true
 		got := APIVpcCreateRequest{
 			Vni:            &vni,
+			SlaacEnabled:   &slaacEnabled,
 			RoutingProfile: cutil.GetPtr(APIVpcRoutingProfileInternal),
 		}.ToProto(vpc)
 
@@ -768,9 +758,14 @@ func TestAPIVpcCreateRequest_ToProto(t *testing.T) {
 		assert.Equal(t, "nsg-1", *got.NetworkSecurityGroupId)
 		require.NotNil(t, got.Vni)
 		assert.Equal(t, uint32(4242), *got.Vni)
+		require.NotNil(t, got.SlaacEnabled)
+		assert.True(t, *got.SlaacEnabled)
 		require.NotNil(t, got.Metadata)
 		assert.Equal(t, "vpc-a", got.Metadata.Name)
 		assert.Equal(t, "primary", got.Metadata.Description)
+		require.Len(t, got.Metadata.Labels, 1)
+		assert.Equal(t, "env", got.Metadata.Labels[0].GetKey())
+		assert.Equal(t, "prod", got.Metadata.Labels[0].GetValue())
 		require.NotNil(t, got.DefaultNvlinkLogicalPartitionId)
 		assert.Equal(t, nvllpID.String(), got.DefaultNvlinkLogicalPartitionId.Value)
 	})
@@ -788,6 +783,7 @@ func TestAPIVpcCreateRequest_ToProto(t *testing.T) {
 		assert.Nil(t, got.NetworkVirtualizationType)
 		assert.Nil(t, got.RoutingProfileType)
 		assert.Nil(t, got.Vni)
+		assert.Nil(t, got.SlaacEnabled)
 		assert.Nil(t, got.NetworkSecurityGroupId)
 		assert.Nil(t, got.DefaultNvlinkLogicalPartitionId)
 	})
@@ -815,6 +811,24 @@ func TestAPIVpcCreateRequest_ToProto(t *testing.T) {
 		assert.False(t, *got.RoutingProfileOverrides.LeakTenantHostRoutesToUnderlay)
 		require.NotNil(t, got.RoutingProfileOverrides.AllowedAnycastPrefixes)
 	})
+}
+
+func TestVpcResponseIncludesDisabledSlaacField(t *testing.T) {
+	vpc := cdbm.Vpc{
+		ID:           uuid.New(),
+		Name:         "non-slaac-vpc",
+		SlaacEnabled: false,
+		Status:       cdbm.VpcStatusReady,
+	}
+
+	data, err := json.Marshal(NewAPIVpc(vpc, nil, false))
+	require.NoError(t, err)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(data, &payload))
+	value, present := payload["slaacEnabled"]
+	require.True(t, present)
+	assert.Equal(t, false, value)
 }
 
 func TestAPIVpcUpdateRequest_ToProto(t *testing.T) {

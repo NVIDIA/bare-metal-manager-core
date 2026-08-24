@@ -664,6 +664,11 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Handler: apiHandler.NewMachinePowerControlHandler(dbSession, scp, cfg),
 		},
 		{
+			Path:    apiPathPrefix + "/machine/:id/decommission",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewDecommissionMachineHandler(dbSession, scp, cfg),
+		},
+		{
 			Path:    apiPathPrefix + "/machine/:id/validation/run",
 			Method:  http.MethodPost,
 			Handler: apiHandler.NewCreateMachineValidationRunHandler(dbSession, scp, cfg),

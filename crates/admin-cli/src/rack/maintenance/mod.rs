@@ -28,6 +28,9 @@ impl Run for Args {
     async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
         match self {
             Args::Start(options) => cmd::on_demand_rack_maintenance(&ctx.api_client, options).await,
+            Args::Terminate(options) => {
+                cmd::terminate_rack_maintenance(&ctx.api_client, options).await
+            }
         }
     }
 }

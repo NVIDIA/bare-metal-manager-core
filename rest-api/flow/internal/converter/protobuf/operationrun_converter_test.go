@@ -83,11 +83,13 @@ func TestOperationRunFromDefaults(t *testing.T) {
 func TestOperationRunToRebuildsConfigurationFromInternalJSON(t *testing.T) {
 	run, err := OperationRunFrom(validCreateRequest())
 	require.NoError(t, err)
+	run.TotalPhases = 2
 
 	got, err := OperationRunTo(run)
 	require.NoError(t, err)
 
 	require.NotNil(t, got.GetConfiguration())
+	require.Equal(t, int32(2), got.GetSummary().GetTotalPhases())
 	require.EqualValues(
 		t,
 		10,
@@ -175,6 +177,18 @@ func TestOperationRunNVLDomainTargetRoundTrip(t *testing.T) {
 		[]pb.ComponentType{pb.ComponentType_COMPONENT_TYPE_COMPUTE},
 		targets.GetTargets()[0].GetComponentTypes(),
 	)
+}
+
+func TestOperationRunSummaryToUsesMaterializedPhaseCount(t *testing.T) {
+	run := &operationrun.OperationRun{
+		TotalPhases: 2,
+		Options:     []byte("{"),
+	}
+
+	got, err := OperationRunSummaryTo(run)
+
+	require.NoError(t, err)
+	require.Equal(t, int32(2), got.GetTotalPhases())
 }
 
 func TestOperationRunStatusConversionIncludesCompletedWithFailures(t *testing.T) {

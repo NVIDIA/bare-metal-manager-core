@@ -474,6 +474,9 @@ rules:
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get", "create", "patch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -638,9 +641,9 @@ enabled = true
 docker_image_pull_secret = "nico-pull-secret"
 ```
 
-`docker_image_pull_secret` is an optional top-level override for the Kubernetes Secret used to pull the NICo (carbide-owned) service images: `dpu_agent`, `dhcp_server`, `fmds`, and `otel`. The `dts` and `doca_hbn` images are never affected by it; they take a pull secret only from their own per-service config — either `[dpf.services.*]` or a deployment's `[dpf.deployments.<name>.services.*]` override.
+`docker_image_pull_secret` is an optional top-level override for the Kubernetes Secret used to pull the NICo (carbide-owned) service images: `dpu_agent`, `dhcp_server`, `fmds`, and `otel`. It is also the fallback pull Secret for BF4 Astra's Weave DHCP agent, Weave flow controller, and Xplane services. The `dts` and `doca_hbn` images are never affected by it; they take a pull secret only from their own per-service config — either `[dpf.services.*]` or a deployment's `[dpf.deployments.<name>.services.*]` override. An extra service's `docker_image_pull_secret` takes precedence over the top-level value.
 
-By default, no mandatory service is given a pull secret, so their images are pulled from a **public registry**. Provide a pull secret only where a private registry needs it. You can use either this top-level override (carbide services only) or a service's own `docker_image_pull_secret` (any service).
+By default, no service is given a pull secret, so images are pulled from a **public registry**. Provide a pull secret only where a private registry needs it. The top-level override applies to the carbide services and is the fallback for Astra extra services; a service's own `docker_image_pull_secret` configures different credentials when needed.
 
 <Tip>
 When referencing a private Secret such as `dpf-pull-secret`, ensure it is configured with a legacy NGC API key for better compatibility.
@@ -667,6 +670,47 @@ docker_image_pull_secret = "dpf-pull-secret"       # optional; omit for a public
 it renders no `imagePullSecrets` for that service (public-registry pulls). Set it to
 a Kubernetes image-pull Secret name when the service is served from a private registry.
 Use `extra_helm_values` for other chart settings.
+
+#### Deployment-specific extra services
+
+`[dpf.extra_services]` configures services that are not mandatory for every
+DPU deployment. Each entry has the same Helm/image fields as a mandatory
+service. NICo selects only the entries supported by a deployment type: the
+Weave DHCP agent, Weave flow controller, and Xplane are used by BF4 Astra;
+they are never deployed for BF3 or generic BF4.
+
+For example, pin the Weave chart and image version for BF4 Astra:
+
+```toml
+[dpf.extra_services.doca_weave_dhcp_agent]
+helm_repo_url    = "oci://nvcr.io/nvstaging/doca"
+helm_chart       = "dpf-weave"
+helm_version     = "v26.8.0-a02ded2e-nightly"
+docker_repo_url  = "nvcr.io/nvstaging/doca/weave-system"
+docker_image_tag = "v26.8.0-a02ded2e-nightly"
+```
+
+Supported keys are `doca_weave_dhcp_agent`, `doca_weave_flow_controller`, and
+`doca_xplane`. Every entry has built-in defaults, so an entry may override
+only the version, repository, or other fields that differ at a site. For a
+private image registry, configure the pull Secret for each service that needs
+different credentials than the top-level `[dpf].docker_image_pull_secret`:
+
+```toml
+[dpf.extra_services.doca_xplane]
+docker_image_pull_secret = "site-dpf-image-pull-secret"
+```
+
+A deployment can override selected fields from its site-wide extra-service
+definition. NICo resolves an extra service as built-in defaults, then the
+site-wide `[dpf.extra_services.<service>]` fields, then the deployment-local
+fields. For example, this leaves the site-wide image configuration in place
+but uses a different Astra chart version:
+
+```toml
+[dpf.deployments.bf4_astra.extra_services.doca_weave_dhcp_agent]
+helm_version = "v26.9.0"
+```
 
 #### Helm value overlays
 
@@ -742,7 +786,7 @@ Per-deployment field reference:
 | `deployment_name` | yes | `nico-deployment-v2` | `DPUDeployment` CR name. |
 | `node_label_key` | yes | `carbide.nvidia.com/controlled.node.v2` | Node-selector label key applied to this deployment's DPUNodes. |
 | `services` | no | inherit `[dpf.services]` | Optional per-deployment mandatory-services override (see below). |
-| `extra_services` | no | Weave DHCP agent, Weave flow controller, and Xplane for BF4 Astra; otherwise empty | Optional replacement definitions for deployment-specific services. |
+| `extra_services` | no | none | Optional deployment-local field overrides for extra services. Only extras supported by this deployment type are used. |
 
 **Per-deployment services override.** By default every deployment inherits the
 top-level `[dpf.services]` mandatory services. A deployment can pin its own
@@ -752,8 +796,9 @@ sub-tables as `[dpf.services]` (`dts`, `doca_hbn`, `dpu_agent`, `dhcp_server`,
 deployment; any service sub-table you omit falls back to its **built-in
 default**, *not* to the top-level `[dpf.services]` value. Fields omitted from a
 configured service also use that service's built-in defaults. The top-level
-`docker_image_pull_secret` still applies on top of the resolved set (every
-service except `dts` and `doca_hbn`).
+`docker_image_pull_secret` still overrides every resolved mandatory service
+except `dts` and `doca_hbn`; it is a fallback rather than an override for
+resolved Astra extra services.
 
 ```toml
 # Pin a BF4-specific HBN chart/image while keeping the other services on defaults.
@@ -766,33 +811,25 @@ docker_repo_url          = "nvcr.io/nvidia/doca/doca_hbn"
 docker_image_tag         = "3.4.0-doca3.4.0"
 ```
 
-BF4 Astra includes three built-in deployment-specific services with no
-`extra_services` TOML required:
+BF4 Astra includes three built-in deployment-specific services. Configure their
+site-wide definitions under `[dpf.extra_services]`; a deployment-local
+`extra_services` entry remains available when one Astra deployment needs a
+different field value:
 
 - `doca_weave_dhcp_agent`
 - `doca_weave_flow_controller`
 - `doca_xplane`
 
 To pin a different chart/image for development without rebuilding NICo, provide
-a complete `DpfServiceConfig` for only the service being replaced:
+only the fields that differ from the site-wide service definition:
 
 ```toml
 [dpf.deployments.bf4_astra.extra_services.doca_weave_dhcp_agent]
-name             = "doca-weave-dhcp-agent"
-helm_repo_url    = "https://helm.ngc.nvidia.com/nvidia/doca"
-helm_chart       = "doca-weave-dhcp-agent"
-helm_version     = "1.0"
-docker_repo_url  = "nvcr.io/nvidia/doca/doca_weave_dhcp_agent"
-docker_image_tag = "3.2.1-doca3.2.1"
+helm_version = "1.0"
 # Optional; omit when the registry needs no Kubernetes pull secret.
 docker_image_pull_secret = "private-doca-pull-secret"
 
 [dpf.deployments.bf4_astra.extra_services.doca_weave_flow_controller]
-name             = "doca-weave-flow-controller"
-helm_repo_url    = "https://helm.ngc.nvidia.com/nvidia/doca"
-helm_chart       = "doca-weave-flow-controller"
-helm_version     = "1.0"
-docker_repo_url  = "nvcr.io/nvidia/doca/doca_weave_flow_controller"
 docker_image_tag = "3.2.1-doca3.2.1"
 ```
 
@@ -817,14 +854,15 @@ Field reference (all under `[dpf]`):
 | TOML key | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `enabled` | bool | `false` | Master switch. Must be `true` to use DPF-based provisioning. |
-| `docker_image_pull_secret` | string (optional) | none | Top-level override for the image-pull Secret of the carbide services (`dpu_agent`, `dhcp_server`, `fmds`, `otel`); never applied to `dts`/`doca_hbn`. Unset by default: services pull from a public registry (no `imagePullSecrets`) unless a secret is given here or per-service. |
+| `docker_image_pull_secret` | string (optional) | none | Top-level override for the image-pull Secret of the carbide services (`dpu_agent`, `dhcp_server`, `fmds`, `otel`) and fallback for Astra extra services (Weave DHCP, Weave flow controller, Xplane); never applied to `dts`/`doca_hbn`. An extra service's own secret takes precedence. Unset by default: services pull from a public registry (no `imagePullSecrets`) unless a secret is given here or per-service. |
 | `dpu_agent_bootstrap_ca` | tagged table | `source = "legacy_download"` | Selects legacy download or mounted-object bootstrap trust for the DPU agent. |
 | `services.<svc>` | table | per-service defaults | Helm/image overrides for each mandatory DPUService. |
 | `deployments.bf3` | table | BF3 defaults | BF3 DPUDeployment config; always active. |
 | `deployments.bf4_generic` | table | — | BF4 (generic) DPUDeployment config; opt-in, active only when present. |
 | `deployments.bf4_astra` | table | — | BF4 Astra DPUDeployment config; opt-in, active only when present. |
 | `deployments.<name>.services.<svc>` | table | inherit `[dpf.services]` | Optional per-deployment mandatory-service override. |
-| `deployments.<name>.extra_services.<svc>` | table | Weave DHCP agent, Weave flow controller, and Xplane for BF4 Astra; otherwise empty | Complete replacement for one deployment-specific service. Supported keys are `doca_weave_dhcp_agent`, `doca_weave_flow_controller`, and `doca_xplane`. |
+| `extra_services.<svc>` | table | per-service defaults | Site-wide Helm/image overrides for deployment-specific services. Only services supported by the deployment type are rendered. |
+| `deployments.<name>.extra_services.<svc>` | table | none | Deployment-local field overrides for one deployment-specific service. Supported keys are `doca_weave_dhcp_agent`, `doca_weave_flow_controller`, and `doca_xplane`; unsupported services are ignored for that deployment type. |
 | `proxy.https_proxy` | string | — | HTTPS proxy URL for DPU image pulls (see section 3.5). |
 | `proxy.no_proxy` | list of strings | `[]` | Hosts/CIDRs that must bypass the proxy. |
 

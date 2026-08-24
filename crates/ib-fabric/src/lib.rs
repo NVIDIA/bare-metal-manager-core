@@ -38,13 +38,15 @@ use metrics::{
     IbMonitorMachineStatusObservationFailed, IbMonitorPkeyReconciliationSkipped,
     IbMonitorSkuInactivePreloadFailed, UfmGuidPkeyChangeFinished, UfmOperation,
 };
-use model::ib::{IBNetwork, IBPort, IBPortMembership, IBPortState};
+use model::ib::{IBNetwork, IBPort, IBPortMembership, IBPortState, IbMembership};
 use model::ib_partition::{IBPartition, IbPartitionSearchFilter, PartitionKey};
 use model::machine::infiniband::{
     MachineIbInterfaceStatusObservation, MachineInfinibandStatusObservation,
 };
 use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot};
+use model::machine::{
+    HostHealthConfig, LoadSnapshotOptions, ManagedHostState, ManagedHostStateSnapshot,
+};
 use sqlx::{PgConnection, PgPool};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
@@ -309,6 +311,9 @@ impl IbFabricMonitor {
                 HashMap::new()
             });
 
+        let machine_ids_by_guid = machine_ids_by_ib_guid(&snapshots);
+        let current_fabrics_by_guid = current_fabrics_by_ib_guid(&fabric_data);
+        let memberships_in_ufm = memberships_in_fabric_data(&fabric_data);
         let mut reports = Vec::new();
         for (machine, snapshot) in &snapshots {
             let mut snapshot_clone = snapshot.clone();
@@ -323,9 +328,7 @@ impl IbFabricMonitor {
             )
             .await
             {
-                Ok(report) => {
-                    reports.push(report);
-                }
+                Ok(report) => reports.push(report),
                 Err(e) => {
                     emit(IbMonitorMachineStatusObservationFailed::new(
                         e.to_string(),
@@ -335,7 +338,34 @@ impl IbFabricMonitor {
             }
         }
 
-        let num_changes = apply_guid_pkey_changes(
+        // Query only retired records that match a membership UFM reports or a
+        // membership this pass may add. Historical rows are not scanned into
+        // the monitor.
+        let memberships_to_check = memberships_in_ufm
+            .iter()
+            .chain(reports.iter().flat_map(|report| &report.needed_memberships))
+            .cloned()
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        // Stop this pass if the lookup fails. Continuing without these records
+        // could restore a membership that must remain absent.
+        let retired_memberships = db::retired_ib_membership::find_recorded_candidates(
+            &self.db_pool,
+            &memberships_to_check,
+        )
+        .await?;
+        let retired_membership_changes = self
+            .reconcile_retired_memberships(
+                &mut fabric_clients,
+                &memberships_in_ufm,
+                &machine_ids_by_guid,
+                &current_fabrics_by_guid,
+                retired_memberships,
+                &mut reports,
+            )
+            .await?;
+        let membership_changes = apply_guid_pkey_changes(
             self.fabric_manager.as_ref(),
             &mut fabric_clients,
             &self.fabrics,
@@ -345,7 +375,277 @@ impl IbFabricMonitor {
         )
         .await?;
 
+        Ok(retired_membership_changes + membership_changes)
+    }
+
+    /// `reconcile_retired_memberships` removes memberships that should stay
+    /// retired and suppresses changes from stale `Machine` snapshots. A locked
+    /// reread leaves exact live reuse alone for this pass.
+    async fn reconcile_retired_memberships(
+        &self,
+        fabric_clients: &mut HashMap<String, Arc<dyn IBFabric>>,
+        memberships_in_ufm: &HashSet<IbMembership>,
+        machine_ids_by_guid: &HashMap<String, Option<MachineId>>,
+        current_fabrics_by_guid: &HashMap<String, Option<String>>,
+        retired_memberships: Vec<IbMembership>,
+        reports: &mut [MachineIbStatusEvaluation],
+    ) -> IbResult<usize> {
+        let mut num_changes = 0;
+        let mut memberships_to_suppress = Vec::new();
+        let mut live_memberships = Vec::new();
+
+        for retired_membership in retired_memberships {
+            let Some(fabric_definition) = self.fabrics.get(&retired_membership.fabric) else {
+                tracing::debug!(
+                    fabric = %retired_membership.fabric,
+                    guid = %retired_membership.guid,
+                    pkey = %retired_membership.pkey,
+                    "Skipping retired membership for unconfigured fabric"
+                );
+                memberships_to_suppress.push(retired_membership);
+                continue;
+            };
+            if !is_pkey_in_managed_range(retired_membership.pkey, fabric_definition) {
+                tracing::debug!(
+                    fabric = %retired_membership.fabric,
+                    guid = %retired_membership.guid,
+                    pkey = %retired_membership.pkey,
+                    "Skipping retired membership outside managed PKey range"
+                );
+                memberships_to_suppress.push(retired_membership);
+                continue;
+            }
+
+            if let Some(duplicate_ownership) = suppress_duplicate_ownership_changes(
+                current_fabrics_by_guid,
+                machine_ids_by_guid,
+                &retired_membership,
+                reports,
+            ) {
+                let skipped = match duplicate_ownership {
+                    DuplicateOwnership::Fabric => {
+                        IbMonitorPkeyReconciliationSkipped::DuplicateFabricOwnership {
+                            fabric: retired_membership.fabric.clone(),
+                            guid: retired_membership.guid.clone(),
+                            pkey: retired_membership.pkey.to_string(),
+                        }
+                    }
+                    DuplicateOwnership::Machine => {
+                        IbMonitorPkeyReconciliationSkipped::DuplicateMachineOwnership {
+                            fabric: retired_membership.fabric.clone(),
+                            guid: retired_membership.guid.clone(),
+                            pkey: retired_membership.pkey.to_string(),
+                        }
+                    }
+                };
+                emit(skipped);
+                continue;
+            }
+
+            // A unique report from another fabric proves that the earlier
+            // `Machine` snapshot no longer owns this membership. Missing port
+            // data still gets the locked database reread.
+            let known_current_fabric_mismatch = current_fabrics_by_guid
+                .get(&retired_membership.guid)
+                .and_then(|fabric| fabric.as_deref())
+                .is_some_and(|fabric| fabric != retired_membership.fabric.as_str());
+            let current_state_still_needs_membership = if known_current_fabric_mismatch {
+                false
+            } else if let Some(Some(machine_id)) = machine_ids_by_guid.get(&retired_membership.guid)
+            {
+                match self
+                    .membership_is_still_needed(*machine_id, &retired_membership)
+                    .await
+                {
+                    Ok(still_needed) => still_needed,
+                    Err(error) => {
+                        emit(
+                            IbMonitorPkeyReconciliationSkipped::MembershipStateLookupFailed {
+                                fabric: retired_membership.fabric.clone(),
+                                guid: retired_membership.guid.clone(),
+                                pkey: retired_membership.pkey.to_string(),
+                                machine_id: machine_id.to_string(),
+                                error: error.to_string(),
+                            },
+                        );
+                        // The monitor cannot tell whether the `Instance` still
+                        // needs this membership. Suppress both its pending bind
+                        // and unbind for this pass.
+                        memberships_to_suppress.push(retired_membership);
+                        continue;
+                    }
+                }
+            } else {
+                false
+            };
+            // Check live reuse before UFM presence. A live membership that UFM
+            // has not bound yet must keep its pending bind.
+            if current_state_still_needs_membership {
+                live_memberships.push(retired_membership);
+                continue;
+            }
+
+            // Keep the record after UFM no longer reports the membership. It
+            // may be needed to remove an older bind that finishes later.
+            if !memberships_in_ufm.contains(&retired_membership) {
+                memberships_to_suppress.push(retired_membership);
+                continue;
+            }
+
+            let conn = client_for_fabric(
+                self.fabric_manager.as_ref(),
+                fabric_clients,
+                &retired_membership.fabric,
+            )
+            .await?;
+            let result = conn
+                .unbind_ib_ports(
+                    retired_membership.pkey.into(),
+                    vec![retired_membership.guid.clone()],
+                )
+                .await;
+            UfmGuidPkeyChangeFinished::emit(
+                &retired_membership.fabric,
+                UfmOperation::UnbindGuidFromPkey,
+                &retired_membership.guid,
+                retired_membership.pkey,
+                &result,
+            );
+            if result.is_ok() {
+                num_changes += 1;
+            }
+            memberships_to_suppress.push(retired_membership);
+        }
+
+        let memberships_to_suppress = memberships_to_suppress.into_iter().collect::<HashSet<_>>();
+        let live_memberships = live_memberships.into_iter().collect::<HashSet<_>>();
+
+        // The locked reread is newer than each report's original `Machine`
+        // snapshot. Keep a pending bind when the current `Instance` still needs
+        // that exact membership. Drop unbinds from the older snapshot for live
+        // memberships and for retired memberships already handled above.
+        for report in reports {
+            report.missing_guid_pkeys.retain(|(fabric, guid, pkey)| {
+                !memberships_to_suppress.contains(&IbMembership {
+                    fabric: fabric.clone(),
+                    pkey: *pkey,
+                    guid: guid.clone(),
+                })
+            });
+            report.unexpected_guid_pkeys.retain(|(fabric, guid, pkey)| {
+                let membership = IbMembership {
+                    fabric: fabric.clone(),
+                    pkey: *pkey,
+                    guid: guid.clone(),
+                };
+                !live_memberships.contains(&membership)
+                    && !memberships_to_suppress.contains(&membership)
+            });
+        }
+
         Ok(num_changes)
+    }
+
+    /// `membership_is_still_needed` checks current `Machine` and `Instance`
+    /// state after waiting for the `Machine` update used by allocation and
+    /// `force-delete` operations. UFM work remains outside this transaction. A
+    /// later monitor pass corrects a UFM change that finishes after this check.
+    async fn membership_is_still_needed(
+        &self,
+        machine_id: MachineId,
+        membership: &IbMembership,
+    ) -> IbResult<bool> {
+        let mut txn = self
+            .db_pool
+            .begin()
+            .await
+            .map_err(|e| DatabaseError::new("begin retired IB membership transaction", e))?;
+
+        let machine_exists = db::machine::find_one(
+            txn.as_mut(),
+            &machine_id,
+            MachineSearchConfig {
+                for_update: true,
+                ..Default::default()
+            },
+        )
+        .await?
+        .is_some();
+        if !machine_exists {
+            txn.commit()
+                .await
+                .map_err(|e| DatabaseError::new("commit retired IB membership transaction", e))?;
+            return Ok(false);
+        }
+
+        // After another transaction finishes its `Machine` update, READ
+        // COMMITTED gives this query a new snapshot that includes that change.
+        let snapshot = db::managed_host::load_snapshot(
+            txn.as_mut(),
+            &machine_id,
+            LoadSnapshotOptions::default().with_host_health(self.host_health),
+        )
+        .await?;
+        let membership_may_be_reused = snapshot.as_ref().is_some_and(|snapshot| {
+            // During `ForceDeletion`, the state controller no longer manages
+            // the `Machine`, so later state transitions may never clear a
+            // stale membership. Keep it retired even while the old `Instance`
+            // configuration remains visible. Other states require the current
+            // hardware and fabric observation to identify the exact membership
+            // before it can be reused.
+            !matches!(snapshot.managed_state, ManagedHostState::ForceDeletion)
+                && snapshot
+                    .host_snapshot
+                    .status
+                    .hardware_info
+                    .as_ref()
+                    .is_some_and(|hardware_info| {
+                        hardware_info
+                            .infiniband_interfaces
+                            .iter()
+                            .any(|interface| interface.guid == membership.guid)
+                    })
+                && snapshot
+                    .host_snapshot
+                    .status
+                    .infiniband_status_observation
+                    .as_ref()
+                    .into_iter()
+                    .flat_map(|observation| &observation.ib_interfaces)
+                    .any(|interface| {
+                        interface.guid == membership.guid
+                            && interface.fabric_id == membership.fabric
+                    })
+        });
+        let mut still_live = false;
+        if let Some(instance) = snapshot
+            .as_ref()
+            .filter(|snapshot| membership_may_be_reused && !snapshot.use_admin_network())
+            .and_then(|snapshot| snapshot.instance.as_ref())
+            .filter(|instance| instance.deleted.is_none())
+        {
+            for interface in &instance.config.infiniband.ib_interfaces {
+                if interface.guid.as_deref() != Some(membership.guid.as_str()) {
+                    continue;
+                }
+                let pkey = db::ib_partition::find_pkey_by_partition_id(
+                    txn.as_mut(),
+                    interface.ib_partition_id,
+                )
+                .await?
+                .and_then(|pkey| PartitionKey::try_from(pkey).ok());
+                if pkey == Some(membership.pkey) {
+                    still_live = true;
+                    break;
+                }
+            }
+        }
+
+        txn.commit()
+            .await
+            .map_err(|e| DatabaseError::new("commit retired IB membership transaction", e))?;
+
+        Ok(still_live)
     }
 
     async fn get_all_snapshots(
@@ -371,6 +671,55 @@ impl IbFabricMonitor {
         )
         .await
         .map_err(Into::into)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DuplicateOwnership {
+    Fabric,
+    Machine,
+}
+
+/// Suppresses pending bind and unbind changes for a GUID and PKey on every
+/// fabric when more than one fabric or `Machine` claims the GUID. Returns the
+/// duplicate owner kind so the caller can emit the matching Event.
+fn suppress_duplicate_ownership_changes(
+    current_fabrics_by_guid: &HashMap<String, Option<String>>,
+    machine_ids_by_guid: &HashMap<String, Option<MachineId>>,
+    membership: &IbMembership,
+    reports: &mut [MachineIbStatusEvaluation],
+) -> Option<DuplicateOwnership> {
+    let duplicate_ownership = if matches!(current_fabrics_by_guid.get(&membership.guid), Some(None))
+    {
+        DuplicateOwnership::Fabric
+    } else if matches!(machine_ids_by_guid.get(&membership.guid), Some(None)) {
+        DuplicateOwnership::Machine
+    } else {
+        return None;
+    };
+
+    suppress_membership_changes_across_fabrics(reports, &membership.guid, membership.pkey);
+    Some(duplicate_ownership)
+}
+
+/// Removes pending bind and unbind changes for a GUID and PKey on every
+/// fabric.
+fn suppress_membership_changes_across_fabrics(
+    reports: &mut [MachineIbStatusEvaluation],
+    guid: &str,
+    pkey: PartitionKey,
+) {
+    for report in reports {
+        report
+            .missing_guid_pkeys
+            .retain(|(_, candidate_guid, candidate_pkey)| {
+                candidate_guid != guid || *candidate_pkey != pkey
+            });
+        report
+            .unexpected_guid_pkeys
+            .retain(|(_, candidate_guid, candidate_pkey)| {
+                candidate_guid != guid || *candidate_pkey != pkey
+            });
     }
 }
 
@@ -533,6 +882,101 @@ impl FabricData {
 
         self.partition_ids_by_guid = Some(partitions_by_guid);
     }
+}
+
+/// `machine_ids_by_ib_guid` maps hardware GUIDs from the original monitor
+/// snapshot to the `Machine` that can be locked and read again. A `None` value
+/// means that more than one `Machine` claims the GUID.
+fn machine_ids_by_ib_guid(
+    snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
+) -> HashMap<String, Option<MachineId>> {
+    unique_machine_ids_by_ib_guid(
+        snapshots
+            .iter()
+            .filter_map(|(machine_id, snapshot)| {
+                snapshot
+                    .host_snapshot
+                    .status
+                    .hardware_info
+                    .as_ref()
+                    .map(|hardware_info| (machine_id, &hardware_info.infiniband_interfaces))
+            })
+            .flat_map(|(machine_id, interfaces)| {
+                interfaces
+                    .iter()
+                    .map(|interface| (interface.guid.clone(), *machine_id))
+            }),
+    )
+}
+
+/// `unique_machine_ids_by_ib_guid` keeps unique GUID owners and marks duplicate
+/// ownership by distinct machines as `None`.
+fn unique_machine_ids_by_ib_guid(
+    guid_owners: impl IntoIterator<Item = (String, MachineId)>,
+) -> HashMap<String, Option<MachineId>> {
+    let mut machine_ids_by_guid = HashMap::new();
+    for (guid, machine_id) in guid_owners {
+        machine_ids_by_guid
+            .entry(guid)
+            .and_modify(|current_machine_id: &mut Option<MachineId>| {
+                if *current_machine_id != Some(machine_id) {
+                    *current_machine_id = None;
+                }
+            })
+            .or_insert(Some(machine_id));
+    }
+    machine_ids_by_guid
+}
+
+/// `current_fabrics_by_ib_guid` maps each GUID in the available UFM port data
+/// to its current fabric. A `None` value means more than one available fabric
+/// reported the same GUID. Fabrics with unavailable port data make no claim.
+fn current_fabrics_by_ib_guid(
+    data_by_fabric: &HashMap<String, FabricData>,
+) -> HashMap<String, Option<String>> {
+    let mut fabrics_by_guid = HashMap::new();
+    for (fabric, data) in data_by_fabric {
+        let Some(ports_by_guid) = data.ports_by_guid.as_ref() else {
+            continue;
+        };
+        for guid in ports_by_guid.keys() {
+            fabrics_by_guid
+                .entry(guid.clone())
+                .and_modify(|current_fabric: &mut Option<String>| {
+                    if current_fabric.as_deref() != Some(fabric) {
+                        *current_fabric = None;
+                    }
+                })
+                .or_insert_with(|| Some(fabric.clone()));
+        }
+    }
+    fabrics_by_guid
+}
+
+/// `memberships_in_fabric_data` builds the exact memberships UFM reported for
+/// this monitor pass.
+fn memberships_in_fabric_data(
+    data_by_fabric: &HashMap<String, FabricData>,
+) -> HashSet<IbMembership> {
+    let mut memberships = HashSet::new();
+    for (fabric, data) in data_by_fabric {
+        let Some(partitions_by_guid) = data.partition_ids_by_guid.as_ref() else {
+            continue;
+        };
+        for (guid, pkeys) in partitions_by_guid {
+            for pkey in pkeys {
+                let Ok(pkey) = PartitionKey::try_from(*pkey) else {
+                    continue;
+                };
+                memberships.insert(IbMembership {
+                    fabric: fabric.clone(),
+                    pkey,
+                    guid: guid.clone(),
+                });
+            }
+        }
+    }
+    memberships
 }
 
 /// Return port information within a single IB fabric
@@ -737,13 +1181,16 @@ async fn get_tenant_partitions(
     Ok(result)
 }
 
-/// These are the GUID/Pkey combinations where changes are required
+/// `MachineIbStatusEvaluation` holds missing and unexpected PKey changes,
+/// unknown PKey observations, down ports, and expected memberships that
+/// retirement reconciliation must protect from stale changes.
 #[derive(Debug, Clone, Default)]
 struct MachineIbStatusEvaluation {
     missing_guid_pkeys: Vec<(String, String, PartitionKey)>,
     unexpected_guid_pkeys: Vec<(String, String, PartitionKey)>,
     unknown_guid_pkeys: Vec<(String, String, PartitionKey)>,
     down_port_guids: Vec<String>,
+    needed_memberships: Vec<IbMembership>,
 }
 
 async fn record_machine_infiniband_status_observation(
@@ -883,9 +1330,17 @@ async fn record_machine_infiniband_status_observation(
 
         let (fabric_id, lid, associated_pkeys, associated_partition_ids) = match found_port_data {
             Some((fabric_id, fabric_data, port_data)) => {
-                // Port was found. Now try to look up associated pkeys
-                // If there's no associated pkeys found, don't return any potentially invalid or empty
-                // pkey list. Instead opt for a safe result and return `None` (we don't know).
+                if let Some(expected_pkey) = expected_pkeys.get(guid) {
+                    result.needed_memberships.push(IbMembership {
+                        fabric: fabric_id.to_string(),
+                        pkey: *expected_pkey,
+                        guid: guid.to_string(),
+                    });
+                }
+
+                // Look up the found port's associated PKeys. If UFM did not
+                // return partition data, preserve that uncertainty as `None`
+                // instead of treating it as an empty membership list.
                 let associated_pkeys = match fabric_data.partition_ids_by_guid.as_ref() {
                     Some(partition_ids_by_guid) => match partition_ids_by_guid.get(guid) {
                         Some(partition_ids) => {
@@ -1339,8 +1794,230 @@ fn is_pkey_in_managed_range(pkey: PartitionKey, fabric_definition: &IbFabricDefi
 #[cfg(test)]
 mod tests {
     use carbide_test_support::value_scenarios;
+    use carbide_uuid::machine::{MachineIdSource, MachineType};
 
     use super::*;
+
+    /// `fabric_data_with_ports` builds a complete UFM port inventory for the
+    /// fabric ownership tests.
+    fn fabric_data_with_ports(guids: &[&str]) -> FabricData {
+        FabricData {
+            ports_by_guid: Some(
+                guids
+                    .iter()
+                    .enumerate()
+                    .map(|(index, guid)| {
+                        (
+                            (*guid).to_string(),
+                            IBPort {
+                                name: (*guid).to_string(),
+                                guid: (*guid).to_string(),
+                                lid: index as i32 + 1,
+                                state: Some(IBPortState::Active),
+                            },
+                        )
+                    })
+                    .collect(),
+            ),
+            ..Default::default()
+        }
+    }
+
+    /// `current_fabric_mapping_uses_available_unique_port_ownership` verifies
+    /// that unavailable fabric data does not erase a known GUID location.
+    #[test]
+    fn current_fabric_mapping_uses_available_unique_port_ownership() {
+        let guid = "moved-guid";
+        value_scenarios!(
+            run = |data_by_fabric: HashMap<String, FabricData>| {
+                current_fabrics_by_ib_guid(&data_by_fabric)
+                    .get(guid)
+                    .cloned()
+            };
+            "one available fabric claims the GUID" {
+                HashMap::from([
+                    (
+                        "fabric-a".to_string(),
+                        FabricData {
+                            ports_by_guid: Some(HashMap::new()),
+                            ..Default::default()
+                        },
+                    ),
+                    ("fabric-b".to_string(), fabric_data_with_ports(&[guid])),
+                ]) => Some(Some("fabric-b".to_string())),
+            }
+
+            "two available fabrics claim the GUID" {
+                HashMap::from([
+                    ("fabric-a".to_string(), fabric_data_with_ports(&[guid])),
+                    ("fabric-b".to_string(), fabric_data_with_ports(&[guid])),
+                ]) => Some(None),
+            }
+
+            "retired fabric data is unavailable" {
+                HashMap::from([
+                    ("fabric-a".to_string(), FabricData::default()),
+                    ("fabric-b".to_string(), fabric_data_with_ports(&[guid])),
+                ]) => Some(Some("fabric-b".to_string())),
+            }
+
+            "unrelated fabric data is unavailable" {
+                HashMap::from([
+                    ("fabric-a".to_string(), fabric_data_with_ports(&[guid])),
+                    ("fabric-b".to_string(), FabricData::default()),
+                ]) => Some(Some("fabric-a".to_string())),
+            }
+
+            "no available fabric claims the GUID" {
+                HashMap::from([(
+                    "fabric-a".to_string(),
+                    FabricData {
+                        ports_by_guid: None,
+                        partition_ids_by_guid: Some(HashMap::from([(
+                            guid.to_string(),
+                            HashSet::from([50]),
+                        )])),
+                        ..Default::default()
+                    },
+                )]) => None,
+            }
+        );
+    }
+
+    /// `duplicate_ownership_suppression_applies_to_every_reported_fabric`
+    /// verifies that both production duplicate ownership branches suppress
+    /// the same GUID and PKey on a fabric other than the retired membership.
+    #[test]
+    fn duplicate_ownership_suppression_applies_to_every_reported_fabric() {
+        let pkey = PartitionKey::try_from(0x101).expect("valid PKey");
+        let other_pkey = PartitionKey::try_from(0x102).expect("valid PKey");
+        let duplicate_guid = "duplicate-guid";
+        let retained_changes = vec![
+            (
+                "fabric-b".to_string(),
+                duplicate_guid.to_string(),
+                other_pkey,
+            ),
+            ("fabric-b".to_string(), "other-guid".to_string(), pkey),
+        ];
+        let unchanged_missing = [
+            vec![("fabric-b".to_string(), duplicate_guid.to_string(), pkey)],
+            retained_changes.clone(),
+        ]
+        .concat();
+        let unchanged_unexpected = [
+            vec![
+                ("fabric-a".to_string(), duplicate_guid.to_string(), pkey),
+                ("fabric-b".to_string(), duplicate_guid.to_string(), pkey),
+            ],
+            retained_changes.clone(),
+        ]
+        .concat();
+        value_scenarios!(
+            run = |(current_fabrics_by_guid, machine_ids_by_guid): (
+                HashMap<String, Option<String>>,
+                HashMap<String, Option<MachineId>>,
+            )| {
+                let mut reports = vec![MachineIbStatusEvaluation {
+                    missing_guid_pkeys: unchanged_missing.clone(),
+                    unexpected_guid_pkeys: unchanged_unexpected.clone(),
+                    ..Default::default()
+                }];
+                let duplicate_ownership = suppress_duplicate_ownership_changes(
+                    &current_fabrics_by_guid,
+                    &machine_ids_by_guid,
+                    &IbMembership {
+                        fabric: "fabric-a".to_string(),
+                        pkey,
+                        guid: duplicate_guid.to_string(),
+                    },
+                    &mut reports,
+                );
+                (
+                    duplicate_ownership,
+                    reports[0].missing_guid_pkeys.clone(),
+                    reports[0].unexpected_guid_pkeys.clone(),
+                )
+            };
+            "duplicate fabric ownership" {
+                (
+                    HashMap::from([(duplicate_guid.to_string(), None)]),
+                    HashMap::new(),
+                ) => (
+                    Some(DuplicateOwnership::Fabric),
+                    retained_changes.clone(),
+                    retained_changes.clone(),
+                ),
+            }
+            "duplicate Machine ownership" {
+                (
+                    HashMap::from([(
+                        duplicate_guid.to_string(),
+                        Some("fabric-b".to_string()),
+                    )]),
+                    HashMap::from([(duplicate_guid.to_string(), None)]),
+                ) => (
+                    Some(DuplicateOwnership::Machine),
+                    retained_changes.clone(),
+                    retained_changes.clone(),
+                ),
+            }
+            "fabric ownership takes precedence when both are duplicate" {
+                (
+                    HashMap::from([(duplicate_guid.to_string(), None)]),
+                    HashMap::from([(duplicate_guid.to_string(), None)]),
+                ) => (
+                    Some(DuplicateOwnership::Fabric),
+                    retained_changes.clone(),
+                    retained_changes,
+                ),
+            }
+            "unique ownership leaves changes alone" {
+                (
+                    HashMap::from([(
+                        duplicate_guid.to_string(),
+                        Some("fabric-b".to_string()),
+                    )]),
+                    HashMap::new(),
+                ) => (
+                    None,
+                    unchanged_missing.clone(),
+                    unchanged_unexpected.clone(),
+                ),
+            }
+        );
+    }
+
+    /// `machine_guid_mapping_rejects_duplicate_owners` verifies that a repeated
+    /// claim from one `Machine` stays unique while a second owner prevents
+    /// either one from being selected.
+    #[test]
+    fn machine_guid_mapping_rejects_duplicate_owners() {
+        let first = MachineId::new(MachineIdSource::Tpm, [1; 32], MachineType::Host);
+        let second = MachineId::new(MachineIdSource::Tpm, [2; 32], MachineType::Host);
+        value_scenarios!(
+            run = |machine_ids: Vec<MachineId>| {
+                unique_machine_ids_by_ib_guid(
+                    machine_ids
+                        .into_iter()
+                        .map(|machine_id| ("guid".to_string(), machine_id)),
+                )
+                .get("guid")
+                .copied()
+            };
+            "one Machine claims the GUID" {
+                vec![first] => Some(Some(first)),
+            }
+
+            "one Machine repeats its claim" {
+                vec![first, first] => Some(Some(first)),
+            }
+
+            "two Machines claim the GUID" {
+                vec![first, second] => Some(None),
+            }
+        );
+    }
 
     #[test]
     fn parses_numbers() {
@@ -1943,6 +2620,7 @@ mod tests {
                 ],
                 unknown_guid_pkeys: vec![],
                 down_port_guids: vec![],
+                needed_memberships: vec![],
             }]
         }
 

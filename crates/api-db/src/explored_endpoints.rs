@@ -326,6 +326,7 @@ pub async fn find_all_by_ip(
 pub struct ExploredBmcMetadata {
     pub vendor: Option<String>,
     pub ipmi_port: Option<u16>,
+    pub serial_console_ssh_port: Option<u16>,
 }
 
 pub async fn lookup_bmc_metadata_by_ip(
@@ -333,23 +334,26 @@ pub async fn lookup_bmc_metadata_by_ip(
     db_reader: impl DbReader<'_>,
 ) -> Result<ExploredBmcMetadata, DatabaseError> {
     let query = "SELECT exploration_report ->> 'Vendor' AS vendor, \
-                 exploration_report #>> '{Managers,0,IpmiPort}' AS ipmi_port \
+                 exploration_report #>> '{Managers,0,IpmiPort}' AS ipmi_port, \
+                 exploration_report #>> '{Systems,0,SerialConsoleSshPort}' AS serial_console_ssh_port \
                  FROM explored_endpoints WHERE address = $1";
 
-    let metadata: Option<(Option<String>, Option<String>)> = sqlx::query_as(query)
+    let metadata: Option<(Option<String>, Option<String>, Option<String>)> = sqlx::query_as(query)
         .bind(address)
         .fetch_optional(db_reader)
         .await
         .map_err(|e| DatabaseError::new("explored_endpoints lookup_bmc_metadata_by_ip", e))?;
 
-    Ok(
-        metadata.map_or_else(ExploredBmcMetadata::default, |(vendor, ipmi_port)| {
-            ExploredBmcMetadata {
-                vendor,
-                ipmi_port: ipmi_port.and_then(|port| port.parse().ok()),
-            }
-        }),
-    )
+    Ok(metadata.map_or_else(
+        ExploredBmcMetadata::default,
+        |(vendor, ipmi_port, serial_console_ssh_port)| ExploredBmcMetadata {
+            vendor,
+            ipmi_port: ipmi_port.and_then(|port| port.parse().ok()),
+            serial_console_ssh_port: serial_console_ssh_port
+                .and_then(|port| port.parse().ok())
+                .filter(|port| *port != 0),
+        },
+    ))
 }
 
 /// Updates the explored information about a node

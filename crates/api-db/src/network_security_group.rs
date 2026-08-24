@@ -241,8 +241,10 @@ pub async fn get_propagation_status(
     let mut vpc_query_builder = sqlx::QueryBuilder::new(
         // Querying for VPC status is slightly more complicated because
         // instance records don't have a vpc_id column, so we need to
-        // start on instances and then trace the VPC through the allocated
-        // address of each interface.
+        // start on instances and resolve the VPC through each persisted
+        // interface. Prefer its resolved vpc_id and fall back to the
+        // attached segment for legacy configurations. Addressless SLAAC
+        // interfaces deliberately have no instance_addresses row.
         // This does seem like it might have the upside of accounting for
         // a future case where a machine has multiple DPUs within separate
         // VPCs.
@@ -279,12 +281,14 @@ pub async fn get_propagation_status(
             JOIN machines dpu ON dpu.id = mi.attached_dpu_machine_id
             /* network_status_observation is stored in dpu now. */
             LEFT OUTER JOIN jsonb_array_elements(dpu.network_status_observation #>'{instance_network_observation,interfaces}') ifco on ifco->>'internal_uuid' = ifc->>'internal_uuid'
-            JOIN (
-                SELECT DISTINCT instance_id, segment_id, vpc_id
-                FROM instance_addresses
-                WHERE vpc_id IS NOT NULL
-            ) ia ON ia.instance_id = i.id AND ia.segment_id = (ifc->>'network_segment_id')::uuid
-            JOIN vpcs v on v.id=ia.vpc_id
+            JOIN vpcs v ON v.id = COALESCE(
+                (ifc->>'vpc_id')::uuid,
+                (
+                    SELECT network_segments.vpc_id
+                    FROM network_segments
+                    WHERE network_segments.id = (ifc->>'network_segment_id')::uuid
+                )
+            )
             JOIN network_security_groups nsg on nsg.id=v.network_security_group_id
             WHERE i.network_security_group_id IS NULL
             AND i.deleted IS NULL"

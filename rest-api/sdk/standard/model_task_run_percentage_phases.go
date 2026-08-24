@@ -22,7 +22,7 @@ import (
 // checks if the TaskRunPercentagePhases type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &TaskRunPercentagePhases{}
 
-// TaskRunPercentagePhases Splits targets by percentage. Values must sum to 100.
+// TaskRunPercentagePhases Splits targets by percentage. Values must sum to 100. A configured phase must resolve to at least one selected target after rounding or the request is rejected.
 type TaskRunPercentagePhases struct {
 	// Per-phase percentages, in phase order; must sum to 100.
 	Phases []int32 `json:"phases"`

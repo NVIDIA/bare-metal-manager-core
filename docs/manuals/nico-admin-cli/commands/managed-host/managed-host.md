@@ -30,7 +30,7 @@ Sort output by specified field\
 \
 *Possible values:*
 
-- primary-id: Sort by the primary id
+- primary-id: Sort by the primary ID
 
 - state: Sort by state
 
@@ -49,6 +49,7 @@ Print help (see a summary with -h)
 | [`start-updates`](./managed-host-start-updates.md) | Start updates for machines with delayed updates, such as GB200 |
 | [`set-primary-dpu`](./managed-host-set-primary-dpu.md) | Set the primary DPU for the managed host |
 | [`debug-bundle`](./managed-host-debug-bundle.md) | Download debug bundle with logs for a specific host |
+| [`decommission`](./managed-host-decommission.md) | Start decommissioning a managed host |
 
 ---
 

@@ -362,17 +362,17 @@ pub struct InstanceInterfaceStatus {
     /// and therefore the address is unknown.
     pub mac_address: Option<MacAddress>,
 
-    /// The list of IP addresses that had been assigned to this interface,
-    /// based on the requested subnet.
-    /// IPv4 precedes IPv6 when both families are assigned.
-    /// The list will be empty if interface configuration hasn't been completed
+    /// The IP addresses reported for this interface, ordered IPv4 before IPv6.
+    /// This list is independent from `prefixes` and is empty when no address
+    /// is available.
     pub addresses: Vec<IpAddr>,
 
-    /// The IP prefixes assigned to this interface, with one prefix for each
-    /// entry in `addresses` in the same IPv4-before-IPv6 order. A prefix may be
-    /// a /30 for FNN or a /32 for ETV.
-    ///
-    /// The list will be empty if interface configuration hasn't been completed
+    /// The prefixes reported for this interface in CIDR notation, ordered IPv4
+    /// before IPv6. Prefix lengths follow the selected network and allocation
+    /// policy. This list is independent from `addresses`: SLAAC reports an IPv6
+    /// prefix without a fixed host address. Consumers must match values by
+    /// address family rather than list position. The list is empty when no
+    /// prefix is available.
     pub prefixes: Vec<IpNetwork>,
 
     /// The explicitly configured gateways, in CIDR notation. There is at most
@@ -516,18 +516,18 @@ pub struct InstanceInterfaceStatusObservation {
     #[serde(default)]
     pub mac_address: Option<SerializableMacAddress>,
 
-    /// The list of IP addresses that had been assigned to this interface,
-    /// based on the requested subnet.
-    /// IPv4 precedes IPv6 when both families are assigned.
-    /// The list will be empty if interface configuration hasn't been completed
+    /// The IP addresses reported for this interface, ordered IPv4 before IPv6.
+    /// This list is independent from `prefixes` and is empty when no address
+    /// is available.
     #[serde(default)]
     pub addresses: Vec<IpAddr>,
 
-    /// The IP prefixes assigned to this interface, with one prefix for each
-    /// entry in `addresses` in the same IPv4-before-IPv6 order. A prefix may be
-    /// a /30 for FNN or a /32 for ETV.
-    ///
-    /// The list will be empty if interface configuration hasn't been completed
+    /// The prefixes reported for this interface in CIDR notation, ordered IPv4
+    /// before IPv6. Prefix lengths follow the selected network and allocation
+    /// policy. This list is independent from `addresses`: SLAAC reports an IPv6
+    /// prefix without a fixed host address. Consumers must match values by
+    /// address family rather than list position. The list is empty when no
+    /// prefix is available.
     #[serde(default)]
     pub prefixes: Vec<IpNetwork>,
 

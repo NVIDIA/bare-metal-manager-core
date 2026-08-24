@@ -17,6 +17,7 @@
 mod bootstrap_ca;
 mod common;
 mod full;
+mod lldp_collector;
 mod metrics;
 mod test_network_monitor;
 mod upgrade;

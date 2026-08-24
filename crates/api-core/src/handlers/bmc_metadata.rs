@@ -109,6 +109,7 @@ pub(super) async fn get_inner(
         ip: bmc_endpoint_request.ip_address,
         port: None,
         ssh_port: None,
+        serial_console_ssh_port: explored_metadata.serial_console_ssh_port.map(u32::from),
         ipmi_port: explored_metadata.ipmi_port.map(u32::from),
         mac: bmc_mac_address.to_string(),
         user: username,

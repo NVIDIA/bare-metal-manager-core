@@ -238,19 +238,30 @@ impl<'a> MockExploredHost<'a> {
     pub(in crate::tests) async fn discover_dhcp_host_bmc<
         F: FnOnce(tonic::Result<tonic::Response<forge::DhcpRecord>>, &mut Self) -> eyre::Result<()>,
     >(
+        self,
+        f: F,
+    ) -> eyre::Result<Self> {
+        self.discover_dhcp_host_bmc_from_relay(FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.ip(), f)
+            .await
+    }
+
+    /// Simulate the host's BMC interface getting DHCP through a caller-selected relay.
+    ///
+    /// Yields the result to the passed closure.
+    pub(in crate::tests) async fn discover_dhcp_host_bmc_from_relay<
+        F: FnOnce(tonic::Result<tonic::Response<forge::DhcpRecord>>, &mut Self) -> eyre::Result<()>,
+    >(
         mut self,
+        relay_address: IpAddr,
         f: F,
     ) -> eyre::Result<Self> {
         let result = self
             .test_env
             .api
             .discover_dhcp(
-                DhcpDiscovery::builder(
-                    self.managed_host.bmc_mac_address,
-                    FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.ip(),
-                )
-                .vendor_string("SomeVendor")
-                .tonic_request(),
+                DhcpDiscovery::builder(self.managed_host.bmc_mac_address, relay_address)
+                    .vendor_string("SomeVendor")
+                    .tonic_request(),
             )
             .await;
 
@@ -1296,6 +1307,7 @@ impl<'a> MockExploredHost<'a> {
         self
     }
 
+    #[allow(dead_code)]
     /// Run the passed closure with a mutable referece to self
     pub(in crate::tests) async fn then<F, C: FnOnce(&mut Self) -> F>(
         mut self,
@@ -1412,6 +1424,7 @@ impl<'a> MockExploredHost<'a> {
     }
 }
 
+#[allow(dead_code)]
 fn expected_switch_exploration_report() -> EndpointExplorationReport {
     EndpointExplorationReport {
         endpoint_type: EndpointType::Bmc,
@@ -1427,6 +1440,7 @@ fn expected_switch_exploration_report() -> EndpointExplorationReport {
     }
 }
 
+#[allow(dead_code)]
 async fn switch_interface_ip(
     txn: &mut sqlx::PgConnection,
     mac: mac_address::MacAddress,
@@ -1440,6 +1454,7 @@ async fn switch_interface_ip(
     Ok(addresses.first().map(|address| address.address))
 }
 
+#[allow(dead_code)]
 /// Registers mock endpoint-exploration results for every expected switch BMC and NVOS IP.
 ///
 /// Required when switches (and their static interfaces) exist before `new_mock_host` runs,

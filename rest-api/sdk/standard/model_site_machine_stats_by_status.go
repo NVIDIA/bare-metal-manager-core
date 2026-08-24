@@ -24,6 +24,8 @@ var _ MappedNullable = &SiteMachineStatsByStatus{}
 type SiteMachineStatsByStatus struct {
 	// Number of Machines in Decommissioned status
 	Decommissioned *int32 `json:"Decommissioned,omitempty"`
+	// Number of Machines in Decommissioning status
+	Decommissioning *int32 `json:"Decommissioning,omitempty"`
 	// Number of Machines in Error status
 	Error *int32 `json:"Error,omitempty"`
 	// Number of Machines in Initializing status
@@ -87,6 +89,38 @@ func (o *SiteMachineStatsByStatus) HasDecommissioned() bool {
 // SetDecommissioned gets a reference to the given int32 and assigns it to the Decommissioned field.
 func (o *SiteMachineStatsByStatus) SetDecommissioned(v int32) {
 	o.Decommissioned = &v
+}
+
+// GetDecommissioning returns the Decommissioning field value if set, zero value otherwise.
+func (o *SiteMachineStatsByStatus) GetDecommissioning() int32 {
+	if o == nil || IsNil(o.Decommissioning) {
+		var ret int32
+		return ret
+	}
+	return *o.Decommissioning
+}
+
+// GetDecommissioningOk returns a tuple with the Decommissioning field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *SiteMachineStatsByStatus) GetDecommissioningOk() (*int32, bool) {
+	if o == nil || IsNil(o.Decommissioning) {
+		return nil, false
+	}
+	return o.Decommissioning, true
+}
+
+// HasDecommissioning returns a boolean if a field has been set.
+func (o *SiteMachineStatsByStatus) HasDecommissioning() bool {
+	if o != nil && !IsNil(o.Decommissioning) {
+		return true
+	}
+
+	return false
+}
+
+// SetDecommissioning gets a reference to the given int32 and assigns it to the Decommissioning field.
+func (o *SiteMachineStatsByStatus) SetDecommissioning(v int32) {
+	o.Decommissioning = &v
 }
 
 // GetError returns the Error field value if set, zero value otherwise.
@@ -325,6 +359,9 @@ func (o SiteMachineStatsByStatus) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.Decommissioned) {
 		toSerialize["Decommissioned"] = o.Decommissioned
+	}
+	if !IsNil(o.Decommissioning) {
+		toSerialize["Decommissioning"] = o.Decommissioning
 	}
 	if !IsNil(o.Error) {
 		toSerialize["Error"] = o.Error

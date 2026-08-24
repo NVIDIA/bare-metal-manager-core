@@ -131,7 +131,8 @@ func TestPowerControl(t *testing.T) {
 }
 
 func TestFirmwareControl(t *testing.T) {
-	m := New(nicoapi.NewMockClient(), nil)
+	client := nicoapi.NewMockClient()
+	m := New(client, nil)
 
 	target := common.Target{
 		Type:         devicetypes.ComponentTypeNVSwitch,
@@ -140,8 +141,14 @@ func TestFirmwareControl(t *testing.T) {
 
 	err := m.FirmwareControl(context.Background(), target, operations.FirmwareControlTaskInfo{
 		TargetVersion: "2.0.0",
+		AccessToken:   "switch-token",
 	})
 	assert.NoError(t, err)
+	assert.Equal(
+		t,
+		"switch-token",
+		client.LastUpdateComponentFirmwareRequest().GetAccessToken(),
+	)
 }
 
 func TestGetFirmwareStatus(t *testing.T) {

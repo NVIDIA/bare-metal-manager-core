@@ -53,6 +53,7 @@ async fn explore_supermicro_gb300() {
         Some(1623)
     );
     assert!(!report.systems.is_empty(), "systems must be present");
+    assert_eq!(report.systems[0].serial_console_ssh_port, Some(2200));
     assert!(!report.chassis.is_empty(), "chassis must be present");
 
     let setup = report

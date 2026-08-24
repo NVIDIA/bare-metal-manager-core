@@ -29,7 +29,7 @@ func TestExecutionRequest_Validate(t *testing.T) {
 		"invalid action": {
 			request: valid,
 			mutate:  func(request *ExecutionRequest) { request.Action = eventrule.Action{} },
-			wantErr: "action: action id is empty",
+			wantErr: "action: action name is empty",
 		},
 		"missing target id": {
 			request: valid,
@@ -67,17 +67,13 @@ func newValidExecutionRequest(t *testing.T) ExecutionRequest {
 	t.Helper()
 	now := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
 	execution, err := eventrule.NewExecution(eventrule.ExecutionIdentity{
-		EventID:  uuid.New(),
-		RuleID:   uuid.New(),
-		ActionID: "noop",
+		EventKey:   eventrule.EventKey{SourceName: "test", SourceKey: "event-1"},
+		RuleID:     uuid.New(),
+		ActionName: "noop",
 	}, now)
 	require.NoError(t, err)
 	return ExecutionRequest{
 		Execution: *execution,
-		Action: eventrule.NewAction(
-			"noop",
-			eventrule.ActionCondition{},
-			eventrule.Noop{},
-		),
+		Action:    eventrule.Action{Name: "noop", Spec: &eventrule.Noop{}},
 	}
 }

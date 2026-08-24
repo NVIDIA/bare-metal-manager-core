@@ -45,6 +45,7 @@ func (tr *testRack) modifyLocation(location map[string]any) *testRack {
 
 func TestRackBuildPatch(t *testing.T) {
 	rackID := uuid.New()
+	domainID := uuid.New()
 	now := time.Now()
 
 	shareRack := Rack{
@@ -55,6 +56,7 @@ func TestRackBuildPatch(t *testing.T) {
 		Description:  map[string]any{"type": "compute", "generation": "H100"},
 		Location:     map[string]any{"datacenter": "DC1", "row": "A", "position": 1},
 		Status:       RackStatusNew,
+		NVLDomainID:  domainID,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}

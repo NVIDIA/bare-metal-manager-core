@@ -22,6 +22,7 @@ type mockClient struct {
 	firmwareUpdateTimeWindowErr error // If set, SetFirmwareUpdateTimeWindow will return this error
 	adminPowerControlErr        error // If set, AdminPowerControl will return this error
 	desiredFirmwareVersions     []*corev1.DesiredFirmwareVersionEntry
+	lastUpdateFirmwareRequest   *corev1.UpdateComponentFirmwareRequest
 	// Topology lookups exercised by the rack-assignment safety check. Tests
 	// populate these via Set...RackId / Set...HostMachineIds helpers.
 	switchRackIDs              map[string]string // switch ID → rack ID
@@ -30,6 +31,8 @@ type mockClient struct {
 	switchNvosIPs              map[string]string // switch ID → resolved NVOS host IP
 	nvLinkDomainMemberships    []NVLinkDomainMembership
 	powerShelfControllerStates map[string]string // shelf ID → raw core controller_state
+	observedSwitches           []ObservedControllerDevice
+	observedPowerShelves       []ObservedControllerDevice
 	hostMachinesByRackID       map[string][]string
 	// Detail tables for the GetAllExpected*Details RPCs (Flow's mirror sync).
 	// Keyed by the natural identifier the test cares about so test helpers can
@@ -61,6 +64,13 @@ type mockClient struct {
 	invokeInstancePowerErr        error                   // if set, InvokeInstancePower returns this
 }
 
+// MockClient is a Client with accessors for requests captured by the in-memory
+// test implementation.
+type MockClient interface {
+	Client
+	LastUpdateComponentFirmwareRequest() *corev1.UpdateComponentFirmwareRequest
+}
+
 // DpuReprovisioningCall captures a TriggerDpuReprovisioning invocation
 // for assertion in tests.
 type DpuReprovisioningCall struct {
@@ -76,7 +86,7 @@ type InstancePowerCall struct {
 }
 
 // NewMockClient returns a "GRPC" client that returns mock values so it can be used in unit tests.
-func NewMockClient() Client {
+func NewMockClient() MockClient {
 	return &mockClient{
 		machines:                      map[string]MachineDetail{},
 		powerStates:                   map[string]PowerState{},
@@ -368,7 +378,14 @@ func (c *mockClient) ComponentPowerControl(ctx context.Context, req *corev1.Comp
 }
 
 func (c *mockClient) UpdateComponentFirmware(ctx context.Context, req *corev1.UpdateComponentFirmwareRequest) (*corev1.UpdateComponentFirmwareResponse, error) {
+	c.lastUpdateFirmwareRequest = req
 	return &corev1.UpdateComponentFirmwareResponse{}, nil
+}
+
+// LastUpdateComponentFirmwareRequest returns the most recent firmware update
+// request received by this mock.
+func (c *mockClient) LastUpdateComponentFirmwareRequest() *corev1.UpdateComponentFirmwareRequest {
+	return c.lastUpdateFirmwareRequest
 }
 
 func (c *mockClient) GetComponentFirmwareStatus(ctx context.Context, req *corev1.GetComponentFirmwareStatusRequest) (*corev1.GetComponentFirmwareStatusResponse, error) {
@@ -389,6 +406,22 @@ func (c *mockClient) GetAllExpectedSwitchesLinked(_ context.Context) ([]LinkedEx
 
 func (c *mockClient) GetAllExpectedPowerShelvesLinked(_ context.Context) ([]LinkedExpectedPowerShelf, error) {
 	return nil, nil
+}
+
+func (c *mockClient) GetSwitches(_ context.Context) ([]ObservedControllerDevice, error) {
+	return append([]ObservedControllerDevice(nil), c.observedSwitches...), nil
+}
+
+func (c *mockClient) GetPowerShelves(_ context.Context) ([]ObservedControllerDevice, error) {
+	return append([]ObservedControllerDevice(nil), c.observedPowerShelves...), nil
+}
+
+func (c *mockClient) SetObservedSwitches(devices []ObservedControllerDevice) {
+	c.observedSwitches = append([]ObservedControllerDevice(nil), devices...)
+}
+
+func (c *mockClient) SetObservedPowerShelves(devices []ObservedControllerDevice) {
+	c.observedPowerShelves = append([]ObservedControllerDevice(nil), devices...)
 }
 
 func (c *mockClient) GetDesiredFirmwareVersions(_ context.Context) ([]*corev1.DesiredFirmwareVersionEntry, error) {

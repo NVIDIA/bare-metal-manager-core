@@ -36,6 +36,9 @@ const PROTO_FILES: &[&str] = &[
 const INCLUDE_PATHS: &[&str] = &["proto"];
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("cargo:rerun-if-changed=proto");
+    println!("cargo:rerun-if-changed=../agent/proto");
+
     let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
     // Write generated code to OUT_DIR rather than back into the source tree.
     // Consumers pull these in via:
@@ -315,6 +318,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .field_attribute(
             "forge.InstanceTypeMachineCapabilityFilterAttributes.device_type",
             "#[serde(deserialize_with = \"MachineCapabilityDeviceType::from_string\", serialize_with = \"MachineCapabilityDeviceType::serialize_from_enum_i32\")]",
+        )
+        .field_attribute(
+            "machine_discovery.DiscoveryInfo.memory_device_groups",
+            "#[serde(default, skip_serializing_if = \"Vec::is_empty\")]",
         )
 
         .type_attribute(

@@ -17,9 +17,13 @@ import (
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/converter/protobuf"
 	dbquery "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/query"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/firmwareauth"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
 	operationrun "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun"
 	operationrunmanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun/manager"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/secret"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 	pb "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/proto/v1"
 )
 
@@ -44,6 +48,92 @@ func TestCreateOperationRunCallsManager(t *testing.T) {
 	require.NotEmpty(t, manager.createdRun.Selector)
 	require.NotEmpty(t, manager.createdRun.Options)
 	require.NotEmpty(t, manager.createdRun.OperationTemplate)
+}
+
+func TestCreateOperationRunEncryptsFirmwareAuthenticationData(t *testing.T) {
+	manager := &mockOperationRunManager{createID: uuid.New()}
+	cipher := newServiceTestCipher(t)
+	server := &FlowServerImpl{
+		operationRunManager: manager,
+		dataCipher:          cipher,
+	}
+	req := validCreateOperationRunRequest()
+	authenticationData := "shared-token"
+	req.Configuration.Operation.GetUpgradeFirmware().AuthenticationData =
+		sharedServiceAuthenticationData(authenticationData)
+
+	_, err := server.CreateOperationRun(context.Background(), req)
+
+	require.NoError(t, err)
+	require.NotContains(
+		t,
+		string(manager.createdRun.OperationTemplate),
+		authenticationData,
+	)
+	var operationTemplate operationrun.Operation
+	require.NoError(
+		t,
+		operationrun.UnmarshalConfig(
+			manager.createdRun.OperationTemplate,
+			&operationTemplate,
+		),
+	)
+	firmwareInfo, ok := operationTemplate.Payload.(*operations.FirmwareControlTaskInfo)
+	require.True(t, ok)
+	got, err := firmwareauth.DecryptFor(
+		cipher,
+		firmwareInfo.AuthenticationData,
+		devicetypes.ComponentTypeCompute,
+	)
+	require.NoError(t, err)
+	require.Equal(t, authenticationData, got)
+}
+
+func TestCreateOperationRunAuthenticationDataStatusCodes(t *testing.T) {
+	tests := []struct {
+		name               string
+		cipher             *secret.Cipher
+		authenticationData *pb.FirmwareAuthenticationData
+		subTargets         []string
+		wantCode           codes.Code
+	}{
+		{
+			name:               "invalid input",
+			cipher:             newServiceTestCipher(t),
+			authenticationData: &pb.FirmwareAuthenticationData{},
+			wantCode:           codes.InvalidArgument,
+		},
+		{
+			name:               "missing cipher",
+			authenticationData: sharedServiceAuthenticationData("token"),
+			wantCode:           codes.Internal,
+		},
+		{
+			name:               "authentication with dpu-only subtargets",
+			cipher:             newServiceTestCipher(t),
+			authenticationData: sharedServiceAuthenticationData("token"),
+			subTargets:         []string{"dpu"},
+			wantCode:           codes.InvalidArgument,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := validCreateOperationRunRequest()
+			req.Configuration.Operation.GetUpgradeFirmware().AuthenticationData =
+				tt.authenticationData
+			req.Configuration.Operation.GetUpgradeFirmware().SubTargets =
+				tt.subTargets
+			server := &FlowServerImpl{
+				operationRunManager: &mockOperationRunManager{},
+				dataCipher:          tt.cipher,
+			}
+
+			_, err := server.CreateOperationRun(context.Background(), req)
+
+			require.Equal(t, tt.wantCode, status.Code(err))
+		})
+	}
 }
 
 func TestCreateOperationRunRejectsInvalidRequest(t *testing.T) {
@@ -89,19 +179,38 @@ func TestCreateOperationRunReturnsManagerError(t *testing.T) {
 }
 
 func TestCreateOperationRunMapsManagerInvalidArgumentErrors(t *testing.T) {
-	manager := &mockOperationRunManager{
-		createErr: operationrunmanager.ErrNoPlannedTargets,
+	tests := []struct {
+		name    string
+		err     error
+		message string
+	}{
+		{
+			name:    "no planned targets",
+			err:     operationrunmanager.ErrNoPlannedTargets,
+			message: "operation run has no planned targets",
+		},
+		{
+			name:    "phase has no targets",
+			err:     operationrunmanager.ErrOperationRunInvalidPlan,
+			message: "operation run plan is invalid",
+		},
 	}
-	server := &FlowServerImpl{operationRunManager: manager}
 
-	resp, err := server.CreateOperationRun(
-		context.Background(),
-		validCreateOperationRunRequest(),
-	)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manager := &mockOperationRunManager{createErr: tt.err}
+			server := &FlowServerImpl{operationRunManager: manager}
 
-	require.Nil(t, resp)
-	require.Equal(t, codes.InvalidArgument, status.Code(err))
-	require.ErrorContains(t, err, "operation run has no planned targets")
+			resp, err := server.CreateOperationRun(
+				context.Background(),
+				validCreateOperationRunRequest(),
+			)
+
+			require.Nil(t, resp)
+			require.Equal(t, codes.InvalidArgument, status.Code(err))
+			require.ErrorContains(t, err, tt.message)
+		})
+	}
 }
 
 func TestCreateOperationRunPreservesManagerStatusError(t *testing.T) {

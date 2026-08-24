@@ -44,6 +44,7 @@ async fn explore_bluefield4_and_generate_machine_id_from_system_serial() {
     let system = report.systems.first().expect("systems must be present");
     assert_eq!(system.id, "BlueField_0");
     assert_eq!(system.serial_number.as_deref(), Some("MT2610604VN4"));
+    assert_eq!(system.serial_console_ssh_port, Some(2200));
 
     assert_eq!(
         report.managers.first().map(|manager| manager.id.as_str()),
