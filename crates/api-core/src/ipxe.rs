@@ -24,6 +24,7 @@ use carbide_ipxe_renderer::{
 use carbide_uuid::machine::{MachineId, MachineInterfaceId, MachineType};
 use db::{self};
 use mac_address::MacAddress;
+use model::instance::snapshot::InstanceSnapshot;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
     DpuInitState, FailureCause, FailureDetails, HostReprovisionState, InstanceState,
@@ -71,6 +72,52 @@ impl TryFrom<rpc::PxeInstructionRequest> for PxeInstructionRequest {
             client_ip,
         })
     }
+}
+
+/// The parts of a PXE request that [`PxeInstructions::render_provisioning_script`]
+/// needs beyond the instance itself.
+struct RenderProvisioningScript<'a> {
+    machine_id: MachineId,
+    interface_id: MachineInterfaceId,
+    state: &'a ManagedHostState,
+    console: &'a str,
+    qcow_imager_url: &'a str,
+}
+
+/// iPXE instructions for a state NICo cannot boot from.
+fn error_instructions(
+    machine_id: MachineId,
+    interface_id: MachineInterfaceId,
+    state: &ManagedHostState,
+) -> String {
+    format!(
+        r#"
+echo Machine ID: {machine_id}
+echo Interface ID: {interface_id}
+echo Current state: {state}
+echo Could not continue boot due to invalid state ||
+sleep 5 ||
+exit ||
+"#
+    )
+}
+
+/// iPXE instructions that hand control back to the local disk.
+fn exit_instructions(
+    machine_id: MachineId,
+    interface_id: MachineInterfaceId,
+    state: &ManagedHostState,
+) -> String {
+    format!(
+        r#"
+echo Machine ID: {machine_id}
+echo Interface ID: {interface_id}
+echo Current state: {state}
+echo This state assumes an OS is provisioned and will exit into the OS in 5 seconds. To re-run iPXE instructions and OS installation, trigger a reboot request with flag rebootWithCustomIpxe/boot_with_custom_ipxe set. ||
+sleep 5 ||
+exit ||
+"#
+    )
 }
 
 /// Converts an operating_systems row (type ipxe_os_definition) to IpxeScript for the renderer.
@@ -272,42 +319,111 @@ impl PxeInstructions {
             .map_err(|e| CarbideError::internal(format!("failed to render iPXE script: {}", e)))
     }
 
+    async fn require_instance(
+        txn: &mut PgConnection,
+        machine_id: &MachineId,
+    ) -> Result<InstanceSnapshot, CarbideError> {
+        db::instance::find_by_machine_id(txn, machine_id)
+            .await?
+            .ok_or(CarbideError::NotFoundError {
+                kind: "machine",
+                id: machine_id.to_string(),
+            })
+    }
+
+    /// Renders the script that installs the tenant's operating system.
+    ///
+    /// Shared by every state that serves a provisioning boot, so that the
+    /// tenant sees the same script whether the boot is being tracked by
+    /// [`InstanceState::WaitingForProvisioningComplete`] or by the older
+    /// consume-on-serve path in `Assigned{Ready}`.
+    async fn render_provisioning_script(
+        txn: &mut PgConnection,
+        request: RenderProvisioningScript<'_>,
+        instance: InstanceSnapshot,
+    ) -> Result<String, CarbideError> {
+        let RenderProvisioningScript {
+            machine_id,
+            interface_id,
+            state,
+            console,
+            qcow_imager_url,
+        } = request;
+
+        Ok(match instance.config.os.variant {
+            model::os::OperatingSystemVariant::Ipxe(ipxe) => {
+                let mut tenant_ipxe = ipxe.ipxe_script;
+                let vendor_serial_console = format!(" console={console}");
+                if !tenant_ipxe.contains(&vendor_serial_console) {
+                    let idx = tenant_ipxe.find(" console=");
+                    if let Some(x) = idx {
+                        // insert correct serial console into custom ipxe before any other console=tty* specified
+                        tenant_ipxe.insert_str(x, &vendor_serial_console);
+                    } else {
+                        // this is a strange ipxe script with no console=tty defined, leave it as is
+                    }
+                }
+                tenant_ipxe
+            }
+            model::os::OperatingSystemVariant::OperatingSystemId(os_id) => {
+                let row = db::operating_system::get(txn, os_id).await?;
+                if row.type_ == model::operating_system_definition::OS_TYPE_TEMPLATED_IPXE {
+                    let ipxeos = operating_system_row_to_ipxe_script(&row)?;
+                    Self::render_ipxe_script(&ipxeos, "${base-url}", console)?
+                } else {
+                    row.ipxe_script.unwrap_or_default()
+                }
+            }
+            model::os::OperatingSystemVariant::OsImage(id) => {
+                let os_image = db::os_image::get(txn, id).await?;
+                if os_image.attributes.create_volume {
+                    // this is a block storage os image
+                    // boot will be via the block storage snapshot volume
+                    // no ipxe script for os imaging
+                    exit_instructions(machine_id, interface_id, state)
+                } else {
+                    let mut qcow_imaging_ipxe = format!(
+                        "{} console={},115200 image_url={} image_sha={}",
+                        qcow_imager_url,
+                        console,
+                        os_image.attributes.source_url,
+                        os_image.attributes.digest
+                    );
+                    if let Some(x) = os_image.attributes.auth_token {
+                        qcow_imaging_ipxe += format!(" image_auth_token={x}").as_str();
+                    }
+                    if let Some(x) = os_image.attributes.auth_type {
+                        qcow_imaging_ipxe += format!(" image_auth_type={x}").as_str();
+                    }
+                    if let Some(x) = os_image.attributes.rootfs_id {
+                        qcow_imaging_ipxe += format!(" rootfs_uuid={x}").as_str();
+                    }
+                    if let Some(x) = os_image.attributes.rootfs_label {
+                        qcow_imaging_ipxe += format!(" rootfs_label={x}").as_str();
+                    }
+                    if let Some(x) = os_image.attributes.boot_disk {
+                        qcow_imaging_ipxe += format!(" image_disk={x}").as_str();
+                    }
+                    if let Some(x) = os_image.attributes.bootfs_id {
+                        qcow_imaging_ipxe += format!(" bootfs_uuid={x}").as_str();
+                    }
+                    if let Some(x) = os_image.attributes.efifs_id {
+                        qcow_imaging_ipxe += format!(" efifs_uuid={x}").as_str();
+                    }
+                    if instance.config.os.user_data.is_some() {
+                        qcow_imaging_ipxe += " ds=nocloud-net;s=${cloudinit-url}";
+                    }
+                    qcow_imaging_ipxe += "\r\nboot";
+                    qcow_imaging_ipxe
+                }
+            }
+        })
+    }
+
     pub(crate) async fn get_pxe_instructions(
         txn: &mut PgConnection,
         target: PxeInstructionsInput,
     ) -> Result<String, CarbideError> {
-        let error_instructions = |machine_id: MachineId,
-                                  interface_id: MachineInterfaceId,
-                                  state: &ManagedHostState|
-         -> String {
-            format!(
-                r#"
-echo Machine ID: {machine_id}
-echo Interface ID: {interface_id}
-echo Current state: {state}
-echo Could not continue boot due to invalid state ||
-sleep 5 ||
-exit ||
-"#
-            )
-        };
-
-        let exit_instructions = |machine_id: MachineId,
-                                 interface_id: MachineInterfaceId,
-                                 state: &ManagedHostState|
-         -> String {
-            format!(
-                r#"
-echo Machine ID: {machine_id}
-echo Interface ID: {interface_id}
-echo Current state: {state}
-echo This state assumes an OS is provisioned and will exit into the OS in 5 seconds. To re-run iPXE instructions and OS installation, trigger a reboot request with flag rebootWithCustomIpxe/boot_with_custom_ipxe set. ||
-sleep 5 ||
-exit ||
-"#
-            )
-        };
-
         static UNKNOWN_HOST_INSTRUCTIONS: &str = r#"
 echo this is an unknown host interface, not PXE booting ||
 sleep 5 ||
@@ -510,13 +626,46 @@ exit ||
                 machine.id.machine_type(),
             ),
             ManagedHostState::Assigned { instance_state } => match instance_state {
+                // A provisioning boot is in flight and nothing yet proves the
+                // tenant's OS installed, so serve the script again for every
+                // request that arrives. Unlike the `Ready` arm below, the
+                // one-shot `use_custom_pxe_on_boot` request is deliberately left
+                // armed: consuming it on the first serve is what turned a failed
+                // install into an endless network-boot loop, because every later
+                // boot then got "exit into the OS" against an empty disk. The
+                // machine controller clears it once provisioning is confirmed,
+                // and fails the instance once the serve budget runs out.
+                InstanceState::WaitingForProvisioningComplete { .. } => {
+                    let instance = Self::require_instance(txn, &machine_id).await?;
+
+                    // Recording the serve is what lets the machine controller
+                    // bound retries: a host that keeps coming back is a host
+                    // whose install keeps failing, and one that stops coming
+                    // back has booted something.
+                    let serve_count =
+                        db::instance::record_custom_pxe_serve(&machine_id, txn).await?;
+                    tracing::info!(
+                        %machine_id,
+                        instance_id = %instance.id,
+                        serve_count,
+                        "Serving tenant iPXE script for a provisioning boot"
+                    );
+
+                    Self::render_provisioning_script(
+                        txn,
+                        RenderProvisioningScript {
+                            machine_id,
+                            interface_id: target.interface_id,
+                            state: machine.current_state(),
+                            console,
+                            qcow_imager_url,
+                        },
+                        instance,
+                    )
+                    .await?
+                }
                 InstanceState::Ready => {
-                    let instance = db::instance::find_by_machine_id(txn, &machine_id)
-                        .await?
-                        .ok_or(CarbideError::NotFoundError {
-                            kind: "machine",
-                            id: machine_id.to_string(),
-                        })?;
+                    let instance = Self::require_instance(txn, &machine_id).await?;
 
                     if instance
                         .config
@@ -527,91 +676,46 @@ exit ||
                         // For non-always-PXE instances, clear the use_custom_pxe_on_boot flag
                         // now that we're serving the script. Always-PXE instances don't use
                         // this flag (they rely on run_provisioning_instructions_on_every_boot).
+                        //
+                        // New provisioning boots wait in
+                        // `WaitingForProvisioningComplete` and are served by the
+                        // arm above instead. This consume-on-serve path remains
+                        // only for instances that were already mid-flight when
+                        // the site upgraded, and can be dropped a release later.
                         if instance.use_custom_pxe_on_boot {
                             db::instance::use_custom_ipxe_on_next_boot(&machine_id, false, txn)
                                 .await?;
                         }
 
-                        match instance.config.os.variant {
-                            model::os::OperatingSystemVariant::Ipxe(ipxe) => {
-                                let mut tenant_ipxe = ipxe.ipxe_script;
-                                let vendor_serial_console = format!(" console={console}");
-                                if !tenant_ipxe.contains(&vendor_serial_console) {
-                                    let idx = tenant_ipxe.find(" console=");
-                                    if let Some(x) = idx {
-                                        // insert correct serial console into custom ipxe before any other console=tty* specified
-                                        tenant_ipxe.insert_str(x, &vendor_serial_console);
-                                    } else {
-                                        // this is a strange ipxe script with no console=tty defined, leave it as is
-                                    }
-                                }
-                                tenant_ipxe
-                            }
-                            model::os::OperatingSystemVariant::OperatingSystemId(os_id) => {
-                                let row = db::operating_system::get(txn, os_id).await?;
-                                if row.type_
-                                    == model::operating_system_definition::OS_TYPE_TEMPLATED_IPXE
-                                {
-                                    let ipxeos = operating_system_row_to_ipxe_script(&row)?;
-                                    Self::render_ipxe_script(&ipxeos, "${base-url}", console)?
-                                } else {
-                                    row.ipxe_script.unwrap_or_default()
-                                }
-                            }
-                            model::os::OperatingSystemVariant::OsImage(id) => {
-                                let os_image = db::os_image::get(txn, id).await?;
-                                if os_image.attributes.create_volume {
-                                    // this is a block storage os image
-                                    // boot will be via the block storage snapshot volume
-                                    // no ipxe script for os imaging
-                                    exit_instructions(
-                                        machine_id,
-                                        target.interface_id,
-                                        machine.current_state(),
-                                    )
-                                } else {
-                                    let mut qcow_imaging_ipxe = format!(
-                                        "{} console={},115200 image_url={} image_sha={}",
-                                        qcow_imager_url,
-                                        console,
-                                        os_image.attributes.source_url,
-                                        os_image.attributes.digest
-                                    );
-                                    if let Some(x) = os_image.attributes.auth_token {
-                                        qcow_imaging_ipxe +=
-                                            format!(" image_auth_token={x}").as_str();
-                                    }
-                                    if let Some(x) = os_image.attributes.auth_type {
-                                        qcow_imaging_ipxe +=
-                                            format!(" image_auth_type={x}").as_str();
-                                    }
-                                    if let Some(x) = os_image.attributes.rootfs_id {
-                                        qcow_imaging_ipxe += format!(" rootfs_uuid={x}").as_str();
-                                    }
-                                    if let Some(x) = os_image.attributes.rootfs_label {
-                                        qcow_imaging_ipxe += format!(" rootfs_label={x}").as_str();
-                                    }
-                                    if let Some(x) = os_image.attributes.boot_disk {
-                                        qcow_imaging_ipxe += format!(" image_disk={x}").as_str();
-                                    }
-                                    if let Some(x) = os_image.attributes.bootfs_id {
-                                        qcow_imaging_ipxe += format!(" bootfs_uuid={x}").as_str();
-                                    }
-                                    if let Some(x) = os_image.attributes.efifs_id {
-                                        qcow_imaging_ipxe += format!(" efifs_uuid={x}").as_str();
-                                    }
-                                    if instance.config.os.user_data.is_some() {
-                                        qcow_imaging_ipxe += " ds=nocloud-net;s=${cloudinit-url}";
-                                    }
-                                    qcow_imaging_ipxe += "\r\nboot";
-                                    qcow_imaging_ipxe
-                                }
-                            }
-                        }
+                        Self::render_provisioning_script(
+                            txn,
+                            RenderProvisioningScript {
+                                machine_id,
+                                interface_id: target.interface_id,
+                                state: machine.current_state(),
+                                console,
+                                qcow_imager_url,
+                            },
+                            instance,
+                        )
+                        .await?
                     } else {
                         exit_instructions(machine_id, target.interface_id, machine.current_state())
                     }
                 }
+                // A provisioning boot that ran out of retries is terminal until a
+                // tenant asks for another custom-iPXE boot. Serving the tenant's
+                // script again would resume the loop the failure exists to stop,
+                // and serving exit instructions would send a host with an empty
+                // disk into a disk it cannot boot, so say so instead.
+                InstanceState::Failed {
+                    details:
+                        FailureDetails {
+                            cause: FailureCause::ProvisioningFailed { .. },
+                            ..
+                        },
+                    ..
+                } => error_instructions(machine_id, target.interface_id, machine.current_state()),
                 InstanceState::BootingWithDiscoveryImage { .. }
                 | InstanceState::HostReprovision { .. } => {
                     PxeInstructions::get_pxe_instruction_for_arch(

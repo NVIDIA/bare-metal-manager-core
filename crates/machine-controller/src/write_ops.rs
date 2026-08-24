@@ -107,6 +107,9 @@ pub enum MachineWriteOp {
         machine_id: MachineId,
         boot_with_custom_ipxe: bool,
     },
+    ClearCustomPxeServeTracking {
+        machine_id: MachineId,
+    },
 }
 
 #[async_trait]
@@ -212,6 +215,9 @@ impl WriteOp for MachineWriteOp {
             } => {
                 db::instance::use_custom_ipxe_on_next_boot(&machine_id, boot_with_custom_ipxe, txn)
                     .await?;
+            }
+            ClearCustomPxeServeTracking { machine_id } => {
+                db::instance::clear_custom_pxe_serve_tracking(&machine_id, txn).await?;
             }
         };
         Ok(())

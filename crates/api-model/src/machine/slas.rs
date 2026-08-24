@@ -59,6 +59,14 @@ pub const ASSIGNED: Duration = Duration::from_secs(30 * 60);
 
 // ASSIGNED state, HostPlatformConfiguration substate
 pub const ASSIGNED_HOST_PLATFORM_CONFIGURATION: Duration = Duration::from_secs(90 * 60);
+
+// ASSIGNED state, WaitingForProvisioningComplete substate. A tenant OS install
+// plus its confirmation legitimately takes longer than the generic ASSIGNED
+// budget, and the state already escalates itself to
+// Failed/ProvisioningFailed once `provisioning_deadline` elapses (60 minutes by
+// default). Keep this above that ceiling so the terminal failure, not an SLA
+// breach on a healthy install, is what operators react to.
+pub const ASSIGNED_WAITING_FOR_PROVISIONING_COMPLETE: Duration = Duration::from_secs(90 * 60);
 pub const VALIDATION: Duration = Duration::from_secs(30 * 60);
 
 pub const MAINTENANCE: Duration = Duration::from_secs(5 * 60);

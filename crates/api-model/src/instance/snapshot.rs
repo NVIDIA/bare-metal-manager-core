@@ -95,6 +95,20 @@ pub struct InstanceSnapshot {
     /// The WaitingForRebootToReady handler clears this flag.
     pub custom_pxe_reboot_requested: bool,
 
+    /// How many times the tenant's iPXE script has been served for the
+    /// provisioning boot currently being tracked by
+    /// [`InstanceState::WaitingForProvisioningComplete`]. Reset when a new
+    /// provisioning boot is armed, incremented by the iPXE handler on each
+    /// serve, and read by the machine controller to bound retries.
+    ///
+    /// [`InstanceState::WaitingForProvisioningComplete`]: crate::machine::InstanceState::WaitingForProvisioningComplete
+    pub custom_pxe_serve_count: u32,
+
+    /// When the tenant's iPXE script was last served. `None` means it has not
+    /// been served since the provisioning boot was armed, which for a host that
+    /// never network boots is indistinguishable from "this host boots from disk".
+    pub custom_pxe_last_served_at: Option<DateTime<Utc>>,
+
     /// The timestamp when deletion for this instance was requested
     pub deleted: Option<chrono::DateTime<chrono::Utc>>,
 
@@ -132,6 +146,11 @@ pub struct InstanceSnapshotPgJson {
     use_custom_pxe_on_boot: bool,
     #[serde(default)]
     custom_pxe_reboot_requested: bool,
+    /// Non-negative by database constraint, so a `u32` cannot fail to decode.
+    #[serde(default)]
+    custom_pxe_serve_count: u32,
+    #[serde(default)]
+    custom_pxe_last_served_at: Option<DateTime<Utc>>,
     tenant_org: Option<String>,
     keyset_ids: Vec<String>,
     hostname: Option<String>,
@@ -243,6 +262,8 @@ pub fn from_pg_json_and_os(
         },
         use_custom_pxe_on_boot: value.use_custom_pxe_on_boot,
         custom_pxe_reboot_requested: value.custom_pxe_reboot_requested,
+        custom_pxe_serve_count: value.custom_pxe_serve_count,
+        custom_pxe_last_served_at: value.custom_pxe_last_served_at,
         deleted: value.deleted,
         update_network_config_request: value.update_network_config_request,
     })
@@ -359,6 +380,8 @@ impl TryFrom<InstanceSnapshotPgJson> for InstanceSnapshot {
             },
             use_custom_pxe_on_boot: value.use_custom_pxe_on_boot,
             custom_pxe_reboot_requested: value.custom_pxe_reboot_requested,
+            custom_pxe_serve_count: value.custom_pxe_serve_count,
+            custom_pxe_last_served_at: value.custom_pxe_last_served_at,
             deleted: value.deleted,
             update_network_config_request: value.update_network_config_request,
             // Unused as of today
@@ -405,6 +428,8 @@ mod tests {
             phone_home_last_contact: None,
             use_custom_pxe_on_boot: false,
             custom_pxe_reboot_requested: false,
+            custom_pxe_serve_count: 0,
+            custom_pxe_last_served_at: None,
             tenant_org: Some("TenantA".to_string()),
             keyset_ids: vec![],
             hostname: None,

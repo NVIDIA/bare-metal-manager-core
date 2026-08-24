@@ -2369,9 +2369,27 @@ async fn test_instance_phone_home(_: PgPoolOptions, options: PgConnectOptions) {
         .await
         .unwrap();
 
+    // The contact is the evidence that the tenant OS installed, so the state
+    // machine completes the provisioning wait on its next iteration.
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        2,
+        ManagedHostState::Assigned {
+            instance_state: model::machine::InstanceState::Ready,
+        },
+    )
+    .await;
+
     let instance = tinstance.rpc_instance().await;
 
     assert_eq!(instance.status().tenant(), rpc::TenantState::Ready);
+
+    // Provisioning completing releases the one-shot custom-iPXE request, so the
+    // machine no longer re-serves the tenant's script.
+    let mut txn = env.pool.begin().await.unwrap();
+    let db_instance = tinstance.db_instance(&mut txn).await;
+    txn.rollback().await.unwrap();
+    assert!(!db_instance.use_custom_pxe_on_boot);
 }
 
 #[crate::sqlx_test]

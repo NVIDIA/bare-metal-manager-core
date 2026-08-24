@@ -48,8 +48,8 @@ use model::instance::config::tenant_config::TenantConfig;
 use model::instance::snapshot::InstanceSnapshot;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
-    HostHealthConfig, InstanceState, LoadSnapshotOptions, ManagedHostState,
-    ManagedHostStateSnapshot,
+    FailureCause, FailureDetails, HostHealthConfig, InstanceState, LoadSnapshotOptions,
+    ManagedHostState, ManagedHostStateSnapshot,
 };
 use model::metadata::Metadata;
 use model::network_segment::{NetworkSegmentSearchConfig, NetworkSegmentType};
@@ -977,10 +977,23 @@ pub(crate) async fn invoke_power(
     // For custom PXE or always-PXE instances in Ready state, we use the state machine to
     // verify boot order before rebooting. For regular reboots, we clear the use_custom_pxe_on_boot
     // flag so the iPXE handler returns "exit" (boot from disk).
+    //
+    // `WaitingForProvisioningComplete` and a failed provisioning boot are
+    // included so a tenant can restart provisioning without waiting for the
+    // in-flight attempt to time out: both hand back to the Assigned/Ready
+    // handler when they see the flag, which then runs the full flow again.
     let use_state_machine_for_reboot = matches!(
         snapshot.managed_state,
         ManagedHostState::Assigned {
-            instance_state: InstanceState::Ready,
+            instance_state: InstanceState::Ready
+                | InstanceState::WaitingForProvisioningComplete { .. }
+                | InstanceState::Failed {
+                    details: FailureDetails {
+                        cause: FailureCause::ProvisioningFailed { .. },
+                        ..
+                    },
+                    ..
+                },
         }
     ) && (run_provisioning_instructions_on_every_boot
         || request.boot_with_custom_ipxe);

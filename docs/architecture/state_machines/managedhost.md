@@ -443,6 +443,7 @@ stateDiagram-v2
     state "WaitingForNetworkConfig" as A_WaitingForNetworkConfig
     state "WaitingForStorageConfig" as A_WaitingForStorageConfig
     state "WaitingForRebootToReady" as A_WaitingForRebootToReady
+    state "WaitingForProvisioningComplete" as A_WaitingForProvisioningComplete
     state "Assigned/Ready" as A_Ready
     state "WaitingForDpusToUp" as A_WaitingForDpusToUp
     state "BootingWithDiscoveryImage" as A_BootingWithDiscoveryImage
@@ -490,7 +491,13 @@ stateDiagram-v2
     A_WaitingForNetworkConfig --> A_WaitingForStorageConfig : No DPU OR Host network synced on DPU
 
     A_WaitingForStorageConfig --> A_WaitingForRebootToReady : Attach storage volumes
-    A_WaitingForRebootToReady --> A_Ready : Reboot machine
+    A_WaitingForRebootToReady --> A_Ready : Reboot machine (plain reboot, or always-PXE instance)
+    A_WaitingForRebootToReady --> A_WaitingForProvisioningComplete : Reboot machine (provisioning boot)
+
+    A_WaitingForProvisioningComplete --> A_WaitingForProvisioningComplete : Waiting for install evidence (each PXE request re-serves the tenant script)
+    A_WaitingForProvisioningComplete --> A_Ready : Phone home received, OR quiet for provisioning_quiet_window
+    A_WaitingForProvisioningComplete --> A_Failed : Serves > max_provisioning_serves, OR provisioning_deadline elapsed (ProvisioningFailed)
+    A_WaitingForProvisioningComplete --> A_Ready : Custom iPXE reboot requested OR instance deleted
 
     A_Ready --> A_NCU_WaitingForNetworkSegmentToBeReady : Update network request
     A_Ready --> A_HPC_PowerCycle : (Instance deleted OR Host/DPU reporvisioning requested) AND need config bootorder
@@ -553,7 +560,51 @@ stateDiagram-v2
     AnyState --> A_Failed : Any failure condition
     A_Failed --> A_Failed : Wait (stuck, manual action needed)
     A_Failed --> A_HPC_SBO_SetBootOrder : BiosSetupFailed AND is_bios_setup ok
+    A_Failed --> A_Ready : ProvisioningFailed AND (custom iPXE reboot requested OR instance deleted)
 ```
+
+### Waiting for provisioning to complete
+
+A provisioning boot is one whose purpose is to run the tenant's iPXE script: a
+new instance, or a reboot requested with `rebootWithCustomIpxe`
+(`boot_with_custom_ipxe`). `WaitingForRebootToReady` reboots the host and then
+enters `WaitingForProvisioningComplete` for those boots, and `Assigned/Ready`
+for everything else. Instances whose OS sets
+`run_provisioning_instructions_on_every_boot` never enter the state: their
+script is re-served on every boot regardless, so they do not depend on the
+one-shot `use_custom_pxe_on_boot` request.
+
+While the state is current, `/api/v0/pxe/boot` serves the tenant's script for
+every request and leaves `use_custom_pxe_on_boot` armed, recording each serve in
+`instances.custom_pxe_serve_count` and `instances.custom_pxe_last_served_at`.
+This is what makes a failed install retry: consuming the request on the first
+serve left every later boot with "exit into the OS" against an empty disk, so a
+host whose install failed network booted forever.
+
+NICo cannot observe an install directly, so completion is inferred:
+
+| Instance | Evidence of success |
+| --- | --- |
+| OS has `phone_home_enabled` | `phone_home_last_contact` is set. The reboot API clears it when the boot is armed, so any value was recorded by an OS that came up on this attempt. |
+| Everything else | No iPXE serve for `machine_state_controller.provisioning_quiet_window` (default 15 minutes), measured from the last serve, or from state entry if the host never asked for instructions. A host that stopped network booting booted something else. |
+
+On success the instance moves to `Assigned/Ready`, `use_custom_pxe_on_boot` is
+released, and the serve bookkeeping is reset. Neither signal ever arrives for a
+genuinely broken install, so two bounds end the wait in
+`Assigned/Failed{ProvisioningFailed}`: a serve count above
+`machine_state_controller.max_provisioning_serves` (default 4), and
+`machine_state_controller.provisioning_deadline` (default 60 minutes) elapsing.
+Tenant status reports `PROVISIONING` throughout the wait and `FAILED` after,
+rather than a `READY` instance with nothing installed.
+
+`/api/v0/pxe/boot` answers a host in `Failed{ProvisioningFailed}` with error
+instructions: re-serving the script would resume the loop the failure exists to
+stop, and exit instructions would send a host into a disk it cannot boot. Unlike
+the other failure causes, this one is not terminal for the machine: a
+`rebootWithCustomIpxe` request restarts provisioning from `Assigned/Ready` --
+from either the failed state or a wait still in flight -- and releasing the
+instance runs the ordinary deletion flow, so neither needs an admin
+force-delete.
 
 
 ## Host Reprovision State Details (HostReprovisionState)

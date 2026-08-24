@@ -223,6 +223,9 @@ impl StateControllerIO for MachineStateControllerIO {
                     "waitingforextensionservicesconfig"
                 }
                 InstanceState::WaitingForRebootToReady => "waitingforreboottoready",
+                InstanceState::WaitingForProvisioningComplete { .. } => {
+                    "waitingforprovisioningcomplete"
+                }
                 InstanceState::Ready => "ready",
                 InstanceState::BootingWithDiscoveryImage { .. } => "bootingwithdiscoveryimage",
                 InstanceState::SwitchToAdminNetwork => "switchtoadminnetwork",

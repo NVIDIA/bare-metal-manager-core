@@ -74,6 +74,12 @@ pub fn instance_status_tenant_state(
                     TenantState::Provisioning
                 }
             }
+            // The tenant's operating system is still installing, and nothing yet
+            // proves it will succeed. Unlike the states above, this one is not
+            // projected as ready under operator-managed networking: that setting
+            // only says NICo has no data-plane readiness signal to wait for, and
+            // says nothing about whether an OS reached the disk.
+            InstanceState::WaitingForProvisioningComplete { .. } => TenantState::Provisioning,
             InstanceState::NetworkConfigUpdate { .. } => {
                 if operator_managed_networking {
                     tenant_ready_state()
