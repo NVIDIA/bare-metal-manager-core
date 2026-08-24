@@ -35,7 +35,7 @@ use crate::crds::dpuflavors_generated::{
     DpuFlavorSystemdServices, DpuFlavorSystemdServicesOperation,
 };
 use crate::types::{
-    DEFAULT_DPU_NUM_OF_VFS, DEFAULT_PF_TOTAL_SF_RESERVED, DOCA_HBN_SERVICE_NAME,
+    ASTRA_PF_TOTAL_SF, DEFAULT_DPU_NUM_OF_VFS, DEFAULT_PF_TOTAL_SF_RESERVED, DOCA_HBN_SERVICE_NAME,
     DpfInterceptBridge, DpfInterceptBridging, DpfProxyDetails, DpuDeploymentType,
     DpuServiceInterfaceTemplateDefinition, DpuServiceInterfaceTemplateType,
 };
@@ -1648,7 +1648,7 @@ fn get_bf4_astra_nvconfig() -> DpuFlavorNvconfig {
     let parameters = vec![
         "PF_BAR2_ENABLE=0".to_string(),
         "PER_PF_NUM_SF=1".to_string(),
-        "PF_TOTAL_SF=30".to_string(),
+        format!("PF_TOTAL_SF={ASTRA_PF_TOTAL_SF}"),
         "PF_SF_BAR_SIZE=14".to_string(),
         "NUM_PF_MSIX_VALID=0".to_string(),
         "PF_NUM_PF_MSIX_VALID=1".to_string(),
@@ -1964,7 +1964,7 @@ mod tests {
         // Astra retains its established fixed hardware configuration.
         let astra = parameters(flavor_bf4_astra("ns", &None).unwrap());
         assert!(astra.contains(&"NUM_OF_VFS=46".to_string()));
-        assert!(astra.contains(&"PF_TOTAL_SF=30".to_string()));
+        assert!(astra.contains(&"PF_TOTAL_SF=40".to_string()));
     }
 
     /// Verifies normalized input order cannot change rendered flavor identity.
@@ -2459,11 +2459,11 @@ mod tests {
                 ) => true,
             }
 
-            "Astra nvconfig requests 30 total SFs and 46 VFs" {
+            "Astra nvconfig requests 40 total SFs and 46 VFs" {
                 (
                     nvconfig_parameters
                         .iter()
-                        .any(|parameter| parameter == "PF_TOTAL_SF=30")
+                        .any(|parameter| parameter == "PF_TOTAL_SF=40")
                         && nvconfig_parameters
                             .iter()
                             .any(|parameter| parameter == "NUM_OF_VFS=46")
