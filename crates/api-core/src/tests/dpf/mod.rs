@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+mod dpu_service_sync;
+mod dpu_service_sync_release;
 mod happy_path;
 mod reprovisioning;
 mod stale_labels;

@@ -309,7 +309,7 @@ type APIMachineValidationRun struct {
 	Name                   string                     `json:"name"`
 	Context                string                     `json:"context"`
 	Status                 APIMachineValidationStatus `json:"status"`
-	DurationToCompleteSecs int                        `json:"durationToCompleteSecs"`
+	DurationToCompleteSecs int64                      `json:"durationToCompleteSecs"`
 }
 
 type APIMachineValidationState string
@@ -324,8 +324,8 @@ const (
 
 type APIMachineValidationStatus struct {
 	State     APIMachineValidationState `json:"state"`
-	Total     int                       `json:"total"`
-	Completed int                       `json:"completed"`
+	Total     uint32                    `json:"total"`
+	Completed uint32                    `json:"completed"`
 }
 
 func NewAPIMachineValidationRun(proto *corev1.MachineValidationRun) *APIMachineValidationRun {
@@ -344,8 +344,8 @@ func NewAPIMachineValidationRun(proto *corev1.MachineValidationRun) *APIMachineV
 	}
 	if protoStatus := proto.GetStatus(); protoStatus != nil {
 		apio.Status = APIMachineValidationStatus{
-			Total:     int(protoStatus.GetTotal()),
-			Completed: int(protoStatus.GetCompleted()),
+			Total:     protoStatus.GetTotal(),
+			Completed: protoStatus.GetCompletedTests(),
 		}
 		if sts, ok := protoStatus.GetMachineValidationState().(*corev1.MachineValidationStatus_Started); ok {
 			if sts.Started == corev1.MachineValidationStarted_Started {
@@ -366,9 +366,50 @@ func NewAPIMachineValidationRun(proto *corev1.MachineValidationRun) *APIMachineV
 		}
 	}
 	if protoDuration := proto.GetDurationToComplete(); protoDuration != nil {
-		apio.DurationToCompleteSecs = int(protoDuration.GetSeconds())
+		apio.DurationToCompleteSecs = protoDuration.GetSeconds()
 	}
 	return apio
+}
+
+// APIMachineValidationRunCreateRequest contains optional filters for an
+// on-demand Machine validation run.
+type APIMachineValidationRunCreateRequest struct {
+	Tags               []string `json:"tags,omitempty"`
+	AllowedTests       []string `json:"allowedTests,omitempty"`
+	RunUnverifiedTests bool     `json:"runUnverifiedTests,omitempty"`
+	Contexts           []string `json:"contexts,omitempty"`
+}
+
+// Validate ensures the on-demand Machine validation filters are well-formed.
+func (r APIMachineValidationRunCreateRequest) Validate() error {
+	return validation.ValidateStruct(&r,
+		validation.Field(&r.Tags, validation.Each(validation.Required)),
+		validation.Field(&r.AllowedTests, validation.Each(validation.Required)),
+		validation.Field(&r.Contexts, validation.Each(validation.Required)),
+	)
+}
+
+// ToProto converts an on-demand Machine validation request to the Core API model.
+func (r APIMachineValidationRunCreateRequest) ToProto(machineID string) *corev1.MachineValidationOnDemandRequest {
+	return &corev1.MachineValidationOnDemandRequest{
+		MachineId:         &corev1.MachineId{Id: machineID},
+		Tags:              r.Tags,
+		Action:            corev1.MachineValidationOnDemandRequest_Start,
+		AllowedTests:      r.AllowedTests,
+		RunUnverfiedTests: r.RunUnverifiedTests,
+		Contexts:          r.Contexts,
+	}
+}
+
+// NewAPIMachineValidationRunFromOnDemandResponse converts the Core response to
+// the REST API model. The validation ID fallback supports older Core versions
+// that do not populate the run field.
+func NewAPIMachineValidationRunFromOnDemandResponse(response *corev1.MachineValidationOnDemandResponse) *APIMachineValidationRun {
+	run := response.GetRun()
+	if run == nil {
+		run = &corev1.MachineValidationRun{ValidationId: response.GetValidationId()}
+	}
+	return NewAPIMachineValidationRun(run)
 }
 
 type APIMachineValidationExternalConfig struct {

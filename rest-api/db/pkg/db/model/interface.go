@@ -114,6 +114,7 @@ type Interface struct {
 	VpcIPFamilyMode      *InterfaceVpcIPFamilyMode      `bun:"vpc_ip_family_mode"`
 	VpcPrefixID          *uuid.UUID                     `bun:"vpc_prefix_id,type:uuid"`
 	VpcPrefix            *VpcPrefix                     `bun:"rel:belongs-to,join:vpc_prefix_id=id"`
+	SecondaryVpcPrefixID *uuid.UUID                     `bun:"secondary_vpc_prefix_id,type:uuid"`
 	MachineInterfaceID   *uuid.UUID                     `bun:"machine_interface_id,type:uuid"`
 	MachineInterface     *MachineInterface              `bun:"rel:belongs-to,join:machine_interface_id=id"`
 	Device               *string                        `bun:"device"`
@@ -156,6 +157,7 @@ type InterfaceUpdateInput struct {
 	VpcID                *uuid.UUID
 	VpcIPFamilyMode      *InterfaceVpcIPFamilyMode
 	VpcPrefixID          *uuid.UUID
+	SecondaryVpcPrefixID *uuid.UUID
 	Device               *string
 	DeviceInstance       *int
 	VirtualFunctionID    *int
@@ -182,6 +184,7 @@ type InterfaceFilterInput struct {
 type InterfaceClearInput struct {
 	InterfaceID          uuid.UUID
 	VpcPrefixID          bool
+	SecondaryVpcPrefixID bool
 	RequestedIpAddress   bool
 	InlineRoutingProfile bool
 }
@@ -305,7 +308,11 @@ func (ifcd InterfaceSQLDAO) setQueryWithFilter(filter InterfaceFilterInput, quer
 	}
 
 	if filter.VpcPrefixID != nil {
-		query = query.Where("ifc.vpc_prefix_id = ?", *filter.VpcPrefixID)
+		query = query.Where(
+			"(ifc.vpc_prefix_id = ? OR ifc.secondary_vpc_prefix_id = ?)",
+			*filter.VpcPrefixID,
+			*filter.VpcPrefixID,
+		)
 
 		if interfaceDAOSpan != nil {
 			ifcd.tracerSpan.SetAttribute(interfaceDAOSpan, "vpc_prefix_id", filter.VpcPrefixID.String())
@@ -454,6 +461,14 @@ func (ifcd InterfaceSQLDAO) Update(ctx context.Context, tx *db.Tx, input Interfa
 
 		if interfaceDAOSpan != nil {
 			ifcd.tracerSpan.SetAttribute(interfaceDAOSpan, "vpc_prefix_id", input.VpcPrefixID.String())
+		}
+	}
+	if input.SecondaryVpcPrefixID != nil {
+		is.SecondaryVpcPrefixID = input.SecondaryVpcPrefixID
+		updatedFields = append(updatedFields, "secondary_vpc_prefix_id")
+
+		if interfaceDAOSpan != nil {
+			ifcd.tracerSpan.SetAttribute(interfaceDAOSpan, "secondary_vpc_prefix_id", input.SecondaryVpcPrefixID.String())
 		}
 	}
 	if input.Device != nil {
@@ -692,6 +707,10 @@ func (ifcd InterfaceSQLDAO) Clear(ctx context.Context, tx *db.Tx, input Interfac
 	if input.VpcPrefixID {
 		i.VpcPrefixID = nil
 		updatedFields = append(updatedFields, "vpc_prefix_id")
+	}
+	if input.SecondaryVpcPrefixID {
+		i.SecondaryVpcPrefixID = nil
+		updatedFields = append(updatedFields, "secondary_vpc_prefix_id")
 	}
 	if input.RequestedIpAddress {
 		i.RequestedIpAddress = nil

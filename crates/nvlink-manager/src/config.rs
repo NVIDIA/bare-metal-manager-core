@@ -20,6 +20,7 @@ use duration_str::deserialize_duration;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct NvLinkConfig {
     /// Enables NvLink partitioning.
     #[serde(default)]
@@ -68,8 +69,7 @@ impl NvLinkConfig {
     }
 
     pub const fn default_partition_monitor_max_concurrent_groups() -> std::num::NonZeroUsize {
-        // SAFETY: 16 is non-zero.
-        unsafe { std::num::NonZeroUsize::new_unchecked(16) }
+        std::num::NonZeroUsize::new(16).expect("16 is non-zero")
     }
 }
 

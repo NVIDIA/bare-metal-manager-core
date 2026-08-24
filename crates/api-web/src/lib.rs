@@ -72,6 +72,13 @@ trait Base {
     fn site_name() -> &'static str {
         carbide_api_core::configured_site_name().unwrap_or("local")
     }
+
+    /// URL template for the "Logs" link on machine and endpoint detail pages.
+    /// The placeholder `{search}` is replaced with the machine ID or BMC IP
+    /// by JavaScript. Empty when not configured.
+    fn logs_link_template() -> &'static str {
+        carbide_api_core::configured_logs_link_template()
+    }
 }
 
 /// Reusable template for rendering metadata (name, description, labels, version)

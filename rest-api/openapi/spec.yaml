@@ -22,7 +22,7 @@ tags:
 
       ### Authentication
       The first step is to authenticate using a JWT bearer token. Organization structures and roles depend on the authentication configuration used. For details on authentication, please consult the
-      NICo REST `auth` module [README](https://github.com/NVIDIA/infra-controller/rest-api/tree/main/auth).
+      NICo REST `auth` module [README](https://github.com/NVIDIA/infra-controller/tree/main/rest-api/auth).
 
       ### API Version
       The next step is to be aware of the API version being used. The API version can be retrieved by calling the [Retrieve Metadata endpoint](#tag/Metadata/operation/get-metadata). In general, the API maintains backward
@@ -124,9 +124,11 @@ tags:
       - `rackLevelAdministration` capability attribute was deprecated in favor of `flow` and was removed on May 13th, 2026 0:00 UTC. Please use `flow` instead.
       - `isRackLevelAdministrationEnabled` query parameter was deprecated in favor of `isFlowEnabled` and was removed on May 13th, 2026 0:00 UTC. Please use `isFlowEnabled` instead.
   - name: BMC Credential
+    x-displayName: BMC Credential
     description: |-
       BMC Credential endpoints allow creating and updating BMC credentials across all Machines of a Site
   - name: UEFI Credential
+    x-displayName: UEFI Credential
     description: |-
       UEFI Credential endpoints allow creating site-default host and DPU UEFI credentials for a Site
   - name: Measured Boot Trusted Machine
@@ -149,12 +151,15 @@ tags:
 
       - `ResourceTypeID` attribute on Allocation Constraint was deprecated in favor of `resourceTypeId` and will be removed on July 9th, 2026 0:00 UTC. Please use `resourceTypeId` instead.
   - name: VPC
+    x-displayName: VPC
     description: |-
       VPC defines the networking isolation boundary for Tenant's Instances.
   - name: VPC Peering
+    x-displayName: VPC Peering
     description: |-
       VPC Peering allows Instances in one VPC to communicate with Instances in another VPC on the same Site.
   - name: VPC Prefix
+    x-displayName: VPC Prefix
     description: |-
       VPC Prefix is a network prefix belonging to an IP Block allocated to a Tenant. Tenant can use VPC Prefixes to enable network connectivity between their Instances.
 
@@ -182,6 +187,7 @@ tags:
       Expected Switch identifies an NVLink Switch that is expected to be discovered at a Site. Infrastructure Providers can pre-register Expected Switches using BMC, NVOS credentials
       and serial numbers to help with NVLink Switch discovery and ingestion.
   - name: SKU
+    x-displayName: SKU
     description: |-
       SKU (Stock Keeping Unit) defines one or more hardware configurations or Machine Bill of Materials (BOM).
 
@@ -207,6 +213,7 @@ tags:
 
       - `isCloudInit` on create and update requests is deprecated and ignored; the response field is derived from whether `userData` is non-empty.
   - name: iPXE Template
+    x-displayName: iPXE Template
     description: |-
       iPXE Templates are read-only definitions propagated from nico-core into the REST API. Each template has a stable core UUID and a globally unique name; per-site availability is tracked in IpxeTemplateSiteAssociation records rather than on the template row itself. List and retrieve operations return templates reported at sites the caller is authorized for (optionally filtered by `siteId`). Templated iPXE Operating Systems reference a template by `ipxeTemplateId`.
   - name: Instance Type
@@ -218,12 +225,15 @@ tags:
   - name: Machine
     description: |-
       Machine is a physical server that contains CPUs, GPUs, memory, storage, and networking hardware. Machines are the physical building blocks of a Site.
+  - name: Machine Validation
+    description: |-
+      Machine Validation is the mechanism through which a series of validation tests are executed against a Machine verify its integrity. The tests are run for each Machine on ingestion, they can also be run on-demand.
   - name: BMC Reset
     x-displayName: BMC Reset
     description: |-
       BMC Reset allows resetting a Machine's BMC
   - name: DPU Reprovision
-    x-DisplayName: DPU Reprovision
+    x-displayName: DPU Reprovision
     description: |-
       DPU Reprovision allows re-provisioning Machine's DPUs
   - name: Health Report
@@ -246,7 +256,7 @@ tags:
       Operation Rule defines, per Site, how a particular operation (for example `PowerControl` / `power_on` or `FirmwareControl` / `upgrade`) should be executed against a set of components: ordered execution stages, per-component-type concurrency, pre / main / post actions, timeouts, and retry policy. Rules are reusable templates owned by Flow; this tag exposes CRUD (`POST`, `GET`, `PATCH`, `DELETE`) over them.
   - name: Task Run
     description: |-
-      A Task Run is a phased, policy-gated execution of one operation (currently firmware) across many Racks. A Task Run narrows a candidate set of Racks with an optional selector, divides the selected Racks into phases, and drives one execution target per Rack; each target in turn drives at most one Task. Safety gates pause the Task Run when failures exceed a threshold, and phase gates hold each phase until an operator advances it. This tag exposes creation, retrieval, target listing, and the pause / resume / advance / cancel lifecycle actions; drill into per-Rack execution detail via the Task tag using each target's `taskId`.
+      A Task Run is a phased, policy-gated execution of one operation across many Racks. A Task Run narrows a candidate set of Racks with an optional selector, divides the selected Racks into phases, and drives one execution target per Rack; each target in turn drives at most one Task. Safety gates pause the Task Run when failures exceed a threshold, and phase gates hold each phase until an operator advances it. This tag exposes creation, retrieval, target listing, and the pause / resume / advance / cancel lifecycle actions; drill into per-Rack execution detail via the Task tag using each target's `taskId`.
   - name: Network Security Group
     description: |-
       Network Security Group is a security policy that controls the traffic flowing between Instances.
@@ -255,6 +265,7 @@ tags:
 
       - `object_id` attribute on Network Security Group propagation details was deprecated in favor of `objectId` and will be removed on July 9th, 2026 0:00 UTC. Please use `objectId` instead.
   - name: IP Block
+    x-displayName: IP Block
     description: |-
       IP Block is a contiguous block of IP addresses defined by a prefix and prefix length.
 
@@ -264,9 +275,11 @@ tags:
     description: |-
       DPU Extension Service allows users to run custom services in the DPUs of their Instances. Currently K8s pods are the only supported service type.
   - name: SSH Key Group
+    x-displayName: SSH Key Group
     description: |-
       SSH Key Groups allow grouping several SSH Keys together so they can be synced to Sites and used to access the Serial Console of Instances.
   - name: SSH Key
+    x-displayName: SSH Key
     description: |-
       SSH Key is a public key that can be used to access the Serial Console of an Instance.
   - name: User
@@ -596,10 +609,9 @@ paths:
           name: includeRelation
           description: Related entity to expand
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -964,10 +976,9 @@ paths:
           name: includeRelation
           description: Related entity to expand
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -1205,12 +1216,14 @@ paths:
         - The org's Tenant is privileged and has Account with Site's Provider
       parameters:
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
           in: query
           name: pageNumber
           description: Page number for pagination query
         - schema:
             type: integer
+            minimum: 1
+            maximum: 100
           in: query
           name: pageSize
           description: Page size for pagination query
@@ -1642,6 +1655,86 @@ paths:
         `nico-admin-cli credential rotation-status`.
 
         User must have authorization role with `PROVIDER_ADMIN` suffix.
+  '/v2/org/{org}/nico/site-explorer/endpoint':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    get:
+      summary: Retrieve all Explored Endpoints
+      tags:
+        - Site Explorer
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site
+        - schema:
+            $ref: '#/components/schemas/PageNumber'
+          name: pageNumber
+          in: query
+          required: false
+          description: Page number of results returned
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+          name: pageSize
+          in: query
+          required: false
+          description: Number of results per page
+        - schema:
+            type: string
+            enum:
+              - ID_ASC
+              - ID_DESC
+            default: ID_ASC
+          name: orderBy
+          in: query
+          required: false
+          description: Order results by endpoint ID
+      responses:
+        '200':
+          description: Explored endpoints for the Site
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ExploredEndpoint'
+          headers:
+            X-Pagination:
+              schema:
+                type: string
+                example: '{"pageNumber":1,"pageSize":20,"total":30,"orderBy":"ID_ASC"}'
+              description: Pagination result in JSON format
+        '400':
+          $ref: '#/components/responses/GenericHttpError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/GenericHttpError'
+        '412':
+          $ref: '#/components/responses/GenericHttpError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+        '504':
+          $ref: '#/components/responses/GenericHttpError'
+      operationId: get-all-site-explorer-endpoint
+      description: |-
+        Retrieve explored endpoints discovered by Site Explorer for a Site. Use `ID_ASC` or `ID_DESC` to order by endpoint ID; the default is `ID_ASC`.
+
+        The response is paged over Core `FindExploredEndpointIds` followed by
+        `FindExploredEndpointsByIds`. Pagination metadata is returned in the
+        `X-Pagination` response header.
+
+        User must have authorization role with `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/site-explorer/endpoint/action':
     parameters:
       - schema:
@@ -1828,10 +1921,9 @@ paths:
           name: includeRelation
           description: Related entity to expand
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -2282,10 +2374,9 @@ paths:
           name: includeRelation
           description: Related entity to expand
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -2625,10 +2716,9 @@ paths:
           name: includeRelation
           description: Related entity to expand
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -2768,10 +2858,9 @@ paths:
           name: includeRelation
           description: Related entity to expand
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -3142,10 +3231,9 @@ paths:
           required: false
           description: Optional Site ID filter. If provided, caller must have access to the specified Site.
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -3390,10 +3478,9 @@ paths:
             When true, each VPC Prefix object includes usage statistics using the same structure as IP Block usage.
             Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a VPC Prefix consumes a `/31` prefix.
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -3636,10 +3723,9 @@ paths:
             When true, each Subnet object includes usage statistics using the same structure as IP Block usage.
             Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a Subnet consumes a single IP. In addition, one gateway and one broadcast IP address are reserved per Subnet.
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -3947,10 +4033,9 @@ paths:
           name: includeRelation
           description: Related entity to expand
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -4317,10 +4402,9 @@ paths:
           name: includeRelation
           description: Related entity to expand
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -4561,10 +4645,9 @@ paths:
           name: includeRelation
           description: Related entity to expand
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -4900,10 +4983,9 @@ paths:
           name: includeRelation
           description: Related entity to expand
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -5097,10 +5179,9 @@ paths:
           required: true
           description: ID of the Site to retrieve SKUs from
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -5169,7 +5250,6 @@ paths:
                           vendor: Supermicro
                           model: SYS-420GP-TNR
                       created: '2019-08-24T14:15:22Z'
-                      updated: '2019-08-24T14:15:22Z'
           headers:
             X-Pagination:
               schema:
@@ -5276,7 +5356,6 @@ paths:
                         vendor: Supermicro
                         model: SYS-420GP-TNR
                     created: '2019-08-24T14:15:22Z'
-                    updated: '2019-08-24T14:15:22Z'
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -5419,10 +5498,9 @@ paths:
           name: includeRelation
           description: Related entity to expand
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -5753,10 +5831,9 @@ paths:
           name: includeRelation
           description: Related entity to expand
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -6096,10 +6173,9 @@ paths:
           name: excludeUnallocated
           description: Excludes Instance Type records that have no allocations from being returned in the result set. Currently can only be requested by Tenant.
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -6447,10 +6523,9 @@ paths:
         Org must have an Infrastructure Provider entity that owns the Instance Type and the Machine. User must have authorization role with `PROVIDER_ADMIN` suffix.
       parameters:
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -6955,10 +7030,9 @@ paths:
           name: includeRelation
           description: Related entity to expand
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -7861,12 +7935,14 @@ paths:
         Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
       parameters:
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
           in: query
           name: pageNumber
           description: Page number for pagination query
         - schema:
             type: integer
+            minimum: 1
+            maximum: 100
           in: query
           name: pageSize
           description: Page size for pagination query
@@ -7955,10 +8031,9 @@ paths:
           name: includeRelation
           description: Related entity to expand
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -8062,10 +8137,9 @@ paths:
           name: includeRelation
           description: Related entity to expand
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -8165,10 +8239,9 @@ paths:
           name: includeRelation
           description: Related entity to expand
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -8272,10 +8345,9 @@ paths:
           name: includeRelation
           description: Related entity to expand
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -8380,10 +8452,9 @@ paths:
           name: includeRelation
           description: Related entity to expand
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -8589,10 +8660,9 @@ paths:
           name: includeRelation
           description: Related entity to expand
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -9186,10 +9256,9 @@ paths:
           name: includeRelation
           description: Related entity to expand
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -10042,6 +10111,115 @@ paths:
         attached to the Machine, `acknowledgeAttachedInstance` must be `true`.
         
         Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
+  '/v2/org/{org}/nico/machine/{machineId}/validation/run':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+        name: machineId
+        in: path
+        required: true
+        description: ID of the Machine
+    get:
+      summary: Retrieve Machine validation runs
+      tags:
+        - Machine Validation
+      responses:
+        '200':
+          description: Machine validation runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MachineValidationRun'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+      operationId: get-all-machine-validation-runs
+      description: |-
+        Retrieve validation runs for a specific Machine.
+
+        Org must have an Infrastructure Provider entity that owns the Machine. User must have authorization role with `PROVIDER_ADMIN` suffix.
+    post:
+      summary: Create an on-demand Machine validation run
+      tags:
+        - Machine Validation
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MachineValidationRunCreateRequest'
+      responses:
+        '202':
+          description: On-demand Machine validation request was accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MachineValidationRun'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+      operationId: start-machine-validation
+      description: |-
+        Create an on-demand Machine validation run. The Machine must be in a state accepted by NICo Core.
+
+        Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
+  '/v2/org/{org}/nico/machine/{machineId}/validation/result':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+        name: machineId
+        in: path
+        required: true
+        description: ID of the Machine
+    get:
+      summary: Retrieve Machine validation results
+      tags:
+        - Machine Validation
+      responses:
+        '200':
+          description: Machine validation results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MachineValidationResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+      operationId: get-all-machine-validation-results
+      description: |-
+        Retrieve validation results for a specific Machine.
+
+        Org must have an Infrastructure Provider entity that owns the Machine. User must have authorization role with `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/machine/{machineId}/status-history':
     parameters:
       - schema:
@@ -10092,12 +10270,14 @@ paths:
         If org has a Tenant entity, then a user with `TENANT_ADMIN` role can request details for any Machine associated with Tenant's active Instances.
       parameters:
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
           in: query
           name: pageNumber
           description: Page number for pagination query
         - schema:
             type: integer
+            minimum: 1
+            maximum: 100
           in: query
           name: pageSize
           description: Page size for pagination query
@@ -10444,10 +10624,9 @@ paths:
           name: count
           description: Filter Capabilities by Count
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -10510,10 +10689,9 @@ paths:
           name: manufacturer
           description: Filter by manufacturer
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -10584,6 +10762,8 @@ paths:
               description: Pagination result in JSON format
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/rack/{id}':
@@ -10662,6 +10842,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/rack/validation':
@@ -10757,6 +10939,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/rack/{id}/validation':
@@ -10845,6 +11029,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/rack/power':
@@ -10900,6 +11086,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/rack/{id}/power':
@@ -10961,6 +11149,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/rack/firmware':
@@ -11012,6 +11202,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/rack/{id}/firmware':
@@ -11066,6 +11258,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/rack/bringup':
@@ -11117,6 +11311,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/rack/{id}/bringup':
@@ -11171,6 +11367,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/task/{id}':
@@ -11227,6 +11425,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Task
   '/v2/org/{org}/nico/task/{id}/cancel':
@@ -11304,6 +11504,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Task
   '/v2/org/{org}/nico/task/rule':
@@ -11333,6 +11535,81 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateRuleRequest'
+            examples:
+              power-on:
+                summary: Power on, staged by component type
+                value:
+                  siteId: 60189e9c-7d12-438c-b9ca-6998d9c364b1
+                  name: Power on - shelves, then switches, then compute
+                  description: Verifies each component type reached the on state before the next stage starts.
+                  operationType: PowerControl
+                  operationCode: power_on
+                  ruleDefinition:
+                    version: v1
+                    steps:
+                      - componentType: PowerShelf
+                        stage: 1
+                        maxParallel: 0
+                        timeout: 15m
+                        retry:
+                          maxAttempts: 3
+                          initialInterval: 5s
+                          backoffCoefficient: 2
+                          maxInterval: 1m
+                        mainOperation:
+                          name: PowerControl
+                        postOperation:
+                          - name: VerifyPowerStatus
+                            timeout: 5m
+                            pollInterval: 10s
+                            parameters:
+                              expected_status: 'on'
+                      - componentType: NVSwitch
+                        stage: 2
+                        maxParallel: 0
+                        timeout: 15m
+                        retry:
+                          maxAttempts: 3
+                          initialInterval: 5s
+                          backoffCoefficient: 2
+                        mainOperation:
+                          name: PowerControl
+                        postOperation:
+                          - name: VerifyPowerStatus
+                            timeout: 5m
+                            pollInterval: 10s
+                            parameters:
+                              expected_status: 'on'
+                      - componentType: Compute
+                        stage: 3
+                        maxParallel: 8
+                        timeout: 20m
+                        retry:
+                          maxAttempts: 3
+                          initialInterval: 1s
+                          backoffCoefficient: 2
+                        mainOperation:
+                          name: PowerControl
+                        postOperation:
+                          - name: VerifyReachability
+                            timeout: 10m
+                            pollInterval: 30s
+                            parameters:
+                              component_types:
+                                - Compute
+                              require_all: true
+              firmware-upgrade:
+                summary: Firmware upgrade with Flow-sequenced steps
+                description: |-
+                  Operations whose sequencing is hardcoded in Flow accept a
+                  definition with no steps.
+                value:
+                  siteId: 60189e9c-7d12-438c-b9ca-6998d9c364b1
+                  name: Firmware upgrade - Flow default sequencing
+                  operationType: FirmwareControl
+                  operationCode: upgrade
+                  ruleDefinition:
+                    version: v1
       responses:
         '201':
           description: Rule was created.
@@ -11344,6 +11621,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rule
     get:
@@ -11374,8 +11653,7 @@ paths:
           required: false
           description: Filter by operation type.
         - schema:
-            type: integer
-            minimum: 1
+            $ref: '#/components/schemas/PageNumber'
           name: pageNumber
           in: query
           required: false
@@ -11383,6 +11661,7 @@ paths:
         - schema:
             type: integer
             minimum: 1
+            maximum: 100
           name: pageSize
           in: query
           required: false
@@ -11400,6 +11679,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rule
   '/v2/org/{org}/nico/task/rule/{id}':
@@ -11441,12 +11722,64 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OperationRule'
+              examples:
+                power-on:
+                  summary: Default power-on rule
+                  value:
+                    id: 2c9f4a1b-7d38-4e52-9b6c-1a0d3e5f7b92
+                    name: Power on - shelves, then switches, then compute
+                    description: Verifies each component type reached the on state before the next stage starts.
+                    operationType: PowerControl
+                    operationCode: power_on
+                    isDefault: true
+                    created: '2026-07-02T09:14:37Z'
+                    updated: '2026-08-05T11:20:05Z'
+                    ruleDefinition:
+                      version: v1
+                      steps:
+                        - componentType: PowerShelf
+                          stage: 1
+                          maxParallel: 0
+                          timeout: 15m
+                          retry:
+                            maxAttempts: 3
+                            initialInterval: 5s
+                            backoffCoefficient: 2
+                            maxInterval: 1m
+                          mainOperation:
+                            name: PowerControl
+                          postOperation:
+                            - name: VerifyPowerStatus
+                              timeout: 5m
+                              pollInterval: 10s
+                              parameters:
+                                expected_status: 'on'
+                        - componentType: Compute
+                          stage: 2
+                          maxParallel: 8
+                          timeout: 20m
+                          retry:
+                            maxAttempts: 3
+                            initialInterval: 1s
+                            backoffCoefficient: 2
+                          mainOperation:
+                            name: PowerControl
+                          postOperation:
+                            - name: VerifyReachability
+                              timeout: 10m
+                              pollInterval: 30s
+                              parameters:
+                                component_types:
+                                  - Compute
+                                require_all: true
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rule
     patch:
@@ -11468,6 +11801,40 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/UpdateRuleRequest'
+            examples:
+              rename:
+                summary: Rename only
+                value:
+                  siteId: 60189e9c-7d12-438c-b9ca-6998d9c364b1
+                  name: Power on - shelves first
+              retune-concurrency:
+                summary: Replace the rule definition
+                description: |-
+                  `ruleDefinition` is replaced wholesale, so send every step the
+                  rule should keep.
+                value:
+                  siteId: 60189e9c-7d12-438c-b9ca-6998d9c364b1
+                  ruleDefinition:
+                    version: v1
+                    steps:
+                      - componentType: PowerShelf
+                        stage: 1
+                        maxParallel: 0
+                        timeout: 15m
+                        mainOperation:
+                          name: PowerControl
+                        postOperation:
+                          - name: VerifyPowerStatus
+                            timeout: 5m
+                            pollInterval: 10s
+                            parameters:
+                              expected_status: 'on'
+                      - componentType: Compute
+                        stage: 2
+                        maxParallel: 16
+                        timeout: 20m
+                        mainOperation:
+                          name: PowerControl
       responses:
         '204':
           description: Rule was updated.
@@ -11477,6 +11844,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rule
     delete:
@@ -11507,6 +11876,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rule
   '/v2/org/{org}/nico/task/run':
@@ -11525,10 +11896,10 @@ paths:
         many Racks. The configuration is validated server-side by Flow; on
         validation failure no state changes.
 
-        A Task Run executes exactly one operation (currently firmware) over a
-        candidate set of Racks, narrowed by an optional `selector` and divided
-        into phases by an optional `options.phasePolicy`. The response echoes the
-        assigned `id`; the Task Run always starts in the `Pending` state. Poll
+        A Task Run executes exactly one operation over a candidate set of Racks,
+        narrowed by an optional `selector` and divided into phases by an
+        optional `options.phasePolicy`. The response echoes the assigned `id`;
+        the Task Run always starts in the `Pending` state. Poll
         `GET /task/run/{id}` for progress.
 
         Org must have an Infrastructure Provider entity. User must have
@@ -11539,6 +11910,78 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateTaskRunRequest'
+            examples:
+              gated-firmware-rollout:
+                summary: Gated firmware rollout over a 10% cohort
+                description: |-
+                  Takes a deterministic 10% of the Site's candidate Racks, splits
+                  the cohort into two equal phases, and holds at a phase gate
+                  between them because `autoAdvance` is false.
+                value:
+                  siteId: 60189e9c-7d12-438c-b9ca-6998d9c364b1
+                  name: Compute firmware 25.03 - 10% cohort
+                  description: Canary cohort ahead of the fleet-wide rollout.
+                  selector:
+                    percentage:
+                      percent: 10
+                      seed: fw-25-03-canary
+                  options:
+                    maxConcurrentTargets: 4
+                    safetyPolicy:
+                      gates:
+                        - failureRate:
+                            scope: currentPhase
+                            thresholdPercent: 10
+                        - failureCount:
+                            scope: cumulativeRun
+                            thresholdCount: 5
+                    conflictPolicy:
+                      retry:
+                        retryTimeout: 30m
+                        initialRetryDelay: 10s
+                        maxRetryDelay: 5m
+                    orderingPolicy:
+                      random:
+                        seed: fw-25-03-canary
+                    phasePolicy:
+                      equal:
+                        phaseCount: 2
+                      autoAdvance: false
+                  operation:
+                    firmware:
+                      version: 25.03.1
+                      subTargets:
+                        - bmc
+                        - bios
+              fleet-rollout:
+                summary: Fleet-wide rollout excluding an earlier cohort
+                description: |-
+                  Omitting `selector` targets the full candidate scope;
+                  `excludeRunIds` keeps the Racks an earlier Task Run already
+                  covered out of this one.
+                value:
+                  siteId: 60189e9c-7d12-438c-b9ca-6998d9c364b1
+                  name: Compute firmware 25.03 - fleet
+                  options:
+                    maxConcurrentTargets: 12
+                    safetyPolicy:
+                      gates:
+                        - failureRate:
+                            scope: cumulativeRun
+                            thresholdPercent: 5
+                    phasePolicy:
+                      percentage:
+                        phases:
+                          - 25
+                          - 25
+                          - 50
+                      autoAdvance: true
+                  operation:
+                    firmware:
+                      version: 25.03.1
+                      ruleId: 8f2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d
+                    excludeRunIds:
+                      - 3b1f0c62-9a5d-4c8e-9f10-7d2e5a6b8c41
       responses:
         '201':
           description: Task Run was created.
@@ -11550,6 +11993,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Task Run
     get:
@@ -11594,8 +12039,7 @@ paths:
           required: false
           description: Filter by operation type.
         - schema:
-            type: integer
-            minimum: 1
+            $ref: '#/components/schemas/PageNumber'
           name: pageNumber
           in: query
           required: false
@@ -11603,6 +12047,7 @@ paths:
         - schema:
             type: integer
             minimum: 1
+            maximum: 100
           name: pageSize
           in: query
           required: false
@@ -11626,6 +12071,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Task Run
   '/v2/org/{org}/nico/task/run/{id}':
@@ -11675,12 +12122,67 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TaskRun'
+              examples:
+                held-at-phase-gate:
+                  summary: Paused at a phase gate, with stats
+                  description: |-
+                    `stats` is present because the request set
+                    `includeStats=true`. `statusReason` is `PhaseGate`, so the
+                    first phase finished and the Task Run is waiting for an
+                    explicit advance.
+                  value:
+                    id: 7a4c1e88-3d21-4f9b-b0c5-2e6d9f1a4b73
+                    name: Compute firmware 25.03 - 10% cohort
+                    description: Canary cohort ahead of the fleet-wide rollout.
+                    operationType: FirmwareControl
+                    operationCode: upgrade
+                    status: Paused
+                    statusReason: PhaseGate
+                    statusMessage: Phase 0 complete; awaiting operator advance.
+                    totalPhases: 2
+                    created: '2026-08-10T14:02:11Z'
+                    updated: '2026-08-10T15:47:03Z'
+                    started: '2026-08-10T14:02:44Z'
+                    finished: null
+                    stats:
+                      currentPhase:
+                        phaseIndex: 0
+                        selectedTargets: 6
+                        outcomeCounts:
+                          completed: 5
+                          failed: 1
+                          terminated: 0
+                          skipped: 0
+                      cumulativePhase:
+                        phaseIndex: 0
+                        selectedTargets: 6
+                        outcomeCounts:
+                          completed: 5
+                          failed: 1
+                          terminated: 0
+                          skipped: 0
+                pending:
+                  summary: Just created, not started
+                  value:
+                    id: 7a4c1e88-3d21-4f9b-b0c5-2e6d9f1a4b73
+                    name: Compute firmware 25.03 - 10% cohort
+                    operationType: FirmwareControl
+                    operationCode: upgrade
+                    status: Pending
+                    statusReason: None
+                    totalPhases: 2
+                    created: '2026-08-10T14:02:11Z'
+                    updated: '2026-08-10T14:02:11Z'
+                    started: null
+                    finished: null
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Task Run
   '/v2/org/{org}/nico/task/run/{id}/target':
@@ -11748,8 +12250,7 @@ paths:
           required: false
           description: Restrict targets to the current phase, completed phases, or both.
         - schema:
-            type: integer
-            minimum: 1
+            $ref: '#/components/schemas/PageNumber'
           name: pageNumber
           in: query
           required: false
@@ -11757,6 +12258,7 @@ paths:
         - schema:
             type: integer
             minimum: 1
+            maximum: 100
           name: pageSize
           in: query
           required: false
@@ -11770,6 +12272,38 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/TaskRunTarget'
+              examples:
+                first-phase:
+                  summary: One completed, one failed, one not yet submitted
+                  value:
+                    - id: c1d2e3f4-5a6b-4c7d-8e9f-0a1b2c3d4e5f
+                      runId: 7a4c1e88-3d21-4f9b-b0c5-2e6d9f1a4b73
+                      rackId: 0eadc9d8-d4ed-41ed-b687-0812d801dad8
+                      sequenceIndex: 0
+                      phaseIndex: 0
+                      taskId: 9b8a7c6d-5e4f-4a3b-2c1d-0e9f8a7b6c5d
+                      status: Completed
+                      created: '2026-08-10T14:02:44Z'
+                      updated: '2026-08-10T14:39:02Z'
+                    - id: d2e3f4a5-6b7c-4d8e-9f0a-1b2c3d4e5f60
+                      runId: 7a4c1e88-3d21-4f9b-b0c5-2e6d9f1a4b73
+                      rackId: 4f7c2b19-8e3d-4a5f-9c1b-6d8e0a2f4b71
+                      sequenceIndex: 1
+                      phaseIndex: 0
+                      taskId: a7b6c5d4-3e2f-4a1b-8c9d-0e1f2a3b4c5e
+                      status: Failed
+                      message: 'Task failed: BMC did not report the target version.'
+                      created: '2026-08-10T14:02:44Z'
+                      updated: '2026-08-10T15:47:03Z'
+                    - id: e3f4a5b6-7c8d-4e9f-0a1b-2c3d4e5f6071
+                      runId: 7a4c1e88-3d21-4f9b-b0c5-2e6d9f1a4b73
+                      rackId: 5a8d3c2b-9f4e-4b6a-8d1c-7e9f0b3a5c82
+                      sequenceIndex: 2
+                      phaseIndex: 1
+                      taskId: null
+                      status: Pending
+                      created: '2026-08-10T14:02:44Z'
+                      updated: '2026-08-10T14:02:44Z'
           headers:
             X-Pagination:
               schema:
@@ -11782,6 +12316,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Task Run
   '/v2/org/{org}/nico/task/run/{id}/pause':
@@ -11816,6 +12352,10 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/TaskRunSiteRequest'
+            examples:
+              pause:
+                value:
+                  siteId: 60189e9c-7d12-438c-b9ca-6998d9c364b1
       responses:
         '202':
           description: |-
@@ -11831,6 +12371,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Task Run
   '/v2/org/{org}/nico/task/run/{id}/resume':
@@ -11865,6 +12407,10 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/TaskRunSiteRequest'
+            examples:
+              resume:
+                value:
+                  siteId: 60189e9c-7d12-438c-b9ca-6998d9c364b1
       responses:
         '202':
           description: |-
@@ -11880,6 +12426,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Task Run
   '/v2/org/{org}/nico/task/run/{id}/advance':
@@ -11915,6 +12463,16 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/AdvanceTaskRunRequest'
+            examples:
+              advance:
+                summary: Advance to whichever phase is next
+                value:
+                  siteId: 60189e9c-7d12-438c-b9ca-6998d9c364b1
+              advance-guarded:
+                summary: Advance only if the next phase is the second one
+                value:
+                  siteId: 60189e9c-7d12-438c-b9ca-6998d9c364b1
+                  expectedPhaseIndex: 1
       responses:
         '202':
           description: |-
@@ -11930,6 +12488,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Task Run
   '/v2/org/{org}/nico/task/run/{id}/cancel':
@@ -11964,6 +12524,11 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CancelTaskRunRequest'
+            examples:
+              cancel:
+                value:
+                  siteId: 60189e9c-7d12-438c-b9ca-6998d9c364b1
+                  reason: Superseded by the 25.03.2 rollout.
       responses:
         '202':
           description: |-
@@ -11979,6 +12544,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Task Run
   '/v2/org/{org}/nico/rack/{id}/task':
@@ -12028,10 +12595,9 @@ paths:
           in: query
           description: Include the per-task execution report on each returned task.
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -12064,6 +12630,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
   '/v2/org/{org}/nico/tray':
@@ -12135,10 +12703,9 @@ paths:
           description: |-
             Restrict to trays at this rack slot (matches `position.slotId`). Requires `rackId` or `rackName`. Composes with the rest of the filter via AND.
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -12199,6 +12766,8 @@ paths:
               description: Pagination result in JSON format
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Tray
   '/v2/org/{org}/nico/tray/{id}':
@@ -12260,6 +12829,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Tray
   '/v2/org/{org}/nico/tray/validation':
@@ -12359,6 +12930,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Tray
   '/v2/org/{org}/nico/tray/{id}/validation':
@@ -12413,6 +12986,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Tray
   '/v2/org/{org}/nico/tray/power':
@@ -12470,6 +13045,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Tray
   '/v2/org/{org}/nico/tray/{id}/power':
@@ -12531,6 +13108,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Tray
   '/v2/org/{org}/nico/tray/firmware':
@@ -12585,6 +13164,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Tray
   '/v2/org/{org}/nico/tray/{id}/firmware':
@@ -12639,6 +13220,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Tray
   '/v2/org/{org}/nico/tray/{id}/task':
@@ -12688,10 +13271,9 @@ paths:
           in: query
           description: Include the per-task execution report on each returned task.
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -12724,6 +13306,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Tray
   '/v2/org/{org}/nico/ipxe-template':
@@ -12754,10 +13338,9 @@ paths:
           required: false
           description: 'Optional site ID(s); may be repeated to restrict results to templates available at any of the sites'
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -12901,10 +13484,9 @@ paths:
           name: includeRelation
           description: Related entity to expand
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -13163,10 +13745,9 @@ paths:
           name: includeRelation
           description: Related entity to expand
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -13459,10 +14040,9 @@ paths:
           name: includeRelation
           description: Related entity to expand
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -13822,10 +14402,9 @@ paths:
           name: includeRelation
           description: Related entity to expand
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -14136,10 +14715,9 @@ paths:
           name: failedOnly
           description: Return only audit log entries that have failed status code (>= 400)
         - schema:
-            type: integer
+            $ref: '#/components/schemas/PageNumber'
             example: 1
             default: 1
-            minimum: 1
           in: query
           name: pageNumber
           description: Page number for pagination query
@@ -14674,6 +15252,12 @@ paths:
           $ref: '#/components/responses/GenericHttpError'
 components:
   schemas:
+    PageNumber:
+      title: PageNumber
+      type: integer
+      minimum: 1
+      maximum: 21474836
+      description: One-indexed page number.
     MeasuredBootTrustedMachineCreateRequest:
       type: object
       title: MeasuredBootTrustedMachineCreateRequest
@@ -14947,7 +15531,8 @@ components:
             - LockdownIKM
         targetVersion:
           type: integer
-          format: int64
+          format: uint32
+          minimum: 0
           description: Newly published site-wide target version that devices converge to.
         started:
           type:
@@ -14968,19 +15553,23 @@ components:
       properties:
         targetVersion:
           type: integer
-          format: int64
+          format: uint32
+          minimum: 0
           description: Current site-wide target version for this family.
         converged:
           type: integer
-          format: int64
+          format: uint64
+          minimum: 0
           description: Number of devices at or beyond the target version.
         pending:
           type: integer
-          format: int64
+          format: uint64
+          minimum: 0
           description: Number of devices not yet converged and eligible to rotate.
         quarantined:
           type: integer
-          format: int64
+          format: uint64
+          minimum: 0
           description: Number of devices currently in a rotation backoff window.
         quarantinedDeviceMacs:
           type:
@@ -15017,13 +15606,15 @@ components:
           type:
             - integer
             - 'null'
-          format: int64
+          format: uint32
+          minimum: 0
           description: Credential version live on the hardware. Null when not yet established.
         rotatingToVersion:
           type:
             - integer
             - 'null'
-          format: int64
+          format: uint32
+          minimum: 0
           description: Set while a rotation is mid-flight on this device.
         converged:
           type: boolean
@@ -15039,7 +15630,8 @@ components:
           description: When the current backoff window expires; set only while quarantined.
         rotateAttempts:
           type: integer
-          format: int64
+          format: uint32
+          minimum: 0
           description: Number of rotation attempts recorded for this device.
         lastAttempted:
           type:
@@ -15113,6 +15705,478 @@ components:
           description: BMC IP addresses for which the action completed.
           items:
             type: string
+    ExploredEndpoint:
+      type: object
+      title: ExploredEndpoint
+      description: An endpoint discovered and tracked by Site Explorer.
+      required:
+        - address
+        - reportVersion
+        - explorationRequested
+        - preingestionState
+        - lastRedfishBmcReset
+        - lastIpmitoolBmcReset
+        - lastRedfishReboot
+        - lastRedfishPowercycle
+        - pauseRemediation
+      properties:
+        address:
+          type: string
+          description: BMC IP address used as the explored endpoint ID.
+        report:
+          $ref: '#/components/schemas/EndpointExplorationReport'
+        reportVersion:
+          type: string
+          description: Version of the exploration report; increases when the report is updated.
+        explorationRequested:
+          type: boolean
+          description: Whether the endpoint will be explored in the next Site Explorer run.
+        preingestionState:
+          type: string
+          description: Current preingestion state for the endpoint.
+        lastRedfishBmcReset:
+          type: string
+          description: Last BMC Redfish reset time.
+        lastIpmitoolBmcReset:
+          type: string
+          description: Last BMC IPMI tool reset time.
+        lastRedfishReboot:
+          type: string
+          description: Last BMC Redfish reboot time.
+        lastRedfishPowercycle:
+          type: string
+          description: Last BMC Redfish power-cycle time.
+        pauseRemediation:
+          type: boolean
+          description: When true, Site Explorer will not take remediation actions for Redfish errors.
+    EndpointExplorationReport:
+      type: object
+      title: EndpointExplorationReport
+      description: Data gathered about an endpoint during site exploration.
+      required:
+        - endpointType
+      properties:
+        endpointType:
+          type: string
+          description: Type of the explored endpoint.
+        lastExplorationError:
+          type:
+            - string
+            - 'null'
+          description: Last exploration error serialized as JSON, when present.
+        machineId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: Machine ID derived for the endpoint when available.
+        lastExplorationLatency:
+          type:
+            - string
+            - 'null'
+          description: Go duration string for the last exploration latency (for example `1.5s`).
+        vendor:
+          type:
+            - string
+            - 'null'
+          description: Vendor reported by Redfish.
+        managers:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExploredManager'
+        systems:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExploredComputerSystem'
+        chassis:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExploredChassis'
+        service:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExploredService'
+        machineSetupStatus:
+          $ref: '#/components/schemas/ExploredMachineSetupStatus'
+        secureBootStatus:
+          $ref: '#/components/schemas/ExploredSecureBootStatus'
+        lockdownStatus:
+          $ref: '#/components/schemas/ExploredLockdownStatus'
+        firmwareVersions:
+          type: object
+          additionalProperties:
+            type: string
+          description: Parsed firmware component versions keyed by component name.
+        lastExplorationErrorSchema:
+          $ref: '#/components/schemas/OperatorErrorSchema'
+    OperatorErrorSchema:
+      type: object
+      title: OperatorErrorSchema
+      description: Structured exploration error for operator tooling.
+      required:
+        - errorCode
+        - text
+      properties:
+        errorCode:
+          type: string
+          description: Stable identifier for alerting and log filtering.
+        mitigation:
+          type:
+            - string
+            - 'null'
+          description: Suggested operator action when known.
+        text:
+          type: string
+          description: Human-readable problem description.
+    ExploredManager:
+      type: object
+      title: ExploredManager
+      description: Redfish Manager reported during exploration.
+      required:
+        - id
+      properties:
+        id:
+          type: string
+        ethernetInterfaces:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExploredEthernetInterface'
+    ExploredComputerSystem:
+      type: object
+      title: ExploredComputerSystem
+      description: Redfish ComputerSystem reported during exploration.
+      required:
+        - id
+        - powerState
+      properties:
+        id:
+          type: string
+        manufacturer:
+          type:
+            - string
+            - 'null'
+        model:
+          type:
+            - string
+            - 'null'
+        serialNumber:
+          type:
+            - string
+            - 'null'
+        attributes:
+          $ref: '#/components/schemas/ExploredComputerSystemAttributes'
+        ethernetInterfaces:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExploredEthernetInterface'
+        pcieDevices:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExploredPCIeDevice'
+        powerState:
+          type: string
+          enum:
+            - 'On'
+            - 'Off'
+            - PoweringOff
+            - PoweringOn
+            - Paused
+            - Unknown
+            - Hibernating
+            - Sleeping
+        bootOrder:
+          $ref: '#/components/schemas/ExploredBootOrder'
+    ExploredComputerSystemAttributes:
+      type: object
+      title: ExploredComputerSystemAttributes
+      description: ComputerSystem attributes from Redfish.
+      properties:
+        nicMode:
+          type:
+            - string
+            - 'null'
+          enum:
+            - Dpu
+            - Nic
+            - Unknown
+            - null
+    ExploredEthernetInterface:
+      type: object
+      title: ExploredEthernetInterface
+      description: Redfish EthernetInterface reported during exploration.
+      properties:
+        id:
+          type:
+            - string
+            - 'null'
+        description:
+          type:
+            - string
+            - 'null'
+        interfaceEnabled:
+          type:
+            - boolean
+            - 'null'
+        macAddress:
+          type:
+            - string
+            - 'null'
+        linkStatus:
+          type:
+            - string
+            - 'null'
+    ExploredChassis:
+      type: object
+      title: ExploredChassis
+      description: Redfish Chassis reported during exploration.
+      required:
+        - id
+      properties:
+        id:
+          type: string
+        networkAdapters:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExploredNetworkAdapter'
+        manufacturer:
+          type:
+            - string
+            - 'null'
+        model:
+          type:
+            - string
+            - 'null'
+        partNumber:
+          type:
+            - string
+            - 'null'
+        serialNumber:
+          type:
+            - string
+            - 'null'
+    ExploredNetworkAdapter:
+      type: object
+      title: ExploredNetworkAdapter
+      description: Redfish NetworkAdapter reported during exploration.
+      required:
+        - id
+      properties:
+        id:
+          type: string
+        manufacturer:
+          type:
+            - string
+            - 'null'
+        model:
+          type:
+            - string
+            - 'null'
+        partNumber:
+          type:
+            - string
+            - 'null'
+        serialNumber:
+          type:
+            - string
+            - 'null'
+    ExploredService:
+      type: object
+      title: ExploredService
+      description: Redfish UpdateService reported during exploration.
+      required:
+        - id
+      properties:
+        id:
+          type: string
+        inventories:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExploredInventory'
+    ExploredInventory:
+      type: object
+      title: ExploredInventory
+      description: Firmware inventory entry from a Redfish UpdateService.
+      required:
+        - id
+      properties:
+        id:
+          type: string
+        description:
+          type:
+            - string
+            - 'null'
+        version:
+          type:
+            - string
+            - 'null'
+        releaseDate:
+          type:
+            - string
+            - 'null'
+    ExploredMachineSetupStatus:
+      type: object
+      title: ExploredMachineSetupStatus
+      description: Result of a Redfish machine-setup check.
+      required:
+        - isDone
+      properties:
+        isDone:
+          type: boolean
+        diffs:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExploredMachineSetupDiff'
+        evaluatedBootInterface:
+          $ref: '#/components/schemas/ExploredMachineBootInterfaceTarget'
+    ExploredMachineBootInterfaceTarget:
+      type: object
+      title: ExploredMachineBootInterfaceTarget
+      description: Boot-interface target assessed during exploration.
+      properties:
+        pair:
+          $ref: '#/components/schemas/ExploredMachineBootInterfacePair'
+        macOnly:
+          type:
+            - string
+            - 'null'
+    ExploredMachineBootInterfacePair:
+      type: object
+      title: ExploredMachineBootInterfacePair
+      description: MAC and Redfish EthernetInterface.Id pair.
+      required:
+        - macAddress
+        - interfaceId
+      properties:
+        macAddress:
+          type: string
+        interfaceId:
+          type: string
+    ExploredMachineSetupDiff:
+      type: object
+      title: ExploredMachineSetupDiff
+      description: One expected-vs-actual machine-setup difference.
+      required:
+        - key
+        - expected
+        - actual
+      properties:
+        key:
+          type: string
+        expected:
+          type: string
+        actual:
+          type: string
+    ExploredPCIeDevice:
+      type: object
+      title: ExploredPCIeDevice
+      description: Redfish PCIe device reported during exploration.
+      properties:
+        description:
+          type:
+            - string
+            - 'null'
+        firmwareVersion:
+          type:
+            - string
+            - 'null'
+        gpuVendor:
+          type:
+            - string
+            - 'null'
+        id:
+          type:
+            - string
+            - 'null'
+        manufacturer:
+          type:
+            - string
+            - 'null'
+        name:
+          type:
+            - string
+            - 'null'
+        partNumber:
+          type:
+            - string
+            - 'null'
+        serialNumber:
+          type:
+            - string
+            - 'null'
+        status:
+          $ref: '#/components/schemas/ExploredSystemStatus'
+    ExploredSystemStatus:
+      type: object
+      title: ExploredSystemStatus
+      description: Redfish health and state status.
+      required:
+        - state
+      properties:
+        health:
+          type:
+            - string
+            - 'null'
+        healthRollup:
+          type:
+            - string
+            - 'null'
+        state:
+          type: string
+    ExploredBootOrder:
+      type: object
+      title: ExploredBootOrder
+      description: Redfish boot order list.
+      properties:
+        bootOrder:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExploredBootOption'
+    ExploredBootOption:
+      type: object
+      title: ExploredBootOption
+      description: One Redfish boot option.
+      required:
+        - displayName
+        - id
+      properties:
+        displayName:
+          type: string
+        id:
+          type: string
+        bootOptionEnabled:
+          type:
+            - boolean
+            - 'null'
+        uefiDevicePath:
+          type:
+            - string
+            - 'null'
+    ExploredSecureBootStatus:
+      type: object
+      title: ExploredSecureBootStatus
+      description: Redfish secure-boot status.
+      required:
+        - isEnabled
+      properties:
+        isEnabled:
+          type: boolean
+    ExploredLockdownStatus:
+      type: object
+      title: ExploredLockdownStatus
+      description: Redfish lockdown status.
+      required:
+        - status
+        - message
+      properties:
+        status:
+          type: string
+          enum:
+            - Enabled
+            - Partial
+            - Disabled
+            - Unknown
+        message:
+          type: string
     BMCResetRequest:
       type: object
       title: BMCResetRequest
@@ -15276,6 +16340,7 @@ components:
           description: When `true`, install only the artifacts explicitly listed for this version.
         powerDrainsNeeded:
           type: integer
+          format: uint32
           minimum: 0
           description: Optional number of power drains required after installing this version.
         preUpdateResets:
@@ -15546,6 +16611,196 @@ components:
       examples:
         - action: ForceRestart
           acknowledgeAttachedInstance: true
+    MachineValidationRunCreateRequest:
+      type: object
+      title: MachineValidationRunCreateRequest
+      description: Optional filters for an on-demand Machine validation run
+      examples:
+        - tags:
+            - dgxcloud
+          allowedTests:
+            - forge_DcgmFullLong
+          runUnverifiedTests: false
+          contexts:
+            - OnDemand
+      properties:
+        tags:
+          type: array
+          description: Tags used to select validation tests.
+          items:
+            type: string
+            minLength: 1
+        allowedTests:
+          type: array
+          description: Validation test names allowed for this run.
+          items:
+            type: string
+            minLength: 1
+        runUnverifiedTests:
+          type: boolean
+          description: Whether unverified validation tests may run.
+          default: false
+        contexts:
+          type: array
+          description: Contexts used to select validation tests.
+          items:
+            type: string
+            minLength: 1
+    MachineValidationRun:
+      type: object
+      title: MachineValidationRun
+      description: Machine validation run
+      examples:
+        - validationID: 20000000-0000-0000-0000-000000000001
+          machineID: fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30
+          startTime: '2026-08-03T20:00:00Z'
+          endTime: null
+          name: Test_fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30
+          context: OnDemand
+          status:
+            state: InProgress
+            total: 1
+            completed: 0
+          durationToCompleteSecs: 7200
+      required:
+        - validationID
+        - machineID
+        - startTime
+        - endTime
+        - name
+        - context
+        - status
+        - durationToCompleteSecs
+      properties:
+        validationID:
+          type: string
+          description: ID of the Machine validation run.
+        machineID:
+          type: string
+          description: ID of the validated Machine.
+        startTime:
+          type: string
+          format: date-time
+          description: Time the validation run started.
+        endTime:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: Time the validation run completed, or null while it is active.
+        name:
+          type: string
+          description: Name of the validation run.
+        context:
+          type: string
+          description: Context in which the validation run was created.
+        status:
+          $ref: '#/components/schemas/MachineValidationStatus'
+        durationToCompleteSecs:
+          type: integer
+          format: int64
+          description: Estimated maximum duration of the validation run in seconds. A value of zero can mean the estimate has not yet been calculated.
+    MachineValidationStatus:
+      type: object
+      title: MachineValidationStatus
+      description: Progress and outcome of a Machine validation run
+      examples:
+        - state: InProgress
+          total: 1
+          completed: 0
+      required:
+        - state
+        - total
+        - completed
+      properties:
+        state:
+          type: string
+          description: Current state or completed outcome of the validation run.
+          enum:
+            - Started
+            - InProgress
+            - Success
+            - Failed
+            - Skipped
+        total:
+          type: integer
+          format: uint32
+          minimum: 0
+          description: Total number of validation tests in the run.
+        completed:
+          type: integer
+          format: uint32
+          minimum: 0
+          description: Number of validation tests that have completed.
+    MachineValidationResult:
+      type: object
+      title: MachineValidationResult
+      description: Result of one test in a Machine validation run
+      examples:
+        - name: DcgmFullLong
+          description: Full DCGM diag test for 5 min
+          command: 'dcgmi '
+          args: ' diag -r 3'
+          stdOut: Diagnostic completed successfully
+          stdErr: ''
+          context: OnDemand
+          exitCode: 0
+          startTime: '2026-08-03T20:00:05Z'
+          endTime: '2026-08-03T20:05:05Z'
+          validationID: 20000000-0000-0000-0000-000000000001
+          testID: forge_DcgmFullLong
+      required:
+        - name
+        - description
+        - command
+        - args
+        - stdOut
+        - stdErr
+        - context
+        - exitCode
+        - startTime
+        - endTime
+        - validationID
+        - testID
+      properties:
+        name:
+          type: string
+          description: Name of the validation test.
+        description:
+          type: string
+          description: Description of the validation test.
+        command:
+          type: string
+          description: Command executed by the validation test.
+        args:
+          type: string
+          description: Arguments supplied to the validation command.
+        stdOut:
+          type: string
+          description: Standard output from the validation command.
+        stdErr:
+          type: string
+          description: Standard error from the validation command.
+        context:
+          type: string
+          description: Context in which the validation test ran.
+        exitCode:
+          type: integer
+          description: Exit code returned by the validation command.
+        startTime:
+          type: string
+          format: date-time
+          description: Time the validation test started.
+        endTime:
+          type: string
+          format: date-time
+          description: Time the validation test completed.
+        validationID:
+          type: string
+          description: ID of the Machine validation run.
+        testID:
+          type: string
+          description: ID of the validation test.
     InfrastructureProvider:
       description: Infrastructure providers own and manage datacenters
       type: object
@@ -17096,13 +18351,13 @@ components:
       properties:
         asn:
           type: integer
-          format: int64
+          format: uint32
           minimum: 0
           maximum: 4294967295
           description: Autonomous system number.
         vni:
           type: integer
-          format: int64
+          format: uint32
           minimum: 0
           maximum: 4294967295
           description: Route-target VNI.
@@ -17188,7 +18443,7 @@ components:
           description: Operator-controlled internal-routing classification inherited from the named profile.
         accessTier:
           type: integer
-          format: int64
+          format: uint32
           minimum: 0
           maximum: 4294967295
           description: Operator-controlled access tier inherited from the named profile.
@@ -19336,12 +20591,16 @@ components:
           type:
             - integer
             - 'null'
+          format: uint32
+          minimum: 0
           description: Count of the Capability component
         inactiveDevices:
           type: array
           description: 'Indices of those devices that are inactive, only valid for InfiniBand Capability type'
           items:
             type: integer
+            format: uint32
+            minimum: 0
         deviceType:
           type:
             - string
@@ -20475,6 +21734,15 @@ components:
           ipFamilies:
             - IPv4
           isPhysical: true
+        - vpcId: 3d9d1608-a87e-4c84-a8b1-53b730e26e9b
+          ipFamilies:
+            - IPv6
+          isPhysical: true
+        - vpcId: 4f7b5b5a-d292-4c38-9e9a-58a5a874fa73
+          ipFamilies:
+            - IPv4
+            - IPv6
+          isPhysical: true
       description: |-
         Request data to create an Interface for an Instance by associating it with a Subnet, an explicit VPC Prefix, or a VPC from which the Controller selects a prefix. Exactly one of `subnetId`, `vpcPrefixId`, or `vpcId` must be specified.
 
@@ -20497,11 +21765,12 @@ components:
         ipFamilies:
           type: array
           minItems: 1
-          description: Address families requested for Controller prefix selection. Required with `vpcId` and prohibited otherwise. Only `IPv4` is currently accepted.
+          description: Address families requested for Controller prefix selection. Required with `vpcId` and prohibited otherwise. Specify `IPv4`, `IPv6`, or both for dual-stack allocation. Duplicate values are accepted and normalized in `IPv4`, then `IPv6` order.
           items:
             type: string
             enum:
               - IPv4
+              - IPv6
         ipAddress:
           type:
             - string
@@ -20815,11 +22084,15 @@ components:
           type:
             - integer
             - 'null'
+          format: uint32
+          minimum: 0
           description: 'Number of Cores in the Capability component, if applicable'
         threads:
           type:
             - integer
             - 'null'
+          format: uint32
+          minimum: 0
           description: 'Number of Threads in the Capability component, if applicable'
         capacity:
           type:
@@ -20841,10 +22114,14 @@ components:
           description: A list of inactive devices
           items:
             type: integer
+            format: uint32
+            minimum: 0
         count:
           type:
             - integer
             - 'null'
+          format: uint32
+          minimum: 0
           description: Count of the Capability component
         deviceType:
           type:
@@ -20940,18 +22217,23 @@ components:
             $ref: '#/components/schemas/ComponentDiff'
         totalDiffs:
           type: integer
+          format: int32
           description: Total number of component differences found
         missingCount:
           type: integer
+          format: int32
           description: Number of components expected but missing from the source system
         unexpectedCount:
           type: integer
+          format: int32
           description: Number of components found in the source system but not expected
         mismatchCount:
           type: integer
+          format: int32
           description: Number of components present in both but with field differences
         matchCount:
           type: integer
+          format: int32
           description: Number of components that match between expected and actual
     ComponentDiff:
       title: ComponentDiff
@@ -21037,12 +22319,15 @@ components:
           description: Firmware version of the component
         slotId:
           type: integer
+          format: int32
           description: Slot ID of the component within the rack
         trayIdx:
           type: integer
+          format: int32
           description: Tray index of the component
         hostId:
           type: integer
+          format: int32
           description: Host ID of the component
         bmcs:
           type: array
@@ -21179,12 +22464,15 @@ components:
       properties:
         slotId:
           type: integer
+          format: int32
           description: Slot number of the tray in the rack
         trayIdx:
           type: integer
+          format: int32
           description: Index of the tray within its slot
         hostId:
           type: integer
+          format: int32
           description: Host ID associated with the tray
     RackFilter:
       title: RackFilter
@@ -21549,8 +22837,11 @@ components:
         operationCode:
           type: string
           description: |-
-            Operation code within the operation type (e.g. `power_on`, `power_off`,
-            `upgrade`). Server-side validated against Flow's allow-list for the type.
+            Operation code within the operation type. For `PowerControl`, accepted
+            values are `power_on`, `force_power_on`, `power_off`, `force_power_off`,
+            `restart`, `force_restart`, `warm_reset`, and `cold_reset`. For
+            `FirmwareControl`, accepted values are `upgrade`, `downgrade`, and
+            `rollback`. The server validates the code against the selected type.
             Immutable after creation.
         ruleDefinition:
           $ref: '#/components/schemas/RuleDefinition'
@@ -21571,9 +22862,12 @@ components:
       title: RuleDefinition
       type: object
       description: |-
-        Executable definition of a rule. Mirrors Flow's wire schema 1:1 so existing
-        YAML rule files can be converted to JSON without any key renaming
-        (nested fields use `snake_case`).
+        Executable definition of a rule. Structurally identical to Flow's own rule
+        schema, so an existing YAML rule file maps across field for field. The
+        fields declared here use `camelCase` (`componentType`, `mainOperation`,
+        `pollInterval`) rather than the `snake_case` of Flow's YAML; keys inside
+        the free-form `parameters` map pass through unchanged and stay
+        `snake_case` (`expected_status`, `component_types`).
       required:
         - version
       properties:
@@ -21603,8 +22897,9 @@ components:
         componentType:
           type: string
           description: |-
-            Component type this step targets (e.g. `Compute`, `NVLSwitch`,
-            `PowerShelf`). Validated against Flow's component-type set.
+            Component type this step targets. Validated against Flow's
+            component-type set: `Compute`, `NVSwitch`, `PowerShelf`,
+            `ToRSwitch`, `UMS`, `CDU`. Matched case-insensitively.
         stage:
           type: integer
           minimum: 1
@@ -21683,7 +22978,9 @@ components:
             Action-specific parameters. Validated server-side against the action's
             schema. Examples:
               - `Sleep`: `{ duration: "30s" }`
-              - `PowerControl`: `{ operation: "on" }`
+              - `PowerControl`: `{ operation: "power_on" }` — an operation code,
+                not a power state; optional within a `PowerControl` rule, where
+                the operation is taken from the Task
               - `VerifyPowerStatus`: `{ expected_status: "on" }`
               - `VerifyReachability`: `{ component_types: ["Compute"], require_all: true }`
               - `FirmwareControl`: `{ poll_interval: "10s", poll_timeout: "30m" }`
@@ -21739,7 +23036,12 @@ components:
           description: Operation type the rule applies to.
         operationCode:
           type: string
-          description: Operation code within the operation type (e.g. `power_on`).
+          description: |-
+            Operation code within the operation type. For `PowerControl`, accepted
+            values are `power_on`, `force_power_on`, `power_off`, `force_power_off`,
+            `restart`, `force_restart`, `warm_reset`, and `cold_reset`. For
+            `FirmwareControl`, accepted values are `upgrade`, `downgrade`, and
+            `rollback`. The server validates the code against the selected type.
         ruleDefinition:
           $ref: '#/components/schemas/RuleDefinition'
     UpdateRuleRequest:
@@ -21830,6 +23132,7 @@ components:
           description: Optional human-readable detail for the current status.
         totalPhases:
           type: integer
+          format: int32
           description: Total number of phases the selected targets were divided into.
         created:
           type: string
@@ -21880,9 +23183,11 @@ components:
       properties:
         phaseIndex:
           type: integer
+          format: int32
           description: Zero-based index of the phase this scope refers to.
         selectedTargets:
           type: integer
+          format: int32
           description: Number of targets selected within the scope.
         outcomeCounts:
           $ref: '#/components/schemas/TaskRunOutcomeCounts'
@@ -21898,15 +23203,19 @@ components:
       properties:
         completed:
           type: integer
+          format: int32
           description: Targets that completed successfully.
         failed:
           type: integer
+          format: int32
           description: Targets that failed.
         terminated:
           type: integer
+          format: int32
           description: Targets that were terminated (e.g. by cancellation).
         skipped:
           type: integer
+          format: int32
           description: Targets that were skipped.
     TaskRunTarget:
       title: TaskRunTarget
@@ -21939,9 +23248,11 @@ components:
           description: ID of the Rack this target operates on.
         sequenceIndex:
           type: integer
+          format: int32
           description: Position of this target in the Task Run's overall processing order.
         phaseIndex:
           type: integer
+          format: int32
           description: Zero-based index of the phase this target belongs to.
         taskId:
           type:
@@ -21999,6 +23310,7 @@ components:
           description: ID of the Site that owns the Task Run.
         expectedPhaseIndex:
           type: integer
+          format: int32
           description: |-
             Optional guard: when set, the phase that would be opened must match
             this zero-based index, otherwise the advance is rejected.
@@ -22068,7 +23380,8 @@ components:
       properties:
         percent:
           type: integer
-          minimum: 0
+          format: int32
+          minimum: 1
           maximum: 100
           description: Percentage of candidate Racks to select.
         seed:
@@ -22083,6 +23396,7 @@ components:
       properties:
         maxConcurrentTargets:
           type: integer
+          format: int32
           minimum: 1
           description: |-
             Caps how many targets may have active child Tasks at once. Must be
@@ -22130,7 +23444,8 @@ components:
           description: Whether the ratio is evaluated over the current phase or the cumulative run.
         thresholdPercent:
           type: integer
-          minimum: 0
+          format: int32
+          minimum: 1
           maximum: 100
           description: Failure-rate percentage at which the gate trips.
     TaskRunFailureCountGate:
@@ -22149,7 +23464,8 @@ components:
           description: Whether the count is evaluated over the current phase or the cumulative run.
         thresholdCount:
           type: integer
-          minimum: 0
+          format: int32
+          minimum: 1
           description: Number of failed targets at which the gate trips.
     TaskRunConflictPolicy:
       title: TaskRunConflictPolicy
@@ -22167,13 +23483,22 @@ components:
       properties:
         retryTimeout:
           type: string
-          description: Total time to keep retrying a blocked target before giving up.
+          example: 30m
+          description: |-
+            Total time to keep retrying a blocked target before giving up, as a
+            Go duration string (e.g. `30m`, `2h`).
         initialRetryDelay:
           type: string
-          description: Delay before the first retry.
+          example: 10s
+          description: |-
+            Delay before the first retry, as a Go duration string (e.g. `10s`,
+            `1m`).
         maxRetryDelay:
           type: string
-          description: Cap on the exponentially growing retry delay.
+          example: 5m
+          description: |-
+            Cap on the exponentially growing retry delay, as a Go duration
+            string (e.g. `5m`).
     TaskRunOrderingPolicy:
       title: TaskRunOrderingPolicy
       type: object
@@ -22213,27 +23538,36 @@ components:
     TaskRunEqualPhases:
       title: TaskRunEqualPhases
       type: object
-      description: Splits targets into `phaseCount` roughly equal phases.
+      description: |-
+        Splits targets into `phaseCount` roughly equal phases. The request is
+        rejected when `phaseCount` exceeds the number of selected targets,
+        because every configured phase must contain at least one target.
       required:
         - phaseCount
       properties:
         phaseCount:
           type: integer
+          format: int32
           minimum: 1
           description: Number of equally sized phases.
     TaskRunPercentagePhases:
       title: TaskRunPercentagePhases
       type: object
-      description: Splits targets by percentage. Values must sum to 100.
+      description: |-
+        Splits targets by percentage. Values must sum to 100. A configured
+        phase must resolve to at least one selected target after rounding or
+        the request is rejected.
       required:
         - phases
       properties:
         phases:
           type: array
+          minItems: 1
           description: Per-phase percentages, in phase order; must sum to 100.
           items:
             type: integer
-            minimum: 0
+            format: int32
+            minimum: 1
             maximum: 100
     TaskRunCountPhases:
       title: TaskRunCountPhases
@@ -22244,14 +23578,16 @@ components:
       properties:
         phases:
           type: array
+          minItems: 1
           description: Per-phase target counts, in phase order.
           items:
             type: integer
-            minimum: 0
+            format: int32
+            minimum: 1
     TaskRunOperation:
       title: TaskRunOperation
       type: object
-      description: The operation the Task Run executes. Firmware is the only supported operation today.
+      description: The operation the Task Run executes. Firmware is the only supported operation.
       required:
         - firmware
       properties:
@@ -22289,7 +23625,11 @@ components:
           description: Skip the pre-flight readiness check when true.
         subTargets:
           type: array
-          description: Optional subset of firmware sub-targets to update.
+          description: |-
+            Optional subset of firmware sub-parts to update within each targeted
+            tray, using the same lowercase names as the Tray firmware endpoint's
+            `targets` (e.g. `bmc`, `bios`). Omitted or empty means update
+            everything in the bundle. Unknown names are rejected.
           items:
             type: string
     TaskReportV1:
@@ -23548,6 +24888,7 @@ components:
           description: 'Bios path of the Machine''s NetworkInterface'
         numaNode:
           type: integer
+          format: int32
           description: 'Info of numa node Machine''s NetworkInterface'
         description:
           type:
@@ -23594,6 +24935,7 @@ components:
           description: 'Bios path of the Machine''s InfiniBandInterface'
         numaNode:
           type: integer
+          format: int32
           description: 'Info of numa node Machine''s InfiniBandInterface'
         description:
           type:
@@ -24991,7 +26333,6 @@ components:
               vendor: Supermicro
               model: SYS-420GP-TNR
           created: '2019-08-24T14:15:22Z'
-          updated: '2019-08-24T14:15:22Z'
       properties:
         id:
           type: string
@@ -25009,6 +26350,7 @@ components:
         schemaVersion:
           type: integer
           format: uint32
+          minimum: 0
           description: Core SKU schema version when available
           readOnly: true
         deviceType:
@@ -25029,12 +26371,7 @@ components:
         created:
           type: string
           format: date-time
-          description: ISO 8601 datetime when the SKU was created
-          readOnly: true
-        updated:
-          type: string
-          format: date-time
-          description: ISO 8601 datetime when the SKU was last updated
+          description: ISO 8601 datetime when the SKU was created, using the Site-reported timestamp when available
           readOnly: true
     SkuCreateRequest:
       title: SkuCreateRequest
@@ -25129,7 +26466,8 @@ components:
           description: Chassis component
         ethernetDevices:
           type: array
-          description: Ethernet device components
+          readOnly: true
+          description: Read-only Ethernet device components reported by Core. Omit this property from REST mutation requests; null and an empty array are accepted for compatibility, while a non-empty array is rejected with HTTP 400.
           items:
             $ref: '#/components/schemas/SkuEthernetDevice'
         infinibandDevices:
@@ -25161,10 +26499,12 @@ components:
         threadCount:
           type: integer
           format: uint32
+          minimum: 0
           description: Number of threads for the CPU
         count:
           type: integer
           format: uint32
+          minimum: 0
           description: Number of CPUs present
     SkuGpu:
       title: SkuGpu
@@ -25188,6 +26528,7 @@ components:
         count:
           type: integer
           format: uint32
+          minimum: 0
           description: Number of GPUs present
     SkuMemory:
       title: SkuMemory
@@ -25201,6 +26542,7 @@ components:
         capacityMb:
           type: integer
           format: uint32
+          minimum: 0
           description: Capacity in megabytes
         memoryType:
           type: string
@@ -25208,6 +26550,7 @@ components:
         count:
           type: integer
           format: uint32
+          minimum: 0
           description: Number of memory modules present
     SkuStorage:
       title: SkuStorage
@@ -25241,23 +26584,27 @@ components:
         capacityMb:
           type: integer
           format: uint32
+          minimum: 0
           readOnly: true
           description: Storage capacity in megabytes used for schema version 4 matching. Read-only in REST mutation requests and preserved in responses for legacy SKUs. Schema version 5 uses minSizeMiB and maxSizeMiB instead.
         count:
           type: integer
           format: uint32
+          minimum: 0
           description: Number of storage devices present
         minSizeMiB:
           type:
             - integer
             - 'null'
           format: uint32
+          minimum: 0
           description: Inclusive minimum size in MiB for each storage device. Null or omission means no lower bound. Used for SKU schema version 5 and later.
         maxSizeMiB:
           type:
             - integer
             - 'null'
           format: uint32
+          minimum: 0
           description: Inclusive maximum size in MiB for each storage device. Null or omission means no upper bound. Used for SKU schema version 5 and later.
         pciPatterns:
           type: array
@@ -25296,6 +26643,7 @@ components:
         count:
           type: integer
           format: uint32
+          minimum: 0
           description: Number of ethernet devices present
         isConnected:
           type: boolean
@@ -25319,6 +26667,7 @@ components:
         count:
           type: integer
           format: uint32
+          minimum: 0
           description: Number of infiniband devices present
         inactiveDevices:
           type: array
@@ -25326,6 +26675,7 @@ components:
           items:
             type: integer
             format: uint32
+            minimum: 0
     SkuTpm:
       title: SkuTpm
       type: object
@@ -25491,12 +26841,14 @@ components:
       properties:
         availableIPs:
           type: integer
-          format: int64
+          format: uint64
+          minimum: 0
           description: Total number of IP addresses in the block (acquired and unused)
           readOnly: true
         acquiredIPs:
           type: integer
-          format: int64
+          format: uint64
+          minimum: 0
           description: Number of individual IP addresses acquired from the block
           readOnly: true
         availablePrefixes:
@@ -25511,11 +26863,13 @@ components:
           type: integer
           description: |
             Total number of /30 prefixes that can still be acquired from this block (only reduced if prefixes are acquired, not reduced by acquired IPs)
-          format: int64
+          format: uint64
+          minimum: 0
           readOnly: true
         acquiredPrefixes:
           type: integer
-          format: int64
+          format: uint64
+          minimum: 0
           description: Total number of prefixes (of any size) acquired from this block
       description: Usage statistics for an IP Block, VPC Prefix or Subnet
     IpBlockCreateRequest:
@@ -25844,6 +27198,8 @@ components:
           example: PERMIT
         priority:
           type: integer
+          minimum: 0
+          maximum: 60000
           description: 'Rule priority used to order evaluation'
         sourcePrefix:
           type: string
@@ -26803,6 +28159,7 @@ components:
           description: API execution time
         durationMs:
           type: integer
+          format: int64
           description: API execution duration in milliseconds
         apiVersion:
           type: string
@@ -26907,7 +28264,7 @@ components:
                 supported for these origins.
 
             For details on issuer origins and configuration, see the NICo REST `auth`
-            module [README](https://github.com/NVIDIA/infra-controller/rest-api/tree/main/auth).
+            module [README](https://github.com/NVIDIA/infra-controller/tree/main/rest-api/auth).
         infrastructureProviderId:
           type:
             - string
@@ -27150,6 +28507,7 @@ components:
             type: string
         tokenTtlSeconds:
           type: integer
+          format: uint32
           minimum: 1
           description: |-
             Issued-token TTL in seconds. Required in the REST request
@@ -27223,6 +28581,7 @@ components:
             type: string
         tokenTtlSeconds:
           type: integer
+          format: uint32
           minimum: 1
           description: |-
             Issued-token TTL in seconds. Required in the REST request
@@ -27248,6 +28607,7 @@ components:
             previous key.
         signingKeyOverlapSeconds:
           type: integer
+          format: uint32
           minimum: 1
           description: |-
             Required when `rotateKey` is `true`. Number of seconds
@@ -27292,6 +28652,8 @@ components:
             type: string
         tokenTtlSeconds:
           type: integer
+          format: uint32
+          minimum: 0
           description: 'Lifetime of issued Tenant identity tokens, in seconds'
         subjectPrefix:
           type: string
@@ -27651,6 +29013,7 @@ components:
         asn:
           type: integer
           format: uint32
+          minimum: 0
           description: Autonomous System Number for BGP routing
         dhcpServers:
           type: array
@@ -27697,6 +29060,7 @@ components:
             - integer
             - 'null'
           format: uint32
+          minimum: 0
           description: VPC VNI identifier
         routeServers:
           type: array
@@ -27745,6 +29109,7 @@ components:
             - integer
             - 'null'
           format: uint32
+          minimum: 0
           description: Minimum number of functioning DPU links required
         isPrimaryDpu:
           type: boolean
@@ -27754,10 +29119,12 @@ components:
             - integer
             - 'null'
           format: uint32
+          minimum: 0
           description: Layer 3 VNI used for internet access
         datacenterAsn:
           type: integer
           format: uint32
+          minimum: 0
           description: Datacenter Autonomous System Number
         anycastSitePrefixes:
           type: array
@@ -27769,12 +29136,14 @@ components:
             - integer
             - 'null'
           format: uint32
+          minimum: 0
           description: Autonomous System Number for the tenant host
         siteGlobalVpcVni:
           type:
             - integer
             - 'null'
           format: uint32
+          minimum: 0
           description: Site-global VPC VNI identifier
       required:
         - asn
@@ -27825,10 +29194,12 @@ components:
         vlanId:
           type: integer
           format: uint32
+          minimum: 0
           description: VLAN ID
         vni:
           type: integer
           format: uint32
+          minimum: 0
           description: VXLAN Network Identifier
         gateway:
           type: string
@@ -27844,6 +29215,7 @@ components:
             - integer
             - 'null'
           format: uint32
+          minimum: 0
           description: Virtual function ID if applicable
         vpcPrefixes:
           type: array
@@ -27864,6 +29236,7 @@ components:
         vpcVni:
           type: integer
           format: uint32
+          minimum: 0
           description: VPC VXLAN Network Identifier
         sviIp:
           type:
@@ -27888,12 +29261,14 @@ components:
           items:
             type: integer
             format: uint32
+            minimum: 0
           description: List of peered VPC VNIs
         mtu:
           type:
             - integer
             - 'null'
           format: uint32
+          minimum: 0
           description: Maximum transmission unit (MTU) for the interface
         networkSecurityGroup:
           $ref: '#/components/schemas/InterfaceNetworkSecurityGroupConfig'
@@ -27976,6 +29351,24 @@ components:
               value:
                 source: nico
                 message: Error handling API request
+                data: null
+    GatewayTimeoutError:
+      description: |-
+        The Site did not return a result within the request budget allocated to
+        Site communication within the request cycle. This can occur if the Site
+        Controller is down or under heavy request load.
+
+        Operations are in general safe to retry. In rare cases, operations that
+        create or update resources may succeed even if timeout is returned.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/NICoAPIError'
+          examples:
+            example-1:
+              value:
+                source: nico
+                message: Flow proxy request timed out
                 data: null
     NotFoundError:
       description: Error response when requested object is not found

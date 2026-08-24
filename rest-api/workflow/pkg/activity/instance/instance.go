@@ -43,6 +43,18 @@ type ManageInstance struct {
 	cfg            *config.Config
 }
 
+// resolvedVpcPrefixIDs preserves the REST cache contract: IPv4 is primary for
+// dual-stack selections, while IPv6 is primary for IPv6-only selections.
+func resolvedVpcPrefixIDs(prefixes *corev1.InstanceInterfaceResolvedVpcPrefixes) (primary, secondary *corev1.VpcPrefixId) {
+	if prefixes == nil {
+		return nil, nil
+	}
+	if prefixes.Ipv4VpcPrefixId != nil {
+		return prefixes.Ipv4VpcPrefixId, prefixes.Ipv6VpcPrefixId
+	}
+	return prefixes.Ipv6VpcPrefixId, nil
+}
+
 // Activity functions
 
 // UpdateInstancesInDB is a Temporal activity that takes a collection of Instance data pushed by Site Agent and updates the DB
@@ -469,33 +481,50 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 					}
 
 					// A VPC selector remains the desired intent; synchronize Core's
-					// resolved IPv4 prefix from the aligned status.
+					// resolved prefix IDs from the aligned status.
 					var vpcPrefixID *uuid.UUID
+					var secondaryVpcPrefixID *uuid.UUID
 					clearResolvedVpcPrefix := false
+					clearSecondaryVpcPrefix := false
 					if usesVpcSelection {
-						if interfaceStatus.ResolvedVpcPrefixes == nil ||
-							interfaceStatus.ResolvedVpcPrefixes.Ipv4VpcPrefixId == nil {
-							clearResolvedVpcPrefix = controllerInstance.Status.Network.ConfigsSynced == corev1.SyncState_SYNCED &&
-								ifc.VpcPrefixID != nil
+						resolvedPrefix, secondaryResolvedPrefix := resolvedVpcPrefixIDs(interfaceStatus.ResolvedVpcPrefixes)
+						if resolvedPrefix == nil {
+							if controllerInstance.Status.Network.ConfigsSynced == corev1.SyncState_SYNCED {
+								clearResolvedVpcPrefix = ifc.VpcPrefixID != nil
+								clearSecondaryVpcPrefix = ifc.SecondaryVpcPrefixID != nil
+							}
 						} else {
-							resolvedPrefixID, prefixErr := uuid.Parse(interfaceStatus.ResolvedVpcPrefixes.Ipv4VpcPrefixId.Value)
+							resolvedPrefixID, prefixErr := uuid.Parse(resolvedPrefix.Value)
 							if prefixErr != nil {
-								slogger.Error().Err(prefixErr).Str("Interface ID", ifc.ID.String()).Msg("failed to parse resolved IPv4 VPC Prefix ID")
+								slogger.Error().Err(prefixErr).Str("Interface ID", ifc.ID.String()).Msg("failed to parse resolved VPC Prefix ID")
 							} else {
 								vpcPrefixID = &resolvedPrefixID
+
+								if secondaryResolvedPrefix == nil {
+									clearSecondaryVpcPrefix = controllerInstance.Status.Network.ConfigsSynced == corev1.SyncState_SYNCED &&
+										ifc.SecondaryVpcPrefixID != nil
+								} else {
+									resolvedPrefixID, prefixErr := uuid.Parse(secondaryResolvedPrefix.Value)
+									if prefixErr != nil {
+										slogger.Error().Err(prefixErr).Str("Interface ID", ifc.ID.String()).Msg("failed to parse secondary resolved VPC Prefix ID")
+									} else {
+										secondaryVpcPrefixID = &resolvedPrefixID
+									}
+								}
 							}
 						}
 					}
 
 					clearInput := cdbm.InterfaceClearInput{InterfaceID: ifc.ID}
 					clearInput.VpcPrefixID = clearResolvedVpcPrefix
+					clearInput.SecondaryVpcPrefixID = clearSecondaryVpcPrefix
 					if ifc.RequestedIpAddress != nil && interfaceConfig.IpAddress == nil {
 						clearInput.RequestedIpAddress = true
 					}
 					if ifc.InlineRoutingProfile != nil && interfaceConfig.RoutingProfile == nil {
 						clearInput.InlineRoutingProfile = true
 					}
-					if clearInput.VpcPrefixID || clearInput.RequestedIpAddress || clearInput.InlineRoutingProfile {
+					if clearInput.VpcPrefixID || clearInput.SecondaryVpcPrefixID || clearInput.RequestedIpAddress || clearInput.InlineRoutingProfile {
 						_, serr := interfaceDAO.Clear(ctx, nil, clearInput)
 						if serr != nil {
 							slogger.Error().Err(serr).Str("Interface ID", ifc.ID.String()).Msg("failed to update Interface in DB")
@@ -511,6 +540,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 					_, updateErr := interfaceDAO.Update(ctx, nil, cdbm.InterfaceUpdateInput{
 						InterfaceID:          ifc.ID,
 						VpcPrefixID:          vpcPrefixID,
+						SecondaryVpcPrefixID: secondaryVpcPrefixID,
 						Device:               device,
 						DeviceInstance:       deviceInstance,
 						VirtualFunctionID:    vfID,

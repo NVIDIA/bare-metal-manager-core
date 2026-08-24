@@ -34,6 +34,7 @@ use super::{Base, filters};
 #[template(path = "network_segment_show.html")]
 struct NetworkSegmentShow {
     admin: Vec<NetworkSegmentRowDisplay>,
+    host_inband: Vec<NetworkSegmentRowDisplay>,
     tenant: Vec<NetworkSegmentRowDisplay>,
     underlay: Vec<NetworkSegmentRowDisplay>,
 }
@@ -43,8 +44,7 @@ struct NetworkSegmentRowDisplay {
     id: String,
     vpc_id: String,
     created: String,
-    state: String,
-    time_in_state_above_sla: bool,
+    state_display: super::StateDisplay,
     sub_domain: String,
     mtu: i32,
     prefixes: String,
@@ -70,11 +70,7 @@ impl TryFrom<forgerpc::NetworkSegment> for NetworkSegmentRowDisplay {
             name,
             vpc_id: config.vpc_id.map(|id| id.to_string()).unwrap_or_default(),
             created: segment.created.unwrap_or_default().to_string(),
-            state: lifecycle.map(|lc| lc.state.clone()).unwrap_or_default(),
-            time_in_state_above_sla: lifecycle
-                .and_then(|lc| lc.sla.as_ref())
-                .map(|sla| sla.time_in_state_above_sla)
-                .unwrap_or_default(),
+            state_display: super::StateDisplay::from_lifecycle(lifecycle),
             sub_domain: String::new(), // filled in later
             mtu: config.mtu.unwrap_or(-1),
             prefixes: config
@@ -103,6 +99,7 @@ pub(super) async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response
     };
 
     let mut admin = Vec::new();
+    let mut host_inband = Vec::new();
     let mut underlay = Vec::new();
     let mut tenant = Vec::new();
     for n in networks.into_iter() {
@@ -129,6 +126,7 @@ pub(super) async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response
         display.sub_domain = domain_name;
         match forgerpc::NetworkSegmentType::try_from(segment_type) {
             Ok(forgerpc::NetworkSegmentType::Admin) => admin.push(display),
+            Ok(forgerpc::NetworkSegmentType::HostInband) => host_inband.push(display),
             Ok(forgerpc::NetworkSegmentType::Underlay) => underlay.push(display),
             Ok(forgerpc::NetworkSegmentType::Tenant) => tenant.push(display),
             _ => {
@@ -139,6 +137,7 @@ pub(super) async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response
 
     let tmpl = NetworkSegmentShow {
         admin,
+        host_inband,
         underlay,
         tenant,
     };
@@ -241,6 +240,7 @@ struct NetworkSegmentDetail {
     domain_id: String,
     domain_name: String,
     segment_type: String,
+    infer_slaac_eui64_addresses: bool,
     prefixes: Vec<NetworkSegmentPrefix>,
     history: Vec<NetworkSegmentHistory>,
 }
@@ -307,6 +307,7 @@ impl TryFrom<forgerpc::NetworkSegment> for NetworkSegmentDetail {
                 "{:?}",
                 forgerpc::NetworkSegmentType::try_from(config.segment_type).unwrap_or_default()
             ),
+            infer_slaac_eui64_addresses: config.infer_slaac_eui64_addresses,
             prefixes,
             // History is fetched separately via FindNetworkSegmentStateHistories
             // and set on the template after conversion.

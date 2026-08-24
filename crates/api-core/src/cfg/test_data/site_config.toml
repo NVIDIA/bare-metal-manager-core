@@ -1,6 +1,5 @@
 asn = 777
 dhcp_servers = ["99.101.102.103"]
-rapid_iterations = true
 max_database_connections = 1333
 max_find_by_ids = 50
 dpu_network_monitor_pinger_type = "OobNetBind"

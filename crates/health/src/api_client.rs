@@ -22,6 +22,7 @@
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::net::IpAddr;
+use std::num::NonZeroUsize;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
@@ -37,11 +38,15 @@ use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use url::Url;
 
 use crate::HealthError;
-use crate::bmc::{BmcClient, BoxFuture, CredentialProvider};
+use crate::bmc::{
+    BmcClient, BmcLatencyInstrumentation, BoxFuture, CredentialProvider,
+    bmc_latency_endpoint_labels,
+};
 use crate::endpoint::{
     BmcAddr, BmcCredentials, BmcEndpoint, EndpointMetadata, EndpointSource, MachineData,
     PowerShelfData, SharedSystemUuid, SwitchData, SwitchEndpointRole,
 };
+use crate::metrics::BmcLatencyMetrics;
 
 /// [`ApiEndpointSource`].
 #[derive(Clone)]
@@ -291,6 +296,8 @@ pub struct ApiEndpointSource {
     reqwest: ReqwestClient,
     proxy_url: Option<Url>,
     cache_size: usize,
+    bmc_request_concurrency: NonZeroUsize,
+    bmc_latency_metrics: Option<Arc<BmcLatencyMetrics>>,
     bmc_client_cache: Mutex<HashMap<MacAddress, CachedBmcClient>>,
 }
 
@@ -307,12 +314,33 @@ impl ApiEndpointSource {
         reqwest: ReqwestClient,
         proxy_url: Option<Url>,
         cache_size: usize,
+        bmc_latency_metrics: Option<Arc<BmcLatencyMetrics>>,
+    ) -> Self {
+        Self::new_with_request_concurrency(
+            api,
+            reqwest,
+            proxy_url,
+            cache_size,
+            NonZeroUsize::MIN,
+            bmc_latency_metrics,
+        )
+    }
+
+    pub(crate) fn new_with_request_concurrency(
+        api: Arc<ApiClientWrapper>,
+        reqwest: ReqwestClient,
+        proxy_url: Option<Url>,
+        cache_size: usize,
+        bmc_request_concurrency: NonZeroUsize,
+        bmc_latency_metrics: Option<Arc<BmcLatencyMetrics>>,
     ) -> Self {
         Self {
             api,
             reqwest,
             proxy_url,
             cache_size,
+            bmc_request_concurrency,
+            bmc_latency_metrics,
             bmc_client_cache: Mutex::new(HashMap::new()),
         }
     }
@@ -595,6 +623,12 @@ impl ApiEndpointSource {
         rack_id: Option<RackId>,
         credential_kind: ApiCredentialKind,
     ) -> Result<Arc<BmcEndpoint>, HealthError> {
+        let bmc_latency_instrumentation = self.bmc_latency_metrics.clone().map(|metrics| {
+            BmcLatencyInstrumentation::new(
+                metrics,
+                bmc_latency_endpoint_labels(metadata.as_ref(), rack_id.as_ref()),
+            )
+        });
         let cached = {
             let mut cache = self.bmc_client_cache.lock().expect("cache mutex poisoned");
             cache_or_create_bmc_client(&mut cache, addr.mac, credential_kind, |kind| {
@@ -608,6 +642,8 @@ impl ApiEndpointSource {
                     provider,
                     self.proxy_url.clone(),
                     self.cache_size,
+                    self.bmc_request_concurrency,
+                    bmc_latency_instrumentation,
                 )?))
             })?
         };
@@ -798,6 +834,8 @@ mod tests {
             provider,
             None,
             10,
+            NonZeroUsize::MIN,
+            None,
         )?))
     }
 

@@ -867,7 +867,6 @@ func (o *ExpectedSwitchCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	varExpectedSwitchCreateRequest := _ExpectedSwitchCreateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varExpectedSwitchCreateRequest)
 
 	if err != nil {

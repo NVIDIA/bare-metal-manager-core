@@ -2282,9 +2282,7 @@ impl NvlPartitionMonitor {
         metrics.num_machine_nvl_status_updates = machine_gpu_statuses.len();
 
         // Add all default partition removals to the normal list so they get executed.
-        for (_partition_nmx_c_id, operations) in
-            partition_ctx.unknown_partition_removal_operations.iter()
-        {
+        for operations in partition_ctx.unknown_partition_removal_operations.values() {
             for operation in operations {
                 partition_ctx
                     .nmx_c_operations
@@ -2295,9 +2293,7 @@ impl NvlPartitionMonitor {
                     .or_insert(vec![operation.clone()]);
             }
         }
-        for (_partition_nmx_c_id, operation) in
-            partition_ctx.unknown_partition_addition_operations.iter()
-        {
+        for operation in partition_ctx.unknown_partition_addition_operations.values() {
             partition_ctx
                 .nmx_c_operations
                 .entry(NvLinkLogicalPartitionId::default())

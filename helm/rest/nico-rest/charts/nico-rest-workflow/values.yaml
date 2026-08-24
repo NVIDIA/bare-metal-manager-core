@@ -19,12 +19,23 @@ cloudWorker:
 
 siteWorker:
   replicaCount: 1
+  ## The site worker's footprint scales with the size of the site it is
+  ## reconciling, which the original 128Mi/512Mi did not account for -- it was
+  ## sized before large-fleet testing. On a 4,500-host site the steady state is
+  ## roughly 165MiB with a 195MiB peak, so 512Mi leaves under 3x headroom on a
+  ## workload whose demand grows with the inventory.
+  ##
+  ## Raise the limit to 1Gi and the request to 256Mi. The request now sits above
+  ## observed steady state so scheduling reflects real usage, and the limit
+  ## gives ~5x headroom over the measured peak without reserving memory the
+  ## worker has never been shown to need. Deliberately modest: this is
+  ## headroom for a known growth trend, not a fix for a diagnosed leak.
   resources:
     requests:
-      memory: "128Mi"
+      memory: "256Mi"
       cpu: "100m"
     limits:
-      memory: "512Mi"
+      memory: "1Gi"
       cpu: "500m"
 
 secrets:

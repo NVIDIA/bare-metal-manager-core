@@ -158,9 +158,56 @@ pub async fn update(
     rack_id: &RackId,
     config: &RackConfig,
 ) -> DatabaseResult<Rack> {
-    let query = "UPDATE racks SET config = $1::json, updated=NOW() WHERE id = $2 RETURNING *";
+    // `maintenance_termination_requested` is a latch owned by the rack
+    // controller.
+    // Once set during Maintenance, preserve the complete persisted config so
+    // an older controller snapshot cannot clear either the latch or the scope
+    // that the termination handler needs. A latch outside Maintenance violates
+    // the API invariant, so clear it while applying the incoming config rather
+    // than letting it poison the next maintenance request. A new termination
+    // can still be latched when the persisted value is false.
+    let query = r#"UPDATE racks
+        SET config = CASE
+            WHEN COALESCE((config->>'maintenance_termination_requested')::boolean, false)
+                AND controller_state->>'state' = 'maintenance'
+                THEN config
+            WHEN COALESCE((config->>'maintenance_termination_requested')::boolean, false)
+                THEN jsonb_set($1::jsonb, '{maintenance_termination_requested}', 'false'::jsonb)
+            ELSE $1::jsonb
+        END,
+        updated = NOW()
+        WHERE id = $2
+        RETURNING *"#;
     let rack: Rack = sqlx::query_as(query)
         .bind(sqlx::types::Json(config))
+        .bind(rack_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::new(query, e))?;
+
+    Ok(rack)
+}
+
+/// Atomically consumes a pending maintenance-termination request and its scope.
+///
+/// Unlike [`update`], this is reserved for the termination handler after it has
+/// completed the scoped cleanup. It updates only the two maintenance request
+/// fields so a stale controller snapshot cannot overwrite unrelated config.
+pub async fn consume_maintenance_termination_request(
+    txn: &mut PgConnection,
+    rack_id: &RackId,
+) -> DatabaseResult<Rack> {
+    let query = r#"UPDATE racks
+        SET config = jsonb_set(
+            jsonb_set(config, '{maintenance_requested}', 'null'::jsonb),
+            '{maintenance_termination_requested}', 'false'::jsonb
+        ),
+        updated = NOW()
+        WHERE id = $1
+          AND COALESCE((config->>'maintenance_termination_requested')::boolean, false)
+          AND controller_state->>'state' = 'maintenance'
+        RETURNING *"#;
+    let rack: Rack = sqlx::query_as(query)
         .bind(rack_id)
         .fetch_one(txn)
         .await
@@ -176,8 +223,11 @@ pub async fn try_update_controller_state(
     new_version: ConfigVersion,
     new_state: &RackState,
 ) -> DatabaseResult<bool> {
+    // A termination request is accepted only while the persisted rack state is
+    // Maintenance. Scope the latch guard to that state so an invalid or stale
+    // latch cannot freeze transitions in every other rack state.
     let query_result = sqlx::query_as::<_, Rack>(
-            "UPDATE racks SET controller_state = $1, controller_state_version = $2 WHERE id = $3 AND controller_state_version = $4 RETURNING *",
+            "UPDATE racks SET controller_state = $1, controller_state_version = $2 WHERE id = $3 AND controller_state_version = $4 AND NOT (COALESCE((config->>'maintenance_termination_requested')::boolean, false) AND controller_state->>'state' = 'maintenance') RETURNING *",
         )
             .bind(sqlx::types::Json(new_state))
             .bind(new_version)

@@ -16,7 +16,7 @@ import (
 // Internal-only and sensitive Core fields are omitted; this is not the complete Core configuration.
 type APIDpuNetworkConfig struct {
 	// Asn is the Autonomous System Number for BGP routing
-	Asn int `json:"asn"`
+	Asn uint32 `json:"asn"`
 	// DhcpServers is the list of DHCP server IP addresses
 	DhcpServers []string `json:"dhcpServers"`
 	// VniDevice is the VNI device name
@@ -38,7 +38,7 @@ type APIDpuNetworkConfig struct {
 	// NetworkVirtualizationType is the type of network virtualization
 	NetworkVirtualizationType *string `json:"networkVirtualizationType"`
 	// VpcVni is the VPC VNI identifier
-	VpcVni *int `json:"vpcVni"`
+	VpcVni *uint32 `json:"vpcVni"`
 	// RouteServers is the list of route server IP addresses
 	RouteServers []string `json:"routeServers"`
 	// RemoteID is the remote identifier for the managed host
@@ -60,19 +60,19 @@ type APIDpuNetworkConfig struct {
 	// HostInterfaceID is the ID of the host interface
 	HostInterfaceID *string `json:"hostInterfaceId"`
 	// MinDpuFunctioningLinks is the minimum number of functioning DPU links required
-	MinDpuFunctioningLinks *int `json:"minDpuFunctioningLinks"`
+	MinDpuFunctioningLinks *uint32 `json:"minDpuFunctioningLinks"`
 	// IsPrimaryDpu indicates whether this is the primary DPU
 	IsPrimaryDpu bool `json:"isPrimaryDpu"`
 	// InternetL3Vni is the Layer 3 VNI used for internet access
-	InternetL3Vni *int `json:"internetL3Vni"`
+	InternetL3Vni *uint32 `json:"internetL3Vni"`
 	// DatacenterAsn is the datacenter Autonomous System Number
-	DatacenterAsn int `json:"datacenterAsn"`
+	DatacenterAsn uint32 `json:"datacenterAsn"`
 	// AnycastSitePrefixes is the list of anycast site IP prefixes
 	AnycastSitePrefixes []string `json:"anycastSitePrefixes"`
 	// TenantHostAsn is the Autonomous System Number for the tenant host
-	TenantHostAsn *int `json:"tenantHostAsn"`
+	TenantHostAsn *uint32 `json:"tenantHostAsn"`
 	// SiteGlobalVpcVni is the site-global VPC VNI identifier
-	SiteGlobalVpcVni *int `json:"siteGlobalVpcVni"`
+	SiteGlobalVpcVni *uint32 `json:"siteGlobalVpcVni"`
 }
 
 // FromProto populates an APIDpuNetworkConfig from its protobuf form.
@@ -81,7 +81,7 @@ func (apnnc *APIDpuNetworkConfig) FromProto(protoConfig *corev1.ManagedHostNetwo
 		return
 	}
 
-	apnnc.Asn = int(protoConfig.Asn)
+	apnnc.Asn = protoConfig.Asn
 	apnnc.DhcpServers = protoConfig.DhcpServers
 	apnnc.VniDevice = protoConfig.VniDevice
 	apnnc.ManagedHostConfigVersion = protoConfig.ManagedHostConfigVersion
@@ -106,18 +106,10 @@ func (apnnc *APIDpuNetworkConfig) FromProto(protoConfig *corev1.ManagedHostNetwo
 	apnnc.StatefulAclsEnabled = protoConfig.StatefulAclsEnabled
 	apnnc.EnableDhcp = protoConfig.EnableDhcp
 	apnnc.IsPrimaryDpu = protoConfig.IsPrimaryDpu
-	apnnc.DatacenterAsn = int(protoConfig.DatacenterAsn)
+	apnnc.DatacenterAsn = protoConfig.DatacenterAsn
 	apnnc.AnycastSitePrefixes = protoConfig.AnycastSitePrefixes
-
-	if protoConfig.TenantHostAsn != nil {
-		tenantHostAsn := int(*protoConfig.TenantHostAsn)
-		apnnc.TenantHostAsn = &tenantHostAsn
-	}
-
-	if protoConfig.SiteGlobalVpcVni != nil {
-		siteGlobalVpcVni := int(*protoConfig.SiteGlobalVpcVni)
-		apnnc.SiteGlobalVpcVni = &siteGlobalVpcVni
-	}
+	apnnc.TenantHostAsn = protoConfig.TenantHostAsn
+	apnnc.SiteGlobalVpcVni = protoConfig.SiteGlobalVpcVni
 
 	if protoConfig.ManagedHostConfig != nil {
 		apnnc.ManagedHostConfig = &APIManagedHostNetworkConfig{}
@@ -139,10 +131,7 @@ func (apnnc *APIDpuNetworkConfig) FromProto(protoConfig *corev1.ManagedHostNetwo
 		}
 	}
 
-	if protoConfig.VpcVni != nil {
-		vpcVni := int(*protoConfig.VpcVni)
-		apnnc.VpcVni = &vpcVni
-	}
+	apnnc.VpcVni = protoConfig.VpcVni
 
 	if protoConfig.DpuNetworkPingerType != nil {
 		apnnc.DpuNetworkPingerType = protoConfig.DpuNetworkPingerType
@@ -152,15 +141,8 @@ func (apnnc *APIDpuNetworkConfig) FromProto(protoConfig *corev1.ManagedHostNetwo
 		apnnc.HostInterfaceID = protoConfig.HostInterfaceId
 	}
 
-	if protoConfig.MinDpuFunctioningLinks != nil {
-		minLinks := int(*protoConfig.MinDpuFunctioningLinks)
-		apnnc.MinDpuFunctioningLinks = &minLinks
-	}
-
-	if protoConfig.InternetL3Vni != nil {
-		internetL3Vni := int(*protoConfig.InternetL3Vni)
-		apnnc.InternetL3Vni = &internetL3Vni
-	}
+	apnnc.MinDpuFunctioningLinks = protoConfig.MinDpuFunctioningLinks
+	apnnc.InternetL3Vni = protoConfig.InternetL3Vni
 }
 
 // APIManagedHostQuarantineState represents quarantine state
@@ -207,9 +189,9 @@ type APIFlatInterfaceConfig struct {
 	// FunctionType is the function type (e.g. PHYSICAL_FUNCTION, VIRTUAL_FUNCTION)
 	FunctionType string `json:"functionType"`
 	// VlanID is the VLAN ID
-	VlanID int `json:"vlanId"`
+	VlanID uint32 `json:"vlanId"`
 	// Vni is the VXLAN Network Identifier
-	Vni int `json:"vni"`
+	Vni uint32 `json:"vni"`
 	// Gateway is the gateway IP address
 	Gateway string `json:"gateway"`
 	// IP is the interface IP address
@@ -217,7 +199,7 @@ type APIFlatInterfaceConfig struct {
 	// InterfacePrefix is the interface name prefix
 	InterfacePrefix string `json:"interfacePrefix"`
 	// VirtualFunctionID is the virtual function ID if applicable
-	VirtualFunctionID *int `json:"virtualFunctionId"`
+	VirtualFunctionID *uint32 `json:"virtualFunctionId"`
 	// VpcPrefixes is the list of VPC IP prefixes
 	VpcPrefixes []string `json:"vpcPrefixes"`
 	// Prefix is the IP prefix for the interface
@@ -227,7 +209,7 @@ type APIFlatInterfaceConfig struct {
 	// BootURL is the boot URL for PXE/iPXE boot
 	BootURL *string `json:"bootUrl"`
 	// VpcVni is the VPC VXLAN Network Identifier
-	VpcVni int `json:"vpcVni"`
+	VpcVni uint32 `json:"vpcVni"`
 	// SviIP is the switch virtual interface (SVI) IP address
 	SviIP *string `json:"sviIp"`
 	// TenantVrfLoopbackIP is the tenant VRF loopback IP address
@@ -237,9 +219,9 @@ type APIFlatInterfaceConfig struct {
 	// VpcPeerPrefixes is the list of peered VPC IP prefixes
 	VpcPeerPrefixes []string `json:"vpcPeerPrefixes"`
 	// VpcPeerVnis is the list of peered VPC VNIs
-	VpcPeerVnis []int `json:"vpcPeerVnis"`
+	VpcPeerVnis []uint32 `json:"vpcPeerVnis"`
 	// Mtu is the maximum transmission unit (MTU) for the interface
-	Mtu *int `json:"mtu"`
+	Mtu *uint32 `json:"mtu"`
 	// NetworkSecurityGroup is the network security group configuration resolved on the interface
 	NetworkSecurityGroup *APIFlatInterfaceNetworkSecurityGroupConfig `json:"networkSecurityGroup"`
 }
@@ -251,37 +233,28 @@ func (afic *APIFlatInterfaceConfig) FromProto(protoConfig *corev1.FlatInterfaceC
 	}
 
 	afic.FunctionType = protoConfig.FunctionType.String()
-	afic.VlanID = int(protoConfig.VlanId)
-	afic.Vni = int(protoConfig.Vni)
-	afic.Gateway = protoConfig.Gateway
-	afic.IP = protoConfig.Ip
-	afic.InterfacePrefix = protoConfig.InterfacePrefix
+	afic.VlanID = protoConfig.VlanId
+	afic.Vni = protoConfig.Vni
+	afic.Gateway = protoConfig.Gateway                 //nolint:staticcheck // Preserve the scalar REST compatibility field.
+	afic.IP = protoConfig.Ip                           //nolint:staticcheck // Preserve the scalar REST compatibility field.
+	afic.InterfacePrefix = protoConfig.InterfacePrefix //nolint:staticcheck // Preserve the scalar REST compatibility field.
 
-	if protoConfig.VirtualFunctionId != nil {
-		virtualFunctionID := int(*protoConfig.VirtualFunctionId)
-		afic.VirtualFunctionID = &virtualFunctionID
-	}
+	afic.VirtualFunctionID = protoConfig.VirtualFunctionId
 
 	afic.VpcPrefixes = protoConfig.VpcPrefixes
-	afic.Prefix = protoConfig.Prefix
+	afic.Prefix = protoConfig.Prefix //nolint:staticcheck // Preserve the scalar REST compatibility field.
 	afic.Fqdn = protoConfig.Fqdn
 
 	afic.BootURL = protoConfig.Booturl
-	afic.VpcVni = int(protoConfig.VpcVni)
-	afic.SviIP = protoConfig.SviIp
+	afic.VpcVni = protoConfig.VpcVni
+	afic.SviIP = protoConfig.SviIp //nolint:staticcheck // Preserve the scalar REST compatibility field.
 	afic.TenantVrfLoopbackIP = protoConfig.TenantVrfLoopbackIp
 	afic.IsL2Segment = protoConfig.IsL2Segment
 	afic.VpcPeerPrefixes = protoConfig.VpcPeerPrefixes
 
-	afic.VpcPeerVnis = make([]int, len(protoConfig.VpcPeerVnis))
-	for i, vni := range protoConfig.VpcPeerVnis {
-		afic.VpcPeerVnis[i] = int(vni)
-	}
+	afic.VpcPeerVnis = protoConfig.VpcPeerVnis
 
-	if protoConfig.Mtu != nil {
-		mtu := int(*protoConfig.Mtu)
-		afic.Mtu = &mtu
-	}
+	afic.Mtu = protoConfig.Mtu
 
 	if protoConfig.NetworkSecurityGroup != nil {
 		afic.NetworkSecurityGroup = &APIFlatInterfaceNetworkSecurityGroupConfig{}
@@ -487,14 +460,15 @@ func (apd *APIDpuMachine) FromProto(protoDpuMachine *corev1.DpuMachine, ctx APID
 	if protoMachine == nil {
 		return
 	}
+	protoMachineStatus := protoMachine.GetStatus()
 
 	apd.ID = protoMachine.GetId().GetId()
 	apd.InfrastructureProviderID = ctx.InfrastructureProviderID.String()
 	apd.SiteID = ctx.SiteID.String()
 	apd.HostMachineID = ctx.HostMachineID
 
-	if protoMachine.DpuAgentVersion != nil {
-		apd.DpuAgentVersion = *protoMachine.DpuAgentVersion
+	if protoMachineStatus != nil && protoMachineStatus.DpuAgentVersion != nil {
+		apd.DpuAgentVersion = *protoMachineStatus.DpuAgentVersion
 	}
 
 	if protoMachine.BmcInfo != nil {
@@ -502,14 +476,14 @@ func (apd *APIDpuMachine) FromProto(protoDpuMachine *corev1.DpuMachine, ctx APID
 		apd.BMCInfo.FromProto(protoMachine.BmcInfo)
 	}
 
-	if protoMachine.DiscoveryInfo != nil && protoMachine.DiscoveryInfo.DmiData != nil {
+	if protoMachineStatus.GetDiscoveryInfo() != nil && protoMachineStatus.GetDiscoveryInfo().DmiData != nil {
 		apd.DMIData = &APIDMIData{}
-		apd.DMIData.FromProto(protoMachine.DiscoveryInfo.DmiData)
+		apd.DMIData.FromProto(protoMachineStatus.GetDiscoveryInfo().DmiData)
 	}
 
-	if protoMachine.Interfaces != nil {
-		apd.Interfaces = make([]APIDpuMachineInterface, 0, len(protoMachine.Interfaces))
-		for _, protoInterface := range protoMachine.Interfaces {
+	if protoMachineStatus.GetInterfaces() != nil {
+		apd.Interfaces = make([]APIDpuMachineInterface, 0, len(protoMachineStatus.GetInterfaces()))
+		for _, protoInterface := range protoMachineStatus.GetInterfaces() {
 			if protoInterface != nil {
 				apdInterface := APIDpuMachineInterface{}
 				apdInterface.FromProto(protoInterface)
@@ -530,9 +504,9 @@ func (apd *APIDpuMachine) FromProto(protoDpuMachine *corev1.DpuMachine, ctx APID
 		}
 	}
 
-	if protoMachine.Health != nil {
+	if protoMachineStatus.GetHealth() != nil {
 		apd.Health = &APIMachineHealth{}
-		apd.Health.FromProto(protoMachine.Health)
+		apd.Health.FromProto(protoMachineStatus.GetHealth())
 	}
 
 	var labels cdbm.Labels
@@ -546,8 +520,8 @@ func (apd *APIDpuMachine) FromProto(protoDpuMachine *corev1.DpuMachine, ctx APID
 		apd.DpuNetworkConfig.FromProto(protoDpuMachine.DpuNetworkConfig)
 	}
 
-	if protoMachine.LastRebootTime != nil {
-		lastRebooted := protoMachine.LastRebootTime.AsTime()
+	if protoMachineStatus.GetLastRebootTime() != nil {
+		lastRebooted := protoMachineStatus.GetLastRebootTime().AsTime()
 		apd.LastRebooted = &lastRebooted
 	}
 

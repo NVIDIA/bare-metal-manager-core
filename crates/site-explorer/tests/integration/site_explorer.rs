@@ -2114,6 +2114,7 @@ async fn test_site_explorer_audit_exploration_results(
         switches_created_per_run: 1,
         rotate_switch_nvos_credentials: Arc::new(false.into()),
         dpu_policy: None,
+        deprecated_force_dpu_nic_mode: None,
         // Tests use MockEndpointExplorer. So this doesn't affect anything.
         explore_mode: SiteExplorerExploreMode::NvRedfish,
     };
@@ -2559,7 +2560,6 @@ async fn test_site_explorer_reexplore(pool: PgPool) -> Result<(), Box<dyn std::e
 
 // This regression intentionally keeps the exploration transaction open while
 // awaiting the competing clear, so it can verify both row-lock orderings.
-#[allow(txn_held_across_await)]
 #[sqlx_test]
 async fn test_site_explorer_clear_last_known_error(
     pool: PgPool,

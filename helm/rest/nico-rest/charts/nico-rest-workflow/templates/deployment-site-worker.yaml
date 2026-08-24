@@ -57,6 +57,8 @@ spec:
               mountPath: /var/secrets/temporal/certs
               readOnly: true
             {{- include "nico-rest-workflow.dbCredsVolumeMount" . | nindent 12 }}
+            - name: tmp
+              mountPath: /tmp
           livenessProbe:
             httpGet:
               path: /healthz
@@ -72,13 +74,23 @@ spec:
           resources:
             {{- toYaml .Values.siteWorker.resources | nindent 12 }}
           securityContext:
+            readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
             capabilities:
               drop:
-                - NET_RAW
+                - ALL
+      # 1000 is the `nvs` user the image declares. The image names it rather
+      # than giving a UID, which the kubelet cannot verify, so runAsNonRoot
+      # needs the number spelled out here.
       securityContext:
-        runAsNonRoot: false
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
       volumes:
+        # Scratch space for the read-only root filesystem. Go puts temp files
+        # under /tmp.
+        - name: tmp
+          emptyDir: {}
         - name: config
           configMap:
             name: {{ include "nico-rest-workflow.name" . }}-config

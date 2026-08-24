@@ -22,7 +22,7 @@ import (
 // checks if the TaskRunEqualPhases type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &TaskRunEqualPhases{}
 
-// TaskRunEqualPhases Splits targets into `phaseCount` roughly equal phases.
+// TaskRunEqualPhases Splits targets into `phaseCount` roughly equal phases. The request is rejected when `phaseCount` exceeds the number of selected targets, because every configured phase must contain at least one target.
 type TaskRunEqualPhases struct {
 	// Number of equally sized phases.
 	PhaseCount int32 `json:"phaseCount"`
@@ -111,7 +111,6 @@ func (o *TaskRunEqualPhases) UnmarshalJSON(data []byte) (err error) {
 	varTaskRunEqualPhases := _TaskRunEqualPhases{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varTaskRunEqualPhases)
 
 	if err != nil {

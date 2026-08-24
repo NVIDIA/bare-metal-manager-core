@@ -35,8 +35,7 @@ use carbide_rack::rms_node_type::{
 use carbide_rack_controller::config::{RmsConfig, ScaleUpFabricManagerApiVersion};
 use carbide_rack_controller::context::RackStateHandlerContextObjects;
 use carbide_rack_controller::fabric_manager::{
-    batch_get_scale_up_fabric_service_status,
-    batch_get_scale_up_fabric_service_status_via_component_manager, observed_primary_switch,
+    batch_get_scale_up_fabric_service_status, observed_primary_switch,
     persist_fabric_manager_statuses, persist_primary_switch, select_primary_switch,
     validate_switch_inventory_for_nmx_cluster,
 };
@@ -46,12 +45,13 @@ use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::rack::{RackId, RackProfileId};
 use component_manager::component_manager::ComponentManager;
 use component_manager::error::ComponentManagerError;
+use component_manager::nv_switch_manager::ScaleUpFabricManagerJobStatus;
 use db::{
     host_machine_update as db_host_machine_update, machine as db_machine,
-    machine_topology as db_machine_topology, power_shelf as db_power_shelf, rack as db_rack,
-    switch as db_switch,
+    machine_topology as db_machine_topology, power_options as db_power_options,
+    power_shelf as db_power_shelf, rack as db_rack, switch as db_switch,
 };
-use librms::protos::{rack_manager as rms, rack_manager_v2 as rms_v2};
+use librms::protos::rack_manager as rms;
 use model::rack::{
     ConfigureNmxClusterCertificateState, ConfigureNmxClusterState, FirmwareUpgradeDeviceInfo,
     FirmwareUpgradeDeviceStatus, FirmwareUpgradeState, MaintenanceActivity, MaintenanceScope,
@@ -67,7 +67,7 @@ use state_controller::state_handler::{
 use crate as carbide_rack_controller;
 use crate::nmx_certificate::{
     ConfigureNmxClusterCertificatePollOutcome, poll_configure_nmx_cluster_certificate_jobs,
-    start_configure_nmx_cluster_certificate,
+    start_configure_nmx_cluster_certificate, switch_endpoint_from_firmware_device,
 };
 
 /// Strips all `rv.*` metadata labels from every machine in the rack.
@@ -97,6 +97,10 @@ async fn clear_rv_labels(
     Ok(())
 }
 
+fn rack_maintenance_initiator(rack_id: &RackId) -> String {
+    format!("rack-{rack_id}")
+}
+
 async fn trigger_rack_firmware_reprovisioning_requests(
     txn: &mut sqlx::PgConnection,
     rack_id: &RackId,
@@ -105,19 +109,16 @@ async fn trigger_rack_firmware_reprovisioning_requests(
     power_shelf_ids: &[carbide_uuid::power_shelf::PowerShelfId],
     activities: &[MaintenanceActivity],
 ) -> Result<(), StateHandlerError> {
+    let initiator = rack_maintenance_initiator(rack_id);
     for machine_id in machine_ids {
-        db_host_machine_update::trigger_host_reprovisioning_request(
-            txn,
-            &format!("rack-{}", rack_id),
-            machine_id,
-        )
-        .await?;
+        db_host_machine_update::trigger_host_reprovisioning_request(txn, &initiator, machine_id)
+            .await?;
     }
     for switch_id in switch_ids {
         db_switch::set_switch_reprovisioning_requested(
             txn,
             *switch_id,
-            &format!("rack-{}", rack_id),
+            &initiator,
             activities.to_vec(),
         )
         .await?;
@@ -126,7 +127,7 @@ async fn trigger_rack_firmware_reprovisioning_requests(
         db_power_shelf::set_power_shelf_reprovisioning_requested(
             txn,
             *power_shelf_id,
-            &format!("rack-{}", rack_id),
+            &initiator,
             activities.to_vec(),
         )
         .await?;
@@ -162,9 +163,160 @@ async fn clear_nvos_update_statuses(
     Ok(())
 }
 
-/// Aggregated firmware progress for machines/switches participating in a rack
-/// firmware job. Advancement out of `WaitForComplete` is based on machine and
-/// switch controller states, not RMS job strings or `rack_fw_details`.
+#[derive(Debug)]
+struct RackMaintenanceTargetIds {
+    machine_ids: Vec<carbide_uuid::machine::MachineId>,
+    switch_ids: Vec<carbide_uuid::switch::SwitchId>,
+    power_shelf_ids: Vec<carbide_uuid::power_shelf::PowerShelfId>,
+}
+
+async fn load_rack_maintenance_target_ids(
+    txn: &mut sqlx::PgConnection,
+    rack_id: &RackId,
+    scope: &MaintenanceScope,
+) -> Result<RackMaintenanceTargetIds, StateHandlerError> {
+    let machine_ids = load_scoped_machines(txn, rack_id, scope)
+        .await?
+        .into_iter()
+        .map(|machine| machine.id)
+        .collect();
+
+    let mut switch_ids = db_switch::find_ids(
+        &mut *txn,
+        model::switch::SwitchSearchFilter {
+            rack_id: Some(rack_id.clone()),
+            deleted: model::DeletedFilter::Exclude,
+            ..Default::default()
+        },
+    )
+    .await?;
+    if !scope.is_full_rack() {
+        let requested: std::collections::HashSet<_> = scope.switch_ids.iter().collect();
+        switch_ids.retain(|id| requested.contains(id));
+    }
+
+    let mut power_shelf_ids = db_power_shelf::find_ids(
+        &mut *txn,
+        model::power_shelf::PowerShelfSearchFilter {
+            rack_id: Some(rack_id.clone()),
+            deleted: model::DeletedFilter::Exclude,
+            ..Default::default()
+        },
+    )
+    .await?;
+    power_shelf_ids = filter_power_shelf_ids_by_scope(power_shelf_ids, scope);
+
+    Ok(RackMaintenanceTargetIds {
+        machine_ids,
+        switch_ids,
+        power_shelf_ids,
+    })
+}
+
+/// Unwinds active rack maintenance and transitions the rack to `Error`.
+///
+/// Requests that have not left the device `Ready` state are cleared here.
+/// Device controllers that already started reprovisioning retain ownership of
+/// their request and unwind after observing the rack's atomic transition to
+/// `Error`.
+async fn terminate_active_rack_maintenance(
+    rack_id: &RackId,
+    state: &mut Rack,
+    maintenance_state: &RackMaintenanceState,
+    cause: impl Into<String>,
+    ctx: &mut StateHandlerContext<'_, RackStateHandlerContextObjects>,
+) -> Result<StateHandlerOutcome<RackState>, StateHandlerError> {
+    let cause = cause.into();
+    let scope = state
+        .config
+        .maintenance_requested
+        .clone()
+        .unwrap_or_default();
+    let mut txn = ctx.services.db_pool.begin().await?;
+    let targets = load_rack_maintenance_target_ids(txn.as_mut(), rack_id, &scope).await?;
+    let initiator = rack_maintenance_initiator(rack_id);
+
+    for machine_id in &targets.machine_ids {
+        db_host_machine_update::clear_ready_host_reprovisioning_request(
+            txn.as_mut(),
+            machine_id,
+            &initiator,
+        )
+        .await?;
+    }
+    for switch_id in &targets.switch_ids {
+        db_switch::clear_ready_switch_reprovisioning_requested(
+            txn.as_mut(),
+            *switch_id,
+            &initiator,
+        )
+        .await?;
+    }
+    for power_shelf_id in &targets.power_shelf_ids {
+        db_power_shelf::clear_ready_power_shelf_reprovisioning_requested(
+            txn.as_mut(),
+            *power_shelf_id,
+            &initiator,
+        )
+        .await?;
+    }
+
+    let now = chrono::Utc::now();
+    match maintenance_state {
+        RackMaintenanceState::FirmwareUpgrade {
+            rack_firmware_upgrade,
+        } => {
+            clear_rack_firmware_device_statuses(
+                txn.as_mut(),
+                &targets.machine_ids,
+                &targets.switch_ids,
+                &targets.power_shelf_ids,
+            )
+            .await?;
+            if matches!(rack_firmware_upgrade, FirmwareUpgradeState::WaitForComplete)
+                && let Some(mut job) = state.firmware_upgrade_job.clone()
+            {
+                job.status = Some("failed".into());
+                job.completed_at.get_or_insert(now);
+                db_rack::update_firmware_upgrade_job(txn.as_mut(), rack_id, Some(&job)).await?;
+                state.firmware_upgrade_job = Some(job);
+            }
+        }
+        RackMaintenanceState::NVOSUpdate { nvos_update } => {
+            clear_nvos_update_statuses(txn.as_mut(), &targets.switch_ids).await?;
+            if matches!(nvos_update, NvosUpdateState::WaitForComplete)
+                && let Some(mut job) = state.nvos_update_job.clone()
+            {
+                job.status = Some("failed".into());
+                job.completed_at.get_or_insert(now);
+                db_rack::update_nvos_update_job(txn.as_mut(), rack_id, Some(&job)).await?;
+                state.nvos_update_job = Some(job);
+            }
+        }
+        RackMaintenanceState::ConfigureNmxCluster { .. }
+        | RackMaintenanceState::PowerSequence { .. }
+        | RackMaintenanceState::Completed => {}
+    }
+
+    state.config.maintenance_requested = None;
+    state.config.maintenance_termination_requested = false;
+    db_rack::consume_maintenance_termination_request(txn.as_mut(), rack_id).await?;
+
+    tracing::warn!(
+        rack_id = %rack_id,
+        %cause,
+        machine_count = targets.machine_ids.len(),
+        switch_count = targets.switch_ids.len(),
+        power_shelf_count = targets.power_shelf_ids.len(),
+        "Terminating rack maintenance",
+    );
+
+    Ok(StateHandlerOutcome::transition(RackState::Error { cause }).with_txn(txn))
+}
+
+/// Aggregated firmware progress for machines, switches, and power shelves
+/// participating in a rack firmware job. Advancement out of `WaitForComplete`
+/// is based on device controller states, not RMS job strings or firmware status.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum DeviceFirmwareProgress {
     Waiting {
@@ -188,6 +340,79 @@ enum DeviceFirmwareOutcome {
     Waiting,
     Failed,
     Completed,
+}
+
+async fn desired_off_machine_ids(
+    txn: &mut sqlx::PgConnection,
+    machine_ids: &[carbide_uuid::machine::MachineId],
+) -> Result<Vec<carbide_uuid::machine::MachineId>, StateHandlerError> {
+    if machine_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut machine_ids = db_power_options::get_by_ids(machine_ids, txn)
+        .await?
+        .into_iter()
+        .filter(|options| options.desired_power_state == model::power_manager::PowerState::Off)
+        .map(|options| options.host_id)
+        .collect::<Vec<_>>();
+    machine_ids.sort_by_key(ToString::to_string);
+    Ok(machine_ids)
+}
+
+fn format_machine_ids(machine_ids: &[carbide_uuid::machine::MachineId]) -> String {
+    machine_ids
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+async fn load_scoped_machines(
+    txn: &mut sqlx::PgConnection,
+    rack_id: &RackId,
+    scope: &MaintenanceScope,
+) -> Result<Vec<model::machine::Machine>, StateHandlerError> {
+    let machine_ids = db_machine::find_machine_ids(
+        &mut *txn,
+        model::machine::machine_search_config::MachineSearchConfig {
+            rack_id: Some(rack_id.clone()),
+            ..Default::default()
+        },
+    )
+    .await?;
+    let machines = if machine_ids.is_empty() {
+        Vec::new()
+    } else {
+        db_machine::find(
+            &mut *txn,
+            db::ObjectFilter::List(&machine_ids),
+            model::machine::machine_search_config::MachineSearchConfig::default(),
+        )
+        .await?
+    };
+    Ok(filter_machines_by_scope(machines, scope))
+}
+
+async fn power_blocked_rack_firmware_machine_ids(
+    txn: &mut sqlx::PgConnection,
+    rack_id: &RackId,
+    scope: &MaintenanceScope,
+) -> Result<Vec<carbide_uuid::machine::MachineId>, StateHandlerError> {
+    let machines = load_scoped_machines(txn, rack_id, scope).await?;
+    let initiator = rack_maintenance_initiator(rack_id);
+    let ready_rack_requested_ids = machines
+        .iter()
+        .filter(|machine| matches!(machine.state.value, model::machine::ManagedHostState::Ready))
+        .filter(|machine| {
+            machine
+                .host_reprovision_requested
+                .as_ref()
+                .is_some_and(|request| request.initiator == initiator)
+        })
+        .map(|machine| machine.id)
+        .collect::<Vec<_>>();
+    desired_off_machine_ids(txn, &ready_rack_requested_ids).await
 }
 
 async fn resolve_machine_id_for_firmware_device(
@@ -357,33 +582,15 @@ fn summarize_firmware_outcomes(outcomes: &[DeviceFirmwareOutcome]) -> DeviceFirm
     DeviceFirmwareProgress::Completed { completed, total }
 }
 
-/// Reads machine and switch controller states for devices in `rack_id`,
+/// Reads device controller states for devices in `rack_id`,
 /// filtered by `scope`, and decides whether firmware WaitForComplete can
 /// advance. Device membership comes from the DB + scope, not the firmware job.
 async fn evaluate_firmware_progress_from_devices(
     txn: &mut sqlx::PgConnection,
     rack_id: &RackId,
     scope: &MaintenanceScope,
-) -> Result<DeviceFirmwareProgress, StateHandlerError> {
-    let machine_ids = db_machine::find_machine_ids(
-        &mut *txn,
-        model::machine::machine_search_config::MachineSearchConfig {
-            rack_id: Some(rack_id.clone()),
-            ..Default::default()
-        },
-    )
-    .await?;
-    let machines = if machine_ids.is_empty() {
-        Vec::new()
-    } else {
-        db_machine::find(
-            &mut *txn,
-            db::ObjectFilter::List(&machine_ids),
-            model::machine::machine_search_config::MachineSearchConfig::default(),
-        )
-        .await?
-    };
-    let machines = filter_machines_by_scope(machines, scope);
+) -> Result<(DeviceFirmwareProgress, Vec<String>), StateHandlerError> {
+    let machines = load_scoped_machines(txn, rack_id, scope).await?;
 
     let switch_ids = db_switch::find_ids(
         &mut *txn,
@@ -426,10 +633,30 @@ async fn evaluate_firmware_progress_from_devices(
     let power_shelves = filter_power_shelves_by_scope(power_shelves, scope);
 
     let mut outcomes = Vec::with_capacity(machines.len() + switches.len() + power_shelves.len());
-    outcomes.extend(machines.iter().map(machine_firmware_outcome));
-    outcomes.extend(switches.iter().map(switch_firmware_outcome));
-    outcomes.extend(power_shelves.iter().map(power_shelf_firmware_outcome));
-    Ok(summarize_firmware_outcomes(&outcomes))
+    let mut pending_device_ids = Vec::new();
+    for machine in &machines {
+        let outcome = machine_firmware_outcome(machine);
+        if outcome == DeviceFirmwareOutcome::Waiting {
+            pending_device_ids.push(machine.id.to_string());
+        }
+        outcomes.push(outcome);
+    }
+    for switch in &switches {
+        let outcome = switch_firmware_outcome(switch);
+        if outcome == DeviceFirmwareOutcome::Waiting {
+            pending_device_ids.push(switch.id.to_string());
+        }
+        outcomes.push(outcome);
+    }
+    for power_shelf in &power_shelves {
+        let outcome = power_shelf_firmware_outcome(power_shelf);
+        if outcome == DeviceFirmwareOutcome::Waiting {
+            pending_device_ids.push(power_shelf.id.to_string());
+        }
+        outcomes.push(outcome);
+    }
+    pending_device_ids.sort();
+    Ok((summarize_firmware_outcomes(&outcomes), pending_device_ids))
 }
 
 fn filter_machines_by_scope(
@@ -563,7 +790,9 @@ async fn clear_maintenance_requested_on_error(
     outcome: StateHandlerOutcome<RackState>,
     ctx: &mut StateHandlerContext<'_, RackStateHandlerContextObjects>,
 ) -> Result<StateHandlerOutcome<RackState>, StateHandlerError> {
-    if state.config.maintenance_requested.is_none() {
+    if state.config.maintenance_requested.is_none()
+        && !state.config.maintenance_termination_requested
+    {
         return Ok(outcome);
     }
     state.config.maintenance_requested = None;
@@ -1846,11 +2075,14 @@ async fn configure_scale_up_fabric_manager_v2(
         .await;
     };
 
-    let switch_node_identity = match switch_node_identity_for_profile(profile) {
-        Ok(identity) => identity,
-        Err(error) => {
-            return transition_to_rack_error(id, state, error.to_string(), ctx).await;
-        }
+    let endpoints = match switch_inventory
+        .switches
+        .iter()
+        .map(switch_endpoint_from_firmware_device)
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(endpoints) => endpoints,
+        Err(cause) => return transition_to_rack_error(id, state, cause, ctx).await,
     };
 
     let topology_type = rack_hardware_topology.to_string();
@@ -1862,26 +2094,11 @@ async fn configure_scale_up_fabric_manager_v2(
         "Submitting RMS v2 NMX cluster configuration"
     );
 
-    let response = match component_manager
-        .configure_scale_up_fabric_manager_v2(rms_v2::ConfigureScaleUpFabricManagerRequest {
-            nodes: Some(rms::NodeSet {
-                nodes: switch_inventory
-                    .switches
-                    .iter()
-                    .map(|switch| build_new_node_info(id, switch, &switch_node_identity))
-                    .collect(),
-            }),
-            // No override: RMS owns V2 primary selection.
-            primary_switch_node_id: None,
-            domain: None,
-            config: Some(rms_v2::ScaleUpFabricConfig {
-                topology_type: topology_type.clone(),
-                extra_static_configs: Vec::new(),
-            }),
-        })
+    let job_id = match component_manager
+        .configure_scale_up_fabric_manager(&endpoints, rack_hardware_topology)
         .await
     {
-        Ok(response) => response,
+        Ok(job_id) => job_id,
         Err(error @ ComponentManagerError::Unsupported(_)) => {
             return transition_to_rack_error(id, state, error.to_string(), ctx).await;
         }
@@ -1900,21 +2117,11 @@ async fn configure_scale_up_fabric_manager_v2(
         }
     };
 
-    if response.job_id.trim().is_empty() {
-        return transition_to_rack_error(
-            id,
-            state,
-            "RMS ConfigureScaleUpFabricManagerV2 returned an empty job ID",
-            ctx,
-        )
-        .await;
-    }
-
     tracing::info!(
         rack_id = %id,
         topology_type = %topology_type,
         switch_count = switch_inventory.switches.len(),
-        job_id = %response.job_id,
+        job_id,
         "V2 ConfigureScaleUpFabricManager submitted; waiting for RMS job"
     );
 
@@ -1923,7 +2130,7 @@ async fn configure_scale_up_fabric_manager_v2(
     Ok(StateHandlerOutcome::transition(RackState::Maintenance {
         maintenance_state: RackMaintenanceState::ConfigureNmxCluster {
             configure_nmx_cluster: ConfigureNmxClusterState::WaitForScaleUpFabricManagerJob {
-                job_id: response.job_id,
+                job_id,
             },
         },
     }))
@@ -1947,21 +2154,10 @@ async fn wait_for_scale_up_fabric_manager_job(
     };
 
     let job = match component_manager
-        .get_scale_up_fabric_manager_job_status(rms::GetJobStatusRequest {
-            job_id: job_id.to_string(),
-            include_child_job_states: false,
-        })
+        .get_scale_up_fabric_manager_job_status(job_id)
         .await
     {
-        Ok(response) => response
-            .job_states
-            .into_iter()
-            .find(|job| job.job_id == job_id),
-        Err(ComponentManagerError::NotFound(_)) => {
-            // V2 submission is idempotent, so losing RMS job state
-            // is recovered by submitting the same desired state.
-            None
-        }
+        Ok(job) => job,
         Err(error @ ComponentManagerError::Unsupported(_)) => {
             return transition_to_rack_error(id, state, error.to_string(), ctx).await;
         }
@@ -1992,14 +2188,14 @@ async fn wait_for_scale_up_fabric_manager_job(
 
     // Job completion proves RMS reconciliation finished, but NICo still reads
     // observed state to discover and persist the RMS-selected primary.
-    match rms::JobExecutionState::try_from(job.execution_state) {
-        Ok(rms::JobExecutionState::Queued | rms::JobExecutionState::Running) => {
+    match job {
+        ScaleUpFabricManagerJobStatus::Pending { description } => {
             Ok(StateHandlerOutcome::wait(format!(
                 "ConfigureScaleUpFabricManager job {job_id} is {}",
-                job.state_description
+                description
             )))
         }
-        Ok(rms::JobExecutionState::Completed) => {
+        ScaleUpFabricManagerJobStatus::Completed => {
             tracing::info!(
                 rack_id = %id,
                 job_id,
@@ -2016,24 +2212,20 @@ async fn wait_for_scale_up_fabric_manager_job(
             )
             .await
         }
-        Ok(rms::JobExecutionState::Failed) => {
-            let cause = if job.error_message.trim().is_empty() {
-                format!("ConfigureScaleUpFabricManager job {job_id} failed")
-            } else {
-                format!(
-                    "ConfigureScaleUpFabricManager job {job_id} failed: {}",
-                    job.error_message
-                )
-            };
+        ScaleUpFabricManagerJobStatus::Failed { error } => {
+            let cause = error.map_or_else(
+                || format!("ConfigureScaleUpFabricManager job {job_id} failed"),
+                |error| format!("ConfigureScaleUpFabricManager job {job_id} failed: {error}"),
+            );
 
             transition_to_rack_error(id, state, cause, ctx).await
         }
-        Ok(rms::JobExecutionState::Unspecified) | Err(_) => transition_to_rack_error(
+        ScaleUpFabricManagerJobStatus::Unknown { execution_state } => transition_to_rack_error(
             id,
             state,
             format!(
                 "ConfigureScaleUpFabricManager job {job_id} returned invalid execution state {}",
-                job.execution_state
+                execution_state
             ),
             ctx,
         )
@@ -2044,8 +2236,10 @@ async fn wait_for_scale_up_fabric_manager_job(
 /// Verifies and persists the primary switch and per-switch Fabric Manager
 /// status from RMS V2.
 ///
-/// Read failures retain the completed-job state for retry. Primary selection
-/// and Fabric Manager status are committed together before maintenance advances.
+/// Transient read failures retain the completed-job state for retry. A missing
+/// rack profile is terminal because the backend cannot reconstruct the submitted
+/// switch identities. Primary selection and Fabric Manager status are committed
+/// together before maintenance advances.
 async fn verify_scale_up_fabric_manager_v2(
     id: &RackId,
     state: &mut Rack,
@@ -2076,36 +2270,30 @@ async fn verify_scale_up_fabric_manager_v2(
         return transition_to_rack_error(id, state, cause, ctx).await;
     }
 
-    let Some(profile) = super::resolve_profile(id, rack_profile_id, ctx) else {
+    if super::resolve_profile(id, rack_profile_id, ctx).is_none() {
         return transition_to_rack_error(
             id,
             state,
-            "rack profile is missing or unknown; cannot build RMS switch node descriptor",
+            "rack profile is missing or unknown; cannot verify RMS ScaleUp Fabric status",
             ctx,
         )
         .await;
-    };
+    }
 
-    let switch_node_identity = match switch_node_identity_for_profile(profile) {
-        Ok(identity) => identity,
-        Err(error) => {
-            return transition_to_rack_error(id, state, error.to_string(), ctx).await;
-        }
+    let endpoints = match switch_inventory
+        .switches
+        .iter()
+        .map(switch_endpoint_from_firmware_device)
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(endpoints) => endpoints,
+        Err(cause) => return transition_to_rack_error(id, state, cause, ctx).await,
     };
 
     // RMS owns primary selection in V2. Read the observed switch state instead
     // of reproducing RMS tray-selection policy in NICo.
     let response = match component_manager
-        .get_scale_up_fabric_status(rms::GetScaleUpFabricStatusRequest {
-            nodes: Some(rms::NodeSet {
-                nodes: switch_inventory
-                    .switches
-                    .iter()
-                    .map(|switch| build_new_node_info(id, switch, &switch_node_identity))
-                    .collect(),
-            }),
-            domain: None,
-        })
+        .get_scale_up_fabric_status(&endpoints)
         .await
     {
         Ok(response) => response,
@@ -2140,30 +2328,26 @@ async fn verify_scale_up_fabric_manager_v2(
 
     // GetScaleUpFabricStatus identifies the primary, while existing NICo
     // consumers require the richer per-switch Fabric Manager status payload.
-    let fabric_manager_status_response =
-        match batch_get_scale_up_fabric_service_status_via_component_manager(
-            component_manager,
-            id,
-            &switch_inventory.switches,
-            &switch_node_identity,
-        )
+    let fabric_manager_status_response = match component_manager
+        .batch_get_scale_up_fabric_service_status(&endpoints)
         .await
-        {
-            Ok(response) => response,
-            Err(error @ ComponentManagerError::Unsupported(_)) => {
-                return transition_to_rack_error(id, state, error.to_string(), ctx).await;
-            }
-            Err(error) => {
-                let cause = error.to_string();
-                tracing::warn!(
-                    rack_id = %id,
-                    cause,
-                    "Unable to read RMS Fabric Manager status; retrying"
-                );
+    {
+        Ok(response) => response,
+        Err(error @ ComponentManagerError::Unsupported(_)) => {
+            return transition_to_rack_error(id, state, error.to_string(), ctx).await;
+        }
+        Err(error) => {
+            let cause = error.to_string();
 
-                return Ok(StateHandlerOutcome::wait(cause));
-            }
-        };
+            tracing::warn!(
+                rack_id = %id,
+                cause,
+                "Unable to read RMS Fabric Manager status; retrying"
+            );
+
+            return Ok(StateHandlerOutcome::wait(cause));
+        }
+    };
 
     let observed_primary_node_id = observed_primary.to_string();
     let mut txn = ctx.services.db_pool.begin().await?;
@@ -2221,6 +2405,17 @@ pub async fn handle_maintenance(
     maintenance_state: &RackMaintenanceState,
     ctx: &mut StateHandlerContext<'_, RackStateHandlerContextObjects>,
 ) -> Result<StateHandlerOutcome<RackState>, StateHandlerError> {
+    if state.config.maintenance_termination_requested {
+        return terminate_active_rack_maintenance(
+            id,
+            state,
+            maintenance_state,
+            format!("rack maintenance terminated by operator while in {maintenance_state}"),
+            ctx,
+        )
+        .await;
+    }
+
     let scope = state
         .config
         .maintenance_requested
@@ -2285,6 +2480,35 @@ pub async fn handle_maintenance(
                 };
 
                 let nvos_json_pending = requested_nvos_config_json(scope).is_some();
+
+                let desired_off_machine_ids = {
+                    let mut conn = ctx.services.db_pool.acquire().await?;
+                    let machine_ids = load_scoped_machines(conn.as_mut(), id, scope)
+                        .await?
+                        .into_iter()
+                        .map(|machine| machine.id)
+                        .collect::<Vec<_>>();
+                    desired_off_machine_ids(conn.as_mut(), &machine_ids).await?
+                };
+                if !desired_off_machine_ids.is_empty() {
+                    if uses_stored_token {
+                        delete_rack_maintenance_access_token(
+                            ctx.services.credential_manager.as_ref(),
+                            id,
+                        )
+                        .await;
+                    }
+                    return transition_to_rack_error(
+                        id,
+                        state,
+                        format!(
+                            "rack firmware upgrade cannot target machines whose desired power state is Off: {}",
+                            format_machine_ids(&desired_off_machine_ids)
+                        ),
+                        ctx,
+                    )
+                    .await;
+                }
 
                 let Some(rms_client) = ctx.services.rms_client.as_ref() else {
                     if uses_stored_token {
@@ -2466,6 +2690,55 @@ pub async fn handle_maintenance(
                         "firmware upgrade: no job recorded yet".into(),
                     ));
                 }
+
+                let power_blocked_machine_ids = {
+                    let mut conn = ctx.services.db_pool.acquire().await?;
+                    power_blocked_rack_firmware_machine_ids(conn.as_mut(), id, scope).await?
+                };
+                if !power_blocked_machine_ids.is_empty() {
+                    let now = chrono::Utc::now();
+                    let mut job = state.firmware_upgrade_job.clone().unwrap();
+                    job.status = Some("failed".into());
+                    if job.completed_at.is_none() {
+                        job.completed_at = Some(now);
+                    }
+                    let cause = format!(
+                        "rack firmware upgrade cannot progress because target machines are Ready with desired power state Off: {}",
+                        format_machine_ids(&power_blocked_machine_ids)
+                    );
+
+                    // Keep the persisted maintenance scope intact while deleting credentials so
+                    // a concurrent termination can still unwind only the originally requested
+                    // devices.
+                    delete_rack_maintenance_access_token(
+                        ctx.services.credential_manager.as_ref(),
+                        id,
+                    )
+                    .await;
+
+                    let mut recovery_txn = ctx.services.db_pool.begin().await?;
+                    db_rack::update_firmware_upgrade_job(recovery_txn.as_mut(), id, Some(&job))
+                        .await?;
+                    state.firmware_upgrade_job = Some(job);
+
+                    let initiator = rack_maintenance_initiator(id);
+                    for machine_id in &power_blocked_machine_ids {
+                        db_host_machine_update::clear_ready_host_reprovisioning_request(
+                            recovery_txn.as_mut(),
+                            machine_id,
+                            &initiator,
+                        )
+                        .await?;
+                    }
+
+                    if state.config.maintenance_requested.is_some() {
+                        state.config.maintenance_requested = None;
+                        db_rack::update(recovery_txn.as_mut(), id, &state.config).await?;
+                    }
+                    return Ok(StateHandlerOutcome::transition(RackState::Error { cause })
+                        .with_txn(recovery_txn));
+                }
+
                 let Some(rms_client) = ctx.services.rms_client.as_ref() else {
                     if requested_nvos_config_json(scope).is_some() {
                         delete_rack_maintenance_access_token(
@@ -2587,12 +2860,12 @@ pub async fn handle_maintenance(
                 // Advancement is driven by machine/switch/power-shelf controller
                 // states for devices in this rack that are selected by the
                 // maintenance scope.
-                let progress =
+                let (progress, pending_device_ids) =
                     evaluate_firmware_progress_from_devices(txn.as_mut(), id, scope).await?;
 
                 match progress {
                     DeviceFirmwareProgress::Waiting {
-                        pending: _,
+                        pending,
                         total,
                         completed,
                         failed,
@@ -2600,11 +2873,12 @@ pub async fn handle_maintenance(
                         db_rack::update_firmware_upgrade_job(txn.as_mut(), id, Some(&job)).await?;
                         state.firmware_upgrade_job = Some(job);
                         Ok(StateHandlerOutcome::wait(format!(
-                            "firmware upgrade: waiting on machine/switch/power-shelf controller state ({}/{} past firmware wait, completed={}, failed={})",
-                            completed + failed,
-                            total,
+                            "firmware upgrade: waiting for machine/switch/power-shelf controllers (completed={}, failed={}, pending={}/{}; pending devices: [{}])",
                             completed,
-                            failed
+                            failed,
+                            pending,
+                            total,
+                            pending_device_ids.join(", ")
                         ))
                         .with_txn(txn))
                     }
@@ -2615,18 +2889,14 @@ pub async fn handle_maintenance(
                         if job.completed_at.is_none() {
                             job.completed_at = Some(now);
                         }
-                        db_rack::update_firmware_upgrade_job(txn.as_mut(), id, Some(&job)).await?;
-                        state.firmware_upgrade_job = Some(job);
-                        if state.config.maintenance_requested.is_some() {
-                            state.config.maintenance_requested = None;
-                            db_rack::update(txn.as_mut(), id, &state.config).await?;
-                        }
                         let cause = format!(
                             "firmware upgrade failed: {}/{} devices failed",
                             failed, total
                         );
-                        // Commit before credentials cleanup so the transaction is
-                        // not held across that await.
+
+                        // Persist the device status updates already accumulated in this
+                        // transaction, but leave the maintenance scope intact while deleting
+                        // credentials so a concurrent termination retains the original scope.
                         txn.commit().await?;
                         if should_cleanup_token {
                             delete_rack_maintenance_access_token(
@@ -2635,7 +2905,17 @@ pub async fn handle_maintenance(
                             )
                             .await;
                         }
-                        Ok(StateHandlerOutcome::transition(RackState::Error { cause }))
+
+                        let mut recovery_txn = ctx.services.db_pool.begin().await?;
+                        db_rack::update_firmware_upgrade_job(recovery_txn.as_mut(), id, Some(&job))
+                            .await?;
+                        state.firmware_upgrade_job = Some(job);
+                        if state.config.maintenance_requested.is_some() {
+                            state.config.maintenance_requested = None;
+                            db_rack::update(recovery_txn.as_mut(), id, &state.config).await?;
+                        }
+                        Ok(StateHandlerOutcome::transition(RackState::Error { cause })
+                            .with_txn(recovery_txn))
                     }
                     DeviceFirmwareProgress::Completed { completed, total } => {
                         let now = chrono::Utc::now();

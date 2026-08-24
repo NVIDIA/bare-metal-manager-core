@@ -29,7 +29,8 @@ use crate::config::NvueRestConfig;
 use crate::endpoint::{BmcAddr, BmcCredentials, BmcEndpoint, EndpointMetadata};
 use crate::sink::{
     Classification, CollectorEvent, DataSink, EventContext, HealthReport, HealthReportAlert,
-    HealthReportSuccess, HealthReportTarget, LogRecord, MetricSample, Probe, ReportSource,
+    HealthReportSuccess, HealthReportTarget, LogRecord, LogSeverity, MetricSample, Probe,
+    ReportSource,
 };
 
 const COLLECTOR_NAME: &str = "nvue_rest";
@@ -86,6 +87,74 @@ fn fan_max_speed_to_f64(max_speed: Option<&str>) -> Option<f64> {
     max_speed
         .and_then(|s| s.trim().parse::<f64>().ok())
         .filter(|value| value.is_finite() && *value >= 0.0)
+}
+
+/// Bounded StateSet domain for NVUE fan health. `Unknown` keeps an absent or
+/// explicitly unavailable reading distinguishable from a reported fault.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FanState {
+    Ok,
+    NotOk,
+    Unknown,
+}
+
+impl FanState {
+    /// The emitted series name. `const` so [`FAN_STATE_STATES`] can be built
+    /// from the variants instead of repeating the wire strings.
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::NotOk => "not_ok",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+impl std::fmt::Display for FanState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+#[error("unrecognized NVUE fan state '{0}'")]
+struct UnrecognizedFanState(String);
+
+impl std::str::FromStr for FanState {
+    type Err = UnrecognizedFanState;
+
+    /// Accepts the NVUE fan-health vocabulary case-insensitively, ignoring
+    /// surrounding whitespace. An empty reading is `Unknown`; a value outside
+    /// the vocabulary is rejected so the caller decides what it means.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+        if s.eq_ignore_ascii_case("ok") {
+            Ok(Self::Ok)
+        } else if s.is_empty()
+            || s.eq_ignore_ascii_case("unknown")
+            || s.eq_ignore_ascii_case("unavailable")
+            || s.eq_ignore_ascii_case("n/a")
+        {
+            Ok(Self::Unknown)
+        } else {
+            Err(UnrecognizedFanState(s.to_string()))
+        }
+    }
+}
+
+const FAN_STATE_STATES: &[&str] = &[
+    FanState::Ok.as_str(),
+    FanState::NotOk.as_str(),
+    FanState::Unknown.as_str(),
+];
+
+/// Maps NVUE fan health to the bounded StateSet domain. An absent reading is
+/// unknown; a reading outside the recognized vocabulary is a fault.
+fn fan_state_to_state(state: Option<&str>) -> FanState {
+    match state {
+        Some(s) => s.parse().unwrap_or(FanState::NotOk),
+        None => FanState::Unknown,
+    }
 }
 
 /// NVUE reports temps (current/max/crit) as Celsius strings (e.g. "105.00").
@@ -362,17 +431,22 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
         match self.client.get_platform_environment_fan().await {
             Ok(Some(fans)) => {
                 for (fan_name, fan) in &fans {
+                    let labels = || vec![(Cow::Borrowed("fan_name"), fan_name.clone())];
+
                     // Only emit when max-speed parses. Absent or garbage emits nothing.
                     if let Some(value) = fan_max_speed_to_f64(fan.max_speed.as_deref()) {
-                        self.emit_metric(
-                            "fan_max_speed",
-                            Some(fan_name),
-                            value,
-                            "rpm",
-                            vec![(Cow::Borrowed("fan_name"), fan_name.clone())],
-                        );
+                        self.emit_metric("fan_max_speed", Some(fan_name), value, "rpm", labels());
                         entity_count += 1;
                     }
+
+                    self.emit_state_set(
+                        "fan_state",
+                        Some(fan_name),
+                        fan_state_to_state(fan.state.as_deref()).as_str(),
+                        FAN_STATE_STATES,
+                        labels(),
+                    );
+                    entity_count += 1;
                 }
             }
             Ok(None) => {}
@@ -563,7 +637,7 @@ impl NvueRestCollector {
 
             self.emit_event(CollectorEvent::Log(Box::new(LogRecord {
                 body: "nvue_rest: collected system reboot reason".to_string(),
-                severity: "INFO".to_string(),
+                severity: LogSeverity::Info,
                 attributes: vec![
                     (
                         Cow::Borrowed("message_id"),
@@ -932,6 +1006,44 @@ mod tests {
     }
 
     #[test]
+    fn test_fan_state_mapping() {
+        value_scenarios!(fan_state_to_state:
+            "healthy" {
+                Some("ok") => FanState::Ok,
+                Some(" OK ") => FanState::Ok,
+            }
+
+            "non-OK" {
+                Some("warning") => FanState::NotOk,
+                Some("critical") => FanState::NotOk,
+            }
+
+            "unknown or unavailable" {
+                None => FanState::Unknown,
+                Some("") => FanState::Unknown,
+                Some("unknown") => FanState::Unknown,
+                Some("unavailable") => FanState::Unknown,
+                Some("N/A") => FanState::Unknown,
+            }
+        );
+    }
+
+    /// The emitted StateSet strings are a metric contract: pin the rendering of
+    /// every variant and the domain built from them.
+    #[test]
+    fn test_fan_state_serializes_to_stable_names() {
+        value_scenarios!(run = |state: FanState| state.to_string();
+            "wire names" {
+                FanState::Ok => "ok".to_string(),
+                FanState::NotOk => "not_ok".to_string(),
+                FanState::Unknown => "unknown".to_string(),
+            }
+        );
+
+        assert_eq!(FAN_STATE_STATES, &["ok", "not_ok", "unknown"]);
+    }
+
+    #[test]
     fn test_temp_to_f64_parsing() {
         value_scenarios!(temp_to_f64:
             "valid temperature" {
@@ -1038,7 +1150,7 @@ mod tests {
 
         assert_eq!(logs.len(), 1);
         assert_eq!(log.body, "nvue_rest: collected system reboot reason");
-        assert_eq!(log.severity, "INFO");
+        assert_eq!(log.severity, LogSeverity::Info);
 
         assert_eq!(
             log.attributes,
@@ -1708,17 +1820,37 @@ mod tests {
                 ],
                 vec![],
             ),
-            IterationEndpoint::Fans => (
-                1,
-                vec![sample_summary(
+            IterationEndpoint::Fans => {
+                let mut samples = vec![sample_summary(
                     "fan_max_speed",
                     Some("FAN1/1"),
                     33000.0,
                     "rpm",
                     &[("fan_name", "FAN1/1")],
-                )],
-                vec![],
-            ),
+                )];
+                samples.extend(state_set_summaries(
+                    "fan_state",
+                    Some("FAN1/1"),
+                    "ok",
+                    FAN_STATE_STATES,
+                    &[("fan_name", "FAN1/1")],
+                ));
+                samples.extend(state_set_summaries(
+                    "fan_state",
+                    Some("FAN1/2"),
+                    "not_ok",
+                    FAN_STATE_STATES,
+                    &[("fan_name", "FAN1/2")],
+                ));
+                samples.extend(state_set_summaries(
+                    "fan_state",
+                    Some("FAN1/3"),
+                    "unknown",
+                    FAN_STATE_STATES,
+                    &[("fan_name", "FAN1/3")],
+                ));
+                (4, samples, vec![])
+            }
             IterationEndpoint::Temperatures => {
                 let mut samples = vec![
                     sample_summary(
@@ -1914,13 +2046,13 @@ mod tests {
                     expect: Yields(populated_iteration_summary(IterationEndpoint::Interfaces)),
                 },
                 Case {
-                    scenario: "fan response emits only parseable maximum speed",
+                    scenario: "fan response emits parseable speed and all fan states",
                     input: IterationResponse {
                         endpoint: IterationEndpoint::Fans,
                         status: 200,
                         body: r#"{
-                            "FAN1/1":{"max-speed":"33000"},
-                            "FAN1/2":{"max-speed":"bogus"},
+                            "FAN1/1":{"max-speed":"33000","state":"ok"},
+                            "FAN1/2":{"max-speed":"bogus","state":"warning"},
                             "FAN1/3":{}
                         }"#,
                     },

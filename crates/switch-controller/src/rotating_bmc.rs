@@ -35,6 +35,7 @@
 //! A BMC password change never touches the switch data plane, so this is safe in
 //! `Ready`.
 
+use carbide_credential_rotation::site_explorer_pause::{self, GateDecision};
 use carbide_credential_rotation::{
     BmcEndpoint, BmcRotationTick, RotateOutcome, RotationStep, advance, rotate_bmc,
 };
@@ -89,8 +90,31 @@ pub async fn handle_rotating_bmc(
     ctx: &mut StateHandlerContext<'_, SwitchStateHandlerContextObjects>,
 ) -> Result<StateHandlerOutcome<SwitchControllerState>, StateHandlerError> {
     let force = switch.bmc_credential_rotation_requested;
+    let endpoint = BmcEndpoint::from_switch(switch);
 
-    let tick = match BmcEndpoint::from_switch(switch) {
+    // Hold site-explorer off the switch BMC and wait until it has acknowledged,
+    // before changing the credential. This closes the window in which a probe
+    // could hit new-hardware / old-Vault and persist the sticky `AvoidLockout`
+    // latch. An unaddressable switch has nothing to suppress (empty scope).
+    let bmc_macs: Vec<_> = endpoint
+        .as_ref()
+        .map(|e| vec![e.device_mac])
+        .unwrap_or_default();
+    if matches!(
+        site_explorer_pause::gate_before_credential_change(
+            &ctx.services.db_pool,
+            &bmc_macs,
+            site_explorer_pause::ROTATION_SUPPRESSION_REASON,
+        )
+        .await?,
+        GateDecision::Wait
+    ) {
+        return Ok(StateHandlerOutcome::wait(
+            "waiting for site-explorer to acknowledge the BMC rotation suppression".to_string(),
+        ));
+    }
+
+    let tick = match endpoint {
         Some(endpoint) => rotate_switch_bmc(ctx.services, endpoint, force).await,
         // A forced request announces a missing BMC so its one-shot flag still
         // clears; a passive sweep silently settles an unaddressable switch (the
@@ -107,6 +131,20 @@ pub async fn handle_rotating_bmc(
     };
 
     match advance(tick, retry_count, switch_id) {
+        // The switch BMC changed its hardware password but the per-device secret
+        // persist has not yet succeeded: hold in RotatingBmc (site-explorer stays
+        // suppressed, and the `Ready`-only allocation gate keeps the switch out
+        // of service) and re-tick. Do NOT resume site-explorer and do NOT clear a
+        // force request -- the rotation has not finished. The engine leaves the
+        // device `needs_rotation`, so a later tick's change-then-verify recovery
+        // re-persists and converges; the hold's upper bound is the state's
+        // time-in-state SLA.
+        RotationStep::WaitForCredentialStoreReconcile => Ok(StateHandlerOutcome::wait(
+            "switch BMC hardware changed but the per-device secret persist has not yet \
+             succeeded; holding rotation (site-explorer suppressed) until the credential \
+             store reconciles"
+                .to_string(),
+        )),
         step @ (RotationStep::Settled | RotationStep::GaveUp) => {
             // Only a settled tick clears a one-shot force request: the forced
             // attempt genuinely fired. GaveUp exhausted the transient-retry
@@ -119,7 +157,19 @@ pub async fn handle_rotating_bmc(
                 db::switch::clear_bmc_credential_rotation_requested(&mut t, *switch_id).await?;
                 txn = Some(t);
             }
-            Ok(StateHandlerOutcome::transition(SwitchControllerState::Ready).with_txn_opt(txn))
+            // Resume site-explorer atomically with the return to Ready, so its
+            // skip window ends exactly when the rotation does.
+            let mut resume_txn = match txn.take() {
+                Some(txn) => txn,
+                None => ctx.services.db_pool.begin().await?,
+            };
+            site_explorer_pause::resume_after_credential_change(
+                &mut resume_txn,
+                &bmc_macs,
+                site_explorer_pause::ROTATION_SUPPRESSION_REASON,
+            )
+            .await?;
+            Ok(StateHandlerOutcome::transition(SwitchControllerState::Ready).with_txn(resume_txn))
         }
         RotationStep::Retry { retry_count } => Ok(StateHandlerOutcome::transition(
             SwitchControllerState::RotatingBmc { retry_count },
@@ -163,6 +213,13 @@ async fn rotate_switch_bmc(
                 "switch BMC rotation attempt failed; quarantined until backoff elapses"
             );
             BmcRotationTick::Settled
+        }
+        Ok(RotateOutcome::CredentialStoreReconcilePending) => {
+            tracing::warn!(
+                mac = %target.device_mac,
+                "switch BMC hardware changed but the per-device secret persist failed; holding rotation until the credential store reconciles"
+            );
+            BmcRotationTick::WaitForCredentialStoreReconcile
         }
         Ok(RotateOutcome::NoWork) => BmcRotationTick::Settled,
         Err(e) => {

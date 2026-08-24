@@ -13,7 +13,6 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/manager"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/registry"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/store/memory"
-	inventoryresolver "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/resolver"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/deviceinfo"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/location"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/rack"
@@ -41,10 +40,11 @@ func TestProcessorPreparationIntegration(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	processor := New(
-		inventoryresolver.New(&processorInventory{
+	processor := newTestProcessor(
+		t,
+		&processorInventory{
 			rack: rack.New(deviceinfo.DeviceInfo{ID: rackID}, location.Location{}),
-		}),
+		},
 		ruleManager,
 	)
 	envelope := eventrule.Envelope{
@@ -55,7 +55,7 @@ func TestProcessorPreparationIntegration(t *testing.T) {
 
 	prepared, err := processor.prepare(ctx, envelope)
 	require.NoError(t, err)
-	require.Equal(t, rackID, prepared.Enriched.ResolvedResource.RackID)
+	require.Equal(t, rackID, prepared.Resource.RackID)
 	require.Equal(t, builtIn.ID, prepared.Rule.ID)
 
 	require.NoError(t, ruleManager.SetEnabled(ctx, rackRule.ID, true))
@@ -94,7 +94,7 @@ func processorCreate(eventType eventrule.Type, name string) eventrule.RuleCreate
 		Metadata:  eventrule.RuleMetadata{Name: name},
 		EventType: eventType,
 		Policy: eventrule.Policy{Actions: []eventrule.Action{
-			eventrule.NewAction("noop", eventrule.ActionCondition{}, eventrule.Noop{}),
+			{Name: "noop", Spec: &eventrule.Noop{}},
 		}},
 	}
 }
@@ -111,7 +111,7 @@ func processorRule(
 		Enabled:   true,
 		EventType: eventType,
 		Policy: eventrule.Policy{Actions: []eventrule.Action{
-			eventrule.NewAction("noop", eventrule.ActionCondition{}, eventrule.Noop{}),
+			{Name: "noop", Spec: &eventrule.Noop{}},
 		}},
 	}
 }

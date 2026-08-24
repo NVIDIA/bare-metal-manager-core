@@ -10,7 +10,6 @@ import (
 	"time"
 
 	camu "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
-	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
@@ -97,7 +96,7 @@ type APIHostFirmwareVersionConfig struct {
 	Default                     bool                      `json:"default"`
 	Artifacts                   []APIHostFirmwareArtifact `json:"artifacts"`
 	InstallOnlySpecified        bool                      `json:"installOnlySpecified"`
-	PowerDrainsNeeded           *int                      `json:"powerDrainsNeeded,omitempty"`
+	PowerDrainsNeeded           *uint32                   `json:"powerDrainsNeeded,omitempty"`
 	PreUpdateResets             bool                      `json:"preUpdateResets"`
 	PreingestionExclusiveConfig *bool                     `json:"preingestionExclusiveConfig,omitempty"`
 }
@@ -242,9 +241,6 @@ func (v APIHostFirmwareVersionConfig) Validate() error {
 			return validation.Errors{fmt.Sprintf("artifacts[%d]", i): err}
 		}
 	}
-	if v.PowerDrainsNeeded != nil && *v.PowerDrainsNeeded < 0 {
-		return validation.Errors{"powerDrainsNeeded": errors.New("must be >= 0")}
-	}
 	return nil
 }
 
@@ -256,9 +252,7 @@ func (v APIHostFirmwareVersionConfig) ToProto() *corev1.HostFirmwareVersionConfi
 		InstallOnlySpecified: v.InstallOnlySpecified,
 		PreUpdateResets:      v.PreUpdateResets,
 	}
-	if v.PowerDrainsNeeded != nil {
-		protoVersion.PowerDrainsNeeded = cutil.IntPtrToUint32Ptr(v.PowerDrainsNeeded)
-	}
+	protoVersion.PowerDrainsNeeded = v.PowerDrainsNeeded
 	if v.PreingestionExclusiveConfig != nil {
 		protoVersion.PreingestionExclusiveConfig = v.PreingestionExclusiveConfig
 	}
@@ -356,10 +350,7 @@ func (v *APIHostFirmwareVersionConfig) FromProto(proto *corev1.HostFirmwareVersi
 	if proto.PreingestionExclusiveConfig != nil {
 		v.PreingestionExclusiveConfig = proto.PreingestionExclusiveConfig
 	}
-	if proto.PowerDrainsNeeded != nil {
-		powerDrainsNeeded := int(proto.GetPowerDrainsNeeded())
-		v.PowerDrainsNeeded = &powerDrainsNeeded
-	}
+	v.PowerDrainsNeeded = proto.PowerDrainsNeeded
 	for _, artifact := range proto.GetArtifacts() {
 		if artifact == nil {
 			continue

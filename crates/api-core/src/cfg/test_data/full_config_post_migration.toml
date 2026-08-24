@@ -5,7 +5,6 @@ max_database_connections = 1222
 asn = 123
 dhcp_servers = ["1.2.3.4", "5.6.7.8"]
 route_servers = ["9.10.11.12"]
-rapid_iterations = false
 initial_domain_name = "forge.local"
 initial_dpu_agent_upgrade_policy = "off"
 machine_update_run_interval = 60
@@ -153,9 +152,6 @@ known_firmware = [
   { version = "0.9", mandatory_upgrade_from_priority = "security" },
   { version = "2.0", filename = "/mnt/persistence/fw/dell/uefi/r750_1.1.fw", url = "https://letmegooglethat.com/?q=dell750uefi", checksum = "f4d4e0954b5635e6c9a8c79ebaa95218", default = true },
 ]
-
-[multi_dpu]
-enabled = false
 
 [measured_boot_collector]
 enabled = false

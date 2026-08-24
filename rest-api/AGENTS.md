@@ -181,6 +181,9 @@ verification expectations.
 - Linting uses `golangci-lint` (v2 config in `.golangci.yml`) with most
   linters enabled, plus `revive` (config in `.revive.toml`).
 - Use `testify` (assert/require) for test assertions.
+- When a test verifies a generated CLI command path, assert that the leaf
+  command has a non-nil `Action`; path presence alone does not prove the
+  command is runnable.
 - Tests that need a database use a PostgreSQL container (testcontainers-go
   or the Makefile-managed container).
 - Organize tests by the production function or method under test, not by individual
@@ -193,6 +196,9 @@ verification expectations.
   `api/pkg/api/model/`, and DB models in `db/pkg/db/model/`.
 - OpenAPI schema in `openapi/spec.yaml` must be updated whenever routes in the
   published API surface are added or modified.
+- Give every newly introduced OpenAPI object a realistic example backed by an
+  existing contract, configuration, or test fixture. Keep example IDs, enum
+  values, nullability, and timing semantics valid under OpenAPI lint.
 - When adding a request/response field to a resource that has both single-item
   and batch endpoints, update the full surface together: single create/update
   DTOs, batch create/update DTOs, handlers, DAO input structs, persistence,
@@ -271,9 +277,11 @@ main patterns:
 - Flow-backed inventory and task APIs use Flow request/response protobufs in the
   API model layer and keep target-shape helpers next to the model or handler
   that owns the REST shape. Use Rack, Tray, Task, and Task Rule as references.
-  Thin unary Flow pass-throughs should use `handler/util/common.ExecuteFlowGRPC`
-  rather than a bespoke Temporal workflow per method. Switching an existing
-  endpoint over spans releases; see the skill for the required order.
+  Every Flow-backed endpoint dispatches through the generic proxy, so use
+  `handler/util/common.ProxyFlowGRPC` (or `ExecuteFlowGRPC` where the caller
+  must return a plain `error`) rather than adding a bespoke Temporal workflow
+  per method. Retiring the bespoke workflows spans releases; see the skill for
+  the required order.
 - Curated REST endpoints that call NICo Core `forge.Forge` unary methods should
   use `handler/util/common.ExecuteCoreGRPC` with a typed protobuf request. Do
   not create a bespoke Temporal workflow for a simple unary Core call. BMC
@@ -814,6 +822,21 @@ All commits **must** meet the following signing requirement:
 - Keep PRs focused on a single change.
 - Do not land unused code unless the PR is too large to review otherwise.
 - Ensure all CI checks pass before requesting review.
+- Before requesting review for a Go change, run `make lint-go` and inspect its
+  complete analyzer output. Its `golangci-lint` command uses
+  `--issues-exit-code 0`, so a successful command does not mean the output is
+  clean. Run `go tool golangci-lint run <changed-packages>` without that
+  override and fix every finding in the changed package.
+- When CLI flags override configuration, copy the complete configured object
+  first and overlay only explicitly set flags. Test no override, one override,
+  and unset configured fields so unrelated options cannot be discarded.
+- Before using an authentication or protocol convenience API, read its current
+  documentation for protocol-specific encoding rules. Exercise delimiters,
+  percent signs, plus signs, and other reserved characters through the real
+  encode and decode boundary.
+- Before requesting review, group every changed Go function's scenarios under
+  one table-driven top-level test. Treat scenario-specific top-level tests as a
+  review failure even when the test suite passes.
 
 ## CI / CD
 

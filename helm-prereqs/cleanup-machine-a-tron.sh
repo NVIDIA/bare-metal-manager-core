@@ -130,6 +130,10 @@ vault_cmd() {
         _VAULT_TOKEN="$(kubectl get secret nico-vault-token -n "$NICO_SYSTEM_NS" -o jsonpath='{.data.token}' | base64 -d)"
         [[ -n "$_VAULT_TOKEN" ]] || die "could not read nico-vault-token from $NICO_SYSTEM_NS"
     fi
+    # VAULT_CMD_TIMEOUT bounds a single call. Cleanup must never be able to
+    # wedge a run: the per-MAC purge below is the one call whose work scales
+    # with the previous run's fleet size.
+    ${VAULT_CMD_TIMEOUT:+timeout "$VAULT_CMD_TIMEOUT"} \
     kubectl exec -n "$VAULT_NS" vault-0 -c vault -- sh -c \
         "export VAULT_TOKEN='$_VAULT_TOKEN' VAULT_ADDR=https://127.0.0.1:8200 VAULT_SKIP_VERIFY=true; $1" 2>/dev/null
 }
@@ -243,7 +247,7 @@ else
     if [[ "${_CRS:-0}" == "0" ]]; then
         ok "no DPF CRs present"
     elif confirm "Delete ${_CRS} DPF CR(s) in ${DPF_NAMESPACE}?"; then
-        kubectl delete dpudevices,dpunodes,dpus,dpunodemaintenances --all \
+        timeout 180 kubectl delete dpudevices,dpunodes,dpus,dpunodemaintenances --all \
             -n "$DPF_NAMESPACE" --ignore-not-found --timeout=120s >/dev/null \
             || warn "some DPF CRs did not delete cleanly — check finalizers"
         ok "DPF CRs deleted (${_CRS})"
@@ -318,12 +322,34 @@ elif confirm "Delete Vault credentials seeded/rotated for machine-a-tron (site r
     # Batch server-side in ONE kubectl exec: at scale there are thousands of
     # per-MAC entries and one exec per deletion takes HOURS (one round-trip +
     # exec setup each); a shell loop on the vault pod does them all in seconds.
-    _n="$(vault_cmd 'count=0
-for m in $(vault kv list -format=yaml secrets/machines/bmc 2>/dev/null | sed "s/^- //" | grep -v "^site/"); do
-  vault kv metadata delete "secrets/machines/bmc/${m%/}/root" >/dev/null 2>&1 && count=$((count+1))
-done
-echo $count' || echo 0)"
-    ok "removed ${_n:-0} per-MAC rotated creds (batched server-side)"
+    #
+    # Delete in PARALLEL and under a timeout. Each delete is a raft consensus
+    # write, so serially this runs at roughly 40/min: a 4,500-host run leaves
+    # ~13,500 entries and the loop then takes over five hours, silently, with
+    # no output until it finishes, so a large fleet can appear to hang for
+    # tens of minutes. The work scales with the PREVIOUS run's machine count,
+    # so every large run made the next teardown slower.
+    #
+    # The timeout matters as much as the parallelism: this is cleanup, so it
+    # must never be able to wedge a run indefinitely. If it does expire, the
+    # count below reports what survived and the operator sees a warning rather
+    # than a hang.
+    _purge='vault kv list -format=yaml secrets/machines/bmc 2>/dev/null \
+  | sed -e "s/^- //" -e "s:/$::" \
+  | grep -v "^site" \
+  | xargs -r -P 32 -I@ sh -c "vault kv metadata delete secrets/machines/bmc/@/root >/dev/null 2>&1"'
+    VAULT_CMD_TIMEOUT=600 vault_cmd "$_purge" >/dev/null 2>&1 || true
+    # `grep -c` exits 1 when it counts zero, so a SUCCESSFUL purge made the `||`
+    # fire and reported "incomplete" on a clean result. Count with awk, which
+    # exits 0 whatever the total, and default to `unknown` only if vault_cmd
+    # itself produced nothing.
+    _left="$(vault_cmd 'vault kv list -format=yaml secrets/machines/bmc 2>/dev/null | grep -v "^- site" | awk "END{print NR}"')"
+    _left="${_left:-unknown}"
+    if [[ "$_left" == "0" ]]; then
+        ok "purged per-MAC rotated creds"
+    else
+        warn "per-MAC cred purge incomplete (${_left} left) — a stale entry makes site-explorer present an already-rotated password to a factory-default mock, which latches AvoidLockout on that endpoint"
+    fi
 else
     warn "kept credentials"
 fi

@@ -32,7 +32,7 @@ The default stack includes:
 - cert-manager
 - the CloudNativePG operator and one PostgreSQL cluster
 - Vault in local development mode
-- NICo API, BMC proxy, and machine-a-tron
+- NICo API, BMC proxy, DHCP server, and machine-a-tron
 - Temporal and its local namespaces
 - Keycloak and the `nico-dev` realm
 - NICo REST API, database migrations, certificate manager, site manager,
@@ -50,6 +50,64 @@ Tilt forwards these endpoints:
 | Keycloak | `http://localhost:18082` |
 | MCP | `http://localhost:18080/mcp` |
 | Temporal UI | `http://localhost:18233` |
+| Grafana | `http://localhost:13000` |
+| Prometheus | `http://localhost:19090` |
+
+## Pod logs
+
+Grafana Alloy collects stdout and stderr from every pod through the Kubernetes
+API and sends the logs to the local Loki instance. Grafana has Loki provisioned
+as its default data source and permits anonymous access because its Tilt
+port-forward listens only on localhost.
+
+Open **Explore** in Grafana and use a LogQL selector such as:
+
+```text
+{cluster="local-carbide"}
+```
+
+Narrow the results with the `namespace`, `workload`, `pod`, `container`, or
+`app` labels. For example, machine-a-tron logs can be selected with:
+
+```text
+{namespace="nico-system", app="nico-machine-a-tron"}
+```
+
+Loki stores logs on a 2 GiB persistent volume and retains them for 24 hours.
+The volume survives pod restarts but is removed with the local Kind cluster.
+
+## Pod metrics
+
+Prometheus discovers ServiceMonitor and PodMonitor resources across the local
+cluster. It also automatically scrapes every Kubernetes Service labeled
+`app.kubernetes.io/metrics` whose service name ends in `-metrics` or whose port
+is named `metrics`. This collects NICo service metrics without redeploying the
+manual application resources. Grafana provisions Prometheus as a data source
+alongside Loki.
+
+Open **Explore** in Grafana, select the Prometheus data source, and start with:
+
+```promql
+up{namespace="nico-system"}
+```
+
+Prometheus stores metrics on a 2 GiB persistent volume and retains them for 24
+hours. Its UI at `http://localhost:19090` also shows discovered endpoints under
+**Status > Targets**.
+
+## Dashboards
+
+Tilt provisions the checked-in **NICo Core Health**, **NICo / Site Overview**,
+**NICo / Site Explorer**, **NICo / Object Lifecycle**, and **NICo / API
+Performance** dashboards into the **NICo** Grafana folder. The Tilt-local Site
+Explorer dashboard adapts the canonical Forge dashboard panels to the current
+`carbide_*` metric names. Grafana's dashboard sidecar watches their labeled
+ConfigMap, so changes to the dashboard JSON files are loaded without a manual
+import or Grafana restart.
+
+The Prometheus chart also publishes its standard Kubernetes dashboards for the
+same sidecar to load. These cover cluster, namespace, workload, pod, node,
+kubelet, API server, and persistent-volume metrics.
 
 All Tilt settings are in [`values.yaml`](values.yaml). NICo Core values are at
 the document root, while the `tilt` section contains the prerequisite and REST
@@ -71,9 +129,10 @@ rebuilds.
 ## Optional profiles
 
 The `tilt.profiles` switches in [`values.yaml`](values.yaml) control REST, MCP,
-and DSX Exchange. REST brings Temporal and Keycloak, MCP automatically brings
-REST, and DSX Exchange brings NATS. The committed defaults enable REST and MCP
-and disable DSX Exchange.
+DSX Exchange, and observability. REST brings Temporal and Keycloak, MCP
+automatically brings REST, and DSX Exchange brings NATS. Observability manages
+Loki, Alloy, Prometheus, Grafana, and the NICo metrics monitors as one unit. All
+optional profiles are disabled by default.
 
 Changes to `values.yaml` reload the running Tilt session. For temporary
 overrides, use `tilt args`. Start only Core with:
@@ -92,6 +151,12 @@ Add DSX Exchange with:
 
 ```bash
 tilt args -- --dsx-exchange=true
+```
+
+Enable the complete observability stack with:
+
+```bash
+tilt args -- --observability=true
 ```
 
 Return to the values-file defaults with:

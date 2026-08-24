@@ -218,7 +218,6 @@ func (o *TenantIdentitySigningKey) UnmarshalJSON(data []byte) (err error) {
 	varTenantIdentitySigningKey := _TenantIdentitySigningKey{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varTenantIdentitySigningKey)
 
 	if err != nil {

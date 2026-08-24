@@ -85,7 +85,7 @@ impl TestEnv {
 
         host.host.discover_primary_iface(self.admin_segment).await;
         for dpu in &host.dpus {
-            dpu.discover_oob_iface(self.admin_segment).await;
+            dpu.discover_oob_iface(self.underlay_segment).await;
         }
         host.report_dpu_network_status().await;
         host.insert_empty_host_health_report("test-harness-health")

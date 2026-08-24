@@ -4,6 +4,7 @@
 package model
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -30,7 +31,7 @@ func TestAPITenantIdentityConfigCreateOrUpdateRequest_Validate(t *testing.T) {
 		req.Issuer = issuer
 		return req
 	}
-	withTokenTtlSeconds := func(tokenTtlSeconds int) APITenantIdentityConfigCreateOrUpdateRequest {
+	withTokenTtlSeconds := func(tokenTtlSeconds uint32) APITenantIdentityConfigCreateOrUpdateRequest {
 		req := newValidRequest()
 		req.TokenTtlSeconds = tokenTtlSeconds
 		return req
@@ -111,7 +112,7 @@ func TestAPITenantIdentityConfigCreateOrUpdateRequest_Validate(t *testing.T) {
 		{name: "signingKeyOverlapSeconds without rotateKey rejected",
 			req: func() APITenantIdentityConfigCreateOrUpdateRequest {
 				req := newValidRequest()
-				req.SigningKeyOverlapSeconds = cutil.GetPtr(900)
+				req.SigningKeyOverlapSeconds = cutil.GetPtr(uint32(900))
 				return req
 			}(),
 			wantErr: true},
@@ -119,7 +120,7 @@ func TestAPITenantIdentityConfigCreateOrUpdateRequest_Validate(t *testing.T) {
 			req: func() APITenantIdentityConfigCreateOrUpdateRequest {
 				req := newValidRequest()
 				req.RotateKey = cutil.GetPtr(true)
-				req.SigningKeyOverlapSeconds = cutil.GetPtr(300)
+				req.SigningKeyOverlapSeconds = cutil.GetPtr(uint32(300))
 				return req
 			}(),
 			wantErr: true},
@@ -127,14 +128,14 @@ func TestAPITenantIdentityConfigCreateOrUpdateRequest_Validate(t *testing.T) {
 			req: func() APITenantIdentityConfigCreateOrUpdateRequest {
 				req := newValidRequest()
 				req.RotateKey = cutil.GetPtr(true)
-				req.SigningKeyOverlapSeconds = cutil.GetPtr(600)
+				req.SigningKeyOverlapSeconds = cutil.GetPtr(uint32(600))
 				return req
 			}()},
 		{name: "rotateKey + signingKeyOverlapSeconds above tokenTtlSeconds accepted",
 			req: func() APITenantIdentityConfigCreateOrUpdateRequest {
 				req := newValidRequest()
 				req.RotateKey = cutil.GetPtr(true)
-				req.SigningKeyOverlapSeconds = cutil.GetPtr(3600)
+				req.SigningKeyOverlapSeconds = cutil.GetPtr(uint32(3600))
 				return req
 			}()},
 		{name: "rotateKey explicit false without signingKeyOverlapSeconds accepted",
@@ -159,12 +160,13 @@ func TestAPITenantIdentityConfigCreateOrUpdateRequest_Validate(t *testing.T) {
 // TestAPITenantIdentityConfigCreateOrUpdateRequest_ToProto verifies the tenant identity create-or-update request maps populated and nil fields onto the SetTenantIdentityConfig proto as expected.
 func TestAPITenantIdentityConfigCreateOrUpdateRequest_ToProto(t *testing.T) {
 	t.Run("populates all fields", func(t *testing.T) {
+		maxUint32 := uint32(math.MaxUint32)
 		protoReq := APITenantIdentityConfigCreateOrUpdateRequest{
 			Enabled: cutil.GetPtr(true),
 			Issuer:  "https://carbide.example.com/iss", DefaultAudience: "openbao",
-			AllowedAudiences: []string{"openbao", "vault"}, TokenTtlSeconds: 600,
+			AllowedAudiences: []string{"openbao", "vault"}, TokenTtlSeconds: maxUint32,
 			SubjectPrefix: cutil.GetPtr("spiffe://carbide.nvidia.com"), RotateKey: cutil.GetPtr(true),
-			SigningKeyOverlapSeconds: cutil.GetPtr(3600),
+			SigningKeyOverlapSeconds: &maxUint32,
 		}.ToProto("acme-corp")
 		require.NotNil(t, protoReq)
 		assert.Equal(t, "acme-corp", protoReq.GetOrganizationId())
@@ -174,10 +176,10 @@ func TestAPITenantIdentityConfigCreateOrUpdateRequest_ToProto(t *testing.T) {
 		assert.Equal(t, "https://carbide.example.com/iss", cfg.GetIssuer())
 		assert.Equal(t, "openbao", cfg.GetDefaultAudience())
 		assert.Equal(t, []string{"openbao", "vault"}, cfg.GetAllowedAudiences())
-		assert.Equal(t, uint32(600), cfg.GetTokenTtlSec())
+		assert.Equal(t, maxUint32, cfg.GetTokenTtlSec())
 		assert.Equal(t, "spiffe://carbide.nvidia.com", cfg.GetSubjectPrefix())
 		assert.True(t, cfg.GetRotateKey())
-		assert.Equal(t, uint32(3600), cfg.GetSigningKeyOverlapSec())
+		assert.Equal(t, maxUint32, cfg.GetSigningKeyOverlapSec())
 	})
 
 	t.Run("enabled true maps to proto true", func(t *testing.T) {
@@ -226,6 +228,7 @@ func TestAPITenantIdentityConfigCreateOrUpdateRequest_ToProto(t *testing.T) {
 // TestAPITenantIdentityConfig_FromResponseProto verifies the tenant identity config response correctly mirrors the gRPC reply including signing-key rotation overlap state.
 func TestAPITenantIdentityConfig_FromResponseProto(t *testing.T) {
 	t.Run("full proto, single signing key", func(t *testing.T) {
+		maxUint32 := uint32(math.MaxUint32)
 		created := time.Date(2026, 4, 20, 12, 0, 0, 0, time.UTC)
 		updated := time.Date(2026, 4, 21, 12, 0, 0, 0, time.UTC)
 		subjectPrefix := "spiffe://carbide.nvidia.com"
@@ -235,7 +238,7 @@ func TestAPITenantIdentityConfig_FromResponseProto(t *testing.T) {
 			Config: &corev1.TenantIdentityConfig{
 				Enabled: true, Issuer: "https://carbide.example.com/iss",
 				DefaultAudience: "openbao", AllowedAudiences: []string{"openbao"},
-				TokenTtlSec: 600, SubjectPrefix: &subjectPrefix,
+				TokenTtlSec: maxUint32, SubjectPrefix: &subjectPrefix,
 			},
 			SigningKeys: []*corev1.TenantIdentitySigningKey{
 				{Kid: "key-123", Alg: "ES256", CurrentSigner: true},
@@ -247,7 +250,7 @@ func TestAPITenantIdentityConfig_FromResponseProto(t *testing.T) {
 		assert.Equal(t, "https://carbide.example.com/iss", resp.Issuer)
 		assert.Equal(t, "openbao", resp.DefaultAudience)
 		assert.Equal(t, []string{"openbao"}, resp.AllowedAudiences)
-		assert.Equal(t, 600, resp.TokenTtlSeconds)
+		assert.Equal(t, maxUint32, resp.TokenTtlSeconds)
 		assert.Equal(t, "spiffe://carbide.nvidia.com", resp.SubjectPrefix)
 		require.Len(t, resp.SigningKeys, 1)
 		assert.Equal(t, "key-123", resp.SigningKeys[0].Kid)

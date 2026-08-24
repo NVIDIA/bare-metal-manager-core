@@ -395,7 +395,7 @@ impl MachineATron {
                 )
         }
 
-        for (_config_name, config) in self.app_context.app_config.machines.iter() {
+        for config in self.app_context.app_config.machines.values() {
             let network_virtualization_type =
                 parse_network_virtualization_type(config.network_virtualization_type.as_deref());
             for _ in 0..config.vpc_count {
@@ -593,6 +593,7 @@ mod tests {
     fn host_info(dpu_host_macs: &[MacAddress], non_dpu_mac: Option<MacAddress>) -> HostMachineInfo {
         HostMachineInfo {
             hw_type: HardwareType::WiwynnGB200Nvl,
+            rack_placement: None,
             bmc_mac_address: mac("02:00:00:00:00:f0"),
             serial: "test-host".to_string(),
             dpus: dpu_host_macs
@@ -612,6 +613,8 @@ mod tests {
             switch_serial_number: None,
             hw_mac_addr_pool: MacAddressPoolConfig::new(mac("0a:00:00:00:00:00"), 24).unwrap(),
             delta_psu_power: None,
+            initial_host_firmware: None,
+            desired_host_firmware: None,
         }
     }
 

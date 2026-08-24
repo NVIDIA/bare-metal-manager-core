@@ -47,3 +47,6 @@ tracing = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 uuid = { workspace = true, features = ["serde", "v4"] }
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"

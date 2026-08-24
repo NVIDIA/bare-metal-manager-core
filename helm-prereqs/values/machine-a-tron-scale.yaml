@@ -51,22 +51,48 @@ hwMacAddressRanges:
 # Controller mode - dynamically creates Services with BMC IP as ClusterIP
 mat-k8s-controller:
   enabled: true
+  # The subchart defaults to a bare local image name with no registry or pull
+  # secret, so the controller ImagePullBackOffs on any cluster needing auth —
+  # and with no controller there are no per-BMC Services, so exploration finds
+  # nothing and the whole run silently reports zeros.
+  image:
+    # Set to your registry's mat-k8s-controller image. The subchart default is a
+    # bare local name with no registry, which ImagePullBackOffs on any real
+    # cluster -- and with no controller there are no per-BMC Services, so
+    # exploration finds nothing and the run reports zeros with no obvious cause.
+    #   MAT_K8S_CONTROLLER_IMAGE=<registry>/mat-k8s-controller
+    #   MAT_K8S_CONTROLLER_TAG=<tag>
+    repository: ""
+    tag: ""
+  imagePullSecrets:
+    - name: machine-a-tron-pull
   config:
     insecureSkipVerify: true  # For self-signed certs
 
 # Larger resources for scale testing
 
-# At thousands of hosts MAT registers all expected machines BEFORE binding
-# the redfish port, so the chart-default liveness window (30s + 3×30s) kills
-# the pod mid-init and it crash-loops (observed: 30 restarts at 4500 hosts,
-# ~3 min per life, exit 137 from the kubelet). Give init up to 2h; steady-
-# state kill detection matters less in a sim harness than surviving bring-up.
+# MAT registers all expected machines before binding the redfish port (issue
+# #4298). The startupProbe gates liveness until the port is open, giving
+# enough time even for a 13,500-host pod. Once the port is bound the normal
+# liveness/readiness probes kick in with tight thresholds so real runtime
+# hangs are still caught quickly.
+#
+# failureThreshold calculation: worst-case API round-trip ~2s per host.
+# 13500 hosts / pod × 2s = ~7.5h → round up to 10h to be safe.
+# 10h / 30s period = 1200 attempts.
+startupProbe:
+  tcpSocket:
+    port: redfish
+  periodSeconds: 30
+  failureThreshold: 1200
+  successThreshold: 1
+  timeoutSeconds: 10
+
 livenessProbe:
   tcpSocket:
     port: redfish
-  initialDelaySeconds: 60
   periodSeconds: 30
-  failureThreshold: 240
+  failureThreshold: 3
   successThreshold: 1
   timeoutSeconds: 10
 
@@ -75,7 +101,7 @@ readinessProbe:
     port: redfish
   initialDelaySeconds: 5
   periodSeconds: 30
-  failureThreshold: 240
+  failureThreshold: 3
   successThreshold: 1
   timeoutSeconds: 5
 

@@ -89,6 +89,7 @@ pub(crate) fn resolve_health_report(
 pub(crate) fn print_empty_template() {
     println!(
         "{}",
-        serde_json::to_string_pretty(&get_empty_template()).unwrap()
+        serde_json::to_string_pretty(&get_empty_template())
+            .expect("empty template should convert to json")
     );
 }

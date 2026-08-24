@@ -66,6 +66,8 @@ func operationRunStatusError(
 		c = codes.NotFound
 	} else if errors.Is(err, operationrunmanager.ErrNoPlannedTargets) {
 		c = codes.InvalidArgument
+	} else if errors.Is(err, operationrunmanager.ErrOperationRunInvalidPlan) {
+		c = codes.InvalidArgument
 	} else if errors.Is(err, operationrunmanager.ErrOperationRunInvalidState) ||
 		errors.Is(err, operationrunmanager.ErrOperationRunSafetyGateTripped) {
 		c = codes.FailedPrecondition

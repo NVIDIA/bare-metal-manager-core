@@ -433,6 +433,7 @@ func (m *ManagerImpl) targetPhaseSummaryForContinue(
 
 	summary := operationrun.NewTargetPhaseSummary(
 		run.CurrentPhaseIndex,
+		run.TotalPhases,
 		aggregate,
 		targets,
 	)

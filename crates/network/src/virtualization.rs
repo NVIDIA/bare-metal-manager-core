@@ -236,11 +236,12 @@ impl fmt::Display for VpcVirtualizationType {
     }
 }
 
-/// Concatenate a required IPv4 value with an optional IPv6 value into a vector.
-/// Empty IPv6 strings are filtered out.
+/// Concatenate IPv4 and IPv6 values in family order. Empty strings and `None`
+/// represent absent families and are omitted.
 pub fn build_dual_stack_list(v4: String, v6: Option<String>) -> Vec<String> {
     std::iter::once(v4)
-        .chain(v6.filter(|s| !s.is_empty()))
+        .chain(v6)
+        .filter(|value| !value.is_empty())
         .collect()
 }
 
@@ -554,12 +555,16 @@ mod tests {
                 ("10.0.0.1".to_string(), Some(String::new())) => vec!["10.0.0.1".to_string()],
             }
 
-            "v4 is kept even when empty (it is required)" {
-                (String::new(), None) => vec![String::new()],
+            "both families absent" {
+                (String::new(), None) => vec![],
             }
 
-            "empty v4 with a real v6 keeps both" {
-                (String::new(), Some("2001:db8::1".to_string())) => vec![String::new(), "2001:db8::1".to_string()],
+            "v6 only when v4 is absent" {
+                (String::new(), Some("2001:db8::1".to_string())) => vec!["2001:db8::1".to_string()],
+            }
+
+            "empty strings for both families are absent" {
+                (String::new(), Some(String::new())) => vec![],
             }
         );
     }

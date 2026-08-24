@@ -183,7 +183,11 @@ UEFI_HOST_PASSWORD="${UEFI_HOST_PASSWORD:-bluefield}"
 REGISTRY_PULL_USERNAME="${REGISTRY_PULL_USERNAME:-\$oauthtoken}"
 PULL_SECRET_NAME="${PULL_SECRET_NAME:-machine-a-tron-pull}"
 RELEASE="nico-machine-a-tron"
-BMC_MOCK_SVC="nico-machine-a-tron-bmc-mock"
+# The chart names the Service <release>-<podKey>-bmc-mock; the single-pod proxy
+# config keys its pod "default". The old value omitted the pod key and resolved
+# to nothing -- exploration failed with ConnectionRefused on every endpoint
+# resolving to nothing, so every endpoint fails with ConnectionRefused.
+BMC_MOCK_SVC="${BMC_MOCK_SVC:-nico-machine-a-tron-default-bmc-mock}"
 BMC_MOCK_PORT="1266"
 # site-explorer runs in nico-system, so it CANNOT resolve the bare service name
 # (which resolves against its own namespace). bmc_proxy MUST use the
@@ -197,10 +201,26 @@ NICO_DB="nico_system_nico"
 #   BMC with ClusterIP = BMC IP. Uses values/machine-a-tron-scale.yaml plus a
 #   NICo network covering the BMC IP range. See the chart README "Controller Mode".
 MAT_MODE="${MAT_MODE:-override}"
-# Network for scale mode — must be within Kubernetes ServiceCIDR and match the
-# scale values file (oobDhcpRelayAddress).
+# Networks for scale mode. The OOB gateway must match the scale values file
+# (oobDhcpRelayAddress). Both are sized from MEASURED demand, not from the host
+# count: since the mock BMCs became DHCP clients, a 4,500-host fleet needs far
+# more addresses than the obvious "one per host" arithmetic suggests.
+#
+# Sized to real demand, measured on a correct fleet: 3 OOB addresses per host
+# (one per simulated BMC) and 1 admin address per machine, so 4,500 hosts need
+# 13,500 of each and a /18's 16,382 fits.
+#
+# These were briefly widened to /16 after runs began exhausting the pools. That
+# was treating a symptom: the fleet was rendering at DOUBLE size (see the render
+# gate below), so demand was 27,000 rather than 13,500. Widening made things
+# worse -- the allocator materialises the whole host space per request, measured
+# 9.8ms at /18 against 28.6ms at /16, and it does that holding the fleet-wide
+# admin-segment lock. Sizing these generously is NOT free.
+#
+# Controller Mode has the opposite constraint: its BMC addresses are ClusterIPs
+# and must come from the Kubernetes ServiceCIDR, so it must override these.
 SCALE_OOB_PREFIX="${SCALE_OOB_PREFIX:-10.96.64.0/18}";  SCALE_OOB_GW="${SCALE_OOB_GW:-10.96.64.1}"
-SCALE_ADMIN_PREFIX="${SCALE_ADMIN_PREFIX:-192.168.176.0/20}"; SCALE_ADMIN_GW="${SCALE_ADMIN_GW:-192.168.176.1}"
+SCALE_ADMIN_PREFIX="${SCALE_ADMIN_PREFIX:-10.102.0.0/18}"; SCALE_ADMIN_GW="${SCALE_ADMIN_GW:-10.102.0.1}"
 SCALE_RESERVE=1
 # These four are operator-overridable and are written straight into the site
 # config and the DB, so validate them before anything consumes them: an
@@ -227,14 +247,20 @@ _valid_cidr_gw "$SCALE_OOB_PREFIX"   "$SCALE_OOB_GW"   "SCALE_OOB"   || die "$(_
 _valid_cidr_gw "$SCALE_ADMIN_PREFIX" "$SCALE_ADMIN_GW" "SCALE_ADMIN" || die "$(_valid_cidr_gw "$SCALE_ADMIN_PREFIX" "$SCALE_ADMIN_GW" "SCALE_ADMIN" 2>&1)"
 # site_explorer throughput knobs applied in scale mode (defaults 30/90/4 make
 # 4500-host ingestion take ~9h; these bring it to ~1-2h).
-SCALE_CONCURRENT_EXPLORATIONS="${SCALE_CONCURRENT_EXPLORATIONS:-100}"
+# Defaults are the values measured best at BOTH scales:
+# 1,000 hosts -> 186.8 machines/min (vs 138.5 under the old conc=200 tuning;
+# the old conc=400 "overshoot" to 68/min was a lock-contention artifact, fixed);
+# 4,500 hosts -> 80-100 machines/min, all 13,500 machines ready in ~3-3.5h.
+# One configuration serves both scales; override only with measurements.
+SCALE_CONCURRENT_EXPLORATIONS="${SCALE_CONCURRENT_EXPLORATIONS:-400}"
 # NB: keep explorations_per_run MODERATE. Identification and machine creation
 # only run at the END of a completed explore_site cycle — a huge per-run value
 # makes every cycle deep-scan hundreds of endpoints (dozens of Redfish calls
-# each) and cycles stop completing, so machines are never created. ~120 keeps
-# cycles under ~2 min while still sweeping the fleet quickly.
-SCALE_EXPLORATIONS_PER_RUN="${SCALE_EXPLORATIONS_PER_RUN:-120}"
-SCALE_MACHINES_CREATED_PER_RUN="${SCALE_MACHINES_CREATED_PER_RUN:-40}"
+# each) and cycles stop completing, so machines are never created. 360 is the
+# measured sweet spot of that trade-off;
+# raise it further only with cycle-completion measurements in hand.
+SCALE_EXPLORATIONS_PER_RUN="${SCALE_EXPLORATIONS_PER_RUN:-360}"
+SCALE_MACHINES_CREATED_PER_RUN="${SCALE_MACHINES_CREATED_PER_RUN:-100}"
 
 CHART_DIR="${CHART_DIR:-${REPO_ROOT}/helm/charts/nico-machine-a-tron}"
 
@@ -358,6 +384,39 @@ for _pw in "$BMC_PASSWORD" "$UEFI_DPU_PASSWORD" "$UEFI_HOST_PASSWORD"; do
 done
 info "image: ${MAT_IMAGE_REPO}:${MAT_IMAGE_TAG}   hosts: ${HOST_COUNT}   dpus/host: ${DPU_PER_HOST}"
 
+# GOTCHA: Postgres out-of-memory does not degrade gracefully. The kernel kills a
+# backend, the postmaster crash-recovers, and every connection is dropped with
+# in-flight transactions rolled back. Downstream that presents as stalled machine
+# readiness, controller panics and deadlocks, so the real cause is easy to miss.
+# A 4,500-host run against the old 4Gi default logged 531 OOM kills and never
+# completed; the same run at 24Gi peaked at ~8.7GiB with zero kills. Warn here so
+# an undersized database is visible at minute zero rather than hour three.
+_pg_mem="$(kubectl get postgresql -n "${POSTGRES_NS:-postgres}" nico-pg-cluster \
+    -o jsonpath='{.spec.resources.limits.memory}' 2>/dev/null || true)"
+if [[ -n "$_pg_mem" ]]; then
+    _pg_gib="${_pg_mem%Gi}"
+    if [[ "$_pg_mem" == *Mi ]]; then _pg_gib=$(( ${_pg_mem%Mi} / 1024 )); fi
+    if [[ "$_pg_gib" =~ ^[0-9]+$ ]]; then
+        # Same rough scale as the guidance in helm-prereqs/values.yaml.
+        _pg_want=4
+        (( HOST_COUNT > 500 ))   && _pg_want=8
+        (( HOST_COUNT > 1500 ))  && _pg_want=16
+        (( HOST_COUNT > 5000 ))  && _pg_want=32
+        if (( _pg_gib < _pg_want )); then
+            warn "postgres memory limit is ${_pg_mem} but ${HOST_COUNT} hosts wants >= ${_pg_want}Gi"
+            warn "  undersized postgres OOM-kills under load and breaks ingestion in ways that look unrelated"
+            warn "  raise postgresql.resources.limits.memory in helm-prereqs/values.yaml and reinstall"
+            warn "  (a resize applied before teardown is reverted: teardown deletes the postgres namespace)"
+            # Don't let the warning scroll past: make the operator choose, like
+            # the fit-sizing and deploy gates below. -y keeps automation moving.
+            confirm "Continue anyway with ${_pg_mem} for ${HOST_COUNT} hosts?" \
+                || die "aborted on postgres sizing — resize postgresql.resources.limits.memory and rerun"
+        else
+            ok "postgres memory ${_pg_mem} is adequate for ${HOST_COUNT} hosts (>= ${_pg_want}Gi)"
+        fi
+    fi
+fi
+
 # =============================================================================
 # Phase 1 — namespace
 # =============================================================================
@@ -390,6 +449,36 @@ fi
 phase "Phase 3 — refresh nico-roots CA + Vault secrets"
 copy_secret nico-roots
 ok "nico-roots synced from ${NICO_SYSTEM_NS} (current CA)"
+
+# GOTCHA: nico-roots is not the whole story. machine-a-tron's own serving/client
+# certs are issued by cert-manager into per-deployment secrets, and those are NOT
+# recreated by a reinstall: teardown leaves the namespace secrets behind, and
+# cert-manager will not reissue a certificate that has not expired. So after a
+# site reprovision rotates the nico-system CA, MAT keeps validating against the
+# previous CA and every call to nico-api fails with
+# `invalid peer certificate: BadSignature`. The pods then fail their TCP
+# readiness probe forever — visible as a slow restart climb with zero machine
+# interfaces ever registering, which reads like a scale problem but is not one.
+# Drop any MAT cert secret whose CA no longer matches nico-system's, and let
+# cert-manager reissue from the current one.
+_current_ca=$(kubectl get secret nico-roots -n "$NICO_SYSTEM_NS" \
+                -o jsonpath='{.data.ca\.crt}' 2>/dev/null | base64 -d 2>/dev/null \
+              | openssl x509 -noout -fingerprint -sha256 2>/dev/null | cut -d= -f2)
+if [ -n "$_current_ca" ]; then
+    for _s in $(kubectl get secret -n "$MAT_NAMESPACE" \
+                  -l controller.cert-manager.io/fao=true -o name 2>/dev/null); do
+        _s_ca=$(kubectl get "$_s" -n "$MAT_NAMESPACE" -o jsonpath='{.data.ca\.crt}' 2>/dev/null \
+                | base64 -d 2>/dev/null \
+                | openssl x509 -noout -fingerprint -sha256 2>/dev/null | cut -d= -f2)
+        if [ -n "$_s_ca" ] && [ "$_s_ca" != "$_current_ca" ]; then
+            kubectl delete "$_s" -n "$MAT_NAMESPACE" >/dev/null 2>&1 \
+              && warn "${_s#secret/}: CA did not match nico-system; deleted for reissue"
+        fi
+    done
+    ok "MAT cert secrets checked against the current nico-system CA"
+else
+    warn "could not read the nico-system CA fingerprint; skipping MAT cert CA check"
+fi
 for s in nico-vault-approle-tokens nico-vault-token; do
     if kubectl get secret "$s" -n "$NICO_SYSTEM_NS" >/dev/null 2>&1; then
         copy_secret "$s"; ok "$s synced"
@@ -655,7 +744,7 @@ elif [[ "$MAT_MODE" == "scale" ]]; then
         KNOB_SE_RUN_INTERVAL="${SCALE_RUN_INTERVAL:-}" \
         KNOB_FW_CONC="${SCALE_FW_CONCURRENCY:-}" \
         KNOB_FW_RUN_INTERVAL="${SCALE_FW_RUN_INTERVAL:-}" \
-        KNOB_STATE_CONC="${SCALE_STATE_MAX_CONCURRENCY:-}" \
+        KNOB_STATE_CONC="${SCALE_STATE_MAX_CONCURRENCY:-200}" \
         python3 - "$CM_JSON" <<'PY'
 import json, os, sys
 path = sys.argv[1]
@@ -671,9 +760,10 @@ knobs = [
     # CONTROLLER MODE (MAT_MULTIPOD=1) is the exception: mat-k8s-controller
     # gives every BMC its own ClusterIP and site-explorer must dial those
     # directly, so bmc_proxy stays dropped (values/machine-a-tron-scale*.yaml
-    # documents this requirement).
-] if os.environ.get("MAT_MULTIPOD") == "1" else [
-    f'      bmc_proxy = "{env["BMC_PROXY"]}"',
+    # documents this requirement -- but ONLY bmc_proxy is dropped there; the
+    # throughput knobs below must still be written in both modes.
+    *([] if os.environ.get("MAT_MULTIPOD") == "1"
+        else [f'      bmc_proxy = "{env["BMC_PROXY"]}"']),
     f'      concurrent_explorations = {env["KNOB_CONC"]}',
     f'      explorations_per_run = {env["KNOB_EPR"]}',
     f'      machines_created_per_run = {env["KNOB_MCPR"]}',
@@ -688,7 +778,7 @@ if env.get("KNOB_SE_RUN_INTERVAL"):
 # When the target section already exists in the site config, its managed keys
 # are rewritten IN PLACE (scoped, like [site_explorer]); a section that is
 # absent is emitted in a sentinel-delimited tail block regenerated each run.
-# Duplicating an existing table would be a TOML parse error — dev6's template
+# Duplicating an existing table would be a TOML parse error — a site template
 # ships both [firmware_global] and [machine_state_controller].
 TUNING_BEGIN = "# --- BEGIN scale tuning overrides (managed by setup-machine-a-tron.sh) ---"
 TUNING_END   = "# --- END scale tuning overrides ---"
@@ -730,7 +820,7 @@ mtu = 9000
 reserve_first = {env["SCALE_RESERVE"]}
 '''
 # Machine creation allocates one loopback IP per machine from pools.lo-ip —
-# site templates ship tiny ranges (dev6: 3 addresses) that exhaust instantly
+# site templates ship tiny ranges (often only a few addresses) that exhaust
 # ("Resource pool lo-ip is empty"). Pools DO reconcile at startup (unlike
 # networks), so appending a simulated range takes effect on restart.
 SIM_LO = ', { start = "10.103.0.1", end = "10.103.63.254" }]'
@@ -872,7 +962,7 @@ PY
     # rows. Pool DEFINITIONS are seed-once ("Declaration has drifted since
     # seed ... not re-applying", crates/api-db/src/resource_pool.rs), so config
     # changes to [pools.lo-ip] are IGNORED on established sites — rows must be
-    # inserted directly. Site templates ship tiny ranges (dev6: 3 addresses)
+    # inserted directly. Site templates ship tiny ranges (a few addresses)
     # that exhaust instantly ("Resource pool lo-ip is empty").
     _LO_FREE="$(psql_count "SELECT count(*) FROM resource_pool WHERE name='lo-ip' AND allocated IS NULL;")"
     if (( _LO_FREE < HOST_COUNT * (1 + DPU_PER_HOST) )); then
@@ -1291,6 +1381,35 @@ IPS="$(psql_count "SELECT count(*) FROM machine_interface_addresses;")"
 info "machine_interfaces=${IFACES} (need ${NEED})  ips_allocated=${IPS}"
 (( IFACES >= NEED )) && ok "BMC interfaces registered + DHCP allocated" \
     || warn "fewer interfaces than expected — check pool sizing / bmc DHCP"
+
+# --- render gate: the fleet we asked for is the fleet we got ---------------
+# This script's sizing math is HOST_COUNT * (1 + DPU_PER_HOST), computed from
+# the environment and never checked against what Helm actually rendered. That
+# blind spot is expensive: if the scale values file keys its machine group
+# `compute` while this script appends `machines.dell-hosts`, and Helm merges by
+# key, so it ADDED a group instead of overriding one. Every run from Aug 15
+# built 9,000 hosts / 27,000 machines while logging "4500 hosts x 2 DPUs ->
+# 13500", which doubled address demand, exhausted the /18 pools, forced a /16,
+# and — because allocation cost scales with subnet size under a fleet-wide
+# lock — cut ingestion throughput roughly fourfold.
+#
+# Read the rendered config back and fail loudly on any mismatch. A wrong number
+# here invalidates every measurement taken afterwards, so it is worth stopping.
+_MAT_CM="$(kubectl get cm -n "$MAT_NAMESPACE" -o name 2>/dev/null \
+    | grep -- '-config-files' | head -1)"
+_MAT_TOML="$(kubectl get "$_MAT_CM" -n "$MAT_NAMESPACE" \
+    -o jsonpath='{.data.mat\.toml}' 2>/dev/null || true)"
+if [[ -n "$_MAT_TOML" ]]; then
+    _GROUPS="$(printf '%s\n' "$_MAT_TOML" | grep -c '^\[machines\.' || true)"
+    _HOSTS="$(printf '%s\n' "$_MAT_TOML" | awk -F'= *' '/^host_count/ {s+=$2} END {print s+0}')"
+    ok "rendered fleet: ${_GROUPS} machine group(s), ${_HOSTS} hosts total"
+    (( _GROUPS == 1 )) \
+        || die "rendered mat.toml has ${_GROUPS} [machines.*] groups, expected 1 — a values key mismatch is multiplying the fleet; check that the scale values file keys its group 'dell-hosts'"
+    (( _HOSTS == HOST_COUNT )) \
+        || die "rendered fleet is ${_HOSTS} hosts but HOST_COUNT=${HOST_COUNT} — every rate measured against this run would be wrong"
+else
+    warn "could not read rendered mat.toml — fleet size is UNVERIFIED for this run"
+fi
 
 # --- expected_machines: required for machine creation (matched by BMC MAC) ---
 # machine-a-tron auto-registers them (registerExpectedMachines: true), but on

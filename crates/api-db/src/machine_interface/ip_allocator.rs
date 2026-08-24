@@ -202,6 +202,7 @@ async fn test_machine_interface_create_with_ipv6_prefix(
         id: uuid::Uuid::new_v4().into(),
         can_stretch: None,
         allocation_strategy: AllocationStrategy::Dynamic,
+        infer_slaac_eui64_addresses: false,
     };
     let network_segment =
         db::network_segment::persist(new_ns, &mut txn, NetworkSegmentControllerState::Ready)
@@ -252,6 +253,112 @@ async fn test_machine_interface_create_with_ipv6_prefix(
     Ok(())
 }
 
+/// An address can still belong to an interface on `static-assignments` when a
+/// managed prefix is added around it later. Both initial DHCPv6 allocation and
+/// family recovery must skip that address even though its owning interface
+/// remains on a different segment.
+#[crate::sqlx_test]
+async fn test_ipv6_allocation_skips_address_owned_outside_managed_segment(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
+
+    let static_assignments = db::network_segment::persist(
+        NewNetworkSegment {
+            name: db::network_segment::STATIC_ASSIGNMENTS_SEGMENT_NAME.to_string(),
+            subdomain_id: None,
+            vpc_id: None,
+            mtu: 1500,
+            prefixes: vec![NewNetworkPrefix {
+                prefix: "169.254.254.254/32".parse()?,
+                gateway: None,
+                dhcpv6_link_address: None,
+                num_reserved: 1,
+            }],
+            vlan_id: None,
+            vni: None,
+            segment_type: NetworkSegmentType::Underlay,
+            id: uuid::Uuid::new_v4().into(),
+            can_stretch: Some(false),
+            allocation_strategy: AllocationStrategy::Reserved,
+            infer_slaac_eui64_addresses: false,
+        },
+        &mut txn,
+        NetworkSegmentControllerState::Ready,
+    )
+    .await?;
+    let occupied_address: IpAddr = "2001:db8:4801::2".parse()?;
+    db::machine_interface::preallocate_machine_interface(
+        &mut txn,
+        MacAddress::from_str("aa:bb:cc:dd:48:01")?,
+        occupied_address,
+        None,
+    )
+    .await?;
+
+    let owner = db::machine_interface_address::find_by_address(txn.as_mut(), occupied_address)
+        .await?
+        .expect("static IPv6 owner should exist");
+    assert_eq!(owner.segment_id, static_assignments.id);
+    let owner_interface_id = owner.id;
+
+    // Add the managed prefix after the static reservation. Its first DHCP
+    // candidate is already owned by the interface on `static-assignments`.
+    let managed_segment = db::network_segment::persist(
+        NewNetworkSegment {
+            name: "IPV6-GLOBAL-OWNER".to_string(),
+            subdomain_id: None,
+            vpc_id: None,
+            mtu: 1500,
+            prefixes: vec![NewNetworkPrefix {
+                prefix: "2001:db8:4801::/112".parse()?,
+                gateway: None,
+                dhcpv6_link_address: None,
+                num_reserved: 2,
+            }],
+            vlan_id: None,
+            vni: None,
+            segment_type: NetworkSegmentType::Underlay,
+            id: uuid::Uuid::new_v4().into(),
+            can_stretch: Some(false),
+            allocation_strategy: AllocationStrategy::Dynamic,
+            infer_slaac_eui64_addresses: false,
+        },
+        &mut txn,
+        NetworkSegmentControllerState::Ready,
+    )
+    .await?;
+    let next_available_address: IpAddr = "2001:db8:4801::3".parse()?;
+
+    let interface = db::machine_interface::create(
+        &mut txn,
+        std::slice::from_ref(&managed_segment),
+        &MacAddress::from_str("aa:bb:cc:dd:48:02")?,
+        true,
+        AddressSelectionStrategy::NextAvailableIp,
+        None,
+    )
+    .await?;
+    assert_eq!(interface.addresses, vec![next_available_address]);
+
+    db::machine_interface_address::delete(&mut txn, &interface.id).await?;
+    let recovered = db::machine_interface::allocate_address_for_family(
+        &mut txn,
+        interface.id,
+        &managed_segment,
+        IpAddressFamily::Ipv6,
+    )
+    .await?;
+    assert_eq!(recovered, vec![next_available_address]);
+
+    let owner = db::machine_interface_address::find_by_address(txn.as_mut(), occupied_address)
+        .await?
+        .expect("static IPv6 owner should remain unchanged");
+    assert_eq!(owner.id, owner_interface_id);
+
+    Ok(())
+}
+
 /// Verify that a dual-stack segment (IPv4 + IPv6 prefixes) allocates one
 /// address from each family, and that the hostname is derived from the IPv4
 /// address (more human-readable).
@@ -287,6 +394,7 @@ async fn test_machine_interface_create_dual_stack(
         id: uuid::Uuid::new_v4().into(),
         can_stretch: None,
         allocation_strategy: AllocationStrategy::Dynamic,
+        infer_slaac_eui64_addresses: false,
     };
     let network_segment =
         db::network_segment::persist(new_ns, &mut txn, NetworkSegmentControllerState::Ready)
@@ -396,6 +504,7 @@ async fn test_machine_interface_ipv6_allocation_shift_widths(
                 id: uuid::Uuid::new_v4().into(),
                 can_stretch: None,
                 allocation_strategy: AllocationStrategy::Dynamic,
+                infer_slaac_eui64_addresses: false,
             },
             &mut txn,
             NetworkSegmentControllerState::Ready,
@@ -467,6 +576,7 @@ async fn test_machine_interface_ipv6_exhausted_segment_falls_through(
             id: uuid::Uuid::new_v4().into(),
             can_stretch: None,
             allocation_strategy: AllocationStrategy::Dynamic,
+            infer_slaac_eui64_addresses: false,
         },
         &mut txn,
         NetworkSegmentControllerState::Ready,
@@ -490,6 +600,7 @@ async fn test_machine_interface_ipv6_exhausted_segment_falls_through(
             id: uuid::Uuid::new_v4().into(),
             can_stretch: None,
             allocation_strategy: AllocationStrategy::Dynamic,
+            infer_slaac_eui64_addresses: false,
         },
         &mut txn,
         NetworkSegmentControllerState::Ready,
@@ -563,6 +674,7 @@ async fn test_allocate_address_for_family_dual_stack_round_trip(
             id: uuid::Uuid::new_v4().into(),
             can_stretch: None,
             allocation_strategy: AllocationStrategy::Dynamic,
+            infer_slaac_eui64_addresses: false,
         },
         &mut txn,
         NetworkSegmentControllerState::Ready,

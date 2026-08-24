@@ -24,7 +24,7 @@ use tonic::Status;
 pub enum RpcDataConversionError {
     #[error("field {0} is not valid base64")]
     InvalidBase64Data(&'static str),
-    #[error("virtual function ID of value {0} is not in the expected range 1-16")]
+    #[error("virtual function ID of value {0} is not in the expected range 0-15")]
     InvalidVirtualFunctionId(usize),
     #[error("IP address {0} is not valid")]
     InvalidIpAddress(String),

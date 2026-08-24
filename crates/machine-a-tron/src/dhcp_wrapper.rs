@@ -19,7 +19,6 @@ use std::net::Ipv4Addr;
 use std::sync::Arc;
 
 use bmc_mock::{HardwareType, MachineInfo};
-use carbide_uuid::machine::MachineInterfaceId;
 use dhcproto::v4::MessageType;
 use mac_address::MacAddress;
 use rpc::forge::ManagedHostNetworkConfigResponse;
@@ -122,7 +121,6 @@ fn vendor_class_for(machine: DhcpMachine, requester: DhcpRequester) -> Option<&'
 
 #[derive(Clone, Debug)]
 pub(super) struct DhcpResponseInfo {
-    pub(super) interface_id: Option<MachineInterfaceId>,
     pub(super) ip_address: Ipv4Addr,
 }
 
@@ -194,12 +192,7 @@ async fn request_ip_from_api(
         "DHCP request received an address",
     );
 
-    let interface_uuid = dhcp_record.machine_interface_id.ok_or_else(|| {
-        DhcpRelayError::InvalidDhcpRecord("missing machine_interface_id".to_string())
-    })?;
-
     let response_info = DhcpResponseInfo {
-        interface_id: Some(interface_uuid),
         ip_address: dhcp_record.address.parse::<Ipv4Addr>().map_err(|e| {
             DhcpRelayError::InvalidDhcpRecord(format!(
                 "{} is not an IPv4 address: {}",
@@ -308,7 +301,8 @@ impl DpuDhcpRelayServer {
     }
 }
 
-// Synthesize a DHCP response given the provided ManagedHostNetworkConfigResponse
+// Synthesize a DHCP response given the provided ManagedHostNetworkConfigResponse.
+#[allow(deprecated)]
 fn synthesize_dhcp_response_for_host(
     managed_host_config: &ManagedHostNetworkConfigResponse,
 ) -> DhcpRelayResult<DhcpResponseInfo> {
@@ -327,13 +321,7 @@ fn synthesize_dhcp_response_for_host(
         .parse::<Ipv4Addr>()
         .map_err(|x| DhcpRelayError::InvalidDhcpRecord(x.to_string()))?;
 
-    Ok(DhcpResponseInfo {
-        interface_id: managed_host_config
-            .host_interface_id
-            .as_ref()
-            .and_then(|x| x.parse().ok()),
-        ip_address: ip,
-    })
+    Ok(DhcpResponseInfo { ip_address: ip })
 }
 
 #[cfg(test)]

@@ -40,7 +40,7 @@ For the optional site-local monitoring stack (metrics + logs + traces: Prometheu
 
 ## Directory structure
 
-```
+```text
 helm-prereqs/
 ├── setup.sh                    # Main deployment script - runs all phases sequentially
 ├── preflight.sh                # Pre-flight validation (also run automatically by setup.sh)
@@ -136,7 +136,7 @@ The tables below summarize the keys that must be set per site.
 | `NICO_DPF_K8S_API_VIP` / `NICO_DPF_K8S_API_PORT` | No | Host-cluster API server address/port that DPUs must reach. Defaults are derived from the `kubernetes` Endpoints — override when the derived address is not routable from the DPUs. |
 | `NICO_DPF_DPU_INTERFACE` | Unless `--skip-dpf` | Controller interface on which keepalived advertises the DPU cluster VIP. |
 | `NICO_DPF_DPU_CLUSTER_VIP` | Unless `--skip-dpf` | Floating IP the DPUs use to reach their (Kamaji) control plane. |
-| `NICO_DPF_BMC_ROOT_PASSWORD` | Unless `--skip-dpf` | Site-wide BMC root password. carbide-api's DPF SDK requires it at startup; setup.sh sets it via `nico-admin-cli` between the DPF-off and DPF-on Core deploys. |
+| `NICO_DPF_BMC_ROOT_PASSWORD` | Unless `--skip-dpf` | Site-wide BMC root password. setup.sh sets it via `nico-admin-cli` between the DPF-off and DPF-on Core deploys (phase 6b). When a BMC refresh interval is configured (the default), carbide-api starts without it and writes the credential asynchronously once it is set — so startup is not blocked. Without a refresh interval the credential must be seeded before first startup. |
 | `NICO_DPF_METALLB_POOL` | No | MetalLB address pool used to advertise the DPU cluster VIP. When unset, the VIP LoadBalancer Service is skipped — the VIP must then be routable from the DPUs by other means. |
 | `NICO_DPF_IMAGE_REPO` | No | DPF operator image repository. Defaults to the public `nvcr.io/nvidia/doca/dpf-system`. Point at your own registry (mirror or self-built) to match where you push Core/REST images. See [DPF images and registries](#dpf-images-and-registries). |
 | `NICO_DPF_IMAGE_TAG` | No | DPF operator image tag. Defaults to `NICO_DPF_VERSION`. Set separately when your self-built image uses a different tag than the chart version. |
@@ -435,9 +435,10 @@ handful of legacy hostnames in the `.forge` zone:
 | `otel-receiver.forge` | 443 | otel-collector sidecars — gRPC/TLS | otel receiver VIP |
 | `socks.forge` | 1888 | DPU extension services (hardcoded in agent binary) | socks VIP |
 
-Per the [dual-deployment-compat POR](../docs/internal/POR-dual-deployment-compat.md),
-these names stay hardcoded in the binary for now. The deployment is responsible
-for resolving them. Two ways to do that:
+Per the
+[dual-deployment compatibility plan](../helm/README.md#migrating-from-kustomize),
+these names stay hardcoded in the binary for now. The deployment is
+responsible for resolving them. Two ways to do that:
 
 ### Option A — built-in unbound (recommended for new sites)
 
@@ -485,10 +486,10 @@ rotated on the usual cert-manager schedule.
 
 If you're migrating from an existing forged-kustomize site and want the
 DPUs already in the field (which have certs in the `forge.local` trust
-domain) to keep authenticating, also override
-`global.spiffe.trustDomain` to `forge.local` in your values. See the
-[dual-deployment-compat POR](../docs/internal/POR-dual-deployment-compat.md)
-for the in-place upgrade caveats.
+domain) to keep authenticating, also override `global.spiffe.trustDomain` to
+`forge.local` in your values. See the
+[upgrading guidance](../helm/README.md#upgrading) for the in-place upgrade
+caveats.
 
 ## Health check
 

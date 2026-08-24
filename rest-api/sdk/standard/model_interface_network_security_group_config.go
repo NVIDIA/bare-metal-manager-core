@@ -206,7 +206,6 @@ func (o *InterfaceNetworkSecurityGroupConfig) UnmarshalJSON(data []byte) (err er
 	varInterfaceNetworkSecurityGroupConfig := _InterfaceNetworkSecurityGroupConfig{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varInterfaceNetworkSecurityGroupConfig)
 
 	if err != nil {

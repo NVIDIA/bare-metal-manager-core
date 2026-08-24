@@ -4,6 +4,7 @@
 package model
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -127,6 +128,7 @@ func TestAPIHostFirmwareConfigDeleteRequest_Validate(t *testing.T) {
 func TestAPIHostFirmwareConfig_FromProto_newFields(t *testing.T) {
 	preingest := "28.48.1000"
 	exclusive := true
+	powerDrainsNeeded := uint32(math.MaxUint32)
 	proto := &corev1.HostFirmwareConfigResponse{
 		Vendor:              "Nvidia",
 		Model:               "DGXH100",
@@ -139,6 +141,7 @@ func TestAPIHostFirmwareConfig_FromProto_newFields(t *testing.T) {
 			Firmware: []*corev1.HostFirmwareVersionConfig{{
 				Version:                     "28.47.2682",
 				Default:                     true,
+				PowerDrainsNeeded:           &powerDrainsNeeded,
 				PreingestionExclusiveConfig: &exclusive,
 				Artifacts: []*corev1.HostFirmwareArtifact{{
 					Url: "https://firmware.example.invalid/28.47.2682/fw.bin",
@@ -156,4 +159,5 @@ func TestAPIHostFirmwareConfig_FromProto_newFields(t *testing.T) {
 	require.Len(t, resp.Components[0].Firmware, 1)
 	require.NotNil(t, resp.Components[0].Firmware[0].PreingestionExclusiveConfig)
 	assert.True(t, *resp.Components[0].Firmware[0].PreingestionExclusiveConfig)
+	assert.Equal(t, &powerDrainsNeeded, resp.Components[0].Firmware[0].PowerDrainsNeeded)
 }

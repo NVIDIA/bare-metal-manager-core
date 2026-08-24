@@ -96,6 +96,7 @@ async fn create_stretchable_segment_for_svi_test_with_vpc_type(
             network_security_group_id: None,
             routing_profile_type: None,
             routing_profile_overrides: None,
+            power_resource_group: None,
             vni: None,
         },
         VpcStatus { vni: None },
@@ -117,6 +118,7 @@ async fn create_stretchable_segment_for_svi_test_with_vpc_type(
             segment_type: NetworkSegmentType::Admin,
             can_stretch: Some(true),
             allocation_strategy: Default::default(),
+            infer_slaac_eui64_addresses: false,
         },
         txn.as_mut(),
         NetworkSegmentControllerState::Ready,
@@ -179,6 +181,7 @@ async fn test_advance_network_prefix_state(
             vni: None,
             can_stretch: None,
             allocation_strategy: Default::default(),
+            infer_slaac_eui64_addresses: false,
         },
         &mut txn,
         NetworkSegmentControllerState::Provisioning,
@@ -289,6 +292,7 @@ async fn test_overlapping_prefix(pool: sqlx::PgPool) -> Result<(), eyre::Report>
         subdomain_id: None,
         vpc_id: None,
         segment_type: rpc::forge::NetworkSegmentType::Tenant as i32,
+        infer_slaac_eui64_addresses: false,
     };
     match env.api.create_network_segment(Request::new(request)).await {
         Ok(_) => Err(eyre::eyre!(
@@ -580,6 +584,7 @@ pub(in crate::tests) async fn test_create_initial_networks(
                 mtu: 9000,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),
+                infer_slaac_eui64_addresses: false,
                 vpc_name: None,
             },
         ),
@@ -594,6 +599,7 @@ pub(in crate::tests) async fn test_create_initial_networks(
                 mtu: 1500,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),
+                infer_slaac_eui64_addresses: false,
                 vpc_name: None,
             },
         ),
@@ -608,6 +614,7 @@ pub(in crate::tests) async fn test_create_initial_networks(
                 mtu: 1500,
                 reserve_first: 1,
                 allocation_strategy: Default::default(),
+                infer_slaac_eui64_addresses: false,
                 vpc_name: None,
             },
         ),
@@ -623,7 +630,7 @@ pub(in crate::tests) async fn test_create_initial_networks(
     let initial_domain_id = admin
         .config
         .subdomain_id
-        .expect("config-seeded network should use the forward domain");
+        .expect("configured initial network should use the forward domain");
 
     let underlay = db::network_segment::find_by_name(&mut txn, "DEV1-C09-IPMI-01").await?;
     assert_eq!(underlay.config.mtu, 1500);
@@ -689,6 +696,7 @@ pub(in crate::tests) async fn test_create_initial_networks(
             mtu: 1500,
             reserve_first: 5,
             allocation_strategy: Default::default(),
+            infer_slaac_eui64_addresses: false,
             vpc_name: None,
         },
     );
@@ -699,6 +707,143 @@ pub(in crate::tests) async fn test_create_initial_networks(
     assert_eq!(added.config.subdomain_id, Some(initial_domain_id));
     txn.commit().await?;
 
+    Ok(())
+}
+
+/// Builds the smallest configured underlay needed by startup reconciliation
+/// tests. Callers choose only the CIDR and gateway that distinguish each case.
+fn initial_underlay_definition(prefix: &str, gateway: &str) -> NetworkDefinition {
+    NetworkDefinition {
+        segment_type: NetworkDefinitionSegmentType::Underlay,
+        prefix: prefix.parse().unwrap(),
+        prefix_v6: None,
+        gateway: gateway.parse().unwrap(),
+        dhcpv6_link_address: None,
+        mtu: 1500,
+        reserve_first: 5,
+        allocation_strategy: Default::default(),
+        infer_slaac_eui64_addresses: false,
+        vpc_name: None,
+    }
+}
+
+/// Persists an initial segment and its durable `network_def` link without
+/// creating DNS. This leaves startup as the only path that can repair the
+/// missing reverse zone.
+async fn persist_initial_network_without_reverse_zone(
+    pool: &sqlx::PgPool,
+    name: &str,
+    definition: &NetworkDefinition,
+) -> Result<NetworkSegment, Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
+    let domains = db::dns::domain::find_by_name(txn.as_mut(), "dwrt1.com").await?;
+    let [domain] = domains.as_slice() else {
+        panic!("test fixture should have exactly one forward domain");
+    };
+    let mut segment = NewNetworkSegment::build_from(name, domain.id, definition)?;
+    segment.can_stretch = Some(true);
+    let segment =
+        db::network_segment::persist(segment, txn.as_mut(), NetworkSegmentControllerState::Ready)
+            .await?;
+    db::network_segment::insert_network_def(txn.as_mut(), name, segment.id, definition).await?;
+    txn.commit().await?;
+    Ok(segment)
+}
+
+#[crate::sqlx_test]
+async fn test_initial_network_reverse_zones_follow_persisted_config_drift(
+    db_pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // The stored `network_def.segment_id` identifies the segment startup must
+    // repair. A changed config CIDR must not create a zone for data that was
+    // never persisted.
+    let env =
+        create_test_env_with_overrides(db_pool.clone(), TestEnvOverrides::no_network_segments())
+            .await;
+    let original = initial_underlay_definition("10.44.0.0/16", "10.44.0.1");
+    let drifted = initial_underlay_definition("10.55.0.0/16", "10.55.0.1");
+    let original_segment =
+        persist_initial_network_without_reverse_zone(&db_pool, "drifted-underlay", &original)
+            .await?;
+
+    crate::db_init::create_initial_networks(
+        &env.api,
+        &env.pool,
+        &HashMap::from([("drifted-underlay".to_string(), drifted.clone())]),
+    )
+    .await?;
+
+    let mut txn = db_pool.begin().await?;
+    let segment = db::network_segment::find_by_name(&mut txn, "drifted-underlay").await?;
+    assert_eq!(segment.id, original_segment.id);
+    assert_eq!(segment.prefixes.len(), 1);
+    assert_eq!(segment.prefixes[0].prefix, original.prefix);
+    assert_eq!(
+        db::network_segment::stored_def(txn.as_mut(), "drifted-underlay").await?,
+        Some(original.clone()),
+        "config drift must not replace the stored declaration",
+    );
+
+    let original_zone = db::dns::cidr_to_reverse_zone(original.prefix).unwrap();
+    let original_domains =
+        db::dns::domain::find_reverse_zone_by_normalized_name(txn.as_mut(), &original_zone).await?;
+    assert_eq!(
+        original_domains.len(),
+        1,
+        "startup should create the zone for the persisted prefix",
+    );
+
+    let drifted_zone = db::dns::cidr_to_reverse_zone(drifted.prefix).unwrap();
+    assert!(
+        db::dns::domain::find_reverse_zone_by_normalized_name(txn.as_mut(), &drifted_zone)
+            .await?
+            .is_empty(),
+        "startup must not create an orphan zone for an unapplied declaration",
+    );
+    txn.commit().await?;
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_initial_network_restart_does_not_restore_deleted_static_assignment_zones(
+    db_pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // The static-assignments row may remain during soft-delete drainage, but
+    // restart must not recreate the reverse zones removed with that segment.
+    let env =
+        create_test_env_with_overrides(db_pool.clone(), TestEnvOverrides::no_network_segments())
+            .await;
+    let networks = HashMap::new();
+    crate::db_init::create_initial_networks(&env.api, &env.pool, &networks).await?;
+
+    let mut txn = db_pool.begin().await?;
+    let static_assignments = db::network_segment::static_assignments(txn.as_mut()).await?;
+    let reverse_zones = static_assignments
+        .prefixes
+        .iter()
+        .map(|prefix| db::dns::cidr_to_reverse_zone(prefix.prefix).unwrap())
+        .collect::<Vec<_>>();
+    txn.commit().await?;
+
+    env.api
+        .delete_network_segment(Request::new(rpc::forge::NetworkSegmentDeletionRequest {
+            id: Some(static_assignments.id),
+        }))
+        .await?;
+    crate::db_init::create_initial_networks(&env.api, &env.pool, &networks).await?;
+
+    let mut txn = db_pool.begin().await?;
+    let static_assignments = db::network_segment::static_assignments(txn.as_mut()).await?;
+    assert!(static_assignments.is_marked_as_deleted());
+    for reverse_zone in reverse_zones {
+        assert!(
+            db::dns::domain::find_reverse_zone_by_normalized_name(txn.as_mut(), &reverse_zone,)
+                .await?
+                .is_empty(),
+            "startup must not restore reverse zones for a soft-deleted static-assignments segment",
+        );
+    }
+    txn.commit().await?;
     Ok(())
 }
 
@@ -730,6 +875,7 @@ pub(in crate::tests) async fn test_create_initial_vpc_and_attached_network(
             mtu: 1500,
             reserve_first: 1,
             allocation_strategy: Default::default(),
+            infer_slaac_eui64_addresses: false,
             vpc_name: Some("zero-dpu-vpc".to_string()),
         },
     )]);
@@ -1000,6 +1146,7 @@ pub(in crate::tests) async fn test_create_initial_network_fails_for_missing_vpc_
             mtu: 1500,
             reserve_first: 1,
             allocation_strategy: Default::default(),
+            infer_slaac_eui64_addresses: false,
             vpc_name: Some("missing-vpc".to_string()),
         },
     )]);
@@ -1101,6 +1248,7 @@ async fn test_31_prefix_not_allowed(pool: sqlx::PgPool) -> Result<(), eyre::Repo
         subdomain_id: None,
         vpc_id: None,
         segment_type: rpc::forge::NetworkSegmentType::Tenant as i32,
+        infer_slaac_eui64_addresses: false,
     };
 
     for prefix in &[31, 32] {
@@ -1806,6 +1954,7 @@ async fn test_create_network_segment_with_ipv6_prefix(
         subdomain_id: None,
         vpc_id: None,
         segment_type: rpc::forge::NetworkSegmentType::Admin as i32,
+        infer_slaac_eui64_addresses: true,
     };
 
     let response = env
@@ -1818,6 +1967,12 @@ async fn test_create_network_segment_with_ipv6_prefix(
     assert_eq!(response.prefixes.len(), 1);
     assert_eq!(response.prefixes[0].prefix, "2001:db8::/64");
     assert!(response.prefixes[0].gateway.is_none());
+    assert!(
+        response
+            .config
+            .as_ref()
+            .is_some_and(|config| config.infer_slaac_eui64_addresses)
+    );
 
     Ok(())
 }
@@ -1883,6 +2038,7 @@ async fn test_create_dual_stack_tenant_segment(pool: sqlx::PgPool) -> Result<(),
         subdomain_id: None,
         vpc_id: vpc.id,
         segment_type: rpc::forge::NetworkSegmentType::Tenant as i32,
+        infer_slaac_eui64_addresses: false,
     };
 
     let response = env
@@ -1962,6 +2118,7 @@ async fn test_ipv6_tenant_prefix_rejected_when_not_in_site_fabric(
         subdomain_id: None,
         vpc_id: vpc.id,
         segment_type: rpc::forge::NetworkSegmentType::Tenant as i32,
+        infer_slaac_eui64_addresses: false,
     };
 
     let result = env.api.create_network_segment(Request::new(request)).await;
@@ -2135,6 +2292,7 @@ async fn flat_vpc_accepts_host_inband_segment(
         subdomain_id: None,
         vpc_id: vpc.id,
         segment_type: rpc::forge::NetworkSegmentType::HostInband as i32,
+        infer_slaac_eui64_addresses: false,
     };
 
     let created = env
@@ -2188,6 +2346,7 @@ async fn flat_vpc_rejects_tenant_segment(
         subdomain_id: None,
         vpc_id: vpc.id,
         segment_type: rpc::forge::NetworkSegmentType::Tenant as i32,
+        infer_slaac_eui64_addresses: false,
     };
 
     let err = env
@@ -2242,6 +2401,7 @@ async fn etv_vpc_rejects_host_inband_segment(
         subdomain_id: None,
         vpc_id: vpc.id,
         segment_type: rpc::forge::NetworkSegmentType::HostInband as i32,
+        infer_slaac_eui64_addresses: false,
     };
 
     let err = env
@@ -2434,6 +2594,7 @@ async fn create_unattached_segment(
             subdomain_id: None,
             vpc_id: None,
             segment_type: segment_type as i32,
+            infer_slaac_eui64_addresses: false,
         }))
         .await
         .map(|response| response.into_inner())

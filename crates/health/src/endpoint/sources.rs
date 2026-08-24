@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::num::NonZeroUsize;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -26,12 +27,15 @@ use nv_redfish::bmc_http::reqwest::Client as ReqwestClient;
 use url::Url;
 
 use crate::HealthError;
-use crate::bmc::{BmcClient, FixedCredentialProvider};
+use crate::bmc::{
+    BmcClient, BmcLatencyInstrumentation, FixedCredentialProvider, bmc_latency_endpoint_labels,
+};
 use crate::config::{StaticBmcEndpoint, StaticSwitchEndpointRole};
 use crate::endpoint::{
     BmcAddr, BmcCredentials, BmcEndpoint, BoxFuture, EndpointMetadata, EndpointSource, MachineData,
     PowerShelfData, SharedSystemUuid, SwitchData, SwitchEndpointRole,
 };
+use crate::metrics::BmcLatencyMetrics;
 
 fn parse_static_nvlink_domain_uuid(
     value: Option<&str>,
@@ -67,6 +71,25 @@ impl StaticEndpointSource {
         reqwest: &ReqwestClient,
         proxy_url: Option<&Url>,
         cache_size: usize,
+        bmc_latency_metrics: Option<Arc<BmcLatencyMetrics>>,
+    ) -> Self {
+        Self::from_config_with_request_concurrency(
+            configs,
+            reqwest,
+            proxy_url,
+            cache_size,
+            NonZeroUsize::MIN,
+            bmc_latency_metrics,
+        )
+    }
+
+    pub(crate) fn from_config_with_request_concurrency(
+        configs: &[StaticBmcEndpoint],
+        reqwest: &ReqwestClient,
+        proxy_url: Option<&Url>,
+        cache_size: usize,
+        bmc_request_concurrency: NonZeroUsize,
+        bmc_latency_metrics: Option<Arc<BmcLatencyMetrics>>,
     ) -> Self {
         let mut endpoints = Vec::with_capacity(configs.len());
 
@@ -187,12 +210,21 @@ impl StaticEndpointSource {
                 password: cfg.password.clone(),
             };
             let provider = Arc::new(FixedCredentialProvider::new(credentials));
+            let rack_id = cfg.rack_id.as_ref().map(|id| RackId::new(id.as_str()));
+            let bmc_latency_instrumentation = bmc_latency_metrics.clone().map(|metrics| {
+                BmcLatencyInstrumentation::new(
+                    metrics,
+                    bmc_latency_endpoint_labels(metadata.as_ref(), rack_id.as_ref()),
+                )
+            });
             let bmc = match BmcClient::new(
                 reqwest.clone(),
                 addr.clone(),
                 provider,
                 proxy_url.cloned(),
                 cache_size,
+                bmc_request_concurrency,
+                bmc_latency_instrumentation,
             ) {
                 Ok(client) => Arc::new(client),
                 Err(error) => {
@@ -207,7 +239,7 @@ impl StaticEndpointSource {
             let endpoint = BmcEndpoint {
                 addr,
                 metadata,
-                rack_id: cfg.rack_id.as_ref().map(|id| RackId::new(id.as_str())),
+                rack_id,
                 labels: cfg.labels.clone(),
                 bmc,
             };
@@ -321,7 +353,7 @@ mod tests {
             },
         ];
 
-        let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10);
+        let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10, None);
         let endpoints = source.fetch_bmc_hosts().await.expect("fetch should work");
 
         assert_eq!(endpoints.len(), 1);
@@ -359,7 +391,7 @@ mod tests {
             labels: Default::default(),
         }];
 
-        let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10);
+        let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10, None);
         let endpoints = source.fetch_bmc_hosts().await.unwrap();
 
         assert_eq!(endpoints.len(), 1);
@@ -415,7 +447,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10);
+        let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10, None);
         let endpoints = source.fetch_bmc_hosts().await.unwrap();
 
         assert_eq!(endpoints.len(), cases.len());
@@ -446,7 +478,7 @@ mod tests {
             labels: Default::default(),
         }];
 
-        let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10);
+        let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10, None);
         let endpoints = source.fetch_bmc_hosts().await.unwrap();
 
         assert_eq!(endpoints.len(), 1);
@@ -487,7 +519,7 @@ mod tests {
             labels: std::collections::BTreeMap::from([("site".to_string(), "dev".to_string())]),
         }];
 
-        let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10);
+        let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10, None);
         let endpoints = source.fetch_bmc_hosts().await.unwrap();
 
         assert_eq!(endpoints.len(), 1);
@@ -537,7 +569,7 @@ mod tests {
             labels: Default::default(),
         }];
 
-        let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10);
+        let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10, None);
         let endpoints = source.fetch_bmc_hosts().await.unwrap();
 
         assert_eq!(endpoints.len(), 1);
@@ -564,7 +596,7 @@ mod tests {
             labels: Default::default(),
         }];
 
-        let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10);
+        let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10, None);
         let endpoints = source.fetch_bmc_hosts().await.unwrap();
 
         assert_eq!(endpoints.len(), 1);

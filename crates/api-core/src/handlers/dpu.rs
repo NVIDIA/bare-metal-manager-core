@@ -348,7 +348,12 @@ async fn get_managed_host_network_config_inner(
             }) {
                 // Make our DB query for the IDs to get our NetworkSecurityGroup
                 let network_security_group =
-                    network_security_group::find_by_ids(&mut txn, &[nsg_id.to_owned()], Some(tenant_id), false)
+                    network_security_group::find_by_ids(
+                        &mut txn,
+                        std::slice::from_ref(nsg_id),
+                        Some(tenant_id),
+                        false,
+                    )
                         .await?
                         .pop()
                         .ok_or(CarbideError::NotFoundError {
