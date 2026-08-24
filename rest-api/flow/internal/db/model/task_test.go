@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,6 +27,30 @@ func newOfflineBun() *bun.DB {
 
 func TestTaskListOptionsToFilterable_Nil(t *testing.T) {
 	assert.Nil(t, taskListOptionsToFilterable(nil))
+}
+
+func TestListTasks_DefaultOrderBeforePagination(t *testing.T) {
+	sqlDB, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer sqlDB.Close()
+
+	db := bun.NewDB(sqlDB, pgdialect.New())
+	defer db.Close()
+
+	mock.ExpectQuery(`ORDER BY "created_at" DESC, "id" DESC LIMIT 20`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+
+	tasks, total, err := ListTasks(
+		t.Context(),
+		db,
+		&taskcommon.TaskListOptions{TaskType: taskcommon.TaskTypeUnknown},
+		&dbquery.Pagination{Offset: 0, Limit: 20, Total: 1},
+	)
+
+	require.NoError(t, err)
+	assert.Empty(t, tasks)
+	assert.Equal(t, int32(1), total)
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 // All tests below set TaskType: TaskTypeUnknown explicitly, matching the

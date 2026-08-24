@@ -22,6 +22,11 @@ var defaultTaskPagination = dbquery.Pagination{
 	Total:  0,
 }
 
+var defaultTaskOrderBy = []dbquery.OrderBy{
+	{Column: "created_at", Direction: dbquery.OrderDescending},
+	{Column: "id", Direction: dbquery.OrderDescending},
+}
+
 // Task models the persisted task metadata managed by Flow.
 type Task struct {
 	bun.BaseModel `bun:"table:task,alias:t"`
@@ -369,8 +374,9 @@ func ListTasks(
 ) ([]Task, int32, error) {
 	var tasks []Task
 	conf := &dbquery.Config{
-		IDB:   idb,
-		Model: &tasks,
+		IDB:            idb,
+		Model:          &tasks,
+		DefaultOrderBy: defaultTaskOrderBy,
 	}
 
 	if pagination != nil {
