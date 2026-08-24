@@ -249,6 +249,38 @@ errors, as does a missing `curl` when validation is required), and an
 unreachable registry host skips the image checks entirely
 (air-gapped/preloaded installs).
 
+## Upgrading deployments that bundled PSM and NSM
+
+The Flow chart no longer deploys PSM or NSM. The NICo Core chart and binary
+default both component-manager roles to RMS, so sites using the defaults do not
+need a backend configuration change.
+
+Before upgrading a site with custom Core values or site configuration, check
+for `componentManager.nvSwitchBackend: nsm`,
+`componentManager.powerShelfBackend: psm`, `nv_switch_backend = "nsm"`, or
+`power_shelf_backend = "psm"`. Change those roles to
+[RMS](../docs/configuration/component-manager-rms.md), or configure an
+externally managed NSM or PSM endpoint, before removing the bundled managers.
+
+Re-run `setup.sh` for the upgrade. The Flow Helm upgrade removes the PSM and
+NSM containers, Services, volumes, and configuration. After that upgrade
+succeeds, setup removes the retired Vault-token hook Job, service account,
+cluster-wide RBAC, Kubernetes token Secrets, Vault policies, and every Vault
+token minted by earlier hook runs. `--skip-flow` performs neither operation, so
+an intentionally retained predecessor Flow release keeps its runtime
+credentials.
+
+The Zalando Postgres operator retains the old `psm` and `nsm` databases and
+users, and External Secrets Operator retains their generated credential
+Secrets. Vault KV data under the PSM and NSM paths is also retained. This state
+supports rollback, but a bare `helm rollback` is insufficient because the old
+token hook runs only for installs and upgrades. Re-run the predecessor
+release's setup/helmfile workflow so its `nico-prereqs` upgrade recreates the
+Vault policies and tokens before it restores the former Flow release. After
+the rollback window closes, the site owner can remove the retained databases,
+users, credential Secrets, and Vault KV data according to the site's data
+retention policy.
+
 ## What gets deployed
 
 ```text
@@ -281,7 +313,7 @@ NICo REST                  (../helm/rest/nico-rest)
   ├── keycloak              (dev OIDC IdP, nico-dev realm)
   ├── temporal              (temporal-helm/temporal, mTLS)
   └── nico-rest             (API, cert-manager, workflow, site-manager)
-NICo Flow                  (../helm/charts/nico-flow - Flow, PSM, and NSM)
+NICo Flow                  (../helm/charts/nico-flow)
 NICo REST site-agent       (../helm/rest/nico-rest-site-agent - StatefulSet, bootstrap via site-manager)
 Observability (opt-in)     (observability/ - only with --with-observability; also standalone)
   ├── kube-prometheus-stack (prometheus-community 59.1.0 - Prometheus + Grafana, release `obs`)

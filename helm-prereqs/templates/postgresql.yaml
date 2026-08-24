@@ -54,12 +54,6 @@ spec:
     flow.nico:
       - superuser
       - createdb
-    psm.nico:
-      - superuser
-      - createdb
-    nsm.nico:
-      - superuser
-      - createdb
     {{- end }}
   databases:
     nico_system_nico: nico-system.nico
@@ -68,8 +62,6 @@ spec:
     {{- end }}
     {{- if .Values.flow.enabled }}
     flow: flow.nico
-    psm: psm.nico
-    nsm: nsm.nico
     {{- end }}
   patroni:
     # Templated (no `| default`): Go templates treat an explicit `false` as empty,
