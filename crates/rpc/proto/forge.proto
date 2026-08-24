@@ -2785,41 +2785,41 @@ message NetworkSegment {
   option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.NetworkSegmentId id = 1;
 
-  // Deprecated: use config.vpc_id
-  common.VpcId vpc_id = 2 [deprecated = true];
-  // Deprecated: use metadata.name
-  string name = 3 [deprecated = true];
-  // Deprecated: use config.subdomain_id
-  optional common.DomainId subdomain_id = 4 [deprecated = true];
-  // Deprecated: use config.mtu
-  optional int32 mtu = 5 [deprecated = true];
-  // Deprecated: use config.prefixes
-  repeated NetworkPrefix prefixes = 6 [deprecated = true];
+  reserved 2;  // was: common.VpcId vpc_id, replaced with config.vpc_id
+  reserved "vpc_id";
+  reserved 3;  // was: string name, replaced with metadata.name
+  reserved "name";
+  reserved 4;  // was: optional common.DomainId subdomain_id, replaced with config.subdomain_id
+  reserved "subdomain_id";
+  reserved 5;  // was: optional int32 mtu, replaced with config.mtu
+  reserved "mtu";
+  reserved 6;  // was: repeated NetworkPrefix prefixes, replaced with config.prefixes
+  reserved "prefixes";
 
   // Not sure if we actually still need those
   google.protobuf.Timestamp created = 11;
   google.protobuf.Timestamp updated = 12;
   google.protobuf.Timestamp deleted = 13;
 
-  // Deprecated: use config.segment_type
-  NetworkSegmentType segment_type = 14 [deprecated = true];
-  // Deprecated: use status.flags
-  repeated NetworkSegmentFlag flags = 15 [deprecated = true];
+  reserved 14;  // was: NetworkSegmentType segment_type, replaced with config.segment_type
+  reserved "segment_type";
+  reserved 15;  // was: repeated NetworkSegmentFlag flags, replaced with status.flags
+  reserved "flags";
 
   NetworkSegmentConfig config = 16;
   NetworkSegmentStatus status = 17;
   Metadata metadata = 18;
 
-  // Deprecated: use status.lifecycle.version
-  string version = 99 [deprecated = true];
-  // Deprecated: use status.tenant_state (coarse) or status.lifecycle.state (full controller state)
-  TenantState state = 100 [deprecated = true];
-  // Deprecated: use FindNetworkSegmentStateHistories RPC
-  repeated NetworkSegmentStateHistory history = 101 [deprecated = true];
-  // Deprecated: use status.lifecycle.state_reason
-  optional ControllerStateReason state_reason = 102 [deprecated = true];
-  // Deprecated: use status.lifecycle.sla
-  StateSla state_sla = 103 [deprecated = true];
+  reserved 99;  // was: string version, replaced with status.lifecycle.version
+  reserved "version";
+  reserved 100;  // was: TenantState state, replaced with status.tenant_state and status.lifecycle.state
+  reserved "state";
+  reserved 101;  // was: repeated NetworkSegmentStateHistory history, replaced with FindNetworkSegmentStateHistories
+  reserved "history";
+  reserved 102;  // was: optional ControllerStateReason state_reason, replaced with status.lifecycle.state_reason
+  reserved "state_reason";
+  reserved 103;  // was: StateSla state_sla, replaced with status.lifecycle.sla
+  reserved "state_sla";
 }
 
 message NetworkSegmentCreationRequest {
