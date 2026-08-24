@@ -34,6 +34,7 @@ use tokio_util::sync::CancellationToken;
 use super::traits::*;
 use crate::crds::bfbs_generated::BFB;
 use crate::crds::bluefieldsoftwares_generated::BlueFieldSoftware;
+use crate::crds::dpfoperatorconfigs_generated::DPFOperatorConfig;
 use crate::crds::dpuclusters_generated::DPUCluster;
 use crate::crds::dpudeployments_generated::DPUDeployment;
 use crate::crds::dpudevices_generated::DPUDevice;
@@ -709,9 +710,7 @@ impl DpfOperatorConfigRepository for KubeRepository {
         &self,
         name: &str,
         namespace: &str,
-    ) -> Result<Option<crate::crds::dpfoperatorconfigs_generated::DPFOperatorConfig>, DpfError>
-    {
-        use crate::crds::dpfoperatorconfigs_generated::DPFOperatorConfig;
+    ) -> Result<Option<DPFOperatorConfig>, DpfError> {
         let api: Api<DPFOperatorConfig> = Api::namespaced(self.client.clone(), namespace);
         Ok(api.get_opt(name).await?)
     }
@@ -722,7 +721,6 @@ impl DpfOperatorConfigRepository for KubeRepository {
         namespace: &str,
         patch: serde_json::Value,
     ) -> Result<(), DpfError> {
-        use crate::crds::dpfoperatorconfigs_generated::DPFOperatorConfig;
         let api: Api<DPFOperatorConfig> = Api::namespaced(self.client.clone(), namespace);
         api.patch(name, &PatchParams::default(), &Patch::Merge(&patch))
             .await?;
