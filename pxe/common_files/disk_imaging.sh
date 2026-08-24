@@ -65,12 +65,46 @@ function verify_sha() {
 	echo "$sha $file" | $shasum --check 2>&1 | tee $log_output
 }
 
+function find_efi_disk() {
+	for disk in "$@"
+	do
+		if lsblk -nrpo PARTTYPE "$disk" | grep -Eqi '^(c12a7328-f81f-11d2-ba4b-00a0c93ec93b|0xef)$'; then
+			echo "$disk"
+			return 0
+		fi
+	done
+	return 1
+}
+
 function find_bootdisk() {
-	if [ -b /dev/nvme0n1 ]; then
-		image_disk="/dev/nvme0n1"
-	elif [ -b /dev/sda ]; then
-		image_disk="/dev/sda"
+	disks=$(lsblk -bdnpo NAME,SIZE,TYPE | awk '$3 == "disk" { print $1, $2 }' | sort -k2,2n -k1,1V)
+	disk_names=$(echo "$disks" | awk 'NF { print $1 }' | sort -V)
+
+	if [ "$image_disk" == "smallest" ]; then
+		smallest_size=$(echo "$disks" | awk 'NR == 1 { print $2 }')
+		candidate_disks=$(echo "$disks" | awk -v size="$smallest_size" '$2 == size { print $1 }' | sort -V)
+		candidate_count=$(echo "$candidate_disks" | awk 'NF { count++ } END { print count + 0 }')
+
+		selected_disk=
+		if [ "$candidate_count" -gt 1 ]; then
+			selected_disk=$(find_efi_disk $candidate_disks)
+		fi
+		if [ -z "$selected_disk" ]; then
+			selected_disk=$(echo "$candidate_disks" | head -n 1)
+		fi
+		image_disk=$selected_disk
 	else
+		image_disk=$(find_efi_disk $disk_names)
+		if [ -z "$image_disk" ]; then
+			if [ -b /dev/nvme0n1 ]; then
+				image_disk="/dev/nvme0n1"
+			elif [ -b /dev/sda ]; then
+				image_disk="/dev/sda"
+			fi
+		fi
+	fi
+
+	if [ -z "$image_disk" ]; then
 		echo "Boot drive not detected or specified" | tee $log_output
 		exit 1;
 	fi
@@ -693,6 +727,7 @@ function main() {
 	#  image_sha=[sha1/sha256/sha384/sha512]
 	# use the disk the tenant specified optionally
 	#  image_disk=/dev/nvme0n1
+	#  image_disk=smallest
 	for i in `cat /proc/cmdline`
 	do
 		#echo $line
@@ -797,7 +832,7 @@ function main() {
 			return 1;
 		fi
 	fi
-	if [ -z "$image_disk" ]; then
+	if [ -z "$image_disk" -o "$image_disk" == "smallest" ]; then
 		find_bootdisk
 	fi
 
