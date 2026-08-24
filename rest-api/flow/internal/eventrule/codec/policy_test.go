@@ -1,14 +1,14 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-package policy_test
+package codec_test
 
 import (
 	"os"
 	"testing"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
-	policycodec "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/codec/policy"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/codec"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	flowtypes "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 	"github.com/stretchr/testify/require"
@@ -18,7 +18,7 @@ func TestPolicyV1Fixture(t *testing.T) {
 	data, err := os.ReadFile("testdata/policy_v1_all_actions.json")
 	require.NoError(t, err)
 
-	policy, err := policycodec.Unmarshal(data)
+	policy, err := codec.UnmarshalPolicy(data)
 	require.NoError(t, err)
 	require.Equal(t, fullPolicy(), policy)
 }
@@ -27,19 +27,26 @@ func TestPolicyV1NoopFixture(t *testing.T) {
 	data, err := os.ReadFile("testdata/policy_v1_without_dedupe.json")
 	require.NoError(t, err)
 
-	policy, err := policycodec.Unmarshal(data)
+	policy, err := codec.UnmarshalPolicy(data)
 	require.NoError(t, err)
 	require.Len(t, policy.Actions, 1)
 	require.Equal(t, "noop", policy.Actions[0].Name)
 }
 
 func TestPolicyRoundTrip(t *testing.T) {
-	policy := fullPolicy()
-	encoded, err := policycodec.Marshal(policy)
-	require.NoError(t, err)
-	roundTripped, err := policycodec.Unmarshal(encoded)
-	require.NoError(t, err)
-	require.Equal(t, policy, roundTripped)
+	tests := map[string]eventrule.Policy{
+		"empty":        {},
+		"with actions": fullPolicy(),
+	}
+	for name, policy := range tests {
+		t.Run(name, func(t *testing.T) {
+			encoded, err := codec.MarshalPolicy(policy)
+			require.NoError(t, err)
+			roundTripped, err := codec.UnmarshalPolicy(encoded)
+			require.NoError(t, err)
+			require.Equal(t, policy, roundTripped)
+		})
+	}
 }
 
 func TestPolicyRejectsUnknownVersionsAndFields(t *testing.T) {
@@ -61,7 +68,7 @@ func TestPolicyRejectsUnknownVersionsAndFields(t *testing.T) {
 
 	for name, data := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, err := policycodec.Unmarshal([]byte(data))
+			_, err := codec.UnmarshalPolicy([]byte(data))
 			require.Error(t, err)
 		})
 	}

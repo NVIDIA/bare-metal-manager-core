@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-package registry
+package manager
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewRejectsInvalidAndDuplicateRules(t *testing.T) {
+func TestBuiltInRegistryRejectsInvalidAndDuplicateRules(t *testing.T) {
 	valid := testRule(uuid.New(), "test.event")
 	duplicateID := testRule(valid.ID, "other.event")
 	duplicateType := testRule(uuid.New(), valid.EventType)
@@ -34,15 +34,15 @@ func TestNewRejectsInvalidAndDuplicateRules(t *testing.T) {
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, err := New(test.rules...)
+			_, err := testBuiltInRegistry(test.rules...)
 			require.ErrorContains(t, err, test.wantErr)
 		})
 	}
 }
 
-func TestRegistryLookup(t *testing.T) {
+func TestBuiltInRegistryLookup(t *testing.T) {
 	rule := testRule(uuid.New(), "test.event")
-	registry, err := New(rule)
+	registry, err := testBuiltInRegistry(rule)
 	require.NoError(t, err)
 
 	rule.Actions[0].Name = "changed-after-registration"
@@ -59,9 +59,9 @@ func TestRegistryLookup(t *testing.T) {
 	require.Equal(t, "noop", byType.Actions[0].Name)
 }
 
-func TestGetByEventTypeDetectsInconsistentRegistry(t *testing.T) {
+func TestBuiltInRegistryGetByEventTypeDetectsInconsistentState(t *testing.T) {
 	eventType := eventrule.Type("test.event")
-	registry := &Registry{
+	registry := &builtInRegistry{
 		byID:        make(map[uuid.UUID]eventrule.Rule),
 		byEventType: map[eventrule.Type]uuid.UUID{eventType: uuid.New()},
 	}
@@ -69,6 +69,21 @@ func TestGetByEventTypeDetectsInconsistentRegistry(t *testing.T) {
 	_, err := registry.GetByEventType(context.Background(), eventType)
 	require.ErrorContains(t, err, "registry is inconsistent")
 	require.False(t, errors.Is(err, eventrule.ErrRuleNotFound))
+}
+
+func testBuiltInRegistry(rules ...*eventrule.Rule) (*builtInRegistry, error) {
+	registry := &builtInRegistry{
+		byID:        make(map[uuid.UUID]eventrule.Rule, len(rules)),
+		byEventType: make(map[eventrule.Type]uuid.UUID, len(rules)),
+	}
+
+	for _, rule := range rules {
+		if err := registry.addRule(rule); err != nil {
+			return nil, err
+		}
+	}
+
+	return registry, nil
 }
 
 func testRule(id uuid.UUID, eventType eventrule.Type) *eventrule.Rule {

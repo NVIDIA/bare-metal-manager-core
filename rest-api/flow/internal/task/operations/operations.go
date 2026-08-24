@@ -33,6 +33,8 @@ func ExtractRuleID(info json.RawMessage) *uuid.UUID {
 
 type Operation interface {
 	Clone() Operation
+	// Validate checks the complete operation payload and guarantees that Type
+	// and CodeString identify a supported task operation.
 	Validate() error
 	Marshal() (json.RawMessage, error)
 	Unmarshal(data json.RawMessage) error
@@ -93,14 +95,12 @@ type PowerControlTaskInfo struct {
 
 func (t *PowerControlTaskInfo) Validate() error {
 	if t == nil {
-		return fmt.Errorf("operation is required")
+		return fmt.Errorf("power control operation is required")
 	}
-
-	if t.Operation == PowerOperationUnknown {
+	if _, ok := powerOperationCodes[t.Operation]; !ok {
 		return fmt.Errorf("invalid power control operation")
 	}
-
-	return nil
+	return validateOperationTypeAndCode(t)
 }
 
 // Clone returns an independent copy of the operation.
@@ -145,10 +145,9 @@ type InjectExpectationTaskInfo struct {
 
 func (t *InjectExpectationTaskInfo) Validate() error {
 	if t == nil {
-		return fmt.Errorf("operation is required")
+		return fmt.Errorf("inject expectation operation is required")
 	}
-
-	return nil
+	return validateOperationTypeAndCode(t)
 }
 
 // Clone returns an independent copy of the operation.
@@ -202,10 +201,9 @@ type BringUpTaskInfo struct {
 
 func (t *BringUpTaskInfo) Validate() error {
 	if t == nil {
-		return fmt.Errorf("operation is required")
+		return fmt.Errorf("bring-up operation is required")
 	}
-
-	return nil
+	return validateOperationTypeAndCode(t)
 }
 
 // Clone returns an independent copy of the operation.
@@ -292,14 +290,12 @@ type FirmwareControlTaskInfo struct {
 
 func (t *FirmwareControlTaskInfo) Validate() error {
 	if t == nil {
-		return fmt.Errorf("operation is required")
+		return fmt.Errorf("firmware control operation is required")
 	}
-
-	if t.Operation == FirmwareOperationUnknown {
+	if _, ok := firmwareOperationCodes[t.Operation]; !ok {
 		return fmt.Errorf("invalid firmware control operation")
 	}
-
-	return nil
+	return validateOperationTypeAndCode(t)
 }
 
 // Clone returns an independent copy of the operation.
@@ -309,6 +305,11 @@ func (t *FirmwareControlTaskInfo) Clone() Operation {
 	}
 	cloned := *t
 	cloned.SubTargets = slices.Clone(t.SubTargets)
+	if t.AuthenticationData != nil {
+		authenticationData := *t.AuthenticationData
+		authenticationData.Ciphertext = slices.Clone(t.AuthenticationData.Ciphertext)
+		cloned.AuthenticationData = &authenticationData
+	}
 	return &cloned
 }
 
@@ -346,10 +347,9 @@ type DecommissionTaskInfo struct {
 
 func (t *DecommissionTaskInfo) Validate() error {
 	if t == nil {
-		return fmt.Errorf("operation is required")
+		return fmt.Errorf("decommission operation is required")
 	}
-
-	return nil
+	return validateOperationTypeAndCode(t)
 }
 
 // Clone returns an independent copy of the operation.
@@ -386,6 +386,14 @@ func (t *DecommissionTaskInfo) Description() string {
 
 func (t *DecommissionTaskInfo) CodeString() string {
 	return taskcommon.OpCodeDecommission
+}
+
+func validateOperationTypeAndCode(operation Operation) error {
+	taskType := operation.Type()
+	if !taskType.IsValid() {
+		return fmt.Errorf("task operation type %q is invalid", taskType)
+	}
+	return taskcommon.OperationCode(operation.CodeString()).ValidateFor(taskType)
 }
 
 // SetFirmwareUpdateTimeWindowRequest is the request for setting firmware update time window.

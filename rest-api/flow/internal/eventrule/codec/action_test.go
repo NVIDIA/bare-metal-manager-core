@@ -1,19 +1,19 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-package action_test
+package codec_test
 
 import (
 	"testing"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
-	actioncodec "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/codec/action"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/codec"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	flowtypes "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 	"github.com/stretchr/testify/require"
 )
 
-func TestMarshal(t *testing.T) {
+func TestActionRoundTrip(t *testing.T) {
 	tests := map[string]eventrule.Action{
 		"submit task": {
 			Name: "submit",
@@ -47,22 +47,22 @@ func TestMarshal(t *testing.T) {
 
 	for name, action := range tests {
 		t.Run(name, func(t *testing.T) {
-			encoded, err := actioncodec.Marshal(action)
+			encoded, err := codec.MarshalAction(action)
 			require.NoError(t, err)
 
-			roundTripped, err := actioncodec.Unmarshal(encoded)
+			roundTripped, err := codec.UnmarshalAction(encoded)
 			require.NoError(t, err)
 			require.Equal(t, action, roundTripped)
 		})
 	}
 }
 
-func TestMarshalRejectsInvalidAction(t *testing.T) {
-	_, err := actioncodec.Marshal(eventrule.Action{})
+func TestMarshalActionRejectsInvalidAction(t *testing.T) {
+	_, err := codec.MarshalAction(eventrule.Action{})
 	require.Error(t, err)
 }
 
-func TestUnmarshal(t *testing.T) {
+func TestUnmarshalAction(t *testing.T) {
 	tests := map[string]string{
 		"unknown version": `{
 			"version":2,
@@ -114,11 +114,41 @@ func TestUnmarshal(t *testing.T) {
 			"condition":{},
 			"spec":{}
 		}`,
+		"operation code does not match payload": `{
+			"version":1,
+			"name":"submit",
+			"type":"submit_task",
+			"condition":{},
+			"spec":{
+				"operation":{
+					"type":"power_control",
+					"code":"power_on",
+					"payload":{"operation":4,"forced":true}
+				},
+				"targetStrategy":"rack",
+				"conflictStrategy":"queue"
+			}
+		}`,
+		"invalid operation payload enum": `{
+			"version":1,
+			"name":"submit",
+			"type":"submit_task",
+			"condition":{},
+			"spec":{
+				"operation":{
+					"type":"power_control",
+					"code":"power_on",
+					"payload":{"operation":100}
+				},
+				"targetStrategy":"rack",
+				"conflictStrategy":"queue"
+			}
+		}`,
 	}
 
 	for name, data := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, err := actioncodec.Unmarshal([]byte(data))
+			_, err := codec.UnmarshalAction([]byte(data))
 			require.Error(t, err)
 		})
 	}

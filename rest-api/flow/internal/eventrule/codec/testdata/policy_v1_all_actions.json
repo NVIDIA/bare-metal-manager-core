@@ -12,7 +12,8 @@
       "spec": {
         "operation": {
           "type": "power_control",
-          "info": {
+          "code": "force_power_off",
+          "payload": {
             "operation": 4,
             "forced": false
           }
