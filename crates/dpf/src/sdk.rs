@@ -2507,12 +2507,11 @@ fn dpu_deployment_is_ready(d: &DPUDeployment) -> bool {
     cond.status == "True" && cond.observed_generation == Some(generation)
 }
 
-/// True when a condition's `observedGeneration` matches the object's.
+/// True when a condition's `observedGeneration` matches the object's. Either
+/// being absent means not ready: `metadata.generation` is set on submission, and
+/// an absent `observedGeneration` means DPF has not reconciled the object yet.
 fn observed_generation_is_current(observed: Option<i64>, generation: Option<i64>) -> bool {
-    let Some(generation) = generation else {
-        return false;
-    };
-    observed.unwrap_or(0) == generation
+    matches!((observed, generation), (Some(observed), Some(generation)) if observed == generation)
 }
 
 impl<R: DpuNodeMaintenanceRepository, L> DpfSdk<R, L> {
