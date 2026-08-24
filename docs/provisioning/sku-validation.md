@@ -64,9 +64,9 @@ auto_generate_missing_sku = false,
 auto_generate_missing_sku_interval = "300s"
 ```
 
- - `enabled` - Enables or disables the entire bom validation process.  When disabled, machines
+- `enabled` - Enables or disables the entire bom validation process.  When disabled, machines
   will skip bom validation and proceed as if all validation has passed.
- - `allow_allocation_on_validation_failure` - When true, machines with an assigned SKU are allowed to stay in Ready state
+- `allow_allocation_on_validation_failure` - When true, machines with an assigned SKU are allowed to stay in Ready state
   and remain allocatable even when SKU validation fails. Validation still occurs but only logs are recorded - health reports
   are cleared instead of recording validation failures. Machines do not transition into failed states
   (SkuVerificationFailed or SkuMissing). When false (default), standard mode applies where validation failures are recorded
@@ -74,29 +74,28 @@ auto_generate_missing_sku_interval = "300s"
   allocation blockage due to SKU validation issues when you only need logging without health report alerts. This option does
   not bypass a machine without an assigned SKU; with `ignore_unassigned_machines = false`, that machine waits for SKU
   assignment.
- - `ignore_unassigned_machines` - When true and BOM validation encounters a machine that does not have an associated SKU,
+- `ignore_unassigned_machines` - When true and BOM validation encounters a machine that does not have an associated SKU,
   it will proceed as if all validation has passed. Only machines with an associated SKU will be validated. This allows
   existing sites to be upgraded and BOM Validation enabled as SKUs are added to the system without impacting site operation.
   Machines that do not have an assigned SKU will still be usable and assignable.
- - `find_match_interval` - determines how often NICo will attempt to find a matching SKU for a machine.  NICo will only
+- `find_match_interval` - determines how often NICo will attempt to find a matching SKU for a machine.  NICo will only
   attempt to find a SKU when the machine is in the `Ready` state.
- - `auto_generate_missing_sku` - enable or disable generation of a SKU from a machine.  This only applies to a machine with a SKU
-  specified in the expected machine configuration and in the `SkuMissing` state.
- - `auto_generate_missing_sku_interval` - determines how often NICo will attempt to generate a sku from the machine data.
+- `auto_generate_missing_sku` - Enables or disables generation of a SKU from a machine. This only applies to a machine with a SKU
+specified in the expected machine configuration and in the `SkuMissing` state.
+- `auto_generate_missing_sku_interval` - Determines how often NICo will attempt to generate a SKU from the machine data.
 
 ### Hardware Validated
+<Tip>
+This list is current as of NICo v2.1. More hardware validation may be added in the future.
+</Tip>
 
-Machines will (currently) have the following hardware validated against the SKU:
+NICo validates the following hardware against the SKU:
 
- - Chassis (motherboard): Vendor and model matched
- - CPU: Model and count matched
- - GPUs: Model, memory capacity, and count matched
- - Memory: Type, capacity, and count matched
- - Storage: Model and count matched
-
-## Design Information
-
-See the [design document](https://gitlab-master.nvidia.com/nvmetal/designs/-/blob/hw-bom/designs/0055-hardware-bom.md).
+- Chassis (motherboard): Vendor and model matched
+- CPU: Model and count matched
+- GPUs: Model, memory capacity, and count matched
+- Memory: Type, capacity, and count matched
+- Storage: Model and count matched
 
 ## SKU Names
 
@@ -106,20 +105,20 @@ By convention, SKU names (defined per site) are in the following format:
 
 Where:
 
- - `<vendor>` is the first word of the "chassis" "vendor" field, e.g. `dell` or `lenovo`
- - `<model>` is the unique ending to the "chassis" "model" field, e.g. `r750` or `sr670v2`
- - `<node_type>` is one of the following types of node that are deployed in NICo:
-    - `gpu`
-    - `cpu`
-    - `storage`
-    - `controller` (site controller node, if applicable)
- - `<idx>` arbitrary index starting at 1 to define different configurations, if required, generally 1
+- `<vendor>` is the first word of the "chassis" "vendor" field, e.g. `dell` or `lenovo`
+- `<model>` is the unique ending to the "chassis" "model" field, e.g. `r750` or `sr670v2`
+- `<node_type>` is one of the following types of node that are deployed in NICo:
+  - `gpu`
+  - `cpu`
+  - `storage`
+  - `controller` (site controller node, if applicable)
+- `<idx>` arbitrary index starting at 1 to define different configurations, if required, generally 1
 
 Some example SKU names:
 
- - `lenovo.sr670v2.gpu.1`
- - `dell.r750.gpu.1`
- - `dell.r750.storage.1`
+- `lenovo.sr670v2.gpu.1`
+- `dell.r750.gpu.1`
+- `dell.r750.storage.1`
 
 ## Managing SKU Validation
 
