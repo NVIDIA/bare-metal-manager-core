@@ -159,6 +159,11 @@
         }
       }
     },
+    "restAddress": {
+      "description": "Primary tenant metadata listener address",
+      "type": "string",
+      "default": "0.0.0.0:80"
+    },
     "compatibilityRestAddress": {
       "description": "Optional additional tenant metadata listener address for compatibility",
       "type": ["string", "null"],
