@@ -2364,14 +2364,7 @@ async fn handle_restart_verification(
                     error = %err,
                     "Failed to create Redfish client for host during force-restart verification",
                 );
-                ctx.pending_db_writes
-                    .push(MachineWriteOp::UpdateRestartVerificationStatus {
-                        machine_id: mh_snapshot.host_snapshot.id,
-                        current_reboot: *last_reboot,
-                        verified: None,
-                        attempts: 0,
-                    });
-                return Ok(None); // Skip verification, continue with state transition
+                return Ok(None);
             }
         };
 
@@ -2384,14 +2377,7 @@ async fn handle_restart_verification(
                         error = %err,
                         "Failed to fetch BMC logs for host during force-restart verification",
                     );
-                    ctx.pending_db_writes
-                        .push(MachineWriteOp::UpdateRestartVerificationStatus {
-                            machine_id: mh_snapshot.host_snapshot.id,
-                            current_reboot: *last_reboot,
-                            verified: None,
-                            attempts: 0,
-                        });
-                    return Ok(None); // Skip verification, continue with state transition
+                    return Ok(None);
                 }
             };
 
@@ -8068,11 +8054,14 @@ impl StateHandler for InstanceStateHandler {
                     }
 
                     let host = &mh_snapshot.host_snapshot;
-                    if let Some(restart) = host
-                        .status
-                        .last_reboot_requested
-                        .as_ref()
-                        .filter(|restart| restart.time > host.state.version.timestamp())
+                    if let Some(restart) =
+                        host.status
+                            .last_reboot_requested
+                            .as_ref()
+                            .filter(|restart| {
+                                restart.mode == MachineLastRebootRequestedMode::Reboot
+                                    && restart.time > host.state.version.timestamp()
+                            })
                     {
                         let restart_completed = host
                             .status

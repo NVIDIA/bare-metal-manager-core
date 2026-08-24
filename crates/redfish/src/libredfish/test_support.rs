@@ -105,6 +105,8 @@ struct RedfishSimState {
     /// (`503`), so callers' error-propagation paths can be exercised distinctly
     /// from an unauthorized rejection.
     get_accounts_error: bool,
+    /// When set, BMC event-log reads succeed with an empty log.
+    bmc_event_log_supported: bool,
     /// Opt-in password-reuse policy. When on, a password *change* whose new
     /// value equals the account's current password is rejected (`400`), modeling
     /// the real BMCs that refuse a same-value change -- the exact behavior BMC
@@ -407,6 +409,10 @@ impl RedfishSim {
     /// transport error (`503`), to exercise a caller's error-propagation path.
     pub fn set_get_accounts_error(&self, error: bool) {
         self.state.lock().unwrap().get_accounts_error = error;
+    }
+
+    pub fn set_bmc_event_log_supported(&self, supported: bool) {
+        self.state.lock().unwrap().bmc_event_log_supported = supported;
     }
 
     /// Enable the opt-in password-reuse policy (see
@@ -1605,6 +1611,9 @@ impl Redfish for RedfishSimClient {
     ) -> libredfish::RedfishFuture<'a, Result<Vec<libredfish::model::sel::LogEntry>, RedfishError>>
     {
         Box::pin(async move {
+            if self.state.lock().unwrap().bmc_event_log_supported {
+                return Ok(Vec::new());
+            }
             Err(RedfishError::NotSupported(
                 "BMC Event Log not supported for tests".to_string(),
             ))

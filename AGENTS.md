@@ -117,6 +117,9 @@ or explicit cases (`check_cases` / `check_values`) is the easiest way to reach t
 conversions, and the like.
 For functions that map multiple booleans or enums to state and action outputs,
 enumerate every input combination in one table before requesting review.
+For state-machine branch tests, reload persisted state after the controller
+iteration and assert the branch-owned fields or counters. An unchanged visible
+state or absence of an external action does not prove which branch ran.
 For user-visible CLI table changes, exercise the public command in a test and
 assert the rendered headers plus populated and empty cell values. Helper-only
 tests do not prove the table contract.
