@@ -172,7 +172,12 @@ jobs:
           tags: ${{ steps.tag_list.outputs.tags }}
           build-args: ${{ steps.parse-args.outputs.build_args }}
           cache-from: type=gha
-          cache-to: ${{ inputs.push && 'type=gha,mode=max' || '' }}
+          # These builds write to the default unscoped gha key, so a single release
+          # build pushes its whole mode=max export into the Actions cache shared with 
+          # main, evicting the sccache objects the Rust builds depend on.
+          # A release branch may read the default branch's entries, so 
+          # cache-from above still starts these builds warm.
+          cache-to: ''
 
       - name: Display build summary
         run: |
