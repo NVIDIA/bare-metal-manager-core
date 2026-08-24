@@ -38,8 +38,8 @@ rootCaFile: forge_root.pem
 useNodeTokens: false
 
 ### Service specific values ###
-# Primary tenant metadata listener address.
-restAddress: 0.0.0.0:80
+# Optional primary tenant metadata listener address override. Unset by default.
+restAddress: null
 
 # Optional additional tenant metadata listener address for compatibility.
 # Unset by default.

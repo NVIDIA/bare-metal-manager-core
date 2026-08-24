@@ -8,7 +8,7 @@ tests:
         repository: test
         tag: test
     asserts:
-      - contains:
+      - notContains:
           path: spec.template.spec.containers[0].args
           content: --rest-address=0.0.0.0:80
       - notContains:

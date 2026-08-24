@@ -113,7 +113,9 @@ spec:
             {{- $dir := .Values.certsDir | default "/opt/forge" }}
             {{- $rootCa := .Values.rootCaFile | default "forge_root.pem" }}
             - "--grpc-address=$(POD_IP):50052"
-            - "--rest-address={{ .Values.restAddress }}"
+            {{- with .Values.restAddress }}
+            - "--rest-address={{ . }}"
+            {{- end }}
             {{- with .Values.compatibilityRestAddress }}
             - "--compatibility-rest-address={{ . }}"
             {{- end }}
