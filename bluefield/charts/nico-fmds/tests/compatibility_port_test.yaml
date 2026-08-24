@@ -1,0 +1,24 @@
+suite: compatibility REST port
+templates:
+  - daemonset.yaml
+tests:
+  - it: should leave the compatibility listener disabled by default
+    set:
+      image:
+        repository: test
+        tag: test
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --compatibility-rest-address=0.0.0.0:7777
+
+  - it: should enable the compatibility listener when configured
+    set:
+      image:
+        repository: test
+        tag: test
+      compatibilityRestAddress: 0.0.0.0:7777
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --compatibility-rest-address=0.0.0.0:7777
