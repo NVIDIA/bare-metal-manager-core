@@ -279,7 +279,7 @@ rotation is handled wherever the root bundle is handled today.
 An `x5c` chain contains at most four certificates, including the leaf. The
 node refuses to mint a token when its client-certificate bundle exceeds that
 limit, emits a `node_auth` warning at most once every five minutes per process,
-and continues with mTLS only. The API rejects an over-limit token before Base64
+and continues with mTLS only. The API rejects an over-limit token before Base64-
 decoding its certificates or building a verification path. Keep the node's
 bundle within the limit; otherwise, a deployment with `mtls_enabled = false`
 has no node authentication path.
