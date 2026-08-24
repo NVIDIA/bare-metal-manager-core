@@ -462,6 +462,7 @@ async fn test_zero_dpu_cloud_init_prefers_instance_when_ip_matches_host_interfac
 
     // When the instance is ready, we should get tenant cloud-init instructions
     for instance_state in [InstanceState::WaitingForRebootToReady, InstanceState::Ready] {
+        let reboot_pending = instance_state == InstanceState::WaitingForRebootToReady;
         env.run_machine_state_controller_iteration_until_state_matches(
             &mh.host().id,
             10,
@@ -509,5 +510,10 @@ async fn test_zero_dpu_cloud_init_prefers_instance_when_ip_matches_host_interfac
                 .instance_id,
             instance_id.to_string()
         );
+
+        if reboot_pending {
+            env.run_machine_state_controller_iteration().await;
+            mh.host().reboot_completed().await;
+        }
     }
 }

@@ -1190,6 +1190,16 @@ async fn test_zero_dpu_auto_update_absorbs_added_host_inband_segment(
         &zero_dpu_host.host_snapshot.id,
         30,
         ManagedHostState::Assigned {
+            instance_state: model::machine::InstanceState::WaitingForRebootToReady,
+        },
+    )
+    .await;
+    env.run_machine_state_controller_iteration().await;
+    api_fixtures::reboot_completed(&env, zero_dpu_host.host_snapshot.id).await;
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &zero_dpu_host.host_snapshot.id,
+        1,
+        ManagedHostState::Assigned {
             instance_state: model::machine::InstanceState::Ready,
         },
     )
