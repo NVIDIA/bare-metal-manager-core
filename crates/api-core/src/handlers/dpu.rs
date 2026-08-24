@@ -410,7 +410,7 @@ async fn get_managed_host_network_config_inner(
             ).await?;
 
             let segment_details = segment_details.iter().map(|x|(x.id, x)).collect::<HashMap<_,_>>();
-            let mut tenant_loopback_ips: HashMap<VpcId, String> = HashMap::new();
+            let mut tenant_loopback_ips: HashMap<VpcId, IpAddr> = HashMap::new();
 
             // Resolve every segment domain in a single query up front, then look each one up by id
             // inside the interface loop. The domains map keeps its rows keyed by id so a missing
@@ -449,7 +449,7 @@ async fn get_managed_host_network_config_inner(
                     match segment.config.vpc_id {
                         Some(vpc_id) => {
                             if let Some(loopback_ip) = tenant_loopback_ips.get(&vpc_id) {
-                                Some(loopback_ip.clone())
+                                Some(*loopback_ip)
                             } else {
                                 // Resolve loopbacks after the interface segment is known so each VPC
                                 // receives its own DPU loopback allocation.
@@ -460,10 +460,9 @@ async fn get_managed_host_network_config_inner(
                                         &dpu_machine_id,
                                         &vpc_id,
                                     )
-                                    .await?
-                                    .to_string();
+                                    .await?;
 
-                                tenant_loopback_ips.insert(vpc_id, loopback_ip.clone());
+                                tenant_loopback_ips.insert(vpc_id, loopback_ip);
                                 Some(loopback_ip)
                             }
                         }
