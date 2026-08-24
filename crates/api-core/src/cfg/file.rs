@@ -1620,7 +1620,7 @@ pub struct DpfConfig {
     /// Deployment-type-specific Helm services.  Extra services are
     /// assigned to a deployment type by the resolver.
     #[serde(default)]
-    pub extra_services: DpfExtraServicesConfig,
+    pub extra_services: Box<DpfExtraServicesConfig>,
     /// Optional proxy configuration for the DPU. When set, containerd on the DPU is
     /// configured to route outbound HTTPS traffic through the specified proxy.
     #[serde(default)]
@@ -1641,7 +1641,7 @@ impl Default for DpfConfig {
             docker_image_pull_secret: None,
             dpu_agent_bootstrap_ca: DpfDpuAgentBootstrapCa::default(),
             services: Box::default(),
-            extra_services: DpfExtraServicesConfig::default(),
+            extra_services: Box::default(),
             proxy: None,
             deployments: DpfDeploymentsConfig::default(),
         }
