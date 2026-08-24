@@ -109,7 +109,7 @@ firmware inventory.
 
 Upgrading NICo itself is also a Day 2 operation. Re-running `setup.sh` from a
 newer release upgrades each component in place while preserving Vault state,
-PostgreSQL data, and the site configuration. See the
+PostgreSQL data, and the site configuration. Refer to the
 [Upgrading NICo](../manuals/upgrade.md) guide for the pre-upgrade checklist,
 version-specific migration notes, and rollback procedure.
 

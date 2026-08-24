@@ -662,9 +662,9 @@ kubectl logs -n nico-system -l app.kubernetes.io/name=nico-api --tail=50 \
 
 ## Upgrading
 
-To upgrade an existing NICo installation to a new release, re-run `setup.sh` with the new image tags after checking out the target release. `setup.sh` is idempotent — each phase upgrades its component in place while preserving Vault state, PostgreSQL data, MetalLB site config, and the site UUID.
+To upgrade an existing NICo installation to a new release, check out the target release, and re-run `setup.sh` with the new image tags. `setup.sh` is idempotent: each phase upgrades its component in-place while preserving Vault state, PostgreSQL data, MetalLB site config, and the site UUID.
 
-Refer to the [Upgrading NICo](../manuals/upgrade.md) guide for the pre-upgrade checklist, version-specific notes (including the 2.0→2.1 MetalLB CRD ownership migration), and rollback considerations.
+Refer to the [Upgrading NICo](../manuals/upgrade.md) guide for the pre-upgrade checklist, version-specific notes (including the 2.0-to-2.1 MetalLB CRD ownership migration), and rollback considerations.
 
 ## Teardown
 
