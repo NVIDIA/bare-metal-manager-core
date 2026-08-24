@@ -789,6 +789,14 @@ func TestResolver_HasScheduleConflict(t *testing.T) {
 			expected: false,
 		},
 		{
+			name:     "inject_expectation does not conflict with firmware",
+			incoming: makeOp(taskcommon.TaskTypeInjectExpectation, "inject"),
+			existing: []operation.Wrapper{
+				makeOp(taskcommon.TaskTypeFirmwareControl, "upgrade"),
+			},
+			expected: false,
+		},
+		{
 			// Two inject_expectation schedules are always compatible.
 			name:     "inject_expectation does not conflict with itself",
 			incoming: makeOp(taskcommon.TaskTypeInjectExpectation, "inject"),
