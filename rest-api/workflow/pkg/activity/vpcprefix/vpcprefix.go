@@ -281,16 +281,6 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 	reportedVpcPrefix.Prefix = canonicalPrefix
 	prefixLength := reportedPrefix.Bits()
 
-	// This is the gate for the IPAM claim below: a stale inventory snapshot can still
-	// report a just-deleted prefix as TERMINATING/TERMINATED, and recreating from that
-	// would resurrect a user delete. UpdateVpcPrefixesInDB checks the same thing first
-	// only to skip the transaction.
-	reportedStatus, _ := getControllerVpcPrefixStatus(controllerVpcPrefix.GetStatus())
-	if reportedStatus == cdbm.VpcPrefixStatusDeleting || reportedStatus == cdbm.VpcPrefixStatusDeleted {
-		logger.Warn().Msgf("unable to create VPC Prefix found on Site: Site reports status %s", reportedStatus)
-		return nil
-	}
-
 	if reportedVpcPrefix.VpcID == uuid.Nil {
 		logger.Warn().Msg("unable to create VPC Prefix found on Site: VPC Prefix on Site is reporting empty VPC ID")
 		return nil
