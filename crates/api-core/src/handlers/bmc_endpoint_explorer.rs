@@ -385,7 +385,7 @@ pub(crate) async fn admin_bmc_reset(
         && requested_reset_type != rpc::admin_bmc_reset_request::ResetType::Unspecified
     {
         return Err(Status::invalid_argument(
-            "reset_type is only supported for the Redfish path, not with use_ipmitool",
+            "reset_type is only supported for the redfish path, not with use_ipmitool",
         ));
     }
     let reset_type = map_reset_type(requested_reset_type);
