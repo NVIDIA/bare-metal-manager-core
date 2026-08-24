@@ -34240,8 +34240,10 @@ type DpuReprovisioningRequest struct {
 	Initiator      UpdateInitiator               `protobuf:"varint,3,opt,name=initiator,proto3,enum=forge.UpdateInitiator" json:"initiator,omitempty"`
 	UpdateFirmware bool                          `protobuf:"varint,4,opt,name=update_firmware,json=updateFirmware,proto3" json:"update_firmware,omitempty"`
 	MachineId      *MachineId                    `protobuf:"bytes,5,opt,name=machine_id,json=machineId,proto3" json:"machine_id,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Operator ack that a non-ready host reset may disrupt a live tenant instance; server rejects assigned hosts unless true.
+	AllowResetWithInstance bool `protobuf:"varint,6,opt,name=allow_reset_with_instance,json=allowResetWithInstance,proto3" json:"allow_reset_with_instance,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *DpuReprovisioningRequest) Reset() {
@@ -34307,6 +34309,13 @@ func (x *DpuReprovisioningRequest) GetMachineId() *MachineId {
 		return x.MachineId
 	}
 	return nil
+}
+
+func (x *DpuReprovisioningRequest) GetAllowResetWithInstance() bool {
+	if x != nil {
+		return x.AllowResetWithInstance
+	}
+	return false
 }
 
 type DpuReprovisioningListRequest struct {
@@ -67411,14 +67420,15 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x16IdentifySerialResponse\x12#\n" +
 	"\rserial_number\x18\x01 \x01(\tR\fserialNumber\x120\n" +
 	"\n" +
-	"machine_id\x18\x02 \x01(\v2\x11.common.MachineIdR\tmachineId\"\xb8\x02\n" +
+	"machine_id\x18\x02 \x01(\v2\x11.common.MachineIdR\tmachineId\"\xf3\x02\n" +
 	"\x18DpuReprovisioningRequest\x12(\n" +
 	"\x06dpu_id\x18\x01 \x01(\v2\x11.common.MachineIdR\x05dpuId\x128\n" +
 	"\x04mode\x18\x02 \x01(\x0e2$.forge.DpuReprovisioningRequest.ModeR\x04mode\x124\n" +
 	"\tinitiator\x18\x03 \x01(\x0e2\x16.forge.UpdateInitiatorR\tinitiator\x12'\n" +
 	"\x0fupdate_firmware\x18\x04 \x01(\bR\x0eupdateFirmware\x120\n" +
 	"\n" +
-	"machine_id\x18\x05 \x01(\v2\x11.common.MachineIdR\tmachineId\"'\n" +
+	"machine_id\x18\x05 \x01(\v2\x11.common.MachineIdR\tmachineId\x129\n" +
+	"\x19allow_reset_with_instance\x18\x06 \x01(\bR\x16allowResetWithInstance\"'\n" +
 	"\x04Mode\x12\a\n" +
 	"\x03Set\x10\x00\x12\t\n" +
 	"\x05Clear\x10\x01\x12\v\n" +

@@ -23,31 +23,59 @@ use crate::machine::{HealthReportTemplates, get_health_report};
 use crate::rpc::ApiClient;
 
 pub(super) async fn reset(api_client: &ApiClient, args: Args) -> CarbideCliResult<()> {
-    // Refuse to disrupt a live tenant instance unless the operator acknowledged it.
-    if !args.allow_reset_with_instance
-        && api_client
-            .0
-            .find_instance_by_machine_id(args.machine)
-            .await
-            .is_ok_and(|i| !i.instances.is_empty())
-    {
-        return Err(CarbideCliError::GenericError(
-            "machine is assigned to a live instance; pass --allow-reset-with-instance to acknowledge disrupting it".to_string(),
-        ));
+    // Fail closed: refuse a reset that would disrupt a live instance unless acknowledged (the server also enforces this).
+    if !args.allow_reset_with_instance {
+        match api_client.0.find_instance_by_machine_id(args.machine).await {
+            Ok(list) if !list.instances.is_empty() => {
+                return Err(CarbideCliError::GenericError(
+                    "machine is assigned to a live instance; pass --allow-reset-with-instance to acknowledge disrupting it".to_string(),
+                ));
+            }
+            Ok(_) => {}
+            Err(e) => {
+                return Err(CarbideCliError::GenericError(format!(
+                    "could not verify whether machine has a live instance ({e}); pass --allow-reset-with-instance to proceed anyway"
+                )));
+            }
+        }
     }
 
-    // The server requires a HostUpdateInProgress (PreventAllocations) alert before it
-    // accepts a reprovision. Always apply it, using the operator message when given.
+    // Server requires a HostUpdateInProgress alert; add it only if absent so we never clobber an operator's.
     let update_message = args
         .update_message
         .clone()
         .unwrap_or_else(|| "reset triggered by admin-cli".to_string());
-    let report = get_health_report(HealthReportTemplates::HostUpdate, Some(update_message));
-    api_client
-        .machine_insert_health_report_override(args.machine, report.into(), false)
-        .await?;
+    let host_had_alert = api_client
+        .get_machines_by_ids(&[args.machine])
+        .await?
+        .machines
+        .into_iter()
+        .next()
+        .and_then(|m| m.status)
+        .is_some_and(|s| {
+            s.health_sources
+                .iter()
+                .any(|src| src.source == "host-update")
+        });
+    if !host_had_alert {
+        let mut report = get_health_report(HealthReportTemplates::HostUpdate, Some(update_message));
+        // Tag the alert reset-owned so completion cleanup removes only reset's alert, not an operator's.
+        report.alerts[0].target =
+            Some(model::machine_update_module::RESET_UPDATE_TARGET.to_string());
+        api_client
+            .machine_insert_health_report_override(args.machine, report.into(), false)
+            .await?;
+    }
 
     let req: DpuReprovisioningRequest = (&args).into();
-    api_client.0.trigger_dpu_reprovisioning(req).await?;
+    if let Err(e) = api_client.0.trigger_dpu_reprovisioning(req).await {
+        // Roll back only the alert we added; leave a pre-existing operator alert untouched.
+        if !host_had_alert {
+            let _ = api_client
+                .machine_remove_health_report(args.machine, "host-update".to_string())
+                .await;
+        }
+        return Err(e.into());
+    }
     Ok(())
 }

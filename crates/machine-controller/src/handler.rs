@@ -929,6 +929,19 @@ impl MachineStateHandler {
             }
 
             ManagedHostState::Ready => {
+                // Reset finished (host is Ready): retire only the reset-owned HostUpdateInProgress alert, leaving an operator's alert untouched.
+                if has_reset_update_alert(mh_snapshot) {
+                    let mut txn = ctx.services.db_pool.begin().await?;
+                    db::machine::remove_health_report(
+                        &mut txn,
+                        host_machine_id,
+                        health_report::HealthReportApplyMode::Merge,
+                        model::machine_update_module::HOST_UPDATE_HEALTH_REPORT_SOURCE,
+                    )
+                    .await?;
+                    return Ok(StateHandlerOutcome::do_nothing().with_txn(txn));
+                }
+
                 if let Some(outcome) = self
                     .handle_scout_heartbeat_timeout(mh_snapshot, ctx)
                     .await?
@@ -2327,9 +2340,21 @@ impl MachineStateHandler {
             state,
             ctx.services.site_config.dpf_enabled,
         );
-        let states = dpus_for_reprov
+        // Cover every current DPU so a late-arriving/unrequested DPU still has a state entry.
+        let dpu_ids_for_reprov = dpus_for_reprov.iter().map(|d| &d.id).collect_vec();
+        let states = state
+            .dpu_snapshots
             .iter()
-            .map(|d| (d.id, starting_state.clone()))
+            .map(|d| {
+                (
+                    d.id,
+                    if dpu_ids_for_reprov.contains(&&d.id) {
+                        starting_state.clone()
+                    } else {
+                        ReprovisionState::NotUnderReprovision
+                    },
+                )
+            })
             .collect();
         Ok(ManagedHostState::DPUReprovision {
             dpu_states: DpuReprovisionStates { states },
@@ -2415,19 +2440,30 @@ fn dpu_reprovisioning_needed(dpu_snapshots: &[Machine]) -> bool {
         .any(|x| x.reprovision_requested.is_some())
 }
 
+/// True when the host carries a reset-owned HostUpdateInProgress alert (detect by target, mirroring firmware-update cleanup).
+fn has_reset_update_alert(mh_snapshot: &ManagedHostStateSnapshot) -> bool {
+    mh_snapshot
+        .host_snapshot
+        .health_reports
+        .merges
+        .get(model::machine_update_module::HOST_UPDATE_HEALTH_REPORT_SOURCE)
+        .is_some_and(|report| {
+            report.alerts.iter().any(|alert| {
+                alert.id == *model::machine_update_module::HOST_UPDATE_HEALTH_PROBE_ID
+                    && alert.target.as_deref()
+                        == Some(model::machine_update_module::RESET_UPDATE_TARGET)
+            })
+        })
+}
+
 /// True when a non-ready `mh reset` request is waiting to start. The
 /// `started_at.is_none()` guard stops it re-firing once reprovision has begun.
 fn non_ready_initial_reprov_needed(
     dpu_snapshots: &[Machine],
     managed_state: &ManagedHostState,
 ) -> bool {
-    if matches!(
-        managed_state,
-        ManagedHostState::Ready
-            | ManagedHostState::Assigned {
-                instance_state: InstanceState::Ready,
-            }
-    ) {
+    // Re-check the allow-list against the current state, which may have changed since the API accepted.
+    if !managed_state.allows_non_ready_reset() {
         return false;
     }
     dpu_snapshots.iter().any(|d| {

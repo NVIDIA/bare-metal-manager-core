@@ -157,7 +157,7 @@ fn waiting_for_ready_exit_state(
             DpuInitState::WaitingForPlatformConfiguration
                 .next_state_with_all_dpus_updated(&state.managed_state)
         }
-        ManagedHostState::DPUReprovision { dpu_states } => {
+        ManagedHostState::DPUReprovision { .. } => {
             // Non-ready reset re-runs full ingestion; standard reprovision keeps the fast path.
             let full_ingestion = state.dpu_snapshots.iter().any(|d| {
                 d.reprovision_requested
@@ -165,10 +165,11 @@ fn waiting_for_ready_exit_state(
                     .is_some_and(|r| r.triggered_from_non_ready_state)
             });
             if full_ingestion {
-                let states = dpu_states
-                    .states
-                    .keys()
-                    .map(|id| (*id, DpuInitState::WaitingForPlatformConfiguration))
+                // Ingest every current DPU, not just those in the prior reprovision map.
+                let states = state
+                    .dpu_snapshots
+                    .iter()
+                    .map(|d| (d.id, DpuInitState::WaitingForPlatformConfiguration))
                     .collect();
                 Ok(ManagedHostState::DPUInit {
                     dpu_states: DpuInitStates { states },

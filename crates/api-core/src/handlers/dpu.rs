@@ -1297,7 +1297,8 @@ pub(crate) async fn trigger_dpu_reprovisioning(
         &machine_id,
         LoadSnapshotOptions {
             include_history: false,
-            include_instance_data: false,
+            // Needed to enforce the allow_reset_with_instance acknowledgment below.
+            include_instance_data: true,
             host_health_config: api.runtime_config.host_health,
         },
     )
@@ -1360,8 +1361,18 @@ pub(crate) async fn trigger_dpu_reprovisioning(
                     .into());
                 }
                 false
+            } else if ready_state {
+                false
             } else {
-                !ready_state
+                // Host-level non-ready reset is allowed only from recoverable states (see allow-list).
+                if !snapshot.managed_state.allows_non_ready_reset() {
+                    return Err(CarbideError::InvalidArgument(format!(
+                        "machine {machine_id} is in state {} and cannot be reset; a reset is only allowed from a recoverable ingestion or failed state",
+                        snapshot.managed_state
+                    ))
+                    .into());
+                }
+                true
             };
 
             if triggered_from_non_ready_state
@@ -1369,6 +1380,17 @@ pub(crate) async fn trigger_dpu_reprovisioning(
             {
                 return Err(CarbideError::InvalidArgument(format!(
                     "machine {machine_id} was not ingested via DPF; reprovisioning from a non-ready state is only supported for DPF-managed DPUs"
+                ))
+                .into());
+            }
+
+            // Reject an unacknowledged non-ready reset of an assigned host: full re-ingestion tears down the live instance.
+            if triggered_from_non_ready_state
+                && snapshot.instance.is_some()
+                && !req.allow_reset_with_instance
+            {
+                return Err(CarbideError::InvalidArgument(format!(
+                    "machine {machine_id} is assigned to a live instance; set allow_reset_with_instance to acknowledge disrupting it"
                 ))
                 .into());
             }

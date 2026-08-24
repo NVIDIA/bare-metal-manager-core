@@ -6283,6 +6283,9 @@ message DpuReprovisioningRequest {
   bool update_firmware = 4;
 
   common.MachineId machine_id = 5;
+
+  // Operator ack that a non-ready host reset may disrupt a live tenant instance; server rejects assigned hosts unless true.
+  bool allow_reset_with_instance = 6;
 }
 
 message DpuReprovisioningListRequest {
