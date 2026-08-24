@@ -2228,6 +2228,22 @@ pub struct DpfDeploymentConfig {
     pub deployment_name: String,
     /// Label key applied to DPUNode CRs for this deployment's node selector.
     pub node_label_key: String,
+    /// Experimental escape hatch for appending interfaces to NICo's HBN service on BF3 and
+    /// generic BF4 deployments. This field may be removed without a compatibility period.
+    ///
+    /// Names must be unique across HBN's generated and extra interfaces, start with a lowercase
+    /// ASCII letter, contain only lowercase ASCII letters, digits, `-`, or `_`, and contain at
+    /// most 15 bytes. HBN supports at most 32 generated and extra interfaces in total. A non-empty
+    /// value is rejected for BF4 Astra. Omission appends no interfaces.
+    ///
+    /// Each entry updates HBN's `DPUServiceConfiguration`, `nvidia.com/bf_sf` request, and startup
+    /// configuration. With intercept bridging, it also increases calculated `PF_TOTAL_SF`, changes
+    /// the `DPUFlavor`, and requires controlled DPU reprovisioning. Without intercept bridging,
+    /// `PF_TOTAL_SF` remains the unchanged legacy total and the added SF consumes that existing
+    /// pool. NICo does not create the matching bridge, service interfaces, service chain, IPAM, or
+    /// application service CRs; an external controller must own them.
+    #[serde(default)]
+    pub hbn_extra_interfaces: Vec<String>,
     /// Optional per-deployment override of the mandatory Helm services. When set,
     /// these services are deployed for this deployment instead of the top-level
     /// [`DpfConfig::services`]. When absent, the top-level services are inherited.
@@ -2249,6 +2265,7 @@ impl Default for DpfDeploymentConfig {
             flavor_name: default_dpf_flavor_name(),
             deployment_name: default_dpf_deployment_name(),
             node_label_key: default_dpf_node_label_key(),
+            hbn_extra_interfaces: Vec::new(),
             services: None,
             extra_services: BTreeMap::new(),
         }
@@ -7572,9 +7589,29 @@ helm_repo_url = "oci://registry.example.test/doca"
             flavor_name: "bf4-flavor".to_string(),
             deployment_name: "bf4-dep".to_string(),
             node_label_key: "carbide.nvidia.com/bf4".to_string(),
+            hbn_extra_interfaces: Vec::new(),
             services: None,
             extra_services: BTreeMap::new(),
         }
+    }
+
+    #[test]
+    fn dpf_deployment_parses_hbn_extra_interfaces() {
+        let deployment: DpfDeploymentConfig = toml::from_str(
+            r#"
+                flavor_name = "dpu-flavor"
+                deployment_name = "dpu-deployment"
+                node_label_key = "carbide.nvidia.com/bf3"
+
+                hbn_extra_interfaces = ["storage_if"]
+            "#,
+        )
+        .expect("HBN extra interface configuration must deserialize");
+
+        assert_eq!(
+            deployment.hbn_extra_interfaces,
+            vec!["storage_if".to_string()]
+        );
     }
 
     /// Verifies deployment selectors remain distinct from each other and NICo-owned labels.

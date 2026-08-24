@@ -1519,6 +1519,7 @@ pub fn calculate_pf_total_sf(
     interfaces: &[DpuServiceInterfaceTemplateDefinition],
     intercept_bridging: Option<&DpfInterceptBridging>,
     reserved: u32,
+    additional_managed_sf: u32,
 ) -> Result<u32, DpfError> {
     // ROLLOUT COMPATIBILITY (DPU REPROVISIONING): inventory-free deployments must retain the
     // historical behavior where the configured reserved value is the complete PF_TOTAL_SF pool.
@@ -1553,6 +1554,11 @@ pub fn calculate_pf_total_sf(
             DpfError::ConfigError("DPF service endpoint count exceeds u32".to_string())
         })
     })?;
+    let managed_endpoints = managed_endpoints
+        .checked_add(additional_managed_sf)
+        .ok_or_else(|| {
+            DpfError::ConfigError("DPF managed SF endpoint count exceeds u32".to_string())
+        })?;
     managed_endpoints.checked_add(reserved).ok_or_else(|| {
         DpfError::ConfigError(format!(
             "configured DPF service endpoints ({managed_endpoints}) plus \
@@ -1614,6 +1620,13 @@ fn resolve_initialization_inventory<'a>(
     {
         return Err(DpfError::ConfigError(
             "BF4 Astra requires deployment_scoped_service_interfaces=true".to_string(),
+        ));
+    }
+    if matches!(config.deployment_type, DpuDeploymentType::Bf4Astra)
+        && config.additional_managed_sf != 0
+    {
+        return Err(DpfError::ConfigError(
+            "BF4 Astra does not support additional managed SFs".to_string(),
         ));
     }
 
@@ -1698,6 +1711,7 @@ fn resolve_initialization_inventory<'a>(
                 interfaces.as_ref(),
                 config.intercept_bridging.as_ref(),
                 config.pf_total_sf_reserved,
+                config.additional_managed_sf,
             )?
         }
     };
@@ -3675,22 +3689,31 @@ mod tests {
 
         // The configured cases count every HBN, DHCP, and FMDS endpoint, including fixed uplinks.
         value_scenarios!(
-            run = |(interfaces, intercept_bridging)| {
+            run = |(interfaces, intercept_bridging, additional_managed_sf)| {
                 calculate_pf_total_sf(
                     interfaces,
                     intercept_bridging,
                     DEFAULT_PF_TOTAL_SF_RESERVED,
+                    additional_managed_sf,
                 )
                 .unwrap()
             };
             "legacy static inventory" {
                 // Static endpoints are intentionally not added because doing so would reprovision existing DPUs.
-                (&static_interfaces, None) => 30,
+                (&static_interfaces, None, 0) => 30,
+            }
+
+            "legacy static inventory does not change for an additional managed SF" {
+                (&static_interfaces, None, 1) => 30,
             }
 
             "configured PF and sixteen VF inventory" {
                 // Two fixed HBN, three PF, and two endpoints per VF consume 37 managed SFs.
-                (&configured_interfaces, Some(&configured_topology)) => 67,
+                (&configured_interfaces, Some(&configured_topology), 0) => 67,
+            }
+
+            "configured inventory with an additional managed SF" {
+                (&configured_interfaces, Some(&configured_topology), 1) => 68,
             }
         );
 
@@ -3707,7 +3730,7 @@ mod tests {
 
         // Configuration failure is preferable to emitting an unusable DPUFlavor.
         assert!(matches!(
-            calculate_pf_total_sf(&interfaces, Some(&topology), u32::MAX),
+            calculate_pf_total_sf(&interfaces, Some(&topology), u32::MAX, 0),
             Err(DpfError::ConfigError(_))
         ));
     }
@@ -3736,6 +3759,7 @@ mod tests {
                 &interfaces,
                 Some(&topology),
                 DEFAULT_PF_TOTAL_SF_RESERVED,
+                0,
             ),
             Err(DpfError::ConfigError(message)) if message.contains("exceeding the supported maximum of 32")
         ));
