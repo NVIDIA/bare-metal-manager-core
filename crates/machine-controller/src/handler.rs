@@ -3654,7 +3654,7 @@ async fn handle_dpu_reprovision(
                     .create_redfish_client_from_machine(&state.host_snapshot)
                     .await?;
 
-                if let Err(redfish_error) = redfish_client.bmc_reset().await {
+                if let Err(redfish_error) = redfish_client.bmc_reset(None).await {
                     tracing::warn!(
                         machine_id = %state.host_snapshot.id,
                         error = %redfish_error,
@@ -10450,7 +10450,7 @@ impl HostUpgradeState {
                     )));
                 }
                 redfish_client
-                    .bmc_reset()
+                    .bmc_reset(None)
                     .await
                     .map_err(|e| redfish_error("BMC reset", e))?;
 
@@ -11170,7 +11170,7 @@ impl HostUpgradeState {
                 .create_redfish_client_from_machine(&state.host_snapshot)
                 .await?;
 
-            if let Err(e) = redfish_client.bmc_reset().await {
+            if let Err(e) = redfish_client.bmc_reset(None).await {
                 tracing::warn!(bmc_ip_address = %endpoint.address, error = %e, "Failed to reboot");
                 return Ok(StateHandlerOutcome::do_nothing());
             }
@@ -12018,7 +12018,7 @@ async fn handle_boss_job_failure(
             }
 
             redfish_client
-                .bmc_reset()
+                .bmc_reset(None)
                 .await
                 .map_err(|e| redfish_error("bmc_reset", e))?;
 
@@ -13391,7 +13391,7 @@ async fn set_host_boot_order(
                     );
 
                     redfish_client
-                        .bmc_reset()
+                        .bmc_reset(None)
                         .await
                         .map_err(|e| redfish_error("bmc_reset", e))?;
 
