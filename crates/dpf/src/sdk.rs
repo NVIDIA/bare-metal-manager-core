@@ -2507,14 +2507,12 @@ fn dpu_deployment_is_ready(d: &DPUDeployment) -> bool {
     cond.status == "True" && cond.observed_generation == Some(generation)
 }
 
-/// True when a condition's `observedGeneration` matches the object's, or when
-/// either is absent. Stamping it is optional, and demanding it would leave the
-/// object permanently unready against an operator that omits it.
+/// True when a condition's `observedGeneration` matches the object's.
 fn observed_generation_is_current(observed: Option<i64>, generation: Option<i64>) -> bool {
-    match (observed, generation) {
-        (Some(observed), Some(generation)) => observed == generation,
-        _ => true,
-    }
+    let Some(generation) = generation else {
+        return false;
+    };
+    observed.unwrap_or(0) == generation
 }
 
 impl<R: DpuNodeMaintenanceRepository, L> DpfSdk<R, L> {
