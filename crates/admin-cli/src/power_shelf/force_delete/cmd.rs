@@ -26,6 +26,8 @@ pub(super) async fn force_delete(data: Args, api_client: &ApiClient) -> color_ey
         .admin_force_delete_power_shelf(AdminForceDeletePowerShelfRequest {
             power_shelf_id: Some(data.power_shelf_id),
             delete_interfaces: data.delete_interfaces,
+            delete_retained_boot_interfaces: data.delete_retained_boot_interfaces,
+            delete_bmc_suppressions: data.delete_bmc_suppressions,
         })
         .await?;
 

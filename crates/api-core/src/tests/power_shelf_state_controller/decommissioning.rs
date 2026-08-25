@@ -20,7 +20,7 @@ use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
 use model::power_shelf::{PowerShelf, PowerShelfControllerState};
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{DecommissionPowerShelfRequest, DeleteDecommissionedPowerShelfRequest};
+use rpc::forge::DecommissionPowerShelfRequest;
 use tonic::{Code, Request};
 
 use super::fixtures::power_shelf::set_power_shelf_controller_state;
@@ -48,15 +48,6 @@ async fn decommission_requires_ready_power_shelf(pool: sqlx::PgPool) -> TestResu
         .expect_err("a missing power shelf ID must be rejected");
     assert_eq!(error.code(), Code::InvalidArgument);
 
-    let error = env
-        .api
-        .delete_decommissioned_power_shelf(Request::new(
-            DeleteDecommissionedPowerShelfRequest::default(),
-        ))
-        .await
-        .expect_err("a missing power shelf ID must be rejected");
-    assert_eq!(error.code(), Code::InvalidArgument);
-
     let power_shelf_id = common::api_fixtures::site_explorer::new_power_shelf(
         &env,
         Some("Decommission precondition".to_string()),
@@ -73,15 +64,6 @@ async fn decommission_requires_ready_power_shelf(pool: sqlx::PgPool) -> TestResu
         }))
         .await
         .expect_err("an initializing power shelf must be rejected");
-    assert_eq!(error.code(), Code::FailedPrecondition);
-
-    let error = env
-        .api
-        .delete_decommissioned_power_shelf(Request::new(DeleteDecommissionedPowerShelfRequest {
-            power_shelf_id: Some(power_shelf_id),
-        }))
-        .await
-        .expect_err("an initializing power shelf must not be permanently deleted");
     assert_eq!(error.code(), Code::FailedPrecondition);
     Ok(())
 }

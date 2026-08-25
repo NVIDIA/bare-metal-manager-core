@@ -89,10 +89,38 @@ fn parse_decommission_lifecycle_commands() {
             &["power-shelf", "decommission", SAMPLE_PS_ID_1][..] =>
                 Yields(("decommission".to_string(), SAMPLE_PS_ID_1.to_string())),
         }
+    );
+}
 
-        "permanently delete after decommissioning" {
-            &["power-shelf", "delete-decommissioned", SAMPLE_PS_ID_1][..] =>
-                Yields(("delete-decommissioned".to_string(), SAMPLE_PS_ID_1.to_string())),
+#[test]
+fn parse_force_delete_cleanup_flags() {
+    scenarios!(
+        run = |argv| {
+            let matches = parse_leaf::<Cmd>(argv, &["force-delete"]).map_err(drop)?;
+            Ok::<_, ()>((
+                matches
+                    .get_one::<PowerShelfId>("power_shelf_id")
+                    .expect("power shelf ID is required")
+                    .to_string(),
+                matches.get_flag("delete_interfaces"),
+                matches.get_flag("delete_retained_boot_interfaces"),
+                matches.get_flag("delete_bmc_suppressions"),
+            ))
+        };
+        "id only" {
+            &["power-shelf", "force-delete", SAMPLE_PS_ID_1][..] =>
+                Yields((SAMPLE_PS_ID_1.to_string(), false, false, false)),
+        }
+
+        "with full cleanup flags" {
+            &[
+                "power-shelf",
+                "force-delete",
+                SAMPLE_PS_ID_1,
+                "--delete-interfaces",
+                "--delete-retained-boot-interfaces",
+                "--delete-bmc-suppressions",
+            ][..] => Yields((SAMPLE_PS_ID_1.to_string(), true, true, true)),
         }
     );
 }

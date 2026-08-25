@@ -419,13 +419,6 @@ impl Forge for Api {
         crate::handlers::power_shelf::decommission_power_shelf(self, request).await
     }
 
-    async fn delete_decommissioned_power_shelf(
-        &self,
-        request: Request<rpc::DeleteDecommissionedPowerShelfRequest>,
-    ) -> Result<Response<rpc::DeleteDecommissionedPowerShelfResponse>, Status> {
-        crate::handlers::power_shelf::delete_decommissioned_power_shelf(self, request).await
-    }
-
     async fn delete_power_shelf(
         &self,
         request: Request<rpc::PowerShelfDeletionRequest>,

@@ -17,7 +17,6 @@
 
 mod decommission;
 mod delete;
-mod delete_decommissioned;
 mod force_delete;
 mod health_report;
 mod list;
@@ -40,11 +39,11 @@ pub(crate) enum Cmd {
     List(list::Args),
     #[clap(about = "Start decommissioning a managed power shelf")]
     Decommission(decommission::Args),
-    #[clap(about = "Permanently delete a decommissioned managed power shelf")]
-    DeleteDecommissioned(delete_decommissioned::Args),
     #[clap(about = "Delete a power shelf")]
     Delete(delete::Args),
-    #[clap(about = "Force delete a power shelf and optionally its interfaces")]
+    #[clap(
+        about = "Force delete a power shelf and optionally its interfaces, retained boot interfaces, and BMC suppressions"
+    )]
     ForceDelete(force_delete::Args),
     #[clap(subcommand, about = "Manage Power Shelf Metadata")]
     Metadata(metadata::Args),

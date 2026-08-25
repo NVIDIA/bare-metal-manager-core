@@ -21,7 +21,6 @@ use db::{ObjectColumnFilter, power_shelf as db_power_shelf};
 use health_report::HealthReportApplyMode;
 use model::bmc_suppression::BmcSuppressionSubsystem;
 use model::metadata::Metadata;
-use model::power_shelf::{PowerShelfControllerState, PowerShelfDecommissioningState};
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -144,64 +143,6 @@ pub(crate) async fn decommission_power_shelf(
     Ok(Response::new(rpc::DecommissionPowerShelfResponse {}))
 }
 
-pub(crate) async fn delete_decommissioned_power_shelf(
-    api: &Api,
-    request: Request<rpc::DeleteDecommissionedPowerShelfRequest>,
-) -> Result<Response<rpc::DeleteDecommissionedPowerShelfResponse>, Status> {
-    log_request_data(&request);
-    let power_shelf_id = request
-        .into_inner()
-        .power_shelf_id
-        .ok_or_else(|| CarbideError::InvalidArgument("power_shelf_id is required".to_string()))?;
-
-    let mut txn = api.txn_begin().await?;
-    let power_shelf = db_power_shelf::find_by_id(&mut txn, &power_shelf_id)
-        .await?
-        .ok_or_else(|| CarbideError::NotFoundError {
-            kind: "power_shelf",
-            id: power_shelf_id.to_string(),
-        })?;
-
-    if !matches!(
-        power_shelf.controller_state.value,
-        PowerShelfControllerState::Decommissioning {
-            decommissioning_state: PowerShelfDecommissioningState::Decommissioned,
-        }
-    ) {
-        return Err(CarbideError::FailedPrecondition(format!(
-            "power shelf {} must be in the decommissioned state before deletion (current state: {:?})",
-            power_shelf.id, power_shelf.controller_state.value
-        ))
-        .into());
-    }
-
-    let bmc_mac = power_shelf
-        .bmc_info
-        .as_ref()
-        .and_then(|info| info.mac)
-        .or(power_shelf.bmc_mac_address)
-        .ok_or_else(|| CarbideError::Internal {
-            message: format!("power shelf {} has no BMC MAC address", power_shelf.id),
-        })?;
-
-    let interfaces =
-        db::machine_interface::find_by_power_shelf_id(&mut txn, &power_shelf_id).await?;
-    for interface in &interfaces {
-        db::machine_interface::delete(&interface.id, &mut txn).await?;
-        db::retained_boot_interface::take_by_mac(&mut txn, interface.mac_address, None).await?;
-    }
-
-    db::bmc_suppression::delete_many(&mut txn, &[bmc_mac], BmcSuppressionSubsystem::SiteExplorer)
-        .await?;
-    db::bmc_suppression::delete_many(&mut txn, &[bmc_mac], BmcSuppressionSubsystem::Dhcp).await?;
-
-    db_power_shelf::final_delete(power_shelf_id, &mut txn).await?;
-    txn.commit().await?;
-    Ok(Response::new(
-        rpc::DeleteDecommissionedPowerShelfResponse {},
-    ))
-}
-
 pub(crate) async fn find_ids(
     api: &Api,
     request: Request<rpc::PowerShelfSearchFilter>,
@@ -307,7 +248,8 @@ pub(crate) async fn delete_power_shelf(
     Ok(Response::new(rpc::PowerShelfDeletionResult {}))
 }
 
-/// Force deletes a power shelf and optionally its associated interfaces from the database.
+/// Force deletes a power shelf and optionally its associated interfaces,
+/// retained boot interfaces, and BMC suppressions from the database.
 /// Unlike `delete_power_shelf` (soft delete), this immediately hard-deletes the power shelf
 /// while retaining its state history.
 pub(crate) async fn admin_force_delete_power_shelf(
@@ -324,34 +266,59 @@ pub(crate) async fn admin_force_delete_power_shelf(
     let mut txn = api.txn_begin().await?;
 
     // Verify the power shelf exists.
-    let power_shelf_list = db_power_shelf::find_by(
-        &mut txn,
-        db::ObjectColumnFilter::One(db_power_shelf::IdColumn, &power_shelf_id),
-    )
-    .await
-    .map_err(CarbideError::from)?;
-
-    if power_shelf_list.is_empty() {
-        return Err(CarbideError::NotFoundError {
+    let power_shelf = db_power_shelf::find_by_id(&mut txn, &power_shelf_id)
+        .await
+        .map_err(CarbideError::from)?
+        .ok_or_else(|| CarbideError::NotFoundError {
             kind: "power_shelf",
             id: power_shelf_id.to_string(),
+        })?;
+
+    let interfaces = if request.delete_interfaces || request.delete_retained_boot_interfaces {
+        db::machine_interface::find_by_power_shelf_id(&mut txn, &power_shelf_id)
+            .await
+            .map_err(CarbideError::from)?
+    } else {
+        Vec::new()
+    };
+
+    let mut interfaces_deleted: u32 = 0;
+    for interface in &interfaces {
+        if request.delete_interfaces {
+            db::machine_interface::delete(&interface.id, &mut txn)
+                .await
+                .map_err(CarbideError::from)?;
+            interfaces_deleted += 1;
         }
-        .into());
+        if request.delete_retained_boot_interfaces {
+            db::retained_boot_interface::take_by_mac(&mut txn, interface.mac_address, None)
+                .await
+                .map_err(CarbideError::from)?;
+        }
     }
 
-    // Optionally delete associated machine interfaces.
-    let mut interfaces_deleted: u32 = 0;
-    if request.delete_interfaces {
-        let interface_ids =
-            db::machine_interface::find_ids_by_power_shelf_id(&mut txn, &power_shelf_id)
-                .await
-                .map_err(CarbideError::from)?;
-        for interface_id in &interface_ids {
-            db::machine_interface::delete(interface_id, &mut txn)
-                .await
-                .map_err(CarbideError::from)?;
-        }
-        interfaces_deleted = interface_ids.len() as u32;
+    if request.delete_bmc_suppressions {
+        let bmc_mac = power_shelf
+            .bmc_info
+            .as_ref()
+            .and_then(|info| info.mac)
+            .or(power_shelf.bmc_mac_address)
+            .ok_or_else(|| {
+                CarbideError::FailedPrecondition(format!(
+                    "power shelf {power_shelf_id} has no BMC MAC address; cannot delete BMC suppressions"
+                ))
+            })?;
+
+        db::bmc_suppression::delete_many(
+            &mut txn,
+            &[bmc_mac],
+            BmcSuppressionSubsystem::SiteExplorer,
+        )
+        .await
+        .map_err(CarbideError::from)?;
+        db::bmc_suppression::delete_many(&mut txn, &[bmc_mac], BmcSuppressionSubsystem::Dhcp)
+            .await
+            .map_err(CarbideError::from)?;
     }
 
     // Hard-delete the power shelf.

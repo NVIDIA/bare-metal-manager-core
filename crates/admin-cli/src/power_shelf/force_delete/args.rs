@@ -28,6 +28,10 @@ Force delete a power shelf:
 Force delete a power shelf and its machine interfaces:
     $ nico-admin-cli power-shelf force-delete 12345678-1234-5678-90ab-cdef01234567 --delete-interfaces
 
+Force delete a power shelf with full interface and BMC cleanup:
+    $ nico-admin-cli power-shelf force-delete 12345678-1234-5678-90ab-cdef01234567 \
+    --delete-interfaces --delete-retained-boot-interfaces --delete-bmc-suppressions
+
 ")]
 pub(crate) struct Args {
     #[clap(help = "Power Shelf ID to force delete.")]
@@ -40,4 +44,18 @@ pub(crate) struct Args {
         help = "Delete machine interfaces associated with this power shelf."
     )]
     pub(super) delete_interfaces: bool,
+
+    #[clap(
+        long,
+        action,
+        help = "Delete retained boot interface records for interface MACs belonging to this power shelf."
+    )]
+    pub(super) delete_retained_boot_interfaces: bool,
+
+    #[clap(
+        long,
+        action,
+        help = "Delete BMC suppressions (site explorer and DHCP) for this power shelf BMC MAC."
+    )]
+    pub(super) delete_bmc_suppressions: bool,
 }

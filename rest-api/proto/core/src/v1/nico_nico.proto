@@ -106,10 +106,9 @@ service Forge {
   rpc FindPowerShelvesByIds(PowerShelvesByIdsRequest) returns (PowerShelfList);
   // Starts the decommissioning workflow for a Ready managed power shelf.
   rpc DecommissionPowerShelf(DecommissionPowerShelfRequest) returns (DecommissionPowerShelfResponse);
-  // Permanently removes a managed power shelf after decommissioning has completed.
-  rpc DeleteDecommissionedPowerShelf(DeleteDecommissionedPowerShelfRequest) returns (DeleteDecommissionedPowerShelfResponse);
   rpc DeletePowerShelf(PowerShelfDeletionRequest) returns (PowerShelfDeletionResult);
-  // Force deletes a Power Shelf and optionally its associated interfaces from the database.
+  // Force deletes a Power Shelf and optionally its associated interfaces,
+  // retained boot interfaces, and BMC suppressions from the database.
   rpc AdminForceDeletePowerShelf(AdminForceDeletePowerShelfRequest) returns (AdminForceDeletePowerShelfResponse);
   // Request a maintenance operation (PowerOn / PowerOff) for a Power Shelf.
   // When the power shelf is in Ready state, the power shelf state controller
@@ -2279,13 +2278,6 @@ message DecommissionPowerShelfRequest {
 }
 
 message DecommissionPowerShelfResponse {
-}
-
-message DeleteDecommissionedPowerShelfRequest {
-  common.PowerShelfId power_shelf_id = 1;
-}
-
-message DeleteDecommissionedPowerShelfResponse {
 }
 
 message PowerShelfDeletionRequest {
@@ -9476,12 +9468,20 @@ message AdminForceDeleteSwitchResponse {
   uint32 interfaces_deleted = 2;
 }
 
-// Force deletes a Power Shelf and optionally its associated interfaces.
+// Force deletes a Power Shelf and optionally its associated interfaces,
+// retained boot interfaces, and BMC suppressions.
 message AdminForceDeletePowerShelfRequest {
   // The Power Shelf ID to force delete.
   common.PowerShelfId power_shelf_id = 1;
   // Should we delete the machine interfaces associated with this power shelf?
   bool delete_interfaces = 2;
+  // Should we delete retained boot interface records for this power shelf's
+  // interface MACs? Pair with delete_interfaces when permanently removing a
+  // shelf so interface deletion does not leave retained boot pairs behind.
+  bool delete_retained_boot_interfaces = 3;
+  // Should we delete BMC suppressions (site explorer and DHCP) for this power
+  // shelf's BMC MAC?
+  bool delete_bmc_suppressions = 4;
 }
 
 message AdminForceDeletePowerShelfResponse {
