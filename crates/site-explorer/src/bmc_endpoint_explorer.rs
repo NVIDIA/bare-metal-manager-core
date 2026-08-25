@@ -770,7 +770,8 @@ impl EndpointExplorer for BmcEndpointExplorer {
                             | RedfishVendor::NvidiaGBx00
                             | RedfishVendor::LenovoGB300
                             | RedfishVendor::VeraRubin
-                    ) => {
+                    ) =>
+                    {
                         const MAX_AUTH_RETRIES: u32 = 5;
 
                         let previous_count = last_exploration_error
