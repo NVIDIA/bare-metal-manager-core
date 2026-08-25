@@ -23,7 +23,7 @@ tests:
           pattern: 'discovery_retry_interval = "60s"'
       - matchRegex:
           path: data["mat.toml"]
-          pattern: "acceleration_factor = 1"
+          pattern: '(?m)^acceleration_factor = 1$'
 
   - it: should allow compact log output
     set:
@@ -116,7 +116,7 @@ tests:
           pattern: '\[machines\.rack-machines\]'
       - matchRegex:
           path: data["mat.toml"]
-          pattern: "acceleration_factor = 0.02"
+          pattern: '(?m)^acceleration_factor = 0.02$'
 
   - it: should render racks and machines together
     set:
@@ -165,7 +165,7 @@ tests:
           pattern: 'discovery_retry_interval = "7s"'
       - matchRegex:
           path: data["mat.toml"]
-          pattern: "acceleration_factor = 0.05"
+          pattern: '(?m)^acceleration_factor = 0.05$'
 
   - it: should allow a per-machine-group acceleration factor
     set:
@@ -179,7 +179,7 @@ tests:
     asserts:
       - matchRegex:
           path: data["mat.toml"]
-          pattern: "acceleration_factor = 0"
+          pattern: '(?m)^acceleration_factor = 0$'
 
   - it: should not include enable_ipmi_simulation by default
     asserts:
