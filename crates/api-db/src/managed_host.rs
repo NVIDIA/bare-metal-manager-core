@@ -83,25 +83,32 @@ pub async fn load_host_ids(txn: impl DbReader<'_>) -> Result<Vec<MachineId>, Dat
 }
 
 /// Finds managed hosts in a rack that are assigned to instances.
+///
+/// Locks every machine row in the rack until this transaction commits.
 pub async fn find_assigned_hosts_in_rack(
     txn: &mut PgConnection,
     rack_id: &RackId,
 ) -> Result<Vec<(MachineId, InstanceId)>, DatabaseError> {
-    sqlx::query_as(
+    let rows: Vec<(MachineId, Option<InstanceId>)> = sqlx::query_as(
         r#"
         SELECT m.id, i.id
         FROM machines m
-        INNER JOIN instances i ON i.machine_id = m.id
+        LEFT JOIN instances i ON i.machine_id = m.id
         WHERE m.rack_id = $1
-          AND NOT starts_with(m.id, $2)
         ORDER BY m.id
+        FOR UPDATE OF m
         "#,
     )
     .bind(rack_id)
-    .bind(MachineType::Dpu.id_prefix())
     .fetch_all(txn)
     .await
-    .map_err(|e| DatabaseError::new("managed_host::find_assigned_hosts_in_rack", e))
+    .map_err(|e| DatabaseError::new("managed_host::find_assigned_hosts_in_rack", e))?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|(machine_id, instance_id)| {
+            instance_id.map(|instance_id| (machine_id, instance_id))
+        })
+        .collect())
 }
 
 /// Loads ManagedHost snapshots from the database for all enumerated machines
