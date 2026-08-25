@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-//! Set a machine's boot interface by promoting the chosen interface to the
-//! machine's primary -- the designation `pick_boot_interface` keys on. A thin
-//! front for the same `SetPrimaryInterface` RPC behind
+//! Set a managed host's boot interface by promoting the chosen interface to
+//! the host's primary -- the designation `pick_boot_interface` keys on. A
+//! thin front for the same `SetPrimaryInterface` RPC behind
 //! `managed-host set-primary-interface`: the server commits the selected row
 //! and desired target together, then machine-controller converges Redfish.
 //! The only client-side work is resolving an operator-entered MAC to its

@@ -173,6 +173,7 @@ data:
     ids = {{ $section.ids | toJson }}
     dpu_reboot_delay = {{ $section.dpu_reboot_delay | default $defaults.dpuRebootDelay | int }}
     host_reboot_delay = {{ $section.host_reboot_delay | default $defaults.hostRebootDelay | int }}
+    acceleration_factor = {{ $section.acceleration_factor | default $defaults.accelerationFactor | default 1.0 }}
     discovery_retry_interval = {{ $section.discovery_retry_interval | default $defaults.discoveryRetryInterval | default "60s" | quote }}
     oob_dhcp_relay_address = {{ $section.oob_dhcp_relay_address | quote }}
     admin_dhcp_relay_address = {{ $section.admin_dhcp_relay_address | quote }}
@@ -191,6 +192,7 @@ data:
     dpu_per_host_count = {{ $section.dpuPerHostCount | default 0 }}
     dpu_reboot_delay = {{ $section.dpuRebootDelay | default $defaults.dpuRebootDelay | default 1 }}
     host_reboot_delay = {{ $section.hostRebootDelay | default $defaults.hostRebootDelay | default 1 }}
+    acceleration_factor = {{ $section.accelerationFactor | default $defaults.accelerationFactor | default 1.0 }}
     scout_run_interval = {{ $section.scoutRunInterval | default $defaults.scoutRunInterval | default "60s" | quote }}
     discovery_retry_interval = {{ $section.discoveryRetryInterval | default $defaults.discoveryRetryInterval | default "60s" | quote }}
     run_interval_working = {{ $section.runIntervalWorking | default $defaults.runIntervalWorking | default "1s" | quote }}

@@ -2788,7 +2788,7 @@ async fn test_polling_bios_setup_full_recovery_reruns_machine_setup_and_succeeds
     assert!(
         actions
             .iter()
-            .any(|action| matches!(action, RedfishSimAction::BmcReset)),
+            .any(|action| matches!(action, RedfishSimAction::BmcReset(_))),
         "expected BMC reset during stuck HostInit/PollingBiosSetup recovery, got: {actions:?}"
     );
     assert!(
@@ -3827,6 +3827,247 @@ async fn test_assigned_periodic_boot_interface_drift_defers_convergence(pool: sq
         .actions_since(&redfish_checkpoint)
         .all_hosts();
     assert_read_only_boot_interface_observation(&redfish_actions);
+}
+
+async fn load_test_host(env: &TestEnv, managed_host: &TestManagedHost) -> model::machine::Machine {
+    let mut txn = env.db_txn().await;
+    managed_host.host().db_machine(&mut txn).await
+}
+
+/// A pending tenant iPXE handoff retries without resetting its Ready retry budget.
+#[crate::sqlx_test]
+async fn test_assigned_ready_retries_pending_provisioning_boot(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let mh = create_managed_host(&env).await;
+
+    let mut os = default_os_config();
+    os.phone_home_enabled = true;
+    mh.instance_builer(&env)
+        .config(rpc::InstanceConfig {
+            tenant: Some(default_tenant_config()),
+            os: Some(os),
+            network: Some(single_interface_network_config(segment_id)),
+            infiniband: None,
+            nvlink: None,
+            spxconfig: None,
+            network_security_group_id: None,
+            dpu_extension_services: None,
+            power_profile: None,
+        })
+        .build()
+        .await;
+
+    let host = load_test_host(&env, &mh).await;
+    let initial_reboot_request = host
+        .status
+        .last_reboot_requested
+        .as_ref()
+        .expect("instance provisioning should have requested a reboot")
+        .time;
+    // Test retry periods are clamped to one minute. Age Ready five minutes while leaving the last
+    // request two minutes old so this retry lands on the fourth round, where the shared policy
+    // would otherwise start a separate power off and power on sequence.
+    update_time_params(
+        &env.pool,
+        &host,
+        5,
+        Some(initial_reboot_request - Duration::minutes(2)),
+    )
+    .await;
+
+    backdate_boot_interface_observation(&env, &mh).await;
+    env.redfish_sim.set_is_bios_setup(true);
+    env.redfish_sim.set_is_boot_order_setup(true);
+    let redfish_checkpoint = env.redfish_sim.timepoint();
+    env.run_machine_state_controller_iteration().await;
+    let redfish_actions = env
+        .redfish_sim
+        .actions_since(&redfish_checkpoint)
+        .all_hosts();
+    assert_read_only_boot_interface_observation(&redfish_actions);
+
+    let host_before_retry = load_test_host(&env, &mh).await;
+    let prior_reboot_request = host_before_retry
+        .status
+        .last_reboot_requested
+        .as_ref()
+        .unwrap()
+        .time;
+    let redfish_checkpoint = env.redfish_sim.timepoint();
+    env.run_machine_state_controller_iteration().await;
+    let redfish_actions = env
+        .redfish_sim
+        .actions_since(&redfish_checkpoint)
+        .all_hosts();
+    assert_eq!(
+        redfish_actions
+            .iter()
+            .filter(|action| matches!(
+                action,
+                RedfishSimAction::Power(libredfish::SystemPowerControl::ForceRestart)
+            ))
+            .count(),
+        1,
+        "expected one provisioning boot retry, got: {redfish_actions:?}"
+    );
+    assert!(
+        redfish_actions.iter().all(|action| !matches!(
+            action,
+            RedfishSimAction::Power(libredfish::SystemPowerControl::ForceOff)
+        )),
+        "provisioning retries must not power the host off: {redfish_actions:?}"
+    );
+
+    let host_after_retry = load_test_host(&env, &mh).await;
+    assert_eq!(
+        host_after_retry.current_state(),
+        &ManagedHostState::Assigned {
+            instance_state: InstanceState::Ready,
+        }
+    );
+    assert_eq!(
+        host_after_retry.current_version(),
+        host_before_retry.current_version(),
+        "retrying must not reset the budget derived from Ready entry time"
+    );
+    assert!(
+        host_after_retry
+            .status
+            .last_reboot_requested
+            .as_ref()
+            .unwrap()
+            .time
+            > prior_reboot_request
+    );
+    assert!(
+        host_after_retry
+            .status
+            .last_reboot_requested
+            .as_ref()
+            .unwrap()
+            .restart_verified
+            .is_none(),
+        "the provisioning retry must not arm generic restart verification"
+    );
+    assert!(matches!(
+        host_after_retry.controller_state_outcome.as_ref(),
+        Some(PersistentStateHandlerOutcome::Wait { reason, .. })
+            if reason.starts_with("Waiting for instance provisioning boot.")
+    ));
+
+    let redfish_checkpoint = env.redfish_sim.timepoint();
+    env.run_machine_state_controller_iteration().await;
+    let redfish_actions = env
+        .redfish_sim
+        .actions_since(&redfish_checkpoint)
+        .all_hosts();
+    assert!(
+        redfish_actions
+            .iter()
+            .all(|action| !matches!(action, RedfishSimAction::Power(_))),
+        "a fresh retry timestamp must prevent another power action, got: {redfish_actions:?}"
+    );
+
+    // Exercise a failure before the lower Redfish helper can queue its reboot timestamp.
+    // Removing the live address makes client creation fail before any power action is attempted.
+    let successful_reboot_request = host_after_retry
+        .status
+        .last_reboot_requested
+        .as_ref()
+        .unwrap()
+        .time;
+    update_time_params(
+        &env.pool,
+        &host_after_retry,
+        7,
+        Some(successful_reboot_request - Duration::minutes(2)),
+    )
+    .await;
+    let bmc_address = host_after_retry
+        .bmc_addr()
+        .expect("fixture host should have a BMC address")
+        .ip();
+    let mut txn = env.db_txn().await;
+    let host_before_failed_attempt = mh.host().db_machine(&mut txn).await;
+    let prior_failed_attempt = host_before_failed_attempt
+        .status
+        .last_reboot_requested
+        .as_ref()
+        .unwrap()
+        .time;
+    let bmc_interface = db::machine_interface_address::find_by_address(txn.as_mut(), bmc_address)
+        .await
+        .unwrap()
+        .expect("fixture BMC address should have an owner");
+    db::machine::update_restart_verification_status(
+        &mh.host().id,
+        *host_before_failed_attempt
+            .status
+            .last_reboot_requested
+            .as_ref()
+            .unwrap(),
+        Some(false),
+        0,
+        txn.as_mut(),
+    )
+    .await
+    .unwrap();
+    assert!(
+        db::machine_interface_address::delete_by_interface_and_address(
+            txn.as_mut(),
+            bmc_interface.id,
+            bmc_address,
+            bmc_interface.allocation_type,
+        )
+        .await
+        .unwrap()
+    );
+    txn.commit().await.unwrap();
+
+    env.run_machine_state_controller_iteration().await;
+
+    let host_after_failed_attempt = load_test_host(&env, &mh).await;
+    let failed_attempt_recorded_at = host_after_failed_attempt
+        .status
+        .last_reboot_requested
+        .as_ref()
+        .unwrap()
+        .time;
+    assert!(failed_attempt_recorded_at > prior_failed_attempt);
+    assert!(
+        host_after_failed_attempt
+            .status
+            .last_reboot_requested
+            .as_ref()
+            .unwrap()
+            .restart_verified
+            .is_none(),
+        "failed retry backoff must not restore stale restart verification"
+    );
+    assert!(matches!(
+        host_after_failed_attempt.controller_state_outcome.as_ref(),
+        Some(PersistentStateHandlerOutcome::Wait { reason, .. })
+            if reason.starts_with("Failed to retry instance provisioning boot:")
+    ));
+
+    env.run_machine_state_controller_iteration().await;
+    let host_after_backoff = load_test_host(&env, &mh).await;
+    assert_eq!(
+        host_after_backoff
+            .status
+            .last_reboot_requested
+            .as_ref()
+            .unwrap()
+            .time,
+        failed_attempt_recorded_at,
+        "an early Redfish failure must not retry on every controller iteration"
+    );
+    assert!(matches!(
+        host_after_backoff.controller_state_outcome.as_ref(),
+        Some(PersistentStateHandlerOutcome::Wait { reason, .. })
+            if reason.contains("Will attempt next reboot at")
+    ));
 }
 
 /// Locked Supermicro reports a stale boot-order view until an unlock and

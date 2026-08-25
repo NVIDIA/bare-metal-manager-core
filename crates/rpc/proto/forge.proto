@@ -3,6 +3,7 @@ syntax = "proto3";
 package forge;
 
 import "codegen/v1/derive.proto";
+import "codegen/v1/extern_path.proto";
 
 import "common.proto";
 import "dns.proto";
@@ -16,6 +17,15 @@ import "measured_boot.proto";
 import "mlx_device.proto";
 import "scout_firmware_upgrade.proto";
 import "site_explorer.proto";
+
+option (carbide.codegen.v1.imported_extern_path) = {
+  protobuf_type: ".google.protobuf.Duration"
+  rust_type: "crate::Duration"
+};
+option (carbide.codegen.v1.imported_extern_path) = {
+  protobuf_type: ".google.protobuf.Timestamp"
+  rust_type: "crate::Timestamp"
+};
 
 service Forge {
   // What version of Forge is this service running? Matches `--version` command line.
@@ -5324,13 +5334,28 @@ message AdminRebootRequest {
 message AdminRebootResponse {
 }
 
-// Must provide either machine_id or ip/mac pair
+// Must provide exactly one target: bmc_endpoint_request or device_id (the
+// deprecated machine_id is still accepted as sugar for device_id.machine_id).
 message AdminBmcResetRequest {
+  // Redfish Manager.Reset type. Unspecified = per-vendor default
+  // (GracefulRestart for the standard/switch/power-shelf path).
+  enum ResetType {
+    Unspecified = 0;
+    GracefulRestart = 1;
+    ForceRestart = 2;
+  }
+  // A direct BMC endpoint (IP/MAC), resolved server-side. Alternative to device_id.
   optional BmcEndpointRequest bmc_endpoint_request = 1;
-  optional string machine_id = 2;
+  // Deprecated: use device_id (DeviceId.machine_id) instead. Still accepted.
+  optional string machine_id = 2 [deprecated = true];
   // When true, reset the BMC via ipmitool instead of Redfish.
   // ipmitool bmc reset requests may be silently ignored if the BMC is in lockdown mode.
   bool use_ipmitool = 3;
+  // ID of the device that owns the target BMC: a machine (host or DPU BMC), a
+  // switch (switch BMC), or a power shelf (its PMC).
+  common.DeviceId device_id = 4;
+  // Redfish Manager.Reset type. Applies to the Redfish path only (not ipmitool).
+  ResetType reset_type = 5;
 }
 
 message AdminBmcResetResponse {

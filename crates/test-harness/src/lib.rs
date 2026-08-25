@@ -31,7 +31,7 @@ use tokio::task::JoinSet;
 use tokio_util::sync::{CancellationToken, DropGuard};
 use tonic::Request;
 
-use crate::asset::{TestPowerShelf, TestRack, TestSwitch};
+use crate::asset::{TestExpectedSwitch, TestPowerShelf, TestRack, TestSwitch};
 use crate::builder::TestHarnessBuilder;
 use crate::dns::TestDomain;
 use crate::network::controller::TestNetworkController;
@@ -88,11 +88,15 @@ impl TestHarness {
     }
 
     pub async fn test_domain(&self) -> TestDomain {
-        let name = "testharness.example.com";
+        self.create_test_domain("testharness.example.com").await
+    }
+
+    pub async fn create_test_domain(&self, name: impl Into<String>) -> TestDomain {
+        let name = name.into();
         let id = self
             .api
             .create_domain(Request::new(rpc::protos::dns::CreateDomainRequest {
-                name: name.to_string(),
+                name: name.clone(),
             }))
             .await
             .unwrap()
@@ -164,6 +168,14 @@ impl TestHarness {
 
     pub async fn create_switch(&self, slot_number: i32, tray_index: i32) -> TestSwitch {
         TestSwitch::create(self, slot_number, tray_index).await
+    }
+
+    /// Creates an expected-switch fixture through the Forge API.
+    pub async fn create_expected_switch(
+        &self,
+        expected_switch: rpc::forge::ExpectedSwitch,
+    ) -> TestExpectedSwitch {
+        TestExpectedSwitch::create(self, expected_switch).await
     }
 
     pub async fn create_power_shelf(&self) -> TestPowerShelf {

@@ -460,6 +460,8 @@ type APIInstanceCreateRequest struct {
 	MachineID *string `json:"machineId"`
 	// AllowUnhealthyMachine is a flag that can be used to target Machines are in maintenance or have health alerts preventing regular provision flow.
 	AllowUnhealthyMachine *bool `json:"allowUnhealthyMachine"`
+	// PowerProfile is the external power provisioning profile for the Instance.
+	PowerProfile *string `json:"powerProfile"`
 }
 
 // APIBatchInstanceCreateRequest is the data structure to capture request to create multiple instances in a single request
@@ -494,6 +496,8 @@ type APIBatchInstanceCreateRequest struct {
 	PhoneHomeEnabled *bool `json:"phoneHomeEnabled"`
 	// UserData is the user data for the instances
 	UserData *string `json:"userData"`
+	// PowerProfile is the external power provisioning profile for every Instance in the batch.
+	PowerProfile *string `json:"powerProfile"`
 	// Interfaces is the list of Interfaces to create for each instance (shared across all instances).
 	// Mutually exclusive with `AutoNetwork`: when `AutoNetwork` is true this MUST be empty.
 	Interfaces []APIInterfaceCreateOrUpdateRequest `json:"interfaces"`
@@ -539,6 +543,8 @@ func (icr APIInstanceCreateRequest) Validate() error {
 			validationis.UUID.Error(validationErrorInvalidUUID)),
 		validation.Field(&icr.OperatingSystemID,
 			validationis.UUID.Error(validationErrorInvalidUUID)),
+		validation.Field(&icr.PowerProfile,
+			validation.When(icr.PowerProfile != nil, validation.Required.Error("`powerProfile` must not be empty"))),
 		validation.Field(&icr.Interfaces,
 			// When AutoNetwork is true, the Instance has NICo auto-resolve interfaces
 			// from the host's HostInband segments, so the explicit list MUST
@@ -896,6 +902,8 @@ func (bicr APIBatchInstanceCreateRequest) Validate() error {
 			validationis.UUID.Error(validationErrorInvalidUUID)),
 		validation.Field(&bicr.OperatingSystemID,
 			validationis.UUID.Error(validationErrorInvalidUUID)),
+		validation.Field(&bicr.PowerProfile,
+			validation.When(bicr.PowerProfile != nil, validation.Required.Error("`powerProfile` must not be empty"))),
 		validation.Field(&bicr.Interfaces,
 			// When AutoNetwork is true, the batch has NICo auto-resolve interfaces
 			// from the host's HostInband segments, so the explicit list MUST
@@ -1220,6 +1228,8 @@ type APIInstanceUpdateRequest struct {
 	SSHKeyGroupIDs []string `json:"sshKeyGroupIds"`
 	// NetworkSecurityGroupID is the ID of Network Security Group to attach to the Instance
 	NetworkSecurityGroupID *string `json:"networkSecurityGroupId"`
+	// PowerProfile updates the external power provisioning profile. An empty string clears it.
+	PowerProfile *string `json:"powerProfile"`
 }
 
 // Validate the OS against any additional option combinations specified.
@@ -1502,7 +1512,8 @@ func (iur *APIInstanceUpdateRequest) IsUpdateRequest() bool {
 		iur.InfiniBandInterfaces != nil ||
 		iur.NVLinkInterfaces != nil ||
 		iur.SSHKeyGroupIDs != nil ||
-		iur.NetworkSecurityGroupID != nil
+		iur.NetworkSecurityGroupID != nil ||
+		iur.PowerProfile != nil
 }
 
 // IsInterfaceUpdateRequest checks if the request is an instance interface update request
@@ -1812,6 +1823,8 @@ type APIInstance struct {
 	TpmEkCertificate *string `json:"tpmEkCertificate"`
 	// Status is the status of the Instance
 	Status string `json:"status"`
+	// PowerProfile is the external power provisioning profile associated with the Instance.
+	PowerProfile *string `json:"powerProfile"`
 	// AutoNetwork is true when this Instance had its network interfaces
 	// auto-resolved by NICo from the host's HostInband segments. When
 	// true, `Interfaces` reflects the resolved set; the caller's request
@@ -1892,6 +1905,7 @@ func NewAPIInstance(dbinst *cdbm.Instance, dbSite *cdbm.Site, dbiss []cdbm.Inter
 		AutoNetwork:                            dbinst.AutoNetwork,
 		Labels:                                 dbinst.Labels,
 		IsUpdatePending:                        dbinst.IsUpdatePending,
+		PowerProfile:                           dbinst.PowerProfile,
 		Created:                                dbinst.Created,
 		Updated:                                dbinst.Updated,
 	}

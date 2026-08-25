@@ -243,15 +243,11 @@ func (s *SubmitTask) clone() ActionSpec {
 	if s == nil {
 		return nil
 	}
-	cloned := &SubmitTask{
-		TargetStrategy:   s.TargetStrategy,
-		ConflictStrategy: s.ConflictStrategy,
-		Description:      s.Description,
-	}
+	cloned := *s
 	if s.Operation != nil {
 		cloned.Operation = s.Operation.Clone()
 	}
-	return cloned
+	return &cloned
 }
 
 func (s *SubmitTask) validate() error {

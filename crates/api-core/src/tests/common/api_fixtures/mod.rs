@@ -188,6 +188,10 @@ pub(in crate::tests) struct TestEnvOverrides {
     pub(in crate::tests) nmxc_simulator: Option<bool>,
     pub(in crate::tests) redfish_overrides: Option<RedfishOverrides>,
 
+    /// Optional compute-tray backend injected into the component manager.
+    pub(in crate::tests) compute_tray_manager:
+        Option<Arc<dyn component_manager::compute_tray_manager::ComputeTrayManager>>,
+
     /// Optional firmware-object fetcher injected into the rack state handler.
     pub(in crate::tests) firmware_object_fetcher: Option<Arc<dyn FirmwareObjectFetcher>>,
 
@@ -1389,7 +1393,7 @@ pub(in crate::tests) async fn create_test_env_with_overrides(
         .rack_profiles
         .extend(config.rack_profiles.rack_profiles.clone());
 
-    let test_component_manager = component_manager::component_manager::build_component_manager(
+    let mut test_component_manager = component_manager::component_manager::build_component_manager(
         &component_manager::config::ComponentManagerConfig {
             nv_switch_backend: component_manager::nv_switch_manager::Backend::Rms,
             power_shelf_backend: component_manager::power_shelf_manager::Backend::Rms,
@@ -1406,6 +1410,9 @@ pub(in crate::tests) async fn create_test_env_with_overrides(
     )
     .await
     .expect("test component manager should build");
+    if let Some(compute_tray_manager) = overrides.compute_tray_manager.clone() {
+        test_component_manager.compute_tray = compute_tray_manager;
+    }
     let test_component_manager = Some(Arc::new(test_component_manager));
     let fake_endpoint_explorer = MockEndpointExplorer::default();
 

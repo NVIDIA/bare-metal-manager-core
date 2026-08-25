@@ -3709,7 +3709,6 @@ pub struct DefaultCredential {
     _key: String,
 }
 
-#[cfg(test)]
 impl DefaultCredential {
     pub(crate) fn key(&self) -> &str {
         &self._key

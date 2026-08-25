@@ -56,6 +56,8 @@ pub const DOCA_XPLANE_SERVICE_NAME: &str = "doca-xplane";
 pub const DEFAULT_DPU_NUM_OF_VFS: u32 = 16;
 /// Default SF capacity reserved beyond configured NICo-managed service endpoints.
 pub const DEFAULT_PF_TOTAL_SF_RESERVED: u32 = 30;
+/// Fixed SF capacity required by the BF4 Astra flavor.
+pub(crate) const ASTRA_PF_TOTAL_SF: u32 = 40;
 // Keep direct SDK validation aligned with api-core's general BlueField provisioning bound without
 // coupling this lightweight crate to the complete API configuration model.
 pub(crate) const MAX_BLUEFIELD_VFS_PER_PF: u32 = 126;

@@ -362,6 +362,37 @@ func TestNewAPIInstance(t *testing.T) {
 	}
 }
 
+func TestAPIInstancePowerProfile(t *testing.T) {
+	profile := "performance"
+	instance := &cdbm.Instance{PowerProfile: &profile}
+
+	got := NewAPIInstance(instance, nil, nil, nil, nil, nil, nil, nil)
+	require.NotNil(t, got.PowerProfile)
+	assert.Equal(t, profile, *got.PowerProfile)
+	assert.True(t, (&APIInstanceUpdateRequest{PowerProfile: &profile}).IsUpdateRequest())
+}
+
+func TestAPIInstanceUpdateRequest_PowerProfileJSON(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload string
+		want    *string
+	}{
+		{name: "omitted", payload: `{}`},
+		{name: "null", payload: `{"powerProfile":null}`},
+		{name: "clear", payload: `{"powerProfile":""}`, want: cutil.GetPtr("")},
+		{name: "set", payload: `{"powerProfile":"performance"}`, want: cutil.GetPtr("performance")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var request APIInstanceUpdateRequest
+			require.NoError(t, json.Unmarshal([]byte(tt.payload), &request))
+			assert.Equal(t, tt.want, request.PowerProfile)
+		})
+	}
+}
+
 func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 	type fields struct {
 		Name                           string
@@ -1026,6 +1057,71 @@ func TestAPIBatchInstanceCreateRequest_Validate(t *testing.T) {
 				assert.Contains(t, err.Error(), tt.wantErrorMessage)
 			}
 		})
+	}
+}
+
+func TestInstanceCreateRequestsValidatePowerProfile(t *testing.T) {
+	profiles := []struct {
+		name    string
+		value   *string
+		wantErr bool
+	}{
+		{name: "omitted"},
+		{name: "empty", value: cutil.GetPtr(""), wantErr: true},
+		{name: "non-empty", value: cutil.GetPtr("balanced")},
+	}
+
+	validators := []struct {
+		name     string
+		validate func(*string) error
+	}{
+		{
+			name: "single create",
+			validate: func(powerProfile *string) error {
+				return (APIInstanceCreateRequest{
+					Name:              "test-instance",
+					TenantID:          uuid.NewString(),
+					InstanceTypeID:    cutil.GetPtr(uuid.NewString()),
+					VpcID:             uuid.NewString(),
+					OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+					PowerProfile:      powerProfile,
+					Interfaces: []APIInterfaceCreateOrUpdateRequest{
+						{SubnetID: cutil.GetPtr(uuid.NewString())},
+					},
+				}).Validate()
+			},
+		},
+		{
+			name: "batch create",
+			validate: func(powerProfile *string) error {
+				return (APIBatchInstanceCreateRequest{
+					NamePrefix:        "test-batch",
+					Count:             2,
+					TenantID:          uuid.NewString(),
+					InstanceTypeID:    uuid.NewString(),
+					VpcID:             uuid.NewString(),
+					OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+					PowerProfile:      powerProfile,
+					Interfaces: []APIInterfaceCreateOrUpdateRequest{
+						{SubnetID: cutil.GetPtr(uuid.NewString())},
+					},
+				}).Validate()
+			},
+		},
+	}
+
+	for _, validator := range validators {
+		for _, profile := range profiles {
+			t.Run(validator.name+"/"+profile.name, func(t *testing.T) {
+				err := validator.validate(profile.value)
+				if profile.wantErr {
+					require.Error(t, err)
+					assert.Contains(t, err.Error(), "`powerProfile` must not be empty")
+					return
+				}
+				require.NoError(t, err)
+			})
+		}
 	}
 }
 
