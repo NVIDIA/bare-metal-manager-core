@@ -58,8 +58,8 @@ Check:
 
 The parent state determines what this repeated substate name means:
 
-| State | Conditions that must clear |
-|---|---|
+| Parent state | Conditions that must clear |
+| ------------ | -------------------------- |
 | `DPUInit/WaitingForNetworkConfig` | Every DPU agent reports the current managed host network configuration version, and its own report has no `PreventHostStateChanges` alert. NICo can retry a reboot of the DPU being handled while it waits. |
 | `DPUReprovision/WaitingForNetworkConfig` | All reprovision targets reach this stage, all DPUs are up, and every DPU reports the current managed host network configuration version without `PreventHostStateChanges`. NICo can retry a reboot of the DPU being handled while it waits. |
 | `Assigned/WaitingForNetworkConfig` | Instance observations and versions, DPA acknowledgements, aggregate health, the normal PXE signal, InfiniBand, and NVLink satisfy the assigned host readiness policy. |

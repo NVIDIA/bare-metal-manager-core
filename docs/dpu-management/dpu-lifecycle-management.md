@@ -128,9 +128,9 @@ Most DPU OS installation failures are diagnosed from the managed host state, `ni
 | Task exception or unknown state | Redfish | Unexpected Redfish task status. | Inspect the Redfish task messages in `nico-api` logs and confirm the BFB URL served by `nico-pxe`. |
 | rshim ownership conflict | rshim (SCP) | Host holds rshim and the DPU BMC cannot initiate the copy. | Use `--pre-copy-powercycle` when installing a fresh BFB via rshim to release host control first. |
 | DPU never becomes reachable after reboot | UEFI HTTP | DPU failed to PXE boot or kickstart failed. | Check `nico-pxe` logs for the DPU's PXE request. Verify the DPU boot order is set to UEFI HTTP. Check `nico-api` logs for the DPU BMC IP. |
-| Stuck in `WaitingForNetworkInstall` | UEFI HTTP | DPU booted but did not install the OS or `dpu-agent` did not start. | SSH to a systemd DPU via its BMC or rshim and check `journalctl -fu forge-dpu-agent.service`. For DPF, inspect the `nico-dpu-agent` container logs. NICo reboots the DPU automatically if it does not appear within the reboot timeout. |
+| Stuck in `WaitingForNetworkInstall` | UEFI HTTP | DPU booted but did not install the OS or `dpu-agent` did not start. | SSH to a systemd DPU through its BMC or rshim and check `journalctl -fu forge-dpu-agent.service`. For DPF, inspect the `nico-dpu-agent` container logs. NICo reboots the DPU automatically if it does not appear within the reboot timeout. |
 
-For the manual rshim recovery command (which installs the preingestion BFB, not the NICo BFB) and additional pairing troubleshooting, see [DPU-Related Issues: Installing a Fresh DPU OS](../provisioning/ingesting-hosts.md#dpu-related-issues-installing-a-fresh-dpu-os). For the full DPU troubleshooting workflow, see [Waiting for Network Configuration and DPU Health](../playbooks/stuck_objects/waiting_for_network_config.md).
+[DPU-Related Issues: Installing a Fresh DPU OS](../provisioning/ingesting-hosts.md#dpu-related-issues-installing-a-fresh-dpu-os) documents the manual rshim recovery command (which installs the preingestion BFB, not the NICo BFB) and additional pairing troubleshooting. For the full DPU troubleshooting workflow, refer to [Waiting for Network Configuration and DPU Health](../playbooks/stuck_objects/waiting_for_network_config.md).
 
 ## Firmware Upgrades
 
@@ -265,7 +265,7 @@ Key fields to check in the output:
 - **Last seen**: when the DPU last reported to NICo. A stale timestamp suggests the DPU agent has crashed or the DPU is offline.
 - **State SLA**: if the host has been in its current state longer than the SLA, the output shows `In State > SLA: true` with the breach reason.
 
-For the full troubleshooting workflow, including how to check logs via Grafana/Loki, verify DPU liveliness, restart the agent, and diagnose specific health probe alerts, see [Waiting for Network Configuration and DPU Health](../playbooks/stuck_objects/waiting_for_network_config.md).
+[Waiting for Network Configuration and DPU Health](../playbooks/stuck_objects/waiting_for_network_config.md) documents the full troubleshooting workflow. This workflow includes how to check logs using Grafana or Loki, verify DPU liveliness, restart the agent, and diagnose specific health probe alerts.
 
 ## DPU Reprovisioning
 

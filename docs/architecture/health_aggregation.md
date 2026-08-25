@@ -259,12 +259,12 @@ Details can be found in the [Machine Validation guide](../provisioning/machine-v
 SKU validation is a feature in NICo which validates that a host contains all the hardware it is expected to contain by validating it to "conform to a certain SKU".
 The SKU is the definition of hardware components within the host. And the SKU validation workflow compares it to the set of hardware components that have been detected via NICo hardware discovery workflows - which utilize inband data as well as out of band data.
 
-SKU validation can thereby e.g. detect
+SKU validation can thereby detect whether a host has, for example:
 
-- whether a host has the right type of CPU installed
-- whether a host has the right amount of memory installed
-- whether a host has the right type and amount of GPUS installed
-- whether a host has the right type and amount of InfiniBand NICs installed, and whether they are connected to switches
+- The right type of CPU installed
+- The right amount of memory installed
+- The right type and amount of GPUS installed
+- The right type and amount of InfiniBand NICs installed, and whether they are connected to switches
 
 SKU validation runs at the same points in the host lifecycle as machine validation tests, and can also be run on-demand while the host is not assigned to any tenant.
 

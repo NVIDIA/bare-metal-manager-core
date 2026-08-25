@@ -10,14 +10,14 @@ normal PXE boot path during initial instance provisioning.
 continue:
 
 1. The DPU agents acknowledge the current managed host network configuration.
-2. Enabled DPA interfaces acknowledge their current configuration.
-3. Each required DPU reports an instance network observation with the desired
+1. Enabled DPA interfaces acknowledge their current configuration.
+1. Each required DPU reports an instance network observation with the desired
    version.
-4. For a host with associated DPUs, the aggregate health report has no alert
+1. For a host with associated DPUs, the aggregate health report has no alert
    that prevents host state changes.
-5. The primary p0 ToR session has no `BgpPeeringTor` alert with
+1. The primary p0 ToR session has no `BgpPeeringTor` alert with
    `PreventAllocations`.
-6. The required InfiniBand and NVLink configurations are synchronized.
+1. The required InfiniBand and NVLink configurations are synchronized.
 
 `WaitingForRebootToReady` repeats the aggregate health and primary p0 checks
 immediately before the normal PXE `ForceRestart`. This second check catches a

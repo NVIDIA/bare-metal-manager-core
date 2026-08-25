@@ -140,7 +140,7 @@ Indicates an issue with retrieving the list of running services
 
 ### `ServiceRunning`
 
-Indicates that an expected service on the DPU is not running
+Indicates that an expected service on the DPU is not running.
 
 ### `PostConfigCheckWait`
 

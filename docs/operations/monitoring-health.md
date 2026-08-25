@@ -391,7 +391,7 @@ Use Loki to inspect DPU agent logs. Select the query for the deployment path:
 {systemd_unit="nico-dpu-agent", machine_id="<machine-id>"}
 ```
 
-The hostname label can be used when the DPU has not learned its machine ID:
+Use the hostname label when the DPU has not learned its machine ID:
 
 ```logql
 {systemd_unit="forge-dpu-agent.service", host_name="<host-name>"}
