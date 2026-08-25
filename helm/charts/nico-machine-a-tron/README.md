@@ -195,7 +195,7 @@ spec:
     targetPort: 1266  # Redfish listen port from machine-a-tron (default: service.bmcMock.port)
     protocol: TCP
   - name: ipmi        # Only present when IPMI simulation is enabled and BMC reports bmc.ipmi
-    port: 623
+    port: 16023
     targetPort: 16023  # IPMI listen port from machine-a-tron
     protocol: UDP
   selector:
