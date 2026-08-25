@@ -273,12 +273,12 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 	// netip.ParsePrefix accepts host bits (e.g. 10.20.0.1/16). Reject those before any
 	// IPAM mutation; otherwise the equal-length full-grant path can persist FullGrant
 	// with no VpcPrefix when a later soft-skip commits the transaction.
-	canonicalPrefix := reportedPrefix.Masked().String()
-	if reportedPrefix.String() != canonicalPrefix {
-		logger.Warn().Msgf("unable to create VPC Prefix found on Site: Prefix CIDR %s is not in canonical masked form %s", reportedVpcPrefix.Prefix, canonicalPrefix)
+	maskedPrefixCIDR := reportedPrefix.Masked().String()
+	if reportedPrefix.String() != maskedPrefixCIDR {
+		logger.Warn().Msgf("unable to create VPC Prefix found on Site: Prefix CIDR %s is not in canonical masked form %s", reportedVpcPrefix.Prefix, maskedPrefixCIDR)
 		return nil
 	}
-	reportedVpcPrefix.Prefix = canonicalPrefix
+	reportedVpcPrefix.Prefix = maskedPrefixCIDR
 	prefixLength := reportedPrefix.Bits()
 
 	if reportedVpcPrefix.VpcID == uuid.Nil {
@@ -492,7 +492,7 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 		return created, nil
 	})
 	if err != nil {
-		logger.Warn().Err(err).Msg("failed to recover VPC Prefix from Site inventory")
+		logger.Error().Err(err).Msg("failed to recover VPC Prefix from Site inventory")
 		return nil
 	}
 	return vpcPrefix
