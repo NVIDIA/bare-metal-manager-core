@@ -11,9 +11,8 @@ tests:
       - notContains:
           path: spec.template.spec.containers[0].args
           content: --rest-address=0.0.0.0:80
-      - notContains:
-          path: spec.template.spec.containers[0].args
-          content: --compatibility-rest-address=0.0.0.0:7777
+      - notExists:
+          path: 'spec.template.spec.containers[0].args[?(@ =~ /^--compatibility-rest-address=/)]'
 
   - it: should configure the primary and compatibility listeners independently
     set:
