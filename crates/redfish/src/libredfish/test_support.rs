@@ -107,6 +107,8 @@ struct RedfishSimState {
     get_accounts_error: bool,
     /// When set, BMC event-log reads succeed with an empty log.
     bmc_event_log_supported: bool,
+    /// When set, the next BMC event-log read fails with a transient error.
+    bmc_event_log_error_once: bool,
     /// Opt-in password-reuse policy. When on, a password *change* whose new
     /// value equals the account's current password is rejected (`400`), modeling
     /// the real BMCs that refuse a same-value change -- the exact behavior BMC
@@ -411,8 +413,14 @@ impl RedfishSim {
         self.state.lock().unwrap().get_accounts_error = error;
     }
 
+    /// Control whether BMC event-log reads succeed with an empty log.
     pub fn set_bmc_event_log_supported(&self, supported: bool) {
         self.state.lock().unwrap().bmc_event_log_supported = supported;
+    }
+
+    /// Fail the next BMC event-log read with a transient simulated error.
+    pub fn fail_next_bmc_event_log_read(&self) {
+        self.state.lock().unwrap().bmc_event_log_error_once = true;
     }
 
     /// Enable the opt-in password-reuse policy (see
@@ -1611,7 +1619,13 @@ impl Redfish for RedfishSimClient {
     ) -> libredfish::RedfishFuture<'a, Result<Vec<libredfish::model::sel::LogEntry>, RedfishError>>
     {
         Box::pin(async move {
-            if self.state.lock().unwrap().bmc_event_log_supported {
+            let mut state = self.state.lock().unwrap();
+            if std::mem::take(&mut state.bmc_event_log_error_once) {
+                return Err(RedfishError::GenericError {
+                    error: "transient BMC event-log failure".to_string(),
+                });
+            }
+            if state.bmc_event_log_supported {
                 return Ok(Vec::new());
             }
             Err(RedfishError::NotSupported(

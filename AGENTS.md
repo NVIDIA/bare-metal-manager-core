@@ -120,6 +120,9 @@ enumerate every input combination in one table before requesting review.
 For state-machine branch tests, reload persisted state after the controller
 iteration and assert the branch-owned fields or counters. An unchanged visible
 state or absence of an external action does not prove which branch ran.
+For retry tests, inject the claimed transient failure and assert that a later
+iteration retries it. A simulator's default unsupported response does not prove
+transient recovery.
 For user-visible CLI table changes, exercise the public command in a test and
 assert the rendered headers plus populated and empty cell values. Helper-only
 tests do not prove the table contract.

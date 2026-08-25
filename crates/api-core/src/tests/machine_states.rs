@@ -5904,11 +5904,12 @@ async fn test_waiting_for_reboot_restarts_after_power_on_substitution(pool: sqlx
 async fn test_waiting_for_reboot_keeps_transient_bmc_error_retryable(pool: sqlx::PgPool) {
     let (env, mh) = zero_dpu_host_with_instance(pool).await;
     let host_id = mh.host().id;
+    env.redfish_sim.set_bmc_event_log_supported(true);
     set_assigned_state(&env, &host_id, InstanceState::WaitingForRebootToReady).await;
     env.run_machine_state_controller_iteration().await;
 
     let checkpoint = env.redfish_sim.timepoint();
-    env.run_machine_state_controller_iteration().await;
+    env.redfish_sim.fail_next_bmc_event_log_read();
     env.run_machine_state_controller_iteration().await;
 
     assert_eq!(
@@ -5917,6 +5918,21 @@ async fn test_waiting_for_reboot_keeps_transient_bmc_error_retryable(pool: sqlx:
             instance_state: InstanceState::WaitingForRebootToReady,
         }
     );
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    let restart = host.status.last_reboot_requested.unwrap();
+    assert_eq!(restart.restart_verified, Some(false));
+    assert_eq!(restart.verification_attempts, Some(0));
+    txn.commit().await.unwrap();
+
+    env.run_machine_state_controller_iteration().await;
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    let restart = host.status.last_reboot_requested.unwrap();
+    assert_eq!(restart.restart_verified, Some(false));
+    assert_eq!(restart.verification_attempts, Some(1));
+    txn.commit().await.unwrap();
+
     let actions = env.redfish_sim.actions_since(&checkpoint).all_hosts();
     assert!(
         actions
@@ -5924,13 +5940,6 @@ async fn test_waiting_for_reboot_keeps_transient_bmc_error_retryable(pool: sqlx:
             .all(|action| !matches!(action, RedfishSimAction::Power(_))),
         "transient BMC errors must not repeat a power action, got: {actions:?}"
     );
-
-    let mut txn = env.db_txn().await;
-    let host = mh.host().db_machine(&mut txn).await;
-    let restart = host.status.last_reboot_requested.unwrap();
-    assert_eq!(restart.restart_verified, Some(false));
-    assert_eq!(restart.verification_attempts, Some(0));
-    txn.commit().await.unwrap();
 }
 
 #[crate::sqlx_test]
