@@ -29918,6 +29918,7 @@ type CloudInitMetaData struct {
 	InstanceId    string                 `protobuf:"bytes,1,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
 	CloudName     string                 `protobuf:"bytes,2,opt,name=cloud_name,json=cloudName,proto3" json:"cloud_name,omitempty"`
 	Platform      string                 `protobuf:"bytes,3,opt,name=platform,proto3" json:"platform,omitempty"`
+	LocalHostname string                 `protobuf:"bytes,4,opt,name=local_hostname,json=localHostname,proto3" json:"local_hostname,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -29969,6 +29970,13 @@ func (x *CloudInitMetaData) GetCloudName() string {
 func (x *CloudInitMetaData) GetPlatform() string {
 	if x != nil {
 		return x.Platform
+	}
+	return ""
+}
+
+func (x *CloudInitMetaData) GetLocalHostname() string {
+	if x != nil {
+		return x.LocalHostname
 	}
 	return ""
 }
@@ -66520,13 +66528,14 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\v_num_of_vfsB&\n" +
 	"$_host_representor_intercept_bridgingB\r\n" +
 	"\v_hbn_bridgeJ\x04\b\x04\x10\x05J\x04\b\x05\x10\x06J\x04\b\x06\x10\aJ\x04\b\a\x10\bJ\x04\b\b\x10\tJ\x04\b\t\x10\n" +
-	"R\ahbn_sfsR\x18vf_intercept_bridge_nameR\x1ahost_intercept_bridge_nameR\x18vf_intercept_bridge_portR\x1ahost_intercept_bridge_portR\x16vf_intercept_bridge_sf\"o\n" +
+	"R\ahbn_sfsR\x18vf_intercept_bridge_nameR\x1ahost_intercept_bridge_nameR\x18vf_intercept_bridge_portR\x1ahost_intercept_bridge_portR\x16vf_intercept_bridge_sf\"\x96\x01\n" +
 	"\x11CloudInitMetaData\x12\x1f\n" +
 	"\vinstance_id\x18\x01 \x01(\tR\n" +
 	"instanceId\x12\x1d\n" +
 	"\n" +
 	"cloud_name\x18\x02 \x01(\tR\tcloudName\x12\x1a\n" +
-	"\bplatform\x18\x03 \x01(\tR\bplatform\".\n" +
+	"\bplatform\x18\x03 \x01(\tR\bplatform\x12%\n" +
+	"\x0elocal_hostname\x18\x04 \x01(\tR\rlocalHostname\".\n" +
 	"\x1cCloudInitInstructionsRequest\x12\x0e\n" +
 	"\x02ip\x18\x01 \x01(\tR\x02ip\"\xac\x03\n" +
 	"\x15CloudInitInstructions\x12/\n" +
