@@ -111,6 +111,7 @@ func (mei ManageExpectedMachine) UpdateExpectedMachinesInDB(ctx context.Context,
 		}
 		machineID := lm.MachineId.Id
 		if machineID == "" {
+			logger.Error().Str("BMC MAC", lm.BmcMacAddress).Msg("received linked Machine with empty ID, skipping")
 			continue
 		}
 		linkedMachineCandidatesByBmcMac[lm.BmcMacAddress] = machineID
