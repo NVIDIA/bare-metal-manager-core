@@ -176,6 +176,29 @@ func (s *PostgresStore) ListTasks(
 	return results, total, nil
 }
 
+// ListNonTerminalTasksForRacks returns Waiting, Pending, and Running tasks for
+// the requested racks.
+func (s *PostgresStore) ListNonTerminalTasksForRacks(
+	ctx context.Context,
+	rackIDs []uuid.UUID,
+) ([]*taskdef.Task, error) {
+	taskDaos, err := model.ListTasksForRacksByStatus(
+		ctx,
+		s.pg.DB,
+		rackIDs,
+		taskcommon.NonTerminalTaskStatuses(),
+	)
+	if err != nil {
+		return nil, errors.GRPCErrorInternal(err.Error())
+	}
+
+	results := make([]*taskdef.Task, 0, len(taskDaos))
+	for i := range taskDaos {
+		results = append(results, dao.TaskFrom(&taskDaos[i]))
+	}
+	return results, nil
+}
+
 // UpdateScheduledTask updates task scheduling information.
 func (s *PostgresStore) UpdateScheduledTask(
 	ctx context.Context,

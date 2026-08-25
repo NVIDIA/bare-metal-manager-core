@@ -56,6 +56,7 @@ type Tray struct {
 	RackId *string `json:"rackId,omitempty"`
 	// ID of the NVLink Domain containing this Tray's Rack. Null when the Rack is not assigned to an NVLink Domain.
 	NvLinkDomainId NullableString `json:"nvLinkDomainId"`
+	TaskStats      TaskStats      `json:"taskStats"`
 }
 
 type _Tray Tray
@@ -64,9 +65,10 @@ type _Tray Tray
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewTray(nvLinkDomainId NullableString) *Tray {
+func NewTray(nvLinkDomainId NullableString, taskStats TaskStats) *Tray {
 	this := Tray{}
 	this.NvLinkDomainId = nvLinkDomainId
+	this.TaskStats = taskStats
 	return &this
 }
 
@@ -584,6 +586,30 @@ func (o *Tray) SetNvLinkDomainId(v string) {
 	o.NvLinkDomainId.Set(&v)
 }
 
+// GetTaskStats returns the TaskStats field value
+func (o *Tray) GetTaskStats() TaskStats {
+	if o == nil {
+		var ret TaskStats
+		return ret
+	}
+
+	return o.TaskStats
+}
+
+// GetTaskStatsOk returns a tuple with the TaskStats field value
+// and a boolean to check if the value has been set.
+func (o *Tray) GetTaskStatsOk() (*TaskStats, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return &o.TaskStats, true
+}
+
+// SetTaskStats sets field value
+func (o *Tray) SetTaskStats(v TaskStats) {
+	o.TaskStats = v
+}
+
 func (o Tray) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -640,6 +666,7 @@ func (o Tray) ToMap() (map[string]interface{}, error) {
 		toSerialize["rackId"] = o.RackId
 	}
 	toSerialize["nvLinkDomainId"] = o.NvLinkDomainId.Get()
+	toSerialize["taskStats"] = o.TaskStats
 	return toSerialize, nil
 }
 
@@ -649,6 +676,7 @@ func (o *Tray) UnmarshalJSON(data []byte) (err error) {
 	// that every required field exists as a key in the generic map.
 	requiredProperties := []string{
 		"nvLinkDomainId",
+		"taskStats",
 	}
 
 	allProperties := make(map[string]interface{})

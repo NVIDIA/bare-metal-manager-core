@@ -1250,7 +1250,7 @@ paths:
 
         Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix, and the Site must belong to that Provider and have NICo Flow enabled.
 
-        Setting `activeOnly=true` restricts the result to tasks in a non-terminal state (`Pending`, `Running`, or `Waiting`). Results are ordered by creation time descending, then Task UUID descending, before pagination. The `X-Pagination` response header reports the total count over the post-filter set.
+        Setting `activeOnly=true` restricts the result to tasks in a non-terminal REST state (`Pending` or `Running`). Results are ordered by creation time descending, then Task UUID descending, before pagination. The `X-Pagination` response header reports the total count over the post-filter set.
 
         By default the `report` field is omitted from each Task in the response. Set `includeReport=true` to include it; this is opt-in because report bodies can be several KB.
       parameters:
@@ -10976,6 +10976,9 @@ paths:
                       description: Primary compute rack
                       nvLinkDomainIds:
                         - 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
+                      taskStats:
+                        pendingTaskCount: 0
+                        activeTaskCount: 0
                       location:
                         region: us-east-1
                         datacenter: DC-01
@@ -11062,6 +11065,9 @@ paths:
                     description: Primary compute rack
                     nvLinkDomainIds:
                       - 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
+                    taskStats:
+                      pendingTaskCount: 0
+                      activeTaskCount: 0
                     location:
                       region: us-east-1
                       datacenter: DC-01
@@ -11699,7 +11705,7 @@ paths:
         for backward compatibility; prefer this path for new clients.
 
         Cancellation is best-effort and idempotent: tasks in non-terminal
-        states (`Pending`, `Running`, `Waiting`) are marked `Terminated`
+        states (`Pending`, `Running`) are marked `Terminated`
         and any underlying Temporal workflow is terminated. Cancelling an
         already-`Terminated` task returns the same task without changes.
         Tasks that have already finished (`Succeeded` or `Failed`) cannot
@@ -12816,7 +12822,7 @@ paths:
 
         Tasks are site-scoped; `siteId` must be the Site that owns the Rack. Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-        Filters compose with AND: setting `activeOnly=true` restricts the result to tasks that are still in a non-terminal state (`Pending`, `Running`, `Waiting`). Results are ordered by creation time descending, then Task UUID descending, before pagination; the `X-Pagination` response header reports the total count over the post-filter set.
+        Filters compose with AND: setting `activeOnly=true` restricts the result to tasks that are still in a non-terminal REST state (`Pending` or `Running`). Results are ordered by creation time descending, then Task UUID descending, before pagination; the `X-Pagination` response header reports the total count over the post-filter set.
 
         By default the `report` field is omitted from each task in the response. Set `includeReport=true` to include it; this is opt-in because report bodies can be several KB and pulling them across the list path persists the full payload in each caller-side workflow record. Single-task `GET /rack/task/{id}` and `POST /rack/task/{id}/cancel` always include the report.
       parameters:
@@ -13004,6 +13010,9 @@ paths:
                         hostId: 1
                       rackId: 550e8400-e29b-41d4-a716-446655440000
                       nvLinkDomainId: 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
+                      taskStats:
+                        pendingTaskCount: 0
+                        activeTaskCount: 0
           headers:
             X-Pagination:
               schema:
@@ -13072,6 +13081,9 @@ paths:
                       hostId: 1
                     rackId: 550e8400-e29b-41d4-a716-446655440000
                     nvLinkDomainId: 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
+                    taskStats:
+                      pendingTaskCount: 0
+                      activeTaskCount: 0
         '403':
           $ref: '#/components/responses/ForbiddenError'
         '404':
@@ -13494,7 +13506,7 @@ paths:
 
         Tasks are site-scoped; `siteId` must be the Site that owns the Tray. Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-        Filters compose with AND: setting `activeOnly=true` restricts the result to tasks that are still in a non-terminal state (`Pending`, `Running`, `Waiting`). Results are ordered by creation time descending, then Task UUID descending, before pagination; the `X-Pagination` response header reports the total count over the post-filter set.
+        Filters compose with AND: setting `activeOnly=true` restricts the result to tasks that are still in a non-terminal REST state (`Pending` or `Running`). Results are ordered by creation time descending, then Task UUID descending, before pagination; the `X-Pagination` response header reports the total count over the post-filter set.
 
         By default the `report` field is omitted from each task in the response. Set `includeReport=true` to include it; this is opt-in because report bodies can be several KB and pulling them across the list path persists the full payload in each caller-side workflow record. Single-task `GET /rack/task/{id}` and `POST /rack/task/{id}/cancel` always include the report.
       parameters:
@@ -22467,6 +22479,7 @@ components:
       description: Rack represents a physical rack in the datacenter
       required:
         - nvLinkDomainIds
+        - taskStats
       examples:
         - id: 550e8400-e29b-41d4-a716-446655440000
           name: Rack-01
@@ -22476,6 +22489,9 @@ components:
           description: Primary compute rack
           nvLinkDomainIds:
             - 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
+          taskStats:
+            pendingTaskCount: 0
+            activeTaskCount: 0
           location:
             region: us-east-1
             datacenter: DC-01
@@ -22531,6 +22547,8 @@ components:
           description: Components within the Rack. Only returned when includeComponents is true.
           items:
             $ref: '#/components/schemas/RackComponent'
+        taskStats:
+          $ref: '#/components/schemas/TaskStats'
     RackLocation:
       title: RackLocation
       type: object
@@ -22717,6 +22735,7 @@ components:
       description: 'Tray represents a component within a rack (e.g. compute node, NVSwitch, power shelf)'
       required:
         - nvLinkDomainId
+        - taskStats
       examples:
         - id: 660e8400-e29b-41d4-a716-446655440001
           componentId: fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
@@ -22738,6 +22757,9 @@ components:
               ipAddress: 192.168.1.100
           rackId: 550e8400-e29b-41d4-a716-446655440000
           nvLinkDomainId: 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
+          taskStats:
+            pendingTaskCount: 3
+            activeTaskCount: 1
       properties:
         id:
           type: string
@@ -22809,6 +22831,8 @@ components:
             - 'null'
           format: uuid
           description: ID of the NVLink Domain containing this Tray's Rack. Null when the Rack is not assigned to an NVLink Domain.
+        taskStats:
+          $ref: '#/components/schemas/TaskStats'
     TrayPosition:
       title: TrayPosition
       type: object
@@ -23084,7 +23108,6 @@ components:
           enum:
             - Unknown
             - Pending
-            - Waiting
             - Running
             - Succeeded
             - Failed
@@ -23159,6 +23182,27 @@ components:
                   - componentType: PowerShelf
                     status: skipped
                     totalComponents: 0
+    TaskStats:
+      title: TaskStats
+      type: object
+      description: |-
+        Counts of non-terminal tasks currently associated with a rack or tray.
+        Rack stats include component-scoped tasks on the rack; tray stats
+        include only tasks that explicitly target the tray.
+      required:
+        - pendingTaskCount
+        - activeTaskCount
+      properties:
+        pendingTaskCount:
+          type: integer
+          format: uint32
+          minimum: 0
+          description: Number of associated tasks in Waiting or Pending state.
+        activeTaskCount:
+          type: integer
+          format: uint32
+          minimum: 0
+          description: Number of associated tasks in Running state.
     OperationRule:
       title: OperationRule
       type: object

@@ -51,7 +51,7 @@ The same handler is also mounted at `/v2/org/{org}/nico/rack/task/{id}/cancel`
 for backward compatibility; prefer this path for new clients.
 
 Cancellation is best-effort and idempotent: tasks in non-terminal
-states (`Pending`, `Running`, `Waiting`) are marked `Terminated`
+states (`Pending`, `Running`) are marked `Terminated`
 and any underlying Temporal workflow is terminated. Cancelling an
 already-`Terminated` task returns the same task without changes.
 Tasks that have already finished (`Succeeded` or `Failed`) cannot
@@ -253,7 +253,7 @@ List all Tasks created in the specified Site, across every Rack and Tray.
 
 Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix, and the Site must belong to that Provider and have NICo Flow enabled.
 
-Setting `activeOnly=true` restricts the result to tasks in a non-terminal state (`Pending`, `Running`, or `Waiting`). Results are ordered by creation time descending, then Task UUID descending, before pagination. The `X-Pagination` response header reports the total count over the post-filter set.
+Setting `activeOnly=true` restricts the result to tasks in a non-terminal REST state (`Pending` or `Running`). Results are ordered by creation time descending, then Task UUID descending, before pagination. The `X-Pagination` response header reports the total count over the post-filter set.
 
 By default the `report` field is omitted from each Task in the response. Set `includeReport=true` to include it; this is opt-in because report bodies can be several KB.
 
