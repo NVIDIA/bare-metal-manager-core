@@ -6487,6 +6487,93 @@ async fn test_dpf_topology_rejects_unselected_vf_on_create_and_update(
     txn.rollback().await.unwrap();
 }
 
+/// Verifies the pre-DPF HBN selection gates both allocation and network replacement.
+#[crate::sqlx_test]
+async fn test_pre_dpf_hbn_inventory_rejects_unselected_vf_on_create_and_update(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let mut config = get_config();
+    config.dpf.enabled = false;
+    config.dpu_config.num_of_vfs = 16;
+    config.vmaas_config = Some(VmaasConfig {
+        allow_instance_vf: true,
+        hbn_reps: Some("pf0hpf,pf0vf0-pf0vf13,pf1hpf".to_string()),
+        bridging: None,
+    });
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+    let managed_host = create_managed_host(&env).await;
+    let segment_ids = env.create_vpc_and_tenant_segments(2).await;
+
+    // VF14 is supported by the configured hardware population but absent from HBN's selection.
+    let mut network_with_unselected_vf =
+        single_interface_network_config_with_vfs(segment_ids.clone());
+    network_with_unselected_vf.interfaces[1].virtual_function_id = Some(14);
+    let create_error = env
+        .api
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(managed_host.id)
+                .config(
+                    InstanceConfig::default_tenant_and_os()
+                        .network(network_with_unselected_vf.clone()),
+                )
+                .tonic_request(),
+        )
+        .await
+        .expect_err("a VF absent from the pre-DPF HBN selection must not be allocated");
+    assert!(create_error.message().contains(
+        "virtual function VF14 is not present in the effective pre-DPF DPU interface inventory"
+    ));
+
+    // A PF-only instance remains valid; adding VF14 must fail without staging the replacement.
+    let instance = managed_host
+        .instance_builer(&env)
+        .single_interface_network_config(segment_ids[0])
+        .build()
+        .await;
+    let update_error = env
+        .api
+        .update_instance_config(tonic::Request::new(
+            rpc::forge::InstanceConfigUpdateRequest {
+                instance_id: instance.rpc_instance().await.rpc_id(),
+                if_version_match: None,
+                config: Some(rpc::InstanceConfig {
+                    tenant: Some(default_tenant_config()),
+                    os: Some(default_os_config()),
+                    network: Some(network_with_unselected_vf),
+                    infiniband: None,
+                    network_security_group_id: None,
+                    dpu_extension_services: None,
+                    nvlink: None,
+                    spxconfig: None,
+                    power_profile: None,
+                }),
+                metadata: Some(rpc::forge::Metadata {
+                    name: "pre-dpf-hbn-update".to_string(),
+                    description: String::new(),
+                    labels: vec![],
+                }),
+            },
+        ))
+        .await
+        .expect_err("a VF absent from the pre-DPF HBN selection must not be staged");
+    assert!(update_error.message().contains(
+        "virtual function VF14 is not present in the effective pre-DPF DPU interface inventory"
+    ));
+
+    let mut txn = env.db_txn().await;
+    assert!(
+        instance
+            .db_instance(&mut txn)
+            .await
+            .update_network_config_request
+            .is_none()
+    );
+    txn.rollback().await.unwrap();
+}
+
 /// Verifies raw protobuf VF identities cannot alias selected topology VFs during conversion.
 #[crate::sqlx_test]
 async fn test_public_instance_endpoints_reject_out_of_range_wire_vfs(

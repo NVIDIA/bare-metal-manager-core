@@ -66,7 +66,7 @@ use crate::instance::{
     InstanceAllocationRequest, allocate_ib_port_guid, allocate_instance, allocate_network,
     allocate_spx_port_mac, ib_memberships_from_config, load_extension_services,
     load_ib_partition_pkeys, validate_ib_partition_ownership, validate_instance_extension_services,
-    validate_instance_vfs_against_dpf_topology, validate_os_definition_usable,
+    validate_instance_vfs_against_effective_dpu_inventory, validate_os_definition_usable,
     validate_spx_partition_ownership,
 };
 use crate::{CarbideError, CarbideResult};
@@ -1619,7 +1619,7 @@ async fn update_instance_network_config(
                 .unwrap_or(true),
         )
         .map_err(CarbideError::from)?;
-    validate_instance_vfs_against_dpf_topology(network, runtime_config)?;
+    validate_instance_vfs_against_effective_dpu_inventory(network, runtime_config)?;
     validate_instance_interface_routing_profiles(txn, network, runtime_config.fnn.as_ref()).await?;
 
     // Allocate IPs and add them to the network config

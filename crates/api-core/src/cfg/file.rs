@@ -4456,7 +4456,9 @@ pub struct VmaasConfig {
     #[serde(default = "default_to_true")]
     pub allow_instance_vf: bool,
 
-    /// Select which representors from the configured VF population HBN is expected to use.
+    /// Comma-separated representors HBN is expected to use from the configured VF population.
+    /// Pre-DPF instance admission recognizes individual `pf0vfN` entries and inclusive
+    /// `pf0vfN-pf0vfM` ranges. An omitted or empty value uses HBN's VF0 through VF13 fallback.
     pub hbn_reps: Option<String>,
 
     /// Provisioning-time topology for bridges inserted between host representors and HBN.
