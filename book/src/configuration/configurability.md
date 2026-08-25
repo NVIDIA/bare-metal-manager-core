@@ -689,6 +689,7 @@ These don't fit any sub-section but show up in production tuning:
 | `max_find_by_ids` | `100` | Increase if scripts paginate batch lookups; raise the API-side limit to match the client. |
 | `compute_allocation_enforcement` | `WarnOnly` | Switch to `Enforce` once tenant compute pools are sized correctly — flips over-allocation from a warning to a refusal. |
 | `bmc_session_lockout_threshold` | `3` | Number of consecutive 401/403s from a BMC before NICo stops session-token logins for that BMC. Raise on environments with flaky BMC firmware. |
+| `bmc_max_sessions_per_caller` | `4` | Cap on outstanding Redfish sessions per calling service identity per BMC; a `GetBmcCredentials` mint past the cap revokes that caller's oldest sessions. Size to the caller's replica count plus headroom; values below 1 are treated as 1. |
 | `min_dpu_functioning_links` | unset | Minimum healthy DPU links for a machine to report `Healthy`. Unset = all links required. |
 | `set_http_boot_uri_for_vendors` | `[]` | Vendors for which the state controller pins UEFI HTTP Boot URL on the BMC via Redfish. Empty = rely on DHCP option 67. |
 | `x86_pxe_boot_url_override` / `arm_pxe_boot_url_override` | unset | Override the default `nico-pxe` boot URL by architecture. Useful when chaining through an external HTTP boot artifact server. |
