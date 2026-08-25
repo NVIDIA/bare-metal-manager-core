@@ -349,8 +349,12 @@ pub(crate) trait BmcSessionStore: Send + Sync {
         session_odata_id: &str,
     ) -> Result<(), BmcSessionError>;
 
+    /// Deletes one session row, scoped to its owner so a delete racing an
+    /// [`BmcSessionStore::insert`] takeover of a reused `@odata.id` cannot
+    /// remove the new owner's row.
     async fn delete_session(
         &self,
+        spiffe_service_id: &str,
         bmc_mac: MacAddress,
         session_odata_id: &str,
     ) -> Result<(), BmcSessionError>;
@@ -404,6 +408,7 @@ impl BmcSessionStore for PgBmcSessionStore {
 
     async fn delete_session(
         &self,
+        spiffe_service_id: &str,
         bmc_mac: MacAddress,
         session_odata_id: &str,
     ) -> Result<(), BmcSessionError> {
@@ -412,9 +417,14 @@ impl BmcSessionStore for PgBmcSessionStore {
             .acquire()
             .await
             .map_err(|err| BmcSessionError::Store(err.to_string()))?;
-        bmc_redfish_session::delete_session(conn.as_mut(), bmc_mac, session_odata_id)
-            .await
-            .map_err(|err| BmcSessionError::Store(err.to_string()))
+        bmc_redfish_session::delete_session(
+            conn.as_mut(),
+            spiffe_service_id,
+            bmc_mac,
+            session_odata_id,
+        )
+        .await
+        .map_err(|err| BmcSessionError::Store(err.to_string()))
     }
 
     async fn delete_by_mac(&self, bmc_mac: MacAddress) -> Result<(), BmcSessionError> {
@@ -646,7 +656,7 @@ impl BmcSessionManager {
             // no longer describes a live session.
             if let Err(err) = self
                 .store
-                .delete_session(bmc_mac, &session_id.to_string())
+                .delete_session(spiffe_service_id, bmc_mac, &session_id.to_string())
                 .await
             {
                 carbide_instrument::emit(BmcSessionCleanupFailed {
@@ -951,11 +961,14 @@ mod tests {
 
         async fn delete_session(
             &self,
+            spiffe_service_id: &str,
             bmc_mac: MacAddress,
             session_odata_id: &str,
         ) -> Result<(), BmcSessionError> {
             self.rows.lock().await.retain(|row| {
-                row.bmc_mac_address != bmc_mac || row.session_odata_id != session_odata_id
+                row.spiffe_service_id != spiffe_service_id
+                    || row.bmc_mac_address != bmc_mac
+                    || row.session_odata_id != session_odata_id
             });
             Ok(())
         }
@@ -992,6 +1005,7 @@ mod tests {
 
         async fn delete_session(
             &self,
+            _spiffe_service_id: &str,
             _bmc_mac: MacAddress,
             _session_odata_id: &str,
         ) -> Result<(), BmcSessionError> {
@@ -1269,7 +1283,7 @@ mod tests {
         store.insert("svc", bmc_mac, "/sessions/v2").await.unwrap();
 
         store
-            .delete_session(bmc_mac, "/sessions/v1")
+            .delete_session("svc", bmc_mac, "/sessions/v1")
             .await
             .expect("in-memory delete never fails");
 

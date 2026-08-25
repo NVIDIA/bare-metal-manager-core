@@ -83,17 +83,24 @@ pub async fn insert(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
-/// Deletes one session row by its BMC and `@odata.id`. No-op if the row does
-/// not exist.
+/// Deletes one session row, scoped to its owner. No-op if the row does not
+/// exist -- including when [`insert`] has transferred the row to another
+/// identity in the meantime (a reused `@odata.id`): the new owner's row is
+/// the only revocation handle for its live session and must survive a stale
+/// delete racing the takeover.
 pub async fn delete_session(
     txn: &mut PgConnection,
+    spiffe_service_id: &str,
     bmc_mac: MacAddress,
     session_odata_id: &str,
 ) -> DatabaseResult<()> {
     let query = "DELETE FROM bmc_redfish_sessions
-                       WHERE bmc_mac_address = $1 AND session_odata_id = $2";
+                       WHERE spiffe_service_id = $1
+                         AND bmc_mac_address = $2
+                         AND session_odata_id = $3";
 
     sqlx::query(query)
+        .bind(spiffe_service_id)
         .bind(bmc_mac)
         .bind(session_odata_id)
         .execute(txn)
@@ -306,17 +313,41 @@ mod tests {
             .await
             .unwrap();
 
-        delete_session(txn.as_mut(), bmc, "/sessions/1")
+        delete_session(txn.as_mut(), "svc", bmc, "/sessions/1")
             .await
             .unwrap();
         // Deleting again is a no-op, matching best-effort revocation.
-        delete_session(txn.as_mut(), bmc, "/sessions/1")
+        delete_session(txn.as_mut(), "svc", bmc, "/sessions/1")
             .await
             .unwrap();
 
         let rows = find_by_owner(txn.as_mut(), "svc", bmc).await.unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].session_odata_id, "/sessions/2");
+    }
+
+    // A delete queued by one identity's cap pass must not remove the row
+    // after `insert` has handed it to a new owner: that row is the only
+    // revocation handle for the new owner's live session.
+    #[crate::sqlx_test]
+    async fn delete_session_is_a_noop_after_an_ownership_takeover(pool: sqlx::PgPool) {
+        let mut txn = pool.begin().await.unwrap();
+        let bmc = mac(7);
+
+        insert(txn.as_mut(), "svc-old", bmc, "/sessions/1")
+            .await
+            .unwrap();
+        // The BMC reused the id; the new mint took the row over.
+        insert(txn.as_mut(), "svc-new", bmc, "/sessions/1")
+            .await
+            .unwrap();
+
+        delete_session(txn.as_mut(), "svc-old", bmc, "/sessions/1")
+            .await
+            .unwrap();
+
+        let rows = find_by_owner(txn.as_mut(), "svc-new", bmc).await.unwrap();
+        assert_eq!(rows.len(), 1, "the new owner's row must survive");
     }
 
     // A conflicting row describes a session the BMC has already replaced, so

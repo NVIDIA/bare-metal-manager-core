@@ -5541,10 +5541,10 @@ mod tests {
             config.bmc_session_lockout_threshold,
             default_bmc_session_lockout_threshold()
         );
-        assert_eq!(
-            config.bmc_max_sessions_per_caller,
-            default_bmc_max_sessions_per_caller()
-        );
+        // The literal, not the helper: this pins the documented default so a
+        // drive-by change to the helper cannot silently diverge from the
+        // config docs.
+        assert_eq!(config.bmc_max_sessions_per_caller, 4);
         assert!(
             !config.allow_bmc_basic_auth_fallback,
             "allow_bmc_basic_auth_fallback must default to false to preserve \
