@@ -174,6 +174,28 @@ machine, context, plugin revision, deadline, and site-defined parameters. The
 result declares `pass`, `fail`, or `error` with a short summary and optional
 findings.
 
+Scout writes the input file; the configured plugin entrypoint reads it. In many
+images, a site-owned adapter is that entrypoint: it reads the framework input,
+passes the site-defined parameters to the validation tool, and writes the
+framework result. The run, attempt, machine, context, plugin, and deadline
+fields are framework metadata that an adapter can use for log correlation or to
+stop its own work before the deadline. The `parameters` object is the normal
+place for values the validation itself uses, such as an expected GPU count.
+Machine Validation does not interpret plugin-specific parameters.
+
+### **3.2.1 Plugin Author Input Checklist**
+
+A plugin author reads only the fields needed by that plugin:
+
+1. Check that `contractVersion` is supported.
+2. Read `parameters` for site-defined, non-secret validation settings.
+3. Use `deadline` to stop work before the framework timeout where practical.
+4. Optionally include `runId`, `runItemId`, and `attempt` in diagnostic logs.
+5. Use `machineId`, `context`, and `plugin` only when the validation needs them.
+6. Do not modify the input file, expect credentials in it, or treat its values as
+   shell text. The plugin must write its final outcome to the result file; logs
+   never determine the outcome.
+
 The input and result each include a required `contractVersion`, initially `v1`.
 NICo publishes JSON Schemas for that version with the API contract and validates
 the result before accepting it. Compatible additions use the same version;
