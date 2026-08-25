@@ -20,10 +20,13 @@
 use std::collections::BTreeMap;
 use std::net::IpAddr;
 
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::Condition;
 use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use serde::{Deserialize, Serialize};
 
-use crate::crds::dpus_generated::DpuStatusPhase;
+use crate::crds::dpus_generated::{
+    DpuStatusAgentStatus, DpuStatusOperationalConditions, DpuStatusPhase,
+};
 
 /// Async provider for BMC passwords used to create and refresh the K8s BMC
 /// secret. Implement this trait to supply credentials dynamically (e.g. from
@@ -885,6 +888,16 @@ pub struct DpuSummary {
     pub spec_dpu_node_name: String,
     pub status_phase: Option<String>,
     pub status_bfb_file: Option<String>,
+    /// `status.conditions`, verbatim. `phase` alone says where a DPU is, not
+    /// why it is stuck there; the conditions carry the reason and message.
+    pub status_conditions: Option<Vec<Condition>>,
+    /// `status.operationalConditions`, verbatim. Separate from `conditions`:
+    /// these describe the DPU's health once provisioned, rather than the
+    /// progress of provisioning itself.
+    pub status_operational_conditions: Option<Vec<DpuStatusOperationalConditions>>,
+    /// `status.agentStatus`, verbatim. What the DPU-side agent reports about
+    /// itself, including its own conditions, kubelet version, and reboot state.
+    pub status_agent_status: Option<DpuStatusAgentStatus>,
 }
 
 /// Service version resolved from a DPUDeployment's services and their DPUServiceTemplate CRs.

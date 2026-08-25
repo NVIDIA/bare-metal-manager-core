@@ -2736,6 +2736,12 @@ impl<R: DpuNodeRepository + DpuDeviceRepository + DpuRepository, L> DpfSdk<R, L>
                     spec_dpu_node_name: d.spec.dpu_node_name.clone(),
                     status_phase: d.status.as_ref().map(|s| format!("{:?}", s.phase)),
                     status_bfb_file: d.status.as_ref().and_then(|s| s.bfb_file.clone()),
+                    status_conditions: d.status.as_ref().and_then(|s| s.conditions.clone()),
+                    status_operational_conditions: d
+                        .status
+                        .as_ref()
+                        .and_then(|s| s.operational_conditions.clone()),
+                    status_agent_status: d.status.as_ref().and_then(|s| s.agent_status.clone()),
                 });
             }
         }
