@@ -185,6 +185,22 @@ func (mde ManageDpuExtensionService) UpdateDpuExtensionServicesInDB(ctx context.
 			activeVersions = controllerDpuExtensionService.ActiveVersions
 		}
 
+		// Core reconciles a DPF Helm chart asynchronously, so its lifecycle state owns the
+		// status and supersedes the presence-based status above. Without a usable state the
+		// stored status is kept rather than inferred from the service being reported.
+		if dpuExtensionService.ServiceType == cdbm.DpuExtensionServiceServiceTypeDpfHelmChart {
+			status = nil
+			statusMessage = nil
+
+			coreStatus, cerr := cdbm.DpuExtensionServiceStatusFromLifecycleStatus(controllerDpuExtensionService.LifecycleStatus)
+			if cerr != nil {
+				slogger.Error().Err(cerr).Msg("failed to derive DPU Extension Service status from Core lifecycle status")
+			} else if coreStatus != dpuExtensionService.Status {
+				status = cutil.GetPtr(coreStatus)
+				statusMessage = cutil.GetPtr(fmt.Sprintf("Core reports DPU Extension Service in %s status", coreStatus))
+			}
+		}
+
 		needsUpdate := status != nil ||
 			isMissingOnSite != nil ||
 			version != nil ||
@@ -237,7 +253,7 @@ func (mde ManageDpuExtensionService) UpdateDpuExtensionServicesInDB(ctx context.
 			continue
 		}
 
-		// If the DPU Extension Service was already being deleted, we can proceed with removing it from the DB
+		// If the DPU Extension Service was already deleting, we can proceed with removing it from the DB
 		if dpuExtensionService.Status == cdbm.DpuExtensionServiceStatusDeleting {
 			// The DPU Extension Service was being deleted, so delete it from DB
 			err := dpuExtensionServiceDAO.Delete(ctx, nil, dpuExtensionService.ID)

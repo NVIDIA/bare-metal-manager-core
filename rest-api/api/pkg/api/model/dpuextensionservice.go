@@ -4,6 +4,8 @@
 package model
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -11,6 +13,8 @@ import (
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
+	k8scorev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/yaml"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
@@ -21,6 +25,10 @@ import (
 const (
 	// DpuExtensionServiceTypeKubernetesPod is the service type for Kubernetes Pod
 	DpuExtensionServiceTypeKubernetesPod = "KubernetesPod"
+	// DpuExtensionServiceTypeDpfHelmChart is the service type for a DPF-managed Helm chart
+	DpuExtensionServiceTypeDpfHelmChart = "DpfHelmChart"
+	// DpuExtensionServiceMaxDataBytes is the max size of the deployment spec, matching the Core limit
+	DpuExtensionServiceMaxDataBytes = 131072
 	// DpuExtensionServiceMaxObservabilityConfigs is the max number of observability configs allowed per service version
 	DpuExtensionServiceMaxObservabilityConfigs = 20
 	// DpuExtensionServiceMaxObservabilityConfigNameLength is the max length for an observability config name
@@ -33,6 +41,44 @@ var (
 	dpuExtensionServiceObservabilityPromEndpointBadRE = regexp.MustCompile(`[^a-zA-Z0-9:\-]+`)
 	dpuExtensionServiceObservabilityLogPathBadRE      = regexp.MustCompile(`[^a-zA-Z0-9\-_\/\.\@]+`)
 )
+
+// ValidatePodYaml checks that the given bytes are a Kubernetes Pod specification
+func ValidatePodYaml(yamlData []byte) error {
+	var pod k8scorev1.Pod
+
+	if err := yaml.Unmarshal(yamlData, &pod); err != nil {
+		return fmt.Errorf("failed to parse yaml: %w", err)
+	}
+
+	if pod.Kind != "" && pod.Kind != "Pod" {
+		return fmt.Errorf("invalid kind: expected 'Pod', got %q", pod.Kind)
+	}
+
+	if len(pod.Spec.Containers) == 0 {
+		return errors.New("pod spec must contain at least one container")
+	}
+
+	return nil
+}
+
+// ValidateDpfHelmChartData checks that the given bytes are a DPF Helm chart definition
+func ValidateDpfHelmChartData(jsonData []byte) error {
+	var chart struct {
+		RepoURL      string `json:"repoURL"`
+		ChartName    string `json:"chartName"`
+		ChartVersion string `json:"chartVersion"`
+	}
+
+	if err := json.Unmarshal(jsonData, &chart); err != nil {
+		return fmt.Errorf("failed to parse json: %w", err)
+	}
+
+	if chart.RepoURL == "" || chart.ChartName == "" || chart.ChartVersion == "" {
+		return errors.New("chart definition must specify repoURL, chartName, and chartVersion")
+	}
+
+	return nil
+}
 
 // APIDpuExtensionServiceCreateRequest is the data structure to capture user request to create a new DpuExtensionService
 type APIDpuExtensionServiceCreateRequest struct {
@@ -61,13 +107,27 @@ func (descr *APIDpuExtensionServiceCreateRequest) Validate() error {
 			validation.Length(2, 256).Error(validationErrorStringLength)),
 		validation.Field(&descr.ServiceType,
 			validation.Required.Error(validationErrorValueRequired),
-			validation.In(DpuExtensionServiceTypeKubernetesPod).Error("must be 'KubernetesPod'")),
+			validation.In(
+				DpuExtensionServiceTypeKubernetesPod,
+				DpuExtensionServiceTypeDpfHelmChart,
+			).Error("must be 'KubernetesPod' or 'DpfHelmChart'")),
 		validation.Field(&descr.SiteID,
 			validation.Required.Error(validationErrorValueRequired),
 			validationis.UUID.Error(validationErrorInvalidUUID)),
 		validation.Field(&descr.Data,
-			validation.Required.Error(validationErrorValueRequired)),
+			validation.Required.Error(validationErrorValueRequired),
+			validation.Length(0, DpuExtensionServiceMaxDataBytes).Error(fmt.Sprintf("must not exceed %d bytes", DpuExtensionServiceMaxDataBytes))),
 	)
+	if err != nil {
+		return err
+	}
+
+	switch descr.ServiceType {
+	case DpuExtensionServiceTypeKubernetesPod:
+		err = ValidatePodYaml([]byte(descr.Data))
+	case DpuExtensionServiceTypeDpfHelmChart:
+		err = ValidateDpfHelmChartData([]byte(descr.Data))
+	}
 	if err != nil {
 		return err
 	}
@@ -111,6 +171,8 @@ func (desur *APIDpuExtensionServiceUpdateRequest) Validate() error {
 			validation.When(desur.Name != nil, validation.Required.Error(validationErrorStringLength)),
 			validation.When(desur.Name != nil, validation.By(util.ValidateNameCharacters)),
 			validation.When(desur.Name != nil, validation.Length(2, 256).Error(validationErrorStringLength))),
+		validation.Field(&desur.Data,
+			validation.When(desur.Data != nil, validation.Length(0, DpuExtensionServiceMaxDataBytes).Error(fmt.Sprintf("must not exceed %d bytes", DpuExtensionServiceMaxDataBytes)))),
 	)
 	if err != nil {
 		return err
@@ -201,6 +263,8 @@ func (descr *APIDpuExtensionServiceCreateRequest) ToProto(serviceID, tenantOrg s
 	}
 	if descr.ServiceType == DpuExtensionServiceTypeKubernetesPod {
 		req.ServiceType = corev1.DpuExtensionServiceType_KUBERNETES_POD
+	} else {
+		req.ServiceType = corev1.DpuExtensionServiceType_DPF_HELM_CHART
 	}
 	return req
 }
