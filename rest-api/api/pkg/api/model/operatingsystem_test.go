@@ -534,6 +534,23 @@ func TestAPIOperatingSystemUpdateRequest_ValidateAndSetUserData(t *testing.T) {
 		CreatedBy:        uuid.New(),
 	}
 
+	// Phone-home is enabled and the stored user-data has a phone-home URL,
+	// but it is not the default one.
+	existingPhoneHomeEnabledOSStaleURL := &cdbm.OperatingSystem{
+		ID:         uuid.New(),
+		Name:       "ab",
+		IpxeScript: cutil.GetPtr("original ipxe"),
+		UserData: cutil.GetPtr(`#cloud-config
+package_update: true
+phone_home:
+  url: http://169.254.169.254:7777/latest/meta-data/phone_home
+  post: all`),
+		PhoneHomeEnabled: true,
+		Status:           cdbm.OperatingSystemStatusReady,
+		Type:             cdbm.OperatingSystemTypeIPXE,
+		CreatedBy:        uuid.New(),
+	}
+
 	existingPhoneHomeEnabledOSUserdataNil := &cdbm.OperatingSystem{
 		ID:               uuid.New(),
 		Name:             "ab",
@@ -609,6 +626,22 @@ func TestAPIOperatingSystemUpdateRequest_ValidateAndSetUserData(t *testing.T) {
 			wantErr:      false,
 			phoneHomeUrl: "http://localhost/local",
 			existingOS:   existingPhoneHomeEnabledOS,
+		},
+		{
+			name: "test valid Operating System PhoneHome disabled update request when existing OS has enabled and its stored phone-home URL is stale",
+			fields: fields{
+				Name:              "test-name",
+				Description:       cutil.GetPtr("Test description"),
+				OperatingSystemID: cutil.GetPtr(existingPhoneHomeEnabledOSStaleURL.ID.String()),
+				UserData:          nil,
+				PhoneHomeEnabled:  cutil.GetPtr(false),
+			},
+			wantErr:      false,
+			phoneHomeUrl: "http://169.254.169.254/latest/meta-data/phone_home",
+			// NICo authored the block, so it is removed by key without
+			// matching the URL: neither the key nor the stale URL survives.
+			userDataNegativeSearches: []string{"phone_home", "169.254.169.254:7777"},
+			existingOS:               existingPhoneHomeEnabledOSStaleURL,
 		},
 		{
 			name: "test valid PhoneHome enabled, request userData is nil, existing OS userdata is nil, and existing OS has phonehome enabled",
