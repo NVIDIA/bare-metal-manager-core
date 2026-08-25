@@ -1,5 +1,5 @@
 ---
-tags: ["next", "machine-a-tron", "redfish"]
+tags: ["next", "dpu", "machine-a-tron", "networking", "provisioning", "redfish"]
 ---
 
 ## NVIDIA Infra Controller v2.1 <Badge intent="launch">Next</Badge>
@@ -13,6 +13,24 @@ Placeholder text.
 ### Feature 2
 
 Placeholder text.
+
+### DPU ToR Health and PXE Readiness
+
+NICo now waits for a new health report after an HBN configuration change and
+checks the primary p0 session again immediately before the normal PXE restart.
+This prevents the premature host restart seen in `v2.1.0-rc.8` while p0 was
+still recovering. A failed redundant p1 session no longer blocks host state
+changes.
+
+At the default `min_dpu_functioning_links = 2`, a failed p1 session remains
+visible but does not prevent allocation or block host state changes. A failed
+p0 session prevents allocation and normal PXE provisioning. Loss of both
+sessions prevents allocation and blocks host state changes.
+
+No configuration change is required. An existing value of `1` can remain to
+suppress the redundant p1 alert, or operators can remove it to restore the
+default alert visibility. Refer to [DPU ToR Uplink Health](https://docs.nvidia.com/infra-controller/documentation/operations-day-2/dpu-management/dpu-configuration#dpu-tor-uplink-health)
+for the full policy.
 
 ### Validation & Testing
 
