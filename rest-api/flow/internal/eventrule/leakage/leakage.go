@@ -11,7 +11,7 @@ import (
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/target"
-	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/rack"
 	"github.com/google/uuid"
 )
@@ -47,11 +47,11 @@ func RegisterTargetResolvers(
 	return registry.Register(
 		TypeHardwareLeakDetected,
 		eventrule.TargetStrategyAffectedComponents,
-		resolver.resolveAffectedComponents,
+		resolver,
 	)
 }
 
-func (r *targetResolver) resolveAffectedComponents(
+func (r *targetResolver) Resolve(
 	ctx context.Context,
 	request target.ResolveRequest,
 ) ([]target.Target, error) {
@@ -61,8 +61,9 @@ func (r *targetResolver) resolveAffectedComponents(
 		return r.resolveAffectedComponentsInRack(ctx, resource)
 	case eventrule.ResourceKindRack:
 		resolved := target.Target{
-			Kind: eventrule.ResourceKindRack,
-			ID:   resource.RackID,
+			Kind:   eventrule.ResourceKindRack,
+			ID:     resource.RackID,
+			RackID: resource.RackID,
 		}
 		return []target.Target{resolved}, nil
 	default:
@@ -92,8 +93,9 @@ func (r *targetResolver) resolveAffectedComponentsInRack(
 	targets := make([]target.Target, 0, len(ids))
 	for _, id := range ids {
 		resolved := target.Target{
-			Kind: eventrule.ResourceKindComponent,
-			ID:   id,
+			Kind:   eventrule.ResourceKindComponent,
+			ID:     id,
+			RackID: resource.RackID,
 		}
 		targets = append(targets, resolved)
 	}
@@ -141,8 +143,8 @@ func affectedComponentIDs(resolvedRack *rack.Rack, sourceID uuid.UUID) ([]uuid.U
 }
 
 // DefaultRule returns the immutable safety fallback for leakage events.
-func DefaultRule() eventrule.Rule {
-	return eventrule.Rule{
+func DefaultRule() *eventrule.Rule {
+	return &eventrule.Rule{
 		ID:          defaultRuleID,
 		Origin:      eventrule.RuleOriginBuiltIn,
 		Name:        "Default leakage response",
@@ -154,8 +156,9 @@ func DefaultRule() eventrule.Rule {
 				{
 					Name: "power_off_affected_components",
 					Spec: &eventrule.SubmitTask{
-						OperationType:    taskcommon.TaskTypePowerControl,
-						OperationCode:    taskcommon.OpCodePowerControlForcePowerOff,
+						Operation: &operations.PowerControlTaskInfo{
+							Operation: operations.PowerOperationForcePowerOff,
+						},
 						TargetStrategy:   eventrule.TargetStrategyAffectedComponents,
 						ConflictStrategy: eventrule.ConflictStrategyQueue,
 						Description:      "Leakage response",

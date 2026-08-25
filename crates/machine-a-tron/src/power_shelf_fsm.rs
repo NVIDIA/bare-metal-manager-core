@@ -14,16 +14,29 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::time::Duration;
+
 use bmc_mock::MockPowerState;
 
+use crate::dhcp_retry_fsm::{
+    Action as RetryAction, DhcpRetryFsm, Event as RetryEvent, Milliseconds,
+};
+
 type FsmReturn = (PowerShelfFsm, Vec<Action>);
+type StateReturn = (PowerShelfState, Vec<Action>);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum PowerShelfFsm {
+pub(super) struct PowerShelfFsm {
+    state: PowerShelfState,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PowerShelfState {
     BmcInit {
         power_on: bool,
         power_cycle_pending: bool,
         paused: bool,
+        dhcp_retry: DhcpRetryFsm,
     },
     DeviceUp {
         paused: bool,
@@ -37,16 +50,38 @@ pub(super) enum PowerShelfFsm {
 impl PowerShelfFsm {
     pub(super) fn init(power_on: bool) -> FsmReturn {
         (
-            Self::BmcInit {
-                power_on,
-                power_cycle_pending: false,
-                paused: true,
+            Self {
+                state: PowerShelfState::BmcInit {
+                    power_on,
+                    power_cycle_pending: false,
+                    paused: true,
+                    dhcp_retry: DhcpRetryFsm::new(),
+                },
             },
             vec![Action::Dhcp],
         )
     }
 
     pub(super) fn event(self, event: Event) -> FsmReturn {
+        let (state, actions) = self.state.event(event);
+        (Self { state }, actions)
+    }
+
+    pub(super) fn is_paused(&self) -> bool {
+        self.state.is_paused()
+    }
+
+    pub(super) fn power_state(&self) -> MockPowerState {
+        self.state.power_state()
+    }
+
+    pub(super) fn state_string(&self) -> &'static str {
+        self.state.state_string()
+    }
+}
+
+impl PowerShelfState {
+    fn event(self, event: Event) -> (Self, Vec<Action>) {
         match event {
             Event::Pause => return (self.with_paused(true), vec![]),
             Event::Resume => return (self.with_paused(false), vec![]),
@@ -58,7 +93,8 @@ impl PowerShelfFsm {
                 power_on,
                 power_cycle_pending,
                 paused,
-            } => self.fsm_bmc_init(event, power_on, power_cycle_pending, paused),
+                dhcp_retry,
+            } => self.fsm_bmc_init(event, power_on, power_cycle_pending, paused, dhcp_retry),
             Self::DeviceUp { paused } => self.fsm_device_up(event, paused),
             Self::DeviceDown {
                 power_cycle_pending,
@@ -67,7 +103,7 @@ impl PowerShelfFsm {
         }
     }
 
-    pub(super) fn is_paused(&self) -> bool {
+    fn is_paused(&self) -> bool {
         match self {
             Self::BmcInit { paused, .. }
             | Self::DeviceUp { paused }
@@ -75,7 +111,7 @@ impl PowerShelfFsm {
         }
     }
 
-    pub(super) fn power_state(&self) -> MockPowerState {
+    fn power_state(&self) -> MockPowerState {
         match self {
             Self::BmcInit { power_on: true, .. } | Self::DeviceUp { .. } => MockPowerState::On,
             Self::BmcInit {
@@ -85,7 +121,7 @@ impl PowerShelfFsm {
         }
     }
 
-    pub(super) fn state_string(&self) -> &'static str {
+    fn state_string(&self) -> &'static str {
         match self {
             Self::BmcInit { .. } => "BmcInit",
             Self::DeviceUp { .. } => "BmcOnly/DeviceUp",
@@ -98,11 +134,13 @@ impl PowerShelfFsm {
             Self::BmcInit {
                 power_on,
                 power_cycle_pending,
+                dhcp_retry,
                 ..
             } => Self::BmcInit {
                 power_on,
                 power_cycle_pending,
                 paused,
+                dhcp_retry,
             },
             Self::DeviceUp { .. } => Self::DeviceUp { paused },
             Self::DeviceDown {
@@ -121,24 +159,53 @@ impl PowerShelfFsm {
         power_on: bool,
         power_cycle_pending: bool,
         paused: bool,
-    ) -> FsmReturn {
+        dhcp_retry: DhcpRetryFsm,
+    ) -> StateReturn {
         match event {
-            Event::DhcpComplete => (
-                if power_on {
+            Event::DhcpFailed(jitter) => {
+                let (dhcp_retry, actions) = dhcp_retry.event(RetryEvent::Failed(jitter));
+                (
+                    Self::BmcInit {
+                        power_on,
+                        power_cycle_pending,
+                        paused,
+                        dhcp_retry,
+                    },
+                    actions.into_iter().map(map_retry_action).collect(),
+                )
+            }
+            Event::DhcpRetryExpired => {
+                let (dhcp_retry, actions) = dhcp_retry.event(RetryEvent::TimerExpired);
+                (
+                    Self::BmcInit {
+                        power_on,
+                        power_cycle_pending,
+                        paused,
+                        dhcp_retry,
+                    },
+                    actions.into_iter().map(map_retry_action).collect(),
+                )
+            }
+            Event::DhcpComplete => {
+                let (_, retry_actions) = dhcp_retry.event(RetryEvent::Completed);
+                let next_state = if power_on {
                     Self::DeviceUp { paused }
                 } else {
                     Self::DeviceDown {
                         power_cycle_pending,
                         paused,
                     }
-                },
-                vec![Action::SetupBmc],
-            ),
+                };
+                let mut actions: Vec<_> = retry_actions.into_iter().map(map_retry_action).collect();
+                actions.push(Action::SetupBmc);
+                (next_state, actions)
+            }
             Event::PowerOn => (
                 Self::BmcInit {
                     power_on: true,
                     power_cycle_pending: false,
                     paused,
+                    dhcp_retry,
                 },
                 cancel_timer_action(power_cycle_pending),
             ),
@@ -147,6 +214,7 @@ impl PowerShelfFsm {
                     power_on: false,
                     power_cycle_pending: false,
                     paused,
+                    dhcp_retry,
                 },
                 cancel_timer_action(power_cycle_pending),
             ),
@@ -155,6 +223,7 @@ impl PowerShelfFsm {
                     power_on: false,
                     power_cycle_pending: true,
                     paused,
+                    dhcp_retry,
                 },
                 vec![Action::SetTimer(Timer::PowerCycle)],
             ),
@@ -163,6 +232,7 @@ impl PowerShelfFsm {
                     power_on: true,
                     power_cycle_pending: false,
                     paused,
+                    dhcp_retry,
                 },
                 vec![],
             ),
@@ -171,7 +241,7 @@ impl PowerShelfFsm {
         }
     }
 
-    fn fsm_device_up(self, event: Event, paused: bool) -> FsmReturn {
+    fn fsm_device_up(self, event: Event, paused: bool) -> StateReturn {
         match event {
             Event::PowerOff => (
                 Self::DeviceDown {
@@ -191,7 +261,7 @@ impl PowerShelfFsm {
         }
     }
 
-    fn fsm_device_down(self, event: Event, power_cycle_pending: bool, paused: bool) -> FsmReturn {
+    fn fsm_device_down(self, event: Event, power_cycle_pending: bool, paused: bool) -> StateReturn {
         match event {
             Event::PowerOn => (
                 Self::DeviceUp { paused },
@@ -220,6 +290,14 @@ impl PowerShelfFsm {
     }
 }
 
+fn map_retry_action(action: RetryAction) -> Action {
+    match action {
+        RetryAction::Schedule { delay } => Action::ScheduleDhcpRetry { delay },
+        RetryAction::Run => Action::Dhcp,
+        RetryAction::Cancel => Action::CancelDhcpRetry,
+    }
+}
+
 fn cancel_timer_action(power_cycle_pending: bool) -> Vec<Action> {
     if power_cycle_pending {
         vec![Action::CancelTimer(Timer::PowerCycle)]
@@ -231,6 +309,8 @@ fn cancel_timer_action(power_cycle_pending: bool) -> Vec<Action> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Event {
     DhcpComplete,
+    DhcpFailed(Milliseconds),
+    DhcpRetryExpired,
     PowerOn,
     PowerOff,
     PowerCycle,
@@ -239,9 +319,18 @@ pub(super) enum Event {
     Resume,
 }
 
+#[cfg(test)]
+impl Event {
+    fn dhcp_failed_with_jitter(jitter: Milliseconds) -> Self {
+        Self::DhcpFailed(jitter)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Action {
     Dhcp,
+    ScheduleDhcpRetry { delay: Duration },
+    CancelDhcpRetry,
     SetupBmc,
     SetTimer(Timer),
     CancelTimer(Timer),
@@ -258,6 +347,21 @@ mod tests {
 
     use super::*;
 
+    type TestFsm = PowerShelfFsm;
+
+    fn with_state(state: PowerShelfState) -> TestFsm {
+        PowerShelfFsm { state }
+    }
+
+    fn bmc_init(power_on: bool, power_cycle_pending: bool, paused: bool) -> PowerShelfState {
+        PowerShelfState::BmcInit {
+            power_on,
+            power_cycle_pending,
+            paused,
+            dhcp_retry: DhcpRetryFsm::new(),
+        }
+    }
+
     #[test]
     fn power_shelf_transitions() {
         check_values(
@@ -265,108 +369,112 @@ mod tests {
                 Check {
                     scenario: "new power shelf completes BMC DHCP powered off",
                     input: (
-                        PowerShelfFsm::BmcInit {
-                            power_on: false,
-                            power_cycle_pending: false,
-                            paused: false,
-                        },
+                        with_state(bmc_init(false, false, false)),
                         Event::DhcpComplete,
                     ),
                     expect: (
-                        PowerShelfFsm::DeviceDown {
+                        with_state(PowerShelfState::DeviceDown {
                             power_cycle_pending: false,
                             paused: false,
-                        },
+                        }),
                         vec![Action::SetupBmc],
                     ),
                 },
                 Check {
                     scenario: "persisted power shelf completes BMC DHCP powered on",
                     input: (
-                        PowerShelfFsm::BmcInit {
-                            power_on: true,
-                            power_cycle_pending: false,
-                            paused: false,
-                        },
+                        with_state(bmc_init(true, false, false)),
                         Event::DhcpComplete,
                     ),
                     expect: (
-                        PowerShelfFsm::DeviceUp { paused: false },
+                        with_state(PowerShelfState::DeviceUp { paused: false }),
                         vec![Action::SetupBmc],
                     ),
                 },
                 Check {
                     scenario: "powered shelf begins a power cycle",
-                    input: (PowerShelfFsm::DeviceUp { paused: false }, Event::PowerCycle),
+                    input: (
+                        with_state(PowerShelfState::DeviceUp { paused: false }),
+                        Event::PowerCycle,
+                    ),
                     expect: (
-                        PowerShelfFsm::DeviceDown {
+                        with_state(PowerShelfState::DeviceDown {
                             power_cycle_pending: true,
                             paused: false,
-                        },
+                        }),
                         vec![Action::SetTimer(Timer::PowerCycle)],
                     ),
                 },
                 Check {
                     scenario: "power-cycle timer restores power",
                     input: (
-                        PowerShelfFsm::DeviceDown {
+                        with_state(PowerShelfState::DeviceDown {
                             power_cycle_pending: true,
                             paused: false,
-                        },
+                        }),
                         Event::TimerAlert(Timer::PowerCycle),
                     ),
-                    expect: (PowerShelfFsm::DeviceUp { paused: false }, vec![]),
+                    expect: (
+                        with_state(PowerShelfState::DeviceUp { paused: false }),
+                        vec![],
+                    ),
                 },
                 Check {
                     scenario: "explicit power-on cancels a pending power cycle",
                     input: (
-                        PowerShelfFsm::DeviceDown {
+                        with_state(PowerShelfState::DeviceDown {
                             power_cycle_pending: true,
                             paused: false,
-                        },
+                        }),
                         Event::PowerOn,
                     ),
                     expect: (
-                        PowerShelfFsm::DeviceUp { paused: false },
+                        with_state(PowerShelfState::DeviceUp { paused: false }),
                         vec![Action::CancelTimer(Timer::PowerCycle)],
                     ),
                 },
                 Check {
                     scenario: "a new power cycle replaces the pending timer",
                     input: (
-                        PowerShelfFsm::DeviceDown {
+                        with_state(PowerShelfState::DeviceDown {
                             power_cycle_pending: true,
                             paused: false,
-                        },
+                        }),
                         Event::PowerCycle,
                     ),
                     expect: (
-                        PowerShelfFsm::DeviceDown {
+                        with_state(PowerShelfState::DeviceDown {
                             power_cycle_pending: true,
                             paused: false,
-                        },
+                        }),
                         vec![Action::SetTimer(Timer::PowerCycle)],
                     ),
                 },
                 Check {
                     scenario: "power-shelf processing can be paused",
-                    input: (PowerShelfFsm::DeviceUp { paused: false }, Event::Pause),
-                    expect: (PowerShelfFsm::DeviceUp { paused: true }, vec![]),
+                    input: (
+                        with_state(PowerShelfState::DeviceUp { paused: false }),
+                        Event::Pause,
+                    ),
+                    expect: (
+                        with_state(PowerShelfState::DeviceUp { paused: true }),
+                        vec![],
+                    ),
                 },
                 Check {
                     scenario: "power-shelf processing can be resumed",
                     input: (
-                        PowerShelfFsm::DeviceDown {
+                        with_state(PowerShelfState::DeviceDown {
                             power_cycle_pending: false,
                             paused: true,
-                        },
+                        }),
                         Event::Resume,
                     ),
                     expect: (
-                        PowerShelfFsm::DeviceDown {
+                        with_state(PowerShelfState::DeviceDown {
                             power_cycle_pending: false,
                             paused: false,
-                        },
+                        }),
                         vec![],
                     ),
                 },
@@ -377,15 +485,16 @@ mod tests {
 
     #[test]
     fn power_off_supersedes_power_cycle() {
-        let (fsm, _) = PowerShelfFsm::DeviceUp { paused: false }.event(Event::PowerCycle);
+        let (fsm, _) =
+            with_state(PowerShelfState::DeviceUp { paused: false }).event(Event::PowerCycle);
         let (fsm, actions) = fsm.event(Event::PowerOff);
         assert_eq!(
             (fsm, actions,),
             (
-                PowerShelfFsm::DeviceDown {
+                with_state(PowerShelfState::DeviceDown {
                     power_cycle_pending: false,
                     paused: false,
-                },
+                }),
                 vec![Action::CancelTimer(Timer::PowerCycle)],
             )
         );
@@ -394,12 +503,31 @@ mod tests {
         assert_eq!(
             (fsm, actions,),
             (
-                PowerShelfFsm::DeviceDown {
+                with_state(PowerShelfState::DeviceDown {
                     power_cycle_pending: false,
                     paused: false,
-                },
+                }),
                 vec![],
             )
         );
+    }
+
+    #[test]
+    fn bmc_retry_survives_pause_and_power_changes() {
+        let fsm = with_state(bmc_init(false, false, false));
+        let (fsm, actions) = fsm.event(Event::dhcp_failed_with_jitter(Milliseconds::new(0)));
+        assert_eq!(
+            actions,
+            vec![Action::ScheduleDhcpRetry {
+                delay: Duration::from_secs(4),
+            }]
+        );
+
+        let (fsm, actions) = fsm.event(Event::Pause);
+        assert!(actions.is_empty());
+        let (fsm, actions) = fsm.event(Event::PowerCycle);
+        assert_eq!(actions, vec![Action::SetTimer(Timer::PowerCycle)]);
+        let (_, actions) = fsm.event(Event::DhcpRetryExpired);
+        assert_eq!(actions, vec![Action::Dhcp]);
     }
 }

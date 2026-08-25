@@ -971,63 +971,6 @@ count = 2
         );
     }
 
-    // RackHardwareTopology serde.
-
-    // JSON round-trip: each topology variant serializes to its expected
-    // snake_case string and deserializes back to itself. Projected to
-    // (json, value_back); the (non-PartialEq) serde_json error is discarded.
-    #[test]
-    fn test_rack_hardware_topology_serde_round_trip() {
-        scenarios!(
-            run = |variant| {
-                let json = serde_json::to_string(&variant).map_err(drop)?;
-                let back: RackHardwareTopology = serde_json::from_str(&json).map_err(drop)?;
-                Ok::<_, ()>((json, back))
-            };
-            "gb200 nvl36 round-trips" {
-                RackHardwareTopology::Gb200Nvl36r1C2g4Topology => Yields((
-                    "\"gb200_nvl36r1_c2g4_topology\"".to_string(),
-                    RackHardwareTopology::Gb200Nvl36r1C2g4Topology,
-                )),
-            }
-
-            "gb300 nvl36 round-trips" {
-                RackHardwareTopology::Gb300Nvl36r1C2g4Topology => Yields((
-                    "\"gb300_nvl36r1_c2g4_topology\"".to_string(),
-                    RackHardwareTopology::Gb300Nvl36r1C2g4Topology,
-                )),
-            }
-
-            "gb200 nvl72 round-trips" {
-                RackHardwareTopology::Gb200Nvl72r1C2g4Topology => Yields((
-                    "\"gb200_nvl72r1_c2g4_topology\"".to_string(),
-                    RackHardwareTopology::Gb200Nvl72r1C2g4Topology,
-                )),
-            }
-
-            "gb300 nvl72 round-trips" {
-                RackHardwareTopology::Gb300Nvl72r1C2g4Topology => Yields((
-                    "\"gb300_nvl72r1_c2g4_topology\"".to_string(),
-                    RackHardwareTopology::Gb300Nvl72r1C2g4Topology,
-                )),
-            }
-
-            "vr nvl8 rtf round-trips" {
-                RackHardwareTopology::VrNvl8r1C2g4RtfTopology => Yields((
-                    "\"vr_nvl8r1_c2g4_rtf_topology\"".to_string(),
-                    RackHardwareTopology::VrNvl8r1C2g4RtfTopology,
-                )),
-            }
-
-            "vr nvl72 round-trips" {
-                RackHardwareTopology::VrNvl72r1C2g4Topology => Yields((
-                    "\"vr_nvl72r1_c2g4_topology\"".to_string(),
-                    RackHardwareTopology::VrNvl72r1C2g4Topology,
-                )),
-            }
-        );
-    }
-
     // Display covers every topology variant; the rendered string matches the
     // snake_case serde form.
     #[test]

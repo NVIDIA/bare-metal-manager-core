@@ -136,7 +136,8 @@ func TestPowerControl_RejectsUnsupportedOperation(t *testing.T) {
 }
 
 func TestFirmwareControl_HappyPath(t *testing.T) {
-	m := New(nicoapi.NewMockClient(), nil)
+	client := nicoapi.NewMockClient()
+	m := New(client, nil)
 
 	target := common.Target{
 		Type:         devicetypes.ComponentTypeCompute,
@@ -147,8 +148,14 @@ func TestFirmwareControl_HappyPath(t *testing.T) {
 		Operation:     operations.FirmwareOperationUpgrade,
 		TargetVersion: "fw-bundle-id-v1",
 		SubTargets:    []string{"bmc", "bios"},
+		AccessToken:   "compute-token",
 	})
 	require.NoError(t, err)
+	require.Equal(
+		t,
+		"compute-token",
+		client.LastUpdateComponentFirmwareRequest().GetAccessToken(),
+	)
 }
 
 func TestFirmwareControl_RejectsUnknownSubTarget(t *testing.T) {
@@ -200,6 +207,33 @@ func TestFirmwareControl_DpuOnlyTarget(t *testing.T) {
 	power := client.InstancePowerCalls()
 	require.Len(t, power, 1)
 	assert.True(t, power[0].ApplyUpdates)
+}
+
+func TestFirmwareControl_DpuOnlyRejectsAuthenticationData(t *testing.T) {
+	client := nicoapi.NewMockClient()
+	m := New(client, nil)
+	target := common.Target{
+		Type:         devicetypes.ComponentTypeCompute,
+		ComponentIDs: []string{testHostMachineID},
+	}
+
+	err := m.FirmwareControl(
+		context.Background(),
+		target,
+		operations.FirmwareControlTaskInfo{
+			Operation:   operations.FirmwareOperationUpgrade,
+			SubTargets:  []string{"dpu"},
+			AccessToken: "compute-token",
+		},
+	)
+
+	require.ErrorContains(
+		t,
+		err,
+		"dpu-only firmware updates do not support authentication data",
+	)
+	require.Nil(t, client.LastUpdateComponentFirmwareRequest())
+	require.Empty(t, client.DpuReprovisioningTriggers())
 }
 
 // TestFirmwareControl_MixedDpuAndComputeTargets pins the
@@ -483,6 +517,64 @@ func TestBringUpControl_OverrideBypassesReadinessCheck(t *testing.T) {
 		OverrideReadinessCheck: true,
 	})
 	require.NoError(t, err)
+}
+
+func TestNormalizeDecommissionState(t *testing.T) {
+	testCases := map[string]struct {
+		raw  string
+		want string
+	}{
+		"terminal state": {
+			raw:  `{"state":"decommissioning","decommissioning_state":{"state":"decommissioned"}}`,
+			want: "Decommissioned",
+		},
+		"in-progress state": {
+			raw:  `{"state":"decommissioning","decommissioning_state":{"state":"factoryresettingbmcs"}}`,
+			want: "Decommissioning/factoryresettingbmcs",
+		},
+		"unrelated state remains unchanged": {
+			raw:  `{"state":"ready"}`,
+			want: `{"state":"ready"}`,
+		},
+		"malformed state remains unchanged": {
+			raw:  "Ready",
+			want: "Ready",
+		},
+		"decommissioning state without substate remains unchanged": {
+			raw:  `{"state":"decommissioning"}`,
+			want: `{"state":"decommissioning"}`,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tc.want, normalizeDecommissionState(tc.raw))
+		})
+	}
+}
+
+func TestGetDecommissionStatusNormalizesStates(t *testing.T) {
+	client := nicoapi.NewMockClient()
+	client.SetMachineControllerState(
+		"machine-1",
+		`{"state":"decommissioning","decommissioning_state":{"state":"decommissioned"}}`,
+	)
+	client.SetMachineControllerState(
+		"machine-2",
+		`{"state":"decommissioning","decommissioning_state":{"state":"suppressingoobdhcp"}}`,
+	)
+
+	m := New(client, nil)
+	states, err := m.GetDecommissionStatus(context.Background(), common.Target{
+		Type:         devicetypes.ComponentTypeCompute,
+		ComponentIDs: []string{"machine-1", "machine-2", "machine-3"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{
+		"machine-1": "Decommissioned",
+		"machine-2": "Decommissioning/suppressingoobdhcp",
+		"machine-3": "",
+	}, states)
 }
 
 func mustMarshal(t *testing.T, v any) json.RawMessage {

@@ -7,49 +7,38 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
-	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/target"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
 )
 
-func TestExecutionRequest_Validate(t *testing.T) {
+func TestExecutionRequestValidate(t *testing.T) {
 	valid := newValidExecutionRequest(t)
 	tests := map[string]struct {
-		request ExecutionRequest
 		mutate  func(*ExecutionRequest)
 		wantErr string
 	}{
-		"valid": {request: valid},
-		"invalid execution": {
-			request: valid,
+		"valid": {},
+		"nil execution": {
+			mutate:  func(request *ExecutionRequest) { request.Execution = nil },
+			wantErr: "execution: execution is nil",
+		},
+		"invalid execution id": {
 			mutate:  func(request *ExecutionRequest) { request.Execution.ID = uuid.Nil },
 			wantErr: "execution: execution id is required",
 		},
-		"invalid action": {
-			request: valid,
-			mutate:  func(request *ExecutionRequest) { request.Action = eventrule.Action{} },
-			wantErr: "action: action name is empty",
-		},
-		"missing target id": {
-			request: valid,
-			mutate: func(request *ExecutionRequest) {
-				request.Targets = []target.Target{{Kind: eventrule.ResourceKindComponent}}
-			},
-			wantErr: "target 0: target id is required",
-		},
-		"invalid target kind": {
-			request: valid,
-			mutate: func(request *ExecutionRequest) {
-				request.Targets = []target.Target{{Kind: "invalid", ID: uuid.New()}}
-			},
-			wantErr: `target 0: unknown resource kind "invalid"`,
+		"missing plan": {
+			mutate:  func(request *ExecutionRequest) { request.Execution.Plan = nil },
+			wantErr: "execution plan is required",
 		},
 	}
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			request := test.request
+			request := valid
+			execution := valid.Execution.Clone()
+			request.Execution = &execution
 			if test.mutate != nil {
 				test.mutate(&request)
 			}
@@ -65,15 +54,12 @@ func TestExecutionRequest_Validate(t *testing.T) {
 
 func newValidExecutionRequest(t *testing.T) ExecutionRequest {
 	t.Helper()
-	now := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
-	execution, err := eventrule.NewExecution(eventrule.ExecutionIdentity{
-		EventID:    uuid.New(),
-		RuleID:     uuid.New(),
-		ActionName: "noop",
-	}, now)
+	execution, err := eventrule.NewExecution(
+		uuid.New(),
+		"noop",
+		&eventrule.NoopPlan{},
+		time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC),
+	)
 	require.NoError(t, err)
-	return ExecutionRequest{
-		Execution: *execution,
-		Action:    eventrule.Action{Name: "noop", Spec: &eventrule.Noop{}},
-	}
+	return ExecutionRequest{Execution: execution}
 }

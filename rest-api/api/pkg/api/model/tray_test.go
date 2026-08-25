@@ -4,6 +4,7 @@
 package model
 
 import (
+	"encoding/json"
 	"testing"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
@@ -12,6 +13,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestAPITrayJSONContract(t *testing.T) {
+	apiTray := NewAPITray(&flowv1.Component{})
+	data, err := json.Marshal(apiTray)
+	require.NoError(t, err)
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(data, &got))
+	value, ok := got["nvLinkDomainId"]
+	assert.True(t, ok)
+	assert.Nil(t, value)
+}
 
 func TestProtoToAPIComponentTypeName(t *testing.T) {
 	tests := []struct {
@@ -47,6 +60,7 @@ func TestProtoToAPIComponentTypeName(t *testing.T) {
 func TestNewAPITray(t *testing.T) {
 	description := "Test tray description"
 	model := "GB200"
+	domainID := "59202b81-65fb-45ec-b3b8-91ab0ad3f34a"
 
 	tests := []struct {
 		name string
@@ -84,7 +98,8 @@ func TestNewAPITray(t *testing.T) {
 						IpAddress:  cutil.GetPtr("192.168.1.100"),
 					},
 				},
-				RackId: &flowv1.UUID{Id: "rack-id-789"},
+				RackId:      &flowv1.UUID{Id: "rack-id-789"},
+				NvlDomainId: &flowv1.UUID{Id: domainID},
 			},
 			want: &APITray{
 				ID:              "tray-id-123",
@@ -108,7 +123,8 @@ func TestNewAPITray(t *testing.T) {
 						IPAddress:  "192.168.1.100",
 					},
 				},
-				RackID: "rack-id-789",
+				RackID:         "rack-id-789",
+				NVLinkDomainID: cutil.GetPtr(domainID),
 			},
 		},
 		{
@@ -244,6 +260,7 @@ func TestNewAPITray(t *testing.T) {
 			assert.Equal(t, tt.want.Description, got.Description)
 			assert.Equal(t, tt.want.FirmwareVersion, got.FirmwareVersion)
 			assert.Equal(t, tt.want.RackID, got.RackID)
+			assert.Equal(t, tt.want.NVLinkDomainID, got.NVLinkDomainID)
 
 			// Assert BMCs field
 			if tt.want.BMCs != nil {

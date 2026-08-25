@@ -3,6 +3,7 @@ syntax = "proto3";
 package forge;
 
 import "codegen/v1/derive.proto";
+import "codegen/v1/extern_path.proto";
 
 import "common.proto";
 import "dns.proto";
@@ -16,6 +17,15 @@ import "measured_boot.proto";
 import "mlx_device.proto";
 import "scout_firmware_upgrade.proto";
 import "site_explorer.proto";
+
+option (carbide.codegen.v1.imported_extern_path) = {
+  protobuf_type: ".google.protobuf.Duration"
+  rust_type: "crate::Duration"
+};
+option (carbide.codegen.v1.imported_extern_path) = {
+  protobuf_type: ".google.protobuf.Timestamp"
+  rust_type: "crate::Timestamp"
+};
 
 service Forge {
   // What version of Forge is this service running? Matches `--version` command line.
@@ -337,6 +347,9 @@ service Forge {
   // AdminForceDeleteMachine is a lower level admin tool for cases where there is no
   // appropriate customer-facing workflow available or where those workflows fail.
   rpc AdminForceDeleteMachine(AdminForceDeleteMachineRequest) returns (AdminForceDeleteMachineResponse);
+
+  // Starts the managed host decommissioning workflow. The host must be Ready.
+  rpc DecommissionManagedHost(DecommissionManagedHostRequest) returns (DecommissionManagedHostResponse);
 
   // List existing resource pools and their stats
   rpc AdminListResourcePools(ListResourcePoolsRequest) returns (ResourcePools);
@@ -1530,6 +1543,13 @@ message VersionRequest {
   bool display_config = 1;
 }
 
+// Capabilities advertised by a Core build. Callers must treat an absent
+// capability as unsupported so requests fail closed against older builds.
+enum BuildCapability {
+  BUILD_CAPABILITY_UNSPECIFIED = 0;
+  BUILD_CAPABILITY_VPC_SLAAC = 1;
+}
+
 message BuildInfo {
   option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   option (carbide.codegen.v1.message_derive) = "serde::Serialize";
@@ -1539,6 +1559,10 @@ message BuildInfo {
   string rust_version = 4; // rustc 1.68.0 (2c8cc3432 2023-03-06)
   string build_user = 5; // graham
   string build_hostname = 6; // fedora
+  // An empty `capabilities` list advertises no optional capabilities.
+  // Callers ignore unknown values and treat an absent recognized capability
+  // as unsupported.
+  repeated BuildCapability capabilities = 7;
 
   optional RuntimeConfig runtime_config = 50;
 }
@@ -1773,6 +1797,16 @@ message VpcConfig {
   // means that the VPC has no associated resource group; empty values are not
   // persisted.
   optional string power_resource_group = 9;
+  // Selects SLAAC allocation mode for instance IPv6 interfaces in this FNN
+  // VPC. When true, NICo allocates a /64 to each interface that includes IPv6
+  // and retains that prefix without assigning a concrete IPv6 host address.
+  // This policy is fixed when the VPC is created and cannot be changed through
+  // `VpcUpdateRequest`. NICo does not yet configure router advertisements;
+  // that support is tracked by
+  // https://github.com/NVIDIA/infra-controller/issues/2398. Core reports this
+  // field explicitly; an absent value indicates a response from a Core version
+  // that predates SLAAC support.
+  optional bool slaac_enabled = 10;
 }
 
 message VpcStatus {
@@ -1791,9 +1825,8 @@ message Vpc {
   option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.VpcId id = 1;
   reserved 2;  // was: string name, replaced with metadata.name
-  // Deprecated: use config.tenant_organization_id
-  // TODO change to reserved once rest component uses `VpcConfig`
-  string tenantOrganizationId = 3 [deprecated = true]; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
+  reserved 3;  // was: string tenantOrganizationId, replaced with config.tenant_organization_id
+  reserved "tenantOrganizationId";
 
   string version = 99;
 
@@ -1802,39 +1835,33 @@ message Vpc {
   google.protobuf.Timestamp updated = 5;
   google.protobuf.Timestamp deleted = 6;
 
-  // Deprecated: use config.tenant_keyset_id
-  // TODO Change to reserved once rest component uses `VpcConfig`
-  optional string tenantKeysetId = 7 [deprecated = true]; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
+  reserved 7;  // was: string tenantKeysetId, replaced with config.tenant_keyset_id
+  reserved "tenantKeysetId";
 
-  // Deprecated: use status.vni
-  // TODO change to reserved once rest component uses `VpcStatus`
-  optional uint32 deprecated_vni = 8 [deprecated = true];
+  reserved 8;  // was: uint32 deprecated_vni, replaced with status.vni
+  reserved "deprecated_vni";
 
-  // Deprecated: use config.network_virtualization_type
-  // TODO change to reserved once rest component uses `VpcConfig`
-  optional VpcVirtualizationType network_virtualization_type = 9 [deprecated = true];
+  reserved 9;  // was: VpcVirtualizationType network_virtualization_type, replaced with config.network_virtualization_type
+  reserved "network_virtualization_type";
   Metadata metadata = 10;
 
-  // Deprecated: use config.network_security_group_id
-  // TODO Change to reserved once rest component uses `VpcConfig`
-  optional string network_security_group_id  = 11 [deprecated = true];
+  reserved 11;  // was: string network_security_group_id, replaced with config.network_security_group_id
+  reserved "network_security_group_id";
 
   // dpa_vni
   reserved 12;
+  reserved "dpa_vni";
 
-  // Deprecated: use config.default_nvlink_logical_partition_id
-  // TODO change to reserved once rest component uses `VpcConfig`
-  optional common.NVLinkLogicalPartitionId default_nvlink_logical_partition_id = 13 [deprecated = true];
+  reserved 13;  // was: common.NVLinkLogicalPartitionId default_nvlink_logical_partition_id, replaced with config.default_nvlink_logical_partition_id
+  reserved "default_nvlink_logical_partition_id";
 
   optional VpcStatus status = 14;
 
-  // Deprecated: use config.vni
-  // TODO change to reserved once rest component uses `VpcConfig`
-  optional uint32 vni = 15 [deprecated = true];
+  reserved 15;  // was: uint32 vni, replaced with config.vni
+  reserved "vni";
 
-  // Deprecated: use config.routing_profile_type
-  // TODO change to reserved once rest-component uses `VpcConfig`
-  optional string routing_profile_type = 16 [deprecated = true];
+  reserved 16;  // was: string routing_profile_type, replaced with config.routing_profile_type
+  reserved "routing_profile_type";
 
   VpcConfig config = 17;
 }
@@ -1881,6 +1908,14 @@ message VpcCreationRequest {
   // Resource group managed by the external power provisioning service. During
   // creation, omission or an empty value creates no association.
   optional string power_resource_group = 19;
+  // Selects SLAAC allocation mode for instance IPv6 interfaces in this VPC.
+  // When true, this is supported only for FNN VPCs and Core allocates a /64 to
+  // each interface that includes IPv6 without assigning a concrete IPv6 host
+  // address. False or omission disables SLAAC. Core evaluates this value only
+  // during VPC creation; `VpcUpdateRequest` cannot change the resulting policy.
+  // NICo does not yet configure router advertisements; that support is tracked by
+  // https://github.com/NVIDIA/infra-controller/issues/2398.
+  optional bool slaac_enabled = 20;
 }
 
 enum VpcVirtualizationType {
@@ -2016,7 +2051,14 @@ message VpcPrefixStatus {
   option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   uint32 total_31_segments = 1;
   uint32 available_31_segments = 2;
+  // Total interface prefixes this VPC prefix can provide. IPv4 uses /31;
+  // stateful IPv6 uses /127; SLAAC IPv6 uses /64. An IPv6 VPC prefix must be
+  // wider than the interface prefix, so an exact /64 in SLAAC mode has zero
+  // interface capacity. Both capacity counters report values larger than
+  // uint64 as uint64 max.
   uint64 total_linknet_segments = 3;
+  // Interface prefixes not currently occupied, using the same prefix length
+  // selected by the VPC mode as total_linknet_segments.
   uint64 available_linknet_segments = 4;
   LifecycleStatus lifecycle = 5;
 
@@ -3669,10 +3711,9 @@ message InstanceInterfaceStatus {
   // and therefore the address is unknown.
   optional string mac_address = 2;
 
-  // The list of IP addresses that had been assigned to this interface,
-  // based on the requested subnet.
-  // IPv4 precedes IPv6 when both families are assigned.
-  // The list will be empty if interface configuration hasn't been completed
+  // The IP addresses reported for this interface, ordered IPv4 before IPv6.
+  // This list is independent from `prefixes` and is empty when no address is
+  // available.
   repeated string addresses = 3;
 
   // The explicitly configured gateways, in CIDR notation. There is at most one
@@ -3682,12 +3723,12 @@ message InstanceInterfaceStatus {
   // IPv6 when both gateways are explicitly configured.
   repeated string gateways = 4;
 
-  // The list of IP prefixes that have been assigned to this interface
-  // out of the requested subnet (where the prefix allocated to the interface
-  // may be a /30 in the case of FNN, or just a /32 in the case of ETV).
-  //
-  // There is one prefix for each entry in `addresses`, in the same
-  // IPv4-before-IPv6 order.
+  // The prefixes reported for this interface in CIDR notation, ordered IPv4
+  // before IPv6. Prefix lengths follow the selected network and allocation
+  // policy. This list is independent from `addresses`: SLAAC reports an IPv6
+  // prefix without a fixed host address. Consumers must match values by address
+  // family rather than list position. The list is empty when no prefix is
+  // available.
   repeated string prefixes = 5;
 
   optional string device = 6;
@@ -3696,7 +3737,7 @@ message InstanceInterfaceStatus {
   // The logical VPC this interface belongs to.
   optional common.VpcId vpc_id = 8;
 
-  // Prefixes resolved from explicit-prefix or automatic VPC intent.
+  // Prefixes resolved from explicit selections or automatic VPC intent.
   optional InstanceInterfaceResolvedVpcPrefixes resolved_vpc_prefixes = 9;
 }
 
@@ -5087,9 +5128,12 @@ message FlatInterfaceRoutingProfile {
 // API to the DPU agent as part of FlatInterfaceConfig.
 message FlatInterfaceIpv6Config {
   option (carbide.codegen.v1.message_derive) = "serde::Serialize";
-  // Host IPv6 address (e.g. "2001:db8::1").
+  // Host IPv6 address (e.g. "2001:db8::1"). Empty only when the owning VPC
+  // has SLAAC enabled; in that case interface_prefix still identifies the
+  // prefix configured on the DPU interface.
   string ip = 1;
-  // Interface-specific prefix allocation (e.g. "2001:db8::/127").
+  // Interface-specific prefix allocation. Stateful FNN uses a /127; SLAAC
+  // uses the /64 allocated to this interface.
   string interface_prefix = 2;
   // SVI IP for L2 FNN segments — the DPU's IPv6 gateway address on the VLAN.
   // Only set for L2 segments (can_stretch = true).
@@ -5160,6 +5204,24 @@ message AdminForceDeleteMachineRequest {
 
   // Allow force delete of machine with orphaned dpf crds
   bool allow_delete_with_orphaned_dpf_crds = 5;
+
+  // Delete Site Explorer and DHCP BMC suppressions for the host/DPU BMC MACs
+  // and underlay (OOB) interface MACs. Without this, rediscovery may stay
+  // suppressed after the machine rows are gone.
+  bool delete_bmc_suppressions = 6;
+
+  // Remove retained boot-interface pairs for the host/DPU BMC and interface
+  // MACs. By default, deleting interfaces keeps those pairs so a re-ingested
+  // machine can recover its boot target; set this when a clean rediscovery
+  // without prior boot-target memory is intended.
+  bool delete_retained_boot_interfaces = 7;
+}
+
+message DecommissionManagedHostRequest {
+  common.MachineId machine_id = 1;
+}
+
+message DecommissionManagedHostResponse {
 }
 
 // Response to AdminForceDeleteMachine call
@@ -5262,13 +5324,28 @@ message AdminRebootRequest {
 message AdminRebootResponse {
 }
 
-// Must provide either machine_id or ip/mac pair
+// Must provide exactly one target: bmc_endpoint_request or device_id (the
+// deprecated machine_id is still accepted as sugar for device_id.machine_id).
 message AdminBmcResetRequest {
+  // Redfish Manager.Reset type. Unspecified = per-vendor default
+  // (GracefulRestart for the standard/switch/power-shelf path).
+  enum ResetType {
+    Unspecified = 0;
+    GracefulRestart = 1;
+    ForceRestart = 2;
+  }
+  // A direct BMC endpoint (IP/MAC), resolved server-side. Alternative to device_id.
   optional BmcEndpointRequest bmc_endpoint_request = 1;
-  optional string machine_id = 2;
+  // Deprecated: use device_id (DeviceId.machine_id) instead. Still accepted.
+  optional string machine_id = 2 [deprecated = true];
   // When true, reset the BMC via ipmitool instead of Redfish.
   // ipmitool bmc reset requests may be silently ignored if the BMC is in lockdown mode.
   bool use_ipmitool = 3;
+  // ID of the device that owns the target BMC: a machine (host or DPU BMC), a
+  // switch (switch BMC), or a power shelf (its PMC).
+  common.DeviceId device_id = 4;
+  // Redfish Manager.Reset type. Applies to the Redfish path only (not ipmitool).
+  ResetType reset_type = 5;
 }
 
 message AdminBmcResetResponse {
@@ -5316,6 +5393,8 @@ message BMCMetaDataGetResponse {
   optional uint32 ssh_port = 6;
   optional uint32 ipmi_port = 7;
   optional string vendor = 8;
+  // SSH port for the managed system's serial console, not the manager CLI.
+  optional uint32 serial_console_ssh_port = 9;
 }
 
 message MachineCredentialsUpdateRequest {
@@ -5824,10 +5903,9 @@ message InstanceInterfaceStatusObservation {
   // and therefore the address is unknown.
   optional string mac_address = 3;
 
-  // The list of IP addresses that had been assigned to this interface,
-  // based on the requested subnet.
-  // IPv4 precedes IPv6 when both families are assigned.
-  // The list will be empty if interface configuration hasn't been completed
+  // The IP addresses reported for this interface, ordered IPv4 before IPv6.
+  // This list is independent from `prefixes` and is empty when no address is
+  // available.
   repeated string addresses = 4;
 
   // The explicitly configured gateways, in CIDR notation. There is at most one
@@ -5837,12 +5915,12 @@ message InstanceInterfaceStatusObservation {
   // IPv6 when both gateways are explicitly configured.
   repeated string gateways = 5;
 
-  // The list of IP prefixes that have been assigned to this interface
-  // out of the requested subnet (where the prefix allocated to the interface
-  // may be a /30 in the case of FNN, or just a /32 in the case of ETV).
-  //
-  // There is one prefix for each entry in `addresses`, in the same
-  // IPv4-before-IPv6 order.
+  // The prefixes reported for this interface in CIDR notation, ordered IPv4
+  // before IPv6. Prefix lengths follow the selected network and allocation
+  // policy. This list is independent from `addresses`: SLAAC reports an IPv6
+  // prefix without a fixed host address. Consumers must match values by address
+  // family rather than list position. The list is empty when no prefix is
+  // available.
   repeated string prefixes = 6;
 
   // The NSG details for the observed NSG of the interface
@@ -10113,6 +10191,31 @@ message RetainedBootInterface {
   google.protobuf.Timestamp recorded_at = 3;
 }
 
+// Why the current desired boot interface target was selected. The target
+// interface may belong to a DPU in DPU or NIC mode, or it may be an integrated
+// or onboard NIC. This records the selection mechanism or authority; it does
+// not describe reconciliation state.
+enum BootInterfaceSelectionSource {
+  // Wire sentinel for an omitted field or a server that does not report this
+  // contract. This is not a persisted selection source.
+  BOOT_INTERFACE_SELECTION_SOURCE_UNSPECIFIED = 0;
+  // An ExpectedMachine primary declaration selected the interface.
+  BOOT_INTERFACE_SELECTION_SOURCE_EXPECTED_MACHINE = 1;
+  // An operator selected the interface through an administrative write.
+  BOOT_INTERFACE_SELECTION_SOURCE_OPERATOR = 2;
+  // Redfish UEFI PCI path ordering selected the interface.
+  BOOT_INTERFACE_SELECTION_SOURCE_REDFISH_UEFI_PCI = 3;
+  // Redfish chassis identifier ordering selected the interface.
+  BOOT_INTERFACE_SELECTION_SOURCE_REDFISH_CHASSIS_ID = 4;
+  // Redfish DPU serial number ordering selected the interface.
+  BOOT_INTERFACE_SELECTION_SOURCE_REDFISH_SERIAL_NUMBER = 5;
+  // Host PCI data in a Scout report selected the interface.
+  BOOT_INTERFACE_SELECTION_SOURCE_SCOUT_REPORT_PCI = 6;
+  // Explicit persisted value for selections that predate source tracking or
+  // whose current source cannot be recovered.
+  BOOT_INTERFACE_SELECTION_SOURCE_LEGACY_UNKNOWN = 7;
+}
+
 message GetMachineBootInterfacesResponse {
   option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   // The desired boot-interface generation, its latest persisted observation,
@@ -10158,6 +10261,14 @@ message GetMachineBootInterfacesResponse {
     optional string reconciling_version = 8;
     // Persisted terminal boot-reconciliation failure, when one exists.
     optional string failure = 9;
+    // Mechanism or authority that selected the current desired target. When
+    // omitted, the proto3 zero value `UNSPECIFIED` means the server reported no
+    // source; that wire sentinel is distinct from persisted `LEGACY_UNKNOWN`.
+    BootInterfaceSelectionSource selection_source = 10;
+    // Time the current target and source decision was established. Adding a
+    // Redfish interface ID for the same MAC preserves it. Absent for legacy
+    // rows whose selection history predates source tracking.
+    google.protobuf.Timestamp selection_updated_at = 11;
   }
 
   common.MachineId machine_id = 1;
@@ -10357,7 +10468,8 @@ message InterfaceAddressConfig {
   // IPv4 gateway CIDR. For IPv6, the DPU-side port/linknet CIDR used as
   // gateway_cidr, matching FlatInterfaceIpv6Config.interface_prefix.
   string gateway = 2;
-  // Host address, without a prefix length.
+  // Host address, without a prefix length. Empty only for a V6 entry whose
+  // owning VPC has SLAAC enabled; interface_prefix remains populated then.
   string ip = 3;
   // Prefix allocated to this interface, such as an FNN linknet or host route.
   string interface_prefix = 4;

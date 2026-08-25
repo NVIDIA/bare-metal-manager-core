@@ -14,19 +14,33 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::time::Duration;
+
 use bmc_mock::MockPowerState;
 
+use crate::dhcp_retry_fsm::{
+    Action as RetryAction, DhcpRetryFsm, Event as RetryEvent, Milliseconds,
+};
+
 type FsmReturn = (SwitchFsm, Vec<Action>);
+type StateReturn = (SwitchState, Vec<Action>);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum SwitchFsm {
+pub(super) struct SwitchFsm {
+    state: SwitchState,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SwitchState {
     BmcInit {
         power_on: bool,
         power_cycle_pending: bool,
         paused: bool,
+        dhcp_retry: DhcpRetryFsm,
     },
     NvosInit {
         paused: bool,
+        dhcp_retry: DhcpRetryFsm,
     },
     DeviceUp {
         paused: bool,
@@ -40,16 +54,38 @@ pub(super) enum SwitchFsm {
 impl SwitchFsm {
     pub(super) fn init(power_on: bool) -> FsmReturn {
         (
-            Self::BmcInit {
-                power_on,
-                power_cycle_pending: false,
-                paused: true,
+            Self {
+                state: SwitchState::BmcInit {
+                    power_on,
+                    power_cycle_pending: false,
+                    paused: true,
+                    dhcp_retry: DhcpRetryFsm::new(),
+                },
             },
             vec![Action::Dhcp(DhcpEndpoint::Bmc)],
         )
     }
 
     pub(super) fn event(self, event: Event) -> FsmReturn {
+        let (state, actions) = self.state.event(event);
+        (Self { state }, actions)
+    }
+
+    pub(super) fn is_paused(&self) -> bool {
+        self.state.is_paused()
+    }
+
+    pub(super) fn power_state(&self) -> MockPowerState {
+        self.state.power_state()
+    }
+
+    pub(super) fn state_string(&self) -> &'static str {
+        self.state.state_string()
+    }
+}
+
+impl SwitchState {
+    fn event(self, event: Event) -> StateReturn {
         match event {
             Event::Pause => return (self.with_paused(true), vec![]),
             Event::Resume => return (self.with_paused(false), vec![]),
@@ -61,8 +97,9 @@ impl SwitchFsm {
                 power_on,
                 power_cycle_pending,
                 paused,
-            } => self.fsm_bmc_init(event, power_on, power_cycle_pending, paused),
-            Self::NvosInit { paused } => self.fsm_nvos_init(event, paused),
+                dhcp_retry,
+            } => self.fsm_bmc_init(event, power_on, power_cycle_pending, paused, dhcp_retry),
+            Self::NvosInit { paused, dhcp_retry } => self.fsm_nvos_init(event, paused, dhcp_retry),
             Self::DeviceUp { paused } => self.fsm_device_up(event, paused),
             Self::DeviceDown {
                 power_cycle_pending,
@@ -71,16 +108,16 @@ impl SwitchFsm {
         }
     }
 
-    pub(super) fn is_paused(&self) -> bool {
+    fn is_paused(&self) -> bool {
         match self {
             Self::BmcInit { paused, .. }
-            | Self::NvosInit { paused }
+            | Self::NvosInit { paused, .. }
             | Self::DeviceUp { paused }
             | Self::DeviceDown { paused, .. } => *paused,
         }
     }
 
-    pub(super) fn power_state(&self) -> MockPowerState {
+    fn power_state(&self) -> MockPowerState {
         match self {
             Self::BmcInit { power_on: true, .. }
             | Self::NvosInit { .. }
@@ -92,7 +129,7 @@ impl SwitchFsm {
         }
     }
 
-    pub(super) fn state_string(&self) -> &'static str {
+    fn state_string(&self) -> &'static str {
         match self {
             Self::BmcInit { .. } => "BmcInit",
             Self::NvosInit { .. } => "NvosInit",
@@ -106,13 +143,15 @@ impl SwitchFsm {
             Self::BmcInit {
                 power_on,
                 power_cycle_pending,
+                dhcp_retry,
                 ..
             } => Self::BmcInit {
                 power_on,
                 power_cycle_pending,
                 paused,
+                dhcp_retry,
             },
-            Self::NvosInit { .. } => Self::NvosInit { paused },
+            Self::NvosInit { dhcp_retry, .. } => Self::NvosInit { paused, dhcp_retry },
             Self::DeviceUp { .. } => Self::DeviceUp { paused },
             Self::DeviceDown {
                 power_cycle_pending,
@@ -130,28 +169,60 @@ impl SwitchFsm {
         power_on: bool,
         power_cycle_pending: bool,
         paused: bool,
-    ) -> FsmReturn {
+        dhcp_retry: DhcpRetryFsm,
+    ) -> StateReturn {
         match event {
-            Event::DhcpComplete(DhcpEndpoint::Bmc) => (
-                if power_on {
-                    Self::NvosInit { paused }
+            Event::DhcpFailed(jitter) => {
+                let (dhcp_retry, actions) = dhcp_retry.event(RetryEvent::Failed(jitter));
+                (
+                    Self::BmcInit {
+                        power_on,
+                        power_cycle_pending,
+                        paused,
+                        dhcp_retry,
+                    },
+                    map_retry_actions(actions, DhcpEndpoint::Bmc),
+                )
+            }
+            Event::DhcpRetryExpired => {
+                let (dhcp_retry, actions) = dhcp_retry.event(RetryEvent::TimerExpired);
+                (
+                    Self::BmcInit {
+                        power_on,
+                        power_cycle_pending,
+                        paused,
+                        dhcp_retry,
+                    },
+                    map_retry_actions(actions, DhcpEndpoint::Bmc),
+                )
+            }
+            Event::DhcpComplete => {
+                let (_, retry_actions) = dhcp_retry.event(RetryEvent::Completed);
+                let next_state = if power_on {
+                    Self::NvosInit {
+                        paused,
+                        dhcp_retry: DhcpRetryFsm::new(),
+                    }
                 } else {
                     Self::DeviceDown {
                         power_cycle_pending,
                         paused,
                     }
-                },
-                if power_on {
+                };
+                let mut actions = map_retry_actions(retry_actions, DhcpEndpoint::Bmc);
+                actions.extend(if power_on {
                     vec![Action::SetupBmc, Action::Dhcp(DhcpEndpoint::Nvos)]
                 } else {
                     vec![Action::SetupBmc]
-                },
-            ),
+                });
+                (next_state, actions)
+            }
             Event::PowerOn => (
                 Self::BmcInit {
                     power_on: true,
                     power_cycle_pending: false,
                     paused,
+                    dhcp_retry,
                 },
                 cancel_timer_action(power_cycle_pending),
             ),
@@ -160,6 +231,7 @@ impl SwitchFsm {
                     power_on: false,
                     power_cycle_pending: false,
                     paused,
+                    dhcp_retry,
                 },
                 cancel_timer_action(power_cycle_pending),
             ),
@@ -168,6 +240,7 @@ impl SwitchFsm {
                     power_on: false,
                     power_cycle_pending: true,
                     paused,
+                    dhcp_retry,
                 },
                 vec![Action::SetTimer(Timer::PowerCycle)],
             ),
@@ -176,18 +249,68 @@ impl SwitchFsm {
                     power_on: true,
                     power_cycle_pending: false,
                     paused,
+                    dhcp_retry,
                 },
                 vec![],
             ),
             Event::TimerAlert(Timer::PowerCycle) => (self, vec![]),
-            Event::DhcpComplete(DhcpEndpoint::Nvos) => (self, vec![]),
-            Event::Pause | Event::Resume => unreachable!("handled before state dispatch"),
+            _ => (self, vec![]),
         }
     }
 
-    fn fsm_nvos_init(self, event: Event, paused: bool) -> FsmReturn {
+    fn fsm_nvos_init(self, event: Event, paused: bool, dhcp_retry: DhcpRetryFsm) -> StateReturn {
         match event {
-            Event::DhcpComplete(DhcpEndpoint::Nvos) => (Self::DeviceUp { paused }, vec![]),
+            Event::DhcpFailed(jitter) => {
+                let (dhcp_retry, actions) = dhcp_retry.event(RetryEvent::Failed(jitter));
+                (
+                    Self::NvosInit { paused, dhcp_retry },
+                    map_retry_actions(actions, DhcpEndpoint::Nvos),
+                )
+            }
+            Event::DhcpRetryExpired => {
+                let (dhcp_retry, actions) = dhcp_retry.event(RetryEvent::TimerExpired);
+                (
+                    Self::NvosInit { paused, dhcp_retry },
+                    map_retry_actions(actions, DhcpEndpoint::Nvos),
+                )
+            }
+            Event::DhcpComplete => {
+                let (_, retry_actions) = dhcp_retry.event(RetryEvent::Completed);
+                (
+                    Self::DeviceUp { paused },
+                    map_retry_actions(retry_actions, DhcpEndpoint::Nvos),
+                )
+            }
+            Event::PowerOff => {
+                let (_, retry_actions) = dhcp_retry.event(RetryEvent::Abandon);
+                let mut actions = map_retry_actions(retry_actions, DhcpEndpoint::Nvos);
+                actions.push(Action::StopNvos);
+                (
+                    Self::DeviceDown {
+                        power_cycle_pending: false,
+                        paused,
+                    },
+                    actions,
+                )
+            }
+            Event::PowerCycle => {
+                let (_, retry_actions) = dhcp_retry.event(RetryEvent::Abandon);
+                let mut actions = map_retry_actions(retry_actions, DhcpEndpoint::Nvos);
+                actions.extend([Action::StopNvos, Action::SetTimer(Timer::PowerCycle)]);
+                (
+                    Self::DeviceDown {
+                        power_cycle_pending: true,
+                        paused,
+                    },
+                    actions,
+                )
+            }
+            _ => (self, vec![]),
+        }
+    }
+
+    fn fsm_device_up(self, event: Event, paused: bool) -> StateReturn {
+        match event {
             Event::PowerOff => (
                 Self::DeviceDown {
                     power_cycle_pending: false,
@@ -206,30 +329,13 @@ impl SwitchFsm {
         }
     }
 
-    fn fsm_device_up(self, event: Event, paused: bool) -> FsmReturn {
-        match event {
-            Event::PowerOff => (
-                Self::DeviceDown {
-                    power_cycle_pending: false,
-                    paused,
-                },
-                vec![Action::StopNvos],
-            ),
-            Event::PowerCycle => (
-                Self::DeviceDown {
-                    power_cycle_pending: true,
-                    paused,
-                },
-                vec![Action::StopNvos, Action::SetTimer(Timer::PowerCycle)],
-            ),
-            _ => (self, vec![]),
-        }
-    }
-
-    fn fsm_device_down(self, event: Event, power_cycle_pending: bool, paused: bool) -> FsmReturn {
+    fn fsm_device_down(self, event: Event, power_cycle_pending: bool, paused: bool) -> StateReturn {
         match event {
             Event::PowerOn => (
-                Self::NvosInit { paused },
+                Self::NvosInit {
+                    paused,
+                    dhcp_retry: DhcpRetryFsm::new(),
+                },
                 cancel_timer_action(power_cycle_pending)
                     .into_iter()
                     .chain([Action::Dhcp(DhcpEndpoint::Nvos)])
@@ -243,7 +349,10 @@ impl SwitchFsm {
                 cancel_timer_action(power_cycle_pending),
             ),
             Event::TimerAlert(Timer::PowerCycle) if power_cycle_pending => (
-                Self::NvosInit { paused },
+                Self::NvosInit {
+                    paused,
+                    dhcp_retry: DhcpRetryFsm::new(),
+                },
                 vec![Action::Dhcp(DhcpEndpoint::Nvos)],
             ),
             Event::TimerAlert(Timer::PowerCycle) => (self, vec![]),
@@ -259,6 +368,21 @@ impl SwitchFsm {
     }
 }
 
+fn map_retry_actions(actions: Vec<RetryAction>, endpoint: DhcpEndpoint) -> Vec<Action> {
+    actions
+        .into_iter()
+        .map(|action| map_retry_action(action, endpoint))
+        .collect()
+}
+
+fn map_retry_action(action: RetryAction, endpoint: DhcpEndpoint) -> Action {
+    match action {
+        RetryAction::Schedule { delay } => Action::ScheduleDhcpRetry { delay },
+        RetryAction::Run => Action::Dhcp(endpoint),
+        RetryAction::Cancel => Action::CancelDhcpRetry,
+    }
+}
+
 fn cancel_timer_action(power_cycle_pending: bool) -> Vec<Action> {
     if power_cycle_pending {
         vec![Action::CancelTimer(Timer::PowerCycle)]
@@ -269,7 +393,9 @@ fn cancel_timer_action(power_cycle_pending: bool) -> Vec<Action> {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Event {
-    DhcpComplete(DhcpEndpoint),
+    DhcpComplete,
+    DhcpFailed(Milliseconds),
+    DhcpRetryExpired,
     PowerOn,
     PowerOff,
     PowerCycle,
@@ -278,9 +404,18 @@ pub(super) enum Event {
     Resume,
 }
 
+#[cfg(test)]
+impl Event {
+    fn dhcp_failed_with_jitter(jitter: Milliseconds) -> Self {
+        Self::DhcpFailed(jitter)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Action {
     Dhcp(DhcpEndpoint),
+    ScheduleDhcpRetry { delay: Duration },
+    CancelDhcpRetry,
     SetupBmc,
     StopNvos,
     SetTimer(Timer),
@@ -304,6 +439,28 @@ mod tests {
 
     use super::*;
 
+    type TestFsm = SwitchFsm;
+
+    fn with_state(state: SwitchState) -> TestFsm {
+        SwitchFsm { state }
+    }
+
+    fn bmc_init(power_on: bool, power_cycle_pending: bool, paused: bool) -> SwitchState {
+        SwitchState::BmcInit {
+            power_on,
+            power_cycle_pending,
+            paused,
+            dhcp_retry: DhcpRetryFsm::new(),
+        }
+    }
+
+    fn nvos_init(paused: bool) -> SwitchState {
+        SwitchState::NvosInit {
+            paused,
+            dhcp_retry: DhcpRetryFsm::new(),
+        }
+    }
+
     #[test]
     fn switch_transitions() {
         check_values(
@@ -311,80 +468,72 @@ mod tests {
                 Check {
                     scenario: "new switch completes BMC DHCP powered off",
                     input: (
-                        SwitchFsm::BmcInit {
-                            power_on: false,
-                            power_cycle_pending: false,
-                            paused: false,
-                        },
-                        Event::DhcpComplete(DhcpEndpoint::Bmc),
+                        with_state(bmc_init(false, false, false)),
+                        Event::DhcpComplete,
                     ),
                     expect: (
-                        SwitchFsm::DeviceDown {
+                        with_state(SwitchState::DeviceDown {
                             power_cycle_pending: false,
                             paused: false,
-                        },
+                        }),
                         vec![Action::SetupBmc],
                     ),
                 },
                 Check {
                     scenario: "persisted switch completes BMC DHCP powered on",
                     input: (
-                        SwitchFsm::BmcInit {
-                            power_on: true,
-                            power_cycle_pending: false,
-                            paused: false,
-                        },
-                        Event::DhcpComplete(DhcpEndpoint::Bmc),
+                        with_state(bmc_init(true, false, false)),
+                        Event::DhcpComplete,
                     ),
                     expect: (
-                        SwitchFsm::NvosInit { paused: false },
+                        with_state(nvos_init(false)),
                         vec![Action::SetupBmc, Action::Dhcp(DhcpEndpoint::Nvos)],
                     ),
                 },
                 Check {
                     scenario: "NVOS DHCP completes switch startup",
-                    input: (
-                        SwitchFsm::NvosInit { paused: false },
-                        Event::DhcpComplete(DhcpEndpoint::Nvos),
-                    ),
-                    expect: (SwitchFsm::DeviceUp { paused: false }, vec![]),
+                    input: (with_state(nvos_init(false)), Event::DhcpComplete),
+                    expect: (with_state(SwitchState::DeviceUp { paused: false }), vec![]),
                 },
                 Check {
                     scenario: "powered switch begins a power cycle",
-                    input: (SwitchFsm::DeviceUp { paused: false }, Event::PowerCycle),
+                    input: (
+                        with_state(SwitchState::DeviceUp { paused: false }),
+                        Event::PowerCycle,
+                    ),
                     expect: (
-                        SwitchFsm::DeviceDown {
+                        with_state(SwitchState::DeviceDown {
                             power_cycle_pending: true,
                             paused: false,
-                        },
+                        }),
                         vec![Action::StopNvos, Action::SetTimer(Timer::PowerCycle)],
                     ),
                 },
                 Check {
                     scenario: "power-cycle timer restores power",
                     input: (
-                        SwitchFsm::DeviceDown {
+                        with_state(SwitchState::DeviceDown {
                             power_cycle_pending: true,
                             paused: false,
-                        },
+                        }),
                         Event::TimerAlert(Timer::PowerCycle),
                     ),
                     expect: (
-                        SwitchFsm::NvosInit { paused: false },
+                        with_state(nvos_init(false)),
                         vec![Action::Dhcp(DhcpEndpoint::Nvos)],
                     ),
                 },
                 Check {
                     scenario: "explicit power-on cancels a pending power cycle",
                     input: (
-                        SwitchFsm::DeviceDown {
+                        with_state(SwitchState::DeviceDown {
                             power_cycle_pending: true,
                             paused: false,
-                        },
+                        }),
                         Event::PowerOn,
                     ),
                     expect: (
-                        SwitchFsm::NvosInit { paused: false },
+                        with_state(nvos_init(false)),
                         vec![
                             Action::CancelTimer(Timer::PowerCycle),
                             Action::Dhcp(DhcpEndpoint::Nvos),
@@ -394,50 +543,53 @@ mod tests {
                 Check {
                     scenario: "a new power cycle replaces the pending timer",
                     input: (
-                        SwitchFsm::DeviceDown {
+                        with_state(SwitchState::DeviceDown {
                             power_cycle_pending: true,
                             paused: false,
-                        },
+                        }),
                         Event::PowerCycle,
                     ),
                     expect: (
-                        SwitchFsm::DeviceDown {
+                        with_state(SwitchState::DeviceDown {
                             power_cycle_pending: true,
                             paused: false,
-                        },
+                        }),
                         vec![Action::SetTimer(Timer::PowerCycle)],
                     ),
                 },
                 Check {
                     scenario: "power off while NVOS starts leaves the switch down",
-                    input: (SwitchFsm::NvosInit { paused: false }, Event::PowerOff),
+                    input: (with_state(nvos_init(false)), Event::PowerOff),
                     expect: (
-                        SwitchFsm::DeviceDown {
+                        with_state(SwitchState::DeviceDown {
                             power_cycle_pending: false,
                             paused: false,
-                        },
+                        }),
                         vec![Action::StopNvos],
                     ),
                 },
                 Check {
                     scenario: "switch processing can be paused",
-                    input: (SwitchFsm::DeviceUp { paused: false }, Event::Pause),
-                    expect: (SwitchFsm::DeviceUp { paused: true }, vec![]),
+                    input: (
+                        with_state(SwitchState::DeviceUp { paused: false }),
+                        Event::Pause,
+                    ),
+                    expect: (with_state(SwitchState::DeviceUp { paused: true }), vec![]),
                 },
                 Check {
                     scenario: "switch processing can be resumed",
                     input: (
-                        SwitchFsm::DeviceDown {
+                        with_state(SwitchState::DeviceDown {
                             power_cycle_pending: false,
                             paused: true,
-                        },
+                        }),
                         Event::Resume,
                     ),
                     expect: (
-                        SwitchFsm::DeviceDown {
+                        with_state(SwitchState::DeviceDown {
                             power_cycle_pending: false,
                             paused: false,
-                        },
+                        }),
                         vec![],
                     ),
                 },
@@ -448,15 +600,15 @@ mod tests {
 
     #[test]
     fn power_off_supersedes_power_cycle() {
-        let (fsm, _) = SwitchFsm::DeviceUp { paused: false }.event(Event::PowerCycle);
+        let (fsm, _) = with_state(SwitchState::DeviceUp { paused: false }).event(Event::PowerCycle);
         let (fsm, actions) = fsm.event(Event::PowerOff);
         assert_eq!(
             (fsm, actions),
             (
-                SwitchFsm::DeviceDown {
+                with_state(SwitchState::DeviceDown {
                     power_cycle_pending: false,
                     paused: false,
-                },
+                }),
                 vec![Action::CancelTimer(Timer::PowerCycle)],
             )
         );
@@ -465,12 +617,40 @@ mod tests {
         assert_eq!(
             (fsm, actions),
             (
-                SwitchFsm::DeviceDown {
+                with_state(SwitchState::DeviceDown {
                     power_cycle_pending: false,
                     paused: false,
-                },
+                }),
                 vec![],
             )
         );
+    }
+
+    #[test]
+    fn bmc_retry_survives_power_changes() {
+        let fsm = with_state(bmc_init(true, false, false));
+        let (fsm, actions) = fsm.event(Event::dhcp_failed_with_jitter(Milliseconds::new(0)));
+        assert_eq!(
+            actions,
+            vec![Action::ScheduleDhcpRetry {
+                delay: Duration::from_secs(4),
+            }]
+        );
+
+        let (fsm, actions) = fsm.event(Event::PowerCycle);
+        assert_eq!(actions, vec![Action::SetTimer(Timer::PowerCycle)]);
+        let (_, actions) = fsm.event(Event::DhcpRetryExpired);
+        assert_eq!(actions, vec![Action::Dhcp(DhcpEndpoint::Bmc)]);
+    }
+
+    #[test]
+    fn power_off_abandons_nvos_retry() {
+        let fsm = with_state(nvos_init(false));
+        let (fsm, _) = fsm.event(Event::dhcp_failed_with_jitter(Milliseconds::new(0)));
+        let (fsm, actions) = fsm.event(Event::PowerOff);
+        assert_eq!(actions, vec![Action::CancelDhcpRetry, Action::StopNvos]);
+
+        let (_, actions) = fsm.event(Event::DhcpRetryExpired);
+        assert!(actions.is_empty());
     }
 }

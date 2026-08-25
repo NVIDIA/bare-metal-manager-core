@@ -57,10 +57,13 @@ This list outlines platforms that are under development and have not undergone f
 
 ## DPUs
 
-| DPU | Firmware / Software Version |
-| --- | --------------------------- |
-| BlueField 2 | DOCA 3.2.0 |
-| BlueField 3 | DOCA 3.2.0 |
+The following versions are the tested software pins, not automatically the
+latest available releases. DOCA and HBN are versioned separately.
+
+| DPU | DOCA | HBN |
+| --- | --- | --- |
+| BlueField 2 | 3.2.0 | Not specified |
+| BlueField 3 | 3.2.2 | 3.2.2 |
 
 ## GPUs
 

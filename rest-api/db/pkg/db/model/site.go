@@ -45,16 +45,16 @@ var (
 	}
 )
 
-// Config should be kept flat to allow simple merging
-// of updates at the postgres/jsonb level.  We use jsonb_set + ||
-// to allow "partial" updates, but any nesting here would prevent
-// that.
+// Config stays flat so PostgreSQL JSONB concatenation can apply partial
+// updates without replacing unrelated settings.
 type SiteConfig struct {
 	NetworkSecurityGroup             bool `json:"network_security_group"`
 	NativeNetworking                 bool `json:"native_networking"`
+	VpcSlaac                         bool `json:"vpc_slaac"`
 	NVLinkPartition                  bool `json:"nvlink_partition"`
 	Flow                             bool `json:"flow"`
 	ImageBasedOperatingSystem        bool `json:"image_based_operating_system"`
+	DPSPowerManagement               bool `json:"dps_power_management"`
 	MaxNetworkSecurityGroupRuleCount *int `json:"max_network_security_group_rule_count"`
 }
 
@@ -126,9 +126,11 @@ type SiteCreateInput struct {
 type SiteConfigUpdateInput struct {
 	NetworkSecurityGroup             *bool `json:"network_security_group,omitempty"`
 	NativeNetworking                 *bool `json:"native_networking,omitempty"`
+	VpcSlaac                         *bool `json:"vpc_slaac,omitempty"`
 	NVLinkPartition                  *bool `json:"nvlink_partition,omitempty"`
 	Flow                             *bool `json:"flow,omitempty"`
 	ImageBasedOperatingSystem        *bool `json:"image_based_operating_system,omitempty"`
+	DPSPowerManagement               *bool `json:"dps_power_management,omitempty"`
 	MaxNetworkSecurityGroupRuleCount *int  `json:"max_network_security_group_rule_count,omitempty"`
 }
 
@@ -158,9 +160,11 @@ type SiteUpdateInput struct {
 type SiteConfigFilterInput struct {
 	NetworkSecurityGroup             *bool `json:"network_security_group,omitempty"`
 	NativeNetworking                 *bool `json:"native_networking,omitempty"`
+	VpcSlaac                         *bool `json:"vpc_slaac,omitempty"`
 	NVLinkPartition                  *bool `json:"nvlink_partition,omitempty"`
 	Flow                             *bool `json:"flow,omitempty"`
 	ImageBasedOperatingSystem        *bool `json:"image_based_operating_system,omitempty"`
+	DPSPowerManagement               *bool `json:"dps_power_management,omitempty"`
 	MaxNetworkSecurityGroupRuleCount *int  `json:"max_network_security_group_rule_count,omitempty"`
 }
 
@@ -581,7 +585,7 @@ func (ssd SiteSQLDAO) Update(ctx context.Context, tx *db.Tx, input SiteUpdateInp
 	if input.Config != nil {
 		_, err := db.GetIDB(tx, ssd.dbSession).NewUpdate().
 			Model(st).
-			Set("config = config || ?::jsonb, updated = current_timestamp", input.Config).
+			Set("config = COALESCE(config, '{}'::jsonb) || ?::jsonb, updated = current_timestamp", input.Config).
 			Where("id = ?", st.ID).
 			Exec(ctx)
 

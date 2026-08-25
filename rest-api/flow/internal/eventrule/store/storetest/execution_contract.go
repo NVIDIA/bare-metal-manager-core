@@ -9,256 +9,92 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
 )
 
-// ExecutionFactory constructs an empty execution store whose
-// authoritative clock reads the supplied time.
-type ExecutionFactory func(*time.Time) eventrule.ExecutionStore
+// EventExecutionStore is the combined persistence boundary exercised by this
+// contract.
+type EventExecutionStore interface {
+	eventrule.EventStore
+	eventrule.ExecutionStore
+}
 
-// RunExecutionContract executes the shared execution store
+// ExecutionFactory constructs an empty store whose authoritative clock reads
+// the supplied time.
+type ExecutionFactory func(*time.Time) EventExecutionStore
+
+// RunExecutionContract executes the shared durable event and execution-plan
 // contract.
 func RunExecutionContract(t *testing.T, factory ExecutionFactory) {
 	t.Helper()
-	t.Run("create pending execution", func(t *testing.T) {
-		testExecutionCreation(t, factory)
+	t.Run("event lifecycle", func(t *testing.T) { testEventLifecycle(t, factory) })
+	t.Run("concurrent event deduplication", func(t *testing.T) {
+		testConcurrentEventDeduplication(t, factory)
 	})
-	t.Run("reject invalid creation", func(t *testing.T) {
-		testExecutionInvalidCreation(t, factory)
+	t.Run("execution planning and transition", func(t *testing.T) {
+		testExecutionLifecycle(t, factory)
 	})
-	t.Run("delivery deduplication", func(t *testing.T) {
-		testExecutionDeliveryDeduplication(t, factory)
-	})
-	t.Run("semantic deduplication", func(t *testing.T) {
-		testExecutionSemanticDeduplication(t, factory)
-	})
-	t.Run("semantic deduplication window expiry", func(t *testing.T) {
-		testExecutionSemanticDedupeWindowExpiry(t, factory)
-	})
-	t.Run("concurrent delivery deduplication", func(t *testing.T) {
-		testExecutionConcurrentDeliveryDeduplication(t, factory)
-	})
-	t.Run("persist result", func(t *testing.T) {
-		testExecutionTransition(t, factory)
-	})
-	t.Run("unknown execution result", func(t *testing.T) {
-		testUnknownExecutionTransition(t, factory)
+	t.Run("ordered atomic plan commit", func(t *testing.T) {
+		testOrderedAtomicPlanCommit(t, factory)
 	})
 }
 
-func testExecutionInvalidCreation(
-	t *testing.T,
-	factory ExecutionFactory,
-) {
+func testEventLifecycle(t *testing.T, factory ExecutionFactory) {
 	t.Helper()
-	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
 	store := factory(&now)
+	definition := newEventDefinition()
 
-	created, err := store.CreateExecution(
-		context.Background(),
-		eventrule.ExecutionIdentity{},
-		nil,
-	)
-	require.ErrorContains(t, err, "event id is required")
-	require.Nil(t, created)
+	missing, err := store.ObserveEvent(ctx, definition.Key)
+	require.NoError(t, err)
+	require.Nil(t, missing)
 
-	identity := newExecutionIdentity()
-	created, err = store.CreateExecution(
-		context.Background(),
-		identity,
-		&eventrule.Dedupe{Window: time.Minute},
-	)
-	require.ErrorContains(t, err, "correlation key is required")
-	require.Nil(t, created)
-
-	identity.CorrelationKey = "incident-1"
-	created, err = store.CreateExecution(
-		context.Background(),
-		identity,
-		&eventrule.Dedupe{},
-	)
-	require.ErrorContains(t, err, "dedupe window must be positive")
-	require.Nil(t, created)
-}
-
-func testExecutionCreation(t *testing.T, factory ExecutionFactory) {
-	t.Helper()
-	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
-	created, err := factory(&now).CreateExecution(
-		context.Background(),
-		newExecutionIdentity(),
-		nil,
-	)
+	created, err := store.CreateEvent(ctx, definition)
 	require.NoError(t, err)
 	require.NotNil(t, created)
-	require.Equal(t, eventrule.ExecutionStatusPending, created.Status)
-	require.Equal(t, now, created.CreatedAt)
-	require.Equal(t, now, created.UpdatedAt)
 	require.Equal(t, 1, created.Observations)
-	require.Equal(t, 1, created.Attempts)
-}
-
-func testExecutionTransition(t *testing.T, factory ExecutionFactory) {
-	t.Helper()
-	ctx := context.Background()
-	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
-	store := factory(&now)
-	created, err := store.CreateExecution(ctx, newExecutionIdentity(), nil)
-	require.NoError(t, err)
-	require.NotNil(t, created)
-
-	retryAfter := time.Minute
-	statusMessage := "downstream temporarily unavailable"
-	transitionAt := now.Add(time.Second)
-	now = transitionAt
-	transitioned, err := store.TransitionExecution(
-		ctx,
-		created.ID,
-		eventrule.DeferredExecutionResult(
-			eventrule.ExecutionReasonAttemptFailed,
-			statusMessage,
-			retryAfter,
-		),
-	)
-	require.NoError(t, err)
-	require.NotNil(t, transitioned)
-	require.Equal(t, eventrule.ExecutionStatusDeferred, transitioned.Status)
-	require.Equal(t, eventrule.ExecutionReasonAttemptFailed, transitioned.Reason)
-	require.Equal(t, statusMessage, transitioned.StatusMessage)
-	require.Equal(t, 1, transitioned.Attempts)
-	require.Equal(t, transitionAt, transitioned.UpdatedAt)
-	require.Equal(t, transitionAt.Add(retryAfter), transitioned.NextAttemptAt)
-
-	now = transitionAt.Add(time.Second)
-	transitioned, err = store.TransitionExecution(
-		ctx,
-		created.ID,
-		eventrule.CompletedExecutionResult(),
-	)
-	require.NoError(t, err)
-	require.NotNil(t, transitioned)
-	require.Equal(t, eventrule.ExecutionStatusCompleted, transitioned.Status)
-	require.Equal(t, eventrule.ExecutionReasonNone, transitioned.Reason)
-	require.Empty(t, transitioned.StatusMessage)
-	require.Equal(t, 2, transitioned.Attempts)
-	require.Equal(t, now, transitioned.UpdatedAt)
-	require.True(t, transitioned.NextAttemptAt.IsZero())
-
-	transitioned, err = store.TransitionExecution(
-		ctx,
-		created.ID,
-		eventrule.FailedExecutionResult(""),
-	)
-	require.ErrorContains(t, err, "cannot transition")
-	require.Nil(t, transitioned)
-}
-
-func testUnknownExecutionTransition(
-	t *testing.T,
-	factory ExecutionFactory,
-) {
-	t.Helper()
-	now := time.Now()
-	transitioned, err := factory(&now).TransitionExecution(
-		context.Background(),
-		uuid.New(),
-		eventrule.CompletedExecutionResult(),
-	)
-	require.ErrorIs(t, err, eventrule.ErrExecutionNotFound)
-	require.Nil(t, transitioned)
-}
-
-func testExecutionDeliveryDeduplication(
-	t *testing.T,
-	factory ExecutionFactory,
-) {
-	t.Helper()
-	ctx := context.Background()
-	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
-	store := factory(&now)
-	identity := newExecutionIdentity()
-
-	created, err := store.CreateExecution(ctx, identity, nil)
-	require.NoError(t, err)
-	require.NotNil(t, created)
+	require.Nil(t, created.PlannedAt)
 
 	now = now.Add(time.Second)
-	duplicate, err := store.CreateExecution(ctx, identity, nil)
+	observed, err := store.ObserveEvent(ctx, definition.Key)
 	require.NoError(t, err)
-	require.Nil(t, duplicate)
+	require.Equal(t, created.ID, observed.ID)
+	require.Equal(t, 2, observed.Observations)
+	require.Equal(t, now, observed.LastObservedAt)
+
+	plan := []eventrule.PlannedExecution{{
+		ActionName:    "notify",
+		ExecutionPlan: &eventrule.NoopPlan{Reason: "test"},
+	}}
+	committed, err := store.CommitEventPlan(ctx, created.ID, plan)
+	require.NoError(t, err)
+	require.Len(t, committed, 1)
+	planned, err := store.ObserveEvent(ctx, definition.Key)
+	require.NoError(t, err)
+	require.Equal(t, now, *planned.PlannedAt)
+	_, err = store.CommitEventPlan(ctx, created.ID, plan)
+	require.ErrorIs(t, err, eventrule.ErrEventAlreadyPlanned)
 }
 
-func testExecutionSemanticDeduplication(
-	t *testing.T,
-	factory ExecutionFactory,
-) {
+func testConcurrentEventDeduplication(t *testing.T, factory ExecutionFactory) {
 	t.Helper()
-	ctx := context.Background()
-	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
 	store := factory(&now)
-	identity := newExecutionIdentity()
-	identity.CorrelationKey = "incident-1"
-	dedupe := &eventrule.Dedupe{Window: time.Minute}
-
-	created, err := store.CreateExecution(ctx, identity, dedupe)
-	require.NoError(t, err)
-	require.NotNil(t, created)
-
-	identity.EventID = uuid.New()
-	now = now.Add(time.Second)
-	duplicate, err := store.CreateExecution(ctx, identity, dedupe)
-	require.NoError(t, err)
-	require.Nil(t, duplicate)
-}
-
-func testExecutionSemanticDedupeWindowExpiry(
-	t *testing.T,
-	factory ExecutionFactory,
-) {
-	t.Helper()
-	ctx := context.Background()
-	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
-	store := factory(&now)
-	identity := newExecutionIdentity()
-	identity.CorrelationKey = "incident-1"
-	dedupe := &eventrule.Dedupe{Window: time.Minute}
-
-	first, err := store.CreateExecution(ctx, identity, dedupe)
-	require.NoError(t, err)
-	require.NotNil(t, first)
-
-	identity.EventID = uuid.New()
-	now = now.Add(dedupe.Window)
-	second, err := store.CreateExecution(ctx, identity, dedupe)
-	require.NoError(t, err)
-	require.NotNil(t, second)
-	require.NotEqual(t, first.ID, second.ID)
-}
-
-func testExecutionConcurrentDeliveryDeduplication(
-	t *testing.T,
-	factory ExecutionFactory,
-) {
-	t.Helper()
-	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
-	store := factory(&now)
-	identity := newExecutionIdentity()
-
+	definition := newEventDefinition()
 	const deliveries = 20
-	results := make(chan *eventrule.Execution, deliveries)
-	errs := make(chan error, deliveries)
+
 	var wg sync.WaitGroup
+	results := make(chan *eventrule.Event, deliveries)
+	errs := make(chan error, deliveries)
 	for range deliveries {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			created, err := store.CreateExecution(
-				context.Background(),
-				identity,
-				nil,
-			)
+			created, err := store.CreateEvent(context.Background(), definition)
 			results <- created
 			errs <- err
 		}()
@@ -266,23 +102,122 @@ func testExecutionConcurrentDeliveryDeduplication(
 	wg.Wait()
 	close(results)
 	close(errs)
-
-	created := 0
-	for result := range results {
-		if result != nil {
-			created++
+	insertions := 0
+	for created := range results {
+		if created != nil {
+			insertions++
 		}
 	}
 	for err := range errs {
 		require.NoError(t, err)
 	}
-	require.Equal(t, 1, created)
+	require.Equal(t, 1, insertions)
+	stored, err := store.ObserveEvent(context.Background(), definition.Key)
+	require.NoError(t, err)
+	require.Equal(t, deliveries+1, stored.Observations)
 }
 
-func newExecutionIdentity() eventrule.ExecutionIdentity {
-	return eventrule.ExecutionIdentity{
-		EventID:    uuid.New(),
-		RuleID:     uuid.New(),
-		ActionName: "action",
+func testExecutionLifecycle(t *testing.T, factory ExecutionFactory) {
+	t.Helper()
+	ctx := context.Background()
+	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
+	store := factory(&now)
+	event, err := store.CreateEvent(ctx, newEventDefinition())
+	require.NoError(t, err)
+	require.NotNil(t, event)
+
+	committed, err := store.CommitEventPlan(
+		ctx,
+		event.ID,
+		[]eventrule.PlannedExecution{{
+			ActionName:    "notify",
+			ExecutionPlan: &eventrule.NoopPlan{Reason: "test"},
+		}},
+	)
+	require.NoError(t, err)
+	require.Len(t, committed, 1)
+	created := committed[0]
+	require.Equal(t, eventrule.ExecutionStatusPending, created.Status)
+	require.Zero(t, created.Attempts)
+
+	_, err = store.CommitEventPlan(
+		ctx,
+		event.ID,
+		[]eventrule.PlannedExecution{{
+			ActionName:    "notify",
+			ExecutionPlan: &eventrule.NoopPlan{Reason: "different plan"},
+		}},
+	)
+	require.ErrorIs(t, err, eventrule.ErrEventAlreadyPlanned)
+
+	now = now.Add(time.Second)
+	err = store.TransitionExecution(
+		ctx,
+		created.ID,
+		eventrule.DeferredExecutionResult(
+			eventrule.ExecutionReasonAttemptFailed,
+			"temporarily unavailable",
+			time.Minute,
+		),
+	)
+	require.NoError(t, err)
+
+	now = now.Add(time.Second)
+	err = store.TransitionExecution(
+		ctx,
+		created.ID,
+		eventrule.CompletedExecutionResult(),
+	)
+	require.NoError(t, err)
+	err = store.TransitionExecution(
+		ctx,
+		created.ID,
+		eventrule.FailedExecutionResult("late failure"),
+	)
+	require.Error(t, err)
+}
+
+func testOrderedAtomicPlanCommit(t *testing.T, factory ExecutionFactory) {
+	t.Helper()
+	ctx := context.Background()
+	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
+	store := factory(&now)
+	definition := newEventDefinition()
+	definition.EffectivePolicy.Actions = append(
+		definition.EffectivePolicy.Actions,
+		eventrule.Action{Name: "archive", Spec: &eventrule.Noop{Reason: "test"}},
+	)
+	event, err := store.CreateEvent(ctx, definition)
+	require.NoError(t, err)
+
+	reversed := []eventrule.PlannedExecution{
+		{ActionName: "archive", ExecutionPlan: &eventrule.NoopPlan{Reason: "test"}},
+		{ActionName: "notify", ExecutionPlan: &eventrule.NoopPlan{Reason: "test"}},
+	}
+	_, err = store.CommitEventPlan(ctx, event.ID, reversed)
+	require.ErrorContains(t, err, `action name "archive", want "notify"`)
+
+	planned := []eventrule.PlannedExecution{
+		{ActionName: "notify", ExecutionPlan: &eventrule.NoopPlan{Reason: "test"}},
+		{ActionName: "archive", ExecutionPlan: &eventrule.NoopPlan{Reason: "test"}},
+	}
+	executions, err := store.CommitEventPlan(ctx, event.ID, planned)
+	require.NoError(t, err)
+	require.Equal(t, []string{"notify", "archive"}, []string{
+		executions[0].ActionName,
+		executions[1].ActionName,
+	})
+}
+
+func newEventDefinition() eventrule.Event {
+	return eventrule.Event{
+		Key:           eventrule.EventKey{SourceName: "test", SourceKey: uuid.NewString()},
+		Type:          "test.event",
+		Resource:      eventrule.ResourceIdentity{Kind: eventrule.ResourceKindRack, ID: uuid.New()},
+		AppliedRuleID: uuid.New(),
+		EffectivePolicy: eventrule.Policy{Actions: []eventrule.Action{
+			{Name: "notify", Spec: &eventrule.Noop{Reason: "test"}},
+		}},
+		Summary: "Test event",
 	}
 }

@@ -40,6 +40,16 @@ Example:
 /opt/nico/nico-admin-cli -a https://127.0.0.1:1079 machine force-delete --machine="60cef902-9779-4666-8362-c9bb4b37184f"
 ```
 
+For a full rediscovery wipe (interfaces, BMC interfaces, BMC suppressions, and
+retained boot targets), add:
+
+```bash
+/opt/nico/nico-admin-cli -a https://127.0.0.1:1079 machine force-delete \
+  --machine="60cef902-9779-4666-8362-c9bb4b37184f" \
+  --delete-interfaces --delete-bmc-interfaces \
+  --delete-bmc-suppressions --delete-retained-boot-interfaces
+```
+
 ### 3. Use the returned BMC IP/port and machine-id to reboot the host
 
 See [Rebooting a machine](machine_reboot.md).

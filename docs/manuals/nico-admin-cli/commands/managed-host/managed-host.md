@@ -30,7 +30,7 @@ Sort output by specified field\
 \
 *Possible values:*
 
-- primary-id: Sort by the primary id
+- primary-id: Sort by the primary ID
 
 - state: Sort by state
 
@@ -47,8 +47,10 @@ Print help (see a summary with -h)
 | [`reset-host-reprovisioning`](./managed-host-reset-host-reprovisioning.md) | Reset host reprovisioning back to CheckingFirmware |
 | [`power-options`](./managed-host-power-options.md) | Power Manager related settings. |
 | [`start-updates`](./managed-host-start-updates.md) | Start updates for machines with delayed updates, such as GB200 |
-| [`set-primary-dpu`](./managed-host-set-primary-dpu.md) | Set the primary DPU for the managed host |
+| [`set-primary-interface`](./managed-host-set-primary-interface.md) | Set the primary interface (boot device) for the managed host |
+| [`set-primary-dpu`](./managed-host-set-primary-dpu.md) | Deprecated: use set-primary-interface with a machine-interface ID, not a DPU machine ID |
 | [`debug-bundle`](./managed-host-debug-bundle.md) | Download debug bundle with logs for a specific host |
+| [`decommission`](./managed-host-decommission.md) | Start decommissioning a managed host |
 
 ---
 

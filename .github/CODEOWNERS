@@ -5,7 +5,7 @@
 # Rules are evaluated from top to bottom, with later rules taking precedence.
 
 # Default owners for everything in the repo
-* @NVIDIA/carbide-sw-contributors
+* @NVIDIA/carbide-sw-approvers
 
 # CODEOWNERS file itself - requires admin approval
 /.github/CODEOWNERS @NVIDIA/carbide-sw-admins
@@ -18,8 +18,6 @@
 /helm-prereqs/ @NVIDIA/dsx-sw-helm
 
 # Documentation (To be re-enabled once as have a doc reviewer)
-#/docs/ @CoCo-Ben
-#/fern/ @CoCo-Ben
 /docs/ @polarweasel
 /fern/ @polarweasel
 
@@ -27,6 +25,3 @@
 # `/metrics` scrape; `cargo xtask check-metric-docs --fix` adds the rest), not
 # authored prose -- exclude it so metric-only changes don't wait on docs review.
 /docs/observability/core_metrics.md
-
-# Network IP module
-/common/network/src/ip/ @DrewBloechl

@@ -10,6 +10,7 @@
 ## How to run Flow on local machine (direct)
 
 ### Prerequisites
+
 ```bash
 # 1. Start PostgreSQL
 ./scripts/start-test-postgres.sh
@@ -20,6 +21,7 @@ temporal server start-dev --namespace flow --port 7233
 ```
 
 ### Build and Run
+
 ```bash
 # Build
 go build -o flow
@@ -27,6 +29,21 @@ go build -o flow
 # Set environment (or use direnv with .envrc)
 export DB_ADDR=localhost DB_PORT=30432 DB_USER=postgres DB_PASSWORD=postgres DB_DATABASE=flow_test
 export TEMPORAL_HOST=localhost TEMPORAL_PORT=7233 TEMPORAL_NAMESPACE=flow
+# Generate this key once and reuse it so persisted encrypted data remains readable.
+(
+  set -eu
+  umask 077
+  key_file=.flow-data-encryption-key
+  if [ ! -s "$key_file" ]; then
+    key_tmp=$(mktemp .flow-data-encryption-key.XXXXXX)
+    trap 'rm -f "$key_tmp"' EXIT
+    openssl rand -base64 32 > "$key_tmp"
+    test -s "$key_tmp"
+    mv "$key_tmp" "$key_file"
+    trap - EXIT
+  fi
+  chmod 0600 "$key_file"
+) && export FLOW_DATA_ENCRYPTION_KEY_PATH="$PWD/.flow-data-encryption-key"
 
 # Run migrations
 ./flow db migrate
@@ -39,6 +56,7 @@ export TEMPORAL_HOST=localhost TEMPORAL_PORT=7233 TEMPORAL_NAMESPACE=flow
 **Note:** NICo is not available locally; power/firmware operations will fail. Use dev/staging for those tests.
 
 ### Test with grpcui
+
 ```bash
 go install github.com/fullstorydev/grpcui/cmd/grpcui@latest
 grpcui -plaintext localhost:50051
@@ -58,7 +76,7 @@ grpcui -plaintext localhost:50051
 
 ### Data Flow
 
-```
+```text
 gRPC Request → Server (convert to TaskSpec)
              → Task Manager (resolve + split by rack → create Tasks)
              → Executor (start Temporal Workflow per Task)
@@ -71,16 +89,19 @@ gRPC Request → Server (convert to TaskSpec)
 > The examples below require the server to be running with `--dev-mode` (enables gRPC reflection).
 
 List all available APIs:
+
 ```bash
 grpcurl -plaintext localhost:50051 list v1.Flow
 ```
 
 Describe a specific API:
+
 ```bash
 grpcurl -plaintext localhost:50051 describe v1.Flow/CreateExpectedRack
 ```
 
 ### Example: GetComponentInfoBySerial
+
 ```bash
 grpcurl -plaintext -d '{
   "serial_info": {"manufacturer": "Wiwynn", "serial_number": "B8111801000851500108Y0SA"},
@@ -89,6 +110,7 @@ grpcurl -plaintext -d '{
 ```
 
 Response:
+
 ```json
 {
   "component": {
@@ -142,6 +164,7 @@ Response:
   }
 }
 ```
+
 ## Power Shelf and NVSwitch Management
 
 Power shelf and NVSwitch power/firmware operations go through Core (NICo) via

@@ -27,7 +27,7 @@ repository = "https://github.com/NVIDIA/infra-controller"
 
 [workspace.dependencies]
 clap = { version = "4", features = ["derive", "env"] }
-libredfish = { git = "https://github.com/NVIDIA/libredfish.git", tag = "v0.46.8" }
+libredfish = { git = "https://github.com/NVIDIA/libredfish.git", tag = "v0.46.9" }
 librms = { git = "https://github.com/dsx-ai-factory/nv-rms-client.git", tag = "v0.10.1" }
 ansi-to-html = "0.2.2"
 
@@ -151,6 +151,7 @@ ipnet = "2"
 ipnetwork = "0.21.0"
 itertools = "0.14"
 jemalloc_pprof = "0.8"
+json-patch = "4.2.0"
 jsonwebtoken = "10.2.0"
 k8s-openapi = "0.27.0"
 kube = { version = "3.0.0", default-features = false }

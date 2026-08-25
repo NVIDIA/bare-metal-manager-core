@@ -27,6 +27,9 @@ namespaceOverride: ""
 
 replicas: 1
 
+## Container resource requests and limits. Empty by default.
+resources: {}
+
 ## Soft open-file limit applied before startup. Must not exceed the runtime hard limit.
 fileDescriptorLimit: 65536
 

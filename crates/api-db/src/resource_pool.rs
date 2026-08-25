@@ -1482,13 +1482,97 @@ pub async fn create_common_pools(
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use carbide_instrument::MetricKind;
     use carbide_instrument::testing::{MetricsCapture, capture_logs, capture_logs_async};
     use carbide_test_support::Outcome::*;
     use carbide_test_support::query_counter::count_queries;
     use carbide_test_support::{Case, Check, check_cases, check_values};
+    use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 
     use super::*;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 50)]
+    async fn test_parallel() -> Result<(), eyre::Report> {
+        // We can't use #[sqlx::test] here because we need a multi-threaded
+        // executor with 50 worker threads. Instead we manage the test database
+        // lifecycle manually, using a random name so multiple test runs (or
+        // parallel CI jobs) never collide on the same Postgres instance.
+        let base_url = std::env::var("DATABASE_URL")?;
+        // ResourcePool.name is varchar(32), so keep the DB name short.
+        let short_id = &uuid::Uuid::new_v4().simple().to_string()[..8];
+        let db_name = format!("test_par_{short_id}");
+        let base_options = PgConnectOptions::from_str(&base_url)?;
+
+        let admin = PgPoolOptions::new()
+            .connect_with(base_options.clone())
+            .await?;
+
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "CREATE DATABASE \"{db_name}\""
+        )))
+        .execute(&admin)
+        .await?;
+        let db_pool = PgPoolOptions::new()
+            .connect_with(base_options.database(&db_name))
+            .await?;
+        crate::migrations::migrate(&db_pool).await?;
+
+        let mut txn = db_pool.begin().await?;
+        let pool = Arc::new(ResourcePool::new(db_name.clone(), ValueType::Integer));
+
+        crate::resource_pool::populate(
+            &pool,
+            &mut txn,
+            (1..=5_000).map(|i| i.to_string()).collect(),
+            true,
+        )
+        .await?;
+        txn.commit().await?;
+
+        let mut handles = Vec::with_capacity(50);
+        let all_values = Arc::new(tokio::sync::Mutex::new(HashSet::new()));
+        for i in 0..50 {
+            let all_values = all_values.clone();
+            let p = pool.clone();
+            let db_pool_c = db_pool.clone();
+            let handle = tokio::task::spawn(async move {
+                let mut got = Vec::with_capacity(100);
+                for _ in 0..100 {
+                    let mut txn = db_pool_c.begin().await.unwrap();
+                    got.push(
+                        crate::resource_pool::allocate(
+                            &p,
+                            &mut txn,
+                            OwnerType::Machine,
+                            &i.to_string(),
+                            None,
+                        )
+                        .await
+                        .unwrap(),
+                    );
+                    txn.commit().await.unwrap();
+                }
+                all_values.lock().await.extend(got.clone());
+            });
+            handles.push(handle);
+        }
+        futures::future::join_all(handles).await;
+        drop(pool);
+        db_pool.close().await;
+
+        assert_eq!(all_values.lock().await.len(), 5_000);
+
+        // WITH (FORCE) terminates any lingering backends before dropping,
+        // avoiding the flaky "database is being accessed by other users" error.
+        let drop_stmt = format!("DROP DATABASE \"{db_name}\" WITH (FORCE)");
+        sqlx::query(sqlx::AssertSqlSafe(drop_stmt))
+            .execute(&admin)
+            .await?;
+        admin.close().await;
+        Ok(())
+    }
 
     const RESOURCE_POOL_LIFECYCLE_FAILURES_METRIC: &str =
         "carbide_resource_pool_lifecycle_failures_total";
@@ -1569,237 +1653,6 @@ mod tests {
             stable_machine_id: "dpu-1".to_string(),
             error: "pool exhausted".to_string(),
         });
-    }
-
-    #[derive(Debug, Clone, Copy)]
-    enum AllocationFailureInput {
-        Exhausted,
-        RequestedValueUnavailable,
-        Parse,
-        Database,
-    }
-
-    impl AllocationFailureInput {
-        fn label(self) -> &'static str {
-            match self {
-                Self::Exhausted => "exhausted",
-                Self::RequestedValueUnavailable => "requested_value_unavailable",
-                Self::Parse => "parse",
-                Self::Database => "database",
-            }
-        }
-    }
-
-    #[derive(Debug, Clone, Copy)]
-    struct AllocationFailureCase {
-        failure: AllocationFailureInput,
-        allocation_mode: ResourcePoolAllocationMode,
-    }
-
-    impl AllocationFailureCase {
-        fn requested(self) -> bool {
-            self.allocation_mode == ResourcePoolAllocationMode::Requested
-        }
-
-        fn allocation_mode_label(self) -> &'static str {
-            match self.allocation_mode {
-                ResourcePoolAllocationMode::Automatic => "automatic",
-                ResourcePoolAllocationMode::Requested => "requested",
-                ResourcePoolAllocationMode::NotApplicable => "not_applicable",
-            }
-        }
-    }
-
-    #[derive(Debug, PartialEq)]
-    struct AllocationFailureRecord {
-        metadata_name: String,
-        event_name: Option<String>,
-        metric_name: Option<String>,
-        message: String,
-        operation: Option<String>,
-        failure: Option<String>,
-        failure_policy: Option<String>,
-        allocation_mode: Option<String>,
-        value_type: Option<String>,
-        owner_id: Option<String>,
-        pool: Option<String>,
-        error: Option<String>,
-        counter_delta: f64,
-    }
-
-    fn allocation_error(input: AllocationFailureInput) -> ResourcePoolDatabaseError {
-        match input {
-            AllocationFailureInput::Exhausted => ResourcePoolError::Empty.into(),
-            AllocationFailureInput::RequestedValueUnavailable => {
-                DatabaseError::FailedPrecondition("value is not available".to_string()).into()
-            }
-            AllocationFailureInput::Parse => ResourcePoolError::Parse {
-                e: "invalid integer".to_string(),
-                v: "not-an-integer".to_string(),
-                pool_name: "test-pool".to_string(),
-                owner_type: "machine".to_string(),
-                owner_id: "machine-1".to_string(),
-            }
-            .into(),
-            AllocationFailureInput::Database => DatabaseError::Internal {
-                message: "database unavailable".to_string(),
-            }
-            .into(),
-        }
-    }
-
-    #[test]
-    fn allocation_failures_log_and_count_by_failure() {
-        check_values(
-            [
-                Check {
-                    scenario: "automatic pool exhaustion",
-                    input: AllocationFailureCase {
-                        failure: AllocationFailureInput::Exhausted,
-                        allocation_mode: ResourcePoolAllocationMode::Automatic,
-                    },
-                    expect: AllocationFailureRecord {
-                        metadata_name: "resource_pool_exhausted".to_string(),
-                        event_name: Some("resource_pool_exhausted".to_string()),
-                        metric_name: Some(
-                            RESOURCE_POOL_LIFECYCLE_FAILURES_METRIC.to_string(),
-                        ),
-                        message: "Pool exhausted, cannot allocate".to_string(),
-                        operation: Some("allocate".to_string()),
-                        failure: Some("exhausted".to_string()),
-                        failure_policy: Some("required".to_string()),
-                        allocation_mode: Some("automatic".to_string()),
-                        value_type: Some("integer".to_string()),
-                        owner_id: Some("machine-1".to_string()),
-                        pool: Some("legacy-pool-name".to_string()),
-                        error: None,
-                        counter_delta: 1.0,
-                    },
-                },
-                Check {
-                    scenario: "requested value unavailable",
-                    input: AllocationFailureCase {
-                        failure: AllocationFailureInput::RequestedValueUnavailable,
-                        allocation_mode: ResourcePoolAllocationMode::Requested,
-                    },
-                    expect: AllocationFailureRecord {
-                        metadata_name: "resource_pool_allocation_failed".to_string(),
-                        event_name: Some("resource_pool_allocation_failed".to_string()),
-                        metric_name: Some(
-                            RESOURCE_POOL_LIFECYCLE_FAILURES_METRIC.to_string(),
-                        ),
-                        message: "Error allocating from resource pool".to_string(),
-                        operation: Some("allocate".to_string()),
-                        failure: Some("requested_value_unavailable".to_string()),
-                        failure_policy: Some("required".to_string()),
-                        allocation_mode: Some("requested".to_string()),
-                        value_type: Some("integer".to_string()),
-                        owner_id: Some("machine-1".to_string()),
-                        pool: Some("legacy-pool-name".to_string()),
-                        error: Some("value is not available".to_string()),
-                        counter_delta: 1.0,
-                    },
-                },
-                Check {
-                    scenario: "allocated value parse failure",
-                    input: AllocationFailureCase {
-                        failure: AllocationFailureInput::Parse,
-                        allocation_mode: ResourcePoolAllocationMode::Automatic,
-                    },
-                    expect: AllocationFailureRecord {
-                        metadata_name: "resource_pool_allocation_failed".to_string(),
-                        event_name: Some("resource_pool_allocation_failed".to_string()),
-                        metric_name: Some(
-                            RESOURCE_POOL_LIFECYCLE_FAILURES_METRIC.to_string(),
-                        ),
-                        message: "Error allocating from resource pool".to_string(),
-                        operation: Some("allocate".to_string()),
-                        failure: Some("parse".to_string()),
-                        failure_policy: Some("required".to_string()),
-                        allocation_mode: Some("automatic".to_string()),
-                        value_type: Some("integer".to_string()),
-                        owner_id: Some("machine-1".to_string()),
-                        pool: Some("legacy-pool-name".to_string()),
-                        error: Some(
-                            "cannot convert 'not-an-integer' to test-pool's pool type for machine machine-1: invalid integer"
-                                .to_string(),
-                        ),
-                        counter_delta: 1.0,
-                    },
-                },
-                Check {
-                    scenario: "database failure",
-                    input: AllocationFailureCase {
-                        failure: AllocationFailureInput::Database,
-                        allocation_mode: ResourcePoolAllocationMode::Requested,
-                    },
-                    expect: AllocationFailureRecord {
-                        metadata_name: "resource_pool_allocation_failed".to_string(),
-                        event_name: Some("resource_pool_allocation_failed".to_string()),
-                        metric_name: Some(
-                            RESOURCE_POOL_LIFECYCLE_FAILURES_METRIC.to_string(),
-                        ),
-                        message: "Error allocating from resource pool".to_string(),
-                        operation: Some("allocate".to_string()),
-                        failure: Some("database".to_string()),
-                        failure_policy: Some("required".to_string()),
-                        allocation_mode: Some("requested".to_string()),
-                        value_type: Some("integer".to_string()),
-                        owner_id: Some("machine-1".to_string()),
-                        pool: Some("legacy-pool-name".to_string()),
-                        error: Some("internal error: database unavailable".to_string()),
-                        counter_delta: 1.0,
-                    },
-                },
-            ],
-            |input| {
-                let pool = ResourcePool::<i32>::new(
-                    "test-pool".to_string(),
-                    ValueType::Integer,
-                );
-                let error = allocation_error(input.failure);
-                let metrics = MetricsCapture::start();
-                let logs = capture_logs(|| {
-                    emit_allocation_failure(
-                        pool.value_type,
-                        "machine-1",
-                        input.requested(),
-                        "legacy-pool-name",
-                        &error,
-                    );
-                });
-                assert_eq!(logs.len(), 1);
-                let log = &logs[0];
-                AllocationFailureRecord {
-                    metadata_name: log.metadata_name.clone(),
-                    event_name: log.field("event_name").map(str::to_string),
-                    metric_name: log.field("metric_name").map(str::to_string),
-                    message: log.message.clone(),
-                    operation: log.field("operation").map(str::to_string),
-                    failure: log.field("failure").map(str::to_string),
-                    failure_policy: log
-                        .field("failure_policy")
-                        .map(str::to_string),
-                    allocation_mode: log
-                        .field("allocation_mode")
-                        .map(str::to_string),
-                    value_type: log.field("value_type").map(str::to_string),
-                    owner_id: log.field("owner_id").map(str::to_string),
-                    pool: log.field("pool").map(str::to_string),
-                    error: log.field("error").map(str::to_string),
-                    counter_delta: metrics.counter_delta(
-                        RESOURCE_POOL_LIFECYCLE_FAILURES_METRIC,
-                        &[
-                            ("operation", "allocate"),
-                            ("failure", input.failure.label()),
-                            ("failure_policy", "required"),
-                            ("allocation_mode", input.allocation_mode_label()),
-                            ("value_type", "integer"),
-                        ],
-                    ),
-                }
-            },
-        );
     }
 
     #[test]

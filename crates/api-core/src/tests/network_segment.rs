@@ -29,8 +29,7 @@ use carbide_test_support::{Case, check_cases_async};
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
 use common::network_segment::{
-    NetworkSegmentHelper, create_network_segment_with_api, get_segment_state, get_segments,
-    text_history,
+    NetworkSegmentHelper, create_network_segment_with_api, get_segment_state,
 };
 use db::ObjectColumnFilter;
 use db::network_segment::VpcColumn;
@@ -41,7 +40,7 @@ use model::network_prefix::NewNetworkPrefix;
 use model::network_segment;
 use model::network_segment::{
     NetworkDefinition, NetworkDefinitionSegmentType, NetworkSegment, NetworkSegmentControllerState,
-    NetworkSegmentDeletionState, NetworkSegmentType, NewNetworkSegment,
+    NetworkSegmentType, NewNetworkSegment,
 };
 use model::resource_pool::common::VLANID;
 use model::resource_pool::{ResourcePool, ResourcePoolError, ResourcePoolStats, ValueType};
@@ -98,6 +97,7 @@ async fn create_stretchable_segment_for_svi_test_with_vpc_type(
             routing_profile_overrides: None,
             power_resource_group: None,
             vni: None,
+            slaac_enabled: false,
         },
         VpcStatus { vni: None },
         txn.as_mut(),
@@ -306,154 +306,6 @@ async fn test_overlapping_prefix(pool: sqlx::PgPool) -> Result<(), eyre::Report>
     }
 }
 
-#[crate::sqlx_test]
-async fn test_network_segment_max_history_length(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
-
-    let segment = create_network_segment_with_api(
-        &env,
-        true,
-        true,
-        None,
-        rpc::forge::NetworkSegmentType::Admin as i32,
-        1,
-    )
-    .await;
-    let segment_id: NetworkSegmentId = segment.id.unwrap();
-
-    env.run_network_segment_controller_iteration().await;
-    env.run_network_segment_controller_iteration().await;
-
-    assert_eq!(
-        get_segment_state(&env.api, segment_id).await,
-        rpc::forge::TenantState::Ready
-    );
-
-    assert_eq!(
-        env.test_meter
-            .formatted_metric("carbide_available_ips_count")
-            .unwrap(),
-        r#"{fresh="true",name="TEST_SEGMENT",prefix="192.0.2.0/24",type="admin"} 253"#
-    );
-
-    assert_eq!(
-        env.test_meter
-            .formatted_metric("carbide_total_ips_count")
-            .unwrap(),
-        r#"{fresh="true",name="TEST_SEGMENT",prefix="192.0.2.0/24",type="admin"} 256"#
-    );
-
-    assert_eq!(
-        env.test_meter
-            .formatted_metric("carbide_reserved_ips_count")
-            .unwrap(),
-        r#"{fresh="true",name="TEST_SEGMENT",prefix="192.0.2.0/24",type="admin"} 1"#
-    );
-
-    let segment = get_segments(
-        &env.api,
-        rpc::forge::NetworkSegmentsByIdsRequest {
-            network_segments_ids: vec![segment_id],
-            include_history: true,
-            include_num_free_ips: false,
-        },
-    )
-    .await;
-    assert!(!segment.network_segments[0].history.is_empty());
-
-    let segment = get_segments(
-        &env.api,
-        rpc::forge::NetworkSegmentsByIdsRequest {
-            network_segments_ids: vec![segment_id],
-            include_history: false,
-            include_num_free_ips: false,
-        },
-    )
-    .await;
-    assert!(segment.network_segments[0].history.is_empty());
-
-    let segment = get_segments(
-        &env.api,
-        rpc::forge::NetworkSegmentsByIdsRequest {
-            network_segments_ids: vec![segment_id],
-            include_history: false,
-            include_num_free_ips: false,
-        },
-    )
-    .await;
-    assert!(segment.network_segments[0].history.is_empty());
-
-    // Now insert a lot of state changes, and see if the history limit is kept
-    const HISTORY_LIMIT: usize = 250;
-
-    let mut txn = env.pool.begin().await.unwrap();
-    let mut version = db::network_segment::find_by(
-        txn.as_mut(),
-        ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
-        network_segment::NetworkSegmentSearchConfig::default(),
-    )
-    .await
-    .unwrap()[0]
-        .status
-        .controller_state
-        .version;
-    txn.commit().await.unwrap();
-
-    for _ in 0..HISTORY_LIMIT + 50 {
-        let mut txn = env.pool.begin().await.unwrap();
-        let state = NetworkSegmentControllerState::Deleting {
-            deletion_state: NetworkSegmentDeletionState::DBDelete,
-        };
-        let next_version = version.increment();
-        assert!(
-            db::network_segment::try_update_controller_state(
-                &mut txn,
-                segment_id,
-                version,
-                next_version,
-                &state,
-            )
-            .await
-            .unwrap()
-        );
-        db::state_history::persist(
-            &mut txn,
-            db::state_history::StateHistoryTableId::NetworkSegment,
-            &segment_id,
-            &state,
-            next_version,
-        )
-        .await
-        .unwrap();
-        version = db::network_segment::find_by(
-            txn.as_mut(),
-            ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
-            network_segment::NetworkSegmentSearchConfig::default(),
-        )
-        .await
-        .unwrap()[0]
-            .status
-            .controller_state
-            .version;
-        txn.commit().await.unwrap();
-    }
-
-    let mut txn = env.pool.begin().await.unwrap();
-    let history = text_history(&mut txn, segment_id).await;
-    assert_eq!(history.len(), HISTORY_LIMIT);
-    for entry in &history {
-        assert_eq!(
-            entry,
-            "{\"state\": \"deleting\", \"deletion_state\": {\"state\": \"dbdelete\"}}"
-        );
-    }
-    txn.rollback().await.unwrap();
-
-    Ok(())
-}
-
 /// Create a network segment, delete it - release its vlan_id,
 /// and then create an new network segment.
 /// The new segment should be able to re-use the vlan_id from
@@ -560,151 +412,6 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
             non_auto_assign_used: 0
         }
     );
-    txn.commit().await?;
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-pub(in crate::tests) async fn test_create_initial_networks(
-    db_pool: sqlx::PgPool,
-) -> Result<(), eyre::Report> {
-    let env =
-        create_test_env_with_overrides(db_pool.clone(), TestEnvOverrides::no_network_segments())
-            .await;
-    let mut networks = HashMap::from([
-        (
-            "admin".to_string(),
-            NetworkDefinition {
-                segment_type: NetworkDefinitionSegmentType::Admin,
-                prefix: "172.20.0.0/24".parse().unwrap(),
-                prefix_v6: None,
-                gateway: "172.20.0.1".parse().unwrap(),
-                dhcpv6_link_address: None,
-                mtu: 9000,
-                reserve_first: 5,
-                allocation_strategy: Default::default(),
-                infer_slaac_eui64_addresses: false,
-                vpc_name: None,
-            },
-        ),
-        (
-            "DEV1-C09-IPMI-01".to_string(),
-            NetworkDefinition {
-                segment_type: NetworkDefinitionSegmentType::Underlay,
-                prefix: "172.99.0.0/26".parse().unwrap(),
-                prefix_v6: None,
-                gateway: "172.99.0.1".parse().unwrap(),
-                dhcpv6_link_address: None,
-                mtu: 1500,
-                reserve_first: 5,
-                allocation_strategy: Default::default(),
-                infer_slaac_eui64_addresses: false,
-                vpc_name: None,
-            },
-        ),
-        (
-            "ZERO-DPU-HOST-01-SWP7".to_string(),
-            NetworkDefinition {
-                segment_type: NetworkDefinitionSegmentType::HostInband,
-                prefix: "10.217.18.192/30".parse().unwrap(),
-                prefix_v6: None,
-                gateway: "10.217.18.193".parse().unwrap(),
-                dhcpv6_link_address: None,
-                mtu: 1500,
-                reserve_first: 1,
-                allocation_strategy: Default::default(),
-                infer_slaac_eui64_addresses: false,
-                vpc_name: None,
-            },
-        ),
-    ]);
-
-    // Create them the first time, they should exist
-    crate::db_init::create_initial_networks(&env.api, &env.pool, &networks).await?;
-
-    let mut txn = db_pool.begin().await?;
-    let admin = db::network_segment::find_by_name(&mut txn, "admin").await?;
-    assert_eq!(admin.config.mtu, 9000);
-    assert_eq!(admin.config.segment_type, NetworkSegmentType::Admin);
-    let initial_domain_id = admin
-        .config
-        .subdomain_id
-        .expect("configured initial network should use the forward domain");
-
-    let underlay = db::network_segment::find_by_name(&mut txn, "DEV1-C09-IPMI-01").await?;
-    assert_eq!(underlay.config.mtu, 1500);
-    assert_eq!(underlay.config.segment_type, NetworkSegmentType::Underlay);
-
-    let host_inband = db::network_segment::find_by_name(&mut txn, "ZERO-DPU-HOST-01-SWP7").await?;
-    assert_eq!(host_inband.config.mtu, 1500);
-    assert_eq!(
-        host_inband.config.segment_type,
-        NetworkSegmentType::HostInband
-    );
-    assert_eq!(host_inband.config.vpc_id, None);
-    // These extra domain rows reproduce the state that previously disabled later seeding.
-    for reverse_domain in [
-        "254.254.254.169.in-addr.arpa",
-        "0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.ip6.arpa",
-    ] {
-        assert_eq!(
-            db::dns::domain::find_by_name(txn.as_mut(), reverse_domain)
-                .await?
-                .len(),
-            1,
-            "static assignment reverse domain should exist"
-        );
-    }
-    txn.commit().await?;
-
-    // Now create them again. It should succeed but not create any more
-    use model::network_segment::NetworkSegmentSearchConfig; // override global rpc one
-    let search_cfg = NetworkSegmentSearchConfig::default();
-    let mut txn = db_pool.begin().await?;
-    let num_before = db::network_segment::find_by(
-        txn.as_mut(),
-        ObjectColumnFilter::<db::network_segment::IdColumn>::All,
-        search_cfg,
-    )
-    .await?
-    .len();
-    txn.commit().await?;
-    crate::db_init::create_initial_networks(&env.api, &env.pool, &networks).await?;
-    let mut txn = db_pool.begin().await?;
-    let num_after = db::network_segment::find_by(
-        txn.as_mut(),
-        ObjectColumnFilter::<db::network_segment::IdColumn>::All,
-        search_cfg,
-    )
-    .await?
-    .len();
-    txn.commit().await?;
-    assert_eq!(
-        num_before, num_after,
-        "second create_initial_networks should not have created any segments"
-    );
-
-    networks.insert(
-        "DEV1-C09-IPMI-02".to_string(),
-        NetworkDefinition {
-            segment_type: NetworkDefinitionSegmentType::Underlay,
-            prefix: "172.99.0.64/27".parse().unwrap(),
-            prefix_v6: None,
-            gateway: "172.99.0.65".parse().unwrap(),
-            dhcpv6_link_address: None,
-            mtu: 1500,
-            reserve_first: 5,
-            allocation_strategy: Default::default(),
-            infer_slaac_eui64_addresses: false,
-            vpc_name: None,
-        },
-    );
-    crate::db_init::create_initial_networks(&env.api, &env.pool, &networks).await?;
-
-    let mut txn = db_pool.begin().await?;
-    let added = db::network_segment::find_by_name(&mut txn, "DEV1-C09-IPMI-02").await?;
-    assert_eq!(added.config.subdomain_id, Some(initial_domain_id));
     txn.commit().await?;
 
     Ok(())

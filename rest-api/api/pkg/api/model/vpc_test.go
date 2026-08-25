@@ -549,6 +549,7 @@ func TestNewAPIVpc(t *testing.T) {
 		TenantID:                  uuid.New(),
 		SiteID:                    uuid.New(),
 		NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcEthernetVirtualizer),
+		SlaacEnabled:              true,
 		RoutingProfile:            cutil.GetPtr(apiVpcRoutingProfileSiteInternal),
 		ControllerVpcID:           cutil.GetPtr(uuid.New()),
 		// The normal expectation is that Vni and ActiveVni match or
@@ -599,6 +600,7 @@ func TestNewAPIVpc(t *testing.T) {
 				TenantID:                  util.GetUUIDPtrToStrPtr(&dbVpc.TenantID),
 				SiteID:                    util.GetUUIDPtrToStrPtr(&dbVpc.SiteID),
 				NetworkVirtualizationType: dbVpc.NetworkVirtualizationType,
+				SlaacEnabled:              true,
 				RoutingProfile:            cutil.GetPtr(APIVpcRoutingProfileInternal),
 				ControllerVpcID:           util.GetUUIDPtrToStrPtr(dbVpc.ControllerVpcID),
 				RequestedVni:              dbVpc.Vni,
@@ -632,6 +634,7 @@ func TestNewAPIVpc(t *testing.T) {
 				TenantID:                  util.GetUUIDPtrToStrPtr(&dbVpc.TenantID),
 				SiteID:                    util.GetUUIDPtrToStrPtr(&dbVpc.SiteID),
 				NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFNN),
+				SlaacEnabled:              true,
 				RoutingProfile:            cutil.GetPtr(APIVpcRoutingProfileInternal),
 				ControllerVpcID:           util.GetUUIDPtrToStrPtr(dbVpc.ControllerVpcID),
 				RequestedVni:              dbVpc.Vni,
@@ -659,6 +662,7 @@ func TestNewAPIVpc(t *testing.T) {
 			assert.Equal(t, *tt.want.TenantID, *got.TenantID)
 			assert.Equal(t, *tt.want.SiteID, *got.SiteID)
 			assert.Equal(t, tt.want.NetworkVirtualizationType, got.NetworkVirtualizationType)
+			assert.Equal(t, tt.want.SlaacEnabled, got.SlaacEnabled)
 			assert.Equal(t, tt.want.RoutingProfile, got.RoutingProfile)
 			assert.Equal(t, *tt.want.ControllerVpcID, *got.ControllerVpcID)
 			if tt.want.Vni != nil {
@@ -734,8 +738,10 @@ func TestAPIVpcCreateRequest_ToProto(t *testing.T) {
 			Labels:                    map[string]string{"env": "prod"},
 		}
 		vni := 4242
+		slaacEnabled := true
 		got := APIVpcCreateRequest{
 			Vni:            &vni,
+			SlaacEnabled:   &slaacEnabled,
 			RoutingProfile: cutil.GetPtr(APIVpcRoutingProfileInternal),
 		}.ToProto(vpc)
 
@@ -752,9 +758,14 @@ func TestAPIVpcCreateRequest_ToProto(t *testing.T) {
 		assert.Equal(t, "nsg-1", *got.NetworkSecurityGroupId)
 		require.NotNil(t, got.Vni)
 		assert.Equal(t, uint32(4242), *got.Vni)
+		require.NotNil(t, got.SlaacEnabled)
+		assert.True(t, *got.SlaacEnabled)
 		require.NotNil(t, got.Metadata)
 		assert.Equal(t, "vpc-a", got.Metadata.Name)
 		assert.Equal(t, "primary", got.Metadata.Description)
+		require.Len(t, got.Metadata.Labels, 1)
+		assert.Equal(t, "env", got.Metadata.Labels[0].GetKey())
+		assert.Equal(t, "prod", got.Metadata.Labels[0].GetValue())
 		require.NotNil(t, got.DefaultNvlinkLogicalPartitionId)
 		assert.Equal(t, nvllpID.String(), got.DefaultNvlinkLogicalPartitionId.Value)
 	})
@@ -772,6 +783,7 @@ func TestAPIVpcCreateRequest_ToProto(t *testing.T) {
 		assert.Nil(t, got.NetworkVirtualizationType)
 		assert.Nil(t, got.RoutingProfileType)
 		assert.Nil(t, got.Vni)
+		assert.Nil(t, got.SlaacEnabled)
 		assert.Nil(t, got.NetworkSecurityGroupId)
 		assert.Nil(t, got.DefaultNvlinkLogicalPartitionId)
 	})
@@ -799,6 +811,33 @@ func TestAPIVpcCreateRequest_ToProto(t *testing.T) {
 		assert.False(t, *got.RoutingProfileOverrides.LeakTenantHostRoutesToUnderlay)
 		require.NotNil(t, got.RoutingProfileOverrides.AllowedAnycastPrefixes)
 	})
+
+	t.Run("forwards persisted power resource group", func(t *testing.T) {
+		persistedPowerResourceGroup := "power-rg-persisted"
+		requestedPowerResourceGroup := "power-rg-requested"
+		vpc := &cdbm.Vpc{ID: id, Org: "org-1", Name: "vpc-a", PowerResourceGroup: &persistedPowerResourceGroup}
+		got := (APIVpcCreateRequest{PowerResourceGroup: &requestedPowerResourceGroup}).ToProto(vpc)
+		require.NotNil(t, got.PowerResourceGroup)
+		assert.Equal(t, persistedPowerResourceGroup, *got.PowerResourceGroup)
+	})
+}
+
+func TestVpcResponseIncludesDisabledSlaacField(t *testing.T) {
+	vpc := cdbm.Vpc{
+		ID:           uuid.New(),
+		Name:         "non-slaac-vpc",
+		SlaacEnabled: false,
+		Status:       cdbm.VpcStatusReady,
+	}
+
+	data, err := json.Marshal(NewAPIVpc(vpc, nil, false))
+	require.NoError(t, err)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(data, &payload))
+	value, present := payload["slaacEnabled"]
+	require.True(t, present)
+	assert.Equal(t, false, value)
 }
 
 func TestAPIVpcUpdateRequest_ToProto(t *testing.T) {
@@ -894,4 +933,41 @@ func TestAPIVpcUpdateRequest_ToProto(t *testing.T) {
 		got := (APIVpcUpdateRequest{RoutingProfileOverrides: &APIVpcRoutingProfileOverrides{}}).ToProto(vpc)
 		require.NotNil(t, got.RoutingProfileOverrides)
 	})
+
+	t.Run("preserves power resource group update presence", func(t *testing.T) {
+		vpc := &cdbm.Vpc{ID: id, Name: "vpc-a"}
+		set := "power-rg-a"
+
+		got := (APIVpcUpdateRequest{}).ToProto(vpc)
+		assert.Nil(t, got.PowerResourceGroup)
+
+		got = (APIVpcUpdateRequest{PowerResourceGroup: &set}).ToProto(vpc)
+		require.NotNil(t, got.PowerResourceGroup)
+		assert.Equal(t, set, *got.PowerResourceGroup)
+
+		got = (APIVpcUpdateRequest{PowerResourceGroup: &empty}).ToProto(vpc)
+		require.NotNil(t, got.PowerResourceGroup)
+		assert.Equal(t, "", *got.PowerResourceGroup)
+	})
+}
+
+func TestAPIVpcUpdateRequest_PowerResourceGroupJSON(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload string
+		want    *string
+	}{
+		{name: "omitted", payload: `{}`},
+		{name: "null", payload: `{"powerResourceGroup":null}`},
+		{name: "clear", payload: `{"powerResourceGroup":""}`, want: cutil.GetPtr("")},
+		{name: "set", payload: `{"powerResourceGroup":"power-rg-a"}`, want: cutil.GetPtr("power-rg-a")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var request APIVpcUpdateRequest
+			require.NoError(t, json.Unmarshal([]byte(tt.payload), &request))
+			assert.Equal(t, tt.want, request.PowerResourceGroup)
+		})
+	}
 }

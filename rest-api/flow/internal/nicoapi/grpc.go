@@ -50,10 +50,17 @@ const (
 	// HealthAlertClassification::prevent_allocations() in
 	// crates/health-report/src/lib.rs.
 	classificationPreventAllocations = "PreventAllocations"
+
+	// flowFindByIDsBatchSize bounds the number of full protobuf resources Flow
+	// retains in one detail-lookup batch. Core's max_find_by_ids remains the
+	// authoritative server maximum; Flow uses the smaller non-zero limit. A
+	// zero Core value means the server is unlimited, not that Flow should build
+	// one unbounded response.
+	flowFindByIDsBatchSize = 100
 )
 
 type grpcClient struct {
-	gclient     corev1.ForgeClient
+	gclient     *batchingForgeClient
 	grpcTimeout time.Duration
 }
 
@@ -68,7 +75,7 @@ type batchingForgeClient struct {
 	maxFindByIDsLoaded bool
 }
 
-func newBatchingForgeClient(client corev1.ForgeClient) corev1.ForgeClient {
+func newBatchingForgeClient(client corev1.ForgeClient) *batchingForgeClient {
 	return &batchingForgeClient{ForgeClient: client}
 }
 
@@ -77,11 +84,11 @@ func (c *batchingForgeClient) FindMachinesByIds(
 	request *corev1.MachinesByIdsRequest,
 	options ...grpc.CallOption,
 ) (*corev1.MachineList, error) {
-	machineIDs := protoIDsToStrings(request.GetMachineIds())
-	machines, err := findByIDBatches(ctx, c.loadMaxFindByIDs, machineIDs,
-		func(ctx context.Context, batch []string) ([]*corev1.Machine, error) {
-			return c.fetchMachinesByIDs(ctx, request, batch, options...)
-		})
+	machines := make([]*corev1.Machine, 0, len(request.GetMachineIds()))
+	err := c.visitMachineBatches(ctx, request, func(batch []*corev1.Machine) error {
+		machines = append(machines, batch...)
+		return nil
+	}, options...)
 	if err != nil {
 		return nil, err
 	}
@@ -93,11 +100,11 @@ func (c *batchingForgeClient) FindSwitchesByIds(
 	request *corev1.SwitchesByIdsRequest,
 	options ...grpc.CallOption,
 ) (*corev1.SwitchList, error) {
-	switchIDs := protoIDsToStrings(request.GetSwitchIds())
-	switches, err := findByIDBatches(ctx, c.loadMaxFindByIDs, switchIDs,
-		func(ctx context.Context, batch []string) ([]*corev1.Switch, error) {
-			return c.fetchSwitchesByIDs(ctx, request, batch, options...)
-		})
+	switches := make([]*corev1.Switch, 0, len(request.GetSwitchIds()))
+	err := c.visitSwitchBatches(ctx, request, func(batch []*corev1.Switch) error {
+		switches = append(switches, batch...)
+		return nil
+	}, options...)
 	if err != nil {
 		return nil, err
 	}
@@ -109,15 +116,57 @@ func (c *batchingForgeClient) FindPowerShelvesByIds(
 	request *corev1.PowerShelvesByIdsRequest,
 	options ...grpc.CallOption,
 ) (*corev1.PowerShelfList, error) {
-	shelfIDs := protoIDsToStrings(request.GetPowerShelfIds())
-	shelves, err := findByIDBatches(ctx, c.loadMaxFindByIDs, shelfIDs,
-		func(ctx context.Context, batch []string) ([]*corev1.PowerShelf, error) {
-			return c.fetchPowerShelvesByIDs(ctx, request, batch, options...)
-		})
+	shelves := make([]*corev1.PowerShelf, 0, len(request.GetPowerShelfIds()))
+	err := c.visitPowerShelfBatches(ctx, request, func(batch []*corev1.PowerShelf) error {
+		shelves = append(shelves, batch...)
+		return nil
+	}, options...)
 	if err != nil {
 		return nil, err
 	}
 	return &corev1.PowerShelfList{PowerShelves: shelves}, nil
+}
+
+func (c *batchingForgeClient) visitMachineBatches(
+	ctx context.Context,
+	request *corev1.MachinesByIdsRequest,
+	visit func([]*corev1.Machine) error,
+	options ...grpc.CallOption,
+) error {
+	return visitFindByIDBatches(ctx, "FindMachinesByIds", c.loadMaxFindByIDs, protoIDsToStrings(request.GetMachineIds()),
+		func(ctx context.Context, batch []string) ([]*corev1.Machine, error) {
+			return c.fetchMachinesByIDs(ctx, request, batch, options...)
+		}, func(machine *corev1.Machine) string {
+			return machine.GetId().GetId()
+		}, visit)
+}
+
+func (c *batchingForgeClient) visitSwitchBatches(
+	ctx context.Context,
+	request *corev1.SwitchesByIdsRequest,
+	visit func([]*corev1.Switch) error,
+	options ...grpc.CallOption,
+) error {
+	return visitFindByIDBatches(ctx, "FindSwitchesByIds", c.loadMaxFindByIDs, protoIDsToStrings(request.GetSwitchIds()),
+		func(ctx context.Context, batch []string) ([]*corev1.Switch, error) {
+			return c.fetchSwitchesByIDs(ctx, request, batch, options...)
+		}, func(sw *corev1.Switch) string {
+			return sw.GetId().GetId()
+		}, visit)
+}
+
+func (c *batchingForgeClient) visitPowerShelfBatches(
+	ctx context.Context,
+	request *corev1.PowerShelvesByIdsRequest,
+	visit func([]*corev1.PowerShelf) error,
+	options ...grpc.CallOption,
+) error {
+	return visitFindByIDBatches(ctx, "FindPowerShelvesByIds", c.loadMaxFindByIDs, protoIDsToStrings(request.GetPowerShelfIds()),
+		func(ctx context.Context, batch []string) ([]*corev1.PowerShelf, error) {
+			return c.fetchPowerShelvesByIDs(ctx, request, batch, options...)
+		}, func(shelf *corev1.PowerShelf) string {
+			return shelf.GetId().GetId()
+		}, visit)
 }
 
 var testingMsgOnce sync.Once
@@ -163,10 +212,9 @@ func NewClient(grpcTimeout time.Duration) (Client, error) {
 // GetMachines retrieves all machines known by nico-core-api
 // (FindMachineIds + FindMachinesByIds).
 func (c *grpcClient) GetMachines(ctx context.Context) ([]MachineDetail, error) {
-	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
-	defer cancel()
-
-	machineIDs, err := c.gclient.FindMachineIds(ctx, &corev1.MachineSearchConfig{})
+	idsCtx, idsCancel := context.WithTimeout(ctx, c.grpcTimeout)
+	machineIDs, err := c.gclient.FindMachineIds(idsCtx, &corev1.MachineSearchConfig{})
+	idsCancel()
 	if err != nil {
 		return nil, err
 	}
@@ -180,14 +228,88 @@ func (c *grpcClient) GetMachines(ctx context.Context) ([]MachineDetail, error) {
 		return nil, nil
 	}
 
-	machines, err := c.gclient.FindMachinesByIds(ctx, req)
-	if err != nil {
+	detailsCtx, detailsCancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer detailsCancel()
+	result := make([]MachineDetail, 0, len(req.MachineIds))
+	if err := c.gclient.visitMachineBatches(detailsCtx, req, func(batch []*corev1.Machine) error {
+		for _, machine := range batch {
+			result = append(result, machineDetailFromPb(machine))
+		}
+		return nil
+	}); err != nil {
 		return nil, err
 	}
+	return result, nil
+}
 
-	var result []MachineDetail
-	for _, machine := range machines.Machines {
-		result = append(result, machineDetailFromPb(machine))
+// GetSwitches retrieves a complete active-switch snapshot. ID discovery and
+// detail lookup each receive the configured RPC timeout so a slow first call
+// cannot starve the second call. FindSwitchesByIds is routed through the shared
+// batching client, which also verifies response completeness.
+func (c *grpcClient) GetSwitches(ctx context.Context) ([]ObservedControllerDevice, error) {
+	idsCtx, idsCancel := context.WithTimeout(ctx, c.grpcTimeout)
+	idsResponse, err := c.gclient.FindSwitchIds(idsCtx, &corev1.SwitchSearchFilter{})
+	idsCancel()
+	if err != nil {
+		return nil, fmt.Errorf("FindSwitchIds for actual inventory: %w", err)
+	}
+
+	switchIDs := idsResponse.GetIds()
+	if len(switchIDs) == 0 {
+		return []ObservedControllerDevice{}, nil
+	}
+
+	detailsCtx, detailsCancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer detailsCancel()
+	request := &corev1.SwitchesByIdsRequest{
+		SwitchIds: switchIDs,
+	}
+	result := make([]ObservedControllerDevice, 0, len(switchIDs))
+	if err := c.gclient.visitSwitchBatches(detailsCtx, request, func(batch []*corev1.Switch) error {
+		for _, sw := range batch {
+			result = append(result, ObservedControllerDevice{
+				ID:     sw.GetId().GetId(),
+				BmcMac: sw.GetBmcInfo().GetMac(),
+			})
+		}
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("FindSwitchesByIds for actual inventory: %w", err)
+	}
+	return result, nil
+}
+
+// GetPowerShelves is the power-shelf equivalent of GetSwitches, including the
+// independent per-RPC timeout and complete batched detail lookup.
+func (c *grpcClient) GetPowerShelves(ctx context.Context) ([]ObservedControllerDevice, error) {
+	idsCtx, idsCancel := context.WithTimeout(ctx, c.grpcTimeout)
+	idsResponse, err := c.gclient.FindPowerShelfIds(idsCtx, &corev1.PowerShelfSearchFilter{})
+	idsCancel()
+	if err != nil {
+		return nil, fmt.Errorf("FindPowerShelfIds for actual inventory: %w", err)
+	}
+
+	shelfIDs := idsResponse.GetIds()
+	if len(shelfIDs) == 0 {
+		return []ObservedControllerDevice{}, nil
+	}
+
+	detailsCtx, detailsCancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer detailsCancel()
+	request := &corev1.PowerShelvesByIdsRequest{
+		PowerShelfIds: shelfIDs,
+	}
+	result := make([]ObservedControllerDevice, 0, len(shelfIDs))
+	if err := c.gclient.visitPowerShelfBatches(detailsCtx, request, func(batch []*corev1.PowerShelf) error {
+		for _, shelf := range batch {
+			result = append(result, ObservedControllerDevice{
+				ID:     shelf.GetId().GetId(),
+				BmcMac: shelf.GetBmcInfo().GetMac(),
+			})
+		}
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("FindPowerShelvesByIds for actual inventory: %w", err)
 	}
 	return result, nil
 }
@@ -274,45 +396,88 @@ func (c *batchingForgeClient) loadMaxFindByIDs(ctx context.Context) (uint32, err
 	return c.maxFindByIDs, nil
 }
 
-// findByIDBatches loads the shared server limit, fetches every chunk in order,
-// and returns only a complete aggregate. The caller's context covers limit
-// discovery and all batch RPCs; deadline exhaustion therefore fails the whole
-// lookup without returning values from earlier batches.
-func findByIDBatches[T any](
+// visitFindByIDBatches loads the shared server limit and visits each complete
+// batch before fetching the next one. This lets callers project full protobuf
+// resources into their smaller result shape without retaining earlier batches.
+// The caller's context covers limit discovery and all batch RPCs.
+func visitFindByIDBatches[T any](
 	ctx context.Context,
+	rpcName string,
 	loadLimit func(context.Context) (uint32, error),
 	ids []string,
 	fetch func(context.Context, []string) ([]T, error),
-) ([]T, error) {
+	identity func(T) string,
+	visit func([]T) error,
+) error {
 	if len(ids) == 0 {
-		return nil, nil
+		return nil
+	}
+	if err := validateByIDsRequest(ids, rpcName); err != nil {
+		return err
 	}
 
 	limit, err := loadLimit(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	batchSize := len(ids)
+	batchSize := min(len(ids), flowFindByIDsBatchSize)
 	if limit > 0 && uint64(limit) < uint64(batchSize) {
 		batchSize = int(limit)
 	}
 
-	result := make([]T, 0, len(ids))
 	for batch := range slices.Chunk(ids, batchSize) {
 		values, err := fetch(ctx, batch)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		result = append(result, values...)
+		returnedIDs := make([]string, 0, len(values))
+		for _, value := range values {
+			returnedIDs = append(returnedIDs, identity(value))
+		}
+		if err := validateByIDsResponse(batch, returnedIDs, rpcName); err != nil {
+			return err
+		}
+		if err := visit(values); err != nil {
+			return err
+		}
 	}
-	return result, nil
+	return nil
 }
 
-// validateByIDsResponse rejects a batch response that omits any requested ID.
+// validateByIDsRequest rejects identities that cannot form an exact result set.
+func validateByIDsRequest(ids []string, rpcName string) error {
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		if id == "" {
+			return fmt.Errorf("%s request contains an empty ID", rpcName)
+		}
+		if _, ok := seen[id]; ok {
+			return fmt.Errorf("%s request contains duplicate ID: %s", rpcName, id)
+		}
+		seen[id] = struct{}{}
+	}
+	return nil
+}
+
+// validateByIDsResponse requires the response identities to exactly match the request.
 func validateByIDsResponse(requested, returned []string, rpcName string) error {
+	requestedSet := make(map[string]struct{}, len(requested))
+	for _, id := range requested {
+		requestedSet[id] = struct{}{}
+	}
+
 	returnedSet := make(map[string]struct{}, len(returned))
 	for _, id := range returned {
+		if id == "" {
+			return fmt.Errorf("%s returned an empty ID", rpcName)
+		}
+		if _, ok := requestedSet[id]; !ok {
+			return fmt.Errorf("%s returned unrequested ID: %s", rpcName, id)
+		}
+		if _, ok := returnedSet[id]; ok {
+			return fmt.Errorf("%s returned duplicate ID: %s", rpcName, id)
+		}
 		returnedSet[id] = struct{}{}
 	}
 
@@ -342,8 +507,7 @@ func protoIDsToStrings[T protoID](ids []T) []string {
 	return result
 }
 
-// fetchMachinesByIDs clones the caller's request for one raw Core batch and
-// verifies that Core returned every requested machine.
+// fetchMachinesByIDs clones the caller's request for one raw Core batch.
 func (c *batchingForgeClient) fetchMachinesByIDs(
 	ctx context.Context,
 	request *corev1.MachinesByIdsRequest,
@@ -357,15 +521,7 @@ func (c *batchingForgeClient) fetchMachinesByIDs(
 		return nil, fmt.Errorf("FindMachinesByIds: %w", err)
 	}
 
-	machines := response.GetMachines()
-	returned := make([]string, 0, len(machines))
-	for _, machine := range machines {
-		returned = append(returned, machine.GetId().GetId())
-	}
-	if err := validateByIDsResponse(batch, returned, "FindMachinesByIds"); err != nil {
-		return nil, err
-	}
-	return machines, nil
+	return response.GetMachines(), nil
 }
 
 // GetPowerStates returns the power states of the given machines (all machines if given an empty machineIds)
@@ -473,14 +629,14 @@ func (c *grpcClient) FindMachinesByIds(ctx context.Context, machineIds []string)
 		MachineIds: stringsToMachineIds(machineIds),
 	}
 
-	res, err := c.gclient.FindMachinesByIds(ctx, req)
-	if err != nil {
+	result := make([]MachineDetail, 0, len(machineIds))
+	if err := c.gclient.visitMachineBatches(ctx, req, func(batch []*corev1.Machine) error {
+		for _, machine := range batch {
+			result = append(result, machineDetailFromPb(machine))
+		}
+		return nil
+	}); err != nil {
 		return nil, fmt.Errorf("failed to find machines by IDs: %w", err)
-	}
-
-	var result []MachineDetail
-	for _, machine := range res.Machines {
-		result = append(result, machineDetailFromPb(machine))
 	}
 	return result, nil
 }
@@ -534,15 +690,7 @@ func (c *batchingForgeClient) fetchSwitchesByIDs(
 		return nil, fmt.Errorf("FindSwitchesByIds: %w", err)
 	}
 
-	switches := response.GetSwitches()
-	returned := make([]string, 0, len(switches))
-	for _, sw := range switches {
-		returned = append(returned, sw.GetId().GetId())
-	}
-	if err := validateByIDsResponse(batch, returned, "FindSwitchesByIds"); err != nil {
-		return nil, err
-	}
-	return switches, nil
+	return response.GetSwitches(), nil
 }
 
 // fetchPowerShelvesByIDs clones the caller's request for one raw Core batch and
@@ -564,15 +712,7 @@ func (c *batchingForgeClient) fetchPowerShelvesByIDs(
 		return nil, fmt.Errorf("FindPowerShelvesByIds: %w", err)
 	}
 
-	shelves := response.GetPowerShelves()
-	returned := make([]string, 0, len(shelves))
-	for _, shelf := range shelves {
-		returned = append(returned, shelf.GetId().GetId())
-	}
-	if err := validateByIDsResponse(batch, returned, "FindPowerShelvesByIds"); err != nil {
-		return nil, err
-	}
-	return shelves, nil
+	return response.GetPowerShelves(), nil
 }
 
 // FindSwitchRackIDs returns the rack assignment of each given switch.
@@ -591,20 +731,20 @@ func (c *grpcClient) FindSwitchRackIDs(ctx context.Context, switchIds []string) 
 		req.SwitchIds = append(req.SwitchIds, &corev1.SwitchId{Id: id})
 	}
 
-	resp, err := c.gclient.FindSwitchesByIds(ctx, req)
-	if err != nil {
+	result := make(map[string]string, len(switchIds))
+	if err := c.gclient.visitSwitchBatches(ctx, req, func(batch []*corev1.Switch) error {
+		for _, sw := range batch {
+			sid := sw.GetId().GetId()
+			if sid == "" {
+				continue
+			}
+			if rid := sw.GetRackId().GetId(); rid != "" {
+				result[sid] = rid
+			}
+		}
+		return nil
+	}); err != nil {
 		return nil, fmt.Errorf("FindSwitchesByIds: %w", err)
-	}
-
-	result := make(map[string]string, len(resp.GetSwitches()))
-	for _, sw := range resp.GetSwitches() {
-		sid := sw.GetId().GetId()
-		if sid == "" {
-			continue
-		}
-		if rid := sw.GetRackId().GetId(); rid != "" {
-			result[sid] = rid
-		}
 	}
 	return result, nil
 }
@@ -627,20 +767,20 @@ func (c *grpcClient) FindSwitchControllerStates(ctx context.Context, switchIds [
 		req.SwitchIds = append(req.SwitchIds, &corev1.SwitchId{Id: id})
 	}
 
-	resp, err := c.gclient.FindSwitchesByIds(ctx, req)
-	if err != nil {
+	result := make(map[string]string, len(switchIds))
+	if err := c.gclient.visitSwitchBatches(ctx, req, func(batch []*corev1.Switch) error {
+		for _, sw := range batch {
+			sid := sw.GetId().GetId()
+			if sid == "" {
+				continue
+			}
+			if state := sw.GetControllerState(); state != "" {
+				result[sid] = state
+			}
+		}
+		return nil
+	}); err != nil {
 		return nil, fmt.Errorf("FindSwitchesByIds: %w", err)
-	}
-
-	result := make(map[string]string, len(resp.GetSwitches()))
-	for _, sw := range resp.GetSwitches() {
-		sid := sw.GetId().GetId()
-		if sid == "" {
-			continue
-		}
-		if s := sw.GetControllerState(); s != "" {
-			result[sid] = s
-		}
 	}
 	return result, nil
 }
@@ -664,20 +804,20 @@ func (c *grpcClient) FindSwitchNvosIPs(ctx context.Context, switchIds []string) 
 		req.SwitchIds = append(req.SwitchIds, &corev1.SwitchId{Id: id})
 	}
 
-	resp, err := c.gclient.FindSwitchesByIds(ctx, req)
-	if err != nil {
+	result := make(map[string]string, len(switchIds))
+	if err := c.gclient.visitSwitchBatches(ctx, req, func(batch []*corev1.Switch) error {
+		for _, sw := range batch {
+			sid := sw.GetId().GetId()
+			if sid == "" {
+				continue
+			}
+			if ip := sw.GetNvosInfo().GetIp(); ip != "" {
+				result[sid] = ip
+			}
+		}
+		return nil
+	}); err != nil {
 		return nil, fmt.Errorf("FindSwitchesByIds: %w", err)
-	}
-
-	result := make(map[string]string, len(resp.GetSwitches()))
-	for _, sw := range resp.GetSwitches() {
-		sid := sw.GetId().GetId()
-		if sid == "" {
-			continue
-		}
-		if ip := sw.GetNvosInfo().GetIp(); ip != "" {
-			result[sid] = ip
-		}
 	}
 	return result, nil
 }
@@ -701,14 +841,22 @@ func (c *grpcClient) GetObservedNVLinkDomainMemberships(ctx context.Context) ([]
 
 	detailsCtx, detailsCancel := context.WithTimeout(ctx, c.grpcTimeout)
 	defer detailsCancel()
-	detailsResponse, err := c.gclient.FindSwitchesByIds(detailsCtx, &corev1.SwitchesByIdsRequest{
+	request := &corev1.SwitchesByIdsRequest{
 		SwitchIds: switchIDs,
-	})
-	if err != nil {
+	}
+	memberships := make([]NVLinkDomainMembership, 0, len(switchIDs))
+	if err := c.gclient.visitSwitchBatches(detailsCtx, request, func(batch []*corev1.Switch) error {
+		projected, err := nvLinkDomainMembershipsFromSwitches(nil, batch)
+		if err != nil {
+			return err
+		}
+		memberships = append(memberships, projected...)
+		return nil
+	}); err != nil {
 		return nil, fmt.Errorf("FindSwitchesByIds for NVLink domain topology: %w", err)
 	}
 
-	return nvLinkDomainMembershipsFromSwitches(switchIDs, detailsResponse.GetSwitches())
+	return memberships, nil
 }
 
 func nvLinkDomainMembershipsFromSwitches(
@@ -769,20 +917,20 @@ func (c *grpcClient) FindPowerShelfRackIDs(ctx context.Context, shelfIds []strin
 		req.PowerShelfIds = append(req.PowerShelfIds, &corev1.PowerShelfId{Id: id})
 	}
 
-	resp, err := c.gclient.FindPowerShelvesByIds(ctx, req)
-	if err != nil {
+	result := make(map[string]string, len(shelfIds))
+	if err := c.gclient.visitPowerShelfBatches(ctx, req, func(batch []*corev1.PowerShelf) error {
+		for _, shelf := range batch {
+			pid := shelf.GetId().GetId()
+			if pid == "" {
+				continue
+			}
+			if rid := shelf.GetRackId().GetId(); rid != "" {
+				result[pid] = rid
+			}
+		}
+		return nil
+	}); err != nil {
 		return nil, fmt.Errorf("FindPowerShelvesByIds: %w", err)
-	}
-
-	result := make(map[string]string, len(resp.GetPowerShelves()))
-	for _, ps := range resp.GetPowerShelves() {
-		pid := ps.GetId().GetId()
-		if pid == "" {
-			continue
-		}
-		if rid := ps.GetRackId().GetId(); rid != "" {
-			result[pid] = rid
-		}
 	}
 	return result, nil
 }
@@ -805,20 +953,20 @@ func (c *grpcClient) FindPowerShelfControllerStates(ctx context.Context, shelfId
 		req.PowerShelfIds = append(req.PowerShelfIds, &corev1.PowerShelfId{Id: id})
 	}
 
-	resp, err := c.gclient.FindPowerShelvesByIds(ctx, req)
-	if err != nil {
+	result := make(map[string]string, len(shelfIds))
+	if err := c.gclient.visitPowerShelfBatches(ctx, req, func(batch []*corev1.PowerShelf) error {
+		for _, shelf := range batch {
+			pid := shelf.GetId().GetId()
+			if pid == "" {
+				continue
+			}
+			if state := shelf.GetControllerState(); state != "" {
+				result[pid] = state
+			}
+		}
+		return nil
+	}); err != nil {
 		return nil, fmt.Errorf("FindPowerShelvesByIds: %w", err)
-	}
-
-	result := make(map[string]string, len(resp.GetPowerShelves()))
-	for _, ps := range resp.GetPowerShelves() {
-		pid := ps.GetId().GetId()
-		if pid == "" {
-			continue
-		}
-		if s := ps.GetControllerState(); s != "" {
-			result[pid] = s
-		}
 	}
 	return result, nil
 }
@@ -871,9 +1019,17 @@ func (c *grpcClient) FindMachineControllerStates(ctx context.Context, machineIds
 }
 
 // DecommissionMachine initiates decommissioning of the given machine via Core.
-// TODO: Core Decommission Machine RPC pending — stub returns not-implemented.
-func (c *grpcClient) DecommissionMachine(_ context.Context, machineID string) error {
-	return fmt.Errorf("not yet implemented: Core DecommissionMachine RPC pending (machine %s)", machineID)
+func (c *grpcClient) DecommissionMachine(ctx context.Context, machineID string) error {
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	_, err := c.gclient.DecommissionManagedHost(ctx, &corev1.DecommissionManagedHostRequest{
+		MachineId: &corev1.MachineId{Id: machineID},
+	})
+	if err != nil {
+		return fmt.Errorf("decommission machine %s: %w", machineID, err)
+	}
+	return nil
 }
 
 // DecommissionSwitch initiates decommissioning of the given switch via Core.
@@ -1252,17 +1408,23 @@ func (c *grpcClient) findAssociatedDpuMachineIdsLocked(
 		return nil, fmt.Errorf("host machine id is required")
 	}
 
-	resp, err := c.gclient.FindMachinesByIds(ctx, &corev1.MachinesByIdsRequest{
+	request := &corev1.MachinesByIdsRequest{
 		MachineIds: []*corev1.MachineId{{Id: hostMachineID}},
-	})
-	if err != nil {
+	}
+	var machine *corev1.Machine
+	if err := c.gclient.visitMachineBatches(ctx, request, func(batch []*corev1.Machine) error {
+		if len(batch) > 0 {
+			machine = batch[0]
+		}
+		return nil
+	}); err != nil {
 		return nil, fmt.Errorf("failed to find machine %s: %w", hostMachineID, err)
 	}
-	if len(resp.GetMachines()) == 0 {
+	if machine == nil {
 		return nil, fmt.Errorf("machine %s not found", hostMachineID)
 	}
 
-	dpus := resp.GetMachines()[0].GetStatus().GetAssociatedDpuMachineIds()
+	dpus := machine.GetStatus().GetAssociatedDpuMachineIds()
 	out := make([]string, 0, len(dpus))
 	for _, id := range dpus {
 		if v := id.GetId(); v != "" {
@@ -1562,6 +1724,14 @@ func (c *grpcClient) SetSwitchNvosIP(switchID, ip string) {
 }
 
 func (c *grpcClient) SetPowerShelfControllerState(shelfID, state string) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) SetObservedSwitches(devices []ObservedControllerDevice) {
+	panic("Not a unit test")
+}
+
+func (c *grpcClient) SetObservedPowerShelves(devices []ObservedControllerDevice) {
 	panic("Not a unit test")
 }
 

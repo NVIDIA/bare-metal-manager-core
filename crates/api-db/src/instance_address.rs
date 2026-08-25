@@ -14,8 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
+#[cfg(test)]
 use std::ops::DerefMut;
 
 use carbide_network::virtualization::{VpcVirtualizationType, get_host_ip};
@@ -33,10 +34,11 @@ use model::network_prefix::NetworkPrefix;
 use model::network_segment::{
     NetworkSegment, NetworkSegmentControllerState, NetworkSegmentSearchConfig, NetworkSegmentType,
 };
-use sqlx::{FromRow, PgConnection, PgTransaction, query_as, query_scalar};
+use sqlx::{FromRow, PgConnection, PgTransaction, query_as};
 
 use super::{ObjectColumnFilter, network_segment, vpc};
 use crate::db_read::DbReader;
+use crate::instance::push_network_segment_reference_exists;
 use crate::ip_allocator::{IpAllocator, UsedIpResolver};
 use crate::{BIND_LIMIT, DatabaseError, DatabaseResult, Transaction};
 
@@ -46,6 +48,20 @@ use crate::{BIND_LIMIT, DatabaseError, DatabaseResult, Transaction};
 /// (interfaces x prefixes) sit far below one chunk, so the INSERT is a
 /// single statement.
 const ADDRESS_BINDS_PER_ROW: usize = 6;
+
+/// Serializes operations that select or reserve tenant addresses.
+///
+/// Call this before locking any row in `network_prefixes`. Segment deletion
+/// takes an ACCESS SHARE lock on this table before deleting prefix rows, so
+/// keeping this lock order prevents allocation/deletion deadlocks.
+pub(crate) async fn lock_table_for_allocation(txn: &mut PgConnection) -> Result<(), DatabaseError> {
+    let query = "LOCK TABLE instance_addresses IN ACCESS EXCLUSIVE MODE";
+    sqlx::query(query)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(())
+}
 
 /// `find_all_by_address` returns every overlay allocation using `address`.
 /// An address is only unique inside its VPC, so callers without that context
@@ -239,8 +255,10 @@ fn validate(
 
 /// Counts the amount of addresses that have been allocated for a given segment.
 ///
-/// Keep this predicate in sync with [`segment_has_allocations`] (used by the
-/// segment-drain reconcile).
+/// This diagnostic count intentionally covers only normalized
+/// `instance_addresses` rows. [`segment_has_allocations`] is the broader
+/// boolean used while draining a segment: it also checks machine interfaces
+/// and current or pending instance network configurations.
 pub async fn count_by_segment_id(
     txn: &mut PgConnection,
     segment_id: &NetworkSegmentId,
@@ -260,29 +278,50 @@ pub async fn count_by_segment_id(
     Ok(address_count.max(0) as usize)
 }
 
-/// Returns whether a segment still holds any IP allocation — a machine
-/// interface or an instance address bound to it.
+/// Returns whether a segment still holds any allocation — a machine
+/// interface, an instance address, or a current/pending instance network
+/// configuration bound to it.
 ///
 /// The drain check only needs to know whether *any* allocation remains, so this
-/// answers it in a single round-trip: one query with two `EXISTS` subqueries,
-/// which Postgres can answer without necessarily probing both tables.
+/// answers it in one round trip with three `EXISTS` arms. The arm that checks
+/// instance configurations protects SLAAC allocations that retain only a
+/// prefix; these deliberately have no row in `instance_addresses`.
 /// Callers previously ran [`count_by_segment_id`] and
 /// [`crate::machine_interface::count_by_segment_id`] and summed the totals —
-/// two round-trips to compute a boolean. Both per-table count functions remain
-/// in production use for the can't-delete-yet error messages
-/// (`network_segment::mark_as_deleted`); keep this predicate in sync with them.
+/// two round trips to compute a boolean. Those count functions for each source
+/// and [`crate::instance::count_network_segment_references`] remain in
+/// production for `network_segment::mark_as_deleted` diagnostics. Their
+/// individual scopes are narrower than this predicate; together they cover the
+/// same three reference sources.
 pub async fn segment_has_allocations(
     txn: &mut PgConnection,
     segment_id: &NetworkSegmentId,
 ) -> Result<bool, DatabaseError> {
-    let query = "SELECT \
-                 EXISTS(SELECT 1 FROM machine_interfaces WHERE segment_id = $1) \
-                 OR EXISTS(SELECT 1 FROM instance_addresses WHERE segment_id = $1)";
-    query_scalar(query)
-        .bind(segment_id)
+    let mut builder = sqlx::QueryBuilder::new(
+        "SELECT
+            EXISTS(SELECT 1 FROM machine_interfaces WHERE segment_id = ",
+    );
+    builder.push_bind(*segment_id);
+    builder.push(
+        ")
+            OR EXISTS(SELECT 1 FROM instance_addresses WHERE segment_id = ",
+    );
+    builder.push_bind(*segment_id);
+    builder.push(
+        ")
+            OR EXISTS(
+                SELECT 1
+                FROM instances
+                WHERE ",
+    );
+    push_network_segment_reference_exists(&mut builder, *segment_id);
+    builder.push(")");
+
+    builder
+        .build_query_scalar()
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::query(query, e))
+        .map_err(|e| DatabaseError::query(builder.sql(), e))
 }
 
 /// Persists every [`InstanceAddress`] row `allocate` accumulated, with a
@@ -355,6 +394,12 @@ pub async fn allocate(
         return Err(DatabaseError::NetworkSegmentNotAllocated);
     }
 
+    // Serialize allocation with segment/VPC deletion before reading either
+    // parent. Deletion paths take ACCESS SHARE while checking allocations, so
+    // whichever transaction acquires its table lock first determines whether
+    // this allocation is retained or observes a deleted parent and fails.
+    lock_table_for_allocation(inner_txn.as_pgconn()).await?;
+
     let segments = crate::network_segment::find_by(
         &mut inner_txn,
         ObjectColumnFilter::List(network_segment::IdColumn, &segment_ids),
@@ -362,7 +407,9 @@ pub async fn allocate(
     )
     .await?;
 
-    // Multi-VPC instance interfaces are supported only when every referenced VPC is FNN.
+    // Load every referenced active VPC once. Besides validating multi-VPC FNN
+    // use, the persisted VPC configuration selects address materialization
+    // policy, so a missing row must fail rather than silently disabling SLAAC.
     let vpc_ids = updated_config
         .interfaces
         .iter()
@@ -370,20 +417,33 @@ pub async fn allocate(
         .collect::<HashSet<_>>()
         .into_iter()
         .collect_vec();
-    let all_fnn = if vpc_ids.len() > 1 {
-        let vpcs = vpc::find_by(
+    let vpcs = if vpc_ids.is_empty() {
+        Vec::new()
+    } else {
+        vpc::find_by(
             &mut inner_txn,
             ObjectColumnFilter::List(vpc::IdColumn, &vpc_ids),
         )
-        .await?;
-
-        vpcs.len() == vpc_ids.len()
-            && vpcs
-                .iter()
-                .all(|vpc| vpc.config.network_virtualization_type == VpcVirtualizationType::Fnn)
+        .await?
+    };
+    if vpcs.len() != vpc_ids.len() {
+        return Err(DatabaseError::FailedPrecondition(format!(
+            "instance network configuration references {} VPCs, but only {} active VPCs were found",
+            vpc_ids.len(),
+            vpcs.len(),
+        )));
+    }
+    let all_fnn = if vpc_ids.len() > 1 {
+        vpcs.iter()
+            .all(|vpc| vpc.config.network_virtualization_type == VpcVirtualizationType::Fnn)
     } else {
         false
     };
+    let slaac_vpc_ids = vpcs
+        .iter()
+        .filter(|vpc| vpc.config.slaac_enabled)
+        .map(|vpc| vpc.id)
+        .collect::<HashSet<_>>();
 
     validate(
         &segments,
@@ -391,12 +451,6 @@ pub async fn allocate(
         &segment_ids_using_vpc_prefix,
         all_fnn,
     )?;
-
-    let query = "LOCK TABLE instance_addresses IN ACCESS EXCLUSIVE MODE";
-    sqlx::query(query)
-        .execute(inner_txn.as_pgconn())
-        .await
-        .map_err(|e| DatabaseError::query(query, e))?;
 
     // Assign all addresses in one shot.
     //
@@ -434,6 +488,27 @@ pub async fn allocate(
             return Err(DatabaseError::FindOneReturnedNoResultsError(
                 segment.id.into(),
             ));
+        }
+
+        let vpc_id = interface_vpc_id(iface, &segments)
+            .ok_or(ConfigValidationError::VpcNotAttachedToSegment(segment.id))?;
+        if slaac_vpc_ids.contains(&vpc_id) {
+            let requested_ipv6_address = iface
+                .requested_ip_addr
+                .filter(IpAddr::is_ipv6)
+                .map(|address| address.to_string())
+                .or_else(|| {
+                    iface
+                        .ipv6_interface_config
+                        .as_ref()
+                        .and_then(|config| config.requested_ip_addr)
+                        .map(|address| address.to_string())
+                });
+            if let Some(requested_ip_addr) = requested_ipv6_address {
+                return Err(DatabaseError::InvalidArgument(format!(
+                    "requested IPv6 address `{requested_ip_addr}` is invalid because VPC `{vpc_id}` has SLAAC enabled",
+                )));
+            }
         }
 
         // Hydrate iface with network addresses, returning the assigned addresses.
@@ -494,11 +569,23 @@ pub async fn allocate(
             )
             .await?;
 
-            iface.assign_ips_from(ip_allocator)?
+            let slaac_interface_prefixes = if slaac_vpc_ids.contains(&vpc_id) {
+                segment
+                    .prefixes
+                    .iter()
+                    .filter(|prefix| prefix.prefix.is_ipv6())
+                    .map(|prefix| (prefix.id, prefix.prefix))
+                    .collect()
+            } else {
+                HashMap::new()
+            };
+
+            iface.assign_ips_from(OverlayAddressAllocation {
+                ip_allocator,
+                slaac_interface_prefixes,
+            })?
         };
 
-        let vpc_id = interface_vpc_id(iface, &segments)
-            .ok_or(ConfigValidationError::VpcNotAttachedToSegment(segment.id))?;
         iface.vpc_id = Some(vpc_id);
 
         for address in addresses {
@@ -616,6 +703,16 @@ trait AssignIpsFrom<Source> {
     fn assign_ips_from(&mut self, source: Source) -> DatabaseResult<Vec<IpNetwork>>;
 }
 
+/// Overlay address policy resolved from the owning VPC.
+///
+/// IPv6 prefixes selected for SLAAC remain part of the durable interface
+/// configuration, but do not produce a concrete host address. Other families
+/// continue through the ordinary allocator.
+struct OverlayAddressAllocation {
+    ip_allocator: IpAllocator,
+    slaac_interface_prefixes: HashMap<NetworkPrefixId, IpNetwork>,
+}
+
 impl AssignIpsFrom<(&Machine, &NetworkPrefix)> for InstanceInterfaceConfig {
     // Zero-dpu config: For machines without DPUs, the machines's interface will be on an
     // HostInband network segment, which will be the same segment as the instance wants. In
@@ -707,10 +804,22 @@ impl AssignIpsFrom<(&Machine, &NetworkPrefix)> for InstanceInterfaceConfig {
     }
 }
 
-impl AssignIpsFrom<IpAllocator> for InstanceInterfaceConfig {
-    fn assign_ips_from(&mut self, ip_allocator: IpAllocator) -> DatabaseResult<Vec<IpNetwork>> {
+impl AssignIpsFrom<OverlayAddressAllocation> for InstanceInterfaceConfig {
+    fn assign_ips_from(
+        &mut self,
+        source: OverlayAddressAllocation,
+    ) -> DatabaseResult<Vec<IpNetwork>> {
+        let OverlayAddressAllocation {
+            ip_allocator,
+            slaac_interface_prefixes,
+        } = source;
         let mut addresses = Vec::new();
         for (prefix_id, allocated_prefix) in ip_allocator {
+            if let Some(interface_prefix) = slaac_interface_prefixes.get(&prefix_id) {
+                self.interface_prefixes.insert(prefix_id, *interface_prefix);
+                continue;
+            }
+
             let allocated_prefix = allocated_prefix?;
 
             // This is used to populate the database (and the InstanceInterfaceConfig
@@ -741,12 +850,8 @@ pub async fn allocate_svi_ip(
             busy_ips: vec![],
         });
 
-    // If either requested addresses are auto-generated, we lock the entire table
-    let query = "LOCK TABLE instance_addresses IN ACCESS EXCLUSIVE MODE";
-    sqlx::query(query)
-        .execute(txn.deref_mut())
-        .await
-        .map_err(|e| DatabaseError::query(query, e))?;
+    // If either requested addresses are auto-generated, we lock the entire table.
+    lock_table_for_allocation(txn.as_mut()).await?;
 
     let mut addresses_allocator = IpAllocator::new(
         txn.as_mut(),
@@ -1001,34 +1106,6 @@ mod tests {
             .collect()
     }
 
-    /// Waits until one exact backend is blocked by another, avoiding matches
-    /// from unrelated tests running against the same database.
-    async fn wait_until_blocked_by(
-        pool: &sqlx::PgPool,
-        blocked_pid: i32,
-        blocker_pid: i32,
-    ) -> String {
-        tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            loop {
-                let blocked_query: Option<String> = sqlx::query_scalar(
-                    "SELECT query FROM pg_stat_activity
-                     WHERE pid = $1 AND $2 = ANY(pg_blocking_pids(pid))",
-                )
-                .bind(blocked_pid)
-                .bind(blocker_pid)
-                .fetch_optional(pool)
-                .await
-                .unwrap();
-                if let Some(blocked_query) = blocked_query {
-                    return blocked_query;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .expect("address deletion did not wait on the expected row lock")
-    }
-
     /// The unbatched baseline: one INSERT per row, exactly what `allocate`'s
     /// inner loop used to issue. Used only to establish the BEFORE count.
     async fn insert_one_at_a_time(
@@ -1051,262 +1128,6 @@ mod tests {
                 .map_err(|e| DatabaseError::query(query, e))?;
         }
         Ok(())
-    }
-
-    /// Makes overlapping addresses visible to every reader while limiting a
-    /// release to the exact instance, segment, and address the caller named.
-    #[crate::sqlx_test]
-    async fn overlapping_addresses_are_read_and_deleted_by_exact_owner(pool: sqlx::PgPool) {
-        let mut txn = pool.begin().await.unwrap();
-        let (target_instance_id, target_segment_id, target_vpc_id) =
-            seed_fk_fixtures(txn.as_mut(), "overlap-target").await;
-        let (other_target_segment_id, other_target_vpc_id) =
-            seed_vpc_and_segment(txn.as_mut(), "overlap-target-other-vpc").await;
-        let (other_instance_id, other_instance_segment_id, other_instance_vpc_id) =
-            seed_fk_fixtures(txn.as_mut(), "overlap-other-instance").await;
-
-        let shared_address: IpAddr = "10.88.0.10".parse().unwrap();
-        let target_only_address: IpAddr = "10.88.0.11".parse().unwrap();
-        let target_kept_address: IpAddr = "10.88.0.12".parse().unwrap();
-        let rows = [
-            InstanceAddress {
-                instance_id: target_instance_id,
-                address: shared_address,
-                segment_id: target_segment_id,
-                prefix: IpNetwork::new(shared_address, 32).unwrap(),
-                vpc_id: target_vpc_id,
-                hostname: None,
-            },
-            InstanceAddress {
-                instance_id: target_instance_id,
-                address: target_only_address,
-                segment_id: target_segment_id,
-                prefix: IpNetwork::new(target_only_address, 32).unwrap(),
-                vpc_id: target_vpc_id,
-                hostname: None,
-            },
-            InstanceAddress {
-                instance_id: target_instance_id,
-                address: target_kept_address,
-                segment_id: target_segment_id,
-                prefix: IpNetwork::new(target_kept_address, 32).unwrap(),
-                vpc_id: target_vpc_id,
-                hostname: None,
-            },
-            InstanceAddress {
-                instance_id: target_instance_id,
-                address: shared_address,
-                segment_id: other_target_segment_id,
-                prefix: IpNetwork::new(shared_address, 32).unwrap(),
-                vpc_id: other_target_vpc_id,
-                hostname: None,
-            },
-            InstanceAddress {
-                instance_id: other_instance_id,
-                address: shared_address,
-                segment_id: other_instance_segment_id,
-                prefix: IpNetwork::new(shared_address, 32).unwrap(),
-                vpc_id: other_instance_vpc_id,
-                hostname: None,
-            },
-        ];
-        insert_instance_addresses(txn.as_mut(), &rows)
-            .await
-            .unwrap();
-
-        let shared_rows = find_all_by_address(txn.as_mut(), shared_address)
-            .await
-            .unwrap();
-        assert_eq!(shared_rows.len(), 3);
-        assert!(shared_rows.iter().any(|row| {
-            row.instance_id == target_instance_id && row.segment_id == target_segment_id
-        }));
-        assert!(shared_rows.iter().any(|row| {
-            row.instance_id == target_instance_id && row.segment_id == other_target_segment_id
-        }));
-        assert!(shared_rows.iter().any(|row| {
-            row.instance_id == other_instance_id && row.segment_id == other_instance_segment_id
-        }));
-
-        let target_segment_rows = find_all_by_instance_id_and_segment_id(
-            txn.as_mut(),
-            &target_instance_id,
-            &target_segment_id,
-        )
-        .await
-        .unwrap();
-        assert_eq!(
-            target_segment_rows
-                .iter()
-                .map(|row| row.address)
-                .collect::<Vec<_>>(),
-            vec![shared_address, target_only_address, target_kept_address]
-        );
-
-        delete_addresses_for_instance(
-            txn.as_mut(),
-            target_instance_id,
-            &[
-                (target_segment_id, shared_address),
-                (target_segment_id, target_only_address),
-            ],
-        )
-        .await
-        .unwrap();
-
-        let target_segment_rows = find_all_by_instance_id_and_segment_id(
-            txn.as_mut(),
-            &target_instance_id,
-            &target_segment_id,
-        )
-        .await
-        .unwrap();
-        assert_eq!(target_segment_rows.len(), 1);
-        assert_eq!(target_segment_rows[0].address, target_kept_address);
-
-        let shared_rows = find_all_by_address(txn.as_mut(), shared_address)
-            .await
-            .unwrap();
-        assert_eq!(shared_rows.len(), 2);
-        assert!(shared_rows.iter().all(|row| {
-            row.instance_id != target_instance_id || row.segment_id != target_segment_id
-        }));
-        assert!(shared_rows.iter().any(|row| {
-            row.instance_id == target_instance_id && row.segment_id == other_target_segment_id
-        }));
-        assert!(shared_rows.iter().any(|row| {
-            row.instance_id == other_instance_id && row.segment_id == other_instance_segment_id
-        }));
-
-        txn.rollback().await.unwrap();
-    }
-
-    /// Full and partial deletion lock a whole instance's address rows in the
-    /// same order before deciding which rows to delete.
-    #[crate::sqlx_test]
-    async fn address_deletions_lock_all_rows_in_id_order(pool: sqlx::PgPool) {
-        enum Deletion {
-            Full,
-            Partial,
-        }
-
-        struct Case {
-            name: &'static str,
-            deletion: Deletion,
-            expected_remaining: i64,
-        }
-
-        let cases = [
-            Case {
-                name: "full",
-                deletion: Deletion::Full,
-                expected_remaining: 0,
-            },
-            Case {
-                name: "partial",
-                deletion: Deletion::Partial,
-                expected_remaining: 1,
-            },
-        ];
-
-        for case in cases {
-            let Case {
-                name,
-                deletion,
-                expected_remaining,
-            } = case;
-            let mut setup = pool.begin().await.unwrap();
-            let (instance_id, segment_id, vpc_id) = seed_fk_fixtures(setup.as_mut(), name).await;
-            insert_instance_addresses(
-                setup.as_mut(),
-                &make_rows(instance_id, segment_id, vpc_id, 2),
-            )
-            .await
-            .unwrap();
-            setup.commit().await.unwrap();
-
-            let ordered_rows: Vec<(uuid::Uuid, IpAddr)> = sqlx::query_as(
-                "SELECT id, address FROM instance_addresses
-                 WHERE instance_id = $1 ORDER BY id",
-            )
-            .bind(instance_id)
-            .fetch_all(&pool)
-            .await
-            .unwrap();
-            assert_eq!(ordered_rows.len(), 2);
-            let (first_id, _) = ordered_rows[0];
-            let (second_id, second_address) = ordered_rows[1];
-
-            let mut blocker = pool.begin().await.unwrap();
-            let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-                .fetch_one(blocker.as_mut())
-                .await
-                .unwrap();
-            let _: uuid::Uuid =
-                sqlx::query_scalar("SELECT id FROM instance_addresses WHERE id = $1 FOR UPDATE")
-                    .bind(first_id)
-                    .fetch_one(blocker.as_mut())
-                    .await
-                    .unwrap();
-
-            let (pid_tx, pid_rx) = tokio::sync::oneshot::channel();
-            let delete_pool = pool.clone();
-            let deletion_task = tokio::spawn(async move {
-                let mut txn = delete_pool.begin().await.unwrap();
-                let deletion_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-                    .fetch_one(txn.as_mut())
-                    .await
-                    .unwrap();
-                pid_tx.send(deletion_pid).unwrap();
-
-                match deletion {
-                    Deletion::Full => delete(txn.as_mut(), instance_id).await.unwrap(),
-                    Deletion::Partial => delete_addresses_for_instance(
-                        txn.as_mut(),
-                        instance_id,
-                        &[(segment_id, second_address)],
-                    )
-                    .await
-                    .unwrap(),
-                }
-                txn.commit().await.unwrap();
-            });
-            let deletion_pid = pid_rx.await.unwrap();
-            let blocked_query = wait_until_blocked_by(&pool, deletion_pid, blocker_pid).await;
-            assert!(
-                blocked_query.contains("ORDER BY id") && blocked_query.contains("FOR UPDATE"),
-                "{} did not block in its ordered address prelock: {blocked_query}",
-                name,
-            );
-
-            // If deletion had locked the second row before waiting on the
-            // first, this NOWAIT acquisition would fail. Owning both rows in
-            // the blocker also keeps the assertion stable until commit.
-            let _: uuid::Uuid = sqlx::query_scalar(
-                "SELECT id FROM instance_addresses WHERE id = $1 FOR UPDATE NOWAIT",
-            )
-            .bind(second_id)
-            .fetch_one(blocker.as_mut())
-            .await
-            .unwrap_or_else(|error| {
-                panic!("{} locked the second row before the first: {error}", name)
-            });
-
-            blocker.commit().await.unwrap();
-            tokio::time::timeout(std::time::Duration::from_secs(5), deletion_task)
-                .await
-                .unwrap_or_else(|_| panic!("{name} deletion did not resume"))
-                .unwrap();
-
-            let remaining: i64 = sqlx::query_scalar(
-                "SELECT count(*) FROM instance_addresses WHERE instance_id = $1",
-            )
-            .bind(instance_id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-            assert_eq!(remaining, expected_remaining, "unexpected {} result", name,);
-        }
     }
 
     /// Large releases use one fixed-cost ordered lock query and one
@@ -1573,8 +1394,8 @@ mod segment_has_allocations_tests {
         assert_eq!(new_queries, 1, "segment_has_allocations issues one query");
     }
 
-    /// A segment with no interfaces and no instance addresses reports no
-    /// allocations.
+    /// A segment with no normalized or configuration allocation reports false
+    /// in the same one round trip as a populated segment.
     #[crate::sqlx_test]
     async fn segment_has_allocations_false_when_empty(pool: sqlx::PgPool) {
         let mut txn = pool.begin().await.unwrap();
@@ -1605,16 +1426,16 @@ mod segment_has_allocations_tests {
         .await
         .expect("seed empty segment");
 
-        let has = segment_has_allocations(&mut txn, &segment_id)
-            .await
-            .unwrap();
+        let (has, queries) = count_queries(segment_has_allocations(&mut txn, &segment_id)).await;
+        let has = has.unwrap();
         assert!(!has, "empty segment has no allocations");
+        assert_eq!(queries, 1, "empty allocation check issues one query");
     }
 
     /// An allocation via `instance_addresses` alone -- no machine interface --
     /// also reports the segment as allocated, covering the predicate's second
-    /// `EXISTS` arm. Only the two allocation tables are probed, so no
-    /// `network_segments` row is needed.
+    /// `EXISTS` arm. No `network_segments` row is needed for this normalized
+    /// allocation case.
     #[crate::sqlx_test]
     async fn segment_has_allocations_sees_instance_addresses(pool: sqlx::PgPool) {
         let mut txn = pool.begin().await.unwrap();

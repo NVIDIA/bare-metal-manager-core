@@ -6,6 +6,7 @@ package util
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"reflect"
 	"regexp"
 	"time"
@@ -13,6 +14,9 @@ import (
 	"github.com/google/uuid"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
+
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 )
 
 var (
@@ -158,6 +162,19 @@ func IsNilOrEmptyStrPtr(s *string) bool {
 // IsEmptyStrPtr is a utility function to check if the underlying value of a string pointer is empty
 func IsEmptyStrPtr(s *string) bool {
 	return s != nil && *s == ""
+}
+
+// ValidateSitePowerManagement checks whether a site accepts a power-management
+// value. Omission preserves the current value, and an explicit empty string
+// clears it, so both remain valid when DPS power management is disabled.
+func ValidateSitePowerManagement(siteConfig *cdbm.SiteConfig, value *string) *cutil.APIError {
+	if value == nil || *value == "" {
+		return nil
+	}
+	if siteConfig == nil || !siteConfig.DPSPowerManagement {
+		return cutil.NewAPIError(http.StatusPreconditionFailed, "Site does not have DPS power management enabled", nil)
+	}
+	return nil
 }
 
 // ValidateStrTime is a utility function to validate a string as a time.Time

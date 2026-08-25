@@ -18,12 +18,27 @@ var ErrRuleNotFound = errors.New("event rule not found")
 // cannot succeed.
 var ErrInvalidPersistedRule = errors.New("invalid persisted event rule")
 
+// ErrInvalidPersistedEvent identifies persisted event data that cannot be
+// decoded into a valid durable event.
+var ErrInvalidPersistedEvent = errors.New("invalid persisted event")
+
 // ErrInvalidPersistedExecution identifies persisted execution data that
 // cannot be decoded into a valid domain execution.
-var ErrInvalidPersistedExecution = errors.New("invalid persisted event action execution")
+var ErrInvalidPersistedExecution = errors.New("invalid persisted event execution")
 
 // ErrExecutionNotFound identifies an unsuccessful execution lookup.
 var ErrExecutionNotFound = errors.New("execution not found")
+
+// ErrEventNotFound identifies an unsuccessful durable event lookup.
+var ErrEventNotFound = errors.New("event not found")
+
+// ErrEventAlreadyPlanned identifies an attempt to replace a committed event
+// plan.
+var ErrEventAlreadyPlanned = errors.New("event already planned")
+
+// ErrExecutionAlreadyExists identifies an execution identity that existed
+// before its event plan was committed.
+var ErrExecutionAlreadyExists = errors.New("execution already exists")
 
 // RuleFilter limits rules returned by a store.
 type RuleFilter struct {
@@ -71,7 +86,6 @@ type RuleStore interface {
 	// including any persistence-generated timestamps.
 	Create(context.Context, *Rule) (*Rule, error)
 	UpdateMetadata(context.Context, uuid.UUID, RuleMetadata) error
-	SetDedupe(context.Context, uuid.UUID, *Dedupe) error
 	ReplaceActions(context.Context, uuid.UUID, []Action) error
 	// Delete atomically deletes a persisted rule and all of its bindings.
 	// Implementations own the transaction that enforces this invariant.
@@ -89,23 +103,53 @@ type BindingStore interface {
 	GetForScope(context.Context, Type, Scope) (*Binding, error)
 }
 
-// ExecutionStore atomically creates pending executions, owns
-// delivery and semantic deduplication, and persists attempt results.
-// CreateExecution returns the new execution, or (nil, nil) when an
-// existing execution accepts the request as a duplicate.
+// EventStore owns source-event deduplication and observation accounting.
+// ObserveEvent returns (nil, nil) when the source event has not been persisted.
+// CreateEvent returns the newly inserted event. A concurrent duplicate is
+// recorded as another observation and returns (nil, nil).
+type EventStore interface {
+	ObserveEvent(context.Context, EventKey) (*Event, error)
+	CreateEvent(context.Context, Event) (*Event, error)
+}
+
+// ExecutionStore atomically commits an event's complete ordered plan and
+// persists attempt results. CommitEventPlan creates every execution and marks
+// the event planned in one transaction. It returns executions in the same
+// order as planned and rejects replacement of a committed or partial plan.
 // TransitionExecution returns ErrExecutionNotFound for an unknown
-// execution ID. The future scheduler extends transition persistence with lease
-// fencing without adding an ownership status. Implementations own creation,
-// observation, transition, and retry-scheduling timestamps.
+// execution ID. Implementations own planning, transition, and retry-scheduling
+// timestamps.
 type ExecutionStore interface {
-	CreateExecution(
+	// CommitEventPlan is all-or-nothing: on success it persists one execution
+	// per planned action, in the supplied order, and marks the event planned in
+	// the same transaction. It returns those executions in the same order. On
+	// error it persists no execution and leaves the event unplanned.
+	CommitEventPlan(
 		ctx context.Context,
-		identity ExecutionIdentity,
-		dedupe *Dedupe,
-	) (created *Execution, err error)
+		eventID uuid.UUID,
+		planned []PlannedExecution,
+	) ([]Execution, error)
 	TransitionExecution(
 		ctx context.Context,
 		executionID uuid.UUID,
 		result ExecutionResult,
-	) (transitioned *Execution, err error)
+	) error
+}
+
+// ExecutionTaskStore persists the normalized one-to-many relationship between
+// executions and their rack-partitioned downstream tasks.
+type ExecutionTaskStore interface {
+	// GetExecutionTask returns the task associated with one execution and rack.
+	// A missing association returns (nil, nil).
+	GetExecutionTask(
+		ctx context.Context,
+		executionID uuid.UUID,
+		rackID uuid.UUID,
+	) (*ExecutionTask, error)
+	// CreateExecutionTask atomically creates an association or returns the
+	// existing association for the same execution and rack.
+	CreateExecutionTask(
+		ctx context.Context,
+		association ExecutionTask,
+	) (*ExecutionTask, error)
 }

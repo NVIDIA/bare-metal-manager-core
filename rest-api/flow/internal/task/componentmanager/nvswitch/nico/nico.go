@@ -364,6 +364,9 @@ func (m *Manager) FirmwareControl(ctx context.Context, target common.Target, inf
 		TargetVersion:         info.TargetVersion,
 		BypassStateController: info.OverrideReadinessCheck,
 	}
+	if info.AccessToken != "" {
+		req.AccessToken = &info.AccessToken
+	}
 
 	resp, err := m.nicoClient.UpdateComponentFirmware(ctx, req)
 	if err != nil {

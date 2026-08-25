@@ -422,14 +422,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn machines_status_reports_each_bmc_ipmi_endpoint() {
+    async fn machines_status_reports_each_bmc_console_endpoint() {
         let first = DeviceHandle::for_control_test(
             Vec::new(),
             Some(IpmiEndpoint {
                 reachable_port: 623,
                 listen_port: 16_020,
             }),
-        );
+        )
+        .with_control_test_ssh_endpoint(22_020);
         let second = DeviceHandle::for_control_test(
             Vec::new(),
             Some(IpmiEndpoint {
@@ -455,9 +456,13 @@ mod tests {
 
         assert_eq!(machines[0]["bmc"]["ipmi"]["reachable_port"], 623);
         assert_eq!(machines[0]["bmc"]["ipmi"]["listen_port"], 16_020);
+        assert_eq!(machines[0]["bmc"]["ssh"]["reachable_port"], 22_020);
+        assert_eq!(machines[0]["bmc"]["ssh"]["listen_port"], 22_020);
         assert_eq!(machines[1]["bmc"]["ipmi"]["reachable_port"], 623);
         assert_eq!(machines[1]["bmc"]["ipmi"]["listen_port"], 16_021);
+        assert!(machines[1]["bmc"].get("ssh").is_none());
         assert!(machines[2]["bmc"].get("ipmi").is_none());
+        assert!(machines[2]["bmc"].get("ssh").is_none());
     }
 
     #[tokio::test]

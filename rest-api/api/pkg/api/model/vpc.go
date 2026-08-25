@@ -266,6 +266,8 @@ type APIVpcCreateRequest struct {
 	SiteID string `json:"siteId"`
 	// NetworkVirtualizationType is a VPC virtualization type
 	NetworkVirtualizationType *string `json:"networkVirtualizationType"`
+	// SlaacEnabled selects SLAAC allocation mode for instance IPv6 interfaces.
+	SlaacEnabled *bool `json:"slaacEnabled"`
 	// Labels is a key value objects
 	Labels map[string]string `json:"labels"`
 	// NetworkSecurityGroupID is the ID if a desired
@@ -285,6 +287,8 @@ type APIVpcCreateRequest struct {
 	RoutingProfile *string `json:"routingProfile"`
 	// RoutingProfileOverrides replaces selected properties from the VPC's named routing profile.
 	RoutingProfileOverrides *APIVpcRoutingProfileOverrides `json:"routingProfileOverrides"`
+	// PowerResourceGroup is the external power provisioning resource group associated with the VPC.
+	PowerResourceGroup *string `json:"powerResourceGroup"`
 }
 
 // Validate ensure the values passed in create request are acceptable
@@ -306,6 +310,9 @@ func (ascr APIVpcCreateRequest) Validate() error {
 			),
 		),
 		validation.Field(&ascr.RoutingProfileOverrides),
+		validation.Field(&ascr.PowerResourceGroup,
+			validation.When(ascr.PowerResourceGroup != nil, validation.Required.Error("`powerResourceGroup` must not be empty")),
+		),
 		validation.Field(&ascr.SiteID,
 			validation.Required.Error(validationErrorValueRequired),
 			validationis.UUID.Error(validationErrorInvalidUUID)),
@@ -388,8 +395,10 @@ func (ascr APIVpcCreateRequest) ToProto(vpc *cdbm.Vpc) *corev1.VpcCreationReques
 		Name:                            vpcProto.Name,
 		TenantOrganizationId:            config.TenantOrganizationId,
 		NetworkVirtualizationType:       config.NetworkVirtualizationType,
+		SlaacEnabled:                    ascr.SlaacEnabled,
 		RoutingProfileType:              routingProfile,
 		RoutingProfileOverrides:         ascr.RoutingProfileOverrides.ToDB().ToProto(),
+		PowerResourceGroup:              config.PowerResourceGroup,
 		NetworkSecurityGroupId:          config.NetworkSecurityGroupId,
 		Vni:                             vni,
 		Metadata:                        vpcProto.Metadata,
@@ -412,6 +421,8 @@ type APIVpcUpdateRequest struct {
 	NVLinkLogicalPartitionID *string `json:"nvLinkLogicalPartitionId"`
 	// RoutingProfileOverrides replaces the VPC's current inline routing-profile definition when present.
 	RoutingProfileOverrides *APIVpcRoutingProfileOverrides `json:"routingProfileOverrides"`
+	// PowerResourceGroup updates the external power provisioning resource group. An empty string clears it.
+	PowerResourceGroup *string `json:"powerResourceGroup"`
 }
 
 // Validate ensure the values passed in update request are acceptable
@@ -458,6 +469,7 @@ func (asur APIVpcUpdateRequest) ToProto(vpc *cdbm.Vpc) *corev1.VpcUpdateRequest 
 		NetworkSecurityGroupId:          config.NetworkSecurityGroupId,
 		DefaultNvlinkLogicalPartitionId: config.DefaultNvlinkLogicalPartitionId,
 		RoutingProfileOverrides:         asur.RoutingProfileOverrides.ToDB().ToProto(),
+		PowerResourceGroup:              asur.PowerResourceGroup,
 		Metadata:                        vpcProto.Metadata,
 	}
 }
@@ -520,6 +532,8 @@ type APIVpc struct {
 	Site *APISiteSummary `json:"site,omitempty"`
 	// NetworkVirtualizationType is a VPC virtualization type
 	NetworkVirtualizationType *string `json:"networkVirtualizationType"`
+	// SlaacEnabled indicates whether the VPC uses SLAAC allocation mode.
+	SlaacEnabled bool `json:"slaacEnabled"`
 	// ControllerVpcID is the ID of the corresponding VPC in Site Controller
 	ControllerVpcID *string `json:"controllerVpcId"`
 	// Labels is VPC labels specified by user
@@ -536,6 +550,8 @@ type APIVpc struct {
 	NetworkSecurityGroupPropagationDetails *APINetworkSecurityGroupPropagationDetails `json:"networkSecurityGroupPropagationDetails"`
 	// RoutingProfile is the applied routing profile for the VPC, when known.
 	RoutingProfile *string `json:"routingProfile"`
+	// PowerResourceGroup is the external power provisioning resource group associated with the VPC.
+	PowerResourceGroup *string `json:"powerResourceGroup"`
 	// RoutingProfileOverrides contains properties set directly on the VPC.
 	RoutingProfileOverrides *APIVpcRoutingProfileOverrides `json:"routingProfileOverrides"`
 	// EffectiveRoutingProfile is visible only to tenants with targeted instance creation permission for the Site.
@@ -571,6 +587,8 @@ func NewAPIVpc(dbVpc cdbm.Vpc, dbsds []cdbm.StatusDetail, includeEffectiveRoutin
 		Status:                                 dbVpc.Status,
 		NetworkSecurityGroupID:                 dbVpc.NetworkSecurityGroupID,
 		NetworkSecurityGroupPropagationDetails: NewAPINetworkSecurityGroupPropagationDetails(dbVpc.NetworkSecurityGroupPropagationDetails),
+		SlaacEnabled:                           dbVpc.SlaacEnabled,
+		PowerResourceGroup:                     dbVpc.PowerResourceGroup,
 		Created:                                dbVpc.Created,
 		Updated:                                dbVpc.Updated,
 		RequestedVni:                           dbVpc.Vni,

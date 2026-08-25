@@ -239,6 +239,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_scout_actions_total</td><td>counter</td><td>Number of scout control-loop actions handled, by action and outcome.</td></tr>
 <tr><td>carbide_scout_firmware_download_attempt_failures_total</td><td>counter</td><td>Number of failed Scout firmware download attempts, by download kind and next action.</td></tr>
 <tr><td>carbide_scout_mlx_failures_total</td><td>counter</td><td>Number of Scout MLX observation, read, mutation, and recovery failures, by operation and failure stage.</td></tr>
+<tr><td>carbide_scout_pci_evaluations_total</td><td>counter</td><td>Number of comparisons between PCI slots reported by Scout and the stored boot interface, by result.</td></tr>
 <tr><td>carbide_scout_storage_device_cleanup_duration_seconds</td><td>histogram</td><td>Duration of per-device scout storage cleanup operations, by device type and outcome.</td></tr>
 <tr><td>carbide_scout_stream_connections_total</td><td>counter</td><td>Number of scout stream connection attempts, by outcome.</td></tr>
 <tr><td>carbide_scout_stream_reconnects_total</td><td>counter</td><td>Number of scout stream reconnect cycles after a stream closed or errored.</td></tr>
@@ -249,6 +250,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_site_explorer_bmc_reset_attempts_total</td><td>counter</td><td>Number of Site Explorer BMC reset attempts, by method and status.</td></tr>
 <tr><td>carbide_site_explorer_bmc_reset_count</td><td>gauge</td><td>Number of successful BMC resets in the last SiteExplorer run</td></tr>
 <tr><td>carbide_site_explorer_bmc_reset_timestamp_persistence_failures_total</td><td>counter</td><td>Number of Site Explorer BMC reset timestamp persistence failures, by method.</td></tr>
+<tr><td>carbide_site_explorer_boot_interface_selections_total</td><td>counter</td><td>Number of successful Site Explorer boot interface selections for hosts with more than one explored DPU and effective DPU policy Manage, by selection mechanism.</td></tr>
 <tr><td>carbide_site_explorer_create_machines</td><td>gauge</td><td>Whether site-explorer machine creation is enabled (1) or disabled (0)</td></tr>
 <tr><td>carbide_site_explorer_create_machines_latency_milliseconds</td><td>histogram</td><td>The time it took to perform create_machines inside site-explorer</td></tr>
 <tr><td>carbide_site_explorer_created_machines_count</td><td>gauge</td><td>Number of machine pairs created by Site Explorer after identification</td></tr>

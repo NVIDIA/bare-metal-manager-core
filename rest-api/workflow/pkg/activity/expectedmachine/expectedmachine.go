@@ -101,13 +101,44 @@ func (mei ManageExpectedMachine) UpdateExpectedMachinesInDB(ctx context.Context,
 		}
 	}
 
-	// Build a map of BmcMacAddress to linked Machine ID
-	linkedMachineByBmcMac := map[string]string{}
+	// Collect the linked Machine IDs reported by Core so they can be checked
+	// against REST inventory before Expected Machine reconciliation.
+	linkedMachineCandidatesByBmcMac := map[string]string{}
+	linkedMachineIDs := []string{}
 	for _, lm := range expectedMachineInventory.GetLinkedMachines() {
 		if lm == nil || lm.MachineId == nil || lm.BmcMacAddress == "" {
 			continue
 		}
-		linkedMachineByBmcMac[lm.BmcMacAddress] = lm.MachineId.Id
+		machineID := lm.MachineId.Id
+		if machineID == "" {
+			logger.Error().Str("BMC MAC", lm.BmcMacAddress).Msg("received linked Machine with empty ID, skipping")
+			continue
+		}
+		linkedMachineCandidatesByBmcMac[lm.BmcMacAddress] = machineID
+		linkedMachineIDs = append(linkedMachineIDs, machineID)
+	}
+
+	linkedMachineByBmcMac := map[string]string{}
+	if len(linkedMachineIDs) > 0 {
+		mDAO := cdbm.NewMachineDAO(mei.dbSession)
+		machines, _, merr := mDAO.GetAll(ctx, nil, cdbm.MachineFilterInput{
+			MachineIDs:      linkedMachineIDs,
+			ExcludeMetadata: true,
+		}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+		if merr != nil {
+			logger.Error().Err(merr).Msg("failed to validate linked Machines against REST inventory")
+			return merr
+		}
+
+		existingMachineIDs := make(map[string]bool, len(machines))
+		for _, machine := range machines {
+			existingMachineIDs[machine.ID] = true
+		}
+		for bmcMacAddress, machineID := range linkedMachineCandidatesByBmcMac {
+			if existingMachineIDs[machineID] {
+				linkedMachineByBmcMac[bmcMacAddress] = machineID
+			}
+		}
 	}
 
 	// iterate over current page or all (single load) if paging disabled
