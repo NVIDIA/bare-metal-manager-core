@@ -2,23 +2,23 @@
 
 `setup.sh` is designed to be **idempotent**: running it against an existing NICo installation upgrades each component in place. The same script and values files used for initial installation are the mechanism for upgrades — there is no separate upgrade script.
 
-This page documents how each component behaves when `setup.sh` is re-run against a live cluster, what to prepare before upgrading, and version-specific considerations for the 2.0→2.1 path.
+This page documents how each component behaves when you re-run `setup.sh` against a live cluster, what to prepare before upgrading, and version-specific considerations for the 2.0-to-2.1 upgrade path.
 
 ## How setup.sh handles upgrades
 
-Every installation phase is designed to be safe to re-run:
+Every installation phase is safe to re-run:
 
 | Phase | Behavior on re-run |
 | ----- | ------------------ |
-| **1 — local-path-provisioner** | Manifests are `kubectl apply`'d — idempotent. The StorageClass is **deleted and re-created** on every run (its `provisioner` field is immutable). Existing PVs and PVCs are unaffected, but new PVC provisioning fails during that brief window. |
+| **1 — local-path-provisioner** | Manifests applied using `kubectl apply` are idempotent. The StorageClass is **deleted and re-created** on every run (its `provisioner` field is immutable). Existing PVs and PVCs are unaffected, but new PVC provisioning fails during that brief window. |
 | **1b — postgres-operator** | `helmfile sync` issues `helm upgrade --install` — upgrades the release in place. Existing `PostgreSQL` CRs (including `nico-pg-cluster`) are untouched. |
-| **1c — MetalLB** | CRDs are applied server-side with `--force-conflicts`. Any helm-owned CRDs from a prior install have their ownership labels stripped before sync, preventing deletion. `helmfile sync` upgrades the release. Existing `IPAddressPool`, `BGPPeer`, and `BGPAdvertisement` instances are preserved and re-applied (idempotent `kubectl apply`). Refer to [MetalLB CRD ownership](#20--21-metallb-crd-ownership-migration). |
+| **1c — MetalLB** | CRDs are applied server-side with `--force-conflicts`. Any Helm-owned CRDs from a prior install have their ownership labels stripped before sync, preventing deletion. `helmfile sync` upgrades the release. Existing `IPAddressPool`, `BGPPeer`, and `BGPAdvertisement` instances are preserved and re-applied (idempotent `kubectl apply`). Refer to [MetalLB CRD ownership](#20--21-metallb-crd-ownership-migration). |
 | **2 — cert-manager** | `helmfile sync` upgrades the release. Existing `ClusterIssuer`, `Certificate`, and `CertificateRequest` objects are untouched. The Vault TLS bootstrap certs are re-applied server-side; existing certs that are still valid are not reissued. |
 | **3 — Vault** | `helmfile sync` upgrades the release. The StatefulSet rolling-update leaves Vault pods running. |
 | **4 — Vault unseal** | `unseal_vault.sh` checks whether Vault is already initialized. If it is, it skips `vault operator init` and only unseals any pods that were restarted and became sealed again. The Vault cluster keys (`vault-cluster-keys` Secret) and root token (`vaultroottoken`) are preserved. |
 | **4 (SSH host key)** | `bootstrap_ssh_host_key.sh` detects an existing SSH host key Secret and skips re-generation. The cluster's SSH identity is preserved across upgrades. |
 | **5 — external-secrets + nico-prereqs** | `helmfile sync` upgrades both releases. Existing `ClusterSecretStore` and `ExternalSecret` objects are reconciled to their new definitions. The ESO controller re-syncs all secrets on the next poll cycle. |
-| **5b — DPF** | DPF components are upgraded via their helm charts. The `DPFOperatorConfig`, `DPUCluster`, and `DPUService` objects are preserved. Refer to [DPF version update](#20--21-dpf-version-update). |
+| **5b — DPF** | DPF components are upgraded via their Helm charts. The `DPFOperatorConfig`, `DPUCluster`, and `DPUService` objects are preserved. Refer to [DPF version update](#20--21-dpf-version-update). |
 | **6 — NICo Core** | `helm upgrade --install nico` rolls out the new Core image tag. The PostgreSQL database schema is migrated by the pre-upgrade Job (uses the `imagepullsecret` Secret, which is upserted). NICo state (host records, machine state, firmware inventory) lives in PostgreSQL and is preserved. |
 | **6b — DPF enablement** | On DPF-enabled sites only: refreshes the BMC-root credential, then runs a **second** `helm upgrade` of Core with the `[dpf]` block enabled and restarts `nico-api`. Core therefore rolls out twice on a DPF site. |
 | **7a–7g — NICo REST** | REST components are upgraded via `helm upgrade --install`. The `nico_rest` PostgreSQL database is migrated in-place by the REST migration Job. Temporal workflow state is preserved. The Keycloak realm and client credentials are preserved. |
@@ -36,9 +36,9 @@ Every installation phase is designed to be safe to re-run:
 
 ### What changes during an upgrade
 
-- All helm release images are updated to the new tags set in `NICO_CORE_IMAGE_TAG`, `NICO_REST_IMAGE_TAG`, etc.
+- All Helm release images are updated to the new tags set in `NICO_CORE_IMAGE_TAG`, `NICO_REST_IMAGE_TAG`, etc.
 - CRD schemas are updated to their new versions via server-side apply.
-- ConfigMaps and Secrets produced by helm are updated to reflect new chart values.
+- ConfigMaps and Secrets produced by Helm are updated to reflect new chart values.
 - The NICo Core and REST database schemas are migrated forward by their respective pre-upgrade Jobs.
 - DPF operator and DPUService images are updated to the new `NICO_DPF_VERSION`.
 
@@ -134,7 +134,7 @@ Review the release changelog for breaking changes:
 
 ### Review values file changes
 
-Check whether new release added required values fields or changed defaults:
+Check whether the new release added required values fields or changed any default values. If so, update your site values files to include any new required fields before running `setup.sh`.
 
 ```bash
 git diff upstream/release/v2.0..upstream/release/v2.1 -- helm-prereqs/values.yaml \
@@ -142,8 +142,6 @@ git diff upstream/release/v2.0..upstream/release/v2.1 -- helm-prereqs/values.yam
     helm-prereqs/values/nico-rest.yaml \
     helm-prereqs/values/metallb-config.yaml
 ```
-
-Update your site values files to include any new required fields before running `setup.sh`.
 
 ### Update image tags
 
@@ -279,13 +277,13 @@ cd helm-prereqs/
 
 ### 2.0 → 2.1: MetalLB CRD ownership migration
 
-**Impact:** This upgrade path requires special handling that `setup.sh` performs automatically. If you skip MetalLB's phase in your upgrade (e.g., by removing it from the helmfile run), your site config objects (`IPAddressPool`, `BGPPeer`, `BGPAdvertisement`) will be deleted.
+**Impact:** This upgrade path requires special handling that `setup.sh` performs automatically. If you skip MetalLB's phase in your upgrade (for example, by removing it from the helmfile run), your site config objects (`IPAddressPool`, `BGPPeer`, `BGPAdvertisement`) will be deleted.
 
-**Root cause:** In NICo 2.0, MetalLB was deployed with `crds.enabled: true` (the helm chart default), which places all seven MetalLB CRDs inside the helm release manifest. In NICo 2.1, `crds.enabled: false` is set explicitly so that the MetalLB cert rotator can take SSA field ownership of the CRD `caBundle` without conflicting with helm on every re-sync. When helm sees `crds.enabled` change from `true` to `false`, it removes the CRDs from its manifest — and Kubernetes garbage-collects every `IPAddressPool`, `BGPPeer`, and `BGPAdvertisement` instance stored as CRD resources, permanently deleting your site config.
+**Root cause:** In NICo 2.0, MetalLB was deployed with `crds.enabled: true` (the Helm chart default), which places all seven MetalLB CRDs inside the Helm release manifest. In NICo 2.1, `crds.enabled: false` is set explicitly so that the MetalLB cert rotator can take SSA field ownership of the CRD `caBundle` without conflicting with Helm on every re-sync. When Helm sees `crds.enabled` change from `true` to `false`, it removes the CRDs from its manifest — and Kubernetes garbage-collects every `IPAddressPool`, `BGPPeer`, and `BGPAdvertisement` instance stored as CRD resources, permanently deleting your site config.
 
-**How setup.sh handles this:** Before running `helmfile sync` for MetalLB, `setup.sh` strips the `app.kubernetes.io/managed-by: Helm` label and the `meta.helm.sh/release-name` / `meta.helm.sh/release-namespace` annotations from any existing MetalLB CRDs. With the labels removed, helm does not consider the CRDs part of its managed set and does not delete them during the sync. CRDs are then applied directly (server-side, `--force-conflicts`) before and after the helmfile sync.
+**How setup.sh handles this:** Before running `helmfile sync` for MetalLB, `setup.sh` strips the `app.kubernetes.io/managed-by: Helm` label and the `meta.helm.sh/release-name` / `meta.helm.sh/release-namespace` annotations from any existing MetalLB CRDs. With the labels removed, Helm does not consider the CRDs part of its managed set and does not delete them during the sync. CRDs are then applied directly (server-side, `--force-conflicts`) before and after the helmfile sync.
 
-**If you are upgrading manually** (not via `setup.sh`), you must strip helm ownership from all MetalLB CRDs before running `helmfile sync` or `helm upgrade`:
+**If you are upgrading manually** (not via `setup.sh`), you must strip Helm ownership from all MetalLB CRDs before running `helmfile sync` or `helm upgrade`:
 
 ```bash
 for crd in $(kubectl get crd -o name | grep '\.metallb\.io$'); do
@@ -317,19 +315,19 @@ NICo 2.1 requires `startupProbe` to be explicitly configured in the machine-a-tr
 ## Rollback
 
 <Warning>
-Downgrades are **not a supported version move** — the [release and QA process](../development/release_and_qa_process.md) tests forward upgrades only, and the supported recovery for a bad release is a forward-fix in the next patch. Treat the procedure below as disaster recovery for a failed upgrade, not as a routine operation.
+Downgrades are **not a supported version move**. The [release and QA process](../development/release_and_qa_process.md) tests forward upgrades only, and the supported recovery for a bad release is a forward-fix in the next patch. Treat the following procedure as disaster recovery for a failed upgrade, not as a routine operation.
 </Warning>
 
 `setup.sh` does not have a built-in rollback mechanism. Rollback consists of:
 
 1. Checking out the prior release branch or tag.
-2. Re-running `setup.sh` with the prior image tags.
+1. Re-running `setup.sh` with the prior image tags.
 
-For NICo Core and REST, the Helm release is rolled back in place, and the database migration Jobs for the prior version run on startup. NICo's database migrations are designed to be forward-compatible; rolling back does not guarantee schema compatibility if the new version added non-nullable columns — which is why a pre-upgrade database backup is essential.
+For NICo Core and REST, the Helm release is rolled back in-place, and the database migration Jobs for the prior version run on startup. NICo's database migrations are designed to be forward-compatible; rolling back does not guarantee schema compatibility if the new version added non-nullable columns. This is why a pre-upgrade database backup is essential.
 
 The database dumps from the [pre-upgrade checklist](#back-up-the-databases) are the rollback foundation: `nico-pg-cluster` holds `nico_system_nico` (NICo Core), `nico_rest` (NICo REST), and — when Flow is enabled — `flow`, `psm`, and `nsm`, while the plain `postgres` StatefulSet holds `temporal`, `temporal_visibility`, and `keycloak`. Restoring means replaying the SQL against a clean instance (`psql -f <dump>.sql`).
 
-Re-running `setup.sh` with the prior image tags alone is **not** a complete rollback if the new version's migrations already ran — restore the database dumps first, then deploy the prior version.
+Re-running `setup.sh` with the prior image tags alone is **not** a complete rollback if the new version's migrations already ran. Restore the database dumps first, then deploy the prior version.
 
 For DPF, rolling back to a prior DPF version is not supported by NVIDIA. If DPF fails to upgrade, reach out to NVIDIA support rather than attempting a downgrade.
 
@@ -350,7 +348,7 @@ You can narrow an upgrade to particular components with the `--skip-*` flags. `-
 
 The prerequisite phases therefore run on every invocation. That is by design and is cheap: each one is idempotent, and a phase whose inputs have not changed reconciles to the same state and exits quickly.
 
-For a single-helm-chart upgrade (e.g., rotating the NICo Core image tag without going through the full script), run from the **repository root**, matching what `setup.sh` itself executes:
+For a single-Helm-chart upgrade (such as rotating the NICo Core image tag without going through the full script), run from the **repository root**, matching what `setup.sh` itself executes:
 
 ```bash
 helm upgrade --install nico ./helm \
@@ -361,4 +359,8 @@ helm upgrade --install nico ./helm \
     --timeout 600s --wait
 ```
 
-This skips the MetalLB CRD handling, DPF management, the `imagepullsecret` upsert the migration Job depends on, and the other prereq phases — only do this when you are certain those components do not need updating. **Do not use this on a DPF-enabled site**: there, Core deploys in two phases with different values (`--set nico-api.dpf.rbacCreate=true` plus the `[dpf]`-enabled block), which is why `setup.sh` refuses to print a standalone command on the DPF path — use `./setup.sh -y --skip-rest` instead.
+<Warning>
+This skips the MetalLB CRD handling, DPF management, the `imagepullsecret` upsert the migration Job depends on, and the other prereq phases. Only do this when you are certain those components do not need updating.
+
+**Do not use this on a DPF-enabled site**. Core deploys in two phases with different values (`--set nico-api.dpf.rbacCreate=true` plus the `[dpf]`-enabled block), which is why `setup.sh` refuses to print a standalone command on the DPF path. Use `./setup.sh -y --skip-rest` instead.
+</Warning>
