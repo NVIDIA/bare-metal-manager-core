@@ -757,13 +757,20 @@ impl EndpointExplorer for BmcEndpointExplorer {
                     .await
                 {
                     Ok(report) => report,
-                    // BMCs (HPEs currently) can return intermittent 401 errors even with valid credentials.
+                    // BMCs (HPE iLO, NVIDIA GB200/GB300, Vera Rubin) can return
+                    // intermittent 401 errors even with valid credentials.
                     // Allow up to MAX_AUTH_RETRIES before escalating to regular Unauthorized.
                     Err(EndpointExplorationError::Unauthorized {
                         details,
                         response_body,
                         response_code,
-                    }) if vendor == RedfishVendor::Hpe => {
+                    }) if matches!(
+                        vendor,
+                        RedfishVendor::Hpe
+                            | RedfishVendor::NvidiaGBx00
+                            | RedfishVendor::LenovoGB300
+                            | RedfishVendor::VeraRubin
+                    ) => {
                         const MAX_AUTH_RETRIES: u32 = 5;
 
                         let previous_count = last_exploration_error
