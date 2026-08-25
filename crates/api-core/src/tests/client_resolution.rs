@@ -573,6 +573,7 @@ async fn test_cloud_init_local_hostname_set_from_instance_name(pool: sqlx::PgPoo
                 dpu_extension_services: None,
                 nvlink: None,
                 spxconfig: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: Some(rpc::forge::Metadata {
@@ -684,6 +685,7 @@ async fn test_cloud_init_local_hostname_omitted_when_instance_name_is_not_a_vali
                 dpu_extension_services: None,
                 nvlink: None,
                 spxconfig: None,
+                power_profile: None,
             }),
             instance_id: None,
             metadata: Some(rpc::forge::Metadata {
