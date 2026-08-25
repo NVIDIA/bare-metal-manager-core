@@ -174,10 +174,14 @@ machine, context, plugin revision, deadline, and site-defined parameters. The
 result declares `pass`, `fail`, or `error` with a short summary and optional
 findings.
 
-Machine Validation validates the result before accepting it. A missing or invalid
-result, timeout, image-pull failure, crash, or abnormal container exit is a
-framework failure; it is not reported as a normal failed validation. The full
-schema, size limits, and adapter guidance are maintained with the API contract.
+The input and result each include a required `contractVersion`, initially `v1`.
+NICo publishes JSON Schemas for that version with the API contract and validates
+the result before accepting it. Compatible additions use the same version;
+incompatible changes use a new version, while NICo continues to support earlier
+versions for the documented compatibility period. A missing or invalid result,
+timeout, image-pull failure, crash, or abnormal container exit is a framework
+failure; it is not reported as a normal failed validation. The API contract also
+defines size limits and adapter guidance.
 
 ## **3.3 Scout Execution Design**
 
@@ -261,9 +265,10 @@ This example shows a privileged container with full-host access. Site
 `example-ai-west-prod` needs a trusted Discovery check that requires root access
 to GPU and low-level system interfaces and a writable host-root mount. The
 existing health tool runs `health-check run --config operator.yaml`, so its
-image includes a small adapter. The adapter reads the framework input, runs the
-health tool, and writes the framework result; Machine Validation never needs to
-understand the health tool.
+image includes a small adapter. The site team owns and supports that adapter and
+its image. The adapter reads the framework input, runs the health tool, and
+writes the framework result; Machine Validation never needs to understand the
+health tool.
 
 1. The site adds `registry.example.com` to the Machine Validation plugin policy
    in its normal `nico-api-site-config.toml` deployment configuration. The
@@ -342,7 +347,7 @@ understand the health tool.
    If the tool finds eight healthy GPUs, the adapter writes:
 
    ```json
-   {"apiVersion":"machinevalidation.nvidia.com/v1","kind":"MachineValidationPluginResult","outcome":"pass","summary":"Eight GPUs are healthy."}
+   {"contractVersion":"v1","kind":"MachineValidationPluginResult","outcome":"pass","summary":"Eight GPUs are healthy."}
    ```
 
 5. Scout validates the result and Machine Validation records a successful run
