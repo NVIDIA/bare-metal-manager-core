@@ -1,5 +1,6 @@
 [Unit]
 Description=Forge DPU agent service
+Documentation=https://docs.nvidia.com/infra-controller/documentation/home
 #
 # containerd@mgmt.service is what starts HBN
 After=networking.service network-online.target time-sync.target containerd@mgmt.service
