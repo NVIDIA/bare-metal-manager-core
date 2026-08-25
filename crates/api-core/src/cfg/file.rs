@@ -3212,7 +3212,7 @@ pub struct SwitchStateControllerConfig {
 
     /// Switch services that receive installed mTLS certificates during RMS
     /// `configure_switch_certificate` calls initiated by the switch state
-    /// machine.
+    /// machine or the direct `ComponentConfigureSwitchCertificate` RPC path.
     ///
     /// When this field is omitted or empty, all supported services are used.
     ///
