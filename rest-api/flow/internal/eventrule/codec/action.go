@@ -1,19 +1,18 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// Package action encodes and decodes versioned persisted event-rule actions.
-package action
+package codec
 
 import (
 	"encoding/json"
 	"fmt"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
-	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/codec"
 )
 
-// Marshal encodes a current domain action using the latest persistence format.
-func Marshal(action eventrule.Action) (json.RawMessage, error) {
+// MarshalAction encodes a current domain action using the latest persistence
+// format.
+func MarshalAction(action eventrule.Action) (json.RawMessage, error) {
 	if err := action.Validate(); err != nil {
 		return nil, err
 	}
@@ -21,9 +20,10 @@ func Marshal(action eventrule.Action) (json.RawMessage, error) {
 	return marshalActionV1(action)
 }
 
-// Unmarshal decodes any supported persisted action into the current domain.
-func Unmarshal(data json.RawMessage) (eventrule.Action, error) {
-	version, err := codec.DecodeVersion(data, "event action")
+// UnmarshalAction decodes any supported persisted action into the current
+// domain.
+func UnmarshalAction(data json.RawMessage) (eventrule.Action, error) {
+	version, err := decodeVersion(data, "event action")
 	if err != nil {
 		return eventrule.Action{}, err
 	}

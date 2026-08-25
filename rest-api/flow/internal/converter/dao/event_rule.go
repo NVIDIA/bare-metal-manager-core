@@ -9,7 +9,7 @@ import (
 
 	dbmodel "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/model"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
-	policycodec "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/codec/policy"
+	eventrulecodec "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/codec"
 	"github.com/google/uuid"
 )
 
@@ -26,7 +26,7 @@ func EventRuleTo(rule *eventrule.Rule) (*dbmodel.EventRule, error) {
 		)
 	}
 
-	policy, err := policycodec.Marshal(rule.Policy)
+	policy, err := eventrulecodec.MarshalPolicy(rule.Policy)
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +49,7 @@ func EventRuleFrom(dbRule *dbmodel.EventRule) (*eventrule.Rule, error) {
 		return nil, nil
 	}
 
-	policy, err := policycodec.Unmarshal(dbRule.Policy)
+	policy, err := eventrulecodec.UnmarshalPolicy(dbRule.Policy)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"%w: decode policy: %w",

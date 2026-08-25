@@ -490,9 +490,10 @@ impl BmcEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
+        reset_type: Option<libredfish::ManagerResetType>,
     ) -> Result<(), EndpointExplorationError> {
         self.redfish_client
-            .reset_bmc(bmc_ip_address, credentials)
+            .reset_bmc(bmc_ip_address, credentials, reset_type)
             .await
     }
 
@@ -967,11 +968,15 @@ impl EndpointExplorer for BmcEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
+        reset_type: Option<libredfish::ManagerResetType>,
     ) -> Result<(), EndpointExplorationError> {
         let bmc_mac_address = interface.mac_address;
 
         match self.get_bmc_root_credentials(bmc_mac_address).await {
-            Ok(credentials) => self.redfish_reset_bmc(bmc_ip_address, credentials).await,
+            Ok(credentials) => {
+                self.redfish_reset_bmc(bmc_ip_address, credentials, reset_type)
+                    .await
+            }
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,

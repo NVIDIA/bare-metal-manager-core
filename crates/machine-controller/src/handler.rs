@@ -3654,7 +3654,7 @@ async fn handle_dpu_reprovision(
                     .create_redfish_client_from_machine(&state.host_snapshot)
                     .await?;
 
-                if let Err(redfish_error) = redfish_client.bmc_reset().await {
+                if let Err(redfish_error) = redfish_client.bmc_reset(None).await {
                     tracing::warn!(
                         machine_id = %state.host_snapshot.id,
                         error = %redfish_error,
@@ -5395,13 +5395,10 @@ mod require_boot_interface_tests {
     }
 }
 
-/// In case machine does not come up until a specified duration, this function tries to reboot
-/// it again. The reboot continues till 6 hours only. After that this function gives up.
-/// WARNING:
-/// If using this function in handler, never return Error, return wait/donothing.
-/// In case a error is returned, last_reboot_requested won't be updated in db by state handler.
-/// This will cause continuous reboot of machine after first failure_retry_time is
-/// passed.
+/// `trigger_reboot_if_needed` retries a machine that does not come up within the configured period,
+/// for at most 15 periods. Callers that handle a recoverable error should ensure an attempt
+/// timestamp is queued and return `Wait` or `DoNothing` so it is committed; returning an error can
+/// cause another reboot on the next retry pass.
 #[track_caller]
 pub fn trigger_reboot_if_needed(
     target: &Machine,
@@ -5411,23 +5408,64 @@ pub fn trigger_reboot_if_needed(
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
 ) -> impl Future<Output = Result<RebootStatus, StateHandlerError>> {
     let trigger_location = std::panic::Location::caller();
-    trigger_reboot_if_needed_with_location(
+    trigger_reboot_if_needed_with_policy(
         target,
         state,
         retry_count,
         reachability_params,
         ctx,
         trigger_location,
+        true,
     )
 }
 
-pub async fn trigger_reboot_if_needed_with_location(
+#[track_caller]
+fn trigger_reboot_if_needed_without_power_cycle(
+    target: &Machine,
+    state: &ManagedHostStateSnapshot,
+    retry_count: Option<i64>,
+    reachability_params: &ReachabilityParams,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+) -> impl Future<Output = Result<RebootStatus, StateHandlerError>> {
+    let trigger_location = std::panic::Location::caller();
+    trigger_reboot_if_needed_with_policy(
+        target,
+        state,
+        retry_count,
+        reachability_params,
+        ctx,
+        trigger_location,
+        false,
+    )
+}
+
+/// Queues a fresh retry timestamp after earlier writes and disables generic restart verification.
+/// The verification write stores the supplied reboot record in full, so the next retry is
+/// calculated from the updated time.
+fn record_provisioning_retry_attempt(
+    target: &Machine,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+) {
+    let mut current_reboot = target.status.last_reboot_requested.unwrap_or_default();
+    current_reboot.time = Utc::now();
+
+    ctx.pending_db_writes
+        .push(MachineWriteOp::UpdateRestartVerificationStatus {
+            machine_id: target.id,
+            current_reboot,
+            verified: None,
+            attempts: 0,
+        });
+}
+
+async fn trigger_reboot_if_needed_with_policy(
     target: &Machine,
     state: &ManagedHostStateSnapshot,
     retry_count: Option<i64>,
     reachability_params: &ReachabilityParams,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     trigger_location: &std::panic::Location<'_>,
+    allow_power_cycle: bool,
 ) -> Result<RebootStatus, StateHandlerError> {
     let host = &state.host_snapshot;
     // Its highly unlikely that the host has never been rebooted (and the last_reboot_reqeusted
@@ -5558,7 +5596,7 @@ pub async fn trigger_reboot_if_needed_with_location(
             };
 
             // Dont power down the host on the first cycle
-            let power_down_host = cycle != 0 && cycle % 4 == 0;
+            let power_down_host = allow_power_cycle && cycle != 0 && cycle % 4 == 0;
 
             let status = if power_down_host {
                 // PowerDown (or ACPowercycle for Lenovo)
@@ -5754,6 +5792,26 @@ const PRIMARY_DPU_BGP_WAIT_REASON: &str =
     "Waiting for the primary DPU p0 BGP session to be established";
 const HOST_HEALTH_WAIT_REASON: &str =
     "Waiting for lifecycle-blocking host health alerts to clear before PXE reboot";
+
+/// `provisioning_pxe_reboot_wait_reason` returns the safety condition blocking a provisioning PXE
+/// reboot.
+fn provisioning_pxe_reboot_wait_reason(
+    state: &ManagedHostStateSnapshot,
+) -> Result<Option<&'static str>, StateHandlerError> {
+    match check_host_health_for_alerts(state) {
+        Ok(()) => {}
+        Err(StateHandlerError::HealthProbeAlert) => {
+            return Ok(Some(HOST_HEALTH_WAIT_REASON));
+        }
+        Err(error) => return Err(error),
+    }
+
+    if state.has_managed_dpus() && primary_dpu_has_pxe_blocking_bgp_alert(state) {
+        return Ok(Some(PRIMARY_DPU_BGP_WAIT_REASON));
+    }
+
+    Ok(None)
+}
 
 /// Returns whether the DPU agent marked a ToR BGP alert as unsafe for PXE allocation.
 fn is_pxe_blocking_bgp_alert(alert: &HealthProbeAlert) -> bool {
@@ -8005,23 +8063,11 @@ impl StateHandler for InstanceStateHandler {
                     // checks. During normal provisioning, recheck aggregate health for every host.
                     // Hosts with managed DPUs also recheck the primary DPU p0 BGP alert. This
                     // closes the gap between the network configuration check and the restart.
-                    if instance.deleted.is_none() && !instance.custom_pxe_reboot_requested {
-                        match check_host_health_for_alerts(mh_snapshot) {
-                            Ok(()) => {}
-                            Err(StateHandlerError::HealthProbeAlert) => {
-                                return Ok(StateHandlerOutcome::wait(
-                                    HOST_HEALTH_WAIT_REASON.to_string(),
-                                ));
-                            }
-                            Err(error) => return Err(error),
-                        }
-                        if mh_snapshot.has_managed_dpus()
-                            && primary_dpu_has_pxe_blocking_bgp_alert(mh_snapshot)
-                        {
-                            return Ok(StateHandlerOutcome::wait(
-                                PRIMARY_DPU_BGP_WAIT_REASON.to_string(),
-                            ));
-                        }
+                    if instance.deleted.is_none()
+                        && !instance.custom_pxe_reboot_requested
+                        && let Some(reason) = provisioning_pxe_reboot_wait_reason(mh_snapshot)?
+                    {
+                        return Ok(StateHandlerOutcome::wait(reason.to_string()));
                     }
 
                     // If custom_pxe_reboot_requested is set, this reboot was triggered by
@@ -8230,11 +8276,99 @@ impl StateHandler for InstanceStateHandler {
                         // Redfish I/O in a separate attempt.
                         Ok(StateHandlerOutcome::do_nothing().with_txn(txn))
                     } else {
-                        boot_interface_observation::observe_verified_boot_interface(
-                            ctx,
-                            mh_snapshot,
-                        )
-                        .await
+                        let observation_outcome =
+                            boot_interface_observation::observe_verified_boot_interface(
+                                ctx,
+                                mh_snapshot,
+                            )
+                            .await?;
+                        if matches!(
+                            &observation_outcome,
+                            StateHandlerOutcome::DoNothing { txn: Some(_), .. }
+                        ) {
+                            // Commit the observation transaction before doing any other Ready work.
+                            // The provisioning retry can run during the next controller iteration.
+                            return Ok(observation_outcome);
+                        }
+
+                        // `use_custom_pxe_on_boot` remains set until Core serves the tenant boot
+                        // instructions. Together with missing phone home, it identifies
+                        // provisioning that has not reached the tenant iPXE handler.
+                        // Operator-managed networks do not use phone home to determine tenant
+                        // readiness, so skip this retry.
+                        if instance.use_custom_pxe_on_boot
+                            && instance.config.os.phone_home_enabled
+                            && instance.observations.phone_home_last_contact.is_none()
+                            && !instance.config.network.uses_operator_managed_networking()
+                        {
+                            // Apply the same PXE safety checks as the initial provisioning reboot.
+                            // An explicit custom PXE request bypasses them only for its original
+                            // reboot, not for an automatic retry.
+                            if let Some(reason) = provisioning_pxe_reboot_wait_reason(mh_snapshot)?
+                            {
+                                return Ok(StateHandlerOutcome::wait(reason.to_string()));
+                            }
+
+                            return match trigger_reboot_if_needed_without_power_cycle(
+                                &mh_snapshot.host_snapshot,
+                                mh_snapshot,
+                                None,
+                                &self.reachability_params,
+                                ctx,
+                            )
+                            .await
+                            {
+                                Ok(status) => {
+                                    if status.increase_retry_count {
+                                        record_provisioning_retry_attempt(
+                                            &mh_snapshot.host_snapshot,
+                                            ctx,
+                                        );
+                                    }
+                                    Ok(StateHandlerOutcome::wait(format!(
+                                        "Waiting for instance provisioning boot. {}",
+                                        status.status
+                                    )))
+                                }
+                                Err(error @ StateHandlerError::ManualInterventionRequired(_)) => {
+                                    // Intermediate verification attempts return before Ready. If an
+                                    // unverified restart reaches this arm, a final verification
+                                    // update is queued and must commit before reporting the error.
+                                    let restart_verification_must_commit = mh_snapshot
+                                        .host_snapshot
+                                        .status
+                                        .last_reboot_requested
+                                        .is_some_and(|reboot| {
+                                            reboot.restart_verified == Some(false)
+                                        });
+                                    if restart_verification_must_commit {
+                                        Ok(StateHandlerOutcome::wait(error.to_string()))
+                                    } else {
+                                        Err(error)
+                                    }
+                                }
+                                Err(error) => {
+                                    // Redfish client setup can fail before the power path records an
+                                    // attempt. Record the next retry time and clear verification so
+                                    // Ready does not retry every controller iteration or verify a
+                                    // restart that was never issued.
+                                    record_provisioning_retry_attempt(
+                                        &mh_snapshot.host_snapshot,
+                                        ctx,
+                                    );
+                                    tracing::warn!(
+                                        machine_id = %host_machine_id,
+                                        error = %error,
+                                        "Failed to retry instance provisioning boot; will retry",
+                                    );
+                                    Ok(StateHandlerOutcome::wait(format!(
+                                        "Failed to retry instance provisioning boot: {error}. Will retry."
+                                    )))
+                                }
+                            };
+                        }
+
+                        Ok(observation_outcome)
                     }
                 }
                 InstanceState::HostPlatformConfiguration {
@@ -8332,9 +8466,8 @@ impl StateHandler for InstanceStateHandler {
                         return Ok(st);
                     }
 
-                    // Now retry_count won't exceed a limit. Function trigger_reboot_if_needed does
-                    // not reboot a machine after 6 hrs, so this counter won't increase at all
-                    // after 6 hours.
+                    // `trigger_reboot_if_needed` stops rebooting after 15 attempts, so this counter
+                    // stops increasing at the same limit.
                     ctx.metrics
                         .machine_reboot_attempts_in_booting_with_discovery_image =
                         Some(retry.count + 1);
@@ -10453,7 +10586,7 @@ impl HostUpgradeState {
                     )));
                 }
                 redfish_client
-                    .bmc_reset()
+                    .bmc_reset(None)
                     .await
                     .map_err(|e| redfish_error("BMC reset", e))?;
 
@@ -11173,7 +11306,7 @@ impl HostUpgradeState {
                 .create_redfish_client_from_machine(&state.host_snapshot)
                 .await?;
 
-            if let Err(e) = redfish_client.bmc_reset().await {
+            if let Err(e) = redfish_client.bmc_reset(None).await {
                 tracing::warn!(bmc_ip_address = %endpoint.address, error = %e, "Failed to reboot");
                 return Ok(StateHandlerOutcome::do_nothing());
             }
@@ -12021,7 +12154,7 @@ async fn handle_boss_job_failure(
             }
 
             redfish_client
-                .bmc_reset()
+                .bmc_reset(None)
                 .await
                 .map_err(|e| redfish_error("bmc_reset", e))?;
 
@@ -13394,7 +13527,7 @@ async fn set_host_boot_order(
                     );
 
                     redfish_client
-                        .bmc_reset()
+                        .bmc_reset(None)
                         .await
                         .map_err(|e| redfish_error("bmc_reset", e))?;
 

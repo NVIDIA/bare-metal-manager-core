@@ -90,8 +90,7 @@ pub fn instance_status_from_config_and_observation(
 ) -> Result<InstanceStatus, RpcDataConversionError> {
     let mut instance_config_synced = SyncState::Synced;
 
-    let operator_managed_networking =
-        !network_config.interfaces.is_empty() && network_config.is_host_inband();
+    let operator_managed_networking = network_config.uses_operator_managed_networking();
 
     for network_obs in observations.network.values() {
         if let Some(version_obs) = network_obs.instance_config_version
