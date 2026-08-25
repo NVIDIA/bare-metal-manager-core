@@ -127,10 +127,16 @@ async fn run_machine_a_tron_racks_test(
                             timing_overrides: Some(LifecycleTimingOverrides {
                                 host: PartialLifecycleTimings {
                                     reboot: Some(Duration::from_secs(1)),
+                                    // ZERO disables the BMC self-reset offline window entirely,
+                                    // keeping ingestion at its pre-feature pace
+                                    bmc_reset: Some(Duration::ZERO),
                                     ..Default::default()
                                 },
                                 dpu: PartialLifecycleTimings {
                                     reboot: Some(Duration::from_secs(1)),
+                                    // ZERO disables the BMC self-reset offline window entirely,
+                                    // keeping ingestion at its pre-feature pace
+                                    bmc_reset: Some(Duration::ZERO),
                                     ..Default::default()
                                 },
                             }),
@@ -163,10 +169,16 @@ async fn run_machine_a_tron_racks_test(
                             timing_overrides: Some(LifecycleTimingOverrides {
                                 host: PartialLifecycleTimings {
                                     reboot: Some(Duration::from_secs(1)),
+                                    // ZERO disables the BMC self-reset offline window entirely,
+                                    // keeping ingestion at its pre-feature pace
+                                    bmc_reset: Some(Duration::ZERO),
                                     ..Default::default()
                                 },
                                 dpu: PartialLifecycleTimings {
                                     reboot: Some(Duration::from_secs(1)),
+                                    // ZERO disables the BMC self-reset offline window entirely,
+                                    // keeping ingestion at its pre-feature pace
+                                    bmc_reset: Some(Duration::ZERO),
                                     ..Default::default()
                                 },
                             }),
