@@ -872,8 +872,7 @@ mod tests {
         use metrics_exporter_prometheus::PrometheusBuilder;
         use tera::Tera;
 
-        let template_glob =
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../../pxe/templates/**/*");
+        let template_glob = concat!(env!("CARGO_MANIFEST_DIR"), "/../../pxe/templates/**/*");
         let tera = Tera::new(template_glob).expect("failed to load pxe templates");
         let mut state = test_app_state();
         state.engine = Engine::from(tera);
