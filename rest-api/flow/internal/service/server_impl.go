@@ -1395,6 +1395,9 @@ func firmwareAuthenticationStatusError(err error) error {
 	if firmwareauth.IsInvalidData(err) {
 		return status.Error(codes.InvalidArgument, err.Error())
 	}
+	if errors.Is(err, firmwareauth.ErrDataCipherNotConfigured) {
+		return status.Error(codes.FailedPrecondition, err.Error())
+	}
 
 	return status.Error(codes.Internal, err.Error())
 }

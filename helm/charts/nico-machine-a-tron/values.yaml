@@ -162,9 +162,6 @@ machineATron:
   persistDir: "/tmp/machine-a-tron-data"
   cleanupOnQuit: false
   enableIpmiSimulation: false
-  # IPMI port advertised through Redfish. Unset uses default 623
-  # Set to 0 for dynamic port (required for mat-k8s-controller)
-  # ipmiReachablePort: 0
   registerExpectedMachines: true
   hostBmcPassword: ""
   dpuBmcPassword: ""
@@ -181,6 +178,8 @@ machineDefaults:
   subnetsPerVpc: 0
   dpuRebootDelay: 1
   hostRebootDelay: 1
+  ## Positive multiplier applied after timing overrides. Default 1.0; values below 1 speed up the simulation.
+  accelerationFactor: 1.0
   scoutRunInterval: "60s"
   ## Delay after a failed DiscoverMachine call; the default matches the production DPU agent.
   discoveryRetryInterval: "60s"

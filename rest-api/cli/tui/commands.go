@@ -2856,18 +2856,16 @@ func cmdInstanceCreate(s *Session, _ []string) error {
 // create request by walking the operator through one VPC-prefix-backed
 // interface at a time. The OpenAPI schema requires at least one entry, so
 // the first interface is always prompted; subsequent interfaces are opt-in.
-// Returns nil (not error) if no vpc-prefixes exist for the current VPC scope
-// so cmdInstanceCreate can still attempt the API call and surface the
-// server-side validation error instead of silently sending an empty array.
+// Returns an error if vpc-prefixes cannot be listed or none exist for the
+// current VPC scope so cmdInstanceCreate does not send a request without the
+// required interface.
 func promptInstanceInterfaces(s *Session, ctx context.Context) ([]map[string]interface{}, error) {
 	prefixes, err := s.Resolver.Fetch(ctx, "vpc-prefix")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s could not list vpc-prefixes (%v); the API may reject this create if interfaces are required\n", Dim("note:"), err)
-		return nil, nil
+		return nil, fmt.Errorf("listing vpc-prefixes: %w", err)
 	}
 	if len(prefixes) == 0 {
-		fmt.Fprintf(os.Stderr, "%s no vpc-prefixes available for the selected VPC; the API may reject this create if interfaces are required\n", Dim("note:"))
-		return nil, nil
+		return nil, fmt.Errorf("no vpc-prefixes available for the selected VPC")
 	}
 	var ifaces []map[string]interface{}
 	usedPrefixes := make(map[string]bool)
