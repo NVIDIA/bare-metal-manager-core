@@ -21,7 +21,9 @@ use std::sync::atomic::AtomicBool;
 
 use ::rpc::measured_boot::FromGrpc;
 use base64::prelude::*;
-use carbide_machine_controller::handler::MachineStateHandlerBuilder;
+use carbide_machine_controller::context::MachineStateHandlerContextObjects;
+use carbide_machine_controller::handler::{MachineStateHandlerBuilder, handler_host_power_control};
+use carbide_machine_controller::metrics::MachineMetrics;
 use carbide_redfish::libredfish::test_support::{RedfishSimAction, RedfishSimPlatformAction};
 use carbide_site_explorer::MachineCreator;
 use carbide_site_explorer::config::SiteExplorerConfig;
@@ -77,6 +79,8 @@ use rpc::forge::{
 use rpc::forge_agent_control_response::{Action, LegacyAction};
 use rpc::machine_discovery::AttestKeyInfo;
 use rpc::{DiscoveryData, DiscoveryInfo};
+use state_controller::db_write_batch::DbWriteBatch;
+use state_controller::state_handler::StateHandlerContext;
 use tonic::{Code, Request};
 
 use crate::cfg::file::DpuConfig as InitialDpuConfig;
