@@ -92,9 +92,10 @@ pub(crate) async fn run_baseline_test_environment(
                 MachineIdSource::Tpm,
                 rand::random(),
                 match bmc_type {
-                    MockBmcType::Ssh | MockBmcType::LenovoSr650Ssh | MockBmcType::Ipmi => {
-                        MachineType::Host
-                    }
+                    MockBmcType::Ssh
+                    | MockBmcType::LenovoSr650Ssh
+                    | MockBmcType::LenovoAmiSsh
+                    | MockBmcType::Ipmi => MachineType::Host,
                     MockBmcType::DpuSsh => MachineType::Dpu,
                 },
             );
@@ -103,6 +104,7 @@ pub(crate) async fn run_baseline_test_environment(
                 let bmc_handle = match bmc_type {
                     ssh_type @ MockBmcType::Ssh
                     | ssh_type @ MockBmcType::LenovoSr650Ssh
+                    | ssh_type @ MockBmcType::LenovoAmiSsh
                     | ssh_type @ MockBmcType::DpuSsh => {
                         Ok::<MockBmcHandle, eyre::Error>(MockBmcHandle::Ssh(
                             machine_a_tron::spawn_mock_ssh_server(
@@ -115,6 +117,7 @@ pub(crate) async fn run_baseline_test_environment(
                                 match ssh_type {
                                     MockBmcType::Ssh => PromptBehavior::Dell,
                                     MockBmcType::LenovoSr650Ssh => PromptBehavior::LenovoSr650,
+                                    MockBmcType::LenovoAmiSsh => PromptBehavior::LenovoAmi,
                                     MockBmcType::DpuSsh => PromptBehavior::Dpu,
                                     MockBmcType::Ipmi => unreachable!(),
                                 },
@@ -145,6 +148,7 @@ pub(crate) async fn run_baseline_test_environment(
                 sys_vendor: match &bmc_handle {
                     MockBmcHandle::Ssh(_) => match bmc_type {
                         MockBmcType::LenovoSr650Ssh => "Lenovo",
+                        MockBmcType::LenovoAmiSsh => "LenovoAMI",
                         _ => "Dell",
                     },
                     MockBmcHandle::Ipmi(_) => "Supermicro",
@@ -190,6 +194,7 @@ pub(crate) async fn run_baseline_test_environment(
 pub(crate) enum MockBmcType {
     Ssh,
     LenovoSr650Ssh,
+    LenovoAmiSsh,
     DpuSsh,
     Ipmi,
 }

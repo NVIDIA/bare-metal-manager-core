@@ -49,6 +49,12 @@ pub(crate) fn builder() -> SerialConsoleBuilder {
     SerialConsoleBuilder { value: json!({}) }
 }
 
+pub(crate) fn simulated_ssh(port: u16) -> SerialConsole {
+    builder()
+        .ssh(&protocol_builder().service_enabled(true).port(port).build())
+        .build()
+}
+
 pub(crate) struct SerialConsoleBuilder {
     value: serde_json::Value,
 }
