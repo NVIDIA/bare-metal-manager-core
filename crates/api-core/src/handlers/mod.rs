@@ -72,6 +72,7 @@ pub(super) mod nvlink_nmxc_endpoints;
 pub(super) mod operating_system;
 pub(super) mod power_options;
 pub(super) mod power_shelf;
+mod primary_interface;
 pub(super) mod pxe;
 pub(super) mod rack;
 pub(super) mod redfish;

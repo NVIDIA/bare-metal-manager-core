@@ -35,7 +35,7 @@ use crate::crds::dpuflavors_generated::{
     DpuFlavorSystemdServices, DpuFlavorSystemdServicesOperation,
 };
 use crate::types::{
-    DEFAULT_DPU_NUM_OF_VFS, DEFAULT_PF_TOTAL_SF_RESERVED, DOCA_HBN_SERVICE_NAME,
+    ASTRA_PF_TOTAL_SF, DEFAULT_DPU_NUM_OF_VFS, DEFAULT_PF_TOTAL_SF_RESERVED, DOCA_HBN_SERVICE_NAME,
     DpfInterceptBridge, DpfInterceptBridging, DpfProxyDetails, DpuDeploymentType,
     DpuServiceInterfaceTemplateDefinition, DpuServiceInterfaceTemplateType,
 };
@@ -1039,7 +1039,7 @@ fn get_bf4_astra_config_files(
                     "ALLOW_SHARED_RQ=\"no\"\n",
                     "IPSEC_FULL_OFFLOAD=\"no\"\n",
                     "ENABLE_ESWITCH_MULTIPORT=\"yes\"\n",
-                    "SNAP_DMA_SF=\"no\"\n"
+                    "SNAP_DMA_SF=\"no\"\n",
                 )
                 .to_string(),
             ),
@@ -1354,6 +1354,9 @@ fn get_bf4_astra_config_files(
                     "_ovs-vsctl --may-exist add-br br-sfc\n",
                     "_ovs-vsctl set bridge br-sfc datapath_type=netdev\n",
                     "_ovs-vsctl set bridge br-sfc fail_mode=secure\n",
+
+                    // br-hbn is absent on a fresh DPU, so a bare del-br would fail the run.
+                    "_ovs-vsctl --if-exists del-br br-hbn\n",
                     "_ovs-vsctl --may-exist add-br br-hbn\n",
                     "_ovs-vsctl set bridge br-hbn datapath_type=netdev\n",
                     "_ovs-vsctl set bridge br-hbn fail_mode=secure\n",
@@ -1435,6 +1438,7 @@ fn get_bf4_astra_config_files(
                     "        done\n",
                     "    done\n",
                     "done\n",
+                    "mst start\n",
                 )
                 .to_string(),
             ),
@@ -1644,7 +1648,7 @@ fn get_bf4_astra_nvconfig() -> DpuFlavorNvconfig {
     let parameters = vec![
         "PF_BAR2_ENABLE=0".to_string(),
         "PER_PF_NUM_SF=1".to_string(),
-        "PF_TOTAL_SF=30".to_string(),
+        format!("PF_TOTAL_SF={ASTRA_PF_TOTAL_SF}"),
         "PF_SF_BAR_SIZE=14".to_string(),
         "NUM_PF_MSIX_VALID=0".to_string(),
         "PF_NUM_PF_MSIX_VALID=1".to_string(),
@@ -1960,7 +1964,7 @@ mod tests {
         // Astra retains its established fixed hardware configuration.
         let astra = parameters(flavor_bf4_astra("ns", &None).unwrap());
         assert!(astra.contains(&"NUM_OF_VFS=46".to_string()));
-        assert!(astra.contains(&"PF_TOTAL_SF=30".to_string()));
+        assert!(astra.contains(&"PF_TOTAL_SF=40".to_string()));
     }
 
     /// Verifies normalized input order cannot change rendered flavor identity.
@@ -2389,6 +2393,17 @@ mod tests {
             .as_ref()
             .and_then(|ovs| ovs.raw_config_script.as_ref())
             .unwrap();
+        let ovs_setup_script = flavor
+            .spec
+            .config_files
+            .as_ref()
+            .and_then(|files| {
+                files
+                    .iter()
+                    .find(|file| file.path == "/etc/mellanox/ovs-script.sh")
+            })
+            .and_then(|file| file.raw.as_ref())
+            .unwrap();
 
         value_scenarios!(
             run = |valid| valid;
@@ -2444,11 +2459,11 @@ mod tests {
                 ) => true,
             }
 
-            "Astra nvconfig requests 30 total SFs and 46 VFs" {
+            "Astra nvconfig requests 40 total SFs and 46 VFs" {
                 (
                     nvconfig_parameters
                         .iter()
-                        .any(|parameter| parameter == "PF_TOTAL_SF=30")
+                        .any(|parameter| parameter == "PF_TOTAL_SF=40")
                         && nvconfig_parameters
                             .iter()
                             .any(|parameter| parameter == "NUM_OF_VFS=46")
@@ -2460,6 +2475,13 @@ mod tests {
                     ovs_script.contains("/etc/mellanox/ovs-script.sh")
                         && ovs_script.contains("/etc/mellanox/xplane-bridge.sh")
                 ) => true,
+            }
+
+            "OVS bootstrap recreates the HBN bridge" {
+                ovs_setup_script
+                    .find("_ovs-vsctl --if-exists del-br br-hbn")
+                    .zip(ovs_setup_script.find("_ovs-vsctl --may-exist add-br br-hbn"))
+                    .is_some_and(|(delete_bridge, add_bridge)| delete_bridge < add_bridge) => true,
             }
 
             "Spectrum-X config has the Adaptive Routing Force setting" {

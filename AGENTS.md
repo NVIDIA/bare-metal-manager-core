@@ -139,6 +139,7 @@ cargo make clippy              # Clippy linter (warnings = errors)
 cargo make carbide-lints       # Custom lints (requires nightly setup)
 cargo make check-format-nightly # Check rustfmt formatting
 cargo make check-event-names    # Validate production Event identity uniqueness
+cargo make check-metric-docs    # Check production Event metric catalogue coverage
 cargo make check-workspace-deps # Validate dependency declarations in Cargo.toml
 cargo make check-licenses      # Validate no restricted licenses introduced
 cargo make check-bans          # Check for banned dependencies
@@ -272,11 +273,17 @@ The decision rule:
   #[derive(carbide_instrument::Event)]
   #[event(event_name = "power_control_failed",
           metric_name = "carbide_power_control_total", component = "component_manager",
-          log = warn, metric = counter, message = "power control failed")]
+          log = warn, metric = counter, message = "power control failed",
+          describe = "Number of power control operations that failed")]
   struct PowerControlFailed {
       #[label]   backend: Backend,  // bounded via LabelValue — enums, usually
       #[context] error: String,     // high-cardinality — log line only
   }
+
+  carbide_instrument::emit(PowerControlFailed {
+      backend: Backend::Rms,
+      error: "deadline exceeded".to_string(),
+  });
   ```
 
   `log = off, metric = counter` counts a hot-path event with no log line at
@@ -296,9 +303,9 @@ logs. A metric-backed Event also declares `metric_name`; when that Event logs,
 both names are present so operators can pivot directly between the metric and its
 diagnostic records. Plain `tracing::` calls do not invent an `event_name`.
 
-New metric names are validated at compile time (`carbide_` prefix, `_total`
-counters, unit-suffixed histograms) and `metric_name` is the exposed name,
-verbatim. Existing metric names never change. The full standard lives in
+New metric names are checked at compile time (`carbide_` prefix, `_total`
+counters, unit-suffixed histograms), and a checked `metric_name` is exposed
+verbatim. Existing metric contracts never change. The full standard lives in
 [`docs/observability/instrumentation.md`](docs/observability/instrumentation.md).
 
 ## Documentation review

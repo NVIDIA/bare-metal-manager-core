@@ -319,6 +319,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.InstanceTypeMachineCapabilityFilterAttributes.device_type",
             "#[serde(deserialize_with = \"MachineCapabilityDeviceType::from_string\", serialize_with = \"MachineCapabilityDeviceType::serialize_from_enum_i32\")]",
         )
+        .field_attribute(
+            "machine_discovery.DiscoveryInfo.memory_device_groups",
+            "#[serde(default, skip_serializing_if = \"Vec::is_empty\")]",
+        )
 
         .type_attribute(
             ".rack_manager",

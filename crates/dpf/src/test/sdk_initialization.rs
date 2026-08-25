@@ -452,6 +452,15 @@ impl K8sConfigRepository for InitializationMock {
 
 #[async_trait]
 impl DpfOperatorConfigRepository for InitializationMock {
+    async fn get(
+        &self,
+        _name: &str,
+        _ns: &str,
+    ) -> Result<Option<crate::crds::dpfoperatorconfigs_generated::DPFOperatorConfig>, DpfError>
+    {
+        Ok(None)
+    }
+
     async fn patch(&self, _: &str, _: &str, _: serde_json::Value) -> Result<(), DpfError> {
         Ok(())
     }
@@ -958,7 +967,7 @@ async fn scoped_bf3_bf4_and_astra_initialization_coexists() {
         })
         .collect::<BTreeSet<_>>();
     assert_eq!(astra_chain_interfaces, astra_logical_names);
-    // Astra's fixed flavor retains PF_TOTAL_SF=30 and must not render configured peer bridges.
+    // Astra's fixed flavor retains PF_TOTAL_SF=40 and must not render configured peer bridges.
     let astra_flavor =
         DpuFlavorRepository::get(&mock, astra.spec.dpus.flavor.as_deref().unwrap(), TEST_NS)
             .await
@@ -970,7 +979,7 @@ async fn scoped_bf3_bf4_and_astra_initialization_coexists() {
             .as_ref()
             .unwrap()
             .iter()
-            .any(|parameter| parameter == "PF_TOTAL_SF=30")
+            .any(|parameter| parameter == "PF_TOTAL_SF=40")
     );
     assert!(
         !astra_flavor

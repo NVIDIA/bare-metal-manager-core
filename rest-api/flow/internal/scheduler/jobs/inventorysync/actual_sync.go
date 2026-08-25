@@ -20,30 +20,31 @@ import (
 // runActualSync runs every per-type actual-vs-expected drift detector, projects
 // observed NVLink domain topology, concatenates the component drifts, and logs
 // a per-type inventory summary. Each type-specific function handles its own
-// errors internally and falls back to nil drifts; one type's RPC failure
-// doesn't suppress the others.
+// errors internally and falls back to nil drifts; one type's snapshot or
+// reconciliation failure doesn't suppress the others.
 //
-// allRPCOK is true only when every type's drift-affecting RPCs succeeded. The
+// allSyncOK is true only when every type obtained a complete drift-affecting
+// snapshot and safely reconciled the identity state needed to interpret it. The
 // drift table is a full-table replace with no per-type discriminator, so the
-// caller must not overwrite it from a partial view: if any type's RPC failed,
-// the previously persisted drifts are kept rather than being wiped. The
-// observed-domain projection is best effort and does not affect allRPCOK
+// caller must not overwrite it from a partial view: if any type failed, the
+// previously persisted drifts are kept rather than being wiped. The
+// observed-domain projection is best effort and does not affect allSyncOK
 // because it does not contribute component drifts. The returned drifts are not
 // yet persisted — runInventoryOne owns the table-replacement transaction.
 func runActualSync(
 	ctx context.Context,
 	pool *cdb.Session,
 	nicoClient nicoapi.Client,
-) (drifts []model.ComponentDrift, allRPCOK bool) {
-	allRPCOK = true
+) (drifts []model.ComponentDrift, allSyncOK bool) {
+	allSyncOK = true
 
 	computeReceived, machineDrifts, machineOK := syncMachines(ctx, pool, nicoClient)
 	drifts = append(drifts, machineDrifts...)
-	allRPCOK = allRPCOK && machineOK
+	allSyncOK = allSyncOK && machineOK
 
 	switchesReceived, nvSwitchDrifts, switchOK := syncNVSwitchesNICo(ctx, pool, nicoClient)
 	drifts = append(drifts, nvSwitchDrifts...)
-	allRPCOK = allRPCOK && switchOK
+	allSyncOK = allSyncOK && switchOK
 
 	// Domain membership is observed topology rather than expected inventory.
 	// Project it after switch sync so this cycle's switch links are available.
@@ -51,17 +52,21 @@ func runActualSync(
 
 	powershelvesReceived, powershelfDrifts, powershelfOK := syncPowershelvesNICo(ctx, pool, nicoClient)
 	drifts = append(drifts, powershelfDrifts...)
-	allRPCOK = allRPCOK && powershelfOK
+	allSyncOK = allSyncOK && powershelfOK
 
 	log.Info().
 		Int("compute", computeReceived).
 		Int("nvswitches", switchesReceived).
 		Int("powershelves", powershelvesReceived).
-		Bool("all_rpc_ok", allRPCOK).
+		// Keep the established field for log-query compatibility. Its value has
+		// always represented the safety of the complete drift replacement, which
+		// now includes identity-reconciliation failures as well as RPC failures.
+		Bool("all_rpc_ok", allSyncOK).
+		Bool("all_sync_ok", allSyncOK).
 		Msgf("Inventory received from Core: compute=%d nvswitches=%d powershelves=%d",
 			computeReceived, switchesReceived, powershelvesReceived)
 
-	return drifts, allRPCOK
+	return drifts, allSyncOK
 }
 
 // mapKeys returns the keys of a string-keyed component map in arbitrary

@@ -308,6 +308,8 @@ navigation:
               path: bootable_artifacts.md
             - page: Local Development
               path: development.md
+            - page: Instrumentation
+              path: observability/instrumentation.md
             - page: Running a PXE Client in a VM
               path: development/vm_pxe_client.md
             - page: TLS and SPIFFE Certificates

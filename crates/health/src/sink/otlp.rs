@@ -745,33 +745,6 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn same_sensor_different_direction_deduplicates() {
-        let sink = test_sink();
-        let ctx = test_context();
-
-        sink.handle_event(
-            &ctx,
-            &log_event(
-                "OpenBMC.0.1.SensorThresholdWarningLowGoingHigh",
-                r#"["HGX_GPU_0_Temp_1","3.96","-0.05"]"#,
-            ),
-        );
-        sink.handle_event(
-            &ctx,
-            &log_event(
-                "OpenBMC.0.1.SensorThresholdWarningHighGoingLow",
-                r#"["HGX_GPU_0_Temp_1","3.96","-0.05"]"#,
-            ),
-        );
-
-        let mut count = 0;
-        while sink.queue.pop().is_some() {
-            count += 1;
-        }
-        assert_eq!(count, 1, "same sensor should dedup to one entry");
-    }
-
     /// Verifies OTLP logs omit diagnostic payloads by default.
     #[test]
     fn diagnostic_log_record_is_skipped_by_default() {

@@ -28,6 +28,7 @@ use carbide_utils::HostPortPair;
 use carbide_uuid::rack::{RackId, RackProfileId};
 use eyre::ContextCompat;
 use futures::future::join_all;
+use machine_a_tron::lifecycle_timings::{LifecycleTimingOverrides, PartialLifecycleTimings};
 use machine_a_tron::{
     BmcMockRegistry, DhcpType, LenovoGb300RackConfig, LogFormat, MachineATronConfig, RackConfig,
     RackModelConfig, WiwynnGb200RackConfig,
@@ -123,6 +124,17 @@ async fn run_machine_a_tron_racks_test(
                         simulation: WiwynnGb200RackConfig {
                             dpu_reboot_delay: 1,
                             host_reboot_delay: 1,
+                            timing_overrides: Some(LifecycleTimingOverrides {
+                                host: PartialLifecycleTimings {
+                                    reboot: Some(Duration::from_secs(1)),
+                                    ..Default::default()
+                                },
+                                dpu: PartialLifecycleTimings {
+                                    reboot: Some(Duration::from_secs(1)),
+                                    ..Default::default()
+                                },
+                            }),
+                            acceleration_factor: 1.0,
                             scout_run_interval: Duration::from_secs(1),
                             discovery_retry_interval: Duration::from_millis(100),
                             bmc_dhcp_relay_address: TEST_BMC_DHCP_RELAY_ADDRESS,
@@ -148,6 +160,17 @@ async fn run_machine_a_tron_racks_test(
                         simulation: LenovoGb300RackConfig {
                             dpu_reboot_delay: 1,
                             host_reboot_delay: 1,
+                            timing_overrides: Some(LifecycleTimingOverrides {
+                                host: PartialLifecycleTimings {
+                                    reboot: Some(Duration::from_secs(1)),
+                                    ..Default::default()
+                                },
+                                dpu: PartialLifecycleTimings {
+                                    reboot: Some(Duration::from_secs(1)),
+                                    ..Default::default()
+                                },
+                            }),
+                            acceleration_factor: 1.0,
                             scout_run_interval: Duration::from_secs(1),
                             discovery_retry_interval: Duration::from_millis(100),
                             bmc_dhcp_relay_address: TEST_BMC_DHCP_RELAY_ADDRESS,
@@ -181,7 +204,6 @@ async fn run_machine_a_tron_racks_test(
         dpu_bmc_password: None,
         api_refresh_interval: Duration::from_millis(500),
         mock_bmc_ssh_server: false,
-        mock_bmc_ssh_port: None,
         enable_ipmi_simulation: false,
         ipmi_reachable_port: None,
         hw_mac_address_ranges: None,

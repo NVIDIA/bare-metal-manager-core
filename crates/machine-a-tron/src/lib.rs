@@ -29,6 +29,7 @@ mod dhcp_wrapper_udp;
 mod discovery_info;
 mod dpu_machine;
 mod host_machine;
+pub mod lifecycle_timings;
 mod machine_a_tron;
 mod machine_fsm;
 mod machine_state_machine;

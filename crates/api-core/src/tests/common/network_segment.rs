@@ -168,6 +168,7 @@ pub(in crate::tests) async fn get_segment_state(
     tenant_state_from_segment(&segment)
 }
 
+#[allow(dead_code)]
 pub(in crate::tests) async fn get_segments(
     api: &Api,
     request: rpc::forge::NetworkSegmentsByIdsRequest,

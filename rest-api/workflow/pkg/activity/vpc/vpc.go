@@ -198,6 +198,7 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 		reportedRoutingProfile := reportedVpc.RoutingProfile
 		reportedRoutingProfileOverrides := reportedVpc.RoutingProfileOverrides
 		reportedEffectiveRoutingProfile := reportedVpc.EffectiveRoutingProfile
+		reportedPowerResourceGroup := reportedVpc.PowerResourceGroup
 		reportedNSGID := reportedVpc.NetworkSecurityGroupID
 
 		needsUpdate := isMissingOnSite != nil ||
@@ -207,6 +208,7 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 			!util.PtrsEqual(vpc.RoutingProfile, reportedRoutingProfile) ||
 			!reflect.DeepEqual(vpc.RoutingProfileOverrides, reportedRoutingProfileOverrides) ||
 			!reflect.DeepEqual(vpc.EffectiveRoutingProfile, reportedEffectiveRoutingProfile) ||
+			!util.PtrsEqual(vpc.PowerResourceGroup, reportedPowerResourceGroup) ||
 			!util.PtrsEqual(vpc.NetworkSecurityGroupID, reportedNSGID) ||
 			!vpc.NetworkSecurityGroupPropagationDetails.Equal(sitePropagationStatus) ||
 			// Changing VNI isn't allowed after creation, and it should never go back to nil - that would be a bug.
@@ -215,6 +217,17 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 			(controllerActiveVni != nil && !util.PtrsEqual(vpc.ActiveVni, controllerActiveVni))
 
 		if needsUpdate {
+			if vpc.PowerResourceGroup != nil && reportedPowerResourceGroup == nil {
+				vpc, err = vpcDAO.Clear(ctx, nil, cdbm.VpcClearInput{
+					VpcID:              vpc.ID,
+					PowerResourceGroup: true,
+				})
+				if err != nil {
+					slogger.Error().Err(err).Msg("failed to clear PowerResourceGroup for VPC in DB")
+					continue
+				}
+			}
+
 			// A nil Update field is ignored, so explicitly clear a stale NSG association.
 			if vpc.NetworkSecurityGroupID != nil && reportedNSGID == nil {
 				vpc, err = vpcDAO.Clear(ctx, nil, cdbm.VpcClearInput{
@@ -286,6 +299,7 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 				RoutingProfile:                         reportedRoutingProfile,
 				RoutingProfileOverrides:                reportedRoutingProfileOverrides,
 				EffectiveRoutingProfile:                reportedEffectiveRoutingProfile,
+				PowerResourceGroup:                     reportedPowerResourceGroup,
 				ControllerVpcID:                        controllerVpcID,
 				IsMissingOnSite:                        isMissingOnSite,
 				ActiveVni:                              controllerActiveVni,

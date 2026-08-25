@@ -1022,6 +1022,8 @@ k8s_resource(
 )
 
 machine_a_tron_ssh_service_name = 'nico-machine-a-tron-%s-ssh' % machine_a_tron_dhcp_pod
+# This headless Service only supplies stable pod DNS. ssh-console keeps the
+# per-machine port discovered through Redfish and connects directly to the pod.
 machine_a_tron_ssh_service = {
     'apiVersion': 'v1',
     'kind': 'Service',
@@ -1033,12 +1035,6 @@ machine_a_tron_ssh_service = {
             'app.kubernetes.io/component': 'machine-a-tron',
             'nvidia-infra-controller/pod-name': machine_a_tron_dhcp_pod,
         },
-        'ports': [{
-            'name': 'ssh',
-            'port': 2222,
-            'targetPort': 'ssh',
-            'protocol': 'TCP',
-        }],
     },
 }
 k8s_yaml(encode_yaml(machine_a_tron_ssh_service))

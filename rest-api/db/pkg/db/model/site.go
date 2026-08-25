@@ -54,6 +54,7 @@ type SiteConfig struct {
 	NVLinkPartition                  bool `json:"nvlink_partition"`
 	Flow                             bool `json:"flow"`
 	ImageBasedOperatingSystem        bool `json:"image_based_operating_system"`
+	DPSPowerManagement               bool `json:"dps_power_management"`
 	MaxNetworkSecurityGroupRuleCount *int `json:"max_network_security_group_rule_count"`
 }
 
@@ -129,6 +130,7 @@ type SiteConfigUpdateInput struct {
 	NVLinkPartition                  *bool `json:"nvlink_partition,omitempty"`
 	Flow                             *bool `json:"flow,omitempty"`
 	ImageBasedOperatingSystem        *bool `json:"image_based_operating_system,omitempty"`
+	DPSPowerManagement               *bool `json:"dps_power_management,omitempty"`
 	MaxNetworkSecurityGroupRuleCount *int  `json:"max_network_security_group_rule_count,omitempty"`
 }
 
@@ -162,6 +164,7 @@ type SiteConfigFilterInput struct {
 	NVLinkPartition                  *bool `json:"nvlink_partition,omitempty"`
 	Flow                             *bool `json:"flow,omitempty"`
 	ImageBasedOperatingSystem        *bool `json:"image_based_operating_system,omitempty"`
+	DPSPowerManagement               *bool `json:"dps_power_management,omitempty"`
 	MaxNetworkSecurityGroupRuleCount *int  `json:"max_network_security_group_rule_count,omitempty"`
 }
 

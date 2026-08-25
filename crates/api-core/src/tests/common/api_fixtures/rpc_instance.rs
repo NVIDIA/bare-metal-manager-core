@@ -61,6 +61,7 @@ impl RpcInstance {
         self.0.config_version.parse::<ConfigVersion>().unwrap()
     }
 
+    #[allow(dead_code)]
     pub(in crate::tests) fn ib_config_version(&self) -> ConfigVersion {
         self.0.ib_config_version.parse::<ConfigVersion>().unwrap()
     }
