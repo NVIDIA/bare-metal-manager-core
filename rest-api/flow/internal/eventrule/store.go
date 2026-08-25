@@ -71,7 +71,6 @@ type RuleStore interface {
 	// including any persistence-generated timestamps.
 	Create(context.Context, *Rule) (*Rule, error)
 	UpdateMetadata(context.Context, uuid.UUID, RuleMetadata) error
-	SetDedupe(context.Context, uuid.UUID, *Dedupe) error
 	ReplaceActions(context.Context, uuid.UUID, []Action) error
 	// Delete atomically deletes a persisted rule and all of its bindings.
 	// Implementations own the transaction that enforces this invariant.
@@ -89,8 +88,8 @@ type BindingStore interface {
 	GetForScope(context.Context, Type, Scope) (*Binding, error)
 }
 
-// ExecutionStore atomically creates pending executions, owns
-// delivery and semantic deduplication, and persists attempt results.
+// ExecutionStore atomically creates pending executions, owns mandatory
+// event-key deduplication, and persists attempt results.
 // CreateExecution returns the new execution, or (nil, nil) when an
 // existing execution accepts the request as a duplicate.
 // TransitionExecution returns ErrExecutionNotFound for an unknown
@@ -101,7 +100,6 @@ type ExecutionStore interface {
 	CreateExecution(
 		ctx context.Context,
 		identity ExecutionIdentity,
-		dedupe *Dedupe,
 	) (created *Execution, err error)
 	TransitionExecution(
 		ctx context.Context,

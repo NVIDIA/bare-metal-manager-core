@@ -96,17 +96,18 @@ use crate::repository::{
     DpuServiceConfigurationRepository, DpuServiceNADRepository, DpuServiceRepository,
     DpuServiceTemplateRepository, K8sConfigRepository,
 };
+#[cfg(test)]
+use crate::types::DEFAULT_PF_TOTAL_SF_RESERVED;
 use crate::types::{
-    BlueFieldSoftwareParams, BmcPasswordProvider, ConfigPortsServiceType,
-    DEFAULT_PF_TOTAL_SF_RESERVED, DHCP_SERVER_SERVICE_NAME, DOCA_HBN_SERVICE_NAME,
-    DPU_AGENT_SERVICE_NAME, DPU_ENABLED_NODE_LABEL, DTS_SERVICE_NAME, DetachedDpuServiceDefinition,
-    DpfInterceptBridging, DpuDeploymentType, DpuDeviceInfo, DpuDeviceSummary, DpuMismatch,
-    DpuNodeInfo, DpuNodeSummary, DpuPhase, DpuServiceHelmChartObservation,
-    DpuServiceInterfacePatch, DpuServiceInterfaceTemplateDefinition,
-    DpuServiceInterfaceTemplateType, DpuServiceObservation, DpuServiceVersion, DpuSummary,
-    FMDS_SERVICE_NAME, HostDpfSnapshot, InitDpfResourcesConfig, MAX_BLUEFIELD_VFS_PER_PF,
-    OTEL_COLLECTOR_SERVICE_NAME, ServiceConfigPortProtocol, ServiceDefinition,
-    ServiceNADResourceType, ServiceTemplateVersion,
+    ASTRA_PF_TOTAL_SF, BlueFieldSoftwareParams, BmcPasswordProvider, ConfigPortsServiceType,
+    DHCP_SERVER_SERVICE_NAME, DOCA_HBN_SERVICE_NAME, DPU_AGENT_SERVICE_NAME,
+    DPU_ENABLED_NODE_LABEL, DTS_SERVICE_NAME, DetachedDpuServiceDefinition, DpfInterceptBridging,
+    DpuDeploymentType, DpuDeviceInfo, DpuDeviceSummary, DpuMismatch, DpuNodeInfo, DpuNodeSummary,
+    DpuPhase, DpuServiceHelmChartObservation, DpuServiceInterfacePatch,
+    DpuServiceInterfaceTemplateDefinition, DpuServiceInterfaceTemplateType, DpuServiceObservation,
+    DpuServiceVersion, DpuSummary, FMDS_SERVICE_NAME, HostDpfSnapshot, InitDpfResourcesConfig,
+    MAX_BLUEFIELD_VFS_PER_PF, OTEL_COLLECTOR_SERVICE_NAME, ServiceConfigPortProtocol,
+    ServiceDefinition, ServiceNADResourceType, ServiceTemplateVersion,
 };
 use crate::watcher::DpuWatcherBuilder;
 
@@ -492,6 +493,61 @@ impl<R, L: ResourceLabeler> DpfSdk<R, L> {
             .collect();
         json!({ "metadata": { "labels": nulls } })
     }
+}
+
+/// Must match the `configMapKeyRef.key` the BF4 flavors declare in `flavor.rs`.
+const EXTRA_SCRIPT_CONFIGMAP_KEY: &str = "script";
+
+/// No-op body seeded into a new extra-script ConfigMap; the flavor runs it by path.
+const EXTRA_SCRIPT_PLACEHOLDER: &str =
+    "#!/usr/bin/env bash\necho \"NICo extra script: nothing to run\"\n";
+
+/// ConfigMaps the deployment's flavor references, in run order. Empty for BF3,
+/// which inlines its scripts instead of using `contentFrom`.
+fn extra_script_configmap_names(deployment_type: DpuDeploymentType) -> &'static [&'static str] {
+    match deployment_type {
+        DpuDeploymentType::Bf3 => &[],
+        DpuDeploymentType::Bf4Generic => &[
+            "extra-script-pre-ovs-bf4-generic",
+            "extra-script-post-ovs-bf4-generic",
+        ],
+        DpuDeploymentType::Bf4Astra => &[
+            "extra-script-pre-ovs-bf4-astra",
+            "extra-script-post-ovs-bf4-astra",
+        ],
+    }
+}
+
+/// Seed the extra-script ConfigMaps a BF4 DPUFlavor sources via `contentFrom`.
+///
+/// Create-only. NICo never updates these: the content belongs to the operator, so
+/// an existing ConfigMap is left exactly as found. A plain create is also atomic,
+/// so an edit racing this cannot be clobbered.
+async fn create_extra_script_configmaps<R: K8sConfigRepository>(
+    repo: &R,
+    namespace: &str,
+    deployment_type: DpuDeploymentType,
+) -> Result<(), DpfError> {
+    for name in extra_script_configmap_names(deployment_type) {
+        let data = BTreeMap::from([(
+            EXTRA_SCRIPT_CONFIGMAP_KEY.to_string(),
+            EXTRA_SCRIPT_PLACEHOLDER.to_string(),
+        )]);
+        if repo.create_configmap(name, namespace, data).await? {
+            tracing::info!(
+                configmap = %name,
+                %namespace,
+                "Created extra-script ConfigMap with a no-op placeholder script"
+            );
+        } else {
+            tracing::debug!(
+                configmap = %name,
+                %namespace,
+                "Extra-script ConfigMap already exists; leaving it untouched"
+            );
+        }
+    }
+    Ok(())
 }
 
 async fn create_bfb<R: BfbRepository>(
@@ -1405,7 +1461,7 @@ fn resolve_initialization_inventory<'a>(
 
     let pf_total_sf = match config.deployment_type {
         // Astra owns a fixed BF4+CX9 flavor outside the site inventory contract.
-        DpuDeploymentType::Bf4Astra => DEFAULT_PF_TOTAL_SF_RESERVED,
+        DpuDeploymentType::Bf4Astra => ASTRA_PF_TOTAL_SF,
         DpuDeploymentType::Bf3 | DpuDeploymentType::Bf4Generic => calculate_pf_total_sf(
             interfaces.as_ref(),
             config.intercept_bridging.as_ref(),
@@ -1728,6 +1784,11 @@ impl<
         } else {
             config.services.clone()
         };
+        // Before the flavor: it references these with `optional` unset, so a DPU
+        // instantiated in between would point at a ConfigMap that does not exist.
+        create_extra_script_configmaps(&*self.repo, &self.namespace, config.deployment_type)
+            .await?;
+
         create_flavor_services_and_deployment(
             &*self.repo,
             &self.namespace,
@@ -2188,7 +2249,55 @@ impl<R: DpuRepository, L> DpfSdk<R, L> {
     }
 }
 
-impl<R: DpuDeploymentRepository + DpuRepository, L> DpfSdk<R, L> {
+/// Name of the singleton DPFOperatorConfig, as created by helm-prereqs and by the
+/// manual install in `docs/manuals/dpf.md`.
+const DPF_OPERATOR_CONFIG_NAME: &str = "dpfoperatorconfig";
+
+impl<R: DpuDeploymentRepository + DpuRepository + DpfOperatorConfigRepository, L> DpfSdk<R, L> {
+    /// Whether the DPF operator reports `Ready=True` at its current generation.
+    ///
+    /// Fails closed: absent, unreconciled, or condition-less all read as not
+    /// ready, so callers that gate disruptive work skip rather than guess.
+    async fn dpf_operator_config_is_ready(&self) -> Result<bool, DpfError> {
+        let config = DpfOperatorConfigRepository::get(
+            &*self.repo,
+            DPF_OPERATOR_CONFIG_NAME,
+            &self.namespace,
+        )
+        .await?;
+
+        let Some(config) = config else {
+            tracing::info!(
+                name = DPF_OPERATOR_CONFIG_NAME,
+                namespace = %self.namespace,
+                "DPFOperatorConfig not found; treating DPF as not ready"
+            );
+            return Ok(false);
+        };
+
+        let ready = config
+            .status
+            .as_ref()
+            .and_then(|status| status.conditions.as_ref())
+            .and_then(|conditions| conditions.iter().find(|c| c.type_ == "Ready"))
+            .is_some_and(|condition| {
+                condition.status == "True"
+                    && observed_generation_is_current(
+                        condition.observed_generation,
+                        config.metadata.generation,
+                    )
+            });
+
+        if !ready {
+            tracing::info!(
+                name = DPF_OPERATOR_CONFIG_NAME,
+                namespace = %self.namespace,
+                "DPFOperatorConfig is not Ready; treating DPF as not ready"
+            );
+        }
+        Ok(ready)
+    }
+
     /// Find DPUs whose installed BFB, BlueFieldSoftware, or `spec.dpuFlavor` no
     /// longer matches the values declared on the DPUDeployment that owns them.
     ///
@@ -2226,6 +2335,14 @@ impl<R: DpuDeploymentRepository + DpuRepository, L> DpfSdk<R, L> {
         &self,
         dpu_label_selector: Option<&str>,
     ) -> Result<Vec<DpuMismatch>, DpfError> {
+        // A DPF upgrade republishes the CRs this scan reads, so mid-upgrade a DPU
+        // can look outdated against a deployment that is still settling. Report
+        // nothing until the operator says it is Ready, so an upgrade never
+        // triggers reprovisioning on its own.
+        if !self.dpf_operator_config_is_ready().await? {
+            return Ok(vec![]);
+        }
+
         let deployments = DpuDeploymentRepository::list(&*self.repo, &self.namespace).await?;
         let ready_deployments: HashMap<String, &DPUDeployment> = deployments
             .iter()
@@ -2389,6 +2506,13 @@ fn dpu_deployment_is_ready(d: &DPUDeployment) -> bool {
         return false;
     };
     cond.status == "True" && cond.observed_generation == Some(generation)
+}
+
+/// True when a condition's `observedGeneration` matches the object's. Either
+/// being absent means not ready: `metadata.generation` is set on submission, and
+/// an absent `observedGeneration` means DPF has not reconciled the object yet.
+fn observed_generation_is_current(observed: Option<i64>, generation: Option<i64>) -> bool {
+    matches!((observed, generation), (Some(observed), Some(generation)) if observed == generation)
 }
 
 impl<R: DpuNodeMaintenanceRepository, L> DpfSdk<R, L> {
@@ -3712,6 +3836,15 @@ mod tests {
 
     #[async_trait]
     impl crate::repository::K8sConfigRepository for SdkMock {
+        async fn create_configmap(
+            &self,
+            _name: &str,
+            _ns: &str,
+            _data: BTreeMap<String, String>,
+        ) -> Result<bool, DpfError> {
+            Ok(true)
+        }
+
         async fn get_configmap(
             &self,
             _name: &str,
@@ -3746,6 +3879,15 @@ mod tests {
 
     #[async_trait]
     impl crate::repository::DpfOperatorConfigRepository for SdkMock {
+        async fn get(
+            &self,
+            _name: &str,
+            _ns: &str,
+        ) -> Result<Option<crate::crds::dpfoperatorconfigs_generated::DPFOperatorConfig>, DpfError>
+        {
+            Ok(None)
+        }
+
         async fn patch(&self, _: &str, _: &str, _: serde_json::Value) -> Result<(), DpfError> {
             Ok(())
         }
@@ -4395,6 +4537,15 @@ mod tests {
 
     #[async_trait]
     impl crate::repository::K8sConfigRepository for SecretTrackingMock {
+        async fn create_configmap(
+            &self,
+            _name: &str,
+            _ns: &str,
+            _data: BTreeMap<String, String>,
+        ) -> Result<bool, DpfError> {
+            Ok(true)
+        }
+
         async fn get_configmap(
             &self,
             _: &str,
@@ -4436,6 +4587,15 @@ mod tests {
 
     #[async_trait]
     impl crate::repository::DpfOperatorConfigRepository for SecretTrackingMock {
+        async fn get(
+            &self,
+            _name: &str,
+            _ns: &str,
+        ) -> Result<Option<crate::crds::dpfoperatorconfigs_generated::DPFOperatorConfig>, DpfError>
+        {
+            Ok(None)
+        }
+
         async fn patch(&self, _: &str, _: &str, _: serde_json::Value) -> Result<(), DpfError> {
             Ok(())
         }
@@ -5420,5 +5580,195 @@ mod tests {
         neither.spec.dpus.bfb = None;
         neither.spec.dpus.blue_field_software = None;
         assert!(dpu_mismatch(TEST_NAMESPACE, &dpu, &neither).is_none());
+    }
+}
+
+#[cfg(test)]
+mod extra_script_configmap_tests {
+    use std::collections::BTreeMap;
+    use std::sync::Mutex;
+
+    use async_trait::async_trait;
+
+    use super::*;
+    use crate::repository::K8sConfigRepository;
+
+    const NS: &str = "dpf-operator-system";
+
+    /// Records applies and lets a test seed already-existing ConfigMaps.
+    #[derive(Default)]
+    struct ConfigMapMock {
+        existing: Mutex<BTreeMap<String, BTreeMap<String, String>>>,
+        applied: Mutex<Vec<(String, BTreeMap<String, String>)>>,
+    }
+
+    impl ConfigMapMock {
+        fn seeded(name: &str, data: BTreeMap<String, String>) -> Self {
+            let mock = Self::default();
+            mock.existing.lock().unwrap().insert(name.to_string(), data);
+            mock
+        }
+
+        fn applied_names(&self) -> Vec<String> {
+            self.applied
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|(name, _)| name.clone())
+                .collect()
+        }
+    }
+
+    #[async_trait]
+    impl K8sConfigRepository for ConfigMapMock {
+        async fn get_configmap(
+            &self,
+            name: &str,
+            _ns: &str,
+        ) -> Result<Option<BTreeMap<String, String>>, DpfError> {
+            Ok(self.existing.lock().unwrap().get(name).cloned())
+        }
+        async fn create_configmap(
+            &self,
+            name: &str,
+            _ns: &str,
+            data: BTreeMap<String, String>,
+        ) -> Result<bool, DpfError> {
+            let mut existing = self.existing.lock().unwrap();
+            if existing.contains_key(name) {
+                return Ok(false);
+            }
+            self.applied
+                .lock()
+                .unwrap()
+                .push((name.to_string(), data.clone()));
+            existing.insert(name.to_string(), data);
+            Ok(true)
+        }
+
+        async fn apply_configmap(
+            &self,
+            _name: &str,
+            _ns: &str,
+            _data: BTreeMap<String, String>,
+        ) -> Result<(), DpfError> {
+            unreachable!("seeding must never apply; it is create-only")
+        }
+        async fn get_secret(
+            &self,
+            _name: &str,
+            _ns: &str,
+        ) -> Result<Option<BTreeMap<String, Vec<u8>>>, DpfError> {
+            Ok(None)
+        }
+        async fn apply_secret(
+            &self,
+            _name: &str,
+            _ns: &str,
+            _data: BTreeMap<String, Vec<u8>>,
+        ) -> Result<(), DpfError> {
+            Ok(())
+        }
+    }
+
+    /// BF3 inlines its scripts, so it must not create unreferenced ConfigMaps.
+    #[tokio::test]
+    async fn bf3_creates_no_configmaps() {
+        let mock = ConfigMapMock::default();
+        create_extra_script_configmaps(&mock, NS, DpuDeploymentType::Bf3)
+            .await
+            .expect("seeding succeeds");
+        assert!(mock.applied_names().is_empty());
+    }
+
+    /// Names and key must stay in lockstep with the flavors' `configMapKeyRef`.
+    #[tokio::test]
+    async fn bf4_seeds_both_hooks_under_the_referenced_key() {
+        for (deployment_type, expected) in [
+            (
+                DpuDeploymentType::Bf4Generic,
+                [
+                    "extra-script-pre-ovs-bf4-generic",
+                    "extra-script-post-ovs-bf4-generic",
+                ],
+            ),
+            (
+                DpuDeploymentType::Bf4Astra,
+                [
+                    "extra-script-pre-ovs-bf4-astra",
+                    "extra-script-post-ovs-bf4-astra",
+                ],
+            ),
+        ] {
+            let mock = ConfigMapMock::default();
+            create_extra_script_configmaps(&mock, NS, deployment_type)
+                .await
+                .expect("seeding succeeds");
+
+            assert_eq!(mock.applied_names(), expected, "{deployment_type:?}");
+            for (_, data) in mock.applied.lock().unwrap().iter() {
+                let script = data
+                    .get(EXTRA_SCRIPT_CONFIGMAP_KEY)
+                    .expect("script key is present");
+                assert!(
+                    script.starts_with("#!"),
+                    "placeholder needs a shebang, the flavor runs it by path: {script:?}"
+                );
+            }
+        }
+    }
+
+    /// Re-running initialization must not put the placeholder back over an edit.
+    #[tokio::test]
+    async fn an_operator_edited_script_is_left_alone() {
+        let operator_script = "#!/usr/bin/env bash\necho site-specific\n";
+        let mock = ConfigMapMock::seeded(
+            "extra-script-pre-ovs-bf4-generic",
+            BTreeMap::from([(
+                EXTRA_SCRIPT_CONFIGMAP_KEY.to_string(),
+                operator_script.to_string(),
+            )]),
+        );
+
+        create_extra_script_configmaps(&mock, NS, DpuDeploymentType::Bf4Generic)
+            .await
+            .expect("seeding succeeds");
+
+        assert_eq!(
+            mock.applied_names(),
+            vec!["extra-script-post-ovs-bf4-generic"],
+            "only the absent hook is created"
+        );
+        assert_eq!(
+            mock.existing.lock().unwrap()["extra-script-pre-ovs-bf4-generic"]
+                [EXTRA_SCRIPT_CONFIGMAP_KEY],
+            operator_script
+        );
+    }
+
+    /// Seeding is create-only, so an existing ConfigMap is never written to,
+    /// whatever it holds. NICo has no `update` on these at the RBAC layer either.
+    #[tokio::test]
+    async fn an_existing_configmap_is_never_written_to() {
+        for seeded in [
+            BTreeMap::new(),
+            BTreeMap::from([("other".into(), "x".into())]),
+        ] {
+            let mock = ConfigMapMock::seeded("extra-script-pre-ovs-bf4-astra", seeded.clone());
+            create_extra_script_configmaps(&mock, NS, DpuDeploymentType::Bf4Astra)
+                .await
+                .expect("seeding succeeds");
+
+            assert_eq!(
+                mock.applied_names(),
+                vec!["extra-script-post-ovs-bf4-astra"],
+                "only the absent ConfigMap is created"
+            );
+            assert_eq!(
+                mock.existing.lock().unwrap()["extra-script-pre-ovs-bf4-astra"],
+                seeded,
+                "the existing ConfigMap is left byte-for-byte alone"
+            );
+        }
     }
 }

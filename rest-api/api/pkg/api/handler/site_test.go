@@ -513,6 +513,7 @@ func TestCreateSiteHandler_Handle(t *testing.T) {
 				assert.True(t, rst.Capabilities.NativeNetworking)
 				assert.True(t, rst.Capabilities.NetworkSecurityGroup)
 				assert.False(t, rst.Capabilities.VpcSlaac)
+				assert.False(t, rst.Capabilities.DPSPowerManagement)
 
 				createdSiteID, perr := uuid.Parse(rst.ID)
 				require.NoError(t, perr)
@@ -589,6 +590,7 @@ func TestUpdateSiteHandler_Handle(t *testing.T) {
 	st4 := testSiteBuildSite(t, dbSession, ip, "test-site-4", cdbm.SiteStatusRegistered, ipu, nil, nil, nil)
 	st5 := testSiteBuildSite(t, dbSession, ip, "test-site-5", cdbm.SiteStatusRegistered, ipu, nil, nil, &cdbm.SiteConfig{NativeNetworking: true, NetworkSecurityGroup: true, VpcSlaac: true})
 	st6 := testSiteBuildSite(t, dbSession, ip, "test-site-6", cdbm.SiteStatusRegistered, ipu, nil, nil, &cdbm.SiteConfig{NativeNetworking: true, NetworkSecurityGroup: true})
+	stPower := testSiteBuildSite(t, dbSession, ip, "test-site-power", cdbm.SiteStatusRegistered, ipu, nil, nil, &cdbm.SiteConfig{})
 
 	common.TestBuildTenantSite(t, dbSession, tn, st6, tnu)
 	common.TestBuildVPC(t, dbSession, "test-vpc", ip, tn, st6, nil, cutil.GetPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu)
@@ -686,6 +688,25 @@ func TestUpdateSiteHandler_Handle(t *testing.T) {
 				user: ipu,
 				reqData: &model.APISiteUpdateRequest{
 					Capabilities: &model.APISiteCapabilitiesUpdateRequest{NativeNetworking: cutil.GetPtr(false)},
+				},
+			},
+			csmEnabled:         true,
+			wantErr:            false,
+			verifyChildSpanner: true,
+		},
+		{
+			name: "test Site update API endpoint success enabling DPS power management",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        &tmocks.Client{},
+				cfg:       cfg,
+			},
+			args: args{
+				site: stPower,
+				org:  ipOrg,
+				user: ipu,
+				reqData: &model.APISiteUpdateRequest{
+					Capabilities: &model.APISiteCapabilitiesUpdateRequest{DPSPowerManagement: cutil.GetPtr(true)},
 				},
 			},
 			csmEnabled:         true,
@@ -1074,6 +1095,10 @@ func TestUpdateSiteHandler_Handle(t *testing.T) {
 							updated = true
 						} else {
 							assert.Equal(t, tt.args.site.Config.NetworkSecurityGroup, rst.Capabilities.NetworkSecurityGroup)
+						}
+						if tt.args.reqData.Capabilities.DPSPowerManagement != nil {
+							assert.Equal(t, *tt.args.reqData.Capabilities.DPSPowerManagement, rst.Capabilities.DPSPowerManagement)
+							updated = true
 						}
 					}
 					expectedVpcSlaac := false

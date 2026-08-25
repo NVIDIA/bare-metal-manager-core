@@ -53,8 +53,8 @@ use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
 use model::rack_type::RackProfileConfig;
 use model::resource_pool::common::CommonPools;
 use model::site_explorer::{
-    BlueFieldOperatingMode, EndpointExplorationError, EndpointExplorationReport, EndpointType,
-    ExploredDpu, ExploredEndpoint, ExploredManagedHost, ExploredManagedSwitch,
+    BlueFieldOperatingMode, Chassis, EndpointExplorationError, EndpointExplorationReport,
+    EndpointType, ExploredDpu, ExploredEndpoint, ExploredManagedHost, ExploredManagedSwitch,
     HostPrimaryInterfaceSelection, MachineExpectation, PowerState, PreingestionState, Service,
     SiteExplorerLastRun, is_bf3_dpu_part_number, is_bf3_supernic_part_number,
     is_bluefield_part_number, is_bluefield_system,
@@ -352,6 +352,62 @@ enum ReportSelectionOrdering {
     NoDpus,
     /// DPU records exist, but none has the selected host PF MAC.
     Mismatch,
+}
+
+/// Natural sorting key for an entire Redfish `Chassis.id`.
+///
+/// Text is converted to lowercase and ASCII decimal runs are compared
+/// numerically, so values such as `Slot2` sort before `Slot10`.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct ChassisIdSortKey {
+    /// Alternating text and number parts, beginning and ending with text.
+    parts: Vec<ChassisIdSortPart>,
+}
+
+/// One text or numeric component of a [`ChassisIdSortKey`].
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum ChassisIdSortPart {
+    /// Lowercase text between decimal runs.
+    Text(String),
+    /// An ASCII decimal run. Comparing the normalized length before the digits
+    /// provides numeric order without imposing a numeric size limit.
+    Number {
+        /// Number of normalized decimal digits.
+        significant_digit_count: usize,
+        /// Decimal digits without leading zeros, or `0` for zero.
+        digits: String,
+    },
+}
+
+/// Why all DPUs could not be ordered by Redfish `Chassis.id`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ChassisIdOrderingFailure {
+    /// At least one DPU has no unambiguous, nonblank host chassis identity.
+    MissingChassisId,
+    /// Two chassis identities become equal after lowercase and decimal normalization.
+    DuplicateChassisId,
+    /// The selected DPU has no host PF MAC address to use as the boot interface.
+    MissingHostPfMac,
+}
+
+impl Display for ChassisIdOrderingFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let message = match self {
+            Self::MissingChassisId => "missing or ambiguous host chassis ID",
+            Self::DuplicateChassisId => "duplicate normalized host chassis ID",
+            Self::MissingHostPfMac => "selected DPU has no host PF MAC address",
+        };
+        f.write_str(message)
+    }
+}
+
+/// Host inventory fields that can identify one DPU by serial number.
+#[derive(Clone, Copy)]
+struct HostDpuInventoryCandidate<'a> {
+    /// Part number used by the existing BlueField detection and mode checks.
+    part_number: Option<&'a str>,
+    /// Serial number joined to the DPU endpoint report.
+    serial_number: Option<&'a str>,
 }
 
 /// When Site Explorer last physically reset a BMC, tracked per reset method.
@@ -1559,28 +1615,10 @@ impl SiteExplorer {
             // found none.
             if dpu_exploration.expected_managed_total() == 0 {
                 for chassis in ep.report.chassis.iter() {
-                    // Some BMCs (e.g. the AMI/Lenovo GB300 host BMC) report the
-                    // BlueField as the chassis object itself -- model, part_number
-                    // and serial_number live on the chassis, while its nested
-                    // network adapter carries an empty serial. Match on the
-                    // chassis identity in that case; otherwise fall back to the
-                    // chassis's network adapters (other vendors put the DPU
-                    // serial there). Matching only one of the two per chassis
-                    // keeps a single DPU from being counted twice.
-                    let chassis_is_bluefield = chassis
-                        .part_number
-                        .as_deref()
-                        .map(str::trim)
-                        .is_some_and(is_bluefield_part_number);
-                    let chassis_has_serial = chassis
-                        .serial_number
-                        .as_deref()
-                        .map(str::trim)
-                        .is_some_and(|serial| !serial.is_empty());
-                    if chassis_is_bluefield && chassis_has_serial {
+                    for record in host_dpu_inventory_records(chassis) {
                         self.record_host_dpu_device(
-                            chassis.part_number.as_deref(),
-                            chassis.serial_number.as_deref(),
+                            record.part_number,
+                            record.serial_number,
                             &dpu_sn_to_endpoint,
                             host_dpu_policy,
                             &ep,
@@ -1588,19 +1626,6 @@ impl SiteExplorer {
                             metrics,
                         )
                         .await;
-                    } else {
-                        for network_adapter in chassis.network_adapters.iter() {
-                            self.record_host_dpu_device(
-                                network_adapter.part_number.as_deref(),
-                                network_adapter.serial_number.as_deref(),
-                                &dpu_sn_to_endpoint,
-                                host_dpu_policy,
-                                &ep,
-                                &mut dpu_exploration,
-                                metrics,
-                            )
-                            .await;
-                        }
                     }
                 }
             }
@@ -1788,9 +1813,15 @@ impl SiteExplorer {
                 }
             }
 
-            // If we know the booting interface of the host, we should use this for deciding
-            // primary interface.
-            let mut is_sorted = false;
+            // The host report owns the physical chassis identity, while each
+            // `ExploredDpu` owns the DPU endpoint report. Join those views by
+            // the same serial number used for DPU pairing before we choose a
+            // fallback order.
+            Self::assign_host_chassis_ids(&ep.report, &mut dpus_explored_for_host);
+
+            // ExpectedMachine and complete UEFI PCI evidence resolve the order
+            // before either provisional Redfish fallback is considered.
+            let mut dpu_order_resolved = false;
             let mut primary_interface_selection = ep
                 .report
                 .select_host_primary_interface(&dpus_explored_for_host, declared_primary);
@@ -1807,7 +1838,7 @@ impl SiteExplorer {
                     &mut dpus_explored_for_host,
                     selection.mac_address,
                 ) {
-                    ReportSelectionOrdering::Applied => is_sorted = true,
+                    ReportSelectionOrdering::Applied => dpu_order_resolved = true,
                     ReportSelectionOrdering::NoDpus => {}
                     ReportSelectionOrdering::Mismatch => {
                         let all_mac = dpus_explored_for_host
@@ -1834,7 +1865,27 @@ impl SiteExplorer {
                 }
             }
 
-            if !is_sorted {
+            if !dpu_order_resolved && dpus_explored_for_host.len() > 1 {
+                match Self::sort_dpus_by_redfish_chassis_id(&mut dpus_explored_for_host) {
+                    Ok(selection) => {
+                        primary_interface_selection = Some(selection);
+                        dpu_order_resolved = true;
+                    }
+                    Err(error) => {
+                        tracing::debug!(
+                            host_bmc_ip_address = %ep.address,
+                            host_chassis_ids = ?dpus_explored_for_host
+                                .iter()
+                                .map(|dpu| dpu.host_chassis_id.as_deref())
+                                .collect_vec(),
+                            %error,
+                            "Cannot order DPUs using Redfish chassis IDs; falling back to Redfish serial numbers",
+                        );
+                    }
+                }
+            }
+
+            if !dpu_order_resolved {
                 // Serial ordering is the existing deterministic fallback. Keep
                 // its result beside the selected MAC so machine creation can
                 // persist the exact reason only when that same MAC becomes the
@@ -1948,6 +1999,68 @@ impl SiteExplorer {
         txn.commit().await?;
 
         Ok(managed_hosts)
+    }
+
+    /// `assign_host_chassis_ids` joins each explored DPU to one host BMC
+    /// `Chassis.id` through the serial number used for DPU pairing. A missing,
+    /// blank, or ambiguous chassis identity remains `None`, which prevents a
+    /// partial chassis ordering later in this pass.
+    fn assign_host_chassis_ids(host_report: &EndpointExplorationReport, dpus: &mut [ExploredDpu]) {
+        let chassis_ids = host_chassis_ids_by_dpu_serial(host_report);
+        for dpu in dpus {
+            dpu.host_chassis_id = dpu
+                .report
+                .dpu_pairing_serial_number()
+                .and_then(|serial| chassis_ids.get(serial))
+                .cloned()
+                .flatten();
+        }
+    }
+
+    /// Orders all DPUs by each full host `Chassis.id` after lowercasing text and
+    /// comparing ASCII decimal runs numerically. The caller first assigns the
+    /// trimmed, unambiguous identities through [`Self::assign_host_chassis_ids`].
+    /// Validation precedes mutation so every failure leaves discovery order
+    /// intact for the fallback that orders by serial number.
+    fn sort_dpus_by_redfish_chassis_id(
+        dpus: &mut [ExploredDpu],
+    ) -> Result<HostPrimaryInterfaceSelection, ChassisIdOrderingFailure> {
+        debug_assert!(
+            dpus.len() > 1,
+            "chassis ordering is only needed for hosts with multiple DPUs"
+        );
+
+        let keys = dpus
+            .iter()
+            .map(|dpu| {
+                let id = dpu
+                    .host_chassis_id
+                    .as_deref()
+                    .filter(|id| !id.is_empty())
+                    .ok_or(ChassisIdOrderingFailure::MissingChassisId)?;
+                Ok(chassis_id_sort_key(id))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mut unique = HashSet::with_capacity(keys.len());
+        if keys.iter().any(|key| !unique.insert(key)) {
+            return Err(ChassisIdOrderingFailure::DuplicateChassisId);
+        }
+
+        let mut ordered = dpus.iter().cloned().zip(keys).collect_vec();
+        ordered.sort_by(|(_, left), (_, right)| left.cmp(right));
+        let mac_address = ordered
+            .first()
+            .and_then(|(dpu, _)| dpu.host_pf_mac_address)
+            .ok_or(ChassisIdOrderingFailure::MissingHostPfMac)?;
+        for (target, (dpu, _)) in dpus.iter_mut().zip(ordered) {
+            *target = dpu;
+        }
+
+        Ok(HostPrimaryInterfaceSelection {
+            mac_address,
+            source: BootInterfaceSelectionSource::RedfishChassisId,
+        })
     }
 
     /// Applies the existing case-insensitive Redfish serial number fallback and
@@ -4352,6 +4465,101 @@ fn duplicate_bluefield_serial<'a>(
     (!seen.insert(serial_number)).then_some(serial_number)
 }
 
+/// `host_dpu_inventory_records` applies the existing chassis inventory rule in
+/// one place. Some BMCs put the BlueField identity on the chassis itself;
+/// others put it on a nested network adapter. Reading only one form prevents a
+/// single DPU from being counted twice.
+fn host_dpu_inventory_records(chassis: &Chassis) -> Vec<HostDpuInventoryCandidate<'_>> {
+    let chassis_is_bluefield = chassis
+        .part_number
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(is_bluefield_part_number);
+    let chassis_has_serial = chassis
+        .serial_number
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|serial| !serial.is_empty());
+
+    if chassis_is_bluefield && chassis_has_serial {
+        return vec![HostDpuInventoryCandidate {
+            part_number: chassis.part_number.as_deref(),
+            serial_number: chassis.serial_number.as_deref(),
+        }];
+    }
+
+    chassis
+        .network_adapters
+        .iter()
+        .map(|adapter| HostDpuInventoryCandidate {
+            part_number: adapter.part_number.as_deref(),
+            serial_number: adapter.serial_number.as_deref(),
+        })
+        .collect()
+}
+
+/// `host_chassis_ids_by_dpu_serial` keeps one usable parent `Chassis.id` for
+/// each host reported DPU serial. A blank identity or conflicting IDs for one
+/// serial become `None`, which makes the whole host use the safer serial
+/// fallback.
+fn host_chassis_ids_by_dpu_serial(
+    report: &EndpointExplorationReport,
+) -> HashMap<String, Option<String>> {
+    let mut chassis_ids = HashMap::<String, Option<String>>::new();
+    for chassis in &report.chassis {
+        for record in host_dpu_inventory_records(chassis) {
+            let Some(serial_number) = record.serial_number.map(str::trim).none_if_empty() else {
+                continue;
+            };
+            let candidate = chassis.id.trim().none_if_empty().map(str::to_string);
+            chassis_ids
+                .entry(serial_number.to_string())
+                .and_modify(|existing| {
+                    if existing.as_deref() != candidate.as_deref() {
+                        *existing = None;
+                    }
+                })
+                .or_insert(candidate);
+        }
+    }
+    chassis_ids
+}
+
+/// Builds a natural sorting key from the full chassis ID.
+///
+/// Lowercase text stays in place and ASCII decimal runs are normalized without
+/// a numeric size limit.
+fn chassis_id_sort_key(id: &str) -> ChassisIdSortKey {
+    let bytes = id.as_bytes();
+    let mut parts = Vec::new();
+    let mut cursor = 0;
+
+    while let Some(relative_start) = bytes[cursor..]
+        .iter()
+        .position(|byte| byte.is_ascii_digit())
+    {
+        let number_start = cursor + relative_start;
+        parts.push(ChassisIdSortPart::Text(
+            id[cursor..number_start].to_lowercase(),
+        ));
+
+        let number_end = bytes[number_start..]
+            .iter()
+            .position(|byte| !byte.is_ascii_digit())
+            .map_or(bytes.len(), |relative_end| number_start + relative_end);
+        let digits = id[number_start..number_end].trim_start_matches('0');
+        let digits = if digits.is_empty() { "0" } else { digits };
+        parts.push(ChassisIdSortPart::Number {
+            significant_digit_count: digits.len(),
+            digits: digits.to_string(),
+        });
+        cursor = number_end;
+    }
+    parts.push(ChassisIdSortPart::Text(id[cursor..].to_lowercase()));
+
+    ChassisIdSortKey { parts }
+}
+
 /// Queues a complete host boot-interface pair for endpoint persistence.
 ///
 /// A report that resolves only the MAC must not overwrite the last-known-good
@@ -4454,6 +4662,7 @@ fn classify_matched_dpu(
     DiscoveredDpu::RunningAsDpu(ExploredDpu {
         bmc_ip: dpu_ep.address,
         host_pf_mac_address: get_host_pf_mac_address(dpu_ep),
+        host_chassis_id: None,
         report: dpu_ep.report.clone().into(),
     })
 }
@@ -4539,7 +4748,7 @@ mod tests {
     use carbide_test_support::{Case, Check, check_cases, check_values, value_scenarios};
     use config_version::ConfigVersion;
     use model::expected_machine::ExpectedInterfaceRole;
-    use model::site_explorer::{ComputerSystem, PreingestionState};
+    use model::site_explorer::{ComputerSystem, NetworkAdapter, PreingestionState};
 
     use super::*;
 
@@ -5349,6 +5558,85 @@ mod tests {
     }
 
     #[test]
+    fn host_chassis_id_correlation_requires_one_nonblank_parent_identity() {
+        let nested = |id: &str, serials: &[&str]| Chassis {
+            id: id.to_string(),
+            network_adapters: serials
+                .iter()
+                .enumerate()
+                .map(|(index, serial)| NetworkAdapter {
+                    id: format!("adapter-{index}"),
+                    serial_number: Some((*serial).to_string()),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let direct = |id: &str, serial: &str| Chassis {
+            id: id.to_string(),
+            part_number: Some("900-9D3B6-00CV-AA0".to_string()),
+            serial_number: Some(serial.to_string()),
+            ..Default::default()
+        };
+        let expected = |entries: &[(&str, Option<&str>)]| {
+            entries
+                .iter()
+                .map(|(serial, id)| ((*serial).to_string(), id.map(|id| id.to_string())))
+                .collect::<HashMap<_, _>>()
+        };
+
+        check_values(
+            [
+                Check {
+                    scenario: "chassis and nested adapter serials both correlate",
+                    input: vec![
+                        direct("Riser_Slot1", " DPU-1 "),
+                        nested("Riser_Slot2", &["DPU-2"]),
+                    ],
+                    expect: expected(&[
+                        ("DPU-1", Some("Riser_Slot1")),
+                        ("DPU-2", Some("Riser_Slot2")),
+                    ]),
+                },
+                Check {
+                    scenario: "repeated serial under the same chassis retains one identity",
+                    input: vec![nested("Riser_Slot1", &["DPU-1", "DPU-1"])],
+                    expect: expected(&[("DPU-1", Some("Riser_Slot1"))]),
+                },
+                Check {
+                    scenario: "surrounding chassis identity whitespace is removed",
+                    input: vec![nested("  Riser_Slot1 Card  ", &["DPU-1"])],
+                    expect: expected(&[("DPU-1", Some("Riser_Slot1 Card"))]),
+                },
+                Check {
+                    scenario: "serial under different chassis objects is ambiguous",
+                    input: vec![
+                        nested("Riser_Slot1", &["DPU-1"]),
+                        nested("Riser_Slot2", &["DPU-1"]),
+                    ],
+                    expect: expected(&[("DPU-1", None)]),
+                },
+                Check {
+                    scenario: "empty chassis identity is unusable",
+                    input: vec![nested("", &["DPU-1"])],
+                    expect: expected(&[("DPU-1", None)]),
+                },
+                Check {
+                    scenario: "whitespace-only chassis identity is unusable",
+                    input: vec![nested("   ", &["DPU-1"])],
+                    expect: expected(&[("DPU-1", None)]),
+                },
+            ],
+            |chassis| {
+                host_chassis_ids_by_dpu_serial(&EndpointExplorationReport {
+                    chassis,
+                    ..Default::default()
+                })
+            },
+        );
+    }
+
+    #[test]
     fn test_find_host_pf_mac_address() {
         // A freshly-loaded BF2 endpoint; each case starts from one of these and
         // perturbs the firmware inventory the legacy MAC lookup reads from.
@@ -5464,11 +5752,188 @@ mod tests {
         );
     }
 
+    /// Builds one explored DPU for chassis ordering tests. The final MAC byte
+    /// keeps expected orders compact and readable.
+    fn chassis_ordering_dpu(chassis_id: Option<&str>, mac_last_byte: Option<u8>) -> ExploredDpu {
+        ExploredDpu {
+            bmc_ip: "192.0.2.1".parse().unwrap(),
+            host_pf_mac_address: mac_last_byte.map(fallback_ordering_mac),
+            host_chassis_id: chassis_id.map(str::to_string),
+            report: Arc::new(EndpointExplorationReport {
+                systems: vec![ComputerSystem {
+                    serial_number: Some("DPU-SERIAL".to_string()),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+        }
+    }
+
+    /// Returns the locally administered MAC used by fallback ordering tests.
+    fn fallback_ordering_mac(last_byte: u8) -> MacAddress {
+        MacAddress::new([0x02, 0, 0, 0, 0, last_byte])
+    }
+
+    #[test]
+    fn redfish_chassis_ordering_uses_a_lowercase_natural_key_for_the_full_id() {
+        value_scenarios!(run = |mut dpus| {
+                let selection = SiteExplorer::sort_dpus_by_redfish_chassis_id(&mut dpus)
+                    .expect("full unique chassis IDs should resolve an order");
+                (
+                    dpus.iter()
+                        .filter_map(|dpu| dpu.host_pf_mac_address)
+                        .collect_vec(),
+                    selection,
+                )
+            };
+            "slot numbers order naturally after lowercasing" {
+                vec![
+                    chassis_ordering_dpu(Some("Slot10"), Some(10)),
+                    chassis_ordering_dpu(Some("slot2"), Some(2)),
+                    chassis_ordering_dpu(Some("SLOT11"), Some(11)),
+                    chassis_ordering_dpu(Some("sLoT1"), Some(1)),
+                ] => (
+                    vec![
+                        fallback_ordering_mac(1),
+                        fallback_ordering_mac(2),
+                        fallback_ordering_mac(10),
+                        fallback_ordering_mac(11),
+                    ],
+                    HostPrimaryInterfaceSelection {
+                        mac_address: fallback_ordering_mac(1),
+                        source: BootInterfaceSelectionSource::RedfishChassisId,
+                    },
+                ),
+            }
+            "multiple numeric runs participate in full ID ordering" {
+                vec![
+                    chassis_ordering_dpu(Some("Riser2_Slot1"), Some(3)),
+                    chassis_ordering_dpu(Some("Riser1_Slot11"), Some(2)),
+                    chassis_ordering_dpu(Some("Riser1_Slot2"), Some(1)),
+                ] => (
+                    vec![
+                        fallback_ordering_mac(1),
+                        fallback_ordering_mac(2),
+                        fallback_ordering_mac(3),
+                    ],
+                    HostPrimaryInterfaceSelection {
+                        mac_address: fallback_ordering_mac(1),
+                        source: BootInterfaceSelectionSource::RedfishChassisId,
+                    },
+                ),
+            }
+            "digitless identities order by lowercase text" {
+                vec![
+                    chassis_ordering_dpu(Some("secondaryDpu"), Some(2)),
+                    chassis_ordering_dpu(Some("PrimaryDPU"), Some(1)),
+                ] => (
+                    vec![fallback_ordering_mac(1), fallback_ordering_mac(2)],
+                    HostPrimaryInterfaceSelection {
+                        mac_address: fallback_ordering_mac(1),
+                        source: BootInterfaceSelectionSource::RedfishChassisId,
+                    },
+                ),
+            }
+            "different ID structures use full natural order" {
+                vec![
+                    chassis_ordering_dpu(Some("Riser_Slot2"), Some(2)),
+                    chassis_ordering_dpu(Some("Bay11/DPU"), Some(1)),
+                ] => (
+                    vec![fallback_ordering_mac(1), fallback_ordering_mac(2)],
+                    HostPrimaryInterfaceSelection {
+                        mac_address: fallback_ordering_mac(1),
+                        source: BootInterfaceSelectionSource::RedfishChassisId,
+                    },
+                ),
+            }
+            "large decimal runs have no numeric size limit" {
+                vec![
+                    chassis_ordering_dpu(Some("Slot18446744073709551617"), Some(2)),
+                    chassis_ordering_dpu(Some("Slot18446744073709551616"), Some(1)),
+                ] => (
+                    vec![fallback_ordering_mac(1), fallback_ordering_mac(2)],
+                    HostPrimaryInterfaceSelection {
+                        mac_address: fallback_ordering_mac(1),
+                        source: BootInterfaceSelectionSource::RedfishChassisId,
+                    },
+                ),
+            }
+            "text and numeric prefixes remain ordered" {
+                vec![
+                    chassis_ordering_dpu(Some("Slot1A2"), Some(4)),
+                    chassis_ordering_dpu(Some("Slot1A"), Some(3)),
+                    chassis_ordering_dpu(Some("Slot1"), Some(2)),
+                    chassis_ordering_dpu(Some("Slot"), Some(1)),
+                ] => (
+                    vec![
+                        fallback_ordering_mac(1),
+                        fallback_ordering_mac(2),
+                        fallback_ordering_mac(3),
+                        fallback_ordering_mac(4),
+                    ],
+                    HostPrimaryInterfaceSelection {
+                        mac_address: fallback_ordering_mac(1),
+                        source: BootInterfaceSelectionSource::RedfishChassisId,
+                    },
+                ),
+            }
+            "Unicode text is lowercased around ASCII decimal runs" {
+                vec![
+                    chassis_ordering_dpu(Some("Ä10"), Some(2)),
+                    chassis_ordering_dpu(Some("ä2"), Some(1)),
+                ] => (
+                    vec![fallback_ordering_mac(1), fallback_ordering_mac(2)],
+                    HostPrimaryInterfaceSelection {
+                        mac_address: fallback_ordering_mac(1),
+                        source: BootInterfaceSelectionSource::RedfishChassisId,
+                    },
+                ),
+            }
+        );
+    }
+
+    #[test]
+    fn redfish_chassis_ordering_failures_leave_discovery_order_intact() {
+        value_scenarios!(run = |mut dpus| {
+                let discovery_order = dpus.clone();
+                let failure = SiteExplorer::sort_dpus_by_redfish_chassis_id(&mut dpus)
+                    .expect_err("invalid chassis evidence must not resolve an order");
+                assert_eq!(dpus, discovery_order);
+                failure
+            };
+            "missing identity" {
+                vec![
+                    chassis_ordering_dpu(None, Some(1)),
+                    chassis_ordering_dpu(Some("Riser_Slot2"), Some(2)),
+                ] => ChassisIdOrderingFailure::MissingChassisId,
+            }
+            "empty identity" {
+                vec![
+                    chassis_ordering_dpu(Some(""), Some(1)),
+                    chassis_ordering_dpu(Some("Riser_Slot2"), Some(2)),
+                ] => ChassisIdOrderingFailure::MissingChassisId,
+            }
+            "equal normalized identities" {
+                vec![
+                    chassis_ordering_dpu(Some("Slot01"), Some(1)),
+                    chassis_ordering_dpu(Some("slot1"), Some(2)),
+                ] => ChassisIdOrderingFailure::DuplicateChassisId,
+            }
+            "selected DPU has no host PF MAC address" {
+                vec![
+                    chassis_ordering_dpu(Some("Riser_Slot2"), Some(2)),
+                    chassis_ordering_dpu(Some("Riser_Slot1"), None),
+                ] => ChassisIdOrderingFailure::MissingHostPfMac,
+            }
+        );
+    }
+
     #[test]
     fn redfish_serial_fallback_preserves_existing_winner_semantics() {
         let dpu = |serial_number: Option<&str>, mac_last_byte| ExploredDpu {
             bmc_ip: "192.0.2.1".parse().unwrap(),
-            host_pf_mac_address: Some(MacAddress::new([0x02, 0, 0, 0, 0, mac_last_byte])),
+            host_pf_mac_address: Some(fallback_ordering_mac(mac_last_byte)),
+            host_chassis_id: None,
             report: Arc::new(EndpointExplorationReport {
                 systems: vec![ComputerSystem {
                     serial_number: serial_number.map(str::to_string),
@@ -5477,17 +5942,15 @@ mod tests {
                 ..Default::default()
             }),
         };
-        let mac = |last| MacAddress::new([0x02, 0, 0, 0, 0, last]);
-
         check_values(
             [
                 Check {
                     scenario: "lower serial wins case-insensitively",
                     input: vec![dpu(Some("ZETA"), 1), dpu(Some("alpha"), 2)],
                     expect: (
-                        vec![mac(2), mac(1)],
+                        vec![fallback_ordering_mac(2), fallback_ordering_mac(1)],
                         Some(HostPrimaryInterfaceSelection {
-                            mac_address: mac(2),
+                            mac_address: fallback_ordering_mac(2),
                             source: BootInterfaceSelectionSource::RedfishSerialNumber,
                         }),
                     ),
@@ -5496,9 +5959,9 @@ mod tests {
                     scenario: "equal serials retain discovery order",
                     input: vec![dpu(Some("ALPHA"), 1), dpu(Some("alpha"), 2)],
                     expect: (
-                        vec![mac(1), mac(2)],
+                        vec![fallback_ordering_mac(1), fallback_ordering_mac(2)],
                         Some(HostPrimaryInterfaceSelection {
-                            mac_address: mac(1),
+                            mac_address: fallback_ordering_mac(1),
                             source: BootInterfaceSelectionSource::RedfishSerialNumber,
                         }),
                     ),
@@ -5507,9 +5970,9 @@ mod tests {
                     scenario: "missing and empty serials retain discovery order",
                     input: vec![dpu(None, 1), dpu(Some(""), 2)],
                     expect: (
-                        vec![mac(1), mac(2)],
+                        vec![fallback_ordering_mac(1), fallback_ordering_mac(2)],
                         Some(HostPrimaryInterfaceSelection {
-                            mac_address: mac(1),
+                            mac_address: fallback_ordering_mac(1),
                             source: BootInterfaceSelectionSource::RedfishSerialNumber,
                         }),
                     ),
@@ -5518,9 +5981,9 @@ mod tests {
                     scenario: "missing serial keeps the established empty-key priority",
                     input: vec![dpu(Some("alpha"), 1), dpu(None, 2)],
                     expect: (
-                        vec![mac(2), mac(1)],
+                        vec![fallback_ordering_mac(2), fallback_ordering_mac(1)],
                         Some(HostPrimaryInterfaceSelection {
-                            mac_address: mac(2),
+                            mac_address: fallback_ordering_mac(2),
                             source: BootInterfaceSelectionSource::RedfishSerialNumber,
                         }),
                     ),
@@ -5536,6 +5999,7 @@ mod tests {
             },
         );
 
+        let mac = fallback_ordering_mac;
         check_values(
             [
                 Check {

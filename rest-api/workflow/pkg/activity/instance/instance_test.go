@@ -216,6 +216,23 @@ func TestManageInstance_UpdateInstancesInDBVpcSelectionInventory(t *testing.T) {
 	deviceLessInstance := buildInstance("device-less-vpc-selection")
 	deviceInstance := buildInstance("device-vpc-selection")
 	shortStatusInstance := buildInstance("short-vpc-selection-status")
+	nilConfigInstance := buildInstance("nil-config-vpc-selection")
+	reportedPowerProfile := "reported-power-profile"
+	existingPowerProfile := "existing-power-profile"
+	_, err = dbSession.DB.Exec(
+		"UPDATE instance SET power_profile = ?, updated = ? WHERE id = ?",
+		existingPowerProfile,
+		time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2),
+		deviceInstance.ID,
+	)
+	require.NoError(t, err)
+	_, err = dbSession.DB.Exec(
+		"UPDATE instance SET power_profile = ?, is_missing_on_site = true, updated = ? WHERE id = ?",
+		existingPowerProfile,
+		time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2),
+		nilConfigInstance.ID,
+	)
+	require.NoError(t, err)
 	interfaceDAO := cdbm.NewInterfaceDAO(dbSession)
 	createInterface := func(instanceID uuid.UUID, familyMode cdbm.InterfaceVpcIPFamilyMode, isPhysical bool, device *string, deviceInstance, virtualFunctionID *int) *cdbm.Interface {
 		ifc, createErr := interfaceDAO.Create(ctx, nil, cdbm.InterfaceCreateInput{
@@ -276,14 +293,17 @@ func TestManageInstance_UpdateInstancesInDBVpcSelectionInventory(t *testing.T) {
 	inventory := &corev1.InstanceInventory{Instances: []*corev1.Instance{
 		{
 			Id: &corev1.InstanceId{Value: deviceLessInstance.ControllerInstanceID.String()},
-			Config: &corev1.InstanceConfig{Network: &corev1.InstanceNetworkConfig{Interfaces: []*corev1.InstanceInterfaceConfig{
-				{
-					FunctionType: corev1.InterfaceFunctionType_PHYSICAL_FUNCTION,
-					NetworkDetails: selection(
-						corev1.InstanceInterfaceIpFamilyMode_INSTANCE_INTERFACE_IP_FAMILY_MODE_DUAL_STACK,
-					),
-				},
-			}}},
+			Config: &corev1.InstanceConfig{
+				PowerProfile: &reportedPowerProfile,
+				Network: &corev1.InstanceNetworkConfig{Interfaces: []*corev1.InstanceInterfaceConfig{
+					{
+						FunctionType: corev1.InterfaceFunctionType_PHYSICAL_FUNCTION,
+						NetworkDetails: selection(
+							corev1.InstanceInterfaceIpFamilyMode_INSTANCE_INTERFACE_IP_FAMILY_MODE_DUAL_STACK,
+						),
+					},
+				}},
+			},
 			Status: &corev1.InstanceStatus{
 				Tenant: &corev1.InstanceTenantStatus{State: corev1.TenantState_READY},
 				Network: &corev1.InstanceNetworkStatus{
@@ -329,6 +349,11 @@ func TestManageInstance_UpdateInstancesInDBVpcSelectionInventory(t *testing.T) {
 					ConfigsSynced: corev1.SyncState_SYNCED,
 				},
 			},
+		},
+		{
+			Id:     &corev1.InstanceId{Value: nilConfigInstance.ControllerInstanceID.String()},
+			Config: nil,
+			Status: &corev1.InstanceStatus{Tenant: &corev1.InstanceTenantStatus{State: corev1.TenantState_READY}},
 		},
 	}}
 
@@ -383,6 +408,15 @@ func TestManageInstance_UpdateInstancesInDBVpcSelectionInventory(t *testing.T) {
 	require.NotNil(t, updatedDeviceIfc.Device)
 	assert.Equal(t, device, *updatedDeviceIfc.Device)
 
+	reportedProfilePersisted, err := instanceDAO.GetByID(ctx, nil, deviceLessInstance.ID, nil)
+	require.NoError(t, err)
+	require.NotNil(t, reportedProfilePersisted.PowerProfile)
+	assert.Equal(t, reportedPowerProfile, *reportedProfilePersisted.PowerProfile)
+
+	existingProfileCleared, err := instanceDAO.GetByID(ctx, nil, deviceInstance.ID, nil)
+	require.NoError(t, err)
+	assert.Nil(t, existingProfileCleared.PowerProfile)
+
 	// A config without an aligned status entry must leave its Interface untouched.
 	shortStatusUnchanged, err := interfaceDAO.GetByID(ctx, nil, shortStatusIfc.ID, nil)
 	require.NoError(t, err)
@@ -392,6 +426,13 @@ func TestManageInstance_UpdateInstancesInDBVpcSelectionInventory(t *testing.T) {
 	assert.Equal(t, cdbm.InterfaceVpcIPFamilyModeIPv4Only, *shortStatusUnchanged.VpcIPFamilyMode)
 	assert.Nil(t, shortStatusUnchanged.MacAddress)
 	assert.Equal(t, cdbm.InterfaceStatusPending, shortStatusUnchanged.Status)
+
+	// An incomplete inventory entry must not panic or clear persisted state.
+	nilConfigUnchanged, err := instanceDAO.GetByID(ctx, nil, nilConfigInstance.ID, nil)
+	require.NoError(t, err)
+	require.NotNil(t, nilConfigUnchanged.PowerProfile)
+	assert.Equal(t, existingPowerProfile, *nilConfigUnchanged.PowerProfile)
+	assert.True(t, nilConfigUnchanged.IsMissingOnSite)
 
 	// Pending inventory is not authoritative enough to clear either resolution.
 	inventory.Instances[0].Status.Network.Interfaces[0].ResolvedVpcPrefixes = nil

@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	dbquery "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/query"
@@ -524,6 +525,7 @@ func TestBMCFrom(t *testing.T) {
 }
 
 func TestComponentConverter(t *testing.T) {
+	domainID := uuid.New()
 	shared := component.Component{
 		Type:            devicetypes.ComponentTypeCompute,
 		Info:            deviceinfo.NewRandom("TestComponent", 6),
@@ -533,7 +535,8 @@ func TestComponentConverter(t *testing.T) {
 			TrayIndex: 12,
 			HostID:    0,
 		},
-		BmcsByType: make(map[devicetypes.BMCType][]bmc.BMC),
+		BmcsByType:  make(map[devicetypes.BMCType][]bmc.BMC),
+		NVLDomainID: domainID,
 	}
 
 	sharedP := pb.Component{
@@ -552,7 +555,8 @@ func TestComponentConverter(t *testing.T) {
 			TrayIdx: int32(shared.Position.TrayIndex),
 			HostId:  int32(shared.Position.HostID),
 		},
-		Bmcs: make([]*pb.BMCInfo, 0),
+		Bmcs:        make([]*pb.BMCInfo, 0),
+		NvlDomainId: &pb.UUID{Id: domainID.String()},
 	}
 
 	testCases := map[string]struct {
@@ -584,6 +588,7 @@ func TestComponentConverter(t *testing.T) {
 }
 
 func TestRackConverter(t *testing.T) {
+	domainID := uuid.New()
 	shared := rack.Rack{
 		Info: deviceinfo.NewRandom("TestRack", 12),
 		Loc: location.Location{
@@ -592,7 +597,8 @@ func TestRackConverter(t *testing.T) {
 			Room:       "Mars",
 			Position:   "Row 12",
 		},
-		Components: make([]component.Component, 0),
+		Components:  make([]component.Component, 0),
+		NVLDomainID: domainID,
 	}
 
 	sharedP := pb.Rack{
@@ -610,9 +616,9 @@ func TestRackConverter(t *testing.T) {
 			Room:       shared.Loc.Room,
 			Position:   shared.Loc.Position,
 		},
-		Components: make([]*pb.Component, 0),
+		Components:   make([]*pb.Component, 0),
+		NvlDomainIds: []*pb.UUID{{Id: domainID.String()}},
 	}
-
 	testCases := map[string]struct {
 		source     *rack.Rack
 		sourceP    *pb.Rack
@@ -639,6 +645,39 @@ func TestRackConverter(t *testing.T) {
 			assert.Equal(t, testCase.convertedP, RackTo(testCase.source))
 		})
 	}
+}
+
+func TestRackConverterPropagatesDomainToNestedComponents(t *testing.T) {
+	domainID := uuid.New()
+	explicitComponentDomainID := uuid.New()
+	componentID := uuid.New()
+
+	fromProto := RackFrom(&pb.Rack{
+		Info:         &pb.DeviceInfo{Id: UUIDTo(uuid.New())},
+		NvlDomainIds: UUIDsTo([]uuid.UUID{domainID, uuid.New()}),
+		Components: []*pb.Component{
+			{Info: &pb.DeviceInfo{Id: UUIDTo(componentID)}},
+			{
+				Info:        &pb.DeviceInfo{Id: UUIDTo(uuid.New())},
+				NvlDomainId: UUIDTo(explicitComponentDomainID),
+			},
+		},
+	})
+	require.Len(t, fromProto.Components, 2)
+	assert.Equal(t, domainID, fromProto.NVLDomainID)
+	assert.Equal(t, domainID, fromProto.Components[0].NVLDomainID)
+	assert.Equal(t, explicitComponentDomainID, fromProto.Components[1].NVLDomainID)
+
+	toProto := RackTo(&rack.Rack{
+		NVLDomainID: domainID,
+		Components: []component.Component{
+			{Info: deviceinfo.DeviceInfo{ID: componentID}},
+			{NVLDomainID: explicitComponentDomainID},
+		},
+	})
+	require.Len(t, toProto.GetComponents(), 2)
+	assert.Equal(t, domainID.String(), toProto.GetComponents()[0].GetNvlDomainId().GetId())
+	assert.Equal(t, explicitComponentDomainID.String(), toProto.GetComponents()[1].GetNvlDomainId().GetId())
 }
 
 func TestOrderByConverter(t *testing.T) {

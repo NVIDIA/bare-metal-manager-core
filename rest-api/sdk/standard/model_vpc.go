@@ -39,10 +39,12 @@ type VPC struct {
 	ControllerVpcId NullableString `json:"controllerVpcId,omitempty"`
 	// Network virtualization type of the VPC. Flat VPCs hold instances on zero-DPU hosts (or hosts with their DPU in NIC mode); their interfaces are bound to underlay (HostInband) network segments and NICo does not drive their data plane.
 	NetworkVirtualizationType NullableString `json:"networkVirtualizationType,omitempty"`
-	// Whether this VPC uses SLAAC allocation mode for instance IPv6 interfaces. This value is fixed when the VPC is created. Complete SLAAC support depends on allocating a `/64` to each interface, tracked by https://github.com/NVIDIA/infra-controller/issues/2404, and router advertisement (RA) support, tracked by https://github.com/NVIDIA/infra-controller/issues/2398.
+	// Whether this VPC uses SLAAC allocation mode for instance IPv6 interfaces. When true, Core allocates a `/64` to each interface that includes IPv6 and retains the prefix without assigning a concrete IPv6 host address. This value is fixed when the VPC is created. NICo does not yet configure router advertisements (RAs); that support is tracked by https://github.com/NVIDIA/infra-controller/issues/2398.
 	SlaacEnabled *bool `json:"slaacEnabled,omitempty"`
 	// Routing profile type for the VPC. Populated when Site has Native Networking enabled and network virtualization type is `FNN`.
 	RoutingProfile NullableString `json:"routingProfile,omitempty"`
+	// External power provisioning resource group associated with the VPC.
+	PowerResourceGroup NullableString `json:"powerResourceGroup,omitempty"`
 	// Routing-profile properties set directly on the VPC. Unset properties inherit from the named routing profile.
 	RoutingProfileOverrides NullableVpcRoutingProfileOverrides `json:"routingProfileOverrides,omitempty"`
 	// Fully resolved routing profile last reported by Core for the VPC. This property is included only when the requesting Tenant has effective TargetedInstanceCreation permission for the VPC's Site.
@@ -448,6 +450,49 @@ func (o *VPC) SetRoutingProfileNil() {
 // UnsetRoutingProfile ensures that no value is present for RoutingProfile, not even an explicit nil
 func (o *VPC) UnsetRoutingProfile() {
 	o.RoutingProfile.Unset()
+}
+
+// GetPowerResourceGroup returns the PowerResourceGroup field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *VPC) GetPowerResourceGroup() string {
+	if o == nil || IsNil(o.PowerResourceGroup.Get()) {
+		var ret string
+		return ret
+	}
+	return *o.PowerResourceGroup.Get()
+}
+
+// GetPowerResourceGroupOk returns a tuple with the PowerResourceGroup field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+func (o *VPC) GetPowerResourceGroupOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.PowerResourceGroup.Get(), o.PowerResourceGroup.IsSet()
+}
+
+// HasPowerResourceGroup returns a boolean if a field has been set.
+func (o *VPC) HasPowerResourceGroup() bool {
+	if o != nil && o.PowerResourceGroup.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetPowerResourceGroup gets a reference to the given NullableString and assigns it to the PowerResourceGroup field.
+func (o *VPC) SetPowerResourceGroup(v string) {
+	o.PowerResourceGroup.Set(&v)
+}
+
+// SetPowerResourceGroupNil sets the value for PowerResourceGroup to be an explicit nil
+func (o *VPC) SetPowerResourceGroupNil() {
+	o.PowerResourceGroup.Set(nil)
+}
+
+// UnsetPowerResourceGroup ensures that no value is present for PowerResourceGroup, not even an explicit nil
+func (o *VPC) UnsetPowerResourceGroup() {
+	o.PowerResourceGroup.Unset()
 }
 
 // GetRoutingProfileOverrides returns the RoutingProfileOverrides field value if set, zero value otherwise (both if not set or set to explicit null).
@@ -928,6 +973,9 @@ func (o VPC) ToMap() (map[string]interface{}, error) {
 	}
 	if o.RoutingProfile.IsSet() {
 		toSerialize["routingProfile"] = o.RoutingProfile.Get()
+	}
+	if o.PowerResourceGroup.IsSet() {
+		toSerialize["powerResourceGroup"] = o.PowerResourceGroup.Get()
 	}
 	if o.RoutingProfileOverrides.IsSet() {
 		toSerialize["routingProfileOverrides"] = o.RoutingProfileOverrides.Get()

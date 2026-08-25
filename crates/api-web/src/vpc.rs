@@ -44,58 +44,38 @@ struct VpcRowDisplay {
     vni: String,
 }
 
-#[allow(deprecated)]
-fn vpc_config(vpc: &forgerpc::Vpc) -> forgerpc::VpcConfig {
-    if let Some(config) = vpc.config.clone() {
-        config
-    } else {
-        forgerpc::VpcConfig {
-            tenant_organization_id: vpc.tenant_organization_id.clone(),
-            tenant_keyset_id: vpc.tenant_keyset_id.clone(),
-            network_virtualization_type: vpc.network_virtualization_type,
-            network_security_group_id: vpc.network_security_group_id.clone(),
-            default_nvlink_logical_partition_id: vpc.default_nvlink_logical_partition_id,
-            vni: vpc.vni,
-            routing_profile_type: vpc.routing_profile_type.clone(),
-            routing_profile_overrides: None,
-            power_resource_group: None,
-            slaac_enabled: None,
-        }
-    }
-}
-
-#[allow(deprecated)]
-fn vpc_allocated_vni(vpc: &forgerpc::Vpc) -> Option<u32> {
+fn vpc_allocated_vni_display(vpc: &forgerpc::Vpc) -> String {
     vpc.status
         .as_ref()
         .and_then(|status| status.vni)
-        .or(vpc.deprecated_vni)
+        .map(|vni| vni.to_string())
+        .unwrap_or_default()
 }
 
-#[allow(deprecated)]
-fn vpc_virt_type(vpc: &forgerpc::Vpc) -> i32 {
-    vpc_config(vpc)
-        .network_virtualization_type
-        .or(vpc.network_virtualization_type)
+fn vpc_virtualization_type_display(config: &forgerpc::VpcConfig) -> String {
+    format!(
+        "{:?}",
+        forgerpc::VpcVirtualizationType::try_from(
+            config.network_virtualization_type.unwrap_or_default(),
+        )
         .unwrap_or_default()
+    )
 }
 
 impl From<forgerpc::Vpc> for VpcRowDisplay {
     fn from(vpc: forgerpc::Vpc) -> Self {
-        let config = vpc_config(&vpc);
+        let vni = vpc_allocated_vni_display(&vpc);
+        let config = vpc.config.unwrap_or_default();
+        let network_virtualization_type = vpc_virtualization_type_display(&config);
+
         Self {
-            network_virtualization_type: format!(
-                "{:?}",
-                forgerpc::VpcVirtualizationType::try_from(vpc_virt_type(&vpc)).unwrap_or_default()
-            ),
+            network_virtualization_type,
             id: vpc.id.unwrap_or_default().to_string(),
-            metadata: vpc.metadata.clone().unwrap_or_default(),
+            metadata: vpc.metadata.unwrap_or_default(),
             tenant_organization_id: config.tenant_organization_id,
             tenant_keyset_id: config.tenant_keyset_id.unwrap_or_default(),
             routing_profile_type: config.routing_profile_type.unwrap_or("None".to_string()),
-            vni: vpc_allocated_vni(&vpc)
-                .map(|vni| vni.to_string())
-                .unwrap_or_default(),
+            vni,
         }
     }
 }
@@ -201,7 +181,9 @@ struct VpcDetail {
 
 impl From<forgerpc::Vpc> for VpcDetail {
     fn from(vpc: forgerpc::Vpc) -> Self {
-        let config = vpc_config(&vpc);
+        let vni = vpc_allocated_vni_display(&vpc);
+        let config = vpc.config.unwrap_or_default();
+        let network_virtualization_type = vpc_virtualization_type_display(&config);
         let routing_profile_overrides = config
             .routing_profile_overrides
             .as_ref()
@@ -212,23 +194,18 @@ impl From<forgerpc::Vpc> for VpcDetail {
             .and_then(|status| status.effective_routing_profile.as_ref())
             .and_then(|profile| serde_json::to_string_pretty(profile).ok());
         Self {
-            network_virtualization_type: format!(
-                "{:?}",
-                forgerpc::VpcVirtualizationType::try_from(vpc_virt_type(&vpc)).unwrap_or_default()
-            ),
+            network_virtualization_type,
             id: vpc.id.unwrap_or_default().to_string(),
             tenant_organization_id: config.tenant_organization_id,
             tenant_keyset_id: config.tenant_keyset_id.unwrap_or_default(),
             routing_profile_type: config.routing_profile_type.unwrap_or("None".to_string()),
+            vni,
             has_routing_profile_overrides: routing_profile_overrides.is_some(),
             routing_profile_overrides: routing_profile_overrides.unwrap_or_default(),
             has_effective_routing_profile: effective_routing_profile.is_some(),
             effective_routing_profile: effective_routing_profile.unwrap_or_default(),
-            vni: vpc_allocated_vni(&vpc)
-                .map(|vni| vni.to_string())
-                .unwrap_or_default(),
             metadata_detail: super::MetadataDetail {
-                metadata: vpc.metadata.clone().unwrap_or_default(),
+                metadata: vpc.metadata.unwrap_or_default(),
                 metadata_version: vpc.version,
             },
             peerings: Vec::new(),

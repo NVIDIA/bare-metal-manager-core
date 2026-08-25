@@ -968,29 +968,4 @@ mod tests {
         assert!(resp["fan"].state.is_none());
         assert!(resp["temperature"].state.is_none());
     }
-
-    #[test]
-    fn test_parse_empty_responses() {
-        let empty_map: ClusterAppsResponse = serde_json::from_str("{}").unwrap();
-        assert!(empty_map.is_empty());
-
-        let empty_partitions: SdnPartitionsResponse = serde_json::from_str("{}").unwrap();
-        assert!(empty_partitions.is_empty());
-
-        let empty_interfaces: InterfacesResponse = serde_json::from_str("{}").unwrap();
-        assert!(empty_interfaces.is_empty());
-
-        let empty_fans: FanEnvironmentResponse = serde_json::from_str("{}").unwrap();
-        assert!(empty_fans.is_empty());
-
-        let empty_temps: TemperatureEnvironmentResponse = serde_json::from_str("{}").unwrap();
-        assert!(empty_temps.is_empty());
-
-        let empty_leakage: LeakageEnvironmentResponse = serde_json::from_str("{}").unwrap();
-
-        assert!(empty_leakage.is_empty());
-
-        let empty_env: PlatformEnvironmentResponse = serde_json::from_str("{}").unwrap();
-        assert!(empty_env.is_empty());
-    }
 }

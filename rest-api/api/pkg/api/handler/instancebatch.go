@@ -459,7 +459,9 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 			Msg("The Site where Instances are being created is not in Registered state")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "The Site where Instances are being created is not in Registered state", nil)
 	}
-
+	if apiErr := util.ValidateSitePowerManagement(site.Config, apiRequest.PowerProfile); apiErr != nil {
+		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
+	}
 	// Load and validate subnets and VPC prefixes (batch query for efficiency)
 	subnetDAO := cdbm.NewSubnetDAO(bcih.dbSession)
 	vpDAO := cdbm.NewVpcPrefixDAO(bcih.dbSession)
@@ -1346,6 +1348,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 				IsUpdatePending:          false,
 				Status:                   cdbm.InstanceStatusPending,
 				PowerStatus:              cutil.GetPtr(cdbm.InstancePowerStatusRebooting),
+				PowerProfile:             apiRequest.PowerProfile,
 				CreatedBy:                dbUser.ID,
 			})
 		}
@@ -1732,6 +1735,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 				},
 				Config: &corev1.InstanceConfig{
 					NetworkSecurityGroupId: instance.NetworkSecurityGroupID,
+					PowerProfile:           instance.PowerProfile,
 					Tenant: &corev1.TenantConfig{
 						TenantOrganizationId: tenant.Org,
 						TenantKeysetIds:      instanceSshKeyGroupIds,

@@ -15,8 +15,9 @@
  * limitations under the License.
  */
 
+mod batch_instance_allocation_validation;
 mod compute_allocation;
-mod connected_device;
+mod credential_management;
 mod credential_rotation;
 mod dhcp_lease_expiration;
 mod dpu_machine_inventory;
@@ -32,7 +33,6 @@ mod forge_agent_control;
 mod ib_fabric_find;
 mod machine_bmc_metadata;
 mod machine_boot_interfaces;
-mod network_device;
 mod nvlink_domain_health;
 mod operating_system;
 mod power_options;
@@ -44,6 +44,7 @@ mod rack_find;
 mod rack_profile;
 mod route_servers;
 mod scout_firmware_upgrade_status;
+mod set_primary_dpu;
 mod static_address_management;
 mod storage;
 mod switch_find;

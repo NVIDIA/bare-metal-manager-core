@@ -20,18 +20,22 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use carbide_authn::middleware::ConnectionAttributes;
-use carbide_uuid::machine::MachineInterfaceId;
+use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use chrono::{DateTime, Utc};
 use common::api_fixtures::dpu::create_dpu_machine;
 use common::api_fixtures::host::{host_discover_dhcp, host_discover_machine_with_reporter};
 use common::api_fixtures::{
     FIXTURE_DHCP_RELAY_ADDRESS, create_managed_host, create_managed_host_with_config,
     create_test_env,
 };
+use config_version::ConfigVersion;
 use itertools::Itertools;
 use mac_address::MacAddress;
-use model::hardware_info::{HardwareInfo, TpmEkCertificate};
+use model::hardware_info::{HardwareInfo, PciDeviceProperties, TpmEkCertificate};
 use model::machine::machine_id::from_hardware_info;
 use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine_boot_interface::BootInterfaceSelectionSource;
+use model::network_segment::NetworkSegmentType;
 use model::resource_pool::{ResourcePoolDef, ResourcePoolType};
 use rpc::forge::forge_server::Forge;
 use tonic::{Code, Request};
@@ -41,6 +45,9 @@ use crate::test_support::fixture_config::{FixtureDefault, ManagedHostConfigExt a
 use crate::tests::common;
 use crate::tests::common::api_fixtures::instance::{
     default_os_config, default_tenant_config, single_interface_network_config,
+};
+use crate::tests::common::api_fixtures::tpm_attestation::{
+    AK_NAME_SERIALIZED, AK_PUB_SERIALIZED, EK_PUB_SERIALIZED,
 };
 use crate::tests::common::api_fixtures::{TestEnvOverrides, create_test_env_with_overrides};
 
@@ -80,6 +87,48 @@ fn discovery_request_from(
             peer_certificates: vec![],
         }));
     request
+}
+
+/// Snapshot of the selection fields that the Scout PCI test must not rewrite.
+#[derive(Debug, PartialEq, sqlx::FromRow)]
+struct ScoutPciSelectionState {
+    current_primary_mac_address: Option<MacAddress>,
+    desired_mac_address: Option<MacAddress>,
+    desired_interface_id: Option<String>,
+    desired_version: Option<ConfigVersion>,
+    selection_source: Option<BootInterfaceSelectionSource>,
+    selection_updated_at: Option<DateTime<Utc>>,
+}
+
+/// Loads the selection fields that the Scout PCI observer must leave unchanged.
+///
+/// This query keeps the handler test focused on the current primary interface
+/// and the stored boot interface decision.
+async fn load_scout_pci_selection_state(
+    pool: &sqlx::PgPool,
+    host_machine_id: MachineId,
+) -> Result<ScoutPciSelectionState, Box<dyn std::error::Error>> {
+    let state = sqlx::query_as::<_, ScoutPciSelectionState>(
+        "SELECT (
+                    SELECT mac_address
+                    FROM machine_interfaces
+                    WHERE machine_id = machine.id
+                      AND primary_interface
+                ) AS current_primary_mac_address,
+                boot_interface.desired_mac_address,
+                boot_interface.desired_interface_id,
+                boot_interface.desired_version,
+                boot_interface.selection_source,
+                boot_interface.selection_updated_at
+         FROM machines machine
+         LEFT JOIN machine_boot_interfaces boot_interface
+           ON boot_interface.machine_id = machine.id
+         WHERE machine.id = $1",
+    )
+    .bind(host_machine_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(state)
 }
 
 async fn allocated_host_for_secure_discovery(
@@ -1101,6 +1150,156 @@ async fn test_discovery_rejects_interface_owned_by_different_stable_identity(
             .fetch_one(&env.pool)
             .await?;
     assert_eq!(topology_count.0, 0);
+    Ok(())
+}
+
+/// A valid Scout PCI report may disagree with the selected Redfish interface.
+/// The handler records that fact without treating the report as a command.
+#[crate::sqlx_test]
+async fn test_scout_pci_disagreement_does_not_reconfigure_host(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let host_config = env.managed_host_config().with_dpu_count(2);
+    let managed_host = create_managed_host_with_config(&env, host_config.clone()).await;
+    let host_machine_id = managed_host.host().id;
+
+    let stored_machine =
+        db::machine::find_one(&env.pool, &host_machine_id, MachineSearchConfig::default())
+            .await?
+            .expect("managed host must exist");
+    let selected_interface = stored_machine
+        .status
+        .interfaces
+        .iter()
+        .find(|interface| {
+            interface.network_segment_type == Some(NetworkSegmentType::Admin)
+                && interface.attached_dpu_machine_id.is_some()
+                && interface.primary_interface
+        })
+        .expect("host with two DPUs must have one selected DPU interface");
+    assert_eq!(
+        selected_interface.mac_address, host_config.dpus[0].host_mac_address,
+        "the Redfish fixture must select the first reported DPU",
+    );
+    let caller_interface_id = selected_interface.id;
+
+    let before = load_scout_pci_selection_state(&env.pool, host_machine_id).await?;
+    assert_eq!(
+        before.current_primary_mac_address,
+        Some(host_config.dpus[0].host_mac_address),
+        "the fixture must start with the first DPU as its current primary interface",
+    );
+    assert_eq!(
+        before.desired_mac_address,
+        Some(host_config.dpus[0].host_mac_address),
+        "the stored Redfish target must match the selected first DPU",
+    );
+    assert_eq!(
+        before.selection_source,
+        Some(BootInterfaceSelectionSource::RedfishUefiPci),
+        "the fixture target must retain the complete Redfish UEFI selection source",
+    );
+    assert!(
+        before.desired_interface_id.is_some(),
+        "the stored Redfish target must include its interface id",
+    );
+    assert!(
+        before.desired_version.is_some(),
+        "the stored Redfish target must have a configuration version",
+    );
+    assert!(
+        before.selection_updated_at.is_some(),
+        "the stored Redfish target must have a selection time",
+    );
+    let mut hardware_info = HardwareInfo::from(&host_config);
+    let [first_reported_dpu, second_reported_dpu, ..] =
+        hardware_info.network_interfaces.as_mut_slice()
+    else {
+        panic!("discovery report for two DPUs must include both DPU interfaces")
+    };
+    assert_eq!(
+        first_reported_dpu.mac_address,
+        host_config.dpus[0].host_mac_address
+    );
+    assert_eq!(
+        second_reported_dpu.mac_address,
+        host_config.dpus[1].host_mac_address
+    );
+    first_reported_dpu.pci_properties = Some(PciDeviceProperties {
+        vendor: "0x15b3".to_string(),
+        device: "0xa2dc".to_string(),
+        path: "/devices/pci0000:00/0000:0a:00.0/net/enp10s0f0".to_string(),
+        numa_node: 0,
+        description: Some("selected DPU".to_string()),
+        slot: Some("0000:0a:00.0".to_string()),
+    });
+    second_reported_dpu.pci_properties = Some(PciDeviceProperties {
+        vendor: "0x15b3".to_string(),
+        device: "0xa2dc".to_string(),
+        path: "/devices/pci0000:00/0000:02:00.0/net/enp2s0f0".to_string(),
+        numa_node: 0,
+        description: Some("lower PCI slot".to_string()),
+        slot: Some("0000:02:00.0".to_string()),
+    });
+
+    let mut discovery_info = rpc::DiscoveryInfo::try_from(hardware_info)?;
+    discovery_info.attest_key_info = Some(rpc::machine_discovery::AttestKeyInfo {
+        ek_pub: EK_PUB_SERIALIZED.to_vec(),
+        ak_pub: AK_PUB_SERIALIZED.to_vec(),
+        ak_name: AK_NAME_SERIALIZED.to_vec(),
+    });
+
+    let metrics = carbide_instrument::testing::MetricsCapture::start();
+    let (response, logs) = carbide_instrument::testing::capture_logs_async(
+        env.api
+            .discover_machine(Request::new(rpc::MachineDiscoveryInfo {
+                machine_interface_id: Some(caller_interface_id),
+                discovery_data: Some(rpc::DiscoveryData::Info(discovery_info)),
+                create_machine: true,
+                discovery_reporter: rpc::MachineDiscoveryReporter::Scout as i32,
+                discovery_reporter_version: None,
+            })),
+    )
+    .await;
+    let response = response?.into_inner();
+    let disagreement_count = metrics.counter_delta(
+        "carbide_scout_pci_evaluations_total",
+        &[("result", "disagreement")],
+    );
+    drop(metrics);
+
+    let host_machine_id_string = host_machine_id.to_string();
+    let evaluation_logs = logs
+        .iter()
+        .filter(|log| {
+            log.field("event_name") == Some("scout_pci_evaluated")
+                && log.field("machine_id") == Some(host_machine_id_string.as_str())
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(response.machine_id, Some(host_machine_id));
+    assert_eq!(response.machine_interface_id, Some(caller_interface_id));
+    assert_eq!(evaluation_logs.len(), 1);
+    assert_eq!(
+        evaluation_logs[0].field("metric_name"),
+        Some("carbide_scout_pci_evaluations_total")
+    );
+    assert_eq!(evaluation_logs[0].field("result"), Some("disagreement"));
+    // MetricsCapture serializes metric assertions, but a future discovery test
+    // could emit the same process global series without capturing it. The scoped
+    // log above proves this request emitted exactly once.
+    assert!(
+        disagreement_count >= 1.0,
+        "the incoming PCI winner must emit a disagreement metric",
+    );
+
+    let after = load_scout_pci_selection_state(&env.pool, host_machine_id).await?;
+    assert_eq!(
+        after, before,
+        "Scout PCI comparison must not change the current primary interface or the stored target, version, source, and time",
+    );
+
     Ok(())
 }
 

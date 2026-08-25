@@ -37,7 +37,7 @@ fn ip_to_u128(ip: IpAddr) -> u128 {
 /// Broad and narrow ranges both occupy every generated child prefix they
 /// touch. The result is sorted but intentionally not merged so the allocator
 /// can scan it directly and capacity reporting can union it without expanding
-/// large IPv6 ranges one /127 at a time.
+/// large IPv6 ranges one child prefix at a time.
 pub fn occupied_prefix_intervals(
     parent: IpNetwork,
     child_prefix_length: u8,

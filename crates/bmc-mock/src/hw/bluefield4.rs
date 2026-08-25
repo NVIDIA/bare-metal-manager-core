@@ -393,7 +393,7 @@ impl Bluefield4<'_> {
                 storage: Some(vec![]),
                 processors: Some(vec![]),
                 memory: None,
-                serial_console: None,
+                serial_console: Some(hw::openbmc::enabled_serial_console()),
                 secure_boot_available: true,
             }],
         }

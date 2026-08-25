@@ -721,7 +721,9 @@ async fn initialize_dpf_sdk(
         |deployment: &crate::cfg::file::DpfDeploymentConfig,
          deployment_type: DpuDeploymentType,
          bluefield_software: Option<carbide_dpf::BlueFieldSoftwareParams>| {
-            let services = carbide_config.dpf.resolved_services_for(deployment);
+            let services = carbide_config
+                .dpf
+                .resolved_services_for(deployment, deployment_type);
             let interfaces = match deployment_type {
                 DpuDeploymentType::Bf4Astra => &astra_interfaces,
                 DpuDeploymentType::Bf3 | DpuDeploymentType::Bf4Generic => &effective_interfaces,

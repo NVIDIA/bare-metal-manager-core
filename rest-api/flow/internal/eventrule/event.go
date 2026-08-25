@@ -12,6 +12,22 @@ import (
 	"github.com/google/uuid"
 )
 
+// EventKey identifies one source event across repeated delivery attempts.
+// SourceName is the stable name under which the collector type is registered;
+// SourceKey is supplied or deterministically derived by that collector.
+type EventKey struct {
+	SourceName string
+	SourceKey  string
+}
+
+// Validate checks the canonical event identity.
+func (k EventKey) Validate() error {
+	if err := validateIdentifier("event source name", k.SourceName); err != nil {
+		return err
+	}
+	return validateRequiredString("event source key", k.SourceKey)
+}
+
 // Type identifies a domain event family.
 type Type string
 
@@ -77,14 +93,12 @@ func (s Severity) Validate() error {
 // Transport and persistence representations convert into Envelope at their
 // boundaries.
 type Envelope struct {
-	ID             uuid.UUID       // Stable identity for one event across delivery retries.
-	Type           Type            // Identifies the event family and payload schema.
-	Producer       string          // Identifies the collector or source system.
-	Severity       Severity        // Describes the event's normalized severity.
-	Resource       Resource        // Identifies the resource the event concerns.
-	Payload        json.RawMessage // Contains opaque event-type-specific JSON.
-	ObservedAt     time.Time       // Records when the source event was observed.
-	CorrelationKey string          // Groups repeated observations for semantic deduplication.
+	Key        EventKey        // Stable identity for one event across delivery retries.
+	Type       Type            // Identifies the event family and payload schema.
+	Severity   Severity        // Describes the event's normalized severity.
+	Resource   Resource        // Identifies the resource the event concerns.
+	Payload    json.RawMessage // Contains opaque event-type-specific JSON.
+	ObservedAt time.Time       // Records when the source event was observed.
 }
 
 // Validate checks the normalized envelope contract.
@@ -92,13 +106,10 @@ func (e *Envelope) Validate() error {
 	if e == nil {
 		return fmt.Errorf("event envelope is nil")
 	}
-	if e.ID == uuid.Nil {
-		return fmt.Errorf("event id is required")
-	}
-	if err := e.Type.Validate(); err != nil {
+	if err := e.Key.Validate(); err != nil {
 		return err
 	}
-	if err := validateOptionalString("event producer", e.Producer); err != nil {
+	if err := e.Type.Validate(); err != nil {
 		return err
 	}
 	if err := e.Severity.Validate(); err != nil {
@@ -110,10 +121,6 @@ func (e *Envelope) Validate() error {
 	if len(e.Payload) > 0 && !json.Valid(e.Payload) {
 		return fmt.Errorf("event payload must be valid JSON")
 	}
-	if err := validateOptionalString("event correlation_key", e.CorrelationKey); err != nil {
-		return err
-	}
-
 	return nil
 }
 

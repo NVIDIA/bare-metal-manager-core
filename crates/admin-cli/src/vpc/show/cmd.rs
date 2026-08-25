@@ -98,43 +98,6 @@ async fn show_vpc_details(
     Ok(())
 }
 
-#[allow(deprecated)]
-fn vpc_config(vpc: &forgerpc::Vpc) -> forgerpc::VpcConfig {
-    if let Some(config) = vpc.config.clone() {
-        config
-    } else {
-        forgerpc::VpcConfig {
-            tenant_organization_id: vpc.tenant_organization_id.clone(),
-            tenant_keyset_id: vpc.tenant_keyset_id.clone(),
-            network_virtualization_type: vpc.network_virtualization_type,
-            network_security_group_id: vpc.network_security_group_id.clone(),
-            default_nvlink_logical_partition_id: vpc.default_nvlink_logical_partition_id,
-            vni: vpc.vni,
-            routing_profile_type: vpc.routing_profile_type.clone(),
-            routing_profile_overrides: None,
-            power_resource_group: None,
-            slaac_enabled: None,
-        }
-    }
-}
-
-#[allow(deprecated)]
-fn vpc_allocated_vni(vpc: &forgerpc::Vpc) -> u32 {
-    vpc.status
-        .as_ref()
-        .and_then(|status| status.vni)
-        .or(vpc.deprecated_vni)
-        .unwrap_or_default()
-}
-
-#[allow(deprecated)]
-fn vpc_virt_type(vpc: &forgerpc::Vpc) -> i32 {
-    vpc_config(vpc)
-        .network_virtualization_type
-        .or(vpc.network_virtualization_type)
-        .unwrap_or_default()
-}
-
 fn convert_vpcs_to_nice_table(vpcs: forgerpc::VpcList) -> Box<Table> {
     let mut table = Table::new();
 
@@ -152,11 +115,13 @@ fn convert_vpcs_to_nice_table(vpcs: forgerpc::VpcList) -> Box<Table> {
 
     for vpc in vpcs.vpcs {
         let metadata = vpc.metadata.as_ref().unwrap_or(&default_metadata);
-        let config = vpc_config(&vpc);
-        let virt_type = forgerpc::VpcVirtualizationType::try_from(vpc_virt_type(&vpc))
-            .unwrap_or_default()
-            .as_str_name()
-            .to_string();
+        let config = vpc.config.unwrap_or_default();
+        let virt_type = forgerpc::VpcVirtualizationType::try_from(
+            config.network_virtualization_type.unwrap_or_default(),
+        )
+        .unwrap_or_default()
+        .as_str_name()
+        .to_string();
 
         table.add_row(row![
             vpc.id.unwrap_or_default(),
@@ -182,11 +147,17 @@ fn convert_vpcs_to_nice_table(vpcs: forgerpc::VpcList) -> Box<Table> {
     table.into()
 }
 
-#[allow(deprecated)]
 pub(in crate::vpc) fn convert_vpc_to_nice_format(vpc: &forgerpc::Vpc) -> CarbideCliResult<String> {
     let width = 25;
     let mut lines = String::new();
-    let config = vpc_config(vpc);
+    let default_config = Default::default();
+    let config = vpc.config.as_ref().unwrap_or(&default_config);
+    let allocated_vni = vpc
+        .status
+        .as_ref()
+        .and_then(|status| status.vni)
+        .unwrap_or_default();
+    let network_virtualization_type = config.network_virtualization_type.unwrap_or_default();
     let routing_profile_overrides = config
         .routing_profile_overrides
         .as_ref()
@@ -213,7 +184,11 @@ pub(in crate::vpc) fn convert_vpc_to_nice_format(vpc: &forgerpc::Vpc) -> Carbide
         ("TENANT ORG", config.tenant_organization_id.as_str().into()),
         (
             "NETWORK SECURITY GROUP",
-            config.network_security_group_id.unwrap_or_default().into(),
+            config
+                .network_security_group_id
+                .as_deref()
+                .unwrap_or_default()
+                .into(),
         ),
         ("VERSION", vpc.version.as_str().into()),
         (
@@ -233,19 +208,27 @@ pub(in crate::vpc) fn convert_vpc_to_nice_format(vpc: &forgerpc::Vpc) -> Carbide
         ),
         (
             "TENANT KEYSET",
-            config.tenant_keyset_id.unwrap_or_default().into(),
+            config
+                .tenant_keyset_id
+                .as_deref()
+                .unwrap_or_default()
+                .into(),
         ),
-        ("VNI", format!("{}", vpc_allocated_vni(vpc)).into()),
+        ("VNI", format!("{allocated_vni}").into()),
         (
             "NW VIRTUALIZATION",
-            forgerpc::VpcVirtualizationType::try_from(vpc_virt_type(vpc))
+            forgerpc::VpcVirtualizationType::try_from(network_virtualization_type)
                 .unwrap_or_default()
                 .as_str_name()
                 .into(),
         ),
         (
             "ROUTING PROFILE TYPE",
-            config.routing_profile_type.unwrap_or_default().into(),
+            config
+                .routing_profile_type
+                .as_deref()
+                .unwrap_or_default()
+                .into(),
         ),
         (
             "ROUTING PROFILE OVERRIDES",

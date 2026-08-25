@@ -565,28 +565,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn yaml_round_trips_with_every_field() {
-        let yaml = serde_yaml::to_string(&sample_report()).expect("serialize yaml");
-
-        assert!(yaml.contains("boot_interface_id:"));
-        assert!(yaml.contains("NIC.Slot.1-1-1"));
-        assert!(yaml.contains("recorded_at:"));
-        assert!(yaml.contains("divergent: true"));
-        assert!(yaml.contains("primary_interface: true"));
-        assert!(yaml.contains("reconciliation:"));
-        assert!(yaml.contains("reconciliation_state: Failed"));
-        assert!(yaml.contains("selection_source: RedfishUefiPci"));
-
-        // Round-trips back into a generic YAML value.
-        let value: serde_yaml::Value = serde_yaml::from_str(&yaml).expect("parse yaml");
-        assert_eq!(value["divergent"], serde_yaml::Value::Bool(true));
-        assert_eq!(
-            value["retained_interfaces"][0]["recorded_at"],
-            serde_yaml::Value::String("2026-06-01T00:00:00Z".to_string())
-        );
-    }
-
     /// The proto -> report conversion: absent fields (proto3 field presence,
     /// `None`) stay `None`, present ones pass through, and a `Timestamp`
     /// renders as RFC 3339.

@@ -25,6 +25,7 @@ use async_trait::async_trait;
 
 use crate::crds::bfbs_generated::BFB;
 use crate::crds::bluefieldsoftwares_generated::BlueFieldSoftware;
+use crate::crds::dpfoperatorconfigs_generated::DPFOperatorConfig;
 use crate::crds::dpuclusters_generated::DPUCluster;
 use crate::crds::dpudeployments_generated::DPUDeployment;
 use crate::crds::dpudevices_generated::DPUDevice;
@@ -259,6 +260,17 @@ pub trait K8sConfigRepository: Send + Sync {
         name: &str,
         namespace: &str,
     ) -> Result<Option<BTreeMap<String, String>>, DpfError>;
+    /// Create a ConfigMap, reporting `false` when one already exists.
+    ///
+    /// Distinct from `apply_configmap`, which force-applies and would overwrite
+    /// content the object already holds.
+    async fn create_configmap(
+        &self,
+        name: &str,
+        namespace: &str,
+        data: BTreeMap<String, String>,
+    ) -> Result<bool, DpfError>;
+
     async fn apply_configmap(
         &self,
         name: &str,
@@ -285,6 +297,9 @@ pub trait K8sConfigRepository: Send + Sync {
 /// Repository for DPFOperatorConfig resources.
 #[async_trait]
 pub trait DpfOperatorConfigRepository: Send + Sync {
+    async fn get(&self, name: &str, namespace: &str)
+    -> Result<Option<DPFOperatorConfig>, DpfError>;
+
     async fn patch(
         &self,
         name: &str,

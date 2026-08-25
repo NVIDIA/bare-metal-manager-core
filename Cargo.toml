@@ -151,6 +151,7 @@ ipnet = "2"
 ipnetwork = "0.21.0"
 itertools = "0.14"
 jemalloc_pprof = "0.8"
+json-patch = "4.2.0"
 jsonwebtoken = "10.2.0"
 k8s-openapi = "0.27.0"
 kube = { version = "3.0.0", default-features = false }

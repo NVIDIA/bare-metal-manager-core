@@ -127,34 +127,6 @@ func (m *Manager) UpdateMetadata(
 	return m.persisted.UpdateMetadata(ctx, id, metadata)
 }
 
-// SetDedupe replaces or clears a persisted rule's deduplication policy.
-func (m *Manager) SetDedupe(
-	ctx context.Context,
-	id uuid.UUID,
-	dedupe *eventrule.Dedupe,
-) error {
-	if err := validateRuleID(id); err != nil {
-		return err
-	}
-
-	if dedupe != nil {
-		if err := dedupe.Validate(); err != nil {
-			return fmt.Errorf("dedupe: %w", err)
-		}
-	}
-
-	if err := m.rejectBuiltInID(ctx, id); err != nil {
-		return err
-	}
-
-	if dedupe == nil {
-		return m.persisted.SetDedupe(ctx, id, nil)
-	}
-
-	cloned := *dedupe
-	return m.persisted.SetDedupe(ctx, id, &cloned)
-}
-
 // ReplaceActions replaces all actions belonging to a persisted rule.
 func (m *Manager) ReplaceActions(
 	ctx context.Context,

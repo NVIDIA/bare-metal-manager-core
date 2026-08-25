@@ -48,7 +48,7 @@ func TestProcessorPreparationIntegration(t *testing.T) {
 		ruleManager,
 	)
 	envelope := eventrule.Envelope{
-		ID:       uuid.New(),
+		Key:      eventrule.EventKey{SourceName: "test", SourceKey: "event-1"},
 		Type:     eventType,
 		Resource: eventrule.Resource{Kind: eventrule.ResourceKindRack, ID: rackID},
 	}

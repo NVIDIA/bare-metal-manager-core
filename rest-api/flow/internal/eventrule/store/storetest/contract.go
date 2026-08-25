@@ -7,7 +7,6 @@ package storetest
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
 	"github.com/google/uuid"
@@ -68,7 +67,6 @@ func testRuleLifecycle(t *testing.T, factory RuleBindingFactory) {
 		Name:        "updated",
 		Description: "updated description",
 	}))
-	require.NoError(t, rules.SetDedupe(ctx, rule.ID, &eventrule.Dedupe{Window: time.Minute}))
 	require.NoError(t, rules.ReplaceActions(ctx, rule.ID, []eventrule.Action{
 		{Name: "replacement", Spec: &eventrule.Noop{}},
 	}))
@@ -78,15 +76,9 @@ func testRuleLifecycle(t *testing.T, factory RuleBindingFactory) {
 	require.NoError(t, err)
 	assert.Equal(t, "updated", updated.Name)
 	assert.Equal(t, "updated description", updated.Description)
-	assert.Equal(t, time.Minute, updated.Dedupe.Window)
 	assert.Equal(t, "replacement", updated.Actions[0].Name)
 	assert.True(t, updated.Enabled)
 	assert.False(t, updated.UpdatedAt.Before(updated.CreatedAt))
-
-	require.NoError(t, rules.SetDedupe(ctx, rule.ID, nil))
-	updated, err = rules.GetByID(ctx, rule.ID)
-	require.NoError(t, err)
-	assert.Nil(t, updated.Dedupe)
 
 	enabled := true
 	listed, err := rules.List(ctx, eventrule.RuleFilter{
@@ -109,9 +101,6 @@ func testRuleLifecycle(t *testing.T, factory RuleBindingFactory) {
 				unknownID,
 				eventrule.RuleMetadata{Name: "updated"},
 			)
-		},
-		"set dedupe": func() error {
-			return rules.SetDedupe(ctx, unknownID, nil)
 		},
 		"replace actions": func() error {
 			return rules.ReplaceActions(ctx, unknownID, []eventrule.Action{

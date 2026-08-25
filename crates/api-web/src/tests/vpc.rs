@@ -40,7 +40,6 @@ async fn response_body(response: Response) -> String {
 }
 
 #[crate::sqlx_test]
-#[allow(deprecated)]
 async fn vpc_pages_show_status_vni(pool: sqlx::PgPool) {
     let env = TestEnv::new(pool).await;
     let app = make_test_app(&env.test_harness);
@@ -67,9 +66,6 @@ async fn vpc_pages_show_status_vni(pool: sqlx::PgPool) {
         .and_then(|status| status.vni)
         .expect("expected status VNI")
         .to_string();
-
-    // Ensure this test would fail if the UI still read the old VPC vni field.
-    assert!(vpc.vni.is_none());
 
     // Add a VPC prefix so the IPAM prefix detail page can render parent VPC data.
     let vpc_prefix = env

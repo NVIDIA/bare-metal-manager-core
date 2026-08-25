@@ -153,9 +153,19 @@ fn build_endpoint_wiring(
         .map_err(BmcError::ReqwestError)?;
     let mut sources: Vec<Arc<dyn EndpointSource>> = Vec::new();
 
-    if !config.endpoint_sources.static_bmc_endpoints.is_empty() {
+    for endpoint_configs in [
+        config.endpoint_sources.static_bmc_endpoints.as_slice(),
+        config
+            .endpoint_sources
+            .static_switch_host_endpoints
+            .as_slice(),
+    ] {
+        if endpoint_configs.is_empty() {
+            continue;
+        }
+
         let static_source = StaticEndpointSource::from_config_with_request_concurrency(
-            config.endpoint_sources.static_bmc_endpoints.as_slice(),
+            endpoint_configs,
             &reqwest,
             config.bmc_proxy_url.as_ref(),
             config.cache_size,
@@ -495,4 +505,65 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
     };
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use figment::Figment;
+    use figment::providers::{Format, Serialized, Toml};
+
+    use super::*;
+    use crate::endpoint::{EndpointMetadata, SwitchEndpointRole};
+
+    #[tokio::test]
+    async fn endpoint_wiring_loads_bmc_and_switch_host_static_endpoints() {
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(
+                r#"
+[endpoint_sources.nico_api]
+enabled = false
+
+[[endpoint_sources.static_bmc_endpoints]]
+ip = "192.0.2.1"
+port = 8443
+mac = "00:11:22:33:44:55"
+username = "admin"
+switch = { serial = "switch-bmc", endpoint_role = "bmc" }
+
+[[endpoint_sources.static_switch_host_endpoints]]
+ip = "192.0.2.2"
+port = 9443
+mac = "00:11:22:33:44:66"
+username = "admin"
+switch = { serial = "switch-host" }
+"#,
+            ))
+            .extract()
+            .expect("static endpoint config should parse");
+
+        config.validate().expect("test config should be valid");
+
+        let wiring = build_endpoint_wiring(&config, None).expect("endpoint wiring should build");
+
+        let endpoints = wiring
+            .source
+            .fetch_bmc_hosts()
+            .await
+            .expect("static endpoints should load");
+
+        assert_eq!(endpoints.len(), 2);
+        assert_eq!(endpoints[0].addr.port, Some(8443));
+        assert_eq!(endpoints[1].addr.port, Some(9443));
+
+        let roles = endpoints.iter().map(|endpoint| match &endpoint.metadata {
+            Some(EndpointMetadata::Switch(switch)) => switch.endpoint_role,
+            _ => panic!("static switch endpoint should retain switch metadata"),
+        });
+
+        assert_eq!(
+            roles.collect::<Vec<_>>(),
+            vec![SwitchEndpointRole::Bmc, SwitchEndpointRole::Host]
+        );
+    }
 }

@@ -19,7 +19,6 @@
 mod logging;
 mod ufm_mock;
 
-use std::borrow::Cow;
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -29,7 +28,7 @@ use bmc_mock::mac_address_pool::{
     Config as MacAddressConfig, MacAddressPool, PoolConfig as MacAddressPoolConfig,
     RangesConfig as MacAddressRangesConfig,
 };
-use bmc_mock::{CombinedServer, HostnameQuerying, ListenerOrAddress};
+use bmc_mock::{CombinedServer, ListenerOrAddress};
 use clap::Parser;
 use figment::Figment;
 use figment::providers::{Format, Toml};
@@ -38,10 +37,9 @@ use forge_tls::client_config::{
 };
 use mac_address::MacAddress;
 use machine_a_tron::{
-    AppEvent, BmcMockRegistry, BmcRegistrationMode, ControlState, DeviceStatusConfig, DhcpClient,
-    MachineATron, MachineATronArgs, MachineATronConfig, MachineATronContext, MockSshServerHandle,
-    PromptBehavior, SimulatorLifecycle, Tui, TuiHostLogs, api_throttler, append_control_routes,
-    spawn_mock_ssh_server,
+    AppEvent, BmcMockRegistry, ControlState, DeviceStatusConfig, DhcpClient, MachineATron,
+    MachineATronArgs, MachineATronConfig, MachineATronContext, SimulatorLifecycle, Tui,
+    TuiHostLogs, api_throttler, append_control_routes,
 };
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use rpc::protos::forge_api_client::ForgeApiClient;
@@ -95,13 +93,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     forge_client_config.connect_retries_max = Some(60);
     forge_client_config.connect_retries_interval = Some(Duration::from_secs(1));
 
-    let bmc_registration_mode = if app_config.use_single_bmc_mock {
-        // Machines will register their BMC's with the shared registry
-        BmcRegistrationMode::BackingInstance(BmcMockRegistry::default())
-    } else {
-        // Machines will each listen on a real BMC mock address using the configured port
-        BmcRegistrationMode::None(app_config.bmc_mock_port)
-    };
+    let bmc_registry = BmcMockRegistry::default();
 
     let api_config = ApiConfig::new(&app_config.carbide_api_url, &forge_client_config);
 
@@ -162,7 +154,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         app_config,
         forge_client_config,
         bmc_mock_certs_dir,
-        bmc_registration_mode,
+        bmc_registry,
         api_throttler,
         desired_firmware_versions,
         forge_api_client,
@@ -215,63 +207,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 .parent()
                 .map(Path::to_path_buf)
         });
-    let server_handles: (CombinedServer, Option<MockSshServerHandle>) =
-        match &app_context.bmc_registration_mode {
-            BmcRegistrationMode::BackingInstance(bmc_mock_registry) => {
-                let server_config = bmc_mock::tls::server_config(certs_dir.clone())?;
-                let bmc_router = bmc_mock::combined_router(bmc_mock_registry.clone());
-                let bmc_router = match ufm_router.clone() {
-                    Some(ufm_router) => ufm_router.merge(bmc_router),
-                    None => bmc_router,
-                };
-                let router = append_control_routes(Some(bmc_router), control_state.clone());
-                let bmc_https_mock = bmc_mock::CombinedServer::run_router(
-                    "bmc-mock",
-                    router,
-                    Some(ListenerOrAddress::Address(
-                        format!("0.0.0.0:{bmc_mock_port}").parse().unwrap(),
-                    )),
-                    server_config,
-                );
-
-                let bmc_ssh_mock = if app_context.app_config.mock_bmc_ssh_server {
-                    // Spawn a single mock SSH server too. ssh-console can be configured to talk to
-                    // this instead of the carbide-assigned BMC IP for each host, so that
-                    // machine-a-tron-based dev environments can have a "working" ssh-console too.
-                    Some(
-                        spawn_mock_ssh_server(
-                            "0.0.0.0".parse().unwrap(),
-                            app_context.app_config.mock_bmc_ssh_port,
-                            Arc::new(KnownHostname("shared-bmc-mock".to_string())),
-                            // Accept any credentials. We don't support mocking changing BMC
-                            // credentials, so we can't properly emulate BMC SSH credentials in dev
-                            // environments today. (Only ssh-console integration tests use
-                            // credentials here as of today.)
-                            None,
-                            PromptBehavior::Dell,
-                        )
-                        .await?,
-                    )
-                } else {
-                    None
-                };
-
-                (bmc_https_mock, bmc_ssh_mock)
-            }
-            BmcRegistrationMode::None(_) => {
-                let server_config = bmc_mock::tls::server_config(certs_dir)?;
-                let router = append_control_routes(ufm_router, control_state);
-                let control_server = bmc_mock::CombinedServer::run_router(
-                    "machine-a-tron-control",
-                    router,
-                    Some(ListenerOrAddress::Address(
-                        format!("127.0.0.1:{bmc_mock_port}").parse().unwrap(),
-                    )),
-                    server_config,
-                );
-                (control_server, None)
-            }
+    let mut server_handle: CombinedServer = {
+        let server_config = bmc_mock::tls::server_config(certs_dir.clone())?;
+        let bmc_router = bmc_mock::combined_router(app_context.bmc_registry.clone());
+        let bmc_router = match ufm_router.clone() {
+            Some(ufm_router) => ufm_router.merge(bmc_router),
+            None => bmc_router,
         };
+        let router = append_control_routes(Some(bmc_router), control_state.clone());
+        bmc_mock::CombinedServer::run_router(
+            "bmc-mock",
+            router,
+            Some(ListenerOrAddress::Address(
+                format!("0.0.0.0:{bmc_mock_port}").parse().unwrap(),
+            )),
+            server_config,
+        )
+    };
 
     // Run TUI
     let (app_tx, app_rx) = mpsc::channel(5000);
@@ -332,20 +284,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .ok();
     }
 
-    let (mut server_handle, _mock_ssh_server_handle) = server_handles;
     server_handle.stop().await?;
     if let Some(dhcp_service) = dhcp_service {
         dhcp_service.shutdown().await?;
     }
     mat_result?;
     Ok(())
-}
-
-#[derive(Debug)]
-struct KnownHostname(String);
-
-impl HostnameQuerying for KnownHostname {
-    fn get_hostname(&'_ self) -> Cow<'_, str> {
-        Cow::Borrowed(self.0.as_str())
-    }
 }

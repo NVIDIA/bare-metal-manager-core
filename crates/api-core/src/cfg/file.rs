@@ -493,9 +493,11 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub network_security_group: NetworkSecurityGroupConfig,
 
-    /// Minimum functioning DPU links required for the DPU
-    /// to be considered healthy. If unset, all links must
-    /// be functional.
+    /// Controls the DPU ToR BGP health checks. If unset, both uplinks are
+    /// checked; zero disables the checks, and values above two produce a
+    /// configuration health alert. With one, either established link satisfies
+    /// the minimum, but a failed p0 is still reported because PXE boot depends
+    /// on the primary session.
     #[serde(default)]
     pub min_dpu_functioning_links: Option<u32>,
 
@@ -1601,11 +1603,12 @@ pub struct DpfConfig {
     /// keep their hold either way.
     #[serde(default = "default_to_true")]
     pub dpu_service_sync_enabled: bool,
-    /// Optional override for the Kubernetes `imagePullSecrets` entry used to pull the
-    /// docker images of the mandatory services. When set, it is applied to every
-    /// mandatory service except `dts` and `doca_hbn`, which take a pull secret only
-    /// from their per-service config. This also overrides any `docker_image_pull_secret`
-    /// set in those per-service sections.
+    /// Optional override for the Kubernetes `imagePullSecrets` entry used to pull service
+    /// docker images. When set, it is applied to every mandatory service except `dts` and
+    /// `doca_hbn`, which take a pull secret only from their per-service config. It is also
+    /// the fallback for deployment-specific extra services, whose own pull-secret setting
+    /// takes precedence. This overrides any `docker_image_pull_secret` set in the applicable
+    /// mandatory-service sections.
     #[serde(default)]
     pub docker_image_pull_secret: Option<String>,
     /// Selects how the DPF-managed DPU agent obtains the API trust anchor.
@@ -1614,6 +1617,10 @@ pub struct DpfConfig {
     /// Mandatory Helm services to deploy alongside DPF.
     #[serde(default)]
     pub services: Box<DpfMandatoryServicesConfig>,
+    /// Deployment-type-specific Helm services.  Extra services are
+    /// assigned to a deployment type by the resolver.
+    #[serde(default)]
+    pub extra_services: Box<DpfExtraServicesConfig>,
     /// Optional proxy configuration for the DPU. When set, containerd on the DPU is
     /// configured to route outbound HTTPS traffic through the specified proxy.
     #[serde(default)]
@@ -1634,6 +1641,7 @@ impl Default for DpfConfig {
             docker_image_pull_secret: None,
             dpu_agent_bootstrap_ca: DpfDpuAgentBootstrapCa::default(),
             services: Box::default(),
+            extra_services: Box::default(),
             proxy: None,
             deployments: DpfDeploymentsConfig::default(),
         }
@@ -1667,12 +1675,16 @@ impl DpfConfig {
 
     /// Returns the services for `deployment`: the deployment's own
     /// [`DpfDeploymentConfig::services`] override when set, otherwise the top-level
-    /// [`Self::services`], plus its deployment-specific extra services. The optional
-    /// [`Self::docker_image_pull_secret`] override is applied to the mandatory services
+    /// [`Self::services`], plus the extra services supported by `deployment_type`. A
+    /// deployment-specific extra-service entry replaces the site-wide definition for that
+    /// deployment. The optional
+    /// [`Self::docker_image_pull_secret`] override is applied to the mandatory services and,
+    /// when an extra service has no per-service secret, to the selected extra services
     /// (see [`Self::resolved_mandatory_services`]).
     pub fn resolved_services_for(
         &self,
         deployment: &DpfDeploymentConfig,
+        deployment_type: DpuDeploymentType,
     ) -> DpfResolvedMandatoryServicesConfig {
         let mut base = deployment
             .services
@@ -1681,10 +1693,19 @@ impl DpfConfig {
             .unwrap_or_else(|| (*self.services).clone());
         self.apply_pull_secret_override(&mut base);
 
-        DpfResolvedMandatoryServicesConfig {
-            base,
-            extra: deployment.extra_services.clone(),
+        let mut extra = self.extra_services.for_deployment_type(deployment_type);
+        for extra_service in extra_service_types(deployment_type) {
+            if let Some(override_config) = deployment.extra_services.get(extra_service) {
+                override_config.apply_to(
+                    extra
+                        .get_mut(extra_service)
+                        .expect("selected extra service must have a site-wide definition"),
+                );
+            }
         }
+        self.apply_extra_pull_secret_override(&mut extra);
+
+        DpfResolvedMandatoryServicesConfig { base, extra }
     }
 
     /// Applies the optional [`Self::docker_image_pull_secret`] override to every
@@ -1697,6 +1718,23 @@ impl DpfConfig {
             services.dhcp_server.docker_image_pull_secret = secret.clone();
             services.fmds.docker_image_pull_secret = secret.clone();
             services.otel.docker_image_pull_secret = secret;
+        }
+    }
+
+    /// Uses the top-level pull secret for selected extra services that have not set their own.
+    /// A site-wide or deployment-local extra-service secret takes precedence, so one deployment
+    /// can pull an Astra image from a different private registry.
+    fn apply_extra_pull_secret_override(
+        &self,
+        services: &mut BTreeMap<DpfExtraService, DpfServiceConfig>,
+    ) {
+        let Some(secret) = &self.docker_image_pull_secret else {
+            return;
+        };
+        for service in services.values_mut() {
+            if service.docker_image_pull_secret.is_none() {
+                service.docker_image_pull_secret = Some(secret.clone());
+            }
         }
     }
 }
@@ -1833,6 +1871,87 @@ impl DpfExtraService {
     }
 }
 
+/// Helm extra services that supplement the mandatory DPF services for specific deployment types.
+///
+/// The site-wide definitions use the same partial-override rules as
+/// [`DpfMandatoryServicesConfig`]. [`DpfConfig::resolved_services_for`]
+/// picks the extra services valid for a deployment type, and skips
+/// them if the extra service is not valid for a deployment type. For
+/// example, configuring a Weave service never adds it to BF3
+/// or generic BF4 deployments.
+#[derive(Clone, Debug, Serialize)]
+pub struct DpfExtraServicesConfig {
+    pub doca_weave_dhcp_agent: DpfServiceConfig,
+    pub doca_weave_flow_controller: DpfServiceConfig,
+    pub doca_xplane: DpfServiceConfig,
+}
+
+impl DpfExtraServicesConfig {
+    fn for_deployment_type(
+        &self,
+        deployment_type: DpuDeploymentType,
+    ) -> BTreeMap<DpfExtraService, DpfServiceConfig> {
+        extra_service_types(deployment_type)
+            .iter()
+            .map(|service| (*service, self.config_for(*service).clone()))
+            .collect()
+    }
+
+    fn config_for(&self, service: DpfExtraService) -> &DpfServiceConfig {
+        match service {
+            DpfExtraService::DocaWeaveDhcpAgent => &self.doca_weave_dhcp_agent,
+            DpfExtraService::DocaWeaveFlowController => &self.doca_weave_flow_controller,
+            DpfExtraService::DocaXplane => &self.doca_xplane,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for DpfExtraServicesConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let configured = BTreeMap::<String, serde_json::Value>::deserialize(deserializer)?;
+        let mut services = Self::default();
+        for (name, configured) in configured {
+            const SERVICE_FIELDS: &[&str] = &[
+                "doca_weave_dhcp_agent",
+                "doca_weave_flow_controller",
+                "doca_xplane",
+            ];
+            let service = match name.as_str() {
+                "doca_weave_dhcp_agent" => &mut services.doca_weave_dhcp_agent,
+                "doca_weave_flow_controller" => &mut services.doca_weave_flow_controller,
+                "doca_xplane" => &mut services.doca_xplane,
+                _ => return Err(serde::de::Error::unknown_field(&name, SERVICE_FIELDS)),
+            };
+            let merged = Figment::from(Serialized::defaults(std::mem::take(service)))
+                .merge(Serialized::defaults(configured))
+                .extract();
+            *service = match merged {
+                Ok(service) => service,
+                Err(error) => match error.kind {
+                    figment::error::Kind::UnknownField(field, expected) => {
+                        return Err(serde::de::Error::unknown_field(&field, expected));
+                    }
+                    _ => return Err(serde::de::Error::custom(error)),
+                },
+            };
+        }
+        Ok(services)
+    }
+}
+
+impl Default for DpfExtraServicesConfig {
+    fn default() -> Self {
+        Self {
+            doca_weave_dhcp_agent: DpfExtraService::DocaWeaveDhcpAgent.default_config(),
+            doca_weave_flow_controller: DpfExtraService::DocaWeaveFlowController.default_config(),
+            doca_xplane: DpfExtraService::DocaXplane.default_config(),
+        }
+    }
+}
+
 /// `DpfResolvedMandatoryServicesConfig` - the compounded list of mandatory services
 /// depending on deployment type.
 pub struct DpfResolvedMandatoryServicesConfig {
@@ -1868,6 +1987,60 @@ pub struct DpfServiceConfig {
     /// Tables merge recursively. Scalars and arrays replace generated values.
     #[serde(default)]
     pub extra_helm_values: Option<serde_json::Map<String, serde_json::Value>>,
+}
+
+/// Partial deployment-local override for an extra DPF service.
+///
+/// The resolver applies this after the built-in and site-wide definitions, so a deployment can
+/// pin one field such as `helm_version` without repeating its shared registry and image fields.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DpfServiceConfigOverride {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub helm_repo_url: Option<String>,
+    #[serde(default)]
+    pub helm_chart: Option<String>,
+    #[serde(default)]
+    pub helm_version: Option<String>,
+    #[serde(default)]
+    pub docker_repo_url: Option<String>,
+    #[serde(default)]
+    pub docker_image_tag: Option<String>,
+    #[serde(default)]
+    pub docker_image_pull_secret: Option<String>,
+    #[serde(default)]
+    pub extra_helm_values: Option<serde_json::Map<String, serde_json::Value>>,
+}
+
+impl DpfServiceConfigOverride {
+    fn apply_to(&self, config: &mut DpfServiceConfig) {
+        if let Some(value) = &self.name {
+            config.name.clone_from(value);
+        }
+        if let Some(value) = &self.helm_repo_url {
+            config.helm_repo_url.clone_from(value);
+        }
+        if let Some(value) = &self.helm_chart {
+            config.helm_chart.clone_from(value);
+        }
+        if let Some(value) = &self.helm_version {
+            config.helm_version.clone_from(value);
+        }
+        if let Some(value) = &self.docker_repo_url {
+            config.docker_repo_url.clone_from(value);
+        }
+        if let Some(value) = &self.docker_image_tag {
+            config.docker_image_tag.clone_from(value);
+        }
+        if let Some(value) = &self.docker_image_pull_secret {
+            config.docker_image_pull_secret = Some(value.clone());
+        }
+        if let Some(value) = &self.extra_helm_values {
+            config.extra_helm_values = Some(value.clone());
+        }
+    }
 }
 
 /// Per-deployment DPF configuration for named entries under `[dpf.deployments]`.
@@ -1909,9 +2082,9 @@ pub struct DpfDeploymentConfig {
 
     /// Deployment-specific Helm services. BF4 Astra receives built-in DOCA Weave
     /// DHCP agent, Weave flow controller, and DOCA Xplane definitions; configured
-    /// entries replace matching defaults.
+    /// entries overlay the corresponding site-wide extra-service definition.
     #[serde(default)]
-    pub extra_services: BTreeMap<DpfExtraService, DpfServiceConfig>,
+    pub extra_services: BTreeMap<DpfExtraService, DpfServiceConfigOverride>,
 }
 
 impl Default for DpfDeploymentConfig {
@@ -1951,7 +2124,8 @@ pub struct DpfBlueFieldSoftwareConfig {
 /// Named DPUDeployment configurations under `[dpf.deployments]`.
 /// Each entry creates its own provisioning source, DPUFlavor, and DPUDeployment
 /// CR at startup.
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct DpfDeploymentsConfig {
     /// BF3 deployment. Present by default with sensible values; override individual
     /// fields in `[dpf.deployments.bf3]` when the site uses non-default names or BFBs.
@@ -1965,58 +2139,7 @@ pub struct DpfDeploymentsConfig {
     pub bf4_astra: Option<DpfDeploymentConfig>,
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct DpfDeploymentsConfigDef {
-    #[serde(default)]
-    bf3: DpfDeploymentConfig,
-    #[serde(default)]
-    bf4_generic: Option<DpfDeploymentConfig>,
-    #[serde(default)]
-    bf4_astra: Option<DpfDeploymentConfig>,
-}
-
-impl<'de> Deserialize<'de> for DpfDeploymentsConfig {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let config = DpfDeploymentsConfigDef::deserialize(deserializer)?;
-        let mut deployments = Self {
-            bf3: config.bf3,
-            bf4_generic: config.bf4_generic,
-            bf4_astra: config.bf4_astra,
-        };
-        deployments.apply_extra_service_defaults();
-        Ok(deployments)
-    }
-}
-
 impl DpfDeploymentsConfig {
-    fn apply_extra_service_defaults(&mut self) {
-        Self::apply_extra_service_defaults_for(&mut self.bf3, DpuDeploymentType::Bf3);
-        if let Some(deployment) = &mut self.bf4_generic {
-            Self::apply_extra_service_defaults_for(deployment, DpuDeploymentType::Bf4Generic);
-        }
-        if let Some(deployment) = &mut self.bf4_astra {
-            Self::apply_extra_service_defaults_for(deployment, DpuDeploymentType::Bf4Astra);
-        }
-    }
-
-    fn apply_extra_service_defaults_for(
-        deployment: &mut DpfDeploymentConfig,
-        deployment_type: DpuDeploymentType,
-    ) {
-        let configured = std::mem::take(&mut deployment.extra_services);
-        deployment.extra_services = extra_service_types(deployment_type)
-            .iter()
-            .copied()
-            .map(|service| (service, service.default_config()))
-            .collect();
-        // A configured entry replaces only that service's built-in definition.
-        deployment.extra_services.extend(configured);
-    }
-
     /// Returns all active deployment configs as `(name, config)` pairs.
     /// Add new deployments here when they are introduced.
     fn all(&self) -> Vec<(&'static str, &DpfDeploymentConfig)> {
@@ -3059,19 +3182,10 @@ pub struct RackStateControllerConfig {
     #[serde(default = "StateControllerConfig::default")]
     pub controller: StateControllerConfig,
 
-    /// Switch mTLS services configured on scoped switches before NMX cluster
-    /// setup proceeds. When omitted or empty, defaults to ScaleUpFabric manager
-    /// and telemetry interface services.
-    ///
-    /// Configured in `nico-api-config.toml`:
-    ///
-    /// ```toml
-    /// [rack_state_controller]
-    /// nmx_cluster_switch_mtls_services = [
-    ///   "scale_up_fabric_manager",
-    ///   "scale_up_fabric_telemetry_interface",
-    /// ]
-    /// ```
+    /// Switch mTLS services for NMX cluster setup. Accepted and ignored: rack
+    /// maintenance does not configure switch certificates. Per-switch
+    /// certificate configuration uses
+    /// `[switch_state_controller].switch_mtls_services`.
     #[serde(default)]
     pub nmx_cluster_switch_mtls_services: Vec<component_manager::config::SwitchMtlsService>,
 }
@@ -4135,28 +4249,19 @@ pub fn default_hbn_bridge() -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+
     use std::sync::atomic::Ordering as AtomicOrdering;
 
-    use carbide_authn::config::CertComponent;
     use carbide_network::virtualization::VpcVirtualizationType;
-    use carbide_site_explorer::config::SiteExplorerExploreMode;
     use carbide_test_support::Outcome::*;
     use carbide_test_support::{Check, check_values, scenarios, value_scenarios};
-    use chrono::Datelike;
     use figment::Figment;
     use figment::error::Kind;
     use figment::providers::{Env, Format, Toml};
-    use health_report::HealthAlertClassification;
-    use libmlx::variables::value::MlxValueType;
-    use libredfish::model::service_root::RedfishVendor;
     use model::expected_machine::HostDpuPolicy;
-    use model::network_segment::NetworkDefinitionSegmentType;
-    use model::resource_pool;
     use model::vpc::VpcRoutingProfileOverrides;
 
     use super::*;
-    use crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
 
     /// Disabling both bearer tokens and machine mTLS would lock every node out
     /// of the API; validation must refuse the combination, and each mechanism
@@ -4409,138 +4514,6 @@ mod tests {
                 "tenant_prefix_overlap_eligible = false" => false,
                 "tenant_prefix_overlap_eligible = true" => true,
             }
-        );
-    }
-
-    #[test]
-    fn fnn_profile_overlap_eligibility_fails_closed_for_route_policy() {
-        let safe_profile = FnnRoutingProfileConfig {
-            tenant_prefix_overlap_eligible: true,
-            internal: Some(true),
-            ..Default::default()
-        };
-        let explicit_safe_profile = FnnRoutingProfileConfig {
-            tenant_prefix_overlap_eligible: true,
-            route_target_imports: Some(vec![]),
-            route_targets_on_exports: Some(vec![]),
-            internal: Some(true),
-            leak_default_route_from_underlay: Some(false),
-            leak_tenant_host_routes_to_underlay: Some(false),
-            tenant_leak_communities_accepted: Some(false),
-            accepted_leaks_from_underlay: Some(vec![]),
-            allowed_anycast_prefixes: Some(vec![]),
-            access_tier: Some(2),
-        };
-        let route_target = RouteTargetConfig {
-            asn: 64512,
-            vni: 1001,
-        };
-        let prefix_filter = PrefixFilterPolicyEntry {
-            prefix: "192.0.2.0/24".parse().expect("valid test prefix"),
-        };
-
-        check_values(
-            [
-                Check {
-                    scenario: "omitted neutral policy inputs",
-                    input: safe_profile.clone(),
-                    expect: true,
-                },
-                Check {
-                    scenario: "explicit neutral policy inputs",
-                    input: explicit_safe_profile,
-                    expect: true,
-                },
-                Check {
-                    scenario: "profile opt-in disabled",
-                    input: FnnRoutingProfileConfig {
-                        tenant_prefix_overlap_eligible: false,
-                        ..safe_profile.clone()
-                    },
-                    expect: false,
-                },
-                Check {
-                    scenario: "public profile",
-                    input: FnnRoutingProfileConfig {
-                        internal: Some(false),
-                        ..safe_profile.clone()
-                    },
-                    expect: false,
-                },
-                Check {
-                    scenario: "missing internal classification",
-                    input: FnnRoutingProfileConfig {
-                        internal: None,
-                        ..safe_profile.clone()
-                    },
-                    expect: false,
-                },
-                Check {
-                    scenario: "route-target import",
-                    input: FnnRoutingProfileConfig {
-                        route_target_imports: Some(vec![route_target.clone()]),
-                        ..safe_profile.clone()
-                    },
-                    expect: false,
-                },
-                Check {
-                    scenario: "route-target export",
-                    input: FnnRoutingProfileConfig {
-                        route_targets_on_exports: Some(vec![route_target]),
-                        ..safe_profile.clone()
-                    },
-                    expect: false,
-                },
-                Check {
-                    scenario: "default-route leak from underlay",
-                    input: FnnRoutingProfileConfig {
-                        leak_default_route_from_underlay: Some(true),
-                        ..safe_profile.clone()
-                    },
-                    expect: false,
-                },
-                Check {
-                    scenario: "tenant host-route leak to underlay",
-                    input: FnnRoutingProfileConfig {
-                        leak_tenant_host_routes_to_underlay: Some(true),
-                        ..safe_profile.clone()
-                    },
-                    expect: false,
-                },
-                Check {
-                    scenario: "tenant leak communities",
-                    input: FnnRoutingProfileConfig {
-                        tenant_leak_communities_accepted: Some(true),
-                        ..safe_profile.clone()
-                    },
-                    expect: false,
-                },
-                Check {
-                    scenario: "accepted underlay leak",
-                    input: FnnRoutingProfileConfig {
-                        accepted_leaks_from_underlay: Some(vec![prefix_filter.clone()]),
-                        ..safe_profile.clone()
-                    },
-                    expect: false,
-                },
-                Check {
-                    scenario: "allowed anycast prefix",
-                    input: FnnRoutingProfileConfig {
-                        allowed_anycast_prefixes: Some(vec![prefix_filter]),
-                        ..safe_profile.clone()
-                    },
-                    expect: false,
-                },
-                Check {
-                    scenario: "access tier does not alter routes",
-                    input: FnnRoutingProfileConfig {
-                        access_tier: Some(u32::MAX),
-                        ..safe_profile
-                    },
-                    expect: true,
-                },
-            ],
-            |profile| profile.is_eligible_for_tenant_prefix_overlap(),
         );
     }
 
@@ -5493,171 +5466,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn deserialize_patched_min_config() {
-        let config: CarbideConfig = Figment::new()
-            .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
-            .merge(Toml::file(format!("{TEST_DATA_DIR}/site_config.toml")))
-            .extract()
-            .unwrap();
-        assert_eq!(config.listen, "[::]:1081".parse().unwrap());
-        assert_eq!(config.metrics_endpoint, None);
-        assert_eq!(config.database_url, "postgres://a:b@postgresql".to_string());
-        assert_eq!(config.max_database_connections, 1333);
-        assert_eq!(config.asn, 777);
-        assert_eq!(config.dhcp_servers, vec![Ipv4Addr::new(99, 101, 102, 103)]);
-        assert!(config.route_servers.is_empty());
-        assert_eq!(config.bmc_session_lockout_threshold, 5);
-        assert_eq!(config.vpc_peering_policy, Some(VpcPeeringPolicy::Exclusive));
-        assert_eq!(config.vpc_peering_policy_on_existing, None);
-        assert_eq!(
-            config.tls.as_ref().unwrap().identity_pemfile_path,
-            "/patched/path/to/cert"
-        );
-        assert_eq!(
-            config.tls.as_ref().unwrap().identity_keyfile_path,
-            "/patched/path/to/key"
-        );
-        assert_eq!(
-            config.tls.as_ref().unwrap().root_cafile_path,
-            "/patched/path/to/ca"
-        );
-        assert!(config.auth.as_ref().unwrap().permissive_mode);
-        assert_eq!(
-            config
-                .auth
-                .as_ref()
-                .unwrap()
-                .casbin_policy_file
-                .as_ref()
-                .unwrap()
-                .as_os_str(),
-            "/patched/path/to/policy"
-        );
-        let pools = config.pools.as_ref().unwrap();
-        assert_eq!(
-            pools.get("lo-ip").unwrap(),
-            &ResourcePoolDef {
-                ranges: Vec::new(),
-                prefix: Some("10.180.63.0/26".to_string()),
-                pool_type: resource_pool::ResourcePoolType::Ipv4,
-                delegate_prefix_len: None,
-            }
-        );
-        assert!(pools.get("pkey").is_none());
-        assert_eq!(
-            config.ib_config,
-            Some(IBFabricConfig {
-                enabled: true,
-                fabric_monitor_run_interval: std::time::Duration::from_secs(102),
-                ..serde_json::from_str("{}").unwrap()
-            })
-        );
-        assert_eq!(
-            config.site_explorer,
-            SiteExplorerConfig {
-                retained_boot_interface_window: None,
-                enabled: Arc::new(false.into()),
-                run_interval: std::time::Duration::from_secs(120),
-                concurrent_explorations: 10,
-                explorations_per_run: 12,
-                create_machines: Arc::new(false.into()),
-                machines_created_per_run: 4,
-                override_target_ip: None,
-                override_target_port: None,
-                bmc_proxy: carbide_site_explorer::config::bmc_proxy(None),
-                allow_changing_bmc_proxy: None,
-                reset_rate_limit: Duration::hours(1),
-                admin_segment_type_non_dpu: Arc::new(false.into()),
-                create_power_shelves: Arc::new(true.into()),
-                power_shelves_created_per_run: 1,
-                create_switches: Arc::new(true.into()),
-                switches_created_per_run: 9,
-                rotate_switch_nvos_credentials: Arc::new(false.into()),
-                dpu_policy: None,
-                deprecated_force_dpu_nic_mode: None,
-                explore_mode: SiteExplorerExploreMode::NvRedfish,
-            }
-        );
-        assert_eq!(
-            config.machine_state_controller,
-            MachineStateControllerConfig {
-                controller: StateControllerConfig {
-                    iteration_time: std::time::Duration::from_secs(3 * 60),
-                    max_object_handling_time: std::time::Duration::from_secs(11),
-                    max_concurrency: 22,
-                    processor_dispatch_interval: std::time::Duration::from_secs(2),
-                    processor_log_interval: std::time::Duration::from_secs(60),
-                    metric_emission_interval: std::time::Duration::from_secs(60),
-                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
-                },
-                dpu_wait_time: Duration::minutes(7),
-                power_down_wait: Duration::seconds(17),
-                failure_retry_time: Duration::minutes(70),
-                dpu_up_threshold: Duration::minutes(77),
-                scout_reporting_timeout: Duration::minutes(5),
-                waiting_for_measurements_timeout: Duration::hours(4),
-                uefi_boot_wait: Duration::minutes(5),
-                max_bios_config_retries: 3,
-                polling_bios_setup_stuck_threshold: Duration::minutes(15),
-                boot_interface_observation_interval: Duration::hours(2),
-            }
-        );
-        assert_eq!(
-            config.network_segment_state_controller,
-            NetworkSegmentStateControllerConfig {
-                network_segment_drain_time: Duration::seconds(45),
-                controller: StateControllerConfig {
-                    iteration_time: std::time::Duration::from_secs(18 * 60),
-                    max_object_handling_time: std::time::Duration::from_secs(188),
-                    max_concurrency: 1888,
-                    processor_dispatch_interval: std::time::Duration::from_secs(2),
-                    processor_log_interval: std::time::Duration::from_secs(60),
-                    metric_emission_interval: std::time::Duration::from_secs(60),
-                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
-                },
-            }
-        );
-        assert_eq!(
-            config.vpc_prefix_state_controller,
-            VpcPrefixStateControllerConfig {
-                vpc_prefix_drain_time: Duration::seconds(46),
-                controller: StateControllerConfig {
-                    iteration_time: std::time::Duration::from_secs(19 * 60),
-                    max_object_handling_time: std::time::Duration::from_secs(199),
-                    max_concurrency: 1999,
-                    processor_dispatch_interval: std::time::Duration::from_secs(2),
-                    processor_log_interval: std::time::Duration::from_secs(60),
-                    metric_emission_interval: std::time::Duration::from_secs(60),
-                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
-                },
-            }
-        );
-        assert_eq!(
-            config.ib_partition_state_controller,
-            IbPartitionStateControllerConfig {
-                controller: StateControllerConfig {
-                    iteration_time: std::time::Duration::from_secs(17 * 60),
-                    max_object_handling_time: std::time::Duration::from_secs(177),
-                    max_concurrency: 1777,
-                    processor_dispatch_interval: std::time::Duration::from_secs(2),
-                    processor_log_interval: std::time::Duration::from_secs(60),
-                    metric_emission_interval: std::time::Duration::from_secs(60),
-                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
-                },
-            }
-        );
-        assert_eq!(config.max_find_by_ids, 50);
-        assert_eq!(
-            config.max_site_prefixes_per_tenant,
-            default_max_site_prefixes_per_tenant()
-        );
-        assert_eq!(
-            config.dpu_network_monitor_pinger_type,
-            Some("OobNetBind".to_string())
-        );
-    }
-
     fn rendered_helm_api_config() -> String {
         let mut config =
             include_str!("../../../../helm/charts/nico-api/files/carbide-api-config.toml")
@@ -5798,655 +5606,6 @@ mod tests {
                 panic!("{name} config must match the strict schema: {error}")
             });
         }
-    }
-
-    #[test]
-    fn deserialize_full_config() {
-        let config: CarbideConfig = Figment::new()
-            .merge(Toml::file(format!("{TEST_DATA_DIR}/full_config.toml")))
-            .extract()
-            .unwrap();
-        assert_eq!(config.listen, "[::]:1081".parse().unwrap());
-        assert_eq!(config.metrics_endpoint, Some("[::]:1080".parse().unwrap()));
-        assert_eq!(config.database_url, "postgres://a:b@postgresql".to_string());
-        assert_eq!(config.max_database_connections, 1222);
-        assert_eq!(
-            config.database_pool_acquire_timeout,
-            std::time::Duration::from_secs(15)
-        );
-        assert_eq!(
-            config.database_pool_idle_timeout,
-            std::time::Duration::from_secs(20 * 60)
-        );
-        assert_eq!(
-            config.database_pool_max_lifetime,
-            std::time::Duration::from_secs(45 * 60)
-        );
-        assert_eq!(config.asn, 123);
-        assert_eq!(config.bmc_session_lockout_threshold, 4);
-        assert_eq!(
-            config.dhcp_servers,
-            vec![Ipv4Addr::new(1, 2, 3, 4), Ipv4Addr::new(5, 6, 7, 8)]
-        );
-        assert_eq!(
-            config.ntp_servers,
-            vec![Ipv4Addr::new(10, 20, 30, 40), Ipv4Addr::new(50, 60, 70, 80)]
-        );
-        assert_eq!(config.vpc_peering_policy, Some(VpcPeeringPolicy::Exclusive));
-        assert_eq!(
-            config.vpc_peering_policy_on_existing,
-            Some(VpcPeeringPolicy::Mixed)
-        );
-        assert_eq!(config.pxe_public_base_url, "http://pxe.example.com:8080");
-        assert_eq!(config.route_servers, vec![Ipv4Addr::new(9, 10, 11, 12)]);
-        assert_eq!(
-            config.tls.as_ref().unwrap().identity_pemfile_path,
-            "/path/to/cert"
-        );
-        assert_eq!(
-            config.tls.as_ref().unwrap().identity_keyfile_path,
-            "/path/to/key"
-        );
-        assert_eq!(config.tls.as_ref().unwrap().root_cafile_path, "/path/to/ca");
-        assert!(!config.auth.as_ref().unwrap().permissive_mode);
-        assert_eq!(
-            config.dpu_config.bootstrap_ca_source,
-            BootstrapCaSource::LegacyDownload
-        );
-        assert_eq!(config.dpu_config.num_of_vfs, DEFAULT_DPU_NUM_OF_VFS);
-        assert_eq!(
-            config
-                .auth
-                .as_ref()
-                .unwrap()
-                .casbin_policy_file
-                .clone()
-                .unwrap()
-                .as_os_str(),
-            "/path/to/policy"
-        );
-        let pools = config.pools.as_ref().unwrap();
-        assert_eq!(
-            pools.get("lo-ip").unwrap(),
-            &ResourcePoolDef {
-                ranges: Vec::new(),
-                prefix: Some("10.180.62.1/26".to_string()),
-                pool_type: resource_pool::ResourcePoolType::Ipv4,
-                delegate_prefix_len: None,
-            }
-        );
-        assert_eq!(
-            pools.get("vlan-id").unwrap(),
-            &ResourcePoolDef {
-                ranges: vec![resource_pool::Range {
-                    auto_assign: true,
-                    start: "100".to_string(),
-                    end: "501".to_string()
-                }],
-                prefix: None,
-                pool_type: resource_pool::ResourcePoolType::Integer,
-                delegate_prefix_len: None,
-            }
-        );
-        assert_eq!(
-            config.ib_fabrics,
-            [(
-                "default".to_string(),
-                IbFabricDefinition {
-                    endpoints: vec!["https://1.2.3.4".to_string()],
-                    pkeys: vec![resource_pool::Range {
-                        auto_assign: true,
-                        start: "1".to_string(),
-                        end: "10".to_string()
-                    }]
-                }
-            )]
-            .into_iter()
-            .collect()
-        );
-
-        assert_eq!(
-            config.ib_config,
-            Some(IBFabricConfig {
-                enabled: false,
-                fabric_monitor_run_interval: std::time::Duration::from_secs(101),
-                ..serde_json::from_str("{}").unwrap()
-            })
-        );
-        assert_eq!(
-            config.site_explorer,
-            SiteExplorerConfig {
-                retained_boot_interface_window: None,
-                enabled: Arc::new(true.into()),
-                run_interval: std::time::Duration::from_secs(100),
-                concurrent_explorations: 30,
-                explorations_per_run: 11,
-                create_machines: Arc::new(true.into()),
-                machines_created_per_run: 2,
-                override_target_ip: Some("1.2.3.4".to_owned()),
-                override_target_port: Some(10443),
-                bmc_proxy: carbide_site_explorer::config::bmc_proxy(None),
-                allow_changing_bmc_proxy: None,
-                reset_rate_limit: Duration::hours(2),
-                admin_segment_type_non_dpu: Arc::new(false.into()),
-                create_power_shelves: Arc::new(true.into()),
-                power_shelves_created_per_run: 1,
-                create_switches: Arc::new(true.into()),
-                switches_created_per_run: 9,
-                rotate_switch_nvos_credentials: Arc::new(false.into()),
-                dpu_policy: None,
-                deprecated_force_dpu_nic_mode: None,
-                explore_mode: SiteExplorerExploreMode::NvRedfish,
-            }
-        );
-
-        assert_eq!(
-            config.host_health,
-            HostHealthConfig {
-                hardware_health_reports: model::machine::HardwareHealthReportsConfig::Disabled,
-                dpu_agent_version_staleness_threshold: Duration::days(1),
-                prevent_allocations_on_stale_dpu_agent_version: true,
-                prevent_allocations_on_scout_heartbeat_timeout: true,
-                suppress_external_alerting_on_scout_heartbeat_timeout: false,
-            }
-        );
-        assert_eq!(
-            config.observability,
-            ObservabilityConfig {
-                per_object_metrics_for_classifications: vec![
-                    HealthAlertClassification::hardware(),
-                    HealthAlertClassification::prevent_allocations(),
-                ],
-                per_object_state_metrics: PerObjectStateMetricsConfig {
-                    enabled: true,
-                    listen_address: "127.0.0.1:9191".parse().unwrap(),
-                    object_types: vec![
-                        PerObjectStateMetricObjectType::Machine,
-                        PerObjectStateMetricObjectType::Switch,
-                    ],
-                },
-            }
-        );
-        assert_eq!(
-            config.machine_state_controller,
-            MachineStateControllerConfig {
-                controller: StateControllerConfig {
-                    iteration_time: std::time::Duration::from_secs(9 * 60),
-                    max_object_handling_time: std::time::Duration::from_secs(99),
-                    max_concurrency: 999,
-                    processor_dispatch_interval: std::time::Duration::from_secs(2),
-                    processor_log_interval: std::time::Duration::from_secs(60),
-                    metric_emission_interval: std::time::Duration::from_secs(60),
-                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
-                },
-                dpu_wait_time: Duration::minutes(3),
-                power_down_wait: Duration::seconds(13),
-                failure_retry_time: Duration::minutes(31),
-                dpu_up_threshold: Duration::minutes(33),
-                scout_reporting_timeout: Duration::minutes(20),
-                waiting_for_measurements_timeout: Duration::hours(4),
-                uefi_boot_wait: Duration::minutes(5),
-                max_bios_config_retries: 3,
-                polling_bios_setup_stuck_threshold: Duration::minutes(15),
-                boot_interface_observation_interval: Duration::minutes(10),
-            }
-        );
-        assert_eq!(
-            config.network_segment_state_controller,
-            NetworkSegmentStateControllerConfig {
-                network_segment_drain_time: Duration::seconds(44),
-                controller: StateControllerConfig {
-                    iteration_time: std::time::Duration::from_secs(8 * 60),
-                    max_object_handling_time: std::time::Duration::from_secs(88),
-                    max_concurrency: 888,
-                    processor_dispatch_interval: std::time::Duration::from_secs(2),
-                    processor_log_interval: std::time::Duration::from_secs(60),
-                    metric_emission_interval: std::time::Duration::from_secs(60),
-                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
-                },
-            }
-        );
-        assert_eq!(
-            config.vpc_prefix_state_controller,
-            VpcPrefixStateControllerConfig {
-                vpc_prefix_drain_time: Duration::seconds(43),
-                controller: StateControllerConfig {
-                    iteration_time: std::time::Duration::from_secs(6 * 60),
-                    max_object_handling_time: std::time::Duration::from_secs(66),
-                    max_concurrency: 666,
-                    processor_dispatch_interval: std::time::Duration::from_secs(2),
-                    processor_log_interval: std::time::Duration::from_secs(60),
-                    metric_emission_interval: std::time::Duration::from_secs(60),
-                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
-                },
-            }
-        );
-        assert_eq!(
-            config.ib_partition_state_controller,
-            IbPartitionStateControllerConfig {
-                controller: StateControllerConfig {
-                    iteration_time: std::time::Duration::from_secs(7 * 60),
-                    max_object_handling_time: std::time::Duration::from_secs(77),
-                    max_concurrency: 777,
-                    processor_dispatch_interval: std::time::Duration::from_secs(2),
-                    processor_log_interval: std::time::Duration::from_secs(60),
-                    metric_emission_interval: std::time::Duration::from_secs(60),
-                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
-                },
-            }
-        );
-        assert_eq!(config.dpu_config.dpu_models.len(), 2);
-        for entry in config.dpu_config.dpu_models.values() {
-            assert_eq!(entry.vendor, bmc_vendor::BMCVendor::Nvidia);
-        }
-        assert_eq!(config.host_models.len(), 2);
-        for entry in config.host_models.values() {
-            assert_eq!(entry.vendor, bmc_vendor::BMCVendor::Dell);
-        }
-
-        assert_eq!(
-            config
-                .rack_profiles
-                .rack_profiles
-                .get("NVL72")
-                .and_then(|profile| profile.firmware_object.as_ref())
-                .map(|firmware_object| firmware_object.url.as_str()),
-            Some("https://firmware.example.invalid/sot/nvl72.json")
-        );
-
-        assert_eq!(
-            config
-                .rack_profiles
-                .rack_profiles
-                .get("NVL72")
-                .and_then(|profile| profile.firmware_object.as_ref())
-                .map(|firmware_object| firmware_object.fetch_timeout),
-            Some(std::time::Duration::from_secs(45))
-        );
-
-        assert_eq!(config.firmware_global.max_uploads, 3);
-        assert_eq!(config.firmware_global.run_interval, Duration::seconds(20));
-        assert_eq!(config.firmware_global.max_concurrent_bfb_copies, 7);
-        assert_eq!(config.max_find_by_ids, 75);
-        assert_eq!(
-            config.max_site_prefixes_per_tenant,
-            default_max_site_prefixes_per_tenant()
-        );
-        assert_eq!(config.dpu_network_monitor_pinger_type, None);
-        assert_eq!(
-            config.measured_boot_collector,
-            MeasuredBootMetricsCollectorConfig {
-                enabled: false,
-                run_interval: std::time::Duration::from_secs(555),
-            }
-        );
-        assert_eq!(
-            config.auth.clone().unwrap().cli_certs.unwrap().group_from,
-            Some(CertComponent::SubjectOU)
-        );
-        assert_eq!(
-            config
-                .auth
-                .clone()
-                .unwrap()
-                .cli_certs
-                .unwrap()
-                .username_from,
-            Some(CertComponent::SubjectCN)
-        );
-        assert_eq!(
-            config
-                .auth
-                .clone()
-                .unwrap()
-                .cli_certs
-                .unwrap()
-                .required_equals
-                .len(),
-            2
-        );
-        assert_eq!(
-            config
-                .auth
-                .clone()
-                .unwrap()
-                .cli_certs
-                .unwrap()
-                .required_equals
-                .get(&CertComponent::IssuerO),
-            Some("NVIDIA Corporation".to_string()).as_ref()
-        );
-        assert_eq!(
-            config
-                .auth
-                .clone()
-                .unwrap()
-                .cli_certs
-                .unwrap()
-                .required_equals
-                .get(&CertComponent::IssuerCN),
-            Some("NVIDIA Forge Root Certificate Authority 2022".to_string()).as_ref()
-        );
-        assert_eq!(
-            config
-                .machine_updater
-                .instance_autoreboot_period
-                .clone()
-                .unwrap()
-                .start
-                .day(),
-            7
-        );
-        assert_eq!(
-            config
-                .machine_updater
-                .instance_autoreboot_period
-                .clone()
-                .unwrap()
-                .end
-                .day(),
-            8
-        );
-        // Do some more in-depth validation of the MlxConfigProfile section, ensuring
-        // we're able to deserialize the SerializedProfile into an MlxConfigProfile
-        // and validate entries were properly deserialized back to their types + values.
-        //
-        // First verify that both serialized profiles are detected.
-        assert_eq!(config.mlxconfig_profiles.clone().unwrap().len(), 2);
-        // And then pluck out one of them and validate everything deserialized
-        // as expected. All of this is generally handled by existing unit tests
-        // within the mlxconfig_profile tests already, but it doesn't hurt to
-        // verify stuff here also.
-        let mlxconfig_profile = config
-            .mlxconfig_profiles
-            .as_ref()
-            .unwrap()
-            .get("test-profile")
-            .unwrap();
-        assert_eq!(mlxconfig_profile.name, "test-profile");
-        assert_eq!(mlxconfig_profile.registry.name, "mlx_generic");
-        assert_eq!(mlxconfig_profile.config_values.len(), 2);
-        assert_eq!(
-            mlxconfig_profile.get_variable("SRIOV_EN").unwrap().value,
-            MlxValueType::Boolean(true)
-        );
-        assert_eq!(
-            mlxconfig_profile.get_variable("NUM_OF_VFS").unwrap().value,
-            MlxValueType::Integer(4)
-        );
-        assert!(mlxconfig_profile.get_variable("NONEXISTENT_GOO").is_none());
-
-        assert_eq!(config.rack_profiles.rack_profiles.len(), 2);
-        let nvl72 = config.rack_profiles.get("NVL72").unwrap();
-        assert_eq!(
-            nvl72.product_family,
-            Some(model::rack_type::RackProductFamily::Gb200)
-        );
-        assert_eq!(nvl72.rack_capabilities.compute.count, 18);
-        assert_eq!(
-            nvl72.rack_capabilities.compute.name.as_deref(),
-            Some("GB200")
-        );
-        assert_eq!(
-            nvl72.rack_capabilities.compute.vendor.as_deref(),
-            Some("NVIDIA")
-        );
-        assert_eq!(nvl72.rack_capabilities.switch.count, 9);
-        assert_eq!(nvl72.rack_capabilities.power_shelf.count, 8);
-        let nvl36 = config.rack_profiles.get("NVL36").unwrap();
-        assert_eq!(
-            nvl36.product_family,
-            Some(model::rack_type::RackProductFamily::Gb200)
-        );
-        assert_eq!(nvl36.rack_capabilities.compute.count, 9);
-        assert_eq!(nvl36.rack_capabilities.switch.count, 9);
-        assert_eq!(nvl36.rack_capabilities.power_shelf.count, 2);
-
-        assert_eq!(config.certificates.backend, CertBackendKind::DedicatedVault);
-        let dedicated = config.certificates.dedicated_vault.as_ref().unwrap();
-        assert_eq!(dedicated.address, "https://vault-certs.example:8200");
-        assert_eq!(dedicated.pki_mount_location, "pki-machine");
-        assert_eq!(dedicated.pki_role_name, "machine");
-        assert_eq!(dedicated.token.as_deref(), Some("s.fulltest"));
-        assert_eq!(
-            dedicated.vault_cacert.as_deref(),
-            Some("/path/to/vault-ca.pem")
-        );
-    }
-
-    #[test]
-    fn deserialize_patched_full_config() {
-        let config: CarbideConfig = Figment::new()
-            .merge(Toml::file(format!("{TEST_DATA_DIR}/full_config.toml")))
-            .merge(Toml::file(format!("{TEST_DATA_DIR}/site_config.toml")))
-            .extract()
-            .unwrap();
-        assert_eq!(config.listen, "[::]:1081".parse().unwrap());
-        assert_eq!(config.metrics_endpoint, Some("[::]:1080".parse().unwrap()));
-        assert_eq!(config.database_url, "postgres://a:b@postgresql".to_string());
-        assert_eq!(config.max_database_connections, 1333);
-        assert_eq!(config.asn, 777);
-        assert_eq!(config.bmc_session_lockout_threshold, 5);
-        assert_eq!(config.dhcp_servers, vec![Ipv4Addr::new(99, 101, 102, 103)]);
-        assert_eq!(config.route_servers, vec![Ipv4Addr::new(9, 10, 11, 12)]);
-        assert_eq!(
-            config.tls.as_ref().unwrap().identity_pemfile_path,
-            "/patched/path/to/cert"
-        );
-        assert_eq!(
-            config.tls.as_ref().unwrap().identity_keyfile_path,
-            "/patched/path/to/key"
-        );
-        assert_eq!(
-            config.tls.as_ref().unwrap().root_cafile_path,
-            "/patched/path/to/ca"
-        );
-        assert!(config.auth.as_ref().unwrap().permissive_mode);
-        assert_eq!(
-            config
-                .auth
-                .as_ref()
-                .unwrap()
-                .casbin_policy_file
-                .clone()
-                .unwrap()
-                .as_os_str(),
-            "/patched/path/to/policy"
-        );
-        let pools = config.pools.as_ref().unwrap();
-        assert_eq!(
-            pools.get("lo-ip").unwrap(),
-            &ResourcePoolDef {
-                ranges: Vec::new(),
-                prefix: Some("10.180.63.0/26".to_string()),
-                pool_type: resource_pool::ResourcePoolType::Ipv4,
-                delegate_prefix_len: None,
-            }
-        );
-        assert_eq!(
-            pools.get("vlan-id").unwrap(),
-            &ResourcePoolDef {
-                ranges: vec![resource_pool::Range {
-                    auto_assign: true,
-
-                    start: "100".to_string(),
-                    end: "501".to_string()
-                }],
-                prefix: None,
-                pool_type: resource_pool::ResourcePoolType::Integer,
-                delegate_prefix_len: None,
-            }
-        );
-        assert_eq!(
-            config.ib_fabrics,
-            [(
-                "default".to_string(),
-                IbFabricDefinition {
-                    endpoints: vec!["https://1.2.3.4".to_string()],
-                    pkeys: vec![resource_pool::Range {
-                        auto_assign: true,
-
-                        start: "1".to_string(),
-                        end: "10".to_string()
-                    }]
-                }
-            )]
-            .into_iter()
-            .collect()
-        );
-        assert_eq!(
-            config.ib_config,
-            Some(IBFabricConfig {
-                enabled: true,
-                fabric_monitor_run_interval: std::time::Duration::from_secs(102),
-                ..serde_json::from_str("{}").unwrap()
-            })
-        );
-        assert_eq!(
-            config.site_explorer,
-            SiteExplorerConfig {
-                retained_boot_interface_window: None,
-                enabled: Arc::new(false.into()),
-                run_interval: std::time::Duration::from_secs(100),
-                concurrent_explorations: 10,
-                explorations_per_run: 12,
-                create_machines: Arc::new(false.into()),
-                machines_created_per_run: 2,
-                override_target_ip: Some("1.2.3.4".to_owned()),
-                override_target_port: Some(10443),
-                bmc_proxy: carbide_site_explorer::config::bmc_proxy(None),
-                allow_changing_bmc_proxy: None,
-                reset_rate_limit: Duration::hours(2),
-                admin_segment_type_non_dpu: Arc::new(false.into()),
-                create_power_shelves: Arc::new(true.into()),
-                power_shelves_created_per_run: 1,
-                create_switches: Arc::new(true.into()),
-                switches_created_per_run: 9,
-                rotate_switch_nvos_credentials: Arc::new(false.into()),
-                dpu_policy: None,
-                deprecated_force_dpu_nic_mode: None,
-                explore_mode: SiteExplorerExploreMode::NvRedfish,
-            }
-        );
-
-        assert_eq!(
-            config.host_health,
-            HostHealthConfig {
-                hardware_health_reports: model::machine::HardwareHealthReportsConfig::Disabled,
-                dpu_agent_version_staleness_threshold: Duration::days(1),
-                prevent_allocations_on_stale_dpu_agent_version: true,
-                prevent_allocations_on_scout_heartbeat_timeout: true,
-                suppress_external_alerting_on_scout_heartbeat_timeout: false,
-            }
-        );
-        assert_eq!(
-            config.observability,
-            ObservabilityConfig {
-                per_object_metrics_for_classifications: vec![
-                    HealthAlertClassification::hardware(),
-                    HealthAlertClassification::prevent_allocations(),
-                ],
-                per_object_state_metrics: PerObjectStateMetricsConfig {
-                    enabled: true,
-                    listen_address: "127.0.0.1:9191".parse().unwrap(),
-                    object_types: vec![
-                        PerObjectStateMetricObjectType::Machine,
-                        PerObjectStateMetricObjectType::Switch,
-                    ],
-                },
-            }
-        );
-        assert_eq!(
-            config.machine_state_controller,
-            MachineStateControllerConfig {
-                controller: StateControllerConfig {
-                    iteration_time: std::time::Duration::from_secs(3 * 60),
-                    max_object_handling_time: std::time::Duration::from_secs(11),
-                    max_concurrency: 22,
-                    processor_dispatch_interval: std::time::Duration::from_secs(2),
-                    processor_log_interval: std::time::Duration::from_secs(60),
-                    metric_emission_interval: std::time::Duration::from_secs(60),
-                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
-                },
-                dpu_wait_time: Duration::minutes(7),
-                power_down_wait: Duration::seconds(17),
-                failure_retry_time: Duration::minutes(70),
-                dpu_up_threshold: Duration::minutes(77),
-                scout_reporting_timeout: Duration::minutes(20),
-                waiting_for_measurements_timeout: Duration::hours(4),
-                uefi_boot_wait: Duration::minutes(5),
-                max_bios_config_retries: 3,
-                polling_bios_setup_stuck_threshold: Duration::minutes(15),
-                boot_interface_observation_interval: Duration::hours(2),
-            }
-        );
-        assert_eq!(
-            config.network_segment_state_controller,
-            NetworkSegmentStateControllerConfig {
-                network_segment_drain_time: Duration::seconds(45),
-                controller: StateControllerConfig {
-                    iteration_time: std::time::Duration::from_secs(18 * 60),
-                    max_object_handling_time: std::time::Duration::from_secs(188),
-                    max_concurrency: 1888,
-                    processor_dispatch_interval: std::time::Duration::from_secs(2),
-                    processor_log_interval: std::time::Duration::from_secs(60),
-                    metric_emission_interval: std::time::Duration::from_secs(60),
-                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
-                },
-            }
-        );
-        assert_eq!(
-            config.vpc_prefix_state_controller,
-            VpcPrefixStateControllerConfig {
-                vpc_prefix_drain_time: Duration::seconds(46),
-                controller: StateControllerConfig {
-                    iteration_time: std::time::Duration::from_secs(19 * 60),
-                    max_object_handling_time: std::time::Duration::from_secs(199),
-                    max_concurrency: 1999,
-                    processor_dispatch_interval: std::time::Duration::from_secs(2),
-                    processor_log_interval: std::time::Duration::from_secs(60),
-                    metric_emission_interval: std::time::Duration::from_secs(60),
-                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
-                },
-            }
-        );
-        assert_eq!(
-            config.ib_partition_state_controller,
-            IbPartitionStateControllerConfig {
-                controller: StateControllerConfig {
-                    iteration_time: std::time::Duration::from_secs(17 * 60),
-                    max_object_handling_time: std::time::Duration::from_secs(177),
-                    max_concurrency: 1777,
-                    processor_dispatch_interval: std::time::Duration::from_secs(2),
-                    processor_log_interval: std::time::Duration::from_secs(60),
-                    metric_emission_interval: std::time::Duration::from_secs(60),
-                    metric_hold_time: std::time::Duration::from_secs(5 * 60),
-                },
-            }
-        );
-        assert_eq!(
-            config.dpu_network_monitor_pinger_type,
-            Some("OobNetBind".to_string())
-        );
-        assert_eq!(
-            config.selected_profile,
-            libredfish::BiosProfileType::PowerEfficiency
-        );
-        assert_eq!(
-            config
-                .bios_profiles
-                .get(&RedfishVendor::Lenovo)
-                .unwrap()
-                .get("ThinkSystem_SR655_V3")
-                .unwrap()
-                .get(&libredfish::BiosProfileType::Performance)
-                .unwrap()
-                .get("OperatingModes_ChooseOperatingMode")
-                .unwrap()
-                .as_str()
-                .unwrap(),
-            "MaximumPerformance"
-        );
     }
 
     #[test]
@@ -7135,135 +6294,6 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
 
         assert!(config.supernic_firmware_profiles.is_empty());
     }
-    #[test]
-    fn deserialize_initial_objects() {
-        let f = PathBuf::from(format!("{TEST_DATA_DIR}/initial_objects.toml"));
-        let config: InitialObjectsConfig = Toml::from_path(f.as_path()).unwrap();
-        let pools = config.pools.as_ref().unwrap();
-        let networks = config.networks.as_ref().unwrap();
-        let vpcs = config.vpcs.as_ref().unwrap();
-
-        assert_eq!(
-            networks.get("admin").unwrap(),
-            &NetworkDefinition {
-                segment_type: NetworkDefinitionSegmentType::Admin,
-                prefix: "172.20.0.0/24".parse().unwrap(),
-                prefix_v6: None,
-                gateway: "172.20.0.1".parse().unwrap(),
-                dhcpv6_link_address: None,
-                mtu: 9000,
-                reserve_first: 5,
-                allocation_strategy: Default::default(),
-                infer_slaac_eui64_addresses: true,
-                vpc_name: None,
-            }
-        );
-
-        assert_eq!(
-            networks.get("DEV1-C09-IPMI-01").unwrap(),
-            &NetworkDefinition {
-                segment_type: NetworkDefinitionSegmentType::Underlay,
-                prefix: "172.99.0.0/26".parse().unwrap(),
-                prefix_v6: None,
-                gateway: "172.99.0.1".parse().unwrap(),
-                dhcpv6_link_address: None,
-                mtu: 1500,
-                reserve_first: 5,
-                allocation_strategy: Default::default(),
-                infer_slaac_eui64_addresses: false,
-                vpc_name: None,
-            }
-        );
-
-        assert_eq!(
-            networks.get("ZERO-DPU-HOST-01-SWP7").unwrap(),
-            &NetworkDefinition {
-                segment_type: NetworkDefinitionSegmentType::HostInband,
-                prefix: "10.217.18.192/30".parse().unwrap(),
-                prefix_v6: None,
-                gateway: "10.217.18.193".parse().unwrap(),
-                dhcpv6_link_address: None,
-                mtu: 1500,
-                reserve_first: 1,
-                allocation_strategy: Default::default(),
-                infer_slaac_eui64_addresses: false,
-                vpc_name: Some("zero-dpu-vpc".to_string()),
-            }
-        );
-
-        assert_eq!(
-            vpcs.get("zero-dpu-vpc").unwrap(),
-            &VpcDefinition {
-                organization_id: Some(FIXTURE_TENANT_ORG_ID.to_string()),
-                network_virtualization_type: VpcVirtualizationType::Flat,
-                routing_profile_type: None,
-                routing_profile_overrides: None,
-                vni: None,
-            }
-        );
-
-        assert_eq!(
-            pools.get("lo-ip").unwrap(),
-            &ResourcePoolDef {
-                ranges: Vec::new(),
-                prefix: Some("10.180.62.1/26".to_string()),
-                pool_type: resource_pool::ResourcePoolType::Ipv4,
-                delegate_prefix_len: None,
-            }
-        );
-        assert_eq!(
-            pools.get("vlan-id").unwrap(),
-            &ResourcePoolDef {
-                ranges: vec![resource_pool::Range {
-                    auto_assign: true,
-                    start: "100".to_string(),
-                    end: "501".to_string()
-                }],
-                prefix: None,
-                pool_type: resource_pool::ResourcePoolType::Integer,
-                delegate_prefix_len: None,
-            }
-        );
-        assert_eq!(
-            pools.get("fnn-asn").unwrap(),
-            &ResourcePoolDef {
-                ranges: vec![resource_pool::Range {
-                    auto_assign: true,
-                    start: "4268000000".to_string(),
-                    end: "4268999999".to_string()
-                }],
-                prefix: None,
-                pool_type: resource_pool::ResourcePoolType::Integer,
-                delegate_prefix_len: None,
-            }
-        );
-        assert_eq!(
-            pools.get("vni").unwrap(),
-            &ResourcePoolDef {
-                ranges: vec![resource_pool::Range {
-                    auto_assign: true,
-                    start: "1024500".to_string(),
-                    end: "1024550".to_string()
-                }],
-                prefix: None,
-                pool_type: resource_pool::ResourcePoolType::Integer,
-                delegate_prefix_len: None,
-            }
-        );
-        assert_eq!(
-            pools.get("vpc-vni").unwrap(),
-            &ResourcePoolDef {
-                ranges: vec![resource_pool::Range {
-                    auto_assign: true,
-                    start: "2024500".to_string(),
-                    end: "2024550".to_string()
-                }],
-                prefix: None,
-                pool_type: resource_pool::ResourcePoolType::Integer,
-                delegate_prefix_len: None,
-            }
-        );
-    }
 
     #[test]
     fn deserialize_dpf_dpu_agent_bootstrap_ca_sources() {
@@ -7489,21 +6519,14 @@ flavor_name = "astra-flavor"
 deployment_name = "astra-deployment"
 node_label_key = "carbide.nvidia.com/astra"
 
+[extra_services.doca_weave_dhcp_agent]
+docker_image_tag = "site-tag"
+
 [deployments.bf4_astra.extra_services.doca_weave_dhcp_agent]
-name = "doca-weave-dhcp-agent"
-helm_repo_url = "https://helm.example.test/doca"
-helm_chart = "doca-weave-dhcp-agent"
 helm_version = "development-version"
-docker_repo_url = "registry.example.test/doca-weave-dhcp-agent"
-docker_image_tag = "development-tag"
 
 [deployments.bf4_astra.extra_services.doca_weave_flow_controller]
-name = "doca-weave-flow-controller"
-helm_repo_url = "https://helm.example.test/doca"
-helm_chart = "doca-weave-flow-controller"
 helm_version = "flow-controller-dev"
-docker_repo_url = "registry.example.test/doca-weave-flow-controller"
-docker_image_tag = "flow-controller-tag"
 "#,
         )
         .unwrap();
@@ -7513,16 +6536,19 @@ docker_image_tag = "flow-controller-tag"
             .extra_services
             .get(&DpfExtraService::DocaWeaveDhcpAgent)
             .unwrap();
-        assert_eq!(configured.helm_version, "development-version");
+        assert_eq!(
+            configured.helm_version.as_deref(),
+            Some("development-version")
+        );
 
-        let resolved = config.resolved_services_for(deployment);
+        let resolved = config.resolved_services_for(deployment, DpuDeploymentType::Bf4Astra);
         assert_eq!(
             resolved
                 .extra
                 .get(&DpfExtraService::DocaWeaveDhcpAgent)
                 .unwrap()
                 .docker_image_tag,
-            "development-tag"
+            "site-tag"
         );
         assert_eq!(
             resolved
@@ -7554,7 +6580,7 @@ node_label_key = "carbide.nvidia.com/astra"
         )
         .unwrap();
         let deployment = config.deployments.bf4_astra.as_ref().unwrap();
-        let resolved = config.resolved_services_for(deployment);
+        let resolved = config.resolved_services_for(deployment, DpuDeploymentType::Bf4Astra);
         let dhcp_agent = resolved
             .extra
             .get(&DpfExtraService::DocaWeaveDhcpAgent)
@@ -7585,6 +6611,58 @@ node_label_key = "carbide.nvidia.com/astra"
             xplane.helm_version,
             crate::dpf_services::default_doca_xplane_service().helm_version
         );
+    }
+
+    #[test]
+    fn site_extra_services_are_configurable_only_for_supported_deployments() {
+        let config = toml::from_str::<DpfConfig>(
+            r#"
+docker_image_pull_secret = "top-level-pull-secret"
+
+[extra_services.doca_weave_dhcp_agent]
+helm_version = "site-weave-version"
+docker_image_pull_secret = "site-dpf-image-pull-secret"
+
+[extra_services.doca_weave_flow_controller]
+helm_repo_url = "oci://registry.example.test/doca"
+"#,
+        )
+        .unwrap();
+
+        let deployment = DpfDeploymentConfig::default();
+        for deployment_type in [DpuDeploymentType::Bf3, DpuDeploymentType::Bf4Generic] {
+            assert!(
+                config
+                    .resolved_services_for(&deployment, deployment_type)
+                    .extra
+                    .is_empty()
+            );
+        }
+
+        let astra = config.resolved_services_for(&deployment, DpuDeploymentType::Bf4Astra);
+        assert_eq!(
+            astra.extra[&DpfExtraService::DocaWeaveDhcpAgent].helm_version,
+            "site-weave-version"
+        );
+        assert_eq!(
+            astra.extra[&DpfExtraService::DocaWeaveDhcpAgent]
+                .docker_image_pull_secret
+                .as_deref(),
+            Some("site-dpf-image-pull-secret")
+        );
+        assert_eq!(
+            astra.extra[&DpfExtraService::DocaWeaveFlowController].helm_repo_url,
+            "oci://registry.example.test/doca"
+        );
+        for service in [
+            DpfExtraService::DocaWeaveFlowController,
+            DpfExtraService::DocaXplane,
+        ] {
+            assert_eq!(
+                astra.extra[&service].docker_image_pull_secret.as_deref(),
+                Some("top-level-pull-secret")
+            );
+        }
     }
 
     #[test]

@@ -115,10 +115,93 @@ async fn fetch_bmc_credentials(pool: PgPool) {
 
         assert_eq!(metadata.ip, host_bmc_ip);
         assert_eq!(metadata.port, None);
+        assert_eq!(metadata.serial_console_ssh_port, None);
         assert_eq!(metadata.ipmi_port, None);
         assert_eq!(metadata.mac, host_bmc_mac.to_string());
         assert!(!metadata.password.is_empty());
         assert!(!metadata.user.is_empty());
+    }
+}
+
+#[sqlx_test]
+async fn test_fetch_ssh_serial_console_metadata(pool: PgPool) {
+    let (env, mh) = init(pool).await;
+    let host_machine = mh.host.rpc_machine().await;
+    let host_bmc_ip = host_machine
+        .bmc_info
+        .as_ref()
+        .and_then(|bmc_info| bmc_info.ip.clone())
+        .expect("Host BMC IP must be available");
+
+    let mut txn = env.db_txn().await;
+    sqlx::query(
+        "UPDATE explored_endpoints SET exploration_report = \
+         jsonb_set(exploration_report, '{Systems,0,SerialConsoleSshPort}', '2222'::jsonb, true) \
+         WHERE address = $1",
+    )
+    .bind(IpAddr::from_str(&host_bmc_ip).expect("invalid host IP"))
+    .execute(txn.as_mut())
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    let metadata = env
+        .api()
+        .get_bmc_meta_data(tonic::Request::new(rpc::forge::BmcMetaDataGetRequest {
+            machine_id: host_machine.id,
+            request_type: rpc::forge::BmcRequestType::Redfish.into(),
+            role: rpc::forge::UserRoles::Administrator.into(),
+            bmc_endpoint_request: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(metadata.ip, host_bmc_ip);
+    assert_eq!(metadata.serial_console_ssh_port, Some(2222));
+}
+
+#[sqlx_test]
+async fn test_fetch_ssh_serial_console_metadata_ignores_invalid_ports(pool: PgPool) {
+    let (env, mh) = init(pool).await;
+    let host_machine = mh.host.rpc_machine().await;
+    let host_bmc_ip = host_machine
+        .bmc_info
+        .as_ref()
+        .and_then(|bmc_info| bmc_info.ip.clone())
+        .expect("Host BMC IP must be available");
+    let host_bmc_ip = IpAddr::from_str(&host_bmc_ip).expect("invalid host IP");
+
+    for invalid_port in [r#""not-a-port""#, "0", "65536", "2147483648"] {
+        let mut txn = env.db_txn().await;
+        sqlx::query(
+            "UPDATE explored_endpoints SET exploration_report = \
+             jsonb_set(exploration_report, '{Systems,0,SerialConsoleSshPort}', $2::jsonb, true) \
+             WHERE address = $1",
+        )
+        .bind(host_bmc_ip)
+        .bind(invalid_port)
+        .execute(txn.as_mut())
+        .await
+        .unwrap();
+        txn.commit().await.unwrap();
+
+        let metadata = env
+            .api()
+            .get_bmc_meta_data(tonic::Request::new(rpc::forge::BmcMetaDataGetRequest {
+                machine_id: host_machine.id,
+                request_type: rpc::forge::BmcRequestType::Redfish.into(),
+                role: rpc::forge::UserRoles::Administrator.into(),
+                bmc_endpoint_request: None,
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+
+        assert_eq!(
+            metadata.serial_console_ssh_port, None,
+            "stored port: {invalid_port}"
+        );
     }
 }
 

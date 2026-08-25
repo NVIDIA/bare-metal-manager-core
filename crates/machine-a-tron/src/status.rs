@@ -111,6 +111,8 @@ pub struct BmcStatus {
     pub redfish: EndpointStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ipmi: Option<EndpointStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ssh: Option<EndpointStatus>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -124,6 +126,13 @@ impl EndpointStatus {
         Self {
             reachable_port: config.redfish_reachable_port,
             listen_port: config.redfish_listen_port,
+        }
+    }
+
+    pub fn ssh(port: u16) -> Self {
+        Self {
+            reachable_port: port,
+            listen_port: port,
         }
     }
 }

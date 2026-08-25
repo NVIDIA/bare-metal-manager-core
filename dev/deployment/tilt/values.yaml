@@ -223,9 +223,7 @@ nico-machine-a-tron:
         tui_enabled = false
         log_format = "logfmt"
         bmc_mock_port = 1266
-        use_single_bmc_mock = true
         mock_bmc_ssh_server = true
-        mock_bmc_ssh_port = 2222
         enable_ipmi_simulation = true
         ipmi_reachable_port = 0
         persist_dir = "/tmp/machine-a-tron-data"

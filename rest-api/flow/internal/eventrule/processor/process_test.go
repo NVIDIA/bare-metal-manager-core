@@ -39,7 +39,6 @@ func TestProcessor_Process(t *testing.T) {
 		executorErr      error
 		cancelContext    bool
 		invalidResult    bool
-		dedupe           *eventrule.Dedupe
 		wantErr          error
 		wantStatus       eventrule.ExecutionStatus
 		wantReason       eventrule.ExecutionReason
@@ -64,17 +63,6 @@ func TestProcessor_Process(t *testing.T) {
 				},
 				Spec: &eventrule.Noop{},
 			}),
-		},
-		"dedupe without correlation key fails before condition skip": {
-			rule: processorRuntimeRule(eventrule.Action{
-				Name: "skip",
-				Condition: eventrule.ActionCondition{
-					ComponentTypes: []flowtypes.ComponentType{flowtypes.ComponentTypeNVSwitch},
-				},
-				Spec: &eventrule.Noop{},
-			}),
-			dedupe:  &eventrule.Dedupe{Window: time.Minute},
-			wantErr: ErrTerminal,
 		},
 		"noop completes on creator fast path": {
 			rule:             processorRuntimeRule(noopAction("noop")),
@@ -182,7 +170,6 @@ func TestProcessor_Process(t *testing.T) {
 			rule := test.rule
 			if rule != nil {
 				cloned := rule.Clone()
-				cloned.Dedupe = test.dedupe.Clone()
 				rule = &cloned
 			}
 			ctx, cancel := context.WithCancel(context.Background())
@@ -225,7 +212,7 @@ func TestProcessor_Process(t *testing.T) {
 			)
 			envelope := runtimeEnvelope(rackID)
 			if test.invalidEnvelope {
-				envelope.ID = uuid.Nil
+				envelope.Key = eventrule.EventKey{}
 			}
 
 			err := processor.Process(ctx, envelope)
@@ -268,11 +255,10 @@ func TestProcessor_persistExecution(t *testing.T) {
 	created, err := store.CreateExecution(
 		context.Background(),
 		eventrule.ExecutionIdentity{
-			EventID:    uuid.New(),
+			EventKey:   eventrule.EventKey{SourceName: "test", SourceKey: "event-1"},
 			RuleID:     uuid.New(),
 			ActionName: "action",
 		},
-		nil,
 	)
 	require.NoError(t, err)
 
@@ -296,24 +282,35 @@ func TestProcessor_persistExecution(t *testing.T) {
 }
 
 func testProcessDeduplication(t *testing.T) {
-	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
 	rackID := uuid.New()
 	tests := map[string]struct {
-		dedupe        *eventrule.Dedupe
-		secondEventID uuid.UUID
+		secondKey        eventrule.EventKey
+		wantRuns         int
+		wantExecutions   int
+		wantObservations int
 	}{
-		"delivery duplicate": {},
-		"semantic duplicate across event IDs": {
-			dedupe:        &eventrule.Dedupe{Window: time.Minute},
-			secondEventID: uuid.New(),
+		"same event key": {
+			wantRuns:         1,
+			wantExecutions:   1,
+			wantObservations: 2,
+		},
+		"different source key": {
+			secondKey:      eventrule.EventKey{SourceName: "test", SourceKey: "event-2"},
+			wantRuns:       2,
+			wantExecutions: 2,
+		},
+		"different source name": {
+			secondKey:      eventrule.EventKey{SourceName: "other", SourceKey: "event-1"},
+			wantRuns:       2,
+			wantExecutions: 2,
 		},
 	}
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
+			now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
 			store := memorystore.NewWithClock(func() time.Time { return now })
 			rule := processorRuntimeRule(noopAction("noop"))
-			rule.Dedupe = test.dedupe
 			var runs int
 			processor := runtimeProcessor(
 				t, rackID, rule, nil, store, defaultTargetResolver(rackID),
@@ -326,22 +323,25 @@ func testProcessDeduplication(t *testing.T) {
 				}),
 			)
 			first := runtimeEnvelope(rackID)
-			first.CorrelationKey = "incident-1"
 			second := first
-			if test.secondEventID != uuid.Nil {
-				second.ID = test.secondEventID
+			if test.secondKey != (eventrule.EventKey{}) {
+				second.Key = test.secondKey
 			}
 
 			require.NoError(t, processor.Process(context.Background(), first))
 			now = now.Add(time.Second)
 			require.NoError(t, processor.Process(context.Background(), second))
-			require.Equal(t, 1, runs)
+			require.Equal(t, test.wantRuns, runs)
 
 			executions, err := store.Executions()
 			require.NoError(t, err)
-			require.Len(t, executions, 1)
-			require.Equal(t, 2, executions[0].Observations)
-			require.Equal(t, eventrule.ExecutionStatusCompleted, executions[0].Status)
+			require.Len(t, executions, test.wantExecutions)
+			for _, execution := range executions {
+				require.Equal(t, eventrule.ExecutionStatusCompleted, execution.Status)
+			}
+			if test.wantObservations > 0 {
+				require.Equal(t, test.wantObservations, executions[0].Observations)
+			}
 		})
 	}
 }
@@ -544,7 +544,7 @@ func processorRuntimeRule(actions ...eventrule.Action) *eventrule.Rule {
 
 func runtimeEnvelope(rackID uuid.UUID) eventrule.Envelope {
 	return eventrule.Envelope{
-		ID:       uuid.New(),
+		Key:      eventrule.EventKey{SourceName: "test", SourceKey: uuid.NewString()},
 		Type:     "test.event",
 		Resource: eventrule.Resource{Kind: eventrule.ResourceKindRack, ID: rackID},
 	}
@@ -669,7 +669,6 @@ func (s transitionContextStore) TransitionExecution(
 func (s createFailingStore) CreateExecution(
 	_ context.Context,
 	identity eventrule.ExecutionIdentity,
-	_ *eventrule.Dedupe,
 ) (*eventrule.Execution, error) {
 	return nil, s.errors[identity.ActionName]
 }

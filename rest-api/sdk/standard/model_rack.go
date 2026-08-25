@@ -14,7 +14,9 @@ API version: 2.0.0
 package standard
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 )
 
 // checks if the Rack type satisfies the MappedNullable interface at compile time
@@ -34,18 +36,23 @@ type Rack struct {
 	SerialNumber *string `json:"serialNumber,omitempty"`
 	// Description of the Rack
 	Description *string `json:"description,omitempty"`
+	// IDs of the NVLink Domains containing this Rack. Empty when the Rack is not assigned to an NVLink Domain.
+	NvLinkDomainIds []string `json:"nvLinkDomainIds"`
 	// Physical or logical location of the Rack
 	Location *RackLocation `json:"location,omitempty"`
 	// Components within the Rack. Only returned when includeComponents is true.
 	Components []RackComponent `json:"components,omitempty"`
 }
 
+type _Rack Rack
+
 // NewRack instantiates a new Rack object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewRack() *Rack {
+func NewRack(nvLinkDomainIds []string) *Rack {
 	this := Rack{}
+	this.NvLinkDomainIds = nvLinkDomainIds
 	return &this
 }
 
@@ -249,6 +256,30 @@ func (o *Rack) SetDescription(v string) {
 	o.Description = &v
 }
 
+// GetNvLinkDomainIds returns the NvLinkDomainIds field value
+func (o *Rack) GetNvLinkDomainIds() []string {
+	if o == nil {
+		var ret []string
+		return ret
+	}
+
+	return o.NvLinkDomainIds
+}
+
+// GetNvLinkDomainIdsOk returns a tuple with the NvLinkDomainIds field value
+// and a boolean to check if the value has been set.
+func (o *Rack) GetNvLinkDomainIdsOk() ([]string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.NvLinkDomainIds, true
+}
+
+// SetNvLinkDomainIds sets field value
+func (o *Rack) SetNvLinkDomainIds(v []string) {
+	o.NvLinkDomainIds = v
+}
+
 // GetLocation returns the Location field value if set, zero value otherwise.
 func (o *Rack) GetLocation() RackLocation {
 	if o == nil || IsNil(o.Location) {
@@ -341,6 +372,7 @@ func (o Rack) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.Description) {
 		toSerialize["description"] = o.Description
 	}
+	toSerialize["nvLinkDomainIds"] = o.NvLinkDomainIds
 	if !IsNil(o.Location) {
 		toSerialize["location"] = o.Location
 	}
@@ -348,6 +380,42 @@ func (o Rack) ToMap() (map[string]interface{}, error) {
 		toSerialize["components"] = o.Components
 	}
 	return toSerialize, nil
+}
+
+func (o *Rack) UnmarshalJSON(data []byte) (err error) {
+	// This validates that all required properties are included in the JSON object
+	// by unmarshalling the object into a generic map with string keys and checking
+	// that every required field exists as a key in the generic map.
+	requiredProperties := []string{
+		"nvLinkDomainIds",
+	}
+
+	allProperties := make(map[string]interface{})
+
+	err = json.Unmarshal(data, &allProperties)
+
+	if err != nil {
+		return err
+	}
+
+	for _, requiredProperty := range requiredProperties {
+		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
+			return fmt.Errorf("no value given for required property %v", requiredProperty)
+		}
+	}
+
+	varRack := _Rack{}
+
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	err = decoder.Decode(&varRack)
+
+	if err != nil {
+		return err
+	}
+
+	*o = Rack(varRack)
+
+	return err
 }
 
 type NullableRack struct {

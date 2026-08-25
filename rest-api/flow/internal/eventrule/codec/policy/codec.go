@@ -52,21 +52,3 @@ func unmarshalPolicy(data json.RawMessage) (eventrule.Policy, error) {
 		return eventrule.Policy{}, fmt.Errorf("unknown event policy version %d", version)
 	}
 }
-
-func marshalDedupe(dedupe eventrule.Dedupe) (json.RawMessage, error) {
-	return marshalDedupeV1(dedupe)
-}
-
-func unmarshalDedupe(data json.RawMessage) (*eventrule.Dedupe, error) {
-	version, err := codec.DecodeVersion(data, "event policy dedupe")
-	if err != nil {
-		return nil, err
-	}
-
-	switch version {
-	case dedupeVersionV1:
-		return unmarshalDedupeV1(data)
-	default:
-		return nil, fmt.Errorf("unknown event policy dedupe version %d", version)
-	}
-}

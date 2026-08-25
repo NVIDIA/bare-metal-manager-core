@@ -28,7 +28,6 @@ mod watcher_combined;
 mod watcher_error;
 mod watcher_errors;
 mod watcher_join_set;
-mod watcher_lifecycle;
 mod watcher_machine_id;
 mod watcher_maintenance;
 mod watcher_phase;

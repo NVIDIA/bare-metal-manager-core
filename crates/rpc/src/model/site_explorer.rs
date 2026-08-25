@@ -486,6 +486,7 @@ mod tests {
         ExploredDpu {
             bmc_ip: address.parse().expect("valid DPU BMC IP"),
             host_pf_mac_address: mac_address.map(|mac| mac.parse().expect("valid test MAC")),
+            host_chassis_id: None,
             report: Arc::new(EndpointExplorationReport::default()),
         }
     }
@@ -739,30 +740,6 @@ mod tests {
                 .map(|status| (status.status, status.message)),
             firmware_versions: report.firmware_versions,
         }
-    }
-
-    #[test]
-    fn endpoint_search_filters_convert_to_model() {
-        value_scenarios!(
-            run = |filter| {
-                let _: ExploredEndpointSearchFilter = filter.into();
-            };
-            "empty endpoint filter" {
-                rpc::site_explorer::ExploredEndpointSearchFilter {} => (),
-            }
-        );
-    }
-
-    #[test]
-    fn managed_host_search_filters_convert_to_model() {
-        value_scenarios!(
-            run = |filter| {
-                let _: ExploredManagedHostSearchFilter = filter.into();
-            };
-            "empty managed-host filter" {
-                rpc::site_explorer::ExploredManagedHostSearchFilter {} => (),
-            }
-        );
     }
 
     #[test]

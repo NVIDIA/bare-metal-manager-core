@@ -182,6 +182,11 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 			continue
 		}
 
+		if controllerInstance.Config == nil {
+			slogger.Warn().Msg("instance config missing from Site inventory, skipping processing")
+			continue
+		}
+
 		// Reset missing flag if necessary.
 		// If we're here, then it means we saw the instance in the
 		// inventory returned from the site.  If the instance in cloud-db
@@ -233,6 +238,11 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 			tpmEkCertificateUpdated = cwutil.GetPtr(true)
 		}
 
+		var reportedPowerProfile *string
+		if controllerInstance.Config != nil {
+			reportedPowerProfile = controllerInstance.Config.PowerProfile
+		}
+
 		// NOTE:  When adding new properties, make sure to explicitly check for changes between
 		// the DB instance and the site-reported instance here.
 		//
@@ -241,9 +251,21 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 			controllerInstanceID != nil ||
 			isUpdatePending != nil ||
 			tpmEkCertificateUpdated != nil ||
+			!util.PtrsEqual(instance.PowerProfile, reportedPowerProfile) ||
 			!instance.NetworkSecurityGroupPropagationDetails.Equal(sitePropagationStatus)
 
 		if needsUpdate {
+			if instance.PowerProfile != nil && reportedPowerProfile == nil {
+				instance, err = instanceDAO.Clear(ctx, nil, cdbm.InstanceClearInput{
+					InstanceID:   instance.ID,
+					PowerProfile: true,
+				})
+				if err != nil {
+					slogger.Error().Err(err).Msg("failed to clear PowerProfile for Instance in DB")
+					continue
+				}
+			}
+
 			// If the Instance in the DB has propagation details but the site reported no propagation details
 			// then we should clear it in the DB.  Passing along the nil to the Update call would
 			// just ignore the field.
@@ -271,6 +293,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 					IsUpdatePending:                        isUpdatePending,
 					IsMissingOnSite:                        isMissingOnSite,
 					TpmEkCertificate:                       controllerInstance.TpmEkCertificate,
+					PowerProfile:                           reportedPowerProfile,
 				},
 			})
 			if serr != nil {

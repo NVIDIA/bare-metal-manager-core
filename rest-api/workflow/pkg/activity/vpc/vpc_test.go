@@ -317,11 +317,15 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 	vpc14 := testVPCBuildVPC(t, dbSession, "test-vpc-14", ip, tn, st, nil, cutil.GetPtr(uuid.New()), nil, tnu, cdbm.VpcStatusReady)
 	vpc15 := testVPCBuildVPC(t, dbSession, "test-vpc-15", ip, tn, st, nil, cutil.GetPtr(uuid.New()), nil, tnu, cdbm.VpcStatusReady)
 	vpc16 := testVPCBuildVPC(t, dbSession, "test-vpc-16", ip, tn, st, nil, cutil.GetPtr(uuid.New()), nil, tnu, cdbm.VpcStatusReady)
+	reportedPowerResourceGroup := "reported-power-resource-group"
+	existingPowerResourceGroup := "existing-power-resource-group"
 
 	// Seed the replace and clear cases with the first NSG association.
 	vpc15, err = vpcDAO.Update(ctx, nil, cdbm.VpcUpdateInput{VpcID: vpc15.ID, NetworkSecurityGroupID: cutil.GetPtr(networkSecurityGroupA.ID)})
 	require.NoError(t, err)
 	vpc16, err = vpcDAO.Update(ctx, nil, cdbm.VpcUpdateInput{VpcID: vpc16.ID, NetworkSecurityGroupID: cutil.GetPtr(networkSecurityGroupA.ID)})
+	require.NoError(t, err)
+	vpc15, err = vpcDAO.Update(ctx, nil, cdbm.VpcUpdateInput{VpcID: vpc15.ID, PowerResourceGroup: &existingPowerResourceGroup})
 	require.NoError(t, err)
 
 	// Build VPC inventory that is paginated
@@ -351,7 +355,9 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 		ctrlVpc := &corev1.Vpc{
 			Id:   &corev1.VpcId{Value: pagedVpcs[i].ControllerVpcID.String()},
 			Name: pagedVpcs[i].Name,
-			Vni:  util.GetUint32Ptr(uint32(i)),
+			Config: &corev1.VpcConfig{
+				Vni: util.GetUint32Ptr(uint32(i)),
+			},
 			Status: &corev1.VpcStatus{
 				Vni: util.GetUint32Ptr(uint32(i)),
 			},
@@ -426,6 +432,7 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 		routingProfileStateClearedVpc     *cdbm.Vpc
 		expectedSlaacEnabled              map[uuid.UUID]bool
 		expectedNetworkSecurityGroupIDs   map[uuid.UUID]*string
+		expectedPowerResourceGroups       map[uuid.UUID]*string
 		readyStatusDetailVpcs             []*cdbm.Vpc
 		requiredMetadataUpdate            bool
 		metadataVpcUpdate                 *cdbm.Vpc
@@ -538,6 +545,7 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 							Name: vpc14.ID.String(),
 							Config: &corev1.VpcConfig{
 								NetworkSecurityGroupId: cutil.GetPtr(networkSecurityGroupA.ID),
+								PowerResourceGroup:     &reportedPowerResourceGroup,
 							},
 						},
 						{
@@ -570,6 +578,11 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 			expectedNetworkSecurityGroupIDs: map[uuid.UUID]*string{
 				vpc14.ID: cutil.GetPtr(networkSecurityGroupA.ID),
 				vpc15.ID: cutil.GetPtr(networkSecurityGroupB.ID),
+				vpc16.ID: nil,
+			},
+			expectedPowerResourceGroups: map[uuid.UUID]*string{
+				vpc14.ID: &reportedPowerResourceGroup,
+				vpc15.ID: nil,
 				vpc16.ID: nil,
 			},
 			deletedVpcs:           []*cdbm.Vpc{vpc5, vpc6, vpc10},
@@ -730,6 +743,13 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 				updatedVPC, gerr := vpcDAO.GetByID(ctx, nil, vpcID, nil)
 				require.NoError(t, gerr)
 				assert.Equal(t, expectedNetworkSecurityGroupID, updatedVPC.NetworkSecurityGroupID)
+			}
+
+			// Site inventory sets, clears, or preserves nil power resource groups.
+			for vpcID, expectedPowerResourceGroup := range tt.expectedPowerResourceGroups {
+				updatedVPC, gerr := vpcDAO.GetByID(ctx, nil, vpcID, nil)
+				require.NoError(t, gerr)
+				assert.Equal(t, expectedPowerResourceGroup, updatedVPC.PowerResourceGroup)
 			}
 
 			// Check that VPC status was updated in DB for VPC1

@@ -1782,10 +1782,17 @@ spec:
                         pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                         type: string
                       trustBundle:
-                        description: |-
-                          trustBundle references a ConfigMap whose data["bundle.pem"] key holds the SPIRE trust
-                          bundle in PEM form.
+                        description: trustBundle references a ConfigMap holding the
+                          initial SPIRE trust bundle.
                         properties:
+                          format:
+                            default: pem
+                            description: Format selects data["bundle.pem"] or data["bundle.spiffe"]
+                              and the matching SPIRE Agent parser.
+                            enum:
+                            - pem
+                            - spiffe
+                            type: string
                           name:
                             description: Name is the name of the ConfigMap holding
                               the SPIRE trust bundle.

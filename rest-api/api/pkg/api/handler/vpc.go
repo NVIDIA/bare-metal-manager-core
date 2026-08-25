@@ -28,6 +28,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
 	common "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
@@ -128,7 +129,6 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 		logger.Warn().Msg(fmt.Sprintf("Site: %v specified in request data must be in Registered state in order to proceed", site.ID))
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Site specified in request data must be in Registered state in order to proceed", nil)
 	}
-
 	// Get Tenant for this org
 	tenant, err := common.GetTenantForOrg(ctx, nil, cvh.dbSession, org)
 	if err != nil {
@@ -212,6 +212,9 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 	siteConfig := &cdbm.SiteConfig{}
 	if site.Config != nil {
 		siteConfig = site.Config
+	}
+	if apiErr := util.ValidateSitePowerManagement(siteConfig, apiRequest.PowerResourceGroup); apiErr != nil {
+		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 	}
 
 	// Network Virtualization type support
@@ -359,6 +362,7 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 			NetworkVirtualizationType: networkVirtualizationType,
 			SlaacEnabled:              slaacEnabled,
 			RoutingProfile:            routingProfile,
+			PowerResourceGroup:        apiRequest.PowerResourceGroup,
 			RoutingProfileOverrides:   apiRequest.RoutingProfileOverrides.ToDB(),
 			NVLinkLogicalPartitionID:  defaultNvllPartitionId,
 			Labels:                    labels,
@@ -606,7 +610,6 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 		logger.Error().Err(err).Msg("error retrieving VPC DB entity")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve VPC", nil)
 	}
-
 	// Get Tenant for this org
 	tenant, err := common.GetTenantForOrg(ctx, nil, uvh.dbSession, org)
 	if err != nil {
@@ -718,6 +721,9 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 	if vpc.Site != nil && vpc.Site.Config != nil {
 		siteConfig = vpc.Site.Config
 	}
+	if apiErr := util.ValidateSitePowerManagement(siteConfig, apiRequest.PowerResourceGroup); apiErr != nil {
+		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
+	}
 
 	var defaultNvllPartitionId *uuid.UUID
 	if apiRequest.NVLinkLogicalPartitionID != nil {
@@ -807,6 +813,7 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 			Labels:                  labels,
 			NetworkSecurityGroupID:  nsgID,
 			RoutingProfileOverrides: apiRequest.RoutingProfileOverrides.ToDB(),
+			PowerResourceGroup:      apiRequest.PowerResourceGroup,
 		}
 
 		if defaultNvllPartitionId != nil {
@@ -845,6 +852,11 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 		// A changed desired definition invalidates the last controller-resolved value.
 		if apiRequest.RoutingProfileOverrides != nil {
 			clearInput.EffectiveRoutingProfile = true
+			shouldClear = true
+		}
+
+		if apiRequest.PowerResourceGroup != nil && *apiRequest.PowerResourceGroup == "" {
+			clearInput.PowerResourceGroup = true
 			shouldClear = true
 		}
 

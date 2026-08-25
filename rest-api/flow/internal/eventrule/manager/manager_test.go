@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/registry"
@@ -62,13 +61,6 @@ func TestManagerUnifiedReadsAndMutationRouting(t *testing.T) {
 	))
 	assert.Equal(t, "test", persisted.Name)
 
-	require.Error(t, manager.SetDedupe(
-		context.Background(),
-		persisted.ID,
-		&eventrule.Dedupe{},
-	))
-	assert.Nil(t, persisted.Dedupe)
-
 	require.Error(t, manager.ReplaceActions(context.Background(), persisted.ID, nil))
 	assert.Len(t, persisted.Actions, 1)
 
@@ -76,12 +68,6 @@ func TestManagerUnifiedReadsAndMutationRouting(t *testing.T) {
 	require.NoError(t, manager.UpdateMetadata(context.Background(), persisted.ID, metadata))
 	assert.Equal(t, metadata.Name, persisted.Name)
 	assert.Equal(t, metadata.Description, persisted.Description)
-
-	dedupe := &eventrule.Dedupe{Window: time.Minute}
-	require.NoError(t, manager.SetDedupe(context.Background(), persisted.ID, dedupe))
-	assert.Equal(t, dedupe, persisted.Dedupe)
-	dedupe.Window = 2 * time.Minute
-	assert.Equal(t, time.Minute, persisted.Dedupe.Window)
 
 	actions := []eventrule.Action{
 		{Name: "replacement", Spec: &eventrule.Noop{}},
@@ -164,11 +150,6 @@ func TestManagerRejectsMissingIDs(t *testing.T) {
 		uuid.Nil,
 		eventrule.RuleMetadata{Name: "test"},
 	), "event rule id is required")
-	require.ErrorContains(t, manager.SetDedupe(
-		context.Background(),
-		uuid.Nil,
-		&eventrule.Dedupe{Window: time.Minute},
-	), "event rule id is required")
 	require.ErrorContains(t, manager.ReplaceActions(
 		context.Background(),
 		uuid.Nil,
@@ -208,13 +189,6 @@ func TestManagerRejectsBuiltInRuleMutations(t *testing.T) {
 				ctx,
 				builtIn.ID,
 				eventrule.RuleMetadata{Name: "updated"},
-			)
-		},
-		"set dedupe": func(ctx context.Context) error {
-			return manager.SetDedupe(
-				ctx,
-				builtIn.ID,
-				&eventrule.Dedupe{Window: time.Minute},
 			)
 		},
 		"replace actions": func(ctx context.Context) error {
@@ -302,15 +276,6 @@ func (s *testStore) UpdateMetadata(
 	}
 	rule.Name = metadata.Name
 	rule.Description = metadata.Description
-	return nil
-}
-
-func (s *testStore) SetDedupe(_ context.Context, id uuid.UUID, dedupe *eventrule.Dedupe) error {
-	rule, err := s.ruleForMutation(id)
-	if err != nil {
-		return err
-	}
-	rule.Dedupe = dedupe
 	return nil
 }
 

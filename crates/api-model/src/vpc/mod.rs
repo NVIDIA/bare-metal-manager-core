@@ -24,6 +24,7 @@ pub use capability::{
     ALL_VPC_VIRTUALIZATION_TYPES, DataPlaneKind, FabricInterfaceType, VpcCapabilities,
     VpcCapabilityError, VpcVirtualizationTypeCapabilities,
 };
+use carbide_network::ip::IpAddressFamily;
 use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::network_security_group::NetworkSecurityGroupId;
@@ -38,6 +39,36 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
 
 use crate::metadata::{LabelFilter, Metadata};
+
+/// Returns the prefix length allocated to one instance interface.
+///
+/// IPv4 always uses a point-to-point `/31`. IPv6 uses a `/64` when SLAAC is
+/// enabled and a point-to-point `/127` otherwise.
+pub const fn instance_prefix_len(address_family: IpAddressFamily, slaac_enabled: bool) -> u8 {
+    match (address_family, slaac_enabled) {
+        (IpAddressFamily::Ipv4, _) => 31,
+        (IpAddressFamily::Ipv6, true) => 64,
+        (IpAddressFamily::Ipv6, false) => 127,
+    }
+}
+
+/// Returns whether a VPC prefix can contain an instance interface prefix.
+///
+/// Interface prefixes must be narrower than their parent. An IPv4 `/31` is
+/// also allowed to back one interface directly for compatibility with the
+/// existing point-to-point allocation model. IPv6 keeps the strict parent
+/// rule, so an exact `/64` or `/127` parent has no allocatable capacity.
+pub const fn vpc_prefix_can_allocate_interface_prefix(
+    address_family: IpAddressFamily,
+    parent_prefix_len: u8,
+    interface_prefix_len: u8,
+) -> bool {
+    parent_prefix_len < interface_prefix_len
+        || matches!(
+            (address_family, parent_prefix_len, interface_prefix_len),
+            (IpAddressFamily::Ipv4, 31, 31)
+        )
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VpcConfig {
@@ -201,5 +232,57 @@ impl<'r> FromRow<'r, PgRow> for VpcPeering {
             vpc_id: row.try_get("vpc1_id")?,
             peer_vpc_id: row.try_get("vpc2_id")?,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_network::ip::IpAddressFamily;
+    use carbide_test_support::value_scenarios;
+
+    use super::{instance_prefix_len, vpc_prefix_can_allocate_interface_prefix};
+
+    #[test]
+    fn instance_prefix_length_follows_address_family_and_slaac_policy() {
+        value_scenarios!(
+            run = |(address_family, slaac_enabled)| {
+                instance_prefix_len(address_family, slaac_enabled)
+            };
+            "stateful allocation" {
+                (IpAddressFamily::Ipv4, false) => 31,
+                (IpAddressFamily::Ipv6, false) => 127,
+            }
+
+            "SLAAC allocation" {
+                (IpAddressFamily::Ipv4, true) => 31,
+                (IpAddressFamily::Ipv6, true) => 64,
+            }
+        );
+    }
+
+    #[test]
+    fn vpc_prefix_eligibility_preserves_the_ipv4_31_exception() {
+        value_scenarios!(
+            run = |(address_family, parent_prefix_len, interface_prefix_len)| {
+                vpc_prefix_can_allocate_interface_prefix(
+                    address_family,
+                    parent_prefix_len,
+                    interface_prefix_len,
+                )
+            };
+            "eligible parents" {
+                (IpAddressFamily::Ipv4, 30, 31) => true,
+                (IpAddressFamily::Ipv4, 31, 31) => true,
+                (IpAddressFamily::Ipv6, 63, 64) => true,
+                (IpAddressFamily::Ipv6, 126, 127) => true,
+            }
+
+            "ineligible parents" {
+                (IpAddressFamily::Ipv4, 24, 24) => false,
+                (IpAddressFamily::Ipv4, 32, 31) => false,
+                (IpAddressFamily::Ipv6, 64, 64) => false,
+                (IpAddressFamily::Ipv6, 127, 127) => false,
+            }
+        );
     }
 }
