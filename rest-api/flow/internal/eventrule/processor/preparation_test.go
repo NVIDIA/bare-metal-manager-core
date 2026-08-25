@@ -91,11 +91,24 @@ func TestPrepare(t *testing.T) {
 			require.Equal(t, test.wantResolved, resolverCalled)
 			if test.wantErr == nil {
 				require.NoError(t, err)
+				if test.rule == nil {
+					require.Nil(t, result)
+					return
+				}
+				require.NotNil(t, result)
+				require.Equal(t, rackID, result.Resource.ID)
 				require.Equal(t, rackID, result.Resource.RackID)
-				require.Equal(t, test.rule, result.Rule)
+				require.Equal(t, eventrule.ResourceKindRack, result.Resource.Kind)
+				require.Equal(t, rackID, result.Event.Resource.ID)
+				require.Equal(t, eventrule.ResourceKindRack, result.Event.Resource.Kind)
+				require.Equal(t, test.rule.ID, result.Event.AppliedRuleID)
+				require.NotEqual(t, uuid.Nil, result.Event.ID)
+				require.Equal(t, 1, result.Event.Observations)
+				require.False(t, result.Event.CreatedAt.IsZero())
 				return
 			}
 
+			require.Nil(t, result)
 			require.ErrorIs(t, err, test.wantErr)
 			if test.wantMessage != "" {
 				require.ErrorContains(t, err, test.wantMessage)

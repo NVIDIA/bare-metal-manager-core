@@ -73,7 +73,7 @@ func TestNewAPIRoutes(t *testing.T) {
 		"machine-validation":        11,
 		"dpu-extension-service":     7,
 		"sku":                       5,
-		"task":                      2,
+		"task":                      3,
 		"rule":                      5,
 		"run":                       8,
 		"rack":                      13,
@@ -132,6 +132,9 @@ func TestNewAPIRoutes(t *testing.T) {
 			credentialRotationPath := "/org/:orgName/" + cfg.GetAPIName() + "/credential/rotation"
 			assertRouteExists(t, got, http.MethodPost, credentialRotationPath)
 			assertRouteExists(t, got, http.MethodGet, credentialRotationPath)
+			taskPath := "/org/:orgName/" + cfg.GetAPIName() + "/task"
+			assertRouteExists(t, got, http.MethodGet, taskPath)
+			assertRouteBefore(t, got, http.MethodGet, taskPath, http.MethodGet, taskPath+"/:id")
 
 			machineAdminPath := "/org/:orgName/" + cfg.GetAPIName() + "/machine/:id"
 			assertRouteExists(t, got, http.MethodPatch, machineAdminPath+"/bmc/reset")

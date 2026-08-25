@@ -872,6 +872,64 @@ Notes:
   to talk to the host cluster are **not** configured here — carbide-api uses
   its in-cluster ServiceAccount and the fixed `dpf-operator-system` namespace.
 
+#### DPUService rollout gating
+
+A DPUService change, meaning a new Helm chart or container image version for a
+service running on the DPU, does not reach a DPU as soon as it is declared. NICo
+configures these updates as **disruptive**, which parks each affected DPU in the
+`NodeEffect` phase behind a DPF maintenance hold. The hold is lifted only once
+the DPU is confirmed to be running the software its `DPUDeployment` declares.
+
+The hold exists because a DPU still waiting to be reprovisioned is about to have
+its OS replaced, and the services paired with the new OS are not necessarily the
+services the current one can run. A BFB update brings a matching HBN version with
+it, and installing that HBN on a DPU still running the older BFB breaks the DPU.
+Reprovisioning is deliberately paced and tenant-aware, so a DPU can sit on the old
+BFB for days while the new services are already being pushed at it.
+
+A held DPU keeps serving traffic while it waits, so the hold is not a drain and
+nothing is disrupted by waiting.
+
+This governs **when** a declared service version reaches a DPU. It does not judge
+**whether** that version belongs there. The only question asked is whether a DPU
+matches its own `DPUDeployment`, so a deployment that pairs a service version with
+an incompatible BFB is rolled out faithfully. Keeping those coherent stays with
+whoever writes the config, deliberately: a compatibility check here would also
+reject the test builds that qualifying a new service version depends on.
+
+```toml
+[dpf]
+enabled = true
+# Default. Set false to hold every rollout for a deliberate operator release.
+dpu_service_sync_enabled = true
+```
+
+`dpu_service_sync_enabled` selects **who** opens the gate, never whether one
+exists:
+
+| Setting | Who releases the hold |
+| --- | --- |
+| `true` (default) | NICo releases it on its own, but only for a host that is `Ready`, carries no tenant instance, and whose DPUs all match their `DPUDeployment`. |
+| `false` | Nothing is released automatically. Every held DPU waits for an operator to run [`dpf service-sync release`](#dpf-service-sync-alias-ss--list-and-release-dpuservice-holds). |
+
+Hosts still awaiting reprovisioning, and hosts carrying a live tenant instance,
+keep their hold under either setting. The DPU currency check is never bypassed,
+however the release is asked for.
+
+<Warning>
+This behavior ships on and changes rollout timing **without any operator action**. On upgrade, existing `DPUServiceConfiguration` and `DPUDeployment` objects are re-applied as disruptive, so DPUs enter `NodeEffect` and NICo begins releasing holds for idle, up-to-date hosts. Sites that want to schedule that themselves should set `dpu_service_sync_enabled = false` **before** upgrading.
+</Warning>
+
+Two situations need the operator release path, because NICo cannot open the gate
+for them on its own:
+
+- **The site has set `dpu_service_sync_enabled = false`.** Nothing else can
+  release the held DPUs, so a rollout is finished by hand.
+- **A host never reaches `Ready`.** A DPUService version that breaks host
+  provisioning strands hosts in `HostInit`, and the fix is a new DPUService
+  version those hosts cannot receive while they are held. Releasing by hand is
+  how such a host is recovered.
+
 #### DPU Agent Bootstrap CA
 
 The containerized DPU agent has its own bootstrap policy. If the table is
@@ -1247,13 +1305,13 @@ site-disabled case).
 # One host
 nico-admin-cli dpf show <host-machine-id>
 
-# All hosts (paginated by --page-size)
+# All hosts (paginated by --internal-page-size)
 nico-admin-cli dpf show
 ```
 
 | Argument | Required | Notes |
 |---|:---:|---|
-| `<host-machine-id>` | no | If omitted, lists DPF state for **every** host. DPU ids are rejected. |
+| `<host-machine-id>` | no | If omitted, lists DPF state for **every** host. DPU IDs are rejected. |
 
 Output for a single host prints `Enabled` and `Used For Ingestion` flags; the
 multi-host form prints a table with one row per host. DPUs are excluded
@@ -1267,7 +1325,7 @@ nico-admin-cli dpf snapshot <host-machine-id>
 
 | Argument | Required | Notes |
 |---|:---:|---|
-| `<host-machine-id>` | yes | Must be a host machine id; DPU ids are rejected. |
+| `<host-machine-id>` | yes | Must be a host machine ID; DPU IDs are rejected. |
 
 Calls the `GetDpfHostSnapshot` RPC and prints the `DPUNode`, `DPUDevice`, and
 `DPU` CRs that DPF currently has for the given host. Useful for diagnosing
@@ -1298,6 +1356,94 @@ A `DIFFERS` row indicates the running stack does not match the carbide-api
 config and that a carbide-api restart (section 4) is needed to reconcile the
 configured versions onto the cluster.
 
+### `dpf service-sync` (alias: `ss`) — list and release DPUService holds
+
+Inspects and releases the DPF maintenance holds described in
+[DPUService rollout gating](#dpuservice-rollout-gating). Use it when NICo cannot
+open the gate itself, which is either a site running with
+`dpu_service_sync_enabled = false` or a host that never reaches `Ready`.
+
+#### `dpf service-sync list`
+
+```bash
+# Every machine DPF is waiting on, longest wait first (paginated by --internal-page-size)
+nico-admin-cli dpf service-sync list
+
+# One host's recorded history instead of the outstanding worklist
+nico-admin-cli dpf service-sync list --machine-id <host-machine-id>
+```
+
+| Argument | Required | Notes |
+| -------- | :------: | ----- |
+| `--machine-id` (alias `--id`) | no | Prints that host's recorded sync history. Omit it for the fleet-wide worklist. |
+
+The worklist form is the only way to discover which machines to name, because the
+release call has no fleet-wide form. Its columns are:
+
+| Column | Meaning |
+| --- | --- |
+| `Machine Id` | The host DPF is waiting on. |
+| `State` | The host's managed state. NICo releases on its own only from `Ready`, so anything else here is a reason the machine is still waiting. It is not the whole story: a `Ready` host can still be held because one of its DPUs is not yet current, which this column does not show. |
+| `Waiting Since` | First time DPF was seen waiting on this machine. It survives repeat requests, so it measures the whole wait rather than the last observation. |
+| `Age` | How long that wait has run, rendered as `2d3h`, `4h5m`, or `6m`. |
+| `Instance` | Set when the host is currently allocated, so tenant impact is visible before any machine is named. |
+
+The history form prints `Requested At`, `Completed At` (or `outstanding`), and
+`Completed By`, newest first. `Completed By` reads `nico` for an automatic
+release, `operator` for one performed through this command, and `-` while the
+sync is still outstanding. It needs no paging, because the database caps the
+history retained per machine.
+
+#### `dpf service-sync release`
+
+```bash
+# One or more hosts, either after a single flag or by repeating it
+nico-admin-cli dpf service-sync release --machine-id <host-id> [<host-id> ...]
+
+# The hosts running these instances, accepting that their tenants are disrupted
+nico-admin-cli dpf service-sync release --instance-id <instance-id> [<instance-id> ...]
+```
+
+| Argument | Required | Notes |
+| -------- | :------: | ----- |
+| `--machine-id` (alias `--id`) | one of the two | One or more **host** machine IDs. DPU IDs are rejected, because the hold is per node and accepting one would silently widen the request from a single DPU to every DPU on its host. An assigned host is declined here; name its instance instead. |
+| `--instance-id` | one of the two | Releases the hosts currently running these instances even though they are assigned. Naming an instance is the acknowledgement that its tenant will be disrupted, and each consent covers only the instance named, so a host reallocated since is declined again. |
+
+The two selectors are mutually exclusive and exactly one is required. There is
+deliberately no fleet-wide form, and a single call releases at most **256**
+machines, so `list | xargs release` cannot reconstruct one. Batching stays
+possible, but only in visible, deliberate chunks.
+
+One row is printed per host, in request order, followed by a
+`N released, N deferred, N already handled, N failed` summary:
+
+| Result | Meaning |
+| --- | --- |
+| `released` | The hold was lifted and the pending sync completed. |
+| `not pending` | Nothing was owed for this machine. A repeat call reports this, which is what makes the command safe to run in a loop. |
+| `deferred: DPU awaits reprovisioning` | A DPU still differs from its `DPUDeployment`, so its OS is about to be replaced. The sync stays outstanding, and retrying achieves nothing until that DPU has been reprovisioned. |
+| `deferred: host assigned` | The host is assigned and was named by machine ID. Name its instance instead. The sync stays outstanding. |
+| `deferred: DPU could not be evaluated` | A DPU could not be checked at all, usually because Kubernetes was unreachable. Unlike an outdated DPU this is worth retrying. |
+| `failed` | The attempt failed part-way. The sync stays outstanding, so retry. |
+
+Among the per-host results, only a `failed` row makes the command exit
+non-zero. A deferral is a documented answer and `not pending` is what a repeat
+run reports, so neither breaks a drain-until-clean loop.
+
+A command-level failure also exits non-zero, but prints no result table at all.
+A batch over the cap, an unknown or DPU machine ID, a missing authorization, and
+an unreachable API all land here, because the request is rejected before any
+host is acted on. Treat an empty result table as "nothing was released", not as
+"nothing was owed".
+
+<Note>
+Releasing by hand relaxes the **host-state** requirement and nothing else. Every DPU is still checked against its `DPUDeployment` first, so a service update never lands on a DPU whose OS is about to be replaced. The whole request is also validated before anything is released, so a mistyped ID cannot leave half a batch released behind it.
+</Note>
+
+Both subcommands are operator-only. The underlying RPCs are granted to the admin
+CLI identity alone, because releasing a hold restarts DPU services and, for an
+assigned host, disrupts a tenant.
+
 ### Quick reference
 
 | Goal | Command |
@@ -1308,6 +1454,10 @@ configured versions onto the cluster.
 | List DPF state for all hosts | `nico-admin-cli dpf show` |
 | Snapshot DPF CRs for a host | `nico-admin-cli dpf snapshot <host-id>` |
 | Diff configured vs. deployed DPF service versions | `nico-admin-cli dpf service-version` |
+| List machines waiting on a DPUService rollout | `nico-admin-cli dpf service-sync list` |
+| Show one host's DPUService sync history | `nico-admin-cli dpf service-sync list --machine-id <host-id>` |
+| Release the DPUService hold for a host | `nico-admin-cli dpf service-sync release --machine-id <host-id>` |
+| Release it for an assigned host, disrupting its tenant | `nico-admin-cli dpf service-sync release --instance-id <instance-id>` |
 
 ---
 

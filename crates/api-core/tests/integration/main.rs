@@ -15,7 +15,9 @@
  * limitations under the License.
  */
 
+mod batch_instance_allocation_validation;
 mod compute_allocation;
+mod credential_management;
 mod credential_rotation;
 mod dhcp_lease_expiration;
 mod dpu_machine_inventory;

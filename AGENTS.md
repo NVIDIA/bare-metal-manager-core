@@ -111,18 +111,39 @@ cargo test
 cargo make correctly-execute-tests
 ```
 
-When writing tests, prefer the **table-driven** style — see the [Testing section in `STYLE_GUIDE.md`](STYLE_GUIDE.md#testing).
-Enumerating a function's input variants as grouped `carbide-test-support` scenarios (`scenarios!` / `value_scenarios!`)
-or explicit cases (`check_cases` / `check_values`) is the easiest way to reach thorough coverage of parsers, validators,
-conversions, and the like.
-For functions that map multiple booleans or enums to state and action outputs,
-enumerate every input combination in one table before requesting review.
+When writing tests, prefer the **table-driven** style and helpers from
+`carbide-test-support`; use the [Testing section in `STYLE_GUIDE.md`](STYLE_GUIDE.md#testing)
+for table structure and API details. Use grouped `scenarios!` / `value_scenarios!`
+or explicit `check_cases` / `check_values` when cases share one operation and
+assertion form. When cases share setup but require different assertions, use a
+local case table that keeps each case's check next to its inputs.
+
+Before adding coverage, inventory the relevant unit, database, controller, and
+integration tests. Each new test should have one reason to exist: an observable
+contract or distinct failure boundary that no retained test protects. Use the
+smallest set of cases that exercise different behavior. Do not enumerate a
+Cartesian product merely because inputs are booleans or enums; enumerate a
+combination only when it is reachable and protects distinct observable behavior
+or a distinct failure boundary, including precedence between conflicting inputs.
+
+Place each proof at the narrowest layer that can exercise the contract.
+Higher-level tests should prove wiring, persistence, transaction behavior,
+concurrency, or external effects that lower-level tests cannot; do not repeat a
+lower-level case matrix at higher layers. For every new test or row, ask:
+**What regression does this catch that no retained test catches?** If there is
+no concrete answer, merge it into existing coverage or delete it.
+
+`STYLE_GUIDE.md` remains the source for helper APIs and table layout. For
+changes written by agents, the rules above for choosing cases replace its
+recommendation to enumerate every branch and input variant.
+
 For state-machine branch tests, reload persisted state after the controller
 iteration and assert the branch-owned fields or counters. An unchanged visible
 state or absence of an external action does not prove which branch ran.
 For retry tests, inject the claimed transient failure and assert that a later
 iteration retries it while preserving the expected externally visible state. A
 simulator's default unsupported response does not prove transient recovery.
+
 For user-visible CLI table changes, exercise the public command in a test and
 assert the rendered headers plus populated and empty cell values. Helper-only
 tests do not prove the table contract.

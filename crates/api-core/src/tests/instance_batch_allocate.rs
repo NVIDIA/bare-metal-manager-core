@@ -182,31 +182,6 @@ async fn test_batch_allocate_instances_rollback_on_failure(
     );
 }
 
-/// Send an empty batch request with no instances.
-/// Expect an error indicating at least one instance is required.
-#[crate::sqlx_test]
-async fn test_batch_allocate_instances_empty_request(_: PgPoolOptions, options: PgConnectOptions) {
-    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
-    let env = create_test_env(pool).await;
-
-    let batch_request = rpc::forge::BatchInstanceAllocationRequest {
-        instance_requests: vec![],
-    };
-
-    let result = env
-        .api
-        .allocate_instances(tonic::Request::new(batch_request))
-        .await;
-
-    assert!(result.is_err());
-    let err = result.unwrap_err();
-    assert!(
-        err.message().contains("at least one instance"),
-        "Expected error about empty request, got: {}",
-        err.message()
-    );
-}
-
 /// Allocate 2 instances sharing the same NSG in one batch.
 /// Expect both instances to be created successfully with the shared NSG.
 #[crate::sqlx_test]

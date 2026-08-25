@@ -73,4 +73,30 @@ pub enum Error {
         #[source]
         source: syn::Error,
     },
+
+    /// An external mapping does not contain a valid Rust type path.
+    #[error("invalid rust extern path `{rust_type}` for protobuf type `{protobuf_type}`")]
+    InvalidRustExternPath {
+        /// Fully qualified protobuf type name.
+        protobuf_type: String,
+        /// Invalid Rust type path.
+        rust_type: String,
+        /// Rust parser error.
+        #[source]
+        source: syn::Error,
+    },
+
+    /// A file-level external mapping references an unknown protobuf type.
+    #[error("external mapping references unknown protobuf type `{protobuf_type}`")]
+    UnknownExternPathTarget {
+        /// Fully qualified protobuf type name.
+        protobuf_type: String,
+    },
+
+    /// A protobuf type has more than one external mapping.
+    #[error("external mapping for protobuf type `{protobuf_type}` is declared more than once")]
+    RedeclaredExternPath {
+        /// Fully qualified protobuf type name.
+        protobuf_type: String,
+    },
 }

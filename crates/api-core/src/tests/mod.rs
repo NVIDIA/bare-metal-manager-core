@@ -18,7 +18,6 @@
 mod boot_interface_resolution;
 mod client_resolution;
 pub(in crate::tests) mod common;
-mod credential;
 mod dns;
 mod dpa_interfaces;
 mod dpf;
@@ -34,6 +33,7 @@ mod expected_switch;
 mod explored_endpoint_find;
 mod extension_service;
 mod finder;
+mod firmware_component_manager;
 mod host_bmc_firmware_test;
 mod host_firmware_config;
 mod ib_fabric_monitor;
