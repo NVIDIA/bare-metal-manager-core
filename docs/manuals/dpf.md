@@ -1311,7 +1311,7 @@ nico-admin-cli dpf show
 
 | Argument | Required | Notes |
 |---|:---:|---|
-| `<host-machine-id>` | no | If omitted, lists DPF state for **every** host. DPU ids are rejected. |
+| `<host-machine-id>` | no | If omitted, lists DPF state for **every** host. DPU IDs are rejected. |
 
 Output for a single host prints `Enabled` and `Used For Ingestion` flags; the
 multi-host form prints a table with one row per host. DPUs are excluded
@@ -1325,7 +1325,7 @@ nico-admin-cli dpf snapshot <host-machine-id>
 
 | Argument | Required | Notes |
 |---|:---:|---|
-| `<host-machine-id>` | yes | Must be a host machine id; DPU ids are rejected. |
+| `<host-machine-id>` | yes | Must be a host machine ID; DPU IDs are rejected. |
 
 Calls the `GetDpfHostSnapshot` RPC and prints the `DPUNode`, `DPUDevice`, and
 `DPU` CRs that DPF currently has for the given host. Useful for diagnosing
@@ -1406,7 +1406,7 @@ nico-admin-cli dpf service-sync release --instance-id <instance-id> [<instance-i
 
 | Argument | Required | Notes |
 | -------- | :------: | ----- |
-| `--machine-id` (alias `--id`) | one of the two | One or more **host** machine ids. DPU ids are rejected, because the hold is per node and accepting one would silently widen the request from a single DPU to every DPU on its host. An assigned host is declined here; name its instance instead. |
+| `--machine-id` (alias `--id`) | one of the two | One or more **host** machine IDs. DPU IDs are rejected, because the hold is per node and accepting one would silently widen the request from a single DPU to every DPU on its host. An assigned host is declined here; name its instance instead. |
 | `--instance-id` | one of the two | Releases the hosts currently running these instances even though they are assigned. Naming an instance is the acknowledgement that its tenant will be disrupted, and each consent covers only the instance named, so a host reallocated since is declined again. |
 
 The two selectors are mutually exclusive and exactly one is required. There is
@@ -1422,7 +1422,7 @@ One row is printed per host, in request order, followed by a
 | `released` | The hold was lifted and the pending sync completed. |
 | `not pending` | Nothing was owed for this machine. A repeat call reports this, which is what makes the command safe to run in a loop. |
 | `deferred: DPU awaits reprovisioning` | A DPU still differs from its `DPUDeployment`, so its OS is about to be replaced. The sync stays outstanding, and retrying achieves nothing until that DPU has been reprovisioned. |
-| `deferred: host assigned` | The host is assigned and was named by machine id. Name its instance instead. The sync stays outstanding. |
+| `deferred: host assigned` | The host is assigned and was named by machine ID. Name its instance instead. The sync stays outstanding. |
 | `deferred: DPU could not be evaluated` | A DPU could not be checked at all, usually because Kubernetes was unreachable. Unlike an outdated DPU this is worth retrying. |
 | `failed` | The attempt failed part-way. The sync stays outstanding, so retry. |
 
@@ -1431,13 +1431,13 @@ non-zero. A deferral is a documented answer and `not pending` is what a repeat
 run reports, so neither breaks a drain-until-clean loop.
 
 A command-level failure also exits non-zero, but prints no result table at all.
-A batch over the cap, an unknown or DPU machine id, a missing authorization, and
+A batch over the cap, an unknown or DPU machine ID, a missing authorization, and
 an unreachable API all land here, because the request is rejected before any
 host is acted on. Treat an empty result table as "nothing was released", not as
 "nothing was owed".
 
 <Note>
-Releasing by hand relaxes the **host-state** requirement and nothing else. Every DPU is still checked against its `DPUDeployment` first, so a service update never lands on a DPU whose OS is about to be replaced. The whole request is also validated before anything is released, so a mistyped id cannot leave half a batch released behind it.
+Releasing by hand relaxes the **host-state** requirement and nothing else. Every DPU is still checked against its `DPUDeployment` first, so a service update never lands on a DPU whose OS is about to be replaced. The whole request is also validated before anything is released, so a mistyped ID cannot leave half a batch released behind it.
 </Note>
 
 Both subcommands are operator-only. The underlying RPCs are granted to the admin

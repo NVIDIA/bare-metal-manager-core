@@ -20,7 +20,7 @@ Release the DPF maintenance hold blocking a DPUService rollout
 ## OPTIONS
 
 **--machine-id** *\<MACHINE_ID\>...*  
-One or more host machine ids to release
+One or more host machine IDs to release
 
 **--instance-id** *\<INSTANCE_ID\>...*  
 Release the hosts running these instances, disrupting their tenants
