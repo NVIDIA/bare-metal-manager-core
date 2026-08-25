@@ -22,26 +22,27 @@ import (
 type recordingForgeClient struct {
 	corev1.ForgeClient
 
-	mu              sync.Mutex
-	runtimeConfig   *corev1.RuntimeConfig
-	versionErr      error
-	versionErrors   []error
-	versionDelay    time.Duration
-	machineIDDelay  time.Duration
-	machineDelay    time.Duration
-	switchIDDelay   time.Duration
-	switchDelay     time.Duration
-	shelfIDDelay    time.Duration
-	shelfDelay      time.Duration
-	versionRequests []*corev1.VersionRequest
-	machineIDs      []string
-	switchIDs       []string
-	shelfIDs        []string
-	machineBatches  [][]string
-	switchBatches   [][]string
-	shelfBatches    [][]string
-	failCall        int
-	omitID          string
+	mu                sync.Mutex
+	runtimeConfig     *corev1.RuntimeConfig
+	versionErr        error
+	versionErrors     []error
+	versionDelay      time.Duration
+	machineIDDelay    time.Duration
+	machineDelay      time.Duration
+	switchIDDelay     time.Duration
+	switchDelay       time.Duration
+	shelfIDDelay      time.Duration
+	shelfDelay        time.Duration
+	versionRequests   []*corev1.VersionRequest
+	machineIDs        []string
+	switchIDs         []string
+	shelfIDs          []string
+	switchResponseIDs []string
+	machineBatches    [][]string
+	switchBatches     [][]string
+	shelfBatches      [][]string
+	failCall          int
+	omitID            string
 }
 
 func (c *recordingForgeClient) Version(
@@ -161,6 +162,10 @@ func (c *recordingForgeClient) FindSwitchesByIds(
 	failed := c.failCall == len(c.switchBatches)
 	omitID := c.omitID
 	delay := c.switchDelay
+	responseIDs := batch
+	if c.switchResponseIDs != nil {
+		responseIDs = slices.Clone(c.switchResponseIDs)
+	}
 	c.mu.Unlock()
 	if delay > 0 {
 		select {
@@ -173,9 +178,9 @@ func (c *recordingForgeClient) FindSwitchesByIds(
 		return nil, errors.New("injected switch lookup failure")
 	}
 
-	switches := make([]*corev1.Switch, 0, len(batch))
-	for _, id := range batch {
-		if id != omitID {
+	switches := make([]*corev1.Switch, 0, len(responseIDs))
+	for _, id := range responseIDs {
+		if omitID == "" || id != omitID {
 			nvosIP := "ip-" + id
 			bmcMAC := "mac-" + id
 			switches = append(switches, &corev1.Switch{
@@ -549,12 +554,14 @@ func TestVisitFindByIDBatches(t *testing.T) {
 			var events []string
 			err := visitFindByIDBatches(
 				context.Background(),
+				"FindByIds",
 				func(context.Context) (uint32, error) { return 2, nil },
 				[]string{"a", "b", "c", "d"},
 				func(_ context.Context, batch []string) ([]string, error) {
 					events = append(events, "fetch:"+strings.Join(batch, ","))
 					return slices.Clone(batch), nil
 				},
+				func(value string) string { return value },
 				func(batch []string) error {
 					events = append(events, "visit:"+strings.Join(batch, ","))
 					if test.visitError {
@@ -570,6 +577,148 @@ func TestVisitFindByIDBatches(t *testing.T) {
 			} else {
 				require.ErrorContains(t, err, test.wantError)
 			}
+		})
+	}
+}
+
+func TestVisitFindByIDBatchesRejectsInvalidRequestsBeforeFetch(t *testing.T) {
+	tests := []struct {
+		name      string
+		ids       []string
+		wantError string
+	}{
+		{
+			name:      "empty ID",
+			ids:       []string{"a", ""},
+			wantError: "FindByIds request contains an empty ID",
+		},
+		{
+			name:      "duplicate ID across prospective batches",
+			ids:       []string{"a", "b", "a"},
+			wantError: "FindByIds request contains duplicate ID: a",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			loadedLimit := false
+			fetched := false
+			visited := false
+			err := visitFindByIDBatches(
+				context.Background(),
+				"FindByIds",
+				func(context.Context) (uint32, error) {
+					loadedLimit = true
+					return 2, nil
+				},
+				test.ids,
+				func(context.Context, []string) ([]string, error) {
+					fetched = true
+					return nil, nil
+				},
+				func(value string) string { return value },
+				func([]string) error {
+					visited = true
+					return nil
+				},
+			)
+
+			require.ErrorContains(t, err, test.wantError)
+			assert.False(t, loadedLimit)
+			assert.False(t, fetched)
+			assert.False(t, visited)
+		})
+	}
+}
+
+func TestValidateByIDsResponse(t *testing.T) {
+	tests := []struct {
+		name      string
+		requested []string
+		returned  []string
+		wantError string
+	}{
+		{
+			name:      "exact identity set",
+			requested: []string{"a", "b"},
+			returned:  []string{"b", "a"},
+		},
+		{
+			name:      "empty returned ID",
+			requested: []string{"a"},
+			returned:  []string{""},
+			wantError: "FindByIds returned an empty ID",
+		},
+		{
+			name:      "duplicate returned ID",
+			requested: []string{"a", "b"},
+			returned:  []string{"a", "a", "b"},
+			wantError: "FindByIds returned duplicate ID: a",
+		},
+		{
+			name:      "unrequested returned ID",
+			requested: []string{"a"},
+			returned:  []string{"a", "b"},
+			wantError: "FindByIds returned unrequested ID: b",
+		},
+		{
+			name:      "missing returned ID",
+			requested: []string{"a", "b"},
+			returned:  []string{"a"},
+			wantError: "FindByIds returned an incomplete response; missing IDs: b",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateByIDsResponse(test.requested, test.returned, "FindByIds")
+
+			if test.wantError == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, test.wantError)
+			}
+		})
+	}
+}
+
+func TestGrpcClient_ByIDLookupsRejectInvalidReturnedIdentitiesBeforeProjection(t *testing.T) {
+	tests := []struct {
+		name        string
+		returnedIDs []string
+		wantError   string
+	}{
+		{
+			name:        "empty ID",
+			returnedIDs: []string{"", "b"},
+			wantError:   "returned an empty ID",
+		},
+		{
+			name:        "duplicate ID",
+			returnedIDs: []string{"a", "a", "b"},
+			wantError:   "returned duplicate ID: a",
+		},
+		{
+			name:        "unrequested ID",
+			returnedIDs: []string{"a", "unexpected"},
+			wantError:   "returned unrequested ID: unexpected",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &recordingForgeClient{
+				runtimeConfig:     &corev1.RuntimeConfig{MaxFindByIds: 2},
+				switchResponseIDs: test.returnedIDs,
+			}
+
+			result, err := newRecordingGRPCClient(fake).FindSwitchRackIDs(
+				context.Background(),
+				[]string{"a", "b"},
+			)
+
+			require.ErrorContains(t, err, test.wantError)
+			assert.Nil(t, result)
 		})
 	}
 }

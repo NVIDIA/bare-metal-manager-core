@@ -133,9 +133,11 @@ func (c *batchingForgeClient) visitMachineBatches(
 	visit func([]*corev1.Machine) error,
 	options ...grpc.CallOption,
 ) error {
-	return visitFindByIDBatches(ctx, c.loadMaxFindByIDs, protoIDsToStrings(request.GetMachineIds()),
+	return visitFindByIDBatches(ctx, "FindMachinesByIds", c.loadMaxFindByIDs, protoIDsToStrings(request.GetMachineIds()),
 		func(ctx context.Context, batch []string) ([]*corev1.Machine, error) {
 			return c.fetchMachinesByIDs(ctx, request, batch, options...)
+		}, func(machine *corev1.Machine) string {
+			return machine.GetId().GetId()
 		}, visit)
 }
 
@@ -145,9 +147,11 @@ func (c *batchingForgeClient) visitSwitchBatches(
 	visit func([]*corev1.Switch) error,
 	options ...grpc.CallOption,
 ) error {
-	return visitFindByIDBatches(ctx, c.loadMaxFindByIDs, protoIDsToStrings(request.GetSwitchIds()),
+	return visitFindByIDBatches(ctx, "FindSwitchesByIds", c.loadMaxFindByIDs, protoIDsToStrings(request.GetSwitchIds()),
 		func(ctx context.Context, batch []string) ([]*corev1.Switch, error) {
 			return c.fetchSwitchesByIDs(ctx, request, batch, options...)
+		}, func(sw *corev1.Switch) string {
+			return sw.GetId().GetId()
 		}, visit)
 }
 
@@ -157,9 +161,11 @@ func (c *batchingForgeClient) visitPowerShelfBatches(
 	visit func([]*corev1.PowerShelf) error,
 	options ...grpc.CallOption,
 ) error {
-	return visitFindByIDBatches(ctx, c.loadMaxFindByIDs, protoIDsToStrings(request.GetPowerShelfIds()),
+	return visitFindByIDBatches(ctx, "FindPowerShelvesByIds", c.loadMaxFindByIDs, protoIDsToStrings(request.GetPowerShelfIds()),
 		func(ctx context.Context, batch []string) ([]*corev1.PowerShelf, error) {
 			return c.fetchPowerShelvesByIDs(ctx, request, batch, options...)
+		}, func(shelf *corev1.PowerShelf) string {
+			return shelf.GetId().GetId()
 		}, visit)
 }
 
@@ -396,13 +402,18 @@ func (c *batchingForgeClient) loadMaxFindByIDs(ctx context.Context) (uint32, err
 // The caller's context covers limit discovery and all batch RPCs.
 func visitFindByIDBatches[T any](
 	ctx context.Context,
+	rpcName string,
 	loadLimit func(context.Context) (uint32, error),
 	ids []string,
 	fetch func(context.Context, []string) ([]T, error),
+	identity func(T) string,
 	visit func([]T) error,
 ) error {
 	if len(ids) == 0 {
 		return nil
+	}
+	if err := validateByIDsRequest(ids, rpcName); err != nil {
+		return err
 	}
 
 	limit, err := loadLimit(ctx)
@@ -420,6 +431,13 @@ func visitFindByIDBatches[T any](
 		if err != nil {
 			return err
 		}
+		returnedIDs := make([]string, 0, len(values))
+		for _, value := range values {
+			returnedIDs = append(returnedIDs, identity(value))
+		}
+		if err := validateByIDsResponse(batch, returnedIDs, rpcName); err != nil {
+			return err
+		}
 		if err := visit(values); err != nil {
 			return err
 		}
@@ -427,10 +445,39 @@ func visitFindByIDBatches[T any](
 	return nil
 }
 
-// validateByIDsResponse rejects a batch response that omits any requested ID.
+// validateByIDsRequest rejects identities that cannot form an exact result set.
+func validateByIDsRequest(ids []string, rpcName string) error {
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		if id == "" {
+			return fmt.Errorf("%s request contains an empty ID", rpcName)
+		}
+		if _, ok := seen[id]; ok {
+			return fmt.Errorf("%s request contains duplicate ID: %s", rpcName, id)
+		}
+		seen[id] = struct{}{}
+	}
+	return nil
+}
+
+// validateByIDsResponse requires the response identities to exactly match the request.
 func validateByIDsResponse(requested, returned []string, rpcName string) error {
+	requestedSet := make(map[string]struct{}, len(requested))
+	for _, id := range requested {
+		requestedSet[id] = struct{}{}
+	}
+
 	returnedSet := make(map[string]struct{}, len(returned))
 	for _, id := range returned {
+		if id == "" {
+			return fmt.Errorf("%s returned an empty ID", rpcName)
+		}
+		if _, ok := requestedSet[id]; !ok {
+			return fmt.Errorf("%s returned unrequested ID: %s", rpcName, id)
+		}
+		if _, ok := returnedSet[id]; ok {
+			return fmt.Errorf("%s returned duplicate ID: %s", rpcName, id)
+		}
 		returnedSet[id] = struct{}{}
 	}
 
@@ -460,8 +507,7 @@ func protoIDsToStrings[T protoID](ids []T) []string {
 	return result
 }
 
-// fetchMachinesByIDs clones the caller's request for one raw Core batch and
-// verifies that Core returned every requested machine.
+// fetchMachinesByIDs clones the caller's request for one raw Core batch.
 func (c *batchingForgeClient) fetchMachinesByIDs(
 	ctx context.Context,
 	request *corev1.MachinesByIdsRequest,
@@ -475,15 +521,7 @@ func (c *batchingForgeClient) fetchMachinesByIDs(
 		return nil, fmt.Errorf("FindMachinesByIds: %w", err)
 	}
 
-	machines := response.GetMachines()
-	returned := make([]string, 0, len(machines))
-	for _, machine := range machines {
-		returned = append(returned, machine.GetId().GetId())
-	}
-	if err := validateByIDsResponse(batch, returned, "FindMachinesByIds"); err != nil {
-		return nil, err
-	}
-	return machines, nil
+	return response.GetMachines(), nil
 }
 
 // GetPowerStates returns the power states of the given machines (all machines if given an empty machineIds)
@@ -652,15 +690,7 @@ func (c *batchingForgeClient) fetchSwitchesByIDs(
 		return nil, fmt.Errorf("FindSwitchesByIds: %w", err)
 	}
 
-	switches := response.GetSwitches()
-	returned := make([]string, 0, len(switches))
-	for _, sw := range switches {
-		returned = append(returned, sw.GetId().GetId())
-	}
-	if err := validateByIDsResponse(batch, returned, "FindSwitchesByIds"); err != nil {
-		return nil, err
-	}
-	return switches, nil
+	return response.GetSwitches(), nil
 }
 
 // fetchPowerShelvesByIDs clones the caller's request for one raw Core batch and
@@ -682,15 +712,7 @@ func (c *batchingForgeClient) fetchPowerShelvesByIDs(
 		return nil, fmt.Errorf("FindPowerShelvesByIds: %w", err)
 	}
 
-	shelves := response.GetPowerShelves()
-	returned := make([]string, 0, len(shelves))
-	for _, shelf := range shelves {
-		returned = append(returned, shelf.GetId().GetId())
-	}
-	if err := validateByIDsResponse(batch, returned, "FindPowerShelvesByIds"); err != nil {
-		return nil, err
-	}
-	return shelves, nil
+	return response.GetPowerShelves(), nil
 }
 
 // FindSwitchRackIDs returns the rack assignment of each given switch.
