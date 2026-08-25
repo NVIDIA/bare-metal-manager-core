@@ -238,7 +238,7 @@ to descriptor-based RMS operations.
 
 Each `rack_capabilities.<role>` section also requires a `count` field. This
 field is independent of RMS: it tells the rack state machine how many devices
-of that role the rack must have before it can progress. A rack stays in
+with that role the rack must have before it can progress. A rack stays in
 `Created` until all three roles have at least `count` devices registered; it
 stays in `Discovering` until all three roles have at least `count` devices in
 `Ready` state. All three roles — `compute`, `switch`, and `power_shelf` —
