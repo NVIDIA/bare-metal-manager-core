@@ -218,6 +218,10 @@ func (p *telemetryStatsProcessor) processMetrics(
 	for {
 		select {
 		case dp := <-p.metricStatsChannel:
+			emitTime := pcommon.NewTimestampFromTime(time.Now())
+			if emitTime < dp.startTime {
+				emitTime = dp.startTime
+			}
 			metric := smStats.Metrics().AppendEmpty()
 			metric.SetName(dp.name)
 			metric.SetDescription("Number of datapoints counted")
@@ -229,7 +233,7 @@ func (p *telemetryStatsProcessor) processMetrics(
 			datapoint := sum.DataPoints().AppendEmpty()
 			datapoint.SetIntValue(dp.value)
 			datapoint.SetStartTimestamp(dp.startTime)
-			datapoint.SetTimestamp(now)
+			datapoint.SetTimestamp(emitTime)
 			for k, v := range dp.labels {
 				datapoint.Attributes().PutStr(k, v)
 			}
