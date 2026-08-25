@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	cdmu "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
@@ -637,7 +638,7 @@ phone_home:
 				PhoneHomeEnabled:  cutil.GetPtr(false),
 			},
 			wantErr:      false,
-			phoneHomeUrl: "http://169.254.169.254/latest/meta-data/phone_home",
+			phoneHomeUrl: config.DefaultSitePhoneHomeUrl,
 			// NICo authored the block, so it is removed by key without
 			// matching the URL: neither the key nor the stale URL survives.
 			userDataNegativeSearches: []string{"phone_home", "169.254.169.254:7777"},
@@ -1027,4 +1028,101 @@ func TestAPIOperatingSystemUpdateRequest_ToImageProto(t *testing.T) {
 		require.NotNil(t, got.RootfsLabel)
 		assert.Equal(t, "lbl", *got.RootfsLabel)
 	})
+}
+
+// The stored blob is NICo's, but the document being edited is the caller's, and
+// their hook is not ours to delete.
+func TestAPIOperatingSystemUpdateRequest_DisablePhoneHomeKeepsCallerBlockOverNicoStoredBlob(t *testing.T) {
+	// What NICo wrote back when the configured URL still had the port.
+	existingOS := &cdbm.OperatingSystem{
+		PhoneHomeEnabled: true,
+		UserData: cutil.GetPtr(`#cloud-config
+package_update: true
+phone_home:
+    post: all
+    url: http://169.254.169.254:7777/latest/meta-data/phone_home
+`),
+	}
+
+	// The tenant replaces user-data and unchecks the box in one request.
+	osur := APIOperatingSystemUpdateRequest{
+		Name:             cutil.GetPtr("test-name"),
+		PhoneHomeEnabled: cutil.GetPtr(false),
+		UserData: cutil.GetPtr(`#cloud-config
+package_update: true
+phone_home:
+    post: all
+    url: https://collector.example.com/hook
+`),
+	}
+
+	// The configured URL today, after the stale port was dropped.
+	require.NoError(t, osur.ValidateAndSetUserData(config.DefaultSitePhoneHomeUrl, existingOS))
+	require.NotNil(t, osur.UserData)
+
+	assert.Contains(t, *osur.UserData, "collector.example.com",
+		"disabling phone-home removed configuration that was not NICo's")
+	assert.Contains(t, *osur.UserData, "package_update")
+	assert.NotContains(t, *osur.UserData, "169.254.169.254")
+}
+
+// The same shape, but the stored blob was never NICo's, so the URL filter applied
+// both before and after the fix. Pins that the fix changes nothing on this path.
+func TestAPIOperatingSystemUpdateRequest_DisablePhoneHomeKeepsCallerBlockOverForeignStoredBlob(t *testing.T) {
+	// Phone-home was never enabled, so nothing here is NICo's.
+	existingOS := &cdbm.OperatingSystem{
+		PhoneHomeEnabled: false,
+		UserData: cutil.GetPtr(`#cloud-config
+package_update: true
+phone_home:
+    post: all
+    url: https://collector.example.com/hook
+`),
+	}
+
+	osur := APIOperatingSystemUpdateRequest{
+		Name:             cutil.GetPtr("test-name"),
+		PhoneHomeEnabled: cutil.GetPtr(false),
+		UserData: cutil.GetPtr(`#cloud-config
+package_update: true
+phone_home:
+    post: all
+    url: https://collector.example.com/hook
+`),
+	}
+
+	require.NoError(t, osur.ValidateAndSetUserData(config.DefaultSitePhoneHomeUrl, existingOS))
+	require.NotNil(t, osur.UserData)
+
+	assert.Contains(t, *osur.UserData, "collector.example.com",
+		"disabling phone-home removed configuration that was not NICo's")
+	assert.Contains(t, *osur.UserData, "package_update")
+}
+
+// The drift case the ownership check exists for: no user-data in the request, so
+// the stored blob is what gets edited and the flag does describe it. The block is
+// removed by key even though its URL no longer matches the configured one.
+func TestAPIOperatingSystemUpdateRequest_DisablePhoneHomeRemovesStoredNicoBlockByKey(t *testing.T) {
+	existingOS := &cdbm.OperatingSystem{
+		PhoneHomeEnabled: true,
+		UserData: cutil.GetPtr(`#cloud-config
+package_update: true
+phone_home:
+    post: all
+    url: http://169.254.169.254:7777/latest/meta-data/phone_home
+`),
+	}
+
+	osur := APIOperatingSystemUpdateRequest{
+		Name:             cutil.GetPtr("test-name"),
+		PhoneHomeEnabled: cutil.GetPtr(false),
+		UserData:         nil,
+	}
+
+	require.NoError(t, osur.ValidateAndSetUserData(config.DefaultSitePhoneHomeUrl, existingOS))
+	require.NotNil(t, osur.UserData)
+
+	assert.Contains(t, *osur.UserData, "package_update")
+	assert.NotContains(t, *osur.UserData, "phone_home")
+	assert.NotContains(t, *osur.UserData, "169.254.169.254")
 }

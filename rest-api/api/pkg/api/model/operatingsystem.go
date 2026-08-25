@@ -760,7 +760,11 @@ func (osur *APIOperatingSystemUpdateRequest) ValidateAndSetUserData(phonehomeUrl
 	}
 
 	// If phone-home was enabled, it can be removed by key instead of by URL.
-	nicoAuthoredPhoneHome := existingOS.PhoneHomeEnabled
+	//
+	// Ownership is a property of the stored blob. A request that supplies its own
+	// user-data replaces that blob outright, so the flag says nothing about the
+	// document actually being edited and removal there stays URL-matched.
+	nicoAuthoredPhoneHome := existingOS.PhoneHomeEnabled && osur.UserData == nil
 
 	if mergedPhoneHomeEnabled == nil {
 		mergedPhoneHomeEnabled = &existingOS.PhoneHomeEnabled
