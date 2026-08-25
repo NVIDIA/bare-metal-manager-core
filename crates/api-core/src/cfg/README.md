@@ -703,13 +703,21 @@ override are combined, properties still unset use the effective defaults above.
 | Field | Type | Default | Description |
 | ------- | ------ | --------- | ------------- |
 | `enabled` | `bool` | `false` | Enable Cluster Interconnect Network. |
-| `mqtt_endpoint` | `String` | `"mqtt.nico"` | MQTT broker host for DPA. |
-| `mqtt_broker_port` | `u16` | `1884` | MQTT broker port. |
+| `svpc_enabled` | `bool` | `false` | Enable the SVPC path. Not mutually exclusive with `astra_enabled`. |
+| `astra_enabled` | `bool` | `false` | Enable the Astra path. Not mutually exclusive with `svpc_enabled`. |
 | `subnet_ip` | `Ipv4Addr` | `0.0.0.0` | Base IPv4 address of the DPA subnet. |
 | `subnet_mask` | `i32` | `0` | CIDR prefix length for the DPA subnet. |
+| `monitor_run_interval` | `Duration` | `60s` | The interval at which the DPA monitor runs. |
+| `svpc` | `SvpcConfig` | *(defaults)* | SVPC MQTT connection settings (see [SvpcConfig](#svpcconfig)). |
+
+### `SvpcConfig`
+
+| Field | Type | Default | Description |
+| ------- | ------ | --------- | ------------- |
+| `mqtt_endpoint` | `String` | `"mqtt.forge"` | MQTT broker host for the SVPC path. |
+| `mqtt_broker_port` | `u16` | `1884` | MQTT broker port. |
 | `hb_interval` | `Duration` | `2m` | Heartbeat interval for DPA health checks. |
 | `auth` | `MqttAuthConfig` | *(none)* | MQTT authentication settings. |
-| `monitor_run_interval` | `Duration` | `60s` | The interval at which the DPA monitor runs. |
 
 ### `DsxExchangeEventBusConfig`
 

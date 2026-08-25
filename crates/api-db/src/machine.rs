@@ -1536,6 +1536,15 @@ pub async fn try_sync_stable_id_with_current_machine_id_for_host(
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 
+    // Update the dpa_interfaces table to use the new machine id.
+    let query = "UPDATE dpa_interfaces SET machine_id=$1 WHERE machine_id=$2";
+    sqlx::query(query)
+        .bind(stable_machine_id)
+        .bind(current_machine_id)
+        .execute(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
     // If the Machines name in Metadata matched the predicted machine id,
     // then update it to the new ID.
     // If someone changed the name manually then don't bother

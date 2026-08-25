@@ -289,7 +289,7 @@ pub(crate) async fn start_dpa_handler(
         let defaults = ClientOptions::default().with_qos(default_qos);
         if let Some(ref dpa_config) = api_service.runtime_config.dpa_config
             && let Some(provider) = crate::auth::mqtt_auth::build_credentials_provider(
-                &dpa_config.auth,
+                &dpa_config.svpc.auth,
                 carbide_secrets::credentials::CredentialKey::MqttAuth {
                     credential_type: carbide_secrets::credentials::MqttCredentialType::Dpa,
                 },

@@ -34,8 +34,8 @@ use model::hardware_info::HardwareInfo;
 use model::machine::machine_id::host_id_from_dpu_hardware_info;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
-    CURRENT_STATE_MODEL_VERSION, DpuDiscoveringState, DpuDiscoveringStates, Machine,
-    MachineInterfaceSnapshot, ManagedHostState, pick_boot_interface, pick_boot_prediction,
+    CURRENT_STATE_MODEL_VERSION, ConfigureAstraState, Machine, MachineInterfaceSnapshot,
+    ManagedHostState, pick_boot_interface, pick_boot_prediction,
 };
 use model::machine_boot_interface::{
     BootInterfaceSelectionSource, MachineBootInterface, MachineBootInterfaceTarget,
@@ -392,14 +392,8 @@ impl MachineCreator {
         db::machine::update_state(
             &mut txn,
             &host_machine_id,
-            &ManagedHostState::DpuDiscoveringState {
-                dpu_states: DpuDiscoveringStates {
-                    states: dpu_ids
-                        .iter()
-                        .copied()
-                        .map(|id| (id, DpuDiscoveringState::Initializing))
-                        .collect(),
-                },
+            &ManagedHostState::ConfigureAstra {
+                configure_astra_state: ConfigureAstraState::EnableNics,
             },
         )
         .await?;

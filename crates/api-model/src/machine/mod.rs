@@ -1285,6 +1285,12 @@ pub enum ManagedHostState {
     /// created.
     Created,
 
+    // Enable Astra if necessary
+    ConfigureAstra {
+        #[serde(default)]
+        configure_astra_state: ConfigureAstraState,
+    },
+
     /// Machine moved to failed state. Recovery will be based on FailedCause
     Failed {
         details: FailureDetails,
@@ -1514,6 +1520,27 @@ pub enum ReadyBootConfigTerminalFailure {
         machine_id: MachineId,
         details: FailureDetails,
     },
+}
+
+/// Progress while a newly ingested host enables Astra (EastWestControl) on
+/// its CX9 NICs and waits for the required AC power cycle to take effect.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Default)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum ConfigureAstraState {
+    /// PATCH Oem.Nvidia.EastWestControlEnabled on each declared CX9 NIC.
+    #[default]
+    EnableNics,
+    /// Wait for the host AC power cycle issued after enabling CX9 NICs.
+    WaitingForPowercycle,
+}
+
+impl Display for ConfigureAstraState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EnableNics => write!(f, "EnableNics"),
+            Self::WaitingForPowercycle => write!(f, "WaitingForPowercycle"),
+        }
+    }
 }
 
 /// `ReadyBootConfigState` persists progress while an unassigned Ready host
@@ -2713,6 +2740,11 @@ impl Display for DecommissioningState {
 impl Display for ManagedHostState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            ManagedHostState::ConfigureAstra {
+                configure_astra_state,
+            } => {
+                write!(f, "ConfigureAstra/{configure_astra_state}")
+            }
             ManagedHostState::DpuDiscoveringState { dpu_states } => {
                 // Min state indicates the least processed DPU. The state machine is blocked
                 // becasue of this.
@@ -2831,6 +2863,9 @@ impl Display for ManagedHostState {
 impl ManagedHostState {
     pub fn dpu_state_string(&self, dpu_id: &MachineId) -> String {
         match self {
+            ManagedHostState::ConfigureAstra {
+                configure_astra_state,
+            } => format!("ConfigureAstra/{configure_astra_state}"),
             ManagedHostState::DpuDiscoveringState { dpu_states } => dpu_states
                 .states
                 .get(dpu_id)
@@ -3022,6 +3057,9 @@ pub fn state_sla(
         .unwrap_or(std::time::Duration::from_secs(60 * 60 * 24));
 
     match state {
+        ManagedHostState::ConfigureAstra { .. } => {
+            StateSla::with_sla(slas::CONFIGURE_ASTRA, time_in_state)
+        }
         ManagedHostState::DpuDiscoveringState { dpu_states } => {
             // Min state indicates the least processed DPU. The state machine is blocked
             // because of this.
@@ -3684,6 +3722,30 @@ mod tests {
                 .unwrap()
                     == state
             },
+        );
+    }
+
+    #[test]
+    fn configure_astra_defaults_survive_persisted_state_loading() {
+        scenarios!(
+            run = |json| serde_json::from_str::<ManagedHostState>(json).map_err(drop);
+            "legacy unit-shaped ConfigureAstra starts at EnableNics" {
+                r#"{"state":"configureastra"}"# => Yields(ManagedHostState::ConfigureAstra {
+                    configure_astra_state: ConfigureAstraState::EnableNics,
+                }),
+            }
+            "explicit EnableNics substate round-trips" {
+                r#"{"state":"configureastra","configure_astra_state":{"state":"enablenics"}}"# =>
+                    Yields(ManagedHostState::ConfigureAstra {
+                        configure_astra_state: ConfigureAstraState::EnableNics,
+                    }),
+            }
+            "WaitingForPowercycle substate round-trips" {
+                r#"{"state":"configureastra","configure_astra_state":{"state":"waitingforpowercycle"}}"# =>
+                    Yields(ManagedHostState::ConfigureAstra {
+                        configure_astra_state: ConfigureAstraState::WaitingForPowercycle,
+                    }),
+            }
         );
     }
 

@@ -26,10 +26,10 @@ use model::dpa_interface::DpaSearchConfig;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::slas::MachineSlaConfig;
 use model::machine::{
-    self, AttestationMode, DecommissioningState, DpuDiscoveringState, DpuInitState,
-    HostHealthConfig, MachineMaintenanceOperation, MachineValidatingState, ManagedHostState,
-    ManagedHostStateSnapshot, MeasuringState, ReadyBootConfigState, SpdmMeasuringState,
-    ValidationState,
+    self, AttestationMode, ConfigureAstraState, DecommissioningState, DpuDiscoveringState,
+    DpuInitState, HostHealthConfig, MachineMaintenanceOperation, MachineValidatingState,
+    ManagedHostState, ManagedHostStateSnapshot, MeasuringState, ReadyBootConfigState,
+    SpdmMeasuringState, ValidationState,
 };
 use sqlx::PgConnection;
 use state_controller::io::StateControllerIO;
@@ -296,6 +296,15 @@ impl StateControllerIO for MachineStateControllerIO {
         }
 
         match state {
+            ManagedHostState::ConfigureAstra {
+                configure_astra_state,
+            } => (
+                "configureastra",
+                match configure_astra_state {
+                    ConfigureAstraState::EnableNics => "enablenics",
+                    ConfigureAstraState::WaitingForPowercycle => "waitingforpowercycle",
+                },
+            ),
             ManagedHostState::DpuDiscoveringState { dpu_states } => {
                 // Min state indicates the least processed DPU. The state machine is blocked
                 // becasue of this.

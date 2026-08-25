@@ -1755,33 +1755,52 @@ async fn initialize_and_start_controllers<'a>(
     .start(join_set, cancel_token.clone())?;
 
     if carbide_config.is_dpa_enabled() {
-        let dpa_mqtt_client =
-            start_dpa_handler(join_set, api_service.clone(), cancel_token.clone()).await?;
-        dpa_mqtt_client.register_metrics(&meter, "dpa");
-        let mqtt_client = Some(dpa_mqtt_client);
-
         let subnet_ip = carbide_config.get_dpa_subnet_ip()?;
 
         let subnet_mask = carbide_config.get_dpa_subnet_mask()?;
 
-        let info: DpaInfo = DpaInfo {
+        if !carbide_config.is_svpc_enabled() && !carbide_config.is_astra_enabled() {
+            tracing::info!(
+                "DPA is enabled but neither SVPC nor Astra is enabled. Skipping DPA setup."
+            );
+        }
+
+        let mut info: DpaInfo = DpaInfo {
             subnet_ip,
             subnet_mask,
-            mqtt_client,
+            mqtt_client: None,
         };
 
-        let dpa_info = Arc::new(info);
+        if carbide_config.is_svpc_enabled() {
+            let dpa_mqtt_client =
+                start_dpa_handler(join_set, api_service.clone(), cancel_token.clone()).await?;
+            dpa_mqtt_client.register_metrics(&meter, "dpa");
 
-        DpaMonitor::new(
-            db_pool.clone(),
-            db_pool.clone().into(),
-            dpa_info,
-            meter.clone(),
-            carbide_config.dpa_config.clone().unwrap_or_default(),
-            carbide_config.host_health,
-            work_lock_manager_handle.clone(),
-        )
-        .start(join_set, cancel_token.clone())?;
+            info.mqtt_client = Some(dpa_mqtt_client);
+
+            tracing::info!("DPA MQTT client started for SVPC");
+        }
+
+        if carbide_config.is_svpc_enabled() || carbide_config.is_astra_enabled() {
+            let dpa_info = Arc::new(info);
+
+            DpaMonitor::new(
+                db_pool.clone(),
+                db_pool.clone().into(),
+                dpa_info,
+                meter.clone(),
+                carbide_config.dpa_config.clone().unwrap_or_default(),
+                carbide_config.host_health,
+                work_lock_manager_handle.clone(),
+            )
+            .start(join_set, cancel_token.clone())?;
+
+            tracing::info!(
+                "DPA monitor started for SVPC or Astra with subnet_ip: {:?}, subnet_mask: {:?}",
+                subnet_ip,
+                subnet_mask
+            );
+        }
     }
 
     let site_explorer_config = {

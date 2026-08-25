@@ -8990,6 +8990,8 @@ type RuntimeConfig struct {
 	CompileTimeDockerVersion                        string   `protobuf:"bytes,52,opt,name=compile_time_docker_version,json=compileTimeDockerVersion,proto3" json:"compile_time_docker_version,omitempty"`
 	RestartOvsOnUseAdminNetworkChange               bool     `protobuf:"varint,53,opt,name=restart_ovs_on_use_admin_network_change,json=restartOvsOnUseAdminNetworkChange,proto3" json:"restart_ovs_on_use_admin_network_change,omitempty"`
 	MaxSitePrefixesPerTenant                        uint32   `protobuf:"varint,54,opt,name=max_site_prefixes_per_tenant,json=maxSitePrefixesPerTenant,proto3" json:"max_site_prefixes_per_tenant,omitempty"`
+	SvpcEnabled                                     bool     `protobuf:"varint,55,opt,name=svpc_enabled,json=svpcEnabled,proto3" json:"svpc_enabled,omitempty"`
+	AstraEnabled                                    bool     `protobuf:"varint,56,opt,name=astra_enabled,json=astraEnabled,proto3" json:"astra_enabled,omitempty"`
 	unknownFields                                   protoimpl.UnknownFields
 	sizeCache                                       protoimpl.SizeCache
 }
@@ -9373,6 +9375,20 @@ func (x *RuntimeConfig) GetMaxSitePrefixesPerTenant() uint32 {
 		return x.MaxSitePrefixesPerTenant
 	}
 	return 0
+}
+
+func (x *RuntimeConfig) GetSvpcEnabled() bool {
+	if x != nil {
+		return x.SvpcEnabled
+	}
+	return false
+}
+
+func (x *RuntimeConfig) GetAstraEnabled() bool {
+	if x != nil {
+		return x.AstraEnabled
+	}
+	return false
 }
 
 type EchoRequest struct {
@@ -64676,7 +64692,7 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x0ebuild_hostname\x18\x06 \x01(\tR\rbuildHostname\x12:\n" +
 	"\fcapabilities\x18\a \x03(\x0e2\x16.forge.BuildCapabilityR\fcapabilities\x12@\n" +
 	"\x0eruntime_config\x182 \x01(\v2\x14.forge.RuntimeConfigH\x00R\rruntimeConfig\x88\x01\x01B\x11\n" +
-	"\x0f_runtime_config\"\xa1\x17\n" +
+	"\x0f_runtime_config\"\xe9\x17\n" +
 	"\rRuntimeConfig\x12\x16\n" +
 	"\x06listen\x18\x01 \x01(\tR\x06listen\x12)\n" +
 	"\x10metrics_endpoint\x18\x02 \x01(\tR\x0fmetricsEndpoint\x12!\n" +
@@ -64730,7 +64746,9 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x19compile_time_helm_version\x183 \x01(\tR\x16compileTimeHelmVersion\x12=\n" +
 	"\x1bcompile_time_docker_version\x184 \x01(\tR\x18compileTimeDockerVersion\x12R\n" +
 	"'restart_ovs_on_use_admin_network_change\x185 \x01(\bR!restartOvsOnUseAdminNetworkChange\x12>\n" +
-	"\x1cmax_site_prefixes_per_tenant\x186 \x01(\rR\x18maxSitePrefixesPerTenant\x1aN\n" +
+	"\x1cmax_site_prefixes_per_tenant\x186 \x01(\rR\x18maxSitePrefixesPerTenant\x12!\n" +
+	"\fsvpc_enabled\x187 \x01(\bR\vsvpcEnabled\x12#\n" +
+	"\rastra_enabled\x188 \x01(\bR\fastraEnabled\x1aN\n" +
 	" DpuNicFirmwareUpdateVersionEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x16\n" +

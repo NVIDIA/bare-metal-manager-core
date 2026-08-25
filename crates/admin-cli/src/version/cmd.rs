@@ -133,6 +133,8 @@ pub(super) async fn handle_show_version(
             bom_validation_auto_generate_missing_sku_interval
         );
         r!(table, config, dpa_enabled);
+        r!(table, config, svpc_enabled);
+        r!(table, config, astra_enabled);
         r!(table, config, mqtt_endpoint);
         r!(table, config, mqtt_broker_port);
         r!(table, config, mqtt_hb_interval);

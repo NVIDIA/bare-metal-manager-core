@@ -89,6 +89,53 @@ pub struct MqttAuthConfig {
     pub oauth2: Option<MqttOAuth2Config>,
 }
 
+/// SVPC (Scalable VPC) MQTT connection settings.
+///
+/// These were previously inlined in [`DpaConfig`]; they are grouped here so the
+/// SVPC path owns its own MQTT endpoint, port, heartbeat interval, and
+/// authentication configuration.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct SvpcConfig {
+    /// MQTT broker host (name or IP address) used to create client connections.
+    #[serde(default = "default_mqtt_endpoint")]
+    pub mqtt_endpoint: String,
+
+    /// MQTT broker port to use to establish client connections.
+    #[serde(default = "default_mqtt_broker_port")]
+    pub mqtt_broker_port: u16,
+
+    /// Interval at which we issue heartbeat requests to the DPA.
+    /// Defaults to 120 seconds if not specified.
+    #[serde(
+        default = "SvpcConfig::default_hb_interval",
+        deserialize_with = "deserialize_duration_chrono",
+        serialize_with = "as_duration"
+    )]
+    pub hb_interval: chrono::TimeDelta,
+
+    /// MQTT authentication configuration.
+    #[serde(default)]
+    pub auth: MqttAuthConfig,
+}
+
+impl SvpcConfig {
+    pub const fn default_hb_interval() -> chrono::TimeDelta {
+        chrono::TimeDelta::minutes(2)
+    }
+}
+
+impl Default for SvpcConfig {
+    fn default() -> Self {
+        Self {
+            mqtt_endpoint: default_mqtt_endpoint(),
+            mqtt_broker_port: default_mqtt_broker_port(),
+            hb_interval: Self::default_hb_interval(),
+            auth: MqttAuthConfig::default(),
+        }
+    }
+}
+
 /// DPA (aka Cluster Interconnect Network) related configuration.
 /// Enables DPA, and specifies basic network settings.
 /// The VNI to be used by DPA will be the same as the parent VPC.
@@ -99,13 +146,15 @@ pub struct DpaConfig {
     #[serde(default)]
     pub enabled: bool,
 
-    /// MQTT broker host (name or IP address) used to create client connections.
-    #[serde(default = "default_mqtt_endpoint")]
-    pub mqtt_endpoint: String,
+    /// Enable the SVPC (Scalable VPC) path. Disabled by default and not
+    /// mutually exclusive with [`Self::astra_enabled`].
+    #[serde(default)]
+    pub svpc_enabled: bool,
 
-    /// MQTT broker port to use to establish client connections.
-    #[serde(default = "default_mqtt_broker_port")]
-    pub mqtt_broker_port: u16,
+    /// Enable the Astra path. Disabled by default and not mutually exclusive
+    /// with [`Self::svpc_enabled`].
+    #[serde(default)]
+    pub astra_enabled: bool,
 
     /// Base IPv4 address of the DPA/Cluster Interconnect subnet.
     #[serde(default = "DpaConfig::default_subnet_ip")]
@@ -115,15 +164,6 @@ pub struct DpaConfig {
     #[serde(default)]
     pub subnet_mask: i32,
 
-    /// Interval at which we issue heartbeat requests to the DPA.
-    /// Defaults to 120 seconds if not specified.
-    #[serde(
-        default = "DpaConfig::default_hb_interval",
-        deserialize_with = "deserialize_duration_chrono",
-        serialize_with = "as_duration"
-    )]
-    pub hb_interval: chrono::TimeDelta,
-
     /// The interval at which we run the DPA monitor.
     #[serde(
         default = "DpaConfig::default_monitor_run_interval",
@@ -132,15 +172,12 @@ pub struct DpaConfig {
     )]
     pub monitor_run_interval: std::time::Duration,
 
+    /// SVPC MQTT connection settings.
     #[serde(default)]
-    pub auth: MqttAuthConfig,
+    pub svpc: SvpcConfig,
 }
 
 impl DpaConfig {
-    pub const fn default_hb_interval() -> chrono::TimeDelta {
-        chrono::TimeDelta::minutes(2)
-    }
-
     pub const fn default_monitor_run_interval() -> std::time::Duration {
         std::time::Duration::from_secs(60)
     }
@@ -154,13 +191,12 @@ impl Default for DpaConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            mqtt_endpoint: default_mqtt_endpoint(),
-            mqtt_broker_port: default_mqtt_broker_port(),
+            svpc_enabled: false,
+            astra_enabled: false,
             subnet_ip: Self::default_subnet_ip(),
             subnet_mask: 0,
-            hb_interval: Self::default_hb_interval(),
             monitor_run_interval: Self::default_monitor_run_interval(),
-            auth: MqttAuthConfig::default(),
+            svpc: SvpcConfig::default(),
         }
     }
 }
