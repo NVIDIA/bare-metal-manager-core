@@ -389,7 +389,8 @@ func (c *Config) Validate() {
 		log.Panic().Err(err).Msg("Keycloak config must be specified")
 	}
 
-	if err := c.ValidatePowerProvisioningConfig(); err != nil {
+	err := c.ValidatePowerProvisioningConfig()
+	if err != nil {
 		log.Panic().Err(err).Msg("Power provisioning config is invalid")
 	}
 

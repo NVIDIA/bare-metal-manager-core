@@ -1,0 +1,44 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+suite: REST API direct DPS secret mount
+templates:
+  - deployment.yaml
+set:
+  global.image.repository: example.test
+  global.image.tag: latest
+tests:
+  - it: does not mount DPS credentials in external mode
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: dps
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: dps
+
+  - it: mounts the externally managed DPS credentials in direct mode
+    set:
+      config.powerProvisioning.mode: dps
+      config.powerProvisioning.dps.endpoint: dps.example.test:443
+      secrets.dps: nico-dps-client
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: dps
+            mountPath: /var/secrets/dps
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: dps
+            secret:
+              secretName: nico-dps-client
+              items:
+                - key: token
+                  path: token
+                - key: ca.crt
+                  path: ca.crt

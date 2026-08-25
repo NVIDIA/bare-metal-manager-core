@@ -69,6 +69,11 @@ spec:
             {{- end }}
             - name: tmp
               mountPath: /tmp
+            {{- if eq .Values.config.powerProvisioning.mode "dps" }}
+            - name: dps
+              mountPath: /var/secrets/dps
+              readOnly: true
+            {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           readinessProbe:
@@ -115,4 +120,14 @@ spec:
             items:
               - key: password
                 path: password
+        {{- end }}
+        {{- if eq .Values.config.powerProvisioning.mode "dps" }}
+        - name: dps
+          secret:
+            secretName: {{ .Values.secrets.dps }}
+            items:
+              - key: token
+                path: token
+              - key: ca.crt
+                path: ca.crt
         {{- end }}

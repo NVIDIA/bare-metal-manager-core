@@ -10,6 +10,7 @@ import (
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
 	apiHandler "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler"
+	dpsclient "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/dps"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 
@@ -17,7 +18,7 @@ import (
 )
 
 // NewAPIRoutes returns all API routes
-func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.NamespaceClient, scp *sc.ClientPool, cfg *config.Config) []Route {
+func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.NamespaceClient, scp *sc.ClientPool, cfg *config.Config, dps dpsclient.PowerProvisioner) []Route {
 	apiName := cfg.GetAPIName()
 
 	apiPathPrefix := "/org/:orgName/" + apiName
@@ -224,7 +225,7 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 		{
 			Path:    apiPathPrefix + "/vpc",
 			Method:  http.MethodPost,
-			Handler: apiHandler.NewCreateVPCHandler(dbSession, tc, scp, cfg),
+			Handler: apiHandler.NewCreateVPCHandler(dbSession, tc, scp, cfg, dps),
 		},
 		{
 			Path:    apiPathPrefix + "/vpc",
@@ -239,12 +240,12 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 		{
 			Path:    apiPathPrefix + "/vpc/:id",
 			Method:  http.MethodPatch,
-			Handler: apiHandler.NewUpdateVPCHandler(dbSession, tc, scp, cfg),
+			Handler: apiHandler.NewUpdateVPCHandler(dbSession, tc, scp, cfg, dps),
 		},
 		{
 			Path:    apiPathPrefix + "/vpc/:id",
 			Method:  http.MethodDelete,
-			Handler: apiHandler.NewDeleteVPCHandler(dbSession, tc, scp, cfg),
+			Handler: apiHandler.NewDeleteVPCHandler(dbSession, tc, scp, cfg, dps),
 		},
 		{
 			Path:    apiPathPrefix + "/vpc/:id/virtualization",
@@ -336,12 +337,12 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 		{
 			Path:    apiPathPrefix + "/instance",
 			Method:  http.MethodPost,
-			Handler: apiHandler.NewCreateInstanceHandler(dbSession, tc, scp, cfg),
+			Handler: apiHandler.NewCreateInstanceHandler(dbSession, tc, scp, cfg, dps),
 		},
 		{
 			Path:    apiPathPrefix + "/instance/batch",
 			Method:  http.MethodPost,
-			Handler: apiHandler.NewBatchCreateInstanceHandler(dbSession, tc, scp, cfg),
+			Handler: apiHandler.NewBatchCreateInstanceHandler(dbSession, tc, scp, cfg, dps),
 		},
 		{
 			Path:    apiPathPrefix + "/instance",
@@ -356,12 +357,12 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 		{
 			Path:    apiPathPrefix + "/instance/:id",
 			Method:  http.MethodPatch,
-			Handler: apiHandler.NewUpdateInstanceHandler(dbSession, tc, scp, cfg),
+			Handler: apiHandler.NewUpdateInstanceHandler(dbSession, tc, scp, cfg, dps),
 		},
 		{
 			Path:    apiPathPrefix + "/instance/:id",
 			Method:  http.MethodDelete,
-			Handler: apiHandler.NewDeleteInstanceHandler(dbSession, tc, scp, cfg),
+			Handler: apiHandler.NewDeleteInstanceHandler(dbSession, tc, scp, cfg, dps),
 		},
 		{
 			Path:    apiPathPrefix + "/instance/:id/status-history",

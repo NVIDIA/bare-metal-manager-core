@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
@@ -30,6 +31,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	dpsclient "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/dps"
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
@@ -46,16 +48,18 @@ type CreateVPCHandler struct {
 	tc         temporalClient.Client
 	scp        *sc.ClientPool
 	cfg        *config.Config
+	dps        dpsclient.PowerProvisioner
 	tracerSpan *cutil.TracerSpan
 }
 
 // NewCreateVPCHandler initializes and returns a new handler for creating Tenant
-func NewCreateVPCHandler(dbSession *cdb.Session, tc temporalClient.Client, sc *sc.ClientPool, cfg *config.Config) CreateVPCHandler {
+func NewCreateVPCHandler(dbSession *cdb.Session, tc temporalClient.Client, sc *sc.ClientPool, cfg *config.Config, dps dpsclient.PowerProvisioner) CreateVPCHandler {
 	return CreateVPCHandler{
 		dbSession:  dbSession,
 		tc:         tc,
 		scp:        sc,
 		cfg:        cfg,
+		dps:        dps,
 		tracerSpan: cutil.NewTracerSpan(),
 	}
 }
@@ -336,6 +340,27 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 		labels = apiRequest.Labels
 	}
 
+	dpsGroupCreated := false
+	if cvh.cfg.GetPowerProvisioningMode() == config.PowerProvisioningModeDPS && apiRequest.PowerResourceGroup != nil {
+		if cvh.dps == nil {
+			return cutil.NewAPIErrorResponse(c, http.StatusServiceUnavailable, "DPS power provisioning is unavailable", nil)
+		}
+		if apiRequest.ID == nil {
+			apiRequest.ID = cutil.GetPtr(uuid.New())
+		}
+		externalID, derr := dpsclient.ExternalIDFromVPCID(apiRequest.ID.String())
+		if derr != nil {
+			logger.Error().Err(derr).Str("vpcID", apiRequest.ID.String()).Msg("failed to derive DPS resource group ID")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to derive DPS resource group ID", nil)
+		}
+		derr = cvh.dps.CreateResourceGroup(ctx, *apiRequest.PowerResourceGroup, externalID)
+		if derr != nil {
+			logger.Error().Err(derr).Str("powerResourceGroup", *apiRequest.PowerResourceGroup).Msg("failed to create DPS resource group")
+			return cutil.NewAPIErrorResponse(c, http.StatusServiceUnavailable, "Failed to create DPS resource group", nil)
+		}
+		dpsGroupCreated = true
+	}
+
 	sdDAO := cdbm.NewStatusDetailDAO(cvh.dbSession)
 
 	var vpc *cdbm.Vpc
@@ -460,11 +485,24 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 	if err != nil {
 		var apiErr *cutil.APIError
 		if !errors.As(err, &apiErr) || timeoutResp == nil {
+			if dpsGroupCreated {
+				cleanupErr := cvh.dps.DeleteResourceGroup(context.WithoutCancel(ctx), *apiRequest.PowerResourceGroup)
+				if cleanupErr != nil {
+					logger.Error().Err(cleanupErr).Str("powerResourceGroup", *apiRequest.PowerResourceGroup).Msg("failed to compensate DPS resource group after VPC creation failure")
+				}
+			}
 			return common.HandleTxError(c, logger, err, "Failed to create VPC due to DB transaction error")
 		}
 	}
 	if timeoutResp != nil {
-		return timeoutResp()
+		responseErr := timeoutResp()
+		if dpsGroupCreated {
+			cleanupErr := cvh.dps.DeleteResourceGroup(context.WithoutCancel(ctx), *apiRequest.PowerResourceGroup)
+			if cleanupErr != nil {
+				logger.Error().Err(cleanupErr).Str("powerResourceGroup", *apiRequest.PowerResourceGroup).Msg("failed to compensate DPS resource group after VPC creation failure")
+			}
+		}
+		return responseErr
 	}
 
 	statusDetails := []cdbm.StatusDetail{*ssd}
@@ -521,16 +559,18 @@ type UpdateVPCHandler struct {
 	tc         temporalClient.Client
 	scp        *sc.ClientPool
 	cfg        *config.Config
+	dps        dpsclient.PowerProvisioner
 	tracerSpan *cutil.TracerSpan
 }
 
 // NewUpdateVPCHandler initializes and returns a new handler for updating VPC
-func NewUpdateVPCHandler(dbSession *cdb.Session, tc temporalClient.Client, sc *sc.ClientPool, cfg *config.Config) UpdateVPCHandler {
+func NewUpdateVPCHandler(dbSession *cdb.Session, tc temporalClient.Client, sc *sc.ClientPool, cfg *config.Config, dps dpsclient.PowerProvisioner) UpdateVPCHandler {
 	return UpdateVPCHandler{
 		dbSession:  dbSession,
 		tc:         tc,
 		scp:        sc,
 		cfg:        cfg,
+		dps:        dps,
 		tracerSpan: cutil.NewTracerSpan(),
 	}
 }
@@ -798,6 +838,9 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 	sdDAO := cdbm.NewStatusDetailDAO(uvh.dbSession)
 	var ssds []cdbm.StatusDetail
 
+	var dpsChange *powerChange
+	var dpsOldGroup, dpsNewGroup string
+
 	// timeoutResp lets the closure signal a post-rollback handler — the
 	// TerminateWorkflow call has to run after the closure returns so that
 	// the DB tx unwinds before we make the second remote call. nil means
@@ -805,6 +848,47 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 	var timeoutResp func() error
 
 	err = cdb.WithTx(ctx, uvh.dbSession, func(tx *cdb.Tx) error {
+		if uvh.cfg.GetPowerProvisioningMode() == config.PowerProvisioningModeDPS && apiRequest.PowerResourceGroup != nil {
+			lockErr := acquireVPCPowerLock(ctx, tx, vpc.ID)
+			if lockErr != nil {
+				logger.Error().Err(lockErr).Str("vpcID", vpc.ID.String()).Msg("failed to serialize DPS operations for VPC")
+				return cutil.NewAPIError(http.StatusConflict, "Another power operation is already in progress for the VPC", nil)
+			}
+
+			if vpc.PowerResourceGroup != nil {
+				dpsOldGroup = *vpc.PowerResourceGroup
+			}
+			dpsNewGroup = *apiRequest.PowerResourceGroup
+			if strings.TrimSpace(dpsOldGroup) != strings.TrimSpace(dpsNewGroup) {
+				instances, _, derr := cdbm.NewInstanceDAO(uvh.dbSession).GetAll(ctx, tx, cdbm.InstanceFilterInput{VpcIDs: []uuid.UUID{vpc.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+				if derr != nil {
+					logger.Error().Err(derr).Str("vpcID", vpc.ID.String()).Msg("failed to retrieve VPC instances for DPS migration")
+					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve VPC instances for DPS migration", nil)
+				}
+				assignments := make([]machinePowerAssignment, 0, len(instances))
+				for _, instance := range instances {
+					if instance.MachineID == nil {
+						return cutil.NewAPIError(http.StatusConflict, "Cannot change the power resource group while a VPC instance has no machine", nil)
+					}
+					assignment := machinePowerAssignment{machineID: *instance.MachineID}
+					if instance.PowerProfile != nil {
+						assignment.powerProfile = *instance.PowerProfile
+					}
+					assignments = append(assignments, assignment)
+				}
+				externalID, derr := dpsclient.ExternalIDFromVPCID(vpc.ID.String())
+				if derr != nil {
+					logger.Error().Err(derr).Str("vpcID", vpc.ID.String()).Msg("failed to derive DPS resource group ID")
+					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to derive DPS resource group ID", nil)
+				}
+				dpsChange, derr = preparePowerResourceGroupChange(ctx, uvh.dps, externalID, dpsOldGroup, dpsNewGroup, assignments)
+				if derr != nil {
+					logger.Error().Err(derr).Str("oldPowerResourceGroup", dpsOldGroup).Str("newPowerResourceGroup", dpsNewGroup).Msg("failed to prepare DPS resource group migration")
+					return cutil.NewAPIError(http.StatusServiceUnavailable, "Failed to change DPS resource group", nil)
+				}
+			}
+		}
+
 		// Update VPC
 		uvpcInput := cdbm.VpcUpdateInput{
 			VpcID:                   vpc.ID,
@@ -936,11 +1020,30 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 	if err != nil {
 		var apiErr *cutil.APIError
 		if !errors.As(err, &apiErr) || timeoutResp == nil {
+			if dpsChange != nil && dpsChange.rollback != nil {
+				rollbackErr := dpsChange.rollback()
+				if rollbackErr != nil {
+					logger.Error().Err(rollbackErr).Str("oldPowerResourceGroup", dpsOldGroup).Str("newPowerResourceGroup", dpsNewGroup).Msg("failed to compensate DPS resource group migration")
+				}
+			}
 			return common.HandleTxError(c, logger, err, "Failed to update VPC due to DB transaction error")
 		}
 	}
 	if timeoutResp != nil {
-		return timeoutResp()
+		responseErr := timeoutResp()
+		if dpsChange != nil && dpsChange.rollback != nil {
+			rollbackErr := dpsChange.rollback()
+			if rollbackErr != nil {
+				logger.Error().Err(rollbackErr).Str("oldPowerResourceGroup", dpsOldGroup).Str("newPowerResourceGroup", dpsNewGroup).Msg("failed to compensate DPS resource group migration")
+			}
+		}
+		return responseErr
+	}
+	if dpsChange != nil && dpsChange.complete != nil {
+		cleanupErr := dpsChange.complete()
+		if cleanupErr != nil {
+			logger.Error().Err(cleanupErr).Msg("failed to delete previous DPS resource group; external reconciliation is required")
+		}
 	}
 
 	// Create response
@@ -1666,15 +1769,17 @@ type DeleteVPCHandler struct {
 	tc         temporalClient.Client
 	scp        *sc.ClientPool
 	cfg        *config.Config
+	dps        dpsclient.PowerProvisioner
 	tracerSpan *cutil.TracerSpan
 }
 
 // NewDeleteVPCHandler initializes and returns a new handler for deleting VPC
-func NewDeleteVPCHandler(dbSession *cdb.Session, tc temporalClient.Client, scp *sc.ClientPool, cfg *config.Config) DeleteVPCHandler {
+func NewDeleteVPCHandler(dbSession *cdb.Session, tc temporalClient.Client, scp *sc.ClientPool, cfg *config.Config, dps dpsclient.PowerProvisioner) DeleteVPCHandler {
 	return DeleteVPCHandler{
 		dbSession:  dbSession,
 		tc:         tc,
 		cfg:        cfg,
+		dps:        dps,
 		scp:        scp,
 		tracerSpan: cutil.NewTracerSpan(),
 	}
@@ -1808,6 +1913,22 @@ func (dvh DeleteVPCHandler) Handle(c echo.Context) error {
 	var timeoutResp func() error
 
 	err = cdb.WithTx(ctx, dvh.dbSession, func(tx *cdb.Tx) error {
+		if dvh.cfg.GetPowerProvisioningMode() == config.PowerProvisioningModeDPS && vpc.PowerResourceGroup != nil {
+			lockErr := acquireVPCPowerLock(ctx, tx, vpc.ID)
+			if lockErr != nil {
+				logger.Error().Err(lockErr).Str("vpcID", vpc.ID.String()).Msg("failed to serialize DPS operations for VPC")
+				return cutil.NewAPIError(http.StatusConflict, "Another power operation is already in progress for the VPC", nil)
+			}
+			lockedInstances, _, lockErr := insDAO.GetAll(ctx, tx, cdbm.InstanceFilterInput{TenantIDs: []uuid.UUID{vpc.TenantID}, VpcIDs: []uuid.UUID{vpc.ID}}, cdbp.PageInput{}, nil)
+			if lockErr != nil {
+				logger.Error().Err(lockErr).Str("vpcID", vpc.ID.String()).Msg("failed to retrieve instances for VPC deletion")
+				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve instances for this VPC", nil)
+			}
+			if len(lockedInstances) > 0 {
+				return cutil.NewAPIError(http.StatusConflict, "Cannot delete VPC, one or more instances for this VPC", nil)
+			}
+		}
+
 		// Update VPC to set status to Deleting
 		uvpcInput := cdbm.VpcUpdateInput{
 			VpcID:  vpc.ID,
@@ -1899,6 +2020,12 @@ func (dvh DeleteVPCHandler) Handle(c echo.Context) error {
 	}
 	if timeoutResp != nil {
 		return timeoutResp()
+	}
+	if dvh.cfg.GetPowerProvisioningMode() == config.PowerProvisioningModeDPS && vpc.PowerResourceGroup != nil && dvh.dps != nil {
+		cleanupErr := dvh.dps.DeleteResourceGroup(context.WithoutCancel(ctx), *vpc.PowerResourceGroup)
+		if cleanupErr != nil {
+			logger.Error().Err(cleanupErr).Str("powerResourceGroup", *vpc.PowerResourceGroup).Msg("failed to delete DPS resource group; external reconciliation is required")
+		}
 	}
 
 	// Return response

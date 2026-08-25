@@ -25,6 +25,7 @@ import (
 	common "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
+	dpsclient "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/dps"
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
@@ -48,16 +49,18 @@ type BatchCreateInstanceHandler struct {
 	tc         temporalClient.Client
 	scp        *sc.ClientPool
 	cfg        *config.Config
+	dps        dpsclient.PowerProvisioner
 	tracerSpan *cutil.TracerSpan
 }
 
 // NewBatchCreateInstanceHandler initializes and returns a new handler for batch creating Instances
-func NewBatchCreateInstanceHandler(dbSession *cdb.Session, tc temporalClient.Client, scp *sc.ClientPool, cfg *config.Config) BatchCreateInstanceHandler {
+func NewBatchCreateInstanceHandler(dbSession *cdb.Session, tc temporalClient.Client, scp *sc.ClientPool, cfg *config.Config, dps dpsclient.PowerProvisioner) BatchCreateInstanceHandler {
 	return BatchCreateInstanceHandler{
 		dbSession:  dbSession,
 		tc:         tc,
 		scp:        scp,
 		cfg:        cfg,
+		dps:        dps,
 		tracerSpan: cutil.NewTracerSpan(),
 	}
 }
@@ -344,7 +347,6 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 		logger.Warn().Err(verr).Msg("error validating batch instance creation request data")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Error validating batch instance creation request data", verr)
 	}
-
 	// Set default for TopologyOptimized if not provided
 	// Default to true for better performance and locality
 	topologyOptimized := true
@@ -421,6 +423,9 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 		logger.Warn().Msg("VPC specified in request data is not ready")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "VPC specified in request data is not ready", nil)
 	}
+	if bcih.cfg.GetPowerProvisioningMode() == config.PowerProvisioningModeDPS && apiRequest.PowerProfile != nil && vpc.PowerResourceGroup == nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "A power profile requires the VPC to have a power resource group", nil)
+	}
 
 	// Validate request fields that depend on the resolved VPC (e.g.
 	// `autoNetwork` requires a Flat VPC).
@@ -478,6 +483,11 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 	}
 
 	if apiErr := util.ValidateSitePowerManagement(site.Config, apiRequest.PowerProfile); apiErr != nil {
+		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
+	}
+	apiErr := validatePowerProfile(ctx, bcih.cfg.GetPowerProvisioningMode(), bcih.dps, apiRequest.PowerProfile)
+	if apiErr != nil {
+		logger.Warn().Err(apiErr.Diagnosis()).Msg("failed to validate batch Instance power profile")
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 	}
 	// Load and validate subnets and VPC prefixes (batch query for efficiency)
@@ -1273,8 +1283,17 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 	// the DB tx unwinds before we make the second remote call. nil means
 	// no timeout occurred and the normal flow continues.
 	var timeoutResp func() error
+	var dpsRollback func() error
 
 	err = cdb.WithTx(ctx, bcih.dbSession, func(tx *cdb.Tx) error {
+		if bcih.cfg.GetPowerProvisioningMode() == config.PowerProvisioningModeDPS && vpc.PowerResourceGroup != nil {
+			lockErr := acquireVPCPowerLock(ctx, tx, vpc.ID)
+			if lockErr != nil {
+				logger.Error().Err(lockErr).Str("vpcID", vpc.ID.String()).Msg("failed to serialize DPS operations for VPC")
+				return cutil.NewAPIError(http.StatusConflict, "Another power operation is already in progress for the VPC", nil)
+			}
+		}
+
 		// ==================== Step 4: Machine Selection ====================
 
 		// Acquire the shared quota lock for this tenant/site/instance-type pool.
@@ -1339,6 +1358,21 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 		machines, apiErr := allocateMachinesForBatch(ctx, tx, bcih.dbSession, instancetype, apiRequest.Count, topologyOptimized, apiRequest.MachineLabelSelector, logger)
 		if apiErr != nil {
 			return apiErr
+		}
+		if bcih.cfg.GetPowerProvisioningMode() == config.PowerProvisioningModeDPS && vpc.PowerResourceGroup != nil {
+			assignments := make([]machinePowerAssignment, 0, len(machines))
+			for _, machine := range machines {
+				assignment := machinePowerAssignment{machineID: machine.ID}
+				if apiRequest.PowerProfile != nil {
+					assignment.powerProfile = *apiRequest.PowerProfile
+				}
+				assignments = append(assignments, assignment)
+			}
+			dpsRollback, serr = provisionMachineBatchPower(ctx, bcih.dps, *vpc.PowerResourceGroup, assignments)
+			if serr != nil {
+				logger.Error().Err(serr).Str("powerResourceGroup", *vpc.PowerResourceGroup).Msg("DPS rejected batch Instance allocation")
+				return cutil.NewAPIError(http.StatusServiceUnavailable, "DPS rejected batch Instance power allocation", nil)
+			}
 		}
 
 		// ==================== Step 5: Batch Instance Creation (Optimized with Batch DB Operations) ====================
@@ -1838,11 +1872,24 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 	if err != nil {
 		var apiErr *cutil.APIError
 		if !errors.As(err, &apiErr) || timeoutResp == nil {
+			if dpsRollback != nil {
+				rollbackErr := dpsRollback()
+				if rollbackErr != nil {
+					logger.Error().Err(rollbackErr).Msg("failed to compensate DPS after batch Instance creation failure")
+				}
+			}
 			return common.HandleTxError(c, logger, err, "Failed to create batch Instances, DB transaction error")
 		}
 	}
 	if timeoutResp != nil {
-		return timeoutResp()
+		responseErr := timeoutResp()
+		if dpsRollback != nil {
+			rollbackErr := dpsRollback()
+			if rollbackErr != nil {
+				logger.Error().Err(rollbackErr).Msg("failed to compensate DPS after batch Instance creation failure")
+			}
+		}
+		return responseErr
 	}
 
 	// ==================== Step 7: Response ====================

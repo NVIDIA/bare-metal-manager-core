@@ -45,6 +45,7 @@ type PolicyProvider interface {
 // lifecycle handlers. machineID is both the NICo/Core Machine ID and the DPS
 // topology resource name, matching LaunchLayer's integration contract.
 type ResourceGroupProvisioner interface {
+	ValidateAllocation(ctx context.Context, machineIDs []string, powerProfile string) error
 	CreateResourceGroup(ctx context.Context, resourceGroup string, externalID int64) error
 	DeleteResourceGroup(ctx context.Context, resourceGroup string) error
 	AddMachine(ctx context.Context, resourceGroup, machineID, powerProfile string) error

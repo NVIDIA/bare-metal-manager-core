@@ -29,6 +29,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	dpsclient "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/dps"
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
@@ -53,6 +54,7 @@ type CreateInstanceHandler struct {
 	tc         temporalClient.Client
 	scp        *sc.ClientPool
 	cfg        *config.Config
+	dps        dpsclient.PowerProvisioner
 	tracerSpan *cutil.TracerSpan
 }
 
@@ -170,12 +172,13 @@ func instanceInterfaceVpcSelection(ifc *cdbm.Interface) (*corev1.InstanceInterfa
 }
 
 // NewCreateInstanceHandler initializes and returns a new handler for creating Instance
-func NewCreateInstanceHandler(dbSession *cdb.Session, tc temporalClient.Client, scp *sc.ClientPool, cfg *config.Config) CreateInstanceHandler {
+func NewCreateInstanceHandler(dbSession *cdb.Session, tc temporalClient.Client, scp *sc.ClientPool, cfg *config.Config, dps dpsclient.PowerProvisioner) CreateInstanceHandler {
 	return CreateInstanceHandler{
 		dbSession:  dbSession,
 		tc:         tc,
 		scp:        scp,
 		cfg:        cfg,
+		dps:        dps,
 		tracerSpan: cutil.NewTracerSpan(),
 	}
 }
@@ -519,6 +522,9 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 		logger.Warn().Msg("VPC specified in request data is not ready")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "VPC specified in request data is not ready", nil)
 	}
+	if cih.cfg.GetPowerProvisioningMode() == config.PowerProvisioningModeDPS && apiRequest.PowerProfile != nil && vpc.PowerResourceGroup == nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "A power profile requires the VPC to have a power resource group", nil)
+	}
 
 	// Validate request fields that depend on the resolved VPC (e.g.
 	// `autoNetwork` requires a Flat VPC).
@@ -550,6 +556,11 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "The Site where this Instance is being created is not in Registered state", nil)
 	}
 	if apiErr := util.ValidateSitePowerManagement(site.Config, apiRequest.PowerProfile); apiErr != nil {
+		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
+	}
+	apiErr := validatePowerProfile(ctx, cih.cfg.GetPowerProvisioningMode(), cih.dps, apiRequest.PowerProfile)
+	if apiErr != nil {
+		logger.Warn().Err(apiErr.Diagnosis()).Msg("failed to validate Instance power profile")
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 	}
 	// Begin validating interfaces
@@ -1124,8 +1135,17 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 	// the DB tx unwinds before we make the second remote call. nil means
 	// no timeout occurred and the normal flow continues.
 	var timeoutResp func() error
+	var dpsRollback func() error
 
 	err = cdb.WithTx(ctx, cih.dbSession, func(tx *cdb.Tx) error {
+		if cih.cfg.GetPowerProvisioningMode() == config.PowerProvisioningModeDPS && vpc.PowerResourceGroup != nil {
+			lockErr := acquireVPCPowerLock(ctx, tx, vpc.ID)
+			if lockErr != nil {
+				logger.Error().Err(lockErr).Str("vpcID", vpc.ID.String()).Msg("failed to serialize DPS operations for VPC")
+				return cutil.NewAPIError(http.StatusConflict, "Another power operation is already in progress for the VPC", nil)
+			}
+		}
+
 		// ==================== Step 4: Machine Selection  ====================
 
 		// Begin validating Machine ID
@@ -1568,6 +1588,18 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 			}
 		}
 
+		if cih.cfg.GetPowerProvisioningMode() == config.PowerProvisioningModeDPS && vpc.PowerResourceGroup != nil {
+			assignment := machinePowerAssignment{machineID: machine.ID}
+			if apiRequest.PowerProfile != nil {
+				assignment.powerProfile = *apiRequest.PowerProfile
+			}
+			dpsRollback, err = provisionMachinePower(ctx, cih.dps, *vpc.PowerResourceGroup, assignment)
+			if err != nil {
+				logger.Error().Err(err).Str("machineID", machine.ID).Str("powerResourceGroup", *vpc.PowerResourceGroup).Msg("DPS rejected Instance allocation")
+				return cutil.NewAPIError(http.StatusServiceUnavailable, "DPS rejected Instance power allocation", nil)
+			}
+		}
+
 		// ==================== Step 5: Create Instance Records  ====================
 
 		instanceCreateInput := cdbm.InstanceCreateInput{
@@ -1965,11 +1997,24 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 	if err != nil {
 		var apiErr *cutil.APIError
 		if !errors.As(err, &apiErr) || timeoutResp == nil {
+			if dpsRollback != nil {
+				rollbackErr := dpsRollback()
+				if rollbackErr != nil {
+					logger.Error().Err(rollbackErr).Str("machineID", machine.ID).Str("powerResourceGroup", *vpc.PowerResourceGroup).Msg("failed to compensate DPS after Instance creation failure")
+				}
+			}
 			return common.HandleTxError(c, logger, err, "Failed to create Instance, DB transaction error")
 		}
 	}
 	if timeoutResp != nil {
-		return timeoutResp()
+		responseErr := timeoutResp()
+		if dpsRollback != nil {
+			rollbackErr := dpsRollback()
+			if rollbackErr != nil {
+				logger.Error().Err(rollbackErr).Str("machineID", machine.ID).Str("powerResourceGroup", *vpc.PowerResourceGroup).Msg("failed to compensate DPS after Instance creation failure")
+			}
+		}
+		return responseErr
 	}
 
 	// ==================== Step 7: Response ====================
@@ -1989,16 +2034,18 @@ type UpdateInstanceHandler struct {
 	tc         temporalClient.Client
 	scp        *sc.ClientPool
 	cfg        *config.Config
+	dps        dpsclient.PowerProvisioner
 	tracerSpan *cutil.TracerSpan
 }
 
 // NewUpdateInstanceHandler initializes and returns a new handler for updating Instance
-func NewUpdateInstanceHandler(dbSession *cdb.Session, tc temporalClient.Client, scp *sc.ClientPool, cfg *config.Config) UpdateInstanceHandler {
+func NewUpdateInstanceHandler(dbSession *cdb.Session, tc temporalClient.Client, scp *sc.ClientPool, cfg *config.Config, dps dpsclient.PowerProvisioner) UpdateInstanceHandler {
 	return UpdateInstanceHandler{
 		dbSession:  dbSession,
 		tc:         tc,
 		scp:        scp,
 		cfg:        cfg,
+		dps:        dps,
 		tracerSpan: cutil.NewTracerSpan(),
 	}
 }
@@ -2460,7 +2507,6 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 		logger.Warn().Err(verr).Msg("error validating Instance update request data")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to validate Instance update request data", verr)
 	}
-
 	instanceDAO := cdbm.NewInstanceDAO(uih.dbSession)
 
 	// Check that Instance exists
@@ -2494,6 +2540,9 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 	site := instance.Site
 	vpc := instance.Vpc
 	machine := instance.Machine
+	if uih.cfg.GetPowerProvisioningMode() == config.PowerProvisioningModeDPS && apiRequest.PowerProfile != nil && vpc.PowerResourceGroup == nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "A power profile update requires the VPC to have a power resource group", nil)
+	}
 
 	// Confirm that the Instance's org matches the org sent in the request
 	if tenant.Org != org {
@@ -2509,6 +2558,11 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Site is not in Registered state - cannot update Instance", nil)
 	}
 	if apiErr := util.ValidateSitePowerManagement(site.Config, apiRequest.PowerProfile); apiErr != nil {
+		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
+	}
+	apiErr := validatePowerProfile(ctx, uih.cfg.GetPowerProvisioningMode(), uih.dps, apiRequest.PowerProfile)
+	if apiErr != nil {
+		logger.Warn().Err(apiErr.Diagnosis()).Msg("failed to validate Instance power profile")
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 	}
 	// If the instance is in some stage of deprovisioning, there's nothing to update.
@@ -3268,8 +3322,17 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 	// the DB tx unwinds before we make the second remote call. nil means
 	// no timeout occurred and the normal flow continues.
 	var timeoutResp func() error
+	var dpsProfileRollback func() error
 
 	err = cdb.WithTx(ctx, uih.dbSession, func(tx *cdb.Tx) error {
+		if uih.cfg.GetPowerProvisioningMode() == config.PowerProvisioningModeDPS && apiRequest.PowerProfile != nil && vpc.PowerResourceGroup != nil {
+			lockErr := acquireVPCPowerLock(ctx, tx, vpc.ID)
+			if lockErr != nil {
+				logger.Error().Err(lockErr).Str("vpcID", vpc.ID.String()).Msg("failed to serialize DPS operations for VPC")
+				return cutil.NewAPIError(http.StatusConflict, "Another power operation is already in progress for the VPC", nil)
+			}
+		}
+
 		// Prepare DAOs
 		sdDAO := cdbm.NewStatusDetailDAO(uih.dbSession)
 
@@ -3287,6 +3350,24 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 			// be hidden if we merge it all under StatusBadRequest here.
 			logger.Error().Err(oserr).Msg("error building os config for updating Instance")
 			return oserr
+		}
+
+		if uih.cfg.GetPowerProvisioningMode() == config.PowerProvisioningModeDPS && apiRequest.PowerProfile != nil && vpc.PowerResourceGroup != nil {
+			previousProfile := ""
+			if instance.PowerProfile != nil {
+				previousProfile = *instance.PowerProfile
+			}
+			if strings.TrimSpace(previousProfile) != strings.TrimSpace(*apiRequest.PowerProfile) {
+				var dpsErr error
+				dpsProfileRollback, dpsErr = updateMachinePower(ctx, uih.dps, *vpc.PowerResourceGroup, machinePowerAssignment{
+					machineID:    machine.ID,
+					powerProfile: *apiRequest.PowerProfile,
+				}, previousProfile)
+				if dpsErr != nil {
+					logger.Error().Err(dpsErr).Str("machineID", machine.ID).Str("powerResourceGroup", *vpc.PowerResourceGroup).Msg("DPS rejected Instance power-profile update")
+					return cutil.NewAPIError(http.StatusServiceUnavailable, "DPS rejected Instance power-profile update", nil)
+				}
+			}
 		}
 
 		// Update Instance
@@ -4161,11 +4242,24 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 	if err != nil {
 		var apiErr *cutil.APIError
 		if !errors.As(err, &apiErr) || timeoutResp == nil {
+			if dpsProfileRollback != nil {
+				rollbackErr := dpsProfileRollback()
+				if rollbackErr != nil {
+					logger.Error().Err(rollbackErr).Str("machineID", machine.ID).Str("powerResourceGroup", *vpc.PowerResourceGroup).Msg("failed to compensate DPS after Instance update failure")
+				}
+			}
 			return common.HandleTxError(c, logger, err, "Failed to update Instance, DB transaction error")
 		}
 	}
 	if timeoutResp != nil {
-		return timeoutResp()
+		responseErr := timeoutResp()
+		if dpsProfileRollback != nil {
+			rollbackErr := dpsProfileRollback()
+			if rollbackErr != nil {
+				logger.Error().Err(rollbackErr).Str("machineID", machine.ID).Str("powerResourceGroup", *vpc.PowerResourceGroup).Msg("failed to compensate DPS after Instance update failure")
+			}
+		}
+		return responseErr
 	}
 
 	// If existing Interfaces were updated, add them to the response
@@ -5179,16 +5273,18 @@ type DeleteInstanceHandler struct {
 	tc         temporalClient.Client
 	scp        *sc.ClientPool
 	cfg        *config.Config
+	dps        dpsclient.PowerProvisioner
 	tracerSpan *cutil.TracerSpan
 }
 
 // NewDeleteInstanceHandler initializes and r`eturns a new handler for deleting an Instance
-func NewDeleteInstanceHandler(dbSession *cdb.Session, tc temporalClient.Client, scp *sc.ClientPool, cfg *config.Config) DeleteInstanceHandler {
+func NewDeleteInstanceHandler(dbSession *cdb.Session, tc temporalClient.Client, scp *sc.ClientPool, cfg *config.Config, dps dpsclient.PowerProvisioner) DeleteInstanceHandler {
 	return DeleteInstanceHandler{
 		dbSession:  dbSession,
 		tc:         tc,
 		scp:        scp,
 		cfg:        cfg,
+		dps:        dps,
 		tracerSpan: cutil.NewTracerSpan(),
 	}
 }
@@ -5243,7 +5339,7 @@ func (dih DeleteInstanceHandler) Handle(c echo.Context) error {
 	// Get Instance
 	instanceDAO := cdbm.NewInstanceDAO(dih.dbSession)
 
-	instance, err := instanceDAO.GetByID(ctx, nil, instanceID, []string{cdbm.SiteRelationName, cdbm.TenantRelationName})
+	instance, err := instanceDAO.GetByID(ctx, nil, instanceID, []string{cdbm.SiteRelationName, cdbm.TenantRelationName, cdbm.VpcRelationName})
 	if err != nil {
 		if err == cdb.ErrDoesNotExist {
 			return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Could not find Instance with specified ID", nil)
@@ -5316,6 +5412,14 @@ func (dih DeleteInstanceHandler) Handle(c echo.Context) error {
 	var timeoutResp func() error
 
 	err = cdb.WithTx(ctx, dih.dbSession, func(tx *cdb.Tx) error {
+		if dih.cfg.GetPowerProvisioningMode() == config.PowerProvisioningModeDPS && instance.Vpc != nil && instance.Vpc.PowerResourceGroup != nil {
+			lockErr := acquireVPCPowerLock(ctx, tx, instance.Vpc.ID)
+			if lockErr != nil {
+				logger.Error().Err(lockErr).Str("vpcID", instance.Vpc.ID.String()).Msg("failed to serialize DPS operations for VPC")
+				return cutil.NewAPIError(http.StatusConflict, "Another power operation is already in progress for the VPC", nil)
+			}
+		}
+
 		// Update Instance to set status to Deleting
 		_, derr := instanceDAO.Update(ctx, tx, cdbm.InstanceUpdateInput{InstanceID: instance.ID, InstanceUpdateCommonInput: cdbm.InstanceUpdateCommonInput{Status: cutil.GetPtr(cdbm.InstanceStatusTerminating)}})
 		if derr != nil {
@@ -5414,6 +5518,12 @@ func (dih DeleteInstanceHandler) Handle(c echo.Context) error {
 	}
 	if timeoutResp != nil {
 		return timeoutResp()
+	}
+	if dih.cfg.GetPowerProvisioningMode() == config.PowerProvisioningModeDPS && dih.dps != nil && instance.Vpc != nil && instance.Vpc.PowerResourceGroup != nil && instance.MachineID != nil {
+		cleanupErr := dih.dps.RemoveMachine(context.WithoutCancel(ctx), *instance.Vpc.PowerResourceGroup, *instance.MachineID)
+		if cleanupErr != nil {
+			logger.Error().Err(cleanupErr).Str("machineID", *instance.MachineID).Str("powerResourceGroup", *instance.Vpc.PowerResourceGroup).Msg("failed to remove released machine from DPS; external reconciliation is required")
+		}
 	}
 
 	// Return response
