@@ -588,6 +588,13 @@ impl InstanceNetworkConfig {
     pub fn is_host_inband(&self) -> bool {
         self.interfaces.iter().all(|i| i.is_host_inband())
     }
+
+    /// `uses_operator_managed_networking` returns true when every configured interface uses the
+    /// operator's HostInband network instead of the NICo DPU data plane. The config must be
+    /// nonempty because `is_host_inband` is vacuously true for an empty interface list.
+    pub fn uses_operator_managed_networking(&self) -> bool {
+        !self.interfaces.is_empty() && self.is_host_inband()
+    }
 }
 
 /// Validates that any container which has elements that have InterfaceFunctionIds
@@ -1108,6 +1115,32 @@ mod tests {
             interfaces,
             auto_config: None,
         }
+    }
+
+    #[test]
+    fn operator_managed_networking_requires_nonempty_host_inband_interfaces() {
+        let empty = InstanceNetworkConfig::default();
+        let dpu_networked = create_valid_network_config();
+
+        let mut host_inband = create_valid_network_config();
+        for interface in &mut host_inband.interfaces {
+            interface.host_inband_mac_address = Some(MacAddress::new([1, 2, 3, 4, 5, 6]));
+        }
+
+        let mut mixed = host_inband.clone();
+        mixed.interfaces[0].host_inband_mac_address = None;
+
+        value_scenarios!(
+            run = |config: InstanceNetworkConfig| config.uses_operator_managed_networking();
+            "operator-managed" {
+                host_inband => true,
+            }
+            "not operator-managed" {
+                empty => false,
+                dpu_networked => false,
+                mixed => false,
+            }
+        );
     }
 
     /// Builds one resolved automatic interface while retaining the usual
