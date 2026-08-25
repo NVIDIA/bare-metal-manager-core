@@ -312,9 +312,9 @@ func machineSelectLabel(m NamedItem) string {
 	return name + "  " + Dim(id)
 }
 
-// parseMutationResponse rejects success payloads that cannot identify the
+// parseMutationResponseRequiringID rejects success payloads that cannot identify the
 // mutated resource.
-func parseMutationResponse(resp []byte, description string) (map[string]interface{}, error) {
+func parseMutationResponseRequiringID(resp []byte, description string) (map[string]interface{}, error) {
 	var parsed map[string]interface{}
 	err := json.Unmarshal(resp, &parsed)
 	if err != nil {
@@ -401,7 +401,7 @@ func cmdSiteCreate(s *Session, _ []string) error {
 	}
 	s.Cache.Invalidate("site")
 	s.Cache.InvalidateFiltered()
-	created, err := parseMutationResponse(resp, "created site")
+	created, err := parseMutationResponseRequiringID(resp, "created site")
 	if err != nil {
 		return err
 	}
@@ -516,7 +516,7 @@ func cmdSiteUpdate(s *Session, args []string) error {
 	}
 	s.Cache.Invalidate("site")
 	s.Cache.InvalidateFiltered()
-	updated, err := parseMutationResponse(resp, "updated site")
+	updated, err := parseMutationResponseRequiringID(resp, "updated site")
 	if err != nil {
 		return err
 	}
@@ -615,7 +615,7 @@ func cmdVPCCreate(s *Session, _ []string) error {
 		return fmt.Errorf("creating VPC: %w", err)
 	}
 	s.Cache.Invalidate("vpc")
-	created, err := parseMutationResponse(resp, "created VPC")
+	created, err := parseMutationResponseRequiringID(resp, "created VPC")
 	if err != nil {
 		return err
 	}
@@ -654,7 +654,7 @@ func cmdVPCUpdate(s *Session, args []string) error {
 	}
 	s.Cache.Invalidate("vpc")
 	s.Cache.InvalidateFiltered()
-	updated, err := parseMutationResponse(resp, "updated VPC")
+	updated, err := parseMutationResponseRequiringID(resp, "updated VPC")
 	if err != nil {
 		return err
 	}
@@ -699,7 +699,7 @@ func cmdVPCVirtualizationUpdate(s *Session, args []string) error {
 	}
 	s.Cache.Invalidate("vpc")
 	s.Cache.InvalidateFiltered()
-	updated, err := parseMutationResponse(resp, "updated VPC virtualization")
+	updated, err := parseMutationResponseRequiringID(resp, "updated VPC virtualization")
 	if err != nil {
 		return err
 	}
@@ -809,7 +809,7 @@ func cmdSubnetCreate(s *Session, _ []string) error {
 	}
 	s.Cache.Invalidate("subnet")
 	s.Cache.InvalidateFiltered()
-	created, err := parseMutationResponse(resp, "created subnet")
+	created, err := parseMutationResponseRequiringID(resp, "created subnet")
 	if err != nil {
 		return err
 	}
@@ -848,7 +848,7 @@ func cmdSubnetUpdate(s *Session, args []string) error {
 	}
 	s.Cache.Invalidate("subnet")
 	s.Cache.InvalidateFiltered()
-	updated, err := parseMutationResponse(resp, "updated subnet")
+	updated, err := parseMutationResponseRequiringID(resp, "updated subnet")
 	if err != nil {
 		return err
 	}
@@ -1210,7 +1210,7 @@ func cmdOSCreate(s *Session, _ []string) error {
 	}
 	s.Cache.Invalidate("operating-system")
 	s.Cache.InvalidateFiltered()
-	created, err := parseMutationResponse(resp, "created operating system")
+	created, err := parseMutationResponseRequiringID(resp, "created operating system")
 	if err != nil {
 		return err
 	}
@@ -1294,7 +1294,7 @@ func cmdOSUpdate(s *Session, args []string) error {
 	}
 	s.Cache.Invalidate("operating-system")
 	s.Cache.InvalidateFiltered()
-	updated, err := parseMutationResponse(resp, "updated operating system")
+	updated, err := parseMutationResponseRequiringID(resp, "updated operating system")
 	if err != nil {
 		return err
 	}
@@ -1370,7 +1370,7 @@ func cmdSSHKeyGroupCreate(s *Session, _ []string) error {
 	}
 	s.Cache.Invalidate("ssh-key-group")
 	s.Cache.InvalidateFiltered()
-	created, err := parseMutationResponse(resp, "created SSH key group")
+	created, err := parseMutationResponseRequiringID(resp, "created SSH key group")
 	if err != nil {
 		return err
 	}
@@ -1431,7 +1431,7 @@ func cmdSSHKeyGroupUpdate(s *Session, args []string) error {
 	}
 	s.Cache.Invalidate("ssh-key-group")
 	s.Cache.InvalidateFiltered()
-	updated, err := parseMutationResponse(resp, "updated SSH key group")
+	updated, err := parseMutationResponseRequiringID(resp, "updated SSH key group")
 	if err != nil {
 		return err
 	}
@@ -1503,7 +1503,7 @@ func cmdSSHKeyCreate(s *Session, _ []string) error {
 	s.Cache.Invalidate("ssh-key")
 	s.Cache.Invalidate("ssh-key-group")
 	s.Cache.InvalidateFiltered()
-	created, err := parseMutationResponse(resp, "created SSH key")
+	created, err := parseMutationResponseRequiringID(resp, "created SSH key")
 	if err != nil {
 		return err
 	}
@@ -1532,7 +1532,7 @@ func cmdSSHKeyUpdate(s *Session, args []string) error {
 	s.Cache.Invalidate("ssh-key")
 	s.Cache.Invalidate("ssh-key-group")
 	s.Cache.InvalidateFiltered()
-	updated, err := parseMutationResponse(resp, "updated SSH key")
+	updated, err := parseMutationResponseRequiringID(resp, "updated SSH key")
 	if err != nil {
 		return err
 	}
@@ -1628,7 +1628,7 @@ func cmdAllocationCreate(s *Session, _ []string) error {
 	}
 	s.Cache.Invalidate("allocation")
 	s.Cache.InvalidateFiltered()
-	created, err := parseMutationResponse(resp, "created allocation")
+	created, err := parseMutationResponseRequiringID(resp, "created allocation")
 	if err != nil {
 		return err
 	}
@@ -1932,7 +1932,7 @@ func cmdAllocationUpdate(s *Session, args []string) error {
 	}
 	s.Cache.Invalidate("allocation")
 	s.Cache.InvalidateFiltered()
-	updated, err := parseMutationResponse(resp, "updated allocation")
+	updated, err := parseMutationResponseRequiringID(resp, "updated allocation")
 	if err != nil {
 		return err
 	}
@@ -2046,7 +2046,7 @@ func cmdIPBlockCreate(s *Session, _ []string) error {
 		return fmt.Errorf("creating IP block: %w", err)
 	}
 	s.Cache.Invalidate("ip-block")
-	created, err := parseMutationResponse(resp, "created IP block")
+	created, err := parseMutationResponseRequiringID(resp, "created IP block")
 	if err != nil {
 		return err
 	}
@@ -2085,7 +2085,7 @@ func cmdIPBlockUpdate(s *Session, args []string) error {
 	}
 	s.Cache.Invalidate("ip-block")
 	s.Cache.InvalidateFiltered()
-	updated, err := parseMutationResponse(resp, "updated IP block")
+	updated, err := parseMutationResponseRequiringID(resp, "updated IP block")
 	if err != nil {
 		return err
 	}
@@ -2165,7 +2165,7 @@ func cmdNSGCreate(s *Session, _ []string) error {
 	}
 	s.Cache.Invalidate("network-security-group")
 	s.Cache.InvalidateFiltered()
-	created, err := parseMutationResponse(resp, "created network security group")
+	created, err := parseMutationResponseRequiringID(resp, "created network security group")
 	if err != nil {
 		return err
 	}
@@ -2204,7 +2204,7 @@ func cmdNSGUpdate(s *Session, args []string) error {
 	}
 	s.Cache.Invalidate("network-security-group")
 	s.Cache.InvalidateFiltered()
-	updated, err := parseMutationResponse(resp, "updated network security group")
+	updated, err := parseMutationResponseRequiringID(resp, "updated network security group")
 	if err != nil {
 		return err
 	}
@@ -2345,7 +2345,7 @@ func cmdVPCPrefixCreate(s *Session, _ []string) error {
 	}
 	s.Cache.Invalidate("vpc-prefix")
 	s.Cache.InvalidateFiltered()
-	created, err := parseMutationResponse(resp, "created VPC prefix")
+	created, err := parseMutationResponseRequiringID(resp, "created VPC prefix")
 	if err != nil {
 		return err
 	}
@@ -2443,7 +2443,7 @@ func cmdVPCPrefixUpdate(s *Session, args []string) error {
 	}
 	s.Cache.Invalidate("vpc-prefix")
 	s.Cache.InvalidateFiltered()
-	updated, err := parseMutationResponse(resp, "updated VPC prefix")
+	updated, err := parseMutationResponseRequiringID(resp, "updated VPC prefix")
 	if err != nil {
 		return err
 	}
@@ -2513,7 +2513,7 @@ func cmdTenantAccountCreate(s *Session, _ []string) error {
 		return fmt.Errorf("creating tenant account: %w", err)
 	}
 	s.Cache.Invalidate("tenant-account")
-	created, err := parseMutationResponse(resp, "created tenant account")
+	created, err := parseMutationResponseRequiringID(resp, "created tenant account")
 	if err != nil {
 		return err
 	}
@@ -2537,7 +2537,7 @@ func cmdTenantAccountUpdate(s *Session, args []string) error {
 		return fmt.Errorf("accepting tenant account invitation: %w", err)
 	}
 	s.Cache.Invalidate("tenant-account")
-	updated, err := parseMutationResponse(resp, "accepted tenant account")
+	updated, err := parseMutationResponseRequiringID(resp, "accepted tenant account")
 	if err != nil {
 		return err
 	}
@@ -2882,7 +2882,7 @@ func cmdInstanceCreate(s *Session, _ []string) error {
 	}
 	s.Cache.Invalidate("instance")
 	s.Cache.InvalidateFiltered()
-	created, err := parseMutationResponse(resp, "created instance")
+	created, err := parseMutationResponseRequiringID(resp, "created instance")
 	if err != nil {
 		return err
 	}
@@ -3083,7 +3083,7 @@ func cmdInstanceUpdate(s *Session, args []string) error {
 	}
 	s.Cache.Invalidate("instance")
 	s.Cache.InvalidateFiltered()
-	updated, err := parseMutationResponse(resp, "updated instance")
+	updated, err := parseMutationResponseRequiringID(resp, "updated instance")
 	if err != nil {
 		return err
 	}

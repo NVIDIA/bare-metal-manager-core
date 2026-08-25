@@ -42,7 +42,7 @@ func TestCmdSiteCreateRejectsResponseWithoutID(t *testing.T) {
 	}
 }
 
-func TestParseMutationResponse(t *testing.T) {
+func TestParseMutationResponseRequiringID(t *testing.T) {
 	tests := []struct {
 		name      string
 		response  string
@@ -58,7 +58,7 @@ func TestParseMutationResponse(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			parsed, err := parseMutationResponse([]byte(test.response), "created site")
+			parsed, err := parseMutationResponseRequiringID([]byte(test.response), "created site")
 			if test.wantError != "" {
 				require.ErrorContains(t, err, test.wantError)
 				assert.Nil(t, parsed)
