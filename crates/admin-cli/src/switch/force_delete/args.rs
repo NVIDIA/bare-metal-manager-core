@@ -28,6 +28,10 @@ Force delete a switch:
 Force delete a switch and its machine interfaces:
     $ nico-admin-cli switch force-delete 12345678-1234-5678-90ab-cdef01234567 --delete-interfaces
 
+Force delete a switch, deleting interfaces, BMC suppressions, and retained boot state:
+    $ nico-admin-cli switch force-delete 12345678-1234-5678-90ab-cdef01234567 \
+    --delete-interfaces --delete-bmc-suppressions --delete-retained-boot-interfaces
+
 ")]
 pub(crate) struct Args {
     #[clap(help = "Switch ID to force delete.")]
@@ -37,7 +41,21 @@ pub(crate) struct Args {
         short = 'd',
         long,
         action,
-        help = "Delete machine interfaces associated with this switch."
+        help = "Delete machine interfaces associated with this switch, including interfaces whose MACs match the switch BMC MAC or declared NVOS MACs."
     )]
     pub(super) delete_interfaces: bool,
+
+    #[clap(
+        long,
+        action,
+        help = "Delete BMC suppressions (DHCP and Site Explorer) for the switch BMC MAC and declared NVOS MACs."
+    )]
+    pub(super) delete_bmc_suppressions: bool,
+
+    #[clap(
+        long,
+        action,
+        help = "Delete retained boot-interface mappings for the switch BMC MAC and declared NVOS MACs."
+    )]
+    pub(super) delete_retained_boot_interfaces: bool,
 }

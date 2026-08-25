@@ -117,8 +117,6 @@ service Forge {
   // Starts managed-switch decommissioning. The switch must be Ready and the
   // Component Manager switch backend must be RMS.
   rpc DecommissionSwitch(DecommissionSwitchRequest) returns (DecommissionSwitchResponse);
-  // Permanently removes a managed switch after decommissioning has completed.
-  rpc DeleteDecommissionedSwitch(DeleteDecommissionedSwitchRequest) returns (DeleteDecommissionedSwitchResponse);
   // Force deletes a Switch and optionally its associated interfaces from the database.
   rpc AdminForceDeleteSwitch(AdminForceDeleteSwitchRequest) returns (AdminForceDeleteSwitchResponse);
 
@@ -2611,13 +2609,6 @@ message DecommissionSwitchRequest {
 }
 
 message DecommissionSwitchResponse {
-}
-
-message DeleteDecommissionedSwitchRequest {
-  common.SwitchId switch_id = 1;
-}
-
-message DeleteDecommissionedSwitchResponse {
 }
 
 // The state that a object/resource had at a certain point in time
@@ -9891,7 +9882,15 @@ message AdminForceDeleteSwitchRequest {
   // The Switch ID to force delete.
   common.SwitchId switch_id = 1;
   // Should we delete the machine interfaces associated with this switch?
+  // When set, also deletes interfaces whose MACs match the switch BMC MAC or
+  // declared NVOS MACs.
   bool delete_interfaces = 2;
+  // Should we delete BMC suppressions (DHCP and Site Explorer) for the switch
+  // BMC MAC and declared NVOS MACs?
+  bool delete_bmc_suppressions = 3;
+  // Should we delete retained boot-interface mappings for the switch BMC MAC
+  // and declared NVOS MACs?
+  bool delete_retained_boot_interfaces = 4;
 }
 
 message AdminForceDeleteSwitchResponse {

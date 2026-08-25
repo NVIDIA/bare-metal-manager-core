@@ -15,18 +15,40 @@
  * limitations under the License.
  */
 
+use std::collections::HashSet;
+
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge::{self as rpc, HealthReportEntry};
+use carbide_uuid::machine::MachineInterfaceId;
 use db::{ObjectColumnFilter, switch as db_switch};
 use health_report::HealthReportApplyMode;
+use mac_address::MacAddress;
 use model::bmc_suppression::BmcSuppressionSubsystem;
 use model::metadata::Metadata;
-use model::switch::{SwitchControllerState, SwitchDecommissioningState};
+use model::switch::{Switch, SwitchControllerState};
+use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 use crate::auth::AuthContext;
+
+/// BMC and declared NVOS MACs associated with a switch, used for optional
+/// force-delete cleanup of interfaces, suppressions, and retained boot state.
+async fn associated_switch_macs(
+    txn: &mut PgConnection,
+    switch: &Switch,
+) -> Result<Vec<MacAddress>, CarbideError> {
+    let Some(bmc_mac) = switch.bmc_mac_address else {
+        return Ok(Vec::new());
+    };
+
+    let mut macs = vec![bmc_mac];
+    if let Some(expected) = db::expected_switch::find_by_bmc_mac_address(txn, bmc_mac).await? {
+        macs.extend(expected.nvos_mac_addresses);
+    }
+    Ok(macs)
+}
 
 fn switch_nvos_info_from_endpoint_row(
     row: &db_switch::SwitchEndpointRow,
@@ -308,56 +330,6 @@ pub(crate) async fn decommission_switch(
     Ok(Response::new(rpc::DecommissionSwitchResponse {}))
 }
 
-pub(crate) async fn delete_decommissioned_switch(
-    api: &Api,
-    request: Request<rpc::DeleteDecommissionedSwitchRequest>,
-) -> Result<Response<rpc::DeleteDecommissionedSwitchResponse>, Status> {
-    log_request_data(&request);
-    let switch_id = request
-        .into_inner()
-        .switch_id
-        .ok_or_else(|| CarbideError::InvalidArgument("switch_id is required".to_string()))?;
-
-    let mut txn = api.txn_begin().await?;
-    let switch = db_switch::find_by_id(&mut txn, &switch_id)
-        .await?
-        .ok_or_else(|| CarbideError::NotFoundError {
-            kind: "switch",
-            id: switch_id.to_string(),
-        })?;
-    if !matches!(
-        switch.controller_state.value,
-        SwitchControllerState::Decommissioning {
-            decommissioning_state: SwitchDecommissioningState::Decommissioned,
-        }
-    ) {
-        return Err(CarbideError::FailedPrecondition(format!(
-            "switch {switch_id} must be in the decommissioned state before deletion (current state: {})",
-            serde_json::to_string(&switch.controller_state.value).unwrap_or_default()
-        ))
-        .into());
-    }
-
-    let switch_endpoint_rows =
-        db_switch::find_switch_endpoints_by_ids(&mut txn, &[switch_id]).await?;
-    for row in &switch_endpoint_rows {
-        let macs: Vec<_> = std::iter::once(row.bmc_mac).chain(row.nvos_mac).collect();
-        for &mac in &macs {
-            for interface in db::machine_interface::find_by_mac_address(&mut txn, mac).await? {
-                db::machine_interface::delete(&interface.id, &mut txn).await?;
-            }
-            db::retained_boot_interface::take_by_mac(&mut txn, mac, None).await?;
-        }
-        db::bmc_suppression::delete_many(&mut txn, &macs, BmcSuppressionSubsystem::Dhcp).await?;
-        db::bmc_suppression::delete_many(&mut txn, &macs, BmcSuppressionSubsystem::SiteExplorer)
-            .await?;
-    }
-    db_switch::final_delete(switch_id, &mut txn).await?;
-    txn.commit().await?;
-
-    Ok(Response::new(rpc::DeleteDecommissionedSwitchResponse {}))
-}
-
 // TODO: block if switch is in use (firmware update, etc.)
 pub(crate) async fn delete_switch(
     api: &Api,
@@ -435,26 +407,63 @@ pub(crate) async fn admin_force_delete_switch(
     .await
     .map_err(CarbideError::from)?;
 
-    if switch_list.is_empty() {
-        return Err(CarbideError::NotFoundError {
+    let switch = switch_list
+        .into_iter()
+        .next()
+        .ok_or_else(|| CarbideError::NotFoundError {
             kind: "switch",
             id: switch_id.to_string(),
-        }
-        .into());
-    }
+        })?;
+
+    let needs_mac_cleanup = request.delete_interfaces
+        || request.delete_bmc_suppressions
+        || request.delete_retained_boot_interfaces;
+    let macs = if needs_mac_cleanup {
+        associated_switch_macs(&mut txn, &switch).await?
+    } else {
+        Vec::new()
+    };
 
     // Optionally delete associated machine interfaces.
     let mut interfaces_deleted: u32 = 0;
     if request.delete_interfaces {
-        let interface_ids = db::machine_interface::find_ids_by_switch_id(&mut txn, &switch_id)
-            .await
-            .map_err(CarbideError::from)?;
+        let mut interface_ids: HashSet<MachineInterfaceId> =
+            db::machine_interface::find_ids_by_switch_id(&mut txn, &switch_id)
+                .await
+                .map_err(CarbideError::from)?
+                .into_iter()
+                .collect();
+        for &mac in &macs {
+            for interface in db::machine_interface::find_by_mac_address(&mut txn, mac)
+                .await
+                .map_err(CarbideError::from)?
+            {
+                interface_ids.insert(interface.id);
+            }
+        }
         for interface_id in &interface_ids {
             db::machine_interface::delete(interface_id, &mut txn)
                 .await
                 .map_err(CarbideError::from)?;
         }
         interfaces_deleted = interface_ids.len() as u32;
+    }
+
+    if request.delete_retained_boot_interfaces {
+        for &mac in &macs {
+            db::retained_boot_interface::take_by_mac(&mut txn, mac, None)
+                .await
+                .map_err(CarbideError::from)?;
+        }
+    }
+
+    if request.delete_bmc_suppressions {
+        db::bmc_suppression::delete_many(&mut txn, &macs, BmcSuppressionSubsystem::Dhcp)
+            .await
+            .map_err(CarbideError::from)?;
+        db::bmc_suppression::delete_many(&mut txn, &macs, BmcSuppressionSubsystem::SiteExplorer)
+            .await
+            .map_err(CarbideError::from)?;
     }
 
     // Hard-delete the switch.

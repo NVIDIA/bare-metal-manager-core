@@ -45,7 +45,6 @@ Print help (see a summary with -h)
 | [`list`](./managed-switch-list.md) | List all managed switches |
 | [`delete`](./managed-switch-delete.md) | Delete a managed switch |
 | [`decommission`](./managed-switch-decommission.md) | Start decommissioning a managed switch |
-| [`delete-decommissioned`](./managed-switch-delete-decommissioned.md) | Permanently delete a decommissioned managed switch |
 
 ---
 

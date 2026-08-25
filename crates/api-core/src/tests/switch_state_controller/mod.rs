@@ -37,7 +37,7 @@ use model::switch::{
     ConfigureCertificateState, ConfiguringState, SwitchControllerState, SwitchDecommissioningState,
 };
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{DecommissionSwitchRequest, DeleteDecommissionedSwitchRequest};
+use rpc::forge::{AdminForceDeleteSwitchRequest, DecommissionSwitchRequest};
 use state_controller::config::IterationConfig;
 use state_controller::controller::StateController;
 use tokio_util::sync::CancellationToken;
@@ -179,26 +179,18 @@ async fn decommission_request_enters_rms_workflow(
 }
 
 #[crate::sqlx_test]
-async fn delete_decommissioned_switch_removes_managed_state(
+async fn force_delete_switch_clears_associated_mac_state(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool.clone()).await;
     let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
 
-    let mut txn = pool.begin().await?;
-    transition_switch_controller_state(
-        txn.as_mut(),
-        &switch_id,
-        SwitchControllerState::Decommissioning {
-            decommissioning_state: SwitchDecommissioningState::Decommissioned,
-        },
-    )
-    .await?;
-    txn.commit().await?;
-
     env.api
-        .delete_decommissioned_switch(Request::new(DeleteDecommissionedSwitchRequest {
+        .admin_force_delete_switch(Request::new(AdminForceDeleteSwitchRequest {
             switch_id: Some(switch_id),
+            delete_interfaces: true,
+            delete_bmc_suppressions: true,
+            delete_retained_boot_interfaces: true,
         }))
         .await?;
 

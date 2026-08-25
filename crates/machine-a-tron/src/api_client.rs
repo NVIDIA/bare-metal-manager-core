@@ -367,6 +367,8 @@ impl ApiClient {
             .admin_force_delete_switch(rpc::forge::AdminForceDeleteSwitchRequest {
                 switch_id: Some(switch_id),
                 delete_interfaces: true,
+                delete_bmc_suppressions: false,
+                delete_retained_boot_interfaces: false,
             })
             .await
             .map_err(ClientApiError::InvocationError)?;

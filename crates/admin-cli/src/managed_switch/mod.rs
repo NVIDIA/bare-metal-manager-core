@@ -17,7 +17,6 @@
 
 mod decommission;
 mod delete;
-mod delete_decommissioned;
 mod list;
 mod show;
 
@@ -35,6 +34,4 @@ pub(crate) enum Cmd {
     Delete(delete::Args),
     #[clap(about = "Start decommissioning a managed switch")]
     Decommission(decommission::Args),
-    #[clap(about = "Permanently delete a decommissioned managed switch")]
-    DeleteDecommissioned(delete_decommissioned::Args),
 }
