@@ -757,8 +757,9 @@ impl EndpointExplorer for BmcEndpointExplorer {
                     .await
                 {
                     Ok(report) => report,
-                    // BMCs (HPE iLO, NVIDIA GB200/GB300, Vera Rubin) can return
-                    // intermittent 401 errors even with valid credentials.
+                    // BMCs (HPE iLO, NVIDIA GB200/GB300, Vera Rubin, Lenovo AMI,
+                    // Viking AMI) can return intermittent 401 errors even with
+                    // valid credentials.
                     // Allow up to MAX_AUTH_RETRIES before escalating to regular Unauthorized.
                     Err(EndpointExplorationError::Unauthorized {
                         details,
@@ -769,6 +770,8 @@ impl EndpointExplorer for BmcEndpointExplorer {
                         RedfishVendor::Hpe
                             | RedfishVendor::NvidiaGBx00
                             | RedfishVendor::LenovoGB300
+                            | RedfishVendor::LenovoAMI
+                            | RedfishVendor::AMI
                             | RedfishVendor::VeraRubin
                     ) =>
                     {
