@@ -1266,7 +1266,7 @@ impl PreingestionManagerStatic {
             );
             if instrument_power_op(
                 PowerOperation::BmcReset,
-                redfish_client.bmc_reset(),
+                redfish_client.bmc_reset(None),
                 PowerControlLog::Step {
                     bmc_ip_address: endpoint.address,
                     step: PowerControlStep::BmcReboot,
@@ -1546,7 +1546,7 @@ impl PreingestionManagerStatic {
                 let next = attempts + 1;
                 if instrument_power_op(
                     PowerOperation::BmcReset,
-                    redfish_client.bmc_reset(),
+                    redfish_client.bmc_reset(None),
                     PowerControlLog::InitialBmcReset {
                         bmc_ip_address: endpoint.address,
                         attempt: next,
@@ -1854,7 +1854,7 @@ impl PreingestionManagerStatic {
         }
         if instrument_power_op(
             PowerOperation::BmcReset,
-            redfish_client.bmc_reset(),
+            redfish_client.bmc_reset(None),
             PowerControlLog::RecoverySequence {
                 bmc_ip_address: endpoint.address,
             },

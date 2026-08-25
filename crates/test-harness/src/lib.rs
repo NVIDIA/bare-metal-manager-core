@@ -88,11 +88,15 @@ impl TestHarness {
     }
 
     pub async fn test_domain(&self) -> TestDomain {
-        let name = "testharness.example.com";
+        self.create_test_domain("testharness.example.com").await
+    }
+
+    pub async fn create_test_domain(&self, name: impl Into<String>) -> TestDomain {
+        let name = name.into();
         let id = self
             .api
             .create_domain(Request::new(rpc::protos::dns::CreateDomainRequest {
-                name: name.to_string(),
+                name: name.clone(),
             }))
             .await
             .unwrap()

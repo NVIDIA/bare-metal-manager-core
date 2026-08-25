@@ -21,6 +21,7 @@ use ::rpc::forge as rpc;
 use ::rpc::model::machine::machine_id::try_parse_machine_id;
 use carbide_redfish::boot_interface::BootInterfaceTarget;
 use carbide_utils::none_if_empty::NoneIfEmpty;
+use carbide_uuid::device::DeviceId;
 use carbide_uuid::machine::MachineId;
 use db::WithTransaction;
 use db::machine_interface::find_by_ip;
@@ -354,6 +355,21 @@ pub(crate) async fn summarize_boot_interface_candidates_for_test(
         }))
 }
 
+/// Map the request's `ResetType` to the libredfish `Manager.Reset` type.
+/// `Unspecified` maps to `None`, which each vendor resolves to its default
+/// (`GracefulRestart` for the standard/switch/power-shelf path, `ForceRestart`
+/// for AMI/Viking machine BMCs).
+fn map_reset_type(
+    reset_type: rpc::admin_bmc_reset_request::ResetType,
+) -> Option<libredfish::ManagerResetType> {
+    use rpc::admin_bmc_reset_request::ResetType;
+    match reset_type {
+        ResetType::Unspecified => None,
+        ResetType::GracefulRestart => Some(libredfish::ManagerResetType::GracefulRestart),
+        ResetType::ForceRestart => Some(libredfish::ManagerResetType::ForceRestart),
+    }
+}
+
 pub(crate) async fn admin_bmc_reset(
     api: &Api,
     request: Request<rpc::AdminBmcResetRequest>,
@@ -361,18 +377,99 @@ pub(crate) async fn admin_bmc_reset(
     log_request_data(&request);
     let req = request.into_inner();
 
-    // Note: AdminBmcResetRequest uses a string for machine_id instead of a real MachineId, which is wrong.
-    let machine_id = req
-        .machine_id
-        .as_ref()
-        .map(|id| try_parse_machine_id(id))
-        .transpose()?;
+    // `reset_type` selects the Redfish `Manager.Reset` action and has no
+    // meaning for the ipmitool path, so reject the combination rather than
+    // silently ignore the operator's choice.
+    let requested_reset_type = req.reset_type();
+    if req.use_ipmitool
+        && requested_reset_type != rpc::admin_bmc_reset_request::ResetType::Unspecified
+    {
+        return Err(Status::invalid_argument(
+            "reset_type is only supported for the redfish path, not with use_ipmitool",
+        ));
+    }
+    let reset_type = map_reset_type(requested_reset_type);
+
+    // The top-level `machine_id` is deprecated in favor of `device_id`; accept
+    // it as sugar for `DeviceId::Machine` but reject setting both.
+    #[allow(deprecated)]
+    let legacy_machine_id = req.machine_id;
+    let device_id = match (req.device_id, legacy_machine_id) {
+        (Some(_), Some(_)) => {
+            return Err(Status::invalid_argument(
+                "machine_id is deprecated; do not combine it with device_id",
+            ));
+        }
+        (Some(device_id), None) => Some(device_id),
+        (None, Some(machine_id)) => Some(DeviceId::Machine(try_parse_machine_id(&machine_id)?)),
+        (None, None) => None,
+    };
 
     let mut txn = api.txn_begin().await?;
 
-    let (bmc_endpoint_request, _) =
-        validate_and_complete_bmc_endpoint_request(&mut txn, req.bmc_endpoint_request, machine_id)
-            .await?;
+    let bmc_endpoint_request = match (req.bmc_endpoint_request, device_id) {
+        (Some(_), Some(_)) => {
+            return Err(Status::invalid_argument(
+                "targets are mutually exclusive: provide exactly one of bmc_endpoint_request or device_id",
+            ));
+        }
+        (None, None) => {
+            return Err(Status::invalid_argument(
+                "a target is required: provide bmc_endpoint_request or device_id",
+            ));
+        }
+        (Some(endpoint), None) => {
+            let (completed, _) =
+                validate_and_complete_bmc_endpoint_request(&mut txn, Some(endpoint), None).await?;
+            completed
+        }
+        (None, Some(DeviceId::Machine(machine_id))) => {
+            let (completed, _) =
+                validate_and_complete_bmc_endpoint_request(&mut txn, None, Some(machine_id))
+                    .await?;
+            completed
+        }
+        (None, Some(DeviceId::Switch(switch_id))) => {
+            let row = db::switch::find_switch_endpoints_by_ids(
+                &mut txn,
+                std::slice::from_ref(&switch_id),
+            )
+            .await
+            .map_err(|e| Status::internal(format!("db error resolving switch BMC endpoint: {e}")))?
+            .into_iter()
+            .next()
+            .ok_or_else(|| {
+                Status::not_found(format!(
+                    "switch {switch_id} not found or has no resolvable BMC endpoint"
+                ))
+            })?;
+            rpc::BmcEndpointRequest {
+                ip_address: row.bmc_ip.to_string(),
+                mac_address: Some(row.bmc_mac.to_string()),
+            }
+        }
+        (None, Some(DeviceId::PowerShelf(power_shelf_id))) => {
+            let row = db::power_shelf::find_power_shelf_endpoints_by_ids(
+                &mut txn,
+                std::slice::from_ref(&power_shelf_id),
+            )
+            .await
+            .map_err(|e| {
+                Status::internal(format!("db error resolving power shelf PMC endpoint: {e}"))
+            })?
+            .into_iter()
+            .next()
+            .ok_or_else(|| {
+                Status::not_found(format!(
+                    "power shelf {power_shelf_id} not found or has no resolvable PMC endpoint"
+                ))
+            })?;
+            rpc::BmcEndpointRequest {
+                ip_address: row.pmc_ip.to_string(),
+                mac_address: Some(row.pmc_mac.to_string()),
+            }
+        }
+    };
 
     txn.commit().await?;
 
@@ -387,7 +484,7 @@ pub(crate) async fn admin_bmc_reset(
     if req.use_ipmitool {
         ipmitool_reset_bmc(api, bmc_endpoint_request).await?;
     } else {
-        redfish_reset_bmc(api, bmc_endpoint_request).await?;
+        redfish_reset_bmc(api, bmc_endpoint_request, reset_type).await?;
     }
 
     tracing::info!(
@@ -899,12 +996,13 @@ pub(crate) async fn explore(
 async fn redfish_reset_bmc(
     api: &Api,
     request: rpc::BmcEndpointRequest,
+    reset_type: Option<libredfish::ManagerResetType>,
 ) -> Result<Response<()>, Status> {
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
 
     api.endpoint_explorer
-        .redfish_reset_bmc(bmc_addr, &machine_interface)
+        .redfish_reset_bmc(bmc_addr, &machine_interface, reset_type)
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?;
 
@@ -1432,6 +1530,27 @@ mod tests {
         row.primary_interface = primary;
         row.boot_interface_id = boot_interface_id.map(String::from);
         row
+    }
+
+    // `Unspecified` defers to the per-vendor default (None); the explicit types
+    // map one-to-one onto the libredfish `Manager.Reset` type.
+    #[test]
+    fn reset_type_maps_to_manager_reset_type() {
+        use super::rpc::admin_bmc_reset_request::ResetType;
+
+        value_scenarios!(run = |reset_type: ResetType| { map_reset_type(reset_type) };
+            "unspecified defers to the vendor default" {
+                ResetType::Unspecified => None,
+            }
+
+            "graceful maps to GracefulRestart" {
+                ResetType::GracefulRestart => Some(libredfish::ManagerResetType::GracefulRestart),
+            }
+
+            "force maps to ForceRestart" {
+                ResetType::ForceRestart => Some(libredfish::ManagerResetType::ForceRestart),
+            }
+        );
     }
 
     fn predicted(mac: &str, boot_interface_id: Option<&str>) -> PredictedMachineInterface {

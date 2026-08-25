@@ -2788,7 +2788,7 @@ async fn test_polling_bios_setup_full_recovery_reruns_machine_setup_and_succeeds
     assert!(
         actions
             .iter()
-            .any(|action| matches!(action, RedfishSimAction::BmcReset)),
+            .any(|action| matches!(action, RedfishSimAction::BmcReset(_))),
         "expected BMC reset during stuck HostInit/PollingBiosSetup recovery, got: {actions:?}"
     );
     assert!(

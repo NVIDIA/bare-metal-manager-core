@@ -490,9 +490,10 @@ impl BmcEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
+        reset_type: Option<libredfish::ManagerResetType>,
     ) -> Result<(), EndpointExplorationError> {
         self.redfish_client
-            .reset_bmc(bmc_ip_address, credentials)
+            .reset_bmc(bmc_ip_address, credentials, reset_type)
             .await
     }
 
@@ -757,13 +758,24 @@ impl EndpointExplorer for BmcEndpointExplorer {
                     .await
                 {
                     Ok(report) => report,
-                    // BMCs (HPEs currently) can return intermittent 401 errors even with valid credentials.
+                    // BMCs (HPE iLO, NVIDIA GB200/GB300, Vera Rubin, Lenovo AMI,
+                    // Viking AMI) can return intermittent 401 errors even with
+                    // valid credentials.
                     // Allow up to MAX_AUTH_RETRIES before escalating to regular Unauthorized.
                     Err(EndpointExplorationError::Unauthorized {
                         details,
                         response_body,
                         response_code,
-                    }) if vendor == RedfishVendor::Hpe => {
+                    }) if matches!(
+                        vendor,
+                        RedfishVendor::Hpe
+                            | RedfishVendor::NvidiaGBx00
+                            | RedfishVendor::LenovoGB300
+                            | RedfishVendor::LenovoAMI
+                            | RedfishVendor::AMI
+                            | RedfishVendor::VeraRubin
+                    ) =>
+                    {
                         const MAX_AUTH_RETRIES: u32 = 5;
 
                         let previous_count = last_exploration_error
@@ -967,11 +979,15 @@ impl EndpointExplorer for BmcEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
+        reset_type: Option<libredfish::ManagerResetType>,
     ) -> Result<(), EndpointExplorationError> {
         let bmc_mac_address = interface.mac_address;
 
         match self.get_bmc_root_credentials(bmc_mac_address).await {
-            Ok(credentials) => self.redfish_reset_bmc(bmc_ip_address, credentials).await,
+            Ok(credentials) => {
+                self.redfish_reset_bmc(bmc_ip_address, credentials, reset_type)
+                    .await
+            }
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,

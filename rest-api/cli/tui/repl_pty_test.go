@@ -129,6 +129,17 @@ func TestCLIRegression_RealTerminalAndNonInteractive(t *testing.T) {
 		terminal.send(t, "\r")
 		terminal.waitFor(t, "VPC prefix created: tenant-prefix")
 
+		// Instance creation must stop before the API request when the selected
+		// VPC has no prefixes to attach as an interface.
+		terminal.send(t, "instance create\r")
+		terminal.waitFor(t, "VPC:")
+		terminal.send(t, "vpc-two\r")
+		terminal.waitFor(t, "Machine")
+		terminal.send(t, "\r")
+		terminal.waitFor(t, "Instance name")
+		terminal.send(t, "no-prefix-instance\r")
+		terminal.waitFor(t, "no vpc-prefixes available for the selected VPC")
+
 		// A lone Escape must cancel a real selector without waiting forever.
 		terminal.send(t, "scope site\r")
 		terminal.waitFor(t, "Site:")
@@ -433,7 +444,7 @@ func TestCLIRegression_RealTerminalAndNonInteractive(t *testing.T) {
 			http.MethodPost,
 			"/v2/org/acme/nico/instance",
 		)
-		require.Len(t, instanceRequests, 4)
+		require.Len(t, instanceRequests, 4) // no request sent for instance create without a VPC prefix (otherwise would be 5)
 		assert.JSONEq(
 			t,
 			`{"name":"ethernet-instance","machineId":"machine-1","vpcId":"vpc-1","interfaces":[{"subnetId":"subnet-1","isPhysical":true},{"subnetId":"subnet-2","isPhysical":false,"virtualFunctionId":7}]}`,

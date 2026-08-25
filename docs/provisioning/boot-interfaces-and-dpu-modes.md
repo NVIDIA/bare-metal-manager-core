@@ -1,8 +1,10 @@
 # Boot Interfaces and DPU Policies <Badge intent="info">v2.0</Badge> <Badge intent="launch" minimal>New</Badge>
 
-This guide explains how NICo decides **which interface a host boots from**, how a host's **DPUs are managed**, and how operators configure both through the Expected Machines table. It is the deep companion to [Ingesting Hosts](ingesting-hosts.md): that page covers the end-to-end ingest flow and the basic `expected_machines.json`; this page covers the per-host and per-NIC knobs (`dpu_policy`, `host_nics`), **what the defaults do when you set nothing**, and how a boot device is chosen and applied behind the scenes.
+This guide explains how NICo decides **which interface a host boots from**, how a host's **DPUs are managed**, and how operators configure both through the Expected Machines table. It is the deep companion to [Ingesting Hosts](ingesting-hosts.md): that page covers the end-to-end ingest flow and the basic `expected_machines.json`; this page covers the per-host and per-interface knobs (`dpu_policy`, `interfaces`), **what the defaults do when you set nothing**, and how a boot device is chosen and applied behind the scenes.
 
 For the DHCP and network-segment substrate these knobs sit on (how a relay's `giaddr` maps to a segment), see [IP and Network Configuration](ip-and-network-configuration.md).
+For interface roles and IP allocation policies, see
+[Configure Expected Machine Interfaces](expected-machine-interfaces.md).
 
 > **Who should read this.** Operators configuring hosts for ingestion, and anyone debugging "why did this host boot from *that* interface?" **Most hosts need no configuration here** — the defaults handle the common managed-DPU case. Reach for the knobs in [Section 2](#2-configuring-via-expected-machines-and-the-defaults) and [Section 3](#3-scenarios) only for `nic`, `ignore`, or integrated-NIC hosts. [Sections 6](#6-behind-the-scenes-how-a-boot-device-is-chosen-and-set)–[7](#7-the-boot-interface-data-model) explain the machinery when you need to trace a problem.
 
@@ -53,7 +55,7 @@ Boot and DPU configuration is **declarative**: you describe the host in the Expe
 
 ### If you set nothing (the default)
 
-**Most hosts with DPU hardware need zero boot/DPU configuration.** Outside rack-manager deployments, when neither the host nor the site sets `dpu_policy`, and the host has no `host_nics` declaration:
+**Most hosts with DPU hardware need zero boot/DPU configuration.** Outside rack-manager deployments, when neither the host nor the site sets `dpu_policy`, and the host has no `interfaces` declaration:
 
 - The effective `dpu_policy` resolves to **`manage`** — NICo ingests and manages the host's DPUs, and the host boots through its primary DPU on the **Admin** network.
 - Site-explorer **auto-selects the boot interface**: it uses the lowest UEFI PCI path when every matching DPU host interface in the Redfish report has one. Otherwise, it orders the DPUs by their Redfish serial numbers without regard to case and uses the first interface in that order.
@@ -89,25 +91,20 @@ JSON vocabulary rather than Forge protobuf symbols. Responses translate
 non-default policies back through `dpu_mode`; the default `manage` policy might
 leave that field unset.
 
-### `host_nics` (per-NIC declaration)
+### Expected Machine Interface Declarations
 
-The optional `host_nics` array declares specifics for individual host NICs. Each entry (`ExpectedHostNic`):
+The optional `interfaces` array declares host and DPU interfaces. Each
+`ExpectedInterface` entry identifies an interface by MAC address and can set its
+role, IP allocation policy, segment guard, and primary status.
 
-| Field | Type | Purpose | Default if unset |
-|---|---|---|---|
-| `mac_address` | string (required) | The NIC's MAC address. | — |
-| `primary` | bool | Declare **this NIC** as the host's boot/primary interface. **At most one per host.** | For hosts whose effective DPU policy is `manage`, Site Explorer chooses among discovered DPU host PFs: it selects the lowest UEFI PCI path when every matching Redfish interface has one; otherwise it orders the DPUs by Redfish serial number and uses the first DPU's host PF. Hosts using `nic` or `ignore` do not get this fallback and must declare a primary HostInband NIC. |
-| `network_segment_type` | enum: `admin` / `underlay` / `host_inband` / `tenant` | The expected segment type for this NIC's DHCP selection. It narrows candidates when a request carries multiple relay addresses and prevents a declaration from silently using the wrong segment type. | The relay's matching segment(s) stand. |
-| `fixed_ip` / `fixed_mask` / `fixed_gateway` | string | Static IP assignment for the NIC, materialized during expected-interface reconciliation. | Dynamic allocation. |
-| `nic_type` | string (legacy) | A free-form segment hint, **superseded by `network_segment_type`**. Kept for backward compatibility only. | — |
+For boot selection, declare an entry with `role: "host"` and
+`primary: true`. Only a `host` entry can set `primary`, and at most one entry
+per Expected Machine can set it to `true`. If `role` is omitted, it defaults to
+`host`.
 
-> **What `network_segment_type` actually does.** A NIC's segment is normally
-> determined by relay metadata: NICo finds the segment whose prefix contains
-> an IPv4 relay address; an exact configured DHCPv6 link-address takes
-> precedence. `network_segment_type` narrows multiple relay candidates to the
-> named type and acts as an expected-type check for explicit interface
-> policies. Network-segment prefixes cannot nest or overlap, so do not create
-> an Underlay and HostInband alias for one physical prefix.
+See [Configure Expected Machine Interfaces](expected-machine-interfaces.md)
+for the full field reference, all four roles, allocation policies, segment
+selection behavior, and backward-compatible input aliases.
 
 **Admin JSON** (an Expected Machine entry):
 
@@ -115,14 +112,15 @@ The optional `host_nics` array declares specifics for individual host NICs. Each
 {
   "bmc_mac_address": "C4:5A:B1:C8:38:0D",
   "bmc_username": "root",
-  "bmc_password": "default-password1",
+  "bmc_password": "<bmc-password>",
   "chassis_serial_number": "SERIAL-1",
   "dpu_policy": "manage",
-  "host_nics": [
+  "interfaces": [
     {
       "mac_address": "C4:5A:B1:C8:38:10",
+      "role": "host",
       "primary": true,
-      "network_segment_type": "host_inband"
+      "network_segment_type": 3
     }
   ]
 }
@@ -130,16 +128,23 @@ The optional `host_nics` array declares specifics for individual host NICs. Each
 
 **CLI** (single host):
 
+> **Security:** Values passed to `--bmc-password` can appear in shell history
+> and process listings. Substitute credentials only in a protected
+> administrative environment and follow your site's secret-handling policy.
+
 ```bash
 nico-admin-cli -a <api-url> em add \
   --bmc-mac-address C4:5A:B1:C8:38:0D \
-  --bmc-username root --bmc-password default-password1 \
+  --bmc-username root --bmc-password '<bmc-password>' \
   --chassis-serial-number SERIAL-1 \
   --dpu-policy manage \
-  --host_nics '[{"mac_address":"C4:5A:B1:C8:38:10","primary":true,"network_segment_type":"host_inband"}]'
+  --interfaces '[{"mac_address":"C4:5A:B1:C8:38:10","role":"host","primary":true,"network_segment_type":3}]'
 ```
 
 (`em` is the alias for `expected-machine`.)
+
+Admin CLI manifests and inline CLI JSON use protobuf enum values for
+`network_segment_type`. HostInband is `3`.
 
 ---
 
@@ -158,8 +163,8 @@ A plain server with one or more host NICs and no DPU. Declare `ignore` and mark 
 ```json
 {
   "dpu_policy": "ignore",
-  "host_nics": [
-    { "mac_address": "AA:BB:CC:00:00:10", "primary": true, "network_segment_type": "host_inband" }
+  "interfaces": [
+    { "mac_address": "AA:BB:CC:00:00:10", "role": "host", "primary": true, "network_segment_type": 3 }
   ]
 }
 ```
@@ -175,8 +180,8 @@ The host has DPU hardware, but you want it treated as a plain NIC (not managed).
 ```json
 {
   "dpu_policy": "nic",
-  "host_nics": [
-    { "mac_address": "AA:BB:CC:00:00:20", "primary": true, "network_segment_type": "host_inband" }
+  "interfaces": [
+    { "mac_address": "AA:BB:CC:00:00:20", "role": "host", "primary": true, "network_segment_type": 3 }
   ]
 }
 ```
@@ -188,8 +193,8 @@ This is the case where the two axes genuinely diverge: the host has cabled, expl
 ```json
 {
   "dpu_policy": "manage",
-  "host_nics": [
-    { "mac_address": "AA:BB:CC:00:00:30", "primary": true, "network_segment_type": "host_inband" }
+  "interfaces": [
+    { "mac_address": "AA:BB:CC:00:00:30", "role": "host", "primary": true, "network_segment_type": 3 }
   ]
 }
 ```
@@ -221,7 +226,7 @@ All of these are **admin-only**; the Forge gRPC service enforces admin authoriza
 
 | admin-cli | Forge RPC | Purpose |
 |---|---|---|
-| `em add …` | `AddExpectedMachine` | Add one host (BMC creds, `--dpu-policy`, `--host_nics`, metadata). |
+| `em add …` | `AddExpectedMachine` | Add one host (BMC creds, `--dpu-policy`, `--interfaces`, metadata). |
 | `em show [--bmc-mac-address <mac>]` | `GetAllExpectedMachines` / `GetExpectedMachine` | List all, or show one. Add `-f json` to export. |
 | `em update --filename <json>` | `UpdateExpectedMachine` | Full replacement of one entry from JSON. |
 | `em patch --bmc-mac-address <mac> …` | `UpdateExpectedMachine` | Partial update (e.g. `--dpu-policy`), preserving other fields. |
@@ -447,7 +452,7 @@ To request another controller pass without changing the selected target, use **R
 |---|---|
 | `boot_interface_mac_mismatch` (pairing blocker) | The host's boot MAC doesn't match any discovered DPU's pf0 MAC. Expected for an integrated-NIC host — declare the integrated NIC `primary` (see [3.4](#34-boot-an-integrated-nic-while-keeping-the-dpus-managed)); otherwise check the exploration reports. See [Ingesting Hosts → pairing blockers](ingesting-hosts.md#common-blockers-during-host--dpu-pairing). |
 | Host stuck waiting for a boot NIC | A host with no managed DPUs (zero-DPU, `ignore`, or `nic`) whose boot NIC hasn't leased yet (`AwaitingNic`). Confirm the NIC is cabled and DHCP-reachable on its HostInband segment. |
-| `Missing boot interface` for a managed-DPU host | The host has neither an owned primary interface nor a usable prediction. For an integrated-NIC boot, confirm `host_nics` declares exactly one `primary` NIC and that site-explorer created its HostInband prediction; otherwise investigate DPU pairing and promotion. |
+| `Missing boot interface` for a managed-DPU host | The host has neither an owned primary interface nor a usable prediction. For an integrated-NIC boot, confirm `interfaces` declares exactly one `host` interface with `primary: true` and that site-explorer created its HostInband prediction; otherwise investigate DPU pairing and promotion. |
 | Reconciliation is `Pending` while the host is `Assigned` | This is non-disruptive by design. The controller may observe drift but does not change Redfish or reboot a tenant host; repair begins after release returns it to unassigned `Ready`. |
 | Reconciliation is `Failed` | Read the failure and active generation in `boot-interface show` or the web UI. Correct the reported underlying cause, then request reconciliation again for the same interface or select a new target. |
 | `observed_at` is old | First compare `desired_version` and `verified_version`: a pending target retains the earlier generation's timestamp and is not eligible for periodic observation. For a verified target, a failed BMC read leaves the timestamp unchanged and retries on the next controller sweep. If Redfish is healthy, confirm the `boot_interface_observation_interval` has elapsed (default `10m`) and every managed DPU has a current network observation. Supermicro hosts with managed lockdown skip the non-disruptive periodic read because their locked boot-order view is stale. |

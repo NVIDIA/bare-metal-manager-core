@@ -15,9 +15,12 @@
  * limitations under the License.
  */
 
-use carbide_uuid::domain::DomainId;
+use sqlx::PgPool;
 
-pub struct TestDomain {
-    pub id: DomainId,
-    pub name: String,
+/// Returns the current number of rows exposed by the `dns_records` view.
+pub async fn record_count(pool: &PgPool) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM dns_records")
+        .fetch_one(pool)
+        .await
+        .expect("dns_records row count query should succeed")
 }

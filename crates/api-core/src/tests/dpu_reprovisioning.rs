@@ -493,7 +493,7 @@ async fn test_dpu_reprovision_viking_finishes_parked_boot_order_recovery(pool: s
         env.redfish_sim
             .actions_since(&redfish_timepoint)
             .all_hosts(),
-        vec![RedfishSimAction::BmcReset],
+        vec![RedfishSimAction::BmcReset(None)],
         "parked recovery should reset the BMC after the host powers off"
     );
 
