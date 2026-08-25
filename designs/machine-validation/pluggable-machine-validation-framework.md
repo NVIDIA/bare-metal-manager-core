@@ -191,6 +191,16 @@ default profile is non-root, network-disabled, capability-free, and
 `no-new-privileges`; the input mount is read-only and the result mount is
 writable.
 
+| Execution mode | Container privileges | Writable host-root mount |
+| :--- | :--- | :--- |
+| Default | None | No |
+| Privileged | Elevated container runtime privileges for approved hardware access | No |
+| Full-host | Privileged | Yes, at `/host` |
+
+Privileged plugins can access the approved hardware interfaces, but remain in
+their own container filesystem. Full-host plugins can also read and modify the
+host filesystem through `/host`.
+
 Scout should use a streaming container runner. While the container is running,
 it streams its stdout and stderr through the Machine Validation attempt-log
 pipeline. Scout redacts sensitive values, applies chunk and retention limits,
@@ -352,16 +362,47 @@ health tool.
 
 4. Scout writes `/opt/nico/mv/input/input.json`, starts the privileged
    `/plugin/entrypoint`, and provides the writable host root at `/host`. The
+   adapter receives this illustrative input file inside its container:
+
+   ```json
+   {
+     "contractVersion": "v1",
+     "kind": "MachineValidationPluginInput",
+     "runId": "a1b2c3d4-0000-0000-0000-000000000000",
+     "runItemId": "e5f6a7b8-0000-0000-0000-000000000000",
+     "attempt": 1,
+     "machineId": "machine-1234",
+     "context": "Discovery",
+     "plugin": {
+       "testId": "forge_host_gpu_health",
+       "version": "1.0.0",
+       "image": "registry.example.com/example-ai-west-prod/host-gpu-health@sha256:<digest>"
+     },
+     "deadline": "2026-08-25T12:15:00Z",
+     "parameters": {
+       "expectedGpuCount": 8
+     }
+   }
+   ```
+
+   `parameters` are site-defined, non-secret values. In this example,
+   `expectedGpuCount` tells the adapter what the check should expect. The
    adapter runs:
 
    ```text
    health-check run --config operator.yaml
    ```
 
-   If the tool finds eight healthy GPUs, the adapter writes:
+   If the tool finds eight healthy GPUs, the adapter writes this result file at
+   `/opt/nico/mv/output/result.json`:
 
    ```json
-   {"contractVersion":"v1","kind":"MachineValidationPluginResult","outcome":"pass","summary":"Eight GPUs are healthy."}
+   {
+     "contractVersion": "v1",
+     "kind": "MachineValidationPluginResult",
+     "outcome": "pass",
+     "summary": "Eight GPUs are healthy."
+   }
    ```
 
 5. Scout validates the result and Machine Validation records a successful run
