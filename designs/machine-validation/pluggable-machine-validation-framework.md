@@ -191,6 +191,20 @@ default profile is non-root, network-disabled, capability-free, and
 `no-new-privileges`; the input mount is read-only and the result mount is
 writable.
 
+Scout should use a streaming container runner. While the container is running,
+it streams its stdout and stderr through the Machine Validation attempt-log
+pipeline. Scout redacts sensitive values, applies chunk and retention limits,
+and sends ordered log chunks associated with the run, run item, and attempt.
+The result file remains separate: it is the structured final `pass`, `fail`, or
+`error` outcome, while stdout and stderr provide live diagnostic detail.
+
+Plugin authors write normal progress and diagnostics to stdout and warnings or
+errors to stderr. They should flush output promptly because plugins do not run
+with an interactive terminal, and must not print credentials, tokens, passwords,
+or private configuration values. Plugins do not call Scout or use a logging SDK.
+Scout may redact, chunk, truncate, and retain logs for only a limited time; logs
+never determine the final validation outcome.
+
 A verified revision may request privileged hardware access. Full-host access is
 a separate, explicit request and requires separate approval for the exact
 revision and image digest. It uses the legacy-style writable `/host` mount and
