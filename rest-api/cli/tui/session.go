@@ -232,6 +232,103 @@ func (s *Session) getTenantID(_ context.Context) (string, error) {
 	return id, nil
 }
 
+// tenantHasTargetedInstanceCreationAtSite resolves the current Tenant's
+// effective targeted-instance-creation capability for one Site. The API
+// enforces this capability using a Ready Tenant Account for the Site's
+// Infrastructure Provider plus any site-specific override, so the TUI mirrors
+// that resolution before offering specific Machines.
+func (s *Session) tenantHasTargetedInstanceCreationAtSite(ctx context.Context, siteID string) (bool, error) {
+	siteID = strings.TrimSpace(siteID)
+	if siteID == "" {
+		return false, fmt.Errorf("selected VPC has no site ID")
+	}
+
+	tenantID, err := s.getTenantID(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	body, _, err := s.Client.Do(
+		"GET",
+		apiPath(s, "site/{id}"),
+		map[string]string{
+			"id": siteID,
+		},
+		nil,
+		nil,
+	)
+	if err != nil {
+		return false, fmt.Errorf("fetching selected VPC site: %w", err)
+	}
+	var site map[string]interface{}
+	err = json.Unmarshal(body, &site)
+	if err != nil {
+		return false, fmt.Errorf("parsing selected VPC site: %w", err)
+	}
+	providerID := strings.TrimSpace(str(site, "infrastructureProviderId"))
+	if providerID == "" {
+		return false, fmt.Errorf("selected VPC site has no infrastructure provider ID")
+	}
+
+	accounts, err := s.fetchAll(
+		apiPath(s, "tenant/account"),
+		map[string]string{
+			"infrastructureProviderId": providerID,
+			"tenantId":                 tenantID,
+		},
+	)
+	if err != nil {
+		return false, fmt.Errorf("fetching tenant accounts for selected VPC site: %w", err)
+	}
+	for _, account := range accounts {
+		status := strings.TrimSpace(str(account, "status"))
+		if !strings.EqualFold(status, "Ready") {
+			continue
+		}
+		accountProviderID := strings.TrimSpace(str(account, "infrastructureProviderId"))
+		if accountProviderID != providerID {
+			continue
+		}
+		accountTenantID := strings.TrimSpace(str(account, "tenantId"))
+		if accountTenantID != tenantID {
+			continue
+		}
+
+		return targetedInstanceCreationAtSite(account, siteID), nil
+	}
+	return false, nil
+}
+
+func targetedInstanceCreationAtSite(account map[string]interface{}, siteID string) bool {
+	rawCapabilities, ok := account["siteCapabilities"].([]interface{})
+	if !ok {
+		return false
+	}
+
+	defaultEnabled := false
+	for _, rawCapability := range rawCapabilities {
+		capability, ok := rawCapability.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		enabled, ok := capability["targetedInstanceCreation"].(bool)
+		if !ok {
+			continue
+		}
+		siteIDs := stringSlice(capability["siteIds"])
+		if len(siteIDs) == 0 {
+			defaultEnabled = enabled
+			continue
+		}
+		for _, capabilitySiteID := range siteIDs {
+			if strings.TrimSpace(capabilitySiteID) == siteID {
+				return enabled
+			}
+		}
+	}
+	return defaultEnabled
+}
+
 // getInfrastructureProviderID returns the current infrastructure provider ID, caching it for the session.
 func (s *Session) getInfrastructureProviderID(_ context.Context) (string, error) {
 	if cached := s.Cache.LookupByName("_infra_provider", s.Org); cached != nil {
@@ -308,9 +405,15 @@ func (s *Session) fetchVPCs(_ context.Context) ([]NamedItem, error) {
 	result := make([]NamedItem, len(items))
 	for i, m := range items {
 		result[i] = NamedItem{
-			Name: str(m, "name"), ID: str(m, "id"), Status: str(m, "status"),
+			Name:   str(m, "name"),
+			ID:     str(m, "id"),
+			Status: str(m, "status"),
 			Labels: extractLabels(m),
-			Extra:  map[string]string{"siteId": str(m, "siteId")}, Raw: m,
+			Extra: map[string]string{
+				"networkVirtualizationType": str(m, "networkVirtualizationType"),
+				"siteId":                    str(m, "siteId"),
+			},
+			Raw: m,
 		}
 	}
 	return result, nil
