@@ -266,6 +266,29 @@ pods:
         adminDhcpRelayAddress: "192.168.176.1"
 ```
 
+### Lifecycle timing
+
+Machine-a-tron uses platform-specific lifecycle durations. The chart-level
+`machineDefaults.accelerationFactor` defaults to `1.0`, which preserves those
+durations. Set a non-negative factor below `1.0` to accelerate simulated power
+and boot operations, `0` to remove their delays, or a factor above `1.0` to
+slow them down. A machine group can override the default independently:
+
+```yaml
+machineDefaults:
+  accelerationFactor: 0.05
+
+pods:
+  mat-0:
+    machines:
+      rack-machines:
+        accelerationFactor: 0.01
+```
+
+Atomic rack entries use the equivalent `acceleration_factor` field. A
+`configFiles.matConfigs` override owns the complete TOML configuration, so the
+chart does not add an acceleration factor to that content.
+
 ### IPMI/SOL Simulation
 
 Enable IPMI/SOL simulation to expose per-BMC IPMI endpoints for IPMI-capable

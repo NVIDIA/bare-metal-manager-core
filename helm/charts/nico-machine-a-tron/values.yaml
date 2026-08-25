@@ -181,6 +181,9 @@ machineDefaults:
   subnetsPerVpc: 0
   dpuRebootDelay: 1
   hostRebootDelay: 1
+  ## Scale platform lifecycle timings. 1.0 uses realistic platform durations;
+  ## values below 1.0 accelerate simulated power operations and boot cycles.
+  accelerationFactor: 1.0
   scoutRunInterval: "60s"
   ## Delay after a failed DiscoverMachine call; the default matches the production DPU agent.
   discoveryRetryInterval: "60s"

@@ -180,6 +180,9 @@ nico-machine-a-tron:
           hwType: wiwynn_gb200_nvl
           hostCount: 2
           dpuPerHostCount: 2
+          # Keep local inventory cycles fast while production-like simulations
+          # continue to use the platform timing defaults.
+          accelerationFactor: 0.05
           oobDhcpRelayAddress: "192.168.192.1"
           adminDhcpRelayAddress: "192.168.176.1"
 nico-dhcp:
