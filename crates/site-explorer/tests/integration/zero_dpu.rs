@@ -250,9 +250,12 @@ async fn test_predicted_interface_hands_boot_interface_id_to_real_row(
         Some("NIC.Embedded.1-1-1"),
         "predicted interface should hold the report-derived boot interface id"
     );
-    let desired = db::machine_desired_boot_interface::get(txn.as_mut(), &predicted.machine_id)
-        .await?
-        .expect("site-explorer should initialize the host's desired boot interface");
+    let desired = db::machine_desired_boot_interface::get(
+        txn.as_mut(),
+        &predicted.machine_id.try_into().unwrap(),
+    )
+    .await?
+    .expect("site-explorer should initialize the host's desired boot interface");
     assert_eq!(
         desired.value,
         MachineBootInterfaceTarget::Pair(MachineBootInterface {
@@ -685,9 +688,12 @@ async fn test_exploration_refreshes_pending_predicted_boot_interface_id(
         predicted.boot_interface_id.is_none(),
         "an id-less report can't give the prediction a boot interface id"
     );
-    let desired = db::machine_desired_boot_interface::get(txn.as_mut(), &predicted.machine_id)
-        .await?
-        .expect("site-explorer should initialize a MAC-only desired target");
+    let desired = db::machine_desired_boot_interface::get(
+        txn.as_mut(),
+        &predicted.machine_id.try_into().unwrap(),
+    )
+    .await?
+    .expect("site-explorer should initialize a MAC-only desired target");
     assert_eq!(
         desired.value,
         MachineBootInterfaceTarget::MacOnly(inband_mac),
@@ -712,9 +718,12 @@ async fn test_exploration_refreshes_pending_predicted_boot_interface_id(
         Some("NIC.Embedded.1-1-1"),
         "the next exploration that resolves the id refreshes the prediction"
     );
-    let desired = db::machine_desired_boot_interface::get(txn.as_mut(), &predicted.machine_id)
-        .await?
-        .expect("the desired target should still exist");
+    let desired = db::machine_desired_boot_interface::get(
+        txn.as_mut(),
+        &predicted.machine_id.try_into().unwrap(),
+    )
+    .await?
+    .expect("the desired target should still exist");
     assert_eq!(
         desired.value,
         MachineBootInterfaceTarget::Pair(MachineBootInterface {
@@ -740,9 +749,12 @@ async fn test_exploration_refreshes_pending_predicted_boot_interface_id(
 
     env.site_explorer.run_single_iteration().await?;
 
-    let desired = db::machine_desired_boot_interface::get(&env.pool, &predicted.machine_id)
-        .await?
-        .expect("the existing host should be reinitialized without an ExpectedMachine");
+    let desired = db::machine_desired_boot_interface::get(
+        &env.pool,
+        &predicted.machine_id.try_into().unwrap(),
+    )
+    .await?
+    .expect("the existing host should be reinitialized without an ExpectedMachine");
     assert_eq!(
         desired.value,
         MachineBootInterfaceTarget::Pair(MachineBootInterface {
@@ -840,7 +852,7 @@ async fn test_exploration_refresh_adds_declared_adapter_port_to_predicted_host(
             .all(|prediction| !prediction.primary_interface)
     );
     assert!(
-        db::machine_desired_boot_interface::get(txn.as_mut(), &machine_id)
+        db::machine_desired_boot_interface::get(txn.as_mut(), &machine_id.try_into().unwrap())
             .await?
             .is_none(),
         "several non-primary System candidates do not identify a boot NIC",
@@ -895,9 +907,10 @@ async fn test_exploration_refresh_adds_declared_adapter_port_to_predicted_host(
             .all(|prediction| prediction.mac_address != unrelated_port_mac),
         "an undeclared supplemental Port must not become a Host prediction",
     );
-    let desired = db::machine_desired_boot_interface::get(txn.as_mut(), &machine_id)
-        .await?
-        .expect("the declared Port prediction should settle the boot target");
+    let desired =
+        db::machine_desired_boot_interface::get(txn.as_mut(), &machine_id.try_into().unwrap())
+            .await?
+            .expect("the declared Port prediction should settle the boot target");
     assert_eq!(
         desired.value,
         MachineBootInterfaceTarget::MacOnly(declared_port_mac),

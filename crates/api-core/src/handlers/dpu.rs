@@ -1146,12 +1146,12 @@ async fn wakeup_host_state_handler_by_dpu_id(
     if let Some(host_machine_id) = host_machines_by_dpu_ids.get(dpu_machine_id)
         && let Err(err) = api
             .machine_state_handler_enqueuer
-            .enqueue_object(host_machine_id)
+            .enqueue_object(host_machine_id.as_machine_id())
             .await
     {
         carbide_instrument::emit(StateHandlerWakeupFailed {
             trigger: WakeupTrigger::DpuNetworkStatus,
-            machine_id: *host_machine_id,
+            machine_id: *host_machine_id.as_machine_id(),
             err: err.to_string(),
         });
     }
