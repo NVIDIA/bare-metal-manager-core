@@ -10,12 +10,12 @@ import (
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
-	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	cdbutil "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	cipam "github.com/NVIDIA/infra-controller/rest-api/ipam"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/uptrace/bun/extra/bundebug"
 )
 
@@ -34,7 +34,7 @@ func getTestIpamer(t *testing.T, ipamDB cipam.Storage) cipam.Ipamer {
 func getTestIpamDB(t *testing.T, dbSession *db.Session, reset bool) cipam.Storage {
 	if testIpamDB != nil {
 		if reset {
-			testIpamDB.DeleteAllPrefixes(context.Background(), "")
+			require.NoError(t, testIpamDB.DeleteAllPrefixes(context.Background(), ""))
 		}
 		return testIpamDB
 	}
@@ -42,11 +42,11 @@ func getTestIpamDB(t *testing.T, dbSession *db.Session, reset bool) cipam.Storag
 	storage := cipam.NewBunStorage(dbSession.DB, nil)
 
 	// ensure the ipam schema is applied in test db
-	storage.ApplyDbSchema()
+	require.NoError(t, storage.ApplyDbSchema())
 
 	testIpamDB := NewIpamStorage(dbSession.DB, nil)
 	if reset {
-		testIpamDB.DeleteAllPrefixes(context.Background(), "")
+		require.NoError(t, testIpamDB.DeleteAllPrefixes(context.Background(), ""))
 	}
 	return testIpamDB
 }
@@ -463,7 +463,7 @@ func TestCreateChildIpamEntryForIPBlock(t *testing.T) {
 	tests := []struct {
 		name              string
 		parentIPBlock     *cdbm.IPBlock
-		tx                *cdb.Tx
+		tx                *db.Tx
 		childCount        int
 		childPrefixLength int
 		expectedErr       bool
@@ -649,7 +649,7 @@ func TestDeleteChildIpamEntryFromCidr(t *testing.T) {
 	tests := []struct {
 		name           string
 		parentIPBlock  *cdbm.IPBlock
-		tx             *cdb.Tx
+		tx             *db.Tx
 		childCidr      string
 		expectedErr    bool
 		checkFullGrant bool
@@ -753,6 +753,7 @@ func TestAcquireSpecificChildIpamEntryForIPBlock(t *testing.T) {
 		parentIPBlock *cdbm.IPBlock
 		childCidr     string
 		expectedErr   bool
+		expectedError string
 	}{
 		{
 			name:          "success acquiring specific child",
@@ -765,12 +766,17 @@ func TestAcquireSpecificChildIpamEntryForIPBlock(t *testing.T) {
 			parentIPBlock: parent,
 			childCidr:     "10.20.0.0/16",
 			expectedErr:   true,
+			expectedError: fmt.Sprintf(
+				"child CIDR 10.20.0.0/16 equals parent CIDR 10.20.0.0/16 for IPBlock %s; use CreateChildIpamEntryForIPBlock",
+				parent.ID,
+			),
 		},
 		{
 			name:          "failure when parent is fully granted",
 			parentIPBlock: fullGrantParent,
 			childCidr:     "10.21.1.0/24",
 			expectedErr:   true,
+			expectedError: fmt.Sprintf("parent IPBlock %s already has a full grant", fullGrantParent.ID),
 		},
 		{
 			name:          "failure when parent is nil",
@@ -783,6 +789,9 @@ func TestAcquireSpecificChildIpamEntryForIPBlock(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			child, err := AcquireSpecificChildIpamEntryForIPBlock(ctx, nil, dbSession, ipamDB, tc.parentIPBlock, tc.childCidr)
 			assert.Equal(t, tc.expectedErr, err != nil)
+			if tc.expectedError != "" {
+				assert.EqualError(t, err, tc.expectedError)
+			}
 			if tc.expectedErr {
 				assert.Nil(t, child)
 				return

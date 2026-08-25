@@ -644,6 +644,25 @@ func TestIPBlockSQLDAO_GetAll(t *testing.T) {
 		}
 	}
 
+	deletedIPBlock, err := ipbsd.Create(
+		ctx, nil, IPBlockCreateInput{
+			Name:                     "deleted-ip-block",
+			Description:              cutil.GetPtr("description"),
+			SiteID:                   site1.ID,
+			InfrastructureProviderID: ip.ID,
+			RoutingType:              IPBlockRoutingTypePublic,
+			Prefix:                   "203.0.113.0",
+			PrefixLength:             24,
+			ProtocolVersion:          "v4",
+			FullGrant:                false,
+			Status:                   IPBlockStatusReady,
+			CreatedBy:                &user.ID,
+		},
+	)
+	require.NoError(t, err)
+	err = ipbsd.Delete(ctx, nil, deletedIPBlock.ID)
+	require.NoError(t, err)
+
 	dummyUUID := uuid.New()
 
 	// OTEL Spanner configuration
@@ -672,6 +691,7 @@ func TestIPBlockSQLDAO_GetAll(t *testing.T) {
 		expectedError             bool
 		paramRelations            []string
 		verifyChildSpanner        bool
+		includeDeleted            bool
 	}{
 		{
 			desc:                      "GetAll with no filters returns objects",
@@ -971,6 +991,22 @@ func TestIPBlockSQLDAO_GetAll(t *testing.T) {
 			expectedError:             false,
 		},
 		{
+			desc:          "GetAll excludes a soft-deleted IP Block by default",
+			ids:           []uuid.UUID{deletedIPBlock.ID},
+			expectedCount: 0,
+			expectedTotal: cutil.GetPtr(0),
+			expectedError: false,
+		},
+		{
+			desc:           "GetAll includes a soft-deleted IP Block when requested",
+			ids:            []uuid.UUID{deletedIPBlock.ID},
+			includeDeleted: true,
+			expectedCount:  1,
+			expectedTotal:  cutil.GetPtr(1),
+			expectedError:  false,
+			firstEntry:     deletedIPBlock,
+		},
+		{
 			desc:                      "GetAll with site, prefix and prefixLenth returns object",
 			siteIDs:                   []uuid.UUID{site2.ID},
 			infrastructureProviderIDs: []uuid.UUID{ip.ID},
@@ -1018,6 +1054,7 @@ func TestIPBlockSQLDAO_GetAll(t *testing.T) {
 					Statuses:                  tc.statuses,
 					SearchQuery:               tc.searchQuery,
 					IPBlockIDs:                tc.ids,
+					IncludeDeleted:            tc.includeDeleted,
 				},
 				paginator.PageInput{
 					Offset:  tc.offset,
