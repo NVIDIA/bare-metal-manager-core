@@ -59,6 +59,7 @@ type APISiteCapabilitiesUpdateRequest struct {
 	NVLinkPartition           *bool `json:"nvLinkPartition"`
 	Flow                      *bool `json:"flow"`
 	ImageBasedOperatingSystem *bool `json:"imageBasedOperatingSystem"`
+	DPSPowerManagement        *bool `json:"dpsPowerManagement"`
 	// VpcSlaac is accepted by the binder so update attempts can be rejected
 	// explicitly. Site config inventory is the only writer for this field.
 	VpcSlaac *bool `json:"vpcSlaac"`
@@ -88,6 +89,10 @@ func (ascur APISiteCapabilitiesUpdateRequest) ToSiteConfig(existing *cdbm.SiteCo
 
 	if ascur.ImageBasedOperatingSystem != nil {
 		cfg.ImageBasedOperatingSystem = *ascur.ImageBasedOperatingSystem
+	}
+
+	if ascur.DPSPowerManagement != nil {
+		cfg.DPSPowerManagement = *ascur.DPSPowerManagement
 	}
 
 	return cfg
@@ -327,6 +332,7 @@ type APISiteCapabilities struct {
 	Flow                      bool `json:"flow"`
 	ImageBasedOperatingSystem bool `json:"imageBasedOperatingSystem"`
 	VpcSlaac                  bool `json:"vpcSlaac"`
+	DPSPowerManagement        bool `json:"dpsPowerManagement"`
 }
 
 func siteConfigToAPISiteCapabilities(cfg *cdbm.SiteConfig) *APISiteCapabilities {
@@ -339,6 +345,7 @@ func siteConfigToAPISiteCapabilities(cfg *cdbm.SiteConfig) *APISiteCapabilities 
 		apiCaps.Flow = cfg.Flow
 		apiCaps.ImageBasedOperatingSystem = cfg.ImageBasedOperatingSystem
 		apiCaps.VpcSlaac = cfg.VpcSlaac
+		apiCaps.DPSPowerManagement = cfg.DPSPowerManagement
 	}
 
 	return apiCaps

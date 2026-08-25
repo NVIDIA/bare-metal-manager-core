@@ -22,7 +22,7 @@ use carbide_utils::arch::CpuArchitecture;
 use mac_address::MacAddress;
 use rpc::machine_discovery::{
     BlockDevice, CpuInfo, DiscoveryInfo, DmiData, DpuData, Gpu, GpuPlatformInfo,
-    InfinibandInterface, MemoryDevice, NetworkInterface, NvmeDevice, PciDeviceProperties,
+    InfinibandInterface, MemoryDeviceGroup, NetworkInterface, NvmeDevice, PciDeviceProperties,
     TpmDescription,
 };
 
@@ -230,7 +230,9 @@ fn dell_poweredge(host: &HostMachineInfo, product_name: &str, bios_version: &str
             product_name: product_name.into(),
             sys_vendor: "Dell Inc.".into(),
         }),
-        memory_devices: memory_devices(8, 16384, "DDR4"),
+        memory_device_groups: memory_device_groups(8, 16384, "DDR4"),
+        #[allow(deprecated)]
+        memory_devices: vec![],
         ..Default::default()
     }
 }
@@ -285,7 +287,9 @@ fn hpe_proliant(host: &HostMachineInfo) -> DiscoveryInfo {
             sys_vendor: "HPE".into(),
             ..Default::default()
         }),
-        memory_devices: memory_devices(16, 16384, "DDR5"),
+        memory_device_groups: memory_device_groups(16, 16384, "DDR5"),
+        #[allow(deprecated)]
+        memory_devices: vec![],
         ..Default::default()
     }
 }
@@ -350,7 +354,9 @@ fn wiwynn_gb200(host: &HostMachineInfo) -> DiscoveryInfo {
             sys_vendor: "NVIDIA".into(),
         }),
         gpus: gb200_gpus(),
-        memory_devices: memory_devices(2, 491520, "LPDDR5"),
+        memory_device_groups: memory_device_groups(2, 491520, "LPDDR5"),
+        #[allow(deprecated)]
+        memory_devices: vec![],
         ..Default::default()
     }
 }
@@ -439,7 +445,9 @@ fn lenovo_gb300(host: &HostMachineInfo) -> DiscoveryInfo {
                 }),
             })
             .collect(),
-        memory_devices: memory_devices(2, 491520, "LPDDR5"),
+        memory_device_groups: memory_device_groups(2, 491520, "LPDDR5"),
+        #[allow(deprecated)]
+        memory_devices: vec![],
         tpm_description: Some(TpmDescription {
             vendor: "Could not convert spec_version672".into(),
             firmware_version: "0xf0018.0x4a0a00".into(),
@@ -570,7 +578,9 @@ fn nvidia_dgx_h100(host: &HostMachineInfo) -> DiscoveryInfo {
                 platform_info: None,
             })
             .collect(),
-        memory_devices: memory_devices(32, 65536, "DDR5"),
+        memory_device_groups: memory_device_groups(32, 65536, "DDR5"),
+        #[allow(deprecated)]
+        memory_devices: vec![],
         ..Default::default()
     }
 }
@@ -666,13 +676,13 @@ fn network_interface(
     }
 }
 
-fn memory_devices(count: usize, size_mb: u32, memory_type: &str) -> Vec<MemoryDevice> {
-    (0..count)
-        .map(|_| MemoryDevice {
-            size_mb: Some(size_mb),
-            mem_type: Some(memory_type.into()),
-        })
-        .collect()
+/// Builds a single-group mock memory device list for use in simulated machine profiles.
+fn memory_device_groups(count: u32, size_mb: u32, memory_type: &str) -> Vec<MemoryDeviceGroup> {
+    vec![MemoryDeviceGroup {
+        size_mb: Some(size_mb),
+        mem_type: Some(memory_type.into()),
+        count,
+    }]
 }
 
 /// Mock NVMe capacity in MiB (matching what the real host enumeration reports),
@@ -983,7 +993,14 @@ mod tests {
                 .collect::<Vec<_>>(),
             [2, 1, 4, 3]
         );
-        assert_eq!(discovery.memory_devices.len(), 2);
+        assert_eq!(
+            discovery.memory_device_groups,
+            vec![MemoryDeviceGroup {
+                size_mb: Some(491520),
+                mem_type: Some("LPDDR5".into()),
+                count: 2,
+            }]
+        );
         assert!(discovery.tpm_description.is_some());
     }
 

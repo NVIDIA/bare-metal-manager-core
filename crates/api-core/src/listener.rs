@@ -45,6 +45,7 @@ use crate::auth::Authorization;
 use crate::cfg::file::AuthConfig;
 use crate::errors::CarbideError;
 use crate::logging::api_logs::LogLayer;
+use crate::node_auth::NodeJwtValidator;
 
 /// Builds the admin web UI, i.e. all the `/admin/...` HTML pages (hosts, instances,
 /// IB fabrics, etc.). Given the [`Api`] service and optional shared admission
@@ -564,9 +565,11 @@ pub(crate) async fn start(
                                 let acceptor = get_tls_acceptor(&tls_config, &client_ca);
                                 let roots = match node_jwt_validator.as_ref() {
                                     None => Ok(None),
-                                    Some(validator) => {
-                                        validator.build_roots_from_pem(&client_ca).map(Some)
-                                    }
+                                    Some(_) => NodeJwtValidator::verifier_from_pem(
+                                        &tls_config.root_cafile_path,
+                                        &client_ca,
+                                    )
+                                    .map(Some),
                                 };
                                 (acceptor, roots)
                             }

@@ -869,7 +869,7 @@ be propagated there by DPF.
 | ------- | ------ | --------- | ------------- |
 | `enabled` | `bool` | `false` | Enable BOM/SKU validation. |
 | `ignore_unassigned_machines` | `bool` | `false` | Let machines without a SKU bypass validation. |
-| `allow_allocation_on_validation_failure` | `bool` | `false` | Keep machines allocatable even when validation fails. |
+| `allow_allocation_on_validation_failure` | `bool` | `false` | Keep machines with assigned SKUs allocatable on validation failure; does not bypass unassigned machines. |
 | `find_match_interval` | `Duration` | `5m` | Interval between SKU match attempts. |
 | `auto_generate_missing_sku` | `bool` | `false` | Auto-create missing SKUs from expected machines. |
 | `auto_generate_missing_sku_interval` | `Duration` | `5m` | Interval between auto-generate attempts. |

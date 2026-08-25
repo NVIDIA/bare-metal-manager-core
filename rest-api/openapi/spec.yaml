@@ -1109,6 +1109,8 @@ paths:
         User must have authorization role with `PROVIDER_ADMIN` suffix.
 
         Infrastructure Provider updating the Site must be the owner of the Site. At present, there are no other Site-specific configurations modifiable by Tenant.
+
+        Providers can set `capabilities.dpsPowerManagement` to control whether the Site accepts power profiles and resource groups. Omission or `null` preserves the current value; the default is `false`.
       requestBody:
         content:
           application/json:
@@ -1232,6 +1234,93 @@ paths:
           in: query
           name: orderBy
           description: Ordering for pagination query
+  '/v2/org/{org}/nico/task':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    get:
+      summary: Retrieve all Tasks
+      operationId: get-all-tasks
+      description: |-
+        List all Tasks created in the specified Site, across every Rack and Tray.
+
+        Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix, and the Site must belong to that Provider and have NICo Flow enabled.
+
+        Setting `activeOnly=true` restricts the result to tasks in a non-terminal state (`Pending`, `Running`, or `Waiting`). Results are ordered by creation time descending, then Task UUID descending, before pagination. The `X-Pagination` response header reports the total count over the post-filter set.
+
+        By default the `report` field is omitted from each Task in the response. Set `includeReport=true` to include it; this is opt-in because report bodies can be several KB.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site whose Tasks are returned.
+        - schema:
+            type: boolean
+            default: false
+          name: activeOnly
+          in: query
+          description: Restrict results to non-terminal Tasks.
+        - schema:
+            type: boolean
+            default: false
+          name: includeReport
+          in: query
+          description: Include the per-task execution report on each returned Task.
+        - schema:
+            $ref: '#/components/schemas/PageNumber'
+            default: 1
+          in: query
+          name: pageNumber
+          description: Page number for pagination query.
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          in: query
+          name: pageSize
+          description: Number of Tasks returned per page.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Task'
+              examples:
+                example-1:
+                  value:
+                    - id: 550e8400-e29b-41d4-a716-446655440000
+                      status: Running
+                      description: Power on rack components
+                      message: 'Processing 3 of 5 components'
+          headers:
+            X-Pagination:
+              schema:
+                type: string
+                example: '{"pageNumber":1,"pageSize":20,"total":1,"orderBy":null}'
+              description: Pagination result in JSON format.
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '412':
+          $ref: '#/components/responses/GenericHttpError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
+      tags:
+        - Task
   '/v2/org/{org}/nico/credential/bmc':
     parameters:
       - schema:
@@ -2941,7 +3030,7 @@ paths:
                     data:
                       id: 497f6eca-6276-4993-bfeb-53cbbbba6f08
         '412':
-          description: The latest successfully stored configuration inventory for the selected Site does not report Core support for SLAAC, or Core rejects another create prerequisite. The inventory check fails before REST persistence or workflow dispatch; a Core rejection occurs after dispatch and the REST transaction is rolled back.
+          description: The latest successfully stored configuration inventory for the selected Site does not report Core support for SLAAC, the Site's `dpsPowerManagement` capability is `false` while the request specifies a non-empty power resource group, or Core rejects another create prerequisite. Site capability checks fail before REST persistence or workflow dispatch; a Core rejection occurs after dispatch and the REST transaction is rolled back.
           content:
             application/json:
               schema:
@@ -3152,12 +3241,17 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '412':
+          description: The Site's `dpsPowerManagement` capability is `false`, so a non-empty power resource group cannot be accepted.
+          $ref: '#/components/responses/GenericHttpError'
       tags:
         - VPC
       description: |-
         Update an existing VPC
 
         Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix
+
+        A non-empty `powerResourceGroup` requires the Site's `dpsPowerManagement` capability to be `true`; otherwise the request returns 412. Omission or `null` preserves the current association, while an empty string clears it even when DPS power management is disabled.
       requestBody:
         content:
           application/json:
@@ -7291,6 +7385,9 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '412':
+          description: The Site's `dpsPowerManagement` capability is `false`, so a non-empty power profile cannot be accepted.
+          $ref: '#/components/responses/GenericHttpError'
         '429':
           $ref: '#/components/responses/ResourceExhaustedError'
       description: |
@@ -7474,6 +7571,9 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '412':
+          description: The Site's `dpsPowerManagement` capability is `false`, so a non-empty power profile cannot be accepted.
+          $ref: '#/components/responses/GenericHttpError'
         '429':
           $ref: '#/components/responses/ResourceExhaustedError'
       description: |
@@ -7876,12 +7976,17 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '412':
+          description: The Site's `dpsPowerManagement` capability is `false`, so a non-empty power profile cannot be accepted.
+          $ref: '#/components/responses/GenericHttpError'
         '429':
           $ref: '#/components/responses/ResourceExhaustedError'
       description: |-
         Update an Instance by ID
 
         Org must have a Tenant entity. Instance must belong to Tenant. User must have authorization role with `TENANT_ADMIN` suffix.
+
+        A non-empty `powerProfile` requires the Site's `dpsPowerManagement` capability to be `true`; otherwise the request returns 412. Omission or `null` preserves the current profile, while an empty string clears it even when DPS power management is disabled.
       requestBody:
         content:
           application/json:
@@ -12703,7 +12808,7 @@ paths:
 
         Tasks are site-scoped; `siteId` must be the Site that owns the Rack. Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-        Filters compose with AND: setting `activeOnly=true` restricts the result to tasks that are still in a non-terminal state (`Pending`, `Running`, `Waiting`). Results are paginated; the `X-Pagination` response header reports the total count over the post-filter set.
+        Filters compose with AND: setting `activeOnly=true` restricts the result to tasks that are still in a non-terminal state (`Pending`, `Running`, `Waiting`). Results are ordered by creation time descending, then Task UUID descending, before pagination; the `X-Pagination` response header reports the total count over the post-filter set.
 
         By default the `report` field is omitted from each task in the response. Set `includeReport=true` to include it; this is opt-in because report bodies can be several KB and pulling them across the list path persists the full payload in each caller-side workflow record. Single-task `GET /rack/task/{id}` and `POST /rack/task/{id}/cancel` always include the report.
       parameters:
@@ -13381,7 +13486,7 @@ paths:
 
         Tasks are site-scoped; `siteId` must be the Site that owns the Tray. Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-        Filters compose with AND: setting `activeOnly=true` restricts the result to tasks that are still in a non-terminal state (`Pending`, `Running`, `Waiting`). Results are paginated; the `X-Pagination` response header reports the total count over the post-filter set.
+        Filters compose with AND: setting `activeOnly=true` restricts the result to tasks that are still in a non-terminal state (`Pending`, `Running`, `Waiting`). Results are ordered by creation time descending, then Task UUID descending, before pagination; the `X-Pagination` response header reports the total count over the post-filter set.
 
         By default the `report` field is omitted from each task in the response. Set `includeReport=true` to include it; this is opt-in because report bodies can be several KB and pulling them across the list path persists the full payload in each caller-side workflow record. Single-task `GET /rack/task/{id}` and `POST /rack/task/{id}/cancel` always include the report.
       parameters:
@@ -17793,6 +17898,10 @@ components:
           type: boolean
           readOnly: true
           description: Whether the latest successfully stored Site configuration inventory reports that Core supports VPCs with SLAAC enabled. False also represents a missing Site configuration or an inventory report that omits the capability. This value is managed by Site configuration inventory and cannot be updated through the Site API.
+        dpsPowerManagement:
+          type: boolean
+          default: false
+          description: Whether this Site accepts non-empty power resource groups and power profiles for DPS power management. When false, omission and explicit clearing remain allowed.
     SiteMachineStats:
       title: SiteMachineStats
       type: object
@@ -17971,6 +18080,11 @@ components:
             - boolean
             - 'null'
           description: Enable or disable image-based operating system support for the Site
+        dpsPowerManagement:
+          type:
+            - boolean
+            - 'null'
+          description: Enable or disable DPS power management for the Site. Omission or `null` preserves the current value. Only Providers can update this field.
     SiteUpdateRequest:
       title: SiteUpdateRequest
       type: object
@@ -18447,6 +18561,11 @@ components:
           minLength: 3
           maxLength: 64
           description: Routing profile type for the VPC. Populated when Site has Native Networking enabled and network virtualization type is `FNN`.
+        powerResourceGroup:
+          type:
+            - string
+            - 'null'
+          description: External power provisioning resource group associated with the VPC.
         routingProfileOverrides:
           oneOf:
             - $ref: '#/components/schemas/VpcRoutingProfileOverrides'
@@ -18705,6 +18824,12 @@ components:
             - $ref: '#/components/schemas/VpcRoutingProfileOverrides'
             - type: 'null'
           description: Routing-profile properties to overlay on the resolved named profile. Only supported for FNN VPCs and requires `TargetedInstanceCreation` to be effective for the Tenant at the VPC's Site. `routingProfile` may be omitted when the Site and Tenant configuration select a named profile.
+        powerResourceGroup:
+          type:
+            - string
+            - 'null'
+          minLength: 1
+          description: Power resource group to associate with the VPC. A non-empty value requires the Site's `dpsPowerManagement` capability to be `true`.
         networkSecurityGroupId:
           type:
             - string
@@ -18765,6 +18890,11 @@ components:
             - $ref: '#/components/schemas/VpcRoutingProfileOverrides'
             - type: 'null'
           description: Replaces the current inline routing-profile definition when present. Requires `TargetedInstanceCreation` to be effective for the Tenant at the VPC's Site. Omission or `null` preserves the current definition. An empty object restores inheritance for every property; a partial object replaces the previous definition and inherits its omitted properties from the named profile.
+        powerResourceGroup:
+          type:
+            - string
+            - 'null'
+          description: Power resource group to associate with the VPC. A non-empty value requires the Site's `dpsPowerManagement` capability to be `true`. Omission or `null` preserves the current association; an empty string clears it when DPS power management is disabled.
         labels:
           $ref: '#/components/schemas/Labels'
           description: 'Update labels of the VPC. Up to 10 key-value pairs can be specified. The labels will be replaced with the labels sent in the request. Any labels not included in the request will be removed. To retain existing labels, fetch them first and include them in this request.'
@@ -21025,6 +21155,11 @@ components:
             - string
             - 'null'
           description: 'ID of the attached Network Security Group, if any'
+        powerProfile:
+          type:
+            - string
+            - 'null'
+          description: External power provisioning profile associated with the Instance.
         networkSecurityGroupPropagationDetails:
           $ref: '#/components/schemas/NetworkSecurityGroupPropagationDetails'
           description: Propagation details for the attached Network Security Group
@@ -21318,6 +21453,12 @@ components:
             - 'null'
           format: uuid
           description: Must be specified if iPXE Script field is empty
+        powerProfile:
+          type:
+            - string
+            - 'null'
+          minLength: 1
+          description: Power profile to apply to the Instance. A non-empty value requires the Site's `dpsPowerManagement` capability to be `true`.
         networkSecurityGroupId:
           type:
             - string
@@ -21467,6 +21608,12 @@ components:
             - 'null'
           format: uuid
           description: Must be specified if iPXE Script field is empty
+        powerProfile:
+          type:
+            - string
+            - 'null'
+          minLength: 1
+          description: Power profile to apply to every Instance in the batch. A non-empty value requires the Site's `dpsPowerManagement` capability to be `true`.
         networkSecurityGroupId:
           type:
             - string
@@ -21644,6 +21791,11 @@ components:
             - string
             - 'null'
           description: 'ID of the Network Security Group to attach to the Instance'
+        powerProfile:
+          type:
+            - string
+            - 'null'
+          description: Power profile to apply to the Instance. A non-empty value requires the Site's `dpsPowerManagement` capability to be `true`. Omission or `null` preserves the current profile; an empty string clears it when DPS power management is disabled.
         userData:
           type:
             - string

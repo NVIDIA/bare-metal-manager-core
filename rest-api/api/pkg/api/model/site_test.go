@@ -388,6 +388,26 @@ func TestAPISiteUpdateRequest_Validate(t *testing.T) {
 			wantErr:    false,
 		},
 		{
+			name: "validate update request success, Provider enabling DPS power management",
+			fields: fields{
+				Capabilities: &APISiteCapabilitiesUpdateRequest{
+					DPSPowerManagement: cutil.GetPtr(true),
+				},
+			},
+			isProvider: true,
+			wantErr:    false,
+		},
+		{
+			name: "validate update request success, Provider disabling DPS power management",
+			fields: fields{
+				Capabilities: &APISiteCapabilitiesUpdateRequest{
+					DPSPowerManagement: cutil.GetPtr(false),
+				},
+			},
+			isProvider: true,
+			wantErr:    false,
+		},
+		{
 			name: "validate update request failure, Provider disabling inventory capability",
 			fields: fields{
 				Capabilities: &APISiteCapabilitiesUpdateRequest{
@@ -434,21 +454,23 @@ func TestAPISiteUpdateRequest_Validate(t *testing.T) {
 
 func TestSiteConfigToAPISiteCapabilities(t *testing.T) {
 	tests := []struct {
-		name string
-		cfg  *cdbm.SiteConfig
-		want bool
+		name                   string
+		cfg                    *cdbm.SiteConfig
+		wantVpcSlaac           bool
+		wantDPSPowerManagement bool
 	}{
 		{
 			name: "missing Site config",
 		},
 		{
-			name: "stored false",
+			name: "disabled DPS power management",
 			cfg:  &cdbm.SiteConfig{},
 		},
 		{
-			name: "stored true",
-			cfg:  &cdbm.SiteConfig{VpcSlaac: true},
-			want: true,
+			name:                   "stored capabilities",
+			cfg:                    &cdbm.SiteConfig{VpcSlaac: true, DPSPowerManagement: true},
+			wantVpcSlaac:           true,
+			wantDPSPowerManagement: true,
 		},
 	}
 
@@ -456,7 +478,8 @@ func TestSiteConfigToAPISiteCapabilities(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := siteConfigToAPISiteCapabilities(tt.cfg)
 			require.NotNil(t, got)
-			assert.Equal(t, tt.want, got.VpcSlaac)
+			assert.Equal(t, tt.wantVpcSlaac, got.VpcSlaac)
+			assert.Equal(t, tt.wantDPSPowerManagement, got.DPSPowerManagement)
 		})
 	}
 }
@@ -497,6 +520,19 @@ func TestAPISiteCapabilitiesUpdateRequest_ToSiteConfig(t *testing.T) {
 				VpcSlaac: cutil.GetPtr(true),
 			},
 			want: &cdbm.SiteConfig{},
+		},
+		{
+			name: "updates DPS power management",
+			existing: &cdbm.SiteConfig{
+				NativeNetworking: true,
+			},
+			request: APISiteCapabilitiesUpdateRequest{
+				DPSPowerManagement: cutil.GetPtr(true),
+			},
+			want: &cdbm.SiteConfig{
+				NativeNetworking:   true,
+				DPSPowerManagement: true,
+			},
 		},
 	}
 

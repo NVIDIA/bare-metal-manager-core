@@ -84,7 +84,11 @@ pub struct MachineId {
 
 impl Ord for MachineId {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.to_string().cmp(&other.to_string())
+        self.ty
+            .id_char()
+            .cmp(&other.ty.id_char())
+            .then_with(|| self.source.id_char().cmp(&other.source.id_char()))
+            .then_with(|| self.hardware_id.cmp(&other.hardware_id))
     }
 }
 
@@ -662,5 +666,38 @@ mod tests {
                 'x' => None,
             }
         );
+    }
+
+    #[test]
+    fn test_machine_id_order_matches_string_order() {
+        let machine_ids = [
+            MachineType::Dpu,
+            MachineType::Host,
+            MachineType::PredictedHost,
+        ]
+        .into_iter()
+        .flat_map(|ty| {
+            [
+                MachineIdSource::Tpm,
+                MachineIdSource::ProductBoardChassisSerial,
+            ]
+            .into_iter()
+            .flat_map(move |source| {
+                [[0; 32], [0x55; 32], [0xff; 32]]
+                    .into_iter()
+                    .map(move |hardware_hash| MachineId::new(source, hardware_hash, ty))
+            })
+        })
+        .collect::<Vec<_>>();
+
+        for left in &machine_ids {
+            for right in &machine_ids {
+                assert_eq!(
+                    left.cmp(right),
+                    left.to_string().cmp(&right.to_string()),
+                    "direct ordering differs for {left} and {right}",
+                );
+            }
+        }
     }
 }

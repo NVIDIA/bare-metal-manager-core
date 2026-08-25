@@ -526,6 +526,3 @@ pub async fn update(txn: &mut PgConnection, machine: &ExpectedMachine) -> Databa
     }
     Ok(())
 }
-
-#[cfg(test)]
-mod tests;

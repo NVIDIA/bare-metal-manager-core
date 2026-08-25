@@ -232,11 +232,8 @@ impl DeviceHandle {
     }
 
     #[cfg(test)]
-    pub(crate) fn for_control_test(
-        dpus: Vec<DpuMachineHandle>,
-        ipmi_endpoint: Option<bmc_mock::ipmi_sim::IpmiEndpoint>,
-    ) -> Self {
-        Self::machine(MachineHandle::for_control_test(dpus, ipmi_endpoint))
+    pub(crate) fn for_control_test(dpus: Vec<DpuMachineHandle>, ipmi_port: Option<u16>) -> Self {
+        Self::machine(MachineHandle::for_control_test(dpus, ipmi_port))
     }
 
     #[cfg(test)]

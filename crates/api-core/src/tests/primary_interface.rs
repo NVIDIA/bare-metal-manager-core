@@ -22,6 +22,7 @@ use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use ipnetwork::IpNetwork;
+use mac_address::MacAddress;
 use model::allocation_type::AllocationType;
 use model::machine::{InstanceState, ManagedHostState};
 use model::machine_boot_interface::{BootInterfaceSelectionSource, MachineBootInterfaceTarget};
@@ -743,9 +744,16 @@ async fn test_set_primary_interface_promotes_a_non_primary_interface(
         .desired_boot_interface
         .as_ref()
         .expect("the update should retain the desired boot interface row");
+    // Postgres renders `macaddr` in lowercase and `MacAddress`'s `Display` renders it in
+    // uppercase, so compare parsed addresses rather than two spellings of the same value.
+    // Comparing the strings only passes when the promoted interface happens to draw a MAC
+    // with no hex letters in it, which made this assertion fail intermittently.
     assert_eq!(
-        boot_after.desired_mac_address,
-        promote_target.mac_address().to_string(),
+        boot_after
+            .desired_mac_address
+            .parse::<MacAddress>()
+            .expect("a stored MAC address is well formed"),
+        promote_target.mac_address(),
     );
     assert_eq!(
         boot_after.desired_interface_id.as_deref(),

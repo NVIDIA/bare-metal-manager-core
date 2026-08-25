@@ -1032,7 +1032,7 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Handler: apiHandler.NewDeleteSkuHandler(dbSession, scp),
 		},
 		// Task endpoints (Flow). /rack/task/* and /task/* share get/cancel
-		// handlers; list operations are exposed under /rack/{id}/task and
+		// handlers; filtered lists are also exposed under /rack/{id}/task and
 		// /tray/{id}/task.
 		{
 			Path:    apiPathPrefix + "/rack/task/:id",
@@ -1043,6 +1043,11 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Path:    apiPathPrefix + "/rack/task/:id/cancel",
 			Method:  http.MethodPost,
 			Handler: apiHandler.NewCancelTaskHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/task",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetAllTaskHandler(dbSession, scp),
 		},
 		{
 			Path:    apiPathPrefix + "/task/:id",

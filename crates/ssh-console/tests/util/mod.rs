@@ -156,7 +156,7 @@ pub(crate) async fn run_baseline_test_environment(
                 },
                 ipmi_port: match &bmc_handle {
                     MockBmcHandle::Ssh(_) => None,
-                    MockBmcHandle::Ipmi(i) => Some(i.endpoint.listen_port),
+                    MockBmcHandle::Ipmi(i) => Some(i.port),
                 },
                 bmc_user: "root".to_string(),
                 bmc_password: "password".to_string(),

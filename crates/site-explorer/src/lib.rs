@@ -3400,7 +3400,7 @@ impl SiteExplorer {
         let bmc_target_addr = SocketAddr::new(endpoint.address, bmc_target_port);
         match self
             .endpoint_explorer
-            .redfish_reset_bmc(bmc_target_addr, endpoint.iface)
+            .redfish_reset_bmc(bmc_target_addr, endpoint.iface, None)
             .await
         {
             Ok(_) => {

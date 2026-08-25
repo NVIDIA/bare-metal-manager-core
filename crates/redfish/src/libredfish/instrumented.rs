@@ -64,8 +64,9 @@ use libredfish::model::{BootOption, ComputerSystem, Manager, ODataId};
 use libredfish::{
     Assembly, BiosProfileType, BiosProfileVendor, Boot, BootInterfaceRef, BootOptions,
     BootOverride, Chassis, Collection, EnabledDisabled, EthernetInterface, JobState,
-    MachineSetupStatus, NetworkAdapter, NetworkDeviceFunction, NetworkPort, PCIeDevice, PowerState,
-    Redfish, RedfishError, RedfishFuture, Resource, RoleId, Status, SystemPowerControl,
+    MachineSetupStatus, ManagerResetType, NetworkAdapter, NetworkDeviceFunction, NetworkPort,
+    PCIeDevice, PowerState, Redfish, RedfishError, RedfishFuture, Resource, RoleId, Status,
+    SystemPowerControl,
 };
 
 use super::redact_password;
@@ -196,7 +197,7 @@ impl Redfish for InstrumentedRedfish {
         ) -> Task;
         fn get_power_metrics<'a>(&'a self) -> Power;
         fn power<'a>(&'a self, action: SystemPowerControl) -> ();
-        fn bmc_reset<'a>(&'a self) -> ();
+        fn bmc_reset<'a>(&'a self, reset_type: Option<ManagerResetType>) -> ();
         fn chassis_reset<'a>(
             &'a self,
             chassis_id: &'a str,

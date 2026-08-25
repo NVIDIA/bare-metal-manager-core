@@ -31,45 +31,78 @@ import (
 	pb "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/proto/v1"
 )
 
-func TestCreateTaskScheduleEncryptsFirmwareAuthenticationData(t *testing.T) {
-	rackID := uuid.New()
-	componentID := uuid.New()
-	inventory := newMockManager()
-	inventory.components[componentID] = &component.Component{
-		Info:   deviceinfo.DeviceInfo{ID: componentID},
-		RackID: rackID,
-		Type:   devicetypes.ComponentTypeCompute,
+func TestCreateTaskScheduleFirmwareAuthenticationData(t *testing.T) {
+	tests := []struct {
+		name               string
+		withCipher         bool
+		authenticationData string
+	}{
+		{
+			name:               "encrypts authentication data before persistence",
+			withCipher:         true,
+			authenticationData: "schedule-token",
+		},
+		{name: "missing cipher allows schedule without authentication data"},
 	}
-	store := &capturingScheduleStore{id: uuid.New()}
-	cipher := newServiceTestCipher(t)
-	server := &FlowServerImpl{
-		inventoryManager:  inventory,
-		taskScheduleStore: store,
-		dataCipher:        cipher,
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rackID := uuid.New()
+			componentID := uuid.New()
+			inventory := newMockManager()
+			inventory.components[componentID] = &component.Component{
+				Info:   deviceinfo.DeviceInfo{ID: componentID},
+				RackID: rackID,
+				Type:   devicetypes.ComponentTypeCompute,
+			}
+			store := &capturingScheduleStore{id: uuid.New()}
+			var cipher *secret.Cipher
+			if tt.withCipher {
+				cipher = newServiceTestCipher(t)
+			}
+			server := &FlowServerImpl{
+				inventoryManager:  inventory,
+				taskScheduleStore: store,
+				dataCipher:        cipher,
+			}
+			var authenticationData *pb.FirmwareAuthenticationData
+			if tt.authenticationData != "" {
+				authenticationData = sharedServiceAuthenticationData(
+					tt.authenticationData,
+				)
+			}
+
+			_, err := server.CreateTaskSchedule(
+				context.Background(),
+				firmwareScheduleRequest(componentID, authenticationData),
+			)
+
+			require.NoError(t, err)
+			if tt.authenticationData != "" {
+				require.NotContains(
+					t,
+					string(store.row.OperationTemplate),
+					tt.authenticationData,
+				)
+			}
+			wrapper, err := taskschedule.WrapperFromTemplate(store.row.OperationTemplate)
+			require.NoError(t, err)
+			var info operations.FirmwareControlTaskInfo
+			require.NoError(t, info.Unmarshal(wrapper.Info))
+			if tt.authenticationData == "" {
+				require.Nil(t, info.AuthenticationData)
+				return
+			}
+
+			got, err := firmwareauth.DecryptFor(
+				cipher,
+				info.AuthenticationData,
+				devicetypes.ComponentTypeCompute,
+			)
+			require.NoError(t, err)
+			require.Equal(t, tt.authenticationData, got)
+		})
 	}
-	authenticationData := "schedule-token"
-
-	_, err := server.CreateTaskSchedule(
-		context.Background(),
-		firmwareScheduleRequest(
-			componentID,
-			sharedServiceAuthenticationData(authenticationData),
-		),
-	)
-
-	require.NoError(t, err)
-	require.NotContains(t, string(store.row.OperationTemplate), authenticationData)
-	wrapper, err := taskschedule.WrapperFromTemplate(store.row.OperationTemplate)
-	require.NoError(t, err)
-	var info operations.FirmwareControlTaskInfo
-	require.NoError(t, info.Unmarshal(wrapper.Info))
-	got, err := firmwareauth.DecryptFor(
-		cipher,
-		info.AuthenticationData,
-		devicetypes.ComponentTypeCompute,
-	)
-	require.NoError(t, err)
-	require.Equal(t, authenticationData, got)
 }
 
 func TestCreateTaskScheduleAuthenticationDataStatusCodes(t *testing.T) {
@@ -90,7 +123,7 @@ func TestCreateTaskScheduleAuthenticationDataStatusCodes(t *testing.T) {
 		{
 			name:               "missing cipher",
 			authenticationData: sharedServiceAuthenticationData("token"),
-			wantCode:           codes.Internal,
+			wantCode:           codes.FailedPrecondition,
 		},
 		{
 			name:               "authentication with dpu-only subtargets",
@@ -103,7 +136,11 @@ func TestCreateTaskScheduleAuthenticationDataStatusCodes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server := &FlowServerImpl{dataCipher: tt.cipher}
+			store := &capturingScheduleStore{id: uuid.New()}
+			server := &FlowServerImpl{
+				dataCipher:        tt.cipher,
+				taskScheduleStore: store,
+			}
 			req := firmwareScheduleRequest(componentID, tt.authenticationData)
 			req.Operation.GetUpgradeFirmware().SubTargets = tt.subTargets
 			_, err := server.CreateTaskSchedule(
@@ -111,6 +148,7 @@ func TestCreateTaskScheduleAuthenticationDataStatusCodes(t *testing.T) {
 				req,
 			)
 			require.Equal(t, tt.wantCode, status.Code(err))
+			require.Nil(t, store.row)
 		})
 	}
 }

@@ -117,6 +117,8 @@ navigation:
           path: provisioning/ingesting-hosts.md
         - page: Ingesting Hosts (REST API)
           path: provisioning/ingesting-hosts-rest-api.md
+        - page: Configure Expected Machine Interfaces
+          path: provisioning/expected-machine-interfaces.md
         - page: Site Setup API Parity
           path: provisioning/site-setup-api-parity.md
         - page: Boot Interfaces and DPU Policies
@@ -308,6 +310,8 @@ navigation:
               path: bootable_artifacts.md
             - page: Local Development
               path: development.md
+            - page: Instrumentation
+              path: observability/instrumentation.md
             - page: Running a PXE Client in a VM
               path: development/vm_pxe_client.md
             - page: TLS and SPIFFE Certificates

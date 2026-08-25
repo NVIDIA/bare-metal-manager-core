@@ -197,8 +197,20 @@ prefix = "10.40.9.0/24"      # CIDR of the underlay subnet
 gateway = "10.40.9.1"        # usually the first usable address
 mtu = 1500
 reserve_first = 2            # addresses to skip before allocating
-# allocation_strategy = "dynamic"   # or "static" for reservation-only DHCP
+# allocation_strategy = "dynamic"   # or "reserved" for reservation-only DHCP
 ```
+
+<Note>
+A zero-DPU host's BMC and host OS NIC may share this physical subnet/VLAN. Give
+the two interfaces distinct addresses from **one** `HostInband` segment; do not
+declare an overlapping `Underlay` segment for the same prefix.
+`bmc_ip_address` is optional: the default allocation retains the BMC's first
+DHCP address for the machine-interface row's lifetime. This is also supported
+when `dpu_policy = "nic"`, but it does not place the DPU BMC or DPU OOB
+interface on HostInband. See
+[Shared HostInband for a Host BMC and Host OS](../../provisioning/ip-and-network-configuration.md#15-shared-hostinband-for-a-host-bmc-and-host-os)
+for relay selection, DNS-subdomain, allocation, and isolation requirements.
+</Note>
 
 The same `[networks.<name>]` mechanism is used for `admin` and `underlay`
 segments; `hostinband` is the third config-declarable type. (Tenant segments are

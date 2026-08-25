@@ -5,11 +5,14 @@ package util
 
 import (
 	"fmt"
+	"net/http"
 	"testing"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 )
 
 func TestValidateLabels(t *testing.T) {
@@ -80,6 +83,38 @@ func TestValidateNameCharacters(t *testing.T) {
 				err = ValidateNameCharacters(&s)
 				assert.Equal(t, tc.expectErr, err != nil)
 			}
+		})
+	}
+}
+
+func TestValidateSitePowerManagement(t *testing.T) {
+	value := "balanced"
+	empty := ""
+	whitespace := "   "
+
+	tests := []struct {
+		name       string
+		config     *cdbm.SiteConfig
+		value      *string
+		wantReject bool
+	}{
+		{name: "missing config rejects value", value: &value, wantReject: true},
+		{name: "disabled rejects value", config: &cdbm.SiteConfig{}, value: &value, wantReject: true},
+		{name: "enabled accepts value", config: &cdbm.SiteConfig{DPSPowerManagement: true}, value: &value},
+		{name: "disabled accepts omission", config: &cdbm.SiteConfig{}},
+		{name: "disabled accepts clear", config: &cdbm.SiteConfig{}, value: &empty},
+		{name: "disabled rejects whitespace value", config: &cdbm.SiteConfig{}, value: &whitespace, wantReject: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			apiErr := ValidateSitePowerManagement(tt.config, tt.value)
+			if !tt.wantReject {
+				assert.Nil(t, apiErr)
+				return
+			}
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusPreconditionFailed, apiErr.Code)
 		})
 	}
 }
