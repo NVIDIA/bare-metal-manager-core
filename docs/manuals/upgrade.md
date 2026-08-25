@@ -31,9 +31,8 @@ Every installation phase is designed to be safe to re-run:
 - **PostgreSQL data**: all NICo Core and NICo REST database state, including host records, machine state, and site config in `nico-pg-cluster`. Keycloak realm data and Temporal workflow history live in a **separate** plain `postgres` StatefulSet in the same namespace (created in phase 7c) and are also preserved.
 - **MetalLB site config**: `IPAddressPool`, `BGPPeer`, `BGPAdvertisement`, and `L2Advertisement` instances. These are re-applied on every run so any manual changes outside `setup.sh` are reconciled back to the values in `values/metallb-config.yaml`.
 - **SSH host key**: the cluster SSH identity is preserved so BMC consoles do not require known-host updates.
-- **Site UUID**: the REST site identity and site-agent registration are preserved.
+- **Site UUID**: the REST site identity and site-agent registration are preserved — as long as `NICO_SITE_UUID` is unset or identical to the initial install; a different value deletes and re-creates the `site-registration` Secret.
 - **Certificates**: all cert-manager-managed certificates remain valid until their natural expiry; they are not reissued on upgrade unless the new release changes a Certificate spec.
-- **Site UUID caveat**: the `site-registration` Secret is deleted and re-created if `NICO_SITE_UUID` differs from the registered one — keep it unset (or identical to the initial install) on upgrades.
 
 ### What changes during an upgrade
 
