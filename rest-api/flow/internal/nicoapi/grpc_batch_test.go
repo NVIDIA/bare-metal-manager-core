@@ -6,6 +6,9 @@ package nicoapi
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -24,6 +27,8 @@ type recordingForgeClient struct {
 	versionErr      error
 	versionErrors   []error
 	versionDelay    time.Duration
+	machineIDDelay  time.Duration
+	machineDelay    time.Duration
 	switchIDDelay   time.Duration
 	switchDelay     time.Duration
 	shelfIDDelay    time.Duration
@@ -69,15 +74,22 @@ func (c *recordingForgeClient) Version(
 }
 
 func (c *recordingForgeClient) FindMachineIds(
-	_ context.Context,
+	ctx context.Context,
 	_ *corev1.MachineSearchConfig,
 	_ ...grpc.CallOption,
 ) (*corev1.MachineIdList, error) {
+	if c.machineIDDelay > 0 {
+		select {
+		case <-time.After(c.machineIDDelay):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	return &corev1.MachineIdList{MachineIds: stringsToMachineIds(c.machineIDs)}, nil
 }
 
 func (c *recordingForgeClient) FindMachinesByIds(
-	_ context.Context,
+	ctx context.Context,
 	request *corev1.MachinesByIdsRequest,
 	_ ...grpc.CallOption,
 ) (*corev1.MachineList, error) {
@@ -86,7 +98,15 @@ func (c *recordingForgeClient) FindMachinesByIds(
 	c.machineBatches = append(c.machineBatches, batch)
 	failed := c.failCall == len(c.machineBatches)
 	omitID := c.omitID
+	delay := c.machineDelay
 	c.mu.Unlock()
+	if delay > 0 {
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	if failed {
 		return nil, errors.New("injected machine lookup failure")
 	}
@@ -232,8 +252,20 @@ func TestGrpcClient_ActualInventoryRPCsHaveIndependentTimeouts(t *testing.T) {
 	testCases := []struct {
 		name   string
 		fake   *recordingForgeClient
-		invoke func(context.Context, *grpcClient) ([]ObservedControllerDevice, error)
+		invoke func(context.Context, *grpcClient) (int, error)
 	}{
+		{
+			name: "machines",
+			fake: &recordingForgeClient{
+				machineIDs:     []string{"machine-1"},
+				machineIDDelay: 120 * time.Millisecond,
+				machineDelay:   120 * time.Millisecond,
+			},
+			invoke: func(ctx context.Context, client *grpcClient) (int, error) {
+				machines, err := client.GetMachines(ctx)
+				return len(machines), err
+			},
+		},
 		{
 			name: "switches",
 			fake: &recordingForgeClient{
@@ -241,8 +273,9 @@ func TestGrpcClient_ActualInventoryRPCsHaveIndependentTimeouts(t *testing.T) {
 				switchIDDelay: 120 * time.Millisecond,
 				switchDelay:   120 * time.Millisecond,
 			},
-			invoke: func(ctx context.Context, client *grpcClient) ([]ObservedControllerDevice, error) {
-				return client.GetSwitches(ctx)
+			invoke: func(ctx context.Context, client *grpcClient) (int, error) {
+				devices, err := client.GetSwitches(ctx)
+				return len(devices), err
 			},
 		},
 		{
@@ -252,8 +285,9 @@ func TestGrpcClient_ActualInventoryRPCsHaveIndependentTimeouts(t *testing.T) {
 				shelfIDDelay: 120 * time.Millisecond,
 				shelfDelay:   120 * time.Millisecond,
 			},
-			invoke: func(ctx context.Context, client *grpcClient) ([]ObservedControllerDevice, error) {
-				return client.GetPowerShelves(ctx)
+			invoke: func(ctx context.Context, client *grpcClient) (int, error) {
+				devices, err := client.GetPowerShelves(ctx)
+				return len(devices), err
 			},
 		},
 	}
@@ -263,12 +297,10 @@ func TestGrpcClient_ActualInventoryRPCsHaveIndependentTimeouts(t *testing.T) {
 			client := newRecordingGRPCClient(tc.fake)
 			client.grpcTimeout = 200 * time.Millisecond
 
-			devices, err := tc.invoke(context.Background(), client)
+			count, err := tc.invoke(context.Background(), client)
 
 			require.NoError(t, err)
-			require.Len(t, devices, 1)
-			assert.NotEmpty(t, devices[0].ID)
-			assert.NotEmpty(t, devices[0].BmcMac)
+			assert.Equal(t, 1, count)
 		})
 	}
 }
@@ -425,7 +457,7 @@ func TestGrpcClient_ByIDLookupsHonorCoreBatchLimit(t *testing.T) {
 	}
 }
 
-func TestGrpcClient_ByIDLookupsTreatZeroOrAbsentLimitAsUnlimited(t *testing.T) {
+func TestGrpcClient_ByIDLookupsTreatZeroOrAbsentLimitAsServerUnlimited(t *testing.T) {
 	ids := []string{"a", "b", "c"}
 	tests := []struct {
 		name   string
@@ -443,6 +475,101 @@ func TestGrpcClient_ByIDLookupsTreatZeroOrAbsentLimitAsUnlimited(t *testing.T) {
 			require.NoError(t, err)
 			assert.Len(t, result, len(ids))
 			assert.Equal(t, [][]string{ids}, fake.switchBatches)
+		})
+	}
+}
+
+func TestGrpcClient_ByIDLookupsApplyFlowClientBatchCap(t *testing.T) {
+	ids := make([]string, 0, flowFindByIDsBatchSize*2+1)
+	for i := range flowFindByIDsBatchSize*2 + 1 {
+		ids = append(ids, fmt.Sprintf("switch-%03d", i))
+	}
+
+	tests := []struct {
+		name            string
+		coreLimit       uint32
+		expectedLengths []int
+	}{
+		{
+			name:            "unlimited Core still uses Flow cap",
+			coreLimit:       0,
+			expectedLengths: []int{flowFindByIDsBatchSize, flowFindByIDsBatchSize, 1},
+		},
+		{
+			name:            "larger Core limit uses Flow cap",
+			coreLimit:       flowFindByIDsBatchSize + 50,
+			expectedLengths: []int{flowFindByIDsBatchSize, flowFindByIDsBatchSize, 1},
+		},
+		{
+			name:            "smaller Core limit remains authoritative",
+			coreLimit:       60,
+			expectedLengths: []int{60, 60, 60, 21},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &recordingForgeClient{
+				runtimeConfig: &corev1.RuntimeConfig{MaxFindByIds: test.coreLimit},
+			}
+
+			result, err := newRecordingGRPCClient(fake).FindSwitchRackIDs(context.Background(), ids)
+
+			require.NoError(t, err)
+			assert.Len(t, result, len(ids))
+			require.Len(t, fake.switchBatches, len(test.expectedLengths))
+			for i, expectedLength := range test.expectedLengths {
+				assert.Len(t, fake.switchBatches[i], expectedLength)
+			}
+		})
+	}
+}
+
+func TestVisitFindByIDBatches(t *testing.T) {
+	tests := []struct {
+		name       string
+		visitError bool
+		wantEvents []string
+		wantError  string
+	}{
+		{
+			name:       "projects each batch before fetching the next",
+			wantEvents: []string{"fetch:a,b", "visit:a,b", "fetch:c,d", "visit:c,d"},
+		},
+		{
+			name:       "projection failure stops the lookup",
+			visitError: true,
+			wantEvents: []string{"fetch:a,b", "visit:a,b"},
+			wantError:  "injected projection failure",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var events []string
+			err := visitFindByIDBatches(
+				context.Background(),
+				func(context.Context) (uint32, error) { return 2, nil },
+				[]string{"a", "b", "c", "d"},
+				func(_ context.Context, batch []string) ([]string, error) {
+					events = append(events, "fetch:"+strings.Join(batch, ","))
+					return slices.Clone(batch), nil
+				},
+				func(batch []string) error {
+					events = append(events, "visit:"+strings.Join(batch, ","))
+					if test.visitError {
+						return errors.New("injected projection failure")
+					}
+					return nil
+				},
+			)
+
+			assert.Equal(t, test.wantEvents, events)
+			if test.wantError == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, test.wantError)
+			}
 		})
 	}
 }
@@ -485,6 +612,58 @@ func TestGrpcClient_ByIDLookupsRejectPartialResults(t *testing.T) {
 
 			require.Error(t, err)
 			assert.ErrorContains(t, err, test.errorString)
+			assert.Nil(t, result)
+		})
+	}
+}
+
+func TestGrpcClient_ActualInventoryRejectsPartialProjectedSnapshots(t *testing.T) {
+	ids := []string{"a", "b", "c", "d"}
+	tests := []struct {
+		name   string
+		fake   *recordingForgeClient
+		invoke func(context.Context, *grpcClient) (any, error)
+	}{
+		{
+			name: "machines",
+			fake: &recordingForgeClient{
+				runtimeConfig: &corev1.RuntimeConfig{MaxFindByIds: 2},
+				machineIDs:    ids,
+				failCall:      2,
+			},
+			invoke: func(ctx context.Context, client *grpcClient) (any, error) {
+				return client.GetMachines(ctx)
+			},
+		},
+		{
+			name: "switches",
+			fake: &recordingForgeClient{
+				runtimeConfig: &corev1.RuntimeConfig{MaxFindByIds: 2},
+				switchIDs:     ids,
+				failCall:      2,
+			},
+			invoke: func(ctx context.Context, client *grpcClient) (any, error) {
+				return client.GetSwitches(ctx)
+			},
+		},
+		{
+			name: "power shelves",
+			fake: &recordingForgeClient{
+				runtimeConfig: &corev1.RuntimeConfig{MaxFindByIds: 2},
+				shelfIDs:      ids,
+				failCall:      2,
+			},
+			invoke: func(ctx context.Context, client *grpcClient) (any, error) {
+				return client.GetPowerShelves(ctx)
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := test.invoke(context.Background(), newRecordingGRPCClient(test.fake))
+
+			require.Error(t, err)
 			assert.Nil(t, result)
 		})
 	}
