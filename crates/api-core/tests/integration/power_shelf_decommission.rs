@@ -15,50 +15,57 @@
  * limitations under the License.
  */
 
+use carbide_test_harness::prelude::*;
 use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use carbide_uuid::power_shelf::PowerShelfId;
-use carbide_uuid::rack::RackId;
+use carbide_uuid::rack::{RackId, RackProfileId};
 use model::power_shelf::{PowerShelf, PowerShelfControllerState};
+use model::rack::RackConfig;
+use model::test_support::{TEST_RMS_RACK_PROFILE_ID, power_shelf_config};
 use rpc::forge::DecommissionPowerShelfRequest;
-use rpc::forge::forge_server::Forge;
+use sqlx::PgConnection;
 use tonic::{Code, Request};
-
-use super::fixtures::power_shelf::set_power_shelf_controller_state;
-use crate::tests::common;
-use crate::tests::common::api_fixtures::create_test_env;
-use crate::tests::common::api_fixtures::site_explorer::TestRackDbBuilder;
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
-async fn load_power_shelf(pool: &sqlx::PgPool, id: PowerShelfId) -> TestResult<PowerShelf> {
+async fn load_power_shelf(pool: &PgPool, id: PowerShelfId) -> TestResult<PowerShelf> {
     let mut conn = pool.acquire().await?;
     Ok(db::power_shelf::find_by_id(&mut conn, &id)
         .await?
         .expect("power shelf should exist"))
 }
 
-#[crate::sqlx_test]
-async fn decommission_requires_ready_power_shelf(pool: sqlx::PgPool) -> TestResult {
-    let env = create_test_env(pool).await;
+async fn set_power_shelf_controller_state(
+    txn: &mut PgConnection,
+    power_shelf_id: &PowerShelfId,
+    state: PowerShelfControllerState,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE power_shelves SET controller_state = $1 WHERE id = $2")
+        .bind(serde_json::to_value(state).unwrap())
+        .bind(power_shelf_id)
+        .execute(txn)
+        .await?;
+
+    Ok(())
+}
+
+#[sqlx_test]
+async fn decommission_requires_ready_power_shelf(pool: PgPool) -> TestResult {
+    let env = TestHarness::builder(pool).build().await;
 
     let error = env
-        .api
+        .api()
         .decommission_power_shelf(Request::new(DecommissionPowerShelfRequest::default()))
         .await
         .expect_err("a missing power shelf ID must be rejected");
     assert_eq!(error.code(), Code::InvalidArgument);
 
-    let power_shelf_id = common::api_fixtures::site_explorer::new_power_shelf(
-        &env,
-        Some("Decommission precondition".to_string()),
-        None,
-        None,
-        None,
-    )
-    .await?;
+    let TestPowerShelf { id: power_shelf_id } = env
+        .create_power_shelf(power_shelf_config("Decommission precondition"))
+        .await;
 
     let error = env
-        .api
+        .api()
         .decommission_power_shelf(Request::new(DecommissionPowerShelfRequest {
             power_shelf_id: Some(power_shelf_id),
         }))
@@ -68,20 +75,16 @@ async fn decommission_requires_ready_power_shelf(pool: sqlx::PgPool) -> TestResu
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn decommission_rejects_instance_assigned_host_in_power_shelf_rack(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> TestResult {
-    let env = create_test_env(pool.clone()).await;
-    let power_shelf_id = common::api_fixtures::site_explorer::new_power_shelf(
-        &env,
-        Some("Assigned host preflight".to_string()),
-        None,
-        None,
-        None,
-    )
-    .await?;
+    let env = TestHarness::builder(pool.clone()).build().await;
+    let TestPowerShelf { id: power_shelf_id } = env
+        .create_power_shelf(power_shelf_config("Assigned host preflight"))
+        .await;
     let rack_id = RackId::new("power-shelf-decommission-rack");
+    let rack_profile_id = RackProfileId::new(TEST_RMS_RACK_PROFILE_ID);
     let host_id = MachineId::new(
         MachineIdSource::ProductBoardChassisSerial,
         [0x45; 32],
@@ -89,10 +92,14 @@ async fn decommission_rejects_instance_assigned_host_in_power_shelf_rack(
     );
 
     let mut txn = pool.begin().await?;
-    TestRackDbBuilder::new()
-        .with_rack_id(rack_id.clone())
-        .persist(txn.as_mut())
-        .await?;
+    db::rack::create(
+        txn.as_mut(),
+        &rack_id,
+        Some(&rack_profile_id),
+        &RackConfig::default(),
+        None,
+    )
+    .await?;
     sqlx::query("UPDATE power_shelves SET rack_id = $1 WHERE id = $2")
         .bind(&rack_id)
         .bind(power_shelf_id)
@@ -116,7 +123,7 @@ async fn decommission_rejects_instance_assigned_host_in_power_shelf_rack(
     txn.commit().await?;
 
     let error = env
-        .api
+        .api()
         .decommission_power_shelf(Request::new(DecommissionPowerShelfRequest {
             power_shelf_id: Some(power_shelf_id),
         }))
@@ -134,7 +141,7 @@ async fn decommission_rejects_instance_assigned_host_in_power_shelf_rack(
         .bind(host_id)
         .execute(&pool)
         .await?;
-    env.api
+    env.api()
         .decommission_power_shelf(Request::new(DecommissionPowerShelfRequest {
             power_shelf_id: Some(power_shelf_id),
         }))

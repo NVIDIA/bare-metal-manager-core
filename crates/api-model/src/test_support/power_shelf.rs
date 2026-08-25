@@ -15,5 +15,15 @@
  * limitations under the License.
  */
 
-mod bmc_rotation;
-mod fixtures;
+//! Power shelf model fixtures.
+
+use crate::power_shelf::PowerShelfConfig;
+
+/// Returns a power shelf config with capacity 100 and voltage 240.
+pub fn power_shelf_config(name: &str) -> PowerShelfConfig {
+    PowerShelfConfig {
+        name: name.to_string(),
+        capacity: Some(100),
+        voltage: Some(240),
+    }
+}

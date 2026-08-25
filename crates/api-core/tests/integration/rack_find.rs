@@ -16,15 +16,15 @@
  */
 
 use carbide_test_harness::prelude::*;
-use carbide_uuid::rack::RackId;
+use carbide_uuid::rack::{RackId, RackProfileId};
 use rpc::forge::{AdminForceDeleteRackRequest, DeleteRackRequest};
 use tonic::Code;
 
 #[sqlx_test]
 async fn test_find_rack_by_id(pool: PgPool) {
     let env = TestHarness::builder(pool).build().await;
-    let TestRack { id: rack_id1 } = env.create_rack().await;
-    let TestRack { id: rack_id2 } = env.create_rack().await;
+    let TestRack { id: rack_id1 } = env.create_rack(RackProfileId::new("rack")).await;
+    let TestRack { id: rack_id2 } = env.create_rack(RackProfileId::new("rack")).await;
 
     // Check the returned list of rack ids is what we expect.
     let rack_ids: Vec<RackId> = env
@@ -100,7 +100,7 @@ async fn test_find_rack_by_id(pool: PgPool) {
 #[sqlx_test]
 async fn test_force_delete_rack_success(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = TestHarness::builder(pool.clone()).build().await;
-    let TestRack { id: rack_id } = env.create_rack().await;
+    let TestRack { id: rack_id } = env.create_rack(RackProfileId::new("rack")).await;
 
     let mut txn = pool.begin().await?;
     db::state_history::persist(
@@ -174,7 +174,7 @@ async fn test_force_delete_rack_already_soft_deleted(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = TestHarness::builder(pool).build().await;
-    let TestRack { id: rack_id } = env.create_rack().await;
+    let TestRack { id: rack_id } = env.create_rack(RackProfileId::new("rack")).await;
 
     env.api()
         .delete_rack(tonic::Request::new(DeleteRackRequest {

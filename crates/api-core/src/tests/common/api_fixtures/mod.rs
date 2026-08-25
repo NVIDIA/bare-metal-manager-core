@@ -100,15 +100,12 @@ use model::machine::{
 };
 use model::metadata::Metadata;
 use model::network_security_group;
-use model::rack_type::{
-    RackCapabilitiesSet, RackCapabilityCompute, RackCapabilityPowerShelf, RackCapabilitySwitch,
-    RackHardwareTopology, RackProductFamily, RackProfile, RackProfileConfig,
-};
+use model::rack_type::{RackProfile, RackProfileConfig};
 use model::resource_pool::common::CommonPools;
 use model::resource_pool::{self};
 use model::tenant::TenantOrganizationId;
 use model::test_support::dpu::{DPU_BF3_INFO_JSON, DPU_BF4_INFO_JSON};
-use model::test_support::{DpuConfig, HardwareInfoTemplate, ManagedHostConfig};
+use model::test_support::{DpuConfig, HardwareInfoTemplate, ManagedHostConfig, rms_rack_profiles};
 use nras::{
     DeviceAttestationInfo, NrasError, ProcessedAttestationOutcome, RawAttestationOutcome,
     VerifierClient,
@@ -1042,41 +1039,12 @@ pub(in crate::tests) fn get_config() -> CarbideConfig {
     default_config::get()
 }
 
-/// Rack profile ID used by RMS-ready test fixtures.
-pub(in crate::tests) const TEST_RMS_RACK_PROFILE_ID: &str = "NVL72";
+pub(in crate::tests) use model::test_support::TEST_RMS_RACK_PROFILE_ID;
 
 /// Returns the default test config plus an RMS-ready NVL72 rack profile.
 pub(in crate::tests) fn get_config_with_rack_profiles() -> CarbideConfig {
     let mut config = get_config();
-    config.rack_profiles = RackProfileConfig {
-        rack_profiles: [(
-            TEST_RMS_RACK_PROFILE_ID.to_string(),
-            RackProfile {
-                product_family: Some(RackProductFamily::Gb200),
-                rack_hardware_topology: Some(RackHardwareTopology::Gb200Nvl72r1C2g4Topology),
-                rack_capabilities: RackCapabilitiesSet {
-                    compute: RackCapabilityCompute {
-                        count: 18,
-                        vendor: Some("NVIDIA".to_string()),
-                        ..Default::default()
-                    },
-                    switch: RackCapabilitySwitch {
-                        count: 9,
-                        vendor: Some("NVIDIA".to_string()),
-                        ..Default::default()
-                    },
-                    power_shelf: RackCapabilityPowerShelf {
-                        count: 8,
-                        vendor: Some("LiteOn".to_string()),
-                        ..Default::default()
-                    },
-                },
-                ..Default::default()
-            },
-        )]
-        .into_iter()
-        .collect(),
-    };
+    config.rack_profiles = rms_rack_profiles();
 
     config
 }

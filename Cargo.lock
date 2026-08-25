@@ -2721,17 +2721,23 @@ dependencies = [
  "carbide-rack",
  "carbide-redfish",
  "carbide-secrets",
+ "carbide-test-harness",
  "carbide-utils",
  "carbide-uuid",
+ "chrono",
  "component-manager",
  "config-version",
  "eyre",
  "librms",
  "mac_address",
  "opentelemetry 0.32.0",
+ "serde_json",
  "sqlx",
  "state-controller",
+ "tokio-util",
+ "tonic",
  "tracing",
+ "uuid",
 ]
 
 [[package]]

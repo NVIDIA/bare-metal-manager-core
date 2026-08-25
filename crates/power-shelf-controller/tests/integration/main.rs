@@ -15,5 +15,8 @@
  * limitations under the License.
  */
 
-mod bmc_rotation;
-mod fixtures;
+mod common;
+mod error_state;
+mod maintenance;
+mod power_shelf_deletion;
+mod reprovisioning;

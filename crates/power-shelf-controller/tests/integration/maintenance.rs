@@ -36,43 +36,38 @@
 
 use std::sync::Arc;
 
-use carbide_power_shelf_controller::context::{
-    PowerShelfStateHandlerContextObjects, PowerShelfStateHandlerServices,
-};
-use carbide_power_shelf_controller::handler::PowerShelfStateHandler;
-use carbide_power_shelf_controller::metrics::PowerShelfMetrics;
+use carbide_power_shelf_controller::context::PowerShelfStateHandlerServices;
 use carbide_secrets::credentials::Credentials;
 use carbide_secrets::test_support::credentials::TestCredentialManager;
+use carbide_test_harness::prelude::*;
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::{RackId, RackProfileId};
 use component_manager::compute_tray_manager::Backend as ComputeBackend;
 use component_manager::config::ComponentManagerConfig;
 use component_manager::nv_switch_manager::Backend as NvSwitchBackend;
 use component_manager::power_shelf_manager::Backend as PowerShelfBackend;
-use db::{
-    expected_power_shelf as db_expected_power_shelf, power_shelf as db_power_shelf, rack as db_rack,
-};
+use db::{expected_power_shelf as db_expected_power_shelf, power_shelf as db_power_shelf};
 use librms::protos::rack_manager as rms;
 use mac_address::MacAddress;
 use model::expected_power_shelf::ExpectedPowerShelf;
 use model::metadata::Metadata;
-use model::power_shelf::{PowerShelf, PowerShelfControllerState, PowerShelfMaintenanceOperation};
-use model::rack::RackConfig;
+use model::power_shelf::{PowerShelfControllerState, PowerShelfMaintenanceOperation};
+use model::test_support::{TEST_RMS_RACK_PROFILE_ID, power_shelf_config};
 use rpc::common::SystemPowerControl;
 use rpc::forge::component_power_control_request::Target;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{ComponentPowerControlRequest, PowerShelfIdList};
 use sqlx::PgConnection;
-use state_controller::db_write_batch::DbWriteBatch;
-use state_controller::state_handler::{StateHandler, StateHandlerContext, StateHandlerOutcome};
+use state_controller::state_handler::StateHandlerOutcome;
 use tonic::Request;
 
-use crate::tests::common::api_fixtures::site_explorer::new_power_shelf;
-use crate::tests::common::api_fixtures::{
-    TEST_RMS_RACK_PROFILE_ID, TestEnv, TestEnvOverrides, create_test_env_with_overrides,
-    get_config_with_rack_profiles,
+use crate::common::{
+    ControllerEnv, extract_transition, load_power_shelf, run_handler,
+    set_power_shelf_controller_state,
 };
-use crate::tests::power_shelf_state_controller::fixtures::power_shelf::set_power_shelf_controller_state;
+
+const TEST_BMC_USER: &str = "root";
+const TEST_BMC_PASSWORD: &str = "password";
 
 fn cm_power_action(operation: PowerShelfMaintenanceOperation) -> SystemPowerControl {
     match operation {
@@ -81,12 +76,22 @@ fn cm_power_action(operation: PowerShelfMaintenanceOperation) -> SystemPowerCont
     }
 }
 
+async fn commit_and_extract_transition(
+    mut outcome: StateHandlerOutcome<PowerShelfControllerState>,
+) -> Option<PowerShelfControllerState> {
+    if let Some(txn) = outcome.take_transaction() {
+        txn.commit().await.unwrap();
+    }
+    extract_transition(outcome)
+}
+
 async fn request_power_shelf_maintenance_via_cm(
-    env: &TestEnv,
+    env: &ControllerEnv,
     power_shelf_id: &PowerShelfId,
     operation: PowerShelfMaintenanceOperation,
 ) {
-    env.api
+    env.harness
+        .api()
         .component_power_control(Request::new(ComponentPowerControlRequest {
             target: Some(Target::PowerShelfIds(PowerShelfIdList {
                 ids: vec![*power_shelf_id],
@@ -98,39 +103,11 @@ async fn request_power_shelf_maintenance_via_cm(
         .expect("component_power_control should succeed");
 }
 
-const TEST_BMC_USER: &str = "root";
-const TEST_BMC_PASSWORD: &str = "password";
-
-async fn create_power_shelf_test_env(pool: sqlx::PgPool) -> TestEnv {
-    create_test_env_with_overrides(
-        pool,
-        TestEnvOverrides::with_config(get_config_with_rack_profiles()),
-    )
-    .await
-}
-
-async fn create_rms_power_shelf_rack(
-    pool: &sqlx::PgPool,
-) -> Result<RackId, Box<dyn std::error::Error>> {
-    let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
-    let rack_profile_id = RackProfileId::new(TEST_RMS_RACK_PROFILE_ID);
-    let mut txn = pool.acquire().await?;
-    db_rack::create(
-        &mut txn,
-        &rack_id,
-        Some(&rack_profile_id),
-        &RackConfig::default(),
-        None,
-    )
-    .await?;
-    Ok(rack_id)
-}
-
 /// Build a `PowerShelfStateHandlerServices` whose `component_manager` may be
 /// cleared (to exercise the "component manager not configured" path) while
 /// preserving the rest of the test environment's services.
 fn services_with_component_manager(
-    env: &TestEnv,
+    env: &ControllerEnv,
     component_manager: Option<Arc<component_manager::component_manager::ComponentManager>>,
 ) -> PowerShelfStateHandlerServices {
     PowerShelfStateHandlerServices {
@@ -143,7 +120,7 @@ fn services_with_component_manager(
             username: TEST_BMC_USER.into(),
             password: TEST_BMC_PASSWORD.into(),
         })),
-        per_object_metrics_registry: env.per_object_metrics_registry(),
+        per_object_metrics_registry: env.per_object_metrics_registry.clone(),
         rack_firmware_reprovisioning_enabled: false,
         redfish_client_pool: env.redfish_sim.clone(),
         bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
@@ -154,7 +131,7 @@ fn services_with_component_manager(
 }
 
 async fn build_test_component_manager(
-    env: &TestEnv,
+    env: &ControllerEnv,
     rms_client: Option<Arc<dyn librms::RmsApi>>,
 ) -> Option<Arc<component_manager::component_manager::ComponentManager>> {
     let config = ComponentManagerConfig {
@@ -170,7 +147,7 @@ async fn build_test_component_manager(
     };
     let component_manager = component_manager::component_manager::build_component_manager(
         &config,
-        get_config_with_rack_profiles().rack_profiles,
+        env.rack_profiles.clone(),
         rms_client,
         None,
         Some(env.pool.clone()),
@@ -207,7 +184,7 @@ async fn enter_maintenance(
 }
 
 /// Set the power shelf's BMC MAC and rack association directly. The
-/// `new_power_shelf` site-explorer fixture leaves both as `None`, but the
+/// shared power shelf fixture leaves both as `None`, but the
 /// handler's `batch_set_power_state` path needs both before it
 /// will even attempt the BMC IP lookup.
 ///
@@ -247,49 +224,6 @@ async fn set_power_shelf_rack_and_bmc(
         .unwrap();
 }
 
-async fn load_power_shelf(pool: &sqlx::PgPool, id: &PowerShelfId) -> PowerShelf {
-    let mut conn = pool.acquire().await.unwrap();
-    db_power_shelf::find_by_id(conn.as_mut(), id)
-        .await
-        .unwrap()
-        .expect("power shelf should exist")
-}
-
-/// Run one iteration of the state handler against the supplied power shelf.
-async fn run_handler(
-    services: &mut PowerShelfStateHandlerServices,
-    state: &mut PowerShelf,
-) -> StateHandlerOutcome<PowerShelfControllerState> {
-    let handler = PowerShelfStateHandler::default();
-    let mut metrics = PowerShelfMetrics::default();
-    let mut writes = DbWriteBatch::default();
-    let mut ctx = StateHandlerContext::<PowerShelfStateHandlerContextObjects> {
-        services,
-        metrics: &mut metrics,
-        pending_db_writes: &mut writes,
-    };
-    let controller_state = state.controller_state.value.clone();
-    let power_shelf_id = state.id;
-    handler
-        .handle_object_state(&power_shelf_id, state, &controller_state, &mut ctx)
-        .await
-        .expect("state handler should not return an error result")
-}
-
-/// Commit any txn embedded in the outcome (so DB side-effects land) and
-/// return the (now-detached) outcome's transition target if it is one.
-async fn commit_and_extract_transition(
-    mut outcome: StateHandlerOutcome<PowerShelfControllerState>,
-) -> Option<PowerShelfControllerState> {
-    if let Some(txn) = outcome.take_transaction() {
-        txn.commit().await.unwrap();
-    }
-    match outcome {
-        StateHandlerOutcome::Transition { next_state, .. } => Some(next_state),
-        _ => None,
-    }
-}
-
 fn assert_error_with_substring(state: &PowerShelfControllerState, expected_substring: &str) {
     match state {
         PowerShelfControllerState::Error { cause } => {
@@ -309,13 +243,16 @@ fn assert_error_with_substring(state: &PowerShelfControllerState, expected_subst
 
 // ── PowerOn ─────────────────────────────────────────────────────────────────
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn ready_transitions_to_maintenance_when_request_is_set_via_component_power_control(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_power_shelf_test_env(pool.clone()).await;
-    let power_shelf_id =
-        new_power_shelf(&env, Some("CM power-off".into()), None, None, None).await?;
+    let env = ControllerEnv::new(pool.clone()).await;
+    let power_shelf_id = env
+        .harness
+        .create_power_shelf(power_shelf_config("CM power-off"))
+        .await
+        .id;
 
     request_power_shelf_maintenance_via_cm(
         &env,
@@ -358,15 +295,22 @@ async fn ready_transitions_to_maintenance_when_request_is_set_via_component_powe
 /// underlay machine_interface is not provisioned in this layer's fixtures.
 /// The handler must surface a precise `no BMC IP found` error, must not
 /// invoke RMS, and must clear the maintenance request.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn power_on_transitions_to_error_when_bmc_ip_unresolvable(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_power_shelf_test_env(pool.clone()).await;
-    let power_shelf_id =
-        new_power_shelf(&env, Some("PowerOn no-ip".into()), None, None, None).await?;
+    let env = ControllerEnv::new(pool.clone()).await;
+    let power_shelf_id = env
+        .harness
+        .create_power_shelf(power_shelf_config("PowerOn no-ip"))
+        .await
+        .id;
 
-    let rack_id = create_rms_power_shelf_rack(&pool).await?;
+    let rack_id = env
+        .harness
+        .create_rack(RackProfileId::new(TEST_RMS_RACK_PROFILE_ID))
+        .await
+        .id;
     let bmc_mac: MacAddress = "AA:BB:CC:DD:EE:01".parse().unwrap();
 
     // Queue a success response so we can assert it was *not* consumed.
@@ -421,13 +365,16 @@ async fn power_on_transitions_to_error_when_bmc_ip_unresolvable(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn power_on_transitions_to_error_when_component_manager_missing(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_power_shelf_test_env(pool.clone()).await;
-    let power_shelf_id =
-        new_power_shelf(&env, Some("PowerOn no-rms".into()), None, None, None).await?;
+    let env = ControllerEnv::new(pool.clone()).await;
+    let power_shelf_id = env
+        .harness
+        .create_power_shelf(power_shelf_config("PowerOn no-rms"))
+        .await
+        .id;
     {
         let mut txn = pool.acquire().await?;
         enter_maintenance(
@@ -450,13 +397,16 @@ async fn power_on_transitions_to_error_when_component_manager_missing(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn power_on_transitions_to_error_when_rack_id_missing(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_power_shelf_test_env(pool.clone()).await;
-    let power_shelf_id =
-        new_power_shelf(&env, Some("PowerOn no-rack".into()), None, None, None).await?;
+    let env = ControllerEnv::new(pool.clone()).await;
+    let power_shelf_id = env
+        .harness
+        .create_power_shelf(power_shelf_config("PowerOn no-rack"))
+        .await
+        .id;
     let bmc_mac: MacAddress = "AA:BB:CC:DD:EE:02".parse().unwrap();
 
     {
@@ -486,14 +436,21 @@ async fn power_on_transitions_to_error_when_rack_id_missing(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn power_on_transitions_to_error_when_bmc_mac_missing(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_power_shelf_test_env(pool.clone()).await;
-    let power_shelf_id =
-        new_power_shelf(&env, Some("PowerOn no-mac".into()), None, None, None).await?;
-    let rack_id = create_rms_power_shelf_rack(&pool).await?;
+    let env = ControllerEnv::new(pool.clone()).await;
+    let power_shelf_id = env
+        .harness
+        .create_power_shelf(power_shelf_config("PowerOn no-mac"))
+        .await
+        .id;
+    let rack_id = env
+        .harness
+        .create_rack(RackProfileId::new(TEST_RMS_RACK_PROFILE_ID))
+        .await
+        .id;
 
     {
         let mut txn = pool.acquire().await?;
@@ -527,13 +484,16 @@ async fn power_on_transitions_to_error_when_bmc_mac_missing(
 
 // ── PowerOff ───────────────────────────────────────────────────────────────
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn power_off_transitions_to_error_when_component_manager_missing(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_power_shelf_test_env(pool.clone()).await;
-    let power_shelf_id =
-        new_power_shelf(&env, Some("PowerOff no-rms".into()), None, None, None).await?;
+    let env = ControllerEnv::new(pool.clone()).await;
+    let power_shelf_id = env
+        .harness
+        .create_power_shelf(power_shelf_config("PowerOff no-rms"))
+        .await
+        .id;
     {
         let mut txn = pool.acquire().await?;
         enter_maintenance(
@@ -565,13 +525,16 @@ async fn power_off_transitions_to_error_when_component_manager_missing(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn power_off_transitions_to_error_when_rack_id_missing(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_power_shelf_test_env(pool.clone()).await;
-    let power_shelf_id =
-        new_power_shelf(&env, Some("PowerOff no-rack".into()), None, None, None).await?;
+    let env = ControllerEnv::new(pool.clone()).await;
+    let power_shelf_id = env
+        .harness
+        .create_power_shelf(power_shelf_config("PowerOff no-rack"))
+        .await
+        .id;
     let bmc_mac: MacAddress = "AA:BB:CC:DD:EE:03".parse().unwrap();
 
     {
@@ -603,14 +566,21 @@ async fn power_off_transitions_to_error_when_rack_id_missing(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn power_off_transitions_to_error_when_bmc_mac_missing(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_power_shelf_test_env(pool.clone()).await;
-    let power_shelf_id =
-        new_power_shelf(&env, Some("PowerOff no-mac".into()), None, None, None).await?;
-    let rack_id = create_rms_power_shelf_rack(&pool).await?;
+    let env = ControllerEnv::new(pool.clone()).await;
+    let power_shelf_id = env
+        .harness
+        .create_power_shelf(power_shelf_config("PowerOff no-mac"))
+        .await
+        .id;
+    let rack_id = env
+        .harness
+        .create_rack(RackProfileId::new(TEST_RMS_RACK_PROFILE_ID))
+        .await
+        .id;
 
     {
         let mut txn = pool.acquire().await?;
@@ -642,13 +612,16 @@ async fn power_off_transitions_to_error_when_bmc_mac_missing(
 
 /// `Ready` should never invoke `batch_set_power_state`. This guards
 /// against accidentally wiring the maintenance dispatch into other states.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn ready_state_does_not_invoke_rms_set_power_state(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_power_shelf_test_env(pool.clone()).await;
-    let power_shelf_id =
-        new_power_shelf(&env, Some("Ready no-rms-call".into()), None, None, None).await?;
+    let env = ControllerEnv::new(pool.clone()).await;
+    let power_shelf_id = env
+        .harness
+        .create_power_shelf(power_shelf_config("Ready no-rms-call"))
+        .await
+        .id;
     {
         let mut txn = pool.acquire().await?;
         set_power_shelf_controller_state(
