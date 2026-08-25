@@ -50,7 +50,7 @@ orphaned tasks running in the background.
 ## TODO (roughly in order)
 
 - [x] Deploy in development environments
-- [x] Support IMPI-based connections (currently only works with SSH'able BMC's)
+- [x] Support IPMI-based connections (currently only supports SSH-capable BMCs)
 - [x] Implement metrics
 - [x] Better architecture docs/diagram in this README file
 - [ ] (NICo UI) Deploy to production environments and offer the SSH console URL to users as a beta URL
