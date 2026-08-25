@@ -38,7 +38,7 @@ use libredfish::model::update_service::{ComponentType, TransferProtocolType, Upd
 use libredfish::model::{ODataId, ODataLinks};
 use libredfish::{
     Assembly, Chassis, Collection, EnabledDisabled, JobState, ManagerResetType, NetworkAdapter,
-    PowerState, Redfish, RedfishError, Resource, SystemPowerControl,
+    PowerState, Redfish, RedfishError, Resource, SpxNicModelAndName, SystemPowerControl,
 };
 use mac_address::MacAddress;
 
@@ -693,6 +693,35 @@ impl Redfish for RedfishSimClient {
                 .push(RedfishSimAction::BmcReset(reset_type));
             Ok(())
         })
+    }
+
+    fn get_spx_nic_east_west_control_enabled<'a>(
+        &'a self,
+        _nic_index: u8,
+    ) -> libredfish::RedfishFuture<'a, Result<Option<bool>, RedfishError>> {
+        Box::pin(async move { Ok(None) })
+    }
+
+    fn set_spx_nic_east_west_control_enabled<'a>(
+        &'a self,
+        _nic_index: u8,
+        _enabled: bool,
+    ) -> libredfish::RedfishFuture<'a, Result<(), RedfishError>> {
+        Box::pin(async move { Ok(()) })
+    }
+
+    fn get_spx_nic_mac_address<'a>(
+        &'a self,
+        _nic_index: u8,
+    ) -> libredfish::RedfishFuture<'a, Result<Option<String>, RedfishError>> {
+        Box::pin(async move { Ok(None) })
+    }
+
+    fn get_spx_nic_model_and_name<'a>(
+        &'a self,
+        _nic_index: u8,
+    ) -> libredfish::RedfishFuture<'a, Result<Option<SpxNicModelAndName>, RedfishError>> {
+        Box::pin(async move { Ok(None) })
     }
 
     fn get_thermal_metrics<'a>(
