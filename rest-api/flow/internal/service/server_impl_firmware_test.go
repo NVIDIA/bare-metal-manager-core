@@ -14,9 +14,9 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/encryption"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/firmwareauth"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
-	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/secret"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 	pb "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/proto/v1"
@@ -70,7 +70,7 @@ func TestUpgradeFirmwareEncryptsAuthenticationDataBeforeSubmittingTask(t *testin
 func TestUpgradeFirmwareAuthenticationDataStatusCodes(t *testing.T) {
 	tests := []struct {
 		name               string
-		cipher             *secret.Cipher
+		cipher             *encryption.Cipher
 		authenticationData *pb.FirmwareAuthenticationData
 		subTargets         []string
 		wantCode           codes.Code
@@ -133,11 +133,11 @@ func (m *firmwareTaskManager) SubmitTask(
 }
 func (*firmwareTaskManager) CancelTask(context.Context, uuid.UUID) error { return nil }
 
-func newServiceTestCipher(t *testing.T) *secret.Cipher {
+func newServiceTestCipher(t *testing.T) *encryption.Cipher {
 	t.Helper()
 
 	key := make([]byte, 32)
-	cipher, err := secret.NewCipher(base64.StdEncoding.EncodeToString(key))
+	cipher, err := encryption.NewCipher(base64.StdEncoding.EncodeToString(key))
 	require.NoError(t, err)
 	return cipher
 }

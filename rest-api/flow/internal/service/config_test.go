@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/encryption"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/authz"
-	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/secret"
 	pkgcerts "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/certs"
 )
 
@@ -330,11 +330,11 @@ func TestConfigValidateRequiresDataCipher(t *testing.T) {
 	require.EqualError(t, err, "data encryption cipher is required")
 }
 
-func testDataCipher(t *testing.T) *secret.Cipher {
+func testDataCipher(t *testing.T) *encryption.Cipher {
 	t.Helper()
 
 	key := make([]byte, 32)
-	cipher, err := secret.NewCipher(base64.StdEncoding.EncodeToString(key))
+	cipher, err := encryption.NewCipher(base64.StdEncoding.EncodeToString(key))
 	require.NoError(t, err)
 	return cipher
 }

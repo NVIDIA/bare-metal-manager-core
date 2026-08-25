@@ -14,8 +14,8 @@ import (
 	"go.temporal.io/sdk/worker"
 	temporalworkflow "go.temporal.io/sdk/workflow"
 
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/encryption"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/clients/temporal"
-	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/secret"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/capabilityrequirements"
 	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager"
@@ -43,7 +43,7 @@ type Config struct {
 
 	// DataCipher decrypts sensitive operation fields only inside the final
 	// activity that needs their plaintext value.
-	DataCipher *secret.Cipher
+	DataCipher *encryption.Cipher
 }
 
 // Validate checks that the configuration is complete and consistent.

@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/secret"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/encryption"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 	pb "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/proto/v1"
 )
@@ -65,7 +65,7 @@ func TestEncryptAndDecryptFor(t *testing.T) {
 			encrypted, err := Encrypt(cipher, tt.authenticationData, nil)
 			require.NoError(t, err)
 			require.NotNil(t, encrypted)
-			require.Equal(t, secret.EncryptedDataVersion, encrypted.Version)
+			require.Equal(t, encryption.EncryptedDataVersion, encrypted.Version)
 			require.NotEmpty(t, encrypted.KeyID)
 			if tt.want != "" {
 				require.NotContains(t, string(encrypted.Ciphertext), tt.want)
@@ -119,8 +119,8 @@ func TestDecryptRejectsEnvelopeFailures(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		cipher  *secret.Cipher
-		mutate  func(*secret.EncryptedData)
+		cipher  *encryption.Cipher
+		mutate  func(*encryption.EncryptedData)
 		wantErr string
 	}{
 		{
@@ -131,7 +131,7 @@ func TestDecryptRejectsEnvelopeFailures(t *testing.T) {
 		{
 			name:   "wrong key ID",
 			cipher: cipher,
-			mutate: func(data *secret.EncryptedData) {
+			mutate: func(data *encryption.EncryptedData) {
 				data.KeyID = "different-key"
 			},
 			wantErr: "does not match configured key ID",
@@ -139,7 +139,7 @@ func TestDecryptRejectsEnvelopeFailures(t *testing.T) {
 		{
 			name:   "unsupported envelope version",
 			cipher: cipher,
-			mutate: func(data *secret.EncryptedData) {
+			mutate: func(data *encryption.EncryptedData) {
 				data.Version++
 			},
 			wantErr: "unsupported encrypted data version",
@@ -147,7 +147,7 @@ func TestDecryptRejectsEnvelopeFailures(t *testing.T) {
 		{
 			name:   "malformed ciphertext",
 			cipher: cipher,
-			mutate: func(data *secret.EncryptedData) {
+			mutate: func(data *encryption.EncryptedData) {
 				data.Ciphertext = []byte("short")
 			},
 			wantErr: "encrypted data is too short",
@@ -269,14 +269,14 @@ func perComponentAuthenticationData(
 	}
 }
 
-func newTestCipher(t *testing.T, fill byte) *secret.Cipher {
+func newTestCipher(t *testing.T, fill byte) *encryption.Cipher {
 	t.Helper()
 
 	key := make([]byte, 32)
 	for idx := range key {
 		key[idx] = fill
 	}
-	cipher, err := secret.NewCipher(base64.StdEncoding.EncodeToString(key))
+	cipher, err := encryption.NewCipher(base64.StdEncoding.EncodeToString(key))
 	require.NoError(t, err)
 	return cipher
 }

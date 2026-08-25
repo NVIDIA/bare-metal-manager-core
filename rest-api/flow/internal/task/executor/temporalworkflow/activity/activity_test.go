@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/encryption"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/firmwareauth"
-	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/secret"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/capability"
 	cmcatalog "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/catalog"
@@ -308,12 +308,12 @@ func (m *capabilityTestManager) GetFirmwareStatus(
 	return nil, nil
 }
 
-func newActivityTestCipher(t *testing.T) *secret.Cipher {
+func newActivityTestCipher(t *testing.T) *encryption.Cipher {
 	t.Helper()
 
 	key := make([]byte, 32)
 	encodedKey := base64.StdEncoding.EncodeToString(key)
-	cipher, err := secret.NewCipher(encodedKey)
+	cipher, err := encryption.NewCipher(encodedKey)
 	require.NoError(t, err)
 	return cipher
 }

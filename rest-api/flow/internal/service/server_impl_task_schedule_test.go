@@ -16,11 +16,11 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/encryption"
 	dbmodel "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/model"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/firmwareauth"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
 	taskschedule "github.com/NVIDIA/infra-controller/rest-api/flow/internal/scheduler/taskschedule"
-	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/secret"
 	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	identifier "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/Identifier"
@@ -76,7 +76,7 @@ func TestCreateTaskScheduleAuthenticationDataStatusCodes(t *testing.T) {
 	componentID := uuid.New()
 	tests := []struct {
 		name               string
-		cipher             *secret.Cipher
+		cipher             *encryption.Cipher
 		authenticationData *pb.FirmwareAuthenticationData
 		subTargets         []string
 		wantCode           codes.Code

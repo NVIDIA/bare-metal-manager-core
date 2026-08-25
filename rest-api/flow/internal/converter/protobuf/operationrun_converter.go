@@ -13,9 +13,9 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/encryption"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
 	operationrun "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun"
-	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/secret"
 	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
@@ -36,14 +36,14 @@ func OperationRunFrom(req *pb.CreateOperationRunRequest) (*operationrun.Operatio
 // template before its first serialization.
 func OperationRunFromWithFirmwareAuthentication(
 	req *pb.CreateOperationRunRequest,
-	authenticationData *secret.EncryptedData,
+	authenticationData *encryption.EncryptedData,
 ) (*operationrun.OperationRun, error) {
 	return operationRunFrom(req, authenticationData)
 }
 
 func operationRunFrom(
 	req *pb.CreateOperationRunRequest,
-	firmwareAuthenticationData *secret.EncryptedData,
+	firmwareAuthenticationData *encryption.EncryptedData,
 ) (*operationrun.OperationRun, error) {
 	if req == nil {
 		return nil, fmt.Errorf("create operation run request is required")

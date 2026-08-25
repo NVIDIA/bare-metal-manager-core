@@ -11,7 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/secret"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/encryption"
 	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
 )
 
@@ -284,8 +284,8 @@ type FirmwareControlTaskInfo struct {
 	// AuthenticationData remains encrypted while this payload is persisted in
 	// Flow or carried by Temporal. The final FirmwareControl activity decrypts
 	// it and sets AccessToken only on its in-memory copy.
-	AuthenticationData *secret.EncryptedData `json:"authentication_data,omitempty"`
-	AccessToken        string                `json:"-"`
+	AuthenticationData *encryption.EncryptedData `json:"authentication_data,omitempty"`
+	AccessToken        string                    `json:"-"`
 }
 
 func (t *FirmwareControlTaskInfo) Validate() error {

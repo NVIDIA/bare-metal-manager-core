@@ -17,11 +17,11 @@ import (
 	"github.com/spf13/cobra"
 	"go.temporal.io/sdk/worker"
 
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/encryption"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/authz"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/config"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
-	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/secret"
 	svc "github.com/NVIDIA/infra-controller/rest-api/flow/internal/service"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager"
 	cmbuiltin "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/builtin"
@@ -37,6 +37,7 @@ const (
 	componentMgrCfgEnvVar              = "COMPONENT_MANAGER_CONFIG"
 	allowedServiceIdentitiesFileEnvVar = "FLOW_AUTHORIZATION_ALLOWED_SERVICE_IDENTITIES_FILE"
 	authorizationModeEnvVar            = "FLOW_AUTHORIZATION_MODE"
+	dataEncryptionKeyPathEnvVar        = "FLOW_DATA_ENCRYPTION_KEY_PATH"
 
 	// computeImplEnvVar selects the compute component manager
 	// implementation at deploy time. This override exists for the
@@ -349,13 +350,13 @@ func doServe() {
 	}
 }
 
-func loadDataCipherFromEnv() (*secret.Cipher, error) {
-	path := strings.TrimSpace(os.Getenv(secret.EncryptionKeyPathEnvVar))
+func loadDataCipherFromEnv() (*encryption.Cipher, error) {
+	path := strings.TrimSpace(os.Getenv(dataEncryptionKeyPathEnvVar))
 	if path == "" {
-		return nil, fmt.Errorf("%s is not set", secret.EncryptionKeyPathEnvVar)
+		return nil, fmt.Errorf("%s is not set", dataEncryptionKeyPathEnvVar)
 	}
 
-	return secret.NewCipherFromFile(path)
+	return encryption.NewCipherFromFile(path)
 }
 
 func loadAuthorizationConfig() (authz.Config, error) {

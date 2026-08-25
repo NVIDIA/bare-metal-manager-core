@@ -21,6 +21,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/encryption"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/converter/protobuf"
 	dbquery "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/query"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/firmwareauth"
@@ -29,7 +30,6 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
 	operationrunmanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun/manager"
 	taskschedule "github.com/NVIDIA/infra-controller/rest-api/flow/internal/scheduler/taskschedule"
-	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/secret"
 	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/conflict"
 	taskmanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/manager"
@@ -55,7 +55,7 @@ type FlowServerImpl struct {
 	taskScheduleDispatcher     *taskschedule.Dispatcher    // Background poller that fires due task schedules
 	operationRunManager        operationrunmanager.Manager // Operation-run manager for run planning and persistence
 	conflictResolver           *conflict.Resolver          // Reused for inter-schedule conflict detection
-	dataCipher                 *secret.Cipher
+	dataCipher                 *encryption.Cipher
 	pb.UnimplementedFlowServer // Embedded protobuf server interface for forward compatibility
 }
 
@@ -78,7 +78,7 @@ func newServerImplementation(
 	taskScheduleStore taskschedule.Store,
 	taskScheduleDispatcher *taskschedule.Dispatcher,
 	operationRunManager operationrunmanager.Manager,
-	dataCipher *secret.Cipher,
+	dataCipher *encryption.Cipher,
 ) (*FlowServerImpl, error) {
 	return &FlowServerImpl{
 		inventoryManager:       inventoryManager,
