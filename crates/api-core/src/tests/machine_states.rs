@@ -5933,6 +5933,13 @@ async fn test_waiting_for_reboot_keeps_transient_bmc_error_retryable(pool: sqlx:
     assert_eq!(restart.verification_attempts, Some(1));
     txn.commit().await.unwrap();
 
+    assert_eq!(
+        load_host_state(&env, &host_id).await,
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::WaitingForRebootToReady,
+        }
+    );
+
     let actions = env.redfish_sim.actions_since(&checkpoint).all_hosts();
     assert!(
         actions
