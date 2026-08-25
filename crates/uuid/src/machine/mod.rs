@@ -579,6 +579,16 @@ pub enum MachineIdParseError {
     Encoding(String),
 }
 
+/// Represents a failure of a particular subtype of MachineId (HostMachineId, DpuMachineId, etc) to
+/// parse. Can either be due to the machine ID being invalid altogether, or of the wrong type.
+#[derive(thiserror::Error, Debug)]
+pub enum MachineIdSubtypeParseError {
+    #[error("not a valid machine ID: {0}")]
+    Invalid(#[from] MachineIdParseError),
+    #[error("machine ID is of wrong type: {0}")]
+    WrongType(#[from] InvalidMachineType),
+}
+
 impl FromStr for MachineId {
     type Err = MachineIdParseError;
 
@@ -634,7 +644,7 @@ impl<'de> Deserialize<'de> for MachineId {
 
 /// Error returned when a machine ID does not have the required machine type.
 #[derive(thiserror::Error, Debug)]
-#[error("invalid machine id: expected {expected}, got {actual}")]
+#[error("expected {expected}, got {actual}")]
 pub struct InvalidMachineType {
     expected: &'static str,
     actual: MachineId,

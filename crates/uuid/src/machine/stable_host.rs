@@ -32,6 +32,8 @@ impl StableHostMachineId {
         self.0.as_machine_id()
     }
 
+    /// Returns the underlying HostMachineId (which is allowed to be either a predicted or stable
+    /// host)
     pub fn as_host_machine_id(&self) -> &HostMachineId {
         &self.0
     }
@@ -78,11 +80,11 @@ impl TryFrom<HostMachineId> for StableHostMachineId {
 }
 
 impl FromStr for StableHostMachineId {
-    type Err = crate::machine::MachineIdParseError;
+    type Err = crate::machine::MachineIdSubtypeParseError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         let id = MachineId::from_str(value)?;
-        Self::try_from(id).map_err(|_| crate::machine::MachineIdParseError::Prefix(value.into()))
+        Ok(Self::try_from(id)?)
     }
 }
 

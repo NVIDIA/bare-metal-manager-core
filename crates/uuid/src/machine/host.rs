@@ -28,6 +28,7 @@ use super::{
 #[serde(transparent)]
 pub struct HostMachineId(pub(super) MachineId);
 
+/// Actual type-safe variants of a host machine ID, stable (fm100h) or predicted (fm100p)
 pub enum HostMachineIdSubtype {
     Stable(StableHostMachineId),
     Predicted(PredictedHostMachineId),
@@ -83,11 +84,11 @@ impl TryFrom<MachineId> for HostMachineId {
 }
 
 impl FromStr for HostMachineId {
-    type Err = crate::machine::MachineIdParseError;
+    type Err = crate::machine::MachineIdSubtypeParseError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         let id = MachineId::from_str(value)?;
-        Self::try_from(id).map_err(|_| crate::machine::MachineIdParseError::Prefix(value.into()))
+        Ok(Self::try_from(id)?)
     }
 }
 

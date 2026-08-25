@@ -54,11 +54,11 @@ impl TryFrom<MachineId> for DpuMachineId {
 }
 
 impl FromStr for DpuMachineId {
-    type Err = crate::machine::MachineIdParseError;
+    type Err = crate::machine::MachineIdSubtypeParseError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         let id = MachineId::from_str(value)?;
-        Self::try_from(id).map_err(|_| crate::machine::MachineIdParseError::Prefix(value.into()))
+        Ok(Self::try_from(id)?)
     }
 }
 
