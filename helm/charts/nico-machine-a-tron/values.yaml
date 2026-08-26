@@ -72,6 +72,41 @@ service:
     targetPort: 2222
   metrics:
     port: 9090
+  dhcpRelay:
+    port: 67
+
+## =============================================================================
+## DHCP Relay Mode
+## =============================================================================
+## When enabled, machine-a-tron obtains IP addresses through UDP relay to a
+## DHCP server instead of the Carbide API. This exercises the real DHCP packet
+## path in Kubernetes deployments.
+##
+## Prerequisites:
+##   - nico-dhcp must be deployed in the same namespace
+##   - A dedicated K8s ServiceCIDR for relay IPs (e.g., mat-dhcp-services)
+##
+## Each pod gets a unique ClusterIP Service for receiving DHCP replies:
+##   - Pod 0 (mat-0): baseIP + 0 (e.g., 10.96.127.10)
+##   - Pod 1 (mat-1): baseIP + 1 (e.g., 10.96.127.11)
+##
+## WARNING: Kubernetes ClusterIP addresses are immutable. Changing baseIP
+## after initial deployment requires deleting and recreating the Services.
+##
+dhcpRelay:
+  ## Base IP address for DHCP relay Services. Setting this enables relay mode.
+  ## Each pod's ClusterIP = baseIP + podIndex.
+  ## Must be from a ServiceCIDR available to the cluster.
+  ## Leave empty to use API mode (default).
+  baseIP: ""
+
+  ## UDP port for receiving DHCP replies. Must match the DHCP server's
+  ## relay response port (typically 67).
+  listenPort: 67
+
+  ## DHCP server address (host:port). Default: nico-dhcp.nico-system.svc.cluster.local:67
+  ## Override if nico-dhcp is deployed in a different namespace or uses a non-standard port.
+  serverAddress: ""
 
 certificate:
   serviceName: ""
@@ -101,9 +136,9 @@ envFrom:
 
 # startupProbe gates the livenessProbe until MAT has bound its redfish port.
 # MAT binds the port only after registering all expected machines via the API,
-# which takes O(hosts) time. Without a startupProbe the kubelet kills the pod
-# mid-registration (exit 137) once livenessProbe failures exceed failureThreshold
-# (issue #4298). Scale the failureThreshold to cover your largest deployment:
+# which can take a while for large deployments (time scales with host count).
+# Without a startupProbe the kubelet kills the pod mid-registration (exit 137)
+# Scale the failureThreshold to cover your largest deployment:
 #   hosts=2300  → default (20 * 30s = 10 min)
 #   hosts=4500  → failureThreshold: 60  (30 min)
 #   hosts=13500 → failureThreshold: 1200 (10 h, see machine-a-tron-scale.yaml)

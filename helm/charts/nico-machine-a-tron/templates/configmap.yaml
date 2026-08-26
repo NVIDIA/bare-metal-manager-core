@@ -56,6 +56,13 @@ Skip unconfigured pods
 {{- end }}
 
 {{- $name := printf "%s-%s" $baseName $podName }}
+
+{{/* Calculate DHCP relay IP for this pod (used in [dhcp] and machine configs) */}}
+{{- $dhcpRelayEnabled := include "nico-machine-a-tron.dhcpRelayEnabled" $root }}
+{{- $relayIP := "" }}
+{{- if $dhcpRelayEnabled }}
+{{- $relayIP = include "nico-machine-a-tron.dhcpRelayIP" (dict "baseIP" $root.Values.dhcpRelay.baseIP "podIndex" $podIndex) }}
+{{- end }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -103,6 +110,22 @@ data:
     dpu_bmc_password = {{ $root.Values.machineATron.dpuBmcPassword | quote }}
     {{- end }}
     api_refresh_interval = {{ $root.Values.machineATron.apiRefreshInterval | quote }}
+
+    {{/*
+    DHCP Configuration
+    When global.dhcp.enabled and dhcpRelay.baseIP are set, use UDP relay mode.
+    Otherwise, use API mode (default, no [dhcp] section needed).
+    */}}
+    {{- if $dhcpRelayEnabled }}
+    {{- $serverAddress := include "nico-machine-a-tron.dhcpServerAddress" $root }}
+    {{- $listenPort := $root.Values.dhcpRelay.listenPort | default 67 }}
+
+    [dhcp]
+    type = "udp_relay"
+    server_address = {{ $serverAddress | quote }}
+    listen_address = "0.0.0.0:{{ $listenPort }}"
+    advertise_address = {{ $relayIP | quote }}
+    {{- end }}
 
     [ufm_mock]
     enabled = {{ $root.Values.ufmMock.enabled }}
@@ -172,7 +195,11 @@ data:
     host_reboot_delay = {{ $section.host_reboot_delay | default $defaults.hostRebootDelay | int }}
     acceleration_factor = {{ $section.acceleration_factor | default $defaults.accelerationFactor | default 1.0 }}
     discovery_retry_interval = {{ $section.discovery_retry_interval | default $defaults.discoveryRetryInterval | default "60s" | quote }}
+    {{- if $dhcpRelayEnabled }}
+    oob_dhcp_relay_address = {{ $relayIP | quote }}
+    {{- else }}
     oob_dhcp_relay_address = {{ $section.oob_dhcp_relay_address | quote }}
+    {{- end }}
     admin_dhcp_relay_address = {{ $section.admin_dhcp_relay_address | quote }}
     {{- end }}
 
@@ -193,7 +220,11 @@ data:
     run_interval_working = {{ $section.runIntervalWorking | default $defaults.runIntervalWorking | default "1s" | quote }}
     run_interval_idle = {{ $section.runIntervalIdle | default $defaults.runIntervalIdle | default "10s" | quote }}
     network_status_run_interval = {{ $section.networkStatusRunInterval | default $defaults.networkStatusRunInterval | default "20s" | quote }}
+    {{- if $dhcpRelayEnabled }}
+    oob_dhcp_relay_address = {{ $relayIP | quote }}
+    {{- else }}
     oob_dhcp_relay_address = {{ $section.oobDhcpRelayAddress | default "192.168.192.1" | quote }}
+    {{- end }}
     admin_dhcp_relay_address = {{ $section.adminDhcpRelayAddress | default "192.168.176.1" | quote }}
     dpus_in_nic_mode = {{ $section.dpusInNicMode | default $defaults.dpusInNicMode | default false }}
     {{- with $section.hostFirmwareVersions }}

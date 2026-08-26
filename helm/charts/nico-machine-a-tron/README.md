@@ -379,6 +379,90 @@ depends on that volume's reclaim policy.
 | `generic_ami` | Generic AMI BMC |
 | `generic_supermicro` | Generic Supermicro BMC |
 
+### DHCP Relay Mode
+
+By default, machine-a-tron obtains IP addresses for simulated BMCs directly
+through the NICo API. DHCP relay mode exercises the real DHCP packet path
+by sending UDP DISCOVER/REQUEST packets to the nico-dhcp server.
+
+**When to use:** Scale testing that needs to validate the DHCP server's packet
+handling under load, or when testing DHCP relay agent behavior.
+
+**Prerequisites:**
+
+- `nico-dhcp` must be deployed (default: `nico-system` namespace)
+- A dedicated ServiceCIDR for DHCP relay IPs (recommended)
+
+**Setup:**
+
+1. Create a ServiceCIDR for DHCP relay services (Kubernetes 1.29+):
+
+   ```yaml
+   apiVersion: networking.k8s.io/v1beta1
+   kind: ServiceCIDR
+   metadata:
+     name: mat-dhcp-services
+   spec:
+     cidrs:
+       - 10.96.127.0/24
+   ```
+
+2. Configure the chart:
+
+   ```yaml
+   # values.yaml
+   dhcpRelay:
+     baseIP: "10.96.127.10" # First relay IP (from mat-dhcp-services CIDR)
+     listenPort: 67
+     # serverAddress: ""    # Optional: override DHCP server (default: nico-dhcp.nico-system.svc.cluster.local:67)
+
+   pods:
+     mat-0:
+       machines:
+         compute:
+           hwType: wiwynn_gb200_nvl
+           hostCount: 100
+     mat-1:
+       machines:
+         compute:
+           hwType: wiwynn_gb200_nvl
+           hostCount: 100
+   ```
+
+3. Each pod gets a unique ClusterIP for receiving DHCP replies:
+   - Pod `mat-0`: `10.96.127.10`
+   - Pod `mat-1`: `10.96.127.11`
+   - Pod `mat-2`: `10.96.127.12`
+   - etc.
+
+**How it works:**
+
+1. The chart creates a UDP Service per pod with an explicit ClusterIP from
+   `dhcpRelay.baseIP + podIndex`
+2. The pod's `mat.toml` is configured with `[dhcp] type = "udp_relay"`:
+   - `server_address` points to nico-dhcp ClusterIP
+   - `listen_address` binds to `0.0.0.0:<listenPort>`
+   - `advertise_address` is the pod's relay Service ClusterIP
+3. All machine groups in that pod automatically use the relay IP as their
+   `oob_dhcp_relay_address` (any user-provided value is overridden)
+4. Machine-a-tron sends DHCP packets with `giaddr` set to the advertise address
+5. nico-dhcp replies to the advertise address (the relay Service ClusterIP)
+6. The Service routes replies to the correct pod
+
+**Constraints:**
+
+- Relay Service ClusterIPs are **immutable** - changing `dhcpRelay.baseIP`
+  after deployment requires deleting the existing Services first
+- Each pod must have a unique IP - the chart auto-increments from baseIP
+- The baseIP range must not overlap with BMC Services or other Kubernetes
+  Services
+- When relay is enabled, you cannot use different `oob_dhcp_relay_address`
+  values per machine group within a pod - all machines share the pod's relay IP
+
+**Disable relay mode:**
+
+To use API mode (default), don't set `dhcpRelay.baseIP` (or set it to empty string).
+
 ---
 
 ## Troubleshooting
