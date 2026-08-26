@@ -248,6 +248,7 @@ service Forge {
   rpc FindPowerShelfStateHistories(PowerShelfStateHistoriesRequest) returns (StateHistories);
   rpc FindRackStateHistories(RackStateHistoriesRequest) returns (StateHistories);
   rpc FindSwitchStateHistories(SwitchStateHistoriesRequest) returns (StateHistories);
+  rpc FindSwitchHealthHistories(SwitchHealthHistoriesRequest) returns (HealthHistories);
   rpc FindNetworkSegmentStateHistories(NetworkSegmentStateHistoriesRequest) returns (StateHistories);
   rpc FindVpcPrefixStateHistories(VpcPrefixStateHistoriesRequest) returns (StateHistories);
   rpc FindSitePrefixStateHistories(SitePrefixStateHistoriesRequest) returns (StateHistories);
@@ -2625,6 +2626,14 @@ message StateHistoryRecords {
 
 message SwitchStateHistoriesRequest {
   repeated common.SwitchId switch_ids = 1;
+}
+
+message SwitchHealthHistoriesRequest {
+  repeated common.SwitchId switch_ids = 1;
+  // Optional: Start time of the range (inclusive) for filtering health history
+  google.protobuf.Timestamp start_time = 2;
+  // Optional: End time of the range (inclusive) for filtering health history
+  google.protobuf.Timestamp end_time = 3;
 }
 
 message StateHistories {

@@ -246,6 +246,23 @@ pub(crate) async fn find_switch_state_histories(
     Ok(tonic::Response::new(response))
 }
 
+pub(crate) async fn find_switch_health_histories(
+    api: &Api,
+    request: Request<rpc::SwitchHealthHistoriesRequest>,
+) -> Result<Response<rpc::HealthHistories>, Status> {
+    log_request_data(&request);
+    let request = request.into_inner();
+
+    crate::handlers::health::find_health_histories(
+        api,
+        request.switch_ids,
+        db::health_history::HealthHistoryTableId::Switch,
+        request.start_time,
+        request.end_time,
+    )
+    .await
+}
+
 // TODO: block if switch is in use (firmware update, etc.)
 pub(crate) async fn delete_switch(
     api: &Api,
