@@ -14,8 +14,8 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
+	"bytes"
 	"fmt"
 )
 
@@ -139,7 +139,6 @@ func (o *OperatingSystemIpxeArtifact) HasSha() bool {
 func (o *OperatingSystemIpxeArtifact) SetSha(v string) {
 	o.Sha.Set(&v)
 }
-
 // SetShaNil sets the value for Sha to be an explicit nil
 func (o *OperatingSystemIpxeArtifact) SetShaNil() {
 	o.Sha.Set(nil)
@@ -182,7 +181,6 @@ func (o *OperatingSystemIpxeArtifact) HasAuthType() bool {
 func (o *OperatingSystemIpxeArtifact) SetAuthType(v string) {
 	o.AuthType.Set(&v)
 }
-
 // SetAuthTypeNil sets the value for AuthType to be an explicit nil
 func (o *OperatingSystemIpxeArtifact) SetAuthTypeNil() {
 	o.AuthType.Set(nil)
@@ -225,7 +223,6 @@ func (o *OperatingSystemIpxeArtifact) HasAuthToken() bool {
 func (o *OperatingSystemIpxeArtifact) SetAuthToken(v string) {
 	o.AuthToken.Set(&v)
 }
-
 // SetAuthTokenNil sets the value for AuthToken to be an explicit nil
 func (o *OperatingSystemIpxeArtifact) SetAuthTokenNil() {
 	o.AuthToken.Set(nil)
@@ -269,7 +266,7 @@ func (o *OperatingSystemIpxeArtifact) SetCacheStrategy(v string) {
 }
 
 func (o OperatingSystemIpxeArtifact) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -309,10 +306,10 @@ func (o *OperatingSystemIpxeArtifact) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -367,3 +364,4 @@ func (v *NullableOperatingSystemIpxeArtifact) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

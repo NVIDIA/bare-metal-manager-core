@@ -22,13 +22,14 @@ import (
 	"strings"
 )
 
+
 // ServiceAccountAPIService ServiceAccountAPI service
 type ServiceAccountAPIService service
 
 type ApiGetCurrentServiceAccountRequest struct {
-	ctx        context.Context
+	ctx context.Context
 	ApiService *ServiceAccountAPIService
-	org        string
+	org string
 }
 
 func (r ApiGetCurrentServiceAccountRequest) Execute() (*ServiceAccount, *http.Response, error) {
@@ -38,31 +39,30 @@ func (r ApiGetCurrentServiceAccountRequest) Execute() (*ServiceAccount, *http.Re
 /*
 GetCurrentServiceAccount Retrieve Service Account status for current org
 
-# Retrieve Service Account status for current org
+Retrieve Service Account status for current org
 
 API service must be configured for Service Account access at the time of deployment. It cannot be enabled or disabled via API.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiGetCurrentServiceAccountRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiGetCurrentServiceAccountRequest
 */
 func (a *ServiceAccountAPIService) GetCurrentServiceAccount(ctx context.Context, org string) ApiGetCurrentServiceAccountRequest {
 	return ApiGetCurrentServiceAccountRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return ServiceAccount
+//  @return ServiceAccount
 func (a *ServiceAccountAPIService) GetCurrentServiceAccountExecute(r ApiGetCurrentServiceAccountRequest) (*ServiceAccount, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *ServiceAccount
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *ServiceAccount
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "ServiceAccountAPIService.GetCurrentServiceAccount")
@@ -123,8 +123,8 @@ func (a *ServiceAccountAPIService) GetCurrentServiceAccountExecute(r ApiGetCurre
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

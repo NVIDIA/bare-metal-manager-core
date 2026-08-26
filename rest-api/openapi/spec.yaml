@@ -10114,6 +10114,12 @@ paths:
         `PreventAllocations`. When an Instance is attached to the Machine,
         `acknowledgeAttachedInstance` must be `true`.
 
+        To recover DPUs stuck in ingestion (before the Machine reaches a ready
+        state), set `force` to `true`. A forced request restarts the ingestion
+        state machine and does not require the `HostUpdateInProgress` health
+        report precondition. `force` has no effect on assigned Machines, which
+        retain the standard reprovisioning approval flow.
+
         For Infrastructure Providers: Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
         For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled and Tenant Account with Machine's Provider. User must have authorization role with `TENANT_ADMIN` suffix.
@@ -16465,9 +16471,15 @@ components:
         acknowledgeAttachedInstance:
           type: boolean
           description: Acknowledges that an Instance is currently attached to the Machine and this action may disrupt Tenant workload on the Instance.
+        force:
+          type: boolean
+          default: false
+          description: Forces reprovisioning regardless of the Machine state to recover DPUs stuck in ingestion, restarting the ingestion state machine. When set, the `HostUpdateInProgress` health report precondition is not required. It has no effect on assigned Machines, which retain the standard reprovisioning approval flow.
       examples:
         - mode: Set
           updateFirmware: false
+        - mode: Set
+          force: true
     MachineHealthReportEntry:
       type: object
       title: MachineHealthReportEntry

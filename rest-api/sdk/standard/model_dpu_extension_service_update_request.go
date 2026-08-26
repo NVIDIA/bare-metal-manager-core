@@ -83,7 +83,6 @@ func (o *DpuExtensionServiceUpdateRequest) HasName() bool {
 func (o *DpuExtensionServiceUpdateRequest) SetName(v string) {
 	o.Name.Set(&v)
 }
-
 // SetNameNil sets the value for Name to be an explicit nil
 func (o *DpuExtensionServiceUpdateRequest) SetNameNil() {
 	o.Name.Set(nil)
@@ -126,7 +125,6 @@ func (o *DpuExtensionServiceUpdateRequest) HasDescription() bool {
 func (o *DpuExtensionServiceUpdateRequest) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *DpuExtensionServiceUpdateRequest) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -169,7 +167,6 @@ func (o *DpuExtensionServiceUpdateRequest) HasData() bool {
 func (o *DpuExtensionServiceUpdateRequest) SetData(v string) {
 	o.Data.Set(&v)
 }
-
 // SetDataNil sets the value for Data to be an explicit nil
 func (o *DpuExtensionServiceUpdateRequest) SetDataNil() {
 	o.Data.Set(nil)
@@ -245,7 +242,7 @@ func (o *DpuExtensionServiceUpdateRequest) SetObservability(v DpuExtensionServic
 }
 
 func (o DpuExtensionServiceUpdateRequest) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -307,3 +304,4 @@ func (v *NullableDpuExtensionServiceUpdateRequest) UnmarshalJSON(src []byte) err
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

@@ -186,7 +186,6 @@ func (o *Site) HasDescription() bool {
 func (o *Site) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *Site) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -293,7 +292,6 @@ func (o *Site) HasSiteControllerVersion() bool {
 func (o *Site) SetSiteControllerVersion(v string) {
 	o.SiteControllerVersion.Set(&v)
 }
-
 // SetSiteControllerVersionNil sets the value for SiteControllerVersion to be an explicit nil
 func (o *Site) SetSiteControllerVersionNil() {
 	o.SiteControllerVersion.Set(nil)
@@ -336,7 +334,6 @@ func (o *Site) HasSiteAgentVersion() bool {
 func (o *Site) SetSiteAgentVersion(v string) {
 	o.SiteAgentVersion.Set(&v)
 }
-
 // SetSiteAgentVersionNil sets the value for SiteAgentVersion to be an explicit nil
 func (o *Site) SetSiteAgentVersionNil() {
 	o.SiteAgentVersion.Set(nil)
@@ -379,7 +376,6 @@ func (o *Site) HasRegistrationToken() bool {
 func (o *Site) SetRegistrationToken(v string) {
 	o.RegistrationToken.Set(&v)
 }
-
 // SetRegistrationTokenNil sets the value for RegistrationToken to be an explicit nil
 func (o *Site) SetRegistrationTokenNil() {
 	o.RegistrationToken.Set(nil)
@@ -422,7 +418,6 @@ func (o *Site) HasRegistrationTokenExpiration() bool {
 func (o *Site) SetRegistrationTokenExpiration(v time.Time) {
 	o.RegistrationTokenExpiration.Set(&v)
 }
-
 // SetRegistrationTokenExpirationNil sets the value for RegistrationTokenExpiration to be an explicit nil
 func (o *Site) SetRegistrationTokenExpirationNil() {
 	o.RegistrationTokenExpiration.Set(nil)
@@ -465,7 +460,6 @@ func (o *Site) HasSerialConsoleHostname() bool {
 func (o *Site) SetSerialConsoleHostname(v string) {
 	o.SerialConsoleHostname.Set(&v)
 }
-
 // SetSerialConsoleHostnameNil sets the value for SerialConsoleHostname to be an explicit nil
 func (o *Site) SetSerialConsoleHostnameNil() {
 	o.SerialConsoleHostname.Set(nil)
@@ -540,7 +534,6 @@ func (o *Site) HasSerialConsoleIdleTimeout() bool {
 func (o *Site) SetSerialConsoleIdleTimeout(v int32) {
 	o.SerialConsoleIdleTimeout.Set(&v)
 }
-
 // SetSerialConsoleIdleTimeoutNil sets the value for SerialConsoleIdleTimeout to be an explicit nil
 func (o *Site) SetSerialConsoleIdleTimeoutNil() {
 	o.SerialConsoleIdleTimeout.Set(nil)
@@ -583,7 +576,6 @@ func (o *Site) HasSerialConsoleMaxSessionLength() bool {
 func (o *Site) SetSerialConsoleMaxSessionLength(v int32) {
 	o.SerialConsoleMaxSessionLength.Set(&v)
 }
-
 // SetSerialConsoleMaxSessionLengthNil sets the value for SerialConsoleMaxSessionLength to be an explicit nil
 func (o *Site) SetSerialConsoleMaxSessionLengthNil() {
 	o.SerialConsoleMaxSessionLength.Set(nil)
@@ -947,7 +939,7 @@ func (o *Site) SetGpuStats(v []MachineGPUStats) {
 }
 
 func (o Site) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -1066,3 +1058,4 @@ func (v *NullableSite) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

@@ -87,7 +87,6 @@ func (o *MachineInfiniBandInterface) HasGuid() bool {
 func (o *MachineInfiniBandInterface) SetGuid(v string) {
 	o.Guid.Set(&v)
 }
-
 // SetGuidNil sets the value for Guid to be an explicit nil
 func (o *MachineInfiniBandInterface) SetGuidNil() {
 	o.Guid.Set(nil)
@@ -130,7 +129,6 @@ func (o *MachineInfiniBandInterface) HasVendor() bool {
 func (o *MachineInfiniBandInterface) SetVendor(v string) {
 	o.Vendor.Set(&v)
 }
-
 // SetVendorNil sets the value for Vendor to be an explicit nil
 func (o *MachineInfiniBandInterface) SetVendorNil() {
 	o.Vendor.Set(nil)
@@ -173,7 +171,6 @@ func (o *MachineInfiniBandInterface) HasDevice() bool {
 func (o *MachineInfiniBandInterface) SetDevice(v string) {
 	o.Device.Set(&v)
 }
-
 // SetDeviceNil sets the value for Device to be an explicit nil
 func (o *MachineInfiniBandInterface) SetDeviceNil() {
 	o.Device.Set(nil)
@@ -216,7 +213,6 @@ func (o *MachineInfiniBandInterface) HasPath() bool {
 func (o *MachineInfiniBandInterface) SetPath(v string) {
 	o.Path.Set(&v)
 }
-
 // SetPathNil sets the value for Path to be an explicit nil
 func (o *MachineInfiniBandInterface) SetPathNil() {
 	o.Path.Set(nil)
@@ -291,7 +287,6 @@ func (o *MachineInfiniBandInterface) HasDescription() bool {
 func (o *MachineInfiniBandInterface) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *MachineInfiniBandInterface) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -334,7 +329,6 @@ func (o *MachineInfiniBandInterface) HasSlot() bool {
 func (o *MachineInfiniBandInterface) SetSlot(v string) {
 	o.Slot.Set(&v)
 }
-
 // SetSlotNil sets the value for Slot to be an explicit nil
 func (o *MachineInfiniBandInterface) SetSlotNil() {
 	o.Slot.Set(nil)
@@ -346,7 +340,7 @@ func (o *MachineInfiniBandInterface) UnsetSlot() {
 }
 
 func (o MachineInfiniBandInterface) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -414,3 +408,4 @@ func (v *NullableMachineInfiniBandInterface) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

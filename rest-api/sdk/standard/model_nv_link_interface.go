@@ -190,7 +190,6 @@ func (o *NVLinkInterface) HasNvLinkDomainId() bool {
 func (o *NVLinkInterface) SetNvLinkDomainId(v string) {
 	o.NvLinkDomainId.Set(&v)
 }
-
 // SetNvLinkDomainIdNil sets the value for NvLinkDomainId to be an explicit nil
 func (o *NVLinkInterface) SetNvLinkDomainIdNil() {
 	o.NvLinkDomainId.Set(nil)
@@ -265,7 +264,6 @@ func (o *NVLinkInterface) HasGpuGuid() bool {
 func (o *NVLinkInterface) SetGpuGuid(v string) {
 	o.GpuGuid.Set(&v)
 }
-
 // SetGpuGuidNil sets the value for GpuGuid to be an explicit nil
 func (o *NVLinkInterface) SetGpuGuidNil() {
 	o.GpuGuid.Set(nil)
@@ -405,7 +403,7 @@ func (o *NVLinkInterface) SetDeprecations(v []Deprecation) {
 }
 
 func (o NVLinkInterface) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -482,3 +480,4 @@ func (v *NullableNVLinkInterface) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

@@ -22,13 +22,14 @@ import (
 	"strings"
 )
 
+
 // NetworkSecurityGroupAPIService NetworkSecurityGroupAPI service
 type NetworkSecurityGroupAPIService service
 
 type ApiCreateNetworkSecurityGroupRequest struct {
-	ctx                               context.Context
-	ApiService                        *NetworkSecurityGroupAPIService
-	org                               string
+	ctx context.Context
+	ApiService *NetworkSecurityGroupAPIService
+	org string
 	networkSecurityGroupCreateRequest *NetworkSecurityGroupCreateRequest
 }
 
@@ -48,27 +49,27 @@ Create a Network Security Group for Tenant.
 
 Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiCreateNetworkSecurityGroupRequest
+
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiCreateNetworkSecurityGroupRequest
 */
 func (a *NetworkSecurityGroupAPIService) CreateNetworkSecurityGroup(ctx context.Context, org string) ApiCreateNetworkSecurityGroupRequest {
 	return ApiCreateNetworkSecurityGroupRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return NetworkSecurityGroup
+//  @return NetworkSecurityGroup
 func (a *NetworkSecurityGroupAPIService) CreateNetworkSecurityGroupExecute(r ApiCreateNetworkSecurityGroupRequest) (*NetworkSecurityGroup, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPost
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *NetworkSecurityGroup
+		localVarHTTPMethod   = http.MethodPost
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *NetworkSecurityGroup
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "NetworkSecurityGroupAPIService.CreateNetworkSecurityGroup")
@@ -131,8 +132,8 @@ func (a *NetworkSecurityGroupAPIService) CreateNetworkSecurityGroupExecute(r Api
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -142,8 +143,8 @@ func (a *NetworkSecurityGroupAPIService) CreateNetworkSecurityGroupExecute(r Api
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -153,8 +154,8 @@ func (a *NetworkSecurityGroupAPIService) CreateNetworkSecurityGroupExecute(r Api
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 412 {
@@ -164,8 +165,8 @@ func (a *NetworkSecurityGroupAPIService) CreateNetworkSecurityGroupExecute(r Api
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -175,8 +176,8 @@ func (a *NetworkSecurityGroupAPIService) CreateNetworkSecurityGroupExecute(r Api
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 501 {
@@ -186,8 +187,8 @@ func (a *NetworkSecurityGroupAPIService) CreateNetworkSecurityGroupExecute(r Api
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -205,9 +206,9 @@ func (a *NetworkSecurityGroupAPIService) CreateNetworkSecurityGroupExecute(r Api
 }
 
 type ApiDeleteNetworkSecurityGroupRequest struct {
-	ctx                    context.Context
-	ApiService             *NetworkSecurityGroupAPIService
-	org                    string
+	ctx context.Context
+	ApiService *NetworkSecurityGroupAPIService
+	org string
 	networkSecurityGroupId string
 }
 
@@ -218,35 +219,34 @@ func (r ApiDeleteNetworkSecurityGroupRequest) Execute() (*MessageResponse, *http
 /*
 DeleteNetworkSecurityGroup Delete Network Security Group
 
-# Delete a Network Security Group by ID
+Delete a Network Security Group by ID
 
 Org must have a Tenant entity. Instance must belong to Tenant. User must have authorization role with `TENANT_ADMIN` suffix.
 
 Deleting a Network Security Group will also delete all the associations and all policies.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param networkSecurityGroupId ID of the Network Security Group
-	@return ApiDeleteNetworkSecurityGroupRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param networkSecurityGroupId ID of the Network Security Group
+ @return ApiDeleteNetworkSecurityGroupRequest
 */
 func (a *NetworkSecurityGroupAPIService) DeleteNetworkSecurityGroup(ctx context.Context, org string, networkSecurityGroupId string) ApiDeleteNetworkSecurityGroupRequest {
 	return ApiDeleteNetworkSecurityGroupRequest{
-		ApiService:             a,
-		ctx:                    ctx,
-		org:                    org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		networkSecurityGroupId: networkSecurityGroupId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return MessageResponse
+//  @return MessageResponse
 func (a *NetworkSecurityGroupAPIService) DeleteNetworkSecurityGroupExecute(r ApiDeleteNetworkSecurityGroupRequest) (*MessageResponse, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodDelete
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *MessageResponse
+		localVarHTTPMethod   = http.MethodDelete
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *MessageResponse
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "NetworkSecurityGroupAPIService.DeleteNetworkSecurityGroup")
@@ -308,8 +308,8 @@ func (a *NetworkSecurityGroupAPIService) DeleteNetworkSecurityGroupExecute(r Api
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -319,8 +319,8 @@ func (a *NetworkSecurityGroupAPIService) DeleteNetworkSecurityGroupExecute(r Api
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -330,8 +330,8 @@ func (a *NetworkSecurityGroupAPIService) DeleteNetworkSecurityGroupExecute(r Api
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 412 {
@@ -341,8 +341,8 @@ func (a *NetworkSecurityGroupAPIService) DeleteNetworkSecurityGroupExecute(r Api
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -352,8 +352,8 @@ func (a *NetworkSecurityGroupAPIService) DeleteNetworkSecurityGroupExecute(r Api
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 501 {
@@ -363,8 +363,8 @@ func (a *NetworkSecurityGroupAPIService) DeleteNetworkSecurityGroupExecute(r Api
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -382,16 +382,16 @@ func (a *NetworkSecurityGroupAPIService) DeleteNetworkSecurityGroupExecute(r Api
 }
 
 type ApiGetAllNetworkSecurityGroupRequest struct {
-	ctx                    context.Context
-	ApiService             *NetworkSecurityGroupAPIService
-	org                    string
-	siteId                 *string
-	status                 *string
-	query                  *string
-	includeRelation        *string
-	pageNumber             *int32
-	pageSize               *int32
-	orderBy                *string
+	ctx context.Context
+	ApiService *NetworkSecurityGroupAPIService
+	org string
+	siteId *string
+	status *string
+	query *string
+	includeRelation *string
+	pageNumber *int32
+	pageSize *int32
+	orderBy *string
 	includeAttachmentStats *bool
 }
 
@@ -450,31 +450,31 @@ func (r ApiGetAllNetworkSecurityGroupRequest) Execute() ([]NetworkSecurityGroup,
 /*
 GetAllNetworkSecurityGroup Retrieve all Network Security Groups
 
-# Get all Network Security Groups for Tenant
+Get all Network Security Groups for Tenant
 
 Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiGetAllNetworkSecurityGroupRequest
+
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiGetAllNetworkSecurityGroupRequest
 */
 func (a *NetworkSecurityGroupAPIService) GetAllNetworkSecurityGroup(ctx context.Context, org string) ApiGetAllNetworkSecurityGroupRequest {
 	return ApiGetAllNetworkSecurityGroupRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return []NetworkSecurityGroup
+//  @return []NetworkSecurityGroup
 func (a *NetworkSecurityGroupAPIService) GetAllNetworkSecurityGroupExecute(r ApiGetAllNetworkSecurityGroupRequest) ([]NetworkSecurityGroup, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue []NetworkSecurityGroup
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  []NetworkSecurityGroup
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "NetworkSecurityGroupAPIService.GetAllNetworkSecurityGroup")
@@ -563,8 +563,8 @@ func (a *NetworkSecurityGroupAPIService) GetAllNetworkSecurityGroupExecute(r Api
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -574,8 +574,8 @@ func (a *NetworkSecurityGroupAPIService) GetAllNetworkSecurityGroupExecute(r Api
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -585,8 +585,8 @@ func (a *NetworkSecurityGroupAPIService) GetAllNetworkSecurityGroupExecute(r Api
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 501 {
@@ -596,8 +596,8 @@ func (a *NetworkSecurityGroupAPIService) GetAllNetworkSecurityGroupExecute(r Api
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -615,11 +615,11 @@ func (a *NetworkSecurityGroupAPIService) GetAllNetworkSecurityGroupExecute(r Api
 }
 
 type ApiGetNetworkSecurityGroupRequest struct {
-	ctx                    context.Context
-	ApiService             *NetworkSecurityGroupAPIService
-	org                    string
+	ctx context.Context
+	ApiService *NetworkSecurityGroupAPIService
+	org string
 	networkSecurityGroupId string
-	includeRelation        *string
+	includeRelation *string
 }
 
 // Related entity to expand
@@ -635,33 +635,33 @@ func (r ApiGetNetworkSecurityGroupRequest) Execute() (*NetworkSecurityGroup, *ht
 /*
 GetNetworkSecurityGroup Retrieve Network Security Group
 
-# Get a Network Security Group by ID
+Get a Network Security Group by ID
 
 Org must have a Tenant entity. Instance must belong to Tenant. User must have authorization role with `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param networkSecurityGroupId ID of the Network Security Group
-	@return ApiGetNetworkSecurityGroupRequest
+
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param networkSecurityGroupId ID of the Network Security Group
+ @return ApiGetNetworkSecurityGroupRequest
 */
 func (a *NetworkSecurityGroupAPIService) GetNetworkSecurityGroup(ctx context.Context, org string, networkSecurityGroupId string) ApiGetNetworkSecurityGroupRequest {
 	return ApiGetNetworkSecurityGroupRequest{
-		ApiService:             a,
-		ctx:                    ctx,
-		org:                    org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		networkSecurityGroupId: networkSecurityGroupId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return NetworkSecurityGroup
+//  @return NetworkSecurityGroup
 func (a *NetworkSecurityGroupAPIService) GetNetworkSecurityGroupExecute(r ApiGetNetworkSecurityGroupRequest) (*NetworkSecurityGroup, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *NetworkSecurityGroup
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *NetworkSecurityGroup
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "NetworkSecurityGroupAPIService.GetNetworkSecurityGroup")
@@ -726,8 +726,8 @@ func (a *NetworkSecurityGroupAPIService) GetNetworkSecurityGroupExecute(r ApiGet
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -737,8 +737,8 @@ func (a *NetworkSecurityGroupAPIService) GetNetworkSecurityGroupExecute(r ApiGet
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -748,8 +748,8 @@ func (a *NetworkSecurityGroupAPIService) GetNetworkSecurityGroupExecute(r ApiGet
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -759,8 +759,8 @@ func (a *NetworkSecurityGroupAPIService) GetNetworkSecurityGroupExecute(r ApiGet
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 501 {
@@ -770,8 +770,8 @@ func (a *NetworkSecurityGroupAPIService) GetNetworkSecurityGroupExecute(r ApiGet
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -789,10 +789,10 @@ func (a *NetworkSecurityGroupAPIService) GetNetworkSecurityGroupExecute(r ApiGet
 }
 
 type ApiUpdateNetworkSecurityGroupRequest struct {
-	ctx                               context.Context
-	ApiService                        *NetworkSecurityGroupAPIService
-	org                               string
-	networkSecurityGroupId            string
+	ctx context.Context
+	ApiService *NetworkSecurityGroupAPIService
+	org string
+	networkSecurityGroupId string
 	networkSecurityGroupUpdateRequest *NetworkSecurityGroupUpdateRequest
 }
 
@@ -808,35 +808,34 @@ func (r ApiUpdateNetworkSecurityGroupRequest) Execute() (*NetworkSecurityGroup, 
 /*
 UpdateNetworkSecurityGroup Update Network Security Group
 
-# Update a Network Security Group by ID
+Update a Network Security Group by ID
 
 Org must have a Tenant entity. Instance must belong to Tenant. User must have authorization role with `TENANT_ADMIN` suffix.
 
 After a group has been created, policy updates are absolute.  The complete desired policy set must be specified.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param networkSecurityGroupId ID of the Network Security Group
-	@return ApiUpdateNetworkSecurityGroupRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param networkSecurityGroupId ID of the Network Security Group
+ @return ApiUpdateNetworkSecurityGroupRequest
 */
 func (a *NetworkSecurityGroupAPIService) UpdateNetworkSecurityGroup(ctx context.Context, org string, networkSecurityGroupId string) ApiUpdateNetworkSecurityGroupRequest {
 	return ApiUpdateNetworkSecurityGroupRequest{
-		ApiService:             a,
-		ctx:                    ctx,
-		org:                    org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		networkSecurityGroupId: networkSecurityGroupId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return NetworkSecurityGroup
+//  @return NetworkSecurityGroup
 func (a *NetworkSecurityGroupAPIService) UpdateNetworkSecurityGroupExecute(r ApiUpdateNetworkSecurityGroupRequest) (*NetworkSecurityGroup, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPatch
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *NetworkSecurityGroup
+		localVarHTTPMethod   = http.MethodPatch
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *NetworkSecurityGroup
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "NetworkSecurityGroupAPIService.UpdateNetworkSecurityGroup")
@@ -900,8 +899,8 @@ func (a *NetworkSecurityGroupAPIService) UpdateNetworkSecurityGroupExecute(r Api
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -911,8 +910,8 @@ func (a *NetworkSecurityGroupAPIService) UpdateNetworkSecurityGroupExecute(r Api
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -922,8 +921,8 @@ func (a *NetworkSecurityGroupAPIService) UpdateNetworkSecurityGroupExecute(r Api
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -933,8 +932,8 @@ func (a *NetworkSecurityGroupAPIService) UpdateNetworkSecurityGroupExecute(r Api
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 501 {
@@ -944,8 +943,8 @@ func (a *NetworkSecurityGroupAPIService) UpdateNetworkSecurityGroupExecute(r Api
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

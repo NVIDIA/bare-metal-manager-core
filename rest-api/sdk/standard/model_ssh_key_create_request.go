@@ -14,8 +14,8 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
+	"bytes"
 	"fmt"
 )
 
@@ -133,7 +133,6 @@ func (o *SshKeyCreateRequest) HasSshKeyGroupId() bool {
 func (o *SshKeyCreateRequest) SetSshKeyGroupId(v string) {
 	o.SshKeyGroupId.Set(&v)
 }
-
 // SetSshKeyGroupIdNil sets the value for SshKeyGroupId to be an explicit nil
 func (o *SshKeyCreateRequest) SetSshKeyGroupIdNil() {
 	o.SshKeyGroupId.Set(nil)
@@ -145,7 +144,7 @@ func (o *SshKeyCreateRequest) UnsetSshKeyGroupId() {
 }
 
 func (o SshKeyCreateRequest) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -176,10 +175,10 @@ func (o *SshKeyCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -234,3 +233,4 @@ func (v *NullableSshKeyCreateRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

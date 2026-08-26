@@ -14,20 +14,20 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
+	"bytes"
 	"fmt"
 )
 
 // checks if the TaskReportV1 type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &TaskReportV1{}
 
-// TaskReportV1 Structured execution report (version 1) for a Flow-scheduled task. The document mirrors the structure of the operation rule that drives the workflow: each `Stage` corresponds to one rule stage and each `Step` within a stage corresponds to one rule sequence step at the same index.  Clients pick the decoder by the `version` field; future report schemas will be exposed as `TaskReportV2` etc. and conveyed via a parallel response field, leaving v1 consumers untouched.
+// TaskReportV1 Structured execution report (version 1) for a Flow-scheduled task. The document mirrors the structure of the operation rule that drives the workflow: each `Stage` corresponds to one rule stage and each `Step` within a stage corresponds to one rule sequence step at the same index.  Clients pick the decoder by the `version` field; future report schemas will be exposed as `TaskReportV2` etc. and conveyed via a parallel response field, leaving v1 consumers untouched. 
 type TaskReportV1 struct {
 	// Schema version of this report. Always `1` for `TaskReportV1`.
-	Version int32               `json:"version"`
-	Stages  []TaskReportV1Stage `json:"stages"`
-	// Top-level failure summary: the message from the first stage that fails in this report. Not overwritten by subsequent failures, so it remains the canonical task-level error. Truncated to 512 bytes by the producer.
+	Version int32 `json:"version"`
+	Stages []TaskReportV1Stage `json:"stages"`
+	// Top-level failure summary: the message from the first stage that fails in this report. Not overwritten by subsequent failures, so it remains the canonical task-level error. Truncated to 512 bytes by the producer. 
 	Error *string `json:"error,omitempty"`
 }
 
@@ -133,7 +133,7 @@ func (o *TaskReportV1) SetError(v string) {
 }
 
 func (o TaskReportV1) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -164,10 +164,10 @@ func (o *TaskReportV1) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -222,3 +222,4 @@ func (v *NullableTaskReportV1) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

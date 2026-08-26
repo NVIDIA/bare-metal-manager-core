@@ -14,10 +14,10 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
 	"time"
+	"bytes"
+	"fmt"
 )
 
 // checks if the DeviceCredentialRotationStatus type satisfies the MappedNullable interface at compile time
@@ -124,7 +124,6 @@ func (o *DeviceCredentialRotationStatus) HasCurrentVersion() bool {
 func (o *DeviceCredentialRotationStatus) SetCurrentVersion(v uint32) {
 	o.CurrentVersion.Set(&v)
 }
-
 // SetCurrentVersionNil sets the value for CurrentVersion to be an explicit nil
 func (o *DeviceCredentialRotationStatus) SetCurrentVersionNil() {
 	o.CurrentVersion.Set(nil)
@@ -167,7 +166,6 @@ func (o *DeviceCredentialRotationStatus) HasRotatingToVersion() bool {
 func (o *DeviceCredentialRotationStatus) SetRotatingToVersion(v uint32) {
 	o.RotatingToVersion.Set(&v)
 }
-
 // SetRotatingToVersionNil sets the value for RotatingToVersion to be an explicit nil
 func (o *DeviceCredentialRotationStatus) SetRotatingToVersionNil() {
 	o.RotatingToVersion.Set(nil)
@@ -258,7 +256,6 @@ func (o *DeviceCredentialRotationStatus) HasQuarantinedUntil() bool {
 func (o *DeviceCredentialRotationStatus) SetQuarantinedUntil(v time.Time) {
 	o.QuarantinedUntil.Set(&v)
 }
-
 // SetQuarantinedUntilNil sets the value for QuarantinedUntil to be an explicit nil
 func (o *DeviceCredentialRotationStatus) SetQuarantinedUntilNil() {
 	o.QuarantinedUntil.Set(nil)
@@ -325,7 +322,6 @@ func (o *DeviceCredentialRotationStatus) HasLastAttempted() bool {
 func (o *DeviceCredentialRotationStatus) SetLastAttempted(v time.Time) {
 	o.LastAttempted.Set(&v)
 }
-
 // SetLastAttemptedNil sets the value for LastAttempted to be an explicit nil
 func (o *DeviceCredentialRotationStatus) SetLastAttemptedNil() {
 	o.LastAttempted.Set(nil)
@@ -368,7 +364,6 @@ func (o *DeviceCredentialRotationStatus) HasLastError() bool {
 func (o *DeviceCredentialRotationStatus) SetLastError(v string) {
 	o.LastError.Set(&v)
 }
-
 // SetLastErrorNil sets the value for LastError to be an explicit nil
 func (o *DeviceCredentialRotationStatus) SetLastErrorNil() {
 	o.LastError.Set(nil)
@@ -380,7 +375,7 @@ func (o *DeviceCredentialRotationStatus) UnsetLastError() {
 }
 
 func (o DeviceCredentialRotationStatus) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -427,10 +422,10 @@ func (o *DeviceCredentialRotationStatus) UnmarshalJSON(data []byte) (err error) 
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -485,3 +480,4 @@ func (v *NullableDeviceCredentialRotationStatus) UnmarshalJSON(src []byte) error
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

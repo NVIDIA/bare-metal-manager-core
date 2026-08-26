@@ -91,7 +91,6 @@ func (o *MachineDMIData) HasBoardName() bool {
 func (o *MachineDMIData) SetBoardName(v string) {
 	o.BoardName.Set(&v)
 }
-
 // SetBoardNameNil sets the value for BoardName to be an explicit nil
 func (o *MachineDMIData) SetBoardNameNil() {
 	o.BoardName.Set(nil)
@@ -134,7 +133,6 @@ func (o *MachineDMIData) HasBoardSerial() bool {
 func (o *MachineDMIData) SetBoardSerial(v string) {
 	o.BoardSerial.Set(&v)
 }
-
 // SetBoardSerialNil sets the value for BoardSerial to be an explicit nil
 func (o *MachineDMIData) SetBoardSerialNil() {
 	o.BoardSerial.Set(nil)
@@ -177,7 +175,6 @@ func (o *MachineDMIData) HasBoardVersion() bool {
 func (o *MachineDMIData) SetBoardVersion(v string) {
 	o.BoardVersion.Set(&v)
 }
-
 // SetBoardVersionNil sets the value for BoardVersion to be an explicit nil
 func (o *MachineDMIData) SetBoardVersionNil() {
 	o.BoardVersion.Set(nil)
@@ -220,7 +217,6 @@ func (o *MachineDMIData) HasBiosDate() bool {
 func (o *MachineDMIData) SetBiosDate(v string) {
 	o.BiosDate.Set(&v)
 }
-
 // SetBiosDateNil sets the value for BiosDate to be an explicit nil
 func (o *MachineDMIData) SetBiosDateNil() {
 	o.BiosDate.Set(nil)
@@ -263,7 +259,6 @@ func (o *MachineDMIData) HasBiosVersion() bool {
 func (o *MachineDMIData) SetBiosVersion(v string) {
 	o.BiosVersion.Set(&v)
 }
-
 // SetBiosVersionNil sets the value for BiosVersion to be an explicit nil
 func (o *MachineDMIData) SetBiosVersionNil() {
 	o.BiosVersion.Set(nil)
@@ -306,7 +301,6 @@ func (o *MachineDMIData) HasProductName() bool {
 func (o *MachineDMIData) SetProductName(v string) {
 	o.ProductName.Set(&v)
 }
-
 // SetProductNameNil sets the value for ProductName to be an explicit nil
 func (o *MachineDMIData) SetProductNameNil() {
 	o.ProductName.Set(nil)
@@ -349,7 +343,6 @@ func (o *MachineDMIData) HasProductSerial() bool {
 func (o *MachineDMIData) SetProductSerial(v string) {
 	o.ProductSerial.Set(&v)
 }
-
 // SetProductSerialNil sets the value for ProductSerial to be an explicit nil
 func (o *MachineDMIData) SetProductSerialNil() {
 	o.ProductSerial.Set(nil)
@@ -392,7 +385,6 @@ func (o *MachineDMIData) HasChassisSerial() bool {
 func (o *MachineDMIData) SetChassisSerial(v string) {
 	o.ChassisSerial.Set(&v)
 }
-
 // SetChassisSerialNil sets the value for ChassisSerial to be an explicit nil
 func (o *MachineDMIData) SetChassisSerialNil() {
 	o.ChassisSerial.Set(nil)
@@ -435,7 +427,6 @@ func (o *MachineDMIData) HasSysVendor() bool {
 func (o *MachineDMIData) SetSysVendor(v string) {
 	o.SysVendor.Set(&v)
 }
-
 // SetSysVendorNil sets the value for SysVendor to be an explicit nil
 func (o *MachineDMIData) SetSysVendorNil() {
 	o.SysVendor.Set(nil)
@@ -447,7 +438,7 @@ func (o *MachineDMIData) UnsetSysVendor() {
 }
 
 func (o MachineDMIData) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -521,3 +512,4 @@ func (v *NullableMachineDMIData) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

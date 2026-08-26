@@ -22,13 +22,14 @@ import (
 	"strings"
 )
 
+
 // OperatingSystemAPIService OperatingSystemAPI service
 type OperatingSystemAPIService service
 
 type ApiCreateOperatingSystemRequest struct {
-	ctx                          context.Context
-	ApiService                   *OperatingSystemAPIService
-	org                          string
+	ctx context.Context
+	ApiService *OperatingSystemAPIService
+	org string
 	operatingSystemCreateRequest *OperatingSystemCreateRequest
 }
 
@@ -53,27 +54,26 @@ Ownership is derived from the caller's role:
 
 The `tenantId` field in the request body is deprecated; if provided, it must match the org's Tenant.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiCreateOperatingSystemRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiCreateOperatingSystemRequest
 */
 func (a *OperatingSystemAPIService) CreateOperatingSystem(ctx context.Context, org string) ApiCreateOperatingSystemRequest {
 	return ApiCreateOperatingSystemRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return OperatingSystem
+//  @return OperatingSystem
 func (a *OperatingSystemAPIService) CreateOperatingSystemExecute(r ApiCreateOperatingSystemRequest) (*OperatingSystem, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPost
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *OperatingSystem
+		localVarHTTPMethod   = http.MethodPost
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *OperatingSystem
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "OperatingSystemAPIService.CreateOperatingSystem")
@@ -136,8 +136,8 @@ func (a *OperatingSystemAPIService) CreateOperatingSystemExecute(r ApiCreateOper
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -147,8 +147,8 @@ func (a *OperatingSystemAPIService) CreateOperatingSystemExecute(r ApiCreateOper
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -166,9 +166,9 @@ func (a *OperatingSystemAPIService) CreateOperatingSystemExecute(r ApiCreateOper
 }
 
 type ApiDeleteOperatingSystemRequest struct {
-	ctx               context.Context
-	ApiService        *OperatingSystemAPIService
-	org               string
+	ctx context.Context
+	ApiService *OperatingSystemAPIService
+	org string
 	operatingSystemId string
 }
 
@@ -179,35 +179,34 @@ func (r ApiDeleteOperatingSystemRequest) Execute() (*MessageResponse, *http.Resp
 /*
 DeleteOperatingSystem Delete Operating System
 
-# Delete an Operating System by ID
+Delete an Operating System by ID
 
 If the Operating System has `infrastructureProviderId` set, then org must have an Infrastructure Provider entity and its ID should match the Operating System Infrastructure Provider ID. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
 If the Operating System has `tenantId` set, then org must have a Tenant entity and its ID should match the Operating System Tenant ID. User must have authorization role with `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param operatingSystemId ID of the Operating System
-	@return ApiDeleteOperatingSystemRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param operatingSystemId ID of the Operating System
+ @return ApiDeleteOperatingSystemRequest
 */
 func (a *OperatingSystemAPIService) DeleteOperatingSystem(ctx context.Context, org string, operatingSystemId string) ApiDeleteOperatingSystemRequest {
 	return ApiDeleteOperatingSystemRequest{
-		ApiService:        a,
-		ctx:               ctx,
-		org:               org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		operatingSystemId: operatingSystemId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return MessageResponse
+//  @return MessageResponse
 func (a *OperatingSystemAPIService) DeleteOperatingSystemExecute(r ApiDeleteOperatingSystemRequest) (*MessageResponse, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodDelete
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *MessageResponse
+		localVarHTTPMethod   = http.MethodDelete
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *MessageResponse
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "OperatingSystemAPIService.DeleteOperatingSystem")
@@ -269,8 +268,8 @@ func (a *OperatingSystemAPIService) DeleteOperatingSystemExecute(r ApiDeleteOper
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -288,17 +287,17 @@ func (a *OperatingSystemAPIService) DeleteOperatingSystemExecute(r ApiDeleteOper
 }
 
 type ApiGetAllOperatingSystemRequest struct {
-	ctx             context.Context
-	ApiService      *OperatingSystemAPIService
-	org             string
-	siteId          *string
-	type_           *string
-	status          *string
-	query           *string
+	ctx context.Context
+	ApiService *OperatingSystemAPIService
+	org string
+	siteId *string
+	type_ *string
+	status *string
+	query *string
 	includeRelation *string
-	pageNumber      *int32
-	pageSize        *int32
-	orderBy         *string
+	pageNumber *int32
+	pageSize *int32
+	orderBy *string
 }
 
 // Filter Operating Systems by Site ID.  Can be specified multiple times to filter on more than one ID.
@@ -364,27 +363,26 @@ User must have an authorization role with either the `PROVIDER_ADMIN` or `TENANT
 - Tenant admin: returns Operating Systems owned by the caller's Tenant, plus Provider-owned Operating Systems that are associated with at least one Site the Tenant can access.
 - Dual-role (both Provider and Tenant): returns the union of the Tenant's and the Provider's Operating Systems.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiGetAllOperatingSystemRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiGetAllOperatingSystemRequest
 */
 func (a *OperatingSystemAPIService) GetAllOperatingSystem(ctx context.Context, org string) ApiGetAllOperatingSystemRequest {
 	return ApiGetAllOperatingSystemRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return []OperatingSystem
+//  @return []OperatingSystem
 func (a *OperatingSystemAPIService) GetAllOperatingSystemExecute(r ApiGetAllOperatingSystemRequest) ([]OperatingSystem, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue []OperatingSystem
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  []OperatingSystem
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "OperatingSystemAPIService.GetAllOperatingSystem")
@@ -473,8 +471,8 @@ func (a *OperatingSystemAPIService) GetAllOperatingSystemExecute(r ApiGetAllOper
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -492,11 +490,11 @@ func (a *OperatingSystemAPIService) GetAllOperatingSystemExecute(r ApiGetAllOper
 }
 
 type ApiGetOperatingSystemRequest struct {
-	ctx               context.Context
-	ApiService        *OperatingSystemAPIService
-	org               string
+	ctx context.Context
+	ApiService *OperatingSystemAPIService
+	org string
 	operatingSystemId string
-	includeRelation   *string
+	includeRelation *string
 }
 
 // Related entity to expand
@@ -512,7 +510,7 @@ func (r ApiGetOperatingSystemRequest) Execute() (*OperatingSystem, *http.Respons
 /*
 GetOperatingSystem Retrieve Operating System
 
-# Get an Operating System by ID
+Get an Operating System by ID
 
 If the Operating System has `infrastructureProviderId` set, then org must have an Infrastructure Provider entity and its ID should match the Operating System Infrastructure Provider ID. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
@@ -520,29 +518,28 @@ If the Operating System has `tenantId` set, then org must have a Tenant entity a
 
 A Tenant admin may also read a Provider-owned Operating System when it is associated with at least one Site the Tenant can access.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param operatingSystemId ID of the Operating System
-	@return ApiGetOperatingSystemRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param operatingSystemId ID of the Operating System
+ @return ApiGetOperatingSystemRequest
 */
 func (a *OperatingSystemAPIService) GetOperatingSystem(ctx context.Context, org string, operatingSystemId string) ApiGetOperatingSystemRequest {
 	return ApiGetOperatingSystemRequest{
-		ApiService:        a,
-		ctx:               ctx,
-		org:               org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		operatingSystemId: operatingSystemId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return OperatingSystem
+//  @return OperatingSystem
 func (a *OperatingSystemAPIService) GetOperatingSystemExecute(r ApiGetOperatingSystemRequest) (*OperatingSystem, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *OperatingSystem
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *OperatingSystem
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "OperatingSystemAPIService.GetOperatingSystem")
@@ -607,8 +604,8 @@ func (a *OperatingSystemAPIService) GetOperatingSystemExecute(r ApiGetOperatingS
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -626,10 +623,10 @@ func (a *OperatingSystemAPIService) GetOperatingSystemExecute(r ApiGetOperatingS
 }
 
 type ApiUpdateOperatingSystemRequest struct {
-	ctx                          context.Context
-	ApiService                   *OperatingSystemAPIService
-	org                          string
-	operatingSystemId            string
+	ctx context.Context
+	ApiService *OperatingSystemAPIService
+	org string
+	operatingSystemId string
 	operatingSystemUpdateRequest *OperatingSystemUpdateRequest
 }
 
@@ -645,35 +642,34 @@ func (r ApiUpdateOperatingSystemRequest) Execute() (*OperatingSystem, *http.Resp
 /*
 UpdateOperatingSystem Update Operating System
 
-# Update an Operating System by ID
+Update an Operating System by ID
 
 If the Operating System has `infrastructureProviderId` set, then org must have an Infrastructure Provider entity and its ID should match the Operating System Infrastructure Provider ID. User must have authorization role with `PROVIDER_ADMIN` suffix. Provider must own the Operating System.
 
 If the Operating System has `tenantId` set, then org must have a Tenant entity and its ID should match the Operating System Tenant ID. User must have authorization role with `TENANT_ADMIN` suffix. Tenant must own the Operating System.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param operatingSystemId ID of the Operating System
-	@return ApiUpdateOperatingSystemRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param operatingSystemId ID of the Operating System
+ @return ApiUpdateOperatingSystemRequest
 */
 func (a *OperatingSystemAPIService) UpdateOperatingSystem(ctx context.Context, org string, operatingSystemId string) ApiUpdateOperatingSystemRequest {
 	return ApiUpdateOperatingSystemRequest{
-		ApiService:        a,
-		ctx:               ctx,
-		org:               org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		operatingSystemId: operatingSystemId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return OperatingSystem
+//  @return OperatingSystem
 func (a *OperatingSystemAPIService) UpdateOperatingSystemExecute(r ApiUpdateOperatingSystemRequest) (*OperatingSystem, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPatch
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *OperatingSystem
+		localVarHTTPMethod   = http.MethodPatch
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *OperatingSystem
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "OperatingSystemAPIService.UpdateOperatingSystem")
@@ -737,8 +733,8 @@ func (a *OperatingSystemAPIService) UpdateOperatingSystemExecute(r ApiUpdateOper
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -748,8 +744,8 @@ func (a *OperatingSystemAPIService) UpdateOperatingSystemExecute(r ApiUpdateOper
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

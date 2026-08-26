@@ -34010,8 +34010,12 @@ type DpuReprovisioningRequest struct {
 	Initiator      UpdateInitiator               `protobuf:"varint,3,opt,name=initiator,proto3,enum=forge.UpdateInitiator" json:"initiator,omitempty"`
 	UpdateFirmware bool                          `protobuf:"varint,4,opt,name=update_firmware,json=updateFirmware,proto3" json:"update_firmware,omitempty"`
 	MachineId      *MachineId                    `protobuf:"bytes,5,opt,name=machine_id,json=machineId,proto3" json:"machine_id,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Force reprovisioning regardless of the managed host state. Intended to
+	// recover DPUs stuck in ingestion (non-Ready, non-Assigned states) by
+	// restarting the ingestion state machine. Ignored for Assigned hosts.
+	Force         bool `protobuf:"varint,6,opt,name=force,proto3" json:"force,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DpuReprovisioningRequest) Reset() {
@@ -34077,6 +34081,13 @@ func (x *DpuReprovisioningRequest) GetMachineId() *MachineId {
 		return x.MachineId
 	}
 	return nil
+}
+
+func (x *DpuReprovisioningRequest) GetForce() bool {
+	if x != nil {
+		return x.Force
+	}
+	return false
 }
 
 type DpuReprovisioningListRequest struct {
@@ -67144,14 +67155,15 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x16IdentifySerialResponse\x12#\n" +
 	"\rserial_number\x18\x01 \x01(\tR\fserialNumber\x120\n" +
 	"\n" +
-	"machine_id\x18\x02 \x01(\v2\x11.common.MachineIdR\tmachineId\"\xb8\x02\n" +
+	"machine_id\x18\x02 \x01(\v2\x11.common.MachineIdR\tmachineId\"\xce\x02\n" +
 	"\x18DpuReprovisioningRequest\x12(\n" +
 	"\x06dpu_id\x18\x01 \x01(\v2\x11.common.MachineIdR\x05dpuId\x128\n" +
 	"\x04mode\x18\x02 \x01(\x0e2$.forge.DpuReprovisioningRequest.ModeR\x04mode\x124\n" +
 	"\tinitiator\x18\x03 \x01(\x0e2\x16.forge.UpdateInitiatorR\tinitiator\x12'\n" +
 	"\x0fupdate_firmware\x18\x04 \x01(\bR\x0eupdateFirmware\x120\n" +
 	"\n" +
-	"machine_id\x18\x05 \x01(\v2\x11.common.MachineIdR\tmachineId\"'\n" +
+	"machine_id\x18\x05 \x01(\v2\x11.common.MachineIdR\tmachineId\x12\x14\n" +
+	"\x05force\x18\x06 \x01(\bR\x05force\"'\n" +
 	"\x04Mode\x12\a\n" +
 	"\x03Set\x10\x00\x12\t\n" +
 	"\x05Clear\x10\x01\x12\v\n" +

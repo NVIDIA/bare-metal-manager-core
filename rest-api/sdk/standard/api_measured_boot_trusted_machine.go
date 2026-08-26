@@ -22,13 +22,14 @@ import (
 	"strings"
 )
 
+
 // MeasuredBootTrustedMachineAPIService MeasuredBootTrustedMachineAPI service
 type MeasuredBootTrustedMachineAPIService service
 
 type ApiCreateMeasuredBootTrustedMachineRequest struct {
-	ctx                                     context.Context
-	ApiService                              *MeasuredBootTrustedMachineAPIService
-	org                                     string
+	ctx context.Context
+	ApiService *MeasuredBootTrustedMachineAPIService
+	org string
 	measuredBootTrustedMachineCreateRequest *MeasuredBootTrustedMachineCreateRequest
 }
 
@@ -48,27 +49,26 @@ Approve a Machine, or all Machines using `*`, for automatic promotion of its nex
 
 Org must have an Infrastructure Provider entity that owns the Site. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiCreateMeasuredBootTrustedMachineRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiCreateMeasuredBootTrustedMachineRequest
 */
 func (a *MeasuredBootTrustedMachineAPIService) CreateMeasuredBootTrustedMachine(ctx context.Context, org string) ApiCreateMeasuredBootTrustedMachineRequest {
 	return ApiCreateMeasuredBootTrustedMachineRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return MeasuredBootTrustedMachine
+//  @return MeasuredBootTrustedMachine
 func (a *MeasuredBootTrustedMachineAPIService) CreateMeasuredBootTrustedMachineExecute(r ApiCreateMeasuredBootTrustedMachineRequest) (*MeasuredBootTrustedMachine, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPost
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *MeasuredBootTrustedMachine
+		localVarHTTPMethod   = http.MethodPost
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *MeasuredBootTrustedMachine
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "MeasuredBootTrustedMachineAPIService.CreateMeasuredBootTrustedMachine")
@@ -134,8 +134,8 @@ func (a *MeasuredBootTrustedMachineAPIService) CreateMeasuredBootTrustedMachineE
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -145,8 +145,8 @@ func (a *MeasuredBootTrustedMachineAPIService) CreateMeasuredBootTrustedMachineE
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -156,8 +156,8 @@ func (a *MeasuredBootTrustedMachineAPIService) CreateMeasuredBootTrustedMachineE
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -167,8 +167,8 @@ func (a *MeasuredBootTrustedMachineAPIService) CreateMeasuredBootTrustedMachineE
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -186,12 +186,12 @@ func (a *MeasuredBootTrustedMachineAPIService) CreateMeasuredBootTrustedMachineE
 }
 
 type ApiDeleteMeasuredBootTrustedMachineRequest struct {
-	ctx        context.Context
+	ctx context.Context
 	ApiService *MeasuredBootTrustedMachineAPIService
-	siteId     *string
-	selector   *string
-	org        string
-	id         string
+	siteId *string
+	selector *string
+	org string
+	id string
 }
 
 // ID of the Site
@@ -217,29 +217,28 @@ Delete a measured-boot trusted Machine approval by approval ID or Machine ID.
 
 Org must have an Infrastructure Provider entity that owns the Site. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param id Approval ID or Machine ID, as selected by the selector query parameter
-	@return ApiDeleteMeasuredBootTrustedMachineRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param id Approval ID or Machine ID, as selected by the selector query parameter
+ @return ApiDeleteMeasuredBootTrustedMachineRequest
 */
 func (a *MeasuredBootTrustedMachineAPIService) DeleteMeasuredBootTrustedMachine(ctx context.Context, org string, id string) ApiDeleteMeasuredBootTrustedMachineRequest {
 	return ApiDeleteMeasuredBootTrustedMachineRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		id:         id,
+		ctx: ctx,
+		org: org,
+		id: id,
 	}
 }
 
 // Execute executes the request
-//
-//	@return MeasuredBootTrustedMachine
+//  @return MeasuredBootTrustedMachine
 func (a *MeasuredBootTrustedMachineAPIService) DeleteMeasuredBootTrustedMachineExecute(r ApiDeleteMeasuredBootTrustedMachineRequest) (*MeasuredBootTrustedMachine, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodDelete
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *MeasuredBootTrustedMachine
+		localVarHTTPMethod   = http.MethodDelete
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *MeasuredBootTrustedMachine
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "MeasuredBootTrustedMachineAPIService.DeleteMeasuredBootTrustedMachine")
@@ -309,8 +308,8 @@ func (a *MeasuredBootTrustedMachineAPIService) DeleteMeasuredBootTrustedMachineE
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -320,8 +319,8 @@ func (a *MeasuredBootTrustedMachineAPIService) DeleteMeasuredBootTrustedMachineE
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -331,8 +330,8 @@ func (a *MeasuredBootTrustedMachineAPIService) DeleteMeasuredBootTrustedMachineE
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -342,8 +341,8 @@ func (a *MeasuredBootTrustedMachineAPIService) DeleteMeasuredBootTrustedMachineE
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -361,10 +360,10 @@ func (a *MeasuredBootTrustedMachineAPIService) DeleteMeasuredBootTrustedMachineE
 }
 
 type ApiGetAllMeasuredBootTrustedMachineRequest struct {
-	ctx        context.Context
+	ctx context.Context
 	ApiService *MeasuredBootTrustedMachineAPIService
-	siteId     *string
-	org        string
+	siteId *string
+	org string
 }
 
 // ID of the Site
@@ -384,27 +383,26 @@ Retrieve all measured-boot trusted Machine approvals for a Site.
 
 Org must have an Infrastructure Provider entity that owns the Site. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiGetAllMeasuredBootTrustedMachineRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiGetAllMeasuredBootTrustedMachineRequest
 */
 func (a *MeasuredBootTrustedMachineAPIService) GetAllMeasuredBootTrustedMachine(ctx context.Context, org string) ApiGetAllMeasuredBootTrustedMachineRequest {
 	return ApiGetAllMeasuredBootTrustedMachineRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return []MeasuredBootTrustedMachine
+//  @return []MeasuredBootTrustedMachine
 func (a *MeasuredBootTrustedMachineAPIService) GetAllMeasuredBootTrustedMachineExecute(r ApiGetAllMeasuredBootTrustedMachineRequest) ([]MeasuredBootTrustedMachine, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue []MeasuredBootTrustedMachine
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  []MeasuredBootTrustedMachine
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "MeasuredBootTrustedMachineAPIService.GetAllMeasuredBootTrustedMachine")
@@ -469,8 +467,8 @@ func (a *MeasuredBootTrustedMachineAPIService) GetAllMeasuredBootTrustedMachineE
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -480,8 +478,8 @@ func (a *MeasuredBootTrustedMachineAPIService) GetAllMeasuredBootTrustedMachineE
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -491,8 +489,8 @@ func (a *MeasuredBootTrustedMachineAPIService) GetAllMeasuredBootTrustedMachineE
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -502,8 +500,8 @@ func (a *MeasuredBootTrustedMachineAPIService) GetAllMeasuredBootTrustedMachineE
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

@@ -14,10 +14,10 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
 	"time"
+	"bytes"
+	"fmt"
 )
 
 // checks if the MachineValidationRun type satisfies the MappedNullable interface at compile time
@@ -36,8 +36,8 @@ type MachineValidationRun struct {
 	// Name of the validation run.
 	Name string `json:"name"`
 	// Context in which the validation run was created.
-	Context string                  `json:"context"`
-	Status  MachineValidationStatus `json:"status"`
+	Context string `json:"context"`
+	Status MachineValidationStatus `json:"status"`
 	// Estimated maximum duration of the validation run in seconds. A value of zero can mean the estimate has not yet been calculated.
 	DurationToCompleteSecs int64 `json:"durationToCompleteSecs"`
 }
@@ -264,7 +264,7 @@ func (o *MachineValidationRun) SetDurationToCompleteSecs(v int64) {
 }
 
 func (o MachineValidationRun) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -304,10 +304,10 @@ func (o *MachineValidationRun) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -362,3 +362,4 @@ func (v *NullableMachineValidationRun) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

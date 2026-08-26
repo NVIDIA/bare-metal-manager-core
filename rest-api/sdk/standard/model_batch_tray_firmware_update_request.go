@@ -14,8 +14,8 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
+	"bytes"
 	"fmt"
 )
 
@@ -152,7 +152,6 @@ func (o *BatchTrayFirmwareUpdateRequest) HasVersion() bool {
 func (o *BatchTrayFirmwareUpdateRequest) SetVersion(v string) {
 	o.Version.Set(&v)
 }
-
 // SetVersionNil sets the value for Version to be an explicit nil
 func (o *BatchTrayFirmwareUpdateRequest) SetVersionNil() {
 	o.Version.Set(nil)
@@ -227,7 +226,6 @@ func (o *BatchTrayFirmwareUpdateRequest) HasAuthenticationData() bool {
 func (o *BatchTrayFirmwareUpdateRequest) SetAuthenticationData(v FirmwareAuthenticationData) {
 	o.AuthenticationData.Set(&v)
 }
-
 // SetAuthenticationDataNil sets the value for AuthenticationData to be an explicit nil
 func (o *BatchTrayFirmwareUpdateRequest) SetAuthenticationDataNil() {
 	o.AuthenticationData.Set(nil)
@@ -303,7 +301,7 @@ func (o *BatchTrayFirmwareUpdateRequest) SetOverrideReadinessCheck(v bool) {
 }
 
 func (o BatchTrayFirmwareUpdateRequest) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -347,10 +345,10 @@ func (o *BatchTrayFirmwareUpdateRequest) UnmarshalJSON(data []byte) (err error) 
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -405,3 +403,4 @@ func (v *NullableBatchTrayFirmwareUpdateRequest) UnmarshalJSON(src []byte) error
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

@@ -14,8 +14,8 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
+	"bytes"
 	"fmt"
 )
 
@@ -33,7 +33,7 @@ type CreateRuleRequest struct {
 	// Operation type the rule applies to.
 	OperationType string `json:"operationType"`
 	// Operation code within the operation type. For `PowerControl`, accepted values are `power_on`, `force_power_on`, `power_off`, `force_power_off`, `restart`, `force_restart`, `warm_reset`, and `cold_reset`. For `FirmwareControl`, accepted values are `upgrade`, `downgrade`, and `rollback`. The server validates the code against the selected type.
-	OperationCode  string         `json:"operationCode"`
+	OperationCode string `json:"operationCode"`
 	RuleDefinition RuleDefinition `json:"ruleDefinition"`
 }
 
@@ -214,7 +214,7 @@ func (o *CreateRuleRequest) SetRuleDefinition(v RuleDefinition) {
 }
 
 func (o CreateRuleRequest) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -251,10 +251,10 @@ func (o *CreateRuleRequest) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -309,3 +309,4 @@ func (v *NullableCreateRuleRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

@@ -22,16 +22,17 @@ import (
 	"strings"
 )
 
+
 // CredentialRotationAPIService CredentialRotationAPI service
 type CredentialRotationAPIService service
 
 type ApiGetCredentialRotationStatusRequest struct {
-	ctx            context.Context
-	ApiService     *CredentialRotationAPIService
-	siteId         *string
+	ctx context.Context
+	ApiService *CredentialRotationAPIService
+	siteId *string
 	credentialType *string
-	org            string
-	deviceMac      *string
+	org string
+	deviceMac *string
 }
 
 // ID of the Site to query.
@@ -66,27 +67,26 @@ and a per-device detail block is returned. Equivalent to
 
 User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiGetCredentialRotationStatusRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiGetCredentialRotationStatusRequest
 */
 func (a *CredentialRotationAPIService) GetCredentialRotationStatus(ctx context.Context, org string) ApiGetCredentialRotationStatusRequest {
 	return ApiGetCredentialRotationStatusRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return CredentialRotationStatus
+//  @return CredentialRotationStatus
 func (a *CredentialRotationAPIService) GetCredentialRotationStatusExecute(r ApiGetCredentialRotationStatusRequest) (*CredentialRotationStatus, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *CredentialRotationStatus
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *CredentialRotationStatus
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "CredentialRotationAPIService.GetCredentialRotationStatus")
@@ -158,8 +158,8 @@ func (a *CredentialRotationAPIService) GetCredentialRotationStatusExecute(r ApiG
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -169,8 +169,8 @@ func (a *CredentialRotationAPIService) GetCredentialRotationStatusExecute(r ApiG
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -180,8 +180,8 @@ func (a *CredentialRotationAPIService) GetCredentialRotationStatusExecute(r ApiG
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -199,9 +199,9 @@ func (a *CredentialRotationAPIService) GetCredentialRotationStatusExecute(r ApiG
 }
 
 type ApiRotateCredentialRequest struct {
-	ctx                       context.Context
-	ApiService                *CredentialRotationAPIService
-	org                       string
+	ctx context.Context
+	ApiService *CredentialRotationAPIService
+	org string
 	credentialRotationRequest *CredentialRotationRequest
 }
 
@@ -224,27 +224,26 @@ convergence. Equivalent to `nico-admin-cli credential rotate`.
 
 User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiRotateCredentialRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiRotateCredentialRequest
 */
 func (a *CredentialRotationAPIService) RotateCredential(ctx context.Context, org string) ApiRotateCredentialRequest {
 	return ApiRotateCredentialRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return CredentialRotationResult
+//  @return CredentialRotationResult
 func (a *CredentialRotationAPIService) RotateCredentialExecute(r ApiRotateCredentialRequest) (*CredentialRotationResult, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPost
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *CredentialRotationResult
+		localVarHTTPMethod   = http.MethodPost
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *CredentialRotationResult
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "CredentialRotationAPIService.RotateCredential")
@@ -310,8 +309,8 @@ func (a *CredentialRotationAPIService) RotateCredentialExecute(r ApiRotateCreden
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -321,8 +320,8 @@ func (a *CredentialRotationAPIService) RotateCredentialExecute(r ApiRotateCreden
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

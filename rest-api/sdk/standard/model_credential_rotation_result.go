@@ -14,10 +14,10 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
 	"time"
+	"bytes"
+	"fmt"
 )
 
 // checks if the CredentialRotationResult type satisfies the MappedNullable interface at compile time
@@ -134,7 +134,6 @@ func (o *CredentialRotationResult) HasStarted() bool {
 func (o *CredentialRotationResult) SetStarted(v time.Time) {
 	o.Started.Set(&v)
 }
-
 // SetStartedNil sets the value for Started to be an explicit nil
 func (o *CredentialRotationResult) SetStartedNil() {
 	o.Started.Set(nil)
@@ -146,7 +145,7 @@ func (o *CredentialRotationResult) UnsetStarted() {
 }
 
 func (o CredentialRotationResult) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -177,10 +176,10 @@ func (o *CredentialRotationResult) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -235,3 +234,4 @@ func (v *NullableCredentialRotationResult) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

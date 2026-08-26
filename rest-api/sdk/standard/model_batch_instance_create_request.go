@@ -14,8 +14,8 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
+	"bytes"
 	"fmt"
 )
 
@@ -178,7 +178,6 @@ func (o *BatchInstanceCreateRequest) HasDescription() bool {
 func (o *BatchInstanceCreateRequest) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *BatchInstanceCreateRequest) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -325,7 +324,6 @@ func (o *BatchInstanceCreateRequest) HasUserData() bool {
 func (o *BatchInstanceCreateRequest) SetUserData(v string) {
 	o.UserData.Set(&v)
 }
-
 // SetUserDataNil sets the value for UserData to be an explicit nil
 func (o *BatchInstanceCreateRequest) SetUserDataNil() {
 	o.UserData.Set(nil)
@@ -368,7 +366,6 @@ func (o *BatchInstanceCreateRequest) HasOperatingSystemId() bool {
 func (o *BatchInstanceCreateRequest) SetOperatingSystemId(v string) {
 	o.OperatingSystemId.Set(&v)
 }
-
 // SetOperatingSystemIdNil sets the value for OperatingSystemId to be an explicit nil
 func (o *BatchInstanceCreateRequest) SetOperatingSystemIdNil() {
 	o.OperatingSystemId.Set(nil)
@@ -411,7 +408,6 @@ func (o *BatchInstanceCreateRequest) HasPowerProfile() bool {
 func (o *BatchInstanceCreateRequest) SetPowerProfile(v string) {
 	o.PowerProfile.Set(&v)
 }
-
 // SetPowerProfileNil sets the value for PowerProfile to be an explicit nil
 func (o *BatchInstanceCreateRequest) SetPowerProfileNil() {
 	o.PowerProfile.Set(nil)
@@ -454,7 +450,6 @@ func (o *BatchInstanceCreateRequest) HasNetworkSecurityGroupId() bool {
 func (o *BatchInstanceCreateRequest) SetNetworkSecurityGroupId(v string) {
 	o.NetworkSecurityGroupId.Set(&v)
 }
-
 // SetNetworkSecurityGroupIdNil sets the value for NetworkSecurityGroupId to be an explicit nil
 func (o *BatchInstanceCreateRequest) SetNetworkSecurityGroupIdNil() {
 	o.NetworkSecurityGroupId.Set(nil)
@@ -497,7 +492,6 @@ func (o *BatchInstanceCreateRequest) HasIpxeScript() bool {
 func (o *BatchInstanceCreateRequest) SetIpxeScript(v string) {
 	o.IpxeScript.Set(&v)
 }
-
 // SetIpxeScriptNil sets the value for IpxeScript to be an explicit nil
 func (o *BatchInstanceCreateRequest) SetIpxeScriptNil() {
 	o.IpxeScript.Set(nil)
@@ -829,7 +823,7 @@ func (o *BatchInstanceCreateRequest) SetTopologyOptimized(v bool) {
 }
 
 func (o BatchInstanceCreateRequest) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -914,10 +908,10 @@ func (o *BatchInstanceCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -972,3 +966,4 @@ func (v *NullableBatchInstanceCreateRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

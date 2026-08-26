@@ -148,7 +148,6 @@ func (o *OperatingSystemSiteAssociation) HasVersion() bool {
 func (o *OperatingSystemSiteAssociation) SetVersion(v string) {
 	o.Version.Set(&v)
 }
-
 // SetVersionNil sets the value for Version to be an explicit nil
 func (o *OperatingSystemSiteAssociation) SetVersionNil() {
 	o.Version.Set(nil)
@@ -224,7 +223,7 @@ func (o *OperatingSystemSiteAssociation) SetUpdated(v time.Time) {
 }
 
 func (o OperatingSystemSiteAssociation) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -286,3 +285,4 @@ func (v *NullableOperatingSystemSiteAssociation) UnmarshalJSON(src []byte) error
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

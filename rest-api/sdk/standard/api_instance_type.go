@@ -22,13 +22,14 @@ import (
 	"strings"
 )
 
+
 // InstanceTypeAPIService InstanceTypeAPI service
 type InstanceTypeAPIService service
 
 type ApiCreateInstanceTypeRequest struct {
-	ctx                       context.Context
-	ApiService                *InstanceTypeAPIService
-	org                       string
+	ctx context.Context
+	ApiService *InstanceTypeAPIService
+	org string
 	instanceTypeCreateRequest *InstanceTypeCreateRequest
 }
 
@@ -48,27 +49,27 @@ Create an Instance Type for Infrastructure Provider.
 
 Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiCreateInstanceTypeRequest
+
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiCreateInstanceTypeRequest
 */
 func (a *InstanceTypeAPIService) CreateInstanceType(ctx context.Context, org string) ApiCreateInstanceTypeRequest {
 	return ApiCreateInstanceTypeRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return InstanceType
+//  @return InstanceType
 func (a *InstanceTypeAPIService) CreateInstanceTypeExecute(r ApiCreateInstanceTypeRequest) (*InstanceType, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPost
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *InstanceType
+		localVarHTTPMethod   = http.MethodPost
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *InstanceType
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "InstanceTypeAPIService.CreateInstanceType")
@@ -131,8 +132,8 @@ func (a *InstanceTypeAPIService) CreateInstanceTypeExecute(r ApiCreateInstanceTy
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -142,8 +143,8 @@ func (a *InstanceTypeAPIService) CreateInstanceTypeExecute(r ApiCreateInstanceTy
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -161,10 +162,10 @@ func (a *InstanceTypeAPIService) CreateInstanceTypeExecute(r ApiCreateInstanceTy
 }
 
 type ApiCreateInstanceTypeMachineAssociationRequest struct {
-	ctx                              context.Context
-	ApiService                       *InstanceTypeAPIService
-	org                              string
-	instanceTypeId                   string
+	ctx context.Context
+	ApiService *InstanceTypeAPIService
+	org string
+	instanceTypeId string
 	machineInstanceTypeCreateRequest *MachineInstanceTypeCreateRequest
 }
 
@@ -180,35 +181,34 @@ func (r ApiCreateInstanceTypeMachineAssociationRequest) Execute() ([]MachineInst
 /*
 CreateInstanceTypeMachineAssociation Create a Machine/Instance Type association
 
-# Associate a Machine to an Instance Type
+Associate a Machine to an Instance Type
 
 Org must have an Infrastructure Provider entity that owns the Instance Type and the Machine. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
 The Machine's capabilities must be a superset of the Instance Type's required capabilities for the association to succeed.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param instanceTypeId ID of the Instance Type
-	@return ApiCreateInstanceTypeMachineAssociationRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param instanceTypeId ID of the Instance Type
+ @return ApiCreateInstanceTypeMachineAssociationRequest
 */
 func (a *InstanceTypeAPIService) CreateInstanceTypeMachineAssociation(ctx context.Context, org string, instanceTypeId string) ApiCreateInstanceTypeMachineAssociationRequest {
 	return ApiCreateInstanceTypeMachineAssociationRequest{
-		ApiService:     a,
-		ctx:            ctx,
-		org:            org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		instanceTypeId: instanceTypeId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return []MachineInstanceType
+//  @return []MachineInstanceType
 func (a *InstanceTypeAPIService) CreateInstanceTypeMachineAssociationExecute(r ApiCreateInstanceTypeMachineAssociationRequest) ([]MachineInstanceType, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPost
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue []MachineInstanceType
+		localVarHTTPMethod   = http.MethodPost
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  []MachineInstanceType
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "InstanceTypeAPIService.CreateInstanceTypeMachineAssociation")
@@ -272,8 +272,8 @@ func (a *InstanceTypeAPIService) CreateInstanceTypeMachineAssociationExecute(r A
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -283,8 +283,8 @@ func (a *InstanceTypeAPIService) CreateInstanceTypeMachineAssociationExecute(r A
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -302,9 +302,9 @@ func (a *InstanceTypeAPIService) CreateInstanceTypeMachineAssociationExecute(r A
 }
 
 type ApiDeleteInstanceTypeRequest struct {
-	ctx            context.Context
-	ApiService     *InstanceTypeAPIService
-	org            string
+	ctx context.Context
+	ApiService *InstanceTypeAPIService
+	org string
 	instanceTypeId string
 }
 
@@ -319,29 +319,28 @@ Delete an Instance Type by ID.
 
 Org must have an Infrastructure Provider entity that owns the Instance Type. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param instanceTypeId ID of the Instance Type
-	@return ApiDeleteInstanceTypeRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param instanceTypeId ID of the Instance Type
+ @return ApiDeleteInstanceTypeRequest
 */
 func (a *InstanceTypeAPIService) DeleteInstanceType(ctx context.Context, org string, instanceTypeId string) ApiDeleteInstanceTypeRequest {
 	return ApiDeleteInstanceTypeRequest{
-		ApiService:     a,
-		ctx:            ctx,
-		org:            org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		instanceTypeId: instanceTypeId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return MessageResponse
+//  @return MessageResponse
 func (a *InstanceTypeAPIService) DeleteInstanceTypeExecute(r ApiDeleteInstanceTypeRequest) (*MessageResponse, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodDelete
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *MessageResponse
+		localVarHTTPMethod   = http.MethodDelete
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *MessageResponse
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "InstanceTypeAPIService.DeleteInstanceType")
@@ -403,8 +402,8 @@ func (a *InstanceTypeAPIService) DeleteInstanceTypeExecute(r ApiDeleteInstanceTy
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -422,10 +421,10 @@ func (a *InstanceTypeAPIService) DeleteInstanceTypeExecute(r ApiDeleteInstanceTy
 }
 
 type ApiDeleteInstanceTypeMachineAssociationRequest struct {
-	ctx                  context.Context
-	ApiService           *InstanceTypeAPIService
-	org                  string
-	instanceTypeId       string
+	ctx context.Context
+	ApiService *InstanceTypeAPIService
+	org string
+	instanceTypeId string
 	machineAssociationId string
 }
 
@@ -442,31 +441,30 @@ Delete a Machine's association with an Instance Type.
 
 Org must have an Infrastructure Provider entity that owns the Instance Type and the Machine. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param instanceTypeId ID of the Instance Type
-	@param machineAssociationId Can be ID of the Machine (`machineId`) or ID of Machine/Instance Type Association (`machineAssociationId`). Use of `machineAssociationId` is now deprecated and will no longer be accepted after July 9th, 2026 00:00 UTC.
-	@return ApiDeleteInstanceTypeMachineAssociationRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param instanceTypeId ID of the Instance Type
+ @param machineAssociationId Can be ID of the Machine (`machineId`) or ID of Machine/Instance Type Association (`machineAssociationId`). Use of `machineAssociationId` is now deprecated and will no longer be accepted after July 9th, 2026 00:00 UTC.
+ @return ApiDeleteInstanceTypeMachineAssociationRequest
 */
 func (a *InstanceTypeAPIService) DeleteInstanceTypeMachineAssociation(ctx context.Context, org string, instanceTypeId string, machineAssociationId string) ApiDeleteInstanceTypeMachineAssociationRequest {
 	return ApiDeleteInstanceTypeMachineAssociationRequest{
-		ApiService:           a,
-		ctx:                  ctx,
-		org:                  org,
-		instanceTypeId:       instanceTypeId,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
+		instanceTypeId: instanceTypeId,
 		machineAssociationId: machineAssociationId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return MessageResponse
+//  @return MessageResponse
 func (a *InstanceTypeAPIService) DeleteInstanceTypeMachineAssociationExecute(r ApiDeleteInstanceTypeMachineAssociationRequest) (*MessageResponse, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodDelete
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *MessageResponse
+		localVarHTTPMethod   = http.MethodDelete
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *MessageResponse
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "InstanceTypeAPIService.DeleteInstanceTypeMachineAssociation")
@@ -529,8 +527,8 @@ func (a *InstanceTypeAPIService) DeleteInstanceTypeMachineAssociationExecute(r A
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -548,21 +546,21 @@ func (a *InstanceTypeAPIService) DeleteInstanceTypeMachineAssociationExecute(r A
 }
 
 type ApiGetAllInstanceTypeRequest struct {
-	ctx                      context.Context
-	ApiService               *InstanceTypeAPIService
-	org                      string
-	siteId                   *string
+	ctx context.Context
+	ApiService *InstanceTypeAPIService
+	org string
+	siteId *string
 	infrastructureProviderId *string
-	tenantId                 *string
-	status                   *string
-	query                    *string
-	includeRelation          *string
+	tenantId *string
+	status *string
+	query *string
+	includeRelation *string
 	includeMachineAssignment *bool
-	includeAllocationStats   *bool
-	excludeUnallocated       *bool
-	pageNumber               *int32
-	pageSize                 *int32
-	orderBy                  *string
+	includeAllocationStats *bool
+	excludeUnallocated *bool
+	pageNumber *int32
+	pageSize *int32
+	orderBy *string
 }
 
 // Filter Instance Types by Site ID
@@ -652,27 +650,27 @@ The Infrastructure Provider and Tenant are inferred from the org's membership. U
 
 Results are returned from both Provider and Tenant perspectives when the org has both roles.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiGetAllInstanceTypeRequest
+
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiGetAllInstanceTypeRequest
 */
 func (a *InstanceTypeAPIService) GetAllInstanceType(ctx context.Context, org string) ApiGetAllInstanceTypeRequest {
 	return ApiGetAllInstanceTypeRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return []InstanceType
+//  @return []InstanceType
 func (a *InstanceTypeAPIService) GetAllInstanceTypeExecute(r ApiGetAllInstanceTypeRequest) ([]InstanceType, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue []InstanceType
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  []InstanceType
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "InstanceTypeAPIService.GetAllInstanceType")
@@ -773,8 +771,8 @@ func (a *InstanceTypeAPIService) GetAllInstanceTypeExecute(r ApiGetAllInstanceTy
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -792,13 +790,13 @@ func (a *InstanceTypeAPIService) GetAllInstanceTypeExecute(r ApiGetAllInstanceTy
 }
 
 type ApiGetInstanceTypeRequest struct {
-	ctx                       context.Context
-	ApiService                *InstanceTypeAPIService
-	org                       string
-	instanceTypeId            string
+	ctx context.Context
+	ApiService *InstanceTypeAPIService
+	org string
+	instanceTypeId string
 	includeMachineAssociation *bool
-	includeAllocationStats    *bool
-	includeRelation           *string
+	includeAllocationStats *bool
+	includeRelation *string
 }
 
 // Include Machine associations for each Instance Type. Can only be requested by Provider
@@ -832,29 +830,28 @@ If the org has an Infrastructure Provider entity that owns the Instance Type, th
 
 If the org has a Tenant entity and it has a Tenant Account with the Infrastructure Provider of the Instance Type, then the Instance Type detail is returned. User must have authorization role with `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param instanceTypeId ID of the Instance Type
-	@return ApiGetInstanceTypeRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param instanceTypeId ID of the Instance Type
+ @return ApiGetInstanceTypeRequest
 */
 func (a *InstanceTypeAPIService) GetInstanceType(ctx context.Context, org string, instanceTypeId string) ApiGetInstanceTypeRequest {
 	return ApiGetInstanceTypeRequest{
-		ApiService:     a,
-		ctx:            ctx,
-		org:            org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		instanceTypeId: instanceTypeId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return InstanceType
+//  @return InstanceType
 func (a *InstanceTypeAPIService) GetInstanceTypeExecute(r ApiGetInstanceTypeRequest) (*InstanceType, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *InstanceType
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *InstanceType
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "InstanceTypeAPIService.GetInstanceType")
@@ -925,8 +922,8 @@ func (a *InstanceTypeAPIService) GetInstanceTypeExecute(r ApiGetInstanceTypeRequ
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -944,13 +941,13 @@ func (a *InstanceTypeAPIService) GetInstanceTypeExecute(r ApiGetInstanceTypeRequ
 }
 
 type ApiGetInstanceTypeMachineAssociationRequest struct {
-	ctx            context.Context
-	ApiService     *InstanceTypeAPIService
-	org            string
+	ctx context.Context
+	ApiService *InstanceTypeAPIService
+	org string
 	instanceTypeId string
-	pageNumber     *int32
-	pageSize       *int32
-	orderBy        *string
+	pageNumber *int32
+	pageSize *int32
+	orderBy *string
 }
 
 // Page number for pagination query
@@ -978,33 +975,32 @@ func (r ApiGetInstanceTypeMachineAssociationRequest) Execute() ([]MachineInstanc
 /*
 GetInstanceTypeMachineAssociation Retrieve all Machines/Instance Type associations
 
-# Get all Machines for a given Instance Type
+Get all Machines for a given Instance Type
 
 Org must have an Infrastructure Provider entity that owns the Instance Type and the Machine. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param instanceTypeId ID of the Instance Type
-	@return ApiGetInstanceTypeMachineAssociationRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param instanceTypeId ID of the Instance Type
+ @return ApiGetInstanceTypeMachineAssociationRequest
 */
 func (a *InstanceTypeAPIService) GetInstanceTypeMachineAssociation(ctx context.Context, org string, instanceTypeId string) ApiGetInstanceTypeMachineAssociationRequest {
 	return ApiGetInstanceTypeMachineAssociationRequest{
-		ApiService:     a,
-		ctx:            ctx,
-		org:            org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		instanceTypeId: instanceTypeId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return []MachineInstanceType
+//  @return []MachineInstanceType
 func (a *InstanceTypeAPIService) GetInstanceTypeMachineAssociationExecute(r ApiGetInstanceTypeMachineAssociationRequest) ([]MachineInstanceType, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue []MachineInstanceType
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  []MachineInstanceType
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "InstanceTypeAPIService.GetInstanceTypeMachineAssociation")
@@ -1079,8 +1075,8 @@ func (a *InstanceTypeAPIService) GetInstanceTypeMachineAssociationExecute(r ApiG
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -1098,13 +1094,14 @@ func (a *InstanceTypeAPIService) GetInstanceTypeMachineAssociationExecute(r ApiG
 }
 
 type ApiUpdateInstanceTypeRequest struct {
-	ctx                       context.Context
-	ApiService                *InstanceTypeAPIService
-	org                       string
-	instanceTypeId            string
+	ctx context.Context
+	ApiService *InstanceTypeAPIService
+	org string
+	instanceTypeId string
 	instanceTypeUpdateRequest *InstanceTypeUpdateRequest
 }
 
+// 
 func (r ApiUpdateInstanceTypeRequest) InstanceTypeUpdateRequest(instanceTypeUpdateRequest InstanceTypeUpdateRequest) ApiUpdateInstanceTypeRequest {
 	r.instanceTypeUpdateRequest = &instanceTypeUpdateRequest
 	return r
@@ -1121,29 +1118,28 @@ Update an Instance Type by ID.
 
 Org must have an Infrastructure Provider entity that owns the Instance Type. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param instanceTypeId ID of the Instance Type
-	@return ApiUpdateInstanceTypeRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param instanceTypeId ID of the Instance Type
+ @return ApiUpdateInstanceTypeRequest
 */
 func (a *InstanceTypeAPIService) UpdateInstanceType(ctx context.Context, org string, instanceTypeId string) ApiUpdateInstanceTypeRequest {
 	return ApiUpdateInstanceTypeRequest{
-		ApiService:     a,
-		ctx:            ctx,
-		org:            org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		instanceTypeId: instanceTypeId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return InstanceType
+//  @return InstanceType
 func (a *InstanceTypeAPIService) UpdateInstanceTypeExecute(r ApiUpdateInstanceTypeRequest) (*InstanceType, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPatch
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *InstanceType
+		localVarHTTPMethod   = http.MethodPatch
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *InstanceType
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "InstanceTypeAPIService.UpdateInstanceType")
@@ -1207,8 +1203,8 @@ func (a *InstanceTypeAPIService) UpdateInstanceTypeExecute(r ApiUpdateInstanceTy
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -1218,8 +1214,8 @@ func (a *InstanceTypeAPIService) UpdateInstanceTypeExecute(r ApiUpdateInstanceTy
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

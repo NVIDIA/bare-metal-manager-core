@@ -22,14 +22,15 @@ import (
 	"strings"
 )
 
+
 // BMCResetAPIService BMCResetAPI service
 type BMCResetAPIService service
 
 type ApiResetMachineBmcRequest struct {
-	ctx             context.Context
-	ApiService      *BMCResetAPIService
-	org             string
-	machineId       string
+	ctx context.Context
+	ApiService *BMCResetAPIService
+	org string
+	machineId string
 	bMCResetRequest *BMCResetRequest
 }
 
@@ -55,29 +56,28 @@ For Infrastructure Providers: Org must have an Infrastructure Provider entity an
 
 For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled and Tenant Account with Machine's Provider. User must have authorization role with `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param machineId ID of the Machine
-	@return ApiResetMachineBmcRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param machineId ID of the Machine
+ @return ApiResetMachineBmcRequest
 */
 func (a *BMCResetAPIService) ResetMachineBmc(ctx context.Context, org string, machineId string) ApiResetMachineBmcRequest {
 	return ApiResetMachineBmcRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		machineId:  machineId,
+		ctx: ctx,
+		org: org,
+		machineId: machineId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return MessageResponse
+//  @return MessageResponse
 func (a *BMCResetAPIService) ResetMachineBmcExecute(r ApiResetMachineBmcRequest) (*MessageResponse, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPatch
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *MessageResponse
+		localVarHTTPMethod   = http.MethodPatch
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *MessageResponse
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BMCResetAPIService.ResetMachineBmc")
@@ -144,8 +144,8 @@ func (a *BMCResetAPIService) ResetMachineBmcExecute(r ApiResetMachineBmcRequest)
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -155,8 +155,8 @@ func (a *BMCResetAPIService) ResetMachineBmcExecute(r ApiResetMachineBmcRequest)
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -166,8 +166,8 @@ func (a *BMCResetAPIService) ResetMachineBmcExecute(r ApiResetMachineBmcRequest)
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -177,8 +177,8 @@ func (a *BMCResetAPIService) ResetMachineBmcExecute(r ApiResetMachineBmcRequest)
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

@@ -14,21 +14,21 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
 	"time"
+	"bytes"
+	"fmt"
 )
 
 // checks if the TaskReportV1Stage type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &TaskReportV1Stage{}
 
-// TaskReportV1Stage Execution state of one rule stage. `number` is the canonical key for joining a stage record back to its rule entry.
+// TaskReportV1Stage Execution state of one rule stage. `number` is the canonical key for joining a stage record back to its rule entry. 
 type TaskReportV1Stage struct {
 	// 1-based rule stage number.
-	Number int32              `json:"number"`
+	Number int32 `json:"number"`
 	Status TaskReportV1Status `json:"status"`
-	Steps  []TaskReportV1Step `json:"steps"`
+	Steps []TaskReportV1Step `json:"steps"`
 	// Set when the stage leaves `pending`.
 	StartedAt *time.Time `json:"startedAt,omitempty"`
 	// Set when the stage reaches a terminal state.
@@ -228,7 +228,7 @@ func (o *TaskReportV1Stage) SetError(v string) {
 }
 
 func (o TaskReportV1Stage) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -267,10 +267,10 @@ func (o *TaskReportV1Stage) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -325,3 +325,4 @@ func (v *NullableTaskReportV1Stage) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

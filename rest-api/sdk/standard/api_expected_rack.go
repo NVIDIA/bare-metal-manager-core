@@ -22,13 +22,14 @@ import (
 	"strings"
 )
 
+
 // ExpectedRackAPIService ExpectedRackAPI service
 type ExpectedRackAPIService service
 
 type ApiCreateExpectedRackRequest struct {
-	ctx                       context.Context
-	ApiService                *ExpectedRackAPIService
-	org                       string
+	ctx context.Context
+	ApiService *ExpectedRackAPIService
+	org string
 	expectedRackCreateRequest *ExpectedRackCreateRequest
 }
 
@@ -55,27 +56,26 @@ Chassis identity and physical location information are conveyed via well-known l
 - `chassis.manufacturer`, `chassis.serial-number`, `chassis.model`
 - `location.region`, `location.datacenter`, `location.room`, `location.position`
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiCreateExpectedRackRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiCreateExpectedRackRequest
 */
 func (a *ExpectedRackAPIService) CreateExpectedRack(ctx context.Context, org string) ApiCreateExpectedRackRequest {
 	return ApiCreateExpectedRackRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return ExpectedRack
+//  @return ExpectedRack
 func (a *ExpectedRackAPIService) CreateExpectedRackExecute(r ApiCreateExpectedRackRequest) (*ExpectedRack, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPost
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *ExpectedRack
+		localVarHTTPMethod   = http.MethodPost
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *ExpectedRack
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "ExpectedRackAPIService.CreateExpectedRack")
@@ -141,8 +141,8 @@ func (a *ExpectedRackAPIService) CreateExpectedRackExecute(r ApiCreateExpectedRa
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -152,8 +152,8 @@ func (a *ExpectedRackAPIService) CreateExpectedRackExecute(r ApiCreateExpectedRa
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -171,10 +171,10 @@ func (a *ExpectedRackAPIService) CreateExpectedRackExecute(r ApiCreateExpectedRa
 }
 
 type ApiDeleteAllExpectedRackRequest struct {
-	ctx        context.Context
+	ctx context.Context
 	ApiService *ExpectedRackAPIService
-	siteId     *string
-	org        string
+	siteId *string
+	org string
 }
 
 // ID of the Site whose Expected Racks should be deleted
@@ -198,24 +198,24 @@ Infrastructure Provider must own the Expected Racks.
 
 Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also delete Expected Racks if they have an account with the Site's Infrastructure Provider.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiDeleteAllExpectedRackRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiDeleteAllExpectedRackRequest
 */
 func (a *ExpectedRackAPIService) DeleteAllExpectedRack(ctx context.Context, org string) ApiDeleteAllExpectedRackRequest {
 	return ApiDeleteAllExpectedRackRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
 func (a *ExpectedRackAPIService) DeleteAllExpectedRackExecute(r ApiDeleteAllExpectedRackRequest) (*http.Response, error) {
 	var (
-		localVarHTTPMethod = http.MethodDelete
-		localVarPostBody   interface{}
-		formFiles          []formFile
+		localVarHTTPMethod   = http.MethodDelete
+		localVarPostBody     interface{}
+		formFiles            []formFile
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "ExpectedRackAPIService.DeleteAllExpectedRack")
@@ -280,8 +280,8 @@ func (a *ExpectedRackAPIService) DeleteAllExpectedRackExecute(r ApiDeleteAllExpe
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -291,8 +291,8 @@ func (a *ExpectedRackAPIService) DeleteAllExpectedRackExecute(r ApiDeleteAllExpe
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarHTTPResponse, newErr
 	}
@@ -301,10 +301,10 @@ func (a *ExpectedRackAPIService) DeleteAllExpectedRackExecute(r ApiDeleteAllExpe
 }
 
 type ApiDeleteExpectedRackRequest struct {
-	ctx        context.Context
+	ctx context.Context
 	ApiService *ExpectedRackAPIService
-	org        string
-	id         string
+	org string
+	id string
 }
 
 func (r ApiDeleteExpectedRackRequest) Execute() (*http.Response, error) {
@@ -322,26 +322,26 @@ Infrastructure Provider must own the Expected Rack.
 
 Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also delete Expected Racks if they have an account with the Site's Infrastructure Provider.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param id ID of the Expected Rack
-	@return ApiDeleteExpectedRackRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param id ID of the Expected Rack
+ @return ApiDeleteExpectedRackRequest
 */
 func (a *ExpectedRackAPIService) DeleteExpectedRack(ctx context.Context, org string, id string) ApiDeleteExpectedRackRequest {
 	return ApiDeleteExpectedRackRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		id:         id,
+		ctx: ctx,
+		org: org,
+		id: id,
 	}
 }
 
 // Execute executes the request
 func (a *ExpectedRackAPIService) DeleteExpectedRackExecute(r ApiDeleteExpectedRackRequest) (*http.Response, error) {
 	var (
-		localVarHTTPMethod = http.MethodDelete
-		localVarPostBody   interface{}
-		formFiles          []formFile
+		localVarHTTPMethod   = http.MethodDelete
+		localVarPostBody     interface{}
+		formFiles            []formFile
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "ExpectedRackAPIService.DeleteExpectedRack")
@@ -403,8 +403,8 @@ func (a *ExpectedRackAPIService) DeleteExpectedRackExecute(r ApiDeleteExpectedRa
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -414,8 +414,8 @@ func (a *ExpectedRackAPIService) DeleteExpectedRackExecute(r ApiDeleteExpectedRa
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -425,8 +425,8 @@ func (a *ExpectedRackAPIService) DeleteExpectedRackExecute(r ApiDeleteExpectedRa
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarHTTPResponse, newErr
 	}
@@ -435,14 +435,14 @@ func (a *ExpectedRackAPIService) DeleteExpectedRackExecute(r ApiDeleteExpectedRa
 }
 
 type ApiGetAllExpectedRackRequest struct {
-	ctx             context.Context
-	ApiService      *ExpectedRackAPIService
-	org             string
-	siteId          *string
+	ctx context.Context
+	ApiService *ExpectedRackAPIService
+	org string
+	siteId *string
 	includeRelation *string
-	pageNumber      *int32
-	pageSize        *int32
-	orderBy         *string
+	pageNumber *int32
+	pageSize *int32
+	orderBy *string
 }
 
 // ID of the Site to filter Expected Racks by
@@ -488,27 +488,26 @@ Org must have an Infrastructure Provider entity. User must have authorization ro
 
 Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also retrieve Expected Racks if they have an account with the Site's Infrastructure Provider (siteId query parameter is required for Tenants).
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiGetAllExpectedRackRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiGetAllExpectedRackRequest
 */
 func (a *ExpectedRackAPIService) GetAllExpectedRack(ctx context.Context, org string) ApiGetAllExpectedRackRequest {
 	return ApiGetAllExpectedRackRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return []ExpectedRack
+//  @return []ExpectedRack
 func (a *ExpectedRackAPIService) GetAllExpectedRackExecute(r ApiGetAllExpectedRackRequest) ([]ExpectedRack, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue []ExpectedRack
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  []ExpectedRack
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "ExpectedRackAPIService.GetAllExpectedRack")
@@ -588,8 +587,8 @@ func (a *ExpectedRackAPIService) GetAllExpectedRackExecute(r ApiGetAllExpectedRa
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -599,8 +598,8 @@ func (a *ExpectedRackAPIService) GetAllExpectedRackExecute(r ApiGetAllExpectedRa
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -618,10 +617,10 @@ func (a *ExpectedRackAPIService) GetAllExpectedRackExecute(r ApiGetAllExpectedRa
 }
 
 type ApiGetExpectedRackRequest struct {
-	ctx             context.Context
-	ApiService      *ExpectedRackAPIService
-	org             string
-	id              string
+	ctx context.Context
+	ApiService *ExpectedRackAPIService
+	org string
+	id string
 	includeRelation *string
 }
 
@@ -644,29 +643,28 @@ Org must have an Infrastructure Provider entity. User must have authorization ro
 
 Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also retrieve Expected Racks if they have an account with the Site's Infrastructure Provider.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param id ID of the Expected Rack
-	@return ApiGetExpectedRackRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param id ID of the Expected Rack
+ @return ApiGetExpectedRackRequest
 */
 func (a *ExpectedRackAPIService) GetExpectedRack(ctx context.Context, org string, id string) ApiGetExpectedRackRequest {
 	return ApiGetExpectedRackRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		id:         id,
+		ctx: ctx,
+		org: org,
+		id: id,
 	}
 }
 
 // Execute executes the request
-//
-//	@return ExpectedRack
+//  @return ExpectedRack
 func (a *ExpectedRackAPIService) GetExpectedRackExecute(r ApiGetExpectedRackRequest) (*ExpectedRack, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *ExpectedRack
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *ExpectedRack
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "ExpectedRackAPIService.GetExpectedRack")
@@ -731,8 +729,8 @@ func (a *ExpectedRackAPIService) GetExpectedRackExecute(r ApiGetExpectedRackRequ
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -742,8 +740,8 @@ func (a *ExpectedRackAPIService) GetExpectedRackExecute(r ApiGetExpectedRackRequ
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -753,8 +751,8 @@ func (a *ExpectedRackAPIService) GetExpectedRackExecute(r ApiGetExpectedRackRequ
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -772,9 +770,9 @@ func (a *ExpectedRackAPIService) GetExpectedRackExecute(r ApiGetExpectedRackRequ
 }
 
 type ApiReplaceAllExpectedRackRequest struct {
-	ctx              context.Context
-	ApiService       *ExpectedRackAPIService
-	org              string
+	ctx context.Context
+	ApiService *ExpectedRackAPIService
+	org string
 	expectedRackList *ExpectedRackList
 }
 
@@ -799,27 +797,26 @@ Org must have an Infrastructure Provider entity. User must have authorization ro
 
 Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also replace Expected Racks if they have an account with the Site's Infrastructure Provider.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiReplaceAllExpectedRackRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiReplaceAllExpectedRackRequest
 */
 func (a *ExpectedRackAPIService) ReplaceAllExpectedRack(ctx context.Context, org string) ApiReplaceAllExpectedRackRequest {
 	return ApiReplaceAllExpectedRackRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return []ExpectedRack
+//  @return []ExpectedRack
 func (a *ExpectedRackAPIService) ReplaceAllExpectedRackExecute(r ApiReplaceAllExpectedRackRequest) ([]ExpectedRack, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPut
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue []ExpectedRack
+		localVarHTTPMethod   = http.MethodPut
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  []ExpectedRack
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "ExpectedRackAPIService.ReplaceAllExpectedRack")
@@ -885,8 +882,8 @@ func (a *ExpectedRackAPIService) ReplaceAllExpectedRackExecute(r ApiReplaceAllEx
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -896,8 +893,8 @@ func (a *ExpectedRackAPIService) ReplaceAllExpectedRackExecute(r ApiReplaceAllEx
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -915,10 +912,10 @@ func (a *ExpectedRackAPIService) ReplaceAllExpectedRackExecute(r ApiReplaceAllEx
 }
 
 type ApiUpdateExpectedRackRequest struct {
-	ctx                       context.Context
-	ApiService                *ExpectedRackAPIService
-	org                       string
-	id                        string
+	ctx context.Context
+	ApiService *ExpectedRackAPIService
+	org string
+	id string
 	expectedRackUpdateRequest *ExpectedRackUpdateRequest
 }
 
@@ -945,29 +942,28 @@ Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also
 
 `rackId` is immutable: an update that changes it is rejected with `400` before any database mutation.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param id ID of the Expected Rack
-	@return ApiUpdateExpectedRackRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param id ID of the Expected Rack
+ @return ApiUpdateExpectedRackRequest
 */
 func (a *ExpectedRackAPIService) UpdateExpectedRack(ctx context.Context, org string, id string) ApiUpdateExpectedRackRequest {
 	return ApiUpdateExpectedRackRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		id:         id,
+		ctx: ctx,
+		org: org,
+		id: id,
 	}
 }
 
 // Execute executes the request
-//
-//	@return ExpectedRack
+//  @return ExpectedRack
 func (a *ExpectedRackAPIService) UpdateExpectedRackExecute(r ApiUpdateExpectedRackRequest) (*ExpectedRack, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPatch
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *ExpectedRack
+		localVarHTTPMethod   = http.MethodPatch
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *ExpectedRack
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "ExpectedRackAPIService.UpdateExpectedRack")
@@ -1034,8 +1030,8 @@ func (a *ExpectedRackAPIService) UpdateExpectedRackExecute(r ApiUpdateExpectedRa
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -1045,8 +1041,8 @@ func (a *ExpectedRackAPIService) UpdateExpectedRackExecute(r ApiUpdateExpectedRa
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -1056,8 +1052,8 @@ func (a *ExpectedRackAPIService) UpdateExpectedRackExecute(r ApiUpdateExpectedRa
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

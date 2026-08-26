@@ -87,7 +87,6 @@ func (o *MachineNetworkInterface) HasMacAddress() bool {
 func (o *MachineNetworkInterface) SetMacAddress(v string) {
 	o.MacAddress.Set(&v)
 }
-
 // SetMacAddressNil sets the value for MacAddress to be an explicit nil
 func (o *MachineNetworkInterface) SetMacAddressNil() {
 	o.MacAddress.Set(nil)
@@ -130,7 +129,6 @@ func (o *MachineNetworkInterface) HasVendor() bool {
 func (o *MachineNetworkInterface) SetVendor(v string) {
 	o.Vendor.Set(&v)
 }
-
 // SetVendorNil sets the value for Vendor to be an explicit nil
 func (o *MachineNetworkInterface) SetVendorNil() {
 	o.Vendor.Set(nil)
@@ -173,7 +171,6 @@ func (o *MachineNetworkInterface) HasDevice() bool {
 func (o *MachineNetworkInterface) SetDevice(v string) {
 	o.Device.Set(&v)
 }
-
 // SetDeviceNil sets the value for Device to be an explicit nil
 func (o *MachineNetworkInterface) SetDeviceNil() {
 	o.Device.Set(nil)
@@ -216,7 +213,6 @@ func (o *MachineNetworkInterface) HasPath() bool {
 func (o *MachineNetworkInterface) SetPath(v string) {
 	o.Path.Set(&v)
 }
-
 // SetPathNil sets the value for Path to be an explicit nil
 func (o *MachineNetworkInterface) SetPathNil() {
 	o.Path.Set(nil)
@@ -291,7 +287,6 @@ func (o *MachineNetworkInterface) HasDescription() bool {
 func (o *MachineNetworkInterface) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *MachineNetworkInterface) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -334,7 +329,6 @@ func (o *MachineNetworkInterface) HasSlot() bool {
 func (o *MachineNetworkInterface) SetSlot(v string) {
 	o.Slot.Set(&v)
 }
-
 // SetSlotNil sets the value for Slot to be an explicit nil
 func (o *MachineNetworkInterface) SetSlotNil() {
 	o.Slot.Set(nil)
@@ -346,7 +340,7 @@ func (o *MachineNetworkInterface) UnsetSlot() {
 }
 
 func (o MachineNetworkInterface) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -414,3 +408,4 @@ func (v *NullableMachineNetworkInterface) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

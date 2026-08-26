@@ -19,21 +19,22 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"reflect"
 	"strings"
+	"reflect"
 )
+
 
 // IPXETemplateAPIService IPXETemplateAPI service
 type IPXETemplateAPIService service
 
 type ApiGetAllIpxeTemplateRequest struct {
-	ctx        context.Context
+	ctx context.Context
 	ApiService *IPXETemplateAPIService
-	org        string
-	siteId     *[]string
+	org string
+	siteId *[]string
 	pageNumber *int32
-	pageSize   *int32
-	orderBy    *string
+	pageSize *int32
+	orderBy *string
 }
 
 // Optional site ID(s); may be repeated to restrict results to templates available at any of the sites
@@ -71,27 +72,26 @@ Get all iPXE templates propagated from nico-core. Optionally restrict to one or 
 
 The Infrastructure Provider and Tenant are inferred from the org's membership. User must have authorization role with `PROVIDER_ADMIN`, `PROVIDER_VIEWER`, or `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiGetAllIpxeTemplateRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiGetAllIpxeTemplateRequest
 */
 func (a *IPXETemplateAPIService) GetAllIpxeTemplate(ctx context.Context, org string) ApiGetAllIpxeTemplateRequest {
 	return ApiGetAllIpxeTemplateRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return []IpxeTemplate
+//  @return []IpxeTemplate
 func (a *IPXETemplateAPIService) GetAllIpxeTemplateExecute(r ApiGetAllIpxeTemplateRequest) ([]IpxeTemplate, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue []IpxeTemplate
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  []IpxeTemplate
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "IPXETemplateAPIService.GetAllIpxeTemplate")
@@ -176,8 +176,8 @@ func (a *IPXETemplateAPIService) GetAllIpxeTemplateExecute(r ApiGetAllIpxeTempla
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -195,9 +195,9 @@ func (a *IPXETemplateAPIService) GetAllIpxeTemplateExecute(r ApiGetAllIpxeTempla
 }
 
 type ApiGetIpxeTemplateRequest struct {
-	ctx            context.Context
-	ApiService     *IPXETemplateAPIService
-	org            string
+	ctx context.Context
+	ApiService *IPXETemplateAPIService
+	org string
 	ipxeTemplateId string
 }
 
@@ -212,29 +212,28 @@ Retrieve an iPXE template by its stable core ID. The caller must be authorized f
 
 The Infrastructure Provider and Tenant are inferred from the org's membership. User must have authorization role with `PROVIDER_ADMIN`, `PROVIDER_VIEWER`, or `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param ipxeTemplateId Stable template ID (UUID from core)
-	@return ApiGetIpxeTemplateRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param ipxeTemplateId Stable template ID (UUID from core)
+ @return ApiGetIpxeTemplateRequest
 */
 func (a *IPXETemplateAPIService) GetIpxeTemplate(ctx context.Context, org string, ipxeTemplateId string) ApiGetIpxeTemplateRequest {
 	return ApiGetIpxeTemplateRequest{
-		ApiService:     a,
-		ctx:            ctx,
-		org:            org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		ipxeTemplateId: ipxeTemplateId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return IpxeTemplate
+//  @return IpxeTemplate
 func (a *IPXETemplateAPIService) GetIpxeTemplateExecute(r ApiGetIpxeTemplateRequest) (*IpxeTemplate, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *IpxeTemplate
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *IpxeTemplate
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "IPXETemplateAPIService.GetIpxeTemplate")
@@ -296,8 +295,8 @@ func (a *IPXETemplateAPIService) GetIpxeTemplateExecute(r ApiGetIpxeTemplateRequ
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -307,8 +306,8 @@ func (a *IPXETemplateAPIService) GetIpxeTemplateExecute(r ApiGetIpxeTemplateRequ
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

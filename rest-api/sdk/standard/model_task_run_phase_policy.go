@@ -22,9 +22,9 @@ var _ MappedNullable = &TaskRunPhasePolicy{}
 
 // TaskRunPhasePolicy Divides the selected targets into phases. Set at most one of `equal`, `percentage`, or `count`; omit the whole policy for a single phase covering all targets.
 type TaskRunPhasePolicy struct {
-	Equal      *TaskRunEqualPhases      `json:"equal,omitempty"`
+	Equal *TaskRunEqualPhases `json:"equal,omitempty"`
 	Percentage *TaskRunPercentagePhases `json:"percentage,omitempty"`
-	Count      *TaskRunCountPhases      `json:"count,omitempty"`
+	Count *TaskRunCountPhases `json:"count,omitempty"`
 	// When true, phases advance automatically as long as safety gates are not tripped. When false (default) each completed phase pauses at a phase gate until advanced explicitly.
 	AutoAdvance *bool `json:"autoAdvance,omitempty"`
 }
@@ -179,7 +179,7 @@ func (o *TaskRunPhasePolicy) SetAutoAdvance(v bool) {
 }
 
 func (o TaskRunPhasePolicy) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -238,3 +238,4 @@ func (v *NullableTaskRunPhasePolicy) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

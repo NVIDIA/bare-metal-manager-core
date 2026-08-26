@@ -14,8 +14,8 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
+	"bytes"
 	"fmt"
 )
 
@@ -269,7 +269,6 @@ func (o *DpuInterfaceConfig) HasVirtualFunctionId() bool {
 func (o *DpuInterfaceConfig) SetVirtualFunctionId(v uint32) {
 	o.VirtualFunctionId.Set(&v)
 }
-
 // SetVirtualFunctionIdNil sets the value for VirtualFunctionId to be an explicit nil
 func (o *DpuInterfaceConfig) SetVirtualFunctionIdNil() {
 	o.VirtualFunctionId.Set(nil)
@@ -392,7 +391,6 @@ func (o *DpuInterfaceConfig) HasBootUrl() bool {
 func (o *DpuInterfaceConfig) SetBootUrl(v string) {
 	o.BootUrl.Set(&v)
 }
-
 // SetBootUrlNil sets the value for BootUrl to be an explicit nil
 func (o *DpuInterfaceConfig) SetBootUrlNil() {
 	o.BootUrl.Set(nil)
@@ -459,7 +457,6 @@ func (o *DpuInterfaceConfig) HasSviIp() bool {
 func (o *DpuInterfaceConfig) SetSviIp(v string) {
 	o.SviIp.Set(&v)
 }
-
 // SetSviIpNil sets the value for SviIp to be an explicit nil
 func (o *DpuInterfaceConfig) SetSviIpNil() {
 	o.SviIp.Set(nil)
@@ -502,7 +499,6 @@ func (o *DpuInterfaceConfig) HasTenantVrfLoopbackIp() bool {
 func (o *DpuInterfaceConfig) SetTenantVrfLoopbackIp(v string) {
 	o.TenantVrfLoopbackIp.Set(&v)
 }
-
 // SetTenantVrfLoopbackIpNil sets the value for TenantVrfLoopbackIp to be an explicit nil
 func (o *DpuInterfaceConfig) SetTenantVrfLoopbackIpNil() {
 	o.TenantVrfLoopbackIp.Set(nil)
@@ -633,7 +629,6 @@ func (o *DpuInterfaceConfig) HasMtu() bool {
 func (o *DpuInterfaceConfig) SetMtu(v uint32) {
 	o.Mtu.Set(&v)
 }
-
 // SetMtuNil sets the value for Mtu to be an explicit nil
 func (o *DpuInterfaceConfig) SetMtuNil() {
 	o.Mtu.Set(nil)
@@ -677,7 +672,7 @@ func (o *DpuInterfaceConfig) SetNetworkSecurityGroup(v InterfaceNetworkSecurityG
 }
 
 func (o DpuInterfaceConfig) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -748,10 +743,10 @@ func (o *DpuInterfaceConfig) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -806,3 +801,4 @@ func (v *NullableDpuInterfaceConfig) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

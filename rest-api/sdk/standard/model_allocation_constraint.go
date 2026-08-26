@@ -290,7 +290,6 @@ func (o *AllocationConstraint) HasDerivedResourceId() bool {
 func (o *AllocationConstraint) SetDerivedResourceId(v string) {
 	o.DerivedResourceId.Set(&v)
 }
-
 // SetDerivedResourceIdNil sets the value for DerivedResourceId to be an explicit nil
 func (o *AllocationConstraint) SetDerivedResourceIdNil() {
 	o.DerivedResourceId.Set(nil)
@@ -462,7 +461,7 @@ func (o *AllocationConstraint) SetUpdated(v time.Time) {
 }
 
 func (o AllocationConstraint) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -545,3 +544,4 @@ func (v *NullableAllocationConstraint) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

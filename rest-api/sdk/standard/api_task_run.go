@@ -22,14 +22,15 @@ import (
 	"strings"
 )
 
+
 // TaskRunAPIService TaskRunAPI service
 type TaskRunAPIService service
 
 type ApiAdvanceTaskRunRequest struct {
-	ctx                   context.Context
-	ApiService            *TaskRunAPIService
-	org                   string
-	id                    string
+	ctx context.Context
+	ApiService *TaskRunAPIService
+	org string
+	id string
 	advanceTaskRunRequest *AdvanceTaskRunRequest
 }
 
@@ -54,29 +55,28 @@ Task Runs are site-scoped; `siteId` must be the Site that owns the
 Task Run. Org must have an Infrastructure Provider entity. User must have
 authorization role with `PROVIDER_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param id UUID of the Task Run
-	@return ApiAdvanceTaskRunRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param id UUID of the Task Run
+ @return ApiAdvanceTaskRunRequest
 */
 func (a *TaskRunAPIService) AdvanceTaskRun(ctx context.Context, org string, id string) ApiAdvanceTaskRunRequest {
 	return ApiAdvanceTaskRunRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		id:         id,
+		ctx: ctx,
+		org: org,
+		id: id,
 	}
 }
 
 // Execute executes the request
-//
-//	@return TaskRun
+//  @return TaskRun
 func (a *TaskRunAPIService) AdvanceTaskRunExecute(r ApiAdvanceTaskRunRequest) (*TaskRun, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPost
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *TaskRun
+		localVarHTTPMethod   = http.MethodPost
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *TaskRun
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TaskRunAPIService.AdvanceTaskRun")
@@ -143,8 +143,8 @@ func (a *TaskRunAPIService) AdvanceTaskRunExecute(r ApiAdvanceTaskRunRequest) (*
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -154,8 +154,8 @@ func (a *TaskRunAPIService) AdvanceTaskRunExecute(r ApiAdvanceTaskRunRequest) (*
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -165,8 +165,8 @@ func (a *TaskRunAPIService) AdvanceTaskRunExecute(r ApiAdvanceTaskRunRequest) (*
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 504 {
@@ -176,8 +176,8 @@ func (a *TaskRunAPIService) AdvanceTaskRunExecute(r ApiAdvanceTaskRunRequest) (*
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -195,10 +195,10 @@ func (a *TaskRunAPIService) AdvanceTaskRunExecute(r ApiAdvanceTaskRunRequest) (*
 }
 
 type ApiCancelTaskRunRequest struct {
-	ctx                  context.Context
-	ApiService           *TaskRunAPIService
-	org                  string
-	id                   string
+	ctx context.Context
+	ApiService *TaskRunAPIService
+	org string
+	id string
 	cancelTaskRunRequest *CancelTaskRunRequest
 }
 
@@ -222,29 +222,28 @@ Task Runs are site-scoped; `siteId` must be the Site that owns the
 Task Run. Org must have an Infrastructure Provider entity. User must have
 authorization role with `PROVIDER_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param id UUID of the Task Run
-	@return ApiCancelTaskRunRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param id UUID of the Task Run
+ @return ApiCancelTaskRunRequest
 */
 func (a *TaskRunAPIService) CancelTaskRun(ctx context.Context, org string, id string) ApiCancelTaskRunRequest {
 	return ApiCancelTaskRunRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		id:         id,
+		ctx: ctx,
+		org: org,
+		id: id,
 	}
 }
 
 // Execute executes the request
-//
-//	@return TaskRun
+//  @return TaskRun
 func (a *TaskRunAPIService) CancelTaskRunExecute(r ApiCancelTaskRunRequest) (*TaskRun, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPost
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *TaskRun
+		localVarHTTPMethod   = http.MethodPost
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *TaskRun
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TaskRunAPIService.CancelTaskRun")
@@ -311,8 +310,8 @@ func (a *TaskRunAPIService) CancelTaskRunExecute(r ApiCancelTaskRunRequest) (*Ta
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -322,8 +321,8 @@ func (a *TaskRunAPIService) CancelTaskRunExecute(r ApiCancelTaskRunRequest) (*Ta
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -333,8 +332,8 @@ func (a *TaskRunAPIService) CancelTaskRunExecute(r ApiCancelTaskRunRequest) (*Ta
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 504 {
@@ -344,8 +343,8 @@ func (a *TaskRunAPIService) CancelTaskRunExecute(r ApiCancelTaskRunRequest) (*Ta
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -363,9 +362,9 @@ func (a *TaskRunAPIService) CancelTaskRunExecute(r ApiCancelTaskRunRequest) (*Ta
 }
 
 type ApiCreateTaskRunRequest struct {
-	ctx                  context.Context
-	ApiService           *TaskRunAPIService
-	org                  string
+	ctx context.Context
+	ApiService *TaskRunAPIService
+	org string
 	createTaskRunRequest *CreateTaskRunRequest
 }
 
@@ -394,27 +393,26 @@ the Task Run always starts in the `Pending` state. Poll
 Org must have an Infrastructure Provider entity. User must have
 authorization role with `PROVIDER_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiCreateTaskRunRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiCreateTaskRunRequest
 */
 func (a *TaskRunAPIService) CreateTaskRun(ctx context.Context, org string) ApiCreateTaskRunRequest {
 	return ApiCreateTaskRunRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return TaskRun
+//  @return TaskRun
 func (a *TaskRunAPIService) CreateTaskRunExecute(r ApiCreateTaskRunRequest) (*TaskRun, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPost
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *TaskRun
+		localVarHTTPMethod   = http.MethodPost
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *TaskRun
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TaskRunAPIService.CreateTaskRun")
@@ -480,8 +478,8 @@ func (a *TaskRunAPIService) CreateTaskRunExecute(r ApiCreateTaskRunRequest) (*Ta
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -491,8 +489,8 @@ func (a *TaskRunAPIService) CreateTaskRunExecute(r ApiCreateTaskRunRequest) (*Ta
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 504 {
@@ -502,8 +500,8 @@ func (a *TaskRunAPIService) CreateTaskRunExecute(r ApiCreateTaskRunRequest) (*Ta
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -521,14 +519,14 @@ func (a *TaskRunAPIService) CreateTaskRunExecute(r ApiCreateTaskRunRequest) (*Ta
 }
 
 type ApiGetAllTaskRunRequest struct {
-	ctx           context.Context
-	ApiService    *TaskRunAPIService
-	siteId        *string
-	org           string
-	status        *string
+	ctx context.Context
+	ApiService *TaskRunAPIService
+	siteId *string
+	org string
+	status *string
 	operationType *string
-	pageNumber    *int32
-	pageSize      *int32
+	pageNumber *int32
+	pageSize *int32
 }
 
 // ID of the Site that owns the Task Runs (Task Runs are site-scoped).
@@ -575,27 +573,26 @@ post-filter set.
 Org must have an Infrastructure Provider entity. User must have
 authorization role with `PROVIDER_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiGetAllTaskRunRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiGetAllTaskRunRequest
 */
 func (a *TaskRunAPIService) GetAllTaskRun(ctx context.Context, org string) ApiGetAllTaskRunRequest {
 	return ApiGetAllTaskRunRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return []TaskRun
+//  @return []TaskRun
 func (a *TaskRunAPIService) GetAllTaskRunExecute(r ApiGetAllTaskRunRequest) ([]TaskRun, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue []TaskRun
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  []TaskRun
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TaskRunAPIService.GetAllTaskRun")
@@ -672,8 +669,8 @@ func (a *TaskRunAPIService) GetAllTaskRunExecute(r ApiGetAllTaskRunRequest) ([]T
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -683,8 +680,8 @@ func (a *TaskRunAPIService) GetAllTaskRunExecute(r ApiGetAllTaskRunRequest) ([]T
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 504 {
@@ -694,8 +691,8 @@ func (a *TaskRunAPIService) GetAllTaskRunExecute(r ApiGetAllTaskRunRequest) ([]T
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -713,15 +710,15 @@ func (a *TaskRunAPIService) GetAllTaskRunExecute(r ApiGetAllTaskRunRequest) ([]T
 }
 
 type ApiGetAllTaskRunTargetRequest struct {
-	ctx        context.Context
+	ctx context.Context
 	ApiService *TaskRunAPIService
-	siteId     *string
-	org        string
-	id         string
-	status     *string
+	siteId *string
+	org string
+	id string
+	status *string
 	phaseScope *string
 	pageNumber *int32
-	pageSize   *int32
+	pageSize *int32
 }
 
 // ID of the Site that owns the Task Run.
@@ -773,29 +770,28 @@ Task Runs are site-scoped; `siteId` must be the Site that owns the
 Task Run. Org must have an Infrastructure Provider entity. User must have
 authorization role with `PROVIDER_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param id UUID of the Task Run
-	@return ApiGetAllTaskRunTargetRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param id UUID of the Task Run
+ @return ApiGetAllTaskRunTargetRequest
 */
 func (a *TaskRunAPIService) GetAllTaskRunTarget(ctx context.Context, org string, id string) ApiGetAllTaskRunTargetRequest {
 	return ApiGetAllTaskRunTargetRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		id:         id,
+		ctx: ctx,
+		org: org,
+		id: id,
 	}
 }
 
 // Execute executes the request
-//
-//	@return []TaskRunTarget
+//  @return []TaskRunTarget
 func (a *TaskRunAPIService) GetAllTaskRunTargetExecute(r ApiGetAllTaskRunTargetRequest) ([]TaskRunTarget, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue []TaskRunTarget
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  []TaskRunTarget
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TaskRunAPIService.GetAllTaskRunTarget")
@@ -877,8 +873,8 @@ func (a *TaskRunAPIService) GetAllTaskRunTargetExecute(r ApiGetAllTaskRunTargetR
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -888,8 +884,8 @@ func (a *TaskRunAPIService) GetAllTaskRunTargetExecute(r ApiGetAllTaskRunTargetR
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -899,8 +895,8 @@ func (a *TaskRunAPIService) GetAllTaskRunTargetExecute(r ApiGetAllTaskRunTargetR
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 504 {
@@ -910,8 +906,8 @@ func (a *TaskRunAPIService) GetAllTaskRunTargetExecute(r ApiGetAllTaskRunTargetR
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -929,11 +925,11 @@ func (a *TaskRunAPIService) GetAllTaskRunTargetExecute(r ApiGetAllTaskRunTargetR
 }
 
 type ApiGetTaskRunRequest struct {
-	ctx          context.Context
-	ApiService   *TaskRunAPIService
-	siteId       *string
-	org          string
-	id           string
+	ctx context.Context
+	ApiService *TaskRunAPIService
+	siteId *string
+	org string
+	id string
 	includeStats *bool
 }
 
@@ -963,29 +959,28 @@ Task Runs are site-scoped; `siteId` must be the Site that owns the
 Task Run. Org must have an Infrastructure Provider entity. User must have
 authorization role with `PROVIDER_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param id UUID of the Task Run
-	@return ApiGetTaskRunRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param id UUID of the Task Run
+ @return ApiGetTaskRunRequest
 */
 func (a *TaskRunAPIService) GetTaskRun(ctx context.Context, org string, id string) ApiGetTaskRunRequest {
 	return ApiGetTaskRunRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		id:         id,
+		ctx: ctx,
+		org: org,
+		id: id,
 	}
 }
 
 // Execute executes the request
-//
-//	@return TaskRun
+//  @return TaskRun
 func (a *TaskRunAPIService) GetTaskRunExecute(r ApiGetTaskRunRequest) (*TaskRun, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *TaskRun
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *TaskRun
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TaskRunAPIService.GetTaskRun")
@@ -1058,8 +1053,8 @@ func (a *TaskRunAPIService) GetTaskRunExecute(r ApiGetTaskRunRequest) (*TaskRun,
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -1069,8 +1064,8 @@ func (a *TaskRunAPIService) GetTaskRunExecute(r ApiGetTaskRunRequest) (*TaskRun,
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -1080,8 +1075,8 @@ func (a *TaskRunAPIService) GetTaskRunExecute(r ApiGetTaskRunRequest) (*TaskRun,
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 504 {
@@ -1091,8 +1086,8 @@ func (a *TaskRunAPIService) GetTaskRunExecute(r ApiGetTaskRunRequest) (*TaskRun,
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -1110,10 +1105,10 @@ func (a *TaskRunAPIService) GetTaskRunExecute(r ApiGetTaskRunRequest) (*TaskRun,
 }
 
 type ApiPauseTaskRunRequest struct {
-	ctx                context.Context
-	ApiService         *TaskRunAPIService
-	org                string
-	id                 string
+	ctx context.Context
+	ApiService *TaskRunAPIService
+	org string
+	id string
 	taskRunSiteRequest *TaskRunSiteRequest
 }
 
@@ -1137,29 +1132,28 @@ Task Runs are site-scoped; `siteId` must be the Site that owns the
 Task Run. Org must have an Infrastructure Provider entity. User must have
 authorization role with `PROVIDER_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param id UUID of the Task Run
-	@return ApiPauseTaskRunRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param id UUID of the Task Run
+ @return ApiPauseTaskRunRequest
 */
 func (a *TaskRunAPIService) PauseTaskRun(ctx context.Context, org string, id string) ApiPauseTaskRunRequest {
 	return ApiPauseTaskRunRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		id:         id,
+		ctx: ctx,
+		org: org,
+		id: id,
 	}
 }
 
 // Execute executes the request
-//
-//	@return TaskRun
+//  @return TaskRun
 func (a *TaskRunAPIService) PauseTaskRunExecute(r ApiPauseTaskRunRequest) (*TaskRun, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPost
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *TaskRun
+		localVarHTTPMethod   = http.MethodPost
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *TaskRun
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TaskRunAPIService.PauseTaskRun")
@@ -1226,8 +1220,8 @@ func (a *TaskRunAPIService) PauseTaskRunExecute(r ApiPauseTaskRunRequest) (*Task
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -1237,8 +1231,8 @@ func (a *TaskRunAPIService) PauseTaskRunExecute(r ApiPauseTaskRunRequest) (*Task
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -1248,8 +1242,8 @@ func (a *TaskRunAPIService) PauseTaskRunExecute(r ApiPauseTaskRunRequest) (*Task
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 504 {
@@ -1259,8 +1253,8 @@ func (a *TaskRunAPIService) PauseTaskRunExecute(r ApiPauseTaskRunRequest) (*Task
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -1278,10 +1272,10 @@ func (a *TaskRunAPIService) PauseTaskRunExecute(r ApiPauseTaskRunRequest) (*Task
 }
 
 type ApiResumeTaskRunRequest struct {
-	ctx                context.Context
-	ApiService         *TaskRunAPIService
-	org                string
-	id                 string
+	ctx context.Context
+	ApiService *TaskRunAPIService
+	org string
+	id string
 	taskRunSiteRequest *TaskRunSiteRequest
 }
 
@@ -1305,29 +1299,28 @@ Task Runs are site-scoped; `siteId` must be the Site that owns the
 Task Run. Org must have an Infrastructure Provider entity. User must have
 authorization role with `PROVIDER_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param id UUID of the Task Run
-	@return ApiResumeTaskRunRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param id UUID of the Task Run
+ @return ApiResumeTaskRunRequest
 */
 func (a *TaskRunAPIService) ResumeTaskRun(ctx context.Context, org string, id string) ApiResumeTaskRunRequest {
 	return ApiResumeTaskRunRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		id:         id,
+		ctx: ctx,
+		org: org,
+		id: id,
 	}
 }
 
 // Execute executes the request
-//
-//	@return TaskRun
+//  @return TaskRun
 func (a *TaskRunAPIService) ResumeTaskRunExecute(r ApiResumeTaskRunRequest) (*TaskRun, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPost
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *TaskRun
+		localVarHTTPMethod   = http.MethodPost
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *TaskRun
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TaskRunAPIService.ResumeTaskRun")
@@ -1394,8 +1387,8 @@ func (a *TaskRunAPIService) ResumeTaskRunExecute(r ApiResumeTaskRunRequest) (*Ta
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -1405,8 +1398,8 @@ func (a *TaskRunAPIService) ResumeTaskRunExecute(r ApiResumeTaskRunRequest) (*Ta
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -1416,8 +1409,8 @@ func (a *TaskRunAPIService) ResumeTaskRunExecute(r ApiResumeTaskRunRequest) (*Ta
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 504 {
@@ -1427,8 +1420,8 @@ func (a *TaskRunAPIService) ResumeTaskRunExecute(r ApiResumeTaskRunRequest) (*Ta
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

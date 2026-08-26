@@ -144,7 +144,7 @@ func (o *SiteMachineStatsByAllocation) SetUnallocated(v int32) {
 }
 
 func (o SiteMachineStatsByAllocation) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -200,3 +200,4 @@ func (v *NullableSiteMachineStatsByAllocation) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

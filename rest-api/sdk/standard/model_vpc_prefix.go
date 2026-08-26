@@ -226,7 +226,6 @@ func (o *VpcPrefix) HasIpBlockId() bool {
 func (o *VpcPrefix) SetIpBlockId(v string) {
 	o.IpBlockId.Set(&v)
 }
-
 // SetIpBlockIdNil sets the value for IpBlockId to be an explicit nil
 func (o *VpcPrefix) SetIpBlockIdNil() {
 	o.IpBlockId.Set(nil)
@@ -269,7 +268,6 @@ func (o *VpcPrefix) HasPrefix() bool {
 func (o *VpcPrefix) SetPrefix(v string) {
 	o.Prefix.Set(&v)
 }
-
 // SetPrefixNil sets the value for Prefix to be an explicit nil
 func (o *VpcPrefix) SetPrefixNil() {
 	o.Prefix.Set(nil)
@@ -473,7 +471,7 @@ func (o *VpcPrefix) SetUpdated(v time.Time) {
 }
 
 func (o VpcPrefix) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -556,3 +554,4 @@ func (v *NullableVpcPrefix) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

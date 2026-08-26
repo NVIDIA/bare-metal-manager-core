@@ -110,7 +110,7 @@ func (o *DpuExtensionServiceDeploymentRequest) SetVersion(v string) {
 }
 
 func (o DpuExtensionServiceDeploymentRequest) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -163,3 +163,4 @@ func (v *NullableDpuExtensionServiceDeploymentRequest) UnmarshalJSON(src []byte)
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

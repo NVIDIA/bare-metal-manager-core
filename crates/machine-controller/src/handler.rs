@@ -75,7 +75,8 @@ use model::machine::nvlink::nvlink_config_synced;
 use model::machine::{
     AttestationMode, BomValidating, BomValidatingContext, CleanupContext, CleanupState,
     CreateBossVolumeContext, CreateBossVolumeState, DecommissioningState, DpuDiscoveringState,
-    DpuInitNextStateResolver, DpuInitState, FactoryResetBmcState, FailureCause, FailureDetails,
+    DpuDiscoveringStates, DpuInitNextStateResolver, DpuInitState, FactoryResetBmcState,
+    FailureCause, FailureDetails,
     FailureSource, HostPlatformConfigurationState, HostReprovisionState, InitialResetPhase,
     InstallDpuOsState, InstanceNextStateResolver, InstanceState, LockdownInfo, LockdownState,
     MAX_FIRMWARE_UPGRADE_RETRIES, Machine, MachineLastRebootRequested,
@@ -745,6 +746,54 @@ impl MachineStateHandler {
 
         if let Some(outcome) = handle_restart_verification(mh_snapshot, ctx).await? {
             return Ok(outcome);
+        }
+
+        // A forced reprovision request recovers DPUs stuck in ingestion by
+        // restarting the ingestion state machine from the beginning. Ready and
+        // Assigned hosts already have working reprovision paths (handled below
+        // and in their state handlers), so the forced restart only applies to
+        // the remaining non-Ready, non-Assigned states. The request is a
+        // one-shot: it is cleared here so it is not re-applied on the next tick.
+        if force_reprovision_requested(&mh_snapshot.dpu_snapshots)
+            && !matches!(
+                mh_state,
+                ManagedHostState::Ready | ManagedHostState::Assigned { .. }
+            )
+        {
+            tracing::warn!(
+                host_machine_id = %host_machine_id,
+                current_state = %mh_state,
+                "Force reprovisioning requested; restarting DPU ingestion",
+            );
+
+            for dpu_snapshot in &mh_snapshot.dpu_snapshots {
+                if dpu_snapshot
+                    .reprovision_requested
+                    .as_ref()
+                    .is_some_and(|r| r.force)
+                {
+                    handler_restart_dpu(
+                        dpu_snapshot,
+                        ctx,
+                        mh_snapshot.host_snapshot.config.dpf.used_for_ingestion,
+                    )
+                    .await?;
+                }
+            }
+
+            let mut txn = ctx.services.db_pool.begin().await?;
+            Self::clear_dpu_reprovision(mh_snapshot, &mut txn).await?;
+
+            let states = mh_snapshot
+                .dpu_snapshots
+                .iter()
+                .map(|dpu| (dpu.id, DpuDiscoveringState::Initializing))
+                .collect();
+            let next_state = ManagedHostState::DpuDiscoveringState {
+                dpu_states: DpuDiscoveringStates { states },
+            };
+
+            return Ok(StateHandlerOutcome::transition(next_state).with_txn(txn));
         }
 
         if dpu_reprovisioning_needed(&mh_snapshot.dpu_snapshots) {
@@ -2322,6 +2371,15 @@ fn dpu_reprovisioning_needed(dpu_snapshots: &[Machine]) -> bool {
     dpu_snapshots
         .iter()
         .any(|x| x.reprovision_requested.is_some())
+}
+
+/// This function checks if a forced reprovisioning is requested for any DPU.
+/// A forced request recovers DPUs stuck in ingestion by restarting the
+/// ingestion state machine regardless of the current managed host state.
+fn force_reprovision_requested(dpu_snapshots: &[Machine]) -> bool {
+    dpu_snapshots
+        .iter()
+        .any(|x| x.reprovision_requested.as_ref().is_some_and(|r| r.force))
 }
 
 async fn handle_restart_verification(

@@ -178,7 +178,6 @@ func (o *Subnet) HasDescription() bool {
 func (o *Subnet) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *Subnet) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -285,7 +284,6 @@ func (o *Subnet) HasControllerNetworkSegmentId() bool {
 func (o *Subnet) SetControllerNetworkSegmentId(v string) {
 	o.ControllerNetworkSegmentId.Set(&v)
 }
-
 // SetControllerNetworkSegmentIdNil sets the value for ControllerNetworkSegmentId to be an explicit nil
 func (o *Subnet) SetControllerNetworkSegmentIdNil() {
 	o.ControllerNetworkSegmentId.Set(nil)
@@ -328,7 +326,6 @@ func (o *Subnet) HasIpv4Prefix() bool {
 func (o *Subnet) SetIpv4Prefix(v string) {
 	o.Ipv4Prefix.Set(&v)
 }
-
 // SetIpv4PrefixNil sets the value for Ipv4Prefix to be an explicit nil
 func (o *Subnet) SetIpv4PrefixNil() {
 	o.Ipv4Prefix.Set(nil)
@@ -371,7 +368,6 @@ func (o *Subnet) HasIpv4BlockId() bool {
 func (o *Subnet) SetIpv4BlockId(v string) {
 	o.Ipv4BlockId.Set(&v)
 }
-
 // SetIpv4BlockIdNil sets the value for Ipv4BlockId to be an explicit nil
 func (o *Subnet) SetIpv4BlockIdNil() {
 	o.Ipv4BlockId.Set(nil)
@@ -414,7 +410,6 @@ func (o *Subnet) HasIpv4Gateway() bool {
 func (o *Subnet) SetIpv4Gateway(v string) {
 	o.Ipv4Gateway.Set(&v)
 }
-
 // SetIpv4GatewayNil sets the value for Ipv4Gateway to be an explicit nil
 func (o *Subnet) SetIpv4GatewayNil() {
 	o.Ipv4Gateway.Set(nil)
@@ -457,7 +452,6 @@ func (o *Subnet) HasIpv6Prefix() bool {
 func (o *Subnet) SetIpv6Prefix(v string) {
 	o.Ipv6Prefix.Set(&v)
 }
-
 // SetIpv6PrefixNil sets the value for Ipv6Prefix to be an explicit nil
 func (o *Subnet) SetIpv6PrefixNil() {
 	o.Ipv6Prefix.Set(nil)
@@ -500,7 +494,6 @@ func (o *Subnet) HasIpv6BlockId() bool {
 func (o *Subnet) SetIpv6BlockId(v string) {
 	o.Ipv6BlockId.Set(&v)
 }
-
 // SetIpv6BlockIdNil sets the value for Ipv6BlockId to be an explicit nil
 func (o *Subnet) SetIpv6BlockIdNil() {
 	o.Ipv6BlockId.Set(nil)
@@ -543,7 +536,6 @@ func (o *Subnet) HasIpv6Gateway() bool {
 func (o *Subnet) SetIpv6Gateway(v string) {
 	o.Ipv6Gateway.Set(&v)
 }
-
 // SetIpv6GatewayNil sets the value for Ipv6Gateway to be an explicit nil
 func (o *Subnet) SetIpv6GatewayNil() {
 	o.Ipv6Gateway.Set(nil)
@@ -650,7 +642,6 @@ func (o *Subnet) HasRoutingType() bool {
 func (o *Subnet) SetRoutingType(v string) {
 	o.RoutingType.Set(&v)
 }
-
 // SetRoutingTypeNil sets the value for RoutingType to be an explicit nil
 func (o *Subnet) SetRoutingTypeNil() {
 	o.RoutingType.Set(nil)
@@ -822,7 +813,7 @@ func (o *Subnet) SetUpdated(v time.Time) {
 }
 
 func (o Subnet) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -929,3 +920,4 @@ func (v *NullableSubnet) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

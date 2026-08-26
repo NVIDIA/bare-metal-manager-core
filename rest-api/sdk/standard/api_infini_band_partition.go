@@ -22,13 +22,14 @@ import (
 	"strings"
 )
 
+
 // InfiniBandPartitionAPIService InfiniBandPartitionAPI service
 type InfiniBandPartitionAPIService service
 
 type ApiCreateInfinibandPartitionRequest struct {
-	ctx                              context.Context
-	ApiService                       *InfiniBandPartitionAPIService
-	org                              string
+	ctx context.Context
+	ApiService *InfiniBandPartitionAPIService
+	org string
 	infiniBandPartitionCreateRequest *InfiniBandPartitionCreateRequest
 }
 
@@ -48,27 +49,26 @@ Create an InfiniBand Partition for the org.
 
 Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiCreateInfinibandPartitionRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiCreateInfinibandPartitionRequest
 */
 func (a *InfiniBandPartitionAPIService) CreateInfinibandPartition(ctx context.Context, org string) ApiCreateInfinibandPartitionRequest {
 	return ApiCreateInfinibandPartitionRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return InfiniBandPartition
+//  @return InfiniBandPartition
 func (a *InfiniBandPartitionAPIService) CreateInfinibandPartitionExecute(r ApiCreateInfinibandPartitionRequest) (*InfiniBandPartition, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPost
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *InfiniBandPartition
+		localVarHTTPMethod   = http.MethodPost
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *InfiniBandPartition
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "InfiniBandPartitionAPIService.CreateInfinibandPartition")
@@ -131,8 +131,8 @@ func (a *InfiniBandPartitionAPIService) CreateInfinibandPartitionExecute(r ApiCr
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -142,8 +142,8 @@ func (a *InfiniBandPartitionAPIService) CreateInfinibandPartitionExecute(r ApiCr
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -161,9 +161,9 @@ func (a *InfiniBandPartitionAPIService) CreateInfinibandPartitionExecute(r ApiCr
 }
 
 type ApiDeleteInfinibandPartitionRequest struct {
-	ctx                   context.Context
-	ApiService            *InfiniBandPartitionAPIService
-	org                   string
+	ctx context.Context
+	ApiService *InfiniBandPartitionAPIService
+	org string
 	infiniBandPartitionId string
 }
 
@@ -180,29 +180,28 @@ Org must have a Tenant entity. User must have authorization role with `TENANT_AD
 
 Tenant must own the Partition.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param infiniBandPartitionId ID of the InfiniBand Partition
-	@return ApiDeleteInfinibandPartitionRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param infiniBandPartitionId ID of the InfiniBand Partition
+ @return ApiDeleteInfinibandPartitionRequest
 */
 func (a *InfiniBandPartitionAPIService) DeleteInfinibandPartition(ctx context.Context, org string, infiniBandPartitionId string) ApiDeleteInfinibandPartitionRequest {
 	return ApiDeleteInfinibandPartitionRequest{
-		ApiService:            a,
-		ctx:                   ctx,
-		org:                   org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		infiniBandPartitionId: infiniBandPartitionId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return MessageResponse
+//  @return MessageResponse
 func (a *InfiniBandPartitionAPIService) DeleteInfinibandPartitionExecute(r ApiDeleteInfinibandPartitionRequest) (*MessageResponse, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodDelete
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *MessageResponse
+		localVarHTTPMethod   = http.MethodDelete
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *MessageResponse
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "InfiniBandPartitionAPIService.DeleteInfinibandPartition")
@@ -264,8 +263,8 @@ func (a *InfiniBandPartitionAPIService) DeleteInfinibandPartitionExecute(r ApiDe
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -283,17 +282,17 @@ func (a *InfiniBandPartitionAPIService) DeleteInfinibandPartitionExecute(r ApiDe
 }
 
 type ApiGetAllInfinibandInterfaceRequest struct {
-	ctx                   context.Context
-	ApiService            *InfiniBandPartitionAPIService
-	org                   string
-	siteId                *string
-	instanceId            *string
+	ctx context.Context
+	ApiService *InfiniBandPartitionAPIService
+	org string
+	siteId *string
+	instanceId *string
 	infinibandPartitionId *string
-	status                *string
-	includeRelation       *string
-	pageNumber            *int32
-	pageSize              *int32
-	orderBy               *string
+	status *string
+	includeRelation *string
+	pageNumber *int32
+	pageSize *int32
+	orderBy *string
 }
 
 // Filter InfiniBand Interfaces by Site ID.  Can be specified multiple times to filter on more than one ID.
@@ -351,31 +350,30 @@ func (r ApiGetAllInfinibandInterfaceRequest) Execute() ([]InfiniBandInterface, *
 /*
 GetAllInfinibandInterface Retrieve all InfiniBand Interfaces
 
-# Get all InfiniBand Interfaces
+Get all InfiniBand Interfaces
 
 Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiGetAllInfinibandInterfaceRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiGetAllInfinibandInterfaceRequest
 */
 func (a *InfiniBandPartitionAPIService) GetAllInfinibandInterface(ctx context.Context, org string) ApiGetAllInfinibandInterfaceRequest {
 	return ApiGetAllInfinibandInterfaceRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return []InfiniBandInterface
+//  @return []InfiniBandInterface
 func (a *InfiniBandPartitionAPIService) GetAllInfinibandInterfaceExecute(r ApiGetAllInfinibandInterfaceRequest) ([]InfiniBandInterface, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue []InfiniBandInterface
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  []InfiniBandInterface
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "InfiniBandPartitionAPIService.GetAllInfinibandInterface")
@@ -464,8 +462,8 @@ func (a *InfiniBandPartitionAPIService) GetAllInfinibandInterfaceExecute(r ApiGe
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -483,16 +481,16 @@ func (a *InfiniBandPartitionAPIService) GetAllInfinibandInterfaceExecute(r ApiGe
 }
 
 type ApiGetAllInfinibandPartitionRequest struct {
-	ctx             context.Context
-	ApiService      *InfiniBandPartitionAPIService
-	org             string
-	siteId          *string
-	status          *string
-	query           *string
+	ctx context.Context
+	ApiService *InfiniBandPartitionAPIService
+	org string
+	siteId *string
+	status *string
+	query *string
 	includeRelation *string
-	pageNumber      *int32
-	pageSize        *int32
-	orderBy         *string
+	pageNumber *int32
+	pageSize *int32
+	orderBy *string
 }
 
 // Filter Partitions by Site
@@ -544,31 +542,30 @@ func (r ApiGetAllInfinibandPartitionRequest) Execute() ([]InfiniBandPartition, *
 /*
 GetAllInfinibandPartition Retrieve all InfiniBand Partitions
 
-# Retrieve all InfiniBand Partitions for the org
+Retrieve all InfiniBand Partitions for the org
 
 Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiGetAllInfinibandPartitionRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiGetAllInfinibandPartitionRequest
 */
 func (a *InfiniBandPartitionAPIService) GetAllInfinibandPartition(ctx context.Context, org string) ApiGetAllInfinibandPartitionRequest {
 	return ApiGetAllInfinibandPartitionRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return []InfiniBandPartition
+//  @return []InfiniBandPartition
 func (a *InfiniBandPartitionAPIService) GetAllInfinibandPartitionExecute(r ApiGetAllInfinibandPartitionRequest) ([]InfiniBandPartition, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue []InfiniBandPartition
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  []InfiniBandPartition
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "InfiniBandPartitionAPIService.GetAllInfinibandPartition")
@@ -654,8 +651,8 @@ func (a *InfiniBandPartitionAPIService) GetAllInfinibandPartitionExecute(r ApiGe
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -673,11 +670,11 @@ func (a *InfiniBandPartitionAPIService) GetAllInfinibandPartitionExecute(r ApiGe
 }
 
 type ApiGetInfinibandPartitionRequest struct {
-	ctx                   context.Context
-	ApiService            *InfiniBandPartitionAPIService
-	org                   string
+	ctx context.Context
+	ApiService *InfiniBandPartitionAPIService
+	org string
 	infiniBandPartitionId string
-	includeRelation       *string
+	includeRelation *string
 }
 
 // Related entity to expand
@@ -693,35 +690,34 @@ func (r ApiGetInfinibandPartitionRequest) Execute() (*InfiniBandPartition, *http
 /*
 GetInfinibandPartition Retrieve InfiniBand Partition
 
-# Retrieve a specific InfiniBand Partition
+Retrieve a specific InfiniBand Partition
 
 Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
 
 Tenant must own the Partition.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param infiniBandPartitionId ID of the InfiniBand Partition
-	@return ApiGetInfinibandPartitionRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param infiniBandPartitionId ID of the InfiniBand Partition
+ @return ApiGetInfinibandPartitionRequest
 */
 func (a *InfiniBandPartitionAPIService) GetInfinibandPartition(ctx context.Context, org string, infiniBandPartitionId string) ApiGetInfinibandPartitionRequest {
 	return ApiGetInfinibandPartitionRequest{
-		ApiService:            a,
-		ctx:                   ctx,
-		org:                   org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		infiniBandPartitionId: infiniBandPartitionId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return InfiniBandPartition
+//  @return InfiniBandPartition
 func (a *InfiniBandPartitionAPIService) GetInfinibandPartitionExecute(r ApiGetInfinibandPartitionRequest) (*InfiniBandPartition, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *InfiniBandPartition
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *InfiniBandPartition
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "InfiniBandPartitionAPIService.GetInfinibandPartition")
@@ -786,8 +782,8 @@ func (a *InfiniBandPartitionAPIService) GetInfinibandPartitionExecute(r ApiGetIn
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -805,10 +801,10 @@ func (a *InfiniBandPartitionAPIService) GetInfinibandPartitionExecute(r ApiGetIn
 }
 
 type ApiUpdateInfinibandPartitionRequest struct {
-	ctx                              context.Context
-	ApiService                       *InfiniBandPartitionAPIService
-	org                              string
-	infiniBandPartitionId            string
+	ctx context.Context
+	ApiService *InfiniBandPartitionAPIService
+	org string
+	infiniBandPartitionId string
 	infiniBandPartitionUpdateRequest *InfiniBandPartitionUpdateRequest
 }
 
@@ -824,35 +820,34 @@ func (r ApiUpdateInfinibandPartitionRequest) Execute() (*InfiniBandPartition, *h
 /*
 UpdateInfinibandPartition Update InfiniBand Partition
 
-# Update an existing InfiniBand Partition
+Update an existing InfiniBand Partition
 
 Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
 
 Tenant must own the Partition.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param infiniBandPartitionId ID of the InfiniBand Partition
-	@return ApiUpdateInfinibandPartitionRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param infiniBandPartitionId ID of the InfiniBand Partition
+ @return ApiUpdateInfinibandPartitionRequest
 */
 func (a *InfiniBandPartitionAPIService) UpdateInfinibandPartition(ctx context.Context, org string, infiniBandPartitionId string) ApiUpdateInfinibandPartitionRequest {
 	return ApiUpdateInfinibandPartitionRequest{
-		ApiService:            a,
-		ctx:                   ctx,
-		org:                   org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		infiniBandPartitionId: infiniBandPartitionId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return InfiniBandPartition
+//  @return InfiniBandPartition
 func (a *InfiniBandPartitionAPIService) UpdateInfinibandPartitionExecute(r ApiUpdateInfinibandPartitionRequest) (*InfiniBandPartition, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPatch
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *InfiniBandPartition
+		localVarHTTPMethod   = http.MethodPatch
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *InfiniBandPartition
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "InfiniBandPartitionAPIService.UpdateInfinibandPartition")
@@ -916,8 +911,8 @@ func (a *InfiniBandPartitionAPIService) UpdateInfinibandPartitionExecute(r ApiUp
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -927,8 +922,8 @@ func (a *InfiniBandPartitionAPIService) UpdateInfinibandPartitionExecute(r ApiUp
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

@@ -30,7 +30,7 @@ type TenantIdentityJWKSKeysInner struct {
 	// Base64url-encoded EC x coordinate
 	X *string `json:"x,omitempty"`
 	// Base64url-encoded EC y coordinate
-	Y   *string `json:"y,omitempty"`
+	Y *string `json:"y,omitempty"`
 	Alg *string `json:"alg,omitempty"`
 }
 
@@ -276,7 +276,7 @@ func (o *TenantIdentityJWKSKeysInner) SetAlg(v string) {
 }
 
 func (o TenantIdentityJWKSKeysInner) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -344,3 +344,4 @@ func (v *NullableTenantIdentityJWKSKeysInner) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

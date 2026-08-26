@@ -162,7 +162,6 @@ func (o *MachineInterface) HasControllerInterfaceId() bool {
 func (o *MachineInterface) SetControllerInterfaceId(v string) {
 	o.ControllerInterfaceId.Set(&v)
 }
-
 // SetControllerInterfaceIdNil sets the value for ControllerInterfaceId to be an explicit nil
 func (o *MachineInterface) SetControllerInterfaceIdNil() {
 	o.ControllerInterfaceId.Set(nil)
@@ -205,7 +204,6 @@ func (o *MachineInterface) HasControllerSegmentId() bool {
 func (o *MachineInterface) SetControllerSegmentId(v string) {
 	o.ControllerSegmentId.Set(&v)
 }
-
 // SetControllerSegmentIdNil sets the value for ControllerSegmentId to be an explicit nil
 func (o *MachineInterface) SetControllerSegmentIdNil() {
 	o.ControllerSegmentId.Set(nil)
@@ -248,7 +246,6 @@ func (o *MachineInterface) HasAttachedDpuMachineID() bool {
 func (o *MachineInterface) SetAttachedDpuMachineID(v string) {
 	o.AttachedDpuMachineID.Set(&v)
 }
-
 // SetAttachedDpuMachineIDNil sets the value for AttachedDpuMachineID to be an explicit nil
 func (o *MachineInterface) SetAttachedDpuMachineIDNil() {
 	o.AttachedDpuMachineID.Set(nil)
@@ -291,7 +288,6 @@ func (o *MachineInterface) HasSubnetId() bool {
 func (o *MachineInterface) SetSubnetId(v string) {
 	o.SubnetId.Set(&v)
 }
-
 // SetSubnetIdNil sets the value for SubnetId to be an explicit nil
 func (o *MachineInterface) SetSubnetIdNil() {
 	o.SubnetId.Set(nil)
@@ -334,7 +330,6 @@ func (o *MachineInterface) HasHostname() bool {
 func (o *MachineInterface) SetHostname(v string) {
 	o.Hostname.Set(&v)
 }
-
 // SetHostnameNil sets the value for Hostname to be an explicit nil
 func (o *MachineInterface) SetHostnameNil() {
 	o.Hostname.Set(nil)
@@ -409,7 +404,6 @@ func (o *MachineInterface) HasMacAddress() bool {
 func (o *MachineInterface) SetMacAddress(v string) {
 	o.MacAddress.Set(&v)
 }
-
 // SetMacAddressNil sets the value for MacAddress to be an explicit nil
 func (o *MachineInterface) SetMacAddressNil() {
 	o.MacAddress.Set(nil)
@@ -517,7 +511,7 @@ func (o *MachineInterface) SetUpdated(v time.Time) {
 }
 
 func (o MachineInterface) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -600,3 +594,4 @@ func (v *NullableMachineInterface) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

@@ -23,15 +23,15 @@ type MachineStatus string
 
 // List of MachineStatus
 const (
-	MACHINESTATUS_INITIALIZING    MachineStatus = "Initializing"
-	MACHINESTATUS_READY           MachineStatus = "Ready"
-	MACHINESTATUS_RESET           MachineStatus = "Reset"
-	MACHINESTATUS_MAINTENANCE     MachineStatus = "Maintenance"
-	MACHINESTATUS_IN_USE          MachineStatus = "InUse"
-	MACHINESTATUS_ERROR           MachineStatus = "Error"
+	MACHINESTATUS_INITIALIZING MachineStatus = "Initializing"
+	MACHINESTATUS_READY MachineStatus = "Ready"
+	MACHINESTATUS_RESET MachineStatus = "Reset"
+	MACHINESTATUS_MAINTENANCE MachineStatus = "Maintenance"
+	MACHINESTATUS_IN_USE MachineStatus = "InUse"
+	MACHINESTATUS_ERROR MachineStatus = "Error"
 	MACHINESTATUS_DECOMMISSIONING MachineStatus = "Decommissioning"
-	MACHINESTATUS_DECOMMISSIONED  MachineStatus = "Decommissioned"
-	MACHINESTATUS_UNKNOWN         MachineStatus = "Unknown"
+	MACHINESTATUS_DECOMMISSIONED MachineStatus = "Decommissioned"
+	MACHINESTATUS_UNKNOWN MachineStatus = "Unknown"
 )
 
 // All allowed values of MachineStatus enum
@@ -125,3 +125,4 @@ func (v *NullableMachineStatus) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

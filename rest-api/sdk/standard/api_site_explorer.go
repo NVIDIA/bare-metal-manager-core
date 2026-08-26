@@ -22,13 +22,14 @@ import (
 	"strings"
 )
 
+
 // SiteExplorerAPIService SiteExplorerAPI service
 type SiteExplorerAPIService service
 
 type ApiCreateSiteExplorerEndpointActionRequest struct {
-	ctx                               context.Context
-	ApiService                        *SiteExplorerAPIService
-	org                               string
+	ctx context.Context
+	ApiService *SiteExplorerAPIService
+	org string
 	siteExplorerEndpointActionRequest *SiteExplorerEndpointActionRequest
 }
 
@@ -52,27 +53,26 @@ stops and endpoints earlier in the list may already have completed.
 
 User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiCreateSiteExplorerEndpointActionRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiCreateSiteExplorerEndpointActionRequest
 */
 func (a *SiteExplorerAPIService) CreateSiteExplorerEndpointAction(ctx context.Context, org string) ApiCreateSiteExplorerEndpointActionRequest {
 	return ApiCreateSiteExplorerEndpointActionRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return SiteExplorerEndpointAction
+//  @return SiteExplorerEndpointAction
 func (a *SiteExplorerAPIService) CreateSiteExplorerEndpointActionExecute(r ApiCreateSiteExplorerEndpointActionRequest) (*SiteExplorerEndpointAction, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPost
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *SiteExplorerEndpointAction
+		localVarHTTPMethod   = http.MethodPost
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *SiteExplorerEndpointAction
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SiteExplorerAPIService.CreateSiteExplorerEndpointAction")
@@ -138,8 +138,8 @@ func (a *SiteExplorerAPIService) CreateSiteExplorerEndpointActionExecute(r ApiCr
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -149,8 +149,8 @@ func (a *SiteExplorerAPIService) CreateSiteExplorerEndpointActionExecute(r ApiCr
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -160,8 +160,8 @@ func (a *SiteExplorerAPIService) CreateSiteExplorerEndpointActionExecute(r ApiCr
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 412 {
@@ -171,8 +171,8 @@ func (a *SiteExplorerAPIService) CreateSiteExplorerEndpointActionExecute(r ApiCr
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -182,8 +182,8 @@ func (a *SiteExplorerAPIService) CreateSiteExplorerEndpointActionExecute(r ApiCr
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 504 {
@@ -193,8 +193,8 @@ func (a *SiteExplorerAPIService) CreateSiteExplorerEndpointActionExecute(r ApiCr
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -212,13 +212,13 @@ func (a *SiteExplorerAPIService) CreateSiteExplorerEndpointActionExecute(r ApiCr
 }
 
 type ApiGetAllSiteExplorerEndpointRequest struct {
-	ctx        context.Context
+	ctx context.Context
 	ApiService *SiteExplorerAPIService
-	siteId     *string
-	org        string
+	siteId *string
+	org string
 	pageNumber *int32
-	pageSize   *int32
-	orderBy    *string
+	pageSize *int32
+	orderBy *string
 }
 
 // ID of the Site
@@ -260,27 +260,26 @@ The response is paged over Core `FindExploredEndpointIds` followed by
 
 User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiGetAllSiteExplorerEndpointRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiGetAllSiteExplorerEndpointRequest
 */
 func (a *SiteExplorerAPIService) GetAllSiteExplorerEndpoint(ctx context.Context, org string) ApiGetAllSiteExplorerEndpointRequest {
 	return ApiGetAllSiteExplorerEndpointRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return []ExploredEndpoint
+//  @return []ExploredEndpoint
 func (a *SiteExplorerAPIService) GetAllSiteExplorerEndpointExecute(r ApiGetAllSiteExplorerEndpointRequest) ([]ExploredEndpoint, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue []ExploredEndpoint
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  []ExploredEndpoint
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SiteExplorerAPIService.GetAllSiteExplorerEndpoint")
@@ -358,8 +357,8 @@ func (a *SiteExplorerAPIService) GetAllSiteExplorerEndpointExecute(r ApiGetAllSi
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -369,8 +368,8 @@ func (a *SiteExplorerAPIService) GetAllSiteExplorerEndpointExecute(r ApiGetAllSi
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -380,8 +379,8 @@ func (a *SiteExplorerAPIService) GetAllSiteExplorerEndpointExecute(r ApiGetAllSi
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 412 {
@@ -391,8 +390,8 @@ func (a *SiteExplorerAPIService) GetAllSiteExplorerEndpointExecute(r ApiGetAllSi
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -402,8 +401,8 @@ func (a *SiteExplorerAPIService) GetAllSiteExplorerEndpointExecute(r ApiGetAllSi
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 504 {
@@ -413,8 +412,8 @@ func (a *SiteExplorerAPIService) GetAllSiteExplorerEndpointExecute(r ApiGetAllSi
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

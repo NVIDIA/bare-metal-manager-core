@@ -172,7 +172,6 @@ func (o *InfiniBandPartition) HasDescription() bool {
 func (o *InfiniBandPartition) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *InfiniBandPartition) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -279,7 +278,6 @@ func (o *InfiniBandPartition) HasControllerIBPartitionId() bool {
 func (o *InfiniBandPartition) SetControllerIBPartitionId(v string) {
 	o.ControllerIBPartitionId.Set(&v)
 }
-
 // SetControllerIBPartitionIdNil sets the value for ControllerIBPartitionId to be an explicit nil
 func (o *InfiniBandPartition) SetControllerIBPartitionIdNil() {
 	o.ControllerIBPartitionId.Set(nil)
@@ -322,7 +320,6 @@ func (o *InfiniBandPartition) HasPartitionKey() bool {
 func (o *InfiniBandPartition) SetPartitionKey(v string) {
 	o.PartitionKey.Set(&v)
 }
-
 // SetPartitionKeyNil sets the value for PartitionKey to be an explicit nil
 func (o *InfiniBandPartition) SetPartitionKeyNil() {
 	o.PartitionKey.Set(nil)
@@ -365,7 +362,6 @@ func (o *InfiniBandPartition) HasPartitionName() bool {
 func (o *InfiniBandPartition) SetPartitionName(v string) {
 	o.PartitionName.Set(&v)
 }
-
 // SetPartitionNameNil sets the value for PartitionName to be an explicit nil
 func (o *InfiniBandPartition) SetPartitionNameNil() {
 	o.PartitionName.Set(nil)
@@ -408,7 +404,6 @@ func (o *InfiniBandPartition) HasServiceLevel() bool {
 func (o *InfiniBandPartition) SetServiceLevel(v int32) {
 	o.ServiceLevel.Set(&v)
 }
-
 // SetServiceLevelNil sets the value for ServiceLevel to be an explicit nil
 func (o *InfiniBandPartition) SetServiceLevelNil() {
 	o.ServiceLevel.Set(nil)
@@ -451,7 +446,6 @@ func (o *InfiniBandPartition) HasRateLimit() bool {
 func (o *InfiniBandPartition) SetRateLimit(v float32) {
 	o.RateLimit.Set(&v)
 }
-
 // SetRateLimitNil sets the value for RateLimit to be an explicit nil
 func (o *InfiniBandPartition) SetRateLimitNil() {
 	o.RateLimit.Set(nil)
@@ -494,7 +488,6 @@ func (o *InfiniBandPartition) HasMtu() bool {
 func (o *InfiniBandPartition) SetMtu(v int32) {
 	o.Mtu.Set(&v)
 }
-
 // SetMtuNil sets the value for Mtu to be an explicit nil
 func (o *InfiniBandPartition) SetMtuNil() {
 	o.Mtu.Set(nil)
@@ -698,7 +691,7 @@ func (o *InfiniBandPartition) SetUpdated(v time.Time) {
 }
 
 func (o InfiniBandPartition) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -796,3 +789,4 @@ func (v *NullableInfiniBandPartition) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

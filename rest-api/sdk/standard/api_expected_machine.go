@@ -22,13 +22,14 @@ import (
 	"strings"
 )
 
+
 // ExpectedMachineAPIService ExpectedMachineAPI service
 type ExpectedMachineAPIService service
 
 type ApiBatchCreateExpectedMachinesRequest struct {
-	ctx                          context.Context
-	ApiService                   *ExpectedMachineAPIService
-	org                          string
+	ctx context.Context
+	ApiService *ExpectedMachineAPIService
+	org string
 	expectedMachineCreateRequest *[]ExpectedMachineCreateRequest
 }
 
@@ -53,27 +54,26 @@ Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also
 
 Maximum batch size: 100 Expected Machines per request.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiBatchCreateExpectedMachinesRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiBatchCreateExpectedMachinesRequest
 */
 func (a *ExpectedMachineAPIService) BatchCreateExpectedMachines(ctx context.Context, org string) ApiBatchCreateExpectedMachinesRequest {
 	return ApiBatchCreateExpectedMachinesRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return []ExpectedMachine
+//  @return []ExpectedMachine
 func (a *ExpectedMachineAPIService) BatchCreateExpectedMachinesExecute(r ApiBatchCreateExpectedMachinesRequest) ([]ExpectedMachine, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPost
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue []ExpectedMachine
+		localVarHTTPMethod   = http.MethodPost
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  []ExpectedMachine
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "ExpectedMachineAPIService.BatchCreateExpectedMachines")
@@ -145,8 +145,8 @@ func (a *ExpectedMachineAPIService) BatchCreateExpectedMachinesExecute(r ApiBatc
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -156,8 +156,8 @@ func (a *ExpectedMachineAPIService) BatchCreateExpectedMachinesExecute(r ApiBatc
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -175,9 +175,9 @@ func (a *ExpectedMachineAPIService) BatchCreateExpectedMachinesExecute(r ApiBatc
 }
 
 type ApiBatchUpdateExpectedMachinesRequest struct {
-	ctx                          context.Context
-	ApiService                   *ExpectedMachineAPIService
-	org                          string
+	ctx context.Context
+	ApiService *ExpectedMachineAPIService
+	org string
 	expectedMachineUpdateRequest *[]ExpectedMachineUpdateRequest
 }
 
@@ -206,27 +206,26 @@ Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also
 
 Maximum batch size: 100 Expected Machines per request.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiBatchUpdateExpectedMachinesRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiBatchUpdateExpectedMachinesRequest
 */
 func (a *ExpectedMachineAPIService) BatchUpdateExpectedMachines(ctx context.Context, org string) ApiBatchUpdateExpectedMachinesRequest {
 	return ApiBatchUpdateExpectedMachinesRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return []ExpectedMachine
+//  @return []ExpectedMachine
 func (a *ExpectedMachineAPIService) BatchUpdateExpectedMachinesExecute(r ApiBatchUpdateExpectedMachinesRequest) ([]ExpectedMachine, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPatch
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue []ExpectedMachine
+		localVarHTTPMethod   = http.MethodPatch
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  []ExpectedMachine
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "ExpectedMachineAPIService.BatchUpdateExpectedMachines")
@@ -298,8 +297,8 @@ func (a *ExpectedMachineAPIService) BatchUpdateExpectedMachinesExecute(r ApiBatc
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -309,8 +308,8 @@ func (a *ExpectedMachineAPIService) BatchUpdateExpectedMachinesExecute(r ApiBatc
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -320,8 +319,8 @@ func (a *ExpectedMachineAPIService) BatchUpdateExpectedMachinesExecute(r ApiBatc
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -339,9 +338,9 @@ func (a *ExpectedMachineAPIService) BatchUpdateExpectedMachinesExecute(r ApiBatc
 }
 
 type ApiCreateExpectedMachineRequest struct {
-	ctx                          context.Context
-	ApiService                   *ExpectedMachineAPIService
-	org                          string
+	ctx context.Context
+	ApiService *ExpectedMachineAPIService
+	org string
 	expectedMachineCreateRequest *ExpectedMachineCreateRequest
 }
 
@@ -364,27 +363,26 @@ Org must have an Infrastructure Provider entity. User must have authorization ro
 
 Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also create Expected Machines if they have an account with the Site's Infrastructure Provider.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiCreateExpectedMachineRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiCreateExpectedMachineRequest
 */
 func (a *ExpectedMachineAPIService) CreateExpectedMachine(ctx context.Context, org string) ApiCreateExpectedMachineRequest {
 	return ApiCreateExpectedMachineRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return ExpectedMachine
+//  @return ExpectedMachine
 func (a *ExpectedMachineAPIService) CreateExpectedMachineExecute(r ApiCreateExpectedMachineRequest) (*ExpectedMachine, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPost
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *ExpectedMachine
+		localVarHTTPMethod   = http.MethodPost
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *ExpectedMachine
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "ExpectedMachineAPIService.CreateExpectedMachine")
@@ -450,8 +448,8 @@ func (a *ExpectedMachineAPIService) CreateExpectedMachineExecute(r ApiCreateExpe
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -461,8 +459,8 @@ func (a *ExpectedMachineAPIService) CreateExpectedMachineExecute(r ApiCreateExpe
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -480,9 +478,9 @@ func (a *ExpectedMachineAPIService) CreateExpectedMachineExecute(r ApiCreateExpe
 }
 
 type ApiDeleteExpectedMachineRequest struct {
-	ctx               context.Context
-	ApiService        *ExpectedMachineAPIService
-	org               string
+	ctx context.Context
+	ApiService *ExpectedMachineAPIService
+	org string
 	expectedMachineId string
 }
 
@@ -501,16 +499,16 @@ Infrastructure Provider must own the Expected Machine.
 
 Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also delete Expected Machines if they have an account with the Site's Infrastructure Provider.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param expectedMachineId ID of the Expected Machine
-	@return ApiDeleteExpectedMachineRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param expectedMachineId ID of the Expected Machine
+ @return ApiDeleteExpectedMachineRequest
 */
 func (a *ExpectedMachineAPIService) DeleteExpectedMachine(ctx context.Context, org string, expectedMachineId string) ApiDeleteExpectedMachineRequest {
 	return ApiDeleteExpectedMachineRequest{
-		ApiService:        a,
-		ctx:               ctx,
-		org:               org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		expectedMachineId: expectedMachineId,
 	}
 }
@@ -518,9 +516,9 @@ func (a *ExpectedMachineAPIService) DeleteExpectedMachine(ctx context.Context, o
 // Execute executes the request
 func (a *ExpectedMachineAPIService) DeleteExpectedMachineExecute(r ApiDeleteExpectedMachineRequest) (*http.Response, error) {
 	var (
-		localVarHTTPMethod = http.MethodDelete
-		localVarPostBody   interface{}
-		formFiles          []formFile
+		localVarHTTPMethod   = http.MethodDelete
+		localVarPostBody     interface{}
+		formFiles            []formFile
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "ExpectedMachineAPIService.DeleteExpectedMachine")
@@ -582,8 +580,8 @@ func (a *ExpectedMachineAPIService) DeleteExpectedMachineExecute(r ApiDeleteExpe
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -593,8 +591,8 @@ func (a *ExpectedMachineAPIService) DeleteExpectedMachineExecute(r ApiDeleteExpe
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -604,8 +602,8 @@ func (a *ExpectedMachineAPIService) DeleteExpectedMachineExecute(r ApiDeleteExpe
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarHTTPResponse, newErr
 	}
@@ -614,14 +612,14 @@ func (a *ExpectedMachineAPIService) DeleteExpectedMachineExecute(r ApiDeleteExpe
 }
 
 type ApiGetAllExpectedMachineRequest struct {
-	ctx             context.Context
-	ApiService      *ExpectedMachineAPIService
-	org             string
-	siteId          *string
+	ctx context.Context
+	ApiService *ExpectedMachineAPIService
+	org string
+	siteId *string
 	includeRelation *string
-	pageNumber      *int32
-	pageSize        *int32
-	orderBy         *string
+	pageNumber *int32
+	pageSize *int32
+	orderBy *string
 }
 
 // ID of the Site to filter Expected Machines by
@@ -667,27 +665,26 @@ Org must have an Infrastructure Provider entity. User must have authorization ro
 
 Alternatively, Tenant Admins may retrieve Expected Machines across Sites where `TargetedInstanceCreation` is effective. The siteId query parameter is optional and, when provided, further restricts results to that Site.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiGetAllExpectedMachineRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiGetAllExpectedMachineRequest
 */
 func (a *ExpectedMachineAPIService) GetAllExpectedMachine(ctx context.Context, org string) ApiGetAllExpectedMachineRequest {
 	return ApiGetAllExpectedMachineRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return []ExpectedMachine
+//  @return []ExpectedMachine
 func (a *ExpectedMachineAPIService) GetAllExpectedMachineExecute(r ApiGetAllExpectedMachineRequest) ([]ExpectedMachine, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue []ExpectedMachine
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  []ExpectedMachine
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "ExpectedMachineAPIService.GetAllExpectedMachine")
@@ -767,8 +764,8 @@ func (a *ExpectedMachineAPIService) GetAllExpectedMachineExecute(r ApiGetAllExpe
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -778,8 +775,8 @@ func (a *ExpectedMachineAPIService) GetAllExpectedMachineExecute(r ApiGetAllExpe
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -797,11 +794,11 @@ func (a *ExpectedMachineAPIService) GetAllExpectedMachineExecute(r ApiGetAllExpe
 }
 
 type ApiGetExpectedMachineRequest struct {
-	ctx               context.Context
-	ApiService        *ExpectedMachineAPIService
-	org               string
+	ctx context.Context
+	ApiService *ExpectedMachineAPIService
+	org string
 	expectedMachineId string
-	includeRelation   *string
+	includeRelation *string
 }
 
 // Related entity to expand
@@ -823,29 +820,28 @@ Org must have an Infrastructure Provider entity. User must have authorization ro
 
 Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also retrieve Expected Machines if they have an account with the Site's Infrastructure Provider.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param expectedMachineId ID of the Expected Machine
-	@return ApiGetExpectedMachineRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param expectedMachineId ID of the Expected Machine
+ @return ApiGetExpectedMachineRequest
 */
 func (a *ExpectedMachineAPIService) GetExpectedMachine(ctx context.Context, org string, expectedMachineId string) ApiGetExpectedMachineRequest {
 	return ApiGetExpectedMachineRequest{
-		ApiService:        a,
-		ctx:               ctx,
-		org:               org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		expectedMachineId: expectedMachineId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return ExpectedMachine
+//  @return ExpectedMachine
 func (a *ExpectedMachineAPIService) GetExpectedMachineExecute(r ApiGetExpectedMachineRequest) (*ExpectedMachine, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *ExpectedMachine
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *ExpectedMachine
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "ExpectedMachineAPIService.GetExpectedMachine")
@@ -910,8 +906,8 @@ func (a *ExpectedMachineAPIService) GetExpectedMachineExecute(r ApiGetExpectedMa
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -921,8 +917,8 @@ func (a *ExpectedMachineAPIService) GetExpectedMachineExecute(r ApiGetExpectedMa
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -932,8 +928,8 @@ func (a *ExpectedMachineAPIService) GetExpectedMachineExecute(r ApiGetExpectedMa
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -951,10 +947,10 @@ func (a *ExpectedMachineAPIService) GetExpectedMachineExecute(r ApiGetExpectedMa
 }
 
 type ApiUpdateExpectedMachineRequest struct {
-	ctx                          context.Context
-	ApiService                   *ExpectedMachineAPIService
-	org                          string
-	expectedMachineId            string
+	ctx context.Context
+	ApiService *ExpectedMachineAPIService
+	org string
+	expectedMachineId string
 	expectedMachineUpdateRequest *ExpectedMachineUpdateRequest
 }
 
@@ -979,29 +975,28 @@ Infrastructure Provider must own the Expected Machine.
 
 Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also update Expected Machines if they have an account with the Site's Infrastructure Provider.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param expectedMachineId ID of the Expected Machine
-	@return ApiUpdateExpectedMachineRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param expectedMachineId ID of the Expected Machine
+ @return ApiUpdateExpectedMachineRequest
 */
 func (a *ExpectedMachineAPIService) UpdateExpectedMachine(ctx context.Context, org string, expectedMachineId string) ApiUpdateExpectedMachineRequest {
 	return ApiUpdateExpectedMachineRequest{
-		ApiService:        a,
-		ctx:               ctx,
-		org:               org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		expectedMachineId: expectedMachineId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return ExpectedMachine
+//  @return ExpectedMachine
 func (a *ExpectedMachineAPIService) UpdateExpectedMachineExecute(r ApiUpdateExpectedMachineRequest) (*ExpectedMachine, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPatch
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *ExpectedMachine
+		localVarHTTPMethod   = http.MethodPatch
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *ExpectedMachine
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "ExpectedMachineAPIService.UpdateExpectedMachine")
@@ -1068,8 +1063,8 @@ func (a *ExpectedMachineAPIService) UpdateExpectedMachineExecute(r ApiUpdateExpe
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -1079,8 +1074,8 @@ func (a *ExpectedMachineAPIService) UpdateExpectedMachineExecute(r ApiUpdateExpe
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -1090,8 +1085,8 @@ func (a *ExpectedMachineAPIService) UpdateExpectedMachineExecute(r ApiUpdateExpe
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

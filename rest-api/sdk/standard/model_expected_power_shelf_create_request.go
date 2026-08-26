@@ -14,8 +14,8 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
+	"bytes"
 	"fmt"
 )
 
@@ -158,7 +158,6 @@ func (o *ExpectedPowerShelfCreateRequest) HasDefaultBmcUsername() bool {
 func (o *ExpectedPowerShelfCreateRequest) SetDefaultBmcUsername(v string) {
 	o.DefaultBmcUsername.Set(&v)
 }
-
 // SetDefaultBmcUsernameNil sets the value for DefaultBmcUsername to be an explicit nil
 func (o *ExpectedPowerShelfCreateRequest) SetDefaultBmcUsernameNil() {
 	o.DefaultBmcUsername.Set(nil)
@@ -201,7 +200,6 @@ func (o *ExpectedPowerShelfCreateRequest) HasDefaultBmcPassword() bool {
 func (o *ExpectedPowerShelfCreateRequest) SetDefaultBmcPassword(v string) {
 	o.DefaultBmcPassword.Set(&v)
 }
-
 // SetDefaultBmcPasswordNil sets the value for DefaultBmcPassword to be an explicit nil
 func (o *ExpectedPowerShelfCreateRequest) SetDefaultBmcPasswordNil() {
 	o.DefaultBmcPassword.Set(nil)
@@ -268,7 +266,6 @@ func (o *ExpectedPowerShelfCreateRequest) HasBmcIpAddress() bool {
 func (o *ExpectedPowerShelfCreateRequest) SetBmcIpAddress(v string) {
 	o.BmcIpAddress.Set(&v)
 }
-
 // SetBmcIpAddressNil sets the value for BmcIpAddress to be an explicit nil
 func (o *ExpectedPowerShelfCreateRequest) SetBmcIpAddressNil() {
 	o.BmcIpAddress.Set(nil)
@@ -311,7 +308,6 @@ func (o *ExpectedPowerShelfCreateRequest) HasRackId() bool {
 func (o *ExpectedPowerShelfCreateRequest) SetRackId(v string) {
 	o.RackId.Set(&v)
 }
-
 // SetRackIdNil sets the value for RackId to be an explicit nil
 func (o *ExpectedPowerShelfCreateRequest) SetRackIdNil() {
 	o.RackId.Set(nil)
@@ -354,7 +350,6 @@ func (o *ExpectedPowerShelfCreateRequest) HasName() bool {
 func (o *ExpectedPowerShelfCreateRequest) SetName(v string) {
 	o.Name.Set(&v)
 }
-
 // SetNameNil sets the value for Name to be an explicit nil
 func (o *ExpectedPowerShelfCreateRequest) SetNameNil() {
 	o.Name.Set(nil)
@@ -397,7 +392,6 @@ func (o *ExpectedPowerShelfCreateRequest) HasManufacturer() bool {
 func (o *ExpectedPowerShelfCreateRequest) SetManufacturer(v string) {
 	o.Manufacturer.Set(&v)
 }
-
 // SetManufacturerNil sets the value for Manufacturer to be an explicit nil
 func (o *ExpectedPowerShelfCreateRequest) SetManufacturerNil() {
 	o.Manufacturer.Set(nil)
@@ -440,7 +434,6 @@ func (o *ExpectedPowerShelfCreateRequest) HasModel() bool {
 func (o *ExpectedPowerShelfCreateRequest) SetModel(v string) {
 	o.Model.Set(&v)
 }
-
 // SetModelNil sets the value for Model to be an explicit nil
 func (o *ExpectedPowerShelfCreateRequest) SetModelNil() {
 	o.Model.Set(nil)
@@ -483,7 +476,6 @@ func (o *ExpectedPowerShelfCreateRequest) HasDescription() bool {
 func (o *ExpectedPowerShelfCreateRequest) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *ExpectedPowerShelfCreateRequest) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -526,7 +518,6 @@ func (o *ExpectedPowerShelfCreateRequest) HasSlotId() bool {
 func (o *ExpectedPowerShelfCreateRequest) SetSlotId(v int32) {
 	o.SlotId.Set(&v)
 }
-
 // SetSlotIdNil sets the value for SlotId to be an explicit nil
 func (o *ExpectedPowerShelfCreateRequest) SetSlotIdNil() {
 	o.SlotId.Set(nil)
@@ -569,7 +560,6 @@ func (o *ExpectedPowerShelfCreateRequest) HasTrayIdx() bool {
 func (o *ExpectedPowerShelfCreateRequest) SetTrayIdx(v int32) {
 	o.TrayIdx.Set(&v)
 }
-
 // SetTrayIdxNil sets the value for TrayIdx to be an explicit nil
 func (o *ExpectedPowerShelfCreateRequest) SetTrayIdxNil() {
 	o.TrayIdx.Set(nil)
@@ -612,7 +602,6 @@ func (o *ExpectedPowerShelfCreateRequest) HasHostId() bool {
 func (o *ExpectedPowerShelfCreateRequest) SetHostId(v int32) {
 	o.HostId.Set(&v)
 }
-
 // SetHostIdNil sets the value for HostId to be an explicit nil
 func (o *ExpectedPowerShelfCreateRequest) SetHostIdNil() {
 	o.HostId.Set(nil)
@@ -656,7 +645,7 @@ func (o *ExpectedPowerShelfCreateRequest) SetLabels(v map[string]string) {
 }
 
 func (o ExpectedPowerShelfCreateRequest) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -722,10 +711,10 @@ func (o *ExpectedPowerShelfCreateRequest) UnmarshalJSON(data []byte) (err error)
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -780,3 +769,4 @@ func (v *NullableExpectedPowerShelfCreateRequest) UnmarshalJSON(src []byte) erro
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

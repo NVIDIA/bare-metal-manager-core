@@ -14,8 +14,8 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
+	"bytes"
 	"fmt"
 )
 
@@ -112,7 +112,6 @@ func (o *SiteCreateRequest) HasDescription() bool {
 func (o *SiteCreateRequest) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *SiteCreateRequest) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -155,7 +154,6 @@ func (o *SiteCreateRequest) HasSerialConsoleHostname() bool {
 func (o *SiteCreateRequest) SetSerialConsoleHostname(v string) {
 	o.SerialConsoleHostname.Set(&v)
 }
-
 // SetSerialConsoleHostnameNil sets the value for SerialConsoleHostname to be an explicit nil
 func (o *SiteCreateRequest) SetSerialConsoleHostnameNil() {
 	o.SerialConsoleHostname.Set(nil)
@@ -231,7 +229,7 @@ func (o *SiteCreateRequest) SetContact(v SiteContact) {
 }
 
 func (o SiteCreateRequest) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -269,10 +267,10 @@ func (o *SiteCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -327,3 +325,4 @@ func (v *NullableSiteCreateRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

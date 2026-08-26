@@ -23,10 +23,10 @@ type DpuExtensionServiceDeploymentStatus string
 
 // List of DpuExtensionServiceDeploymentStatus
 const (
-	DPUEXTENSIONSERVICEDEPLOYMENTSTATUS_PENDING     DpuExtensionServiceDeploymentStatus = "Pending"
-	DPUEXTENSIONSERVICEDEPLOYMENTSTATUS_RUNNING     DpuExtensionServiceDeploymentStatus = "Running"
-	DPUEXTENSIONSERVICEDEPLOYMENTSTATUS_ERROR       DpuExtensionServiceDeploymentStatus = "Error"
-	DPUEXTENSIONSERVICEDEPLOYMENTSTATUS_FAILED      DpuExtensionServiceDeploymentStatus = "Failed"
+	DPUEXTENSIONSERVICEDEPLOYMENTSTATUS_PENDING DpuExtensionServiceDeploymentStatus = "Pending"
+	DPUEXTENSIONSERVICEDEPLOYMENTSTATUS_RUNNING DpuExtensionServiceDeploymentStatus = "Running"
+	DPUEXTENSIONSERVICEDEPLOYMENTSTATUS_ERROR DpuExtensionServiceDeploymentStatus = "Error"
+	DPUEXTENSIONSERVICEDEPLOYMENTSTATUS_FAILED DpuExtensionServiceDeploymentStatus = "Failed"
 	DPUEXTENSIONSERVICEDEPLOYMENTSTATUS_TERMINATING DpuExtensionServiceDeploymentStatus = "Terminating"
 )
 
@@ -117,3 +117,4 @@ func (v *NullableDpuExtensionServiceDeploymentStatus) UnmarshalJSON(src []byte) 
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

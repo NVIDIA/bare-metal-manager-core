@@ -26,9 +26,9 @@ type IpBlockUsageStats struct {
 	AvailableIPs *uint64 `json:"availableIPs,omitempty"`
 	// Number of individual IP addresses acquired from the block
 	AcquiredIPs *uint64 `json:"acquiredIPs,omitempty"`
-	// Example prefixes available to acquire
+	// Example prefixes available to acquire 
 	AvailablePrefixes []string `json:"availablePrefixes,omitempty"`
-	// Total number of /30 prefixes that can still be acquired from this block (only reduced if prefixes are acquired, not reduced by acquired IPs)
+	// Total number of /30 prefixes that can still be acquired from this block (only reduced if prefixes are acquired, not reduced by acquired IPs) 
 	AvailableSmallestPrefixes *uint64 `json:"availableSmallestPrefixes,omitempty"`
 	// Total number of prefixes (of any size) acquired from this block
 	AcquiredPrefixes *uint64 `json:"acquiredPrefixes,omitempty"`
@@ -212,7 +212,7 @@ func (o *IpBlockUsageStats) SetAcquiredPrefixes(v uint64) {
 }
 
 func (o IpBlockUsageStats) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -274,3 +274,4 @@ func (v *NullableIpBlockUsageStats) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

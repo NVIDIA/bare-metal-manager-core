@@ -148,7 +148,6 @@ func (o *InfrastructureProvider) HasOrgDisplayName() bool {
 func (o *InfrastructureProvider) SetOrgDisplayName(v string) {
 	o.OrgDisplayName.Set(&v)
 }
-
 // SetOrgDisplayNameNil sets the value for OrgDisplayName to be an explicit nil
 func (o *InfrastructureProvider) SetOrgDisplayNameNil() {
 	o.OrgDisplayName.Set(nil)
@@ -224,7 +223,7 @@ func (o *InfrastructureProvider) SetUpdated(v time.Time) {
 }
 
 func (o InfrastructureProvider) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -286,3 +285,4 @@ func (v *NullableInfrastructureProvider) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

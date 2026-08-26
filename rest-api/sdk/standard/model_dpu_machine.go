@@ -14,10 +14,10 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
 	"time"
+	"bytes"
+	"fmt"
 )
 
 // checks if the DpuMachine type satisfies the MappedNullable interface at compile time
@@ -482,7 +482,6 @@ func (o *DpuMachine) HasLastRebooted() bool {
 func (o *DpuMachine) SetLastRebooted(v time.Time) {
 	o.LastRebooted.Set(&v)
 }
-
 // SetLastRebootedNil sets the value for LastRebooted to be an explicit nil
 func (o *DpuMachine) SetLastRebootedNil() {
 	o.LastRebooted.Set(nil)
@@ -526,7 +525,7 @@ func (o *DpuMachine) SetPlacementInRack(v PlacementInRack) {
 }
 
 func (o DpuMachine) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -589,10 +588,10 @@ func (o *DpuMachine) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -647,3 +646,4 @@ func (v *NullableDpuMachine) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

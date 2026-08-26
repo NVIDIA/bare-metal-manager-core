@@ -75,7 +75,6 @@ func (o *HostLifecycleProfile) HasDisableLockdown() bool {
 func (o *HostLifecycleProfile) SetDisableLockdown(v bool) {
 	o.DisableLockdown.Set(&v)
 }
-
 // SetDisableLockdownNil sets the value for DisableLockdown to be an explicit nil
 func (o *HostLifecycleProfile) SetDisableLockdownNil() {
 	o.DisableLockdown.Set(nil)
@@ -87,7 +86,7 @@ func (o *HostLifecycleProfile) UnsetDisableLockdown() {
 }
 
 func (o HostLifecycleProfile) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -137,3 +136,4 @@ func (v *NullableHostLifecycleProfile) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

@@ -22,8 +22,8 @@ var _ MappedNullable = &ExploredMachineBootInterfaceTarget{}
 
 // ExploredMachineBootInterfaceTarget Boot-interface target assessed during exploration.
 type ExploredMachineBootInterfaceTarget struct {
-	Pair    *ExploredMachineBootInterfacePair `json:"pair,omitempty"`
-	MacOnly NullableString                    `json:"macOnly,omitempty"`
+	Pair *ExploredMachineBootInterfacePair `json:"pair,omitempty"`
+	MacOnly NullableString `json:"macOnly,omitempty"`
 }
 
 // NewExploredMachineBootInterfaceTarget instantiates a new ExploredMachineBootInterfaceTarget object
@@ -107,7 +107,6 @@ func (o *ExploredMachineBootInterfaceTarget) HasMacOnly() bool {
 func (o *ExploredMachineBootInterfaceTarget) SetMacOnly(v string) {
 	o.MacOnly.Set(&v)
 }
-
 // SetMacOnlyNil sets the value for MacOnly to be an explicit nil
 func (o *ExploredMachineBootInterfaceTarget) SetMacOnlyNil() {
 	o.MacOnly.Set(nil)
@@ -119,7 +118,7 @@ func (o *ExploredMachineBootInterfaceTarget) UnsetMacOnly() {
 }
 
 func (o ExploredMachineBootInterfaceTarget) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -172,3 +171,4 @@ func (v *NullableExploredMachineBootInterfaceTarget) UnmarshalJSON(src []byte) e
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

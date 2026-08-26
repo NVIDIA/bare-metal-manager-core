@@ -22,13 +22,14 @@ import (
 	"strings"
 )
 
+
 // BMCCredentialAPIService BMCCredentialAPI service
 type BMCCredentialAPIService service
 
 type ApiCreateOrUpdateBmcCredentialRequest struct {
-	ctx                  context.Context
-	ApiService           *BMCCredentialAPIService
-	org                  string
+	ctx context.Context
+	ApiService *BMCCredentialAPIService
+	org string
 	bMCCredentialRequest *BMCCredentialRequest
 }
 
@@ -49,27 +50,26 @@ to `nico-admin-cli credential add-bmc`.
 
 User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiCreateOrUpdateBmcCredentialRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiCreateOrUpdateBmcCredentialRequest
 */
 func (a *BMCCredentialAPIService) CreateOrUpdateBmcCredential(ctx context.Context, org string) ApiCreateOrUpdateBmcCredentialRequest {
 	return ApiCreateOrUpdateBmcCredentialRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return BMCCredential
+//  @return BMCCredential
 func (a *BMCCredentialAPIService) CreateOrUpdateBmcCredentialExecute(r ApiCreateOrUpdateBmcCredentialRequest) (*BMCCredential, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPut
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *BMCCredential
+		localVarHTTPMethod   = http.MethodPut
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *BMCCredential
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "BMCCredentialAPIService.CreateOrUpdateBmcCredential")
@@ -135,8 +135,8 @@ func (a *BMCCredentialAPIService) CreateOrUpdateBmcCredentialExecute(r ApiCreate
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -146,8 +146,8 @@ func (a *BMCCredentialAPIService) CreateOrUpdateBmcCredentialExecute(r ApiCreate
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

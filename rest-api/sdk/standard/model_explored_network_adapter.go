@@ -14,8 +14,8 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
+	"bytes"
 	"fmt"
 )
 
@@ -24,10 +24,10 @@ var _ MappedNullable = &ExploredNetworkAdapter{}
 
 // ExploredNetworkAdapter Redfish NetworkAdapter reported during exploration.
 type ExploredNetworkAdapter struct {
-	Id           string         `json:"id"`
+	Id string `json:"id"`
 	Manufacturer NullableString `json:"manufacturer,omitempty"`
-	Model        NullableString `json:"model,omitempty"`
-	PartNumber   NullableString `json:"partNumber,omitempty"`
+	Model NullableString `json:"model,omitempty"`
+	PartNumber NullableString `json:"partNumber,omitempty"`
 	SerialNumber NullableString `json:"serialNumber,omitempty"`
 }
 
@@ -107,7 +107,6 @@ func (o *ExploredNetworkAdapter) HasManufacturer() bool {
 func (o *ExploredNetworkAdapter) SetManufacturer(v string) {
 	o.Manufacturer.Set(&v)
 }
-
 // SetManufacturerNil sets the value for Manufacturer to be an explicit nil
 func (o *ExploredNetworkAdapter) SetManufacturerNil() {
 	o.Manufacturer.Set(nil)
@@ -150,7 +149,6 @@ func (o *ExploredNetworkAdapter) HasModel() bool {
 func (o *ExploredNetworkAdapter) SetModel(v string) {
 	o.Model.Set(&v)
 }
-
 // SetModelNil sets the value for Model to be an explicit nil
 func (o *ExploredNetworkAdapter) SetModelNil() {
 	o.Model.Set(nil)
@@ -193,7 +191,6 @@ func (o *ExploredNetworkAdapter) HasPartNumber() bool {
 func (o *ExploredNetworkAdapter) SetPartNumber(v string) {
 	o.PartNumber.Set(&v)
 }
-
 // SetPartNumberNil sets the value for PartNumber to be an explicit nil
 func (o *ExploredNetworkAdapter) SetPartNumberNil() {
 	o.PartNumber.Set(nil)
@@ -236,7 +233,6 @@ func (o *ExploredNetworkAdapter) HasSerialNumber() bool {
 func (o *ExploredNetworkAdapter) SetSerialNumber(v string) {
 	o.SerialNumber.Set(&v)
 }
-
 // SetSerialNumberNil sets the value for SerialNumber to be an explicit nil
 func (o *ExploredNetworkAdapter) SetSerialNumberNil() {
 	o.SerialNumber.Set(nil)
@@ -248,7 +244,7 @@ func (o *ExploredNetworkAdapter) UnsetSerialNumber() {
 }
 
 func (o ExploredNetworkAdapter) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -286,10 +282,10 @@ func (o *ExploredNetworkAdapter) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -344,3 +340,4 @@ func (v *NullableExploredNetworkAdapter) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

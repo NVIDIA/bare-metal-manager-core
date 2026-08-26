@@ -24,10 +24,10 @@ type VpcPrefixStatus string
 // List of VpcPrefixStatus
 const (
 	VPCPREFIXSTATUS_PROVISIONING VpcPrefixStatus = "Provisioning"
-	VPCPREFIXSTATUS_READY        VpcPrefixStatus = "Ready"
-	VPCPREFIXSTATUS_DELETING     VpcPrefixStatus = "Deleting"
-	VPCPREFIXSTATUS_DELETED      VpcPrefixStatus = "Deleted"
-	VPCPREFIXSTATUS_ERROR        VpcPrefixStatus = "Error"
+	VPCPREFIXSTATUS_READY VpcPrefixStatus = "Ready"
+	VPCPREFIXSTATUS_DELETING VpcPrefixStatus = "Deleting"
+	VPCPREFIXSTATUS_DELETED VpcPrefixStatus = "Deleted"
+	VPCPREFIXSTATUS_ERROR VpcPrefixStatus = "Error"
 )
 
 // All allowed values of VpcPrefixStatus enum
@@ -117,3 +117,4 @@ func (v *NullableVpcPrefixStatus) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

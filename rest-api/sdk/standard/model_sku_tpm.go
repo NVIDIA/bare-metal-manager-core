@@ -110,7 +110,7 @@ func (o *SkuTpm) SetVersion(v string) {
 }
 
 func (o SkuTpm) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -163,3 +163,4 @@ func (v *NullableSkuTpm) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

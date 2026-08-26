@@ -118,7 +118,6 @@ func (o *User) HasEmail() bool {
 func (o *User) SetEmail(v string) {
 	o.Email.Set(&v)
 }
-
 // SetEmailNil sets the value for Email to be an explicit nil
 func (o *User) SetEmailNil() {
 	o.Email.Set(nil)
@@ -161,7 +160,6 @@ func (o *User) HasFirstName() bool {
 func (o *User) SetFirstName(v string) {
 	o.FirstName.Set(&v)
 }
-
 // SetFirstNameNil sets the value for FirstName to be an explicit nil
 func (o *User) SetFirstNameNil() {
 	o.FirstName.Set(nil)
@@ -204,7 +202,6 @@ func (o *User) HasLastName() bool {
 func (o *User) SetLastName(v string) {
 	o.LastName.Set(&v)
 }
-
 // SetLastNameNil sets the value for LastName to be an explicit nil
 func (o *User) SetLastNameNil() {
 	o.LastName.Set(nil)
@@ -280,7 +277,7 @@ func (o *User) SetUpdated(v time.Time) {
 }
 
 func (o User) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -345,3 +342,4 @@ func (v *NullableUser) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

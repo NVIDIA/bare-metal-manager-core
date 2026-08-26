@@ -168,7 +168,6 @@ func (o *InstanceType) HasDescription() bool {
 func (o *InstanceType) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *InstanceType) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -211,7 +210,6 @@ func (o *InstanceType) HasControllerMachineType() bool {
 func (o *InstanceType) SetControllerMachineType(v string) {
 	o.ControllerMachineType.Set(&v)
 }
-
 // SetControllerMachineTypeNil sets the value for ControllerMachineType to be an explicit nil
 func (o *InstanceType) SetControllerMachineTypeNil() {
 	o.ControllerMachineType.Set(nil)
@@ -575,7 +573,7 @@ func (o *InstanceType) SetUpdated(v time.Time) {
 }
 
 func (o InstanceType) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -667,3 +665,4 @@ func (v *NullableInstanceType) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

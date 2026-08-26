@@ -23,11 +23,11 @@ type IpBlockStatus string
 
 // List of IpBlockStatus
 const (
-	IPBLOCKSTATUS_PENDING      IpBlockStatus = "Pending"
+	IPBLOCKSTATUS_PENDING IpBlockStatus = "Pending"
 	IPBLOCKSTATUS_PROVISIONING IpBlockStatus = "Provisioning"
-	IPBLOCKSTATUS_READY        IpBlockStatus = "Ready"
-	IPBLOCKSTATUS_DELETING     IpBlockStatus = "Deleting"
-	IPBLOCKSTATUS_ERROR        IpBlockStatus = "Error"
+	IPBLOCKSTATUS_READY IpBlockStatus = "Ready"
+	IPBLOCKSTATUS_DELETING IpBlockStatus = "Deleting"
+	IPBLOCKSTATUS_ERROR IpBlockStatus = "Error"
 )
 
 // All allowed values of IpBlockStatus enum
@@ -117,3 +117,4 @@ func (v *NullableIpBlockStatus) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

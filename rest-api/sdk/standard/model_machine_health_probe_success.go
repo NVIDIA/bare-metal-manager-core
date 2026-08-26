@@ -14,8 +14,8 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
+	"bytes"
 	"fmt"
 )
 
@@ -106,7 +106,6 @@ func (o *MachineHealthProbeSuccess) HasTarget() bool {
 func (o *MachineHealthProbeSuccess) SetTarget(v string) {
 	o.Target.Set(&v)
 }
-
 // SetTargetNil sets the value for Target to be an explicit nil
 func (o *MachineHealthProbeSuccess) SetTargetNil() {
 	o.Target.Set(nil)
@@ -118,7 +117,7 @@ func (o *MachineHealthProbeSuccess) UnsetTarget() {
 }
 
 func (o MachineHealthProbeSuccess) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -147,10 +146,10 @@ func (o *MachineHealthProbeSuccess) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -205,3 +204,4 @@ func (v *NullableMachineHealthProbeSuccess) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

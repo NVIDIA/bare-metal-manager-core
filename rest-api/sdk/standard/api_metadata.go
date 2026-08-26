@@ -22,13 +22,14 @@ import (
 	"strings"
 )
 
+
 // MetadataAPIService MetadataAPI service
 type MetadataAPIService service
 
 type ApiGetMetadataRequest struct {
-	ctx        context.Context
+	ctx context.Context
 	ApiService *MetadataAPIService
-	org        string
+	org string
 }
 
 func (r ApiGetMetadataRequest) Execute() (*Metadata, *http.Response, error) {
@@ -40,27 +41,26 @@ GetMetadata Retrieve metadata about the API server
 
 Retrieve system metadata providing information about the API server
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiGetMetadataRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiGetMetadataRequest
 */
 func (a *MetadataAPIService) GetMetadata(ctx context.Context, org string) ApiGetMetadataRequest {
 	return ApiGetMetadataRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return Metadata
+//  @return Metadata
 func (a *MetadataAPIService) GetMetadataExecute(r ApiGetMetadataRequest) (*Metadata, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *Metadata
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *Metadata
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "MetadataAPIService.GetMetadata")
@@ -121,8 +121,8 @@ func (a *MetadataAPIService) GetMetadataExecute(r ApiGetMetadataRequest) (*Metad
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

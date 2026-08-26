@@ -24,8 +24,8 @@ type NetworkSecurityGroupPropagationStatus string
 // List of NetworkSecurityGroupPropagationStatus
 const (
 	NETWORKSECURITYGROUPPROPAGATIONSTATUS_SYNCHRONIZING NetworkSecurityGroupPropagationStatus = "Synchronizing"
-	NETWORKSECURITYGROUPPROPAGATIONSTATUS_SYNCHRONIZED  NetworkSecurityGroupPropagationStatus = "Synchronized"
-	NETWORKSECURITYGROUPPROPAGATIONSTATUS_ERROR         NetworkSecurityGroupPropagationStatus = "Error"
+	NETWORKSECURITYGROUPPROPAGATIONSTATUS_SYNCHRONIZED NetworkSecurityGroupPropagationStatus = "Synchronized"
+	NETWORKSECURITYGROUPPROPAGATIONSTATUS_ERROR NetworkSecurityGroupPropagationStatus = "Error"
 )
 
 // All allowed values of NetworkSecurityGroupPropagationStatus enum
@@ -113,3 +113,4 @@ func (v *NullableNetworkSecurityGroupPropagationStatus) UnmarshalJSON(src []byte
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

@@ -14,8 +14,8 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
+	"bytes"
 	"fmt"
 )
 
@@ -27,8 +27,8 @@ type TaskRunPhaseStats struct {
 	// Zero-based index of the phase this scope refers to.
 	PhaseIndex int32 `json:"phaseIndex"`
 	// Number of targets selected within the scope.
-	SelectedTargets int32                `json:"selectedTargets"`
-	OutcomeCounts   TaskRunOutcomeCounts `json:"outcomeCounts"`
+	SelectedTargets int32 `json:"selectedTargets"`
+	OutcomeCounts TaskRunOutcomeCounts `json:"outcomeCounts"`
 }
 
 type _TaskRunPhaseStats TaskRunPhaseStats
@@ -126,7 +126,7 @@ func (o *TaskRunPhaseStats) SetOutcomeCounts(v TaskRunOutcomeCounts) {
 }
 
 func (o TaskRunPhaseStats) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -156,10 +156,10 @@ func (o *TaskRunPhaseStats) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -214,3 +214,4 @@ func (v *NullableTaskRunPhaseStats) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

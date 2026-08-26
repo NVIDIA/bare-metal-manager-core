@@ -18,16 +18,16 @@ import (
 	"fmt"
 )
 
-// TaskReportV1Status Per-stage and per-step execution status.  - `pending`   — workflow has not yet reached this stage/step. - `running`   — execution is in progress. - `completed` — execution finished successfully. - `failed`    — execution finished with an error; see `error`. - `skipped`   — the rule lists this component type but the task targets no components of that type, so the workflow will not invoke it.
+// TaskReportV1Status Per-stage and per-step execution status.  - `pending`   — workflow has not yet reached this stage/step. - `running`   — execution is in progress. - `completed` — execution finished successfully. - `failed`    — execution finished with an error; see `error`. - `skipped`   — the rule lists this component type but the task targets no components of that type, so the workflow will not invoke it. 
 type TaskReportV1Status string
 
 // List of TaskReportV1Status
 const (
-	TASKREPORTV1STATUS_PENDING   TaskReportV1Status = "pending"
-	TASKREPORTV1STATUS_RUNNING   TaskReportV1Status = "running"
+	TASKREPORTV1STATUS_PENDING TaskReportV1Status = "pending"
+	TASKREPORTV1STATUS_RUNNING TaskReportV1Status = "running"
 	TASKREPORTV1STATUS_COMPLETED TaskReportV1Status = "completed"
-	TASKREPORTV1STATUS_FAILED    TaskReportV1Status = "failed"
-	TASKREPORTV1STATUS_SKIPPED   TaskReportV1Status = "skipped"
+	TASKREPORTV1STATUS_FAILED TaskReportV1Status = "failed"
+	TASKREPORTV1STATUS_SKIPPED TaskReportV1Status = "skipped"
 )
 
 // All allowed values of TaskReportV1Status enum
@@ -117,3 +117,4 @@ func (v *NullableTaskReportV1Status) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

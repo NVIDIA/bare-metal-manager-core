@@ -77,7 +77,6 @@ func (o *AllocationUpdateRequest) HasName() bool {
 func (o *AllocationUpdateRequest) SetName(v string) {
 	o.Name.Set(&v)
 }
-
 // SetNameNil sets the value for Name to be an explicit nil
 func (o *AllocationUpdateRequest) SetNameNil() {
 	o.Name.Set(nil)
@@ -120,7 +119,6 @@ func (o *AllocationUpdateRequest) HasDescription() bool {
 func (o *AllocationUpdateRequest) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *AllocationUpdateRequest) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -132,7 +130,7 @@ func (o *AllocationUpdateRequest) UnsetDescription() {
 }
 
 func (o AllocationUpdateRequest) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -185,3 +183,4 @@ func (v *NullableAllocationUpdateRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

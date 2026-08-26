@@ -22,13 +22,14 @@ import (
 	"strings"
 )
 
+
 // SKUAPIService SKUAPI service
 type SKUAPIService service
 
 type ApiCreateSkuRequest struct {
-	ctx              context.Context
-	ApiService       *SKUAPIService
-	org              string
+	ctx context.Context
+	ApiService *SKUAPIService
+	org string
 	skuCreateRequest *SkuCreateRequest
 }
 
@@ -48,27 +49,26 @@ Create a SKU.
 
 The Org must have an Infrastructure Provider that owns the Site. The user must have an authorization role with the `PROVIDER_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiCreateSkuRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiCreateSkuRequest
 */
 func (a *SKUAPIService) CreateSku(ctx context.Context, org string) ApiCreateSkuRequest {
 	return ApiCreateSkuRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return Sku
+//  @return Sku
 func (a *SKUAPIService) CreateSkuExecute(r ApiCreateSkuRequest) (*Sku, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPost
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *Sku
+		localVarHTTPMethod   = http.MethodPost
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *Sku
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SKUAPIService.CreateSku")
@@ -134,8 +134,8 @@ func (a *SKUAPIService) CreateSkuExecute(r ApiCreateSkuRequest) (*Sku, *http.Res
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -145,8 +145,8 @@ func (a *SKUAPIService) CreateSkuExecute(r ApiCreateSkuRequest) (*Sku, *http.Res
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -164,10 +164,10 @@ func (a *SKUAPIService) CreateSkuExecute(r ApiCreateSkuRequest) (*Sku, *http.Res
 }
 
 type ApiDeleteSkuRequest struct {
-	ctx        context.Context
+	ctx context.Context
 	ApiService *SKUAPIService
-	org        string
-	skuId      string
+	org string
+	skuId string
 }
 
 func (r ApiDeleteSkuRequest) Execute() (*http.Response, error) {
@@ -181,26 +181,26 @@ Delete an unused SKU. The Site is determined from the saved SKU record.
 
 The Org must have an Infrastructure Provider that owns the SKU's Site. The user must have an authorization role with the `PROVIDER_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param skuId ID of the SKU
-	@return ApiDeleteSkuRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param skuId ID of the SKU
+ @return ApiDeleteSkuRequest
 */
 func (a *SKUAPIService) DeleteSku(ctx context.Context, org string, skuId string) ApiDeleteSkuRequest {
 	return ApiDeleteSkuRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		skuId:      skuId,
+		ctx: ctx,
+		org: org,
+		skuId: skuId,
 	}
 }
 
 // Execute executes the request
 func (a *SKUAPIService) DeleteSkuExecute(r ApiDeleteSkuRequest) (*http.Response, error) {
 	var (
-		localVarHTTPMethod = http.MethodDelete
-		localVarPostBody   interface{}
-		formFiles          []formFile
+		localVarHTTPMethod   = http.MethodDelete
+		localVarPostBody     interface{}
+		formFiles            []formFile
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SKUAPIService.DeleteSku")
@@ -262,8 +262,8 @@ func (a *SKUAPIService) DeleteSkuExecute(r ApiDeleteSkuRequest) (*http.Response,
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -273,8 +273,8 @@ func (a *SKUAPIService) DeleteSkuExecute(r ApiDeleteSkuRequest) (*http.Response,
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -284,8 +284,8 @@ func (a *SKUAPIService) DeleteSkuExecute(r ApiDeleteSkuRequest) (*http.Response,
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarHTTPResponse, newErr
 	}
@@ -294,13 +294,13 @@ func (a *SKUAPIService) DeleteSkuExecute(r ApiDeleteSkuRequest) (*http.Response,
 }
 
 type ApiGetAllSkuRequest struct {
-	ctx        context.Context
+	ctx context.Context
 	ApiService *SKUAPIService
-	siteId     *string
-	org        string
+	siteId *string
+	org string
 	pageNumber *int32
-	pageSize   *int32
-	orderBy    *string
+	pageSize *int32
+	orderBy *string
 }
 
 // ID of the Site to retrieve SKUs from
@@ -344,27 +344,26 @@ For Infrastructure Providers: Org must have an Infrastructure Provider entity an
 
 For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled and Tenant Account with Machine's Provider. User must have authorization role with `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiGetAllSkuRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiGetAllSkuRequest
 */
 func (a *SKUAPIService) GetAllSku(ctx context.Context, org string) ApiGetAllSkuRequest {
 	return ApiGetAllSkuRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return []Sku
+//  @return []Sku
 func (a *SKUAPIService) GetAllSkuExecute(r ApiGetAllSkuRequest) ([]Sku, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue []Sku
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  []Sku
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SKUAPIService.GetAllSku")
@@ -442,8 +441,8 @@ func (a *SKUAPIService) GetAllSkuExecute(r ApiGetAllSkuRequest) ([]Sku, *http.Re
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -453,8 +452,8 @@ func (a *SKUAPIService) GetAllSkuExecute(r ApiGetAllSkuRequest) ([]Sku, *http.Re
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -472,10 +471,10 @@ func (a *SKUAPIService) GetAllSkuExecute(r ApiGetAllSkuRequest) ([]Sku, *http.Re
 }
 
 type ApiGetSkuRequest struct {
-	ctx        context.Context
+	ctx context.Context
 	ApiService *SKUAPIService
-	org        string
-	skuId      string
+	org string
+	skuId string
 }
 
 func (r ApiGetSkuRequest) Execute() (*Sku, *http.Response, error) {
@@ -493,29 +492,28 @@ For Infrastructure Providers: Org must have an Infrastructure Provider entity. U
 
 For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled. User must have authorization role with `TENANT_ADMIN` suffix. The Tenant must have an account with the SKU's Site's Infrastructure Provider.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param skuId ID of the SKU
-	@return ApiGetSkuRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param skuId ID of the SKU
+ @return ApiGetSkuRequest
 */
 func (a *SKUAPIService) GetSku(ctx context.Context, org string, skuId string) ApiGetSkuRequest {
 	return ApiGetSkuRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		skuId:      skuId,
+		ctx: ctx,
+		org: org,
+		skuId: skuId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return Sku
+//  @return Sku
 func (a *SKUAPIService) GetSkuExecute(r ApiGetSkuRequest) (*Sku, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *Sku
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *Sku
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SKUAPIService.GetSku")
@@ -577,8 +575,8 @@ func (a *SKUAPIService) GetSkuExecute(r ApiGetSkuRequest) (*Sku, *http.Response,
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -588,8 +586,8 @@ func (a *SKUAPIService) GetSkuExecute(r ApiGetSkuRequest) (*Sku, *http.Response,
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -599,8 +597,8 @@ func (a *SKUAPIService) GetSkuExecute(r ApiGetSkuRequest) (*Sku, *http.Response,
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -618,10 +616,10 @@ func (a *SKUAPIService) GetSkuExecute(r ApiGetSkuRequest) (*Sku, *http.Response,
 }
 
 type ApiUpdateSkuRequest struct {
-	ctx              context.Context
-	ApiService       *SKUAPIService
-	org              string
-	skuId            string
+	ctx context.Context
+	ApiService *SKUAPIService
+	org string
+	skuId string
 	skuUpdateRequest *SkuUpdateRequest
 }
 
@@ -644,29 +642,28 @@ the schema version will be updated to the current version (5).
 
 The Org must have an Infrastructure Provider that owns the SKU's Site. The user must have an authorization role with the `PROVIDER_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param skuId ID of the SKU
-	@return ApiUpdateSkuRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param skuId ID of the SKU
+ @return ApiUpdateSkuRequest
 */
 func (a *SKUAPIService) UpdateSku(ctx context.Context, org string, skuId string) ApiUpdateSkuRequest {
 	return ApiUpdateSkuRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		skuId:      skuId,
+		ctx: ctx,
+		org: org,
+		skuId: skuId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return Sku
+//  @return Sku
 func (a *SKUAPIService) UpdateSkuExecute(r ApiUpdateSkuRequest) (*Sku, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPatch
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *Sku
+		localVarHTTPMethod   = http.MethodPatch
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *Sku
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SKUAPIService.UpdateSku")
@@ -733,8 +730,8 @@ func (a *SKUAPIService) UpdateSkuExecute(r ApiUpdateSkuRequest) (*Sku, *http.Res
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -744,8 +741,8 @@ func (a *SKUAPIService) UpdateSkuExecute(r ApiUpdateSkuRequest) (*Sku, *http.Res
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -755,8 +752,8 @@ func (a *SKUAPIService) UpdateSkuExecute(r ApiUpdateSkuRequest) (*Sku, *http.Res
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

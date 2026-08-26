@@ -14,8 +14,8 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
+	"bytes"
 	"fmt"
 )
 
@@ -29,7 +29,7 @@ type UpdateRuleRequest struct {
 	// New rule name. Must be non-empty when provided.
 	Name *string `json:"name,omitempty"`
 	// New free-form description.
-	Description    *string         `json:"description,omitempty"`
+	Description *string `json:"description,omitempty"`
 	RuleDefinition *RuleDefinition `json:"ruleDefinition,omitempty"`
 }
 
@@ -174,7 +174,7 @@ func (o *UpdateRuleRequest) SetRuleDefinition(v RuleDefinition) {
 }
 
 func (o UpdateRuleRequest) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -209,10 +209,10 @@ func (o *UpdateRuleRequest) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -267,3 +267,4 @@ func (v *NullableUpdateRuleRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

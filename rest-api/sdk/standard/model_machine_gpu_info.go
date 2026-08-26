@@ -89,7 +89,6 @@ func (o *MachineGPUInfo) HasName() bool {
 func (o *MachineGPUInfo) SetName(v string) {
 	o.Name.Set(&v)
 }
-
 // SetNameNil sets the value for Name to be an explicit nil
 func (o *MachineGPUInfo) SetNameNil() {
 	o.Name.Set(nil)
@@ -132,7 +131,6 @@ func (o *MachineGPUInfo) HasSerial() bool {
 func (o *MachineGPUInfo) SetSerial(v string) {
 	o.Serial.Set(&v)
 }
-
 // SetSerialNil sets the value for Serial to be an explicit nil
 func (o *MachineGPUInfo) SetSerialNil() {
 	o.Serial.Set(nil)
@@ -175,7 +173,6 @@ func (o *MachineGPUInfo) HasDriverVersion() bool {
 func (o *MachineGPUInfo) SetDriverVersion(v string) {
 	o.DriverVersion.Set(&v)
 }
-
 // SetDriverVersionNil sets the value for DriverVersion to be an explicit nil
 func (o *MachineGPUInfo) SetDriverVersionNil() {
 	o.DriverVersion.Set(nil)
@@ -218,7 +215,6 @@ func (o *MachineGPUInfo) HasVbiosVersion() bool {
 func (o *MachineGPUInfo) SetVbiosVersion(v string) {
 	o.VbiosVersion.Set(&v)
 }
-
 // SetVbiosVersionNil sets the value for VbiosVersion to be an explicit nil
 func (o *MachineGPUInfo) SetVbiosVersionNil() {
 	o.VbiosVersion.Set(nil)
@@ -261,7 +257,6 @@ func (o *MachineGPUInfo) HasInforomVersion() bool {
 func (o *MachineGPUInfo) SetInforomVersion(v string) {
 	o.InforomVersion.Set(&v)
 }
-
 // SetInforomVersionNil sets the value for InforomVersion to be an explicit nil
 func (o *MachineGPUInfo) SetInforomVersionNil() {
 	o.InforomVersion.Set(nil)
@@ -304,7 +299,6 @@ func (o *MachineGPUInfo) HasTotalMemory() bool {
 func (o *MachineGPUInfo) SetTotalMemory(v string) {
 	o.TotalMemory.Set(&v)
 }
-
 // SetTotalMemoryNil sets the value for TotalMemory to be an explicit nil
 func (o *MachineGPUInfo) SetTotalMemoryNil() {
 	o.TotalMemory.Set(nil)
@@ -347,7 +341,6 @@ func (o *MachineGPUInfo) HasFrequency() bool {
 func (o *MachineGPUInfo) SetFrequency(v string) {
 	o.Frequency.Set(&v)
 }
-
 // SetFrequencyNil sets the value for Frequency to be an explicit nil
 func (o *MachineGPUInfo) SetFrequencyNil() {
 	o.Frequency.Set(nil)
@@ -390,7 +383,6 @@ func (o *MachineGPUInfo) HasPciBusId() bool {
 func (o *MachineGPUInfo) SetPciBusId(v string) {
 	o.PciBusId.Set(&v)
 }
-
 // SetPciBusIdNil sets the value for PciBusId to be an explicit nil
 func (o *MachineGPUInfo) SetPciBusIdNil() {
 	o.PciBusId.Set(nil)
@@ -402,7 +394,7 @@ func (o *MachineGPUInfo) UnsetPciBusId() {
 }
 
 func (o MachineGPUInfo) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -473,3 +465,4 @@ func (v *NullableMachineGPUInfo) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

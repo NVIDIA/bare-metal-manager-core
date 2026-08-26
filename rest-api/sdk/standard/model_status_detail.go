@@ -114,7 +114,6 @@ func (o *StatusDetail) HasMessage() bool {
 func (o *StatusDetail) SetMessage(v string) {
 	o.Message.Set(&v)
 }
-
 // SetMessageNil sets the value for Message to be an explicit nil
 func (o *StatusDetail) SetMessageNil() {
 	o.Message.Set(nil)
@@ -190,7 +189,7 @@ func (o *StatusDetail) SetUpdated(v time.Time) {
 }
 
 func (o StatusDetail) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -249,3 +248,4 @@ func (v *NullableStatusDetail) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

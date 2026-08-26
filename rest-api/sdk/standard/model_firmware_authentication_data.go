@@ -23,7 +23,7 @@ var _ MappedNullable = &FirmwareAuthenticationData{}
 // FirmwareAuthenticationData Optional, write-only authentication data for firmware downloads. Exactly one of `shared` or `perComponent` must be present. Empty string values mean no authentication data for the corresponding target.  Authentication data is not supported for DPU-only updates or by the legacy NICo compute firmware controller.
 type FirmwareAuthenticationData struct {
 	// Authentication data shared by every supported firmware target.
-	Shared       *string
+	Shared *string
 	PerComponent *PerComponentFirmwareAuthenticationData
 }
 
@@ -109,7 +109,7 @@ func (o *FirmwareAuthenticationData) SetPerComponent(v PerComponentFirmwareAuthe
 }
 
 func (o FirmwareAuthenticationData) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -162,3 +162,4 @@ func (v *NullableFirmwareAuthenticationData) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

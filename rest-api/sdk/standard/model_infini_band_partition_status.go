@@ -23,12 +23,12 @@ type InfiniBandPartitionStatus string
 
 // List of InfiniBandPartitionStatus
 const (
-	INFINIBANDPARTITIONSTATUS_PENDING      InfiniBandPartitionStatus = "Pending"
+	INFINIBANDPARTITIONSTATUS_PENDING InfiniBandPartitionStatus = "Pending"
 	INFINIBANDPARTITIONSTATUS_PROVISIONING InfiniBandPartitionStatus = "Provisioning"
-	INFINIBANDPARTITIONSTATUS_READY        InfiniBandPartitionStatus = "Ready"
-	INFINIBANDPARTITIONSTATUS_CONFIGURING  InfiniBandPartitionStatus = "Configuring"
-	INFINIBANDPARTITIONSTATUS_DELETING     InfiniBandPartitionStatus = "Deleting"
-	INFINIBANDPARTITIONSTATUS_ERROR        InfiniBandPartitionStatus = "Error"
+	INFINIBANDPARTITIONSTATUS_READY InfiniBandPartitionStatus = "Ready"
+	INFINIBANDPARTITIONSTATUS_CONFIGURING InfiniBandPartitionStatus = "Configuring"
+	INFINIBANDPARTITIONSTATUS_DELETING InfiniBandPartitionStatus = "Deleting"
+	INFINIBANDPARTITIONSTATUS_ERROR InfiniBandPartitionStatus = "Error"
 )
 
 // All allowed values of InfiniBandPartitionStatus enum
@@ -119,3 +119,4 @@ func (v *NullableInfiniBandPartitionStatus) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

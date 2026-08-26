@@ -1307,27 +1307,37 @@ pub(crate) async fn trigger_dpu_reprovisioning(
         id: machine_id.to_string(),
     })?;
 
+    // A forced reprovision recovers DPUs stuck in ingestion (non-Ready,
+    // non-Assigned states). Such a host is already non-allocatable, so the
+    // HostUpdateInProgress precondition is meaningless and skipped, and a
+    // forced request may re-kick even if a previous request is in progress.
+    let force = req.force;
+
     // Start reprovisioning only if the host has an HostUpdateInProgress health alert
-    let update_alert = snapshot
-        .aggregate_health
-        .alerts
-        .iter()
-        .find(|a| a.id == *HOST_UPDATE_HEALTH_PROBE_ID);
-    if !update_alert.is_some_and(|alert| {
-        alert
-            .classifications
-            .contains(&health_report::HealthAlertClassification::prevent_allocations())
-    }) {
-        return Err(CarbideError::InvalidArgument(format!(
-            "machine {machine_id} must have a 'HostUpdateInProgress' health alert with the 'PreventAllocations' classification before reprovisioning. set this precondition with: `machine health-override add --template host-update <id>`",
-        )).into());
+    if !force {
+        let update_alert = snapshot
+            .aggregate_health
+            .alerts
+            .iter()
+            .find(|a| a.id == *HOST_UPDATE_HEALTH_PROBE_ID);
+        if !update_alert.is_some_and(|alert| {
+            alert
+                .classifications
+                .contains(&health_report::HealthAlertClassification::prevent_allocations())
+        }) {
+            return Err(CarbideError::InvalidArgument(format!(
+                "machine {machine_id} must have a 'HostUpdateInProgress' health alert with the 'PreventAllocations' classification before reprovisioning. set this precondition with: `machine health-override add --template host-update <id>`",
+            )).into());
+        }
     }
 
-    if snapshot.dpu_snapshots.iter().any(|ms| {
-        ms.reprovision_requested
-            .as_ref()
-            .is_some_and(|x| x.started_at.is_some())
-    }) {
+    if !force
+        && snapshot.dpu_snapshots.iter().any(|ms| {
+            ms.reprovision_requested
+                .as_ref()
+                .is_some_and(|x| x.started_at.is_some())
+        })
+    {
         match req.mode() {
             Mode::Restart => {}
             _ => {
@@ -1348,6 +1358,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
                     &mut txn,
                     initiator,
                     req.update_firmware,
+                    force,
                 )
                 .await?;
             } else {
@@ -1357,6 +1368,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
                         &mut txn,
                         initiator,
                         req.update_firmware,
+                        force,
                     )
                     .await?;
                 }
@@ -1410,6 +1422,22 @@ pub(crate) async fn trigger_dpu_reprovisioning(
     }
 
     txn.commit().await?;
+
+    // A stuck-in-ingestion host may have backed off with a long state-controller
+    // wait, so a forced request explicitly wakes the host to be re-evaluated
+    // promptly.
+    if force
+        && let Err(err) = api
+            .machine_state_handler_enqueuer
+            .enqueue_object(&snapshot.host_snapshot.id)
+            .await
+    {
+        tracing::warn!(
+            host_machine_id = %snapshot.host_snapshot.id,
+            error = %err,
+            "failed to wake host state handler after forced DPU reprovisioning request",
+        );
+    }
 
     Ok(Response::new(()))
 }

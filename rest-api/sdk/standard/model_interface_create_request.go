@@ -221,7 +221,6 @@ func (o *InterfaceCreateRequest) HasIpAddress() bool {
 func (o *InterfaceCreateRequest) SetIpAddress(v string) {
 	o.IpAddress.Set(&v)
 }
-
 // SetIpAddressNil sets the value for IpAddress to be an explicit nil
 func (o *InterfaceCreateRequest) SetIpAddressNil() {
 	o.IpAddress.Set(nil)
@@ -264,7 +263,6 @@ func (o *InterfaceCreateRequest) HasInlineRoutingProfile() bool {
 func (o *InterfaceCreateRequest) SetInlineRoutingProfile(v InterfaceInlineRoutingProfile) {
 	o.InlineRoutingProfile.Set(&v)
 }
-
 // SetInlineRoutingProfileNil sets the value for InlineRoutingProfile to be an explicit nil
 func (o *InterfaceCreateRequest) SetInlineRoutingProfileNil() {
 	o.InlineRoutingProfile.Set(nil)
@@ -403,7 +401,6 @@ func (o *InterfaceCreateRequest) HasVirtualFunctionId() bool {
 func (o *InterfaceCreateRequest) SetVirtualFunctionId(v int32) {
 	o.VirtualFunctionId.Set(&v)
 }
-
 // SetVirtualFunctionIdNil sets the value for VirtualFunctionId to be an explicit nil
 func (o *InterfaceCreateRequest) SetVirtualFunctionIdNil() {
 	o.VirtualFunctionId.Set(nil)
@@ -415,7 +412,7 @@ func (o *InterfaceCreateRequest) UnsetVirtualFunctionId() {
 }
 
 func (o InterfaceCreateRequest) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -492,3 +489,4 @@ func (v *NullableInterfaceCreateRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

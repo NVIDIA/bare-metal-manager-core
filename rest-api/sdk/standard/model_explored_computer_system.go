@@ -14,8 +14,8 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
+	"bytes"
 	"fmt"
 )
 
@@ -24,15 +24,15 @@ var _ MappedNullable = &ExploredComputerSystem{}
 
 // ExploredComputerSystem Redfish ComputerSystem reported during exploration.
 type ExploredComputerSystem struct {
-	Id                 string                            `json:"id"`
-	Manufacturer       NullableString                    `json:"manufacturer,omitempty"`
-	Model              NullableString                    `json:"model,omitempty"`
-	SerialNumber       NullableString                    `json:"serialNumber,omitempty"`
-	Attributes         *ExploredComputerSystemAttributes `json:"attributes,omitempty"`
-	EthernetInterfaces []ExploredEthernetInterface       `json:"ethernetInterfaces,omitempty"`
-	PcieDevices        []ExploredPCIeDevice              `json:"pcieDevices,omitempty"`
-	PowerState         string                            `json:"powerState"`
-	BootOrder          *ExploredBootOrder                `json:"bootOrder,omitempty"`
+	Id string `json:"id"`
+	Manufacturer NullableString `json:"manufacturer,omitempty"`
+	Model NullableString `json:"model,omitempty"`
+	SerialNumber NullableString `json:"serialNumber,omitempty"`
+	Attributes *ExploredComputerSystemAttributes `json:"attributes,omitempty"`
+	EthernetInterfaces []ExploredEthernetInterface `json:"ethernetInterfaces,omitempty"`
+	PcieDevices []ExploredPCIeDevice `json:"pcieDevices,omitempty"`
+	PowerState string `json:"powerState"`
+	BootOrder *ExploredBootOrder `json:"bootOrder,omitempty"`
 }
 
 type _ExploredComputerSystem ExploredComputerSystem
@@ -112,7 +112,6 @@ func (o *ExploredComputerSystem) HasManufacturer() bool {
 func (o *ExploredComputerSystem) SetManufacturer(v string) {
 	o.Manufacturer.Set(&v)
 }
-
 // SetManufacturerNil sets the value for Manufacturer to be an explicit nil
 func (o *ExploredComputerSystem) SetManufacturerNil() {
 	o.Manufacturer.Set(nil)
@@ -155,7 +154,6 @@ func (o *ExploredComputerSystem) HasModel() bool {
 func (o *ExploredComputerSystem) SetModel(v string) {
 	o.Model.Set(&v)
 }
-
 // SetModelNil sets the value for Model to be an explicit nil
 func (o *ExploredComputerSystem) SetModelNil() {
 	o.Model.Set(nil)
@@ -198,7 +196,6 @@ func (o *ExploredComputerSystem) HasSerialNumber() bool {
 func (o *ExploredComputerSystem) SetSerialNumber(v string) {
 	o.SerialNumber.Set(&v)
 }
-
 // SetSerialNumberNil sets the value for SerialNumber to be an explicit nil
 func (o *ExploredComputerSystem) SetSerialNumberNil() {
 	o.SerialNumber.Set(nil)
@@ -362,7 +359,7 @@ func (o *ExploredComputerSystem) SetBootOrder(v ExploredBootOrder) {
 }
 
 func (o ExploredComputerSystem) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -411,10 +408,10 @@ func (o *ExploredComputerSystem) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -469,3 +466,4 @@ func (v *NullableExploredComputerSystem) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

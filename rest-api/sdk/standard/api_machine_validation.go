@@ -22,14 +22,15 @@ import (
 	"strings"
 )
 
+
 // MachineValidationAPIService MachineValidationAPI service
 type MachineValidationAPIService service
 
 type ApiGetAllMachineValidationResultsRequest struct {
-	ctx        context.Context
+	ctx context.Context
 	ApiService *MachineValidationAPIService
-	org        string
-	machineId  string
+	org string
+	machineId string
 }
 
 func (r ApiGetAllMachineValidationResultsRequest) Execute() ([]MachineValidationResult, *http.Response, error) {
@@ -43,29 +44,28 @@ Retrieve validation results for a specific Machine.
 
 Org must have an Infrastructure Provider entity that owns the Machine. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param machineId ID of the Machine
-	@return ApiGetAllMachineValidationResultsRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param machineId ID of the Machine
+ @return ApiGetAllMachineValidationResultsRequest
 */
 func (a *MachineValidationAPIService) GetAllMachineValidationResults(ctx context.Context, org string, machineId string) ApiGetAllMachineValidationResultsRequest {
 	return ApiGetAllMachineValidationResultsRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		machineId:  machineId,
+		ctx: ctx,
+		org: org,
+		machineId: machineId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return []MachineValidationResult
+//  @return []MachineValidationResult
 func (a *MachineValidationAPIService) GetAllMachineValidationResultsExecute(r ApiGetAllMachineValidationResultsRequest) ([]MachineValidationResult, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue []MachineValidationResult
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  []MachineValidationResult
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "MachineValidationAPIService.GetAllMachineValidationResults")
@@ -127,8 +127,8 @@ func (a *MachineValidationAPIService) GetAllMachineValidationResultsExecute(r Ap
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -138,8 +138,8 @@ func (a *MachineValidationAPIService) GetAllMachineValidationResultsExecute(r Ap
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -149,8 +149,8 @@ func (a *MachineValidationAPIService) GetAllMachineValidationResultsExecute(r Ap
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -160,8 +160,8 @@ func (a *MachineValidationAPIService) GetAllMachineValidationResultsExecute(r Ap
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -179,10 +179,10 @@ func (a *MachineValidationAPIService) GetAllMachineValidationResultsExecute(r Ap
 }
 
 type ApiGetAllMachineValidationRunsRequest struct {
-	ctx        context.Context
+	ctx context.Context
 	ApiService *MachineValidationAPIService
-	org        string
-	machineId  string
+	org string
+	machineId string
 }
 
 func (r ApiGetAllMachineValidationRunsRequest) Execute() ([]MachineValidationRun, *http.Response, error) {
@@ -196,29 +196,28 @@ Retrieve validation runs for a specific Machine.
 
 Org must have an Infrastructure Provider entity that owns the Machine. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param machineId ID of the Machine
-	@return ApiGetAllMachineValidationRunsRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param machineId ID of the Machine
+ @return ApiGetAllMachineValidationRunsRequest
 */
 func (a *MachineValidationAPIService) GetAllMachineValidationRuns(ctx context.Context, org string, machineId string) ApiGetAllMachineValidationRunsRequest {
 	return ApiGetAllMachineValidationRunsRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		machineId:  machineId,
+		ctx: ctx,
+		org: org,
+		machineId: machineId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return []MachineValidationRun
+//  @return []MachineValidationRun
 func (a *MachineValidationAPIService) GetAllMachineValidationRunsExecute(r ApiGetAllMachineValidationRunsRequest) ([]MachineValidationRun, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue []MachineValidationRun
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  []MachineValidationRun
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "MachineValidationAPIService.GetAllMachineValidationRuns")
@@ -280,8 +279,8 @@ func (a *MachineValidationAPIService) GetAllMachineValidationRunsExecute(r ApiGe
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -291,8 +290,8 @@ func (a *MachineValidationAPIService) GetAllMachineValidationRunsExecute(r ApiGe
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -302,8 +301,8 @@ func (a *MachineValidationAPIService) GetAllMachineValidationRunsExecute(r ApiGe
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -313,8 +312,8 @@ func (a *MachineValidationAPIService) GetAllMachineValidationRunsExecute(r ApiGe
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -332,10 +331,10 @@ func (a *MachineValidationAPIService) GetAllMachineValidationRunsExecute(r ApiGe
 }
 
 type ApiStartMachineValidationRequest struct {
-	ctx                               context.Context
-	ApiService                        *MachineValidationAPIService
-	org                               string
-	machineId                         string
+	ctx context.Context
+	ApiService *MachineValidationAPIService
+	org string
+	machineId string
 	machineValidationRunCreateRequest *MachineValidationRunCreateRequest
 }
 
@@ -355,29 +354,28 @@ Create an on-demand Machine validation run. The Machine must be in a state accep
 
 Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param machineId ID of the Machine
-	@return ApiStartMachineValidationRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param machineId ID of the Machine
+ @return ApiStartMachineValidationRequest
 */
 func (a *MachineValidationAPIService) StartMachineValidation(ctx context.Context, org string, machineId string) ApiStartMachineValidationRequest {
 	return ApiStartMachineValidationRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		machineId:  machineId,
+		ctx: ctx,
+		org: org,
+		machineId: machineId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return MachineValidationRun
+//  @return MachineValidationRun
 func (a *MachineValidationAPIService) StartMachineValidationExecute(r ApiStartMachineValidationRequest) (*MachineValidationRun, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPost
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *MachineValidationRun
+		localVarHTTPMethod   = http.MethodPost
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *MachineValidationRun
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "MachineValidationAPIService.StartMachineValidation")
@@ -441,8 +439,8 @@ func (a *MachineValidationAPIService) StartMachineValidationExecute(r ApiStartMa
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -452,8 +450,8 @@ func (a *MachineValidationAPIService) StartMachineValidationExecute(r ApiStartMa
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -463,8 +461,8 @@ func (a *MachineValidationAPIService) StartMachineValidationExecute(r ApiStartMa
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -474,8 +472,8 @@ func (a *MachineValidationAPIService) StartMachineValidationExecute(r ApiStartMa
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

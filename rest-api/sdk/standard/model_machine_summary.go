@@ -153,7 +153,6 @@ func (o *MachineSummary) HasControllerMachineType() bool {
 func (o *MachineSummary) SetControllerMachineType(v string) {
 	o.ControllerMachineType.Set(&v)
 }
-
 // SetControllerMachineTypeNil sets the value for ControllerMachineType to be an explicit nil
 func (o *MachineSummary) SetControllerMachineTypeNil() {
 	o.ControllerMachineType.Set(nil)
@@ -196,7 +195,6 @@ func (o *MachineSummary) HasHwSkuDeviceType() bool {
 func (o *MachineSummary) SetHwSkuDeviceType(v string) {
 	o.HwSkuDeviceType.Set(&v)
 }
-
 // SetHwSkuDeviceTypeNil sets the value for HwSkuDeviceType to be an explicit nil
 func (o *MachineSummary) SetHwSkuDeviceTypeNil() {
 	o.HwSkuDeviceType.Set(nil)
@@ -239,7 +237,6 @@ func (o *MachineSummary) HasVendor() bool {
 func (o *MachineSummary) SetVendor(v string) {
 	o.Vendor.Set(&v)
 }
-
 // SetVendorNil sets the value for Vendor to be an explicit nil
 func (o *MachineSummary) SetVendorNil() {
 	o.Vendor.Set(nil)
@@ -282,7 +279,6 @@ func (o *MachineSummary) HasProductName() bool {
 func (o *MachineSummary) SetProductName(v string) {
 	o.ProductName.Set(&v)
 }
-
 // SetProductNameNil sets the value for ProductName to be an explicit nil
 func (o *MachineSummary) SetProductNameNil() {
 	o.ProductName.Set(nil)
@@ -325,7 +321,6 @@ func (o *MachineSummary) HasMaintenanceMessage() bool {
 func (o *MachineSummary) SetMaintenanceMessage(v string) {
 	o.MaintenanceMessage.Set(&v)
 }
-
 // SetMaintenanceMessageNil sets the value for MaintenanceMessage to be an explicit nil
 func (o *MachineSummary) SetMaintenanceMessageNil() {
 	o.MaintenanceMessage.Set(nil)
@@ -369,7 +364,7 @@ func (o *MachineSummary) SetStatus(v MachineStatus) {
 }
 
 func (o MachineSummary) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -440,3 +435,4 @@ func (v *NullableMachineSummary) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

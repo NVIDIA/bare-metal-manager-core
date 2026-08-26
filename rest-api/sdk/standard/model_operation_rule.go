@@ -14,10 +14,10 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
 	"time"
+	"bytes"
+	"fmt"
 )
 
 // checks if the OperationRule type satisfies the MappedNullable interface at compile time
@@ -34,7 +34,7 @@ type OperationRule struct {
 	// Type of operation this rule applies to. Immutable after creation.
 	OperationType string `json:"operationType"`
 	// Operation code within the operation type. For `PowerControl`, accepted values are `power_on`, `force_power_on`, `power_off`, `force_power_off`, `restart`, `force_restart`, `warm_reset`, and `cold_reset`. For `FirmwareControl`, accepted values are `upgrade`, `downgrade`, and `rollback`. The server validates the code against the selected type. Immutable after creation.
-	OperationCode  string         `json:"operationCode"`
+	OperationCode string `json:"operationCode"`
 	RuleDefinition RuleDefinition `json:"ruleDefinition"`
 	// Whether this rule is currently the default for its `(operationType, operationCode)` tuple.
 	IsDefault bool `json:"isDefault"`
@@ -296,7 +296,7 @@ func (o *OperationRule) SetUpdated(v time.Time) {
 }
 
 func (o OperationRule) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -339,10 +339,10 @@ func (o *OperationRule) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -397,3 +397,4 @@ func (v *NullableOperationRule) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

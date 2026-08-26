@@ -14,8 +14,8 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
+	"bytes"
 	"fmt"
 )
 
@@ -146,7 +146,6 @@ func (o *OperatingSystemCreateRequest) HasDescription() bool {
 func (o *OperatingSystemCreateRequest) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *OperatingSystemCreateRequest) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -192,7 +191,6 @@ func (o *OperatingSystemCreateRequest) HasInfrastructureProviderId() bool {
 func (o *OperatingSystemCreateRequest) SetInfrastructureProviderId(v string) {
 	o.InfrastructureProviderId.Set(&v)
 }
-
 // SetInfrastructureProviderIdNil sets the value for InfrastructureProviderId to be an explicit nil
 func (o *OperatingSystemCreateRequest) SetInfrastructureProviderIdNil() {
 	o.InfrastructureProviderId.Set(nil)
@@ -238,7 +236,6 @@ func (o *OperatingSystemCreateRequest) HasTenantId() bool {
 func (o *OperatingSystemCreateRequest) SetTenantId(v string) {
 	o.TenantId.Set(&v)
 }
-
 // SetTenantIdNil sets the value for TenantId to be an explicit nil
 func (o *OperatingSystemCreateRequest) SetTenantIdNil() {
 	o.TenantId.Set(nil)
@@ -316,7 +313,6 @@ func (o *OperatingSystemCreateRequest) HasIpxeScript() bool {
 func (o *OperatingSystemCreateRequest) SetIpxeScript(v string) {
 	o.IpxeScript.Set(&v)
 }
-
 // SetIpxeScriptNil sets the value for IpxeScript to be an explicit nil
 func (o *OperatingSystemCreateRequest) SetIpxeScriptNil() {
 	o.IpxeScript.Set(nil)
@@ -359,7 +355,6 @@ func (o *OperatingSystemCreateRequest) HasImageUrl() bool {
 func (o *OperatingSystemCreateRequest) SetImageUrl(v string) {
 	o.ImageUrl.Set(&v)
 }
-
 // SetImageUrlNil sets the value for ImageUrl to be an explicit nil
 func (o *OperatingSystemCreateRequest) SetImageUrlNil() {
 	o.ImageUrl.Set(nil)
@@ -402,7 +397,6 @@ func (o *OperatingSystemCreateRequest) HasImageSha() bool {
 func (o *OperatingSystemCreateRequest) SetImageSha(v string) {
 	o.ImageSha.Set(&v)
 }
-
 // SetImageShaNil sets the value for ImageSha to be an explicit nil
 func (o *OperatingSystemCreateRequest) SetImageShaNil() {
 	o.ImageSha.Set(nil)
@@ -445,7 +439,6 @@ func (o *OperatingSystemCreateRequest) HasImageAuthType() bool {
 func (o *OperatingSystemCreateRequest) SetImageAuthType(v string) {
 	o.ImageAuthType.Set(&v)
 }
-
 // SetImageAuthTypeNil sets the value for ImageAuthType to be an explicit nil
 func (o *OperatingSystemCreateRequest) SetImageAuthTypeNil() {
 	o.ImageAuthType.Set(nil)
@@ -488,7 +481,6 @@ func (o *OperatingSystemCreateRequest) HasImageAuthToken() bool {
 func (o *OperatingSystemCreateRequest) SetImageAuthToken(v string) {
 	o.ImageAuthToken.Set(&v)
 }
-
 // SetImageAuthTokenNil sets the value for ImageAuthToken to be an explicit nil
 func (o *OperatingSystemCreateRequest) SetImageAuthTokenNil() {
 	o.ImageAuthToken.Set(nil)
@@ -531,7 +523,6 @@ func (o *OperatingSystemCreateRequest) HasImageDisk() bool {
 func (o *OperatingSystemCreateRequest) SetImageDisk(v string) {
 	o.ImageDisk.Set(&v)
 }
-
 // SetImageDiskNil sets the value for ImageDisk to be an explicit nil
 func (o *OperatingSystemCreateRequest) SetImageDiskNil() {
 	o.ImageDisk.Set(nil)
@@ -574,7 +565,6 @@ func (o *OperatingSystemCreateRequest) HasRootFsId() bool {
 func (o *OperatingSystemCreateRequest) SetRootFsId(v string) {
 	o.RootFsId.Set(&v)
 }
-
 // SetRootFsIdNil sets the value for RootFsId to be an explicit nil
 func (o *OperatingSystemCreateRequest) SetRootFsIdNil() {
 	o.RootFsId.Set(nil)
@@ -617,7 +607,6 @@ func (o *OperatingSystemCreateRequest) HasRootFsLabel() bool {
 func (o *OperatingSystemCreateRequest) SetRootFsLabel(v string) {
 	o.RootFsLabel.Set(&v)
 }
-
 // SetRootFsLabelNil sets the value for RootFsLabel to be an explicit nil
 func (o *OperatingSystemCreateRequest) SetRootFsLabelNil() {
 	o.RootFsLabel.Set(nil)
@@ -660,7 +649,6 @@ func (o *OperatingSystemCreateRequest) HasPhoneHomeEnabled() bool {
 func (o *OperatingSystemCreateRequest) SetPhoneHomeEnabled(v bool) {
 	o.PhoneHomeEnabled.Set(&v)
 }
-
 // SetPhoneHomeEnabledNil sets the value for PhoneHomeEnabled to be an explicit nil
 func (o *OperatingSystemCreateRequest) SetPhoneHomeEnabledNil() {
 	o.PhoneHomeEnabled.Set(nil)
@@ -703,7 +691,6 @@ func (o *OperatingSystemCreateRequest) HasUserData() bool {
 func (o *OperatingSystemCreateRequest) SetUserData(v string) {
 	o.UserData.Set(&v)
 }
-
 // SetUserDataNil sets the value for UserData to be an explicit nil
 func (o *OperatingSystemCreateRequest) SetUserDataNil() {
 	o.UserData.Set(nil)
@@ -813,7 +800,6 @@ func (o *OperatingSystemCreateRequest) HasIpxeTemplateId() bool {
 func (o *OperatingSystemCreateRequest) SetIpxeTemplateId(v string) {
 	o.IpxeTemplateId.Set(&v)
 }
-
 // SetIpxeTemplateIdNil sets the value for IpxeTemplateId to be an explicit nil
 func (o *OperatingSystemCreateRequest) SetIpxeTemplateIdNil() {
 	o.IpxeTemplateId.Set(nil)
@@ -889,7 +875,7 @@ func (o *OperatingSystemCreateRequest) SetIpxeTemplateArtifacts(v []OperatingSys
 }
 
 func (o OperatingSystemCreateRequest) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -972,10 +958,10 @@ func (o *OperatingSystemCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -1030,3 +1016,4 @@ func (v *NullableOperatingSystemCreateRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

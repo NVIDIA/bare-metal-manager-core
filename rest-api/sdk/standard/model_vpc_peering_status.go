@@ -23,12 +23,12 @@ type VpcPeeringStatus string
 
 // List of VpcPeeringStatus
 const (
-	VPCPEERINGSTATUS_PENDING     VpcPeeringStatus = "Pending"
+	VPCPEERINGSTATUS_PENDING VpcPeeringStatus = "Pending"
 	VPCPEERINGSTATUS_CONFIGURING VpcPeeringStatus = "Configuring"
-	VPCPEERINGSTATUS_REQUESTED   VpcPeeringStatus = "Requested"
-	VPCPEERINGSTATUS_READY       VpcPeeringStatus = "Ready"
-	VPCPEERINGSTATUS_DELETING    VpcPeeringStatus = "Deleting"
-	VPCPEERINGSTATUS_ERROR       VpcPeeringStatus = "Error"
+	VPCPEERINGSTATUS_REQUESTED VpcPeeringStatus = "Requested"
+	VPCPEERINGSTATUS_READY VpcPeeringStatus = "Ready"
+	VPCPEERINGSTATUS_DELETING VpcPeeringStatus = "Deleting"
+	VPCPEERINGSTATUS_ERROR VpcPeeringStatus = "Error"
 )
 
 // All allowed values of VpcPeeringStatus enum
@@ -119,3 +119,4 @@ func (v *NullableVpcPeeringStatus) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

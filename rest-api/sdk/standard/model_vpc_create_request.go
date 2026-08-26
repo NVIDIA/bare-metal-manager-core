@@ -14,8 +14,8 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
+	"bytes"
 	"fmt"
 )
 
@@ -165,7 +165,6 @@ func (o *VpcCreateRequest) HasDescription() bool {
 func (o *VpcCreateRequest) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *VpcCreateRequest) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -232,7 +231,6 @@ func (o *VpcCreateRequest) HasNetworkVirtualizationType() bool {
 func (o *VpcCreateRequest) SetNetworkVirtualizationType(v string) {
 	o.NetworkVirtualizationType.Set(&v)
 }
-
 // SetNetworkVirtualizationTypeNil sets the value for NetworkVirtualizationType to be an explicit nil
 func (o *VpcCreateRequest) SetNetworkVirtualizationTypeNil() {
 	o.NetworkVirtualizationType.Set(nil)
@@ -307,7 +305,6 @@ func (o *VpcCreateRequest) HasRoutingProfile() bool {
 func (o *VpcCreateRequest) SetRoutingProfile(v string) {
 	o.RoutingProfile.Set(&v)
 }
-
 // SetRoutingProfileNil sets the value for RoutingProfile to be an explicit nil
 func (o *VpcCreateRequest) SetRoutingProfileNil() {
 	o.RoutingProfile.Set(nil)
@@ -350,7 +347,6 @@ func (o *VpcCreateRequest) HasRoutingProfileOverrides() bool {
 func (o *VpcCreateRequest) SetRoutingProfileOverrides(v VpcRoutingProfileOverrides) {
 	o.RoutingProfileOverrides.Set(&v)
 }
-
 // SetRoutingProfileOverridesNil sets the value for RoutingProfileOverrides to be an explicit nil
 func (o *VpcCreateRequest) SetRoutingProfileOverridesNil() {
 	o.RoutingProfileOverrides.Set(nil)
@@ -393,7 +389,6 @@ func (o *VpcCreateRequest) HasPowerResourceGroup() bool {
 func (o *VpcCreateRequest) SetPowerResourceGroup(v string) {
 	o.PowerResourceGroup.Set(&v)
 }
-
 // SetPowerResourceGroupNil sets the value for PowerResourceGroup to be an explicit nil
 func (o *VpcCreateRequest) SetPowerResourceGroupNil() {
 	o.PowerResourceGroup.Set(nil)
@@ -436,7 +431,6 @@ func (o *VpcCreateRequest) HasNetworkSecurityGroupId() bool {
 func (o *VpcCreateRequest) SetNetworkSecurityGroupId(v string) {
 	o.NetworkSecurityGroupId.Set(&v)
 }
-
 // SetNetworkSecurityGroupIdNil sets the value for NetworkSecurityGroupId to be an explicit nil
 func (o *VpcCreateRequest) SetNetworkSecurityGroupIdNil() {
 	o.NetworkSecurityGroupId.Set(nil)
@@ -479,7 +473,6 @@ func (o *VpcCreateRequest) HasVni() bool {
 func (o *VpcCreateRequest) SetVni(v int32) {
 	o.Vni.Set(&v)
 }
-
 // SetVniNil sets the value for Vni to be an explicit nil
 func (o *VpcCreateRequest) SetVniNil() {
 	o.Vni.Set(nil)
@@ -522,7 +515,6 @@ func (o *VpcCreateRequest) HasNvLinkLogicalPartitionId() bool {
 func (o *VpcCreateRequest) SetNvLinkLogicalPartitionId(v string) {
 	o.NvLinkLogicalPartitionId.Set(&v)
 }
-
 // SetNvLinkLogicalPartitionIdNil sets the value for NvLinkLogicalPartitionId to be an explicit nil
 func (o *VpcCreateRequest) SetNvLinkLogicalPartitionIdNil() {
 	o.NvLinkLogicalPartitionId.Set(nil)
@@ -566,7 +558,7 @@ func (o *VpcCreateRequest) SetLabels(v map[string]string) {
 }
 
 func (o VpcCreateRequest) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -627,10 +619,10 @@ func (o *VpcCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -685,3 +677,4 @@ func (v *NullableVpcCreateRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

@@ -22,13 +22,14 @@ import (
 	"strings"
 )
 
+
 // HostFirmwareConfigAPIService HostFirmwareConfigAPI service
 type HostFirmwareConfigAPIService service
 
 type ApiCreateOrUpdateHostFirmwareConfigRequest struct {
-	ctx                                     context.Context
-	ApiService                              *HostFirmwareConfigAPIService
-	org                                     string
+	ctx context.Context
+	ApiService *HostFirmwareConfigAPIService
+	org string
 	hostFirmwareConfigCreateOrUpdateRequest *HostFirmwareConfigCreateOrUpdateRequest
 }
 
@@ -49,27 +50,26 @@ is specified by `siteId` in the request body.
 
 User must have authorization role with `PROVIDER_ADMIN` suffix in the URL `{org}`.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiCreateOrUpdateHostFirmwareConfigRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiCreateOrUpdateHostFirmwareConfigRequest
 */
 func (a *HostFirmwareConfigAPIService) CreateOrUpdateHostFirmwareConfig(ctx context.Context, org string) ApiCreateOrUpdateHostFirmwareConfigRequest {
 	return ApiCreateOrUpdateHostFirmwareConfigRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return HostFirmwareConfig
+//  @return HostFirmwareConfig
 func (a *HostFirmwareConfigAPIService) CreateOrUpdateHostFirmwareConfigExecute(r ApiCreateOrUpdateHostFirmwareConfigRequest) (*HostFirmwareConfig, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPut
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *HostFirmwareConfig
+		localVarHTTPMethod   = http.MethodPut
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *HostFirmwareConfig
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "HostFirmwareConfigAPIService.CreateOrUpdateHostFirmwareConfig")
@@ -135,8 +135,8 @@ func (a *HostFirmwareConfigAPIService) CreateOrUpdateHostFirmwareConfigExecute(r
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -146,8 +146,8 @@ func (a *HostFirmwareConfigAPIService) CreateOrUpdateHostFirmwareConfigExecute(r
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -157,8 +157,8 @@ func (a *HostFirmwareConfigAPIService) CreateOrUpdateHostFirmwareConfigExecute(r
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -168,8 +168,8 @@ func (a *HostFirmwareConfigAPIService) CreateOrUpdateHostFirmwareConfigExecute(r
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 503 {
@@ -179,8 +179,8 @@ func (a *HostFirmwareConfigAPIService) CreateOrUpdateHostFirmwareConfigExecute(r
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -198,9 +198,9 @@ func (a *HostFirmwareConfigAPIService) CreateOrUpdateHostFirmwareConfigExecute(r
 }
 
 type ApiDeleteHostFirmwareConfigRequest struct {
-	ctx                             context.Context
-	ApiService                      *HostFirmwareConfigAPIService
-	org                             string
+	ctx context.Context
+	ApiService *HostFirmwareConfigAPIService
+	org string
 	hostFirmwareConfigDeleteRequest *HostFirmwareConfigDeleteRequest
 }
 
@@ -222,24 +222,24 @@ keyed by `(vendor, model)`.
 
 User must have authorization role with `PROVIDER_ADMIN` suffix in the URL `{org}`.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiDeleteHostFirmwareConfigRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiDeleteHostFirmwareConfigRequest
 */
 func (a *HostFirmwareConfigAPIService) DeleteHostFirmwareConfig(ctx context.Context, org string) ApiDeleteHostFirmwareConfigRequest {
 	return ApiDeleteHostFirmwareConfigRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
 func (a *HostFirmwareConfigAPIService) DeleteHostFirmwareConfigExecute(r ApiDeleteHostFirmwareConfigRequest) (*http.Response, error) {
 	var (
-		localVarHTTPMethod = http.MethodDelete
-		localVarPostBody   interface{}
-		formFiles          []formFile
+		localVarHTTPMethod   = http.MethodDelete
+		localVarPostBody     interface{}
+		formFiles            []formFile
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "HostFirmwareConfigAPIService.DeleteHostFirmwareConfig")
@@ -305,8 +305,8 @@ func (a *HostFirmwareConfigAPIService) DeleteHostFirmwareConfigExecute(r ApiDele
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -316,8 +316,8 @@ func (a *HostFirmwareConfigAPIService) DeleteHostFirmwareConfigExecute(r ApiDele
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -327,8 +327,8 @@ func (a *HostFirmwareConfigAPIService) DeleteHostFirmwareConfigExecute(r ApiDele
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -338,8 +338,8 @@ func (a *HostFirmwareConfigAPIService) DeleteHostFirmwareConfigExecute(r ApiDele
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 503 {
@@ -349,8 +349,8 @@ func (a *HostFirmwareConfigAPIService) DeleteHostFirmwareConfigExecute(r ApiDele
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarHTTPResponse, newErr
 	}
