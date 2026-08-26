@@ -955,6 +955,13 @@ impl Forge for Api {
         crate::handlers::switch::find_switch_state_histories(self, request).await
     }
 
+    async fn find_switch_health_histories(
+        &self,
+        request: Request<rpc::SwitchHealthHistoriesRequest>,
+    ) -> Result<Response<rpc::HealthHistories>, Status> {
+        crate::handlers::switch::find_switch_health_histories(self, request).await
+    }
+
     async fn find_machine_health_histories(
         &self,
         request: Request<rpc::MachineHealthHistoriesRequest>,
@@ -3709,6 +3716,7 @@ pub struct DefaultCredential {
     _key: String,
 }
 
+#[cfg(any(test, feature = "test-support"))]
 impl DefaultCredential {
     pub(crate) fn key(&self) -> &str {
         &self._key

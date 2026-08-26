@@ -42,6 +42,29 @@ pub(super) use kea_v6::{Kea6, Kea6Config, Kea6ExpiredLeasesProcessing};
 #[allow(dead_code)]
 const METRICS_READ_TIMEOUT: Duration = Duration::from_millis(500);
 
+/// Return the Kea hook built by the same Cargo invocation as this integration test.
+fn hook_library_path() -> String {
+    let test_executable =
+        std::env::current_exe().expect("cannot locate integration test executable");
+    let deps_dir = test_executable
+        .parent()
+        .expect("integration test executable has no parent directory");
+    let library_name = format!(
+        "{}dhcp{}",
+        std::env::consts::DLL_PREFIX,
+        std::env::consts::DLL_SUFFIX
+    );
+    let hook_library = deps_dir.join(library_name);
+
+    assert!(
+        hook_library.is_file(),
+        "Kea hook library was not built next to the integration test executable: {}",
+        hook_library.display()
+    );
+
+    hook_library.to_string_lossy().into_owned()
+}
+
 /// Return the DHCPv6 dropped-request counter value for a reason label.
 #[allow(dead_code)]
 pub(super) fn v6_drop_metric_value(endpoint: SocketAddr, reason: &str) -> f64 {

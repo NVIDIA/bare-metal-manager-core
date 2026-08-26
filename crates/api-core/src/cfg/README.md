@@ -409,10 +409,10 @@ shipped configuration selects a plaintext mode.
 | ------- | ------ | --------- | ------------- |
 | `enabled` | `bool` | `true` | Enables hardware discovery. |
 | `run_interval` | `Duration` | `120s` | Interval between exploration runs. |
-| `concurrent_explorations` | `u64` | `30` | Max nodes explored in parallel. |
-| `explorations_per_run` | `u64` | `90` | Max nodes explored per run. |
+| `concurrent_explorations` | `u64` | `100` | Max nodes explored in parallel. |
+| `explorations_per_run` | `u64` | `360` | Max nodes explored per run. |
 | `create_machines` | `bool` | `true` | When false, SiteExplorer skips creating ManagedHost state machines; the DPU agent (scout) must self-register via DiscoverMachine gRPC endpoint with create_machine=true. Dynamically toggleable. |
-| `machines_created_per_run` | `u64` | `4` | Max ManagedHosts created per run. |
+| `machines_created_per_run` | `u64` | `100` | Max ManagedHosts created per run. |
 | `rotate_switch_nvos_credentials` | `bool` | `false` | Auto-rotate switch NVOS admin credentials. |
 | `override_target_ip` | `Option<String>` | — | **Deprecated.** Use `bmc_proxy`. Debug BMC IP override. |
 | `override_target_port` | `Option<u16>` | — | **Deprecated.** Use `bmc_proxy`. Debug BMC port override. |
@@ -449,7 +449,7 @@ TOML section: `[rack_state_controller]`.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `controller` | `StateControllerConfig` | *(default)* | Common state controller timing (see [StateControllerConfig](#statecontrollerconfig)). |
-| `nmx_cluster_switch_mtls_services` | `Vec<SwitchMtlsService>` | `scale_up_fabric_manager`, `scale_up_fabric_telemetry_interface` | **Deprecated.** Accepted and ignored. Rack maintenance does not configure switch certificates; per-switch certificate configuration uses [`switch_mtls_services`](#switchstatecontrollerconfig). |
+| `nmx_cluster_switch_mtls_services` | `Vec<SwitchMtlsService>` | N/A (ignored) | **Deprecated.** Accepted and ignored. Rack maintenance does not configure switch certificates. |
 
 ### `SwitchStateControllerConfig`
 
@@ -458,20 +458,20 @@ TOML section: `[switch_state_controller]`.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `controller` | `StateControllerConfig` | *(default)* | Common state controller timing (see [StateControllerConfig](#statecontrollerconfig)). |
-| `switch_mtls_services` | `Vec<SwitchMtlsService>` | all four values below | mTLS certificate bindings applied by the per-switch certificate workflow. A non-empty list replaces the default. Omission and `[]` both use the default. |
+| `switch_mtls_services` | `Vec<SwitchMtlsService>` | all four values below | mTLS certificate bindings applied by switch state-controller operations and direct `ComponentConfigureSwitchCertificate` RPC calls. A non-empty list replaces the default. Omission and `[]` both use the default. |
 
-Both settings accept the same service names:
+`switch_mtls_services` accepts these RMS service values:
 
-| Value | Switch endpoint |
-|-------|-----------------|
-| `nvue_api` | NVUE REST API |
-| `scale_up_fabric_telemetry` | NMX-T cluster application (`nmx-telemetry`) |
-| `scale_up_fabric_manager` | NMX-C cluster application (`nmx-controller`) |
-| `scale_up_fabric_telemetry_interface` | NVOS gNMI server mTLS configuration |
+| Value | RMS service description |
+|-------|-------------------------|
+| `nvue_api` | NVUE REST API service |
+| `scale_up_fabric_telemetry` | Scale-up fabric telemetry service |
+| `scale_up_fabric_manager` | Scale-up fabric manager service |
+| `scale_up_fabric_telemetry_interface` | Scale-up fabric telemetry interface service |
 
-These lists select server-side certificate bindings. They do not enable the
-underlying service. For workflow scope, see
-[Switch Certificate Configuration](../../../../docs/architecture/state_machines/switch_configure_certificate.md).
+`switch_mtls_services` selects server-side certificate bindings. It does not
+enable the underlying service. For workflow scope, see
+[Switch Certificate Configuration](https://docs.nvidia.com/infra-controller/documentation/architecture/state-machines/switch-certificate-configuration).
 
 ### `ObservabilityConfig`
 

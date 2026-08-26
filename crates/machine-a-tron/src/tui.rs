@@ -20,8 +20,6 @@ use std::error::Error;
 use std::time::Duration;
 
 use bmc_mock::{HardwareType, MockPowerState};
-use carbide_uuid::network::NetworkSegmentId;
-use carbide_uuid::vpc::VpcId;
 use crossterm::ExecutableCommand;
 use crossterm::event::{self, Event, EventStream, KeyCode, KeyModifiers};
 use crossterm::terminal::{
@@ -36,58 +34,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use uuid::Uuid;
 
 use crate::TuiHostLogs;
-use crate::machine_a_tron::AppEvent;
-use crate::subnet::Subnet;
-use crate::tabs::{MachinesTab, Tab};
-use crate::vpc::Vpc;
-
-pub struct VpcDetails {
-    pub vpc_id: VpcId,
-    pub vpc_name: Option<String>,
-}
-
-impl From<&Vpc> for VpcDetails {
-    fn from(value: &Vpc) -> Self {
-        Self {
-            vpc_id: value.vpc_id,
-            vpc_name: Some(value.metadata.name.clone()),
-        }
-    }
-}
-
-impl VpcDetails {
-    fn header(&self) -> String {
-        format!(
-            "{}: {}",
-            self.vpc_name.clone().unwrap_or("Without name".to_string()),
-            self.vpc_id.clone(),
-        )
-    }
-}
-
-pub struct SubnetDetails {
-    pub segment_id: NetworkSegmentId,
-    pub prefix: Option<String>,
-}
-
-impl From<&Subnet> for SubnetDetails {
-    fn from(value: &Subnet) -> Self {
-        Self {
-            segment_id: value.segment_id,
-            prefix: Some(value.prefixes.join(", ")),
-        }
-    }
-}
-
-impl SubnetDetails {
-    fn header(&self) -> String {
-        format!(
-            "{}: {}",
-            self.segment_id,
-            self.prefix.as_ref().unwrap_or(&"prefix???".to_string()),
-        )
-    }
-}
+use crate::tabs::MachinesTab;
 
 #[derive(Default)]
 pub struct HostDetails {
@@ -153,51 +100,46 @@ impl HostDetails {
 
 pub enum UiUpdate {
     Machine(HostDetails),
-    Vpc(VpcDetails),
-    Subnet(SubnetDetails),
 }
 
 pub struct Tui {
     /// The stored data of the ui.
     data: TuiData,
-    /// The (transient) state of the ui
-    ui: Tab,
+    list_state: ListState,
+    machine_details_focused: bool,
+    machine_tab: MachinesTab,
     /// A handle to a TuiHostLogs where logs for hosts are stored
     host_logs: Option<TuiHostLogs>,
 }
 
-pub struct TuiData {
-    pub event_rx: Receiver<UiUpdate>,
-    pub quit_rx: Receiver<()>,
-    pub app_tx: Sender<AppEvent>,
-    pub machine_cache: HashMap<Uuid, HostDetails>,
-    pub vpc_cache: HashMap<VpcId, VpcDetails>,
-    pub subnet_cache: HashMap<NetworkSegmentId, SubnetDetails>,
-    pub machine_details: String,
-    pub machine_logs: String,
-    pub original_routes: HashMap<String, String>,
+struct TuiData {
+    event_rx: Receiver<UiUpdate>,
+    quit_rx: Receiver<()>,
+    stop_tx: Sender<()>,
+    machine_cache: HashMap<Uuid, HostDetails>,
+    machine_details: String,
+    machine_logs: String,
 }
 
 impl Tui {
     pub fn new(
         event_rx: Receiver<UiUpdate>,
         quit_rx: Receiver<()>,
-        app_tx: Sender<AppEvent>,
+        stop_tx: Sender<()>,
         host_logs: Option<TuiHostLogs>,
     ) -> Self {
         Self {
             data: TuiData {
                 event_rx,
                 quit_rx,
-                app_tx,
+                stop_tx,
                 machine_cache: HashMap::default(),
-                vpc_cache: HashMap::default(),
-                subnet_cache: HashMap::default(),
                 machine_details: String::default(),
                 machine_logs: String::default(),
-                original_routes: HashMap::new(),
             },
-            ui: Tab::default(),
+            list_state: ListState::default(),
+            machine_details_focused: false,
+            machine_tab: MachinesTab::default(),
             host_logs,
         }
     }
@@ -220,31 +162,17 @@ impl Tui {
     }
 
     async fn handle_event(&mut self, event: Event) -> bool {
-        let Self {
-            data,
-            ui,
-            host_logs: _,
-        } = self;
         match event {
             Event::Key(key) => {
                 // Handle global triggers.
                 if key.kind == event::KeyEventKind::Press {
-                    let (handled, machine_changed) = ui.handle_key(data, key);
-                    if !handled {
-                        match key.code {
-                            KeyCode::Char('q') => {
-                                data.app_tx
-                                    .send(AppEvent::Quit)
-                                    .await
-                                    .expect("Could not send quit signal to TUI, crashing.");
-                            }
-                            KeyCode::Char('i') => {
-                                data.app_tx.send(AppEvent::AllocateInstance).await.expect(
-                                    "Could not send allocate instance signal to TUI, crashing.",
-                                );
-                            }
-                            _ => {}
-                        }
+                    let machine_changed = self.handle_key(key);
+                    if key.code == KeyCode::Char('q') {
+                        self.data
+                            .stop_tx
+                            .send(())
+                            .await
+                            .expect("Could not send quit signal to TUI, crashing.");
                     }
                     machine_changed
                 } else {
@@ -253,18 +181,10 @@ impl Tui {
             }
             // Interpret scroll as up down arrow keys.
             Event::Mouse(mouse) if mouse.kind == event::MouseEventKind::ScrollUp => {
-                ui.handle_key(
-                    data,
-                    event::KeyEvent::new(KeyCode::Up, KeyModifiers::empty()),
-                )
-                .1
+                self.handle_key(event::KeyEvent::new(KeyCode::Up, KeyModifiers::empty()))
             }
             Event::Mouse(mouse) if mouse.kind == event::MouseEventKind::ScrollDown => {
-                ui.handle_key(
-                    data,
-                    event::KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
-                )
-                .1
+                self.handle_key(event::KeyEvent::new(KeyCode::Down, KeyModifiers::empty()))
             }
             _ => {
                 tracing::warn!(
@@ -273,6 +193,33 @@ impl Tui {
                 );
                 false
             }
+        }
+    }
+
+    /// Returns whether the selected machine changed.
+    fn handle_key(&mut self, key: event::KeyEvent) -> bool {
+        if self.machine_details_focused && self.machine_tab.handle_key(key) {
+            return false;
+        }
+
+        match key.code {
+            KeyCode::Up => {
+                wrap_line(&mut self.list_state, self.data.machine_cache.len(), true);
+                true
+            }
+            KeyCode::Down => {
+                wrap_line(&mut self.list_state, self.data.machine_cache.len(), false);
+                true
+            }
+            KeyCode::Enter => {
+                self.machine_details_focused = true;
+                false
+            }
+            KeyCode::Esc => {
+                self.machine_details_focused = false;
+                false
+            }
+            _ => false,
         }
     }
 
@@ -301,7 +248,6 @@ impl Tui {
         let data = match sub_tab {
             MachinesTab::Details => machine_details,
             MachinesTab::Logs => machine_logs,
-            MachinesTab::Metrics => "Not Implemented",
         };
         let p = Paragraph::new(data)
             .block(Block::bordered().title(sub_tab.get_title()))
@@ -314,19 +260,19 @@ impl Tui {
         let mut terminal = Tui::setup_terminal()?;
 
         let mut items: Vec<ListItem<'_>> = Vec::default();
-        let mut vpc_items: Vec<ListItem<'_>> = Vec::default();
-        let mut subnet_items: Vec<ListItem<'_>> = Vec::default();
 
         let mut event_stream = EventStream::new();
         let mut list_updated = true;
         while running {
             let Self {
                 data,
-                ui,
+                list_state,
+                machine_details_focused,
+                machine_tab,
                 host_logs,
             } = self;
 
-            if list_updated && let Tab::Machines { list_state, .. } = ui {
+            if list_updated {
                 items.clear();
 
                 for machine in data.machine_cache.values() {
@@ -370,84 +316,21 @@ impl Tui {
                 //.highlight_symbol(">>")
                 ;
 
-            vpc_items.clear();
-            for vpc in data.vpc_cache.values() {
-                vpc_items.push(ListItem::new(vpc.header()));
-            }
-            let vpc_list = List::new(vpc_items.clone())
-                .block(Block::default().borders(Borders::ALL))
-                .style(Style::default())
-                .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
-
-            subnet_items.clear();
-            for subnet in data.subnet_cache.values() {
-                subnet_items.push(ListItem::new(subnet.header()));
-            }
-            let subnet_list = List::new(subnet_items.clone())
-                .block(Block::default().borders(Borders::ALL))
-                .style(Style::default())
-                .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
-
             terminal.draw(|f| {
                 let chunks = Layout::default()
                     .direction(Direction::Horizontal)
                     .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
                     .split(f.area());
 
-                let left_chunks = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints([Constraint::Length(3), Constraint::Min(0)].as_ref())
-                    .split(chunks[0]);
-
-                let titles = Tab::titles()
-                    .map(|t| {
-                        let (first, rest) = t.split_at(1);
-                        format!(
-                            "{}{}",
-                            first.to_string().bold().fg(Color::Yellow),
-                            rest.to_string().fg(Color::Green)
-                        )
-                    })
-                    .to_vec();
-
-                let tabs = Tabs::new(titles)
-                    .block(Block::default().borders(Borders::ALL).title("Tabs"))
-                    .select(u8::from(&*ui) as usize)
-                    .highlight_style(Style::default().fg(Color::LightYellow));
-
-                f.render_widget(tabs.clone(), chunks[0]);
-
-                match ui {
-                    Tab::Machines {
-                        tab,
-                        list_state,
-                        focused,
-                    } => {
-                        f.render_stateful_widget(list.clone(), left_chunks[1], list_state);
-                        if *focused {
-                            Self::draw_list_with_details(
-                                f,
-                                &chunks[1],
-                                &data.machine_details,
-                                &data.machine_logs,
-                                tab,
-                            );
-                        }
-                    }
-                    Tab::VPCs { list_state } => {
-                        f.render_stateful_widget(vpc_list, left_chunks[1], list_state);
-
-                        let paragraph = Paragraph::new("Not implemented yet")
-                            .block(Block::default().borders(Borders::ALL).title("Details"));
-                        f.render_widget(paragraph, chunks[1]);
-                    }
-                    Tab::Subnets { list_state } => {
-                        f.render_stateful_widget(subnet_list, left_chunks[1], list_state);
-
-                        let paragraph = Paragraph::new("Not implemented yet")
-                            .block(Block::default().borders(Borders::ALL).title("Details"));
-                        f.render_widget(paragraph, chunks[1]);
-                    }
+                f.render_stateful_widget(list.clone(), chunks[0], list_state);
+                if *machine_details_focused {
+                    Self::draw_list_with_details(
+                        f,
+                        &chunks[1],
+                        &data.machine_details,
+                        &data.machine_logs,
+                        machine_tab,
+                    );
                 }
             })?;
 
@@ -475,12 +358,6 @@ impl Tui {
                             list_updated = true;
                             self.data.machine_cache.insert(m.mat_id, m);
                         }
-                        Some(UiUpdate::Vpc(m)) => {
-                            self.data.vpc_cache.insert(m.vpc_id, m);
-                        }
-                        Some(UiUpdate::Subnet(m)) => {
-                            self.data.subnet_cache.insert(m.segment_id, m);
-                        }
                         None => {}
                     }
                 }
@@ -490,5 +367,25 @@ impl Tui {
 
         Tui::teardown_terminal(&mut terminal)?;
         Ok(())
+    }
+}
+
+/// Handle up or down inside a list, wrapping at the top and bottom.
+fn wrap_line(list_state: &mut ListState, len: usize, increment: bool) {
+    if len > 0 {
+        list_state.select(Some(
+            list_state
+                .selected()
+                .map(|v| {
+                    if increment {
+                        if v > 0 { v - 1 } else { len - 1 }
+                    } else if v < len - 1 {
+                        v + 1
+                    } else {
+                        0
+                    }
+                })
+                .unwrap_or(if increment { len - 1 } else { 0 }),
+        ))
     }
 }

@@ -205,56 +205,14 @@ pub(crate) async fn find_machine_health_histories(
     log_request_data(&request);
     let request = request.into_inner();
 
-    let machine_ids = request.machine_ids;
-
-    let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
-    if machine_ids.len() > max_find_by_ids {
-        return Err(CarbideError::InvalidArgument(format!(
-            "no more than {max_find_by_ids} IDs can be accepted"
-        ))
-        .into());
-    } else if machine_ids.is_empty() {
-        return Err(
-            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
-        );
-    }
-
-    // Convert protobuf timestamps to chrono DateTime
-    let start_time = request
-        .start_time
-        .map(chrono::DateTime::<chrono::Utc>::try_from)
-        .transpose()
-        .map_err(|_| CarbideError::InvalidArgument("invalid start_time timestamp".to_string()))?;
-    let end_time = request
-        .end_time
-        .map(chrono::DateTime::<chrono::Utc>::try_from)
-        .transpose()
-        .map_err(|_| CarbideError::InvalidArgument("invalid end_time timestamp".to_string()))?;
-
-    let mut txn = api.txn_begin().await?;
-
-    let results = db::health_history::find_by_object_ids(
-        &mut txn,
+    crate::handlers::health::find_health_histories(
+        api,
+        request.machine_ids,
         db::health_history::HealthHistoryTableId::Machine,
-        &machine_ids,
-        start_time,
-        end_time,
+        request.start_time,
+        request.end_time,
     )
-    .await?;
-
-    let mut response = rpc::HealthHistories::default();
-    for (machine_id, records) in results {
-        response.histories.insert(
-            machine_id.to_string(),
-            ::rpc::forge::HealthHistoryRecords {
-                records: records.into_iter().map(Into::into).collect(),
-            },
-        );
-    }
-
-    txn.commit().await?;
-
-    Ok(Response::new(response))
+    .await
 }
 
 pub(crate) async fn machine_set_auto_update(

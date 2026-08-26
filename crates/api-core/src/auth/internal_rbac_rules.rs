@@ -852,6 +852,10 @@ impl InternalRBACRules {
             "FindSwitchStateHistories",
             vec![ForgeAdminCLI, Machineatron, Flow],
         );
+        x.perm(
+            "FindSwitchHealthHistories",
+            vec![ForgeAdminCLI, Machineatron, Flow],
+        );
         x.perm("FindRackIds", vec![ForgeAdminCLI, SiteAgent, Flow]);
         x.perm("FindRacksByIds", vec![ForgeAdminCLI, SiteAgent, Flow]);
         x.perm("GetRack", vec![ForgeAdminCLI, Flow]);
