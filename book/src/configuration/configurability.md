@@ -689,7 +689,8 @@ These don't fit any sub-section but show up in production tuning:
 | `max_find_by_ids` | `100` | Increase if scripts paginate batch lookups; raise the API-side limit to match the client. |
 | `compute_allocation_enforcement` | `WarnOnly` | Switch to `Enforce` once tenant compute pools are sized correctly — flips over-allocation from a warning to a refusal. |
 | `bmc_session_lockout_threshold` | `3` | Number of consecutive 401/403s from a BMC before NICo stops session-token logins for that BMC. Raise on environments with flaky BMC firmware. |
-| `min_dpu_functioning_links` | unset | Minimum healthy DPU links for a machine to report `Healthy`. Unset = all links required. |
+| `bmc_max_sessions_per_caller` | `4` | Cap on outstanding Redfish sessions per calling service identity per BMC; a `GetBmcCredentials` mint past the cap revokes that caller's oldest sessions. Size to the caller's replica count plus headroom; values below 1 are treated as 1. |
+| `min_dpu_functioning_links` | unset (effective value `2`) | Controls DPU ToR BGP health checks. Refer to [DPU ToR Uplink Health](../../../docs/dpu-management/dpu_configuration.md#dpu-tor-uplink-health) for values and lifecycle effects. |
 | `set_http_boot_uri_for_vendors` | `[]` | Vendors for which the state controller pins UEFI HTTP Boot URL on the BMC via Redfish. Empty = rely on DHCP option 67. |
 | `x86_pxe_boot_url_override` / `arm_pxe_boot_url_override` | unset | Override the default `nico-pxe` boot URL by architecture. Useful when chaining through an external HTTP boot artifact server. |
 | `anycast_site_prefixes` | `[]` | **Deprecated** — use `[fnn.routing_profiles.<name>].allowed_anycast_prefixes` instead. |
@@ -775,7 +776,7 @@ advertised. Both are documented field-by-field in
 defines a specific UFM-managed fabric. Currently exactly one fabric is
 supported. Required fields: UFM endpoint, credentials (username + password,
 or token), MGMT IB subnet, GUID prefix. See
-[`crates/api-core/src/cfg/README.md` → IbFabricDefinition](../../../crates/api-core/src/cfg/README.md#ibfabricdefinition).
+[`crates/api-core/src/cfg/README.md` → NicoConfig](../../../crates/api-core/src/cfg/README.md#nicoconfig-top-level).
 
 ### Operator dev / debug knobs
 
@@ -1016,7 +1017,7 @@ for the full field list.
 Maps a host model identifier to a Firmware definition (BMC, UEFI, NIC
 images plus version constraints). The state controller picks the right
 images when a machine in the model joins. See
-[`crates/api-core/src/cfg/README.md` → host_models](../../../crates/api-core/src/cfg/README.md#hostmodelsfirmware).
+[`crates/api-core/src/cfg/README.md` → NicoConfig](../../../crates/api-core/src/cfg/README.md#nicoconfig-top-level).
 
 ### Rack profile firmware object: `[rack_profiles.<name>]`
 

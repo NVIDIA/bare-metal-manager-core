@@ -40,13 +40,11 @@ mod power_shelf_simulator;
 mod rack;
 mod simulator_registry;
 mod status;
-mod subnet;
 mod switch_fsm;
 mod switch_simulator;
 mod tabs;
 mod tui;
 mod tui_host_logs;
-mod vpc;
 
 use std::time::{Duration, Instant};
 
@@ -63,7 +61,7 @@ pub use device_simulator::{
 };
 pub use dhcp_wrapper::{DhcpClient, UdpDhcpService};
 pub use dpu_machine::DpuMachineHandle;
-pub use machine_a_tron::{AppEvent, MachineATron};
+pub use machine_a_tron::MachineATron;
 pub use mock_ssh_server::{
     Credentials as MockSshCredentials, MockSshServerHandle, PromptBehavior,
     spawn as spawn_mock_ssh_server,

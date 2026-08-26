@@ -124,13 +124,20 @@ pub(crate) async fn decommission_power_shelf(
         .into());
     }
 
-    if let Some(rack_id) = power_shelf.rack_id.as_ref()
-        && db::managed_host::has_instance_assigned_host_in_rack(&mut txn, rack_id).await?
-    {
-        return Err(CarbideError::FailedPrecondition(format!(
-            "power shelf {power_shelf_id} cannot be decommissioned while a managed host in rack {rack_id} is assigned to an instance"
-        ))
-        .into());
+    if let Some(rack_id) = power_shelf.rack_id.as_ref() {
+        let assigned_hosts =
+            db::managed_host::find_assigned_hosts_in_rack(&mut txn, rack_id).await?;
+        if !assigned_hosts.is_empty() {
+            let assignments = assigned_hosts
+                .iter()
+                .map(|(machine_id, instance_id)| format!("{machine_id} ({instance_id})"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(CarbideError::FailedPrecondition(format!(
+                "power shelf {power_shelf_id} cannot be decommissioned while managed hosts in rack {rack_id} are assigned to instances: {assignments}"
+            ))
+            .into());
+        }
     }
 
     db_power_shelf::set_decommission_requested(&mut txn, power_shelf_id).await?;

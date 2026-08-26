@@ -1202,10 +1202,16 @@ where
                 timing_overrides: Some(LifecycleTimingOverrides {
                     host: PartialLifecycleTimings {
                         reboot: Some(Duration::from_secs(1)),
+                        // ZERO disables the BMC self-reset offline window entirely,
+                        // keeping ingestion at its pre-feature pace
+                        bmc_reset: Some(Duration::ZERO),
                         ..Default::default()
                     },
                     dpu: PartialLifecycleTimings {
                         reboot: Some(Duration::from_secs(1)),
+                        // ZERO disables the BMC self-reset offline window entirely,
+                        // keeping ingestion at its pre-feature pace
+                        bmc_reset: Some(Duration::ZERO),
                         ..Default::default()
                     },
                 }),
@@ -1215,14 +1221,11 @@ where
                 // machine-a-tron sends direct host DHCP through the DPU network.
                 host_inband_dhcp_relay_address: Some(Ipv4Addr::new(10, 10, 11, 2)),
                 bmc_dhcp_relay_address: TEST_BMC_DHCP_RELAY_ADDRESS,
-                vpc_count: 0,
-                subnets_per_vpc: 0,
                 run_interval_idle: Duration::from_secs(1),
                 run_interval_working: Duration::from_millis(100),
                 network_status_run_interval: Duration::from_secs(1),
                 scout_run_interval: Duration::from_secs(1),
                 discovery_retry_interval: Duration::from_millis(100),
-                network_virtualization_type: None,
                 dpus_in_nic_mode,
                 dpu_firmware_versions: None,
                 host_firmware_versions: None,

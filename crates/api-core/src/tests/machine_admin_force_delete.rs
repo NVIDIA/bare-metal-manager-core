@@ -26,7 +26,7 @@ use ::rpc::forge::{
 };
 use carbide_dpf::DpuDeploymentType;
 use carbide_ib_fabric::config::IBFabricConfig;
-use carbide_ib_fabric::ib::{self, IBFabricManager};
+use carbide_ib_fabric::ib::{self, GetPartitionOptions, IBFabricManager};
 use carbide_machine_controller::dpf::{DpfOperations, MockDpfOperations};
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
@@ -43,7 +43,8 @@ use common::api_fixtures::{
 };
 use config_version::ConfigVersion;
 use model::hardware_info::TpmEkCertificate;
-use model::ib::DEFAULT_IB_FABRIC_NAME;
+use model::ib::{DEFAULT_IB_FABRIC_NAME, IbMembership};
+use model::ib_partition::PartitionKey;
 use model::instance::NewInstance;
 use model::instance::config::InstanceConfig;
 use model::instance::config::extension_services::InstanceExtensionServicesConfig;
@@ -628,18 +629,29 @@ async fn force_delete(
     machine_id: &MachineId,
 ) -> rpc::forge::AdminForceDeleteMachineResponse {
     env.api
-        .admin_force_delete_machine(tonic::Request::new(AdminForceDeleteMachineRequest {
-            host_query: machine_id.to_string(),
-            delete_interfaces: false,
-            delete_bmc_interfaces: false,
-            delete_bmc_credentials: false,
-            allow_delete_with_orphaned_dpf_crds: false,
-            delete_bmc_suppressions: false,
-            delete_retained_boot_interfaces: false,
-        }))
+        .admin_force_delete_machine(tonic::Request::new(force_delete_request(machine_id)))
         .await
         .unwrap()
         .into_inner()
+}
+
+fn force_delete_request(machine_id: &MachineId) -> AdminForceDeleteMachineRequest {
+    AdminForceDeleteMachineRequest {
+        host_query: machine_id.to_string(),
+        delete_interfaces: false,
+        delete_bmc_interfaces: false,
+        delete_bmc_credentials: false,
+        allow_delete_with_orphaned_dpf_crds: false,
+        delete_bmc_suppressions: false,
+        delete_retained_boot_interfaces: false,
+    }
+}
+
+async fn retired_membership_is_recorded(pool: &sqlx::PgPool, membership: &IbMembership) -> bool {
+    db::retired_ib_membership::find_recorded_candidates(pool, std::slice::from_ref(membership))
+        .await
+        .unwrap()
+        == vec![membership.clone()]
 }
 
 fn validate_delete_response(
@@ -1000,13 +1012,52 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
     let hex_pkey = ib_partition.status.clone().unwrap().pkey.unwrap();
     let pkey: u16 = u16::from_str_radix(hex_pkey.strip_prefix("0x").unwrap(), 16)
         .expect("Failed to parse string to integer");
-    let guids = HashSet::from_iter([ib_status.ib_interfaces[0].guid.clone().unwrap()]);
+    let guid = ib_status.ib_interfaces[0].guid.clone().unwrap();
+    let guids = HashSet::from_iter([guid.clone()]);
     let filter = ib::Filter {
         guids: Some(guids.clone()),
         pkey: Some(pkey),
         state: Some(model::ib::IBPortState::Active),
     };
     assert_eq!(ib_fabric.find_ib_port(Some(filter)).await.unwrap().len(), 1);
+
+    let retired_membership = IbMembership {
+        fabric: DEFAULT_IB_FABRIC_NAME.to_string(),
+        pkey: PartitionKey::try_from(pkey).unwrap(),
+        guid,
+    };
+    let ib_network = ib_fabric
+        .get_ib_network(
+            pkey,
+            GetPartitionOptions {
+                include_guids_data: false,
+                include_qos_conf: true,
+            },
+        )
+        .await
+        .unwrap();
+
+    let mock_fabric = env.ib_fabric_manager.get_mock_manager();
+    mock_fabric.set_unbind_failure(true);
+    let error = env
+        .api
+        .admin_force_delete_machine(Request::new(force_delete_request(&mh.id)))
+        .await
+        .expect_err("the simulated UFM failure must stop force-delete");
+    assert!(error.message().contains("simulated UFM unbind failure"));
+    assert!(
+        db::instance::find_by_id(&env.pool, tinstance.id)
+            .await
+            .unwrap()
+            .is_some(),
+        "UFM failure must not delete the Instance"
+    );
+    assert!(
+        retired_membership_is_recorded(&env.pool, &retired_membership).await,
+        "force-delete must commit the retired membership before calling UFM"
+    );
+
+    mock_fabric.set_unbind_failure(false);
 
     let response = force_delete(&env, &mh.id).await;
     validate_delete_response(&response, Some(&mh.id), &mh.dpu().id);
@@ -1024,6 +1075,28 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
 
     assert_eq!(response.ufm_unregistrations, 1);
     assert!(response.all_done, "Host and DPU must be deleted");
+    assert!(
+        retired_membership_is_recorded(&env.pool, &retired_membership).await,
+        "successful retry must keep the exact retired membership"
+    );
+
+    // Model a bind from an older monitor pass completing after force-delete.
+    // The durable record must let a later pass remove it again.
+    ib_fabric
+        .bind_ib_ports(ib_network, vec![retired_membership.guid.clone()])
+        .await
+        .unwrap();
+    env.run_ib_fabric_monitor_iteration().await;
+    let filter = ib::Filter {
+        guids: Some(guids),
+        pkey: Some(pkey),
+        state: Some(model::ib::IBPortState::Active),
+    };
+    assert_eq!(ib_fabric.find_ib_port(Some(filter)).await.unwrap().len(), 0);
+    assert!(
+        retired_membership_is_recorded(&env.pool, &retired_membership).await,
+        "monitor cleanup must keep the exact retired membership"
+    );
 
     // Everything should be gone now
     for id in [mh.id, mh.dpu().id] {

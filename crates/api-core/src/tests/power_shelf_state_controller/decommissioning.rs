@@ -19,8 +19,8 @@ use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
 use model::power_shelf::{PowerShelf, PowerShelfControllerState};
-use rpc::forge::forge_server::Forge;
 use rpc::forge::DecommissionPowerShelfRequest;
+use rpc::forge::forge_server::Forge;
 use tonic::{Code, Request};
 
 use super::fixtures::power_shelf::set_power_shelf_controller_state;
@@ -123,7 +123,7 @@ async fn decommission_rejects_instance_assigned_host_in_power_shelf_rack(
         .await
         .expect_err("a power shelf with an assigned host in its rack must be rejected");
     assert_eq!(error.code(), Code::FailedPrecondition);
-    assert!(error.message().contains("is assigned to an instance"));
+    assert!(error.message().contains("are assigned to instances"));
     assert!(
         !load_power_shelf(&pool, power_shelf_id)
             .await?

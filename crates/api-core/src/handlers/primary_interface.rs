@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use carbide_uuid::machine::{DpuMachineId, MachineInterfaceId, StableHostMachineId};
 use model::machine::ManagedHostState;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine_boot_interface::{
@@ -33,7 +33,7 @@ pub(super) enum PrimaryInterfaceSelector {
     /// Selects the host interface with this ID.
     Interface(MachineInterfaceId),
     /// Selects the host interface attached to this DPU.
-    Dpu(MachineId),
+    Dpu(DpuMachineId),
 }
 
 /// Describes work the caller must perform after the primary interface update commits.
@@ -64,17 +64,10 @@ fn boot_target_for_interface(
 /// lock order. Commits before returning; the caller owns controller wakeup and post-commit work.
 pub(super) async fn update_primary_interface(
     api: &Api,
-    host_machine_id: MachineId,
+    host_machine_id: StableHostMachineId,
     selector: PrimaryInterfaceSelector,
     force_reconcile: bool,
 ) -> CarbideResult<PrimaryInterfaceUpdate> {
-    if !host_machine_id.machine_type().is_host() {
-        return Err(CarbideError::InvalidArgument(format!(
-            "machine {host_machine_id} is not a host machine; only host interfaces can be made \
-             primary"
-        )));
-    }
-
     // Take the Admin lock permit first so excess requests wait without using database connections.
     let _admin_admission = db::machine_interface::admin_lock_admission().await;
     let mut txn = api.txn_begin().await?;
@@ -82,11 +75,14 @@ pub(super) async fn update_primary_interface(
     // Site Explorer takes these locks before it changes interface ownership.
     // Matching that order keeps an operator write from deadlocking discovery.
     db::machine_interface::lock_all_admin_segments(&mut txn).await?;
-    let interface_snapshots =
-        db::machine_interface::find_by_machine_id_for_update(&mut txn, &host_machine_id).await?;
+    let interface_snapshots = db::machine_interface::find_by_machine_id_for_update(
+        &mut txn,
+        host_machine_id.as_machine_id(),
+    )
+    .await?;
     let machine = db::machine::find_one(
         &mut txn,
-        &host_machine_id,
+        host_machine_id.as_machine_id(),
         MachineSearchConfig {
             for_update: true,
             ..Default::default()
@@ -113,7 +109,10 @@ pub(super) async fn update_primary_interface(
 
             interface_snapshots
                 .iter()
-                .find(|interface| interface.attached_dpu_machine_id == Some(dpu_machine_id))
+                .find(|interface| {
+                    interface.attached_dpu_machine_id.as_ref()
+                        == Some(dpu_machine_id.as_machine_id())
+                })
                 .map(|interface| interface.id)
                 .ok_or_else(|| {
                     CarbideError::InvalidArgument(format!(
@@ -181,7 +180,8 @@ pub(super) async fn update_primary_interface(
 
     // Lock the Instance against deletion between this snapshot and its network configuration write.
     let instance =
-        db::instance::find_live_by_machine_id_for_update(&mut txn, &host_machine_id).await?;
+        db::instance::find_live_by_machine_id_for_update(&mut txn, host_machine_id.as_machine_id())
+            .await?;
     let reconciliation_is_pending = machine.pending_boot_interface_config_version().is_some();
     let reconciliation_is_eligible =
         matches!(machine.current_state(), ManagedHostState::Ready) && instance.is_none();
@@ -198,8 +198,11 @@ pub(super) async fn update_primary_interface(
         // host with no current admin primary skips this pass so the write can
         // repair that broken state in the post-move reconciliation below.
         if current_primary_is_admin {
-            db::machine_interface::reconcile_admin_addresses_for_host(&mut txn, &host_machine_id)
-                .await?;
+            db::machine_interface::reconcile_admin_addresses_for_host(
+                &mut txn,
+                host_machine_id.as_machine_id(),
+            )
+            .await?;
         }
 
         if let Some(current_primary_interface_id) = current_primary_interface_id {
@@ -212,18 +215,21 @@ pub(super) async fn update_primary_interface(
         }
         db::machine_interface::set_primary_interface(&new_primary_interface_id, true, &mut txn)
             .await?;
-        db::machine_interface::reconcile_admin_addresses_for_host(&mut txn, &host_machine_id)
-            .await?;
+        db::machine_interface::reconcile_admin_addresses_for_host(
+            &mut txn,
+            host_machine_id.as_machine_id(),
+        )
+        .await?;
 
         let (network_config, network_config_version) =
-            db::machine::get_network_config(txn.as_pgconn(), &host_machine_id)
+            db::machine::get_network_config(txn.as_pgconn(), host_machine_id.as_machine_id())
                 .await?
                 .take();
         // The Machine row was locked before this version was read, so another transaction cannot
         // change the version before this update. The update must therefore match one row.
         if !db::machine::try_update_network_config(
             &mut txn,
-            &host_machine_id,
+            host_machine_id.as_machine_id(),
             network_config_version,
             &network_config,
         )
@@ -252,7 +258,7 @@ pub(super) async fn update_primary_interface(
     let desired_update = if force_reconcile {
         db::machine_desired_boot_interface::force_set(
             &mut txn,
-            &host_machine_id,
+            host_machine_id.as_host_machine_id(),
             &boot_target,
             BootInterfaceSelectionSource::Operator,
         )
@@ -260,7 +266,7 @@ pub(super) async fn update_primary_interface(
     } else {
         db::machine_desired_boot_interface::set(
             &mut txn,
-            &host_machine_id,
+            host_machine_id.as_host_machine_id(),
             &boot_target,
             BootInterfaceSelectionSource::Operator,
         )

@@ -605,12 +605,32 @@ func (m *Manager) GetDecommissionStatus(
 	result := make(map[string]string, len(target.ComponentIDs))
 	for _, id := range target.ComponentIDs {
 		if s, ok := states[id]; ok {
-			result[id] = s
+			result[id] = normalizeDecommissionState(s)
 		} else {
 			result[id] = ""
 		}
 	}
 	return result, nil
+}
+
+// normalizeDecommissionState converts Core's persisted switch-controller JSON
+// into the status vocabulary used by the Flow decommission waiter.
+func normalizeDecommissionState(raw string) string {
+	var state struct {
+		State                string `json:"state"`
+		DecommissioningState struct {
+			State string `json:"state"`
+		} `json:"decommissioning_state"`
+	}
+	if err := json.Unmarshal([]byte(raw), &state); err != nil ||
+		state.State != "decommissioning" ||
+		state.DecommissioningState.State == "" {
+		return raw
+	}
+	if state.DecommissioningState.State == "decommissioned" {
+		return "Decommissioned"
+	}
+	return "Decommissioning/" + state.DecommissioningState.State
 }
 
 func aggregateNICoStatuses(compID string, statuses []*corev1.FirmwareUpdateStatus) operations.FirmwareUpdateStatus {

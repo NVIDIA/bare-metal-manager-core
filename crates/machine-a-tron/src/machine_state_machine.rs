@@ -1258,6 +1258,8 @@ impl MachineStateMachine {
             Arc::new(LiveStateHostnameQuery(self.live_state.clone())),
             self.mat_host_id,
             self.bmc_injection.clone(),
+            // wires LifecycleTimings::bmc_reset (epic #3796 issue 4)
+            Some(self.resolved_timings.bmc_reset),
         );
 
         let pw_override = match &self.machine_info {
