@@ -451,6 +451,8 @@ pub trait RedfishClientPool: Send + Sync + 'static {
                     .map_err(|err| redact_password(err, curr_password.as_str()))
                     .map_err(RedfishClientCreationError::RedfishError)?;
             }
+            // Sushy is a development emulator without an AccountService.
+            RedfishVendor::Sushy => {}
             RedfishVendor::Unknown => {
                 // Defensive guard: callers resolve the vendor via
                 // `probe_bmc_vendor` (or site-explorer's `get_redfish_vendor`),
