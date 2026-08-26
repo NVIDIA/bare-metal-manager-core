@@ -188,7 +188,6 @@ impl MachineValidationManager {
             context,
             validation_id,
             platform_name,
-            true,
             machine_validation_filter,
         )
         .await?;

@@ -696,6 +696,11 @@ service Forge {
 
   rpc MachineValidationTestEnableDisableTest(MachineValidationTestEnableDisableTestRequest) returns (MachineValidationTestEnableDisableTestResponse);
 
+  // Approves writable host-root access for one verified plugin revision. The
+  // site policy must permit full-host plugins; this approval does not enable
+  // the revision and must be repeated for every new revision.
+  rpc MachineValidationTestApproveFullHost(MachineValidationTestFullHostApprovalRequest) returns (MachineValidationTestFullHostApprovalResponse);
+
   rpc UpdateMachineValidationRun(MachineValidationRunRequest) returns (MachineValidationRunResponse);
 
   // Bmc Endpoint Explorer Actions
@@ -6960,6 +6965,7 @@ message MachineValidationRunItem {
   optional string skip_reason = 16;
   optional string failure_reason = 17;
   common.UUID current_attempt_id = 18;
+  optional MachineValidationPlugin plugin = 19;
 }
 
 message MachineValidationAttemptGetRequest {
@@ -7034,6 +7040,9 @@ message MachineValidationTestUpdateRequest {
     repeated string custom_tags = 16;
     repeated string components = 17;
     optional bool is_enabled = 19;
+    // When omitted, the stored plugin is retained. Plugin revisions are
+    // immutable, so this field cannot clear or replace an existing plugin.
+    optional MachineValidationPlugin plugin = 20;
   }
   string test_id = 1;
   string version = 2;
@@ -7059,6 +7068,7 @@ message MachineValidationTestAddRequest {
   repeated string custom_tags = 16;
   repeated string components = 17;
   optional bool is_enabled = 18;
+  optional MachineValidationPlugin plugin = 19;
 }
 message MachineValidationTestAddUpdateResponse {
   string test_id = 1;
@@ -7100,6 +7110,40 @@ message MachineValidationTest {
   repeated string components = 21;
   string last_modified_at = 22;
   bool is_enabled = 23;
+  // The optional OCI plugin configuration for this immutable test revision.
+  optional MachineValidationPlugin plugin = 24;
+  // Server-managed, revision-scoped approval required when
+  // plugin.host_access_full is true. New revisions start unapproved.
+  bool full_host_approved = 25;
+}
+
+// A generic OCI plugin executed by the Machine Validation framework. image must
+// be an immutable digest-pinned OCI reference. Entrypoint arguments are passed
+// directly to the container runtime rather than through a shell.
+message MachineValidationPlugin {
+  // Immutable digest-pinned OCI image reference.
+  string image = 1;
+  repeated string entrypoint = 2;
+  // JSON object of non-secret site-defined values included in input.json.
+  string parameters_json = 3;
+  // Runs the plugin as root in the privileged container profile.
+  bool privileged = 4;
+  // Requests the legacy-style writable host-root mount at /host.
+  bool host_access_full = 5;
+}
+
+// Requests server-managed approval of writable host-root access for one
+// verified plugin revision. The revision must also satisfy current site policy.
+message MachineValidationTestFullHostApprovalRequest {
+  // Plugin test identifier.
+  string test_id = 1;
+  // Immutable plugin test revision string.
+  string version = 2;
+}
+// Confirms the server's full-host approval decision for the requested revision.
+message MachineValidationTestFullHostApprovalResponse {
+  // Operator-facing confirmation or status message.
+  string message = 1;
 }
 message MachineValidationTestNextVersionResponse {
   string test_id = 1;

@@ -345,10 +345,36 @@ pub async fn enable_disable(
     version: ConfigVersion,
     is_enabled: bool,
     is_verified: bool,
+    is_plugin: bool,
 ) -> DatabaseResult<String> {
+    let version = version.version_string();
+    // Configuration startup uses this helper too. Keep an unverified plugin
+    // disabled regardless of which caller requested enablement.
+    let is_enabled = is_enabled && (!is_plugin || is_verified);
+    if is_enabled && is_plugin {
+        // A run item is keyed by test ID, so only one plugin revision can be
+        // active for a test at a time. Lock the revision family so concurrent
+        // enable requests cannot leave multiple revisions enabled.
+        sqlx::query("SELECT 1 FROM machine_validation_tests WHERE test_id = $1 FOR UPDATE")
+            .bind(&test_id)
+            .execute(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::query("lock machine validation plugin revisions", e))?;
+        sqlx::query(
+            "UPDATE machine_validation_tests SET is_enabled = FALSE \
+             WHERE test_id = $1 AND version <> $2 AND plugin IS NOT NULL AND is_enabled = TRUE",
+        )
+        .bind(&test_id)
+        .bind(&version)
+        .execute(&mut *txn)
+        .await
+        .map_err(|e| {
+            DatabaseError::query("disable previous machine validation plugin revisions", e)
+        })?;
+    }
     let req = MachineValidationTestUpdateRequest {
         test_id,
-        version: version.version_string(),
+        version,
         payload: Some(MachineValidationTestUpdatePayload {
             is_enabled: Some(is_enabled),
             verified: Some(is_verified),

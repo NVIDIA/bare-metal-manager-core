@@ -44,8 +44,7 @@ Print help (see a summary with -h)
 ## Examples
 
 ```sh
-nico-admin-cli machine-validation plugins verify --test-id forge_gpu_health --version 1.0.0
-nico-admin-cli machine-validation plugins enable --test-id forge_gpu_health --version 1.0.0
+nico-admin-cli machine-validation plugins disable --test-id forge_gpu_health --version 1.0.0
 ```
 
 ---

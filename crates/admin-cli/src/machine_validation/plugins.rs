@@ -17,13 +17,49 @@ use crate::errors::CarbideCliResult;
 pub(crate) enum Args {
     #[clap(about = "Create an OCI Machine Validation plugin")]
     Create(CreateArgs),
-    #[clap(about = "Verify a plugin revision")]
+    #[command(
+        about = "Verify a plugin revision",
+        after_long_help = "\
+EXAMPLES:
+
+Verify a plugin revision:
+    $ nico-admin-cli machine-validation plugins verify --test-id forge_gpu_health --version 1.0.0
+
+"
+    )]
     Verify(RevisionArgs),
-    #[clap(about = "Approve full host access for a verified plugin revision")]
+    #[command(
+        about = "Approve full host access for a verified plugin revision",
+        after_long_help = "\
+EXAMPLES:
+
+Approve full host access for a verified plugin revision:
+    $ nico-admin-cli machine-validation plugins approve-full-host --test-id forge_gpu_health --version 1.0.0
+
+"
+    )]
     ApproveFullHost(RevisionArgs),
-    #[clap(about = "Enable a plugin revision")]
+    #[command(
+        about = "Enable a plugin revision",
+        after_long_help = "\
+EXAMPLES:
+
+Enable a verified plugin revision:
+    $ nico-admin-cli machine-validation plugins enable --test-id forge_gpu_health --version 1.0.0
+
+"
+    )]
     Enable(RevisionArgs),
-    #[clap(about = "Disable a plugin revision")]
+    #[command(
+        about = "Disable a plugin revision",
+        after_long_help = "\
+EXAMPLES:
+
+Disable a plugin revision:
+    $ nico-admin-cli machine-validation plugins disable --test-id forge_gpu_health --version 1.0.0
+
+"
+    )]
     Disable(RevisionArgs),
 }
 
@@ -53,9 +89,6 @@ pub(crate) struct CreateArgs {
 }
 
 #[derive(Parser, Debug)]
-#[command(
-    after_long_help = "EXAMPLES:\n    Verify a plugin test revision:\n\n        $ nico-admin-cli machine-validation plugins verify --test-id forge_gpu_health --version 1.0.0\n\n    Enable the same plugin test revision:\n\n        $ nico-admin-cli machine-validation plugins enable --test-id forge_gpu_health --version 1.0.0\n\n    --version is the immutable test revision string returned by plugins create."
-)]
 pub(crate) struct RevisionArgs {
     #[clap(long)]
     test_id: String,

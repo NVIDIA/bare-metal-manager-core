@@ -342,6 +342,9 @@ nico-admin-cli machine-validation plugins approve-full-host --test-id forge_host
 nico-admin-cli machine-validation plugins enable --test-id forge_host_gpu_health --version 1.0.0
 ```
 
+Only one plugin revision for a test ID can be enabled at a time. Enabling a new
+revision disables the previously enabled plugin revision for that test ID.
+
 Privileged and full-host execution require the matching site settings above.
 Device capabilities, site-managed input files, resource overrides, and parallel
 execution are not supported by the current implementation.

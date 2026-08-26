@@ -43,6 +43,8 @@ use crate::{
 const MAX_STRING_STD_SIZE: usize = 1024 * 1024; // 1MB in bytes;
 const DEFAULT_TIMEOUT: u64 = 3600;
 const MAX_PLUGIN_RESULT_SIZE: u64 = 64 * 1024;
+const PLUGIN_CONTAINER_CLEANUP_TIMEOUT: u64 = 30;
+const MAX_PLUGIN_TIMEOUT_SECONDS: i64 = 24 * 60 * 60;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -153,6 +155,8 @@ fn prepare_plugin_directories(
         // Scout runs as root and creates these directories for the fixed
         // non-root container identity. A 0700 directory prevents another host
         // user from pre-seeding or replacing the plugin result.
+        // SAFETY: `path` is a NUL-terminated CString whose storage remains
+        // valid for the duration of this synchronous libc call.
         if unsafe { libc::chown(path.as_ptr(), PLUGIN_UID, PLUGIN_GID) } != 0 {
             return Err(format!(
                 "failed to grant plugin directory access: {}",
@@ -170,6 +174,10 @@ fn prepare_plugin_directories(
 
 fn plugin_process_succeeded(exit_code: Option<i32>) -> bool {
     exit_code == Some(0)
+}
+
+fn normalized_plugin_timeout_seconds(timeout: Option<i64>) -> u64 {
+    timeout.unwrap_or(7200).clamp(0, MAX_PLUGIN_TIMEOUT_SECONDS) as u64
 }
 
 fn plugin_runtime_args(
@@ -222,6 +230,40 @@ fn plugin_runtime_args(
     args.push(image);
     args.extend(plugin.entrypoint.iter().cloned());
     args
+}
+
+fn plugin_container_remove_args(container_name: &str) -> [&str; 5] {
+    ["-n", "default", "rm", "--force", container_name]
+}
+
+async fn force_remove_plugin_container(container_name: &str) {
+    // Dropping the `nerdctl run` client does not stop a container that
+    // containerd has already created. Remove the named container before Scout
+    // cleans up its bind-mounted attempt directory.
+    match TokioCmd::new("nerdctl")
+        .args(plugin_container_remove_args(container_name))
+        .timeout(PLUGIN_CONTAINER_CLEANUP_TIMEOUT)
+        .output_with_timeout()
+        .await
+    {
+        Ok(result) if result.exit_code == 0 => {
+            info!(%container_name, "Removed timed out machine validation plugin container");
+        }
+        Ok(result) => {
+            tracing::warn!(
+                %container_name,
+                stderr = %result.stderr,
+                "Failed to remove timed out machine validation plugin container"
+            );
+        }
+        Err(error) => {
+            tracing::warn!(
+                %container_name,
+                %error,
+                "Timed out or failed to remove machine validation plugin container"
+            );
+        }
+    }
 }
 
 // The API manager clamps heartbeat-based stale reconciliation to at least three missed beats, so
@@ -1332,8 +1374,8 @@ impl MachineValidation {
         let execution = async {
             let timeout_seconds = run_item
                 .and_then(|item| item.timeout.as_ref())
-                .map(|timeout| timeout.seconds.max(0) as u64)
-                .unwrap_or_else(|| test.timeout.unwrap_or(7200) as u64);
+                .map(|timeout| normalized_plugin_timeout_seconds(Some(timeout.seconds)))
+                .unwrap_or_else(|| normalized_plugin_timeout_seconds(test.timeout));
             let deadline =
                 tokio::time::Instant::now() + std::time::Duration::from_secs(timeout_seconds);
             // This is the same overall deadline used for both image acquisition
@@ -1372,10 +1414,11 @@ impl MachineValidation {
             )
             .map_err(|error| format!("failed to write plugin input: {error}"))?;
 
+            let container_name = format!("mv-plugin-{}", uuid::Uuid::new_v4());
             let args = plugin_runtime_args(
                 &input_dir,
                 &output_dir,
-                format!("mv-plugin-{}", uuid::Uuid::new_v4()),
+                container_name.clone(),
                 plugin.image.clone(),
                 plugin,
             );
@@ -1395,7 +1438,10 @@ impl MachineValidation {
                     Err("plugin exited unsuccessfully; ignoring result.json".to_owned())
                 }
                 Ok(Err(error)) => Err(format!("failed to execute plugin: {error}")),
-                Err(_) => Err(format!("plugin timed out after {timeout_seconds} seconds")),
+                Err(_) => {
+                    force_remove_plugin_container(&container_name).await;
+                    Err(format!("plugin timed out after {timeout_seconds} seconds"))
+                }
             }
         }
         .await;
@@ -1471,7 +1517,6 @@ impl MachineValidation {
         context: String,
         validation_id: MachineValidationId,
         platform_name: String,
-        execute_tests_sequentially: bool,
         machine_validation_filter: MachineValidationFilter,
     ) -> Result<(), MachineValidationError> {
         self.clone().get_container_auth_config().await?;
@@ -1496,41 +1541,37 @@ impl MachineValidation {
             Ok(_) => info!("Successfully fetched container images"),
             Err(e) => error!(error = %e, "Failed to fetch container images"),
         }
-        if execute_tests_sequentially {
-            for test in tests {
-                if !machine_validation_filter.allowed_tests.is_empty()
-                    && !machine_validation_filter
-                        .allowed_tests
-                        .iter()
-                        .any(|t| t.eq_ignore_ascii_case(&test.test_id))
-                {
-                    continue;
-                }
-                let execution = self
-                    .clone()
-                    .execute_machinevalidation_command(
-                        machine_id,
-                        &test,
-                        context.to_string(),
-                        validation_id,
-                        &platform_name,
-                        run_items_by_test.get(&test.test_id),
-                    )
-                    .await;
-                let MachineValidationExecution { result, heartbeat } = execution;
-                let persist_result = self.clone().persist(Some(result)).await;
-                if let Some(heartbeat) = heartbeat {
-                    heartbeat.stop().await;
-                }
-                emit(MachineValidationResultPersistenceFinished::from_result(
-                    validation_id,
-                    test.test_id.clone(),
-                    test.name.clone(),
-                    &persist_result,
-                ));
+        for test in tests {
+            if !machine_validation_filter.allowed_tests.is_empty()
+                && !machine_validation_filter
+                    .allowed_tests
+                    .iter()
+                    .any(|t| t.eq_ignore_ascii_case(&test.test_id))
+            {
+                continue;
             }
-        } else {
-            info!("To be implemented");
+            let execution = self
+                .clone()
+                .execute_machinevalidation_command(
+                    machine_id,
+                    &test,
+                    context.to_string(),
+                    validation_id,
+                    &platform_name,
+                    run_items_by_test.get(&test.test_id),
+                )
+                .await;
+            let MachineValidationExecution { result, heartbeat } = execution;
+            let persist_result = self.clone().persist(Some(result)).await;
+            if let Some(heartbeat) = heartbeat {
+                heartbeat.stop().await;
+            }
+            emit(MachineValidationResultPersistenceFinished::from_result(
+                validation_id,
+                test.test_id.clone(),
+                test.name.clone(),
+                &persist_result,
+            ));
         }
         Ok(())
     }
@@ -1667,6 +1708,24 @@ mod tests {
         assert!(plugin_process_succeeded(Some(0)));
         assert!(!plugin_process_succeeded(Some(1)));
         assert!(!plugin_process_succeeded(None));
+    }
+
+    #[test]
+    fn plugin_timeout_is_bounded_for_deadline_calculation() {
+        assert_eq!(normalized_plugin_timeout_seconds(None), 7200);
+        assert_eq!(normalized_plugin_timeout_seconds(Some(-1)), 0);
+        assert_eq!(
+            normalized_plugin_timeout_seconds(Some(i64::MAX)),
+            MAX_PLUGIN_TIMEOUT_SECONDS as u64
+        );
+    }
+
+    #[test]
+    fn timed_out_plugin_container_is_force_removed_by_name() {
+        assert_eq!(
+            plugin_container_remove_args("mv-plugin-test"),
+            ["-n", "default", "rm", "--force", "mv-plugin-test"]
+        );
     }
 
     #[test]

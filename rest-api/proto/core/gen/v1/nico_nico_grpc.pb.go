@@ -341,6 +341,7 @@ const (
 	Forge_MachineValidationTestVerfied_FullMethodName                       = "/forge.Forge/MachineValidationTestVerfied"
 	Forge_MachineValidationTestNextVersion_FullMethodName                   = "/forge.Forge/MachineValidationTestNextVersion"
 	Forge_MachineValidationTestEnableDisableTest_FullMethodName             = "/forge.Forge/MachineValidationTestEnableDisableTest"
+	Forge_MachineValidationTestApproveFullHost_FullMethodName               = "/forge.Forge/MachineValidationTestApproveFullHost"
 	Forge_UpdateMachineValidationRun_FullMethodName                         = "/forge.Forge/UpdateMachineValidationRun"
 	Forge_AdminBmcReset_FullMethodName                                      = "/forge.Forge/AdminBmcReset"
 	Forge_AdminPowerControl_FullMethodName                                  = "/forge.Forge/AdminPowerControl"
@@ -1061,6 +1062,10 @@ type ForgeClient interface {
 	MachineValidationTestVerfied(ctx context.Context, in *MachineValidationTestVerfiedRequest, opts ...grpc.CallOption) (*MachineValidationTestVerfiedResponse, error)
 	MachineValidationTestNextVersion(ctx context.Context, in *MachineValidationTestNextVersionRequest, opts ...grpc.CallOption) (*MachineValidationTestNextVersionResponse, error)
 	MachineValidationTestEnableDisableTest(ctx context.Context, in *MachineValidationTestEnableDisableTestRequest, opts ...grpc.CallOption) (*MachineValidationTestEnableDisableTestResponse, error)
+	// Approves writable host-root access for one verified plugin revision. The
+	// site policy must permit full-host plugins; this approval does not enable
+	// the revision and must be repeated for every new revision.
+	MachineValidationTestApproveFullHost(ctx context.Context, in *MachineValidationTestFullHostApprovalRequest, opts ...grpc.CallOption) (*MachineValidationTestFullHostApprovalResponse, error)
 	UpdateMachineValidationRun(ctx context.Context, in *MachineValidationRunRequest, opts ...grpc.CallOption) (*MachineValidationRunResponse, error)
 	// Bmc Endpoint Explorer Actions
 	// Reset a BMC
@@ -4567,6 +4572,16 @@ func (c *forgeClient) MachineValidationTestEnableDisableTest(ctx context.Context
 	return out, nil
 }
 
+func (c *forgeClient) MachineValidationTestApproveFullHost(ctx context.Context, in *MachineValidationTestFullHostApprovalRequest, opts ...grpc.CallOption) (*MachineValidationTestFullHostApprovalResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MachineValidationTestFullHostApprovalResponse)
+	err := c.cc.Invoke(ctx, Forge_MachineValidationTestApproveFullHost_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *forgeClient) UpdateMachineValidationRun(ctx context.Context, in *MachineValidationRunRequest, opts ...grpc.CallOption) (*MachineValidationRunResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(MachineValidationRunResponse)
@@ -6755,6 +6770,10 @@ type ForgeServer interface {
 	MachineValidationTestVerfied(context.Context, *MachineValidationTestVerfiedRequest) (*MachineValidationTestVerfiedResponse, error)
 	MachineValidationTestNextVersion(context.Context, *MachineValidationTestNextVersionRequest) (*MachineValidationTestNextVersionResponse, error)
 	MachineValidationTestEnableDisableTest(context.Context, *MachineValidationTestEnableDisableTestRequest) (*MachineValidationTestEnableDisableTestResponse, error)
+	// Approves writable host-root access for one verified plugin revision. The
+	// site policy must permit full-host plugins; this approval does not enable
+	// the revision and must be repeated for every new revision.
+	MachineValidationTestApproveFullHost(context.Context, *MachineValidationTestFullHostApprovalRequest) (*MachineValidationTestFullHostApprovalResponse, error)
 	UpdateMachineValidationRun(context.Context, *MachineValidationRunRequest) (*MachineValidationRunResponse, error)
 	// Bmc Endpoint Explorer Actions
 	// Reset a BMC
@@ -8026,6 +8045,9 @@ func (UnimplementedForgeServer) MachineValidationTestNextVersion(context.Context
 }
 func (UnimplementedForgeServer) MachineValidationTestEnableDisableTest(context.Context, *MachineValidationTestEnableDisableTestRequest) (*MachineValidationTestEnableDisableTestResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method MachineValidationTestEnableDisableTest not implemented")
+}
+func (UnimplementedForgeServer) MachineValidationTestApproveFullHost(context.Context, *MachineValidationTestFullHostApprovalRequest) (*MachineValidationTestFullHostApprovalResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method MachineValidationTestApproveFullHost not implemented")
 }
 func (UnimplementedForgeServer) UpdateMachineValidationRun(context.Context, *MachineValidationRunRequest) (*MachineValidationRunResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateMachineValidationRun not implemented")
@@ -14260,6 +14282,24 @@ func _Forge_MachineValidationTestEnableDisableTest_Handler(srv interface{}, ctx 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_MachineValidationTestApproveFullHost_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MachineValidationTestFullHostApprovalRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).MachineValidationTestApproveFullHost(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_MachineValidationTestApproveFullHost_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).MachineValidationTestApproveFullHost(ctx, req.(*MachineValidationTestFullHostApprovalRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Forge_UpdateMachineValidationRun_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(MachineValidationRunRequest)
 	if err := dec(in); err != nil {
@@ -18461,6 +18501,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "MachineValidationTestEnableDisableTest",
 			Handler:    _Forge_MachineValidationTestEnableDisableTest_Handler,
+		},
+		{
+			MethodName: "MachineValidationTestApproveFullHost",
+			Handler:    _Forge_MachineValidationTestApproveFullHost_Handler,
 		},
 		{
 			MethodName: "UpdateMachineValidationRun",
