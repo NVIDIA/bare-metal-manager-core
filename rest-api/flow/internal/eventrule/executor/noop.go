@@ -15,11 +15,11 @@ type NoopExecutor struct{}
 
 // Execute completes a typed noop request.
 func (NoopExecutor) Execute(_ context.Context, request ExecutionRequest) error {
-	plan, ok := request.Execution.Plan.(*eventrule.NoopPlan)
+	plan, ok := request.Plan.(*eventrule.NoopPlan)
 	if !ok || plan == nil {
 		return terminalError(fmt.Errorf(
 			"noop executor received plan %T",
-			request.Execution.Plan,
+			request.Plan,
 		))
 	}
 

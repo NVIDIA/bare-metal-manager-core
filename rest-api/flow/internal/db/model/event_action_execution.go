@@ -24,6 +24,8 @@ type EventActionExecution struct {
 	Status        string          `bun:"status,notnull"`
 	Reason        *string         `bun:"reason"`
 	Attempts      int             `bun:"attempts,notnull"`
+	ClaimToken    *uuid.UUID      `bun:"claim_token,type:uuid"`
+	ClaimOwner    *string         `bun:"claim_owner"`
 	StatusMessage *string         `bun:"status_message"`
 	CreatedAt     time.Time       `bun:"created_at,notnull"`
 	UpdatedAt     time.Time       `bun:"updated_at,notnull"`

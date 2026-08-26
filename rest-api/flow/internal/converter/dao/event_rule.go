@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"time"
 
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	dbmodel "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/model"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
 	eventrulecodec "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/codec"
-	"github.com/google/uuid"
 )
 
 // EventRuleTo converts a domain rule to a database model.
@@ -87,18 +87,12 @@ func EventRuleBindingTo(
 		return nil, err
 	}
 
-	var scopeID *uuid.UUID
-	if binding.Scope.HasID() {
-		id := binding.Scope.ID
-		scopeID = &id
-	}
-
 	return &dbmodel.EventRuleBinding{
 		ID:        binding.ID,
 		RuleID:    binding.RuleID,
 		EventType: string(binding.EventType),
 		ScopeType: string(binding.Scope.Type),
-		ScopeID:   scopeID,
+		ScopeID:   cutil.GetPtrIfNotZero(binding.Scope.ID),
 		CreatedAt: createdAt,
 		UpdatedAt: updatedAt,
 	}, nil
@@ -112,18 +106,13 @@ func EventRuleBindingFrom(
 		return nil, nil
 	}
 
-	var scopeID uuid.UUID
-	if dbBinding.ScopeID != nil {
-		scopeID = *dbBinding.ScopeID
-	}
-
 	binding := &eventrule.Binding{
 		ID:        dbBinding.ID,
 		RuleID:    dbBinding.RuleID,
 		EventType: eventrule.Type(dbBinding.EventType),
 		Scope: eventrule.Scope{
 			Type: eventrule.ScopeType(dbBinding.ScopeType),
-			ID:   scopeID,
+			ID:   cutil.GetValueOrZero(dbBinding.ScopeID),
 		},
 	}
 

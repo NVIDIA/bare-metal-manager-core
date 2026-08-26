@@ -10,6 +10,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
 	eventexecutor "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/executor"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/leakage"
+	eventscheduler "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/scheduler"
 	identifier "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/Identifier"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/component"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/rack"
@@ -286,7 +287,12 @@ func TestManagerValidatesConfiguredActionExecutors(t *testing.T) {
 
 func testManagerConfig() Config {
 	return Config{
-		Store:       StoreConfig{Backend: StoreBackendMemory},
+		Store: StoreConfig{Backend: StoreBackendMemory},
+		Scheduler: SchedulerConfig{
+			InstanceID: "event-rule-manager-test",
+			Runtime:    eventscheduler.DefaultRuntimeConfig(),
+			Policy:     eventscheduler.DefaultPolicyConfig(),
+		},
 		Inventory:   testInventory{},
 		TaskManager: configTaskManager{},
 	}

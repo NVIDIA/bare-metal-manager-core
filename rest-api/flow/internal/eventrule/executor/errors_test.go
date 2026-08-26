@@ -6,6 +6,7 @@ package executor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -50,6 +51,26 @@ func TestErrorClassification(t *testing.T) {
 				require.NotErrorIs(t, test.err, ErrRetryable)
 				require.NotErrorIs(t, test.err, ErrTerminal)
 			}
+		})
+	}
+}
+
+func TestIsInterrupted(t *testing.T) {
+	tests := map[string]struct {
+		err  error
+		want bool
+	}{
+		"nil":               {},
+		"canceled":          {err: context.Canceled, want: true},
+		"wrapped canceled":  {err: fmt.Errorf("execute: %w", context.Canceled), want: true},
+		"deadline":          {err: context.DeadlineExceeded, want: true},
+		"wrapped deadline":  {err: fmt.Errorf("execute: %w", context.DeadlineExceeded), want: true},
+		"unrelated failure": {err: errors.New("downstream unavailable")},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, test.want, IsInterrupted(test.err))
 		})
 	}
 }

@@ -20,25 +20,20 @@ func TestExecutionRequestValidate(t *testing.T) {
 		wantErr string
 	}{
 		"valid": {},
-		"nil execution": {
-			mutate:  func(request *ExecutionRequest) { request.Execution = nil },
-			wantErr: "execution: execution is nil",
-		},
 		"invalid execution id": {
-			mutate:  func(request *ExecutionRequest) { request.Execution.ID = uuid.Nil },
-			wantErr: "execution: execution id is required",
+			mutate:  func(request *ExecutionRequest) { request.ExecutionID = uuid.Nil },
+			wantErr: "execution id is required",
 		},
 		"missing plan": {
-			mutate:  func(request *ExecutionRequest) { request.Execution.Plan = nil },
-			wantErr: "execution plan is required",
+			mutate:  func(request *ExecutionRequest) { request.Plan = nil },
+			wantErr: "execution plan: execution plan is required",
 		},
 	}
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			request := valid
-			execution := valid.Execution.Clone()
-			request.Execution = &execution
+			request.Plan = eventrule.CloneExecutionPlan(valid.Plan)
 			if test.mutate != nil {
 				test.mutate(&request)
 			}
@@ -61,5 +56,8 @@ func newValidExecutionRequest(t *testing.T) ExecutionRequest {
 		time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC),
 	)
 	require.NoError(t, err)
-	return ExecutionRequest{Execution: execution}
+	return ExecutionRequest{
+		ExecutionID: execution.ID,
+		Plan:        execution.Plan,
+	}
 }
