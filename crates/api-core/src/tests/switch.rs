@@ -645,7 +645,6 @@ async fn test_force_delete_switch_success(
             switch_id: Some(switch_id),
             delete_interfaces: false,
             delete_bmc_suppressions: false,
-            delete_retained_boot_interfaces: false,
         }))
         .await?
         .into_inner();
@@ -698,7 +697,6 @@ async fn test_force_delete_switch_not_found(
             switch_id: Some(non_existent_id),
             delete_interfaces: false,
             delete_bmc_suppressions: false,
-            delete_retained_boot_interfaces: false,
         }))
         .await;
 
@@ -730,7 +728,6 @@ async fn test_force_delete_switch_already_soft_deleted(
             switch_id: Some(switch_id),
             delete_interfaces: false,
             delete_bmc_suppressions: false,
-            delete_retained_boot_interfaces: false,
         }))
         .await?
         .into_inner();

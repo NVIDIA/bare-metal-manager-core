@@ -190,7 +190,6 @@ async fn force_delete_switch_clears_associated_mac_state(
             switch_id: Some(switch_id),
             delete_interfaces: true,
             delete_bmc_suppressions: true,
-            delete_retained_boot_interfaces: true,
         }))
         .await?;
 

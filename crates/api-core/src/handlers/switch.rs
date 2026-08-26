@@ -34,7 +34,7 @@ use crate::api::{Api, log_request_data};
 use crate::auth::AuthContext;
 
 /// BMC and declared NVOS MACs associated with a switch, used for optional
-/// force-delete cleanup of interfaces, suppressions, and retained boot state.
+/// force-delete cleanup of interfaces and suppressions.
 async fn associated_switch_macs(
     txn: &mut PgConnection,
     switch: &Switch,
@@ -415,9 +415,7 @@ pub(crate) async fn admin_force_delete_switch(
             id: switch_id.to_string(),
         })?;
 
-    let needs_mac_cleanup = request.delete_interfaces
-        || request.delete_bmc_suppressions
-        || request.delete_retained_boot_interfaces;
+    let needs_mac_cleanup = request.delete_interfaces || request.delete_bmc_suppressions;
     let macs = if needs_mac_cleanup {
         associated_switch_macs(&mut txn, &switch).await?
     } else {
@@ -447,14 +445,6 @@ pub(crate) async fn admin_force_delete_switch(
                 .map_err(CarbideError::from)?;
         }
         interfaces_deleted = interface_ids.len() as u32;
-    }
-
-    if request.delete_retained_boot_interfaces {
-        for &mac in &macs {
-            db::retained_boot_interface::take_by_mac(&mut txn, mac, None)
-                .await
-                .map_err(CarbideError::from)?;
-        }
     }
 
     if request.delete_bmc_suppressions {

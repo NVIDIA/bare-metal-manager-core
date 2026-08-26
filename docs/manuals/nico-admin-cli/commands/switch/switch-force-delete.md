@@ -11,8 +11,7 @@ optionally its interfaces
 
 **nico-admin-cli switch force-delete**
 \[**-d**\|**--delete-interfaces**\] \[**--delete-bmc-suppressions**\]
-\[**--delete-retained-boot-interfaces**\] \[**--extended**\]
-\[**--sort-by**\] \[**-h**\|**--help**\] \<*SWITCH_ID*\>
+\[**--extended**\] \[**--sort-by**\] \[**-h**\|**--help**\] \<*SWITCH_ID*\>
 
 ## DESCRIPTION
 
@@ -27,10 +26,6 @@ interfaces whose MACs match the switch BMC MAC or declared NVOS MACs.
 **--delete-bmc-suppressions**  
 Delete BMC suppressions (DHCP and Site Explorer) for the switch BMC MAC
 and declared NVOS MACs.
-
-**--delete-retained-boot-interfaces**  
-Delete retained boot-interface mappings for the switch BMC MAC and
-declared NVOS MACs.
 
 **--extended**  
 Extended result output.
@@ -60,7 +55,7 @@ Switch ID to force delete.
 ```sh
 nico-admin-cli switch force-delete 12345678-1234-5678-90ab-cdef01234567
 nico-admin-cli switch force-delete 12345678-1234-5678-90ab-cdef01234567 --delete-interfaces
-nico-admin-cli switch force-delete 12345678-1234-5678-90ab-cdef01234567 --delete-interfaces --delete-bmc-suppressions --delete-retained-boot-interfaces
+nico-admin-cli switch force-delete 12345678-1234-5678-90ab-cdef01234567 --delete-interfaces --delete-bmc-suppressions
 ```
 
 ---
