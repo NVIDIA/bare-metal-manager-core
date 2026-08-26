@@ -73,14 +73,13 @@ in the scripts/charts with explanatory comments.
 |---|-------|------------|-----|
 | 9 | helm deploy aborts: hundreds of `connection reset by peer` | helm's default burst (100 concurrent API calls) overwhelms SOCKS/ssh tunnels when creating hundreds of Services | `--qps 15 --burst-limit 30` (env-overridable) |
 | 10 | nginx bmc-proxy CrashLoopBackOff: `host not found in upstream` | Chart template pointed the upstream at the bare chart name, which is not a Service | Point at the `-bmc-mock` Service (chart fix) |
-| 11 | Nothing listens on the mock port; probes kill the pod | `use_single_bmc_mock=false` makes each mock bind its **real BMC IP** on the pod netns (bare-metal mode). `true` is the shared-registry mode K8s needs | `useSingleBmcMock: true` |
-| 12 | Every registry lookup 404s: `no router configured for host: 10.233.x.x` | nginx forwarded `host=$server_addr`, but kube-proxy DNATs the LB IP to the nginx **pod IP** before the connection arrives | `Forwarded "host=$host"` — the client-requested host is the LB IP end-to-end (chart fix) |
-| 13 | LB IPs intermittently Unreachable in-cluster | Per-BMC Services use `externalTrafficPolicy: Local` and the chart's REQUIRED podAffinity stacked all proxies on the mat node | Required anti-affinity between proxy replicas (+ `maxUnavailable=1/maxSurge=0`; with replicas == nodes a surge pod deadlocks the rollout) — chart fix, kept for nginx-mode users |
-| 14 | DHCP fails: `No network segment defined for relay addresses` | Config-driven segment creation is **bootstrap-once** — skipped entirely on multi-domain sites ("Multiple domains, skipping initial network creation") | Script clone-inserts the simulated segments from same-type templates; `allocation_strategy` forced to `dynamic` (templates may be `reserved`, which rejects all dynamic DHCP) |
-| 15 | AvoidLockout storm on all DPU endpoints; preingestion pinned at exactly `hostCount` | The rotation dance is racy at scale: preingestion's initial BMC reset reboots the mock, which returns at the **factory** password while its per-MAC Vault entry says "rotated" | Pin mock passwords to the site root (`hostBmcPassword`/`dpuBmcPassword`) — site-explorer's documented fallback ("factory failed → sitewide root, no rotation") logs straight in; resets become harmless |
-| 16 | Pipeline stalls at preingestion `initial`; manager idle | `waiting_for_explorer_refresh` (set when errors are cleared) gates endpoints out of preingestion and can linger after a healthy report lands (273/300 were parked) | Verification loop unparks endpoints whose reports are clean |
-| 17 | Managed hosts identified but machines never created; cycles never finish | `explorations_per_run` was raised to 400 "for throughput" — but identification and creation only run **at the end of a completed explore cycle**, and 400 deep scans per cycle meant cycles stopped completing | Default lowered to 120: cycles complete in ~1–2 min and creation runs every cycle |
-| 18 | `Resource pool lo-ip is empty` on the 3rd machine | Machine creation allocates one loopback IP per machine; pool **definitions are seed-once** ("Declaration has drifted since seed … not re-applying") so config widening is ignored; dev6 ships **3** lo-ip addresses | Script inserts free `resource_pool` rows directly for a simulated range (16k) when the pool is smaller than the machine target |
+| 11 | Every registry lookup 404s: `no router configured for host: 10.233.x.x` | nginx forwarded `host=$server_addr`, but kube-proxy DNATs the LB IP to the nginx **pod IP** before the connection arrives | `Forwarded "host=$host"` — the client-requested host is the LB IP end-to-end (chart fix) |
+| 12 | LB IPs intermittently Unreachable in-cluster | Per-BMC Services use `externalTrafficPolicy: Local` and the chart's REQUIRED podAffinity stacked all proxies on the mat node | Required anti-affinity between proxy replicas (+ `maxUnavailable=1/maxSurge=0`; with replicas == nodes a surge pod deadlocks the rollout) — chart fix, kept for nginx-mode users |
+| 13 | DHCP fails: `No network segment defined for relay addresses` | Config-driven segment creation is **bootstrap-once** — skipped entirely on multi-domain sites ("Multiple domains, skipping initial network creation") | Script clone-inserts the simulated segments from same-type templates; `allocation_strategy` forced to `dynamic` (templates may be `reserved`, which rejects all dynamic DHCP) |
+| 14 | AvoidLockout storm on all DPU endpoints; preingestion pinned at exactly `hostCount` | The rotation dance is racy at scale: preingestion's initial BMC reset reboots the mock, which returns at the **factory** password while its per-MAC Vault entry says "rotated" | Pin mock passwords to the site root (`hostBmcPassword`/`dpuBmcPassword`) — site-explorer's documented fallback ("factory failed → sitewide root, no rotation") logs straight in; resets become harmless |
+| 15 | Pipeline stalls at preingestion `initial`; manager idle | `waiting_for_explorer_refresh` (set when errors are cleared) gates endpoints out of preingestion and can linger after a healthy report lands (273/300 were parked) | Verification loop unparks endpoints whose reports are clean |
+| 16 | Managed hosts identified but machines never created; cycles never finish | `explorations_per_run` was raised to 400 "for throughput" — but identification and creation only run **at the end of a completed explore cycle**, and 400 deep scans per cycle meant cycles stopped completing | Default lowered to 120: cycles complete in ~1–2 min and creation runs every cycle |
+| 17 | `Resource pool lo-ip is empty` on the 3rd machine | Machine creation allocates one loopback IP per machine; pool **definitions are seed-once** ("Declaration has drifted since seed … not re-applying") so config widening is ignored; dev6 ships **3** lo-ip addresses | Script inserts free `resource_pool` rows directly for a simulated range (16k) when the pool is smaller than the machine target |
 
 ### A note on the verification loop
 
@@ -112,7 +111,7 @@ Stage-3 observations worth reviewers' attention:
   ~110 interfaces/min; exploration ~120–360 endpoints/cycle; creation
   40–240 machines per completed explore cycle, sawtoothing with cycle
   phasing (identification rebuilds `explored_managed_hosts` each cycle).
-- **Per-MAC Vault credential lifecycle needs batching at scale** (issue 19
+- **Per-MAC Vault credential lifecycle needs batching at scale** (issue 18
   below): site-explorer stores one `machines/bmc/<mac>/root` entry per BMC —
   13,500 entries; deleting them one API round-trip at a time takes hours,
   batched server-side it takes seconds.
@@ -123,7 +122,7 @@ Additional issue found at stage 3:
 
 | # | Issue | Root cause | Fix |
 |---|-------|------------|-----|
-| 19 | Stage-2→3 cleanup ran for over an hour "deleting credentials" | One `kubectl exec` per per-MAC Vault deletion × thousands of entries | Batch the deletion loop server-side on the vault pod — one exec total (both cleanup and setup self-heal) |
+| 18 | Stage-2→3 cleanup ran for over an hour "deleting credentials" | One `kubectl exec` per per-MAC Vault deletion × thousands of entries | Batch the deletion loop server-side on the vault pod — one exec total (both cleanup and setup self-heal) |
 
 ## Open questions — feedback wanted
 
