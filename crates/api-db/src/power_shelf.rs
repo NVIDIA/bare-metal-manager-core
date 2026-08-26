@@ -340,32 +340,19 @@ pub async fn set_power_shelf_maintenance_requested(
     Ok(())
 }
 
-/// Requests decommissioning only if the shelf is still in the `Ready` state
-/// version observed by the caller.
+/// Records a request to start decommissioning when the power shelf is Ready.
 pub async fn set_decommission_requested(
     txn: &mut PgConnection,
     power_shelf_id: PowerShelfId,
-    expected_controller_state_version: ConfigVersion,
 ) -> DatabaseResult<()> {
-    const QUERY: &str = "UPDATE power_shelves
-        SET decommission_requested = TRUE
-        WHERE id = $1
-          AND controller_state_version = $2
-          AND controller_state->>'state' = 'ready'
-        RETURNING id";
-    let updated = sqlx::query_as::<_, PowerShelfId>(QUERY)
+    const QUERY: &str =
+        "UPDATE power_shelves SET decommission_requested = TRUE WHERE id = $1 RETURNING id";
+    sqlx::query_as::<_, PowerShelfId>(QUERY)
         .bind(power_shelf_id)
-        .bind(expected_controller_state_version)
-        .fetch_optional(txn)
+        .fetch_one(txn)
         .await
-        .map_err(|error| DatabaseError::new("set_decommission_requested", error))?;
-
-    updated.map(|_| ()).ok_or_else(|| {
-        DatabaseError::ConcurrentModificationError(
-            "power_shelf",
-            expected_controller_state_version.to_string(),
-        )
-    })
+        .map(|_| ())
+        .map_err(|error| DatabaseError::new("set_decommission_requested", error))
 }
 
 pub async fn clear_decommission_requested(
@@ -1270,42 +1257,13 @@ mod tests {
     }
 
     #[crate::sqlx_test]
-    async fn test_set_decommission_requested_compares_ready_state_version(
+    async fn test_set_decommission_requested(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
         let shelf = create_seeded(&mut txn, 6, "Decommission request shelf").await?;
-        let initial_version = shelf.controller_state.version;
 
-        let error = set_decommission_requested(&mut txn, shelf.id, initial_version)
-            .await
-            .expect_err("an Initializing shelf must not accept decommissioning");
-        assert!(matches!(
-            error,
-            DatabaseError::ConcurrentModificationError("power_shelf", _)
-        ));
-
-        let ready_version = initial_version.increment();
-        assert!(
-            try_update_controller_state(
-                &mut txn,
-                shelf.id,
-                initial_version,
-                ready_version,
-                &PowerShelfControllerState::Ready,
-            )
-            .await?
-        );
-
-        let error = set_decommission_requested(&mut txn, shelf.id, initial_version)
-            .await
-            .expect_err("a stale Ready-state version must be rejected");
-        assert!(matches!(
-            error,
-            DatabaseError::ConcurrentModificationError("power_shelf", _)
-        ));
-
-        set_decommission_requested(&mut txn, shelf.id, ready_version).await?;
+        set_decommission_requested(&mut txn, shelf.id).await?;
         let reloaded = find_by_id(&mut txn, &shelf.id)
             .await?
             .expect("power shelf should still exist");
