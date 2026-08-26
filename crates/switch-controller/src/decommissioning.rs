@@ -207,13 +207,17 @@ async fn handle_waiting_for_nvos_dhcp_acknowledgement(
     switch_id: &SwitchId,
     ctx: &mut StateHandlerContext<'_, SwitchStateHandlerContextObjects>,
 ) -> Result<StateHandlerOutcome<SwitchControllerState>, StateHandlerError> {
-    let endpoint = resolve_switch_endpoint(
-        switch_id,
+    let rows = db::switch::find_switch_endpoints_by_ids(
         &ctx.services.db_pool,
-        &ctx.services.credential_manager,
+        std::slice::from_ref(switch_id),
     )
     .await?;
-    if !dhcp_suppression_acknowledged(endpoint.nvos_mac, ctx).await? {
+    let nvos_mac = rows
+        .into_iter()
+        .next()
+        .and_then(|row| row.nvos_mac)
+        .ok_or_else(|| missing_data(switch_id, "nvos_mac"))?;
+    if !dhcp_suppression_acknowledged(nvos_mac, ctx).await? {
         return Ok(StateHandlerOutcome::wait(
             "waiting for NVOS DHCP suppression acknowledgement".to_string(),
         ));
