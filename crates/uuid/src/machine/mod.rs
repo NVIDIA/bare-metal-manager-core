@@ -925,13 +925,13 @@ mod tests {
             PredictedHostMachineId::try_from(HostMachineId::try_from(stable).unwrap())
                 .unwrap_err()
                 .to_string(),
-            format!("invalid machine id: expected predicted host machine ID, got {stable}"),
+            format!("expected predicted host machine ID, got {stable}"),
         );
         assert_eq!(
             StableHostMachineId::try_from(HostMachineId::try_from(predicted).unwrap())
                 .unwrap_err()
                 .to_string(),
-            format!("invalid machine id: expected stable host machine ID, got {predicted}"),
+            format!("expected stable host machine ID, got {predicted}"),
         );
     }
 
