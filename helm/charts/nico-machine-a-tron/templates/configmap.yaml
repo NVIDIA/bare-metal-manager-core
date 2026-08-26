@@ -195,10 +195,6 @@ data:
     network_status_run_interval = {{ $section.networkStatusRunInterval | default $defaults.networkStatusRunInterval | default "20s" | quote }}
     oob_dhcp_relay_address = {{ $section.oobDhcpRelayAddress | default "192.168.192.1" | quote }}
     admin_dhcp_relay_address = {{ $section.adminDhcpRelayAddress | default "192.168.176.1" | quote }}
-    {{- $nvType := $section.networkVirtualizationType | default $defaults.networkVirtualizationType }}
-    {{- if $nvType }}
-    network_virtualization_type = {{ $nvType | quote }}
-    {{- end }}
     dpus_in_nic_mode = {{ $section.dpusInNicMode | default $defaults.dpusInNicMode | default false }}
     {{- with $section.hostFirmwareVersions }}
 
