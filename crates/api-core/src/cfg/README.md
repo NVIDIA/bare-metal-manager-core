@@ -470,7 +470,7 @@ TOML section: `[switch_state_controller]`.
 
 `switch_mtls_services` selects server-side certificate bindings. It does not
 enable the underlying service. For workflow scope, see
-[Switch Certificate Configuration](../../../../docs/architecture/state_machines/switch_configure_certificate.md).
+[Switch Certificate Configuration](https://docs.nvidia.com/infra-controller/documentation/architecture/state-machines/switch-certificate-configuration).
 
 ### `ObservabilityConfig`
 
