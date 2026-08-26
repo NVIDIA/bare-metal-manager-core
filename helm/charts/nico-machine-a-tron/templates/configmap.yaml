@@ -184,8 +184,6 @@ data:
     hw_type = {{ $section.hwType | quote }}
     {{- end }}
     host_count = {{ $section.hostCount | default 1 }}
-    vpc_count = {{ $section.vpcCount | default $defaults.vpcCount | default 0 }}
-    subnets_per_vpc = {{ $section.subnetsPerVpc | default $defaults.subnetsPerVpc | default 0 }}
     dpu_per_host_count = {{ $section.dpuPerHostCount | default 0 }}
     dpu_reboot_delay = {{ $section.dpuRebootDelay | default $defaults.dpuRebootDelay | default 1 }}
     host_reboot_delay = {{ $section.hostRebootDelay | default $defaults.hostRebootDelay | default 1 }}
