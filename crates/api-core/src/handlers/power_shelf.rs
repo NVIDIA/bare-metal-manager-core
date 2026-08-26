@@ -278,15 +278,16 @@ pub(crate) async fn admin_force_delete_power_shelf(
 
     let mut interfaces_deleted: u32 = 0;
     if request.delete_interfaces {
-        let interfaces = db::machine_interface::find_by_power_shelf_id(&mut txn, &power_shelf_id)
-            .await
-            .map_err(CarbideError::from)?;
-        for interface in &interfaces {
-            db::machine_interface::delete(&interface.id, &mut txn)
+        let interface_ids =
+            db::machine_interface::find_ids_by_power_shelf_id(&mut txn, &power_shelf_id)
                 .await
                 .map_err(CarbideError::from)?;
-            interfaces_deleted += 1;
+        for interface_id in &interface_ids {
+            db::machine_interface::delete(interface_id, &mut txn)
+                .await
+                .map_err(CarbideError::from)?;
         }
+        interfaces_deleted = interface_ids.len() as u32;
     }
 
     if request.delete_bmc_suppressions {
