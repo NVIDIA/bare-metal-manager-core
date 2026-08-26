@@ -182,6 +182,10 @@ func TestAllocationHandler_Create(t *testing.T) {
 	ipb4 := testIPBlockBuildIPBlock(t, dbSession, "test4pb", site4, ip2, &tenant3.ID, cdbm.IPBlockRoutingTypeDatacenterOnly, "196.162.0.0", 16, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, ipu)
 	ipb5 := testIPBlockBuildIPBlock(t, dbSession, "test4pb", site5, ip2, &tenant4.ID, cdbm.IPBlockRoutingTypeDatacenterOnly, "194.162.0.0", 16, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, ipu)
 
+	// Matching the provider and site is not enough. A record with SitePrefixID
+	// set belongs to SitePrefix and cannot be the parent of an Allocation.
+	tenantSitePrefix := testIPBlockBuildTenantSitePrefix(t, dbSession, "private-site-prefix", site, ip, tenant1, "192.169.0.0", 16, cdbm.IPBlockStatusReady, ipu)
+
 	ipbFG := testIPBlockBuildIPBlock(t, dbSession, "testipbFG", site, ip, nil, cdbm.IPBlockRoutingTypeDatacenterOnly, "192.170.0.0", 16, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, ipu)
 
 	acBadInstanceTypeDoesNotExist := model.APIAllocationConstraintCreateRequest{ResourceType: cdbm.AllocationResourceTypeInstanceType, ResourceTypeID: uuid.New().String(), ConstraintType: cdbm.AllocationConstraintTypeReserved, ConstraintValue: 5}
@@ -194,6 +198,7 @@ func TestAllocationHandler_Create(t *testing.T) {
 	acBadIPBlockProviderMismatch := model.APIAllocationConstraintCreateRequest{ResourceType: cdbm.AllocationResourceTypeIPBlock, ResourceTypeID: ipb2.ID.String(), ConstraintType: cdbm.AllocationConstraintTypeReserved, ConstraintValue: 24}
 	acBadIPBlockSiteMismatch := model.APIAllocationConstraintCreateRequest{ResourceType: cdbm.AllocationResourceTypeIPBlock, ResourceTypeID: ipb3.ID.String(), ConstraintType: cdbm.AllocationConstraintTypeReserved, ConstraintValue: 24}
 	acBadIPBBlockSizeLargerThanParent := model.APIAllocationConstraintCreateRequest{ResourceType: cdbm.AllocationResourceTypeIPBlock, ResourceTypeID: ipb1.ID.String(), ConstraintType: cdbm.AllocationConstraintTypeReserved, ConstraintValue: 15}
+	acTenantSitePrefix := model.APIAllocationConstraintCreateRequest{ResourceType: cdbm.AllocationResourceTypeIPBlock, ResourceTypeID: tenantSitePrefix.ID.String(), ConstraintType: cdbm.AllocationConstraintTypeReserved, ConstraintValue: 24}
 	acGoodIPB := model.APIAllocationConstraintCreateRequest{ResourceType: cdbm.AllocationResourceTypeIPBlock, ResourceTypeID: ipb1.ID.String(), ConstraintType: cdbm.AllocationConstraintTypeReserved, ConstraintValue: 24}
 
 	acGoodIPBFG := model.APIAllocationConstraintCreateRequest{ResourceType: cdbm.AllocationResourceTypeIPBlock, ResourceTypeID: ipbFG.ID.String(), ConstraintType: cdbm.AllocationConstraintTypeReserved, ConstraintValue: 16}
@@ -230,6 +235,8 @@ func TestAllocationHandler_Create(t *testing.T) {
 	errBodyBadSiteInIT, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok11", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acBadInstanceTypeSiteMismatch}})
 	assert.Nil(t, err)
 	errBodyBadIPBInAC, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok12", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acBadIPBlockDoesNotExist}})
+	assert.Nil(t, err)
+	errBodyTenantSitePrefixInAC, err := json.Marshal(model.APIAllocationCreateRequest{Name: "private-ipblock", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acTenantSitePrefix}})
 	assert.Nil(t, err)
 	errBodyBadIPInIPB, err := json.Marshal(model.APIAllocationCreateRequest{Name: "ok13", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acBadIPBlockProviderMismatch}})
 	assert.Nil(t, err)
@@ -452,6 +459,14 @@ func TestAllocationHandler_Create(t *testing.T) {
 			name:           "error when IP Block in Allocation Constraint doesn't exist",
 			reqOrgName:     ipOrg1,
 			reqBody:        string(errBodyBadIPBInAC),
+			user:           ipu,
+			expectedErr:    true,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "Tenant SitePrefix cannot be used as an Allocation parent",
+			reqOrgName:     ipOrg1,
+			reqBody:        string(errBodyTenantSitePrefixInAC),
 			user:           ipu,
 			expectedErr:    true,
 			expectedStatus: http.StatusBadRequest,

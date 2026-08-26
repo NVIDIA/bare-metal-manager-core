@@ -129,9 +129,9 @@ async fn show_dpu_network_config(
                 table.get_format().indent(4);
                 table.add_row(row!["Vlan ID", aintf.vlan_id]);
                 table.add_row(row!["VNI", aintf.vni]);
-                table.add_row(row!["IP", aintf.ip]);
-                table.add_row(row!["Gateway", aintf.gateway]);
-                table.add_row(row!["Prefix", aintf.prefix]);
+                table.add_row(row!["IP", aintf.ip()]);
+                table.add_row(row!["Gateway", aintf.gateway()]);
+                table.add_row(row!["Prefix", aintf.prefix()]);
                 table.add_row(row!["Is L2 Segment", aintf.is_l2_segment]);
                 table.add_row(row!["FQDN", aintf.fqdn]);
                 table.add_row(row!["VPC Prefixes", aintf.vpc_prefixes.join(", ")]);
@@ -162,9 +162,9 @@ async fn show_dpu_network_config(
                 ]);
                 table.add_row(row!["Vlan ID", tintf.vlan_id]);
                 table.add_row(row!["VNI", tintf.vni]);
-                table.add_row(row!["IP", tintf.ip]);
-                table.add_row(row!["Gateway", tintf.gateway]);
-                table.add_row(row!["Prefix", tintf.prefix]);
+                table.add_row(row!["IP", tintf.ip()]);
+                table.add_row(row!["Gateway", tintf.gateway()]);
+                table.add_row(row!["Prefix", tintf.prefix()]);
                 table.add_row(row!["Is L2 Segment", tintf.is_l2_segment]);
                 table.add_row(row!["FQDN", tintf.fqdn]);
                 table.add_row(row!["VPC Prefixes", tintf.vpc_prefixes.join(", ")]);

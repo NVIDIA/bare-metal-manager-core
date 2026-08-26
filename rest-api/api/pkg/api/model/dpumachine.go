@@ -235,20 +235,20 @@ func (afic *APIFlatInterfaceConfig) FromProto(protoConfig *corev1.FlatInterfaceC
 	afic.FunctionType = protoConfig.FunctionType.String()
 	afic.VlanID = protoConfig.VlanId
 	afic.Vni = protoConfig.Vni
-	afic.Gateway = protoConfig.Gateway                 //nolint:staticcheck // Preserve the scalar REST compatibility field.
-	afic.IP = protoConfig.Ip                           //nolint:staticcheck // Preserve the scalar REST compatibility field.
-	afic.InterfacePrefix = protoConfig.InterfacePrefix //nolint:staticcheck // Preserve the scalar REST compatibility field.
+	afic.Gateway = protoConfig.GetGateway()                 //nolint:staticcheck // Preserve the scalar REST compatibility field.
+	afic.IP = protoConfig.GetIp()                           //nolint:staticcheck // Preserve the scalar REST compatibility field.
+	afic.InterfacePrefix = protoConfig.GetInterfacePrefix() //nolint:staticcheck // Preserve the scalar REST compatibility field.
 
 	afic.VirtualFunctionID = protoConfig.VirtualFunctionId
 
 	afic.VpcPrefixes = protoConfig.VpcPrefixes
-	afic.Prefix = protoConfig.Prefix //nolint:staticcheck // Preserve the scalar REST compatibility field.
+	afic.Prefix = protoConfig.GetPrefix() //nolint:staticcheck // Preserve the scalar REST compatibility field.
 	afic.Fqdn = protoConfig.Fqdn
 
 	afic.BootURL = protoConfig.Booturl
 	afic.VpcVni = protoConfig.VpcVni
-	afic.SviIP = protoConfig.SviIp //nolint:staticcheck // Preserve the scalar REST compatibility field.
-	afic.TenantVrfLoopbackIP = protoConfig.TenantVrfLoopbackIp
+	afic.SviIP = protoConfig.SviIp                             //nolint:staticcheck // Preserve the scalar REST compatibility field.
+	afic.TenantVrfLoopbackIP = protoConfig.TenantVrfLoopbackIp //nolint:staticcheck // Preserve optional REST compatibility presence.
 	afic.IsL2Segment = protoConfig.IsL2Segment
 	afic.VpcPeerPrefixes = protoConfig.VpcPeerPrefixes
 

@@ -392,6 +392,7 @@ pub(crate) async fn start_runtime(
         bmc_session_store,
         carbide_config.bmc_session_lockout_threshold,
         carbide_config.allow_bmc_basic_auth_fallback,
+        carbide_config.bmc_max_sessions_per_caller,
     ));
 
     let bmc_explorer = carbide_site_explorer::new_bmc_explorer(

@@ -650,6 +650,7 @@ esac
             "test-host-id".to_string(),
             false,
             MachineRouterOptions {
+                bmc_reset_duration: None,
                 virtual_media_devices: Some(vec![VirtualMediaDeviceConfig {
                     id: Cow::Borrowed("Cd"),
                     name: Cow::Borrowed("Operating System Virtual CD"),

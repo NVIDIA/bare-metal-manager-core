@@ -203,29 +203,18 @@ impl HostConfig {
 impl TryFrom<::rpc::forge::FlatInterfaceConfig> for InterfaceInfo {
     type Error = DhcpDataError;
     fn try_from(value: ::rpc::forge::FlatInterfaceConfig) -> Result<Self, Self::Error> {
-        let empty_ipv4_fields = [
-            value.ip.is_empty(),
-            value.gateway.is_empty(),
-            value.prefix.is_empty(),
-        ]
-        .into_iter()
-        .filter(|empty| *empty)
-        .count();
-
-        if empty_ipv4_fields != 0 && empty_ipv4_fields != 3 {
-            return Err(DhcpDataError::ParameterMissing(
-                "complete IPv4 interface configuration",
-            ));
-        }
-
-        let (address, gateway, prefix) = if empty_ipv4_fields == 3 {
-            (None, None, None)
-        } else {
-            (
-                Some(value.ip.parse()?),
-                Some(Ipv4Network::from_str(&value.gateway)?.ip()),
-                Some(value.prefix),
-            )
+        let (address, gateway, prefix) = match (&value.ip, &value.gateway, &value.prefix) {
+            (None, None, None) => (None, None, None),
+            (Some(ip), Some(gateway), Some(prefix)) => (
+                Some(ip.parse()?),
+                Some(Ipv4Network::from_str(gateway)?.ip()),
+                Some(prefix.clone()),
+            ),
+            _ => {
+                return Err(DhcpDataError::ParameterMissing(
+                    "complete IPv4 interface configuration",
+                ));
+            }
         };
 
         Ok(InterfaceInfo {
@@ -397,10 +386,10 @@ mod tests {
         FlatInterfaceConfig {
             function_type: function_type as i32,
             vlan_id,
-            gateway: gateway.to_string(),
-            ip: ip.to_string(),
+            gateway: (!gateway.is_empty()).then(|| gateway.to_string()),
+            ip: (!ip.is_empty()).then(|| ip.to_string()),
             virtual_function_id,
-            prefix: "192.0.2.0/24".to_string(),
+            prefix: Some("192.0.2.0/24".to_string()),
             fqdn: "host.example.com".to_string(),
             booturl: Some("http://boot.example.com/ipxe".to_string()),
             is_l2_segment,
@@ -413,7 +402,7 @@ mod tests {
     fn ipv6_only_interface_config() -> FlatInterfaceConfig {
         let mut config =
             interface_config(InterfaceFunctionType::Virtual, 100, Some(3), false, "", "");
-        config.prefix.clear();
+        config.prefix = None;
         config
     }
 

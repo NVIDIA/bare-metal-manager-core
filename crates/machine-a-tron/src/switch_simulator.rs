@@ -401,6 +401,8 @@ impl SwitchActor {
             Arc::new(SwitchHostname),
             self.mat_id,
             self.bmc_injection.clone(),
+            // no lifecycle timing profile for this device kind yet
+            None,
         );
         if let Some(password) = self.app_context.app_config.host_bmc_password.as_deref() {
             bmc_mock

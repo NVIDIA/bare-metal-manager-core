@@ -1881,18 +1881,25 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
         .into_inner();
     assert!(!network_config.use_admin_network);
     assert_eq!(network_config.tenant_interfaces.len(), 2);
-    assert_eq!(network_config.tenant_interfaces[0].ip, "192.0.4.3");
-    assert_eq!(network_config.tenant_interfaces[1].ip, "192.1.4.3");
+    assert_eq!(
+        network_config.tenant_interfaces[0].ip.as_deref(),
+        Some("192.0.4.3")
+    );
+    assert_eq!(
+        network_config.tenant_interfaces[1].ip.as_deref(),
+        Some("192.1.4.3")
+    );
     for interface in &network_config.tenant_interfaces {
         assert_eq!(
             interface.addresses,
             vec![rpc::forge::InterfaceAddressConfig {
                 address_family: rpc::forge::AddressFamily::V4.into(),
+                ip: interface.ip.clone().unwrap(),
+                interface_prefix: interface.interface_prefix.clone().unwrap(),
+                prefix: interface.prefix.clone().unwrap(),
                 gateway: interface.gateway.clone(),
-                ip: interface.ip.clone(),
-                interface_prefix: interface.interface_prefix.clone(),
-                prefix: interface.prefix.clone(),
                 svi_ip: interface.svi_ip.clone(),
+                tenant_vrf_loopback_ip: None,
             }]
         );
     }
@@ -2795,6 +2802,7 @@ async fn test_auto_vpc_prefix_selection_uses_static_first_fit(pool: PgPool) {
 
 /// SLAAC retains the selected IPv6 linknet without materializing a host address.
 #[crate::sqlx_test]
+#[allow(deprecated)]
 async fn test_slaac_vpc_allocation_preserves_prefix_without_ipv6_address(pool: PgPool) {
     let fixture = create_auto_vpc_selection_fixture_with_slaac(pool, true).await;
     let ineligible_ipv6_prefix =
@@ -4286,10 +4294,10 @@ async fn assert_ipv6_only_resolution(
     let [tenant_interface] = managed_config.tenant_interfaces.as_slice() else {
         panic!("expected one IPv6-only tenant interface");
     };
-    assert!(tenant_interface.gateway.is_empty());
-    assert!(tenant_interface.ip.is_empty());
-    assert!(tenant_interface.interface_prefix.is_empty());
-    assert!(tenant_interface.prefix.is_empty());
+    assert!(tenant_interface.gateway.is_none());
+    assert!(tenant_interface.ip.is_none());
+    assert!(tenant_interface.interface_prefix.is_none());
+    assert!(tenant_interface.prefix.is_none());
     assert!(tenant_interface.svi_ip.is_none());
     let [address] = tenant_interface.addresses.as_slice() else {
         panic!("expected one IPv6 tenant address configuration");
@@ -4407,6 +4415,13 @@ async fn assert_dual_stack_resolution(
         address.address,
         IpAddr::V6(address) if address.to_bits() & 1 == 1
     )));
+    let ipv6_segment_prefix = dual_stack_segment[0]
+        .prefixes
+        .iter()
+        .find(|prefix| prefix.prefix.is_ipv6())
+        .expect("dual-stack segment has an IPv6 prefix")
+        .prefix
+        .to_string();
     txn.commit().await.unwrap();
 
     let managed_config = fixture
@@ -4430,18 +4445,34 @@ async fn assert_dual_stack_resolution(
         [ipv4_address.address_family(), ipv6_address.address_family()],
         [rpc::forge::AddressFamily::V4, rpc::forge::AddressFamily::V6],
     );
-    assert!(!tenant_interface.gateway.is_empty());
-    assert!(!tenant_interface.ip.is_empty());
-    assert!(!tenant_interface.interface_prefix.is_empty());
-    assert!(!tenant_interface.prefix.is_empty());
+    assert!(tenant_interface.gateway.is_some());
+    assert!(tenant_interface.ip.is_some());
+    assert!(tenant_interface.interface_prefix.is_some());
+    assert!(tenant_interface.prefix.is_some());
     assert_eq!(tenant_interface.gateway, ipv4_address.gateway);
-    assert_eq!(tenant_interface.ip, ipv4_address.ip);
     assert_eq!(
-        tenant_interface.interface_prefix,
-        ipv4_address.interface_prefix,
+        tenant_interface.ip.as_deref(),
+        Some(ipv4_address.ip.as_str())
     );
-    assert_eq!(tenant_interface.prefix, ipv4_address.prefix);
+    assert_eq!(
+        tenant_interface.interface_prefix.as_deref(),
+        Some(ipv4_address.interface_prefix.as_str()),
+    );
+    assert_eq!(
+        tenant_interface.prefix.as_deref(),
+        Some(ipv4_address.prefix.as_str())
+    );
     assert_eq!(tenant_interface.svi_ip, ipv4_address.svi_ip);
+    let legacy_ipv6 = tenant_interface
+        .ipv6_interface_config
+        .as_ref()
+        .expect("dual-stack config has an IPv6 sidecar");
+    assert_eq!(ipv6_address.ip, legacy_ipv6.ip);
+    assert_eq!(ipv6_address.interface_prefix, legacy_ipv6.interface_prefix);
+    assert_eq!(ipv6_address.prefix, ipv6_segment_prefix);
+    assert_eq!(ipv6_address.svi_ip, legacy_ipv6.svi_ip);
+    assert!(ipv6_address.gateway.is_none());
+    assert!(ipv6_address.tenant_vrf_loopback_ip.is_none());
 }
 
 /// Builds unresolved selector intent so allocator internals can be exercised
@@ -5308,6 +5339,7 @@ async fn test_allocate_instance_with_multiple_fnn_vpc_prefixes(
 }
 
 #[crate::sqlx_test]
+#[allow(deprecated)]
 async fn test_fnn_vrf_loopbacks_are_per_vpc_for_pf_and_vf_on_one_dpu(pool: sqlx::PgPool) {
     let mut overrides = TestEnvOverrides::default().with_fnn_config(None);
     overrides.fnn_config.as_mut().unwrap().use_vpc_vrf_loopback = true;

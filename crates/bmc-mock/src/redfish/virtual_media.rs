@@ -296,6 +296,7 @@ mod tests {
             "test-host-id".to_string(),
             false,
             MachineRouterOptions {
+                bmc_reset_duration: None,
                 virtual_media_devices: Some(vec![
                     DeviceConfig {
                         id: "Cd".into(),

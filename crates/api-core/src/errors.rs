@@ -23,7 +23,7 @@ use carbide_ib_fabric::errors::IbError;
 use carbide_redfish::libredfish::RedfishClientCreationError;
 use carbide_redfish::libredfish::dpu_bios::is_dpu_bios_attributes_not_ready;
 use carbide_site_explorer::EndpointExplorationServiceError;
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine::{InvalidMachineType, MachineId};
 use config_version::ConfigVersionParseError;
 use db::credential_rotation::CredentialRotationType;
 use db::ip_allocator::DhcpError;
@@ -260,6 +260,12 @@ pub enum CarbideError {
 
     #[error("attestation error: {0}")]
     AttestationError(String),
+}
+
+impl From<InvalidMachineType> for CarbideError {
+    fn from(err: InvalidMachineType) -> Self {
+        Self::InvalidArgument(err.to_string())
+    }
 }
 
 impl From<libnmxc::NmxcError> for CarbideError {

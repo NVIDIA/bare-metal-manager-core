@@ -737,6 +737,17 @@ pub(crate) async fn admin_force_delete_machine(
         .await?;
     }
 
+    if let Some(instance_id) = instance_id {
+        // Record the current IB memberships after acquiring the Machine lock,
+        // in the same transaction as ForceDeletion. UFM cleanup runs only
+        // after this transaction commits.
+        crate::handlers::instance::record_force_delete_retired_ib_memberships(
+            &mut txn,
+            instance_id,
+        )
+        .await?;
+    }
+
     // Commit the transaction to make the the ForceDeletion state visible to other consumers, and to
     // avoid holding a long-running transaction while we issue redfish calls.
     txn.commit().await?;

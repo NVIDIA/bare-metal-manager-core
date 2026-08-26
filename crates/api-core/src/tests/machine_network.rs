@@ -183,11 +183,12 @@ async fn test_managed_host_network_config(pool: sqlx::PgPool) {
         admin_interface.addresses,
         vec![rpc::forge::InterfaceAddressConfig {
             address_family: rpc::forge::AddressFamily::V4.into(),
+            ip: admin_interface.ip.unwrap(),
+            interface_prefix: admin_interface.interface_prefix.unwrap(),
+            prefix: admin_interface.prefix.unwrap(),
             gateway: admin_interface.gateway,
-            ip: admin_interface.ip,
-            interface_prefix: admin_interface.interface_prefix,
-            prefix: admin_interface.prefix,
             svi_ip: admin_interface.svi_ip,
+            tenant_vrf_loopback_ip: admin_interface.tenant_vrf_loopback_ip,
         }]
     );
 }
@@ -676,6 +677,7 @@ async fn test_managed_host_network_config_includes_per_vpc_routing_profiles(pool
 }
 
 #[crate::sqlx_test]
+#[allow(deprecated)]
 async fn test_managed_host_network_config_omits_fnn_vrf_loopback_by_default(pool: sqlx::PgPool) {
     let env = api_fixtures::create_test_env_with_overrides(
         pool,
@@ -753,6 +755,7 @@ async fn test_managed_host_network_config_omits_fnn_vrf_loopback_by_default(pool
 }
 
 #[crate::sqlx_test]
+#[allow(deprecated)]
 async fn test_managed_host_network_config_includes_fnn_vrf_loopback_when_enabled(
     pool: sqlx::PgPool,
 ) {
@@ -809,10 +812,20 @@ async fn test_managed_host_network_config_includes_fnn_vrf_loopback_when_enabled
         .await
         .unwrap()
         .into_inner();
-    let loopback_ip = response.tenant_interfaces[0]
+    let tenant_interface = &response.tenant_interfaces[0];
+    let loopback_ip = tenant_interface
         .tenant_vrf_loopback_ip
         .clone()
         .expect("loopback should be present when enabled");
+    let loopback_address = tenant_interface
+        .addresses
+        .iter()
+        .find(|address| address.address_family() == rpc::forge::AddressFamily::V4)
+        .expect("IPv4 family entry should carry the tenant VRF loopback");
+    assert_eq!(
+        loopback_address.tenant_vrf_loopback_ip.as_deref(),
+        Some(loopback_ip.as_str())
+    );
 
     // Verify the DB allocation matches the response.
     let mut txn = env.db_txn().await;
@@ -828,6 +841,7 @@ async fn test_managed_host_network_config_includes_fnn_vrf_loopback_when_enabled
 }
 
 #[crate::sqlx_test]
+#[allow(deprecated)]
 async fn test_managed_host_network_config_omits_admin_fnn_vrf_loopback_by_default(
     pool: sqlx::PgPool,
 ) {
@@ -1163,9 +1177,9 @@ async fn test_dpu_health_is_required(pool: sqlx::PgPool) {
                 function_type: admin_if.function_type,
                 virtual_function_id: None,
                 mac_address: None,
-                addresses: vec![admin_if.ip.clone()],
-                prefixes: vec![admin_if.interface_prefix.clone()],
-                gateways: vec![admin_if.gateway.clone()],
+                addresses: admin_if.ip.clone().into_iter().collect(),
+                prefixes: admin_if.interface_prefix.clone().into_iter().collect(),
+                gateways: admin_if.gateway.clone().into_iter().collect(),
                 network_security_group: None,
                 internal_uuid: None,
             }],

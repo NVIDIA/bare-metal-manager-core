@@ -41,6 +41,8 @@ use itertools::Itertools;
 use model::ConfigValidationError;
 use model::dpa_interface::{DpaInterface, DpaSearchConfig};
 use model::hardware_info::InfinibandInterface;
+use model::ib::{DEFAULT_IB_FABRIC_NAME, IbMembership};
+use model::ib_partition::PartitionKey;
 use model::instance::NewInstance;
 use model::instance::config::InstanceConfig;
 use model::instance::config::infiniband::InstanceInfinibandConfig;
@@ -1439,6 +1441,69 @@ pub(crate) fn allocate_ib_port_guid(
     Ok(updated_ib_config)
 }
 
+/// Loads the stored PKeys needed to resolve exact memberships for `configs`.
+///
+/// A referenced partition without a stored PKey is omitted because it cannot
+/// identify an exact membership tuple.
+pub(crate) async fn load_ib_partition_pkeys(
+    txn: &mut PgConnection,
+    configs: &[&InstanceInfinibandConfig],
+) -> CarbideResult<HashMap<IBPartitionId, PartitionKey>> {
+    let partition_ids = configs
+        .iter()
+        .flat_map(|config| {
+            config
+                .ib_interfaces
+                .iter()
+                .map(|interface| interface.ib_partition_id)
+        })
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+
+    if partition_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    Ok(db::ib_partition::find_by(
+        &mut *txn,
+        ObjectColumnFilter::List(ib_partition::IdColumn, &partition_ids),
+    )
+    .await?
+    .into_iter()
+    .filter_map(|partition| {
+        partition
+            .status
+            .and_then(|status| status.pkey)
+            .map(|pkey| (partition.id, pkey))
+    })
+    .collect())
+}
+
+/// Resolves every exact membership available from one IB config on the
+/// supported default fabric.
+///
+/// Each membership uses the allocated interface GUID and the referenced
+/// partition's stored PKey. Memberships are returned in stable database-lock
+/// acquisition order. Interfaces missing either value cannot identify a tuple,
+/// so they are omitted while other valid memberships are retained.
+pub(crate) fn ib_memberships_from_config(
+    config: &InstanceInfinibandConfig,
+    pkeys: &HashMap<IBPartitionId, PartitionKey>,
+) -> BTreeSet<IbMembership> {
+    config
+        .ib_interfaces
+        .iter()
+        .filter_map(|interface| {
+            Some(IbMembership {
+                fabric: DEFAULT_IB_FABRIC_NAME.to_string(),
+                pkey: pkeys.get(&interface.ib_partition_id).copied()?,
+                guid: interface.guid.clone()?,
+            })
+        })
+        .collect()
+}
+
 /// sort ib device by slot and add devices with the same name are added to hashmap
 pub(crate) fn sort_ib_by_slot(
     ib_hw_info_vec: &[InfinibandInterface],
@@ -2184,7 +2249,21 @@ pub(crate) async fn batch_allocate_instances(
         .iter()
         .map(|(id, ver, cfg)| (*id, *ver, cfg))
         .collect();
+    let ib_configs = ib_config_updates
+        .iter()
+        .map(|(_, _, config)| config)
+        .collect::<Vec<_>>();
+    let ib_partition_pkeys = load_ib_partition_pkeys(txn.as_mut(), &ib_configs).await?;
+    let assigned_ib_memberships = ib_configs
+        .into_iter()
+        .flat_map(|config| ib_memberships_from_config(config, &ib_partition_pkeys))
+        .collect::<BTreeSet<_>>();
     db::instance::batch_update_ib_config(&mut txn, &ib_refs, false).await?;
+    // The Machine records are still locked here. Remove an exact retired record
+    // only after its live config write succeeds in this same transaction.
+    for membership in assigned_ib_memberships {
+        db::retired_ib_membership::remove_for_reuse(txn.as_mut(), &membership).await?;
+    }
 
     let nvlink_refs: Vec<_> = nvlink_config_updates
         .iter()
@@ -2471,8 +2550,55 @@ pub(crate) fn allocate_spx_port_mac(
 mod tests {
     use carbide_test_support::Outcome::*;
     use carbide_test_support::{Case, Check, check_cases, check_values, value_scenarios};
+    use model::instance::config::infiniband::InstanceIbInterfaceConfig;
 
     use super::*;
+
+    /// Test-specific helper that builds one allocated physical IB interface.
+    fn ib_interface(partition_id: IBPartitionId, guid: Option<&str>) -> InstanceIbInterfaceConfig {
+        InstanceIbInterfaceConfig {
+            function_id: InterfaceFunctionId::Physical {},
+            ib_partition_id: partition_id,
+            pf_guid: guid.map(str::to_string),
+            guid: guid.map(str::to_string),
+            device: "test-device".to_string(),
+            vendor: None,
+            device_instance: 0,
+        }
+    }
+
+    #[test]
+    fn ib_memberships_preserve_every_resolvable_tuple() {
+        let valid_partition = IBPartitionId::new();
+        let missing_pkey_partition = IBPartitionId::new();
+        let missing_guid_partition = IBPartitionId::new();
+        let valid_pkey = PartitionKey::try_from(0x101).unwrap();
+        let missing_guid_pkey = PartitionKey::try_from(0x102).unwrap();
+        let config = InstanceInfinibandConfig {
+            ib_interfaces: vec![
+                ib_interface(valid_partition, Some("valid-guid")),
+                ib_interface(missing_pkey_partition, Some("unknown-pkey-guid")),
+                ib_interface(missing_guid_partition, None),
+            ],
+        };
+
+        // Retirement bookkeeping can act only on exact tuples. Incomplete
+        // interfaces are skipped without discarding another valid membership.
+        assert_eq!(
+            ib_memberships_from_config(
+                &config,
+                &HashMap::from([
+                    (valid_partition, valid_pkey),
+                    (missing_guid_partition, missing_guid_pkey),
+                ]),
+            ),
+            BTreeSet::from([IbMembership {
+                fabric: DEFAULT_IB_FABRIC_NAME.to_string(),
+                pkey: valid_pkey,
+                guid: "valid-guid".to_string(),
+            }])
+        );
+    }
 
     #[test]
     fn interface_needs_prefix_allocation_only_without_durable_results() {
