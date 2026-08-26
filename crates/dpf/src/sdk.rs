@@ -99,8 +99,8 @@ use crate::repository::{
 #[cfg(test)]
 use crate::types::DEFAULT_PF_TOTAL_SF_RESERVED;
 use crate::types::{
-    ASTRA_PF_TOTAL_SF, BlueFieldSoftwareParams, BmcPasswordProvider, ConfigPortsServiceType,
-    DHCP_SERVER_SERVICE_NAME, DOCA_HBN_SERVICE_NAME, DPU_AGENT_SERVICE_NAME,
+    BlueFieldSoftwareParams, BmcPasswordProvider, ConfigPortsServiceType, DHCP_SERVER_SERVICE_NAME,
+    DOCA_HBN_SERVICE_NAME, DOCA_WEAVE_DHCP_AGENT_PF_TOTAL_SF, DPU_AGENT_SERVICE_NAME,
     DPU_ENABLED_NODE_LABEL, DTS_SERVICE_NAME, DetachedDpuServiceDefinition, DpfInterceptBridging,
     DpuDeploymentType, DpuDeviceInfo, DpuDeviceSummary, DpuMismatch, DpuNodeInfo, DpuNodeSummary,
     DpuPhase, DpuServiceHelmChartObservation, DpuServiceInterfacePatch,
@@ -1016,6 +1016,9 @@ pub fn build_deployment(
             service_mtu: None,
         });
     }
+    if matches!(deployment_type, DpuDeploymentType::Bf4Astra) {
+        all_switches.extend(build_astra_patch_service_chain_switches(interfaces));
+    }
 
     let service_chains = if all_switches.is_empty() {
         None
@@ -1091,6 +1094,49 @@ pub fn build_deployment(
         },
         status: None,
     }
+}
+
+fn build_astra_patch_service_chain_switches(
+    interfaces: &[DpuServiceInterfaceTemplateDefinition],
+) -> Vec<DpuDeploymentServiceChainsSwitches> {
+    let interface_names = interfaces
+        .iter()
+        .map(|interface| interface.name.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    astra_xplane_group_ids()
+        .iter()
+        .filter_map(|group_id| {
+            let cx_interface = format!("p-brcx-{group_id}-to-br-sfc");
+            let xplane_interface = format!("p-br-xplane-{group_id}-to-br-sfc");
+            (interface_names.contains(cx_interface.as_str())
+                && interface_names.contains(xplane_interface.as_str()))
+            .then(|| DpuDeploymentServiceChainsSwitches {
+                ports: [cx_interface, xplane_interface]
+                    .into_iter()
+                    .map(|interface| DpuDeploymentServiceChainsSwitchesPorts {
+                        service_interface: Some(
+                            DpuDeploymentServiceChainsSwitchesPortsServiceInterface {
+                                match_labels: BTreeMap::from([(
+                                    "interface".to_string(),
+                                    interface,
+                                )]),
+                                ipam: None,
+                            },
+                        ),
+                        service: None,
+                    })
+                    .collect(),
+                service_mtu: None,
+            })
+        })
+        .collect()
+}
+
+fn astra_xplane_group_ids() -> [&'static str; 8] {
+    [
+        "r0swpln0", "r1swpln0", "r0swpln1", "r1swpln1", "r2swpln0", "r3swpln0", "r2swpln1",
+        "r3swpln1",
+    ]
 }
 
 pub fn build_dpu_interfaces_vec() -> Vec<DpuServiceInterfaceTemplateDefinition> {
@@ -1307,6 +1353,7 @@ pub fn build_effective_dpu_interfaces(
             iface_type: DpuServiceInterfaceTemplateType::Patch(DpuServiceInterfacePatch {
                 peer_bridge: interface.bridge.clone(),
                 peer_patch_name: interface.patch_port.clone(),
+                peer_external_ids: None,
             }),
             pf_id: i64::from(identity.pf_id),
             vf_id: i64::from(identity.vf_id.unwrap_or_default()),
@@ -1314,6 +1361,75 @@ pub fn build_effective_dpu_interfaces(
         }
     }));
     interfaces
+}
+
+/// Builds the static BF4 Astra interface inventory.
+pub fn build_astra_dpu_interfaces_vec() -> Vec<DpuServiceInterfaceTemplateDefinition> {
+    let mut interfaces = build_dpu_interfaces_vec();
+    interfaces.extend(build_astra_patch_dpu_interfaces_vec());
+    interfaces
+}
+
+/// Adds Astra's NICo-owned patch interfaces to a caller-provided inventory.
+///
+/// The patch names are reserved because the DPUDeployment service chains refer to them by name.
+/// Accepting a caller-provided definition with one of those names could bind a chain to the wrong
+/// interface type or peer bridge.
+fn augment_astra_dpu_interfaces(
+    mut interfaces: Vec<DpuServiceInterfaceTemplateDefinition>,
+) -> Result<Vec<DpuServiceInterfaceTemplateDefinition>, DpfError> {
+    for interface in build_astra_patch_dpu_interfaces_vec() {
+        if let Some(existing) = interfaces
+            .iter()
+            .find(|existing| existing.name == interface.name)
+        {
+            if existing != &interface {
+                return Err(DpfError::ConfigError(format!(
+                    "Astra interface {} is reserved for NICo's CX/xplane patch topology and must use the canonical definition",
+                    interface.name
+                )));
+            }
+        } else {
+            interfaces.push(interface);
+        }
+    }
+    Ok(interfaces)
+}
+
+fn build_astra_patch_dpu_interfaces_vec() -> Vec<DpuServiceInterfaceTemplateDefinition> {
+    astra_xplane_group_ids()
+        .into_iter()
+        .flat_map(|group_id| {
+            [
+                DpuServiceInterfaceTemplateDefinition {
+                    name: format!("p-brcx-{group_id}-to-br-sfc"),
+                    iface_type: DpuServiceInterfaceTemplateType::Patch(DpuServiceInterfacePatch {
+                        peer_bridge: format!("brcx-{group_id}"),
+                        peer_patch_name: String::new(),
+                        peer_external_ids: None,
+                    }),
+                    pf_id: 0,
+                    vf_id: 0,
+                    chained_svc_if: None,
+                },
+                DpuServiceInterfaceTemplateDefinition {
+                    name: format!("p-br-xplane-{group_id}-to-br-sfc"),
+                    iface_type: DpuServiceInterfaceTemplateType::Patch(DpuServiceInterfacePatch {
+                        peer_bridge: "br-xplane".to_string(),
+                        peer_patch_name: String::new(),
+                        peer_external_ids: Some(BTreeMap::from([
+                            ("xplane".to_string(), "true".to_string()),
+                            ("xplane-group-id".to_string(), group_id.to_string()),
+                            ("xplane-downlink".to_string(), "patch".to_string()),
+                        ])),
+                    }),
+                    pf_id: 0,
+                    vf_id: 0,
+                    chained_svc_if: None,
+                },
+            ]
+        })
+        .collect()
 }
 
 /// Calculates BF3 or generic-BF4 SF capacity, preserving the legacy total without topology.
@@ -1361,6 +1477,29 @@ pub fn calculate_pf_total_sf(
              dpf.pf_total_sf_reserved ({reserved}) exceed u32"
         ))
     })
+}
+
+pub(crate) fn calculate_astra_pf_total_sf(
+    interfaces: &[DpuServiceInterfaceTemplateDefinition],
+) -> Result<u32, DpfError> {
+    // Astra has a fixed Weave DHCP Agent allocation, but no site-configurable reserve. Its
+    // capacity follows the actual NICo-managed endpoints plus that agent's PF SF population.
+    let managed_endpoints = interfaces.iter().try_fold(0u32, |total, interface| {
+        let interface_endpoints =
+            u32::try_from(interface.chained_svc_if.as_ref().map_or(0, Vec::len)).map_err(|_| {
+                DpfError::ConfigError("DPF service endpoint count exceeds u32".to_string())
+            })?;
+        total.checked_add(interface_endpoints).ok_or_else(|| {
+            DpfError::ConfigError("DPF service endpoint count exceeds u32".to_string())
+        })
+    })?;
+    managed_endpoints
+        .checked_add(DOCA_WEAVE_DHCP_AGENT_PF_TOTAL_SF)
+        .ok_or_else(|| {
+            DpfError::ConfigError(format!(
+                "calculated Astra PF_TOTAL_SF plus DOCA Weave DHCP Agent PF SFs ({DOCA_WEAVE_DHCP_AGENT_PF_TOTAL_SF}) exceed u32"
+            ))
+        })
 }
 
 /// Validated initialization state that borrows caller-provided interfaces and owns SDK defaults.
@@ -1450,18 +1589,19 @@ fn resolve_initialization_inventory<'a>(
     } else if config.interfaces.is_empty() {
         // Astra retains its established static inventory and ignores site topology policy.
         Cow::Owned(match config.deployment_type {
-            DpuDeploymentType::Bf4Astra => build_dpu_interfaces_vec(),
+            DpuDeploymentType::Bf4Astra => build_astra_dpu_interfaces_vec(),
             DpuDeploymentType::Bf3 | DpuDeploymentType::Bf4Generic => {
                 build_effective_dpu_interfaces(config.num_of_vfs, None)
             }
         })
+    } else if matches!(config.deployment_type, DpuDeploymentType::Bf4Astra) {
+        Cow::Owned(augment_astra_dpu_interfaces(config.interfaces.clone())?)
     } else {
         Cow::Borrowed(config.interfaces.as_slice())
     };
 
     let pf_total_sf = match config.deployment_type {
-        // Astra owns a fixed BF4+CX9 flavor outside the site inventory contract.
-        DpuDeploymentType::Bf4Astra => ASTRA_PF_TOTAL_SF,
+        DpuDeploymentType::Bf4Astra => calculate_astra_pf_total_sf(interfaces.as_ref())?,
         DpuDeploymentType::Bf3 | DpuDeploymentType::Bf4Generic => calculate_pf_total_sf(
             interfaces.as_ref(),
             config.intercept_bridging.as_ref(),
@@ -1542,8 +1682,9 @@ fn build_service_interface_with_scope(
             None,
             Some(DpuServiceInterfaceTemplateSpecTemplateSpecPatch {
                 peer_bridge: patch.peer_bridge.clone(),
-                peer_external_i_ds: None,
-                peer_patch_name: Some(patch.peer_patch_name.clone()),
+                peer_external_i_ds: patch.peer_external_ids.clone(),
+                peer_patch_name: (!patch.peer_patch_name.is_empty())
+                    .then(|| patch.peer_patch_name.clone()),
             }),
         ),
     };
@@ -3381,6 +3522,93 @@ mod tests {
         assert_eq!(resolved.interfaces.as_ref(), interfaces.as_slice());
     }
 
+    /// Verifies explicit Astra inventories are augmented without changing non-Astra callers.
+    #[test]
+    fn initialization_augments_explicit_astra_interface_projection_only() {
+        let base_interfaces = build_dpu_interfaces_vec();
+        let astra_config = InitDpfResourcesConfig {
+            deployment_scoped_service_interfaces: true,
+            deployment_type: DpuDeploymentType::Bf4Astra,
+            interfaces: base_interfaces.clone(),
+            ..Default::default()
+        };
+
+        let astra_resolved = resolve_initialization_inventory(&astra_config)
+            .expect("explicit Astra inventory must be accepted");
+        assert_eq!(
+            &astra_resolved.interfaces.as_ref()[..base_interfaces.len()],
+            base_interfaces.as_slice()
+        );
+        assert_eq!(
+            astra_resolved.interfaces.len(),
+            base_interfaces.len() + build_astra_patch_dpu_interfaces_vec().len()
+        );
+        assert!(
+            astra_resolved
+                .interfaces
+                .iter()
+                .any(|interface| interface.name == "p-brcx-r0swpln0-to-br-sfc")
+        );
+        assert!(
+            astra_resolved
+                .interfaces
+                .iter()
+                .any(|interface| interface.name == "p-br-xplane-r3swpln1-to-br-sfc")
+        );
+
+        let bf3_config = InitDpfResourcesConfig {
+            interfaces: base_interfaces.clone(),
+            ..Default::default()
+        };
+        let bf3_resolved = resolve_initialization_inventory(&bf3_config)
+            .expect("explicit BF3 inventory must be accepted unchanged");
+        assert_eq!(bf3_resolved.interfaces.as_ref(), base_interfaces.as_slice());
+    }
+
+    /// Astra's NICo-owned patch names cannot be rebound by a direct SDK caller.
+    #[test]
+    fn initialization_rejects_conflicting_astra_patch_interface() {
+        let mut interfaces = build_dpu_interfaces_vec();
+        interfaces.push(DpuServiceInterfaceTemplateDefinition {
+            name: "p-brcx-r0swpln0-to-br-sfc".to_string(),
+            iface_type: DpuServiceInterfaceTemplateType::Physical,
+            pf_id: 0,
+            vf_id: 0,
+            chained_svc_if: None,
+        });
+        let config = InitDpfResourcesConfig {
+            deployment_scoped_service_interfaces: true,
+            deployment_type: DpuDeploymentType::Bf4Astra,
+            interfaces,
+            ..Default::default()
+        };
+
+        assert!(matches!(
+            resolve_initialization_inventory(&config),
+            Err(DpfError::ConfigError(message))
+                if message.contains("p-brcx-r0swpln0-to-br-sfc")
+                    && message.contains("reserved")
+        ));
+    }
+
+    /// Astra capacity follows its managed endpoints and the Weave DHCP Agent allocation; the
+    /// BF3/generic reserve must not change the Astra flavor.
+    #[test]
+    fn astra_pf_total_sf_ignores_site_reserve() {
+        let config = InitDpfResourcesConfig {
+            deployment_scoped_service_interfaces: true,
+            deployment_type: DpuDeploymentType::Bf4Astra,
+            // A value that would overflow if Astra incorrectly treated this as additional SF
+            // capacity proves the reserve is not part of Astra's calculation.
+            pf_total_sf_reserved: u32::MAX,
+            ..Default::default()
+        };
+
+        let resolved = resolve_initialization_inventory(&config)
+            .expect("Astra capacity must not consume the BF3/generic SF reserve");
+        assert_eq!(resolved.pf_total_sf, 36);
+    }
+
     /// Verifies the public initialization boundary rejects unsupported hardware VF populations.
     #[test]
     fn initialization_rejects_hardware_vf_count_above_platform_limit() {
@@ -3417,6 +3645,46 @@ mod tests {
         assert_eq!(patch.peer_patch_name.as_deref(), Some("p-pf3"));
         assert!(patch.peer_external_i_ds.is_none());
         assert!(spec.pf.is_none() && spec.vf.is_none() && spec.physical.is_none());
+    }
+
+    /// Verifies Astra's static CX patch interfaces serialize the installed controller contract.
+    #[test]
+    fn astra_inventory_serializes_cx_and_xplane_patches() {
+        let interfaces = build_astra_dpu_interfaces_vec();
+        let by_name = |name: &str| {
+            interfaces
+                .iter()
+                .find(|interface| interface.name == name)
+                .unwrap_or_else(|| panic!("Astra interface {name} must exist"))
+        };
+
+        let cx = build_service_interface(by_name("p-brcx-r0swpln0-to-br-sfc"), TEST_NAMESPACE);
+        let cx_patch = cx.spec.template.spec.template.spec.patch.as_ref().unwrap();
+        assert_eq!(cx_patch.peer_bridge, "brcx-r0swpln0");
+        assert!(cx_patch.peer_patch_name.is_none());
+        assert!(cx_patch.peer_external_i_ds.is_none());
+
+        let xplane =
+            build_service_interface(by_name("p-br-xplane-r3swpln1-to-br-sfc"), TEST_NAMESPACE);
+        let xplane_patch = xplane
+            .spec
+            .template
+            .spec
+            .template
+            .spec
+            .patch
+            .as_ref()
+            .unwrap();
+        assert_eq!(xplane_patch.peer_bridge, "br-xplane");
+        assert!(xplane_patch.peer_patch_name.is_none());
+        assert_eq!(
+            xplane_patch.peer_external_i_ds.as_ref(),
+            Some(&BTreeMap::from([
+                ("xplane".to_string(), "true".to_string()),
+                ("xplane-group-id".to_string(), "r3swpln1".to_string()),
+                ("xplane-downlink".to_string(), "patch".to_string()),
+            ]))
+        );
     }
 
     fn already_exists_error(name: &str) -> DpfError {

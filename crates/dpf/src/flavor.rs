@@ -35,7 +35,7 @@ use crate::crds::dpuflavors_generated::{
     DpuFlavorSystemdServices, DpuFlavorSystemdServicesOperation,
 };
 use crate::types::{
-    ASTRA_PF_TOTAL_SF, DEFAULT_DPU_NUM_OF_VFS, DEFAULT_PF_TOTAL_SF_RESERVED, DOCA_HBN_SERVICE_NAME,
+    DEFAULT_DPU_NUM_OF_VFS, DEFAULT_PF_TOTAL_SF_RESERVED, DOCA_HBN_SERVICE_NAME,
     DpfInterceptBridge, DpfInterceptBridging, DpfProxyDetails, DpuDeploymentType,
     DpuServiceInterfaceTemplateDefinition, DpuServiceInterfaceTemplateType,
 };
@@ -375,12 +375,20 @@ pub fn default_flavor_for(
     // Selects the DPUFlavor variant to build for the given deployment type.
     deployment_type: DpuDeploymentType,
 ) -> Result<DPUFlavor, crate::error::DpfError> {
+    let pf_total_sf = match deployment_type {
+        DpuDeploymentType::Bf4Astra => {
+            let interfaces = crate::sdk::build_astra_dpu_interfaces_vec();
+            crate::sdk::calculate_astra_pf_total_sf(interfaces.as_slice())?
+        }
+        DpuDeploymentType::Bf3 | DpuDeploymentType::Bf4Generic => DEFAULT_PF_TOTAL_SF_RESERVED,
+    };
+
     default_flavor_for_with_topology(
         namespace,
         proxy,
         deployment_type,
         DEFAULT_DPU_NUM_OF_VFS,
-        DEFAULT_PF_TOTAL_SF_RESERVED,
+        pf_total_sf,
         None,
         None,
     )
@@ -396,7 +404,7 @@ pub(crate) fn default_flavor_for_with_topology(
     intercept_bridging: Option<&DpfInterceptBridging>,
     dhcp_acl_interfaces: Option<&[DpuServiceInterfaceTemplateDefinition]>,
 ) -> Result<DPUFlavor, crate::error::DpfError> {
-    // Astra deliberately ignores both site-wide inputs.
+    // Astra ignores site topology and DHCP-ACL inputs, but uses its precomputed SF capacity.
     match deployment_type {
         DpuDeploymentType::Bf4Generic => flavor_bf4_with_topology(
             namespace,
@@ -406,7 +414,7 @@ pub(crate) fn default_flavor_for_with_topology(
             intercept_bridging,
             dhcp_acl_interfaces,
         ),
-        DpuDeploymentType::Bf4Astra => flavor_bf4_astra(namespace, proxy),
+        DpuDeploymentType::Bf4Astra => flavor_bf4_astra(namespace, proxy, pf_total_sf),
         DpuDeploymentType::Bf3 => default_flavor_with_topology(
             namespace,
             proxy,
@@ -490,20 +498,10 @@ fn flavor_bf4_with_topology(
     })
 }
 
-/// Build the BF4 Astra DPUFlavor spec, with BF4-astra grub and OVS
-/// configuration.
-/// If `proxy` is set, a containerd proxy drop-in config file is appended so the DPU can pull
-/// images through the proxy.
-///
-/// Returns `ConfigError` if any proxy string contains characters that would
-/// break the generated systemd `Environment="..."` lines (quotes, newlines,
-/// or other control characters).
-///
-/// `metadata.name` is left unset; callers must set it (typically via [`DPUFlavor::unique_name`])
-/// before creating the resource in the cluster.
-pub fn flavor_bf4_astra(
+fn flavor_bf4_astra(
     namespace: &str,
     proxy: &Option<DpfProxyDetails>,
+    pf_total_sf: u32,
 ) -> Result<DPUFlavor, crate::error::DpfError> {
     Ok(DPUFlavor {
         metadata: ObjectMeta {
@@ -522,7 +520,7 @@ pub fn flavor_bf4_astra(
             ew_nic_configurations: Some(bf4_astra_ew_nic_configurations()),
             grub: Some(bf4_astra_grub_params()),
             host_network_interface_configs: None,
-            nvconfig: Some(vec![get_bf4_astra_nvconfig()]),
+            nvconfig: Some(vec![get_bf4_astra_nvconfig(pf_total_sf)]),
             ovs: Some(DpuFlavorOvs {
                 raw_config_script: Some(get_bf4_astra_ovs_defaults()),
             }),
@@ -1642,11 +1640,11 @@ fn get_nvconfig(num_of_vfs: u32, pf_total_sf: u32) -> DpuFlavorNvconfig {
     }
 }
 
-fn get_bf4_astra_nvconfig() -> DpuFlavorNvconfig {
+fn get_bf4_astra_nvconfig(pf_total_sf: u32) -> DpuFlavorNvconfig {
     let parameters = vec![
         "PF_BAR2_ENABLE=0".to_string(),
         "PER_PF_NUM_SF=1".to_string(),
-        format!("PF_TOTAL_SF={ASTRA_PF_TOTAL_SF}"),
+        format!("PF_TOTAL_SF={pf_total_sf}"),
         "PF_SF_BAR_SIZE=14".to_string(),
         "NUM_PF_MSIX_VALID=0".to_string(),
         "PF_NUM_PF_MSIX_VALID=1".to_string(),
@@ -1959,10 +1957,12 @@ mod tests {
         assert!(generic_bf4.contains(&"NUM_OF_VFS=5".to_string()));
         assert!(generic_bf4.contains(&"PF_TOTAL_SF=63".to_string()));
 
-        // Astra retains its established fixed hardware configuration.
-        let astra = parameters(flavor_bf4_astra("ns", &None).unwrap());
+        // Astra retains its established fixed VF configuration and derives SF capacity from its
+        // static service endpoints and DOCA Weave DHCP Agent PF allocation.
+        let astra =
+            parameters(default_flavor_for("ns", &None, DpuDeploymentType::Bf4Astra).unwrap());
         assert!(astra.contains(&"NUM_OF_VFS=46".to_string()));
-        assert!(astra.contains(&"PF_TOTAL_SF=40".to_string()));
+        assert!(astra.contains(&"PF_TOTAL_SF=36".to_string()));
     }
 
     /// Verifies normalized input order cannot change rendered flavor identity.
@@ -2364,7 +2364,7 @@ mod tests {
 
     #[test]
     fn bf4_astra_flavor_spec_invariants() {
-        let flavor = flavor_bf4_astra("astra-ns", &None).unwrap();
+        let flavor = default_flavor_for("astra-ns", &None, DpuDeploymentType::Bf4Astra).unwrap();
         let ew_nic = flavor
             .spec
             .ew_nic_configurations
@@ -2457,11 +2457,11 @@ mod tests {
                 ) => true,
             }
 
-            "Astra nvconfig requests 40 total SFs and 46 VFs" {
+            "Astra nvconfig requests endpoint-derived total SFs and 46 VFs" {
                 (
                     nvconfig_parameters
                         .iter()
-                        .any(|parameter| parameter == "PF_TOTAL_SF=40")
+                        .any(|parameter| parameter == "PF_TOTAL_SF=36")
                         && nvconfig_parameters
                             .iter()
                             .any(|parameter| parameter == "NUM_OF_VFS=46")
@@ -2581,7 +2581,7 @@ mod tests {
     fn bf4_astra_proxy_config_file_count() {
         value_scenarios!(
             run = |p| {
-                let files = flavor_bf4_astra("astra-ns", &p)
+                let files = default_flavor_for("astra-ns", &p, DpuDeploymentType::Bf4Astra)
                     .unwrap()
                     .spec
                     .config_files

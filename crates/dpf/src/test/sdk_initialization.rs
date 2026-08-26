@@ -101,6 +101,26 @@ impl ResourceLabeler for InitializationLabeler {
     }
 }
 
+#[derive(Clone, Copy)]
+struct AstraYamlLabeler;
+
+impl ResourceLabeler for AstraYamlLabeler {
+    fn node_labels_for_deployment_type(
+        &self,
+        deployment_type: DpuDeploymentType,
+    ) -> Result<BTreeMap<String, String>, DpfError> {
+        match deployment_type {
+            DpuDeploymentType::Bf4Astra => Ok(BTreeMap::from([
+                (DPU_ENABLED_NODE_LABEL.to_string(), "true".to_string()),
+                ("nvidia.com/use-dpf-full".to_string(), "true".to_string()),
+            ])),
+            _ => Err(DpfError::ConfigError(format!(
+                "no DPUDeployment configured for {deployment_type:?}",
+            ))),
+        }
+    }
+}
+
 /// Provides one selected PF and VF so initialization tests can verify that every generated
 /// resource consumes the same normalized intercept topology.
 fn configured_intercept_bridging() -> DpfInterceptBridging {
@@ -646,6 +666,130 @@ async fn test_create_initialization_objects_bluefield_software() {
     drop(sdk);
 }
 
+#[tokio::test]
+async fn generate_astra_yamls() {
+    if std::env::var_os("GENERATE_ASTRA_YAMLS").is_none() {
+        return;
+    }
+
+    let mock = InitializationMock::default();
+    let sdk =
+        crate::sdk::DpfSdkBuilder::new(mock.clone(), crate::NAMESPACE, "test-password".to_string())
+            .with_labeler(AstraYamlLabeler)
+            .build_without_resources()
+            .await
+            .unwrap();
+    let services = [
+        DOCA_HBN_SERVICE_NAME,
+        DHCP_SERVER_SERVICE_NAME,
+        FMDS_SERVICE_NAME,
+        DPU_AGENT_SERVICE_NAME,
+        OTEL_COLLECTOR_SERVICE_NAME,
+        DOCA_XPLANE_SERVICE_NAME,
+        DTS_SERVICE_NAME,
+    ]
+    .into_iter()
+    .map(|name| ServiceDefinition::new(name, "repo", "chart", "1.0.0"))
+    .collect::<Vec<_>>();
+    let config = InitDpfResourcesConfig {
+        bluefield_software: Some(BlueFieldSoftwareParams {
+            os_iso: "http://example.invalid/astra.iso".to_string(),
+            pldm_fw_bundle: None,
+        }),
+        deployment_name: "astra-deployment".to_string(),
+        flavor_name: "bf4-astra-flavor".to_string(),
+        services,
+        deployment_scoped_service_interfaces: true,
+        deployment_type: DpuDeploymentType::Bf4Astra,
+        ..Default::default()
+    };
+
+    sdk.create_initialization_objects(&config).await.unwrap();
+
+    let output_dir = std::path::Path::new("/home/aadvani/ws/dpf_yamls/astra_yamls");
+    std::fs::create_dir_all(output_dir).unwrap();
+    for entry in std::fs::read_dir(output_dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().and_then(|extension| extension.to_str()) == Some("yaml") {
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+
+    write_yaml(
+        &output_dir.join("astra-bluefieldsoftware.yaml"),
+        &BlueFieldSoftwareRepository::list(&mock, crate::NAMESPACE)
+            .await
+            .unwrap()[0],
+    );
+    let flavor = mock
+        .flavors
+        .iter()
+        .next()
+        .expect("Astra DPUFlavor must be generated")
+        .value()
+        .clone();
+    write_yaml(&output_dir.join("astra-dpuflavor.yaml"), &flavor);
+    write_yaml(
+        &output_dir.join("astra-dpudeployment.yaml"),
+        &DpuDeploymentRepository::get(&mock, "astra-deployment", crate::NAMESPACE)
+            .await
+            .unwrap()
+            .expect("Astra DPUDeployment must be generated"),
+    );
+
+    let mut interfaces = DpuServiceInterfaceRepository::list(&mock, crate::NAMESPACE)
+        .await
+        .unwrap();
+    interfaces.sort_by(|left, right| left.metadata.name.cmp(&right.metadata.name));
+    write_yaml_documents(
+        &output_dir.join("astra-dpuserviceinterfaces.yaml"),
+        interfaces.iter(),
+    );
+
+    let mut templates = DpuServiceTemplateRepository::list(&mock, crate::NAMESPACE)
+        .await
+        .unwrap();
+    templates.sort_by(|left, right| left.metadata.name.cmp(&right.metadata.name));
+    for template in &templates {
+        let name = template.metadata.name.as_ref().unwrap();
+        write_yaml(
+            &output_dir.join(format!("{name}-dpuservicetemplate.yaml")),
+            template,
+        );
+    }
+
+    let mut configs = DpuServiceConfigurationRepository::list(&mock, crate::NAMESPACE)
+        .await
+        .unwrap();
+    configs.sort_by(|left, right| left.metadata.name.cmp(&right.metadata.name));
+    for config in &configs {
+        let name = config.metadata.name.as_ref().unwrap();
+        write_yaml(
+            &output_dir.join(format!("{name}-dpuserviceconfiguration.yaml")),
+            config,
+        );
+    }
+}
+
+fn write_yaml<T: serde::Serialize>(path: &std::path::Path, value: &T) {
+    std::fs::write(
+        path,
+        format!("{}\n", serde_yaml::to_string(value).unwrap().trim_end()),
+    )
+    .unwrap();
+}
+
+fn write_yaml_documents<'a, T: serde::Serialize + 'a>(
+    path: &std::path::Path,
+    values: impl Iterator<Item = &'a T>,
+) {
+    let yaml = values
+        .map(|value| serde_yaml::to_string(value).unwrap().trim_end().to_string())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    std::fs::write(path, format!("{yaml}\n")).unwrap();
+}
+
 /// Verifies configured BF3 and generic BF4 coexist with scoped Astra while flavors, Patch
 /// interfaces, service chains, and selectors retain one deployment-specific inventory view.
 #[tokio::test]
@@ -741,13 +885,23 @@ async fn scoped_bf3_bf4_and_astra_initialization_coexists() {
             expected_interface_names.insert(format!("{logical_name}-{suffix}"));
         }
     }
-    // Astra ignores configured intercept topology and retains its static physical, PF, and VF
-    // logical inventory.
-    let mut astra_logical_names = ["p0", "p1", "pf0hpf", "pf1hpf"]
+    // Astra ignores configured intercept topology and retains its static BF4+CX logical inventory.
+    let mut astra_chainable_logical_names = ["p0", "p1", "pf0hpf", "pf1hpf"]
         .into_iter()
         .map(|name| name.to_string())
         .collect::<BTreeSet<_>>();
-    astra_logical_names.extend((0..14).map(|vf_id| format!("pf0vf{vf_id}")));
+    astra_chainable_logical_names.extend((0..14).map(|vf_id| format!("pf0vf{vf_id}")));
+    let mut astra_logical_names = astra_chainable_logical_names.clone();
+    let astra_xplane_group_ids = [
+        "r0swpln0", "r1swpln0", "r0swpln1", "r1swpln1", "r2swpln0", "r3swpln0", "r2swpln1",
+        "r3swpln1",
+    ];
+    astra_logical_names.extend(astra_xplane_group_ids.into_iter().flat_map(|group_id| {
+        [
+            format!("p-brcx-{group_id}-to-br-sfc"),
+            format!("p-br-xplane-{group_id}-to-br-sfc"),
+        ]
+    }));
     expected_interface_names.extend(
         astra_logical_names
             .iter()
@@ -824,6 +978,47 @@ async fn scoped_bf3_bf4_and_astra_initialization_coexists() {
             assert_eq!(patch.peer_patch_name.as_deref(), Some(peer_patch_name));
         }
     }
+
+    // Astra's CX patch resources must serialize the xplane peer metadata while staying scoped to
+    // only the Astra deployment.
+    let astra_interface = |logical_name: &str| {
+        let resource_name = format!("{logical_name}-astra");
+        interfaces
+            .iter()
+            .find(|interface| interface.metadata.name.as_deref() == Some(resource_name.as_str()))
+            .unwrap_or_else(|| panic!("Astra scoped interface {resource_name} must exist"))
+    };
+    let cx_patch = astra_interface("p-brcx-r0swpln0-to-br-sfc")
+        .spec
+        .template
+        .spec
+        .template
+        .spec
+        .patch
+        .as_ref()
+        .expect("Astra CX bridge interface must be Patch-backed");
+    assert_eq!(cx_patch.peer_bridge, "brcx-r0swpln0");
+    assert!(cx_patch.peer_patch_name.is_none());
+    assert!(cx_patch.peer_external_i_ds.is_none());
+    let xplane_patch = astra_interface("p-br-xplane-r3swpln1-to-br-sfc")
+        .spec
+        .template
+        .spec
+        .template
+        .spec
+        .patch
+        .as_ref()
+        .expect("Astra xplane interface must be Patch-backed");
+    assert_eq!(xplane_patch.peer_bridge, "br-xplane");
+    assert!(xplane_patch.peer_patch_name.is_none());
+    assert_eq!(
+        xplane_patch.peer_external_i_ds.as_ref(),
+        Some(&BTreeMap::from([
+            ("xplane".to_string(), "true".to_string()),
+            ("xplane-group-id".to_string(), "r3swpln1".to_string()),
+            ("xplane-downlink".to_string(), "patch".to_string()),
+        ]))
+    );
 
     let configured_deployments = [
         // BF3 must render the selected raw PF while consuming the shared topology inventory.
@@ -948,15 +1143,12 @@ async fn scoped_bf3_bf4_and_astra_initialization_coexists() {
             .and_then(|selector| selector.match_labels.as_ref()),
         Some(&expected_astra_labels)
     );
-    // Astra service chains must select the static logical names constructed above, not the
-    // configured BF3/BF4 `c2pf3` topology.
-    let astra_chain_interfaces = astra
-        .spec
-        .service_chains
-        .as_ref()
-        .unwrap()
-        .switches
+    let astra_switches = &astra.spec.service_chains.as_ref().unwrap().switches;
+    // Astra service-to-service chains must select the static logical names constructed above, not
+    // the configured BF3/BF4 `c2pf3` topology.
+    let astra_chain_interfaces = astra_switches
         .iter()
+        .filter(|switch| switch.ports.iter().any(|port| port.service.is_some()))
         .map(|switch| {
             switch.ports[0]
                 .service_interface
@@ -966,8 +1158,33 @@ async fn scoped_bf3_bf4_and_astra_initialization_coexists() {
                 .clone()
         })
         .collect::<BTreeSet<_>>();
-    assert_eq!(astra_chain_interfaces, astra_logical_names);
-    // Astra's fixed flavor retains PF_TOTAL_SF=40 and must not render configured peer bridges.
+    assert_eq!(astra_chain_interfaces, astra_chainable_logical_names);
+    let astra_patch_chain_pairs = astra_switches
+        .iter()
+        .filter_map(|switch| {
+            let ports = switch
+                .ports
+                .iter()
+                .filter_map(|port| port.service_interface.as_ref())
+                .map(|service_interface| service_interface.match_labels["interface"].clone())
+                .collect::<Vec<_>>();
+            (ports.len() == 2).then(|| (ports[0].clone(), ports[1].clone()))
+        })
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        astra_patch_chain_pairs,
+        astra_xplane_group_ids
+            .into_iter()
+            .map(|group_id| {
+                (
+                    format!("p-brcx-{group_id}-to-br-sfc"),
+                    format!("p-br-xplane-{group_id}-to-br-sfc"),
+                )
+            })
+            .collect::<BTreeSet<_>>()
+    );
+    // Astra's flavor derives PF_TOTAL_SF from static service endpoints and the DOCA Weave DHCP
+    // Agent PF allocation, and must not render configured peer bridges.
     let astra_flavor =
         DpuFlavorRepository::get(&mock, astra.spec.dpus.flavor.as_deref().unwrap(), TEST_NS)
             .await
@@ -979,7 +1196,7 @@ async fn scoped_bf3_bf4_and_astra_initialization_coexists() {
             .as_ref()
             .unwrap()
             .iter()
-            .any(|parameter| parameter == "PF_TOTAL_SF=40")
+            .any(|parameter| parameter == "PF_TOTAL_SF=36")
     );
     assert!(
         !astra_flavor
@@ -990,18 +1207,6 @@ async fn scoped_bf3_bf4_and_astra_initialization_coexists() {
             .unwrap()
             .contains("br-pf3")
     );
-    // Static Astra interfaces are Physical/PF/VF definitions, never topology-backed Patch pairs.
-    assert!(
-        interfaces
-            .iter()
-            .filter(|interface| interface
-                .metadata
-                .name
-                .as_deref()
-                .is_some_and(|name| name.ends_with("-astra")))
-            .all(|interface| interface.spec.template.spec.template.spec.patch.is_none())
-    );
-
     drop(sdk);
 }
 
