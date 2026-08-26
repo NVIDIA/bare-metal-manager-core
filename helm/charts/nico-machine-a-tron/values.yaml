@@ -185,6 +185,12 @@ machineDefaults:
   runIntervalIdle: "10s"
   networkStatusRunInterval: "20s"
   dpusInNicMode: false
+  ## Host firmware upgrade simulation. Set initial BMC/UEFI versions here to
+  ## apply to all machine groups. Override per-group in pods.*.machines.*.
+  ## When set, NICo detects version delta and triggers the upgrade flow.
+  # hostFirmwareVersions:
+  #   bmc: "24.08.00"
+  #   uefi: "01.04.00"
 
 ## =============================================================================
 ## MAC Address Pool - Standalone MACs for BMC and management interfaces
@@ -288,6 +294,12 @@ pods:
         dpuPerHostCount: 2
         oobDhcpRelayAddress: "192.168.192.1"
         adminDhcpRelayAddress: "192.168.176.1"
+        ## Host firmware upgrade simulation (optional).
+        ## Set initial versions older than the API's desired versions to trigger
+        ## Supported platforms: DGX H100, Wiwynn GB200, Lenovo GB300, Dell R750/R760.
+        # hostFirmwareVersions:
+        #   bmc: "24.08.00"
+        #   uefi: "01.04.00"
 
 ## =============================================================================
 ## Multi-Pod Example (mat-k8s-controller.enabled is required)
