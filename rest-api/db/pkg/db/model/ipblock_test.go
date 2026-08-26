@@ -6,6 +6,7 @@ package model
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -92,6 +93,60 @@ func testIPBlockBuildTenant(t *testing.T, dbSession *db.Session, name string) *T
 	_, err := dbSession.DB.NewInsert().Model(tenant).Exec(context.Background())
 	assert.Nil(t, err)
 	return tenant
+}
+
+func TestIPBlock_ContainsPrefix(t *testing.T) {
+	tests := []struct {
+		name             string
+		ipBlock          *IPBlock
+		reportedPrefix   string
+		expectedContains bool
+	}{
+		{
+			name:             "contains a narrower IPv4 prefix",
+			ipBlock:          &IPBlock{Prefix: "10.20.0.0", PrefixLength: 16},
+			reportedPrefix:   "10.20.30.0/24",
+			expectedContains: true,
+		},
+		{
+			name:             "rejects an IPv4 prefix outside the block",
+			ipBlock:          &IPBlock{Prefix: "10.20.0.0", PrefixLength: 16},
+			reportedPrefix:   "10.21.30.0/24",
+			expectedContains: false,
+		},
+		{
+			name:             "rejects a reported prefix wider than the block",
+			ipBlock:          &IPBlock{Prefix: "10.20.16.0", PrefixLength: 20},
+			reportedPrefix:   "10.20.0.0/16",
+			expectedContains: false,
+		},
+		{
+			name:             "rejects a different address family",
+			ipBlock:          &IPBlock{Prefix: "10.20.0.0", PrefixLength: 16},
+			reportedPrefix:   "2001:db8::/64",
+			expectedContains: false,
+		},
+		{
+			name:             "rejects an invalid IPBlock prefix",
+			ipBlock:          &IPBlock{Prefix: "not-an-address", PrefixLength: 16},
+			reportedPrefix:   "10.20.30.0/24",
+			expectedContains: false,
+		},
+		{
+			name:             "rejects a nil IPBlock",
+			ipBlock:          nil,
+			reportedPrefix:   "10.20.30.0/24",
+			expectedContains: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			reportedPrefix, err := netip.ParsePrefix(test.reportedPrefix)
+			require.NoError(t, err)
+			assert.Equal(t, test.expectedContains, test.ipBlock.ContainsPrefix(reportedPrefix))
+		})
+	}
 }
 
 func TestIPBlockSQLDAO_Create(t *testing.T) {

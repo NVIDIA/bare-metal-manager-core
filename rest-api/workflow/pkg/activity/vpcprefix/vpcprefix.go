@@ -97,16 +97,10 @@ func (mvp ManageVpcPrefix) UpdateVpcPrefixesInDB(ctx context.Context, siteID uui
 			logger.Error().Msg("received VPC Prefix inventory entry with missing controller ID, skipping")
 			continue
 		}
-		reportedVpcPrefixID := controllerVpcPrefix.GetId().GetValue()
-		slogger := logger.With().Str("VPC Prefix Controller ID", reportedVpcPrefixID).Logger()
-		controllerVpcPrefixID, parseErr := uuid.Parse(reportedVpcPrefixID)
-		if parseErr != nil {
-			slogger.Error().Err(parseErr).Msg("received VPC Prefix inventory entry with invalid controller ID, skipping")
-			continue
-		}
-		controllerVpcPrefixIDStr := controllerVpcPrefixID.String()
 
-		vpcPrefix := existingVpcPrefixIDMap[controllerVpcPrefixIDStr]
+		controllerVpcPrefixID := controllerVpcPrefix.GetId().GetValue()
+		slogger := logger.With().Str("VPC Prefix Controller ID", controllerVpcPrefixID).Logger()
+		vpcPrefix := existingVpcPrefixIDMap[controllerVpcPrefixID]
 
 		// No active REST row for this inventory VPC Prefix: create one or undelete a soft-deleted match,
 		// then fall through so the main inventory loop applies Site-reported status updates.
@@ -193,8 +187,8 @@ func (mvp ManageVpcPrefix) UpdateVpcPrefixesInDB(ctx context.Context, siteID uui
 
 		// If the VpcPrefix was already deleting or deleted, we can remove it from the DB.
 		if vpcPrefix.Status == cdbm.VpcPrefixStatusDeleting || vpcPrefix.Status == cdbm.VpcPrefixStatusDeleted {
-			// The delete helper reloads the IPBlock under its advisory lock.
-			curVpcPrefix, serr := vpcPrefixDAO.GetByID(ctx, nil, vpcPrefix.ID, nil)
+			// Retrieve Subnet with IPBlock
+			curVpcPrefix, serr := vpcPrefixDAO.GetByID(ctx, nil, vpcPrefix.ID, []string{cdbm.IPBlockRelationName})
 			if serr != nil {
 				slogger.Error().Err(serr).Msg("failed to get VPC Prefix from DB")
 				continue
@@ -243,15 +237,6 @@ func (mvp ManageVpcPrefix) UpdateVpcPrefixesInDB(ctx context.Context, siteID uui
 	return nil
 }
 
-func ipBlockContainsPrefix(ctx context.Context, ipBlock *cdbm.IPBlock, prefix netip.Prefix) bool {
-	ipBlockCIDR := ipam.GetCidrForIPBlock(ctx, ipBlock.Prefix, ipBlock.PrefixLength)
-	ipBlockPrefix, err := netip.ParsePrefix(ipBlockCIDR)
-	return err == nil &&
-		ipBlockPrefix.Addr().BitLen() == prefix.Addr().BitLen() &&
-		ipBlockPrefix.Bits() <= prefix.Bits() &&
-		ipBlockPrefix.Contains(prefix.Addr())
-}
-
 // createOrUpdateVpcPrefixFromSite creates a REST VPC Prefix from Site inventory, or undeletes
 // a matching soft-deleted row (and resets Status from Site inventory on undelete).
 // Returns nil when skipped or on failure.
@@ -266,16 +251,18 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 		Str("VPC Prefix Controller ID", controllerVpcPrefix.GetId().GetValue()).
 		Logger()
 
-	vpcPrefixID, err := uuid.Parse(controllerVpcPrefix.GetId().GetValue())
+	// Get the controller VPC Prefix ID from the Site inventory
+	controllerVpcPrefixID, err := uuid.Parse(controllerVpcPrefix.GetId().GetValue())
 	if err != nil {
 		logger.Warn().Msgf("unable to create VPC Prefix found on Site: failed to parse VPC Prefix Controller ID, not a valid UUID %s", controllerVpcPrefix.GetId().GetValue())
 		return nil
 	}
 
+	// Get the reported VPC Prefix from the Site inventory
 	reportedVpcPrefix := new(cdbm.VpcPrefix)
 	reportedVpcPrefix.FromProto(controllerVpcPrefix)
 	if reportedVpcPrefix.Name == "" {
-		reportedVpcPrefix.Name = fmt.Sprintf("recovered-%s", vpcPrefixID.String()[:8])
+		reportedVpcPrefix.Name = fmt.Sprintf("recovered-%s", controllerVpcPrefixID.String()[:8])
 	}
 	if reportedVpcPrefix.Prefix == "" {
 		logger.Warn().Msg("unable to create VPC Prefix found on Site: VPC Prefix on Site is reporting empty Prefix")
@@ -295,8 +282,6 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 		return nil
 	}
 	reportedVpcPrefix.Prefix = maskedPrefixCIDR
-	prefixLength := reportedPrefix.Bits()
-
 	if reportedVpcPrefix.VpcID == uuid.Nil {
 		logger.Warn().Msg("unable to create VPC Prefix found on Site: VPC Prefix on Site is reporting empty VPC ID")
 		return nil
@@ -327,7 +312,7 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 		// another site would otherwise be invisible here and Create would unique-constraint
 		// fail every inventory cycle.
 		matches, _, reloadErr := vpcPrefixDAO.GetAll(ctx, tx, cdbm.VpcPrefixFilterInput{
-			VpcPrefixIDs:   []uuid.UUID{vpcPrefixID},
+			VpcPrefixIDs:   []uuid.UUID{reportedVpcPrefix.ID},
 			IncludeDeleted: true,
 		}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if reloadErr != nil {
@@ -340,16 +325,17 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 			existingVpcPrefix = &matches[0]
 		}
 
+		// If the VPC Prefix was found in the DB, we need to check if it is valid
 		if existingVpcPrefix != nil {
 			if existingVpcPrefix.SiteID != site.ID {
-				logger.Warn().Msgf("unable to create VPC Prefix found on Site: VPC Prefix ID already exists under a different Site for VPC Prefix %s", vpcPrefixID)
+				logger.Warn().Msgf("unable to create VPC Prefix found on Site: VPC Prefix ID already exists under a different Site for VPC Prefix %s", controllerVpcPrefixID)
 				return nil, nil
 			}
 			if existingVpcPrefix.Deleted == nil {
 				return existingVpcPrefix, nil
 			}
 			if existingVpcPrefix.VpcID != vpc.ID {
-				logger.Warn().Msgf("unable to create VPC Prefix found on Site: VPC differs in REST cache and Site record for VPC Prefix %s", vpcPrefixID)
+				logger.Warn().Msgf("unable to create VPC Prefix found on Site: VPC differs in REST cache and Site record for VPC Prefix %s", controllerVpcPrefixID)
 				return nil, nil
 			}
 			if existingVpcPrefix.Org != vpc.Org {
@@ -360,11 +346,14 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 			// the cached Prefix/VpcID or DB and IPAM will permanently diverge.
 			existingPrefix, parseErr := netip.ParsePrefix(existingVpcPrefix.Prefix)
 			if parseErr != nil || existingPrefix.Masked().String() != reportedVpcPrefix.Prefix {
-				logger.Warn().Msgf("unable to create VPC Prefix found on Site: prefix differs in REST cache and Site record for VPC Prefix %s", vpcPrefixID)
+				logger.Warn().Msgf("unable to create VPC Prefix found on Site: prefix differs in REST cache and Site record for VPC Prefix %s", controllerVpcPrefixID)
 				return nil, nil
 			}
 		}
 
+		// Get the IP Block for the VPC Prefix
+		// if existingVpcPrefix is not nil, we use the stored IP Block ID
+		// otherwise we need to find the most specific Ready tenant IPBlock that contains its prefix
 		ipBlockDAO := cdbm.NewIPBlockDAO(mvp.dbSession)
 		var ipBlock *cdbm.IPBlock
 		if existingVpcPrefix != nil {
@@ -391,7 +380,7 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 				logger.Warn().Msgf("unable to create VPC Prefix found on Site: stored IP Block belongs to a different Tenant for VPC Prefix %s", existingVpcPrefix.ID)
 				return nil, nil
 			}
-			if !ipBlockContainsPrefix(ctx, ipBlock, reportedPrefix) {
+			if !ipBlock.ContainsPrefix(reportedPrefix) {
 				logger.Warn().Msgf("unable to create VPC Prefix found on Site: stored IP Block does not contain Prefix %s for VPC Prefix %s", reportedPrefix, existingVpcPrefix.ID)
 				return nil, nil
 			}
@@ -411,7 +400,7 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 				candidateIPBlock := &ipBlocks[i]
 				// A fully granted IPBlock is entirely owned by an existing VPC Prefix,
 				// but the IPAM DB reports it as empty and its Status stays Ready.
-				if candidateIPBlock.FullGrant || !ipBlockContainsPrefix(ctx, candidateIPBlock, reportedPrefix) {
+				if candidateIPBlock.FullGrant || !candidateIPBlock.ContainsPrefix(reportedPrefix) {
 					continue
 				}
 				if ipBlock == nil || candidateIPBlock.PrefixLength > ipBlock.PrefixLength {
@@ -440,12 +429,7 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 			return nil, fmt.Errorf("unable to create VPC Prefix found on Site: failed to reload IP Block under advisory lock, DB error: %w", reloadIPBlockErr)
 		}
 		ipBlock = freshIPBlock
-		if ipBlock.SiteID != site.ID || ipBlock.TenantID == nil || *ipBlock.TenantID != vpc.TenantID ||
-			!ipBlockContainsPrefix(ctx, ipBlock, reportedPrefix) {
-			logger.Warn().Msgf("unable to create VPC Prefix found on Site: IP Block ownership or Prefix changed while recovering VPC Prefix %s", vpcPrefixID)
-			return nil, nil
-		}
-		if existingVpcPrefix == nil && ipBlock.Status != cdbm.IPBlockStatusReady {
+		if ipBlock.Status != cdbm.IPBlockStatusReady {
 			logger.Warn().Msgf("unable to create VPC Prefix found on Site: IP Block %s is no longer Ready", ipBlock.ID)
 			return nil, nil
 		}
@@ -455,6 +439,8 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 		}
 
 		ipamStorage := ipam.NewIpamStorage(mvp.dbSession.DB, tx.GetBunTx())
+		prefixLength := reportedPrefix.Bits()
+
 		// Soft-skips after IPAM mutation must return a non-nil error so WithTxResult
 		// rolls back (e.g. FullGrant=true from CreateChildIpamEntryForIPBlock).
 		if ipBlock.PrefixLength == prefixLength {
@@ -472,6 +458,8 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 			}
 		}
 
+		// If the VPC Prefix was soft-deleted, undelete it
+		// reuse the existing VPC Prefix ID and Status from the Site inventory to avoid creating a new VPC Prefix
 		if existingVpcPrefix != nil {
 			// Soft-deleted rows almost always carry Status=Deleting (set by the REST
 			// delete path before soft-delete). Clear only nulls deleted; also reset
@@ -506,12 +494,14 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 			return nil, fmt.Errorf("unable to create VPC Prefix found on Site: failed to retrieve VPC Prefix by name, DB error: %w", nameErr)
 		}
 		if len(nameConflictVpcPrefixes) > 0 {
-			reportedVpcPrefix.Name = fmt.Sprintf("%s-recovered-%s", reportedVpcPrefix.Name, vpcPrefixID.String()[:8])
+			reportedVpcPrefix.Name = fmt.Sprintf("%s-recovered-%s", reportedVpcPrefix.Name, reportedVpcPrefix.ID.String()[:8])
 		}
 
+		// If the VPC Prefix was not soft-deleted, create a new VPC Prefix
+		// use the controller VPC Prefix ID and Status from the Site inventory to avoid creating a new VPC Prefix
 		readyMsg := "VPC Prefix was found on Site, Ready for use"
 		created, createErr := vpcPrefixDAO.Create(ctx, tx, cdbm.VpcPrefixCreateInput{
-			VpcPrefixID:  &vpcPrefixID,
+			VpcPrefixID:  &controllerVpcPrefixID,
 			Name:         reportedVpcPrefix.Name,
 			TenantOrg:    vpc.Org,
 			SiteID:       site.ID,
@@ -568,71 +558,28 @@ func getControllerVpcPrefixStatus(status *corev1.VpcPrefixStatus) (string, strin
 
 // deleteVpcPrefixFromDB is a helper function to delete VPC Prefix from DB
 func (mvp ManageVpcPrefix) deleteVpcPrefixFromDB(ctx context.Context, tx *cdb.Tx, vpcPrefix *cdbm.VpcPrefix, logger zerolog.Logger) error {
-	if vpcPrefix.IPBlockID != nil {
-		// Use the same tenant/IPBlock advisory lock key as REST create and inventory recovery
-		// so concurrent IPAM/FullGrant mutations serialize. Released on commit/rollback.
-		lockKey := fmt.Sprintf("%s-%s", vpcPrefix.TenantID, vpcPrefix.IPBlockID)
-		err := tx.AcquireAdvisoryLock(ctx, cdb.GetAdvisoryLockIDFromString(lockKey), false)
-		if err != nil {
-			logger.Error().Err(err).Msg("Failed to acquire advisory lock on IP Block")
-			return err
-		}
-		logger.Info().Msg("acquired advisory lock on IP Block for VPC Prefix")
-
-		// Reload by ID under the lock instead of trusting the optional relation.
-		// Include the tombstone so cleanup can still derive the IPAM namespace after
-		// the parent IPBlock has been soft-deleted.
-		ipBlocks, _, reloadErr := cdbm.NewIPBlockDAO(mvp.dbSession).GetAll(
-			ctx,
-			tx,
-			cdbm.IPBlockFilterInput{
-				IPBlockIDs:     []uuid.UUID{*vpcPrefix.IPBlockID},
-				IncludeDeleted: true,
-			},
-			cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)},
-			nil,
-		)
-		if reloadErr != nil {
-			logger.Error().Err(reloadErr).
-				Str("VPC Prefix ID", vpcPrefix.ID.String()).
-				Str("IP Block ID", vpcPrefix.IPBlockID.String()).
-				Msg("failed to reload IP Block under advisory lock for VPC Prefix delete")
-			return reloadErr
-		}
-		if len(ipBlocks) == 0 {
-			err = fmt.Errorf("unable to delete VPC Prefix %s: IP Block %s does not exist", vpcPrefix.ID, vpcPrefix.IPBlockID)
-			logger.Error().Err(err).
-				Str("VPC Prefix ID", vpcPrefix.ID.String()).
-				Str("IP Block ID", vpcPrefix.IPBlockID.String()).
-				Msg("failed to delete VPC Prefix from DB")
-			return err
-		}
-		freshIPBlock := &ipBlocks[0]
-
-		if freshIPBlock.Deleted != nil && freshIPBlock.FullGrant {
-			// A full grant has no child record in IPAM. The active-parent path clears
-			// FullGrant, but a deleted parent cannot be updated by the normal DAO and
-			// has no allocatable state left to restore.
-			logger.Info().Msg("skipped IPAM child cleanup for fully granted deleted IP Block")
-		} else {
-			ipamStorage := ipam.NewIpamStorage(mvp.dbSession.DB, tx.GetBunTx())
-			err = ipam.DeleteChildIpamEntryFromCidr(ctx, tx, mvp.dbSession, ipamStorage, freshIPBlock, vpcPrefix.Prefix)
-			if err != nil && !errors.Is(err, ipam.ErrPrefixDoesNotExistForIPBlock) {
-				logger.Error().Err(err).Msg("failed to delete ipam record for VPC Prefix")
-				return err
-			}
-			if errors.Is(err, ipam.ErrPrefixDoesNotExistForIPBlock) {
-				logger.Info().Msg("VPC Prefix IPAM entry was already absent")
-			} else {
-				logger.Info().Msg("deleted VPC Prefix IPAM entry")
-			}
-		}
+	// Acquire an advisory lock on the parent IP block ID on which there could be contention
+	// this lock is released when the transaction commits or rollsback
+	err := tx.AcquireAdvisoryLock(ctx, cdb.GetAdvisoryLockIDFromString(vpcPrefix.IPBlockID.String()), false)
+	if err != nil {
+		logger.Error().Err(err).Msg("Failed to acquire advisory lock on IP Block")
+		return err
 	}
+	logger.Info().Msg("acquired advisory lock on IP Block for VPC Prefix")
+
+	// Delete IPAM entry for this subnet
+	ipamStorage := ipam.NewIpamStorage(mvp.dbSession.DB, tx.GetBunTx())
+	err = ipam.DeleteChildIpamEntryFromCidr(ctx, tx, mvp.dbSession, ipamStorage, vpcPrefix.IPBlock, vpcPrefix.Prefix)
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to delete ipam record for Subnet")
+		return err
+	}
+	logger.Info().Msg("deleted VPC Prefix IPAM entry")
 
 	// Soft-delete VPC Prefix
 	vpcPrefixDAO := cdbm.NewVpcPrefixDAO(mvp.dbSession)
 
-	err := vpcPrefixDAO.Delete(ctx, tx, vpcPrefix.ID)
+	err = vpcPrefixDAO.Delete(ctx, tx, vpcPrefix.ID)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to delete VPC Prefix from DB")
 		return err

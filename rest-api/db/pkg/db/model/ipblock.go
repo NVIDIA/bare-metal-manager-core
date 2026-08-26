@@ -6,6 +6,8 @@ package model
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"net/netip"
 	"time"
 
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
@@ -94,6 +96,19 @@ type IPBlock struct {
 	Updated                  time.Time               `bun:"updated,nullzero,notnull,default:current_timestamp"`
 	Deleted                  *time.Time              `bun:"deleted,soft_delete"`
 	CreatedBy                *uuid.UUID              `bun:"created_by,type:uuid"`
+}
+
+// ContainsPrefix reports whether prefix belongs to this IPBlock.
+func (ipb *IPBlock) ContainsPrefix(prefix netip.Prefix) bool {
+	if ipb == nil {
+		return false
+	}
+
+	ipBlockPrefix, err := netip.ParsePrefix(fmt.Sprintf("%s/%d", ipb.Prefix, ipb.PrefixLength))
+	return err == nil &&
+		ipBlockPrefix.Addr().BitLen() == prefix.Addr().BitLen() &&
+		ipBlockPrefix.Bits() <= prefix.Bits() &&
+		ipBlockPrefix.Contains(prefix.Addr())
 }
 
 // IPBlockCreateInput input parameters for Create method

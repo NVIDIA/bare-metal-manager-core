@@ -8,7 +8,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"net/netip"
 	"reflect"
 	"strings"
 	"testing"
@@ -92,6 +91,10 @@ func testVPCPrefixSetupSchema(t *testing.T, dbSession *cdb.Session) {
 	// create VPCPrefix table
 	err = dbSession.DB.ResetModel(context.Background(), (*cdbm.VpcPrefix)(nil))
 	assert.Nil(t, err)
+	// ensure the shared IPAM schema exists even when another package reset the test DB
+	ipamDB := cipam.NewBunStorage(dbSession.DB, nil)
+	err = ipamDB.ApplyDbSchema()
+	require.NoError(t, err)
 }
 
 // testVPCSiteBuildInfrastructureProvider Building Infra Provider in DB
@@ -809,7 +812,7 @@ func testManageVpcPrefixUpdateVpcPrefixesInDBAutoCreatesAndRestores(t *testing.T
 		t.FailNow()
 	}
 
-	t.Run("uppercase inventory ID matches the active VPC Prefix without recovery logging", func(t *testing.T) {
+	t.Run("uppercase inventory ID follows the recovery path", func(t *testing.T) {
 		canonicalID := controllerVpcPrefix.Id.Value
 		controllerVpcPrefix.Id.Value = strings.ToUpper(canonicalID)
 		require.NotEqual(t, canonicalID, controllerVpcPrefix.Id.Value)
@@ -837,7 +840,7 @@ func testManageVpcPrefixUpdateVpcPrefixesInDBAutoCreatesAndRestores(t *testing.T
 		require.NoError(t, err)
 		require.Len(t, prefixes, 1)
 		assert.Equal(t, 1, count)
-		assert.NotContains(t, logOutput.String(), "created or undeleted VPC Prefix from Site inventory")
+		assert.Contains(t, logOutput.String(), "created or undeleted VPC Prefix from Site inventory")
 	})
 
 	t.Run("inventory skips restore when Site reports TERMINATING", func(t *testing.T) {
@@ -1019,65 +1022,6 @@ func testManageVpcPrefixUpdateVpcPrefixesInDBAutoCreatesAndRestores(t *testing.T
 		_, err = vpcPrefixDAO.GetByID(ctx, nil, controllerVpcPrefixID, nil)
 		assert.ErrorIs(t, err, cdb.ErrDoesNotExist)
 	})
-}
-
-func TestIpBlockContainsPrefix(t *testing.T) {
-	tests := []struct {
-		name            string
-		ipBlockPrefix   string
-		ipBlockLength   int
-		reportedPrefix  string
-		expectedContain bool
-	}{
-		{
-			name:            "contains a narrower IPv4 prefix",
-			ipBlockPrefix:   "10.20.0.0",
-			ipBlockLength:   16,
-			reportedPrefix:  "10.20.30.0/24",
-			expectedContain: true,
-		},
-		{
-			name:            "rejects an IPv4 prefix outside the block",
-			ipBlockPrefix:   "10.20.0.0",
-			ipBlockLength:   16,
-			reportedPrefix:  "10.21.30.0/24",
-			expectedContain: false,
-		},
-		{
-			name:            "rejects a reported prefix wider than the block",
-			ipBlockPrefix:   "10.20.16.0",
-			ipBlockLength:   20,
-			reportedPrefix:  "10.20.0.0/16",
-			expectedContain: false,
-		},
-		{
-			name:            "rejects a different address family",
-			ipBlockPrefix:   "10.20.0.0",
-			ipBlockLength:   16,
-			reportedPrefix:  "2001:db8::/64",
-			expectedContain: false,
-		},
-		{
-			name:            "rejects an invalid IP Block prefix",
-			ipBlockPrefix:   "not-an-address",
-			ipBlockLength:   16,
-			reportedPrefix:  "10.20.30.0/24",
-			expectedContain: false,
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			reportedPrefix, err := netip.ParsePrefix(test.reportedPrefix)
-			require.NoError(t, err)
-
-			ipBlock := &cdbm.IPBlock{
-				Prefix:       test.ipBlockPrefix,
-				PrefixLength: test.ipBlockLength,
-			}
-			assert.Equal(t, test.expectedContain, ipBlockContainsPrefix(context.Background(), ipBlock, reportedPrefix))
-		})
-	}
 }
 
 func TestManageVpcPrefix_CreateOrUpdateVpcPrefixFromSite(t *testing.T) {
@@ -1265,14 +1209,16 @@ func TestManageVpcPrefix_CreateOrUpdateVpcPrefixFromSite(t *testing.T) {
 		name                    string
 		storedIPBlockStatus     string
 		createMoreSpecificBlock bool
+		expectedRestore         bool
 	}{
 		{
 			name:                    "undelete ignores a newer more-specific IP Block",
 			storedIPBlockStatus:     cdbm.IPBlockStatusReady,
 			createMoreSpecificBlock: true,
+			expectedRestore:         true,
 		},
 		{
-			name:                "undelete uses a stored IP Block that is not Ready",
+			name:                "undelete skips a stored IP Block that is not Ready",
 			storedIPBlockStatus: cdbm.IPBlockStatusError,
 		},
 	}
@@ -1356,6 +1302,23 @@ func TestManageVpcPrefix_CreateOrUpdateVpcPrefixFromSite(t *testing.T) {
 
 			testManager := ManageVpcPrefix{dbSession: testDBSession}
 			restored := testManager.createOrUpdateVpcPrefixFromSite(testCtx, testSite, controllerVpcPrefix)
+			if !test.expectedRestore {
+				assert.Nil(t, restored)
+				deleted, _, getErr := testVpcPrefixDAO.GetAll(
+					testCtx,
+					nil,
+					cdbm.VpcPrefixFilterInput{
+						VpcPrefixIDs:   []uuid.UUID{controllerVpcPrefixID},
+						IncludeDeleted: true,
+					},
+					cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
+					nil,
+				)
+				require.NoError(t, getErr)
+				require.Len(t, deleted, 1)
+				assert.NotNil(t, deleted[0].Deleted)
+				return
+			}
 			require.NotNil(t, restored)
 			require.NotNil(t, restored.IPBlockID)
 			assert.Equal(t, storedIPBlock.ID, *restored.IPBlockID)
@@ -1631,28 +1594,17 @@ func testCreateOrUpdateVpcPrefixSkipsRestoreWhenPrefixDiffers(t *testing.T) {
 
 func TestManageVpcPrefix_DeleteVpcPrefixFromDB(t *testing.T) {
 	tests := []struct {
-		name                string
-		softDeleteIPBlock   bool
-		fullGrant           bool
-		allocateChildPrefix bool
+		name          string
+		clearRelation bool
+		expectedError bool
 	}{
 		{
-			name:                "reloads an active IP Block when the relation is absent",
-			allocateChildPrefix: true,
+			name: "deletes with a loaded IP Block relation",
 		},
 		{
-			name:                "releases the CIDR through a soft-deleted IP Block",
-			softDeleteIPBlock:   true,
-			allocateChildPrefix: true,
-		},
-		{
-			name:              "accepts an already absent CIDR through a soft-deleted IP Block",
-			softDeleteIPBlock: true,
-		},
-		{
-			name:              "deletes through a fully granted soft-deleted IP Block",
-			softDeleteIPBlock: true,
-			fullGrant:         true,
+			name:          "rejects a missing IP Block relation",
+			clearRelation: true,
+			expectedError: true,
 		},
 	}
 
@@ -1688,44 +1640,41 @@ func TestManageVpcPrefix_DeleteVpcPrefixFromDB(t *testing.T) {
 
 			prefix := "10.20.30.0/24"
 			prefixLength := 24
-			if test.fullGrant {
-				prefix = "10.20.0.0/16"
-				prefixLength = 16
-				_, err = ipam.CreateChildIpamEntryForIPBlock(
-					ctx, nil, dbSession, ipamStorage, ipBlock, ipBlock.PrefixLength,
-				)
-				require.NoError(t, err)
-			} else if test.allocateChildPrefix {
-				_, err = ipam.AcquireSpecificChildIpamEntryForIPBlock(
-					ctx, nil, dbSession, ipamStorage, ipBlock, prefix,
-				)
-				require.NoError(t, err)
-			}
+			_, err = ipam.AcquireSpecificChildIpamEntryForIPBlock(
+				ctx, nil, dbSession, ipamStorage, ipBlock, prefix,
+			)
+			require.NoError(t, err)
 
 			vpcPrefix := testVPCBuildVPCPrefix(
 				t, dbSession, "delete-vpc-prefix", site, tenant, parentVpc.ID, &ipBlock.ID,
 				&prefix, &prefixLength, cdbm.VpcPrefixStatusDeleting, tenantUser,
 			)
-			vpcPrefix.IPBlock = nil
+			vpcPrefix, err = cdbm.NewVpcPrefixDAO(dbSession).GetByID(
+				ctx, nil, vpcPrefix.ID, []string{cdbm.IPBlockRelationName},
+			)
+			require.NoError(t, err)
+			require.NotNil(t, vpcPrefix.IPBlock)
 			require.NotNil(t, vpcPrefix.IPBlockID)
 
-			if test.softDeleteIPBlock {
-				err = cdbm.NewIPBlockDAO(dbSession).Delete(ctx, nil, ipBlock.ID)
-				require.NoError(t, err)
+			if test.clearRelation {
+				vpcPrefix.IPBlock = nil
 			}
 
 			manager := ManageVpcPrefix{dbSession: dbSession}
 			tx, err := cdb.BeginTx(ctx, dbSession, &sql.TxOptions{})
 			require.NoError(t, err)
 			err = manager.deleteVpcPrefixFromDB(ctx, tx, vpcPrefix, zerolog.Nop())
-			require.NoError(t, err)
-			err = tx.Commit()
-			require.NoError(t, err)
+			assert.Equal(t, test.expectedError, err != nil)
+			if test.expectedError {
+				require.NoError(t, tx.Rollback())
+				stillActive, getErr := cdbm.NewVpcPrefixDAO(dbSession).GetByID(ctx, nil, vpcPrefix.ID, nil)
+				require.NoError(t, getErr)
+				assert.Nil(t, stillActive.Deleted)
+			} else {
+				require.NoError(t, tx.Commit())
+				_, getErr := cdbm.NewVpcPrefixDAO(dbSession).GetByID(ctx, nil, vpcPrefix.ID, nil)
+				assert.ErrorIs(t, getErr, cdb.ErrDoesNotExist)
 
-			_, err = cdbm.NewVpcPrefixDAO(dbSession).GetByID(ctx, nil, vpcPrefix.ID, nil)
-			assert.ErrorIs(t, err, cdb.ErrDoesNotExist)
-
-			if !test.fullGrant {
 				ipamer := cipam.NewWithStorage(ipamStorage)
 				ipamer.SetNamespace(ipam.GetIpamNamespaceForIPBlock(
 					ctx, ipBlock.RoutingType, ipBlock.InfrastructureProviderID.String(), ipBlock.SiteID.String(),
