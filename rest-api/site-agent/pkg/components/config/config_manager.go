@@ -329,7 +329,7 @@ func validateInventorySchedule(schedule string) error {
 
 	interval, err := swu.InventoryIntervalFromSchedule(schedule)
 	if err != nil {
-		return fmt.Errorf("Temporal inventory schedule %q is not a valid cron schedule: %w", schedule, err)
+		return fmt.Errorf("Temporal inventory %w", err)
 	}
 	if interval > cutil.MaxInventoryReceiptInterval {
 		return fmt.Errorf("Temporal inventory schedule %q collects every %v, which is slower than the %v maximum",

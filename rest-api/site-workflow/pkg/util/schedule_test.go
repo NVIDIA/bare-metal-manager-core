@@ -34,31 +34,28 @@ func TestInventoryIntervalFromSchedule(t *testing.T) {
 			want:     30 * time.Second,
 		},
 		{
-			name:     "five field expression",
+			name:     "compound duration",
+			schedule: "@every 1h30m",
+			want:     90 * time.Minute,
+		},
+		{
+			// The gaps are even here, but accepting it would mean accepting the field syntax
+			// whose gaps are not.
+			name:     "five field expression is rejected",
 			schedule: "*/5 * * * *",
-			want:     5 * time.Minute,
+			wantErr:  true,
 		},
 		{
-			name:     "hourly descriptor",
+			// Fires every minute inside hour 9, so the first fire times suggest a 1 minute
+			// period while the real gap to the next day is 23 hours.
+			name:     "expression whose early gaps hide a long one is rejected",
+			schedule: "* 9 * * *",
+			wantErr:  true,
+		},
+		{
+			name:     "named descriptor without a period is rejected",
 			schedule: "@hourly",
-			want:     time.Hour,
-		},
-		{
-			// Uneven gaps alternate between 8 and 16 hours. Reporting the shorter one would
-			// have Cloud call fresh data stale, so the longer gap is the answer.
-			name:     "uneven gaps report the longest",
-			schedule: "0 9,17 * * *",
-			want:     16 * time.Hour,
-		},
-		{
-			name:     "daily expression",
-			schedule: "0 0 * * *",
-			want:     24 * time.Hour,
-		},
-		{
-			name:     "weekly expression",
-			schedule: "0 9 * * 1",
-			want:     7 * 24 * time.Hour,
+			wantErr:  true,
 		},
 		{
 			name:     "unparseable schedule",
@@ -71,9 +68,24 @@ func TestInventoryIntervalFromSchedule(t *testing.T) {
 			wantErr:  true,
 		},
 		{
-			// Six fields include seconds, which Temporal does not accept, so neither do we.
-			name:     "six field expression is rejected",
-			schedule: "0 */5 * * * *",
+			name:     "descriptor without a duration",
+			schedule: "@every",
+			wantErr:  true,
+		},
+		{
+			name:     "descriptor with an unparseable duration",
+			schedule: "@every often",
+			wantErr:  true,
+		},
+		{
+			// Would otherwise fire continuously and report a zero interval.
+			name:     "zero duration is rejected",
+			schedule: "@every 0s",
+			wantErr:  true,
+		},
+		{
+			name:     "negative duration is rejected",
+			schedule: "@every -1m",
 			wantErr:  true,
 		},
 	}
@@ -82,8 +94,9 @@ func TestInventoryIntervalFromSchedule(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := InventoryIntervalFromSchedule(tt.schedule)
 			if tt.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.Zero(t, got)
+
 				return
 			}
 			require.NoError(t, err)

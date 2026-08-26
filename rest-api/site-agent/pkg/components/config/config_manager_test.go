@@ -35,16 +35,15 @@ func TestValidateInventorySchedule(t *testing.T) {
 			wantErr:  "slower than the 5m0s maximum",
 		},
 		{
-			// The uneven gap decides it: this alternates 8h and 16h, so the 16h gap is what
-			// Cloud would have to honor.
-			name:     "an uneven schedule is rejected on its longest gap",
+			// Its gaps alternate 8h and 16h, so no single interval describes it.
+			name:     "a field expression is rejected",
 			schedule: "0 9,17 * * *",
-			wantErr:  "slower than the 5m0s maximum",
+			wantErr:  `must be an "@every" duration`,
 		},
 		{
 			name:     "an unparseable schedule is rejected",
 			schedule: "not-a-schedule",
-			wantErr:  "is not a valid cron schedule",
+			wantErr:  `must be an "@every" duration`,
 		},
 	}
 
