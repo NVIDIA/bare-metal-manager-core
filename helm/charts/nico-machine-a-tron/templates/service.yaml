@@ -60,7 +60,7 @@ spec:
 {{- if $dhcpRelayEnabled }}
 {{- $dhcpRelay := $root.Values.dhcpRelay }}
 {{- $relayIP := include "nico-machine-a-tron.dhcpRelayIP" (dict "baseIP" $dhcpRelay.baseIP "podIndex" $podIndex) }}
-{{- $relayPort := $root.Values.service.dhcpRelay.port | default 67 }}
+{{- $relayPort := $dhcpRelay.listenPort | default 67 }}
 ---
 ## DHCP Relay Service
 ## Provides a stable ClusterIP for receiving DHCP server replies.

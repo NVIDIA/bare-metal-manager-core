@@ -72,8 +72,6 @@ service:
     targetPort: 2222
   metrics:
     port: 9090
-  dhcpRelay:
-    port: 67
 
 ## =============================================================================
 ## DHCP Relay Mode

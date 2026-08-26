@@ -395,9 +395,12 @@ handling under load, or when testing DHCP relay agent behavior.
 
 **Setup:**
 
-1. Create a ServiceCIDR for DHCP relay services (Kubernetes 1.29+):
+1. Create a ServiceCIDR for DHCP relay services:
 
    ```yaml
+   # Kubernetes 1.29-1.30: networking.k8s.io/v1alpha1 (requires MultiCIDRServiceAllocator feature gate)
+   # Kubernetes 1.31-1.32: networking.k8s.io/v1beta1 (requires MultiCIDRServiceAllocator feature gate)
+   # Kubernetes 1.33+: networking.k8s.io/v1 (GA, no feature gate required)
    apiVersion: networking.k8s.io/v1beta1
    kind: ServiceCIDR
    metadata:
@@ -406,6 +409,12 @@ handling under load, or when testing DHCP relay agent behavior.
      cidrs:
        - 10.96.127.0/24
    ```
+
+   <Note>
+   Adjust `apiVersion` based on your Kubernetes version. The `MultiCIDRServiceAllocator`
+   feature gate must be enabled for versions prior to 1.33. For clusters without this feature,
+   select ClusterIPs from the default service CIDR range instead.
+   </Note>
 
 2. Configure the chart:
 
