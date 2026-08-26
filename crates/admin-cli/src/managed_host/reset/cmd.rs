@@ -23,24 +23,30 @@ use crate::machine::{HealthReportTemplates, get_health_report};
 use crate::rpc::ApiClient;
 
 pub(super) async fn reset(api_client: &ApiClient, args: Args) -> CarbideCliResult<()> {
-    // Fail closed: refuse a reset that would disrupt a live instance unless acknowledged (the server also enforces this).
-    if !args.allow_reset_with_instance {
-        match api_client.0.find_instance_by_machine_id(args.machine).await {
-            Ok(list) if !list.instances.is_empty() => {
+    // Guard a reset that would disrupt a live instance; the server also enforces this for non-ready hosts.
+    match api_client.0.find_instance_by_machine_id(args.machine).await {
+        Ok(list) if !list.instances.is_empty() => {
+            if !args.allow_reset_with_instance {
                 return Err(CarbideCliError::GenericError(
                     "machine is assigned to a live instance; pass --allow-reset-with-instance to acknowledge disrupting it".to_string(),
                 ));
             }
-            Ok(_) => {}
-            Err(e) => {
-                return Err(CarbideCliError::GenericError(format!(
-                    "could not verify whether machine has a live instance ({e}); pass --allow-reset-with-instance to proceed anyway"
-                )));
-            }
+            // Acknowledged: a reset from a non-ready state deletes the tenant instance and its data.
+            eprintln!(
+                "WARNING: machine {} is assigned to a live instance; a reset from a non-ready state will delete the tenant instance and its data.",
+                args.machine
+            );
         }
+        Ok(_) => {}
+        Err(e) if !args.allow_reset_with_instance => {
+            return Err(CarbideCliError::GenericError(format!(
+                "could not verify whether machine has a live instance ({e}); pass --allow-reset-with-instance to proceed anyway"
+            )));
+        }
+        Err(_) => {}
     }
 
-    // Server requires a HostUpdateInProgress alert; add it only if absent so we never clobber an operator's.
+    // Server requires a HostUpdateInProgress alert; add it the same way as the dpu reprovision flow.
     let update_message = args
         .update_message
         .clone()
@@ -58,24 +64,13 @@ pub(super) async fn reset(api_client: &ApiClient, args: Args) -> CarbideCliResul
                 .any(|src| src.source == "host-update")
         });
     if !host_had_alert {
-        let mut report = get_health_report(HealthReportTemplates::HostUpdate, Some(update_message));
-        // Tag the alert reset-owned so completion cleanup removes only reset's alert, not an operator's.
-        report.alerts[0].target =
-            Some(model::machine_update_module::RESET_UPDATE_TARGET.to_string());
+        let report = get_health_report(HealthReportTemplates::HostUpdate, Some(update_message));
         api_client
             .machine_insert_health_report_override(args.machine, report.into(), false)
             .await?;
     }
 
     let req: DpuReprovisioningRequest = (&args).into();
-    if let Err(e) = api_client.0.trigger_dpu_reprovisioning(req).await {
-        // Roll back only the alert we added; leave a pre-existing operator alert untouched.
-        if !host_had_alert {
-            let _ = api_client
-                .machine_remove_health_report(args.machine, "host-update".to_string())
-                .await;
-        }
-        return Err(e.into());
-    }
+    api_client.0.trigger_dpu_reprovisioning(req).await?;
     Ok(())
 }

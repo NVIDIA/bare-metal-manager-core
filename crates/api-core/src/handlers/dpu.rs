@@ -1364,11 +1364,10 @@ pub(crate) async fn trigger_dpu_reprovisioning(
             } else if ready_state {
                 false
             } else {
-                // Host-level non-ready reset is allowed only from recoverable states (see allow-list).
-                if !snapshot.managed_state.allows_non_ready_reset() {
+                // A host-level reset is allowed from any state except force deletion, which must never be resurrected.
+                if matches!(snapshot.managed_state, ManagedHostState::ForceDeletion) {
                     return Err(CarbideError::InvalidArgument(format!(
-                        "machine {machine_id} is in state {} and cannot be reset; a reset is only allowed from a recoverable ingestion or failed state",
-                        snapshot.managed_state
+                        "machine {machine_id} is being force-deleted and cannot be reset"
                     ))
                     .into());
                 }
@@ -1384,15 +1383,16 @@ pub(crate) async fn trigger_dpu_reprovisioning(
                 .into());
             }
 
-            // Reject an unacknowledged non-ready reset of an assigned host: full re-ingestion tears down the live instance.
-            if triggered_from_non_ready_state
-                && snapshot.instance.is_some()
-                && !req.allow_reset_with_instance
-            {
-                return Err(CarbideError::InvalidArgument(format!(
-                    "machine {machine_id} is assigned to a live instance; set allow_reset_with_instance to acknowledge disrupting it"
-                ))
-                .into());
+            // A non-ready reset of an assigned host tears down the live instance, so require the ack.
+            if triggered_from_non_ready_state && let Some(instance) = snapshot.instance.as_ref() {
+                if !req.allow_reset_with_instance {
+                    return Err(CarbideError::InvalidArgument(format!(
+                        "machine {machine_id} is assigned to a live instance; set allow_reset_with_instance to acknowledge disrupting it"
+                    ))
+                    .into());
+                }
+                // Acknowledged: tombstone the instance so the controller tears it down before re-ingestion.
+                db::instance::mark_as_deleted(instance.id, &mut txn).await?;
             }
 
             if machine_id.machine_type().is_dpu() {

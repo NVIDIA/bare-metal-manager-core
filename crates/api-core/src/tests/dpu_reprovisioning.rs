@@ -18,7 +18,6 @@
 use std::collections::HashMap;
 
 use carbide_machine_controller::handler::MachineStateHandlerBuilder;
-use carbide_machine_controller::health_report::create_host_update_health_report;
 use carbide_redfish::libredfish::test_support::RedfishSimAction;
 use chrono::Utc;
 use common::api_fixtures::{
@@ -32,7 +31,6 @@ use model::machine::{
     Machine, MachineLastRebootRequestedMode, MachineState, ManagedHostState, PowerState,
     ReprovisionState, SetBootOrderInfo, SetBootOrderState, StateMachineArea, UnlockHostState,
 };
-use model::machine_update_module::{HOST_UPDATE_HEALTH_REPORT_SOURCE, RESET_UPDATE_TARGET};
 use model::test_support::HardwareInfoTemplate;
 use rpc::forge::MachineArchitecture;
 use rpc::forge::dpu_reprovisioning_request::Mode;
@@ -1831,6 +1829,62 @@ async fn test_non_ready_reset_with_instance_accepts_ack_impl(pool: sqlx::PgPool)
     );
 }
 
+// An acknowledged reset tombstones the live instance so the controller tears it down before re-ingestion.
+#[crate::sqlx_test]
+async fn test_non_ready_reset_with_instance_tombstones_instance(pool: sqlx::PgPool) {
+    Box::pin(test_non_ready_reset_with_instance_tombstones_instance_impl(
+        pool,
+    ))
+    .await;
+}
+
+async fn test_non_ready_reset_with_instance_tombstones_instance_impl(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let mh = create_managed_host(&env).await;
+    mh.instance_builer(&env)
+        .single_interface_network_config(segment_id)
+        .build()
+        .await;
+
+    wedge_assigned_host_into_failed_for_reset(&env, &mh).await;
+
+    env.api
+        .trigger_dpu_reprovisioning(tonic::Request::new(
+            ::rpc::forge::DpuReprovisioningRequest {
+                dpu_id: None,
+                machine_id: mh.id.into(),
+                mode: Mode::Set as i32,
+                initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
+                update_firmware: false,
+                allow_reset_with_instance: true,
+            },
+        ))
+        .await
+        .expect("acknowledged reset of an assigned host must be accepted");
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let snapshot = db::managed_host::load_snapshot(
+        txn.as_mut(),
+        &mh.id,
+        model::machine::LoadSnapshotOptions {
+            include_history: false,
+            include_instance_data: true,
+            host_health_config: env.config.host_health,
+        },
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let instance = snapshot
+        .instance
+        .expect("instance row must still exist after being tombstoned");
+    assert!(
+        instance.deleted.is_some(),
+        "an acknowledged reset must tombstone the instance so the controller tears it down"
+    );
+}
+
 // Put a DPF-ingested, instance-assigned host into a non-ready state with the HostUpdateInProgress precondition.
 async fn wedge_assigned_host_into_failed_for_reset(env: &TestEnv, mh: &TestManagedHost) {
     mh.mark_machine_for_updates().await;
@@ -1903,7 +1957,7 @@ async fn test_reset_rejected_from_non_resettable_state(pool: sqlx::PgPool) {
     );
 }
 
-// The controller re-checks the allow-list: a fresh reset request must not resurrect a ForceDeletion host.
+// The controller re-checks state: a fresh reset request must not resurrect a ForceDeletion host.
 #[crate::sqlx_test]
 async fn test_non_ready_reprov_does_not_start_from_force_deletion(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
@@ -1931,55 +1985,6 @@ async fn test_non_ready_reprov_does_not_start_from_force_deletion(pool: sqlx::Pg
         !matches!(dpu.current_state(), ManagedHostState::DPUReprovision { .. }),
         "reprovision must not start from ForceDeletion, got {:?}",
         dpu.current_state()
-    );
-}
-
-// A reset tags its HostUpdateInProgress alert reset-owned (target = "Reset"); once the host is
-// back to Ready the controller retires that alert so the host becomes allocatable again.
-#[crate::sqlx_test]
-async fn test_ready_removes_reset_owned_update_alert(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
-    let mh = create_managed_host(&env).await;
-
-    let mut txn = env.pool.begin().await.unwrap();
-    db::machine::insert_health_report(
-        &mut txn,
-        &mh.id,
-        health_report::HealthReportApplyMode::Merge,
-        &create_host_update_health_report(
-            Some(RESET_UPDATE_TARGET.to_string()),
-            "reset triggered by admin-cli".to_string(),
-            false,
-        ),
-        false,
-    )
-    .await
-    .unwrap();
-    assert!(
-        matches!(
-            mh.snapshot(&mut txn).await.managed_state,
-            ManagedHostState::Ready
-        ),
-        "test setup expects the host to start Ready"
-    );
-    txn.commit().await.unwrap();
-
-    env.run_machine_state_controller_iteration().await;
-
-    let mut txn = env.pool.begin().await.unwrap();
-    let snapshot = mh.snapshot(&mut txn).await;
-    assert!(
-        matches!(snapshot.managed_state, ManagedHostState::Ready),
-        "host must stay Ready, got {:?}",
-        snapshot.managed_state
-    );
-    assert!(
-        !snapshot
-            .host_snapshot
-            .health_reports
-            .merges
-            .contains_key(HOST_UPDATE_HEALTH_REPORT_SOURCE),
-        "the reset-owned HostUpdateInProgress alert must be removed once the host is Ready"
     );
 }
 

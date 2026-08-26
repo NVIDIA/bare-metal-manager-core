@@ -1610,27 +1610,6 @@ impl ManagedHostState {
         Self::Maintenance { operation }
     }
 
-    /// Allow-list of states a host-level `mh reset` may start from (never deletion, cleanup, maintenance, or rotation).
-    pub fn allows_non_ready_reset(&self) -> bool {
-        match self {
-            ManagedHostState::DpuDiscoveringState { .. }
-            | ManagedHostState::DPUInit { .. }
-            | ManagedHostState::HostInit { .. }
-            | ManagedHostState::Validation { .. }
-            | ManagedHostState::Measuring { .. }
-            | ManagedHostState::BomValidating { .. }
-            | ManagedHostState::PreAssignedMeasuring { .. }
-            | ManagedHostState::PostAssignedMeasuring { .. }
-            | ManagedHostState::StartAssignmentCycle
-            | ManagedHostState::Failed { .. } => true,
-            // Assigned mid-operation is resettable (instance ack enforced separately); Assigned{Ready} is not.
-            ManagedHostState::Assigned { instance_state } => {
-                !matches!(instance_state, InstanceState::Ready)
-            }
-            _ => false,
-        }
-    }
-
     pub fn as_reprovision_state(&self, dpu_id: &MachineId) -> Option<&ReprovisionState> {
         match self {
             ManagedHostState::DPUReprovision { dpu_states } => dpu_states.states.get(dpu_id),
@@ -3783,73 +3762,6 @@ mod tests {
                 "state": "lockhost",
                 "terminal_failure": { "kind": "return_to_prepare" },
             }),
-        );
-    }
-
-    #[test]
-    fn allows_non_ready_reset_matches_allow_list() {
-        let machine_id =
-            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
-                .unwrap();
-        let failed = ManagedHostState::Failed {
-            machine_id,
-            retry_count: 0,
-            details: FailureDetails {
-                cause: FailureCause::BiosSetupFailed {
-                    err: "wedged mid-ingestion".to_string(),
-                },
-                failed_at: DateTime::<Utc>::UNIX_EPOCH,
-                source: FailureSource::StateMachine,
-            },
-        };
-        check_values(
-            [
-                Check {
-                    scenario: "failed is resettable",
-                    input: failed,
-                    expect: true,
-                },
-                Check {
-                    scenario: "start assignment cycle is resettable",
-                    input: ManagedHostState::StartAssignmentCycle,
-                    expect: true,
-                },
-                Check {
-                    scenario: "assigned non-ready is resettable (gated by the instance ack)",
-                    input: ManagedHostState::Assigned {
-                        instance_state: InstanceState::Init,
-                    },
-                    expect: true,
-                },
-                Check {
-                    scenario: "ready is not reset (normal reprovision path)",
-                    input: ManagedHostState::Ready,
-                    expect: false,
-                },
-                Check {
-                    scenario: "assigned ready is not reset (normal reprovision path)",
-                    input: ManagedHostState::Assigned {
-                        instance_state: InstanceState::Ready,
-                    },
-                    expect: false,
-                },
-                Check {
-                    scenario: "force deletion must never be resurrected",
-                    input: ManagedHostState::ForceDeletion,
-                    expect: false,
-                },
-                Check {
-                    scenario: "credential rotation must not be preempted",
-                    input: ManagedHostState::RotatingBmc { retry_count: 0 },
-                    expect: false,
-                },
-                Check {
-                    scenario: "created placeholder is not resettable",
-                    input: ManagedHostState::Created,
-                    expect: false,
-                },
-            ],
-            |state| state.allows_non_ready_reset(),
         );
     }
 

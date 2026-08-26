@@ -792,7 +792,11 @@ impl MachineStateHandler {
 
         // Initial `mh reset` from a non-ready state (eligibility enforced at the API).
         // Excludes the restart path above, which needs started_at.is_some().
-        if non_ready_initial_reprov_needed(&mh_snapshot.dpu_snapshots, &mh_state) {
+        if non_ready_initial_reprov_needed(
+            &mh_snapshot.dpu_snapshots,
+            &mh_state,
+            mh_snapshot.instance.is_some(),
+        ) {
             let next = self.start_non_ready_reprov(mh_snapshot, ctx).await?;
             return Ok(StateHandlerOutcome::transition(next));
         }
@@ -929,19 +933,6 @@ impl MachineStateHandler {
             }
 
             ManagedHostState::Ready => {
-                // Reset finished (host is Ready): retire only the reset-owned HostUpdateInProgress alert, leaving an operator's alert untouched.
-                if has_reset_update_alert(mh_snapshot) {
-                    let mut txn = ctx.services.db_pool.begin().await?;
-                    db::machine::remove_health_report(
-                        &mut txn,
-                        host_machine_id,
-                        health_report::HealthReportApplyMode::Merge,
-                        model::machine_update_module::HOST_UPDATE_HEALTH_REPORT_SOURCE,
-                    )
-                    .await?;
-                    return Ok(StateHandlerOutcome::do_nothing().with_txn(txn));
-                }
-
                 if let Some(outcome) = self
                     .handle_scout_heartbeat_timeout(mh_snapshot, ctx)
                     .await?
@@ -2440,30 +2431,19 @@ fn dpu_reprovisioning_needed(dpu_snapshots: &[Machine]) -> bool {
         .any(|x| x.reprovision_requested.is_some())
 }
 
-/// True when the host carries a reset-owned HostUpdateInProgress alert (detect by target, mirroring firmware-update cleanup).
-fn has_reset_update_alert(mh_snapshot: &ManagedHostStateSnapshot) -> bool {
-    mh_snapshot
-        .host_snapshot
-        .health_reports
-        .merges
-        .get(model::machine_update_module::HOST_UPDATE_HEALTH_REPORT_SOURCE)
-        .is_some_and(|report| {
-            report.alerts.iter().any(|alert| {
-                alert.id == *model::machine_update_module::HOST_UPDATE_HEALTH_PROBE_ID
-                    && alert.target.as_deref()
-                        == Some(model::machine_update_module::RESET_UPDATE_TARGET)
-            })
-        })
-}
-
 /// True when a non-ready `mh reset` request is waiting to start. The
 /// `started_at.is_none()` guard stops it re-firing once reprovision has begun.
 fn non_ready_initial_reprov_needed(
     dpu_snapshots: &[Machine],
     managed_state: &ManagedHostState,
+    has_instance: bool,
 ) -> bool {
-    // Re-check the allow-list against the current state, which may have changed since the API accepted.
-    if !managed_state.allows_non_ready_reset() {
+    // A reset is allowed from any state except force deletion, which must never be resurrected.
+    if matches!(managed_state, ManagedHostState::ForceDeletion) {
+        return false;
+    }
+    // Wait for the controller to finish tearing down a tombstoned instance before starting the reset.
+    if has_instance {
         return false;
     }
     dpu_snapshots.iter().any(|d| {

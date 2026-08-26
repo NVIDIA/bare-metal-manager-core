@@ -27,8 +27,6 @@ lazy_static! {
 pub const HOST_UPDATE_HEALTH_REPORT_SOURCE: &str = "host-update";
 pub const HOST_FW_UPDATE_HEALTH_REPORT_SOURCE: &str = "host-fw-update";
 pub const DPU_FIRMWARE_UPDATE_TARGET: &str = "DpuFirmware";
-/// Target tagging a HostUpdateInProgress alert as reset-owned, so completion cleanup removes only reset's alert.
-pub const RESET_UPDATE_TARGET: &str = "Reset";
 
 pub struct AutomaticFirmwareUpdateReference {
     pub from: String,
