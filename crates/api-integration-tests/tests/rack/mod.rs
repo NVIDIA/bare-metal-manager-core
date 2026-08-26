@@ -37,11 +37,6 @@ use tokio_util::sync::CancellationToken;
 
 const UNDERLAY_DHCP_RELAY_ADDRESS: Ipv4Addr = Ipv4Addr::new(172, 20, 1, 1);
 
-#[ctor::ctor(unsafe)]
-fn setup() {
-    api_test_helper::setup_logging()
-}
-
 #[tokio::test(flavor = "multi_thread")]
 async fn test_machine_a_tron_racks_integration() -> eyre::Result<()> {
     let Some(mut test_env) = IntegrationTestEnvironment::try_from_environment(

@@ -14,6 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+// Keep the rack test in this executable so libtest can run it alongside `test_integration`.
+mod rack;
+
 use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener};
