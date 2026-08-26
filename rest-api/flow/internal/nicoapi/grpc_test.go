@@ -46,7 +46,7 @@ func TestGrpcClient_DecommissionPowerShelf(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			forgeClient := &decommissionPowerShelfForgeClient{err: test.clientError}
 			client := &grpcClient{
-				gclient:     forgeClient,
+				gclient:     newBatchingForgeClient(forgeClient),
 				grpcTimeout: time.Second,
 			}
 
