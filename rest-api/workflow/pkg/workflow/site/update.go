@@ -24,8 +24,8 @@ import (
 // reported by the Site Agent. It stores the Core build version and advertised
 // VPC SLAAC capability, then creates IP Blocks for Site fabric prefixes.
 //
-// Site Agents now publish UpdateSiteConfigInventoryV2. This stays registered so a Site
-// running an older Agent keeps reporting against an upgraded Cloud.
+// Site Agents now publish UpdateSiteConfigInventoryV2. This stays registered for the rollout
+// window, where Cloud upgrades ahead of the Site Agents still publishing V1.
 func UpdateSiteConfigInventory(ctx workflow.Context, siteIDStr string, coreBuildInfo *corev1.BuildInfo) error {
 	logger := log.With().Str("Workflow", "UpdateSiteConfigInventory").Str("SiteID", siteIDStr).Logger()
 
