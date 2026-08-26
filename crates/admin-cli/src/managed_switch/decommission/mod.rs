@@ -15,25 +15,17 @@
  * limitations under the License.
  */
 
-use rpc::forge::AdminForceDeleteSwitchRequest;
+mod args;
+mod cmd;
 
-use super::args::Args;
-use crate::rpc::ApiClient;
+pub(super) use args::Args;
 
-pub(super) async fn force_delete(data: Args, api_client: &ApiClient) -> color_eyre::Result<()> {
-    let response = api_client
-        .0
-        .admin_force_delete_switch(AdminForceDeleteSwitchRequest {
-            switch_id: Some(data.switch_id),
-            delete_interfaces: data.delete_interfaces,
-            delete_bmc_suppressions: data.delete_bmc_suppressions,
-        })
-        .await?;
+use crate::cfg::run::Run;
+use crate::cfg::runtime::RuntimeContext;
+use crate::errors::CarbideCliResult;
 
-    println!("Switch {} force deleted successfully.", response.switch_id);
-    if response.interfaces_deleted > 0 {
-        println!("{} interface(s) deleted.", response.interfaces_deleted);
+impl Run for Args {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        cmd::decommission(&ctx.api_client, self).await
     }
-
-    Ok(())
 }

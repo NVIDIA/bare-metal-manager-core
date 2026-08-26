@@ -15,25 +15,19 @@
  * limitations under the License.
  */
 
-use rpc::forge::AdminForceDeleteSwitchRequest;
+use rpc::forge::DecommissionSwitchRequest;
 
 use super::args::Args;
+use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
-pub(super) async fn force_delete(data: Args, api_client: &ApiClient) -> color_eyre::Result<()> {
-    let response = api_client
+pub(super) async fn decommission(api_client: &ApiClient, args: Args) -> CarbideCliResult<()> {
+    api_client
         .0
-        .admin_force_delete_switch(AdminForceDeleteSwitchRequest {
-            switch_id: Some(data.switch_id),
-            delete_interfaces: data.delete_interfaces,
-            delete_bmc_suppressions: data.delete_bmc_suppressions,
+        .decommission_switch(DecommissionSwitchRequest {
+            switch_id: Some(args.switch_id),
         })
         .await?;
-
-    println!("Switch {} force deleted successfully.", response.switch_id);
-    if response.interfaces_deleted > 0 {
-        println!("{} interface(s) deleted.", response.interfaces_deleted);
-    }
-
+    println!("Started decommissioning managed switch {}.", args.switch_id);
     Ok(())
 }

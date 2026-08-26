@@ -15,26 +15,19 @@
  * limitations under the License.
  */
 
-//! State Controller implementation for Switches.
+use carbide_uuid::switch::SwitchId;
+use clap::Parser;
 
-pub mod bom_validating;
-pub mod certificate;
-pub mod configuring;
-pub mod context;
-pub mod created;
-mod decommissioning;
-pub mod deleting;
-pub mod endpoint;
-pub mod error_state;
-pub mod fetch_info;
-pub mod handler;
-pub mod initializing;
-pub mod io;
-pub mod maintenance;
-pub mod metrics;
-pub mod nvos_password_rotation;
-pub mod ready;
-pub mod reprovisioning;
-pub mod rotating_bmc;
-pub mod validating;
-pub mod write_ops;
+/// Start the managed-switch decommissioning workflow.
+#[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Start decommissioning a ready managed switch:
+    $ nico-admin-cli managed-switch decommission sw100nsner0op5osl6n85t7772j010jmhafm934n7oej4mlome3okrn9b60
+
+")]
+pub(crate) struct Args {
+    #[clap(help = "ID of the ready managed switch to decommission")]
+    pub(super) switch_id: SwitchId,
+}

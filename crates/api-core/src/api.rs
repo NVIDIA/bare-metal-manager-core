@@ -461,6 +461,13 @@ impl Forge for Api {
         crate::handlers::switch::delete_switch(self, request).await
     }
 
+    async fn decommission_switch(
+        &self,
+        request: Request<rpc::DecommissionSwitchRequest>,
+    ) -> Result<Response<rpc::DecommissionSwitchResponse>, Status> {
+        crate::handlers::switch::decommission_switch(self, request).await
+    }
+
     async fn admin_force_delete_switch(
         &self,
         request: Request<rpc::AdminForceDeleteSwitchRequest>,
