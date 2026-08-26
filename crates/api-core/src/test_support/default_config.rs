@@ -307,7 +307,7 @@ pub fn get() -> CarbideConfig {
         nvlink_config: Some(NvLinkConfig::default()),
         dpa_config: Some(DpaConfig {
             enabled: true,
-            svpc_enabled: false,
+            svpc_enabled: true,
             astra_enabled: false,
             subnet_ip: Ipv4Addr::UNSPECIFIED,
             subnet_mask: 0_i32,

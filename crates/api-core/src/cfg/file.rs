@@ -6100,6 +6100,7 @@ enabled = true
     fn deserialize_dpa_config() {
         let toml = r#"
 enabled=true
+svpc_enabled=true
 
 [svpc]
 mqtt_endpoint = "mqtt.forge"
@@ -6111,7 +6112,7 @@ mqtt_endpoint = "mqtt.forge"
             dpa_config,
             DpaConfig {
                 enabled: true,
-                svpc_enabled: false,
+                svpc_enabled: true,
                 astra_enabled: false,
                 monitor_run_interval: std::time::Duration::from_secs(60),
                 subnet_ip: Ipv4Addr::UNSPECIFIED,

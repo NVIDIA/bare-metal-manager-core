@@ -124,6 +124,7 @@ async fn dpa_scout_request_returns_typed_mlx_action(
     txn.commit().await.unwrap();
 
     let action = process_scout_req_for_test(&env.api, mh.id).await?;
+    println!("SDM action: {:?}", action);
     let Action::MlxAction(mlx_action) = action else {
         panic!("expected typed mlx action");
     };

@@ -111,6 +111,9 @@ max_concurrent_machine_updates_absolute = 1
 
 [dpa_config]
 enabled = true
+svpc_enabled = true
+
+[dpa_config.svpc]
 mqtt_endpoint = "mqtt.forge"
 
 [host_models.dell_r750]
