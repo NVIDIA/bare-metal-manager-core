@@ -278,14 +278,14 @@ pub(super) async fn resolve_cloud_init_instructions(
     match resolved_ip {
         ResolvedClient::Instance(instance) => {
             let local_hostname = if HOSTNAME_RE.is_match(&instance.metadata.name) {
-                instance.metadata.name.clone()
+                Some(instance.metadata.name.clone())
             } else {
                 tracing::warn!(
                     instance_id=%instance.id,
                     instance_name=%instance.metadata.name,
                     "instance name is not a valid hostname; omitting local-hostname from cloud-init meta-data"
                 );
-                String::new()
+                None
             };
 
             Ok(rpc::CloudInitInstructions {
@@ -337,7 +337,7 @@ pub(super) async fn resolve_cloud_init_instructions(
                     instance_id: machine_id.to_string(),
                     cloud_name,
                     platform,
-                    local_hostname: String::new(),
+                    local_hostname: None,
                 });
 
             // For interfaces on the static-assignments segment, include

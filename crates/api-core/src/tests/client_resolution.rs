@@ -614,7 +614,8 @@ async fn test_cloud_init_local_hostname_set_from_instance_name(pool: sqlx::PgPoo
         .expect("tenant cloud-init should include metadata");
     assert_eq!(meta.instance_id, instance_id.to_string());
     assert_eq!(
-        meta.local_hostname, instance_name,
+        meta.local_hostname.as_deref(),
+        Some(instance_name),
         "local_hostname must match the instance name so cloud-init sets the OS hostname"
     );
 }
@@ -726,7 +727,7 @@ async fn test_cloud_init_local_hostname_omitted_when_instance_name_is_not_a_vali
         .expect("tenant cloud-init should include metadata");
     assert_eq!(meta.instance_id, instance_id.to_string());
     assert_eq!(
-        meta.local_hostname, "",
+        meta.local_hostname, None,
         "local_hostname must be omitted when the instance name is not a legal DNS hostname"
     );
 }

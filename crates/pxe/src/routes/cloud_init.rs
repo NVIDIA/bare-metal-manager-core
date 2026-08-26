@@ -258,8 +258,8 @@ async fn meta_data(machine: Machine, state: State<AppState>) -> impl IntoRespons
                 ("cloud_name".to_string(), metadata.cloud_name),
                 ("platform".to_string(), metadata.platform),
             ]);
-            if !metadata.local_hostname.is_empty() {
-                template_data.insert("local_hostname".to_string(), metadata.local_hostname);
+            if let Some(local_hostname) = metadata.local_hostname {
+                template_data.insert("local_hostname".to_string(), local_hostname);
             }
 
             emit(PxeBootOutcome {
@@ -891,7 +891,7 @@ mod tests {
                         instance_id: "test-instance-id".to_string(),
                         cloud_name: "nvidia".to_string(),
                         platform: "forge".to_string(),
-                        local_hostname: "my-node".to_string(),
+                        local_hostname: Some("my-node".to_string()),
                     }),
                     ..Default::default()
                 },
@@ -922,7 +922,7 @@ mod tests {
                         instance_id: "test-instance-id".to_string(),
                         cloud_name: "nvidia".to_string(),
                         platform: "forge".to_string(),
-                        local_hostname: String::new(),
+                        local_hostname: None,
                     }),
                     ..Default::default()
                 },
