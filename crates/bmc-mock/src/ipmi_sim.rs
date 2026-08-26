@@ -46,26 +46,8 @@ const CHASSIS_CONTROL_FIFO: &str = "chassis-control.fifo";
 
 #[derive(Debug, Clone)]
 pub struct IpmiSimConfig {
-    /// Client-facing port advertised through Redfish. When absent, clients connect directly to
-    /// the dynamically allocated simulator port.
-    pub reachable_port: Option<u16>,
     pub stable_id: String,
     pub console_prompt: String,
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub struct IpmiEndpoint {
-    pub reachable_port: u16,
-    pub listen_port: u16,
-}
-
-impl IpmiEndpoint {
-    fn new(listen_port: u16, reachable_port: Option<u16>) -> Self {
-        Self {
-            reachable_port: reachable_port.unwrap_or(listen_port),
-            listen_port,
-        }
-    }
 }
 
 pub struct IpmiSimHandle {
@@ -75,14 +57,15 @@ pub struct IpmiSimHandle {
     _console: MockConsole,
     manager: Arc<ManagerState>,
     _password_updater: Arc<dyn PasswordUpdater>,
-    pub endpoint: IpmiEndpoint,
+    /// UDP port on which the simulator listens and which clients must use.
+    pub port: u16,
 }
 
 impl std::fmt::Debug for IpmiSimHandle {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("IpmiSimHandle")
-            .field("endpoint", &self.endpoint)
+            .field("port", &self.port)
             .finish_non_exhaustive()
     }
 }
@@ -223,7 +206,6 @@ pub async fn start(state: &BmcState, config: IpmiSimConfig) -> Result<IpmiSimHan
 
         match wait_until_ready(&mut child, ipmi_sim_lan_port, ipmi_sim_serial_port).await {
             Ok(()) => {
-                let endpoint = IpmiEndpoint::new(ipmi_sim_lan_port, config.reachable_port);
                 let connect_ip = IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
                 let password_updater: Arc<dyn PasswordUpdater> = Arc::new(IpmiPasswordUpdater {
                     connect_ip,
@@ -232,9 +214,7 @@ pub async fn start(state: &BmcState, config: IpmiSimConfig) -> Result<IpmiSimHan
                 state
                     .account_service_state
                     .set_password_updater(&password_updater);
-                state
-                    .manager
-                    .set_ipmi_endpoint(Some(endpoint.reachable_port));
+                state.manager.set_ipmi_endpoint(Some(ipmi_sim_lan_port));
                 return Ok(IpmiSimHandle {
                     child,
                     _chassis_control: chassis_control,
@@ -242,7 +222,7 @@ pub async fn start(state: &BmcState, config: IpmiSimConfig) -> Result<IpmiSimHan
                     _console: console,
                     manager: state.manager.clone(),
                     _password_updater: password_updater,
-                    endpoint,
+                    port: ipmi_sim_lan_port,
                 });
             }
             Err(error) => {
@@ -571,8 +551,8 @@ mod tests {
     use tokio::sync::Notify;
 
     use super::{
-        ChassisControlEvent, Error, IPMI_SIM_EXECUTABLE, IpmiEndpoint, IpmiSimConfig, MockConsole,
-        stable_guid, start, validate_credential, validate_executable_in_path,
+        ChassisControlEvent, Error, IPMI_SIM_EXECUTABLE, IpmiSimConfig, MockConsole, stable_guid,
+        start, validate_credential, validate_executable_in_path,
     };
     use crate::{Callbacks, MockPowerState, SetSystemPowerError, SystemPowerControl};
 
@@ -613,36 +593,6 @@ mod tests {
         }
 
         fn state_refresh_indication(&self) {}
-    }
-
-    #[test]
-    fn endpoint_uses_configured_reachable_port_or_listen_port() {
-        for (name, listen_port, reachable_port, expected) in [
-            (
-                "direct",
-                16_020,
-                None,
-                IpmiEndpoint {
-                    reachable_port: 16_020,
-                    listen_port: 16_020,
-                },
-            ),
-            (
-                "forwarded",
-                16_020,
-                Some(623),
-                IpmiEndpoint {
-                    reachable_port: 623,
-                    listen_port: 16_020,
-                },
-            ),
-        ] {
-            assert_eq!(
-                IpmiEndpoint::new(listen_port, reachable_port),
-                expected,
-                "{name}",
-            );
-        }
     }
 
     #[test]
@@ -706,7 +656,6 @@ mod tests {
         let error = start(
             &state,
             IpmiSimConfig {
-                reachable_port: None,
                 stable_id: "missing-callback".to_string(),
                 console_prompt: "root@bmc-mock # ".to_string(),
             },
@@ -729,14 +678,13 @@ mod tests {
         let simulator = start(
             &state,
             IpmiSimConfig {
-                reachable_port: None,
                 stable_id: "chassis-reset".to_string(),
                 console_prompt: "root@bmc-mock # ".to_string(),
             },
         )
         .await
         .unwrap();
-        let port = simulator.endpoint.listen_port.to_string();
+        let port = simulator.port.to_string();
         let output = tokio::time::timeout(
             Duration::from_secs(10),
             tokio::process::Command::new("ipmitool")

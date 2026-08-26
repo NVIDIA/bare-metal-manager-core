@@ -31,6 +31,75 @@ use super::DbPrimaryUuid;
 
 static MACHINE_ID_PREFIX: &str = "fm100";
 
+use crate::typed_uuids::{TypedUuid, UuidSubtype};
+
+// Macro used by below modules (`mod dpu;`, etc): needs to be declared before we declare them.
+#[cfg(feature = "sqlx")]
+macro_rules! impl_sqlx_for_machine_id_newtype {
+    ($newtype:ty) => {
+        impl sqlx::Encode<'_, sqlx::Postgres> for $newtype {
+            fn encode_by_ref(
+                &self,
+                buf: &mut <sqlx::Postgres as sqlx::Database>::ArgumentBuffer,
+            ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
+                buf.extend(self.to_string().as_bytes());
+                Ok(sqlx::encode::IsNull::No)
+            }
+        }
+
+        impl<'r, DB> sqlx::Decode<'r, DB> for $newtype
+        where
+            DB: sqlx::Database,
+            String: sqlx::Decode<'r, DB>,
+        {
+            fn decode(
+                value: <DB as sqlx::database::Database>::ValueRef<'r>,
+            ) -> Result<Self, sqlx::error::BoxDynError> {
+                let str_id: String = String::decode(value)?;
+                Ok(str_id.parse::<super::MachineId>()?.try_into()?)
+            }
+        }
+
+        impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for $newtype {
+            fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+                sqlx::Row::try_get(row, 0)
+            }
+        }
+
+        impl<DB> sqlx::Type<DB> for $newtype
+        where
+            DB: sqlx::Database,
+            String: sqlx::Type<DB>,
+        {
+            fn type_info() -> <DB as sqlx::Database>::TypeInfo {
+                String::type_info()
+            }
+
+            fn compatible(ty: &DB::TypeInfo) -> bool {
+                String::compatible(ty)
+            }
+        }
+
+        impl sqlx::postgres::PgHasArrayType for $newtype {
+            fn array_type_info() -> sqlx::postgres::PgTypeInfo {
+                <&str as sqlx::postgres::PgHasArrayType>::array_type_info()
+            }
+
+            fn array_compatible(ty: &sqlx::postgres::PgTypeInfo) -> bool {
+                <&str as sqlx::postgres::PgHasArrayType>::array_compatible(ty)
+            }
+        }
+    };
+}
+
+mod dpu;
+mod host;
+mod predicted_host;
+mod stable_host;
+
+pub use dpu::DpuMachineId;
+pub use host::{HostMachineId, HostMachineIdSubtype};
+pub use predicted_host::PredictedHostMachineId;
 #[cfg(feature = "sqlx")]
 use sqlx::{
     encode::IsNull,
@@ -38,8 +107,7 @@ use sqlx::{
     postgres::{PgHasArrayType, PgTypeInfo},
     {Database, Postgres, Row},
 };
-
-use crate::typed_uuids::{TypedUuid, UuidSubtype};
+pub use stable_host::StableHostMachineId;
 
 /// Marker type for MachineInterfaceId
 pub struct MachineInterfaceIdMarker;
@@ -243,6 +311,20 @@ impl PgHasArrayType for MachineId {
     }
 }
 
+/// Equivalent to [`MachineType`] but carries the strongly-typed subtype with each variant
+pub enum MachineIdSubtype {
+    Dpu(DpuMachineId),
+    StableHost(StableHostMachineId),
+    PredictedHost(PredictedHostMachineId),
+}
+
+/// Similar to [`MachineIdSubtype`] but for cases where stable and predicted host ID's should be
+/// combined into a single [`HostMachineId`] variant.
+pub enum HostOrDpuId {
+    Host(HostMachineId),
+    Dpu(DpuMachineId),
+}
+
 impl MachineId {
     pub fn new(source: MachineIdSource, hardware_hash: HardwareHash, ty: MachineType) -> MachineId {
         // BASE32_DNSSEC is chosen to just generate lowercase characters and
@@ -294,6 +376,33 @@ impl MachineId {
 
     pub(crate) fn is_matching_prefix(s: &str) -> bool {
         s.starts_with(MACHINE_ID_PREFIX)
+    }
+
+    /// Equivalent to [`Self::machine_type`] but returns a [`MachineIdSubtype`], which carries the
+    /// strongly-typed subtype with each variant
+    pub fn machine_id_subtype(&self) -> MachineIdSubtype {
+        // SAFETY: subtypes must convert if the type matches
+        match self.ty {
+            MachineType::Dpu => MachineIdSubtype::Dpu(DpuMachineId::try_from(*self).unwrap()),
+            MachineType::Host => {
+                MachineIdSubtype::StableHost(StableHostMachineId::try_from(*self).unwrap())
+            }
+            MachineType::PredictedHost => {
+                MachineIdSubtype::PredictedHost(PredictedHostMachineId::try_from(*self).unwrap())
+            }
+        }
+    }
+
+    /// Similar to [`Self::machine_id_subtype`] but for cases where stable and predicted host ID's
+    /// should be combined into a single [`HostMachineId`] variant.
+    pub fn host_or_dpu_id(&self) -> HostOrDpuId {
+        // SAFETY: subtypes must convert if the type matches
+        match self.ty {
+            MachineType::Dpu => HostOrDpuId::Dpu(DpuMachineId::try_from(*self).unwrap()),
+            MachineType::Host | MachineType::PredictedHost => {
+                HostOrDpuId::Host(HostMachineId::try_from(*self).unwrap())
+            }
+        }
     }
 }
 
@@ -470,6 +579,16 @@ pub enum MachineIdParseError {
     Encoding(String),
 }
 
+/// Represents a failure of a particular subtype of MachineId (HostMachineId, DpuMachineId, etc) to
+/// parse. Can either be due to the machine ID being invalid altogether, or of the wrong type.
+#[derive(thiserror::Error, Debug)]
+pub enum MachineIdSubtypeParseError {
+    #[error("not a valid machine ID: {0}")]
+    Invalid(#[from] MachineIdParseError),
+    #[error("machine ID is of wrong type: {0}")]
+    WrongType(#[from] InvalidMachineType),
+}
+
 impl FromStr for MachineId {
     type Err = MachineIdParseError;
 
@@ -521,6 +640,14 @@ impl<'de> Deserialize<'de> for MachineId {
         let id = MachineId::from_str(&str_value).map_err(|err| Error::custom(err.to_string()))?;
         Ok(id)
     }
+}
+
+/// Error returned when a machine ID does not have the required machine type.
+#[derive(thiserror::Error, Debug)]
+#[error("expected {expected}, got {actual}")]
+pub struct InvalidMachineType {
+    expected: &'static str,
+    actual: MachineId,
 }
 
 #[cfg(test)]
@@ -699,5 +826,164 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_machine_id_subtype_accessors() {
+        let hardware_hash = [42; 32];
+        let dpu_id = MachineId::new(MachineIdSource::Tpm, hardware_hash, MachineType::Dpu);
+        let stable_host_id = MachineId::new(MachineIdSource::Tpm, hardware_hash, MachineType::Host);
+        let predicted_host_id = MachineId::new(
+            MachineIdSource::Tpm,
+            hardware_hash,
+            MachineType::PredictedHost,
+        );
+
+        assert!(matches!(
+            dpu_id.machine_id_subtype(),
+            MachineIdSubtype::Dpu(id) if id.as_machine_id() == &dpu_id
+        ));
+        assert!(matches!(
+            stable_host_id.machine_id_subtype(),
+            MachineIdSubtype::StableHost(id) if id.as_machine_id() == &stable_host_id
+        ));
+        assert!(matches!(
+            predicted_host_id.machine_id_subtype(),
+            MachineIdSubtype::PredictedHost(id) if id.as_machine_id() == &predicted_host_id
+        ));
+
+        assert!(matches!(
+            dpu_id.host_or_dpu_id(),
+            HostOrDpuId::Dpu(id) if id.as_machine_id() == &dpu_id
+        ));
+        for id in [stable_host_id, predicted_host_id] {
+            let HostOrDpuId::Host(host_id) = id.host_or_dpu_id() else {
+                panic!("expected {id} to be classified as a host");
+            };
+            assert_eq!(host_id.as_machine_id(), &id);
+            assert_eq!(host_id.is_stable_host(), id == stable_host_id);
+            assert!(match host_id.host_machine_id_subtype() {
+                HostMachineIdSubtype::Stable(subtype) => {
+                    subtype.as_machine_id() == &id && id == stable_host_id
+                }
+                HostMachineIdSubtype::Predicted(subtype) => {
+                    subtype.as_machine_id() == &id && id == predicted_host_id
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn test_machine_id_newtype_conversion_matrix() {
+        let hardware_hash = [42; 32];
+        let stable = MachineId::new(MachineIdSource::Tpm, hardware_hash, MachineType::Host);
+        let predicted = MachineId::new(
+            MachineIdSource::Tpm,
+            hardware_hash,
+            MachineType::PredictedHost,
+        );
+        let dpu = MachineId::new(MachineIdSource::Tpm, hardware_hash, MachineType::Dpu);
+
+        value_scenarios!(
+            run = |id| HostMachineId::try_from(id).is_ok();
+            "stable host is a host" { stable => true }
+            "predicted host is a host" { predicted => true }
+            "DPU is not a host" { dpu => false }
+        );
+        value_scenarios!(
+            run = |id| StableHostMachineId::try_from(id).is_ok();
+            "stable host is stable" { stable => true }
+            "predicted host is not stable" { predicted => false }
+            "DPU is not stable" { dpu => false }
+        );
+        value_scenarios!(
+            run = |id| PredictedHostMachineId::try_from(id).is_ok();
+            "predicted host is predicted" { predicted => true }
+            "stable host is not predicted" { stable => false }
+            "DPU is not predicted" { dpu => false }
+        );
+        value_scenarios!(
+            run = |id| DpuMachineId::try_from(id).is_ok();
+            "DPU is a DPU" { dpu => true }
+            "stable host is not a DPU" { stable => false }
+            "predicted host is not a DPU" { predicted => false }
+        );
+
+        value_scenarios!(
+            run = |id| {
+                let host_id = HostMachineId::try_from(id).unwrap();
+                (
+                    StableHostMachineId::try_from(host_id).is_ok(),
+                    PredictedHostMachineId::try_from(host_id).is_ok(),
+                )
+            };
+            "host narrows to stable host" { stable => (true, false) }
+            "host narrows to predicted host" { predicted => (false, true) }
+        );
+
+        assert_eq!(
+            PredictedHostMachineId::try_from(HostMachineId::try_from(stable).unwrap())
+                .unwrap_err()
+                .to_string(),
+            format!("expected predicted host machine ID, got {stable}"),
+        );
+        assert_eq!(
+            StableHostMachineId::try_from(HostMachineId::try_from(predicted).unwrap())
+                .unwrap_err()
+                .to_string(),
+            format!("expected stable host machine ID, got {predicted}"),
+        );
+    }
+
+    #[test]
+    fn test_machine_id_newtype_parsing_and_json() {
+        let hardware_hash = [42; 32];
+        let stable = MachineId::new(MachineIdSource::Tpm, hardware_hash, MachineType::Host);
+        let predicted = MachineId::new(
+            MachineIdSource::Tpm,
+            hardware_hash,
+            MachineType::PredictedHost,
+        );
+        let dpu = MachineId::new(MachineIdSource::Tpm, hardware_hash, MachineType::Dpu);
+
+        fn acceptance<T>(id: MachineId) -> (bool, bool)
+        where
+            T: FromStr + serde::de::DeserializeOwned,
+        {
+            (
+                id.to_string().parse::<T>().is_ok(),
+                serde_json::from_str::<T>(&serde_json::to_string(&id).unwrap()).is_ok(),
+            )
+        }
+
+        value_scenarios!(
+            run = |id| (
+                acceptance::<HostMachineId>(id),
+                acceptance::<StableHostMachineId>(id),
+                acceptance::<PredictedHostMachineId>(id),
+                acceptance::<DpuMachineId>(id),
+            );
+            "stable host parsing and JSON" {
+                stable => ((true, true), (true, true), (false, false), (false, false))
+            }
+            "predicted host parsing and JSON" {
+                predicted => ((true, true), (false, false), (true, true), (false, false))
+            }
+            "DPU parsing and JSON" {
+                dpu => ((false, false), (false, false), (false, false), (true, true))
+            }
+        );
+
+        let typed = StableHostMachineId::try_from(stable).unwrap();
+
+        assert_eq!(
+            serde_json::to_string(&typed).unwrap(),
+            serde_json::to_string(&stable).unwrap()
+        );
+        assert_eq!(
+            serde_json::from_str::<StableHostMachineId>(&serde_json::to_string(&stable).unwrap())
+                .unwrap(),
+            typed
+        );
     }
 }

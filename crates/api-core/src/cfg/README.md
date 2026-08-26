@@ -57,6 +57,7 @@ Use `site_explorer.dpu_policy` instead.
 | `dpu_ipmi_tool_impl` | `Option<String>` | — | `machines` | IPMI tool implementation for DPU power control (`"prod"` or `"fake"`). |
 | `dpu_ipmi_reboot_attempts` | `Option<u32>` | — | `machines` | Retry count when IPMI errors during DPU reboot. |
 | `bmc_session_lockout_threshold` | `u32` | `3` | `security` | Consecutive BMC HTTP 401/403 responses before session-token login attempts stop for that BMC. |
+| `bmc_max_sessions_per_caller` | `usize` | `4` | `security` | Cap on outstanding Redfish sessions per calling service identity per BMC; a `GetBmcCredentials` mint past the cap revokes that caller's oldest sessions. Values below 1 are treated as 1. |
 | `ib_fabrics` | `HashMap<String, IbFabricDefinition>` | `{}` | `hardware` | InfiniBand fabrics managed by the site. Currently only one fabric is supported. |
 | `initial_domain_name` | `Option<String>` | — | `machines` | Domain to create if none exist. Most sites use a single domain. |
 | `initial_dpu_agent_upgrade_policy` | `Option<AgentUpgradePolicyChoice>` | — | `machines` | Policy for nico-dpu-agent upgrades. Also settable via `nico-admin-cli`. |
@@ -85,7 +86,7 @@ Use `site_explorer.dpu_policy` instead.
 | `machine_updater` | `MachineUpdater` | *(see below)* | `machines` | Machine update policies (see [MachineUpdater](#machineupdater)). |
 | `max_find_by_ids` | `u32` | `100` | `server` | Max IDs accepted by `find_*_by_ids` APIs. |
 | `network_security_group` | `NetworkSecurityGroupConfig` | *(see below)* | `networking` | NSG settings (see [NetworkSecurityGroupConfig](#networksecuritygroupconfig)). |
-| `min_dpu_functioning_links` | `Option<u32>` | — | `machines` | Minimum functioning DPU links for healthy status. If unset, all must work. |
+| `min_dpu_functioning_links` | `Option<u32>` | unset (effective value `2`) | `machines` | Controls DPU ToR BGP health checks. Refer to [DPU ToR Uplink Health](../../../../docs/dpu-management/dpu_configuration.md#dpu-tor-uplink-health) for values and lifecycle effects. |
 | `host_health` | `HostHealthConfig` | *(default)* | `machines` | Host health monitoring thresholds for hardware health and DPU agent compliance. |
 | `observability` | `ObservabilityConfig` | *(default)* | `integrations` | Observability settings shared across all state controllers (see [ObservabilityConfig](#observabilityconfig)). |
 | `internet_l3_vni` | `u32` | `100001` | `networking` | Network infrastructure-provided L3 VNI for FNN VPC Internet connectivity. Combined with `datacenter_asn` for route-target. |

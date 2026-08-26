@@ -291,36 +291,62 @@ impl<'a> PrefixPair<'a> {
     }
 }
 
-/// Mirrors the legacy family-specific fields into the staged address list.
+// This is intentionally a one-line wrapper. It gives the IPv4-only
+// compatibility rule one obvious name and keeps the explanation here instead
+// of repeating it at each producer call site.
+fn tenant_vrf_loopback_for_legacy_ipv4_field(loopback_ip: Option<IpAddr>) -> Option<String> {
+    loopback_ip.filter(IpAddr::is_ipv4).map(|ip| ip.to_string())
+}
+
+/// Mirrors the deprecated family-specific fields into the family-neutral address list.
+///
+/// Values are emitted in V4/V6 order. The tenant VRF loopback is placed on the
+/// entry matching its address family, creating a loopback-only entry when that
+/// family has no interface address data.
 #[allow(deprecated)]
 fn interface_address_configs(
     config: &rpc::FlatInterfaceConfig,
     ipv6_segment_prefix: Option<&str>,
+    tenant_vrf_loopback_ip: Option<IpAddr>,
 ) -> Vec<rpc::InterfaceAddressConfig> {
     let mut addresses = Vec::with_capacity(2);
+    let ipv4_loopback = tenant_vrf_loopback_ip
+        .filter(IpAddr::is_ipv4)
+        .map(|ip| ip.to_string());
+    let ipv6_loopback = tenant_vrf_loopback_ip
+        .filter(IpAddr::is_ipv6)
+        .map(|ip| ip.to_string());
 
-    if !config.interface_prefix.is_empty() {
+    if config.gateway.is_some()
+        || config.ip.is_some()
+        || config.interface_prefix.is_some()
+        || config.prefix.is_some()
+        || config.svi_ip.is_some()
+        || ipv4_loopback.is_some()
+    {
         addresses.push(rpc::InterfaceAddressConfig {
             address_family: rpc::AddressFamily::V4.into(),
+            ip: config.ip.clone().unwrap_or_default(),
+            interface_prefix: config.interface_prefix.clone().unwrap_or_default(),
+            prefix: config.prefix.clone().unwrap_or_default(),
             gateway: config.gateway.clone(),
-            ip: config.ip.clone(),
-            interface_prefix: config.interface_prefix.clone(),
-            prefix: config.prefix.clone(),
             svi_ip: config.svi_ip.clone(),
+            tenant_vrf_loopback_ip: ipv4_loopback,
         });
     }
 
-    if let Some(ipv6) = config.ipv6_interface_config.as_ref()
-        && !ipv6.interface_prefix.is_empty()
-        && let Some(prefix) = ipv6_segment_prefix
-    {
+    if config.ipv6_interface_config.is_some() || ipv6_loopback.is_some() {
+        let ipv6 = config.ipv6_interface_config.as_ref();
         addresses.push(rpc::InterfaceAddressConfig {
             address_family: rpc::AddressFamily::V6.into(),
-            gateway: ipv6.interface_prefix.clone(),
-            ip: ipv6.ip.clone(),
-            interface_prefix: ipv6.interface_prefix.clone(),
-            prefix: prefix.to_string(),
-            svi_ip: ipv6.svi_ip.clone(),
+            ip: ipv6.map(|v6| v6.ip.clone()).unwrap_or_default(),
+            interface_prefix: ipv6
+                .map(|v6| v6.interface_prefix.clone())
+                .unwrap_or_default(),
+            prefix: ipv6_segment_prefix.unwrap_or_default().to_string(),
+            gateway: None,
+            svi_ip: ipv6.and_then(|v6| v6.svi_ip.clone()),
+            tenant_vrf_loopback_ip: ipv6_loopback,
         });
     }
 
@@ -515,8 +541,7 @@ pub(crate) async fn admin_network(
                                     dpu_machine_id,
                                     &vpc.id,
                                 )
-                                .await?
-                                .to_string(),
+                                .await?,
                             )
                         } else {
                             None
@@ -553,19 +578,19 @@ pub(crate) async fn admin_network(
             0
         },
         vpc_vni,
-        gateway: prefix.gateway_cidr().unwrap_or_default(),
-        ip: address.to_string(),
-        interface_prefix: address_prefix.to_string(),
+        gateway: prefix.gateway_cidr(),
+        ip: Some(address.to_string()),
+        interface_prefix: Some(address_prefix.to_string()),
         vpc_prefixes: if fnn_enabled_on_admin {
             vec![format!("{address}/32")]
         } else {
             vec![]
         },
-        prefix: prefix.prefix.to_string(),
+        prefix: Some(prefix.prefix.to_string()),
         fqdn: format!("{}.{}", active_interface.hostname, domain),
         booturl: booturl.clone(),
         svi_ip,
-        tenant_vrf_loopback_ip,
+        tenant_vrf_loopback_ip: tenant_vrf_loopback_for_legacy_ipv4_field(tenant_vrf_loopback_ip),
         is_l2_segment: true,
         vpc_peer_prefixes: vec![],
         vpc_peer_vnis: vec![],
@@ -577,7 +602,7 @@ pub(crate) async fn admin_network(
         interface_routing_profile: None,
         addresses: vec![],
     };
-    cfg.addresses = interface_address_configs(&cfg, None);
+    cfg.addresses = interface_address_configs(&cfg, None, tenant_vrf_loopback_ip);
     Ok((cfg, interface.id))
 }
 
@@ -590,7 +615,7 @@ pub(crate) async fn tenant_network(
     instance_id: InstanceId,
     iface: &InstanceInterfaceConfig,
     fqdn: String,
-    loopback_ip: Option<String>,
+    loopback_ip: Option<IpAddr>,
     network_virtualization_type: VpcVirtualizationType,
     suppress_tenant_security_groups: bool,
     network_security_group_details: Option<(i32, NetworkSecurityGroup)>,
@@ -815,24 +840,17 @@ pub(crate) async fn tenant_network(
         vlan_id: segment.status.vlan_id.unwrap_or_default() as u32,
         vni: segment.status.vni.unwrap_or_default() as u32,
         vpc_vni,
-        gateway: ds
-            .v4()
-            .map(|p| p.gateway_cidr().unwrap_or_default())
-            .unwrap_or_default(),
-        ip: address
-            .map(|address| address.to_string())
-            .unwrap_or_default(),
-        interface_prefix: interface_prefix
-            .map(|prefix| prefix.to_string())
-            .unwrap_or_default(),
+        gateway: ds.v4().and_then(NetworkPrefix::gateway_cidr),
+        ip: address.map(|address| address.to_string()),
+        interface_prefix: interface_prefix.map(|prefix| prefix.to_string()),
         vpc_prefixes,
-        prefix: ds.v4().map(|p| p.prefix.to_string()).unwrap_or_default(),
+        prefix: ds.v4().map(|p| p.prefix.to_string()),
         // FIXME: Right now we are sending instance IP as hostname. This should be replaced by
         // user's provided fqdn later.
         fqdn,
         booturl: booturl.clone(),
         svi_ip,
-        tenant_vrf_loopback_ip: loopback_ip,
+        tenant_vrf_loopback_ip: tenant_vrf_loopback_for_legacy_ipv4_field(loopback_ip),
         is_l2_segment,
         vpc_peer_prefixes,
         vpc_peer_vnis,
@@ -874,7 +892,8 @@ pub(crate) async fn tenant_network(
         addresses: vec![],
     };
     let ipv6_segment_prefix = ds.v6().map(|prefix| prefix.prefix.to_string());
-    config.addresses = interface_address_configs(&config, ipv6_segment_prefix.as_deref());
+    config.addresses =
+        interface_address_configs(&config, ipv6_segment_prefix.as_deref(), loopback_ip);
 
     Ok(config)
 }
@@ -911,10 +930,10 @@ mod test {
         ipv6_interface_config: Option<rpc::FlatInterfaceIpv6Config>,
     ) -> rpc::FlatInterfaceConfig {
         rpc::FlatInterfaceConfig {
-            gateway: "192.0.2.1/24".to_string(),
-            ip: "192.0.2.10".to_string(),
-            interface_prefix: "192.0.2.10/32".to_string(),
-            prefix: "192.0.2.0/24".to_string(),
+            gateway: Some("192.0.2.1/24".to_string()),
+            ip: Some("192.0.2.10".to_string()),
+            interface_prefix: Some("192.0.2.10/32".to_string()),
+            prefix: Some("192.0.2.0/24".to_string()),
             svi_ip: Some("192.0.2.2/24".to_string()),
             ipv6_interface_config,
             ..Default::default()
@@ -924,11 +943,12 @@ mod test {
     fn ipv4_address_config() -> rpc::InterfaceAddressConfig {
         rpc::InterfaceAddressConfig {
             address_family: rpc::AddressFamily::V4.into(),
-            gateway: "192.0.2.1/24".to_string(),
             ip: "192.0.2.10".to_string(),
             interface_prefix: "192.0.2.10/32".to_string(),
             prefix: "192.0.2.0/24".to_string(),
+            gateway: Some("192.0.2.1/24".to_string()),
             svi_ip: Some("192.0.2.2/24".to_string()),
+            tenant_vrf_loopback_ip: None,
         }
     }
 
@@ -943,22 +963,24 @@ mod test {
     fn ipv6_address_config() -> rpc::InterfaceAddressConfig {
         rpc::InterfaceAddressConfig {
             address_family: rpc::AddressFamily::V6.into(),
-            gateway: "2001:db8::/127".to_string(),
             ip: "2001:db8::1".to_string(),
             interface_prefix: "2001:db8::/127".to_string(),
             prefix: "2001:db8::/64".to_string(),
+            gateway: None,
             svi_ip: Some("2001:db8::2/64".to_string()),
+            tenant_vrf_loopback_ip: None,
         }
     }
 
     fn slaac_ipv6_address_config() -> rpc::InterfaceAddressConfig {
         rpc::InterfaceAddressConfig {
             address_family: rpc::AddressFamily::V6.into(),
-            gateway: "2001:db8::/64".to_string(),
             ip: String::new(),
             interface_prefix: "2001:db8::/64".to_string(),
             prefix: "2001:db8::/64".to_string(),
+            gateway: None,
             svi_ip: None,
+            tenant_vrf_loopback_ip: None,
         }
     }
 
@@ -1012,16 +1034,21 @@ mod test {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn interface_address_configs_mirror_legacy_fields_in_family_order() {
         value_scenarios!(
-            run = |(config, ipv6_prefix): (rpc::FlatInterfaceConfig, Option<&str>)| {
-                interface_address_configs(&config, ipv6_prefix)
+            run = |(config, ipv6_prefix, loopback_ip): (
+                rpc::FlatInterfaceConfig,
+                Option<&str>,
+                Option<IpAddr>,
+            )| {
+                interface_address_configs(&config, ipv6_prefix, loopback_ip)
             };
             "IPv4-only config" {
-                (legacy_interface_config(None), None) => vec![ipv4_address_config()],
+                (legacy_interface_config(None), None, None) => vec![ipv4_address_config()],
             }
             "no configured address families" {
-                (rpc::FlatInterfaceConfig::default(), None) => vec![],
+                (rpc::FlatInterfaceConfig::default(), None, None) => vec![],
             }
             "IPv6-only config" {
                 (
@@ -1030,10 +1057,11 @@ mod test {
                         ..Default::default()
                     },
                     Some("2001:db8::/64"),
+                    None,
                 ) => vec![ipv6_address_config()],
             }
             "IPv6 segment without an interface address" {
-                (legacy_interface_config(None), Some("2001:db8::/64")) => vec![ipv4_address_config()],
+                (legacy_interface_config(None), Some("2001:db8::/64"), None) => vec![ipv4_address_config()],
             }
             "IPv6 address without an interface prefix" {
                 (
@@ -1043,7 +1071,15 @@ mod test {
                         svi_ip: None,
                     })),
                     Some("2001:db8::/64"),
-                ) => vec![ipv4_address_config()],
+                    None,
+                ) => vec![
+                    ipv4_address_config(),
+                    rpc::InterfaceAddressConfig {
+                        interface_prefix: String::new(),
+                        svi_ip: None,
+                        ..ipv6_address_config()
+                    },
+                ],
             }
             "SLAAC prefix without a host address" {
                 (
@@ -1056,13 +1092,61 @@ mod test {
                         ..Default::default()
                     },
                     Some("2001:db8::/64"),
+                    None,
                 ) => vec![slaac_ipv6_address_config()],
+            }
+            "IPv6-only config with an IPv4 tenant VRF loopback" {
+                (
+                    rpc::FlatInterfaceConfig {
+                        ipv6_interface_config: Some(ipv6_interface_config()),
+                        ..Default::default()
+                    },
+                    Some("2001:db8::/64"),
+                    Some("192.0.2.3".parse().unwrap()),
+                ) => vec![
+                    rpc::InterfaceAddressConfig {
+                        address_family: rpc::AddressFamily::V4.into(),
+                        tenant_vrf_loopback_ip: Some("192.0.2.3".to_string()),
+                        ..Default::default()
+                    },
+                    ipv6_address_config(),
+                ],
+            }
+            "IPv4-only config with an IPv6 tenant VRF loopback" {
+                (
+                    legacy_interface_config(None),
+                    None,
+                    Some("2001:db8::3".parse().unwrap()),
+                ) => vec![
+                    ipv4_address_config(),
+                    rpc::InterfaceAddressConfig {
+                        address_family: rpc::AddressFamily::V6.into(),
+                        tenant_vrf_loopback_ip: Some("2001:db8::3".to_string()),
+                        ..Default::default()
+                    },
+                ],
             }
             "dual-stack config" {
                 (
                     legacy_interface_config(Some(ipv6_interface_config())),
                     Some("2001:db8::/64"),
+                    None,
                 ) => vec![ipv4_address_config(), ipv6_address_config()],
+            }
+        );
+    }
+
+    #[test]
+    fn tenant_vrf_loopback_for_legacy_ipv4_field_is_ipv4_only() {
+        value_scenarios!(run = tenant_vrf_loopback_for_legacy_ipv4_field;
+            "absent loopback remains absent" {
+                None => None,
+            }
+            "IPv4 loopback is projected" {
+                Some("192.0.2.3".parse().unwrap()) => Some("192.0.2.3".to_string()),
+            }
+            "IPv6 loopback remains family-neutral" {
+                Some("2001:db8::3".parse().unwrap()) => None,
             }
         );
     }

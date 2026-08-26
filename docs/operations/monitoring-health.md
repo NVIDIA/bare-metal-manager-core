@@ -296,21 +296,22 @@ Health report records exported over OTLP carry versioned routing fields, counts,
 
 Keep the following in mind when configuring health report records:
 
-* The per-target `include_alert_details` setting defaults to `false`. This omits `health_report.alerts` and `health_report.alerts.dropped`. Set `include_alert_details` to `true` on a `[[sinks.otlp.targets]]` entry to add `health_report.alerts` when the report has alerts.
+- The per-target `include_alert_details` setting defaults to `false`. This omits `health_report.alerts` and `health_report.alerts.dropped`. Set `include_alert_details` to `true` on a `[[sinks.otlp.targets]]` entry to add `health_report.alerts` when the report has alerts.
 
-* _The setting is per-target_. This means that, for example, a debugging destination can receive detail, while a long-term store receives the routing, count, and success evidence without needing to store free-form alert messages.
+- *The setting is per-target*. This means that, for example, a debugging destination can receive detail, while a long-term store receives the routing, count, and success evidence without needing to store free-form alert messages.
 
-* The JSON array in `health_report.alerts` contains the first 64 alerts in report order, each with `probe_id`, `message`, `classifications`, and `target` if the alert names one.
+- The JSON array in `health_report.alerts` contains the first 64 alerts in report order, each with `probe_id`, `message`, `classifications`, and `target` if the alert names one.
 
-* `health_report.alerts.dropped` appears only when details are enabled _and_ the report has more than 64 alerts. It contains the number of omitted alerts beyond those first 64.
+- `health_report.alerts.dropped` appears only when details are enabled *and* the report has more than 64 alerts. It contains the number of omitted alerts beyond those first 64.
 
-* Probe IDs use health API names: for example, OOB GPU inventory alerts appear as `SkuValidation` to deduplicate with the in-band SKU alerts.
+- Probe IDs use health API names: for example, OOB GPU inventory alerts appear as `SkuValidation` to deduplicate with the in-band SKU alerts.
 
 ## DPU Health Checks
 
 `dpu-agent` runs on managed DPUs and reports DPU health to NICo. The BlueField
-chart is named `nico-dpu-agent`. In service names and logs, the DPU agent
-currently appears as `forge-dpu-agent.service`.
+chart is named `nico-dpu-agent`. A systemd deployment uses
+`forge-dpu-agent.service`. A DPF deployment runs the `nico-dpu-agent` container,
+and centralized logs identify it as `nico-dpu-agent`.
 
 The agent checks DPU service health, networking state, HBN/NVUE configuration,
 DHCP behavior, BGP status, and heartbeat. DPU health is part of aggregate host
@@ -388,27 +389,45 @@ Common DPU alert IDs include:
 from the DPU agent. Check whether the DPU is powered, the agent is running, DPU
 time is correct, and the DPU can reach NICo.
 
+For `BgpPeeringTor`, start with the alert target and message. A p0 transport
+failure includes `PreventAllocations` and blocks normal PXE readiness. A lone
+p1 transport failure does not prevent allocation or block host state
+transitions. An FRR message that states the session did not negotiate IPv6
+unicast is an address family warning, not evidence that the transport session
+is down.
+
+`PostConfigCheckWait` is expected in one report after the agent changes HBN or
+reloads local DHCP in ContainerExec mode. It includes `PreventAllocations` and
+`PreventHostStateChanges`, then clears when the agent sends a fresh sample. If
+it appears in consecutive reports, check the DPU agent logs for repeated
+configuration applications.
+
+Refer to [DPU ToR Uplink Health](../dpu-management/dpu_configuration.md#dpu-tor-uplink-health)
+for the configuration values, classifications, and complete transport matrix.
+
 ### DPU Logs
 
-Use Loki to inspect DPU-agent logs:
+Use Loki to inspect DPU agent logs. Select the query for the deployment path:
 
 ```logql
 {systemd_unit="forge-dpu-agent.service", machine_id="<machine-id>"}
+{systemd_unit="nico-dpu-agent", machine_id="<machine-id>"}
 ```
 
-Alternative labels can be used when available:
+Use the hostname label when the DPU has not learned its machine ID:
 
 ```logql
 {systemd_unit="forge-dpu-agent.service", host_name="<host-name>"}
+{systemd_unit="nico-dpu-agent", host_name="<host-name>"}
 ```
 
-On the DPU, use `journalctl` for direct service logs:
+On a systemd DPU, use `journalctl` for direct service logs:
 
 ```bash
 journalctl -u forge-dpu-agent.service -e --no-pager
 ```
 
-Restart the agent when required:
+Restart the systemd agent when required:
 
 ```bash
 systemctl restart forge-dpu-agent.service
@@ -765,6 +784,7 @@ Common Loki patterns:
 
 ```logql
 {systemd_unit="forge-dpu-agent.service", machine_id="<machine-id>"}
+{systemd_unit="nico-dpu-agent", machine_id="<machine-id>"}
 ```
 
 ```logql
@@ -823,6 +843,7 @@ For example:
 ```bash
 logcli query --since=1h '{k8s_container_name="nico-hardware-health"} |= "<machine-id>"'
 logcli query --since=1h '{systemd_unit="forge-dpu-agent.service"} |= "<machine-id>"'
+logcli query --since=1h '{systemd_unit="nico-dpu-agent"} |= "<machine-id>"'
 ```
 
 ### Dashboard Starting Points
@@ -847,7 +868,7 @@ Classifications.
 | Symptom | Check | Next action |
 |---|---|---|
 | Host is unhealthy with `PoweredOff` | Admin Web UI health page and hardware-health logs around `inAlertSince`. | Confirm BMC power state and whether the alert target is the expected BMC IP. |
-| Host is unhealthy with `HeartbeatTimeout` for `forge-dpu-agent` | `journalctl -u forge-dpu-agent.service -e --no-pager` and Loki query for the DPU agent. | Confirm the DPU is powered, time-synced, and able to reach NICo. Restart `forge-dpu-agent.service` only when service-level remediation requires it. |
+| Host is unhealthy with `HeartbeatTimeout` for the DPU agent | For systemd, use `journalctl -u forge-dpu-agent.service -e --no-pager`. For DPF, query the `nico-dpu-agent` logs in Loki. | Confirm the DPU is powered, its time is synchronized, and it can reach NICo. Restart the systemd service or DPF pod only when service remediation requires it. |
 | Host has active overrides | `nico-admin-cli machine health-override show <machine-id>` and the Health Overrides dashboard panel. | Verify the override reason is still valid. Remove temporary overrides after the condition ends. |
 | Health metrics are missing | `kubectl get servicemonitor -n nico-system` and the component-specific ServiceMonitor. | Enable the chart `serviceMonitor` block or fix the Prometheus selector/namespace match. |
 | Hardware-health logs do not show reports for a host | Loki query for `k8s_container_name="nico-hardware-health"` and the machine ID. | Confirm hardware-health is running, BMC discovery found the endpoint, and the collector is enabled for the source. |

@@ -297,15 +297,16 @@ docker-build:
 	fi
 	@set -e; \
 	for image in $(REST_IMAGES); do \
+		tags=""; \
 		for arch in $(DOCKER_ARCHES); do \
+			tag=$(IMAGE_REGISTRY)/$$image:$(IMAGE_TAG)-$$arch; \
 			docker buildx build --platform linux/$$arch --push \
 				--build-arg TARGETOS=linux --build-arg TARGETARCH=$$arch \
-				-t $(IMAGE_REGISTRY)/$$image:$(IMAGE_TAG)-$$arch \
+				-t $$tag \
 				-f $(DOCKERFILE_DIR)/Dockerfile.$$image .; \
+			tags="$$tags $$tag"; \
 		done; \
-		docker buildx imagetools create -t $(IMAGE_REGISTRY)/$$image:$(IMAGE_TAG) \
-			$(IMAGE_REGISTRY)/$$image:$(IMAGE_TAG)-amd64 \
-			$(IMAGE_REGISTRY)/$$image:$(IMAGE_TAG)-arm64; \
+		docker buildx imagetools create -t $(IMAGE_REGISTRY)/$$image:$(IMAGE_TAG) $$tags; \
 	done
 
 core-proto:
