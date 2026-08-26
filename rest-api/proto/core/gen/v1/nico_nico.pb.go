@@ -25866,8 +25866,11 @@ type ManagedHostNetworkConfigResponse struct {
 	EnableDhcp bool `protobuf:"varint,100,opt,name=enable_dhcp,json=enableDhcp,proto3" json:"enable_dhcp,omitempty"`
 	// Host primary interface id
 	HostInterfaceId *string `protobuf:"bytes,102,opt,name=host_interface_id,json=hostInterfaceId,proto3,oneof" json:"host_interface_id,omitempty"`
-	// temporary flag for telling a DPU how many links it needs to have up to be considered healthy.
-	// if not set, all links must be up.
+	// Minimum number of functioning DPU ToR links. The default is two. Zero
+	// disables ToR uplink health checks, one allows either link to satisfy the
+	// minimum, and values above two produce a configuration health alert. When
+	// checks are enabled, a failed primary link is still reported because PXE
+	// boot depends on it.
 	MinDpuFunctioningLinks *uint32 `protobuf:"varint,103,opt,name=min_dpu_functioning_links,json=minDpuFunctioningLinks,proto3,oneof" json:"min_dpu_functioning_links,omitempty"`
 	// Is it a primary DPU
 	IsPrimaryDpu bool `protobuf:"varint,104,opt,name=is_primary_dpu,json=isPrimaryDpu,proto3" json:"is_primary_dpu,omitempty"`
@@ -26742,12 +26745,12 @@ type FlatInterfaceConfig struct {
 	// In CIDR notation.
 	//
 	// Deprecated: Marked as deprecated in nico_nico.proto.
-	Gateway string `protobuf:"bytes,4,opt,name=gateway,proto3" json:"gateway,omitempty"`
+	Gateway *string `protobuf:"bytes,4,opt,name=gateway,proto3,oneof" json:"gateway,omitempty"`
 	// Deprecated: use addresses.
 	// Host admin IP for admin network, host IP for tenant.
 	//
 	// Deprecated: Marked as deprecated in nico_nico.proto.
-	Ip string `protobuf:"bytes,5,opt,name=ip,proto3" json:"ip,omitempty"`
+	Ip *string `protobuf:"bytes,5,opt,name=ip,proto3,oneof" json:"ip,omitempty"`
 	// Deprecated: use addresses.
 	// The interface-specific prefix allocation (which may be a /32 for
 	// just the host IP, or a larger allocation, like a /30, for FNN). The
@@ -26756,7 +26759,7 @@ type FlatInterfaceConfig struct {
 	// the `prefix` below (field 8).
 	//
 	// Deprecated: Marked as deprecated in nico_nico.proto.
-	InterfacePrefix string `protobuf:"bytes,11,opt,name=interface_prefix,json=interfacePrefix,proto3" json:"interface_prefix,omitempty"`
+	InterfacePrefix *string `protobuf:"bytes,11,opt,name=interface_prefix,json=interfacePrefix,proto3,oneof" json:"interface_prefix,omitempty"`
 	// If the interface is defined as a virtual function (associated
 	// `function_type == InterfaceFunctionType::VIRTUAL_FUNCTION`,
 	// then this value is set and specifies the virtual function ID that is configured
@@ -26780,7 +26783,7 @@ type FlatInterfaceConfig struct {
 	// similar).
 	//
 	// Deprecated: Marked as deprecated in nico_nico.proto.
-	Prefix string `protobuf:"bytes,8,opt,name=prefix,proto3" json:"prefix,omitempty"`
+	Prefix *string `protobuf:"bytes,8,opt,name=prefix,proto3,oneof" json:"prefix,omitempty"`
 	// FQDN
 	Fqdn string `protobuf:"bytes,9,opt,name=fqdn,proto3" json:"fqdn,omitempty"`
 	// boot_url
@@ -26803,7 +26806,11 @@ type FlatInterfaceConfig struct {
 	// tenant_vrf_loopback_ip is an administrative IP assigned from
 	// the FNN L3 allocated /30 DPU prefix. The tenant is not expected
 	// to be able to access this IP; it is intended for monitoring
-	// and debugging by operators.
+	// and debugging by operators. This IPv4-only compatibility field
+	// is absent when the loopback is IPv6; use addresses for that value.
+	// Deprecated: use addresses.
+	//
+	// Deprecated: Marked as deprecated in nico_nico.proto.
 	TenantVrfLoopbackIp *string `protobuf:"bytes,14,opt,name=tenant_vrf_loopback_ip,json=tenantVrfLoopbackIp,proto3,oneof" json:"tenant_vrf_loopback_ip,omitempty"`
 	// Is this interface using L2 or L3.
 	IsL2Segment     bool     `protobuf:"varint,15,opt,name=is_l2_segment,json=isL2Segment,proto3" json:"is_l2_segment,omitempty"`
@@ -26812,6 +26819,9 @@ type FlatInterfaceConfig struct {
 	// MTU size
 	Mtu *uint32 `protobuf:"varint,18,opt,name=mtu,proto3,oneof" json:"mtu,omitempty"`
 	// IPv6 configuration for FNN interfaces that include IPv6.
+	// Deprecated: use addresses.
+	//
+	// Deprecated: Marked as deprecated in nico_nico.proto.
 	Ipv6InterfaceConfig *FlatInterfaceIpv6Config `protobuf:"bytes,19,opt,name=ipv6_interface_config,json=ipv6InterfaceConfig,proto3,oneof" json:"ipv6_interface_config,omitempty"`
 	// Route imports and tagging details for exports used by FNN configs.
 	// This is scoped to the VPC that owns this interface.
@@ -26819,11 +26829,14 @@ type FlatInterfaceConfig struct {
 	// Interface-local routing profile details. These narrow the VPC routing
 	// profile for this interface.
 	InterfaceRoutingProfile *FlatInterfaceRoutingProfile `protobuf:"bytes,21,opt,name=interface_routing_profile,json=interfaceRoutingProfile,proto3,oneof" json:"interface_routing_profile,omitempty"`
-	// Family-neutral replacement for gateway, ip, interface_prefix, prefix, svi_ip,
-	// and ipv6_interface_config. An empty list identifies a legacy payload. Writers
-	// must emit at most one entry per family, ordered V4 before V6. A family absent
-	// from this list has empty deprecated compatibility fields. Readers must select
-	// entries by address_family rather than position.
+	// Family-neutral replacement for gateway, ip, interface_prefix, prefix,
+	// svi_ip, tenant_vrf_loopback_ip, and ipv6_interface_config. An empty list
+	// identifies a legacy payload. Writers must emit at most one entry per
+	// family, ordered V4 before V6. Readers must select entries by address_family
+	// rather than position. Writers leave a family's deprecated compatibility
+	// fields absent when that family is absent. Readers may preserve a deprecated
+	// tenant_vrf_loopback_ip or prefixless IPv6 sidecar when a populated list
+	// omits that value. At most one entry may contain tenant_vrf_loopback_ip.
 	Addresses []*InterfaceAddressConfig `protobuf:"bytes,22,rep,name=addresses,proto3" json:"addresses,omitempty"`
 	// The details of the network security group associated with
 	// either the instance or its parent VPC.
@@ -26893,24 +26906,24 @@ func (x *FlatInterfaceConfig) GetVni() uint32 {
 
 // Deprecated: Marked as deprecated in nico_nico.proto.
 func (x *FlatInterfaceConfig) GetGateway() string {
-	if x != nil {
-		return x.Gateway
+	if x != nil && x.Gateway != nil {
+		return *x.Gateway
 	}
 	return ""
 }
 
 // Deprecated: Marked as deprecated in nico_nico.proto.
 func (x *FlatInterfaceConfig) GetIp() string {
-	if x != nil {
-		return x.Ip
+	if x != nil && x.Ip != nil {
+		return *x.Ip
 	}
 	return ""
 }
 
 // Deprecated: Marked as deprecated in nico_nico.proto.
 func (x *FlatInterfaceConfig) GetInterfacePrefix() string {
-	if x != nil {
-		return x.InterfacePrefix
+	if x != nil && x.InterfacePrefix != nil {
+		return *x.InterfacePrefix
 	}
 	return ""
 }
@@ -26931,8 +26944,8 @@ func (x *FlatInterfaceConfig) GetVpcPrefixes() []string {
 
 // Deprecated: Marked as deprecated in nico_nico.proto.
 func (x *FlatInterfaceConfig) GetPrefix() string {
-	if x != nil {
-		return x.Prefix
+	if x != nil && x.Prefix != nil {
+		return *x.Prefix
 	}
 	return ""
 }
@@ -26966,6 +26979,7 @@ func (x *FlatInterfaceConfig) GetSviIp() string {
 	return ""
 }
 
+// Deprecated: Marked as deprecated in nico_nico.proto.
 func (x *FlatInterfaceConfig) GetTenantVrfLoopbackIp() string {
 	if x != nil && x.TenantVrfLoopbackIp != nil {
 		return *x.TenantVrfLoopbackIp
@@ -27001,6 +27015,7 @@ func (x *FlatInterfaceConfig) GetMtu() uint32 {
 	return 0
 }
 
+// Deprecated: Marked as deprecated in nico_nico.proto.
 func (x *FlatInterfaceConfig) GetIpv6InterfaceConfig() *FlatInterfaceIpv6Config {
 	if x != nil {
 		return x.Ipv6InterfaceConfig
@@ -62573,20 +62588,27 @@ type InterfaceAddressConfig struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Family shared by every address and prefix in this entry. Must be V4 or V6.
 	AddressFamily AddressFamily `protobuf:"varint,1,opt,name=address_family,json=addressFamily,proto3,enum=forge.AddressFamily" json:"address_family,omitempty"`
-	// IPv4 gateway CIDR. For IPv6, the DPU-side port/linknet CIDR used as
-	// gateway_cidr, matching FlatInterfaceIpv6Config.interface_prefix.
-	Gateway string `protobuf:"bytes,2,opt,name=gateway,proto3" json:"gateway,omitempty"`
-	// Host address, without a prefix length. Empty only for a V6 entry whose
-	// owning VPC has SLAAC enabled; interface_prefix remains populated then.
+	// IPv4 gateway CIDR. IPv6 entries omit this value; their DPU-side link
+	// prefix remains in interface_prefix, which the agent renders as gateway_cidr.
+	Gateway *string `protobuf:"bytes,2,opt,name=gateway,proto3,oneof" json:"gateway,omitempty"`
+	// Host address, without a prefix length. This may be empty for SLAAC or an
+	// entry that contains only a loopback.
 	Ip string `protobuf:"bytes,3,opt,name=ip,proto3" json:"ip,omitempty"`
 	// Prefix allocated to this interface, such as an FNN linknet or host route.
+	// This may be empty for a prefixless persisted IPv6 interface or an entry
+	// that contains only a loopback.
 	InterfacePrefix string `protobuf:"bytes,4,opt,name=interface_prefix,json=interfacePrefix,proto3" json:"interface_prefix,omitempty"`
-	// Prefix for the network segment that contains this interface.
+	// Prefix for the network segment that contains this interface. This may be
+	// empty when the entry contains only a loopback.
 	Prefix string `protobuf:"bytes,5,opt,name=prefix,proto3" json:"prefix,omitempty"`
 	// DPU-hosted SVI address used as the host gateway when configured.
-	SviIp         *string `protobuf:"bytes,6,opt,name=svi_ip,json=sviIp,proto3,oneof" json:"svi_ip,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	SviIp *string `protobuf:"bytes,6,opt,name=svi_ip,json=sviIp,proto3,oneof" json:"svi_ip,omitempty"`
+	// Administrative FNN tenant VRF loopback used by operators for monitoring
+	// and debugging; the tenant is not expected to access this address. Writers
+	// must set this value on at most one family entry.
+	TenantVrfLoopbackIp *string `protobuf:"bytes,7,opt,name=tenant_vrf_loopback_ip,json=tenantVrfLoopbackIp,proto3,oneof" json:"tenant_vrf_loopback_ip,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *InterfaceAddressConfig) Reset() {
@@ -62627,8 +62649,8 @@ func (x *InterfaceAddressConfig) GetAddressFamily() AddressFamily {
 }
 
 func (x *InterfaceAddressConfig) GetGateway() string {
-	if x != nil {
-		return x.Gateway
+	if x != nil && x.Gateway != nil {
+		return *x.Gateway
 	}
 	return ""
 }
@@ -62657,6 +62679,13 @@ func (x *InterfaceAddressConfig) GetPrefix() string {
 func (x *InterfaceAddressConfig) GetSviIp() string {
 	if x != nil && x.SviIp != nil {
 		return *x.SviIp
+	}
+	return ""
+}
+
+func (x *InterfaceAddressConfig) GetTenantVrfLoopbackIp() string {
+	if x != nil && x.TenantVrfLoopbackIp != nil {
+		return *x.TenantVrfLoopbackIp
 	}
 	return ""
 }
@@ -66419,35 +66448,40 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x10quarantine_state\x18\x02 \x01(\v2!.forge.ManagedHostQuarantineStateH\x00R\x0fquarantineState\x88\x01\x01\x12)\n" +
 	"\x0eloopback_ip_v6\x18\x03 \x01(\tH\x01R\floopbackIpV6\x88\x01\x01B\x13\n" +
 	"\x11_quarantine_stateB\x11\n" +
-	"\x0f_loopback_ip_v6\"\xc2\n" +
-	"\n" +
+	"\x0f_loopback_ip_v6\"\x91\v\n" +
 	"\x13FlatInterfaceConfig\x12A\n" +
 	"\rfunction_type\x18\x01 \x01(\x0e2\x1c.forge.InterfaceFunctionTypeR\ffunctionType\x12\x17\n" +
 	"\avlan_id\x18\x02 \x01(\rR\x06vlanId\x12\x10\n" +
-	"\x03vni\x18\x03 \x01(\rR\x03vni\x12\x1c\n" +
-	"\agateway\x18\x04 \x01(\tB\x02\x18\x01R\agateway\x12\x12\n" +
-	"\x02ip\x18\x05 \x01(\tB\x02\x18\x01R\x02ip\x12-\n" +
-	"\x10interface_prefix\x18\v \x01(\tB\x02\x18\x01R\x0finterfacePrefix\x123\n" +
-	"\x13virtual_function_id\x18\x06 \x01(\rH\x00R\x11virtualFunctionId\x88\x01\x01\x12!\n" +
-	"\fvpc_prefixes\x18\a \x03(\tR\vvpcPrefixes\x12\x1a\n" +
-	"\x06prefix\x18\b \x01(\tB\x02\x18\x01R\x06prefix\x12\x12\n" +
+	"\x03vni\x18\x03 \x01(\rR\x03vni\x12!\n" +
+	"\agateway\x18\x04 \x01(\tB\x02\x18\x01H\x00R\agateway\x88\x01\x01\x12\x17\n" +
+	"\x02ip\x18\x05 \x01(\tB\x02\x18\x01H\x01R\x02ip\x88\x01\x01\x122\n" +
+	"\x10interface_prefix\x18\v \x01(\tB\x02\x18\x01H\x02R\x0finterfacePrefix\x88\x01\x01\x123\n" +
+	"\x13virtual_function_id\x18\x06 \x01(\rH\x03R\x11virtualFunctionId\x88\x01\x01\x12!\n" +
+	"\fvpc_prefixes\x18\a \x03(\tR\vvpcPrefixes\x12\x1f\n" +
+	"\x06prefix\x18\b \x01(\tB\x02\x18\x01H\x04R\x06prefix\x88\x01\x01\x12\x12\n" +
 	"\x04fqdn\x18\t \x01(\tR\x04fqdn\x12\x1d\n" +
 	"\abooturl\x18\n" +
-	" \x01(\tH\x01R\abooturl\x88\x01\x01\x12\x17\n" +
+	" \x01(\tH\x05R\abooturl\x88\x01\x01\x12\x17\n" +
 	"\avpc_vni\x18\f \x01(\rR\x06vpcVni\x12\x1e\n" +
-	"\x06svi_ip\x18\r \x01(\tB\x02\x18\x01H\x02R\x05sviIp\x88\x01\x01\x128\n" +
-	"\x16tenant_vrf_loopback_ip\x18\x0e \x01(\tH\x03R\x13tenantVrfLoopbackIp\x88\x01\x01\x12\"\n" +
+	"\x06svi_ip\x18\r \x01(\tB\x02\x18\x01H\x06R\x05sviIp\x88\x01\x01\x12<\n" +
+	"\x16tenant_vrf_loopback_ip\x18\x0e \x01(\tB\x02\x18\x01H\aR\x13tenantVrfLoopbackIp\x88\x01\x01\x12\"\n" +
 	"\ris_l2_segment\x18\x0f \x01(\bR\visL2Segment\x12*\n" +
 	"\x11vpc_peer_prefixes\x18\x10 \x03(\tR\x0fvpcPeerPrefixes\x12\"\n" +
 	"\rvpc_peer_vnis\x18\x11 \x03(\rR\vvpcPeerVnis\x12\x15\n" +
-	"\x03mtu\x18\x12 \x01(\rH\x04R\x03mtu\x88\x01\x01\x12W\n" +
-	"\x15ipv6_interface_config\x18\x13 \x01(\v2\x1e.forge.FlatInterfaceIpv6ConfigH\x05R\x13ipv6InterfaceConfig\x88\x01\x01\x12J\n" +
-	"\x13vpc_routing_profile\x18\x14 \x01(\v2\x15.forge.RoutingProfileH\x06R\x11vpcRoutingProfile\x88\x01\x01\x12c\n" +
-	"\x19interface_routing_profile\x18\x15 \x01(\v2\".forge.FlatInterfaceRoutingProfileH\aR\x17interfaceRoutingProfile\x88\x01\x01\x12;\n" +
+	"\x03mtu\x18\x12 \x01(\rH\bR\x03mtu\x88\x01\x01\x12[\n" +
+	"\x15ipv6_interface_config\x18\x13 \x01(\v2\x1e.forge.FlatInterfaceIpv6ConfigB\x02\x18\x01H\tR\x13ipv6InterfaceConfig\x88\x01\x01\x12J\n" +
+	"\x13vpc_routing_profile\x18\x14 \x01(\v2\x15.forge.RoutingProfileH\n" +
+	"R\x11vpcRoutingProfile\x88\x01\x01\x12c\n" +
+	"\x19interface_routing_profile\x18\x15 \x01(\v2\".forge.FlatInterfaceRoutingProfileH\vR\x17interfaceRoutingProfile\x88\x01\x01\x12;\n" +
 	"\taddresses\x18\x16 \x03(\v2\x1d.forge.InterfaceAddressConfigR\taddresses\x12i\n" +
-	"\x16network_security_group\x18k \x01(\v2..forge.FlatInterfaceNetworkSecurityGroupConfigH\bR\x14networkSecurityGroup\x88\x01\x01\x126\n" +
-	"\rinternal_uuid\x18l \x01(\v2\f.common.UUIDH\tR\finternalUuid\x88\x01\x01B\x16\n" +
-	"\x14_virtual_function_idB\n" +
+	"\x16network_security_group\x18k \x01(\v2..forge.FlatInterfaceNetworkSecurityGroupConfigH\fR\x14networkSecurityGroup\x88\x01\x01\x126\n" +
+	"\rinternal_uuid\x18l \x01(\v2\f.common.UUIDH\rR\finternalUuid\x88\x01\x01B\n" +
+	"\n" +
+	"\b_gatewayB\x05\n" +
+	"\x03_ipB\x13\n" +
+	"\x11_interface_prefixB\x16\n" +
+	"\x14_virtual_function_idB\t\n" +
+	"\a_prefixB\n" +
 	"\n" +
 	"\b_booturlB\t\n" +
 	"\a_svi_ipB\x19\n" +
@@ -69658,15 +69692,19 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x10SitePrefixIdList\x12<\n" +
 	"\x0fsite_prefix_ids\x18\x01 \x03(\v2\x14.common.SitePrefixIdR\rsitePrefixIds\"H\n" +
 	"\x0eSitePrefixList\x126\n" +
-	"\rsite_prefixes\x18\x01 \x03(\v2\x11.forge.SitePrefixR\fsitePrefixes\"\xe9\x01\n" +
+	"\rsite_prefixes\x18\x01 \x03(\v2\x11.forge.SitePrefixR\fsitePrefixes\"\xcf\x02\n" +
 	"\x16InterfaceAddressConfig\x12;\n" +
-	"\x0eaddress_family\x18\x01 \x01(\x0e2\x14.forge.AddressFamilyR\raddressFamily\x12\x18\n" +
-	"\agateway\x18\x02 \x01(\tR\agateway\x12\x0e\n" +
+	"\x0eaddress_family\x18\x01 \x01(\x0e2\x14.forge.AddressFamilyR\raddressFamily\x12\x1d\n" +
+	"\agateway\x18\x02 \x01(\tH\x00R\agateway\x88\x01\x01\x12\x0e\n" +
 	"\x02ip\x18\x03 \x01(\tR\x02ip\x12)\n" +
 	"\x10interface_prefix\x18\x04 \x01(\tR\x0finterfacePrefix\x12\x16\n" +
 	"\x06prefix\x18\x05 \x01(\tR\x06prefix\x12\x1a\n" +
-	"\x06svi_ip\x18\x06 \x01(\tH\x00R\x05sviIp\x88\x01\x01B\t\n" +
-	"\a_svi_ip*s\n" +
+	"\x06svi_ip\x18\x06 \x01(\tH\x01R\x05sviIp\x88\x01\x01\x128\n" +
+	"\x16tenant_vrf_loopback_ip\x18\a \x01(\tH\x02R\x13tenantVrfLoopbackIp\x88\x01\x01B\n" +
+	"\n" +
+	"\b_gatewayB\t\n" +
+	"\a_svi_ipB\x19\n" +
+	"\x17_tenant_vrf_loopback_ip*s\n" +
 	"\x15SpdmAttestationStatus\x12\x18\n" +
 	"\x14SPDM_ATT_IN_PROGRESS\x10\x00\x12\x16\n" +
 	"\x12SPDM_ATT_CANCELLED\x10\x01\x12\x13\n" +

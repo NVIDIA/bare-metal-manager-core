@@ -2920,7 +2920,7 @@ async fn set_pending_boot_interface(
 
     let pending = db::machine_desired_boot_interface::set(
         txn.as_mut(),
-        &host.id,
+        &host.id.try_into().unwrap(),
         &replacement,
         BootInterfaceSelectionSource::Operator,
     )

@@ -399,7 +399,7 @@ check before requesting review.
     `fern docs md check` and `fern check` from the repository root. Neither
     command needs a Fern token, but without one, `fern check` skips the
     published-state `missing-redirects` check.
-  - `docs/release-notes.md` owns current unified releases;
+  - `fern/changelog/` owns current unified releases;
     do not modify `rest-api/CHANGELOG.md`, as it is legacy history whose
     published entry order must be preserved.
 

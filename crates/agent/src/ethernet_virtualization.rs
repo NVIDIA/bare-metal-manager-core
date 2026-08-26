@@ -366,8 +366,8 @@ pub(super) async fn update_nvue(
             .ok_or_else(|| eyre::eyre!("missing admin_interface"))?;
         vec![nvue::VlanConfig {
             vlan_id: admin_interface.vlan_id,
-            network: admin_interface.interface_prefix.clone(),
-            ip: admin_interface.ip.clone(),
+            network: admin_interface.interface_prefix.clone().unwrap_or_default(),
+            ip: admin_interface.ip.clone().unwrap_or_default(),
             ipv6_vlan_config: admin_interface.ipv6_interface_config.as_ref().map(|v6| {
                 nvue::Ipv6VlanConfig {
                     network: v6.interface_prefix.clone(),
@@ -380,8 +380,8 @@ pub(super) async fn update_nvue(
         for net in &nc.tenant_interfaces {
             access_vlans.push(nvue::VlanConfig {
                 vlan_id: net.vlan_id,
-                network: net.interface_prefix.clone(),
-                ip: net.ip.clone(),
+                network: net.interface_prefix.clone().unwrap_or_default(),
+                ip: net.ip.clone().unwrap_or_default(),
                 ipv6_vlan_config: net.ipv6_interface_config.as_ref().map(|v6| {
                     nvue::Ipv6VlanConfig {
                         network: v6.interface_prefix.clone(),
@@ -410,8 +410,8 @@ pub(super) async fn update_nvue(
             vec![nvue::PortConfig {
                 interface_name: physical_name,
                 is_phy: true,
-                host_ip: admin_interface.ip.clone(),
-                host_route: admin_interface.interface_prefix.clone(),
+                host_ip: admin_interface.ip.clone().unwrap_or_default(),
+                host_route: admin_interface.interface_prefix.clone().unwrap_or_default(),
                 host_ipv6: admin_interface
                     .ipv6_interface_config
                     .as_ref()
@@ -434,7 +434,7 @@ pub(super) async fn update_nvue(
                 } else {
                     None
                 },
-                gateway_cidr: admin_interface.gateway.clone(),
+                gateway_cidr: admin_interface.gateway.clone().unwrap_or_default(),
                 ipv6_port_config: admin_interface.ipv6_interface_config.as_ref().map(|v6| {
                     nvue::Ipv6PortConfig {
                         gateway_cidr: v6.interface_prefix.clone(),
@@ -489,8 +489,8 @@ pub(super) async fn update_nvue(
                 interface_name: name,
                 is_phy: net.function_type == rpc::InterfaceFunctionType::Physical as i32,
                 vlan: net.vlan_id as u16,
-                host_ip: net.ip.clone(),
-                host_route: net.interface_prefix.clone(),
+                host_ip: net.ip.clone().unwrap_or_default(),
+                host_route: net.interface_prefix.clone().unwrap_or_default(),
                 host_ipv6: net.ipv6_interface_config.as_ref().map(|v6| v6.ip.clone()),
                 host_ipv6_route: net
                     .ipv6_interface_config
@@ -498,7 +498,7 @@ pub(super) async fn update_nvue(
                     .map(|v6| v6.interface_prefix.clone()),
                 vni: Some(net.vni), // TODO should this be nc.vni_device?
                 l3_vni: Some(net.vpc_vni),
-                gateway_cidr: net.gateway.clone(),
+                gateway_cidr: net.gateway.clone().unwrap_or_default(),
                 ipv6_port_config: net.ipv6_interface_config.as_ref().map(|v6| {
                     nvue::Ipv6PortConfig {
                         gateway_cidr: v6.interface_prefix.clone(),
@@ -1255,7 +1255,7 @@ pub(super) fn tenant_peers(network_config: &rpc::ManagedHostNetworkConfigRespons
     network_config
         .tenant_interfaces
         .iter()
-        .filter_map(|iface| (!iface.ip.is_empty()).then_some(iface.ip.as_str()))
+        .filter_map(|iface| iface.ip.as_deref())
         .collect()
 }
 
@@ -2536,13 +2536,13 @@ mod tests {
             vlan_id: 1,
             vni: 1001,
             vpc_vni: 1002,
-            gateway: "10.217.5.123/28".to_string(),
-            ip: "10.217.5.123".to_string(),
-            interface_prefix: admin_interface_prefix.to_string(),
+            gateway: Some("10.217.5.123/28".to_string()),
+            ip: Some("10.217.5.123".to_string()),
+            interface_prefix: Some(admin_interface_prefix.to_string()),
             vpc_prefixes: vec![],
             vpc_peer_prefixes: vec![],
             vpc_peer_vnis: vec![],
-            prefix: "10.217.5.123/28".to_string(),
+            prefix: Some("10.217.5.123/28".to_string()),
             fqdn: "myhost.forge".to_string(),
             booturl: Some("test".to_string()),
             svi_ip: None,
@@ -2583,13 +2583,13 @@ mod tests {
                 vlan_id: 196,
                 vni: 1025196,
                 vpc_vni: 1025197,
-                gateway: "10.217.5.169/29".to_string(),
-                ip: "10.217.5.170".to_string(),
-                interface_prefix: interface_prefix_1.to_string(),
+                gateway: Some("10.217.5.169/29".to_string()),
+                ip: Some("10.217.5.170".to_string()),
+                interface_prefix: Some(interface_prefix_1.to_string()),
                 vpc_prefixes: vec!["10.217.5.160/30".to_string(), "10.217.5.168/29".to_string()],
                 vpc_peer_prefixes: vec!["10.217.6.176/29".to_string()],
                 vpc_peer_vnis,
-                prefix: "10.217.5.169/29".to_string(),
+                prefix: Some("10.217.5.169/29".to_string()),
                 fqdn: "myhost.forge.1".to_string(),
                 booturl: None,
                 svi_ip: get_svi_ip(
@@ -2642,13 +2642,13 @@ mod tests {
                 vlan_id: 185,
                 vni: 1025185,
                 vpc_vni: 1025186,
-                gateway: "10.217.5.161/30".to_string(),
-                ip: "10.217.5.162".to_string(),
-                interface_prefix: interface_prefix_2.to_string(),
+                gateway: Some("10.217.5.161/30".to_string()),
+                ip: Some("10.217.5.162".to_string()),
+                interface_prefix: Some(interface_prefix_2.to_string()),
                 vpc_prefixes: vec!["10.217.5.160/30".to_string(), "10.217.5.168/29".to_string()],
                 vpc_peer_prefixes: vec!["10.217.6.176/29".to_string()],
                 vpc_peer_vnis: vec![],
-                prefix: "10.217.5.162/30".to_string(),
+                prefix: Some("10.217.5.162/30".to_string()),
                 fqdn: "myhost.forge.2".to_string(),
                 booturl: None,
                 svi_ip: get_svi_ip(
@@ -3273,13 +3273,13 @@ mod tests {
             vlan_id: 1,
             vni: 1001,
             vpc_vni: 1002,
-            gateway: "10.217.5.123".to_string(),
-            ip: "10.217.5.123".to_string(),
-            interface_prefix: admin_interface_prefix.to_string(),
+            gateway: Some("10.217.5.123".to_string()),
+            ip: Some("10.217.5.123".to_string()),
+            interface_prefix: Some(admin_interface_prefix.to_string()),
             vpc_prefixes: vec![],
             vpc_peer_prefixes: vec![],
             vpc_peer_vnis: vec![],
-            prefix: "10.217.5.123".to_string(),
+            prefix: Some("10.217.5.123".to_string()),
             fqdn: "myhost.forge".to_string(),
             booturl: Some("test".to_string()),
             svi_ip: None,
@@ -3310,13 +3310,13 @@ mod tests {
                 vlan_id: 196,
                 vni: 1025196,
                 vpc_vni: 1025197,
-                gateway: "10.217.5.169".to_string(),
-                ip: "10.217.5.170".to_string(),
-                interface_prefix: interface_prefix_1.to_string(),
+                gateway: Some("10.217.5.169".to_string()),
+                ip: Some("10.217.5.170".to_string()),
+                interface_prefix: Some(interface_prefix_1.to_string()),
                 vpc_prefixes: vec!["10.217.5.160/30".to_string(), "10.217.5.168/29".to_string()],
                 vpc_peer_prefixes: vec!["10.217.6.176/29".to_string()],
                 vpc_peer_vnis: vec![],
-                prefix: "10.217.5.169/29".to_string(),
+                prefix: Some("10.217.5.169/29".to_string()),
                 fqdn: "myhost.forge.1".to_string(),
                 booturl: None,
                 svi_ip: get_svi_ip(&Some(svi_ip), VpcVirtualizationType::Fnn, true, 24)
@@ -3338,13 +3338,13 @@ mod tests {
                 vlan_id: 185,
                 vni: 1025185,
                 vpc_vni: 1025186,
-                gateway: "10.217.5.161".to_string(),
-                ip: "10.217.5.162".to_string(),
-                interface_prefix: interface_prefix_2.to_string(),
+                gateway: Some("10.217.5.161".to_string()),
+                ip: Some("10.217.5.162".to_string()),
+                interface_prefix: Some(interface_prefix_2.to_string()),
                 vpc_prefixes: vec!["10.217.5.160/30".to_string(), "10.217.5.168/29".to_string()],
                 vpc_peer_prefixes: vec!["10.217.6.176/29".to_string()],
                 vpc_peer_vnis: vec![],
-                prefix: "10.217.5.162/30".to_string(),
+                prefix: Some("10.217.5.162/30".to_string()),
                 fqdn: "myhost.forge.2".to_string(),
                 booturl: None,
                 svi_ip: get_svi_ip(&Some(svi_ip), VpcVirtualizationType::Fnn, false, 24)

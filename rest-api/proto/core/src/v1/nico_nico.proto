@@ -4666,8 +4666,11 @@ message ManagedHostNetworkConfigResponse {
   // Host primary interface id
   optional string host_interface_id = 102;
 
-  // temporary flag for telling a DPU how many links it needs to have up to be considered healthy.
-  // if not set, all links must be up.
+  // Minimum number of functioning DPU ToR links. The default is two. Zero
+  // disables ToR uplink health checks, one allows either link to satisfy the
+  // minimum, and values above two produce a configuration health alert. When
+  // checks are enabled, a failed primary link is still reported because PXE
+  // boot depends on it.
   optional uint32 min_dpu_functioning_links = 103;
 
   // Is it a primary DPU
@@ -4830,17 +4833,17 @@ message FlatInterfaceConfig {
 
   // Deprecated: use addresses.
   // In CIDR notation.
-  string gateway = 4 [deprecated = true];
+  optional string gateway = 4 [deprecated = true];
   // Deprecated: use addresses.
   // Host admin IP for admin network, host IP for tenant.
-  string ip = 5 [deprecated = true];
+  optional string ip = 5 [deprecated = true];
   // Deprecated: use addresses.
   // The interface-specific prefix allocation (which may be a /32 for
   // just the host IP, or a larger allocation, like a /30, for FNN). The
   // `ip` as configured above will be contained within the `interface_prefix`
   // provided here, and the `interface_prefix` will be contained within
   // the `prefix` below (field 8).
-  string interface_prefix = 11 [deprecated = true];
+  optional string interface_prefix = 11 [deprecated = true];
   // If the interface is defined as a virtual function (associated
   // `function_type == InterfaceFunctionType::VIRTUAL_FUNCTION`,
   // then this value is set and specifies the virtual function ID that is configured
@@ -4862,7 +4865,7 @@ message FlatInterfaceConfig {
   // ultimately do want a DPU-specific prefix allocation to be its
   // own prefix entry in the `network_prefixes` table (or something
   // similar).
-  string prefix = 8 [deprecated = true];
+  optional string prefix = 8 [deprecated = true];
   // FQDN
   string fqdn = 9;
   // boot_url
@@ -4886,8 +4889,10 @@ message FlatInterfaceConfig {
   // tenant_vrf_loopback_ip is an administrative IP assigned from
   // the FNN L3 allocated /30 DPU prefix. The tenant is not expected
   // to be able to access this IP; it is intended for monitoring
-  // and debugging by operators.
-  optional string tenant_vrf_loopback_ip = 14;
+  // and debugging by operators. This IPv4-only compatibility field
+  // is absent when the loopback is IPv6; use addresses for that value.
+  // Deprecated: use addresses.
+  optional string tenant_vrf_loopback_ip = 14 [deprecated = true];
 
   // Is this interface using L2 or L3.
   bool is_l2_segment = 15;
@@ -4899,7 +4904,8 @@ message FlatInterfaceConfig {
   optional uint32 mtu = 18;
 
   // IPv6 configuration for FNN interfaces that include IPv6.
-  optional FlatInterfaceIpv6Config ipv6_interface_config = 19;
+  // Deprecated: use addresses.
+  optional FlatInterfaceIpv6Config ipv6_interface_config = 19 [deprecated = true];
 
   // Route imports and tagging details for exports used by FNN configs.
   // This is scoped to the VPC that owns this interface.
@@ -4909,11 +4915,14 @@ message FlatInterfaceConfig {
   // profile for this interface.
   optional FlatInterfaceRoutingProfile interface_routing_profile = 21;
 
-  // Family-neutral replacement for gateway, ip, interface_prefix, prefix, svi_ip,
-  // and ipv6_interface_config. An empty list identifies a legacy payload. Writers
-  // must emit at most one entry per family, ordered V4 before V6. A family absent
-  // from this list has empty deprecated compatibility fields. Readers must select
-  // entries by address_family rather than position.
+  // Family-neutral replacement for gateway, ip, interface_prefix, prefix,
+  // svi_ip, tenant_vrf_loopback_ip, and ipv6_interface_config. An empty list
+  // identifies a legacy payload. Writers must emit at most one entry per
+  // family, ordered V4 before V6. Readers must select entries by address_family
+  // rather than position. Writers leave a family's deprecated compatibility
+  // fields absent when that family is absent. Readers may preserve a deprecated
+  // tenant_vrf_loopback_ip or prefixless IPv6 sidecar when a populated list
+  // omits that value. At most one entry may contain tenant_vrf_loopback_ip.
   repeated InterfaceAddressConfig addresses = 22;
 
   // The details of the network security group associated with
@@ -10057,16 +10066,23 @@ message InterfaceAddressConfig {
 
   // Family shared by every address and prefix in this entry. Must be V4 or V6.
   AddressFamily address_family = 1;
-  // IPv4 gateway CIDR. For IPv6, the DPU-side port/linknet CIDR used as
-  // gateway_cidr, matching FlatInterfaceIpv6Config.interface_prefix.
-  string gateway = 2;
-  // Host address, without a prefix length. Empty only for a V6 entry whose
-  // owning VPC has SLAAC enabled; interface_prefix remains populated then.
+  // IPv4 gateway CIDR. IPv6 entries omit this value; their DPU-side link
+  // prefix remains in interface_prefix, which the agent renders as gateway_cidr.
+  optional string gateway = 2;
+  // Host address, without a prefix length. This may be empty for SLAAC or an
+  // entry that contains only a loopback.
   string ip = 3;
   // Prefix allocated to this interface, such as an FNN linknet or host route.
+  // This may be empty for a prefixless persisted IPv6 interface or an entry
+  // that contains only a loopback.
   string interface_prefix = 4;
-  // Prefix for the network segment that contains this interface.
+  // Prefix for the network segment that contains this interface. This may be
+  // empty when the entry contains only a loopback.
   string prefix = 5;
   // DPU-hosted SVI address used as the host gateway when configured.
   optional string svi_ip = 6;
+  // Administrative FNN tenant VRF loopback used by operators for monitoring
+  // and debugging; the tenant is not expected to access this address. Writers
+  // must set this value on at most one family entry.
+  optional string tenant_vrf_loopback_ip = 7;
 }

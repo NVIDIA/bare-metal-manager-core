@@ -157,7 +157,7 @@ pub(super) async fn observe_verified_boot_interface(
         HostBootConfigDecision::Complete => {
             let observation_recorded = db::machine_desired_boot_interface::mark_verified(
                 observation_txn.as_mut(),
-                &host.id,
+                &host.id.try_into()?,
                 desired_boot_interface.version,
                 Utc::now(),
             )
@@ -184,7 +184,7 @@ pub(super) async fn observe_verified_boot_interface(
             let pending_boot_interface =
                 db::machine_desired_boot_interface::try_reopen_after_observed_drift(
                     observation_txn.as_mut(),
-                    &host.id,
+                    &host.id.try_into()?,
                     desired_boot_interface,
                 )
                 .await?;

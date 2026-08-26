@@ -483,7 +483,7 @@ async fn test_set_primary_interface_repairs_divergent_operator_target(
     let mut txn = env.pool.begin().await?;
     db::machine_desired_boot_interface::force_set(
         txn.as_mut(),
-        &host_id,
+        &host_id.try_into().unwrap(),
         &divergent_target,
         BootInterfaceSelectionSource::Operator,
     )
@@ -499,7 +499,7 @@ async fn test_set_primary_interface_repairs_divergent_operator_target(
         }))
         .await?;
 
-    let desired = db::machine_desired_boot_interface::get(&env.pool, &host_id)
+    let desired = db::machine_desired_boot_interface::get(&env.pool, &host_id.try_into().unwrap())
         .await?
         .expect("the repaired desired target should be persisted");
     assert_eq!(desired.value, current_primary_target);
@@ -546,7 +546,7 @@ async fn test_set_primary_interface_refreshes_operator_target_interface_id(
     let mut txn = env.pool.begin().await?;
     let obsolete = db::machine_desired_boot_interface::force_set(
         txn.as_mut(),
-        &host_id,
+        &host_id.try_into().unwrap(),
         &obsolete_target,
         BootInterfaceSelectionSource::Operator,
     )
@@ -562,7 +562,7 @@ async fn test_set_primary_interface_refreshes_operator_target_interface_id(
         }))
         .await?;
 
-    let desired = db::machine_desired_boot_interface::get(&env.pool, &host_id)
+    let desired = db::machine_desired_boot_interface::get(&env.pool, &host_id.try_into().unwrap())
         .await?
         .expect("the refreshed desired target should be persisted");
     assert_eq!(desired.value, current_primary_target);
@@ -780,7 +780,7 @@ async fn test_set_primary_interface_promotes_a_non_primary_interface(
         "the desired-target change should advance the aggregate once",
     );
 
-    let desired = db::machine_desired_boot_interface::get(&env.pool, &host_id)
+    let desired = db::machine_desired_boot_interface::get(&env.pool, &host_id.try_into().unwrap())
         .await?
         .expect("the selected target should be persisted");
     assert_eq!(desired.value, promote_target);
@@ -814,7 +814,7 @@ async fn test_set_primary_interface_promotes_a_non_primary_interface(
             ..Default::default()
         }))
         .await?;
-    let forced = db::machine_desired_boot_interface::get(&env.pool, &host_id)
+    let forced = db::machine_desired_boot_interface::get(&env.pool, &host_id.try_into().unwrap())
         .await?
         .expect("the forced request should retain the desired target");
     assert_eq!(forced.value, promote_target);
@@ -855,9 +855,10 @@ async fn test_set_primary_interface_promotes_a_non_primary_interface(
             force_reconcile: false,
         }))
         .await?;
-    let legacy_forced = db::machine_desired_boot_interface::get(&env.pool, &host_id)
-        .await?
-        .expect("the legacy alias should retain the desired target");
+    let legacy_forced =
+        db::machine_desired_boot_interface::get(&env.pool, &host_id.try_into().unwrap())
+            .await?
+            .expect("the legacy alias should retain the desired target");
     assert_eq!(legacy_forced.value, promote_target);
     assert_eq!(
         legacy_forced.version.version_nr(),
@@ -1187,9 +1188,10 @@ async fn test_set_primary_interface_hands_ready_intent_to_the_controller(
             .fetch_one(&env.pool)
             .await?;
     assert_eq!(ready_state.0, ManagedHostState::Ready);
-    let ready_desired = db::machine_desired_boot_interface::get(&env.pool, &host_id)
-        .await?
-        .expect("the Ready request should persist its target");
+    let ready_desired =
+        db::machine_desired_boot_interface::get(&env.pool, &host_id.try_into().unwrap())
+            .await?
+            .expect("the Ready request should persist its target");
 
     sqlx::query("DELETE FROM machine_state_controller_queued_objects WHERE object_id = $1")
         .bind(host_id.to_string())
@@ -1245,9 +1247,10 @@ async fn test_set_primary_interface_hands_ready_intent_to_the_controller(
             .fetch_one(&env.pool)
             .await?;
     assert_eq!(assigned_state_after.0, assigned_state);
-    let assigned_desired = db::machine_desired_boot_interface::get(&env.pool, &host_id)
-        .await?
-        .expect("the Assigned request should persist its target");
+    let assigned_desired =
+        db::machine_desired_boot_interface::get(&env.pool, &host_id.try_into().unwrap())
+            .await?
+            .expect("the Assigned request should persist its target");
     assert_eq!(assigned_desired.value, original_target);
     assert_eq!(
         assigned_desired.version.version_nr(),

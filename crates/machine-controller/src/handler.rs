@@ -6121,8 +6121,11 @@ async fn handle_ready_boot_config(
         || ready_boot_config_can_adopt_latest(&boot_config_state)
     {
         let mut conn = ctx.services.db_pool.acquire().await?;
-        db::machine_desired_boot_interface::get(conn.as_mut(), &mh_snapshot.host_snapshot.id)
-            .await?
+        db::machine_desired_boot_interface::get(
+            conn.as_mut(),
+            &mh_snapshot.host_snapshot.id.try_into()?,
+        )
+        .await?
     } else {
         None
     };
@@ -6480,7 +6483,7 @@ async fn handle_ready_boot_config(
                         let mut txn = ctx.services.db_pool.begin().await?;
                         let current_desired = db::machine_desired_boot_interface::lock(
                             txn.as_mut(),
-                            &mh_snapshot.host_snapshot.id,
+                            &mh_snapshot.host_snapshot.id.try_into()?,
                         )
                         .await?;
                         let next_state =
@@ -6626,7 +6629,7 @@ async fn handle_ready_boot_config(
                         let mut txn = ctx.services.db_pool.begin().await?;
                         let current_desired = db::machine_desired_boot_interface::lock(
                             txn.as_mut(),
-                            &mh_snapshot.host_snapshot.id,
+                            &mh_snapshot.host_snapshot.id.try_into()?,
                         )
                         .await?;
                         let next_state =
@@ -6673,7 +6676,7 @@ async fn handle_ready_boot_config(
                 let mut txn = ctx.services.db_pool.begin().await?;
                 let current_desired = db::machine_desired_boot_interface::lock(
                     txn.as_mut(),
-                    &mh_snapshot.host_snapshot.id,
+                    &mh_snapshot.host_snapshot.id.try_into()?,
                 )
                 .await?;
                 let next_state =
@@ -6709,7 +6712,7 @@ async fn handle_ready_boot_config(
             let mut txn = ctx.services.db_pool.begin().await?;
             let verified = db::machine_desired_boot_interface::mark_verified(
                 txn.as_mut(),
-                &mh_snapshot.host_snapshot.id,
+                &mh_snapshot.host_snapshot.id.try_into()?,
                 desired.version,
                 Utc::now(),
             )
@@ -6719,7 +6722,7 @@ async fn handle_ready_boot_config(
             } else {
                 match db::machine_desired_boot_interface::get(
                     txn.as_mut(),
-                    &mh_snapshot.host_snapshot.id,
+                    &mh_snapshot.host_snapshot.id.try_into()?,
                 )
                 .await?
                 {
@@ -6889,7 +6892,7 @@ async fn complete_host_init_lockdown(
     let mut txn = ctx.services.db_pool.begin().await?;
     let verified = db::machine_desired_boot_interface::mark_verified(
         txn.as_mut(),
-        &mh_snapshot.host_snapshot.id,
+        &mh_snapshot.host_snapshot.id.try_into()?,
         desired.version,
         Utc::now(),
     )

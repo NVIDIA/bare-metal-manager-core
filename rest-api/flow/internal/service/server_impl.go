@@ -840,6 +840,12 @@ func (rs *FlowServerImpl) decommissionRackImpl(
 			"target_spec is required",
 		)
 	}
+	if targetSpec.GetComponents() != nil {
+		return nil, status.Error(
+			codes.InvalidArgument,
+			"decommission requires rack targets; component targets are not supported",
+		)
+	}
 
 	info := &operations.DecommissionTaskInfo{
 		RuleID: protobuf.UUIDStringFrom(req.GetRuleId()),
