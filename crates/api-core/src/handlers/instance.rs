@@ -1970,6 +1970,29 @@ fn snapshot_to_instance(
         })
 }
 
+/// Records every exact IB membership available from the current `Instance`
+/// before force-delete removes its last live database owner.
+///
+/// The caller holds the owning `Machine` lock. This lookup deliberately does
+/// not lock the `Instance`, because IB config updates acquire those records in
+/// Instance-then-Machine order.
+pub(super) async fn record_force_delete_retired_ib_memberships(
+    txn: &mut PgConnection,
+    instance_id: InstanceId,
+) -> CarbideResult<()> {
+    let instance = db::instance::find_by_id(&mut *txn, instance_id)
+        .await?
+        .ok_or_else(|| {
+            CarbideError::internal(format!("could not find an instance for {instance_id}"))
+        })?;
+    let pkeys = load_ib_partition_pkeys(txn, &[&instance.config.infiniband]).await?;
+    for membership in ib_memberships_from_config(&instance.config.infiniband, &pkeys) {
+        db::retired_ib_membership::record(txn, &membership).await?;
+    }
+
+    Ok(())
+}
+
 pub(super) async fn force_delete_instance(
     instance_id: InstanceId,
     api: &Api,
