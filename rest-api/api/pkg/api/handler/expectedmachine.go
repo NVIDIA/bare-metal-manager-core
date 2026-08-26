@@ -1604,9 +1604,10 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 			return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Expected Machine due to DB error", nil)
 		}
 
-		// Clear first so UpdateMultiple's final SELECT sees nil. Its scoped
-		// BMC IP update cannot restore cleared rows. Every target row is already
-		// locked above, so the subset clear cannot introduce a second order.
+		// Clear first so UpdateMultiple's final SELECT sees nil. Cleared inputs
+		// omit BMC IP from their grouped update, so it cannot restore the value.
+		// Every target row is already locked above, so the subset clear cannot
+		// introduce a second order.
 		for _, input := range updateInputs {
 			expectedMachineID := input.ExpectedMachineID
 			if _, ok := bmcIPClearIDs[expectedMachineID]; !ok {

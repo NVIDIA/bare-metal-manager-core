@@ -687,9 +687,9 @@ func (emsd ExpectedMachineSQLDAO) Update(ctx context.Context, tx *db.Tx, input E
 }
 
 // UpdateMultiple updates multiple ExpectedMachines with the given parameters.
-// Fields shared by the inputs use one bulk UPDATE. BMC IP and host lifecycle
-// profile updates may be omitted by individual rows, so they are applied only
-// to the rows that provide them.
+// Each distinct set of present replacement fields uses one bulk UPDATE. Fields
+// omitted by an individual input are never included in that input's update.
+// Host lifecycle profiles use an individual JSONB merge per provided input.
 // The updated fields are assumed to be set to non-null values.
 // Since the updates are followed by a SELECT, this library call must happen
 // within a transaction.
@@ -705,99 +705,106 @@ func (emsd ExpectedMachineSQLDAO) UpdateMultiple(ctx context.Context, tx *db.Tx,
 		return []ExpectedMachine{}, nil
 	}
 
-	// Build expected machines and collect columns to update
-	expectedMachines := make([]*ExpectedMachine, 0, len(inputs))
+	type updateGroup struct {
+		columns  []string
+		machines []*ExpectedMachine
+	}
+
+	// Group inputs by their exact column set. A request-wide union would write
+	// zero values to rows that omitted a field merely because a sibling row
+	// provided it.
+	groupsByColumns := make(map[string]*updateGroup, len(inputs))
+	groups := make([]*updateGroup, 0, len(inputs))
 	ids := make([]uuid.UUID, 0, len(inputs))
-	columnsSet := make(map[string]bool)
-	// `bmc_ip_address` is applied only to rows that provide it. The shared
-	// column list would otherwise clear rows whose PATCH input omitted it.
-	bmcIPUpdates := make([]*ExpectedMachine, 0, len(inputs))
-	// host_lifecycle_profile is applied in its own bulk update scoped to only the
-	// rows that set it (see below), so rows that omit it keep their existing value.
+	// `host_lifecycle_profile` is merged separately for each row that provides it.
 	hlpUpdates := make([]*ExpectedMachine, 0, len(inputs))
 
 	for _, input := range inputs {
 		em := &ExpectedMachine{
 			ID: input.ExpectedMachineID,
 		}
+		var columns []string
 
 		if input.BmcMacAddress != nil {
 			em.BmcMacAddress = *input.BmcMacAddress
-			columnsSet["bmc_mac_address"] = true
+			columns = append(columns, "bmc_mac_address")
 		}
 		if input.ChassisSerialNumber != nil {
 			em.ChassisSerialNumber = *input.ChassisSerialNumber
-			columnsSet["chassis_serial_number"] = true
+			columns = append(columns, "chassis_serial_number")
 		}
 		if input.FallbackDpuSerialNumbers != nil {
 			em.FallbackDpuSerialNumbers = input.FallbackDpuSerialNumbers
-			columnsSet["fallback_dpu_serial_numbers"] = true
+			columns = append(columns, "fallback_dpu_serial_numbers")
 		}
 		if input.Labels != nil {
 			em.Labels = input.Labels
-			columnsSet["labels"] = true
+			columns = append(columns, "labels")
 		}
 		if input.SkuID != nil {
 			em.SkuID = input.SkuID
-			columnsSet["sku_id"] = true
+			columns = append(columns, "sku_id")
 		}
 		if input.MachineID != nil {
 			em.MachineID = input.MachineID
-			columnsSet["machine_id"] = true
+			columns = append(columns, "machine_id")
 		}
 		if input.BmcIpAddress != nil {
-			bmcIPUpdates = append(bmcIPUpdates, &ExpectedMachine{
-				ID:           input.ExpectedMachineID,
-				BmcIpAddress: input.BmcIpAddress,
-			})
+			em.BmcIpAddress = input.BmcIpAddress
+			columns = append(columns, "bmc_ip_address")
 		}
 		if input.RackID != nil {
 			em.RackID = input.RackID
-			columnsSet["rack_id"] = true
+			columns = append(columns, "rack_id")
 		}
 		if input.Name != nil {
 			em.Name = input.Name
-			columnsSet["name"] = true
+			columns = append(columns, "name")
 		}
 		if input.Manufacturer != nil {
 			em.Manufacturer = input.Manufacturer
-			columnsSet["manufacturer"] = true
+			columns = append(columns, "manufacturer")
 		}
 		if input.Model != nil {
 			em.Model = input.Model
-			columnsSet["model"] = true
+			columns = append(columns, "model")
 		}
 		if input.Description != nil {
 			em.Description = input.Description
-			columnsSet["description"] = true
+			columns = append(columns, "description")
 		}
 		if input.SlotID != nil {
 			em.SlotID = input.SlotID
-			columnsSet["slot_id"] = true
+			columns = append(columns, "slot_id")
 		}
 		if input.TrayIdx != nil {
 			em.TrayIdx = input.TrayIdx
-			columnsSet["tray_idx"] = true
+			columns = append(columns, "tray_idx")
 		}
 		if input.HostID != nil {
 			em.HostID = input.HostID
-			columnsSet["host_id"] = true
+			columns = append(columns, "host_id")
 		}
 		if input.IsDpfEnabled != nil {
 			em.IsDpfEnabled = input.IsDpfEnabled
-			columnsSet["is_dpf_enabled"] = true
+			columns = append(columns, "is_dpf_enabled")
 		}
 
-		expectedMachines = append(expectedMachines, em)
+		columns = append(columns, "updated")
+		columnKey := strings.Join(columns, ",")
+		group, groupExists := groupsByColumns[columnKey]
+		if !groupExists {
+			group = &updateGroup{columns: columns}
+			groupsByColumns[columnKey] = group
+			groups = append(groups, group)
+		}
+		group.machines = append(group.machines, em)
 		ids = append(ids, input.ExpectedMachineID)
 
-		// host_lifecycle_profile is deliberately kept out of the shared
-		// columnsSet. The bulk UPDATE applies one column list to every row, so
-		// folding it in would write the column for rows that omitted it (their
-		// model carries the zero value here), silently clearing the persisted
-		// profile. Apply it separately only to rows that included the field and
-		// merge the JSONB patch below so empty or partial profiles preserve
-		// existing stored values.
+		// host_lifecycle_profile uses a key-level JSONB merge rather than a
+		// replacement column update. Apply it separately only to rows that
+		// included the field so empty or partial profiles preserve existing
+		// stored values.
 		if input.HostLifecycleProfile != nil {
 			hlpUpdates = append(hlpUpdates, &ExpectedMachine{
 				ID:                   input.ExpectedMachineID,
@@ -806,18 +813,21 @@ func (emsd ExpectedMachineSQLDAO) UpdateMultiple(ctx context.Context, tx *db.Tx,
 		}
 	}
 
-	// Build column list
-	columns := make([]string, 0, len(columnsSet)+1)
-	for col := range columnsSet {
-		columns = append(columns, col)
-	}
-	columns = append(columns, "updated")
-
 	// Add summary tracing attributes
-	if expectedMachineDAOSpan != nil && len(inputs) > 0 {
-		traceColumns := append([]string(nil), columns...)
-		if len(bmcIPUpdates) > 0 {
-			traceColumns = append(traceColumns, "bmc_ip_address")
+	if expectedMachineDAOSpan != nil {
+		// Report the request-wide union: each listed column is written to at
+		// least one row, while the groups above preserve per-row omission.
+		var traceColumns []string
+		tracedColumns := make(map[string]struct{})
+		for _, group := range groups {
+			for _, column := range group.columns {
+				_, alreadyTraced := tracedColumns[column]
+				if alreadyTraced {
+					continue
+				}
+				tracedColumns[column] = struct{}{}
+				traceColumns = append(traceColumns, column)
+			}
 		}
 		if len(hlpUpdates) > 0 {
 			traceColumns = append(traceColumns, "host_lifecycle_profile")
@@ -829,20 +839,13 @@ func (emsd ExpectedMachineSQLDAO) UpdateMultiple(ctx context.Context, tx *db.Tx,
 		}
 	}
 
-	// Execute bulk update
-	_, err := db.GetIDB(tx, emsd.dbSession).NewUpdate().
-		Model(&expectedMachines).
-		Column(columns...).
-		Bulk().
-		Exec(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(bmcIPUpdates) > 0 {
+	// Execute one bulk update per column set in the order each set first
+	// appears in the request.
+	var err error
+	for _, group := range groups {
 		_, err = db.GetIDB(tx, emsd.dbSession).NewUpdate().
-			Model(&bmcIPUpdates).
-			Column("bmc_ip_address").
+			Model(&group.machines).
+			Column(group.columns...).
 			Bulk().
 			Exec(ctx)
 		if err != nil {

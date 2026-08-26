@@ -329,7 +329,7 @@ Keep handlers thin and reuse the common surfaces already in the tree:
    `Validate`; keep auth, ownership, site readiness, and DB-backed checks in the
    handler where context is available.
 3. Use `IsProviderOrTenant` from `rest-api/api/pkg/api/handler/util/common/common.go`
-   to retrieve Provider and Tenant objects. When adding list endpoints, reuse 
+   to retrieve Provider and Tenant objects. When adding list endpoints, reuse
    `pagination.PageRequest`, `common.ValidateKnownQueryParams`, and `common.GetSearchQuery`.
 4. Put request-to-proto conversion on the API request type and entity-to-proto
    conversion on the DB model, following the "Proto conversion methods" section
@@ -540,7 +540,8 @@ stays on the entity because there's no API request body for delete.
 `InstanceType` is the reference for everything else under this rollout
 (typed-slice validation, typed-map proto behavior, ozzo composition,
 shared conversion helpers): `(*cdbm.InstanceType).ToProto/FromProto`
-+ `(*InstanceType).AttachCapabilities` on the entity,
+
+- `(*InstanceType).AttachCapabilities` on the entity,
 `APIMachineCapabilities` + `APIMachineCapability` for the list/element
 split, `cdbm.Labels` for the typed map, and
 `common/pkg/util.IntPtrToUint32Ptr` for shared casts.
@@ -763,20 +764,18 @@ in its simplest form.
 
 ### Bulk updates must not clobber omitted (PATCH-preserved) columns
 
-`UpdateMultiple`-style DAOs build one shared column list and apply it to every
-row in a single bulk `UPDATE`. Any column added to that shared `columnsSet` is
-written for **every** row in the batch — including rows whose input omitted the
-field, which carry the model's zero value. For a field whose API contract is
-"omitting it preserves the existing value" (PATCH semantics), folding it into
-the shared set silently clears the stored value on untouched rows in a mixed
-batch.
+`UpdateMultiple`-style DAOs must preserve each input's field presence. A
+request-wide union of columns writes every selected column to every row,
+including zero values from inputs that omitted the field. That is safe only
+when every production caller guarantees a homogeneous update mask. Otherwise,
+group inputs by their exact set of present replacement fields or use SQL that
+retains per-row presence.
 
-When adding such a field to a bulk-update DAO:
+When updating a bulk-update DAO:
 
-- Do **not** add it to the shared `columnsSet`.
-- Apply it only to rows that provided it (carry per-row presence through the SQL
-  shape), or split the batch by identical column set. For flat JSONB
-  patch-style structs, prefer the Site config pattern:
+- Verify whether heterogeneous field sets can reach it from production callers.
+- Prefer grouping inputs by identical column set for ordinary replacement
+  fields. For flat JSONB patch-style structs, prefer the Site config pattern:
   `column = column || ?::jsonb`; an empty object is a no-op and future fields
   can be partial-patched without replacing the whole stored object.
 - Keep create vs. update straight: on create, an omitted optional field is
@@ -785,9 +784,10 @@ When adding such a field to a bulk-update DAO:
 - Add a mixed-batch test: some rows set the field, others omit it, and assert
   the omitted rows keep their prior value.
 
-`ExpectedMachine.UpdateMultiple` (`db/pkg/db/model/expectedmachine.go`) applies
-`bmc_ip_address` this way for a scalar value and `host_lifecycle_profile` for a
-JSONB patch; their mixed-batch tests are the guards.
+`ExpectedMachine.UpdateMultiple` (`db/pkg/db/model/expectedmachine.go`) groups
+ordinary replacement fields by identical column set and applies
+`host_lifecycle_profile` as a per-row JSONB merge. Its mixed-batch tests guard
+both behaviors.
 
 ## Git Workflow
 
@@ -814,9 +814,11 @@ When writing git commit messages, follow the conventions below:
 All commits **must** meet the following signing requirement:
 
 - **DCO sign-off** — certifies the Developer Certificate of Origin:
+
   ```bash
   git commit -s -m "Your commit message"
   ```
+
   DCO compliance is enforced automatically; unsigned commits block merging.
 
 ## Pull Request Guidelines

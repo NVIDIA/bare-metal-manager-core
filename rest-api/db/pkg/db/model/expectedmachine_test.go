@@ -1796,10 +1796,11 @@ func TestExpectedMachineSQLDAO_UpdateMultiple(t *testing.T) {
 	assert.Nil(t, err)
 
 	em2, err := emsd.Create(ctx, nil, ExpectedMachineCreateInput{
-		ExpectedMachineID:   uuid.New(),
-		SiteID:              site.ID,
-		BmcMacAddress:       "00:1B:44:11:3A:D2",
-		ChassisSerialNumber: "CHASSIS-UPDATE-002",
+		ExpectedMachineID:        uuid.New(),
+		SiteID:                   site.ID,
+		BmcMacAddress:            "00:1B:44:11:3A:D2",
+		ChassisSerialNumber:      "CHASSIS-UPDATE-002",
+		FallbackDpuSerialNumbers: []string{"DPU002"},
 		Labels: map[string]string{
 			"original": "label",
 		},
@@ -1826,9 +1827,10 @@ func TestExpectedMachineSQLDAO_UpdateMultiple(t *testing.T) {
 		expectError        bool
 		expectedCount      int
 		verifyChildSpanner bool
+		validate           func(*testing.T, []ExpectedMachine)
 	}{
 		{
-			desc: "batch update three expected machines",
+			desc: "heterogeneous batch preserves omitted fields",
 			inputs: []ExpectedMachineUpdateInput{
 				{
 					ExpectedMachineID:   em1.ID,
@@ -1842,7 +1844,7 @@ func TestExpectedMachineSQLDAO_UpdateMultiple(t *testing.T) {
 				{
 					ExpectedMachineID:        em2.ID,
 					BmcMacAddress:            cutil.GetPtr("00:1B:44:11:3A:E2"),
-					FallbackDpuSerialNumbers: []string{"DPU002", "DPU003"},
+					FallbackDpuSerialNumbers: []string{},
 				},
 				{
 					ExpectedMachineID: em3.ID,
@@ -1855,6 +1857,13 @@ func TestExpectedMachineSQLDAO_UpdateMultiple(t *testing.T) {
 			expectError:        false,
 			expectedCount:      3,
 			verifyChildSpanner: true,
+			validate: func(t *testing.T, got []ExpectedMachine) {
+				assert.Equal(t, "CHASSIS-UPDATE-002", got[1].ChassisSerialNumber)
+				assert.Equal(t, Labels{"original": "label"}, got[1].Labels)
+				assert.Equal(t, "00:1B:44:11:3A:D3", got[2].BmcMacAddress)
+				assert.Equal(t, "CHASSIS-UPDATE-003", got[2].ChassisSerialNumber)
+				assert.Equal(t, []string{"DPU001"}, got[2].FallbackDpuSerialNumbers)
+			},
 		},
 		{
 			desc:               "batch update with empty input",
@@ -1898,6 +1907,9 @@ func TestExpectedMachineSQLDAO_UpdateMultiple(t *testing.T) {
 					if tc.inputs[i].Labels != nil {
 						assert.Equal(t, Labels(tc.inputs[i].Labels), em.Labels)
 					}
+				}
+				if tc.validate != nil {
+					tc.validate(t, got)
 				}
 			}
 
@@ -1979,9 +1991,8 @@ func TestExpectedMachineSQLDAO_UpdateMultiple_BmcIpAddress(t *testing.T) {
 
 // TestExpectedMachineSQLDAO_UpdateMultiple_HostLifecycleProfile guards against a
 // mixed batch clearing host_lifecycle_profile on rows that did not set it.
-// Because the shared bulk UPDATE applies one column list to every row, the field
-// must be applied separately to only the rows that provide it; rows that omit it
-// must keep their persisted profile.
+// The field uses a per-row JSONB merge so omitted rows keep their persisted
+// profile and partial profiles do not replace sibling keys.
 func TestExpectedMachineSQLDAO_UpdateMultiple_HostLifecycleProfile(t *testing.T) {
 	ctx := context.Background()
 	dbSession := testInitDB(t)
