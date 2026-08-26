@@ -468,6 +468,23 @@ pub(crate) async fn find_power_shelf_state_histories(
     Ok(tonic::Response::new(response))
 }
 
+pub(crate) async fn find_power_shelf_health_histories(
+    api: &Api,
+    request: Request<rpc::PowerShelfHealthHistoriesRequest>,
+) -> Result<Response<rpc::HealthHistories>, Status> {
+    log_request_data(&request);
+    let request = request.into_inner();
+
+    crate::handlers::health::find_health_histories(
+        api,
+        request.power_shelf_ids,
+        db::health_history::HealthHistoryTableId::PowerShelf,
+        request.start_time,
+        request.end_time,
+    )
+    .await
+}
+
 pub(crate) async fn update_power_shelf_metadata(
     api: &Api,
     request: Request<rpc::PowerShelfMetadataUpdateRequest>,

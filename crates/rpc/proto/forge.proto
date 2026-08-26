@@ -252,6 +252,7 @@ service Forge {
   rpc FindMachineStateHistories(MachineStateHistoriesRequest) returns (MachineStateHistories);
   rpc FindMachineHealthHistories(MachineHealthHistoriesRequest) returns (HealthHistories);
   rpc FindPowerShelfStateHistories(PowerShelfStateHistoriesRequest) returns (StateHistories);
+  rpc FindPowerShelfHealthHistories(PowerShelfHealthHistoriesRequest) returns (HealthHistories);
   rpc FindRackStateHistories(RackStateHistoriesRequest) returns (StateHistories);
   rpc FindSwitchStateHistories(SwitchStateHistoriesRequest) returns (StateHistories);
   rpc FindSwitchHealthHistories(SwitchHealthHistoriesRequest) returns (HealthHistories);
@@ -2431,6 +2432,14 @@ message PowerShelfMaintenanceRequest {
 
 message PowerShelfStateHistoriesRequest {
   repeated common.PowerShelfId power_shelf_ids = 1;
+}
+
+message PowerShelfHealthHistoriesRequest {
+  repeated common.PowerShelfId power_shelf_ids = 1;
+  // Optional: Start time of the range (inclusive) for filtering health history
+  google.protobuf.Timestamp start_time = 2;
+  // Optional: End time of the range (inclusive) for filtering health history
+  google.protobuf.Timestamp end_time = 3;
 }
 
 message PowerShelfQuery {
