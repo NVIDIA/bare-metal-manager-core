@@ -439,23 +439,25 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 		}
 
 		ipamStorage := ipam.NewIpamStorage(mvp.dbSession.DB, tx.GetBunTx())
-		prefixLength := reportedPrefix.Bits()
+		reportedPrefixLength := reportedPrefix.Bits()
 
 		// Soft-skips after IPAM mutation must return a non-nil error so WithTxResult
 		// rolls back (e.g. FullGrant=true from CreateChildIpamEntryForIPBlock).
-		if ipBlock.PrefixLength == prefixLength {
-			childPrefix, allocateErr := ipam.CreateChildIpamEntryForIPBlock(ctx, tx, mvp.dbSession, ipamStorage, ipBlock, prefixLength)
-			if allocateErr != nil {
-				return nil, fmt.Errorf("unable to create VPC Prefix found on Site: failed to create IPAM entry for VPC Prefix: %w", allocateErr)
-			}
-			if childPrefix.Cidr != reportedVpcPrefix.Prefix {
-				return nil, fmt.Errorf("unable to create VPC Prefix found on Site: allocated Prefix %s differs from Site record %s", childPrefix.Cidr, reportedVpcPrefix.Prefix)
-			}
+		var allocateErr error
+		if ipBlock.PrefixLength == reportedPrefixLength {
+			_, allocateErr = ipam.CreateChildIpamEntryForIPBlock(
+				ctx, tx, mvp.dbSession, ipamStorage, ipBlock, reportedPrefixLength,
+			)
 		} else {
-			_, allocateErr := ipam.AcquireSpecificChildIpamEntryForIPBlock(ctx, tx, mvp.dbSession, ipamStorage, ipBlock, reportedVpcPrefix.Prefix)
-			if allocateErr != nil {
-				return nil, fmt.Errorf("unable to create VPC Prefix found on Site: failed to create IPAM entry for VPC Prefix: %w", allocateErr)
-			}
+			_, allocateErr = ipam.AcquireSpecificChildIpamEntryForIPBlock(
+				ctx, tx, mvp.dbSession, ipamStorage, ipBlock, reportedVpcPrefix.Prefix,
+			)
+		}
+		if allocateErr != nil {
+			return nil, fmt.Errorf(
+				"unable to create VPC Prefix found on Site: failed to create IPAM entry for VPC Prefix: %w",
+				allocateErr,
+			)
 		}
 
 		// If the VPC Prefix was soft-deleted, undelete it
@@ -509,7 +511,7 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 			TenantID:     vpc.TenantID,
 			IpBlockID:    &ipBlock.ID,
 			Prefix:       reportedVpcPrefix.Prefix,
-			PrefixLength: prefixLength,
+			PrefixLength: reportedPrefixLength,
 			Status:       cdbm.VpcPrefixStatusReady,
 			CreatedBy:    site.CreatedBy,
 		})
