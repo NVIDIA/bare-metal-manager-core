@@ -450,6 +450,7 @@ hostname: "nico.local"
 
 vaultClusterInfo: {}
 #  VAULT_SERVICE: "https://vault.example.com"
+#  VAULT_NAMESPACE: "admin/team-a"
 #  NICO_VAULT_MOUNT: "secrets"
 #  NICO_VAULT_PKI_MOUNT: "nicoca"
 

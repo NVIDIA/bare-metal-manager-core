@@ -46,6 +46,7 @@ use crate::credentials::{
 
 const DEFAULT_VAULT_CA_PATH: &str = "/var/run/secrets/forge-roots/ca.crt";
 const VAULT_CACERT_ENV_VAR: &str = "VAULT_CACERT";
+const VAULT_NAMESPACE_ENV_VAR: &str = "VAULT_NAMESPACE";
 const DEFAULT_SPIFFE_TRUST_DOMAIN: &str = "nico.local";
 const DEFAULT_SPIFFE_MACHINE_BASE_PATH: &str = "/forge-system/machine/";
 const VAULT_SPIFFE_TRUST_DOMAIN_ENV_VAR: &str = "VAULT_SPIFFE_TRUST_DOMAIN";
@@ -74,6 +75,7 @@ struct ForgeVaultClientConfig {
     pub kv_mount_location: String,
     pub pki_mount_location: String,
     pub pki_role_name: String,
+    pub namespace: Option<String>,
     spiffe_trust_domain: String,
     spiffe_machine_base_path: String,
     vault_root_ca_path: String,
@@ -468,6 +470,12 @@ where
     let vault_client_settings_builder = vault_client_settings_builder
         .ca_certs(vec![ca_path])
         .verify(true);
+
+    let vault_client_settings_builder = if let Some(namespace) = &vault_client_config.namespace {
+        vault_client_settings_builder.set_namespace(namespace.clone())
+    } else {
+        vault_client_settings_builder
+    };
 
     Ok(vault_client_settings_builder.build()?)
 }
@@ -1361,6 +1369,11 @@ pub struct VaultConfig {
     pub pki_role_name: Option<String>,
     pub token: Option<String>,
     pub vault_cacert: Option<String>,
+    /// HashiCorp Vault Enterprise or HCP Vault Dedicated namespace.
+    ///
+    /// When configured, this takes precedence over `VAULT_NAMESPACE` and is
+    /// sent as `X-Vault-Namespace` on every Vault API request.
+    pub namespace: Option<String>,
     /// SPIFFE trust domain for machine PKI URI SANs. Defaults to `nico.local`.
     pub spiffe_trust_domain: Option<String>,
     /// Path prefix after the trust domain, e.g. `/forge-system/machine/`.
@@ -1410,6 +1423,15 @@ impl VaultConfig {
             .context("VAULT_CACERT")
     }
 
+    /// Resolves the Vault namespace from configuration, then `VAULT_NAMESPACE`.
+    ///
+    /// An unset namespace preserves Vault OSS and root-namespace behavior.
+    pub fn namespace(&self) -> Option<String> {
+        self.namespace
+            .clone()
+            .or(env::var(VAULT_NAMESPACE_ENV_VAR).ok())
+    }
+
     pub fn spiffe_trust_domain(&self) -> String {
         self.spiffe_trust_domain
             .clone()
@@ -1446,6 +1468,7 @@ pub fn create_vault_client(vault_config: &VaultConfig) -> eyre::Result<Arc<Forge
         kv_mount_location: vault_config.kv_mount_location()?,
         pki_mount_location: vault_config.pki_mount_location()?,
         pki_role_name: vault_config.pki_role_name()?,
+        namespace: vault_config.namespace(),
         spiffe_trust_domain: vault_config.spiffe_trust_domain(),
         spiffe_machine_base_path: vault_config.spiffe_machine_base_path(),
         vault_root_ca_path,
@@ -1559,6 +1582,7 @@ pub fn create_dedicated_vault_client(
         kv_mount_location: String::new(),
         pki_mount_location: config.pki_mount_location.clone(),
         pki_role_name: config.pki_role_name.clone(),
+        namespace: None,
         spiffe_trust_domain: spiffe.trust_domain,
         spiffe_machine_base_path: spiffe.machine_base_path,
         vault_root_ca_path,
@@ -1592,6 +1616,9 @@ pub fn create_raw_vault_client_settings(
         .timeout(Some(Duration::from_secs(60)))
         .ca_certs(vec![ca_path])
         .verify(true);
+    if let Some(namespace) = vault_config.namespace() {
+        builder.set_namespace(namespace);
+    }
     builder
         .build()
         .map_err(|e| eyre!("vault client settings: {e}"))
@@ -1599,15 +1626,100 @@ pub fn create_raw_vault_client_settings(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::mpsc;
     use std::time::Duration;
 
     use base64::Engine;
     use serde_json::json;
+    use vaultrs::client::VaultClient;
+    use vaultrs::{kv2, pki};
 
     use super::{
-        DedicatedVaultConfig, SpiffeIdentity, VaultTokenRefreshWindowObserved,
-        create_dedicated_vault_client, machine_spiffe_uri, service_account_role_name_from_jwt,
+        DedicatedVaultConfig, ForgeVaultAuthenticationType, ForgeVaultClientConfig,
+        SpiffeIdentity, VaultConfig, VaultTokenRefreshWindowObserved, create_dedicated_vault_client,
+        create_vault_client_settings, machine_spiffe_uri, service_account_role_name_from_jwt,
     };
+
+    fn vault_client_config(address: String, namespace: Option<&str>) -> ForgeVaultClientConfig {
+        ForgeVaultClientConfig {
+            auth_type: ForgeVaultAuthenticationType::Root("test-token".to_string()),
+            vault_address: address,
+            kv_mount_location: "secret".to_string(),
+            pki_mount_location: "pki".to_string(),
+            pki_role_name: "nico".to_string(),
+            namespace: namespace.map(str::to_string),
+            spiffe_trust_domain: "nico.local".to_string(),
+            spiffe_machine_base_path: "/forge-system/machine/".to_string(),
+            // The settings builder checks that a CA path is configured, but an
+            // HTTP address does not read it.
+            vault_root_ca_path: format!("{}/Cargo.toml", env!("CARGO_MANIFEST_DIR")),
+        }
+    }
+
+    fn vault_header_server() -> (String, mpsc::Receiver<Vec<String>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind Vault test server");
+        let address = listener.local_addr().expect("get Vault test server address");
+        let (sender, receiver) = mpsc::channel();
+
+        std::thread::spawn(move || {
+            let mut requests = Vec::new();
+            for _ in 0..3 {
+                let (mut stream, _) = listener.accept().expect("accept Vault request");
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .expect("set Vault request read timeout");
+
+                let mut request = Vec::new();
+                let mut buf = [0; 1024];
+                while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    let bytes_read = stream.read(&mut buf).expect("read Vault request");
+                    if bytes_read == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&buf[..bytes_read]);
+                }
+                requests.push(String::from_utf8(request).expect("Vault request is UTF-8"));
+
+                stream
+                    .write_all(b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                    .expect("respond to Vault request");
+            }
+            sender.send(requests).expect("send Vault requests");
+        });
+
+        (format!("http://{address}"), receiver)
+    }
+
+    async fn assert_vault_namespace_headers(namespace: Option<&str>) {
+        let (address, requests) = vault_header_server();
+        let config = vault_client_config(address, namespace);
+        let settings = create_vault_client_settings("test-token", &config)
+            .expect("build Vault client settings");
+        let client = VaultClient::new(settings).expect("create Vault client");
+
+        let _ = vaultrs::auth::kubernetes::login(&client, "kubernetes", "nico", "jwt").await;
+        let data = HashMap::from([("key", "value")]);
+        let _ = kv2::set(&client, "secret", "machines/test", &data).await;
+        let _ = pki::cert::generate(&client, "pki", "nico", None).await;
+
+        let requests = requests
+            .recv_timeout(Duration::from_secs(5))
+            .expect("receive Vault requests");
+        assert_eq!(requests.len(), 3);
+        for request in requests {
+            let request = request.to_ascii_lowercase();
+            match namespace {
+                Some(namespace) => assert!(request.contains(&format!(
+                    "x-vault-namespace: {}",
+                    namespace.to_ascii_lowercase()
+                ))),
+                None => assert!(!request.contains("x-vault-namespace:")),
+            }
+        }
+    }
 
     fn dedicated_config() -> DedicatedVaultConfig {
         DedicatedVaultConfig {
@@ -1688,10 +1800,44 @@ mod tests {
 
     #[test]
     fn vault_config_spiffe_trust_domain_defaults_to_nico_local() {
-        use super::VaultConfig;
-
         let config = VaultConfig::default();
         assert_eq!(config.spiffe_trust_domain(), "nico.local");
+    }
+
+    #[test]
+    fn vault_namespace_from_config_has_precedence() {
+        let config = VaultConfig {
+            namespace: Some("admin/platform".to_string()),
+            ..Default::default()
+        };
+
+        assert_eq!(config.namespace().as_deref(), Some("admin/platform"));
+    }
+
+    #[test]
+    fn vault_client_settings_apply_nested_namespace() {
+        let config = vault_client_config(
+            "http://127.0.0.1:8200".to_string(),
+            Some("admin/platform/nico"),
+        );
+
+        let settings = create_vault_client_settings("test-token", &config)
+            .expect("build Vault client settings");
+
+        assert_eq!(
+            settings.namespace.as_deref(),
+            Some("admin/platform/nico")
+        );
+    }
+
+    #[tokio::test]
+    async fn vault_client_sends_namespace_on_auth_kv_and_pki_requests() {
+        assert_vault_namespace_headers(Some("admin/platform/nico")).await;
+    }
+
+    #[tokio::test]
+    async fn vault_client_omits_namespace_when_not_configured() {
+        assert_vault_namespace_headers(None).await;
     }
 
     fn jwt_from_payload(payload_value: serde_json::Value) -> String {
