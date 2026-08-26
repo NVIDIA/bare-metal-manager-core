@@ -45,7 +45,7 @@ Print help (see a summary with -h)
 | [`list`](./power-shelf-list.md) | List all power shelves |
 | [`decommission`](./power-shelf-decommission.md) | Start decommissioning a managed power shelf |
 | [`delete`](./power-shelf-delete.md) | Delete a power shelf |
-| [`force-delete`](./power-shelf-force-delete.md) | Force delete a power shelf and optionally its interfaces, retained boot interfaces, and BMC suppressions |
+| [`force-delete`](./power-shelf-force-delete.md) | Force delete a power shelf and optionally its interfaces and BMC suppressions |
 | [`metadata`](./power-shelf-metadata.md) | Manage Power Shelf Metadata |
 | [`maintenance`](./power-shelf-maintenance.md) | Request a power shelf maintenance operation (PowerOn / PowerOff) |
 | [`health-report`](./power-shelf-health-report.md) | Manage health report sources |

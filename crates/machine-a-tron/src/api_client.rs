@@ -398,7 +398,6 @@ impl ApiClient {
             .admin_force_delete_power_shelf(rpc::forge::AdminForceDeletePowerShelfRequest {
                 power_shelf_id: Some(power_shelf_id),
                 delete_interfaces: true,
-                delete_retained_boot_interfaces: false,
                 delete_bmc_suppressions: false,
             })
             .await

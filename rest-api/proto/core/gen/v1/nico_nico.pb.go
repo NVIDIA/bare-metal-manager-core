@@ -59984,21 +59984,17 @@ func (x *AdminForceDeleteSwitchResponse) GetInterfacesDeleted() uint32 {
 	return 0
 }
 
-// Force deletes a Power Shelf and optionally its associated interfaces,
-// retained boot interfaces, and BMC suppressions.
+// Force deletes a Power Shelf and optionally its associated interfaces
+// and BMC suppressions.
 type AdminForceDeletePowerShelfRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The Power Shelf ID to force delete.
 	PowerShelfId *PowerShelfId `protobuf:"bytes,1,opt,name=power_shelf_id,json=powerShelfId,proto3" json:"power_shelf_id,omitempty"`
 	// Should we delete the machine interfaces associated with this power shelf?
 	DeleteInterfaces bool `protobuf:"varint,2,opt,name=delete_interfaces,json=deleteInterfaces,proto3" json:"delete_interfaces,omitempty"`
-	// Should we delete retained boot interface records for this power shelf's
-	// interface MACs? Pair with delete_interfaces when permanently removing a
-	// shelf so interface deletion does not leave retained boot pairs behind.
-	DeleteRetainedBootInterfaces bool `protobuf:"varint,3,opt,name=delete_retained_boot_interfaces,json=deleteRetainedBootInterfaces,proto3" json:"delete_retained_boot_interfaces,omitempty"`
 	// Should we delete BMC suppressions (site explorer and DHCP) for this power
 	// shelf's BMC MAC?
-	DeleteBmcSuppressions bool `protobuf:"varint,4,opt,name=delete_bmc_suppressions,json=deleteBmcSuppressions,proto3" json:"delete_bmc_suppressions,omitempty"`
+	DeleteBmcSuppressions bool `protobuf:"varint,3,opt,name=delete_bmc_suppressions,json=deleteBmcSuppressions,proto3" json:"delete_bmc_suppressions,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -60043,13 +60039,6 @@ func (x *AdminForceDeletePowerShelfRequest) GetPowerShelfId() *PowerShelfId {
 func (x *AdminForceDeletePowerShelfRequest) GetDeleteInterfaces() bool {
 	if x != nil {
 		return x.DeleteInterfaces
-	}
-	return false
-}
-
-func (x *AdminForceDeletePowerShelfRequest) GetDeleteRetainedBootInterfaces() bool {
-	if x != nil {
-		return x.DeleteRetainedBootInterfaces
 	}
 	return false
 }
@@ -69493,12 +69482,11 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x11delete_interfaces\x18\x02 \x01(\bR\x10deleteInterfaces\"l\n" +
 	"\x1eAdminForceDeleteSwitchResponse\x12\x1b\n" +
 	"\tswitch_id\x18\x01 \x01(\tR\bswitchId\x12-\n" +
-	"\x12interfaces_deleted\x18\x02 \x01(\rR\x11interfacesDeleted\"\x8b\x02\n" +
+	"\x12interfaces_deleted\x18\x02 \x01(\rR\x11interfacesDeleted\"\xc4\x01\n" +
 	"!AdminForceDeletePowerShelfRequest\x12:\n" +
 	"\x0epower_shelf_id\x18\x01 \x01(\v2\x14.common.PowerShelfIdR\fpowerShelfId\x12+\n" +
-	"\x11delete_interfaces\x18\x02 \x01(\bR\x10deleteInterfaces\x12E\n" +
-	"\x1fdelete_retained_boot_interfaces\x18\x03 \x01(\bR\x1cdeleteRetainedBootInterfaces\x126\n" +
-	"\x17delete_bmc_suppressions\x18\x04 \x01(\bR\x15deleteBmcSuppressions\"y\n" +
+	"\x11delete_interfaces\x18\x02 \x01(\bR\x10deleteInterfaces\x126\n" +
+	"\x17delete_bmc_suppressions\x18\x03 \x01(\bR\x15deleteBmcSuppressions\"y\n" +
 	"\"AdminForceDeletePowerShelfResponse\x12$\n" +
 	"\x0epower_shelf_id\x18\x01 \x01(\tR\fpowerShelfId\x12-\n" +
 	"\x12interfaces_deleted\x18\x02 \x01(\rR\x11interfacesDeleted\"\xb8\a\n" +

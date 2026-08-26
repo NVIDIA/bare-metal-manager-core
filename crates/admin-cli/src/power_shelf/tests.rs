@@ -74,13 +74,12 @@ fn parse_force_delete_cleanup_flags() {
                     .expect("power shelf ID is required")
                     .to_string(),
                 matches.get_flag("delete_interfaces"),
-                matches.get_flag("delete_retained_boot_interfaces"),
                 matches.get_flag("delete_bmc_suppressions"),
             ))
         };
         "id only" {
             &["power-shelf", "force-delete", SAMPLE_PS_ID_1][..] =>
-                Yields((SAMPLE_PS_ID_1.to_string(), false, false, false)),
+                Yields((SAMPLE_PS_ID_1.to_string(), false, false)),
         }
 
         "with full cleanup flags" {
@@ -89,9 +88,8 @@ fn parse_force_delete_cleanup_flags() {
                 "force-delete",
                 SAMPLE_PS_ID_1,
                 "--delete-interfaces",
-                "--delete-retained-boot-interfaces",
                 "--delete-bmc-suppressions",
-            ][..] => Yields((SAMPLE_PS_ID_1.to_string(), true, true, true)),
+            ][..] => Yields((SAMPLE_PS_ID_1.to_string(), true, true)),
         }
     );
 }

@@ -248,8 +248,8 @@ pub(crate) async fn delete_power_shelf(
     Ok(Response::new(rpc::PowerShelfDeletionResult {}))
 }
 
-/// Force deletes a power shelf and optionally its associated interfaces,
-/// retained boot interfaces, and BMC suppressions from the database.
+/// Force deletes a power shelf and optionally its associated interfaces
+/// and BMC suppressions from the database.
 /// Unlike `delete_power_shelf` (soft delete), this immediately hard-deletes the power shelf
 /// while retaining its state history.
 pub(crate) async fn admin_force_delete_power_shelf(
@@ -274,26 +274,16 @@ pub(crate) async fn admin_force_delete_power_shelf(
             id: power_shelf_id.to_string(),
         })?;
 
-    let interfaces = if request.delete_interfaces || request.delete_retained_boot_interfaces {
-        db::machine_interface::find_by_power_shelf_id(&mut txn, &power_shelf_id)
-            .await
-            .map_err(CarbideError::from)?
-    } else {
-        Vec::new()
-    };
-
     let mut interfaces_deleted: u32 = 0;
-    for interface in &interfaces {
-        if request.delete_interfaces {
+    if request.delete_interfaces {
+        let interfaces = db::machine_interface::find_by_power_shelf_id(&mut txn, &power_shelf_id)
+            .await
+            .map_err(CarbideError::from)?;
+        for interface in &interfaces {
             db::machine_interface::delete(&interface.id, &mut txn)
                 .await
                 .map_err(CarbideError::from)?;
             interfaces_deleted += 1;
-        }
-        if request.delete_retained_boot_interfaces {
-            db::retained_boot_interface::take_by_mac(&mut txn, interface.mac_address, None)
-                .await
-                .map_err(CarbideError::from)?;
         }
     }
 

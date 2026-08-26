@@ -5,30 +5,24 @@ _[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › 
 ## NAME
 
 nico-admin-cli-power-shelf-force-delete - Force delete a power shelf and
-optionally its interfaces, retained boot interfaces, and BMC
-suppressions
+optionally its interfaces and BMC suppressions
 
 ## SYNOPSIS
 
 **nico-admin-cli power-shelf force-delete**
 \[**-d**\|**--delete-interfaces**\]
-\[**--delete-retained-boot-interfaces**\]
 \[**--delete-bmc-suppressions**\] \[**--extended**\] \[**--sort-by**\]
 \[**-h**\|**--help**\] \<*POWER_SHELF_ID*\>
 
 ## DESCRIPTION
 
-Force delete a power shelf and optionally its interfaces, retained boot
-interfaces, and BMC suppressions
+Force delete a power shelf and optionally its interfaces and BMC
+suppressions
 
 ## OPTIONS
 
 **-d**, **--delete-interfaces**  
 Delete machine interfaces associated with this power shelf.
-
-**--delete-retained-boot-interfaces**  
-Delete retained boot interface records for interface MACs belonging to
-this power shelf.
 
 **--delete-bmc-suppressions**  
 Delete BMC suppressions (site explorer and DHCP) for this power shelf
@@ -62,7 +56,7 @@ Power Shelf ID to force delete.
 ```sh
 nico-admin-cli power-shelf force-delete 12345678-1234-5678-90ab-cdef01234567
 nico-admin-cli power-shelf force-delete 12345678-1234-5678-90ab-cdef01234567 --delete-interfaces
-nico-admin-cli power-shelf force-delete 12345678-1234-5678-90ab-cdef01234567 --delete-interfaces --delete-retained-boot-interfaces --delete-bmc-suppressions
+nico-admin-cli power-shelf force-delete 12345678-1234-5678-90ab-cdef01234567 --delete-interfaces --delete-bmc-suppressions
 ```
 
 ---

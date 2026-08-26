@@ -42,7 +42,7 @@ pub(crate) enum Cmd {
     #[clap(about = "Delete a power shelf")]
     Delete(delete::Args),
     #[clap(
-        about = "Force delete a power shelf and optionally its interfaces, retained boot interfaces, and BMC suppressions"
+        about = "Force delete a power shelf and optionally its interfaces and BMC suppressions"
     )]
     ForceDelete(force_delete::Args),
     #[clap(subcommand, about = "Manage Power Shelf Metadata")]
