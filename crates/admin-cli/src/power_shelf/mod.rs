@@ -41,9 +41,7 @@ pub(crate) enum Cmd {
     Decommission(decommission::Args),
     #[clap(about = "Delete a power shelf")]
     Delete(delete::Args),
-    #[clap(
-        about = "Force delete a power shelf and optionally its interfaces and BMC suppressions"
-    )]
+    #[clap(about = "Force delete a power shelf and optionally its interfaces and BMC suppressions")]
     ForceDelete(force_delete::Args),
     #[clap(subcommand, about = "Manage Power Shelf Metadata")]
     Metadata(metadata::Args),
