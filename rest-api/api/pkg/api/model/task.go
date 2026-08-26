@@ -267,8 +267,8 @@ func (r *APICancelTaskRequest) Validate() error {
 	return nil
 }
 
-// APIGetTasksRequest binds query parameters for rack- and tray-scoped task list
-// endpoints. Pagination is bound separately via pagination.PageRequest.
+// APIGetTasksRequest binds query parameters for Site-, Rack-, and Tray-scoped
+// task list endpoints. Pagination is bound separately via pagination.PageRequest.
 type APIGetTasksRequest struct {
 	SiteID        string `query:"siteId"`
 	ActiveOnly    bool   `query:"activeOnly"`

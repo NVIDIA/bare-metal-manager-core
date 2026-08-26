@@ -24,6 +24,50 @@ spec:
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       automountServiceAccountToken: {{ .Values.automountServiceAccountToken }}
       serviceAccountName: {{ include "nico-api.name" . }}
+      {{- /*
+        Scheduling. `affinity` is a plain pass-through for operators who want
+        full control. `databaseAffinity` is a convenience on top of it: a SOFT
+        preference to land on the same node as the PostgreSQL primary.
+
+        Soft is deliberate. nico-api holds the admin-segment advisory lock
+        across application round trips, so much of that lock's hold time is
+        network latency to the database rather than query time. Co-located and
+        cross-node runs of the same 4,500-host ingestion measured a 1.32x
+        throughput difference (local RTT 0.073ms vs 0.473ms). Worth preferring;
+        never worth blocking on -- `preferred...` lets the scheduler place
+        nico-api anywhere if the primary's node is full, cordoned or gone.
+
+        Also `...IgnoredDuringExecution`: a Patroni failover moves the
+        `spilo-role=master` label to another pod, and nico-api deliberately does
+        NOT get evicted to chase it. Staying up beats the 1.32x.
+      */}}
+      {{- if and .Values.databaseAffinity.enabled (not .Values.affinity) }}
+      affinity:
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: {{ .Values.databaseAffinity.weight }}
+              podAffinityTerm:
+                topologyKey: {{ .Values.databaseAffinity.topologyKey }}
+                {{- with .Values.databaseAffinity.namespaces }}
+                namespaces:
+                  {{- toYaml . | nindent 18 }}
+                {{- end }}
+                labelSelector:
+                  matchLabels:
+                    {{- toYaml .Values.databaseAffinity.matchLabels | nindent 20 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -193,6 +237,11 @@ spec:
             - name: spiffe
               mountPath: "/var/run/secrets/spiffe.io"
               readOnly: true
+            {{- if .Values.nvSwitchTls.nicoClient.enabled }}
+            - name: nvswitch-nico-client
+              mountPath: {{ .Values.nvSwitchTls.nicoClient.mountPath }}
+              readOnly: true
+            {{- end }}
             - name: nico-roots
               mountPath: "/var/run/secrets/forge-roots"
               readOnly: true
@@ -223,6 +272,11 @@ spec:
         - name: spiffe
           secret:
             secretName: {{ include "nico-api.name" . }}-certificate
+        {{- if .Values.nvSwitchTls.nicoClient.enabled }}
+        - name: nvswitch-nico-client
+          secret:
+            secretName: {{ .Values.nvSwitchTls.nicoClient.secretName }}
+        {{- end }}
         - name: nico-roots
           secret:
             secretName: nico-roots

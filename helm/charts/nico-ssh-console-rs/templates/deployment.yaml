@@ -35,6 +35,7 @@ spec:
             - /bin/sh
             - -c
             - |
+              ulimit -Sn {{ .Values.fileDescriptorLimit | int }} || exit 1
               if [ -x /opt/nico/ssh-console ]; then
                 exec /opt/nico/ssh-console run -c /etc/nico/ssh-console/config.toml
               else
@@ -53,7 +54,8 @@ spec:
             {{- toYaml .Values.readinessProbe | nindent 12 }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
-          resources: {}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
             # Mount config at both paths so the binary finds it regardless of nico/carbide image variant.
             - name: {{ include "nico-ssh-console-rs.name" . }}-config-files

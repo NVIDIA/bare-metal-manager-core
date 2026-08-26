@@ -444,13 +444,17 @@ impl RedfishClient {
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
+        reset_type: Option<libredfish::ManagerResetType>,
     ) -> Result<(), EndpointExplorationError> {
         let client = self
             .create_authenticated_redfish_client(bmc_ip_address, credentials)
             .await
             .map_err(map_redfish_client_creation_error)?;
 
-        client.bmc_reset().await.map_err(map_redfish_error)?;
+        client
+            .bmc_reset(reset_type)
+            .await
+            .map_err(map_redfish_error)?;
 
         Ok(())
     }
@@ -946,6 +950,7 @@ async fn fetch_system(client: &dyn Redfish) -> Result<FetchedSystem, EndpointExp
             power_state: system.power_state.into_model(),
             sku: system.sku,
             boot_order,
+            serial_console_ssh_port: None,
         },
         is_dpu,
         is_host: !(is_dpu || is_switch || is_powershelf),

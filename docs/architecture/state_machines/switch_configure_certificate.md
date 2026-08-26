@@ -70,7 +70,7 @@ NICo has two independent mTLS service lists:
 | Setting | Workflow and target | Omitted or empty behavior |
 |---------|---------------------|---------------------------|
 | `[switch_state_controller].switch_mtls_services` | Per-switch certificate configuration for every switch handled by the switch state controller. | Uses all four service values. |
-| `[rack_state_controller].nmx_cluster_switch_mtls_services` | Rack certificate configuration on the primary switch before NMX cluster setup. | Uses `scale_up_fabric_manager` and `scale_up_fabric_telemetry_interface`. |
+| `[rack_state_controller].nmx_cluster_switch_mtls_services` | **Deprecated.** Accepted and ignored. Rack maintenance does not configure switch certificates; use `[switch_state_controller].switch_mtls_services`. | Uses `scale_up_fabric_manager` and `scale_up_fabric_telemetry_interface`. |
 
 A non-empty list replaces the corresponding default. Omission or an empty list
 uses the default.
@@ -297,7 +297,6 @@ single-switch, single-job certificate operation.
 | Shared certificate logic | `crates/switch-controller/src/certificate.rs` |
 | Bring-up handler | `crates/switch-controller/src/configuring.rs` |
 | Maintenance handler | `crates/switch-controller/src/maintenance.rs` |
-| Rack NMX cluster certificates | `crates/rack-controller/src/nmx_certificate.rs` |
 | CM facade | `crates/component-manager/src/component_manager.rs` |
 | CM trait | `crates/component-manager/src/nv_switch_manager.rs` |
 | RMS backend | `crates/component-manager/src/rms.rs` |

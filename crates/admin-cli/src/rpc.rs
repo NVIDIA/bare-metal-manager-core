@@ -1273,6 +1273,7 @@ impl ApiClient {
                 routing_profile_type: None,
                 routing_profile_overrides: None,
                 power_resource_group: None,
+                slaac_enabled: None,
                 tenant_organization_id: "devenv_test_org".to_string(),
                 tenant_keyset_id: None,
                 network_virtualization_type: Some(
@@ -1338,6 +1339,7 @@ impl ApiClient {
                 routing_profile_type: None,
                 routing_profile_overrides: None,
                 power_resource_group: None,
+                slaac_enabled: None,
                 tenant_organization_id: "devenv_test_org".to_string(),
                 tenant_keyset_id: None,
                 network_virtualization_type: Some(VpcVirtualizationType::Flat.into()),
@@ -1704,11 +1706,17 @@ impl ApiClient {
                     CarbideCliError::GenericError(format!("VPC {vpc_id} was not found"))
                 })?;
 
-            let VpcVirtualizationType::Flat = vpc.network_virtualization_type() else {
+            let network_virtualization_type = vpc
+                .config
+                .as_ref()
+                .and_then(|config| config.network_virtualization_type)
+                .and_then(|value| VpcVirtualizationType::try_from(value).ok())
+                .unwrap_or_default();
+            let VpcVirtualizationType::Flat = network_virtualization_type else {
                 return Err(CarbideCliError::GenericError(format!(
                     "VPC {} is not a flat VPC, is of type {}",
                     vpc_id,
-                    vpc.network_virtualization_type().as_str_name()
+                    network_virtualization_type.as_str_name()
                 )));
             };
 

@@ -17,11 +17,12 @@
 
 //! Render one machine's boot-interface candidates: every NIC the machine
 //! offers (managed `machine_interfaces` rows and pre-first-lease predictions),
-//! annotated with the picks the system computes among them. The picks --
-//! current, default (primary flag masked), predicted, and the explored
-//! endpoint default -- all arrive server-computed on the
-//! `GetMachineBootInterfaces` response; this module only matches rows against
-//! them, it never re-derives selection logic.
+//! annotated with the selection/default picks the system computes among them.
+//! Current, default (primary flag masked), predicted, and explored-endpoint
+//! picks all arrive server-computed on `GetMachineBootInterfaces`; this module
+//! only matches rows against them, it never re-derives selection logic. The
+//! persisted desired target and controller progress live in `boot-interface
+//! show`, not in this narrower candidate view.
 
 use std::fmt::Write as _;
 
@@ -31,6 +32,7 @@ use carbide_uuid::machine::MachineId;
 use prettytable::{Cell, Row, Table};
 use serde::Serialize;
 
+use super::super::SUMMARY_LABEL_WIDTH;
 use super::args::Args;
 use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
@@ -44,11 +46,9 @@ enum CandidateSource {
     Predicted,
 }
 
-/// One candidate NIC with the marks the picks put on it. Markers are matched
-/// by MAC: the boot target the BMC ultimately receives is a MAC (plus its
-/// Redfish id), so a MAC-level mark is the semantically honest granularity --
-/// duplicate MACs across segments both light up, mirroring what the BMC
-/// operation would actually aim at.
+/// One candidate NIC with the marks the picks put on it. The pick messages
+/// identify targets by MAC (plus a Redfish id), not by managed row id, so
+/// duplicate MACs across segments both receive the same MAC-level mark.
 #[derive(Debug, Serialize)]
 struct CandidateRow {
     mac_address: String,
@@ -61,12 +61,13 @@ struct CandidateRow {
     network_segment_type: Option<String>,
     source: CandidateSource,
     primary_interface: bool,
-    /// Whether the selection considers this row at all. Mirrors the pick
-    /// functions' one exclusion -- underlay rows are never boot candidates --
-    /// for display only; the actual picks are server-computed.
+    /// Whether selection considers this row: a declared primary is eligible
+    /// regardless of segment, while non-primary underlay rows are excluded
+    /// from the automatic fallback. Display only; the actual picks are
+    /// server-computed.
     eligible: bool,
-    /// This NIC is what resolution targets right now: the effective managed
-    /// pick, or the predicted pick while no managed row offers a candidate.
+    /// This NIC is the effective managed/predicted selection. Persisted
+    /// desired state may differ and is intentionally outside this view.
     current: bool,
     /// This NIC is the automatic pick with the primary flag masked -- what
     /// the system would choose if nothing were declared.
@@ -81,8 +82,8 @@ struct CandidateRow {
 struct CandidatesReport {
     machine_id: Option<MachineId>,
     candidates: Vec<CandidateRow>,
-    /// What resolution targets right now -- the effective managed pick, else
-    /// the predicted pick for a machine with no managed candidate yet.
+    /// The effective managed pick, else the predicted pick when managed rows
+    /// offer no candidate. Persisted desired state may differ.
     current_boot_interface_mac: Option<String>,
     current_boot_interface_id: Option<String>,
     current_source: Option<CandidateSource>,
@@ -95,6 +96,11 @@ struct CandidatesReport {
     /// Every boot pair recorded on the machine's explored BMC endpoints --
     /// the MAC plus the Redfish interface id when captured.
     explored_boot_interfaces: Vec<ExploredDefault>,
+    /// Why the current desired target was selected, when it is initialized.
+    desired_selection_source: Option<String>,
+    /// Time the current desired target and source decision was established.
+    /// Adding a Redfish interface ID for the same MAC preserves it.
+    desired_selection_updated_at: Option<String>,
     divergent: bool,
 }
 
@@ -108,6 +114,16 @@ struct ExploredDefault {
 
 impl From<forgerpc::GetMachineBootInterfacesResponse> for CandidatesReport {
     fn from(r: forgerpc::GetMachineBootInterfacesResponse) -> Self {
+        let desired_selection_source = r
+            .reconciliation
+            .as_ref()
+            .map(|status| status.selection_source().as_str().to_string());
+        let desired_selection_updated_at = r.reconciliation.as_ref().and_then(|status| {
+            status
+                .selection_updated_at
+                .map(|timestamp| timestamp.to_string())
+        });
+
         // The default and predicted picks arrive as `MachineBootInterface`
         // messages -- flatten to the strings the report carries.
         let default_mac = r
@@ -162,12 +178,12 @@ impl From<forgerpc::GetMachineBootInterfacesResponse> for CandidatesReport {
             .collect();
 
         let mark = |mac: &str, pick: &Option<String>| pick.as_deref() == Some(mac);
-        // The one exclusion the pick functions apply, matched against the
-        // segment type's wire form (`NetworkSegmentType` serializes `Underlay`
-        // as "tor"). Display only -- the picks themselves arrive
-        // server-computed.
+        // Primary wins regardless of segment; non-primary underlay rows are
+        // excluded from the automatic fallback. Match against the segment
+        // type's display form (`NetworkSegmentType::Underlay` renders as
+        // "tor"). Display only -- the picks themselves arrive server-computed.
         let underlay = model::network_segment::NetworkSegmentType::Underlay.to_string();
-        let eligible = |segment: Option<&str>| segment != Some(underlay.as_str());
+        let is_eligible = |primary, segment| primary || segment != Some(underlay.as_str());
 
         let mut candidates: Vec<CandidateRow> = r
             .machine_interfaces
@@ -179,7 +195,7 @@ impl From<forgerpc::GetMachineBootInterfacesResponse> for CandidatesReport {
                 network_segment_type: i.network_segment_type.clone(),
                 source: CandidateSource::Managed,
                 primary_interface: i.primary_interface,
-                eligible: eligible(i.network_segment_type.as_deref()),
+                eligible: is_eligible(i.primary_interface, i.network_segment_type.as_deref()),
                 current: mark(&i.mac_address, &current_mac),
                 default: mark(&i.mac_address, &default_mac),
                 explored_default: explored_macs.contains(&i.mac_address),
@@ -192,7 +208,7 @@ impl From<forgerpc::GetMachineBootInterfacesResponse> for CandidatesReport {
             network_segment_type: p.network_segment_type.clone(),
             source: CandidateSource::Predicted,
             primary_interface: p.primary_interface,
-            eligible: eligible(p.network_segment_type.as_deref()),
+            eligible: is_eligible(p.primary_interface, p.network_segment_type.as_deref()),
             current: mark(&p.mac_address, &current_mac),
             default: mark(&p.mac_address, &default_mac),
             explored_default: explored_macs.contains(&p.mac_address),
@@ -209,6 +225,8 @@ impl From<forgerpc::GetMachineBootInterfacesResponse> for CandidatesReport {
             predicted_boot_interface_mac: predicted_mac,
             predicted_boot_interface_id: predicted_id,
             explored_boot_interfaces: explored_defaults,
+            desired_selection_source,
+            desired_selection_updated_at,
             divergent: r.divergent,
         }
     }
@@ -242,6 +260,7 @@ pub(super) async fn handle_candidates(
 fn render_candidates(report: &CandidatesReport) -> String {
     let mut out = String::new();
     let dash = |s: &Option<String>| s.as_deref().unwrap_or("-").to_string();
+    let summary_width = SUMMARY_LABEL_WIDTH;
 
     let machine_id = report
         .machine_id
@@ -289,7 +308,11 @@ fn render_candidates(report: &CandidatesReport) -> String {
                 CandidateSource::Managed => "managed",
                 CandidateSource::Predicted => "predicted",
             };
-            let eligible = if c.eligible { "yes" } else { "no (underlay)" };
+            let eligible = if c.eligible {
+                "yes"
+            } else {
+                "no (non-primary underlay)"
+            };
             table.add_row(Row::new(vec![
                 Cell::new(&c.mac_address),
                 Cell::new(&dash(&c.interface_id)),
@@ -322,7 +345,8 @@ fn render_candidates(report: &CandidatesReport) -> String {
     };
     let _ = writeln!(
         out,
-        "\nCurrent boot interface:  {}{}",
+        "\n{:<summary_width$} {}{}",
+        "Current boot interface:",
         pair(
             report.current_boot_interface_mac.as_deref(),
             report.current_boot_interface_id.as_deref(),
@@ -331,7 +355,8 @@ fn render_candidates(report: &CandidatesReport) -> String {
     );
     let _ = writeln!(
         out,
-        "Default (auto) pick:     {}",
+        "{:<summary_width$} {}",
+        "Default (auto) pick:",
         pair(
             report.default_boot_interface_mac.as_deref(),
             report.default_boot_interface_id.as_deref(),
@@ -355,7 +380,8 @@ fn render_candidates(report: &CandidatesReport) -> String {
             (Some(_), _) => {
                 let _ = writeln!(
                     out,
-                    "Predicted pick:          {}",
+                    "{:<summary_width$} {}",
+                    "Predicted pick:",
                     pair(
                         report.predicted_boot_interface_mac.as_deref(),
                         report.predicted_boot_interface_id.as_deref(),
@@ -363,21 +389,23 @@ fn render_candidates(report: &CandidatesReport) -> String {
                 );
             }
             (None, false) => {
-                let _ = writeln!(out, "Predicted pick:          -");
+                let _ = writeln!(out, "{:<summary_width$} -", "Predicted pick:");
             }
             (None, true) => {
                 let _ = writeln!(
                     out,
-                    "Predicted pick:          none -- multiple predictions and none declared \
+                    "{:<summary_width$} none -- multiple predictions and none declared \
                      primary, so the system refuses to guess (declare one via the expected \
-                     machine's `interfaces[].primary`)"
+                     machine's `interfaces[].primary`)",
+                    "Predicted pick:",
                 );
             }
         }
     }
     let _ = writeln!(
         out,
-        "Explored default(s):     {}",
+        "{:<summary_width$} {}",
+        "Explored default(s):",
         if report.explored_boot_interfaces.is_empty() {
             "-".to_string()
         } else {
@@ -389,7 +417,23 @@ fn render_candidates(report: &CandidatesReport) -> String {
                 .join(", ")
         },
     );
-    let _ = writeln!(out, "Stores diverge on boot MAC: {}", report.divergent);
+    let _ = writeln!(
+        out,
+        "{:<summary_width$} {}",
+        "Stores diverge on boot MAC:", report.divergent,
+    );
+    let _ = writeln!(
+        out,
+        "{:<summary_width$} {}",
+        "Desired selection source:",
+        dash(&report.desired_selection_source),
+    );
+    let _ = writeln!(
+        out,
+        "{:<summary_width$} {}",
+        "Selection updated at:",
+        dash(&report.desired_selection_updated_at),
+    );
 
     out
 }
@@ -450,7 +494,14 @@ mod tests {
                 mac_address: "aa:bb:cc:00:00:09".to_string(),
                 interface_id: None,
             }),
-            reconciliation: None,
+            reconciliation: Some(
+                forgerpc::get_machine_boot_interfaces_response::Reconciliation {
+                    selection_source: forgerpc::BootInterfaceSelectionSource::RedfishSerialNumber
+                        as i32,
+                    selection_updated_at: Some(Default::default()),
+                    ..Default::default()
+                },
+            ),
         }
     }
 
@@ -472,7 +523,10 @@ mod tests {
         assert!(lower.default, "the lower non-underlay MAC is the default");
 
         let underlay = &report.candidates[2];
-        assert!(!underlay.eligible, "underlay rows are never candidates");
+        assert!(
+            !underlay.eligible,
+            "non-primary underlay rows are excluded from the fallback"
+        );
         assert!(!underlay.current && !underlay.default);
 
         let prediction = &report.candidates[3];
@@ -524,16 +578,39 @@ mod tests {
     }
 
     #[test]
+    fn a_declared_primary_underlay_row_is_eligible() {
+        let mut response = sample_response();
+        response.machine_interfaces[0].primary_interface = false;
+        response.machine_interfaces[2].primary_interface = true;
+        response.effective_boot_interface_mac = Some("aa:bb:cc:00:00:00".to_string());
+        response.effective_boot_interface_id = None;
+
+        let report = CandidatesReport::from(response);
+        let underlay = &report.candidates[2];
+
+        assert!(underlay.eligible);
+        assert!(underlay.current);
+    }
+
+    #[test]
     fn ascii_render_shows_markers_and_summary() {
         let rendered = render_candidates(&CandidatesReport::from(sample_response()));
 
         assert!(rendered.contains("current,explored"));
-        assert!(rendered.contains("no (underlay)"));
-        assert!(rendered.contains("Current boot interface:  aa:bb:cc:00:00:02 (NIC.Slot.2-1-1)\n"));
-        assert!(rendered.contains("Default (auto) pick:     aa:bb:cc:00:00:01 (NIC.Slot.1-1-1)\n"));
-        assert!(rendered.contains("Predicted pick:          aa:bb:cc:00:00:09"));
-        assert!(rendered.contains("Explored default(s):     aa:bb:cc:00:00:02 (NIC.Slot.2-1-1)"));
-        assert!(rendered.contains("Stores diverge on boot MAC: false"));
+        assert!(rendered.contains("no (non-primary underlay)"));
+        assert!(
+            rendered.contains("Current boot interface:       aa:bb:cc:00:00:02 (NIC.Slot.2-1-1)\n")
+        );
+        assert!(
+            rendered.contains("Default (auto) pick:          aa:bb:cc:00:00:01 (NIC.Slot.1-1-1)\n")
+        );
+        assert!(rendered.contains("Predicted pick:               aa:bb:cc:00:00:09"));
+        assert!(
+            rendered.contains("Explored default(s):          aa:bb:cc:00:00:02 (NIC.Slot.2-1-1)")
+        );
+        assert!(rendered.contains("Stores diverge on boot MAC:   false"));
+        assert!(rendered.contains("Desired selection source:     RedfishSerialNumber"));
+        assert!(rendered.contains("Selection updated at:         1970-01-01T00:00:00Z"));
     }
 
     #[test]
@@ -567,7 +644,7 @@ mod tests {
 
         let rendered = render_candidates(&CandidatesReport::from(response));
 
-        assert!(rendered.contains("Current boot interface:  -"));
+        assert!(rendered.contains("Current boot interface:       -"));
         assert!(rendered.contains("refuses to guess"));
     }
 
@@ -595,7 +672,7 @@ mod tests {
 
         let rendered = render_candidates(&CandidatesReport::from(response));
 
-        assert!(rendered.contains("Predicted pick:          -"));
+        assert!(rendered.contains("Predicted pick:               -"));
         assert!(!rendered.contains("refuses to guess"));
     }
 
@@ -620,5 +697,10 @@ mod tests {
             "NIC.Slot.2-1-1"
         );
         assert_eq!(value["divergent"], false);
+        assert_eq!(value["desired_selection_source"], "RedfishSerialNumber");
+        assert_eq!(
+            value["desired_selection_updated_at"],
+            "1970-01-01T00:00:00Z"
+        );
     }
 }

@@ -133,13 +133,14 @@ pub async fn create(
         name => name.to_string(),
     };
     let version = ConfigVersion::initial();
-    let query = "INSERT INTO racks(id, rack_profile_id, config, controller_state, controller_state_outcome, name, description, labels, version)
-            VALUES($1, $2, $3::json, $4::json, $5::json, $6, $7, $8::jsonb, $9) RETURNING *";
+    let query = "INSERT INTO racks(id, rack_profile_id, config, controller_state, controller_state_version, controller_state_outcome, name, description, labels, version)
+            VALUES($1, $2, $3::json, $4::json, $5, $6::json, $7, $8, $9::jsonb, $10) RETURNING *";
     let rack: Rack = sqlx::query_as(query)
         .bind(rack_id)
         .bind(rack_profile_id)
         .bind(sqlx::types::Json(config))
         .bind(controller_state)
+        .bind(version)
         .bind(controller_state_outcome)
         .bind(name)
         .bind(&src_metadata.description)

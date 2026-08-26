@@ -686,6 +686,7 @@ type APITray struct {
 	Position        *APITrayPosition `json:"position"`
 	BMCs            []*APIBMC        `json:"bmcs"`
 	RackID          string           `json:"rackId"`
+	NVLinkDomainID  *string          `json:"nvLinkDomainId"`
 }
 
 // FromProto converts an Flow protobuf Component to an APITray
@@ -737,6 +738,11 @@ func (at *APITray) FromProto(comp *flowv1.Component) {
 	// Get rack ID
 	if comp.GetRackId() != nil {
 		at.RackID = comp.GetRackId().GetId()
+	}
+
+	if comp.GetNvlDomainId() != nil {
+		domainID := comp.GetNvlDomainId().GetId()
+		at.NVLinkDomainID = &domainID
 	}
 }
 

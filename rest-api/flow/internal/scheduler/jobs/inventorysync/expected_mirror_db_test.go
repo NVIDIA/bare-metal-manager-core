@@ -5,7 +5,6 @@ package inventorysync
 
 import (
 	"context"
-	"errors"
 	"os"
 	"testing"
 	"time"
@@ -21,16 +20,6 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 )
-
-// failGetMachinesClient wraps the production mock and forces the machine
-// actual-sync RPC to fail, so runActualSync reports allRPCOK=false.
-type failGetMachinesClient struct {
-	nicoapi.Client
-}
-
-func (c *failGetMachinesClient) GetMachines(_ context.Context) ([]nicoapi.MachineDetail, error) {
-	return nil, errors.New("boom")
-}
 
 // These tests exercise the mirror's write paths against a real database —
 // the half that pure-function tests can't reach and where the
@@ -64,8 +53,8 @@ func coreRack(rackID, mfr, serial string) nicoapi.ExpectedRackDetail {
 	}
 }
 
-// coreRackNamed is coreRack with an explicit name, for cases that contend on
-// the chassis pair and so must not also contend on rack_name_idx.
+// coreRackNamed is coreRack with an explicit name for tests that need stable
+// display metadata independent of the chassis pair.
 func coreRackNamed(rackID, name, mfr, serial string) nicoapi.ExpectedRackDetail {
 	r := coreRack(rackID, mfr, serial)
 	r.Name = name
@@ -84,10 +73,9 @@ func computeSpec(mfr, serial, mac string) expectedComponentSpec {
 
 // --- rack mirror ----------------------------------------------------------
 
-// A successful but empty Core response soft-deletes both mirror-adopted racks
-// and identity-less legacy rows. An identifiable legacy row remains available
-// for later natural-key adoption.
-func TestMirrorRacks_EmptyCoreDeletesAbsentAndIdentitylessRows(t *testing.T) {
+// A successful but empty Core response soft-deletes both mirror-adopted and
+// legacy racks because no remaining row can be adopted from this snapshot.
+func TestMirrorRacks_EmptyCoreDeletesAllRows(t *testing.T) {
 	ctx, pool := mirrorTestPool(t)
 
 	adopted := model.Rack{Name: "adopted", Manufacturer: "Mfg", SerialNumber: "AD-1", ExternalID: strPtr("a12")}
@@ -104,7 +92,7 @@ func TestMirrorRacks_EmptyCoreDeletesAbsentAndIdentitylessRows(t *testing.T) {
 	}
 
 	result := mirrorExpectedRacks(ctx, pool, nil)
-	assert.Equal(t, 4, result.softDeleted, "summary count must reflect the four rows actually soft-deleted")
+	assert.Equal(t, 5, result.softDeleted, "summary count must reflect every row actually soft-deleted")
 
 	gotAdopted, err := (&model.Rack{ID: adopted.ID}).GetIncludingDeleted(ctx, pool.DB)
 	require.NoError(t, err)
@@ -112,7 +100,7 @@ func TestMirrorRacks_EmptyCoreDeletesAbsentAndIdentitylessRows(t *testing.T) {
 
 	gotIdentifiableLegacy, err := (&model.Rack{ID: identifiableLegacy.ID}).GetIncludingDeleted(ctx, pool.DB)
 	require.NoError(t, err)
-	assert.Nil(t, gotIdentifiableLegacy.DeletedAt, "legacy rack with a complete natural key must remain available for later adoption")
+	assert.NotNil(t, gotIdentifiableLegacy.DeletedAt, "unmatched legacy rack must be soft-deleted")
 
 	for _, legacy := range identitylessLegacy {
 		gotIdentitylessLegacy, err := (&model.Rack{ID: legacy.ID}).GetIncludingDeleted(ctx, pool.DB)
@@ -121,26 +109,25 @@ func TestMirrorRacks_EmptyCoreDeletesAbsentAndIdentitylessRows(t *testing.T) {
 	}
 }
 
-// An identity-less legacy rack can reserve a globally unique name needed by a
-// Core rack. The first authoritative pass removes the orphan; the next pass can
-// collect that tombstone and mirror the Core rack under the released name.
-func TestMirrorRacks_IdentitylessRowCleanupReleasesNameForCoreRack(t *testing.T) {
+// An identity-less legacy rack and a Core rack may share a non-unique name. The
+// authoritative pass removes the orphan and mirrors the Core rack immediately.
+func TestMirrorRacks_IdentitylessRowCleanupDoesNotBlockDuplicateName(t *testing.T) {
 	ctx, pool := mirrorTestPool(t)
 
 	orphan := model.Rack{Name: "reserved-name"}
 	require.NoError(t, orphan.Create(ctx, pool.DB))
 	core := coreRackNamed("a12", "reserved-name", "Mfg", "CORE-1")
 
-	first := mirrorExpectedRacks(ctx, pool, []nicoapi.ExpectedRackDetail{core})
-	assert.Equal(t, 1, first.skippedNameTaken)
-	assert.Equal(t, 1, first.softDeleted)
-
-	second := mirrorExpectedRacks(ctx, pool, []nicoapi.ExpectedRackDetail{core})
-	assert.Equal(t, 1, second.inserted)
+	result := mirrorExpectedRacks(ctx, pool, []nicoapi.ExpectedRackDetail{core})
+	assert.Equal(t, 1, result.softDeleted)
+	assert.Equal(t, 1, result.inserted)
 
 	var mirrored model.Rack
 	require.NoError(t, pool.DB.NewSelect().Model(&mirrored).Where("external_id = ?", "a12").Scan(ctx))
 	assert.Equal(t, "reserved-name", mirrored.Name)
+	gotOrphan, err := (&model.Rack{ID: orphan.ID}).GetIncludingDeleted(ctx, pool.DB)
+	require.NoError(t, err)
+	assert.NotNil(t, gotOrphan.DeletedAt, "legacy rack must remain recoverable as a tombstone")
 }
 
 // #1: a soft-deleted rack is resurrected (deleted_at cleared) when Core
@@ -177,8 +164,8 @@ func TestMirrorRacks_RenameKeepsRow(t *testing.T) {
 	assert.Equal(t, "new", *got.ExternalID, "external_id must be updated to Core's new rack_id")
 }
 
-// #3: a Core row missing a chassis label is mirrored, not skipped, and the
-// existing Flow rack survives with its own label intact.
+// #3: a Core row missing a chassis label is authoritative and clears the
+// existing Flow value without deleting the rack.
 func TestMirrorRacks_MissingChassisLabelStillMirrored(t *testing.T) {
 	ctx, pool := mirrorTestPool(t)
 
@@ -196,7 +183,8 @@ func TestMirrorRacks_MissingChassisLabelStillMirrored(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, got.DeletedAt, "rack still listed by Core must survive")
 	assert.Equal(t, "still-here", got.Name, "the row must be updated, proving Core's row was not skipped")
-	assert.Equal(t, "Mfg", got.Manufacturer, "Core omitting a label must not erase Flow's copy")
+	assert.Empty(t, got.Manufacturer, "Core omitting a label must clear Flow's stale copy")
+	assert.Equal(t, "MF-1", got.SerialNumber)
 }
 
 // A Core rack carrying no chassis labels at all is mirrored under its rack_id.
@@ -315,9 +303,9 @@ func TestMirrorRacks_DuplicateChassisNoAbort(t *testing.T) {
 	assert.Equal(t, 1, withSerial, "only one rack may hold the contested chassis pair")
 }
 
-// Two Core racks resolving to the same name must not abort the cycle on
-// rack_name_idx: the second write is skipped and the first still lands.
-func TestMirrorRacks_DuplicateNameNoAbort(t *testing.T) {
+// Names are Core metadata, not identity. Two Core racks with the same name are
+// both mirrored under their distinct external IDs.
+func TestMirrorRacks_DuplicateNamesBothConverge(t *testing.T) {
 	ctx, pool := mirrorTestPool(t)
 
 	mirrorExpectedRacks(ctx, pool, []nicoapi.ExpectedRackDetail{
@@ -327,15 +315,17 @@ func TestMirrorRacks_DuplicateNameNoAbort(t *testing.T) {
 
 	total, err := pool.DB.NewSelect().Model((*model.Rack)(nil)).Count(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, 1, total, "the first rack must land; the second is skipped, not left to abort the cycle")
+	assert.Equal(t, 2, total)
 
-	var got model.Rack
-	require.NoError(t, pool.DB.NewSelect().Model(&got).Where("name = ?", "same-name").Scan(ctx))
-	assert.Equal(t, "NM-1", got.SerialNumber)
+	var got []model.Rack
+	require.NoError(t, pool.DB.NewSelect().Model(&got).Where("name = ?", "same-name").Order("external_id").Scan(ctx))
+	require.Len(t, got, 2)
+	assert.Equal(t, "a12", *got[0].ExternalID)
+	assert.Equal(t, "b34", *got[1].ExternalID)
 }
 
-// #8: an empty Core description must not wipe operator-set rack metadata.
-func TestMirrorRacks_EmptyDescriptionPreserved(t *testing.T) {
+// #8: an empty Core description clears stale Flow metadata.
+func TestMirrorRacks_EmptyDescriptionCleared(t *testing.T) {
 	ctx, pool := mirrorTestPool(t)
 
 	r := model.Rack{
@@ -351,13 +341,111 @@ func TestMirrorRacks_EmptyDescriptionPreserved(t *testing.T) {
 
 	got, err := (&model.Rack{ID: r.ID}).GetIncludingDeleted(ctx, pool.DB)
 	require.NoError(t, err)
-	require.NotNil(t, got.Description)
-	assert.Equal(t, "operator note", got.Description["text"], "empty Core description must not wipe operator metadata")
+	assert.Nil(t, got.Description, "empty Core description must clear stale Flow metadata")
 }
 
-// #6: a Core rack whose name collides with a different live Flow rack must be
-// skipped, not abort the cycle on the unique name index.
-func TestMirrorRacks_NameCollisionWithLiveRackSkips(t *testing.T) {
+func TestMirrorRacks_CoreMetadataCorrectionConvergesExistingExternalID(t *testing.T) {
+	ctx, pool := mirrorTestPool(t)
+	domain := model.NVLDomain{Name: "domain-a"}
+	require.NoError(t, domain.Create(ctx, pool.DB))
+	ingestedAt := time.Now().UTC().Truncate(time.Microsecond)
+
+	r := model.Rack{
+		Name:         "rack-a12",
+		Manufacturer: "OldMfg",
+		SerialNumber: "OLD-1",
+		ExternalID:   strPtr("a12"),
+		Description:  map[string]any{"model": "old-model", "text": "old description"},
+		Location:     map[string]any{"region": "old-region", "room": "old-room"},
+		NVLDomainID:  domain.ID,
+		Status:       model.RackStatusIngested,
+		IngestedAt:   &ingestedAt,
+	}
+	require.NoError(t, r.Create(ctx, pool.DB))
+
+	core := nicoapi.ExpectedRackDetail{
+		RackID:      "a12",
+		Name:        "rack-a12",
+		Description: "new description",
+		Labels: map[string]string{
+			labelChassisManufacturer: "NewMfg",
+			labelChassisSerialNumber: "NEW-1",
+			labelChassisModel:        "new-model",
+			labelLocationRegion:      "new-region",
+			labelLocationDatacenter:  "new-dc",
+			labelLocationPosition:    "new-position",
+		},
+	}
+
+	mirrorExpectedRacks(ctx, pool, []nicoapi.ExpectedRackDetail{core})
+
+	got, err := (&model.Rack{ID: r.ID}).GetIncludingDeleted(ctx, pool.DB)
+	require.NoError(t, err)
+	assert.Equal(t, r.ID, got.ID)
+	assert.Equal(t, "NewMfg", got.Manufacturer)
+	assert.Equal(t, "NEW-1", got.SerialNumber)
+	assert.Equal(t, map[string]any{"model": "new-model", "text": "new description"}, got.Description)
+	assert.Equal(t, map[string]any{
+		"region":      "new-region",
+		"data_center": "new-dc",
+		"position":    "new-position",
+	}, got.Location)
+	assert.Equal(t, domain.ID, got.NVLDomainID)
+	assert.Equal(t, model.RackStatusIngested, got.Status)
+	require.NotNil(t, got.IngestedAt)
+	assert.Equal(t, ingestedAt, got.IngestedAt.UTC())
+}
+
+func TestMirrorRacks_ExternalIDCorrectionReclaimsLegacyChassisSlot(t *testing.T) {
+	ctx, pool := mirrorTestPool(t)
+
+	authoritative := model.Rack{
+		Name:         "rack-a12",
+		Manufacturer: "Mfg",
+		SerialNumber: "OLD-1",
+		ExternalID:   strPtr("a12"),
+	}
+	require.NoError(t, authoritative.Create(ctx, pool.DB))
+	legacy := model.Rack{Name: "legacy-holder", Manufacturer: "Mfg", SerialNumber: "NEW-1"}
+	require.NoError(t, legacy.Create(ctx, pool.DB))
+
+	mirrorExpectedRacks(ctx, pool, []nicoapi.ExpectedRackDetail{
+		coreRackNamed("a12", "rack-a12", "Mfg", "NEW-1"),
+	})
+
+	gotAuthoritative, err := (&model.Rack{ID: authoritative.ID}).GetIncludingDeleted(ctx, pool.DB)
+	require.NoError(t, err)
+	assert.Equal(t, "NEW-1", gotAuthoritative.SerialNumber)
+	gotLegacy, err := (&model.Rack{ID: legacy.ID}).GetIncludingDeleted(ctx, pool.DB)
+	require.NoError(t, err)
+	assert.NotNil(t, gotLegacy.DeletedAt)
+	assert.Empty(t, gotLegacy.Manufacturer)
+	assert.Empty(t, gotLegacy.SerialNumber)
+}
+
+func TestMirrorRacks_ExternalIDRowsCanSwapChassisSlots(t *testing.T) {
+	ctx, pool := mirrorTestPool(t)
+
+	a := model.Rack{Name: "rack-a", Manufacturer: "Mfg", SerialNumber: "A", ExternalID: strPtr("a")}
+	b := model.Rack{Name: "rack-b", Manufacturer: "Mfg", SerialNumber: "B", ExternalID: strPtr("b")}
+	require.NoError(t, a.Create(ctx, pool.DB))
+	require.NoError(t, b.Create(ctx, pool.DB))
+
+	mirrorExpectedRacks(ctx, pool, []nicoapi.ExpectedRackDetail{
+		coreRackNamed("a", "rack-a", "Mfg", "B"),
+		coreRackNamed("b", "rack-b", "Mfg", "A"),
+	})
+
+	gotA, err := (&model.Rack{ID: a.ID}).GetIncludingDeleted(ctx, pool.DB)
+	require.NoError(t, err)
+	gotB, err := (&model.Rack{ID: b.ID}).GetIncludingDeleted(ctx, pool.DB)
+	require.NoError(t, err)
+	assert.Equal(t, "B", gotA.SerialNumber)
+	assert.Equal(t, "A", gotB.SerialNumber)
+}
+
+// #6: a Core rack may share a name with a different live Flow rack.
+func TestMirrorRacks_NameCollisionWithLiveRackConverges(t *testing.T) {
 	ctx, pool := mirrorTestPool(t)
 
 	live := model.Rack{Name: "collide", Manufacturer: "Mfg", SerialNumber: "LIVE-1", ExternalID: strPtr("x")}
@@ -373,7 +461,7 @@ func TestMirrorRacks_NameCollisionWithLiveRackSkips(t *testing.T) {
 	}
 	// Include the live rack's own Core row so it isn't soft-deleted for absence.
 	mirrorExpectedRacks(ctx, pool, []nicoapi.ExpectedRackDetail{
-		coreRack("x", "Mfg", "LIVE-1"),
+		coreRackNamed("x", "collide", "Mfg", "LIVE-1"),
 		collidingCore,
 	})
 
@@ -381,15 +469,131 @@ func TestMirrorRacks_NameCollisionWithLiveRackSkips(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, gotLive.DeletedAt, "the live rack holding the name must survive")
 
-	n, err := pool.DB.NewSelect().Model((*model.Rack)(nil)).Where("serial_number = ?", "NEW-1").Count(ctx)
+	n, err := pool.DB.NewSelect().Model((*model.Rack)(nil)).Where("name = ?", "collide").Count(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, 0, n, "the colliding-name insert must be skipped, not committed or aborting the cycle")
+	assert.Equal(t, 2, n)
 }
 
 // --- component mirror -----------------------------------------------------
 
 func compType() string {
 	return devicetypes.ComponentTypeToString(devicetypes.ComponentTypeCompute)
+}
+
+func TestMirrorComponents_DescriptionLifecycle(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		componentType devicetypes.ComponentType
+		serial        string
+		mac           string
+	}{
+		{"ExpectedMachine", devicetypes.ComponentTypeCompute, "DESC-COMPUTE", "aa:bb:cc:dd:ef:01"},
+		{"ExpectedSwitch", devicetypes.ComponentTypeNVSwitch, "DESC-SWITCH", "aa:bb:cc:dd:ef:02"},
+		{"ExpectedPowerShelf", devicetypes.ComponentTypePowerShelf, "DESC-POWER", "aa:bb:cc:dd:ef:03"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, pool := mirrorTestPool(t)
+			componentType := devicetypes.ComponentTypeToString(tc.componentType)
+			spec := expectedComponentSpec{
+				Type:         componentType,
+				Manufacturer: "Mfg",
+				SerialNumber: tc.serial,
+				Name:         tc.serial,
+				Description:  "initial description",
+				BMC:          expectedBMCSpec{MACAddress: tc.mac},
+			}
+
+			mirrorExpectedComponents(ctx, pool, componentType, []expectedComponentSpec{spec}, map[string]uuid.UUID{})
+
+			loadComponent := func() model.Component {
+				var component model.Component
+				err := pool.DB.NewSelect().Model(&component).
+					Where("manufacturer = ? AND serial_number = ?", spec.Manufacturer, spec.SerialNumber).
+					Scan(ctx)
+				require.NoError(t, err)
+				return component
+			}
+
+			component := loadComponent()
+			assert.Equal(t, "initial description", component.Description[expectedDescriptionKey])
+
+			component.Description["operator"] = "keep"
+			component.Description["nvos_ip"] = "10.0.0.2"
+			_, err := pool.DB.NewUpdate().Model(&component).Column("description").WherePK().Exec(ctx)
+			require.NoError(t, err)
+
+			spec.Description = "updated description"
+			mirrorExpectedComponents(ctx, pool, componentType, []expectedComponentSpec{spec}, map[string]uuid.UUID{})
+			component = loadComponent()
+			assert.Equal(t, "updated description", component.Description[expectedDescriptionKey])
+			assert.Equal(t, "keep", component.Description["operator"])
+			assert.Equal(t, "10.0.0.2", component.Description["nvos_ip"])
+
+			spec.Description = ""
+			mirrorExpectedComponents(ctx, pool, componentType, []expectedComponentSpec{spec}, map[string]uuid.UUID{})
+			component = loadComponent()
+			assert.NotContains(t, component.Description, expectedDescriptionKey)
+			assert.Equal(t, "keep", component.Description["operator"])
+			assert.Equal(t, "10.0.0.2", component.Description["nvos_ip"])
+		})
+	}
+}
+
+func TestUpdateMirroredComponent_PreservesRuntimeWriteAfterReconciliationRead(t *testing.T) {
+	for _, tc := range []struct {
+		name                string
+		expectedDescription string
+		wantExpected        bool
+	}{
+		{"set expected description", "updated description", true},
+		{"clear expected description", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, pool := mirrorTestPool(t)
+			component := model.Component{
+				Type:         compType(),
+				Manufacturer: "Mfg",
+				SerialNumber: "INTERLEAVE-" + tc.name,
+				Name:         "before",
+				Description: map[string]any{
+					expectedDescriptionKey: "initial description",
+					"operator":             "keep",
+				},
+			}
+			require.NoError(t, component.Create(ctx, pool.DB))
+
+			var reconciliationSnapshot model.Component
+			require.NoError(t, pool.DB.NewSelect().Model(&reconciliationSnapshot).Where("id = ?", component.ID).Scan(ctx))
+
+			// Simulate runtime sync committing after reconciliation read the row
+			// but before the mirror writes its planned update.
+			_, err := pool.DB.NewUpdate().
+				Model((*model.Component)(nil)).
+				Set(
+					"description = jsonb_set(COALESCE(description, '{}'::jsonb), ARRAY[?::text], to_jsonb(?::text), true)",
+					nvosIPDescriptionKey,
+					"10.0.0.2",
+				).
+				Where("id = ?", component.ID).
+				Exec(ctx)
+			require.NoError(t, err)
+
+			reconciliationSnapshot.Name = "after"
+			reconciliationSnapshot.UpdatedAt = time.Now()
+			require.NoError(t, updateMirroredComponent(ctx, pool.DB, &reconciliationSnapshot, tc.expectedDescription))
+
+			var updated model.Component
+			require.NoError(t, pool.DB.NewSelect().Model(&updated).Where("id = ?", component.ID).Scan(ctx))
+			assert.Equal(t, "after", updated.Name)
+			assert.Equal(t, "10.0.0.2", updated.Description[nvosIPDescriptionKey])
+			assert.Equal(t, "keep", updated.Description["operator"])
+			if tc.wantExpected {
+				assert.Equal(t, tc.expectedDescription, updated.Description[expectedDescriptionKey])
+			} else {
+				assert.NotContains(t, updated.Description, expectedDescriptionKey)
+			}
+		})
+	}
 }
 
 // #11: a successful but empty Core response soft-deletes all Flow components
@@ -502,33 +706,6 @@ func TestMirrorComponents_EvictRefusesNonHostBMC(t *testing.T) {
 	b, err := (&model.Component{Manufacturer: "Mfg", SerialNumber: "C-B"}).Get(ctx, pool.DB)
 	require.NoError(t, err)
 	assert.Empty(t, b.BMCs, "B's host BMC insert must be skipped, not steal the DPU MAC")
-}
-
-// #10: when an actual-sync RPC fails, the component_drift table must be left
-// intact rather than wiped with a partial view.
-func TestRunInventoryOne_DriftTablePreservedOnRPCFailure(t *testing.T) {
-	ctx, pool := mirrorTestPool(t)
-
-	// A compute component so syncMachines reaches GetMachines (which fails).
-	c := model.Component{Type: compType(), Manufacturer: "Mfg", SerialNumber: "C-DRIFT-1"}
-	require.NoError(t, c.Create(ctx, pool.DB))
-
-	// A pre-existing drift row that must survive the failed cycle.
-	existing := model.ComponentDrift{
-		ComponentID: &c.ID,
-		DriftType:   model.DriftTypeMissingInActual,
-		Diffs:       []model.FieldDiff{},
-		CheckedAt:   time.Now(),
-	}
-	_, err := pool.DB.NewInsert().Model(&existing).Exec(ctx)
-	require.NoError(t, err)
-
-	client := &failGetMachinesClient{Client: nicoapi.NewMockClient()}
-	runInventoryOne(ctx, pool, client, false)
-
-	n, err := pool.DB.NewSelect().Model((*model.ComponentDrift)(nil)).Count(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, 1, n, "drift table must not be wiped when an actual-sync RPC failed")
 }
 
 // #4: two specs reporting the same manufacturer and serial must not abort the

@@ -13,15 +13,17 @@ import (
 	"github.com/google/uuid"
 )
 
-// Store implements rule, binding, and execution persistence in memory.
+// Store implements all event-rule persistence in memory.
 type Store struct {
-	mu                   sync.RWMutex
-	rules                map[uuid.UUID]dbmodel.EventRule
-	bindings             map[uuid.UUID]dbmodel.EventRuleBinding
-	executions           map[uuid.UUID]*memoryExecution
-	executionsByDelivery map[eventrule.ExecutionDeliveryKey]uuid.UUID
-	executionsBySemantic map[eventrule.ExecutionSemanticKey][]uuid.UUID
-	now                  func() time.Time
+	mu              sync.RWMutex
+	rules           map[uuid.UUID]dbmodel.EventRule
+	bindings        map[uuid.UUID]dbmodel.EventRuleBinding
+	events          map[uuid.UUID]dbmodel.Event
+	eventsByKey     map[eventrule.EventKey]uuid.UUID
+	executions      map[uuid.UUID]*memoryExecution
+	executionsByKey map[eventrule.ExecutionKey]uuid.UUID
+	executionTasks  map[executionTaskKey]eventrule.ExecutionTask
+	now             func() time.Time
 }
 
 // New constructs an empty in-memory store.
@@ -36,17 +38,21 @@ func NewWithClock(now func() time.Time) *Store {
 		now = time.Now
 	}
 	return &Store{
-		rules:                make(map[uuid.UUID]dbmodel.EventRule),
-		bindings:             make(map[uuid.UUID]dbmodel.EventRuleBinding),
-		executions:           make(map[uuid.UUID]*memoryExecution),
-		executionsByDelivery: make(map[eventrule.ExecutionDeliveryKey]uuid.UUID),
-		executionsBySemantic: make(map[eventrule.ExecutionSemanticKey][]uuid.UUID),
-		now:                  now,
+		rules:           make(map[uuid.UUID]dbmodel.EventRule),
+		bindings:        make(map[uuid.UUID]dbmodel.EventRuleBinding),
+		events:          make(map[uuid.UUID]dbmodel.Event),
+		eventsByKey:     make(map[eventrule.EventKey]uuid.UUID),
+		executions:      make(map[uuid.UUID]*memoryExecution),
+		executionsByKey: make(map[eventrule.ExecutionKey]uuid.UUID),
+		executionTasks:  make(map[executionTaskKey]eventrule.ExecutionTask),
+		now:             now,
 	}
 }
 
 var (
-	_ eventrule.RuleStore      = (*Store)(nil)
-	_ eventrule.BindingStore   = (*Store)(nil)
-	_ eventrule.ExecutionStore = (*Store)(nil)
+	_ eventrule.RuleStore          = (*Store)(nil)
+	_ eventrule.BindingStore       = (*Store)(nil)
+	_ eventrule.EventStore         = (*Store)(nil)
+	_ eventrule.ExecutionStore     = (*Store)(nil)
+	_ eventrule.ExecutionTaskStore = (*Store)(nil)
 )

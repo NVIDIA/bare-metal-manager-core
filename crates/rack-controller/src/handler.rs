@@ -32,6 +32,7 @@ use state_controller::state_handler::{
 };
 
 use crate as carbide_rack_controller;
+use crate::write_ops::PersistRackHealthHistory;
 
 //------------------------------------------------------------------------------
 
@@ -44,12 +45,12 @@ impl RackStateHandler {
     fn record_metrics(
         &self,
         state: &Rack,
+        aggregate_health: &health_report::HealthReport,
         ctx: &mut StateHandlerContext<'_, RackStateHandlerContextObjects>,
     ) {
-        let aggregate_health = derive_rack_aggregate_health(&state.health_reports);
         ctx.metrics.health.populate(
             state.id.to_string(),
-            &aggregate_health,
+            aggregate_health,
             &state.health_reports,
         );
         ctx.services.per_object_metrics_registry.record(
@@ -58,6 +59,21 @@ impl RackStateHandler {
             &ctx.metrics.health.health_alert_classifications,
             vec![],
         );
+    }
+
+    /// Persists a snapshot of the rack's aggregate health so it appears in the
+    /// health history timeline. Deduplication of unchanged observations is
+    /// handled in the database layer.
+    fn record_health_history(
+        &self,
+        state: &Rack,
+        aggregate_health: &health_report::HealthReport,
+        ctx: &mut StateHandlerContext<'_, RackStateHandlerContextObjects>,
+    ) {
+        ctx.pending_db_writes.push(PersistRackHealthHistory {
+            rack_id: state.id.clone(),
+            health_report: aggregate_health.clone(),
+        });
     }
 
     async fn attempt_state_transition(
@@ -107,7 +123,9 @@ impl StateHandler for RackStateHandler {
             "Rack is in state",
         );
 
-        self.record_metrics(state, ctx);
+        let aggregate_health = derive_rack_aggregate_health(&state.health_reports);
+        self.record_metrics(state, &aggregate_health, ctx);
+        self.record_health_history(state, &aggregate_health, ctx);
 
         if state.deleted.is_some() && !matches!(controller_state, RackState::Deleting) {
             tracing::info!(

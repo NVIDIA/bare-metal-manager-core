@@ -165,6 +165,7 @@ pub struct TestManagedHostBuilder<'a> {
     site_explorer: &'a TestSiteExplorer,
     segment: TestNetworkSegment,
     config: Option<ManagedHostConfig>,
+    dpu_primary_segment: Option<TestNetworkSegment>,
     report_dpu_network_status: bool,
 }
 
@@ -179,6 +180,7 @@ impl<'a> TestManagedHostBuilder<'a> {
             site_explorer,
             segment,
             config: None,
+            dpu_primary_segment: None,
             report_dpu_network_status: false,
         }
     }
@@ -197,9 +199,30 @@ impl<'a> TestManagedHostBuilder<'a> {
         }
     }
 
+    pub fn with_dpu_primary_interfaces(self, segment: TestNetworkSegment) -> Self {
+        Self {
+            dpu_primary_segment: Some(segment),
+            ..self
+        }
+    }
+
     pub async fn build(self) -> (TestManagedHost, TestManagedHostBuildData) {
         let config = self.config.unwrap_or_else(ManagedHostConfig::default);
         register_expected_machine(self.test_harness, &config).await;
+
+        if let Some(segment) = self.dpu_primary_segment {
+            for dpu in &config.dpus {
+                self.test_harness
+                    .api()
+                    .discover_dhcp(
+                        DhcpDiscovery::builder(dpu.oob_mac_address, segment.relay_address)
+                            .vendor_string("SomeVendor")
+                            .tonic_request(),
+                    )
+                    .await
+                    .expect("DPU primary interface DHCP discovery should succeed");
+            }
+        }
 
         let host_bmc_ip = discover_bmc(
             self.test_harness.api(),

@@ -57,29 +57,30 @@ func testTemporalSiteClientPool(t *testing.T) *sc.ClientPool {
 	return tSiteClientPool
 }
 
-func TestPrimaryResolvedVpcPrefixID(t *testing.T) {
+func TestResolvedVpcPrefixIDs(t *testing.T) {
 	ipv4 := &corev1.VpcPrefixId{Value: uuid.NewString()}
 	ipv6 := &corev1.VpcPrefixId{Value: uuid.NewString()}
 
 	tests := []struct {
-		name     string
-		prefixes *corev1.InstanceInterfaceResolvedVpcPrefixes
-		want     *corev1.VpcPrefixId
+		name          string
+		prefixes      *corev1.InstanceInterfaceResolvedVpcPrefixes
+		wantPrimary   *corev1.VpcPrefixId
+		wantSecondary *corev1.VpcPrefixId
 	}{
-		{name: "unresolved", prefixes: nil, want: nil},
+		{name: "unresolved", prefixes: nil},
 		{
 			name: "IPv4-only uses IPv4",
 			prefixes: &corev1.InstanceInterfaceResolvedVpcPrefixes{
 				Ipv4VpcPrefixId: ipv4,
 			},
-			want: ipv4,
+			wantPrimary: ipv4,
 		},
 		{
 			name: "IPv6-only uses IPv6",
 			prefixes: &corev1.InstanceInterfaceResolvedVpcPrefixes{
 				Ipv6VpcPrefixId: ipv6,
 			},
-			want: ipv6,
+			wantPrimary: ipv6,
 		},
 		{
 			name: "dual-stack keeps IPv4 primary",
@@ -87,13 +88,16 @@ func TestPrimaryResolvedVpcPrefixID(t *testing.T) {
 				Ipv4VpcPrefixId: ipv4,
 				Ipv6VpcPrefixId: ipv6,
 			},
-			want: ipv4,
+			wantPrimary:   ipv4,
+			wantSecondary: ipv6,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, primaryResolvedVpcPrefixID(tt.prefixes))
+			primary, secondary := resolvedVpcPrefixIDs(tt.prefixes)
+			assert.Equal(t, tt.wantPrimary, primary)
+			assert.Equal(t, tt.wantSecondary, secondary)
 		})
 	}
 }
@@ -135,6 +139,22 @@ func TestManageInstance_UpdateInstancesInDBVpcSelectionInventory(t *testing.T) {
 		tnu,
 	)
 	require.NotNil(t, ipBlock)
+	ipv6IPBlock := util.TestBuildBuildIPBlock(
+		t,
+		dbSession,
+		"test-vpc-selection-ipv6-block",
+		site,
+		ip,
+		&tenant.ID,
+		cdbm.IPBlockRoutingTypeDatacenterOnly,
+		"2001:db8::",
+		64,
+		cdbm.IPBlockProtocolVersionV6,
+		false,
+		cdbm.IPBlockStatusReady,
+		tnu,
+	)
+	require.NotNil(t, ipv6IPBlock)
 	buildPrefix := func(name, prefix string) *cdbm.VpcPrefix {
 		vpcPrefix := util.TestBuildVPCPrefix(
 			t,
@@ -154,6 +174,21 @@ func TestManageInstance_UpdateInstancesInDBVpcSelectionInventory(t *testing.T) {
 	}
 	deviceLessPrefix := buildPrefix("test-vpc-selection-prefix-1", "192.0.2.0/28")
 	devicePrefix := buildPrefix("test-vpc-selection-prefix-2", "192.0.2.16/28")
+	ipv6PrefixValue := "2001:db8::/120"
+	ipv6Prefix := util.TestBuildVPCPrefix(
+		t,
+		dbSession,
+		"test-vpc-selection-ipv6-prefix",
+		site,
+		tenant,
+		vpc.ID,
+		&ipv6IPBlock.ID,
+		&ipv6PrefixValue,
+		cutil.GetPtr(120),
+		cdbm.VpcPrefixStatusReady,
+		tnu,
+	)
+	require.NotNil(t, ipv6Prefix)
 
 	instanceDAO := cdbm.NewInstanceDAO(dbSession)
 	buildInstance := func(name string) *cdbm.Instance {
@@ -181,9 +216,25 @@ func TestManageInstance_UpdateInstancesInDBVpcSelectionInventory(t *testing.T) {
 	deviceLessInstance := buildInstance("device-less-vpc-selection")
 	deviceInstance := buildInstance("device-vpc-selection")
 	shortStatusInstance := buildInstance("short-vpc-selection-status")
+	nilConfigInstance := buildInstance("nil-config-vpc-selection")
+	reportedPowerProfile := "reported-power-profile"
+	existingPowerProfile := "existing-power-profile"
+	_, err = dbSession.DB.Exec(
+		"UPDATE instance SET power_profile = ?, updated = ? WHERE id = ?",
+		existingPowerProfile,
+		time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2),
+		deviceInstance.ID,
+	)
+	require.NoError(t, err)
+	_, err = dbSession.DB.Exec(
+		"UPDATE instance SET power_profile = ?, is_missing_on_site = true, updated = ? WHERE id = ?",
+		existingPowerProfile,
+		time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2),
+		nilConfigInstance.ID,
+	)
+	require.NoError(t, err)
 	interfaceDAO := cdbm.NewInterfaceDAO(dbSession)
-	familyMode := cdbm.InterfaceVpcIPFamilyModeIPv4Only
-	createInterface := func(instanceID uuid.UUID, isPhysical bool, device *string, deviceInstance, virtualFunctionID *int) *cdbm.Interface {
+	createInterface := func(instanceID uuid.UUID, familyMode cdbm.InterfaceVpcIPFamilyMode, isPhysical bool, device *string, deviceInstance, virtualFunctionID *int) *cdbm.Interface {
 		ifc, createErr := interfaceDAO.Create(ctx, nil, cdbm.InterfaceCreateInput{
 			InstanceID:        instanceID,
 			VpcID:             &vpc.ID,
@@ -201,19 +252,19 @@ func TestManageInstance_UpdateInstancesInDBVpcSelectionInventory(t *testing.T) {
 
 	// Keep device-less and device-selected modes on separate Instances, as API
 	// validation requires.
-	deviceLessIfc := createInterface(deviceLessInstance.ID, true, nil, nil, nil)
+	deviceLessIfc := createInterface(deviceLessInstance.ID, cdbm.InterfaceVpcIPFamilyModeDualStack, true, nil, nil, nil)
 	device := "BlueField"
 	deviceInstanceID := 1
 	virtualFunctionID := 2
-	deviceIfc := createInterface(deviceInstance.ID, false, &device, &deviceInstanceID, &virtualFunctionID)
-	shortStatusIfc := createInterface(shortStatusInstance.ID, true, nil, nil, nil)
+	deviceIfc := createInterface(deviceInstance.ID, cdbm.InterfaceVpcIPFamilyModeIPv4Only, false, &device, &deviceInstanceID, &virtualFunctionID)
+	shortStatusIfc := createInterface(shortStatusInstance.ID, cdbm.InterfaceVpcIPFamilyModeIPv4Only, true, nil, nil, nil)
 
 	deviceLessMac := "02:00:00:00:00:01"
 	deviceMac := "02:00:00:00:00:02"
-	selection := func() *corev1.InstanceInterfaceConfig_Vpc {
+	selection := func(familyMode corev1.InstanceInterfaceIpFamilyMode) *corev1.InstanceInterfaceConfig_Vpc {
 		return &corev1.InstanceInterfaceConfig_Vpc{Vpc: &corev1.InstanceInterfaceVpcSelection{
 			VpcId:      &corev1.VpcId{Value: controllerVpcID.String()},
-			FamilyMode: corev1.InstanceInterfaceIpFamilyMode_INSTANCE_INTERFACE_IP_FAMILY_MODE_IPV4_ONLY,
+			FamilyMode: familyMode,
 		}}
 	}
 	status := func(prefixID uuid.UUID, macAddress, address string, virtualFunctionID *uint32) *corev1.InstanceInterfaceStatus {
@@ -232,6 +283,8 @@ func TestManageInstance_UpdateInstancesInDBVpcSelectionInventory(t *testing.T) {
 	// select a device. Repeated inventory must continue matching it by VPC intent.
 	observedDevice := "observed-device"
 	deviceLessStatus := status(deviceLessPrefix.ID, deviceLessMac, "192.0.2.10", nil)
+	deviceLessStatus.Addresses = append(deviceLessStatus.Addresses, "2001:db8::10")
+	deviceLessStatus.ResolvedVpcPrefixes.Ipv6VpcPrefixId = &corev1.VpcPrefixId{Value: ipv6Prefix.ID.String()}
 	deviceLessStatus.Device = &observedDevice
 	deviceStatus := status(devicePrefix.ID, deviceMac, "192.0.2.20", cutil.GetPtr(uint32(virtualFunctionID)))
 	deviceStatus.Device = &device
@@ -240,9 +293,17 @@ func TestManageInstance_UpdateInstancesInDBVpcSelectionInventory(t *testing.T) {
 	inventory := &corev1.InstanceInventory{Instances: []*corev1.Instance{
 		{
 			Id: &corev1.InstanceId{Value: deviceLessInstance.ControllerInstanceID.String()},
-			Config: &corev1.InstanceConfig{Network: &corev1.InstanceNetworkConfig{Interfaces: []*corev1.InstanceInterfaceConfig{
-				{FunctionType: corev1.InterfaceFunctionType_PHYSICAL_FUNCTION, NetworkDetails: selection()},
-			}}},
+			Config: &corev1.InstanceConfig{
+				PowerProfile: &reportedPowerProfile,
+				Network: &corev1.InstanceNetworkConfig{Interfaces: []*corev1.InstanceInterfaceConfig{
+					{
+						FunctionType: corev1.InterfaceFunctionType_PHYSICAL_FUNCTION,
+						NetworkDetails: selection(
+							corev1.InstanceInterfaceIpFamilyMode_INSTANCE_INTERFACE_IP_FAMILY_MODE_DUAL_STACK,
+						),
+					},
+				}},
+			},
 			Status: &corev1.InstanceStatus{
 				Tenant: &corev1.InstanceTenantStatus{State: corev1.TenantState_READY},
 				Network: &corev1.InstanceNetworkStatus{
@@ -255,8 +316,10 @@ func TestManageInstance_UpdateInstancesInDBVpcSelectionInventory(t *testing.T) {
 			Id: &corev1.InstanceId{Value: deviceInstance.ControllerInstanceID.String()},
 			Config: &corev1.InstanceConfig{Network: &corev1.InstanceNetworkConfig{Interfaces: []*corev1.InstanceInterfaceConfig{
 				{
-					FunctionType:      corev1.InterfaceFunctionType_VIRTUAL_FUNCTION,
-					NetworkDetails:    selection(),
+					FunctionType: corev1.InterfaceFunctionType_VIRTUAL_FUNCTION,
+					NetworkDetails: selection(
+						corev1.InstanceInterfaceIpFamilyMode_INSTANCE_INTERFACE_IP_FAMILY_MODE_IPV4_ONLY,
+					),
 					Device:            &device,
 					DeviceInstance:    uint32(deviceInstanceID),
 					VirtualFunctionId: cutil.GetPtr(uint32(virtualFunctionID)),
@@ -273,7 +336,12 @@ func TestManageInstance_UpdateInstancesInDBVpcSelectionInventory(t *testing.T) {
 		{
 			Id: &corev1.InstanceId{Value: shortStatusInstance.ControllerInstanceID.String()},
 			Config: &corev1.InstanceConfig{Network: &corev1.InstanceNetworkConfig{Interfaces: []*corev1.InstanceInterfaceConfig{
-				{FunctionType: corev1.InterfaceFunctionType_PHYSICAL_FUNCTION, NetworkDetails: selection()},
+				{
+					FunctionType: corev1.InterfaceFunctionType_PHYSICAL_FUNCTION,
+					NetworkDetails: selection(
+						corev1.InstanceInterfaceIpFamilyMode_INSTANCE_INTERFACE_IP_FAMILY_MODE_IPV4_ONLY,
+					),
+				},
 			}}},
 			Status: &corev1.InstanceStatus{
 				Tenant: &corev1.InstanceTenantStatus{State: corev1.TenantState_READY},
@@ -281,6 +349,11 @@ func TestManageInstance_UpdateInstancesInDBVpcSelectionInventory(t *testing.T) {
 					ConfigsSynced: corev1.SyncState_SYNCED,
 				},
 			},
+		},
+		{
+			Id:     &corev1.InstanceId{Value: nilConfigInstance.ControllerInstanceID.String()},
+			Config: nil,
+			Status: &corev1.InstanceStatus{Tenant: &corev1.InstanceTenantStatus{State: corev1.TenantState_READY}},
 		},
 	}}
 
@@ -291,7 +364,14 @@ func TestManageInstance_UpdateInstancesInDBVpcSelectionInventory(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify both resolved data and the original VPC selection intent persisted.
-	assertResolvedInterface := func(ifc *cdbm.Interface, expectedPrefixID uuid.UUID, expectedMac, expectedAddress string) *cdbm.Interface {
+	assertResolvedInterface := func(
+		ifc *cdbm.Interface,
+		expectedPrefixID uuid.UUID,
+		expectedSecondaryPrefixID *uuid.UUID,
+		expectedFamilyMode cdbm.InterfaceVpcIPFamilyMode,
+		expectedMac string,
+		expectedAddresses []string,
+	) *cdbm.Interface {
 		updated, getErr := interfaceDAO.GetByID(ctx, nil, ifc.ID, nil)
 		require.NoError(t, getErr)
 		require.NotNil(t, updated.VpcPrefixID)
@@ -300,31 +380,83 @@ func TestManageInstance_UpdateInstancesInDBVpcSelectionInventory(t *testing.T) {
 		require.NotNil(t, updated.MacAddress)
 		assert.Equal(t, expectedPrefixID, *updated.VpcPrefixID)
 		assert.Equal(t, vpc.ID, *updated.VpcID)
-		assert.Equal(t, cdbm.InterfaceVpcIPFamilyModeIPv4Only, *updated.VpcIPFamilyMode)
+		assert.Equal(t, expectedSecondaryPrefixID, updated.SecondaryVpcPrefixID)
+		assert.Equal(t, expectedFamilyMode, *updated.VpcIPFamilyMode)
 		assert.Equal(t, expectedMac, *updated.MacAddress)
-		assert.Equal(t, []string{expectedAddress}, updated.IPAddresses)
+		assert.Equal(t, expectedAddresses, updated.IPAddresses)
 		assert.Equal(t, cdbm.InterfaceStatusReady, updated.Status)
 		return updated
 	}
-	updatedDeviceLessIfc := assertResolvedInterface(deviceLessIfc, deviceLessPrefix.ID, deviceLessMac, "192.0.2.10")
+	updatedDeviceLessIfc := assertResolvedInterface(
+		deviceLessIfc,
+		deviceLessPrefix.ID,
+		&ipv6Prefix.ID,
+		cdbm.InterfaceVpcIPFamilyModeDualStack,
+		deviceLessMac,
+		[]string{"192.0.2.10", "2001:db8::10"},
+	)
 	require.NotNil(t, updatedDeviceLessIfc.Device)
 	assert.Equal(t, observedDevice, *updatedDeviceLessIfc.Device)
-	updatedDeviceIfc := assertResolvedInterface(deviceIfc, devicePrefix.ID, deviceMac, "192.0.2.20")
+	updatedDeviceIfc := assertResolvedInterface(
+		deviceIfc,
+		devicePrefix.ID,
+		nil,
+		cdbm.InterfaceVpcIPFamilyModeIPv4Only,
+		deviceMac,
+		[]string{"192.0.2.20"},
+	)
 	require.NotNil(t, updatedDeviceIfc.Device)
 	assert.Equal(t, device, *updatedDeviceIfc.Device)
+
+	reportedProfilePersisted, err := instanceDAO.GetByID(ctx, nil, deviceLessInstance.ID, nil)
+	require.NoError(t, err)
+	require.NotNil(t, reportedProfilePersisted.PowerProfile)
+	assert.Equal(t, reportedPowerProfile, *reportedProfilePersisted.PowerProfile)
+
+	existingProfileCleared, err := instanceDAO.GetByID(ctx, nil, deviceInstance.ID, nil)
+	require.NoError(t, err)
+	assert.Nil(t, existingProfileCleared.PowerProfile)
 
 	// A config without an aligned status entry must leave its Interface untouched.
 	shortStatusUnchanged, err := interfaceDAO.GetByID(ctx, nil, shortStatusIfc.ID, nil)
 	require.NoError(t, err)
 	assert.Nil(t, shortStatusUnchanged.VpcPrefixID)
+	assert.Nil(t, shortStatusUnchanged.SecondaryVpcPrefixID)
 	assert.Equal(t, vpc.ID, *shortStatusUnchanged.VpcID)
 	assert.Equal(t, cdbm.InterfaceVpcIPFamilyModeIPv4Only, *shortStatusUnchanged.VpcIPFamilyMode)
 	assert.Nil(t, shortStatusUnchanged.MacAddress)
 	assert.Equal(t, cdbm.InterfaceStatusPending, shortStatusUnchanged.Status)
 
-	// Pending inventory is not authoritative enough to clear resolution.
+	// An incomplete inventory entry must not panic or clear persisted state.
+	nilConfigUnchanged, err := instanceDAO.GetByID(ctx, nil, nilConfigInstance.ID, nil)
+	require.NoError(t, err)
+	require.NotNil(t, nilConfigUnchanged.PowerProfile)
+	assert.Equal(t, existingPowerProfile, *nilConfigUnchanged.PowerProfile)
+	assert.True(t, nilConfigUnchanged.IsMissingOnSite)
+
+	// Pending inventory is not authoritative enough to clear either resolution.
 	inventory.Instances[0].Status.Network.Interfaces[0].ResolvedVpcPrefixes = nil
 	inventory.Instances[0].Status.Network.ConfigsSynced = corev1.SyncState_PENDING
+	_, err = dbSession.DB.Exec(
+		"UPDATE instance SET updated = ? WHERE id = ?",
+		time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2),
+		deviceLessInstance.ID,
+	)
+	require.NoError(t, err)
+	_, err = manager.UpdateInstancesInDB(ctx, site.ID, inventory)
+	require.NoError(t, err)
+
+	pendingEmptyResolution, err := interfaceDAO.GetByID(ctx, nil, deviceLessIfc.ID, nil)
+	require.NoError(t, err)
+	require.NotNil(t, pendingEmptyResolution.VpcPrefixID)
+	assert.Equal(t, deviceLessPrefix.ID, *pendingEmptyResolution.VpcPrefixID)
+	require.NotNil(t, pendingEmptyResolution.SecondaryVpcPrefixID)
+	assert.Equal(t, ipv6Prefix.ID, *pendingEmptyResolution.SecondaryVpcPrefixID)
+
+	// Pending partial inventory also preserves an omitted secondary resolution.
+	inventory.Instances[0].Status.Network.Interfaces[0].ResolvedVpcPrefixes = &corev1.InstanceInterfaceResolvedVpcPrefixes{
+		Ipv4VpcPrefixId: &corev1.VpcPrefixId{Value: deviceLessPrefix.ID.String()},
+	}
 	_, err = dbSession.DB.Exec(
 		"UPDATE instance SET updated = ? WHERE id = ?",
 		time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2),
@@ -338,14 +470,34 @@ func TestManageInstance_UpdateInstancesInDBVpcSelectionInventory(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, pendingResolution.VpcPrefixID)
 	assert.Equal(t, deviceLessPrefix.ID, *pendingResolution.VpcPrefixID)
+	require.NotNil(t, pendingResolution.SecondaryVpcPrefixID)
+	assert.Equal(t, ipv6Prefix.ID, *pendingResolution.SecondaryVpcPrefixID)
 	assert.Equal(t, cdbm.InterfaceStatusReady, pendingResolution.Status)
 	require.NotNil(t, pendingResolution.VpcID)
 	assert.Equal(t, vpc.ID, *pendingResolution.VpcID)
 	require.NotNil(t, pendingResolution.VpcIPFamilyMode)
-	assert.Equal(t, cdbm.InterfaceVpcIPFamilyModeIPv4Only, *pendingResolution.VpcIPFamilyMode)
+	assert.Equal(t, cdbm.InterfaceVpcIPFamilyModeDualStack, *pendingResolution.VpcIPFamilyMode)
 
-	// Synchronized inventory authoritatively clears stale resolution.
+	// Synchronized partial inventory authoritatively clears only the stale
+	// secondary resolution while preserving the reported primary.
 	inventory.Instances[0].Status.Network.ConfigsSynced = corev1.SyncState_SYNCED
+	_, err = dbSession.DB.Exec(
+		"UPDATE instance SET updated = ? WHERE id = ?",
+		time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2),
+		deviceLessInstance.ID,
+	)
+	require.NoError(t, err)
+	_, err = manager.UpdateInstancesInDB(ctx, site.ID, inventory)
+	require.NoError(t, err)
+
+	primaryOnlyResolution, err := interfaceDAO.GetByID(ctx, nil, deviceLessIfc.ID, nil)
+	require.NoError(t, err)
+	require.NotNil(t, primaryOnlyResolution.VpcPrefixID)
+	assert.Equal(t, deviceLessPrefix.ID, *primaryOnlyResolution.VpcPrefixID)
+	assert.Nil(t, primaryOnlyResolution.SecondaryVpcPrefixID)
+
+	// Synchronized inventory with no resolution clears the remaining primary.
+	inventory.Instances[0].Status.Network.Interfaces[0].ResolvedVpcPrefixes = nil
 	_, err = dbSession.DB.Exec(
 		"UPDATE instance SET updated = ? WHERE id = ?",
 		time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2),
@@ -358,10 +510,11 @@ func TestManageInstance_UpdateInstancesInDBVpcSelectionInventory(t *testing.T) {
 	clearedResolution, err := interfaceDAO.GetByID(ctx, nil, deviceLessIfc.ID, nil)
 	require.NoError(t, err)
 	assert.Nil(t, clearedResolution.VpcPrefixID)
+	assert.Nil(t, clearedResolution.SecondaryVpcPrefixID)
 	require.NotNil(t, clearedResolution.VpcID)
 	assert.Equal(t, vpc.ID, *clearedResolution.VpcID)
 	require.NotNil(t, clearedResolution.VpcIPFamilyMode)
-	assert.Equal(t, cdbm.InterfaceVpcIPFamilyModeIPv4Only, *clearedResolution.VpcIPFamilyMode)
+	assert.Equal(t, cdbm.InterfaceVpcIPFamilyModeDualStack, *clearedResolution.VpcIPFamilyMode)
 }
 
 func TestManageInstance_deleteInstanceFromDB(t *testing.T) {

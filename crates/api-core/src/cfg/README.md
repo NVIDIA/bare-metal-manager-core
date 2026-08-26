@@ -42,6 +42,7 @@ Use `site_explorer.dpu_policy` instead.
 | `enable_route_servers` | `bool` | `false` | `networking` | Enables route server injection into DPU FRR configs for L2VPN. |
 | `deny_prefixes` | `Vec<IpNetwork>` | `[]` | `networking` | IPv4 and IPv6 CIDR prefixes that tenant instances are blocked from reaching. FNN generates family-specific NVUE ACL policies; all non-FNN virtualizers apply the IPv4 prefixes only. |
 | `site_fabric_prefixes` | `Vec<IpNetwork>` | `[]` | `networking` | IP prefixes (v4/v6) assigned for tenant use within this site. |
+| `tenant_prefix_overlap_enabled` | `bool` | `false` | `networking` | Site opt-in for tenant prefix overlap admission. This setting has no effect until [#3890](https://github.com/NVIDIA/infra-controller/issues/3890) lands and does not change the existing database prefix constraints. Admission will also require site-wide `vpc_isolation_behavior = "mutual_isolation"` and participating FNN base profiles with `tenant_prefix_overlap_eligible = true`. |
 | `max_site_prefixes_per_tenant` | `u32` | `8` | `networking` | Maximum tenant-managed SitePrefixes retained for one tenant at this site. Prefixes awaiting removal still count against this limit and keep their CIDR reserved. |
 | `anycast_site_prefixes` | `Vec<Ipv4Network>` | `[]` | `networking` | Aggregate IPv4 prefixes containing tenant-announced prefixes (e.g., BYOIP). **Deprecated.** Use [`routing_profiles.allowed_anycast_prefixes`](#fnnroutingprofileconfig) instead. |
 | `common_tenant_host_asn` | `Option<u32>` | — | `networking` | ASN that tenants use to peer with the DPU. If unset, any ASN is accepted. |
@@ -447,7 +448,7 @@ TOML section: `[rack_state_controller]`.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `controller` | `StateControllerConfig` | *(default)* | Common state controller timing (see [StateControllerConfig](#statecontrollerconfig)). |
-| `nmx_cluster_switch_mtls_services` | `Vec<SwitchMtlsService>` | `scale_up_fabric_manager`, `scale_up_fabric_telemetry_interface` | mTLS certificate bindings applied to the primary switch before NMX cluster setup. A non-empty list replaces the default. Omission and `[]` both use the default. |
+| `nmx_cluster_switch_mtls_services` | `Vec<SwitchMtlsService>` | `scale_up_fabric_manager`, `scale_up_fabric_telemetry_interface` | **Deprecated.** Accepted and ignored. Rack maintenance does not configure switch certificates; per-switch certificate configuration uses [`switch_mtls_services`](#switchstatecontrollerconfig). |
 
 ### `SwitchStateControllerConfig`
 
@@ -669,6 +670,7 @@ client-certificate authentication is not used.
 | `route_target_imports` | `Option<Vec<RouteTargetConfig>>` | — (effective `[]`) | Route targets imported into DPU VRFs for VPC routes. |
 | `route_targets_on_exports` | `Option<Vec<RouteTargetConfig>>` | — (effective `[]`) | Route targets added to routes exported by the DPU. |
 | `internal` | `Option<bool>` | — (effective `false`) | Whether the profile uses internal VNI allocation. This property cannot be overridden on a VPC. |
+| `tenant_prefix_overlap_eligible` | `bool` | `false` | Base-profile opt-in for tenant prefix overlap admission. This setting has no effect until [#3890](https://github.com/NVIDIA/infra-controller/issues/3890) lands and cannot be overridden on a VPC. |
 | `leak_default_route_from_underlay` | `Option<bool>` | — (effective `false`) | Leak the default route from the underlay/default VRF into tenant VRFs. |
 | `leak_tenant_host_routes_to_underlay` | `Option<bool>` | — (effective `false`) | Leak tenant host routes into the underlay/default VRF. |
 | `tenant_leak_communities_accepted` | `Option<bool>` | — (effective `false`) | Honor route-leak communities sent by the tenant host OS. |
@@ -754,9 +756,10 @@ events, so consumers handle them identically.
 | `dpu_service_sync_enabled` | `bool` | `true` | Whether NICo rolls a changed DPUService out on its own, by releasing the DPF maintenance hold on hosts whose DPUs already match their DPUDeployment. Selects *who* opens the gate, never whether one exists: DPF is always configured to park a changed DPUService behind a hold, so no service update reaches a DPU unchecked. Setting `false` does not resume unchecked rollout — the held DPUs wait for an operator to release them deliberately. Hosts still awaiting reprovisioning, and hosts carrying a live tenant instance, keep their hold either way. |
 | `dpu_agent_bootstrap_ca` | `DpfDpuAgentBootstrapCa` | `legacy_download` | Bootstrap trust for the containerized DPU agent. Supports `legacy_download` and `mounted`, as described in the following examples. |
 | `services` | `Box<DpfMandatoryServicesConfig>` | built-in mandatory-service defaults | Helm chart, image, pull-secret, and `extra_helm_values` settings for the six mandatory DPF services. |
-| `docker_image_pull_secret` | `Option<String>` | — | Override for the Kubernetes `imagePullSecrets` entry used to pull mandatory-service images (applied to every mandatory service except `dts` and `doca_hbn`, which take a pull secret only from their per-service config). |
+| `extra_services` | `Box<DpfExtraServicesConfig>` | built-in extra-service defaults | Site-wide Helm chart, image, pull-secret, and `extra_helm_values` settings for deployment-specific services. BF4 Astra uses Weave DHCP agent, Weave flow controller, and Xplane; BF3 and generic BF4 do not render them. |
+| `docker_image_pull_secret` | `Option<String>` | — | Override for the Kubernetes `imagePullSecrets` entry used to pull mandatory-service images (applied to every mandatory service except `dts` and `doca_hbn`, which take a pull secret only from their per-service config). It is the fallback for an Astra extra service that has no per-service pull secret. |
 | `proxy` | `Option<DpfProxyDetails>` | — | Proxy configuration for the DPU. When set, containerd on the DPU routes outbound HTTPS traffic through it. |
-| `deployments` | `DpfDeploymentsConfig` | *(default)* | Per-generation DPUDeployment configurations. BF3 is always present with defaults; BF4 variants are opt-in. BF4 Astra gets default Weave DHCP agent, Weave flow controller, and Xplane services; `extra_services` can replace any of those definitions. |
+| `deployments` | `DpfDeploymentsConfig` | *(default)* | Per-generation DPUDeployment configurations. BF3 is always present with defaults; BF4 variants are opt-in. A deployment can override individual fields of its supported extra services. |
 
 Every active DPF deployment must use distinct `deployment_name`, `flavor_name`, and `node_label_key` values. A deployment `node_label_key` must not be `feature.node.kubernetes.io/dpu-enabled`, which marks every DPF-managed node, or `carbide.nvidia.com/host-bmc-ip`, whose per-node contextual value is the host BMC address. These checks use the local configuration and do not query or modify cluster resources.
 
@@ -820,7 +823,7 @@ be propagated there by DPF.
 | `client_cert` | `Option<String>` | — | Path to the client certificate PEM for mTLS. |
 | `client_key` | `Option<String>` | — | Path to the client private key PEM for mTLS. |
 | `enforce_tls` | `bool` | `true` | Enforce TLS when connecting to RMS. |
-| `scale_up_fabric_manager_api_version` | `ScaleUpFabricManagerApiVersion` | `v1` | ScaleUpFabric Manager configuration API: `v1` uses the synchronous call after disabling ScaleUpFabric state; `v2` submits an asynchronous job and polls it to completion. |
+| `scale_up_fabric_manager_api_version` | `ScaleUpFabricManagerApiVersion` | `v2` | **Deprecated.** Accepted and ignored. Accepts `v1` or `v2`; any other value fails config load. ScaleUpFabricManager configuration submits an asynchronous job and polls it to completion. |
 
 ### `SpdmConfig`
 
@@ -866,7 +869,7 @@ be propagated there by DPF.
 | ------- | ------ | --------- | ------------- |
 | `enabled` | `bool` | `false` | Enable BOM/SKU validation. |
 | `ignore_unassigned_machines` | `bool` | `false` | Let machines without a SKU bypass validation. |
-| `allow_allocation_on_validation_failure` | `bool` | `false` | Keep machines allocatable even when validation fails. |
+| `allow_allocation_on_validation_failure` | `bool` | `false` | Keep machines with assigned SKUs allocatable on validation failure; does not bypass unassigned machines. |
 | `find_match_interval` | `Duration` | `5m` | Interval between SKU match attempts. |
 | `auto_generate_missing_sku` | `bool` | `false` | Auto-create missing SKUs from expected machines. |
 | `auto_generate_missing_sku_interval` | `Duration` | `5m` | Interval between auto-generate attempts. |

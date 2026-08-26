@@ -16,8 +16,9 @@ import (
 
 // APIUpdateFirmwareRequest is the request body for firmware update operations
 type APIUpdateFirmwareRequest struct {
-	SiteID  string  `json:"siteId"`
-	Version *string `json:"version"`
+	SiteID             string                         `json:"siteId"`
+	Version            *string                        `json:"version"`
+	AuthenticationData *APIFirmwareAuthenticationData `json:"authenticationData"`
 	// Targets, when non-empty, restricts the update to a subset of
 	// firmware sub-parts within the targeted tray (e.g. ["bmc", "nvos"]
 	// for switch trays). Names are lowercase. The authoritative supported
@@ -56,11 +57,65 @@ func (r *APIUpdateFirmwareRequest) Validate() error {
 	err := validation.ValidateStruct(r,
 		validation.Field(&r.SiteID, validation.Required.Error("siteId is required")),
 		validation.Field(&r.RuleID, validationis.UUID.Error(validationErrorInvalidUUID)),
+		validation.Field(&r.AuthenticationData),
 	)
 	if err != nil {
 		return err
 	}
 	return validateFirmwareTargets(r.Targets, r.Version)
+}
+
+// APIFirmwareAuthenticationData selects one shared firmware download
+// credential or credentials scoped to supported tray types.
+type APIFirmwareAuthenticationData struct {
+	Shared       *string                                    `json:"shared"`
+	PerComponent *APIPerComponentFirmwareAuthenticationData `json:"perComponent"`
+}
+
+// Validate requires exactly one authentication-data representation.
+func (a APIFirmwareAuthenticationData) Validate() error {
+	if (a.Shared == nil) == (a.PerComponent == nil) {
+		return fmt.Errorf("must set exactly one of shared or perComponent")
+	}
+	return nil
+}
+
+// ToProto maps the explicit REST shape to Flow's authentication-data oneof.
+func (a *APIFirmwareAuthenticationData) ToProto() *flowv1.FirmwareAuthenticationData {
+	if a == nil {
+		return nil
+	}
+	if a.Shared != nil {
+		return &flowv1.FirmwareAuthenticationData{
+			Value: &flowv1.FirmwareAuthenticationData_Shared{Shared: *a.Shared},
+		}
+	}
+	return &flowv1.FirmwareAuthenticationData{
+		Value: &flowv1.FirmwareAuthenticationData_PerComponent{
+			PerComponent: a.PerComponent.ToProto(),
+		},
+	}
+}
+
+// APIPerComponentFirmwareAuthenticationData carries independent credentials
+// for each supported firmware tray type. Omitted values mean no credential for
+// that type.
+type APIPerComponentFirmwareAuthenticationData struct {
+	Compute    *string `json:"compute"`
+	NVSwitch   *string `json:"nvswitch"`
+	PowerShelf *string `json:"powershelf"`
+}
+
+// ToProto preserves whether each optional per-component value was provided.
+func (a *APIPerComponentFirmwareAuthenticationData) ToProto() *flowv1.PerComponentFirmwareAuthenticationData {
+	if a == nil {
+		return nil
+	}
+	return &flowv1.PerComponentFirmwareAuthenticationData{
+		Compute:    a.Compute,
+		Nvswitch:   a.NVSwitch,
+		Powershelf: a.PowerShelf,
+	}
 }
 
 // ========== Firmware Update Response ==========
@@ -93,9 +148,10 @@ func NewAPIUpdateFirmwareResponse(resp *flowv1.SubmitTaskResponse) *APIUpdateFir
 
 // APIBatchRackFirmwareUpdateRequest is the JSON body for batch rack firmware update.
 type APIBatchRackFirmwareUpdateRequest struct {
-	SiteID  string      `json:"siteId"`
-	Filter  *RackFilter `json:"filter"`
-	Version *string     `json:"version"`
+	SiteID             string                         `json:"siteId"`
+	Filter             *RackFilter                    `json:"filter"`
+	Version            *string                        `json:"version"`
+	AuthenticationData *APIFirmwareAuthenticationData `json:"authenticationData"`
 	// RuleID, when set, pins every task spawned by this batch to the named
 	// Operation Rule.
 	RuleID *string `json:"ruleId"`
@@ -109,6 +165,7 @@ func (r *APIBatchRackFirmwareUpdateRequest) Validate() error {
 	return validation.ValidateStruct(r,
 		validation.Field(&r.SiteID, validation.Required.Error("siteId is required")),
 		validation.Field(&r.RuleID, validationis.UUID.Error(validationErrorInvalidUUID)),
+		validation.Field(&r.AuthenticationData),
 	)
 }
 
@@ -116,9 +173,10 @@ func (r *APIBatchRackFirmwareUpdateRequest) Validate() error {
 
 // APIBatchTrayFirmwareUpdateRequest is the JSON body for batch tray firmware update.
 type APIBatchTrayFirmwareUpdateRequest struct {
-	SiteID  string      `json:"siteId"`
-	Filter  *TrayFilter `json:"filter"`
-	Version *string     `json:"version"`
+	SiteID             string                         `json:"siteId"`
+	Filter             *TrayFilter                    `json:"filter"`
+	Version            *string                        `json:"version"`
+	AuthenticationData *APIFirmwareAuthenticationData `json:"authenticationData"`
 	// Targets, when non-empty, restricts the update to a subset of
 	// firmware sub-parts within each matched tray. Same semantics as the
 	// single-tray variant. When non-empty, requires Version.
@@ -136,6 +194,7 @@ func (r *APIBatchTrayFirmwareUpdateRequest) Validate() error {
 	err := validation.ValidateStruct(r,
 		validation.Field(&r.SiteID, validation.Required.Error("siteId is required")),
 		validation.Field(&r.RuleID, validationis.UUID.Error(validationErrorInvalidUUID)),
+		validation.Field(&r.AuthenticationData),
 	)
 	if err != nil {
 		return err

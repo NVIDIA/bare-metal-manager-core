@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::result::Result as StdResult;
 use std::sync::Arc;
 
@@ -49,7 +49,6 @@ pub enum PromptBehavior {
 }
 
 pub async fn spawn(
-    ip: IpAddr,
     port: Option<u16>,
     prompt_hostname: Arc<dyn HostnameQuerying>,
     require_credentials: Option<Credentials>,
@@ -65,7 +64,7 @@ pub async fn spawn(
         require_credentials,
     };
     let listener = if let Some(port) = port {
-        let socket_addr = SocketAddr::new(ip, port);
+        let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port);
         TcpListener::bind(socket_addr)
             .await
             .context(format!("error listening on {socket_addr}"))?

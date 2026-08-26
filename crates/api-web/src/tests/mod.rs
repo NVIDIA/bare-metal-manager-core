@@ -27,6 +27,7 @@ mod explored_endpoint;
 mod firmware;
 mod health;
 mod managed_host;
+mod network_segment;
 mod vpc;
 
 fn make_test_app(test_harness: &TestHarness) -> Router {

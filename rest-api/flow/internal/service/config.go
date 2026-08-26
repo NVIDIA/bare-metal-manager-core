@@ -15,6 +15,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/certs"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/clients/temporal"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/secret"
 	cmconfig "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/config"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providerapi"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor"
@@ -68,6 +69,9 @@ type Config struct {
 	FlowConfig       config.Config
 	CMConfig         cmconfig.Config
 	ProviderRegistry *providerapi.ProviderRegistry
+	// DataCipher protects optional firmware authentication data. When nil,
+	// operations without authentication data remain available.
+	DataCipher *secret.Cipher
 
 	// DevMode enables developer options such as gRPC reflection and debug
 	// logging. Must not be set in staging/production environments.
@@ -99,12 +103,11 @@ func (c Config) Validate() error {
 
 	env := deploymentEnv(envStr)
 
-	// Rule 1: dev-mode is only allowed in development.
+	// Dev-mode is only allowed in development.
 	if c.DevMode && env != envDevelopment {
 		return fmt.Errorf("--dev-mode is not allowed in %q environment", env)
 	}
-
-	// Rule 2: reject partial CertConfig before reaching IsTLSAvailable. A
+	// Reject partial CertConfig before reaching IsTLSAvailable. A
 	// partial config would cause IsSet() to return false, letting the CERTDIR /
 	// SPIFFE fallback satisfy the TLS check even though those certs would never
 	// be used by the server (it would attempt to load the incomplete paths).

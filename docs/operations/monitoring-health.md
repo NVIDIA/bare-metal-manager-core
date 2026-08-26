@@ -99,7 +99,7 @@ hardware-health example config currently names that source
 root_ca = "/var/run/secrets/spiffe.io/ca.crt"
 client_cert = "/var/run/secrets/spiffe.io/tls.crt"
 client_key = "/var/run/secrets/spiffe.io/tls.key"
-api_url = "https://nico-api.forge-system.svc.cluster.local:1079"
+api_url = "https://nico-api.nico-system.svc.cluster.local:1079"
 ```
 
 Static BMC endpoints are supported for local, mock, or special deployments:
@@ -113,6 +113,29 @@ username = "admin"
 password = "secret"
 labels = { site = "rno-dev7", cluster = "cluster-01", environment = "development" }
 ```
+
+Configure direct switch host endpoints separately when desired:
+
+```toml
+[[endpoint_sources.static_switch_host_endpoints]]
+ip = "10.0.1.2"
+port = 443
+mac = "11:22:33:44:55:77"
+username = "admin"
+password = "secret"
+switch = { serial = "SN-SWITCH-HOST-001", is_primary = true }
+```
+
+This list is optional. Each entry requires `switch` metadata. The
+`endpoint_role` field defaults to `host`, and only `host` is accepted in this
+list. Switch host entries under `static_bmc_endpoints` use the same `host`
+default when `endpoint_role` is omitted. MAC addresses in
+`static_switch_host_endpoints` must be unique across both static lists.
+
+For a switch host entry, `port` selects the NVUE REST HTTPS port and defaults
+to `443`. The gNMI and NMX-C ports use the global
+`collectors.nvue.gnmi.gnmi_port` and `collectors.nmxc.grpc_port` settings,
+respectively. NMX-T uses its fixed port `9352`.
 
 Static endpoints can define up to 32 custom telemetry labels. Label names must
 match `[a-zA-Z_][a-zA-Z0-9_]*`. Names owned by the health service, such as

@@ -55,7 +55,7 @@ Sort output by specified field\
 \
 *Possible values:*
 
-- primary-id: Sort by the primary id
+- primary-id: Sort by the primary ID
 
 - state: Sort by state
 

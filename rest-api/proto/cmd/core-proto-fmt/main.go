@@ -87,10 +87,12 @@ func normalizeProtoFile(protoFile string) {
 // removeCodegenAnnotations removes Rust-only code generation metadata before
 // the Core protobuf snapshot is passed to Buf and the Go protobuf compiler.
 func removeCodegenAnnotations(content string) string {
-	codegenImport := regexp.MustCompile(`(?m)^[ \t]*import "codegen/v1/derive\.proto";[ \t]*\n(?:[ \t]*\n)?`)
+	codegenImport := regexp.MustCompile(`(?m)^[ \t]*import "codegen/v1/(?:derive|extern_path)\.proto";[ \t]*\n(?:[ \t]*\n)?`)
 	content = codegenImport.ReplaceAllString(content, "")
-	codegenOption := regexp.MustCompile(`(?m)^[ \t]*option \(carbide\.codegen\.v1\.(?:message|enum)_derive\) = "[^"]+";[ \t]*\n?`)
-	return codegenOption.ReplaceAllString(content, "")
+	fileOption := regexp.MustCompile(`(?ms)^[ \t]*option \(carbide\.codegen\.v1\.imported_extern_path\) = \{.*?^[ \t]*\};[ \t]*\n(?:[ \t]*\n)?`)
+	content = fileOption.ReplaceAllString(content, "")
+	declarationOption := regexp.MustCompile(`(?m)^[ \t]*option \(carbide\.codegen\.v1\.(?:message|enum)_(?:derive|extern_path)\) = "[^"]+";[ \t]*\n?`)
+	return declarationOption.ReplaceAllString(content, "")
 }
 
 // addOrReplaceLicenseHeader strips any existing comment/blank-line preamble

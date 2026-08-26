@@ -5,321 +5,47 @@ package eventrule
 
 import (
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-// ExecutionStatus identifies one execution state.
-type ExecutionStatus string
+// ExecutionKey identifies one action execution within a durable event.
+type ExecutionKey struct {
+	EventID    uuid.UUID
+	ActionName string
+}
 
-const (
-	ExecutionStatusPending   ExecutionStatus = "pending"
-	ExecutionStatusSkipped   ExecutionStatus = "skipped"
-	ExecutionStatusDeferred  ExecutionStatus = "deferred"
-	ExecutionStatusSubmitted ExecutionStatus = "submitted"
-	ExecutionStatusCompleted ExecutionStatus = "completed"
-	ExecutionStatusFailed    ExecutionStatus = "failed"
-)
-
-// CanTransitionTo reports whether an execution with this status may accept an
-// attempt result. Pending is used by the creator's first attempt; deferred is
-// used by scheduler-owned retries.
-func (s ExecutionStatus) CanTransitionTo(target ExecutionStatus) bool {
-	if s != ExecutionStatusPending && s != ExecutionStatusDeferred {
-		return false
+// Validate checks the execution planning identity.
+func (k ExecutionKey) Validate() error {
+	if k.EventID == uuid.Nil {
+		return fmt.Errorf("execution event id is required")
 	}
-	return target == ExecutionStatusSubmitted ||
-		target == ExecutionStatusCompleted ||
-		target == ExecutionStatusSkipped ||
-		target == ExecutionStatusDeferred ||
-		target == ExecutionStatusFailed
+	return validateIdentifier("event rule action name", k.ActionName)
 }
 
-// RequiresRetryScheduling reports whether the status requires the store to
-// calculate a next-attempt time.
-func (s ExecutionStatus) RequiresRetryScheduling() bool {
-	return s == ExecutionStatusDeferred
-}
-
-// ExecutionReason identifies the stable reason for an informational execution
-// result without expanding the status state machine.
-type ExecutionReason string
-
-const (
-	ExecutionReasonNone               ExecutionReason = ""
-	ExecutionReasonNoTargets          ExecutionReason = "no_targets"
-	ExecutionReasonAttemptFailed      ExecutionReason = "attempt_failed"
-	ExecutionReasonAttemptInterrupted ExecutionReason = "attempt_interrupted"
-)
-
-// ExecutionStatusDetails contains the status fields shared by durable state
-// and attempt results.
-type ExecutionStatusDetails struct {
-	Status        ExecutionStatus
-	Reason        ExecutionReason
-	StatusMessage string
-}
-
-// Validate checks that the status, reason, and message are internally
-// consistent.
-func (d ExecutionStatusDetails) Validate() error {
-	reasons, ok := executionStatusReasons[d.Status]
-	if !ok {
-		return fmt.Errorf("unknown execution status %q", d.Status)
-	}
-
-	if len(reasons) == 0 {
-		if d.Reason != ExecutionReasonNone {
-			return fmt.Errorf(
-				"%s execution cannot have reason %q",
-				d.Status,
-				d.Reason,
-			)
-		}
-	} else if !slices.Contains(reasons, d.Reason) {
-		return fmt.Errorf(
-			"%s execution requires one of reasons %q",
-			d.Status,
-			reasons,
-		)
-	}
-
-	return validateOptionalString("execution status message", d.StatusMessage)
-}
-
-// ExecutionState contains the status-dependent state of an execution.
-type ExecutionState struct {
-	ExecutionStatusDetails
-	NextAttemptAt time.Time
-}
-
-// Validate checks that the execution state is internally consistent.
-func (s ExecutionState) Validate() error {
-	if err := s.ExecutionStatusDetails.Validate(); err != nil {
-		return err
-	}
-
-	if s.Status.RequiresRetryScheduling() {
-		if s.NextAttemptAt.IsZero() {
-			return fmt.Errorf("%s execution requires next attempt time", s.Status)
-		}
-	} else {
-		if !s.NextAttemptAt.IsZero() {
-			return fmt.Errorf("%s execution cannot have next attempt time", s.Status)
-		}
-	}
-
-	return nil
-}
-
-// RetryDue reports whether a deferred execution is eligible for the scheduler
-// to dispatch at the given time.
-func (s ExecutionState) RetryDue(now time.Time) bool {
-	return s.Status.RequiresRetryScheduling() &&
-		!s.NextAttemptAt.IsZero() &&
-		!now.Before(s.NextAttemptAt)
-}
-
-var executionStatusReasons = map[ExecutionStatus][]ExecutionReason{
-	ExecutionStatusPending: nil,
-	ExecutionStatusSkipped: {
-		ExecutionReasonNoTargets,
-	},
-	ExecutionStatusDeferred: {
-		ExecutionReasonAttemptFailed,
-		ExecutionReasonAttemptInterrupted,
-	},
-	ExecutionStatusSubmitted: nil,
-	ExecutionStatusCompleted: nil,
-	ExecutionStatusFailed:    nil,
-}
-
-// ExecutionResult describes the result of one dispatch attempt. Deferred
-// results carry a relative delay so the store can derive NextAttemptAt from
-// its authoritative clock. A zero delay makes the retry immediately eligible.
-type ExecutionResult struct {
-	ExecutionStatusDetails
-	RetryAfter time.Duration
-}
-
-// SubmittedExecutionResult creates a submitted dispatch result.
-func SubmittedExecutionResult() ExecutionResult {
-	return ExecutionResult{
-		ExecutionStatusDetails: ExecutionStatusDetails{
-			Status: ExecutionStatusSubmitted,
-		},
-	}
-}
-
-// CompletedExecutionResult creates a completed dispatch result.
-func CompletedExecutionResult() ExecutionResult {
-	return ExecutionResult{
-		ExecutionStatusDetails: ExecutionStatusDetails{
-			Status: ExecutionStatusCompleted,
-		},
-	}
-}
-
-// SkippedExecutionResult creates a skipped dispatch result.
-func SkippedExecutionResult(reason ExecutionReason) ExecutionResult {
-	return ExecutionResult{
-		ExecutionStatusDetails: ExecutionStatusDetails{
-			Status: ExecutionStatusSkipped,
-			Reason: reason,
-		},
-	}
-}
-
-// DeferredExecutionResult creates a deferred dispatch result.
-func DeferredExecutionResult(
-	reason ExecutionReason,
-	statusMessage string,
-	retryAfter time.Duration,
-) ExecutionResult {
-	return ExecutionResult{
-		ExecutionStatusDetails: ExecutionStatusDetails{
-			Status:        ExecutionStatusDeferred,
-			Reason:        reason,
-			StatusMessage: statusMessage,
-		},
-		RetryAfter: retryAfter,
-	}
-}
-
-// FailedExecutionResult creates a failed dispatch result.
-func FailedExecutionResult(statusMessage string) ExecutionResult {
-	return ExecutionResult{
-		ExecutionStatusDetails: ExecutionStatusDetails{
-			Status:        ExecutionStatusFailed,
-			StatusMessage: statusMessage,
-		},
-	}
-}
-
-// Validate checks that the dispatch result is internally consistent.
-func (r ExecutionResult) Validate() error {
-	if r.Status == ExecutionStatusPending {
-		return fmt.Errorf("pending is not an execution result")
-	}
-
-	if err := r.ExecutionStatusDetails.Validate(); err != nil {
-		return err
-	}
-
-	if r.Status.RequiresRetryScheduling() {
-		if r.RetryAfter < 0 {
-			return fmt.Errorf("deferred execution retry delay cannot be negative")
-		}
-	} else {
-		if r.RetryAfter != 0 {
-			return fmt.Errorf("%s execution cannot have retry delay", r.Status)
-		}
-	}
-
-	return nil
-}
-
-func (r ExecutionResult) stateAt(now time.Time) ExecutionState {
-	state := ExecutionState{
-		ExecutionStatusDetails: r.ExecutionStatusDetails,
-	}
-	if r.Status.RequiresRetryScheduling() {
-		state.NextAttemptAt = now.Add(r.RetryAfter)
-	}
-	return state
-}
-
-// ExecutionIdentity contains the source fields used to derive an
-// execution's delivery and semantic-deduplication keys.
-type ExecutionIdentity struct {
-	EventID        uuid.UUID
-	RuleID         uuid.UUID
-	ActionID       string
-	CorrelationKey string
-}
-
-// Validate checks the execution identity.
-func (i ExecutionIdentity) Validate() error {
-	if i.EventID == uuid.Nil {
-		return fmt.Errorf("event id is required")
-	}
-	if i.RuleID == uuid.Nil {
-		return fmt.Errorf("event rule id is required")
-	}
-	if err := validateRequiredString("event rule action id", i.ActionID); err != nil {
-		return err
-	}
-	return validateOptionalString("event correlation_key", i.CorrelationKey)
-}
-
-// ExecutionDeliveryKey identifies one rule action for one delivered event.
-type ExecutionDeliveryKey struct {
-	EventID  uuid.UUID
-	RuleID   uuid.UUID
-	ActionID string
-}
-
-// ExecutionSemanticKey identifies one correlated rule action
-// independently of an individual event delivery.
-type ExecutionSemanticKey struct {
-	RuleID         uuid.UUID
-	ActionID       string
-	CorrelationKey string
-}
-
-// DeliveryKey returns the delivery identity.
-func (i ExecutionIdentity) DeliveryKey() ExecutionDeliveryKey {
-	return ExecutionDeliveryKey{
-		EventID:  i.EventID,
-		RuleID:   i.RuleID,
-		ActionID: i.ActionID,
-	}
-}
-
-// SemanticKey returns the semantic-deduplication identity.
-func (i ExecutionIdentity) SemanticKey() ExecutionSemanticKey {
-	return ExecutionSemanticKey{
-		RuleID:         i.RuleID,
-		ActionID:       i.ActionID,
-		CorrelationKey: i.CorrelationKey,
-	}
-}
-
-// Execution records the durable processing state for one rule action.
+// Execution records one immutable action plan and its mutable processing
+// state.
 type Execution struct {
 	ExecutionState
-	ExecutionIdentity
-	ID           uuid.UUID
-	Observations int
-	Attempts     int
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID         uuid.UUID
+	EventID    uuid.UUID
+	ActionName string
+	Plan       ExecutionPlan
+	Attempts   int
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
-func (e *Execution) recordObservation(now time.Time) {
-	e.Observations++
-	if now.After(e.UpdatedAt) {
-		e.UpdatedAt = now
-	}
+// Clone returns an independent execution snapshot.
+func (e Execution) Clone() Execution {
+	cloned := e
+	cloned.Plan = CloneExecutionPlan(e.Plan)
+	return cloned
 }
 
-// TryDeduplicate reports whether an observation is within the deduplication
-// window and records it when it is.
-func (e *Execution) TryDeduplicate(dedupe *Dedupe, observedAt time.Time) bool {
-	if dedupe == nil || !dedupe.WithinWindow(e.CreatedAt, observedAt) {
-		return false
-	}
-
-	e.recordObservation(observedAt)
-	return true
-}
-
-// TransitionTo validates and applies an attempt result at the given time. A
-// transition from deferred records the scheduler retry that produced the new
-// result. Dispatch ownership is intentionally separate from domain status;
-// the future scheduler store adds lease fencing around this transition.
+// TransitionTo validates and applies a dispatch result at the given time. A
+// non-skipped result records the attempt that produced it.
 func (e *Execution) TransitionTo(result ExecutionResult, now time.Time) error {
 	if e == nil {
 		return fmt.Errorf("execution is nil")
@@ -342,7 +68,7 @@ func (e *Execution) TransitionTo(result ExecutionResult, now time.Time) error {
 		return fmt.Errorf("execution transition time cannot precede creation time")
 	}
 
-	if e.Status == ExecutionStatusDeferred {
+	if result.Status != ExecutionStatusSkipped {
 		e.Attempts++
 	}
 	e.ExecutionState = result.stateAt(now)
@@ -360,14 +86,25 @@ func (e *Execution) Validate() error {
 	if e.ID == uuid.Nil {
 		return fmt.Errorf("execution id is required")
 	}
-	if err := e.ExecutionIdentity.Validate(); err != nil {
+	if err := e.Key().Validate(); err != nil {
 		return err
 	}
-	if e.Observations <= 0 {
-		return fmt.Errorf("execution observations must be positive")
+	if err := ValidateExecutionPlan(e.Plan); err != nil {
+		return fmt.Errorf("execution plan: %w", err)
 	}
-	if e.Attempts <= 0 {
-		return fmt.Errorf("execution attempts must be positive")
+	if err := e.ExecutionState.Validate(); err != nil {
+		return err
+	}
+	if e.Attempts < 0 {
+		return fmt.Errorf("execution attempts cannot be negative")
+	}
+	if e.Status == ExecutionStatusPending && e.Attempts != 0 {
+		return fmt.Errorf("pending execution cannot have attempts")
+	}
+	if e.Status != ExecutionStatusPending &&
+		e.Status != ExecutionStatusSkipped &&
+		e.Attempts == 0 {
+		return fmt.Errorf("%s execution requires an attempt", e.Status)
 	}
 	if e.CreatedAt.IsZero() {
 		return fmt.Errorf("execution creation time is required")
@@ -379,16 +116,22 @@ func (e *Execution) Validate() error {
 		return fmt.Errorf("execution updated time cannot precede creation time")
 	}
 
-	return e.ExecutionState.Validate()
+	return nil
 }
 
-// NewExecution constructs a pending execution using the store-provided
-// creation time.
+// NewExecution constructs an execution using the store-provided creation time.
+// The plan determines the execution's initial status.
 func NewExecution(
-	identity ExecutionIdentity,
+	eventID uuid.UUID,
+	actionName string,
+	plan ExecutionPlan,
 	now time.Time,
 ) (*Execution, error) {
-	if err := identity.Validate(); err != nil {
+	key := ExecutionKey{EventID: eventID, ActionName: actionName}
+	if err := key.Validate(); err != nil {
+		return nil, err
+	}
+	if err := ValidateExecutionPlan(plan); err != nil {
 		return nil, err
 	}
 	if now.IsZero() {
@@ -397,15 +140,44 @@ func NewExecution(
 
 	return &Execution{
 		ExecutionState: ExecutionState{
-			ExecutionStatusDetails: ExecutionStatusDetails{
-				Status: ExecutionStatusPending,
-			},
+			ExecutionStatusDetails: plan.initialStatus(),
 		},
-		ExecutionIdentity: identity,
-		ID:                uuid.New(),
-		Observations:      1,
-		Attempts:          1,
-		CreatedAt:         now,
-		UpdatedAt:         now,
+		ID:         uuid.New(),
+		EventID:    eventID,
+		ActionName: actionName,
+		Plan:       CloneExecutionPlan(plan),
+		Attempts:   0,
+		CreatedAt:  now,
+		UpdatedAt:  now,
 	}, nil
+}
+
+// Key returns the execution's idempotent planning identity.
+func (e Execution) Key() ExecutionKey {
+	return ExecutionKey{EventID: e.EventID, ActionName: e.ActionName}
+}
+
+// ExecutionTask records one rack-partitioned task created for an execution.
+// An execution may have at most one associated task per rack.
+type ExecutionTask struct {
+	ExecutionID uuid.UUID
+	RackID      uuid.UUID
+	TaskID      uuid.UUID
+}
+
+// Validate checks the execution, rack, and task identities.
+func (a ExecutionTask) Validate() error {
+	if a.ExecutionID == uuid.Nil {
+		return fmt.Errorf("execution id is required")
+	}
+
+	if a.RackID == uuid.Nil {
+		return fmt.Errorf("rack id is required")
+	}
+
+	if a.TaskID == uuid.Nil {
+		return fmt.Errorf("task id is required")
+	}
+
+	return nil
 }

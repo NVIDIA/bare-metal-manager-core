@@ -25,7 +25,8 @@ func TestDpuMachineUnmarshalJSON(t *testing.T) {
 		},
 		"state": "Ready",
 		"dpuNetworkConfig": {
-			"asn": 64512,
+			"asn": 4268052792,
+			"tenantHostAsn": 4268052792,
 			"vniDevice": "dpu-vni",
 			"managedHostConfigVersion": "v1",
 			"useAdminNetwork": true,
@@ -45,7 +46,8 @@ func TestDpuMachineUnmarshalJSON(t *testing.T) {
 		require.Equal(t, "dpu-serial-1", machine.DmiData.GetProductSerial())
 		require.Equal(t, "2026-01-01T00:00:00Z", machine.Health.GetObservedAt())
 		require.Equal(t, "Ready", machine.State)
-		require.Equal(t, int32(64512), machine.DpuNetworkConfig.Asn)
+		require.Equal(t, uint32(4268052792), machine.DpuNetworkConfig.Asn)
+		require.Equal(t, uint32(4268052792), *machine.DpuNetworkConfig.TenantHostAsn.Get())
 		require.Equal(t, "dpu-vni", machine.DpuNetworkConfig.VniDevice)
 	})
 

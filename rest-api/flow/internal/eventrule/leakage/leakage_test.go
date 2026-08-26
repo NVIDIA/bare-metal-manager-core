@@ -11,7 +11,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/target"
 	inventoryresolver "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/resolver"
-	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/deviceinfo"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/component"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/rack"
@@ -30,10 +30,11 @@ func TestDefaultRuleValidates(t *testing.T) {
 	assert.Equal(t, eventrule.RuleOriginBuiltIn, rule.Origin)
 	assert.Equal(t, TypeHardwareLeakDetected, rule.EventType)
 	require.Len(t, rule.Actions, 1)
-	spec, ok := rule.Actions[0].Spec.(eventrule.SubmitTask)
+	spec, ok := rule.Actions[0].Spec.(*eventrule.SubmitTask)
 	require.True(t, ok)
-	assert.Equal(t, taskcommon.TaskTypePowerControl, spec.OperationType)
-	assert.Equal(t, taskcommon.OperationCode(taskcommon.OpCodePowerControlForcePowerOff), spec.OperationCode)
+	operation, ok := spec.Operation.(*operations.PowerControlTaskInfo)
+	require.True(t, ok)
+	assert.Equal(t, operations.PowerOperationForcePowerOff, operation.Operation)
 	assert.Equal(t, eventrule.TargetStrategyAffectedComponents, spec.TargetStrategy)
 }
 
@@ -41,7 +42,7 @@ func TestRegisterTargetResolvers(t *testing.T) {
 	registry := target.New()
 	require.NoError(t, RegisterTargetResolvers(registry, &targetInventory{}))
 	rule := DefaultRule()
-	require.NoError(t, registry.ValidateRule(&rule))
+	require.NoError(t, registry.ValidateRule(rule))
 }
 
 func TestTargetResolver_ResolveAffectedComponents(t *testing.T) {
@@ -58,19 +59,23 @@ func testResolveAffectedComponentsRack(t *testing.T) {
 	registry := target.New()
 	require.NoError(t, RegisterTargetResolvers(registry, inventory))
 
-	targets, err := registry.Resolve(context.Background(), target.ResolveRequest{
-		Envelope: eventrule.Envelope{Type: TypeHardwareLeakDetected},
+	request := target.ResolveRequest{
+		EventType: TypeHardwareLeakDetected,
 		Resource: eventrule.ResolvedResource{
 			Kind:   eventrule.ResourceKindRack,
 			ID:     rackID,
 			RackID: rackID,
 		},
 		Strategy: eventrule.TargetStrategyAffectedComponents,
-	})
+	}
+	resolver, err := registry.Lookup(request.EventType, request.Strategy)
+	require.NoError(t, err)
+	targets, err := resolver.Resolve(context.Background(), request)
 	require.NoError(t, err)
 	require.Equal(t, []target.Target{{
-		Kind: eventrule.ResourceKindRack,
-		ID:   rackID,
+		Kind:   eventrule.ResourceKindRack,
+		ID:     rackID,
+		RackID: rackID,
 	}}, targets)
 	require.False(t, inventory.withComponents)
 }
@@ -157,8 +162,8 @@ func testResolveAffectedComponents(t *testing.T) {
 	registry := target.New()
 	require.NoError(t, RegisterTargetResolvers(registry, inventory))
 
-	targets, err := registry.Resolve(context.Background(), target.ResolveRequest{
-		Envelope: eventrule.Envelope{Type: TypeHardwareLeakDetected},
+	request := target.ResolveRequest{
+		EventType: TypeHardwareLeakDetected,
 		Resource: eventrule.ResolvedResource{
 			Kind:          eventrule.ResourceKindComponent,
 			ID:            sourceID,
@@ -166,12 +171,15 @@ func testResolveAffectedComponents(t *testing.T) {
 			ComponentType: flowtypes.ComponentTypeCompute,
 		},
 		Strategy: eventrule.TargetStrategyAffectedComponents,
-	})
+	}
+	resolver, err := registry.Lookup(request.EventType, request.Strategy)
+	require.NoError(t, err)
+	targets, err := resolver.Resolve(context.Background(), request)
 	require.NoError(t, err)
 	require.Equal(t, []target.Target{
-		{Kind: eventrule.ResourceKindComponent, ID: firstBelowID},
-		{Kind: eventrule.ResourceKindComponent, ID: secondBelowID},
-		{Kind: eventrule.ResourceKindComponent, ID: sourceID},
+		{Kind: eventrule.ResourceKindComponent, ID: firstBelowID, RackID: rackID},
+		{Kind: eventrule.ResourceKindComponent, ID: secondBelowID, RackID: rackID},
+		{Kind: eventrule.ResourceKindComponent, ID: sourceID, RackID: rackID},
 	}, targets)
 	require.True(t, inventory.withComponents)
 }
@@ -188,8 +196,8 @@ func testResolveAffectedComponentsSourceOnly(t *testing.T) {
 	registry := target.New()
 	require.NoError(t, RegisterTargetResolvers(registry, inventory))
 
-	targets, err := registry.Resolve(context.Background(), target.ResolveRequest{
-		Envelope: eventrule.Envelope{Type: TypeHardwareLeakDetected},
+	request := target.ResolveRequest{
+		EventType: TypeHardwareLeakDetected,
 		Resource: eventrule.ResolvedResource{
 			Kind:          eventrule.ResourceKindComponent,
 			ID:            sourceID,
@@ -197,11 +205,15 @@ func testResolveAffectedComponentsSourceOnly(t *testing.T) {
 			ComponentType: flowtypes.ComponentTypeCompute,
 		},
 		Strategy: eventrule.TargetStrategyAffectedComponents,
-	})
+	}
+	resolver, err := registry.Lookup(request.EventType, request.Strategy)
+	require.NoError(t, err)
+	targets, err := resolver.Resolve(context.Background(), request)
 	require.NoError(t, err)
 	require.Equal(t, []target.Target{{
-		Kind: eventrule.ResourceKindComponent,
-		ID:   sourceID,
+		Kind:   eventrule.ResourceKindComponent,
+		ID:     sourceID,
+		RackID: rackID,
 	}}, targets)
 }
 
@@ -210,8 +222,8 @@ func testResolveAffectedComponentsError(t *testing.T) {
 	require.NoError(t, RegisterTargetResolvers(registry, &targetInventory{
 		rackErr: errors.New("inventory unavailable"),
 	}))
-	targets, err := registry.Resolve(context.Background(), target.ResolveRequest{
-		Envelope: eventrule.Envelope{Type: TypeHardwareLeakDetected},
+	request := target.ResolveRequest{
+		EventType: TypeHardwareLeakDetected,
 		Resource: eventrule.ResolvedResource{
 			Kind:          eventrule.ResourceKindComponent,
 			ID:            uuid.New(),
@@ -219,7 +231,10 @@ func testResolveAffectedComponentsError(t *testing.T) {
 			ComponentType: flowtypes.ComponentTypeCompute,
 		},
 		Strategy: eventrule.TargetStrategyAffectedComponents,
-	})
+	}
+	resolver, err := registry.Lookup(request.EventType, request.Strategy)
+	require.NoError(t, err)
+	targets, err := resolver.Resolve(context.Background(), request)
 	require.ErrorContains(t, err, "inventory unavailable")
 	require.Nil(t, targets)
 }
@@ -237,8 +252,8 @@ func testResolveAffectedComponentsMalformedTopology(t *testing.T) {
 		},
 	}))
 
-	targets, err := registry.Resolve(context.Background(), target.ResolveRequest{
-		Envelope: eventrule.Envelope{Type: TypeHardwareLeakDetected},
+	request := target.ResolveRequest{
+		EventType: TypeHardwareLeakDetected,
 		Resource: eventrule.ResolvedResource{
 			Kind:          eventrule.ResourceKindComponent,
 			ID:            sourceID,
@@ -246,7 +261,10 @@ func testResolveAffectedComponentsMalformedTopology(t *testing.T) {
 			ComponentType: flowtypes.ComponentTypeCompute,
 		},
 		Strategy: eventrule.TargetStrategyAffectedComponents,
-	})
+	}
+	resolver, err := registry.Lookup(request.EventType, request.Strategy)
+	require.NoError(t, err)
+	targets, err := resolver.Resolve(context.Background(), request)
 	require.ErrorContains(t, err, "has no valid position")
 	require.ErrorIs(t, err, target.ErrUnresolvable)
 	require.Nil(t, targets)

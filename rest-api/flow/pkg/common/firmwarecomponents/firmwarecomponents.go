@@ -130,6 +130,13 @@ func SplitNICoComputeTraySubTargets(names []string) (computeTraySubs []string, h
 	return computeTraySubs, hasDpu
 }
 
+// IsNICoDPUOnlySubTargets reports whether names request DPU reprovisioning
+// without any compute-tray-internal firmware update.
+func IsNICoDPUOnlySubTargets(names []string) bool {
+	computeTraySubs, hasDpu := SplitNICoComputeTraySubTargets(names)
+	return hasDpu && len(names) > 0 && len(computeTraySubs) == 0
+}
+
 // SupportedNICoNVSwitchNames returns the lowercase names accepted by
 // ParseNICoNVSwitch in deterministic order. Useful for surfacing the set
 // in API documentation or operator tooling.

@@ -113,6 +113,12 @@ spec:
             {{- $dir := .Values.certsDir | default "/opt/forge" }}
             {{- $rootCa := .Values.rootCaFile | default "forge_root.pem" }}
             - "--grpc-address=$(POD_IP):50052"
+            {{- with .Values.restAddress }}
+            - "--rest-address={{ . }}"
+            {{- end }}
+            {{- with .Values.compatibilityRestAddress }}
+            - "--compatibility-rest-address={{ . }}"
+            {{- end }}
             {{- if .Values.useNodeTokens }}
             - "--root-ca={{ $dir }}/pub/{{ $rootCa }}"
             - "--node-token-socket={{ $dir }}/run/agent.sock"

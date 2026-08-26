@@ -111,12 +111,35 @@ cargo test
 cargo make correctly-execute-tests
 ```
 
-When writing tests, prefer the **table-driven** style — see the [Testing section in `STYLE_GUIDE.md`](STYLE_GUIDE.md#testing).
-Enumerating a function's input variants as grouped `carbide-test-support` scenarios (`scenarios!` / `value_scenarios!`)
-or explicit cases (`check_cases` / `check_values`) is the easiest way to reach thorough coverage of parsers, validators,
-conversions, and the like.
-For functions that map multiple booleans or enums to state and action outputs,
-enumerate every input combination in one table before requesting review.
+When writing tests, prefer the **table-driven** style and helpers from
+`carbide-test-support`; use the [Testing section in `STYLE_GUIDE.md`](STYLE_GUIDE.md#testing)
+for table structure and API details. Use grouped `scenarios!` / `value_scenarios!`
+or explicit `check_cases` / `check_values` when cases share one operation and
+assertion form. When cases share setup but require different assertions, use a
+local case table that keeps each case's check next to its inputs.
+
+Before adding coverage, inventory the relevant unit, database, controller, and
+integration tests. Each new test should have one reason to exist: an observable
+contract or distinct failure boundary that no retained test protects. Use the
+smallest set of cases that exercise different behavior. Do not enumerate a
+Cartesian product merely because inputs are booleans or enums; enumerate a
+combination only when it is reachable and protects distinct observable behavior
+or a distinct failure boundary, including precedence between conflicting inputs.
+
+Place each proof at the narrowest layer that can exercise the contract.
+Higher-level tests should prove wiring, persistence, transaction behavior,
+concurrency, or external effects that lower-level tests cannot; do not repeat a
+lower-level case matrix at higher layers. For every new test or row, ask:
+**What regression does this catch that no retained test catches?** If there is
+no concrete answer, merge it into existing coverage or delete it.
+
+`STYLE_GUIDE.md` remains the source for helper APIs and table layout. For
+changes written by agents, the rules above for choosing cases replace its
+recommendation to enumerate every branch and input variant.
+
+For user-visible CLI table changes, exercise the public command in a test and
+assert the rendered headers plus populated and empty cell values. Helper-only
+tests do not prove the table contract.
 
 Keep test rack-profile capability counts aligned with the inventory the fixture
 actually instantiates. Use zero for unsupported component types so tests do not
@@ -133,6 +156,7 @@ cargo make clippy              # Clippy linter (warnings = errors)
 cargo make carbide-lints       # Custom lints (requires nightly setup)
 cargo make check-format-nightly # Check rustfmt formatting
 cargo make check-event-names    # Validate production Event identity uniqueness
+cargo make check-metric-docs    # Check production Event metric catalogue coverage
 cargo make check-workspace-deps # Validate dependency declarations in Cargo.toml
 cargo make check-licenses      # Validate no restricted licenses introduced
 cargo make check-bans          # Check for banned dependencies
@@ -185,10 +209,60 @@ Use the narrowest Rust visibility required by actual callers. Do not use `pub`
 to suppress dead-code warnings or widen production visibility solely for unit
 tests. Follow the [visibility guidance](STYLE_GUIDE.md#visibility).
 
-Name new Core database migrations with the fully populated
+### Database migrations
+
+Core migrations live in `crates/api-db/migrations/` and use the fully populated
 `YYYYMMDDhhmmss_description.sql` format described in
 [`STYLE_GUIDE.md`](STYLE_GUIDE.md#database-migrations). The `migration-police`
-CI job checks only newly added migrations, so existing filenames remain accepted.
+CI job checks only newly added migrations, so existing filenames remain
+accepted.
+
+Most of what makes a migration wrong here is not something CI can catch, because
+an over-built migration still applies cleanly. Write the smallest exact forward
+change from the schema on `main`: the median migration in this repository is two
+statements and eight lines, and most do exactly one thing.
+
+- **Never edit a migration that has merged.** Its checksum is recorded by every
+  deployment that has applied it. Assume any migration on `main` is already
+  running somewhere, since this is a public repository and we cannot know where.
+  Correct it with a new forward migration instead.
+
+- **Do not hand-roll safety the runner already provides.** `sqlx` runs each file
+  in a transaction and records it once, so a migration cannot half-apply or run
+  twice. Leave out `IF EXISTS` and `IF NOT EXISTS`, `ON CONFLICT DO NOTHING`
+  added for rerunnability, `DO $$ ... RAISE EXCEPTION` preflight checks, system
+  catalog probes, `BEGIN` and `COMMIT`, and `NOT VALID` paired with
+  `VALIDATE CONSTRAINT` in the same file. These pass CI and read as caution, but
+  they convert a diagnosable failure into a silent skip.
+
+- **The migration has to apply while a `nico-api` instance is still running.**
+  Nothing stops the running instance first, so assume a live writer throughout.
+  A migration's contract is with the incoming binary, so leave the schema that
+  version expects rather than preserving the outgoing one, but it still has to
+  succeed against that writer.
+
+- **Keep domain logic in Rust.** Do not reimplement a Rust helper in PL/pgSQL,
+  and do not add a view, function, or trigger without a live consumer or an
+  invariant the database has to own.
+
+- **Use `NULL` for genuine absence.** Add a column as nullable, or `NOT NULL`
+  with a default that is true for every row it reaches. Do not invent an empty
+  string, an epoch timestamp, a placeholder version, or `UNKNOWN` to satisfy
+  `NOT NULL`. A `jsonb` default has to deserialize into the current Rust type.
+
+- **Remove things in two steps.** Ship the code that stops reading and writing
+  it, then drop it in a later migration.
+
+- **Comment intent, briefly.** A sentence or two on why the change exists. A
+  safety argument or design rationale belongs in the pull request, not in the
+  migration.
+
+- **Test anything with data semantics** against a database at the predecessor
+  schema populated with realistic rows, including a backfill, a default, a new
+  requiredness, a constraint, or a type conversion. Reference the file with
+  `include_str!` so the test cannot drift from what ships, as
+  [`test_backfill.rs`](crates/api-db/src/credential_rotation/test_backfill.rs)
+  does. A purely additive nullable column is already covered by the suite.
 
 ### Documentation
 
@@ -216,11 +290,17 @@ The decision rule:
   #[derive(carbide_instrument::Event)]
   #[event(event_name = "power_control_failed",
           metric_name = "carbide_power_control_total", component = "component_manager",
-          log = warn, metric = counter, message = "power control failed")]
+          log = warn, metric = counter, message = "power control failed",
+          describe = "Number of power control operations that failed")]
   struct PowerControlFailed {
       #[label]   backend: Backend,  // bounded via LabelValue — enums, usually
       #[context] error: String,     // high-cardinality — log line only
   }
+
+  carbide_instrument::emit(PowerControlFailed {
+      backend: Backend::Rms,
+      error: "deadline exceeded".to_string(),
+  });
   ```
 
   `log = off, metric = counter` counts a hot-path event with no log line at
@@ -240,9 +320,9 @@ logs. A metric-backed Event also declares `metric_name`; when that Event logs,
 both names are present so operators can pivot directly between the metric and its
 diagnostic records. Plain `tracing::` calls do not invent an `event_name`.
 
-New metric names are validated at compile time (`carbide_` prefix, `_total`
-counters, unit-suffixed histograms) and `metric_name` is the exposed name,
-verbatim. Existing metric names never change. The full standard lives in
+New metric names are checked at compile time (`carbide_` prefix, `_total`
+counters, unit-suffixed histograms), and a checked `metric_name` is exposed
+verbatim. Existing metric contracts never change. The full standard lives in
 [`docs/observability/instrumentation.md`](docs/observability/instrumentation.md).
 
 ## Documentation review

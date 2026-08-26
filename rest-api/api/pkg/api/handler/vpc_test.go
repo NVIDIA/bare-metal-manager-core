@@ -300,14 +300,15 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 		message string
 	}
 	type args struct {
-		reqData               *model.APIVpcCreateRequest
-		reqOrg                string
-		reqUser               *cdbm.User
-		respCode              int
-		respMessage           string
-		expectedStatus        string
-		expectedVni           *int
-		expectedStatusDetails []expectedStatusDetail
+		reqData                    *model.APIVpcCreateRequest
+		reqOrg                     string
+		reqUser                    *cdbm.User
+		respCode                   int
+		respMessage                string
+		expectedStatus             string
+		expectedVni                *int
+		expectedVirtualizationType string
+		expectedStatusDetails      []expectedStatusDetail
 	}
 
 	dbSession := testSiteInitDB(t)
@@ -340,12 +341,25 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 
 	st1 := testVPCBuildSite(t, dbSession, ip, "test-site-1", true, true, cdbm.SiteStatusRegistered, ipu)
 	assert.NotNil(t, st1)
+	st1, err := cdbm.NewSiteDAO(dbSession).Update(ctx, nil, cdbm.SiteUpdateInput{
+		SiteID: st1.ID,
+		Config: &cdbm.SiteConfigUpdateInput{VpcSlaac: cutil.GetPtr(true)},
+	})
+	require.NoError(t, err)
 
 	st2 := testVPCBuildSite(t, dbSession, ip, "test-site-2", true, false, cdbm.SiteStatusRegistered, ipu)
 	assert.NotNil(t, st2)
 
 	st3 := testVPCBuildSite(t, dbSession, ip, "test-site-3", false, false, cdbm.SiteStatusRegistered, ipu)
 	assert.NotNil(t, st3)
+
+	st4 := testVPCBuildSite(t, dbSession, ip, "test-site-4", true, false, cdbm.SiteStatusRegistered, ipu)
+	assert.NotNil(t, st4)
+
+	st5 := testVPCBuildSite(t, dbSession, ip, "test-site-5", true, false, cdbm.SiteStatusRegistered, ipu)
+	assert.NotNil(t, st5)
+	_, err = dbSession.DB.NewUpdate().Model(st5).Set("config = config - 'vpc_slaac'").WherePK().Exec(ctx)
+	require.NoError(t, err)
 
 	al := testVPCSiteBuildAllocation(t, dbSession, st1, tn, "test-allocation", ipu)
 	assert.NotNil(t, al)
@@ -355,6 +369,12 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 
 	al3 := testVPCSiteBuildAllocation(t, dbSession, st1, tn3, "test-allocation-tenant-3", ipu)
 	assert.NotNil(t, al3)
+
+	al4 := testVPCSiteBuildAllocation(t, dbSession, st4, tn, "test-allocation-4", ipu)
+	assert.NotNil(t, al4)
+
+	al5 := testVPCSiteBuildAllocation(t, dbSession, st5, tn, "test-allocation-5", ipu)
+	assert.NotNil(t, al5)
 
 	// Associate tenant 1 with site 1; the unset override inherits the account default.
 	ts1t1 := testBuildTenantSiteAssociation(t, dbSession, tnOrg, tn.ID, st1.ID, tnu.ID)
@@ -375,6 +395,12 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 	// Associate tenant 3 with site 1
 	ts1t3 := testBuildTenantSiteAssociation(t, dbSession, tnOrg3, tn3.ID, st1.ID, tnu3.ID)
 	assert.NotNil(t, ts1t3)
+
+	ts4t1 := testBuildTenantSiteAssociation(t, dbSession, tnOrg, tn.ID, st4.ID, tnu.ID)
+	assert.NotNil(t, ts4t1)
+
+	ts5t1 := testBuildTenantSiteAssociation(t, dbSession, tnOrg, tn.ID, st5.ID, tnu.ID)
+	assert.NotNil(t, ts5t1)
 
 	// NSG for tenant 1 on site 1
 	nsgTenant1Site1 := testBuildNetworkSecurityGroup(t, dbSession, "test-nsg-1", tn, st1, cdbm.NetworkSecurityGroupStatusReady)
@@ -455,6 +481,19 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 		mock.AnythingOfType("func(internal.Context, uuid.UUID, uuid.UUID) error"), mock.AnythingOfType("uuid.UUID"),
 		mock.AnythingOfType("uuid.UUID")).Return(wrun, nil)
 
+	unavailableVpcID := uuid.New()
+	unavailableVpcName := "Test VPC unavailable after dispatch"
+	unavailableErr := errors.New("Core unavailable after VPC create dispatch")
+	unavailableRun := &tmocks.WorkflowRun{}
+	unavailableRun.On("GetID").Return("test-vpc-unavailable-workflow-id")
+	unavailableRun.On("Get", mock.Anything, mock.Anything).Return(
+		tp.NewNonRetryableApplicationError(unavailableErr.Error(), swe.ErrTypeNICoUnavailable, unavailableErr),
+	)
+	tsc.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"),
+		"CreateVPCV2", mock.MatchedBy(func(req *corev1.VpcCreationRequest) bool {
+			return req != nil && req.Name == unavailableVpcName
+		})).Return(unavailableRun, nil)
+
 	tsc.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"),
 		"CreateVPCV2", mock.MatchedBy(func(req *corev1.VpcCreationRequest) bool {
 			return req != nil && req.Name == vpcWithAllocatedVniName
@@ -467,7 +506,7 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 
 	tsc.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"),
 		"CreateVPCV2", mock.MatchedBy(func(req *corev1.VpcCreationRequest) bool {
-			return req == nil || (req.Name != vpcWithAllocatedVniName && req.Name != vpcWithRoutingProfileName && req.Name != vpcWithRoutingProfileOverridesName)
+			return req == nil || (req.Name != unavailableVpcName && req.Name != vpcWithAllocatedVniName && req.Name != vpcWithRoutingProfileName && req.Name != vpcWithRoutingProfileOverridesName)
 		})).Return(wrun, nil)
 
 	// Mock timeout error
@@ -496,7 +535,29 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 		wantErr            bool
 		verifyChildSpanner bool
 		expectNoMutation   bool
+		expectRolledBack   bool
 	}{
+		{
+			name: "test VPC create API endpoint rejects power resource group when DPS power management is disabled",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: &model.APIVpcCreateRequest{
+					Name:               "Test VPC rejected power resource group",
+					SiteID:             st1.ID.String(),
+					PowerResourceGroup: cutil.GetPtr("resource-group"),
+				},
+				reqOrg:      tnOrg,
+				reqUser:     tnu,
+				respCode:    http.StatusPreconditionFailed,
+				respMessage: "Site does not have DPS power management enabled",
+			},
+			wantErr:          false,
+			expectNoMutation: true,
+		},
 		{
 			name: "test VPC create API endpoint success",
 			fields: fields{
@@ -510,6 +571,7 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 					Description:               cutil.GetPtr("Test VPC Description"),
 					SiteID:                    st1.ID.String(),
 					NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFNN),
+					SlaacEnabled:              cutil.GetPtr(true),
 					NetworkSecurityGroupID:    &nsgTenant1Site1.ID,
 					Vni:                       cutil.GetPtr(555),
 					Labels: map[string]string{
@@ -531,6 +593,144 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			},
 			wantErr:            false,
 			verifyChildSpanner: true,
+		},
+		{
+			name: "test VPC create API endpoint defaults SLAAC VPC to FNN on native networking site",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: &model.APIVpcCreateRequest{
+					Name:         "Test SLAAC VPC default FNN",
+					SiteID:       st1.ID.String(),
+					SlaacEnabled: cutil.GetPtr(true),
+				},
+				reqOrg:                     tnOrg,
+				reqUser:                    tnu,
+				respCode:                   http.StatusCreated,
+				expectedStatus:             cdbm.VpcStatusProvisioning,
+				expectedVirtualizationType: cdbm.VpcFNN,
+				expectedStatusDetails: []expectedStatusDetail{
+					{
+						status:  cdbm.VpcStatusProvisioning,
+						message: "VPC provisioning has been initiated on Site",
+					},
+				},
+			},
+			wantErr:            false,
+			verifyChildSpanner: true,
+		},
+		{
+			name: "test VPC create API endpoint rejects SLAAC when Site config inventory stores false",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: &model.APIVpcCreateRequest{
+					Name:                      "Test SLAAC VPC unsupported by Site",
+					SiteID:                    st4.ID.String(),
+					NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFNN),
+					SlaacEnabled:              cutil.GetPtr(true),
+				},
+				reqOrg:      tnOrg,
+				reqUser:     tnu,
+				respCode:    http.StatusPreconditionFailed,
+				respMessage: "Site does not advertise support for SLAAC-enabled VPCs",
+			},
+			wantErr:          false,
+			expectNoMutation: true,
+		},
+		{
+			name: "test VPC create API endpoint rejects SLAAC when Site config inventory omits the capability",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: &model.APIVpcCreateRequest{
+					Name:                      "Test SLAAC VPC without cached Site capability",
+					SiteID:                    st5.ID.String(),
+					NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFNN),
+					SlaacEnabled:              cutil.GetPtr(true),
+				},
+				reqOrg:      tnOrg,
+				reqUser:     tnu,
+				respCode:    http.StatusPreconditionFailed,
+				respMessage: "Site does not advertise support for SLAAC-enabled VPCs",
+			},
+			wantErr:          false,
+			expectNoMutation: true,
+		},
+		{
+			name: "test VPC create API endpoint rolls back when Core is unavailable after dispatch",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: &model.APIVpcCreateRequest{
+					ID:                        &unavailableVpcID,
+					Name:                      unavailableVpcName,
+					SiteID:                    st1.ID.String(),
+					NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFNN),
+					SlaacEnabled:              cutil.GetPtr(true),
+				},
+				reqOrg:      tnOrg,
+				reqUser:     tnu,
+				respCode:    http.StatusServiceUnavailable,
+				respMessage: unavailableErr.Error(),
+			},
+			wantErr:          false,
+			expectRolledBack: true,
+		},
+		{
+			name: "test VPC create API endpoint rejects SLAAC for explicit ethernet virtualization",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: &model.APIVpcCreateRequest{
+					Name:                      "Test SLAAC VPC explicit ethernet",
+					SiteID:                    st1.ID.String(),
+					NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcEthernetVirtualizer),
+					SlaacEnabled:              cutil.GetPtr(true),
+				},
+				reqOrg:      tnOrg,
+				reqUser:     tnu,
+				respCode:    http.StatusBadRequest,
+				respMessage: "`slaacEnabled` is only supported when network virtualization type is `FNN`",
+			},
+			wantErr:          false,
+			expectNoMutation: true,
+		},
+		{
+			name: "test VPC create API endpoint rejects SLAAC when virtualization defaults to ethernet",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: &model.APIVpcCreateRequest{
+					Name:         "Test SLAAC VPC default ethernet",
+					SiteID:       st3.ID.String(),
+					SlaacEnabled: cutil.GetPtr(true),
+				},
+				reqOrg:      tnOrg,
+				reqUser:     tnu,
+				respCode:    http.StatusBadRequest,
+				respMessage: "`slaacEnabled` is only supported when network virtualization type is `FNN`",
+			},
+			wantErr:          false,
+			expectNoMutation: true,
 		},
 		// Override-only writes use the same site-scoped privilege as named profiles.
 		{
@@ -745,6 +945,7 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 					Description:               cutil.GetPtr("Flat VPC for zero-DPU instances"),
 					SiteID:                    st1.ID.String(),
 					NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFlat),
+					SlaacEnabled:              cutil.GetPtr(false),
 				},
 				reqOrg:         tnOrg,
 				reqUser:        tnu,
@@ -1189,6 +1390,9 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			if tt.args.respMessage != "" {
 				assert.Contains(t, rec.Body.String(), tt.args.respMessage)
 			}
+
+			tsc.AssertNotCalled(t, "ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "InvokeCoreGRPC", mock.Anything)
+			tst3.AssertNotCalled(t, "ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "InvokeCoreGRPC", mock.Anything)
 			if tt.expectNoMutation {
 				// Authorization and compatibility failures must precede persistence and workflow dispatch.
 				persistedVpcs, total, gerr := cdbm.NewVpcDAO(tt.fields.dbSession).GetAll(ctx, nil, cdbm.VpcFilterInput{Name: &tt.args.reqData.Name}, paginator.PageInput{}, nil)
@@ -1201,6 +1405,23 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 				tsc.AssertNotCalled(t, "ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "CreateVPCV2", requestMatcher)
 				tst3.AssertNotCalled(t, "ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "CreateVPCV2", requestMatcher)
 			}
+			if tt.expectRolledBack {
+				persistedVpcs, total, gerr := cdbm.NewVpcDAO(tt.fields.dbSession).GetAll(ctx, nil, cdbm.VpcFilterInput{Name: &tt.args.reqData.Name}, paginator.PageInput{}, nil)
+				require.NoError(t, gerr)
+				assert.Zero(t, total)
+				assert.Empty(t, persistedVpcs)
+
+				require.NotNil(t, tt.args.reqData.ID)
+				statusDetails, total, gerr := cdbm.NewStatusDetailDAO(tt.fields.dbSession).GetAll(ctx, nil, cdbm.StatusDetailFilterInput{EntityIDs: []string{tt.args.reqData.ID.String()}}, paginator.PageInput{})
+				require.NoError(t, gerr)
+				assert.Zero(t, total)
+				assert.Empty(t, statusDetails)
+
+				forwardedRequestMatcher := mock.MatchedBy(func(req *corev1.VpcCreationRequest) bool {
+					return req != nil && req.Name == tt.args.reqData.Name && req.SlaacEnabled != nil && *req.SlaacEnabled
+				})
+				tsc.AssertCalled(t, "ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "CreateVPCV2", forwardedRequestMatcher)
+			}
 			if tt.args.respCode != http.StatusCreated {
 				return
 			}
@@ -1208,9 +1429,12 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			rst := &model.APIVpc{}
 
 			serr := json.Unmarshal(rec.Body.Bytes(), rst)
-			if serr != nil {
-				t.Fatal(serr)
-			}
+			require.NoError(t, serr)
+			responseFields := struct {
+				SlaacEnabled *bool `json:"slaacEnabled"`
+			}{}
+			serr = json.Unmarshal(rec.Body.Bytes(), &responseFields)
+			require.NoError(t, serr)
 
 			assert.Equal(t, rst.Name, tt.args.reqData.Name)
 			assert.True(t, tt.args.reqData.ID == nil || rst.ID == tt.args.reqData.ID.String(), "%+v != %+v", rst.ID, tt.args.reqData.ID)
@@ -1226,11 +1450,19 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			}
 			assert.Equal(t, tt.args.reqData.RoutingProfile, rst.RoutingProfile)
 			assert.Equal(t, tt.args.reqData.RoutingProfileOverrides, rst.RoutingProfileOverrides)
+			expectedSlaacEnabled := tt.args.reqData.SlaacEnabled != nil && *tt.args.reqData.SlaacEnabled
+			assert.Equal(t, expectedSlaacEnabled, rst.SlaacEnabled)
+			require.NotNil(t, responseFields.SlaacEnabled)
+			assert.Equal(t, expectedSlaacEnabled, *responseFields.SlaacEnabled)
+			expectedVirtualizationType := cdbm.VpcEthernetVirtualizer
 			if tt.args.reqData.NetworkVirtualizationType != nil {
-				assert.Equal(t, rst.NetworkVirtualizationType, tt.args.reqData.NetworkVirtualizationType)
-			} else {
-				assert.Equal(t, *rst.NetworkVirtualizationType, cdbm.VpcEthernetVirtualizer)
+				expectedVirtualizationType = *tt.args.reqData.NetworkVirtualizationType
 			}
+			if tt.args.expectedVirtualizationType != "" {
+				expectedVirtualizationType = tt.args.expectedVirtualizationType
+			}
+			require.NotNil(t, rst.NetworkVirtualizationType)
+			assert.Equal(t, expectedVirtualizationType, *rst.NetworkVirtualizationType)
 			assert.Equal(t, tt.args.expectedStatus, rst.Status)
 			require.Len(t, rst.StatusHistory, len(tt.args.expectedStatusDetails))
 			for i, expectedStatusDetail := range tt.args.expectedStatusDetails {
@@ -1258,11 +1490,14 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			// Read the row independently so the create response cannot hide a persistence defect.
 			persistedVpc, gerr := cdbm.NewVpcDAO(tt.fields.dbSession).GetByID(ctx, nil, uuid.MustParse(rst.ID), nil)
 			require.NoError(t, gerr)
+			assert.Equal(t, expectedSlaacEnabled, persistedVpc.SlaacEnabled)
+			require.NotNil(t, persistedVpc.NetworkVirtualizationType)
+			assert.Equal(t, expectedVirtualizationType, *persistedVpc.NetworkVirtualizationType)
 			assert.Equal(t, tt.args.reqData.RoutingProfileOverrides.ToDB(), persistedVpc.RoutingProfileOverrides)
 			if tt.args.reqData.RoutingProfileOverrides != nil {
 				// Effective state returned without a VNI is cached and exposed to this privileged tenant.
 				require.NotNil(t, rst.EffectiveRoutingProfile)
-				assert.Equal(t, 6, rst.EffectiveRoutingProfile.AccessTier)
+				assert.Equal(t, uint32(6), rst.EffectiveRoutingProfile.AccessTier)
 				require.NotNil(t, persistedVpc.EffectiveRoutingProfile)
 				assert.Equal(t, uint32(6), persistedVpc.EffectiveRoutingProfile.AccessTier)
 			}
@@ -1272,6 +1507,26 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 					return false
 				}
 				if !proto.Equal(req.RoutingProfileOverrides, tt.args.reqData.RoutingProfileOverrides.ToDB().ToProto()) {
+					return false
+				}
+				if tt.args.reqData.SlaacEnabled == nil {
+					if req.SlaacEnabled != nil {
+						return false
+					}
+				} else if req.SlaacEnabled == nil || *req.SlaacEnabled != *tt.args.reqData.SlaacEnabled {
+					return false
+				}
+				if req.NetworkVirtualizationType == nil {
+					return false
+				}
+				expectedProtoVirtualizationType := corev1.VpcVirtualizationType_ETHERNET_VIRTUALIZER
+				switch expectedVirtualizationType {
+				case cdbm.VpcFNN:
+					expectedProtoVirtualizationType = corev1.VpcVirtualizationType_FNN
+				case cdbm.VpcFlat:
+					expectedProtoVirtualizationType = corev1.VpcVirtualizationType_FLAT
+				}
+				if *req.NetworkVirtualizationType != expectedProtoVirtualizationType {
 					return false
 				}
 				if tt.args.reqData.RoutingProfile == nil {
@@ -1475,6 +1730,25 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 		expectedRoutingProfileOverrides   *model.APIVpcRoutingProfileOverrides
 		expectNoRoutingProfileMutation    bool
 	}{
+		{
+			name: "test VPC update rejects power resource group when DPS power management is disabled",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: &model.APIVpcUpdateRequest{
+					PowerResourceGroup: cutil.GetPtr("resource-group"),
+				},
+				reqVPCID:    vpc.ID.String(),
+				reqVPC:      vpc,
+				reqOrg:      tnOrg,
+				reqUser:     tnu,
+				respCode:    http.StatusPreconditionFailed,
+				respMessage: "Site does not have DPS power management enabled",
+			},
+		},
 		// A present object replaces the FNN VPC's full inline definition.
 		{
 			name: "test VPC update replaces routing profile overrides",

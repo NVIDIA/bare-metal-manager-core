@@ -16,6 +16,7 @@ For global flags and setup, see [the overview](./README.md) and [`setup.md`](./s
 | [`nvl-domain`](./commands/nvl-domain/nvl-domain.md) | NVLink domain related handling. |
 | [`resource-pool`](./commands/resource-pool/resource-pool.md) | Resource pool handling. |
 | [`route-server`](./commands/route-server/route-server.md) | Route server handling. |
+| [`site-prefix`](./commands/site-prefix/site-prefix.md) | SitePrefix management. |
 | [`spx-partition`](./commands/spx-partition/spx-partition.md) | SPX Partition related handling. |
 | [`vpc`](./commands/vpc/vpc.md) | VPC related handling. |
 | [`vpc-peering`](./commands/vpc-peering/vpc-peering.md) | VPC peering handling. |

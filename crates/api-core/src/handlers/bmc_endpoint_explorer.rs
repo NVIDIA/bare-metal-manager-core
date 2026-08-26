@@ -21,6 +21,7 @@ use ::rpc::forge as rpc;
 use ::rpc::model::machine::machine_id::try_parse_machine_id;
 use carbide_redfish::boot_interface::BootInterfaceTarget;
 use carbide_utils::none_if_empty::NoneIfEmpty;
+use carbide_uuid::device::DeviceId;
 use carbide_uuid::machine::MachineId;
 use db::WithTransaction;
 use db::machine_interface::find_by_ip;
@@ -30,7 +31,8 @@ use model::expected_entity::ExpectedEntity;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{LoadSnapshotOptions, MachineInterfaceSnapshot, ManagedHostState};
 use model::machine_boot_interface::{
-    MachineBootInterface, MachineBootInterfaceTarget, canonical_redfish_boot_interface_id,
+    BootInterfaceSelectionAuthority, MachineBootInterface, MachineBootInterfaceTarget,
+    canonical_redfish_boot_interface_id,
 };
 use model::predicted_machine_interface::PredictedMachineInterface;
 use model::site_explorer::{BlueFieldOperatingMode, PreingestionState};
@@ -40,6 +42,18 @@ use tonic::{Request, Response, Status};
 use crate::CarbideError;
 use crate::api::{Api, log_machine_id, log_request_data, log_request_data_redacted};
 use crate::handlers::utils::{enqueue_boot_interface_reconciliation, resolve_bmc_address};
+
+/// Converts the admin request into the authority used by boot reconciliation.
+///
+/// An entered MAC is the request's evidence that the operator selected the
+/// target. Omitting it reapplies the stored target and must preserve the source
+/// and decision time that originally selected it.
+fn admin_selection_authority(entered_mac: Option<MacAddress>) -> BootInterfaceSelectionAuthority {
+    match entered_mac {
+        Some(_) => BootInterfaceSelectionAuthority::Operator,
+        None => BootInterfaceSelectionAuthority::Existing,
+    }
+}
 
 /// Resolves the boot interface an admin Redfish action should target.
 ///
@@ -101,7 +115,7 @@ fn resolve_admin_boot_interface_target(
 
     // The machine's unambiguous `MachineBootInterface` for `mac`, if known:
     // owned rows first, then predictions only when owned rows offer no id.
-    let known_pair_for = |mac: MacAddress| -> Option<MachineBootInterface> {
+    let pair_from_candidates = |mac: MacAddress| -> Option<MachineBootInterface> {
         let candidates = candidates?;
         let owned = unique_interface_id(
             candidates
@@ -137,24 +151,25 @@ fn resolve_admin_boot_interface_target(
         | Some(MachineBootInterfaceTarget::MacOnly(_))
         | None => None,
     };
-    // Resolution chose `mac`; use its `MachineBootInterface` when known, or
-    // `BootInterfaceTarget::MacOnly` when no `interface_id` has been captured.
-    let target_for = |mac: MacAddress, pair: Option<MachineBootInterface>| -> BootInterfaceTarget {
-        pair.map_or(BootInterfaceTarget::MacOnly(mac), BootInterfaceTarget::Pair)
+    // Resolution chose `mac`; use its candidate pair when known, or target the
+    // MAC alone when no `interface_id` has been captured.
+    let target_from_candidates = |mac: MacAddress| -> BootInterfaceTarget {
+        pair_from_candidates(mac)
+            .map_or(BootInterfaceTarget::MacOnly(mac), BootInterfaceTarget::Pair)
     };
 
     match entered_mac {
-        Some(mac) => Some(target_for(
-            mac,
-            known_pair_for(mac)
+        Some(mac) => Some(
+            pair_from_candidates(mac)
                 .or_else(|| desired_pair_for(mac))
                 .or_else(|| {
                     candidates
                         .is_none()
                         .then(|| stored.filter(|pair| pair.mac_address == mac))
                         .flatten()
-                }),
-        )),
+                })
+                .map_or(BootInterfaceTarget::MacOnly(mac), BootInterfaceTarget::Pair),
+        ),
         None => {
             let Some(candidates) = candidates else {
                 // No machine owns the endpoint -- the explored default
@@ -163,19 +178,21 @@ fn resolve_admin_boot_interface_target(
             };
             if let Some(desired) = desired {
                 return Some(match desired {
-                    MachineBootInterfaceTarget::Pair(pair) => {
-                        BootInterfaceTarget::Pair(pair.clone())
-                    }
+                    // An explicit administrative reapply may refresh the
+                    // Redfish ID from the current owned row. Passive Site
+                    // Explorer enrichment changes only a target that has no
+                    // interface ID, so an existing pair is never replaced
+                    // silently.
+                    MachineBootInterfaceTarget::Pair(pair) => BootInterfaceTarget::Pair(
+                        pair_from_candidates(pair.mac_address).unwrap_or_else(|| pair.clone()),
+                    ),
                     MachineBootInterfaceTarget::MacOnly(mac_address) => {
-                        target_for(*mac_address, known_pair_for(*mac_address))
+                        target_from_candidates(*mac_address)
                     }
                 });
             }
             if let Some(picked) = model::machine::pick_boot_interface(&candidates.interfaces) {
-                return Some(target_for(
-                    picked.mac_address,
-                    known_pair_for(picked.mac_address),
-                ));
+                return Some(target_from_candidates(picked.mac_address));
             }
             // The rows offered no boot candidate: the machine's predicted NICs
             // answer, via the shared `pick_boot_prediction` -- the declared
@@ -183,10 +200,7 @@ fn resolve_admin_boot_interface_target(
             // none declared primary the boot NIC is unknowable, so it returns
             // `None` and the action keeps requiring an explicit MAC.
             if let Some(predicted) = model::machine::pick_boot_prediction(&candidates.predicted) {
-                return Some(target_for(
-                    predicted.mac_address,
-                    known_pair_for(predicted.mac_address),
-                ));
+                return Some(target_from_candidates(predicted.mac_address));
             }
             // An owned machine resolves from its own data alone: no
             // unambiguous candidate means no target, and the action requires
@@ -341,6 +355,21 @@ pub(crate) async fn summarize_boot_interface_candidates_for_test(
         }))
 }
 
+/// Map the request's `ResetType` to the libredfish `Manager.Reset` type.
+/// `Unspecified` maps to `None`, which each vendor resolves to its default
+/// (`GracefulRestart` for the standard/switch/power-shelf path, `ForceRestart`
+/// for AMI/Viking machine BMCs).
+fn map_reset_type(
+    reset_type: rpc::admin_bmc_reset_request::ResetType,
+) -> Option<libredfish::ManagerResetType> {
+    use rpc::admin_bmc_reset_request::ResetType;
+    match reset_type {
+        ResetType::Unspecified => None,
+        ResetType::GracefulRestart => Some(libredfish::ManagerResetType::GracefulRestart),
+        ResetType::ForceRestart => Some(libredfish::ManagerResetType::ForceRestart),
+    }
+}
+
 pub(crate) async fn admin_bmc_reset(
     api: &Api,
     request: Request<rpc::AdminBmcResetRequest>,
@@ -348,18 +377,99 @@ pub(crate) async fn admin_bmc_reset(
     log_request_data(&request);
     let req = request.into_inner();
 
-    // Note: AdminBmcResetRequest uses a string for machine_id instead of a real MachineId, which is wrong.
-    let machine_id = req
-        .machine_id
-        .as_ref()
-        .map(|id| try_parse_machine_id(id))
-        .transpose()?;
+    // `reset_type` selects the Redfish `Manager.Reset` action and has no
+    // meaning for the ipmitool path, so reject the combination rather than
+    // silently ignore the operator's choice.
+    let requested_reset_type = req.reset_type();
+    if req.use_ipmitool
+        && requested_reset_type != rpc::admin_bmc_reset_request::ResetType::Unspecified
+    {
+        return Err(Status::invalid_argument(
+            "reset_type is only supported for the redfish path, not with use_ipmitool",
+        ));
+    }
+    let reset_type = map_reset_type(requested_reset_type);
+
+    // The top-level `machine_id` is deprecated in favor of `device_id`; accept
+    // it as sugar for `DeviceId::Machine` but reject setting both.
+    #[allow(deprecated)]
+    let legacy_machine_id = req.machine_id;
+    let device_id = match (req.device_id, legacy_machine_id) {
+        (Some(_), Some(_)) => {
+            return Err(Status::invalid_argument(
+                "machine_id is deprecated; do not combine it with device_id",
+            ));
+        }
+        (Some(device_id), None) => Some(device_id),
+        (None, Some(machine_id)) => Some(DeviceId::Machine(try_parse_machine_id(&machine_id)?)),
+        (None, None) => None,
+    };
 
     let mut txn = api.txn_begin().await?;
 
-    let (bmc_endpoint_request, _) =
-        validate_and_complete_bmc_endpoint_request(&mut txn, req.bmc_endpoint_request, machine_id)
-            .await?;
+    let bmc_endpoint_request = match (req.bmc_endpoint_request, device_id) {
+        (Some(_), Some(_)) => {
+            return Err(Status::invalid_argument(
+                "targets are mutually exclusive: provide exactly one of bmc_endpoint_request or device_id",
+            ));
+        }
+        (None, None) => {
+            return Err(Status::invalid_argument(
+                "a target is required: provide bmc_endpoint_request or device_id",
+            ));
+        }
+        (Some(endpoint), None) => {
+            let (completed, _) =
+                validate_and_complete_bmc_endpoint_request(&mut txn, Some(endpoint), None).await?;
+            completed
+        }
+        (None, Some(DeviceId::Machine(machine_id))) => {
+            let (completed, _) =
+                validate_and_complete_bmc_endpoint_request(&mut txn, None, Some(machine_id))
+                    .await?;
+            completed
+        }
+        (None, Some(DeviceId::Switch(switch_id))) => {
+            let row = db::switch::find_switch_endpoints_by_ids(
+                &mut txn,
+                std::slice::from_ref(&switch_id),
+            )
+            .await
+            .map_err(|e| Status::internal(format!("db error resolving switch BMC endpoint: {e}")))?
+            .into_iter()
+            .next()
+            .ok_or_else(|| {
+                Status::not_found(format!(
+                    "switch {switch_id} not found or has no resolvable BMC endpoint"
+                ))
+            })?;
+            rpc::BmcEndpointRequest {
+                ip_address: row.bmc_ip.to_string(),
+                mac_address: Some(row.bmc_mac.to_string()),
+            }
+        }
+        (None, Some(DeviceId::PowerShelf(power_shelf_id))) => {
+            let row = db::power_shelf::find_power_shelf_endpoints_by_ids(
+                &mut txn,
+                std::slice::from_ref(&power_shelf_id),
+            )
+            .await
+            .map_err(|e| {
+                Status::internal(format!("db error resolving power shelf PMC endpoint: {e}"))
+            })?
+            .into_iter()
+            .next()
+            .ok_or_else(|| {
+                Status::not_found(format!(
+                    "power shelf {power_shelf_id} not found or has no resolvable PMC endpoint"
+                ))
+            })?;
+            rpc::BmcEndpointRequest {
+                ip_address: row.pmc_ip.to_string(),
+                mac_address: Some(row.pmc_mac.to_string()),
+            }
+        }
+    };
 
     txn.commit().await?;
 
@@ -374,7 +484,7 @@ pub(crate) async fn admin_bmc_reset(
     if req.use_ipmitool {
         ipmitool_reset_bmc(api, bmc_endpoint_request).await?;
     } else {
-        redfish_reset_bmc(api, bmc_endpoint_request).await?;
+        redfish_reset_bmc(api, bmc_endpoint_request, reset_type).await?;
     }
 
     tracing::info!(
@@ -611,7 +721,13 @@ pub(crate) async fn machine_setup(
         let reconciliation_eligible =
             boot_interface_reconciliation_eligible(&mut txn, Some(machine_id)).await?;
         let desired = MachineBootInterfaceTarget::from(&boot_interface);
-        db::machine_desired_boot_interface::force_set(&mut txn, &machine_id, &desired).await?;
+        db::machine_desired_boot_interface::force_reconcile(
+            &mut txn,
+            &machine_id,
+            &desired,
+            admin_selection_authority(entered_mac),
+        )
+        .await?;
         txn.commit().await?;
         enqueue_boot_interface_reconciliation(api, machine_id, reconciliation_eligible).await;
 
@@ -690,7 +806,13 @@ pub(crate) async fn set_dpu_first_boot_order(
         let reconciliation_eligible =
             boot_interface_reconciliation_eligible(&mut txn, Some(machine_id)).await?;
         let desired = MachineBootInterfaceTarget::from(&boot_interface);
-        db::machine_desired_boot_interface::force_set(&mut txn, &machine_id, &desired).await?;
+        db::machine_desired_boot_interface::force_reconcile(
+            &mut txn,
+            &machine_id,
+            &desired,
+            admin_selection_authority(entered_mac),
+        )
+        .await?;
         txn.commit().await?;
         enqueue_boot_interface_reconciliation(api, machine_id, reconciliation_eligible).await;
 
@@ -874,12 +996,13 @@ pub(crate) async fn explore(
 async fn redfish_reset_bmc(
     api: &Api,
     request: rpc::BmcEndpointRequest,
+    reset_type: Option<libredfish::ManagerResetType>,
 ) -> Result<Response<()>, Status> {
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
 
     api.endpoint_explorer
-        .redfish_reset_bmc(bmc_addr, &machine_interface)
+        .redfish_reset_bmc(bmc_addr, &machine_interface, reset_type)
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?;
 
@@ -1409,6 +1532,27 @@ mod tests {
         row
     }
 
+    // `Unspecified` defers to the per-vendor default (None); the explicit types
+    // map one-to-one onto the libredfish `Manager.Reset` type.
+    #[test]
+    fn reset_type_maps_to_manager_reset_type() {
+        use super::rpc::admin_bmc_reset_request::ResetType;
+
+        value_scenarios!(run = |reset_type: ResetType| { map_reset_type(reset_type) };
+            "unspecified defers to the vendor default" {
+                ResetType::Unspecified => None,
+            }
+
+            "graceful maps to GracefulRestart" {
+                ResetType::GracefulRestart => Some(libredfish::ManagerResetType::GracefulRestart),
+            }
+
+            "force maps to ForceRestart" {
+                ResetType::ForceRestart => Some(libredfish::ManagerResetType::ForceRestart),
+            }
+        );
+    }
+
     fn predicted(mac: &str, boot_interface_id: Option<&str>) -> PredictedMachineInterface {
         PredictedMachineInterface {
             id: uuid::Uuid::nil(),
@@ -1431,7 +1575,7 @@ mod tests {
     }
 
     #[test]
-    fn no_mac_prefers_persisted_desired_over_the_primary_row() {
+    fn no_mac_keeps_the_desired_mac_and_refreshes_its_redfish_id() {
         let c = BootInterfaceCandidates {
             interfaces: vec![
                 row("00:00:5e:00:53:01", true, Some("NIC.Integrated.1-1-1")),
@@ -1439,7 +1583,8 @@ mod tests {
             ],
             predicted: vec![],
         };
-        let desired = MachineBootInterfaceTarget::Pair(pair("00:00:5e:00:53:02", "NIC.Slot.7-1-1"));
+        let desired =
+            MachineBootInterfaceTarget::Pair(pair("00:00:5e:00:53:02", "NIC.Remembered.7-1-1"));
 
         assert_eq!(
             resolve_admin_boot_interface_target(None, Some(&desired), Some(&c), None),

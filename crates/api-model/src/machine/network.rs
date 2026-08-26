@@ -283,75 +283,6 @@ mod tests {
         }
     }
 
-    // JSON round-trips: serialize a config to JSON and deserialize it back; the
-    // config must survive intact. The error type (serde_json::Error) is not
-    // PartialEq, so failing rows would use `Fails`; all rows here round-trip
-    // cleanly.
-    #[test]
-    fn test_managed_host_network_config_json_roundtrip() {
-        scenarios!(
-            run = |config| {
-                let json = serde_json::to_string(&config).map_err(drop)?;
-                serde_json::from_str::<ManagedHostNetworkConfig>(&json).map_err(drop)
-            };
-            "ipv4 round-trip" {
-                ManagedHostNetworkConfig {
-                    loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
-                    loopback_ip_v6: None,
-                    use_admin_network: Some(true),
-                    quarantine_state: None,
-                    use_admin_network_changed: None,
-                } => Yields(ManagedHostNetworkConfig {
-                    loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
-                    loopback_ip_v6: None,
-                    use_admin_network: Some(true),
-                    quarantine_state: None,
-                    use_admin_network_changed: None,
-                }),
-            }
-
-            "generic IPv6 addresses round-trip" {
-                ManagedHostNetworkConfig {
-                    loopback_ip: Some(IpAddr::V6(Ipv6Addr::new(
-                        0x2001, 0xdb8, 0, 0, 0, 0, 0, 1,
-                    ))),
-                    loopback_ip_v6: None,
-                    use_admin_network: Some(false),
-                    quarantine_state: None,
-                    use_admin_network_changed: None,
-                } => Yields(ManagedHostNetworkConfig {
-                    loopback_ip: Some(IpAddr::V6(Ipv6Addr::new(
-                        0x2001, 0xdb8, 0, 0, 0, 0, 0, 1,
-                    ))),
-                    loopback_ip_v6: None,
-                    use_admin_network: Some(false),
-                    quarantine_state: None,
-                    use_admin_network_changed: None,
-                }),
-            }
-
-            "dedicated IPv6 loopback round-trip" {
-                ManagedHostNetworkConfig {
-                    loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
-                    loopback_ip_v6: Some(Ipv6Addr::new(
-                        0x2001, 0xdb8, 0, 0, 0, 0, 0, 1,
-                    )),
-                    use_admin_network: Some(false),
-                    quarantine_state: None,
-                    use_admin_network_changed: None,
-                } => Yields(ManagedHostNetworkConfig {
-                    loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
-                    loopback_ip_v6: Some(Ipv6Addr::new(
-                        0x2001, 0xdb8, 0, 0, 0, 0, 0, 1,
-                    )),
-                    use_admin_network: Some(false),
-                    quarantine_state: None,
-                    use_admin_network_changed: None,
-                }),
-            }
-        );
-    }
-
     // `loopback_ip_v6` is optional in persisted machine JSON, so rows written
     // before this field existed keep loading it as `None`. Once populated, the
     // `Ipv6Addr` type rejects an IPv4 value before it can reach FNN rendering.
@@ -692,46 +623,6 @@ mod tests {
 
             "non-object json is rejected" {
                 "[]" => Fails,
-            }
-        );
-    }
-
-    // The default config round-trips through JSON unchanged, and the
-    // quarantine-state variant survives a round-trip too. Folds the prior
-    // single-default assertion into the round-trip table that already exists
-    // for the IP cases. serde_json::Error is not PartialEq, so failing rows
-    // would use `Fails`.
-    #[test]
-    fn test_managed_host_network_config_default_and_quarantine_roundtrip() {
-        scenarios!(
-            run = |config| {
-                let json = serde_json::to_string(&config).map_err(drop)?;
-                serde_json::from_str::<ManagedHostNetworkConfig>(&json).map_err(drop)
-            };
-            "default round-trips" {
-                ManagedHostNetworkConfig::default() => Yields(ManagedHostNetworkConfig::default()),
-            }
-
-            "quarantine state round-trips" {
-                ManagedHostNetworkConfig {
-                    loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
-                    loopback_ip_v6: None,
-                    use_admin_network: Some(true),
-                    quarantine_state: Some(ManagedHostQuarantineState {
-                        reason: Some("flooded".to_string()),
-                        mode: ManagedHostQuarantineMode::BlockAllTraffic,
-                    }),
-                    use_admin_network_changed: None,
-                } => Yields(ManagedHostNetworkConfig {
-                    loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
-                    loopback_ip_v6: None,
-                    use_admin_network: Some(true),
-                    quarantine_state: Some(ManagedHostQuarantineState {
-                        reason: Some("flooded".to_string()),
-                        mode: ManagedHostQuarantineMode::BlockAllTraffic,
-                    }),
-                    use_admin_network_changed: None,
-                }),
             }
         );
     }

@@ -35,6 +35,7 @@ async fn explore_nvidia_dgx_vr_and_generate_machine_id() {
 
     assert_eq!(report.endpoint_type, EndpointType::Bmc);
     assert!(!report.systems.is_empty(), "systems must be present");
+    assert_eq!(report.systems[0].serial_console_ssh_port, Some(2200));
     assert!(!report.chassis.is_empty(), "chassis must be present");
     assert!(
         report.systems[0].pcie_devices.is_empty(),

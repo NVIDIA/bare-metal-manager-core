@@ -28,6 +28,12 @@ func TestManageSiteConfigInventory_DiscoverSiteConfigInventory(t *testing.T) {
 
 	siteID := uuid.New()
 	siteFabricPrefixes := []string{"10.0.0.0/16", "2001:db8::/64"}
+	buildCapabilities := []corev1.BuildCapability{
+		corev1.BuildCapability_BUILD_CAPABILITY_VPC_SLAAC,
+	}
+	mockCoreService, ok := mockCoreGrpcClient.GrpcServiceClient().(*cClient.MockCoreGrpcServiceClient)
+	require.True(t, ok)
+	mockCoreService.BuildCapabilities = buildCapabilities
 	tc := &tmocks.Client{}
 	tc.Mock.On(
 		"ExecuteWorkflow",
@@ -61,6 +67,7 @@ func TestManageSiteConfigInventory_DiscoverSiteConfigInventory(t *testing.T) {
 
 	buildInfo, ok := tc.Calls[0].Arguments[4].(*corev1.BuildInfo)
 	require.True(t, ok)
+	assert.Equal(t, buildCapabilities, buildInfo.GetCapabilities())
 	require.NotNil(t, buildInfo.GetRuntimeConfig(),
 		"Version request must set DisplayConfig, Core omits the runtime config without it")
 	assert.Equal(t, siteFabricPrefixes, buildInfo.GetRuntimeConfig().GetSiteFabricPrefixes())

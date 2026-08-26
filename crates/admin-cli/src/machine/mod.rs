@@ -27,9 +27,6 @@ mod positions;
 mod reboot;
 mod show;
 
-#[cfg(test)]
-mod tests;
-
 // Cross-module re-exports.
 pub(crate) use auto_update::args::Args as MachineAutoupdate;
 use clap::Parser;

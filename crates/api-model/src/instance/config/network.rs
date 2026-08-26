@@ -380,25 +380,23 @@ impl InstanceNetworkConfig {
                 )));
             }
 
-            // Verify the list of network prefix IDs between the interface
-            // IP addresses and interface prefix allocations match. There
-            // should be a 1:1 correlation, as in, for network prefix ID XYZ,
-            // there should be an entry in `ip_addrs` and `instance_prefixes`.
+            // Every concrete address must retain its interface prefix. An IPv6
+            // interface prefix may intentionally have no address when the
+            // owning VPC uses SLAAC; IPv4 retains the one-to-one invariant.
             //
             // TODO(chet): Only do this if there are actual prefixes set for
             // this interface. If there aren't, its because this is an old
             // instance which existed prior to introducing instance_prefixes.
             // Once all instances are configured with prefixes, then there's
             // no need for an empty check.
-            if iface.interface_prefixes.keys().len() > 0
-                && iface
+            if !iface.interface_prefixes.is_empty()
+                && (iface
                     .ip_addrs
                     .keys()
-                    .collect::<std::collections::HashSet<_>>()
-                    != iface
-                        .interface_prefixes
-                        .keys()
-                        .collect::<std::collections::HashSet<_>>()
+                    .any(|prefix_id| !iface.interface_prefixes.contains_key(prefix_id))
+                    || iface.interface_prefixes.iter().any(|(prefix_id, prefix)| {
+                        !iface.ip_addrs.contains_key(prefix_id) && prefix.is_ipv4()
+                    }))
             {
                 return Err(ConfigValidationError::NetworkPrefixAllocationMismatch);
             }
@@ -588,6 +586,13 @@ impl InstanceNetworkConfig {
     pub fn is_host_inband(&self) -> bool {
         self.interfaces.iter().all(|i| i.is_host_inband())
     }
+
+    /// `uses_operator_managed_networking` returns true when every configured interface uses the
+    /// operator's HostInband network instead of the NICo DPU data plane. The config must be
+    /// nonempty because `is_host_inband` is vacuously true for an empty interface list.
+    pub fn uses_operator_managed_networking(&self) -> bool {
+        !self.interfaces.is_empty() && self.is_host_inband()
+    }
 }
 
 /// Validates that any container which has elements that have InterfaceFunctionIds
@@ -775,10 +780,12 @@ pub struct InstanceInterfaceConfig {
     /// network prefix for this interface (e.g. in FNN we might carve out
     /// a /31 for an interface, whereas in ETV we just allocate a /32).
     ///
-    /// There should be a 1:1 correlation between this and the `ip_addrs`,
-    /// as in, for each network prefix ID entry in the `ip_addrs` map, there
-    /// should be a corresponding `inteface_prefixes` entry here (even if it's
-    /// just a /32 for derived from the ip_addr).
+    /// Every concrete address in `ip_addrs` has a corresponding entry here
+    /// (even if it is only the host prefix derived from that address). Model
+    /// validation permits an IPv6 prefix without an `ip_addrs` entry so the
+    /// owning VPC layer can represent SLAAC; this model does not itself know
+    /// or enforce the VPC's allocation mode. IPv4 interfaces may not retain a
+    /// prefix without an address.
     ///
     /// TODO(chet): Allow a default value to be set here for backwards
     /// compatibility, since InstanceInterfaceConfigs for existing instances
@@ -1108,6 +1115,32 @@ mod tests {
             interfaces,
             auto_config: None,
         }
+    }
+
+    #[test]
+    fn operator_managed_networking_requires_nonempty_host_inband_interfaces() {
+        let empty = InstanceNetworkConfig::default();
+        let dpu_networked = create_valid_network_config();
+
+        let mut host_inband = create_valid_network_config();
+        for interface in &mut host_inband.interfaces {
+            interface.host_inband_mac_address = Some(MacAddress::new([1, 2, 3, 4, 5, 6]));
+        }
+
+        let mut mixed = host_inband.clone();
+        mixed.interfaces[0].host_inband_mac_address = None;
+
+        value_scenarios!(
+            run = |config: InstanceNetworkConfig| config.uses_operator_managed_networking();
+            "operator-managed" {
+                host_inband => true,
+            }
+            "not operator-managed" {
+                empty => false,
+                dpu_networked => false,
+                mixed => false,
+            }
+        );
     }
 
     /// Builds one resolved automatic interface while retaining the usual
@@ -1607,6 +1640,24 @@ mod tests {
         duplicate_network_segment.interfaces[1].network_segment_id =
             Some(DUPLICATE_SEGMENT_ID.into());
 
+        let mut slaac_ipv6_prefix_without_address = create_valid_network_config();
+        slaac_ipv6_prefix_without_address.interfaces[0]
+            .interface_prefixes
+            .insert(NetworkPrefixId::new(), "2001:db8::/127".parse().unwrap());
+
+        let mut ipv4_prefix_without_address = create_valid_network_config();
+        ipv4_prefix_without_address.interfaces[0]
+            .interface_prefixes
+            .insert(NetworkPrefixId::new(), "192.0.2.10/32".parse().unwrap());
+
+        let mut address_without_prefix = create_valid_network_config();
+        address_without_prefix.interfaces[0]
+            .ip_addrs
+            .insert(NetworkPrefixId::new(), "192.0.2.10".parse().unwrap());
+        address_without_prefix.interfaces[0]
+            .interface_prefixes
+            .insert(NetworkPrefixId::new(), "2001:db8::/127".parse().unwrap());
+
         scenarios!(
             run = |(config, allow_instance_vf)| config.validate(allow_instance_vf).map_err(drop);
             "valid config with virtual functions allowed" {
@@ -1635,6 +1686,18 @@ mod tests {
 
             "duplicate network segment" {
                 (duplicate_network_segment, true) => Fails,
+            }
+
+            "SLAAC IPv6 prefix without a concrete address" {
+                (slaac_ipv6_prefix_without_address, true) => Yields(()),
+            }
+
+            "IPv4 prefix without a concrete address" {
+                (ipv4_prefix_without_address, true) => Fails,
+            }
+
+            "address without its interface prefix" {
+                (address_without_prefix, true) => Fails,
             }
         );
     }

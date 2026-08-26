@@ -125,6 +125,7 @@ bmc-mock = { path = "../bmc-mock" }
 carbide-instrument = { path = "../instrument", features = ["test-support"] }
 carbide-test-support = { path = "../test-support" }
 criterion = { workspace = true }
+figment = { workspace = true, features = ["test"] }
 rcgen = { workspace = true }
 tempfile = { workspace = true }
 time = { workspace = true }

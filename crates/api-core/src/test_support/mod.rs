@@ -34,6 +34,12 @@ pub use rpc;
 pub use crate::api::Api;
 pub use crate::api::metrics::ApiMetricsEmitter;
 
+pub const MAX_BGP_PASSWORD_LENGTH: usize = crate::handlers::credential::MAX_BGP_PASSWORD_LENGTH;
+
+pub fn default_credential_key(credential: &crate::api::DefaultCredential) -> &str {
+    credential.key()
+}
+
 impl Api {
     pub fn work_lock_manager_handle(&self) -> WorkLockManagerHandle {
         self.work_lock_manager_handle.clone()

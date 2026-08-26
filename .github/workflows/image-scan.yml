@@ -50,7 +50,7 @@ jobs:
     # and those record no targets. Checked here so the common case costs one
     # skipped job rather than an artifact listing.
     if: ${{ github.event.workflow_run.head_branch == 'main' }}
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu4
     outputs:
       targets: ${{ steps.matrix.outputs.targets }}
     steps:

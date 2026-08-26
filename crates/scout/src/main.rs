@@ -99,7 +99,7 @@ async fn main() -> Result<(), eyre::Report> {
 
     // Purely local interrogation for troubleshooting.
     if matches!(config.subcmd, Some(Command::LldpNeighbors)) {
-        let neighbors = carbide_host_support::lldp_collector::collect_lldp_neighbors()?;
+        let neighbors = carbide_host_support::lldp_collector::collect_lldp_neighbors().await?;
         println!("{neighbors:#?}");
         return Ok(());
     }

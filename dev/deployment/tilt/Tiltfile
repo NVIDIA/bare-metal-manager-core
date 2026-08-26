@@ -35,6 +35,35 @@ rest_namespace = local_config['restNamespace']
 temporal_namespace = local_config['temporalNamespace']
 observability_namespace = local_config['observabilityNamespace']
 
+machine_a_tron_dhcp = tilt_values['machineATronDhcp']
+machine_a_tron_dhcp_server_ip = machine_a_tron_dhcp['serverIP']
+machine_a_tron_dhcp_server_port = machine_a_tron_dhcp['serverPort']
+machine_a_tron_dhcp_pod = machine_a_tron_dhcp['podName']
+machine_a_tron_dhcp_service_ip = machine_a_tron_dhcp['serviceIP']
+machine_a_tron_dhcp_listen_port = machine_a_tron_dhcp['listenPort']
+
+nico_dhcp_values = all_values['nico-dhcp']
+nico_dhcp_values['config']['kea']['serverIdentifier'] = machine_a_tron_dhcp_server_ip
+
+machine_a_tron_values = all_values['nico-machine-a-tron']
+machine_a_tron_configs = machine_a_tron_values['configFiles']['matConfigs']
+if machine_a_tron_dhcp_pod not in machine_a_tron_configs:
+    fail('Tilt DHCP relay mode requires a MAT config for pod %s' % machine_a_tron_dhcp_pod)
+machine_a_tron_config = machine_a_tron_configs[machine_a_tron_dhcp_pod]
+machine_a_tron_config = machine_a_tron_config.replace(
+    '__NICO_DHCP_SERVER_ADDRESS__',
+    '%s:%s' % (machine_a_tron_dhcp_server_ip, machine_a_tron_dhcp_server_port),
+)
+machine_a_tron_config = machine_a_tron_config.replace(
+    '__MAT_DHCP_LISTEN_PORT__',
+    str(machine_a_tron_dhcp_listen_port),
+)
+machine_a_tron_config = machine_a_tron_config.replace(
+    '__MAT_DHCP_SERVICE_IP__',
+    machine_a_tron_dhcp_service_ip,
+)
+machine_a_tron_configs[machine_a_tron_dhcp_pod] = machine_a_tron_config
+
 def merged(first, second):
     result = {}
     for key, value in first.items():
@@ -238,6 +267,14 @@ local_ca_certificate = str(read_file(
 local_ca_key = str(read_file(
     os.path.join(repo_root, 'dev/certs/localhost/ca.key'),
 ))
+ssh_console_host_key = str(read_file(os.path.join(
+    repo_root,
+    'crates/ssh-console/tests/fixtures/ssh_host_ed25519_key',
+)))
+ssh_console_host_key_public = str(read_file(os.path.join(
+    repo_root,
+    'crates/ssh-console/tests/fixtures/ssh_host_ed25519_key.pub',
+)))
 database_config = local_config['database']
 rest_database = database_config['rest']
 keycloak_database = database_config['keycloak']
@@ -392,6 +429,14 @@ local_objects = [
         secret_type='kubernetes.io/tls',
     ),
     secret('nico-roots', core_namespace, {'ca.crt': local_ca_certificate}),
+    secret(
+        'ssh-host-key',
+        core_namespace,
+        {
+            'ssh_host_ed25519_key': ssh_console_host_key,
+            'ssh_host_ed25519_key_pub': ssh_console_host_key_public,
+        },
+    ),
     {
         'apiVersion': 'cert-manager.io/v1',
         'kind': 'Issuer',
@@ -785,6 +830,12 @@ docker_build(
     ignore=['dev/deployment/tilt'],
 )
 docker_build(
+    'nico-dhcp',
+    repo_root,
+    dockerfile=os.path.join(devspace_dir, 'Dockerfile.dhcp'),
+    ignore=['dev/deployment/tilt'],
+)
+docker_build(
     'machine-a-tron',
     repo_root,
     dockerfile=os.path.join(devspace_dir, 'Dockerfile.machine-a-tron'),
@@ -902,15 +953,134 @@ helm_chart(
     manual=True,
 )
 helm_chart(
+    name='nico-dhcp',
+    chart=os.path.join(core_charts, 'nico-dhcp'),
+    namespace=core_namespace,
+    values=component_values(core_global, nico_dhcp_values),
+    resource_deps=['nico-api'],
+    image_dep='nico-dhcp',
+    image_keys=[('global.image.repository', 'global.image.tag')],
+    manual=True,
+)
+
+nico_dhcp_machine_a_tron_service = {
+    'apiVersion': 'v1',
+    'kind': 'Service',
+    'metadata': object_metadata('nico-dhcp-machine-a-tron', core_namespace),
+    'spec': {
+        'type': 'ClusterIP',
+        'clusterIP': machine_a_tron_dhcp_server_ip,
+        'selector': {
+            'app.kubernetes.io/name': 'nico-dhcp',
+            'app.kubernetes.io/component': 'dhcp',
+        },
+        'ports': [{
+            'name': 'dhcp',
+            'port': machine_a_tron_dhcp_server_port,
+            'targetPort': machine_a_tron_dhcp_server_port,
+            'protocol': 'UDP',
+        }],
+    },
+}
+k8s_yaml(encode_yaml(nico_dhcp_machine_a_tron_service))
+k8s_resource(
+    new_name='nico-dhcp-machine-a-tron',
+    objects=[object_selector(nico_dhcp_machine_a_tron_service)],
+    resource_deps=['nico-dhcp'],
+    labels=['application'],
+    pod_readiness='ignore',
+)
+
+machine_a_tron_dhcp_service_name = 'nico-machine-a-tron-%s-dhcp-relay' % machine_a_tron_dhcp_pod
+machine_a_tron_dhcp_service = {
+    'apiVersion': 'v1',
+    'kind': 'Service',
+    'metadata': object_metadata(machine_a_tron_dhcp_service_name, core_namespace),
+    'spec': {
+        'type': 'ClusterIP',
+        'clusterIP': machine_a_tron_dhcp_service_ip,
+        'selector': {
+            'app.kubernetes.io/name': 'nico-machine-a-tron',
+            'app.kubernetes.io/component': 'machine-a-tron',
+            'nvidia-infra-controller/pod-name': machine_a_tron_dhcp_pod,
+        },
+        'ports': [{
+            'name': 'dhcp-relay',
+            'port': machine_a_tron_dhcp_listen_port,
+            'targetPort': machine_a_tron_dhcp_listen_port,
+            'protocol': 'UDP',
+        }],
+    },
+}
+k8s_yaml(encode_yaml(machine_a_tron_dhcp_service))
+k8s_resource(
+    new_name='nico-machine-a-tron-dhcp-relay',
+    objects=[object_selector(machine_a_tron_dhcp_service)],
+    resource_deps=['nico-dhcp'],
+    labels=['application'],
+    pod_readiness='ignore',
+)
+
+machine_a_tron_ssh_service_name = 'nico-machine-a-tron-%s-ssh' % machine_a_tron_dhcp_pod
+# This headless Service only supplies stable pod DNS. ssh-console keeps the
+# per-machine port discovered through Redfish and connects directly to the pod.
+machine_a_tron_ssh_service = {
+    'apiVersion': 'v1',
+    'kind': 'Service',
+    'metadata': object_metadata(machine_a_tron_ssh_service_name, core_namespace),
+    'spec': {
+        'clusterIP': 'None',
+        'selector': {
+            'app.kubernetes.io/name': 'nico-machine-a-tron',
+            'app.kubernetes.io/component': 'machine-a-tron',
+            'nvidia-infra-controller/pod-name': machine_a_tron_dhcp_pod,
+        },
+    },
+}
+k8s_yaml(encode_yaml(machine_a_tron_ssh_service))
+k8s_resource(
+    new_name='nico-machine-a-tron-ssh',
+    objects=[object_selector(machine_a_tron_ssh_service)],
+    resource_deps=['nico-machine-a-tron'],
+    labels=['application'],
+    pod_readiness='ignore',
+)
+
+helm_chart(
     name='nico-machine-a-tron',
     chart=os.path.join(core_charts, 'nico-machine-a-tron'),
     namespace=core_namespace,
-    values=component_values(core_global, all_values['nico-machine-a-tron']),
-    resource_deps=['nico-api'],
+    values=component_values(core_global, machine_a_tron_values),
+    resource_deps=[
+        'nico-api',
+        'nico-dhcp-machine-a-tron',
+        'nico-machine-a-tron-dhcp-relay',
+    ],
     image_dep='machine-a-tron',
     image_keys=[('image.repository', 'image.tag')],
     port_forwards=[port_forward(1266, 1266)],
     links=[link('https://localhost:1266/', 'Machine-A-Tron UI')],
+    manual=True,
+)
+
+ssh_console_values = component_values(core_global, all_values['nico-ssh-console-rs'])
+ssh_console_values['serviceMonitor'] = {'enabled': enable_observability}
+helm_chart(
+    name='nico-ssh-console-rs',
+    chart=os.path.join(core_charts, 'nico-ssh-console-rs'),
+    namespace=core_namespace,
+    values=ssh_console_values,
+    resource_deps=[
+        'nico-api',
+        'nico-machine-a-tron-ssh',
+    ],
+    image_dep='nico-api',
+    image_keys=[('global.image.repository', 'global.image.tag')],
+    port_forwards=[
+        port_forward(3222, 22),
+        port_forward(3223, 9009),
+    ],
+    links=[link('http://localhost:3223/metrics', 'SSH Console Metrics')],
     manual=True,
 )
 
@@ -1054,7 +1224,12 @@ enabled_resources = [
     'nico-postgres',
     'nico-api',
     'nico-bmc-proxy',
+    'nico-dhcp',
+    'nico-dhcp-machine-a-tron',
+    'nico-machine-a-tron-dhcp-relay',
     'nico-machine-a-tron',
+    'nico-machine-a-tron-ssh',
+    'nico-ssh-console-rs',
 ]
 if enable_observability:
     enabled_resources.extend([

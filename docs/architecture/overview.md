@@ -50,14 +50,20 @@ DPU agent performs the following tasks:
 
 ### DHCP Server
 
-NICo runs a [custom DHCP server](https://github.com/NVIDIA/infra-controller/blob/main/crates/dhcp-server) on the DPU, which handles all DHCP requests of the actual host. This means DHCP requests on the host's primary networking interfaces will never leave the DPU and show up on the underlay network, which provides enhanced security and reliability. The DHCP server is configured by dpu-agent.
+For a host with a NICo-managed DPU operating in DPU mode, NICo runs a
+[custom DHCP server](https://github.com/NVIDIA/infra-controller/blob/main/crates/dhcp-server)
+on the DPU. It handles that host's DHCP requests locally, so they do not reach
+the physical underlay. The DHCP server is configured by dpu-agent. A zero-DPU
+or DPU-NIC-mode host instead uses the central `nico-dhcp` service through its
+physical `HostInband` segment; see
+[IP and Network Configuration](../provisioning/ip-and-network-configuration.md#15-shared-hostinband-for-a-host-bmc-and-host-os).
 
 ## NICo Control plane services
 
 The NICo control plane consists of a number of services which work together to orchestrate the lifecycle of a managed host:
 
 - [nico-core](https://github.com/NVIDIA/infra-controller/blob/main/crates/api): The NICo core service is the entrypoint into the control plane. It provides a [gRPC](https://grpc.io) API that all other components as well as users (site providers/tenants/site administrators) interact with, as well as implements the lifecycle management of all NICo-managed resources (VPCs, prefixes, InfiniBand and NVLink partitions and bare-metal instances). The [NICo Core](#nico-core) section describes it further in detail.
-- [nico-dhcp (DHCP)](https://github.com/NVIDIA/infra-controller/blob/main/crates/dhcp): The DHCP server responds to DHCP requests for all devices on underlay networks. This includes Host BMCs, DPU BMCs and DPU OOB addresses. nico-dhcp can be thought of as a stateless proxy: It does not actually perform any IP address management - it just converts DHCP requests into gRPC format and forwards the gRPC-based DHCP requests to nico core.
+- [nico-dhcp (DHCP)](https://github.com/NVIDIA/infra-controller/blob/main/crates/dhcp): The central DHCP service responds to relay-selected physical-network requests: conventional `Underlay` endpoints such as host BMCs, DPU BMCs, and DPU OOB interfaces, plus zero-DPU host OS interfaces and optionally their host BMCs on `HostInband`. It does not serve a managed-DPU host's DPU-local overlay DHCP. `nico-dhcp` is a stateless proxy: it converts DHCP requests into gRPC and forwards them to NICo Core, which performs IP address management.
 - [nico-pxe (iPXE)](https://github.com/NVIDIA/infra-controller/blob/main/crates/pxe): The PXE server provides boot artifacts like iPXE scripts, iPXE user-data and OS images to managed hosts at boot time over HTTP. It determines which OS data to provide for a specific host by requesting the respective data from nico core - therefore the PXE server is also stateless.
 
   Managed hosts are configured to always boot from PXE. If a local bootable device is found, the host will boot it. Hosts can also be configured to always boot from a particular image for stateless configurations.
@@ -111,9 +117,19 @@ Read more about the NICo [state handling implementation](state_handling.md).
 
 ### Site Explorer
 
-Site Explorer is a background module within the `nico-api` binary that continuously monitors the state of all BMCs detected on the underlay network. Its implementation lives in the separate `crates/site-explorer` crate to keep the `crates/api` crate smaller, but it is still started and run as part of NICo Core.
+Site Explorer is a background module within the `nico-api` binary that
+continuously monitors the state of BMCs detected on conventional `Underlay`
+segments and BMC-typed interfaces on the supported shared `HostInband`
+topology. It does not treat ordinary host data interfaces on HostInband as
+Redfish endpoints. Its implementation lives in the separate
+`crates/site-explorer` crate to keep the `crates/api` crate smaller, but it is
+still started and run as part of NICo Core. See
+[Shared HostInband for a Host BMC and Host OS](../provisioning/ip-and-network-configuration.md#15-shared-hostinband-for-a-host-bmc-and-host-os).
 
-The process acts as a "crawler". It continuously tries to perform Redfish requests against all IPs on the underlay network that were provided by NICo Core and records information that NICo needs to manage hosts later. The information collected by NICo includes:
+The process acts as a "crawler". It continuously tries to perform Redfish
+requests against eligible BMC interface addresses provided by NICo Core and
+records information that NICo needs to manage hosts later. The information
+collected by NICo includes:
 
 - Serial numbers
 - Certain inventory data, such as the amount, type and serial numbers of DPUs

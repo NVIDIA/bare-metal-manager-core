@@ -34,6 +34,7 @@ spec:
             - /bin/sh
             - -c
             - |
+              ulimit -Sn {{ .Values.fileDescriptorLimit | int }} || exit 1
               if [ -x /opt/nico/nico-hw-health ]; then
                 exec /opt/nico/nico-hw-health
               else
@@ -49,7 +50,8 @@ spec:
               containerPort: {{ .Values.service.port }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
-          resources: {}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
             - mountPath: "/var/run/secrets/spiffe.io"
               name: spiffe

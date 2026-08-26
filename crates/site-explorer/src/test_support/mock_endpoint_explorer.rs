@@ -215,6 +215,7 @@ impl EndpointExplorer for MockEndpointExplorer {
         &self,
         _address: SocketAddr,
         _interface: &MachineInterfaceSnapshot,
+        _reset_type: Option<libredfish::ManagerResetType>,
     ) -> Result<(), EndpointExplorationError> {
         Ok(())
     }

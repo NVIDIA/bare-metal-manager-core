@@ -27,9 +27,9 @@ type DpuInterfaceConfig struct {
 	// Function type (e.g. PHYSICAL_FUNCTION, VIRTUAL_FUNCTION)
 	FunctionType string `json:"functionType"`
 	// VLAN ID
-	VlanId int32 `json:"vlanId"`
+	VlanId uint32 `json:"vlanId"`
 	// VXLAN Network Identifier
-	Vni int32 `json:"vni"`
+	Vni uint32 `json:"vni"`
 	// Gateway IP address
 	Gateway string `json:"gateway"`
 	// Interface IP address
@@ -37,7 +37,7 @@ type DpuInterfaceConfig struct {
 	// Interface name prefix
 	InterfacePrefix string `json:"interfacePrefix"`
 	// Virtual function ID if applicable
-	VirtualFunctionId NullableInt32 `json:"virtualFunctionId,omitempty"`
+	VirtualFunctionId NullableUint32 `json:"virtualFunctionId,omitempty"`
 	// List of VPC IP prefixes
 	VpcPrefixes []string `json:"vpcPrefixes,omitempty"`
 	// IP prefix for the interface
@@ -47,7 +47,7 @@ type DpuInterfaceConfig struct {
 	// Boot URL for PXE/iPXE boot
 	BootUrl NullableString `json:"bootUrl,omitempty"`
 	// VPC VXLAN Network Identifier
-	VpcVni int32 `json:"vpcVni"`
+	VpcVni uint32 `json:"vpcVni"`
 	// Switch virtual interface (SVI) IP address
 	SviIp NullableString `json:"sviIp,omitempty"`
 	// Tenant VRF loopback IP address
@@ -57,9 +57,9 @@ type DpuInterfaceConfig struct {
 	// List of peered VPC IP prefixes
 	VpcPeerPrefixes []string `json:"vpcPeerPrefixes,omitempty"`
 	// List of peered VPC VNIs
-	VpcPeerVnis []int32 `json:"vpcPeerVnis,omitempty"`
+	VpcPeerVnis []uint32 `json:"vpcPeerVnis,omitempty"`
 	// Maximum transmission unit (MTU) for the interface
-	Mtu NullableInt32 `json:"mtu,omitempty"`
+	Mtu NullableUint32 `json:"mtu,omitempty"`
 	// Network security group configuration resolved on the interface
 	NetworkSecurityGroup *InterfaceNetworkSecurityGroupConfig `json:"networkSecurityGroup,omitempty"`
 }
@@ -70,7 +70,7 @@ type _DpuInterfaceConfig DpuInterfaceConfig
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewDpuInterfaceConfig(functionType string, vlanId int32, vni int32, gateway string, ip string, interfacePrefix string, prefix string, fqdn string, vpcVni int32, isL2Segment bool) *DpuInterfaceConfig {
+func NewDpuInterfaceConfig(functionType string, vlanId uint32, vni uint32, gateway string, ip string, interfacePrefix string, prefix string, fqdn string, vpcVni uint32, isL2Segment bool) *DpuInterfaceConfig {
 	this := DpuInterfaceConfig{}
 	this.FunctionType = functionType
 	this.VlanId = vlanId
@@ -118,9 +118,9 @@ func (o *DpuInterfaceConfig) SetFunctionType(v string) {
 }
 
 // GetVlanId returns the VlanId field value
-func (o *DpuInterfaceConfig) GetVlanId() int32 {
+func (o *DpuInterfaceConfig) GetVlanId() uint32 {
 	if o == nil {
-		var ret int32
+		var ret uint32
 		return ret
 	}
 
@@ -129,7 +129,7 @@ func (o *DpuInterfaceConfig) GetVlanId() int32 {
 
 // GetVlanIdOk returns a tuple with the VlanId field value
 // and a boolean to check if the value has been set.
-func (o *DpuInterfaceConfig) GetVlanIdOk() (*int32, bool) {
+func (o *DpuInterfaceConfig) GetVlanIdOk() (*uint32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -137,14 +137,14 @@ func (o *DpuInterfaceConfig) GetVlanIdOk() (*int32, bool) {
 }
 
 // SetVlanId sets field value
-func (o *DpuInterfaceConfig) SetVlanId(v int32) {
+func (o *DpuInterfaceConfig) SetVlanId(v uint32) {
 	o.VlanId = v
 }
 
 // GetVni returns the Vni field value
-func (o *DpuInterfaceConfig) GetVni() int32 {
+func (o *DpuInterfaceConfig) GetVni() uint32 {
 	if o == nil {
-		var ret int32
+		var ret uint32
 		return ret
 	}
 
@@ -153,7 +153,7 @@ func (o *DpuInterfaceConfig) GetVni() int32 {
 
 // GetVniOk returns a tuple with the Vni field value
 // and a boolean to check if the value has been set.
-func (o *DpuInterfaceConfig) GetVniOk() (*int32, bool) {
+func (o *DpuInterfaceConfig) GetVniOk() (*uint32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -161,7 +161,7 @@ func (o *DpuInterfaceConfig) GetVniOk() (*int32, bool) {
 }
 
 // SetVni sets field value
-func (o *DpuInterfaceConfig) SetVni(v int32) {
+func (o *DpuInterfaceConfig) SetVni(v uint32) {
 	o.Vni = v
 }
 
@@ -238,9 +238,9 @@ func (o *DpuInterfaceConfig) SetInterfacePrefix(v string) {
 }
 
 // GetVirtualFunctionId returns the VirtualFunctionId field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *DpuInterfaceConfig) GetVirtualFunctionId() int32 {
+func (o *DpuInterfaceConfig) GetVirtualFunctionId() uint32 {
 	if o == nil || IsNil(o.VirtualFunctionId.Get()) {
-		var ret int32
+		var ret uint32
 		return ret
 	}
 	return *o.VirtualFunctionId.Get()
@@ -249,7 +249,7 @@ func (o *DpuInterfaceConfig) GetVirtualFunctionId() int32 {
 // GetVirtualFunctionIdOk returns a tuple with the VirtualFunctionId field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *DpuInterfaceConfig) GetVirtualFunctionIdOk() (*int32, bool) {
+func (o *DpuInterfaceConfig) GetVirtualFunctionIdOk() (*uint32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -265,8 +265,8 @@ func (o *DpuInterfaceConfig) HasVirtualFunctionId() bool {
 	return false
 }
 
-// SetVirtualFunctionId gets a reference to the given NullableInt32 and assigns it to the VirtualFunctionId field.
-func (o *DpuInterfaceConfig) SetVirtualFunctionId(v int32) {
+// SetVirtualFunctionId gets a reference to the given NullableUint32 and assigns it to the VirtualFunctionId field.
+func (o *DpuInterfaceConfig) SetVirtualFunctionId(v uint32) {
 	o.VirtualFunctionId.Set(&v)
 }
 
@@ -404,9 +404,9 @@ func (o *DpuInterfaceConfig) UnsetBootUrl() {
 }
 
 // GetVpcVni returns the VpcVni field value
-func (o *DpuInterfaceConfig) GetVpcVni() int32 {
+func (o *DpuInterfaceConfig) GetVpcVni() uint32 {
 	if o == nil {
-		var ret int32
+		var ret uint32
 		return ret
 	}
 
@@ -415,7 +415,7 @@ func (o *DpuInterfaceConfig) GetVpcVni() int32 {
 
 // GetVpcVniOk returns a tuple with the VpcVni field value
 // and a boolean to check if the value has been set.
-func (o *DpuInterfaceConfig) GetVpcVniOk() (*int32, bool) {
+func (o *DpuInterfaceConfig) GetVpcVniOk() (*uint32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -423,7 +423,7 @@ func (o *DpuInterfaceConfig) GetVpcVniOk() (*int32, bool) {
 }
 
 // SetVpcVni sets field value
-func (o *DpuInterfaceConfig) SetVpcVni(v int32) {
+func (o *DpuInterfaceConfig) SetVpcVni(v uint32) {
 	o.VpcVni = v
 }
 
@@ -570,9 +570,9 @@ func (o *DpuInterfaceConfig) SetVpcPeerPrefixes(v []string) {
 }
 
 // GetVpcPeerVnis returns the VpcPeerVnis field value if set, zero value otherwise.
-func (o *DpuInterfaceConfig) GetVpcPeerVnis() []int32 {
+func (o *DpuInterfaceConfig) GetVpcPeerVnis() []uint32 {
 	if o == nil || IsNil(o.VpcPeerVnis) {
-		var ret []int32
+		var ret []uint32
 		return ret
 	}
 	return o.VpcPeerVnis
@@ -580,7 +580,7 @@ func (o *DpuInterfaceConfig) GetVpcPeerVnis() []int32 {
 
 // GetVpcPeerVnisOk returns a tuple with the VpcPeerVnis field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *DpuInterfaceConfig) GetVpcPeerVnisOk() ([]int32, bool) {
+func (o *DpuInterfaceConfig) GetVpcPeerVnisOk() ([]uint32, bool) {
 	if o == nil || IsNil(o.VpcPeerVnis) {
 		return nil, false
 	}
@@ -596,15 +596,15 @@ func (o *DpuInterfaceConfig) HasVpcPeerVnis() bool {
 	return false
 }
 
-// SetVpcPeerVnis gets a reference to the given []int32 and assigns it to the VpcPeerVnis field.
-func (o *DpuInterfaceConfig) SetVpcPeerVnis(v []int32) {
+// SetVpcPeerVnis gets a reference to the given []uint32 and assigns it to the VpcPeerVnis field.
+func (o *DpuInterfaceConfig) SetVpcPeerVnis(v []uint32) {
 	o.VpcPeerVnis = v
 }
 
 // GetMtu returns the Mtu field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *DpuInterfaceConfig) GetMtu() int32 {
+func (o *DpuInterfaceConfig) GetMtu() uint32 {
 	if o == nil || IsNil(o.Mtu.Get()) {
-		var ret int32
+		var ret uint32
 		return ret
 	}
 	return *o.Mtu.Get()
@@ -613,7 +613,7 @@ func (o *DpuInterfaceConfig) GetMtu() int32 {
 // GetMtuOk returns a tuple with the Mtu field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *DpuInterfaceConfig) GetMtuOk() (*int32, bool) {
+func (o *DpuInterfaceConfig) GetMtuOk() (*uint32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -629,8 +629,8 @@ func (o *DpuInterfaceConfig) HasMtu() bool {
 	return false
 }
 
-// SetMtu gets a reference to the given NullableInt32 and assigns it to the Mtu field.
-func (o *DpuInterfaceConfig) SetMtu(v int32) {
+// SetMtu gets a reference to the given NullableUint32 and assigns it to the Mtu field.
+func (o *DpuInterfaceConfig) SetMtu(v uint32) {
 	o.Mtu.Set(&v)
 }
 

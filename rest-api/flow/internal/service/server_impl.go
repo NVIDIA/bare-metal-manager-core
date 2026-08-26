@@ -23,11 +23,13 @@ import (
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/converter/protobuf"
 	dbquery "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/query"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/firmwareauth"
 	inventorymanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/manager"
 	inventoryresolver "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/resolver"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
 	operationrunmanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun/manager"
 	taskschedule "github.com/NVIDIA/infra-controller/rest-api/flow/internal/scheduler/taskschedule"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/secret"
 	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/conflict"
 	taskmanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/manager"
@@ -53,7 +55,8 @@ type FlowServerImpl struct {
 	taskScheduleDispatcher     *taskschedule.Dispatcher    // Background poller that fires due task schedules
 	operationRunManager        operationrunmanager.Manager // Operation-run manager for run planning and persistence
 	conflictResolver           *conflict.Resolver          // Reused for inter-schedule conflict detection
-	pb.UnimplementedFlowServer                             // Embedded protobuf server interface for forward compatibility
+	dataCipher                 *secret.Cipher
+	pb.UnimplementedFlowServer // Embedded protobuf server interface for forward compatibility
 }
 
 // newServerImplementation creates a new Flow gRPC server implementation.
@@ -75,6 +78,7 @@ func newServerImplementation(
 	taskScheduleStore taskschedule.Store,
 	taskScheduleDispatcher *taskschedule.Dispatcher,
 	operationRunManager operationrunmanager.Manager,
+	dataCipher *secret.Cipher,
 ) (*FlowServerImpl, error) {
 	return &FlowServerImpl{
 		inventoryManager:       inventoryManager,
@@ -83,6 +87,7 @@ func newServerImplementation(
 		taskScheduleStore:      taskScheduleStore,
 		taskScheduleDispatcher: taskScheduleDispatcher,
 		operationRunManager:    operationRunManager,
+		dataCipher:             dataCipher,
 		conflictResolver:       conflict.NewResolver(taskStore),
 	}, nil
 }
@@ -1332,6 +1337,10 @@ func (rs *FlowServerImpl) UpgradeFirmware(
 		SubTargets:             req.GetSubTargets(),
 		OverrideReadinessCheck: req.GetOverrideReadinessCheck(),
 	}
+	err := rs.encryptFirmwareAuthenticationData(info, req.GetAuthenticationData())
+	if err != nil {
+		return nil, firmwareAuthenticationStatusError(err)
+	}
 
 	// Parse optional time parameters for scheduled upgrade
 	if req.GetStartTime() != nil {
@@ -1363,6 +1372,34 @@ func (rs *FlowServerImpl) UpgradeFirmware(
 	}
 
 	return &pb.SubmitTaskResponse{TaskIds: protobuf.UUIDsTo(taskIDs)}, nil
+}
+
+func (rs *FlowServerImpl) encryptFirmwareAuthenticationData(
+	info *operations.FirmwareControlTaskInfo,
+	authenticationData *pb.FirmwareAuthenticationData,
+) error {
+	encrypted, err := firmwareauth.Encrypt(
+		rs.dataCipher,
+		authenticationData,
+		info.SubTargets,
+	)
+	if err != nil {
+		return err
+	}
+
+	info.AuthenticationData = encrypted
+	return nil
+}
+
+func firmwareAuthenticationStatusError(err error) error {
+	if firmwareauth.IsInvalidData(err) {
+		return status.Error(codes.InvalidArgument, err.Error())
+	}
+	if errors.Is(err, firmwareauth.ErrDataCipherNotConfigured) {
+		return status.Error(codes.FailedPrecondition, err.Error())
+	}
+
+	return status.Error(codes.Internal, err.Error())
 }
 
 // GetComponents retrieves components from local database with filtering, pagination, and ordering support.

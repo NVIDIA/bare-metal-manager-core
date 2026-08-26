@@ -357,6 +357,10 @@ func nicoPowerStateToOperationsPowerStatus(state nicoapi.PowerState) operations.
 // info.TargetVersion is ignored on the DPU branch because Core's
 // reprovisioning state machine does not accept a per-request version.
 func (m *Manager) FirmwareControl(ctx context.Context, target common.Target, info operations.FirmwareControlTaskInfo) error {
+	if info.AccessToken != "" {
+		return fmt.Errorf("firmware authentication data is not supported by the nicolegacy compute manager")
+	}
+
 	log.Debug().
 		Str("components", target.String()).
 		Str("target_version", info.TargetVersion).

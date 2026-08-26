@@ -143,10 +143,15 @@ impl ApiClient {
                     ClientApiError::ConfigError("No TPM EK certificate waa supplied".to_string()),
                 )?))
         }
+        let discovery_reporter = match machine_info {
+            MachineInfo::Host(_) => rpc::MachineDiscoveryReporter::Scout,
+            MachineInfo::Dpu(_) => rpc::MachineDiscoveryReporter::DpuAgent,
+        };
         let mdi = rpc::forge::MachineDiscoveryInfo {
             machine_interface_id: Some(machine_interface_id),
             discovery_data: Some(rpc::DiscoveryData::Info(machine_discovery_info)),
             create_machine: true,
+            discovery_reporter: discovery_reporter as i32,
             ..Default::default()
         };
 
@@ -330,6 +335,8 @@ impl ApiClient {
                 delete_bmc_interfaces: true,
                 delete_bmc_credentials: false,
                 allow_delete_with_orphaned_dpf_crds: false,
+                delete_bmc_suppressions: false,
+                delete_retained_boot_interfaces: false,
             })
             .await
             .map_err(ClientApiError::InvocationError)
@@ -493,6 +500,7 @@ impl ApiClient {
                 routing_profile_type: None,
                 routing_profile_overrides: None,
                 power_resource_group: None,
+                slaac_enabled: None,
                 metadata: Some(rpc::forge::Metadata {
                     name: format!("vpc_{vpc_count}"),
                     description: "".to_string(),
