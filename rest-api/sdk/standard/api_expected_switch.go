@@ -22,13 +22,14 @@ import (
 	"strings"
 )
 
+
 // ExpectedSwitchAPIService ExpectedSwitchAPI service
 type ExpectedSwitchAPIService service
 
 type ApiCreateExpectedSwitchRequest struct {
-	ctx                         context.Context
-	ApiService                  *ExpectedSwitchAPIService
-	org                         string
+	ctx context.Context
+	ApiService *ExpectedSwitchAPIService
+	org string
 	expectedSwitchCreateRequest *ExpectedSwitchCreateRequest
 }
 
@@ -51,27 +52,26 @@ Org must have an Infrastructure Provider entity. User must have authorization ro
 
 Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also create Expected Switches if they have an account with the Site's Infrastructure Provider.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiCreateExpectedSwitchRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiCreateExpectedSwitchRequest
 */
 func (a *ExpectedSwitchAPIService) CreateExpectedSwitch(ctx context.Context, org string) ApiCreateExpectedSwitchRequest {
 	return ApiCreateExpectedSwitchRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return ExpectedSwitch
+//  @return ExpectedSwitch
 func (a *ExpectedSwitchAPIService) CreateExpectedSwitchExecute(r ApiCreateExpectedSwitchRequest) (*ExpectedSwitch, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPost
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *ExpectedSwitch
+		localVarHTTPMethod   = http.MethodPost
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *ExpectedSwitch
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "ExpectedSwitchAPIService.CreateExpectedSwitch")
@@ -137,8 +137,8 @@ func (a *ExpectedSwitchAPIService) CreateExpectedSwitchExecute(r ApiCreateExpect
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -148,8 +148,8 @@ func (a *ExpectedSwitchAPIService) CreateExpectedSwitchExecute(r ApiCreateExpect
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -167,9 +167,9 @@ func (a *ExpectedSwitchAPIService) CreateExpectedSwitchExecute(r ApiCreateExpect
 }
 
 type ApiDeleteExpectedSwitchRequest struct {
-	ctx              context.Context
-	ApiService       *ExpectedSwitchAPIService
-	org              string
+	ctx context.Context
+	ApiService *ExpectedSwitchAPIService
+	org string
 	expectedSwitchId string
 }
 
@@ -188,16 +188,16 @@ Infrastructure Provider must own the Expected Switch.
 
 Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also delete Expected Switches if they have an account with the Site's Infrastructure Provider.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param expectedSwitchId ID of the Expected Switch
-	@return ApiDeleteExpectedSwitchRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param expectedSwitchId ID of the Expected Switch
+ @return ApiDeleteExpectedSwitchRequest
 */
 func (a *ExpectedSwitchAPIService) DeleteExpectedSwitch(ctx context.Context, org string, expectedSwitchId string) ApiDeleteExpectedSwitchRequest {
 	return ApiDeleteExpectedSwitchRequest{
-		ApiService:       a,
-		ctx:              ctx,
-		org:              org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		expectedSwitchId: expectedSwitchId,
 	}
 }
@@ -205,9 +205,9 @@ func (a *ExpectedSwitchAPIService) DeleteExpectedSwitch(ctx context.Context, org
 // Execute executes the request
 func (a *ExpectedSwitchAPIService) DeleteExpectedSwitchExecute(r ApiDeleteExpectedSwitchRequest) (*http.Response, error) {
 	var (
-		localVarHTTPMethod = http.MethodDelete
-		localVarPostBody   interface{}
-		formFiles          []formFile
+		localVarHTTPMethod   = http.MethodDelete
+		localVarPostBody     interface{}
+		formFiles            []formFile
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "ExpectedSwitchAPIService.DeleteExpectedSwitch")
@@ -269,8 +269,8 @@ func (a *ExpectedSwitchAPIService) DeleteExpectedSwitchExecute(r ApiDeleteExpect
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -280,8 +280,8 @@ func (a *ExpectedSwitchAPIService) DeleteExpectedSwitchExecute(r ApiDeleteExpect
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -291,8 +291,8 @@ func (a *ExpectedSwitchAPIService) DeleteExpectedSwitchExecute(r ApiDeleteExpect
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarHTTPResponse, newErr
 	}
@@ -301,14 +301,14 @@ func (a *ExpectedSwitchAPIService) DeleteExpectedSwitchExecute(r ApiDeleteExpect
 }
 
 type ApiGetAllExpectedSwitchRequest struct {
-	ctx             context.Context
-	ApiService      *ExpectedSwitchAPIService
-	org             string
-	siteId          *string
+	ctx context.Context
+	ApiService *ExpectedSwitchAPIService
+	org string
+	siteId *string
 	includeRelation *string
-	pageNumber      *int32
-	pageSize        *int32
-	orderBy         *string
+	pageNumber *int32
+	pageSize *int32
+	orderBy *string
 }
 
 // ID of the Site to filter Expected Switches by
@@ -354,27 +354,26 @@ Org must have an Infrastructure Provider entity. User must have authorization ro
 
 Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also retrieve Expected Switches if they have an account with the Site's Infrastructure Provider (siteId query parameter is required for Tenants).
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiGetAllExpectedSwitchRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiGetAllExpectedSwitchRequest
 */
 func (a *ExpectedSwitchAPIService) GetAllExpectedSwitch(ctx context.Context, org string) ApiGetAllExpectedSwitchRequest {
 	return ApiGetAllExpectedSwitchRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return []ExpectedSwitch
+//  @return []ExpectedSwitch
 func (a *ExpectedSwitchAPIService) GetAllExpectedSwitchExecute(r ApiGetAllExpectedSwitchRequest) ([]ExpectedSwitch, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue []ExpectedSwitch
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  []ExpectedSwitch
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "ExpectedSwitchAPIService.GetAllExpectedSwitch")
@@ -454,8 +453,8 @@ func (a *ExpectedSwitchAPIService) GetAllExpectedSwitchExecute(r ApiGetAllExpect
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -465,8 +464,8 @@ func (a *ExpectedSwitchAPIService) GetAllExpectedSwitchExecute(r ApiGetAllExpect
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -484,11 +483,11 @@ func (a *ExpectedSwitchAPIService) GetAllExpectedSwitchExecute(r ApiGetAllExpect
 }
 
 type ApiGetExpectedSwitchRequest struct {
-	ctx              context.Context
-	ApiService       *ExpectedSwitchAPIService
-	org              string
+	ctx context.Context
+	ApiService *ExpectedSwitchAPIService
+	org string
 	expectedSwitchId string
-	includeRelation  *string
+	includeRelation *string
 }
 
 // Related entity to expand
@@ -510,29 +509,28 @@ Org must have an Infrastructure Provider entity. User must have authorization ro
 
 Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also retrieve Expected Switches if they have an account with the Site's Infrastructure Provider.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param expectedSwitchId ID of the Expected Switch
-	@return ApiGetExpectedSwitchRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param expectedSwitchId ID of the Expected Switch
+ @return ApiGetExpectedSwitchRequest
 */
 func (a *ExpectedSwitchAPIService) GetExpectedSwitch(ctx context.Context, org string, expectedSwitchId string) ApiGetExpectedSwitchRequest {
 	return ApiGetExpectedSwitchRequest{
-		ApiService:       a,
-		ctx:              ctx,
-		org:              org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		expectedSwitchId: expectedSwitchId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return ExpectedSwitch
+//  @return ExpectedSwitch
 func (a *ExpectedSwitchAPIService) GetExpectedSwitchExecute(r ApiGetExpectedSwitchRequest) (*ExpectedSwitch, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *ExpectedSwitch
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *ExpectedSwitch
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "ExpectedSwitchAPIService.GetExpectedSwitch")
@@ -597,8 +595,8 @@ func (a *ExpectedSwitchAPIService) GetExpectedSwitchExecute(r ApiGetExpectedSwit
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -608,8 +606,8 @@ func (a *ExpectedSwitchAPIService) GetExpectedSwitchExecute(r ApiGetExpectedSwit
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -619,8 +617,8 @@ func (a *ExpectedSwitchAPIService) GetExpectedSwitchExecute(r ApiGetExpectedSwit
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -638,10 +636,10 @@ func (a *ExpectedSwitchAPIService) GetExpectedSwitchExecute(r ApiGetExpectedSwit
 }
 
 type ApiUpdateExpectedSwitchRequest struct {
-	ctx                         context.Context
-	ApiService                  *ExpectedSwitchAPIService
-	org                         string
-	expectedSwitchId            string
+	ctx context.Context
+	ApiService *ExpectedSwitchAPIService
+	org string
+	expectedSwitchId string
 	expectedSwitchUpdateRequest *ExpectedSwitchUpdateRequest
 }
 
@@ -666,29 +664,28 @@ Infrastructure Provider must own the Expected Switch.
 
 Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also update Expected Switches if they have an account with the Site's Infrastructure Provider.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param expectedSwitchId ID of the Expected Switch
-	@return ApiUpdateExpectedSwitchRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param expectedSwitchId ID of the Expected Switch
+ @return ApiUpdateExpectedSwitchRequest
 */
 func (a *ExpectedSwitchAPIService) UpdateExpectedSwitch(ctx context.Context, org string, expectedSwitchId string) ApiUpdateExpectedSwitchRequest {
 	return ApiUpdateExpectedSwitchRequest{
-		ApiService:       a,
-		ctx:              ctx,
-		org:              org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		expectedSwitchId: expectedSwitchId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return ExpectedSwitch
+//  @return ExpectedSwitch
 func (a *ExpectedSwitchAPIService) UpdateExpectedSwitchExecute(r ApiUpdateExpectedSwitchRequest) (*ExpectedSwitch, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPatch
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *ExpectedSwitch
+		localVarHTTPMethod   = http.MethodPatch
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *ExpectedSwitch
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "ExpectedSwitchAPIService.UpdateExpectedSwitch")
@@ -755,8 +752,8 @@ func (a *ExpectedSwitchAPIService) UpdateExpectedSwitchExecute(r ApiUpdateExpect
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -766,8 +763,8 @@ func (a *ExpectedSwitchAPIService) UpdateExpectedSwitchExecute(r ApiUpdateExpect
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -777,8 +774,8 @@ func (a *ExpectedSwitchAPIService) UpdateExpectedSwitchExecute(r ApiUpdateExpect
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

@@ -14,23 +14,23 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
 	"time"
+	"bytes"
+	"fmt"
 )
 
 // checks if the TaskReportV1Step type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &TaskReportV1Step{}
 
-// TaskReportV1Step Execution state of one rule sequence step. Pairs 1:1 with the rule's ordered steps within the containing stage and shares its index.
+// TaskReportV1Step Execution state of one rule sequence step. Pairs 1:1 with the rule's ordered steps within the containing stage and shares its index. 
 type TaskReportV1Step struct {
 	// Component class this step targets, e.g. `Compute`, `NVLSwitch`, `PowerShelf`.
-	ComponentType string             `json:"componentType"`
-	Status        TaskReportV1Status `json:"status"`
-	// Count of components of `componentType` this step targets. Surfaced here because the task representation does not include the per-type component map.
+	ComponentType string `json:"componentType"`
+	Status TaskReportV1Status `json:"status"`
+	// Count of components of `componentType` this step targets. Surfaced here because the task representation does not include the per-type component map. 
 	TotalComponents *int32 `json:"totalComponents,omitempty"`
-	// Reserved for a future best-effort activity contract that reports per-component outcomes. Not written under the current fail-fast contract and omitted by the producer.
+	// Reserved for a future best-effort activity contract that reports per-component outcomes. Not written under the current fail-fast contract and omitted by the producer. 
 	CompletedComponents *int32 `json:"completedComponents,omitempty"`
 	// Reserved (see `completedComponents`).
 	FailedComponents *int32 `json:"failedComponents,omitempty"`
@@ -304,7 +304,7 @@ func (o *TaskReportV1Step) SetError(v string) {
 }
 
 func (o TaskReportV1Step) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -350,10 +350,10 @@ func (o *TaskReportV1Step) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -408,3 +408,4 @@ func (v *NullableTaskReportV1Step) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

@@ -22,13 +22,14 @@ import (
 	"strings"
 )
 
+
 // TenantAPIService TenantAPI service
 type TenantAPIService service
 
 type ApiGetCurrentTenantRequest struct {
-	ctx        context.Context
+	ctx context.Context
 	ApiService *TenantAPIService
-	org        string
+	org string
 }
 
 func (r ApiGetCurrentTenantRequest) Execute() (*Tenant, *http.Response, error) {
@@ -44,27 +45,26 @@ Retrieve Tenant entity for current Org.
 
 User must have authorization role with `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiGetCurrentTenantRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiGetCurrentTenantRequest
 */
 func (a *TenantAPIService) GetCurrentTenant(ctx context.Context, org string) ApiGetCurrentTenantRequest {
 	return ApiGetCurrentTenantRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return Tenant
+//  @return Tenant
 func (a *TenantAPIService) GetCurrentTenantExecute(r ApiGetCurrentTenantRequest) (*Tenant, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *Tenant
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *Tenant
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TenantAPIService.GetCurrentTenant")
@@ -125,8 +125,8 @@ func (a *TenantAPIService) GetCurrentTenantExecute(r ApiGetCurrentTenantRequest)
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -144,9 +144,9 @@ func (a *TenantAPIService) GetCurrentTenantExecute(r ApiGetCurrentTenantRequest)
 }
 
 type ApiGetCurrentTenantStatsRequest struct {
-	ctx        context.Context
+	ctx context.Context
 	ApiService *TenantAPIService
-	org        string
+	org string
 }
 
 func (r ApiGetCurrentTenantStatsRequest) Execute() (*TenantStats, *http.Response, error) {
@@ -160,27 +160,26 @@ Retrieve stats for current Tenant.
 
 User must have authorization role with `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiGetCurrentTenantStatsRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiGetCurrentTenantStatsRequest
 */
 func (a *TenantAPIService) GetCurrentTenantStats(ctx context.Context, org string) ApiGetCurrentTenantStatsRequest {
 	return ApiGetCurrentTenantStatsRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return TenantStats
+//  @return TenantStats
 func (a *TenantAPIService) GetCurrentTenantStatsExecute(r ApiGetCurrentTenantStatsRequest) (*TenantStats, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *TenantStats
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *TenantStats
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TenantAPIService.GetCurrentTenantStats")
@@ -241,8 +240,8 @@ func (a *TenantAPIService) GetCurrentTenantStatsExecute(r ApiGetCurrentTenantSta
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -260,10 +259,10 @@ func (a *TenantAPIService) GetCurrentTenantStatsExecute(r ApiGetCurrentTenantSta
 }
 
 type ApiGetTenantInstanceTypeStatsRequest struct {
-	ctx        context.Context
+	ctx context.Context
 	ApiService *TenantAPIService
-	siteId     *string
-	org        string
+	siteId *string
+	org string
 }
 
 // ID of the Site
@@ -283,27 +282,26 @@ Returns instance type allocation stats grouped by tenant for the specified site.
 
 User must have authorization role with `PROVIDER_ADMIN` suffix. The specified site must belong to the Provider.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiGetTenantInstanceTypeStatsRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiGetTenantInstanceTypeStatsRequest
 */
 func (a *TenantAPIService) GetTenantInstanceTypeStats(ctx context.Context, org string) ApiGetTenantInstanceTypeStatsRequest {
 	return ApiGetTenantInstanceTypeStatsRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return []TenantInstanceTypeStats
+//  @return []TenantInstanceTypeStats
 func (a *TenantAPIService) GetTenantInstanceTypeStatsExecute(r ApiGetTenantInstanceTypeStatsRequest) ([]TenantInstanceTypeStats, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue []TenantInstanceTypeStats
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  []TenantInstanceTypeStats
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TenantAPIService.GetTenantInstanceTypeStats")
@@ -368,8 +366,8 @@ func (a *TenantAPIService) GetTenantInstanceTypeStatsExecute(r ApiGetTenantInsta
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

@@ -14,8 +14,8 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
+	"bytes"
 	"fmt"
 )
 
@@ -24,13 +24,13 @@ var _ MappedNullable = &VpcEffectiveRoutingProfile{}
 
 // VpcEffectiveRoutingProfile Fully resolved routing profile computed by Core from the named profile and the VPC overrides.
 type VpcEffectiveRoutingProfile struct {
-	RouteTargetImports             []VpcRouteTarget `json:"routeTargetImports"`
-	RouteTargetsOnExports          []VpcRouteTarget `json:"routeTargetsOnExports"`
-	LeakDefaultRouteFromUnderlay   bool             `json:"leakDefaultRouteFromUnderlay"`
-	LeakTenantHostRoutesToUnderlay bool             `json:"leakTenantHostRoutesToUnderlay"`
-	TenantLeakCommunitiesAccepted  bool             `json:"tenantLeakCommunitiesAccepted"`
-	AcceptedLeaksFromUnderlay      []string         `json:"acceptedLeaksFromUnderlay"`
-	AllowedAnycastPrefixes         []string         `json:"allowedAnycastPrefixes"`
+	RouteTargetImports []VpcRouteTarget `json:"routeTargetImports"`
+	RouteTargetsOnExports []VpcRouteTarget `json:"routeTargetsOnExports"`
+	LeakDefaultRouteFromUnderlay bool `json:"leakDefaultRouteFromUnderlay"`
+	LeakTenantHostRoutesToUnderlay bool `json:"leakTenantHostRoutesToUnderlay"`
+	TenantLeakCommunitiesAccepted bool `json:"tenantLeakCommunitiesAccepted"`
+	AcceptedLeaksFromUnderlay []string `json:"acceptedLeaksFromUnderlay"`
+	AllowedAnycastPrefixes []string `json:"allowedAnycastPrefixes"`
 	// Operator-controlled internal-routing classification inherited from the named profile.
 	Internal bool `json:"internal"`
 	// Operator-controlled access tier inherited from the named profile.
@@ -282,7 +282,7 @@ func (o *VpcEffectiveRoutingProfile) SetAccessTier(v uint32) {
 }
 
 func (o VpcEffectiveRoutingProfile) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -324,10 +324,10 @@ func (o *VpcEffectiveRoutingProfile) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -382,3 +382,4 @@ func (v *NullableVpcEffectiveRoutingProfile) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

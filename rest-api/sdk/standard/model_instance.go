@@ -210,7 +210,6 @@ func (o *Instance) HasDescription() bool {
 func (o *Instance) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *Instance) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -349,7 +348,6 @@ func (o *Instance) HasInstanceTypeId() bool {
 func (o *Instance) SetInstanceTypeId(v string) {
 	o.InstanceTypeId.Set(&v)
 }
-
 // SetInstanceTypeIdNil sets the value for InstanceTypeId to be an explicit nil
 func (o *Instance) SetInstanceTypeIdNil() {
 	o.InstanceTypeId.Set(nil)
@@ -456,7 +454,6 @@ func (o *Instance) HasMachineId() bool {
 func (o *Instance) SetMachineId(v string) {
 	o.MachineId.Set(&v)
 }
-
 // SetMachineIdNil sets the value for MachineId to be an explicit nil
 func (o *Instance) SetMachineIdNil() {
 	o.MachineId.Set(nil)
@@ -499,7 +496,6 @@ func (o *Instance) HasOperatingSystemId() bool {
 func (o *Instance) SetOperatingSystemId(v string) {
 	o.OperatingSystemId.Set(&v)
 }
-
 // SetOperatingSystemIdNil sets the value for OperatingSystemId to be an explicit nil
 func (o *Instance) SetOperatingSystemIdNil() {
 	o.OperatingSystemId.Set(nil)
@@ -542,7 +538,6 @@ func (o *Instance) HasNetworkSecurityGroupId() bool {
 func (o *Instance) SetNetworkSecurityGroupId(v string) {
 	o.NetworkSecurityGroupId.Set(&v)
 }
-
 // SetNetworkSecurityGroupIdNil sets the value for NetworkSecurityGroupId to be an explicit nil
 func (o *Instance) SetNetworkSecurityGroupIdNil() {
 	o.NetworkSecurityGroupId.Set(nil)
@@ -585,7 +580,6 @@ func (o *Instance) HasPowerProfile() bool {
 func (o *Instance) SetPowerProfile(v string) {
 	o.PowerProfile.Set(&v)
 }
-
 // SetPowerProfileNil sets the value for PowerProfile to be an explicit nil
 func (o *Instance) SetPowerProfileNil() {
 	o.PowerProfile.Set(nil)
@@ -692,7 +686,6 @@ func (o *Instance) HasControllerInstanceId() bool {
 func (o *Instance) SetControllerInstanceId(v string) {
 	o.ControllerInstanceId.Set(&v)
 }
-
 // SetControllerInstanceIdNil sets the value for ControllerInstanceId to be an explicit nil
 func (o *Instance) SetControllerInstanceIdNil() {
 	o.ControllerInstanceId.Set(nil)
@@ -735,7 +728,6 @@ func (o *Instance) HasIpxeScript() bool {
 func (o *Instance) SetIpxeScript(v string) {
 	o.IpxeScript.Set(&v)
 }
-
 // SetIpxeScriptNil sets the value for IpxeScript to be an explicit nil
 func (o *Instance) SetIpxeScriptNil() {
 	o.IpxeScript.Set(nil)
@@ -842,7 +834,6 @@ func (o *Instance) HasUserData() bool {
 func (o *Instance) SetUserData(v string) {
 	o.UserData.Set(&v)
 }
-
 // SetUserDataNil sets the value for UserData to be an explicit nil
 func (o *Instance) SetUserDataNil() {
 	o.UserData.Set(nil)
@@ -949,7 +940,6 @@ func (o *Instance) HasSerialConsoleUrl() bool {
 func (o *Instance) SetSerialConsoleUrl(v string) {
 	o.SerialConsoleUrl.Set(&v)
 }
-
 // SetSerialConsoleUrlNil sets the value for SerialConsoleUrl to be an explicit nil
 func (o *Instance) SetSerialConsoleUrlNil() {
 	o.SerialConsoleUrl.Set(nil)
@@ -1216,7 +1206,6 @@ func (o *Instance) HasTpmEkCertificate() bool {
 func (o *Instance) SetTpmEkCertificate(v string) {
 	o.TpmEkCertificate.Set(&v)
 }
-
 // SetTpmEkCertificateNil sets the value for TpmEkCertificate to be an explicit nil
 func (o *Instance) SetTpmEkCertificateNil() {
 	o.TpmEkCertificate.Set(nil)
@@ -1388,7 +1377,7 @@ func (o *Instance) SetUpdated(v time.Time) {
 }
 
 func (o Instance) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -1543,3 +1532,4 @@ func (v *NullableInstance) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

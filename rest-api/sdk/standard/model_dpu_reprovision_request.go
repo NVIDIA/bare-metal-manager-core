@@ -14,8 +14,8 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
+	"bytes"
 	"fmt"
 )
 
@@ -31,6 +31,8 @@ type DpuReprovisionRequest struct {
 	UpdateFirmware *bool `json:"updateFirmware,omitempty"`
 	// Acknowledges that an Instance is currently attached to the Machine and this action may disrupt Tenant workload on the Instance.
 	AcknowledgeAttachedInstance *bool `json:"acknowledgeAttachedInstance,omitempty"`
+	// Forces reprovisioning regardless of the Machine state to recover DPUs stuck in ingestion, restarting the ingestion state machine. When set, the `HostUpdateInProgress` health report precondition is not required. It has no effect on assigned Machines, which retain the standard reprovisioning approval flow.
+	Force *bool `json:"force,omitempty"`
 }
 
 type _DpuReprovisionRequest DpuReprovisionRequest
@@ -44,6 +46,8 @@ func NewDpuReprovisionRequest(mode string) *DpuReprovisionRequest {
 	this.Mode = mode
 	var updateFirmware bool = false
 	this.UpdateFirmware = &updateFirmware
+	var force bool = false
+	this.Force = &force
 	return &this
 }
 
@@ -54,6 +58,8 @@ func NewDpuReprovisionRequestWithDefaults() *DpuReprovisionRequest {
 	this := DpuReprovisionRequest{}
 	var updateFirmware bool = false
 	this.UpdateFirmware = &updateFirmware
+	var force bool = false
+	this.Force = &force
 	return &this
 }
 
@@ -148,8 +154,40 @@ func (o *DpuReprovisionRequest) SetAcknowledgeAttachedInstance(v bool) {
 	o.AcknowledgeAttachedInstance = &v
 }
 
+// GetForce returns the Force field value if set, zero value otherwise.
+func (o *DpuReprovisionRequest) GetForce() bool {
+	if o == nil || IsNil(o.Force) {
+		var ret bool
+		return ret
+	}
+	return *o.Force
+}
+
+// GetForceOk returns a tuple with the Force field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *DpuReprovisionRequest) GetForceOk() (*bool, bool) {
+	if o == nil || IsNil(o.Force) {
+		return nil, false
+	}
+	return o.Force, true
+}
+
+// HasForce returns a boolean if a field has been set.
+func (o *DpuReprovisionRequest) HasForce() bool {
+	if o != nil && !IsNil(o.Force) {
+		return true
+	}
+
+	return false
+}
+
+// SetForce gets a reference to the given bool and assigns it to the Force field.
+func (o *DpuReprovisionRequest) SetForce(v bool) {
+	o.Force = &v
+}
+
 func (o DpuReprovisionRequest) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -164,6 +202,9 @@ func (o DpuReprovisionRequest) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.AcknowledgeAttachedInstance) {
 		toSerialize["acknowledgeAttachedInstance"] = o.AcknowledgeAttachedInstance
+	}
+	if !IsNil(o.Force) {
+		toSerialize["force"] = o.Force
 	}
 	return toSerialize, nil
 }
@@ -181,10 +222,10 @@ func (o *DpuReprovisionRequest) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -239,3 +280,4 @@ func (v *NullableDpuReprovisionRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

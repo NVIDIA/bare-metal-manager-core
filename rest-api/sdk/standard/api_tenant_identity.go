@@ -22,14 +22,15 @@ import (
 	"strings"
 )
 
+
 // TenantIdentityAPIService TenantIdentityAPI service
 type TenantIdentityAPIService service
 
 type ApiCreateOrUpdateTenantIdentityConfigRequest struct {
-	ctx                                       context.Context
-	ApiService                                *TenantIdentityAPIService
-	org                                       string
-	siteID                                    string
+	ctx context.Context
+	ApiService *TenantIdentityAPIService
+	org string
+	siteID string
 	tenantIdentityConfigCreateOrUpdateRequest *TenantIdentityConfigCreateOrUpdateRequest
 }
 
@@ -56,29 +57,28 @@ call, `200 OK` on subsequent updates. See the Tenant Identity tag
 description for upsert semantics and the `enabled` vs DELETE
 distinction.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param siteID ID of the Site
-	@return ApiCreateOrUpdateTenantIdentityConfigRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param siteID ID of the Site
+ @return ApiCreateOrUpdateTenantIdentityConfigRequest
 */
 func (a *TenantIdentityAPIService) CreateOrUpdateTenantIdentityConfig(ctx context.Context, org string, siteID string) ApiCreateOrUpdateTenantIdentityConfigRequest {
 	return ApiCreateOrUpdateTenantIdentityConfigRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		siteID:     siteID,
+		ctx: ctx,
+		org: org,
+		siteID: siteID,
 	}
 }
 
 // Execute executes the request
-//
-//	@return TenantIdentityConfig
+//  @return TenantIdentityConfig
 func (a *TenantIdentityAPIService) CreateOrUpdateTenantIdentityConfigExecute(r ApiCreateOrUpdateTenantIdentityConfigRequest) (*TenantIdentityConfig, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPut
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *TenantIdentityConfig
+		localVarHTTPMethod   = http.MethodPut
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *TenantIdentityConfig
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TenantIdentityAPIService.CreateOrUpdateTenantIdentityConfig")
@@ -145,8 +145,8 @@ func (a *TenantIdentityAPIService) CreateOrUpdateTenantIdentityConfigExecute(r A
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -156,8 +156,8 @@ func (a *TenantIdentityAPIService) CreateOrUpdateTenantIdentityConfigExecute(r A
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -167,8 +167,8 @@ func (a *TenantIdentityAPIService) CreateOrUpdateTenantIdentityConfigExecute(r A
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -178,8 +178,8 @@ func (a *TenantIdentityAPIService) CreateOrUpdateTenantIdentityConfigExecute(r A
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 503 {
@@ -189,8 +189,8 @@ func (a *TenantIdentityAPIService) CreateOrUpdateTenantIdentityConfigExecute(r A
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -208,10 +208,10 @@ func (a *TenantIdentityAPIService) CreateOrUpdateTenantIdentityConfigExecute(r A
 }
 
 type ApiCreateOrUpdateTenantIdentityTokenDelegationRequest struct {
-	ctx                                                context.Context
-	ApiService                                         *TenantIdentityAPIService
-	org                                                string
-	siteID                                             string
+	ctx context.Context
+	ApiService *TenantIdentityAPIService
+	org string
+	siteID string
 	tenantIdentityTokenDelegationCreateOrUpdateRequest *TenantIdentityTokenDelegationCreateOrUpdateRequest
 }
 
@@ -242,29 +242,28 @@ and switches the org back to no-auth; re-supply `clientId` /
 is never returned by GET). Returns `201 Created` on first call,
 `200 OK` on subsequent updates.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param siteID ID of the Site
-	@return ApiCreateOrUpdateTenantIdentityTokenDelegationRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param siteID ID of the Site
+ @return ApiCreateOrUpdateTenantIdentityTokenDelegationRequest
 */
 func (a *TenantIdentityAPIService) CreateOrUpdateTenantIdentityTokenDelegation(ctx context.Context, org string, siteID string) ApiCreateOrUpdateTenantIdentityTokenDelegationRequest {
 	return ApiCreateOrUpdateTenantIdentityTokenDelegationRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		siteID:     siteID,
+		ctx: ctx,
+		org: org,
+		siteID: siteID,
 	}
 }
 
 // Execute executes the request
-//
-//	@return TenantIdentityTokenDelegation
+//  @return TenantIdentityTokenDelegation
 func (a *TenantIdentityAPIService) CreateOrUpdateTenantIdentityTokenDelegationExecute(r ApiCreateOrUpdateTenantIdentityTokenDelegationRequest) (*TenantIdentityTokenDelegation, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPut
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *TenantIdentityTokenDelegation
+		localVarHTTPMethod   = http.MethodPut
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *TenantIdentityTokenDelegation
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TenantIdentityAPIService.CreateOrUpdateTenantIdentityTokenDelegation")
@@ -331,8 +330,8 @@ func (a *TenantIdentityAPIService) CreateOrUpdateTenantIdentityTokenDelegationEx
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -342,8 +341,8 @@ func (a *TenantIdentityAPIService) CreateOrUpdateTenantIdentityTokenDelegationEx
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -353,8 +352,8 @@ func (a *TenantIdentityAPIService) CreateOrUpdateTenantIdentityTokenDelegationEx
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -364,8 +363,8 @@ func (a *TenantIdentityAPIService) CreateOrUpdateTenantIdentityTokenDelegationEx
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 503 {
@@ -375,8 +374,8 @@ func (a *TenantIdentityAPIService) CreateOrUpdateTenantIdentityTokenDelegationEx
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -394,10 +393,10 @@ func (a *TenantIdentityAPIService) CreateOrUpdateTenantIdentityTokenDelegationEx
 }
 
 type ApiDeleteTenantIdentityConfigRequest struct {
-	ctx        context.Context
+	ctx context.Context
 	ApiService *TenantIdentityAPIService
-	org        string
-	siteID     string
+	org string
+	siteID string
 }
 
 func (r ApiDeleteTenantIdentityConfigRequest) Execute() (*http.Response, error) {
@@ -416,26 +415,26 @@ After DELETE, JWKS and OIDC discovery for this org begin returning
 consumers refresh their JWKS cache. To pause issuance without
 destroying signing keys, PUT with `enabled: false` instead.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param siteID ID of the Site
-	@return ApiDeleteTenantIdentityConfigRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param siteID ID of the Site
+ @return ApiDeleteTenantIdentityConfigRequest
 */
 func (a *TenantIdentityAPIService) DeleteTenantIdentityConfig(ctx context.Context, org string, siteID string) ApiDeleteTenantIdentityConfigRequest {
 	return ApiDeleteTenantIdentityConfigRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		siteID:     siteID,
+		ctx: ctx,
+		org: org,
+		siteID: siteID,
 	}
 }
 
 // Execute executes the request
 func (a *TenantIdentityAPIService) DeleteTenantIdentityConfigExecute(r ApiDeleteTenantIdentityConfigRequest) (*http.Response, error) {
 	var (
-		localVarHTTPMethod = http.MethodDelete
-		localVarPostBody   interface{}
-		formFiles          []formFile
+		localVarHTTPMethod   = http.MethodDelete
+		localVarPostBody     interface{}
+		formFiles            []formFile
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TenantIdentityAPIService.DeleteTenantIdentityConfig")
@@ -497,8 +496,8 @@ func (a *TenantIdentityAPIService) DeleteTenantIdentityConfigExecute(r ApiDelete
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -508,8 +507,8 @@ func (a *TenantIdentityAPIService) DeleteTenantIdentityConfigExecute(r ApiDelete
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -519,8 +518,8 @@ func (a *TenantIdentityAPIService) DeleteTenantIdentityConfigExecute(r ApiDelete
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -530,8 +529,8 @@ func (a *TenantIdentityAPIService) DeleteTenantIdentityConfigExecute(r ApiDelete
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 503 {
@@ -541,8 +540,8 @@ func (a *TenantIdentityAPIService) DeleteTenantIdentityConfigExecute(r ApiDelete
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarHTTPResponse, newErr
 	}
@@ -551,10 +550,10 @@ func (a *TenantIdentityAPIService) DeleteTenantIdentityConfigExecute(r ApiDelete
 }
 
 type ApiDeleteTenantIdentityTokenDelegationRequest struct {
-	ctx        context.Context
+	ctx context.Context
 	ApiService *TenantIdentityAPIService
-	org        string
-	siteID     string
+	org string
+	siteID string
 }
 
 func (r ApiDeleteTenantIdentityTokenDelegationRequest) Execute() (*http.Response, error) {
@@ -570,26 +569,26 @@ User must have authorization role with `TENANT_ADMIN` suffix in the URL `{org}`.
 
 Subsequent Instance Metadata Service requests for the tenant revert to direct (non-delegated) signing by the Core gRPC API.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param siteID ID of the Site
-	@return ApiDeleteTenantIdentityTokenDelegationRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param siteID ID of the Site
+ @return ApiDeleteTenantIdentityTokenDelegationRequest
 */
 func (a *TenantIdentityAPIService) DeleteTenantIdentityTokenDelegation(ctx context.Context, org string, siteID string) ApiDeleteTenantIdentityTokenDelegationRequest {
 	return ApiDeleteTenantIdentityTokenDelegationRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		siteID:     siteID,
+		ctx: ctx,
+		org: org,
+		siteID: siteID,
 	}
 }
 
 // Execute executes the request
 func (a *TenantIdentityAPIService) DeleteTenantIdentityTokenDelegationExecute(r ApiDeleteTenantIdentityTokenDelegationRequest) (*http.Response, error) {
 	var (
-		localVarHTTPMethod = http.MethodDelete
-		localVarPostBody   interface{}
-		formFiles          []formFile
+		localVarHTTPMethod   = http.MethodDelete
+		localVarPostBody     interface{}
+		formFiles            []formFile
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TenantIdentityAPIService.DeleteTenantIdentityTokenDelegation")
@@ -651,8 +650,8 @@ func (a *TenantIdentityAPIService) DeleteTenantIdentityTokenDelegationExecute(r 
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -662,8 +661,8 @@ func (a *TenantIdentityAPIService) DeleteTenantIdentityTokenDelegationExecute(r 
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -673,8 +672,8 @@ func (a *TenantIdentityAPIService) DeleteTenantIdentityTokenDelegationExecute(r 
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -684,8 +683,8 @@ func (a *TenantIdentityAPIService) DeleteTenantIdentityTokenDelegationExecute(r 
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 503 {
@@ -695,8 +694,8 @@ func (a *TenantIdentityAPIService) DeleteTenantIdentityTokenDelegationExecute(r 
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarHTTPResponse, newErr
 	}
@@ -705,10 +704,10 @@ func (a *TenantIdentityAPIService) DeleteTenantIdentityTokenDelegationExecute(r 
 }
 
 type ApiGetJwksRequest struct {
-	ctx        context.Context
+	ctx context.Context
 	ApiService *TenantIdentityAPIService
-	org        string
-	siteID     string
+	org string
+	siteID string
 }
 
 func (r ApiGetJwksRequest) Execute() (*TenantIdentityJWKS, *http.Response, error) {
@@ -726,29 +725,28 @@ for this org/site, and `502 Bad Gateway` when the Core gRPC API
 returns a malformed body. See the Tenant Identity tag
 description for consumer guidance during key rotation.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param siteID ID of the Site
-	@return ApiGetJwksRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param siteID ID of the Site
+ @return ApiGetJwksRequest
 */
 func (a *TenantIdentityAPIService) GetJwks(ctx context.Context, org string, siteID string) ApiGetJwksRequest {
 	return ApiGetJwksRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		siteID:     siteID,
+		ctx: ctx,
+		org: org,
+		siteID: siteID,
 	}
 }
 
 // Execute executes the request
-//
-//	@return TenantIdentityJWKS
+//  @return TenantIdentityJWKS
 func (a *TenantIdentityAPIService) GetJwksExecute(r ApiGetJwksRequest) (*TenantIdentityJWKS, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *TenantIdentityJWKS
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *TenantIdentityJWKS
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TenantIdentityAPIService.GetJwks")
@@ -810,8 +808,8 @@ func (a *TenantIdentityAPIService) GetJwksExecute(r ApiGetJwksRequest) (*TenantI
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -821,8 +819,8 @@ func (a *TenantIdentityAPIService) GetJwksExecute(r ApiGetJwksRequest) (*TenantI
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 502 {
@@ -832,8 +830,8 @@ func (a *TenantIdentityAPIService) GetJwksExecute(r ApiGetJwksRequest) (*TenantI
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 503 {
@@ -843,8 +841,8 @@ func (a *TenantIdentityAPIService) GetJwksExecute(r ApiGetJwksRequest) (*TenantI
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -862,10 +860,10 @@ func (a *TenantIdentityAPIService) GetJwksExecute(r ApiGetJwksRequest) (*TenantI
 }
 
 type ApiGetOpenidConfigurationRequest struct {
-	ctx        context.Context
+	ctx context.Context
 	ApiService *TenantIdentityAPIService
-	org        string
-	siteID     string
+	org string
+	siteID string
 }
 
 func (r ApiGetOpenidConfigurationRequest) Execute() (*OpenIDConfiguration, *http.Response, error) {
@@ -884,29 +882,28 @@ list will reject this document. Use the JWKS endpoint directly
 for signature verification. Returns `404` when no identity
 material exists for this org/site.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param siteID ID of the Site
-	@return ApiGetOpenidConfigurationRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param siteID ID of the Site
+ @return ApiGetOpenidConfigurationRequest
 */
 func (a *TenantIdentityAPIService) GetOpenidConfiguration(ctx context.Context, org string, siteID string) ApiGetOpenidConfigurationRequest {
 	return ApiGetOpenidConfigurationRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		siteID:     siteID,
+		ctx: ctx,
+		org: org,
+		siteID: siteID,
 	}
 }
 
 // Execute executes the request
-//
-//	@return OpenIDConfiguration
+//  @return OpenIDConfiguration
 func (a *TenantIdentityAPIService) GetOpenidConfigurationExecute(r ApiGetOpenidConfigurationRequest) (*OpenIDConfiguration, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *OpenIDConfiguration
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *OpenIDConfiguration
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TenantIdentityAPIService.GetOpenidConfiguration")
@@ -968,8 +965,8 @@ func (a *TenantIdentityAPIService) GetOpenidConfigurationExecute(r ApiGetOpenidC
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -979,8 +976,8 @@ func (a *TenantIdentityAPIService) GetOpenidConfigurationExecute(r ApiGetOpenidC
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 503 {
@@ -990,8 +987,8 @@ func (a *TenantIdentityAPIService) GetOpenidConfigurationExecute(r ApiGetOpenidC
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -1009,10 +1006,10 @@ func (a *TenantIdentityAPIService) GetOpenidConfigurationExecute(r ApiGetOpenidC
 }
 
 type ApiGetSpiffeJwksRequest struct {
-	ctx        context.Context
+	ctx context.Context
 	ApiService *TenantIdentityAPIService
-	org        string
-	siteID     string
+	org string
+	siteID string
 }
 
 func (r ApiGetSpiffeJwksRequest) Execute() (*TenantIdentityJWKS, *http.Response, error) {
@@ -1026,29 +1023,28 @@ SPIFFE trust-domain JWKS — same key material as the OIDC JWKS but with `use: j
 
 Not-configured and malformed-body behavior matches the OIDC JWKS endpoint.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param siteID ID of the Site
-	@return ApiGetSpiffeJwksRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param siteID ID of the Site
+ @return ApiGetSpiffeJwksRequest
 */
 func (a *TenantIdentityAPIService) GetSpiffeJwks(ctx context.Context, org string, siteID string) ApiGetSpiffeJwksRequest {
 	return ApiGetSpiffeJwksRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		siteID:     siteID,
+		ctx: ctx,
+		org: org,
+		siteID: siteID,
 	}
 }
 
 // Execute executes the request
-//
-//	@return TenantIdentityJWKS
+//  @return TenantIdentityJWKS
 func (a *TenantIdentityAPIService) GetSpiffeJwksExecute(r ApiGetSpiffeJwksRequest) (*TenantIdentityJWKS, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *TenantIdentityJWKS
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *TenantIdentityJWKS
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TenantIdentityAPIService.GetSpiffeJwks")
@@ -1110,8 +1106,8 @@ func (a *TenantIdentityAPIService) GetSpiffeJwksExecute(r ApiGetSpiffeJwksReques
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -1121,8 +1117,8 @@ func (a *TenantIdentityAPIService) GetSpiffeJwksExecute(r ApiGetSpiffeJwksReques
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 502 {
@@ -1132,8 +1128,8 @@ func (a *TenantIdentityAPIService) GetSpiffeJwksExecute(r ApiGetSpiffeJwksReques
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 503 {
@@ -1143,8 +1139,8 @@ func (a *TenantIdentityAPIService) GetSpiffeJwksExecute(r ApiGetSpiffeJwksReques
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -1162,10 +1158,10 @@ func (a *TenantIdentityAPIService) GetSpiffeJwksExecute(r ApiGetSpiffeJwksReques
 }
 
 type ApiGetTenantIdentityConfigRequest struct {
-	ctx        context.Context
+	ctx context.Context
 	ApiService *TenantIdentityAPIService
-	org        string
-	siteID     string
+	org string
+	siteID string
 }
 
 func (r ApiGetTenantIdentityConfigRequest) Execute() (*TenantIdentityConfig, *http.Response, error) {
@@ -1185,29 +1181,28 @@ defaults to `[defaultAudience]`, and `subjectPrefix` defaults
 to the issuer's trust domain. `signingKeys` lists one entry
 normally, or two during a key-rotation overlap.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param siteID ID of the Site
-	@return ApiGetTenantIdentityConfigRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param siteID ID of the Site
+ @return ApiGetTenantIdentityConfigRequest
 */
 func (a *TenantIdentityAPIService) GetTenantIdentityConfig(ctx context.Context, org string, siteID string) ApiGetTenantIdentityConfigRequest {
 	return ApiGetTenantIdentityConfigRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		siteID:     siteID,
+		ctx: ctx,
+		org: org,
+		siteID: siteID,
 	}
 }
 
 // Execute executes the request
-//
-//	@return TenantIdentityConfig
+//  @return TenantIdentityConfig
 func (a *TenantIdentityAPIService) GetTenantIdentityConfigExecute(r ApiGetTenantIdentityConfigRequest) (*TenantIdentityConfig, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *TenantIdentityConfig
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *TenantIdentityConfig
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TenantIdentityAPIService.GetTenantIdentityConfig")
@@ -1269,8 +1264,8 @@ func (a *TenantIdentityAPIService) GetTenantIdentityConfigExecute(r ApiGetTenant
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -1280,8 +1275,8 @@ func (a *TenantIdentityAPIService) GetTenantIdentityConfigExecute(r ApiGetTenant
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -1291,8 +1286,8 @@ func (a *TenantIdentityAPIService) GetTenantIdentityConfigExecute(r ApiGetTenant
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -1302,8 +1297,8 @@ func (a *TenantIdentityAPIService) GetTenantIdentityConfigExecute(r ApiGetTenant
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 503 {
@@ -1313,8 +1308,8 @@ func (a *TenantIdentityAPIService) GetTenantIdentityConfigExecute(r ApiGetTenant
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -1332,10 +1327,10 @@ func (a *TenantIdentityAPIService) GetTenantIdentityConfigExecute(r ApiGetTenant
 }
 
 type ApiGetTenantIdentityTokenDelegationRequest struct {
-	ctx        context.Context
+	ctx context.Context
 	ApiService *TenantIdentityAPIService
-	org        string
-	siteID     string
+	org string
+	siteID string
 }
 
 func (r ApiGetTenantIdentityTokenDelegationRequest) Execute() (*TenantIdentityTokenDelegation, *http.Response, error) {
@@ -1351,29 +1346,28 @@ User must have authorization role with `TENANT_ADMIN` suffix in the URL `{org}`.
 
 The raw `clientSecret` is never returned; only its SHA-256 hash.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param siteID ID of the Site
-	@return ApiGetTenantIdentityTokenDelegationRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param siteID ID of the Site
+ @return ApiGetTenantIdentityTokenDelegationRequest
 */
 func (a *TenantIdentityAPIService) GetTenantIdentityTokenDelegation(ctx context.Context, org string, siteID string) ApiGetTenantIdentityTokenDelegationRequest {
 	return ApiGetTenantIdentityTokenDelegationRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		siteID:     siteID,
+		ctx: ctx,
+		org: org,
+		siteID: siteID,
 	}
 }
 
 // Execute executes the request
-//
-//	@return TenantIdentityTokenDelegation
+//  @return TenantIdentityTokenDelegation
 func (a *TenantIdentityAPIService) GetTenantIdentityTokenDelegationExecute(r ApiGetTenantIdentityTokenDelegationRequest) (*TenantIdentityTokenDelegation, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *TenantIdentityTokenDelegation
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *TenantIdentityTokenDelegation
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TenantIdentityAPIService.GetTenantIdentityTokenDelegation")
@@ -1435,8 +1429,8 @@ func (a *TenantIdentityAPIService) GetTenantIdentityTokenDelegationExecute(r Api
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -1446,8 +1440,8 @@ func (a *TenantIdentityAPIService) GetTenantIdentityTokenDelegationExecute(r Api
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -1457,8 +1451,8 @@ func (a *TenantIdentityAPIService) GetTenantIdentityTokenDelegationExecute(r Api
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -1468,8 +1462,8 @@ func (a *TenantIdentityAPIService) GetTenantIdentityTokenDelegationExecute(r Api
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 503 {
@@ -1479,8 +1473,8 @@ func (a *TenantIdentityAPIService) GetTenantIdentityTokenDelegationExecute(r Api
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

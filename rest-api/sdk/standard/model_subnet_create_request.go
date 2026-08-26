@@ -14,8 +14,8 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
+	"bytes"
 	"fmt"
 )
 
@@ -116,7 +116,6 @@ func (o *SubnetCreateRequest) HasDescription() bool {
 func (o *SubnetCreateRequest) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *SubnetCreateRequest) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -183,7 +182,6 @@ func (o *SubnetCreateRequest) HasIpv4BlockId() bool {
 func (o *SubnetCreateRequest) SetIpv4BlockId(v string) {
 	o.Ipv4BlockId.Set(&v)
 }
-
 // SetIpv4BlockIdNil sets the value for Ipv4BlockId to be an explicit nil
 func (o *SubnetCreateRequest) SetIpv4BlockIdNil() {
 	o.Ipv4BlockId.Set(nil)
@@ -226,7 +224,6 @@ func (o *SubnetCreateRequest) HasIpv6BlockId() bool {
 func (o *SubnetCreateRequest) SetIpv6BlockId(v string) {
 	o.Ipv6BlockId.Set(&v)
 }
-
 // SetIpv6BlockIdNil sets the value for Ipv6BlockId to be an explicit nil
 func (o *SubnetCreateRequest) SetIpv6BlockIdNil() {
 	o.Ipv6BlockId.Set(nil)
@@ -262,7 +259,7 @@ func (o *SubnetCreateRequest) SetPrefixLength(v int32) {
 }
 
 func (o SubnetCreateRequest) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -301,10 +298,10 @@ func (o *SubnetCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -359,3 +356,4 @@ func (v *NullableSubnetCreateRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

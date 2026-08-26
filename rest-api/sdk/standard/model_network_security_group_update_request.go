@@ -83,7 +83,6 @@ func (o *NetworkSecurityGroupUpdateRequest) HasName() bool {
 func (o *NetworkSecurityGroupUpdateRequest) SetName(v string) {
 	o.Name.Set(&v)
 }
-
 // SetNameNil sets the value for Name to be an explicit nil
 func (o *NetworkSecurityGroupUpdateRequest) SetNameNil() {
 	o.Name.Set(nil)
@@ -126,7 +125,6 @@ func (o *NetworkSecurityGroupUpdateRequest) HasDescription() bool {
 func (o *NetworkSecurityGroupUpdateRequest) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *NetworkSecurityGroupUpdateRequest) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -234,7 +232,7 @@ func (o *NetworkSecurityGroupUpdateRequest) SetLabels(v map[string]string) {
 }
 
 func (o NetworkSecurityGroupUpdateRequest) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -296,3 +294,4 @@ func (v *NullableNetworkSecurityGroupUpdateRequest) UnmarshalJSON(src []byte) er
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

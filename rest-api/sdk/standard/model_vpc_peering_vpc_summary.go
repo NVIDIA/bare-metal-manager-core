@@ -213,7 +213,6 @@ func (o *VpcPeeringVpcSummary) HasNetworkVirtualizationType() bool {
 func (o *VpcPeeringVpcSummary) SetNetworkVirtualizationType(v string) {
 	o.NetworkVirtualizationType.Set(&v)
 }
-
 // SetNetworkVirtualizationTypeNil sets the value for NetworkVirtualizationType to be an explicit nil
 func (o *VpcPeeringVpcSummary) SetNetworkVirtualizationTypeNil() {
 	o.NetworkVirtualizationType.Set(nil)
@@ -257,7 +256,7 @@ func (o *VpcPeeringVpcSummary) SetStatus(v VpcStatus) {
 }
 
 func (o VpcPeeringVpcSummary) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -322,3 +321,4 @@ func (v *NullableVpcPeeringVpcSummary) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

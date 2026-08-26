@@ -62,6 +62,9 @@ Reprovision and update DPU firmware, recording a maintenance message:
     $ nico-admin-cli dpu reprovision set --id 12345678-1234-5678-90ab-cdef01234567 \
     --update-firmware --update-message \"scheduled firmware refresh\"
 
+Force reprovisioning to recover a DPU stuck in ingestion:
+    $ nico-admin-cli dpu reprovision set --id 12345678-1234-5678-90ab-cdef01234567 --force
+
 ")]
 pub(crate) struct DpuReprovisionSet {
     #[clap(
@@ -80,6 +83,13 @@ pub(crate) struct DpuReprovisionSet {
         help = "If set, a HostUpdateInProgress health alert will be applied to the host"
     )]
     pub(super) update_message: Option<String>,
+
+    #[clap(
+        long,
+        action,
+        help = "Force reprovisioning regardless of the Machine state to recover DPUs stuck in ingestion. Restarts the ingestion state machine and skips the HostUpdateInProgress precondition. Has no effect on assigned Machines."
+    )]
+    force: bool,
 }
 
 impl From<&DpuReprovisionSet> for DpuReprovisioningRequest {
@@ -90,6 +100,7 @@ impl From<&DpuReprovisionSet> for DpuReprovisioningRequest {
             mode: Mode::Set as i32,
             initiator: UpdateInitiator::AdminCli as i32,
             update_firmware: args.update_firmware,
+            force: args.force,
         }
     }
 }
@@ -125,6 +136,7 @@ impl From<&DpuReprovisionClear> for DpuReprovisioningRequest {
             mode: Mode::Clear as i32,
             initiator: UpdateInitiator::AdminCli as i32,
             update_firmware: args.update_firmware,
+            force: false,
         }
     }
 }
@@ -161,6 +173,7 @@ impl From<&DpuReprovisionRestart> for DpuReprovisioningRequest {
             mode: Mode::Restart as i32,
             initiator: UpdateInitiator::AdminCli as i32,
             update_firmware: args.update_firmware,
+            force: false,
         }
     }
 }

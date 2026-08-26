@@ -280,7 +280,6 @@ func (o *ExpectedMachine) HasSkuId() bool {
 func (o *ExpectedMachine) SetSkuId(v string) {
 	o.SkuId.Set(&v)
 }
-
 // SetSkuIdNil sets the value for SkuId to be an explicit nil
 func (o *ExpectedMachine) SetSkuIdNil() {
 	o.SkuId.Set(nil)
@@ -355,7 +354,6 @@ func (o *ExpectedMachine) HasMachineId() bool {
 func (o *ExpectedMachine) SetMachineId(v string) {
 	o.MachineId.Set(&v)
 }
-
 // SetMachineIdNil sets the value for MachineId to be an explicit nil
 func (o *ExpectedMachine) SetMachineIdNil() {
 	o.MachineId.Set(nil)
@@ -430,7 +428,6 @@ func (o *ExpectedMachine) HasRackId() bool {
 func (o *ExpectedMachine) SetRackId(v string) {
 	o.RackId.Set(&v)
 }
-
 // SetRackIdNil sets the value for RackId to be an explicit nil
 func (o *ExpectedMachine) SetRackIdNil() {
 	o.RackId.Set(nil)
@@ -473,7 +470,6 @@ func (o *ExpectedMachine) HasBmcIpAddress() bool {
 func (o *ExpectedMachine) SetBmcIpAddress(v string) {
 	o.BmcIpAddress.Set(&v)
 }
-
 // SetBmcIpAddressNil sets the value for BmcIpAddress to be an explicit nil
 func (o *ExpectedMachine) SetBmcIpAddressNil() {
 	o.BmcIpAddress.Set(nil)
@@ -516,7 +512,6 @@ func (o *ExpectedMachine) HasName() bool {
 func (o *ExpectedMachine) SetName(v string) {
 	o.Name.Set(&v)
 }
-
 // SetNameNil sets the value for Name to be an explicit nil
 func (o *ExpectedMachine) SetNameNil() {
 	o.Name.Set(nil)
@@ -559,7 +554,6 @@ func (o *ExpectedMachine) HasManufacturer() bool {
 func (o *ExpectedMachine) SetManufacturer(v string) {
 	o.Manufacturer.Set(&v)
 }
-
 // SetManufacturerNil sets the value for Manufacturer to be an explicit nil
 func (o *ExpectedMachine) SetManufacturerNil() {
 	o.Manufacturer.Set(nil)
@@ -602,7 +596,6 @@ func (o *ExpectedMachine) HasModel() bool {
 func (o *ExpectedMachine) SetModel(v string) {
 	o.Model.Set(&v)
 }
-
 // SetModelNil sets the value for Model to be an explicit nil
 func (o *ExpectedMachine) SetModelNil() {
 	o.Model.Set(nil)
@@ -645,7 +638,6 @@ func (o *ExpectedMachine) HasDescription() bool {
 func (o *ExpectedMachine) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *ExpectedMachine) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -688,7 +680,6 @@ func (o *ExpectedMachine) HasSlotId() bool {
 func (o *ExpectedMachine) SetSlotId(v int32) {
 	o.SlotId.Set(&v)
 }
-
 // SetSlotIdNil sets the value for SlotId to be an explicit nil
 func (o *ExpectedMachine) SetSlotIdNil() {
 	o.SlotId.Set(nil)
@@ -731,7 +722,6 @@ func (o *ExpectedMachine) HasTrayIdx() bool {
 func (o *ExpectedMachine) SetTrayIdx(v int32) {
 	o.TrayIdx.Set(&v)
 }
-
 // SetTrayIdxNil sets the value for TrayIdx to be an explicit nil
 func (o *ExpectedMachine) SetTrayIdxNil() {
 	o.TrayIdx.Set(nil)
@@ -774,7 +764,6 @@ func (o *ExpectedMachine) HasHostId() bool {
 func (o *ExpectedMachine) SetHostId(v int32) {
 	o.HostId.Set(&v)
 }
-
 // SetHostIdNil sets the value for HostId to be an explicit nil
 func (o *ExpectedMachine) SetHostIdNil() {
 	o.HostId.Set(nil)
@@ -946,7 +935,7 @@ func (o *ExpectedMachine) SetUpdated(v time.Time) {
 }
 
 func (o ExpectedMachine) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -1062,3 +1051,4 @@ func (v *NullableExpectedMachine) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

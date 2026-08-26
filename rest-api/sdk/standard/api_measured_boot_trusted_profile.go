@@ -22,13 +22,14 @@ import (
 	"strings"
 )
 
+
 // MeasuredBootTrustedProfileAPIService MeasuredBootTrustedProfileAPI service
 type MeasuredBootTrustedProfileAPIService service
 
 type ApiCreateMeasuredBootTrustedProfileRequest struct {
-	ctx                                     context.Context
-	ApiService                              *MeasuredBootTrustedProfileAPIService
-	org                                     string
+	ctx context.Context
+	ApiService *MeasuredBootTrustedProfileAPIService
+	org string
 	measuredBootTrustedProfileCreateRequest *MeasuredBootTrustedProfileCreateRequest
 }
 
@@ -48,27 +49,26 @@ Approve a measured-boot system profile for automatic promotion of reports from m
 
 Org must have an Infrastructure Provider entity that owns the Site. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiCreateMeasuredBootTrustedProfileRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiCreateMeasuredBootTrustedProfileRequest
 */
 func (a *MeasuredBootTrustedProfileAPIService) CreateMeasuredBootTrustedProfile(ctx context.Context, org string) ApiCreateMeasuredBootTrustedProfileRequest {
 	return ApiCreateMeasuredBootTrustedProfileRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return MeasuredBootTrustedProfile
+//  @return MeasuredBootTrustedProfile
 func (a *MeasuredBootTrustedProfileAPIService) CreateMeasuredBootTrustedProfileExecute(r ApiCreateMeasuredBootTrustedProfileRequest) (*MeasuredBootTrustedProfile, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPost
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *MeasuredBootTrustedProfile
+		localVarHTTPMethod   = http.MethodPost
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *MeasuredBootTrustedProfile
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "MeasuredBootTrustedProfileAPIService.CreateMeasuredBootTrustedProfile")
@@ -134,8 +134,8 @@ func (a *MeasuredBootTrustedProfileAPIService) CreateMeasuredBootTrustedProfileE
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -145,8 +145,8 @@ func (a *MeasuredBootTrustedProfileAPIService) CreateMeasuredBootTrustedProfileE
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -156,8 +156,8 @@ func (a *MeasuredBootTrustedProfileAPIService) CreateMeasuredBootTrustedProfileE
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -167,8 +167,8 @@ func (a *MeasuredBootTrustedProfileAPIService) CreateMeasuredBootTrustedProfileE
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -186,12 +186,12 @@ func (a *MeasuredBootTrustedProfileAPIService) CreateMeasuredBootTrustedProfileE
 }
 
 type ApiDeleteMeasuredBootTrustedProfileRequest struct {
-	ctx        context.Context
+	ctx context.Context
 	ApiService *MeasuredBootTrustedProfileAPIService
-	siteId     *string
-	selector   *string
-	org        string
-	id         string
+	siteId *string
+	selector *string
+	org string
+	id string
 }
 
 // ID of the Site
@@ -217,29 +217,28 @@ Delete a measured-boot trusted Profile approval by approval ID or Profile ID.
 
 Org must have an Infrastructure Provider entity that owns the Site. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param id Approval ID or Profile ID, as selected by the selector query parameter
-	@return ApiDeleteMeasuredBootTrustedProfileRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param id Approval ID or Profile ID, as selected by the selector query parameter
+ @return ApiDeleteMeasuredBootTrustedProfileRequest
 */
 func (a *MeasuredBootTrustedProfileAPIService) DeleteMeasuredBootTrustedProfile(ctx context.Context, org string, id string) ApiDeleteMeasuredBootTrustedProfileRequest {
 	return ApiDeleteMeasuredBootTrustedProfileRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		id:         id,
+		ctx: ctx,
+		org: org,
+		id: id,
 	}
 }
 
 // Execute executes the request
-//
-//	@return MeasuredBootTrustedProfile
+//  @return MeasuredBootTrustedProfile
 func (a *MeasuredBootTrustedProfileAPIService) DeleteMeasuredBootTrustedProfileExecute(r ApiDeleteMeasuredBootTrustedProfileRequest) (*MeasuredBootTrustedProfile, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodDelete
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *MeasuredBootTrustedProfile
+		localVarHTTPMethod   = http.MethodDelete
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *MeasuredBootTrustedProfile
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "MeasuredBootTrustedProfileAPIService.DeleteMeasuredBootTrustedProfile")
@@ -309,8 +308,8 @@ func (a *MeasuredBootTrustedProfileAPIService) DeleteMeasuredBootTrustedProfileE
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -320,8 +319,8 @@ func (a *MeasuredBootTrustedProfileAPIService) DeleteMeasuredBootTrustedProfileE
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -331,8 +330,8 @@ func (a *MeasuredBootTrustedProfileAPIService) DeleteMeasuredBootTrustedProfileE
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -342,8 +341,8 @@ func (a *MeasuredBootTrustedProfileAPIService) DeleteMeasuredBootTrustedProfileE
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -361,10 +360,10 @@ func (a *MeasuredBootTrustedProfileAPIService) DeleteMeasuredBootTrustedProfileE
 }
 
 type ApiGetAllMeasuredBootTrustedProfileRequest struct {
-	ctx        context.Context
+	ctx context.Context
 	ApiService *MeasuredBootTrustedProfileAPIService
-	siteId     *string
-	org        string
+	siteId *string
+	org string
 }
 
 // ID of the Site
@@ -384,27 +383,26 @@ Retrieve all measured-boot trusted Profile approvals for a Site.
 
 Org must have an Infrastructure Provider entity that owns the Site. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiGetAllMeasuredBootTrustedProfileRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiGetAllMeasuredBootTrustedProfileRequest
 */
 func (a *MeasuredBootTrustedProfileAPIService) GetAllMeasuredBootTrustedProfile(ctx context.Context, org string) ApiGetAllMeasuredBootTrustedProfileRequest {
 	return ApiGetAllMeasuredBootTrustedProfileRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return []MeasuredBootTrustedProfile
+//  @return []MeasuredBootTrustedProfile
 func (a *MeasuredBootTrustedProfileAPIService) GetAllMeasuredBootTrustedProfileExecute(r ApiGetAllMeasuredBootTrustedProfileRequest) ([]MeasuredBootTrustedProfile, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue []MeasuredBootTrustedProfile
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  []MeasuredBootTrustedProfile
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "MeasuredBootTrustedProfileAPIService.GetAllMeasuredBootTrustedProfile")
@@ -469,8 +467,8 @@ func (a *MeasuredBootTrustedProfileAPIService) GetAllMeasuredBootTrustedProfileE
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -480,8 +478,8 @@ func (a *MeasuredBootTrustedProfileAPIService) GetAllMeasuredBootTrustedProfileE
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -491,8 +489,8 @@ func (a *MeasuredBootTrustedProfileAPIService) GetAllMeasuredBootTrustedProfileE
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -502,8 +500,8 @@ func (a *MeasuredBootTrustedProfileAPIService) GetAllMeasuredBootTrustedProfileE
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

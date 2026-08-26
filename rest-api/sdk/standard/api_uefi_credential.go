@@ -22,13 +22,14 @@ import (
 	"strings"
 )
 
+
 // UEFICredentialAPIService UEFICredentialAPI service
 type UEFICredentialAPIService service
 
 type ApiCreateUefiCredentialRequest struct {
-	ctx                   context.Context
-	ApiService            *UEFICredentialAPIService
-	org                   string
+	ctx context.Context
+	ApiService *UEFICredentialAPIService
+	org string
 	uEFICredentialRequest *UEFICredentialRequest
 }
 
@@ -49,27 +50,26 @@ if the selected site-default credential already exists.
 
 User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiCreateUefiCredentialRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiCreateUefiCredentialRequest
 */
 func (a *UEFICredentialAPIService) CreateUefiCredential(ctx context.Context, org string) ApiCreateUefiCredentialRequest {
 	return ApiCreateUefiCredentialRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return UEFICredential
+//  @return UEFICredential
 func (a *UEFICredentialAPIService) CreateUefiCredentialExecute(r ApiCreateUefiCredentialRequest) (*UEFICredential, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPost
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *UEFICredential
+		localVarHTTPMethod   = http.MethodPost
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *UEFICredential
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "UEFICredentialAPIService.CreateUefiCredential")
@@ -135,8 +135,8 @@ func (a *UEFICredentialAPIService) CreateUefiCredentialExecute(r ApiCreateUefiCr
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -146,8 +146,8 @@ func (a *UEFICredentialAPIService) CreateUefiCredentialExecute(r ApiCreateUefiCr
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 409 {
@@ -157,8 +157,8 @@ func (a *UEFICredentialAPIService) CreateUefiCredentialExecute(r ApiCreateUefiCr
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

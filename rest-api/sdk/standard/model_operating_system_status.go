@@ -23,13 +23,13 @@ type OperatingSystemStatus string
 
 // List of OperatingSystemStatus
 const (
-	OPERATINGSYSTEMSTATUS_PENDING      OperatingSystemStatus = "Pending"
+	OPERATINGSYSTEMSTATUS_PENDING OperatingSystemStatus = "Pending"
 	OPERATINGSYSTEMSTATUS_PROVISIONING OperatingSystemStatus = "Provisioning"
-	OPERATINGSYSTEMSTATUS_SYNCING      OperatingSystemStatus = "Syncing"
-	OPERATINGSYSTEMSTATUS_READY        OperatingSystemStatus = "Ready"
-	OPERATINGSYSTEMSTATUS_DELETING     OperatingSystemStatus = "Deleting"
-	OPERATINGSYSTEMSTATUS_ERROR        OperatingSystemStatus = "Error"
-	OPERATINGSYSTEMSTATUS_DEACTIVATED  OperatingSystemStatus = "Deactivated"
+	OPERATINGSYSTEMSTATUS_SYNCING OperatingSystemStatus = "Syncing"
+	OPERATINGSYSTEMSTATUS_READY OperatingSystemStatus = "Ready"
+	OPERATINGSYSTEMSTATUS_DELETING OperatingSystemStatus = "Deleting"
+	OPERATINGSYSTEMSTATUS_ERROR OperatingSystemStatus = "Error"
+	OPERATINGSYSTEMSTATUS_DEACTIVATED OperatingSystemStatus = "Deactivated"
 )
 
 // All allowed values of OperatingSystemStatus enum
@@ -121,3 +121,4 @@ func (v *NullableOperatingSystemStatus) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

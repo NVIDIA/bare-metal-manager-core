@@ -363,7 +363,7 @@ async fn test_get_updating_machines(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     )
     .await?;
 
-    db::machine::trigger_dpu_reprovisioning_request(&host_machine_id1, &mut txn, "test", true)
+    db::machine::trigger_dpu_reprovisioning_request(&host_machine_id1, &mut txn, "test", true, false)
         .await?;
     txn.commit().await.unwrap();
 

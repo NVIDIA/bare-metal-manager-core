@@ -183,7 +183,6 @@ func (o *NetworkSecurityGroupPropagationDetails) HasDetails() bool {
 func (o *NetworkSecurityGroupPropagationDetails) SetDetails(v string) {
 	o.Details.Set(&v)
 }
-
 // SetDetailsNil sets the value for Details to be an explicit nil
 func (o *NetworkSecurityGroupPropagationDetails) SetDetailsNil() {
 	o.Details.Set(nil)
@@ -291,7 +290,7 @@ func (o *NetworkSecurityGroupPropagationDetails) SetDeprecations(v []Deprecation
 }
 
 func (o NetworkSecurityGroupPropagationDetails) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -359,3 +358,4 @@ func (v *NullableNetworkSecurityGroupPropagationDetails) UnmarshalJSON(src []byt
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

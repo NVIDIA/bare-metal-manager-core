@@ -23,11 +23,11 @@ type SubnetStatus string
 
 // List of SubnetStatus
 const (
-	SUBNETSTATUS_PENDING      SubnetStatus = "Pending"
+	SUBNETSTATUS_PENDING SubnetStatus = "Pending"
 	SUBNETSTATUS_PROVISIONING SubnetStatus = "Provisioning"
-	SUBNETSTATUS_READY        SubnetStatus = "Ready"
-	SUBNETSTATUS_DELETING     SubnetStatus = "Deleting"
-	SUBNETSTATUS_ERROR        SubnetStatus = "Error"
+	SUBNETSTATUS_READY SubnetStatus = "Ready"
+	SUBNETSTATUS_DELETING SubnetStatus = "Deleting"
+	SUBNETSTATUS_ERROR SubnetStatus = "Error"
 )
 
 // All allowed values of SubnetStatus enum
@@ -117,3 +117,4 @@ func (v *NullableSubnetStatus) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

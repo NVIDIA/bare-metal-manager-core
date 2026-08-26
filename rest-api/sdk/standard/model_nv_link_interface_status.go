@@ -23,11 +23,11 @@ type NVLinkInterfaceStatus string
 
 // List of NVLinkInterfaceStatus
 const (
-	NVLINKINTERFACESTATUS_PENDING      NVLinkInterfaceStatus = "Pending"
+	NVLINKINTERFACESTATUS_PENDING NVLinkInterfaceStatus = "Pending"
 	NVLINKINTERFACESTATUS_PROVISIONING NVLinkInterfaceStatus = "Provisioning"
-	NVLINKINTERFACESTATUS_READY        NVLinkInterfaceStatus = "Ready"
-	NVLINKINTERFACESTATUS_DELETING     NVLinkInterfaceStatus = "Deleting"
-	NVLINKINTERFACESTATUS_ERROR        NVLinkInterfaceStatus = "Error"
+	NVLINKINTERFACESTATUS_READY NVLinkInterfaceStatus = "Ready"
+	NVLINKINTERFACESTATUS_DELETING NVLinkInterfaceStatus = "Deleting"
+	NVLINKINTERFACESTATUS_ERROR NVLinkInterfaceStatus = "Error"
 )
 
 // All allowed values of NVLinkInterfaceStatus enum
@@ -117,3 +117,4 @@ func (v *NullableNVLinkInterfaceStatus) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

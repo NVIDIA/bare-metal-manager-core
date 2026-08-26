@@ -196,7 +196,6 @@ func (o *TenantAccount) HasTenantId() bool {
 func (o *TenantAccount) SetTenantId(v string) {
 	o.TenantId.Set(&v)
 }
-
 // SetTenantIdNil sets the value for TenantId to be an explicit nil
 func (o *TenantAccount) SetTenantIdNil() {
 	o.TenantId.Set(nil)
@@ -239,7 +238,6 @@ func (o *TenantAccount) HasTenantOrg() bool {
 func (o *TenantAccount) SetTenantOrg(v string) {
 	o.TenantOrg.Set(&v)
 }
-
 // SetTenantOrgNil sets the value for TenantOrg to be an explicit nil
 func (o *TenantAccount) SetTenantOrgNil() {
 	o.TenantOrg.Set(nil)
@@ -507,7 +505,7 @@ func (o *TenantAccount) SetSiteCapabilities(v []TenantAccountSiteCapability) {
 }
 
 func (o TenantAccount) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -593,3 +591,4 @@ func (v *NullableTenantAccount) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

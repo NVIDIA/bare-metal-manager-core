@@ -23,11 +23,11 @@ type InstanceTypeStatus string
 
 // List of InstanceTypeStatus
 const (
-	INSTANCETYPESTATUS_PENDING     InstanceTypeStatus = "Pending"
+	INSTANCETYPESTATUS_PENDING InstanceTypeStatus = "Pending"
 	INSTANCETYPESTATUS_REGISTERING InstanceTypeStatus = "Registering"
-	INSTANCETYPESTATUS_READY       InstanceTypeStatus = "Ready"
-	INSTANCETYPESTATUS_DELETING    InstanceTypeStatus = "Deleting"
-	INSTANCETYPESTATUS_ERROR       InstanceTypeStatus = "Error"
+	INSTANCETYPESTATUS_READY InstanceTypeStatus = "Ready"
+	INSTANCETYPESTATUS_DELETING InstanceTypeStatus = "Deleting"
+	INSTANCETYPESTATUS_ERROR InstanceTypeStatus = "Error"
 )
 
 // All allowed values of InstanceTypeStatus enum
@@ -117,3 +117,4 @@ func (v *NullableInstanceTypeStatus) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

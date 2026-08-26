@@ -222,7 +222,6 @@ func (o *Machine) HasInstanceTypeId() bool {
 func (o *Machine) SetInstanceTypeId(v string) {
 	o.InstanceTypeId.Set(&v)
 }
-
 // SetInstanceTypeIdNil sets the value for InstanceTypeId to be an explicit nil
 func (o *Machine) SetInstanceTypeIdNil() {
 	o.InstanceTypeId.Set(nil)
@@ -265,7 +264,6 @@ func (o *Machine) HasInstanceId() bool {
 func (o *Machine) SetInstanceId(v string) {
 	o.InstanceId.Set(&v)
 }
-
 // SetInstanceIdNil sets the value for InstanceId to be an explicit nil
 func (o *Machine) SetInstanceIdNil() {
 	o.InstanceId.Set(nil)
@@ -308,7 +306,6 @@ func (o *Machine) HasTenantId() bool {
 func (o *Machine) SetTenantId(v string) {
 	o.TenantId.Set(&v)
 }
-
 // SetTenantIdNil sets the value for TenantId to be an explicit nil
 func (o *Machine) SetTenantIdNil() {
 	o.TenantId.Set(nil)
@@ -383,7 +380,6 @@ func (o *Machine) HasControllerMachineType() bool {
 func (o *Machine) SetControllerMachineType(v string) {
 	o.ControllerMachineType.Set(&v)
 }
-
 // SetControllerMachineTypeNil sets the value for ControllerMachineType to be an explicit nil
 func (o *Machine) SetControllerMachineTypeNil() {
 	o.ControllerMachineType.Set(nil)
@@ -426,7 +422,6 @@ func (o *Machine) HasHwSkuDeviceType() bool {
 func (o *Machine) SetHwSkuDeviceType(v string) {
 	o.HwSkuDeviceType.Set(&v)
 }
-
 // SetHwSkuDeviceTypeNil sets the value for HwSkuDeviceType to be an explicit nil
 func (o *Machine) SetHwSkuDeviceTypeNil() {
 	o.HwSkuDeviceType.Set(nil)
@@ -469,7 +464,6 @@ func (o *Machine) HasVendor() bool {
 func (o *Machine) SetVendor(v string) {
 	o.Vendor.Set(&v)
 }
-
 // SetVendorNil sets the value for Vendor to be an explicit nil
 func (o *Machine) SetVendorNil() {
 	o.Vendor.Set(nil)
@@ -512,7 +506,6 @@ func (o *Machine) HasProductName() bool {
 func (o *Machine) SetProductName(v string) {
 	o.ProductName.Set(&v)
 }
-
 // SetProductNameNil sets the value for ProductName to be an explicit nil
 func (o *Machine) SetProductNameNil() {
 	o.ProductName.Set(nil)
@@ -555,7 +548,6 @@ func (o *Machine) HasSerialNumber() bool {
 func (o *Machine) SetSerialNumber(v string) {
 	o.SerialNumber.Set(&v)
 }
-
 // SetSerialNumberNil sets the value for SerialNumber to be an explicit nil
 func (o *Machine) SetSerialNumberNil() {
 	o.SerialNumber.Set(nil)
@@ -726,7 +718,6 @@ func (o *Machine) HasMaintenanceMessage() bool {
 func (o *Machine) SetMaintenanceMessage(v string) {
 	o.MaintenanceMessage.Set(&v)
 }
-
 // SetMaintenanceMessageNil sets the value for MaintenanceMessage to be an explicit nil
 func (o *Machine) SetMaintenanceMessageNil() {
 	o.MaintenanceMessage.Set(nil)
@@ -769,7 +760,6 @@ func (o *Machine) HasScoutVersion() bool {
 func (o *Machine) SetScoutVersion(v string) {
 	o.ScoutVersion.Set(&v)
 }
-
 // SetScoutVersionNil sets the value for ScoutVersion to be an explicit nil
 func (o *Machine) SetScoutVersionNil() {
 	o.ScoutVersion.Set(nil)
@@ -1037,7 +1027,7 @@ func (o *Machine) SetUpdated(v time.Time) {
 }
 
 func (o Machine) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -1162,3 +1152,4 @@ func (v *NullableMachine) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

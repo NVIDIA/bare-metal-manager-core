@@ -22,14 +22,15 @@ import (
 	"strings"
 )
 
+
 // HealthReportAPIService HealthReportAPI service
 type HealthReportAPIService service
 
 type ApiCreateOrUpdateMachineHealthReportRequest struct {
-	ctx                             context.Context
-	ApiService                      *HealthReportAPIService
-	org                             string
-	machineId                       string
+	ctx context.Context
+	ApiService *HealthReportAPIService
+	org string
+	machineId string
 	machineHealthReportEntryRequest *MachineHealthReportEntryRequest
 }
 
@@ -51,29 +52,28 @@ For Infrastructure Providers: Org must have an Infrastructure Provider entity an
 
 For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled and Tenant Account with Machine's Provider. User must have authorization role with `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param machineId ID of the Machine
-	@return ApiCreateOrUpdateMachineHealthReportRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param machineId ID of the Machine
+ @return ApiCreateOrUpdateMachineHealthReportRequest
 */
 func (a *HealthReportAPIService) CreateOrUpdateMachineHealthReport(ctx context.Context, org string, machineId string) ApiCreateOrUpdateMachineHealthReportRequest {
 	return ApiCreateOrUpdateMachineHealthReportRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		machineId:  machineId,
+		ctx: ctx,
+		org: org,
+		machineId: machineId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return MachineHealthReportEntry
+//  @return MachineHealthReportEntry
 func (a *HealthReportAPIService) CreateOrUpdateMachineHealthReportExecute(r ApiCreateOrUpdateMachineHealthReportRequest) (*MachineHealthReportEntry, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPut
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *MachineHealthReportEntry
+		localVarHTTPMethod   = http.MethodPut
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *MachineHealthReportEntry
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "HealthReportAPIService.CreateOrUpdateMachineHealthReport")
@@ -140,8 +140,8 @@ func (a *HealthReportAPIService) CreateOrUpdateMachineHealthReportExecute(r ApiC
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -151,8 +151,8 @@ func (a *HealthReportAPIService) CreateOrUpdateMachineHealthReportExecute(r ApiC
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -162,8 +162,8 @@ func (a *HealthReportAPIService) CreateOrUpdateMachineHealthReportExecute(r ApiC
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -173,8 +173,8 @@ func (a *HealthReportAPIService) CreateOrUpdateMachineHealthReportExecute(r ApiC
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -192,11 +192,11 @@ func (a *HealthReportAPIService) CreateOrUpdateMachineHealthReportExecute(r ApiC
 }
 
 type ApiDeleteMachineHealthReportRequest struct {
-	ctx        context.Context
+	ctx context.Context
 	ApiService *HealthReportAPIService
-	org        string
-	machineId  string
-	source     string
+	org string
+	machineId string
+	source string
 }
 
 func (r ApiDeleteMachineHealthReportRequest) Execute() (*http.Response, error) {
@@ -212,28 +212,28 @@ For Infrastructure Providers: Org must have an Infrastructure Provider entity an
 
 For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled and Tenant Account with Machine's Provider. User must have authorization role with `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param machineId ID of the Machine
-	@param source Health report source
-	@return ApiDeleteMachineHealthReportRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param machineId ID of the Machine
+ @param source Health report source
+ @return ApiDeleteMachineHealthReportRequest
 */
 func (a *HealthReportAPIService) DeleteMachineHealthReport(ctx context.Context, org string, machineId string, source string) ApiDeleteMachineHealthReportRequest {
 	return ApiDeleteMachineHealthReportRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		machineId:  machineId,
-		source:     source,
+		ctx: ctx,
+		org: org,
+		machineId: machineId,
+		source: source,
 	}
 }
 
 // Execute executes the request
 func (a *HealthReportAPIService) DeleteMachineHealthReportExecute(r ApiDeleteMachineHealthReportRequest) (*http.Response, error) {
 	var (
-		localVarHTTPMethod = http.MethodDelete
-		localVarPostBody   interface{}
-		formFiles          []formFile
+		localVarHTTPMethod   = http.MethodDelete
+		localVarPostBody     interface{}
+		formFiles            []formFile
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "HealthReportAPIService.DeleteMachineHealthReport")
@@ -296,8 +296,8 @@ func (a *HealthReportAPIService) DeleteMachineHealthReportExecute(r ApiDeleteMac
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -307,8 +307,8 @@ func (a *HealthReportAPIService) DeleteMachineHealthReportExecute(r ApiDeleteMac
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -318,8 +318,8 @@ func (a *HealthReportAPIService) DeleteMachineHealthReportExecute(r ApiDeleteMac
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -329,8 +329,8 @@ func (a *HealthReportAPIService) DeleteMachineHealthReportExecute(r ApiDeleteMac
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarHTTPResponse, newErr
 	}
@@ -339,10 +339,10 @@ func (a *HealthReportAPIService) DeleteMachineHealthReportExecute(r ApiDeleteMac
 }
 
 type ApiGetAllMachineHealthReportRequest struct {
-	ctx        context.Context
+	ctx context.Context
 	ApiService *HealthReportAPIService
-	org        string
-	machineId  string
+	org string
+	machineId string
 }
 
 func (r ApiGetAllMachineHealthReportRequest) Execute() ([]MachineHealthReportEntry, *http.Response, error) {
@@ -358,29 +358,28 @@ For Infrastructure Providers: Org must have an Infrastructure Provider entity an
 
 For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled and Tenant Account with Machine's Provider. User must have authorization role with `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param machineId ID of the Machine
-	@return ApiGetAllMachineHealthReportRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param machineId ID of the Machine
+ @return ApiGetAllMachineHealthReportRequest
 */
 func (a *HealthReportAPIService) GetAllMachineHealthReport(ctx context.Context, org string, machineId string) ApiGetAllMachineHealthReportRequest {
 	return ApiGetAllMachineHealthReportRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		machineId:  machineId,
+		ctx: ctx,
+		org: org,
+		machineId: machineId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return []MachineHealthReportEntry
+//  @return []MachineHealthReportEntry
 func (a *HealthReportAPIService) GetAllMachineHealthReportExecute(r ApiGetAllMachineHealthReportRequest) ([]MachineHealthReportEntry, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue []MachineHealthReportEntry
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  []MachineHealthReportEntry
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "HealthReportAPIService.GetAllMachineHealthReport")
@@ -442,8 +441,8 @@ func (a *HealthReportAPIService) GetAllMachineHealthReportExecute(r ApiGetAllMac
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -453,8 +452,8 @@ func (a *HealthReportAPIService) GetAllMachineHealthReportExecute(r ApiGetAllMac
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -464,8 +463,8 @@ func (a *HealthReportAPIService) GetAllMachineHealthReportExecute(r ApiGetAllMac
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

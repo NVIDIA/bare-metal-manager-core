@@ -22,13 +22,14 @@ import (
 	"strings"
 )
 
+
 // ExpectedPowerShelfAPIService ExpectedPowerShelfAPI service
 type ExpectedPowerShelfAPIService service
 
 type ApiCreateExpectedPowerShelfRequest struct {
-	ctx                             context.Context
-	ApiService                      *ExpectedPowerShelfAPIService
-	org                             string
+	ctx context.Context
+	ApiService *ExpectedPowerShelfAPIService
+	org string
 	expectedPowerShelfCreateRequest *ExpectedPowerShelfCreateRequest
 }
 
@@ -51,27 +52,26 @@ Org must have an Infrastructure Provider entity. User must have authorization ro
 
 Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also create Expected Power Shelves if they have an account with the Site's Infrastructure Provider.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiCreateExpectedPowerShelfRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiCreateExpectedPowerShelfRequest
 */
 func (a *ExpectedPowerShelfAPIService) CreateExpectedPowerShelf(ctx context.Context, org string) ApiCreateExpectedPowerShelfRequest {
 	return ApiCreateExpectedPowerShelfRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return ExpectedPowerShelf
+//  @return ExpectedPowerShelf
 func (a *ExpectedPowerShelfAPIService) CreateExpectedPowerShelfExecute(r ApiCreateExpectedPowerShelfRequest) (*ExpectedPowerShelf, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPost
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *ExpectedPowerShelf
+		localVarHTTPMethod   = http.MethodPost
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *ExpectedPowerShelf
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "ExpectedPowerShelfAPIService.CreateExpectedPowerShelf")
@@ -137,8 +137,8 @@ func (a *ExpectedPowerShelfAPIService) CreateExpectedPowerShelfExecute(r ApiCrea
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -148,8 +148,8 @@ func (a *ExpectedPowerShelfAPIService) CreateExpectedPowerShelfExecute(r ApiCrea
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -167,9 +167,9 @@ func (a *ExpectedPowerShelfAPIService) CreateExpectedPowerShelfExecute(r ApiCrea
 }
 
 type ApiDeleteExpectedPowerShelfRequest struct {
-	ctx                  context.Context
-	ApiService           *ExpectedPowerShelfAPIService
-	org                  string
+	ctx context.Context
+	ApiService *ExpectedPowerShelfAPIService
+	org string
 	expectedPowerShelfId string
 }
 
@@ -188,16 +188,16 @@ Infrastructure Provider must own the Expected Power Shelf.
 
 Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also delete Expected Power Shelves if they have an account with the Site's Infrastructure Provider.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param expectedPowerShelfId ID of the Expected Power Shelf
-	@return ApiDeleteExpectedPowerShelfRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param expectedPowerShelfId ID of the Expected Power Shelf
+ @return ApiDeleteExpectedPowerShelfRequest
 */
 func (a *ExpectedPowerShelfAPIService) DeleteExpectedPowerShelf(ctx context.Context, org string, expectedPowerShelfId string) ApiDeleteExpectedPowerShelfRequest {
 	return ApiDeleteExpectedPowerShelfRequest{
-		ApiService:           a,
-		ctx:                  ctx,
-		org:                  org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		expectedPowerShelfId: expectedPowerShelfId,
 	}
 }
@@ -205,9 +205,9 @@ func (a *ExpectedPowerShelfAPIService) DeleteExpectedPowerShelf(ctx context.Cont
 // Execute executes the request
 func (a *ExpectedPowerShelfAPIService) DeleteExpectedPowerShelfExecute(r ApiDeleteExpectedPowerShelfRequest) (*http.Response, error) {
 	var (
-		localVarHTTPMethod = http.MethodDelete
-		localVarPostBody   interface{}
-		formFiles          []formFile
+		localVarHTTPMethod   = http.MethodDelete
+		localVarPostBody     interface{}
+		formFiles            []formFile
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "ExpectedPowerShelfAPIService.DeleteExpectedPowerShelf")
@@ -269,8 +269,8 @@ func (a *ExpectedPowerShelfAPIService) DeleteExpectedPowerShelfExecute(r ApiDele
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -280,8 +280,8 @@ func (a *ExpectedPowerShelfAPIService) DeleteExpectedPowerShelfExecute(r ApiDele
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -291,8 +291,8 @@ func (a *ExpectedPowerShelfAPIService) DeleteExpectedPowerShelfExecute(r ApiDele
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarHTTPResponse, newErr
 	}
@@ -301,14 +301,14 @@ func (a *ExpectedPowerShelfAPIService) DeleteExpectedPowerShelfExecute(r ApiDele
 }
 
 type ApiGetAllExpectedPowerShelfRequest struct {
-	ctx             context.Context
-	ApiService      *ExpectedPowerShelfAPIService
-	org             string
-	siteId          *string
+	ctx context.Context
+	ApiService *ExpectedPowerShelfAPIService
+	org string
+	siteId *string
 	includeRelation *string
-	pageNumber      *int32
-	pageSize        *int32
-	orderBy         *string
+	pageNumber *int32
+	pageSize *int32
+	orderBy *string
 }
 
 // ID of the Site to filter Expected Power Shelves by
@@ -354,27 +354,26 @@ Org must have an Infrastructure Provider entity. User must have authorization ro
 
 Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also retrieve Expected Power Shelves if they have an account with the Site's Infrastructure Provider (siteId query parameter is required for Tenants).
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiGetAllExpectedPowerShelfRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiGetAllExpectedPowerShelfRequest
 */
 func (a *ExpectedPowerShelfAPIService) GetAllExpectedPowerShelf(ctx context.Context, org string) ApiGetAllExpectedPowerShelfRequest {
 	return ApiGetAllExpectedPowerShelfRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return []ExpectedPowerShelf
+//  @return []ExpectedPowerShelf
 func (a *ExpectedPowerShelfAPIService) GetAllExpectedPowerShelfExecute(r ApiGetAllExpectedPowerShelfRequest) ([]ExpectedPowerShelf, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue []ExpectedPowerShelf
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  []ExpectedPowerShelf
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "ExpectedPowerShelfAPIService.GetAllExpectedPowerShelf")
@@ -454,8 +453,8 @@ func (a *ExpectedPowerShelfAPIService) GetAllExpectedPowerShelfExecute(r ApiGetA
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -465,8 +464,8 @@ func (a *ExpectedPowerShelfAPIService) GetAllExpectedPowerShelfExecute(r ApiGetA
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -484,11 +483,11 @@ func (a *ExpectedPowerShelfAPIService) GetAllExpectedPowerShelfExecute(r ApiGetA
 }
 
 type ApiGetExpectedPowerShelfRequest struct {
-	ctx                  context.Context
-	ApiService           *ExpectedPowerShelfAPIService
-	org                  string
+	ctx context.Context
+	ApiService *ExpectedPowerShelfAPIService
+	org string
 	expectedPowerShelfId string
-	includeRelation      *string
+	includeRelation *string
 }
 
 // Related entity to expand
@@ -510,29 +509,28 @@ Org must have an Infrastructure Provider entity. User must have authorization ro
 
 Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also retrieve Expected Power Shelves if they have an account with the Site's Infrastructure Provider.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param expectedPowerShelfId ID of the Expected Power Shelf
-	@return ApiGetExpectedPowerShelfRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param expectedPowerShelfId ID of the Expected Power Shelf
+ @return ApiGetExpectedPowerShelfRequest
 */
 func (a *ExpectedPowerShelfAPIService) GetExpectedPowerShelf(ctx context.Context, org string, expectedPowerShelfId string) ApiGetExpectedPowerShelfRequest {
 	return ApiGetExpectedPowerShelfRequest{
-		ApiService:           a,
-		ctx:                  ctx,
-		org:                  org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		expectedPowerShelfId: expectedPowerShelfId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return ExpectedPowerShelf
+//  @return ExpectedPowerShelf
 func (a *ExpectedPowerShelfAPIService) GetExpectedPowerShelfExecute(r ApiGetExpectedPowerShelfRequest) (*ExpectedPowerShelf, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *ExpectedPowerShelf
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *ExpectedPowerShelf
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "ExpectedPowerShelfAPIService.GetExpectedPowerShelf")
@@ -597,8 +595,8 @@ func (a *ExpectedPowerShelfAPIService) GetExpectedPowerShelfExecute(r ApiGetExpe
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -608,8 +606,8 @@ func (a *ExpectedPowerShelfAPIService) GetExpectedPowerShelfExecute(r ApiGetExpe
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -619,8 +617,8 @@ func (a *ExpectedPowerShelfAPIService) GetExpectedPowerShelfExecute(r ApiGetExpe
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -638,10 +636,10 @@ func (a *ExpectedPowerShelfAPIService) GetExpectedPowerShelfExecute(r ApiGetExpe
 }
 
 type ApiUpdateExpectedPowerShelfRequest struct {
-	ctx                             context.Context
-	ApiService                      *ExpectedPowerShelfAPIService
-	org                             string
-	expectedPowerShelfId            string
+	ctx context.Context
+	ApiService *ExpectedPowerShelfAPIService
+	org string
+	expectedPowerShelfId string
 	expectedPowerShelfUpdateRequest *ExpectedPowerShelfUpdateRequest
 }
 
@@ -666,29 +664,28 @@ Infrastructure Provider must own the Expected Power Shelf.
 
 Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also update Expected Power Shelves if they have an account with the Site's Infrastructure Provider.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param expectedPowerShelfId ID of the Expected Power Shelf
-	@return ApiUpdateExpectedPowerShelfRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param expectedPowerShelfId ID of the Expected Power Shelf
+ @return ApiUpdateExpectedPowerShelfRequest
 */
 func (a *ExpectedPowerShelfAPIService) UpdateExpectedPowerShelf(ctx context.Context, org string, expectedPowerShelfId string) ApiUpdateExpectedPowerShelfRequest {
 	return ApiUpdateExpectedPowerShelfRequest{
-		ApiService:           a,
-		ctx:                  ctx,
-		org:                  org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		expectedPowerShelfId: expectedPowerShelfId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return ExpectedPowerShelf
+//  @return ExpectedPowerShelf
 func (a *ExpectedPowerShelfAPIService) UpdateExpectedPowerShelfExecute(r ApiUpdateExpectedPowerShelfRequest) (*ExpectedPowerShelf, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPatch
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *ExpectedPowerShelf
+		localVarHTTPMethod   = http.MethodPatch
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *ExpectedPowerShelf
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "ExpectedPowerShelfAPIService.UpdateExpectedPowerShelf")
@@ -755,8 +752,8 @@ func (a *ExpectedPowerShelfAPIService) UpdateExpectedPowerShelfExecute(r ApiUpda
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -766,8 +763,8 @@ func (a *ExpectedPowerShelfAPIService) UpdateExpectedPowerShelfExecute(r ApiUpda
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -777,8 +774,8 @@ func (a *ExpectedPowerShelfAPIService) UpdateExpectedPowerShelfExecute(r ApiUpda
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

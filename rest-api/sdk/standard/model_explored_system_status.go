@@ -14,8 +14,8 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
+	"bytes"
 	"fmt"
 )
 
@@ -24,9 +24,9 @@ var _ MappedNullable = &ExploredSystemStatus{}
 
 // ExploredSystemStatus Redfish health and state status.
 type ExploredSystemStatus struct {
-	Health       NullableString `json:"health,omitempty"`
+	Health NullableString `json:"health,omitempty"`
 	HealthRollup NullableString `json:"healthRollup,omitempty"`
-	State        string         `json:"state"`
+	State string `json:"state"`
 }
 
 type _ExploredSystemStatus ExploredSystemStatus
@@ -81,7 +81,6 @@ func (o *ExploredSystemStatus) HasHealth() bool {
 func (o *ExploredSystemStatus) SetHealth(v string) {
 	o.Health.Set(&v)
 }
-
 // SetHealthNil sets the value for Health to be an explicit nil
 func (o *ExploredSystemStatus) SetHealthNil() {
 	o.Health.Set(nil)
@@ -124,7 +123,6 @@ func (o *ExploredSystemStatus) HasHealthRollup() bool {
 func (o *ExploredSystemStatus) SetHealthRollup(v string) {
 	o.HealthRollup.Set(&v)
 }
-
 // SetHealthRollupNil sets the value for HealthRollup to be an explicit nil
 func (o *ExploredSystemStatus) SetHealthRollupNil() {
 	o.HealthRollup.Set(nil)
@@ -160,7 +158,7 @@ func (o *ExploredSystemStatus) SetState(v string) {
 }
 
 func (o ExploredSystemStatus) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -192,10 +190,10 @@ func (o *ExploredSystemStatus) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -250,3 +248,4 @@ func (v *NullableExploredSystemStatus) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

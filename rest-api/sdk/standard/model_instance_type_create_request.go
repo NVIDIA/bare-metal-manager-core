@@ -14,8 +14,8 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
+	"bytes"
 	"fmt"
 )
 
@@ -115,7 +115,6 @@ func (o *InstanceTypeCreateRequest) HasDescription() bool {
 func (o *InstanceTypeCreateRequest) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *InstanceTypeCreateRequest) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -214,7 +213,6 @@ func (o *InstanceTypeCreateRequest) HasControllerMachineType() bool {
 func (o *InstanceTypeCreateRequest) SetControllerMachineType(v string) {
 	o.ControllerMachineType.Set(&v)
 }
-
 // SetControllerMachineTypeNil sets the value for ControllerMachineType to be an explicit nil
 func (o *InstanceTypeCreateRequest) SetControllerMachineTypeNil() {
 	o.ControllerMachineType.Set(nil)
@@ -258,7 +256,7 @@ func (o *InstanceTypeCreateRequest) SetMachineCapabilities(v []InstanceTypeCapab
 }
 
 func (o InstanceTypeCreateRequest) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -298,10 +296,10 @@ func (o *InstanceTypeCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -356,3 +354,4 @@ func (v *NullableInstanceTypeCreateRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

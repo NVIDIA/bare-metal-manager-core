@@ -87,7 +87,6 @@ func (o *VpcUpdateRequest) HasName() bool {
 func (o *VpcUpdateRequest) SetName(v string) {
 	o.Name.Set(&v)
 }
-
 // SetNameNil sets the value for Name to be an explicit nil
 func (o *VpcUpdateRequest) SetNameNil() {
 	o.Name.Set(nil)
@@ -130,7 +129,6 @@ func (o *VpcUpdateRequest) HasDescription() bool {
 func (o *VpcUpdateRequest) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *VpcUpdateRequest) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -173,7 +171,6 @@ func (o *VpcUpdateRequest) HasNetworkSecurityGroupId() bool {
 func (o *VpcUpdateRequest) SetNetworkSecurityGroupId(v string) {
 	o.NetworkSecurityGroupId.Set(&v)
 }
-
 // SetNetworkSecurityGroupIdNil sets the value for NetworkSecurityGroupId to be an explicit nil
 func (o *VpcUpdateRequest) SetNetworkSecurityGroupIdNil() {
 	o.NetworkSecurityGroupId.Set(nil)
@@ -216,7 +213,6 @@ func (o *VpcUpdateRequest) HasNvLinkLogicalPartitionId() bool {
 func (o *VpcUpdateRequest) SetNvLinkLogicalPartitionId(v string) {
 	o.NvLinkLogicalPartitionId.Set(&v)
 }
-
 // SetNvLinkLogicalPartitionIdNil sets the value for NvLinkLogicalPartitionId to be an explicit nil
 func (o *VpcUpdateRequest) SetNvLinkLogicalPartitionIdNil() {
 	o.NvLinkLogicalPartitionId.Set(nil)
@@ -259,7 +255,6 @@ func (o *VpcUpdateRequest) HasRoutingProfileOverrides() bool {
 func (o *VpcUpdateRequest) SetRoutingProfileOverrides(v VpcRoutingProfileOverrides) {
 	o.RoutingProfileOverrides.Set(&v)
 }
-
 // SetRoutingProfileOverridesNil sets the value for RoutingProfileOverrides to be an explicit nil
 func (o *VpcUpdateRequest) SetRoutingProfileOverridesNil() {
 	o.RoutingProfileOverrides.Set(nil)
@@ -302,7 +297,6 @@ func (o *VpcUpdateRequest) HasPowerResourceGroup() bool {
 func (o *VpcUpdateRequest) SetPowerResourceGroup(v string) {
 	o.PowerResourceGroup.Set(&v)
 }
-
 // SetPowerResourceGroupNil sets the value for PowerResourceGroup to be an explicit nil
 func (o *VpcUpdateRequest) SetPowerResourceGroupNil() {
 	o.PowerResourceGroup.Set(nil)
@@ -346,7 +340,7 @@ func (o *VpcUpdateRequest) SetLabels(v map[string]string) {
 }
 
 func (o VpcUpdateRequest) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -414,3 +408,4 @@ func (v *NullableVpcUpdateRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

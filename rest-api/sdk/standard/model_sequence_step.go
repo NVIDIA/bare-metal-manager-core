@@ -14,8 +14,8 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
+	"bytes"
 	"fmt"
 )
 
@@ -31,11 +31,11 @@ type SequenceStep struct {
 	// Maximum number of components of this type processed concurrently. `0` means unlimited, `1` means strictly sequential.
 	MaxParallel *int32 `json:"maxParallel,omitempty"`
 	// Optional child-workflow timeout for this step, as a Go duration string (e.g. `30s`, `2m`). Applies to pre + main + post combined.
-	Timeout *string      `json:"timeout,omitempty"`
-	Retry   *RetryPolicy `json:"retry,omitempty"`
+	Timeout *string `json:"timeout,omitempty"`
+	Retry *RetryPolicy `json:"retry,omitempty"`
 	// Actions to run before the main operation.
-	PreOperation  []ActionConfig `json:"preOperation,omitempty"`
-	MainOperation ActionConfig   `json:"mainOperation"`
+	PreOperation []ActionConfig `json:"preOperation,omitempty"`
+	MainOperation ActionConfig `json:"mainOperation"`
 	// Actions to run after the main operation.
 	PostOperation []ActionConfig `json:"postOperation,omitempty"`
 	// Deprecated legacy field — sleep duration after this step, as a Go duration string. Prefer encoding the wait as an explicit `Sleep` post-operation action.
@@ -329,7 +329,7 @@ func (o *SequenceStep) SetDelayAfter(v string) {
 }
 
 func (o SequenceStep) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -377,10 +377,10 @@ func (o *SequenceStep) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -435,3 +435,4 @@ func (v *NullableSequenceStep) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

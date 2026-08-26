@@ -14,8 +14,8 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
+	"bytes"
 	"fmt"
 )
 
@@ -369,7 +369,6 @@ func (o *DpuNetworkConfig) HasInstanceNetworkConfigVersion() bool {
 func (o *DpuNetworkConfig) SetInstanceNetworkConfigVersion(v string) {
 	o.InstanceNetworkConfigVersion.Set(&v)
 }
-
 // SetInstanceNetworkConfigVersionNil sets the value for InstanceNetworkConfigVersion to be an explicit nil
 func (o *DpuNetworkConfig) SetInstanceNetworkConfigVersionNil() {
 	o.InstanceNetworkConfigVersion.Set(nil)
@@ -412,7 +411,6 @@ func (o *DpuNetworkConfig) HasInstanceId() bool {
 func (o *DpuNetworkConfig) SetInstanceId(v string) {
 	o.InstanceId.Set(&v)
 }
-
 // SetInstanceIdNil sets the value for InstanceId to be an explicit nil
 func (o *DpuNetworkConfig) SetInstanceIdNil() {
 	o.InstanceId.Set(nil)
@@ -455,7 +453,6 @@ func (o *DpuNetworkConfig) HasNetworkVirtualizationType() bool {
 func (o *DpuNetworkConfig) SetNetworkVirtualizationType(v string) {
 	o.NetworkVirtualizationType.Set(&v)
 }
-
 // SetNetworkVirtualizationTypeNil sets the value for NetworkVirtualizationType to be an explicit nil
 func (o *DpuNetworkConfig) SetNetworkVirtualizationTypeNil() {
 	o.NetworkVirtualizationType.Set(nil)
@@ -498,7 +495,6 @@ func (o *DpuNetworkConfig) HasVpcVni() bool {
 func (o *DpuNetworkConfig) SetVpcVni(v uint32) {
 	o.VpcVni.Set(&v)
 }
-
 // SetVpcVniNil sets the value for VpcVni to be an explicit nil
 func (o *DpuNetworkConfig) SetVpcVniNil() {
 	o.VpcVni.Set(nil)
@@ -629,7 +625,6 @@ func (o *DpuNetworkConfig) HasDpuNetworkPingerType() bool {
 func (o *DpuNetworkConfig) SetDpuNetworkPingerType(v string) {
 	o.DpuNetworkPingerType.Set(&v)
 }
-
 // SetDpuNetworkPingerTypeNil sets the value for DpuNetworkPingerType to be an explicit nil
 func (o *DpuNetworkConfig) SetDpuNetworkPingerTypeNil() {
 	o.DpuNetworkPingerType.Set(nil)
@@ -808,7 +803,6 @@ func (o *DpuNetworkConfig) HasHostInterfaceId() bool {
 func (o *DpuNetworkConfig) SetHostInterfaceId(v string) {
 	o.HostInterfaceId.Set(&v)
 }
-
 // SetHostInterfaceIdNil sets the value for HostInterfaceId to be an explicit nil
 func (o *DpuNetworkConfig) SetHostInterfaceIdNil() {
 	o.HostInterfaceId.Set(nil)
@@ -851,7 +845,6 @@ func (o *DpuNetworkConfig) HasMinDpuFunctioningLinks() bool {
 func (o *DpuNetworkConfig) SetMinDpuFunctioningLinks(v uint32) {
 	o.MinDpuFunctioningLinks.Set(&v)
 }
-
 // SetMinDpuFunctioningLinksNil sets the value for MinDpuFunctioningLinks to be an explicit nil
 func (o *DpuNetworkConfig) SetMinDpuFunctioningLinksNil() {
 	o.MinDpuFunctioningLinks.Set(nil)
@@ -918,7 +911,6 @@ func (o *DpuNetworkConfig) HasInternetL3Vni() bool {
 func (o *DpuNetworkConfig) SetInternetL3Vni(v uint32) {
 	o.InternetL3Vni.Set(&v)
 }
-
 // SetInternetL3VniNil sets the value for InternetL3Vni to be an explicit nil
 func (o *DpuNetworkConfig) SetInternetL3VniNil() {
 	o.InternetL3Vni.Set(nil)
@@ -1017,7 +1009,6 @@ func (o *DpuNetworkConfig) HasTenantHostAsn() bool {
 func (o *DpuNetworkConfig) SetTenantHostAsn(v uint32) {
 	o.TenantHostAsn.Set(&v)
 }
-
 // SetTenantHostAsnNil sets the value for TenantHostAsn to be an explicit nil
 func (o *DpuNetworkConfig) SetTenantHostAsnNil() {
 	o.TenantHostAsn.Set(nil)
@@ -1060,7 +1051,6 @@ func (o *DpuNetworkConfig) HasSiteGlobalVpcVni() bool {
 func (o *DpuNetworkConfig) SetSiteGlobalVpcVni(v uint32) {
 	o.SiteGlobalVpcVni.Set(&v)
 }
-
 // SetSiteGlobalVpcVniNil sets the value for SiteGlobalVpcVni to be an explicit nil
 func (o *DpuNetworkConfig) SetSiteGlobalVpcVniNil() {
 	o.SiteGlobalVpcVni.Set(nil)
@@ -1072,7 +1062,7 @@ func (o *DpuNetworkConfig) UnsetSiteGlobalVpcVni() {
 }
 
 func (o DpuNetworkConfig) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -1173,10 +1163,10 @@ func (o *DpuNetworkConfig) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -1231,3 +1221,4 @@ func (v *NullableDpuNetworkConfig) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

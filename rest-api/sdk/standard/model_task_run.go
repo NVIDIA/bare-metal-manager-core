@@ -14,10 +14,10 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
 	"time"
+	"bytes"
+	"fmt"
 )
 
 // checks if the TaskRun type satisfies the MappedNullable interface at compile time
@@ -402,7 +402,6 @@ func (o *TaskRun) HasStarted() bool {
 func (o *TaskRun) SetStarted(v time.Time) {
 	o.Started.Set(&v)
 }
-
 // SetStartedNil sets the value for Started to be an explicit nil
 func (o *TaskRun) SetStartedNil() {
 	o.Started.Set(nil)
@@ -445,7 +444,6 @@ func (o *TaskRun) HasFinished() bool {
 func (o *TaskRun) SetFinished(v time.Time) {
 	o.Finished.Set(&v)
 }
-
 // SetFinishedNil sets the value for Finished to be an explicit nil
 func (o *TaskRun) SetFinishedNil() {
 	o.Finished.Set(nil)
@@ -489,7 +487,7 @@ func (o *TaskRun) SetStats(v TaskRunStats) {
 }
 
 func (o TaskRun) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -547,10 +545,10 @@ func (o *TaskRun) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -605,3 +603,4 @@ func (v *NullableTaskRun) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

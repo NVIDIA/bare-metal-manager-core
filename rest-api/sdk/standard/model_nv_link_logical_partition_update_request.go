@@ -77,7 +77,6 @@ func (o *NVLinkLogicalPartitionUpdateRequest) HasName() bool {
 func (o *NVLinkLogicalPartitionUpdateRequest) SetName(v string) {
 	o.Name.Set(&v)
 }
-
 // SetNameNil sets the value for Name to be an explicit nil
 func (o *NVLinkLogicalPartitionUpdateRequest) SetNameNil() {
 	o.Name.Set(nil)
@@ -120,7 +119,6 @@ func (o *NVLinkLogicalPartitionUpdateRequest) HasDescription() bool {
 func (o *NVLinkLogicalPartitionUpdateRequest) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *NVLinkLogicalPartitionUpdateRequest) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -132,7 +130,7 @@ func (o *NVLinkLogicalPartitionUpdateRequest) UnsetDescription() {
 }
 
 func (o NVLinkLogicalPartitionUpdateRequest) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -185,3 +183,4 @@ func (v *NullableNVLinkLogicalPartitionUpdateRequest) UnmarshalJSON(src []byte) 
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

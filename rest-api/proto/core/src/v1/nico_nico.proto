@@ -6038,6 +6038,11 @@ message DpuReprovisioningRequest {
   bool update_firmware = 4;
 
   common.MachineId machine_id = 5;
+
+  // Force reprovisioning regardless of the managed host state. Intended to
+  // recover DPUs stuck in ingestion (non-Ready, non-Assigned states) by
+  // restarting the ingestion state machine. Ignored for Assigned hosts.
+  bool force = 6;
 }
 
 message DpuReprovisioningListRequest {

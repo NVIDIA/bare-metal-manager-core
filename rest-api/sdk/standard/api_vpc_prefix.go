@@ -22,13 +22,14 @@ import (
 	"strings"
 )
 
+
 // VPCPrefixAPIService VPCPrefixAPI service
 type VPCPrefixAPIService service
 
 type ApiCreateVpcPrefixRequest struct {
-	ctx                    context.Context
-	ApiService             *VPCPrefixAPIService
-	org                    string
+	ctx context.Context
+	ApiService *VPCPrefixAPIService
+	org string
 	vpcPrefixCreateRequest *VpcPrefixCreateRequest
 }
 
@@ -48,27 +49,26 @@ Create a VPC Prefix for the org.
 
 Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiCreateVpcPrefixRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiCreateVpcPrefixRequest
 */
 func (a *VPCPrefixAPIService) CreateVpcPrefix(ctx context.Context, org string) ApiCreateVpcPrefixRequest {
 	return ApiCreateVpcPrefixRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return VpcPrefix
+//  @return VpcPrefix
 func (a *VPCPrefixAPIService) CreateVpcPrefixExecute(r ApiCreateVpcPrefixRequest) (*VpcPrefix, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPost
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *VpcPrefix
+		localVarHTTPMethod   = http.MethodPost
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *VpcPrefix
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "VPCPrefixAPIService.CreateVpcPrefix")
@@ -131,8 +131,8 @@ func (a *VPCPrefixAPIService) CreateVpcPrefixExecute(r ApiCreateVpcPrefixRequest
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -142,8 +142,8 @@ func (a *VPCPrefixAPIService) CreateVpcPrefixExecute(r ApiCreateVpcPrefixRequest
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -161,9 +161,9 @@ func (a *VPCPrefixAPIService) CreateVpcPrefixExecute(r ApiCreateVpcPrefixRequest
 }
 
 type ApiDeleteVpcPrefixRequest struct {
-	ctx         context.Context
-	ApiService  *VPCPrefixAPIService
-	org         string
+	ctx context.Context
+	ApiService *VPCPrefixAPIService
+	org string
 	vpcPrefixId string
 }
 
@@ -178,16 +178,16 @@ Delete a specific VPC Prefix by ID.
 
 Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param vpcPrefixId ID of the VPC Prefix
-	@return ApiDeleteVpcPrefixRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param vpcPrefixId ID of the VPC Prefix
+ @return ApiDeleteVpcPrefixRequest
 */
 func (a *VPCPrefixAPIService) DeleteVpcPrefix(ctx context.Context, org string, vpcPrefixId string) ApiDeleteVpcPrefixRequest {
 	return ApiDeleteVpcPrefixRequest{
-		ApiService:  a,
-		ctx:         ctx,
-		org:         org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		vpcPrefixId: vpcPrefixId,
 	}
 }
@@ -195,9 +195,9 @@ func (a *VPCPrefixAPIService) DeleteVpcPrefix(ctx context.Context, org string, v
 // Execute executes the request
 func (a *VPCPrefixAPIService) DeleteVpcPrefixExecute(r ApiDeleteVpcPrefixRequest) (*http.Response, error) {
 	var (
-		localVarHTTPMethod = http.MethodDelete
-		localVarPostBody   interface{}
-		formFiles          []formFile
+		localVarHTTPMethod   = http.MethodDelete
+		localVarPostBody     interface{}
+		formFiles            []formFile
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "VPCPrefixAPIService.DeleteVpcPrefix")
@@ -259,8 +259,8 @@ func (a *VPCPrefixAPIService) DeleteVpcPrefixExecute(r ApiDeleteVpcPrefixRequest
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarHTTPResponse, newErr
 	}
@@ -269,18 +269,18 @@ func (a *VPCPrefixAPIService) DeleteVpcPrefixExecute(r ApiDeleteVpcPrefixRequest
 }
 
 type ApiGetAllVpcPrefixRequest struct {
-	ctx               context.Context
-	ApiService        *VPCPrefixAPIService
-	org               string
-	siteId            *string
-	vpcId             *string
-	status            *string
-	query             *string
-	includeRelation   *string
+	ctx context.Context
+	ApiService *VPCPrefixAPIService
+	org string
+	siteId *string
+	vpcId *string
+	status *string
+	query *string
+	includeRelation *string
 	includeUsageStats *bool
-	pageNumber        *int32
-	pageSize          *int32
-	orderBy           *string
+	pageNumber *int32
+	pageSize *int32
+	orderBy *string
 }
 
 // Filter VPC Prefixes by Site, required if the vpcId query parameter is not specified
@@ -344,31 +344,30 @@ func (r ApiGetAllVpcPrefixRequest) Execute() ([]VpcPrefix, *http.Response, error
 /*
 GetAllVpcPrefix Retrieve all VPC Prefixes
 
-# Retrieve all VPC Prefixes for the org
+Retrieve all VPC Prefixes for the org
 
 Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiGetAllVpcPrefixRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiGetAllVpcPrefixRequest
 */
 func (a *VPCPrefixAPIService) GetAllVpcPrefix(ctx context.Context, org string) ApiGetAllVpcPrefixRequest {
 	return ApiGetAllVpcPrefixRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return []VpcPrefix
+//  @return []VpcPrefix
 func (a *VPCPrefixAPIService) GetAllVpcPrefixExecute(r ApiGetAllVpcPrefixRequest) ([]VpcPrefix, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue []VpcPrefix
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  []VpcPrefix
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "VPCPrefixAPIService.GetAllVpcPrefix")
@@ -460,8 +459,8 @@ func (a *VPCPrefixAPIService) GetAllVpcPrefixExecute(r ApiGetAllVpcPrefixRequest
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -479,11 +478,11 @@ func (a *VPCPrefixAPIService) GetAllVpcPrefixExecute(r ApiGetAllVpcPrefixRequest
 }
 
 type ApiGetVpcPrefixRequest struct {
-	ctx               context.Context
-	ApiService        *VPCPrefixAPIService
-	org               string
-	vpcPrefixId       string
-	includeRelation   *string
+	ctx context.Context
+	ApiService *VPCPrefixAPIService
+	org string
+	vpcPrefixId string
+	includeRelation *string
 	includeUsageStats *bool
 }
 
@@ -506,33 +505,32 @@ func (r ApiGetVpcPrefixRequest) Execute() (*VpcPrefix, *http.Response, error) {
 /*
 GetVpcPrefix Retrieve VPC Prefix
 
-# Retrieve a specific VPC Prefix
+Retrieve a specific VPC Prefix
 
 Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param vpcPrefixId ID of the VPC Prefix
-	@return ApiGetVpcPrefixRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param vpcPrefixId ID of the VPC Prefix
+ @return ApiGetVpcPrefixRequest
 */
 func (a *VPCPrefixAPIService) GetVpcPrefix(ctx context.Context, org string, vpcPrefixId string) ApiGetVpcPrefixRequest {
 	return ApiGetVpcPrefixRequest{
-		ApiService:  a,
-		ctx:         ctx,
-		org:         org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		vpcPrefixId: vpcPrefixId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return VpcPrefix
+//  @return VpcPrefix
 func (a *VPCPrefixAPIService) GetVpcPrefixExecute(r ApiGetVpcPrefixRequest) (*VpcPrefix, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *VpcPrefix
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *VpcPrefix
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "VPCPrefixAPIService.GetVpcPrefix")
@@ -600,8 +598,8 @@ func (a *VPCPrefixAPIService) GetVpcPrefixExecute(r ApiGetVpcPrefixRequest) (*Vp
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -619,10 +617,10 @@ func (a *VPCPrefixAPIService) GetVpcPrefixExecute(r ApiGetVpcPrefixRequest) (*Vp
 }
 
 type ApiUpdateVpcPrefixRequest struct {
-	ctx                    context.Context
-	ApiService             *VPCPrefixAPIService
-	org                    string
-	vpcPrefixId            string
+	ctx context.Context
+	ApiService *VPCPrefixAPIService
+	org string
+	vpcPrefixId string
 	vpcPrefixUpdateRequest *VpcPrefixUpdateRequest
 }
 
@@ -638,33 +636,33 @@ func (r ApiUpdateVpcPrefixRequest) Execute() (*VpcPrefix, *http.Response, error)
 /*
 UpdateVpcPrefix Update VPC Prefix
 
-# Update an existing VPC Prefix
+Update an existing VPC Prefix
 
 Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param vpcPrefixId ID of the VPC Prefix
-	@return ApiUpdateVpcPrefixRequest
+
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param vpcPrefixId ID of the VPC Prefix
+ @return ApiUpdateVpcPrefixRequest
 */
 func (a *VPCPrefixAPIService) UpdateVpcPrefix(ctx context.Context, org string, vpcPrefixId string) ApiUpdateVpcPrefixRequest {
 	return ApiUpdateVpcPrefixRequest{
-		ApiService:  a,
-		ctx:         ctx,
-		org:         org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		vpcPrefixId: vpcPrefixId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return VpcPrefix
+//  @return VpcPrefix
 func (a *VPCPrefixAPIService) UpdateVpcPrefixExecute(r ApiUpdateVpcPrefixRequest) (*VpcPrefix, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPatch
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *VpcPrefix
+		localVarHTTPMethod   = http.MethodPatch
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *VpcPrefix
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "VPCPrefixAPIService.UpdateVpcPrefix")
@@ -728,8 +726,8 @@ func (a *VPCPrefixAPIService) UpdateVpcPrefixExecute(r ApiUpdateVpcPrefixRequest
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -739,8 +737,8 @@ func (a *VPCPrefixAPIService) UpdateVpcPrefixExecute(r ApiUpdateVpcPrefixRequest
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

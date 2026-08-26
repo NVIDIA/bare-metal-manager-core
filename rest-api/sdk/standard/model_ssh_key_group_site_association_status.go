@@ -23,10 +23,10 @@ type SshKeyGroupSiteAssociationStatus string
 
 // List of SshKeyGroupSiteAssociationStatus
 const (
-	SSHKEYGROUPSITEASSOCIATIONSTATUS_SYNCING  SshKeyGroupSiteAssociationStatus = "Syncing"
-	SSHKEYGROUPSITEASSOCIATIONSTATUS_SYNCED   SshKeyGroupSiteAssociationStatus = "Synced"
-	SSHKEYGROUPSITEASSOCIATIONSTATUS_PENDING  SshKeyGroupSiteAssociationStatus = "Pending"
-	SSHKEYGROUPSITEASSOCIATIONSTATUS_ERROR    SshKeyGroupSiteAssociationStatus = "Error"
+	SSHKEYGROUPSITEASSOCIATIONSTATUS_SYNCING SshKeyGroupSiteAssociationStatus = "Syncing"
+	SSHKEYGROUPSITEASSOCIATIONSTATUS_SYNCED SshKeyGroupSiteAssociationStatus = "Synced"
+	SSHKEYGROUPSITEASSOCIATIONSTATUS_PENDING SshKeyGroupSiteAssociationStatus = "Pending"
+	SSHKEYGROUPSITEASSOCIATIONSTATUS_ERROR SshKeyGroupSiteAssociationStatus = "Error"
 	SSHKEYGROUPSITEASSOCIATIONSTATUS_DELETING SshKeyGroupSiteAssociationStatus = "Deleting"
 )
 
@@ -117,3 +117,4 @@ func (v *NullableSshKeyGroupSiteAssociationStatus) UnmarshalJSON(src []byte) err
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

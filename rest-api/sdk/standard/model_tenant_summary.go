@@ -113,7 +113,6 @@ func (o *TenantSummary) HasOrgDisplayName() bool {
 func (o *TenantSummary) SetOrgDisplayName(v string) {
 	o.OrgDisplayName.Set(&v)
 }
-
 // SetOrgDisplayNameNil sets the value for OrgDisplayName to be an explicit nil
 func (o *TenantSummary) SetOrgDisplayNameNil() {
 	o.OrgDisplayName.Set(nil)
@@ -189,7 +188,7 @@ func (o *TenantSummary) SetDeprecations(v []Deprecation) {
 }
 
 func (o TenantSummary) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -248,3 +247,4 @@ func (v *NullableTenantSummary) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

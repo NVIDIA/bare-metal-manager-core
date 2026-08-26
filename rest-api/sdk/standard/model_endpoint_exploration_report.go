@@ -14,8 +14,8 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
+	"bytes"
 	"fmt"
 )
 
@@ -33,16 +33,16 @@ type EndpointExplorationReport struct {
 	// Go duration string for the last exploration latency (for example `1.5s`).
 	LastExplorationLatency NullableString `json:"lastExplorationLatency,omitempty"`
 	// Vendor reported by Redfish.
-	Vendor             NullableString              `json:"vendor,omitempty"`
-	Managers           []ExploredManager           `json:"managers,omitempty"`
-	Systems            []ExploredComputerSystem    `json:"systems,omitempty"`
-	Chassis            []ExploredChassis           `json:"chassis,omitempty"`
-	Service            []ExploredService           `json:"service,omitempty"`
+	Vendor NullableString `json:"vendor,omitempty"`
+	Managers []ExploredManager `json:"managers,omitempty"`
+	Systems []ExploredComputerSystem `json:"systems,omitempty"`
+	Chassis []ExploredChassis `json:"chassis,omitempty"`
+	Service []ExploredService `json:"service,omitempty"`
 	MachineSetupStatus *ExploredMachineSetupStatus `json:"machineSetupStatus,omitempty"`
-	SecureBootStatus   *ExploredSecureBootStatus   `json:"secureBootStatus,omitempty"`
-	LockdownStatus     *ExploredLockdownStatus     `json:"lockdownStatus,omitempty"`
+	SecureBootStatus *ExploredSecureBootStatus `json:"secureBootStatus,omitempty"`
+	LockdownStatus *ExploredLockdownStatus `json:"lockdownStatus,omitempty"`
 	// Parsed firmware component versions keyed by component name.
-	FirmwareVersions           map[string]string    `json:"firmwareVersions,omitempty"`
+	FirmwareVersions map[string]string `json:"firmwareVersions,omitempty"`
 	LastExplorationErrorSchema *OperatorErrorSchema `json:"lastExplorationErrorSchema,omitempty"`
 }
 
@@ -122,7 +122,6 @@ func (o *EndpointExplorationReport) HasLastExplorationError() bool {
 func (o *EndpointExplorationReport) SetLastExplorationError(v string) {
 	o.LastExplorationError.Set(&v)
 }
-
 // SetLastExplorationErrorNil sets the value for LastExplorationError to be an explicit nil
 func (o *EndpointExplorationReport) SetLastExplorationErrorNil() {
 	o.LastExplorationError.Set(nil)
@@ -165,7 +164,6 @@ func (o *EndpointExplorationReport) HasMachineId() bool {
 func (o *EndpointExplorationReport) SetMachineId(v string) {
 	o.MachineId.Set(&v)
 }
-
 // SetMachineIdNil sets the value for MachineId to be an explicit nil
 func (o *EndpointExplorationReport) SetMachineIdNil() {
 	o.MachineId.Set(nil)
@@ -208,7 +206,6 @@ func (o *EndpointExplorationReport) HasLastExplorationLatency() bool {
 func (o *EndpointExplorationReport) SetLastExplorationLatency(v string) {
 	o.LastExplorationLatency.Set(&v)
 }
-
 // SetLastExplorationLatencyNil sets the value for LastExplorationLatency to be an explicit nil
 func (o *EndpointExplorationReport) SetLastExplorationLatencyNil() {
 	o.LastExplorationLatency.Set(nil)
@@ -251,7 +248,6 @@ func (o *EndpointExplorationReport) HasVendor() bool {
 func (o *EndpointExplorationReport) SetVendor(v string) {
 	o.Vendor.Set(&v)
 }
-
 // SetVendorNil sets the value for Vendor to be an explicit nil
 func (o *EndpointExplorationReport) SetVendorNil() {
 	o.Vendor.Set(nil)
@@ -551,7 +547,7 @@ func (o *EndpointExplorationReport) SetLastExplorationErrorSchema(v OperatorErro
 }
 
 func (o EndpointExplorationReport) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -616,10 +612,10 @@ func (o *EndpointExplorationReport) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -674,3 +670,4 @@ func (v *NullableEndpointExplorationReport) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

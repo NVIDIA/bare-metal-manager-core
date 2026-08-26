@@ -77,7 +77,6 @@ func (o *PlacementInRack) HasSlotNumber() bool {
 func (o *PlacementInRack) SetSlotNumber(v int32) {
 	o.SlotNumber.Set(&v)
 }
-
 // SetSlotNumberNil sets the value for SlotNumber to be an explicit nil
 func (o *PlacementInRack) SetSlotNumberNil() {
 	o.SlotNumber.Set(nil)
@@ -120,7 +119,6 @@ func (o *PlacementInRack) HasTrayIndex() bool {
 func (o *PlacementInRack) SetTrayIndex(v int32) {
 	o.TrayIndex.Set(&v)
 }
-
 // SetTrayIndexNil sets the value for TrayIndex to be an explicit nil
 func (o *PlacementInRack) SetTrayIndexNil() {
 	o.TrayIndex.Set(nil)
@@ -132,7 +130,7 @@ func (o *PlacementInRack) UnsetTrayIndex() {
 }
 
 func (o PlacementInRack) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -185,3 +183,4 @@ func (v *NullablePlacementInRack) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

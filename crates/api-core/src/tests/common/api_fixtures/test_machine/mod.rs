@@ -146,6 +146,7 @@ impl TestMachine {
                     mode: mode as i32,
                     initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
                     update_firmware,
+                    force: false,
                 },
             ))
             .await

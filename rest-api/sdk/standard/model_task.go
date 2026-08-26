@@ -41,7 +41,7 @@ type Task struct {
 	Created *time.Time `json:"created,omitempty"`
 	// Timestamp when the task was last updated.
 	Updated *time.Time `json:"updated,omitempty"`
-	// Structured v1 execution report for the task. Populated on single-task `GET` and `cancel` responses, and on list responses only when `includeReport=true` is set. Omitted when the task has not yet produced a report (e.g. still queued) or when the caller did not opt in on list endpoints.  A future schema revision will be exposed as a new `TaskReportV2` schema referenced from a parallel response field; v1 consumers are not disturbed by that bump.
+	// Structured v1 execution report for the task. Populated on single-task `GET` and `cancel` responses, and on list responses only when `includeReport=true` is set. Omitted when the task has not yet produced a report (e.g. still queued) or when the caller did not opt in on list endpoints.  A future schema revision will be exposed as a new `TaskReportV2` schema referenced from a parallel response field; v1 consumers are not disturbed by that bump. 
 	Report *TaskReportV1 `json:"report,omitempty"`
 }
 
@@ -222,7 +222,6 @@ func (o *Task) HasRuleId() bool {
 func (o *Task) SetRuleId(v string) {
 	o.RuleId.Set(&v)
 }
-
 // SetRuleIdNil sets the value for RuleId to be an explicit nil
 func (o *Task) SetRuleIdNil() {
 	o.RuleId.Set(nil)
@@ -394,7 +393,7 @@ func (o *Task) SetReport(v TaskReportV1) {
 }
 
 func (o Task) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -471,3 +470,4 @@ func (v *NullableTask) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

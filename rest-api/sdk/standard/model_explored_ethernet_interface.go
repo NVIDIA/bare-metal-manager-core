@@ -22,11 +22,11 @@ var _ MappedNullable = &ExploredEthernetInterface{}
 
 // ExploredEthernetInterface Redfish EthernetInterface reported during exploration.
 type ExploredEthernetInterface struct {
-	Id               NullableString `json:"id,omitempty"`
-	Description      NullableString `json:"description,omitempty"`
-	InterfaceEnabled NullableBool   `json:"interfaceEnabled,omitempty"`
-	MacAddress       NullableString `json:"macAddress,omitempty"`
-	LinkStatus       NullableString `json:"linkStatus,omitempty"`
+	Id NullableString `json:"id,omitempty"`
+	Description NullableString `json:"description,omitempty"`
+	InterfaceEnabled NullableBool `json:"interfaceEnabled,omitempty"`
+	MacAddress NullableString `json:"macAddress,omitempty"`
+	LinkStatus NullableString `json:"linkStatus,omitempty"`
 }
 
 // NewExploredEthernetInterface instantiates a new ExploredEthernetInterface object
@@ -78,7 +78,6 @@ func (o *ExploredEthernetInterface) HasId() bool {
 func (o *ExploredEthernetInterface) SetId(v string) {
 	o.Id.Set(&v)
 }
-
 // SetIdNil sets the value for Id to be an explicit nil
 func (o *ExploredEthernetInterface) SetIdNil() {
 	o.Id.Set(nil)
@@ -121,7 +120,6 @@ func (o *ExploredEthernetInterface) HasDescription() bool {
 func (o *ExploredEthernetInterface) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *ExploredEthernetInterface) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -164,7 +162,6 @@ func (o *ExploredEthernetInterface) HasInterfaceEnabled() bool {
 func (o *ExploredEthernetInterface) SetInterfaceEnabled(v bool) {
 	o.InterfaceEnabled.Set(&v)
 }
-
 // SetInterfaceEnabledNil sets the value for InterfaceEnabled to be an explicit nil
 func (o *ExploredEthernetInterface) SetInterfaceEnabledNil() {
 	o.InterfaceEnabled.Set(nil)
@@ -207,7 +204,6 @@ func (o *ExploredEthernetInterface) HasMacAddress() bool {
 func (o *ExploredEthernetInterface) SetMacAddress(v string) {
 	o.MacAddress.Set(&v)
 }
-
 // SetMacAddressNil sets the value for MacAddress to be an explicit nil
 func (o *ExploredEthernetInterface) SetMacAddressNil() {
 	o.MacAddress.Set(nil)
@@ -250,7 +246,6 @@ func (o *ExploredEthernetInterface) HasLinkStatus() bool {
 func (o *ExploredEthernetInterface) SetLinkStatus(v string) {
 	o.LinkStatus.Set(&v)
 }
-
 // SetLinkStatusNil sets the value for LinkStatus to be an explicit nil
 func (o *ExploredEthernetInterface) SetLinkStatusNil() {
 	o.LinkStatus.Set(nil)
@@ -262,7 +257,7 @@ func (o *ExploredEthernetInterface) UnsetLinkStatus() {
 }
 
 func (o ExploredEthernetInterface) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -324,3 +319,4 @@ func (v *NullableExploredEthernetInterface) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

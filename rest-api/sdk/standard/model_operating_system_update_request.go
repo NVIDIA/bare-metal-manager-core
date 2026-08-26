@@ -112,7 +112,6 @@ func (o *OperatingSystemUpdateRequest) HasName() bool {
 func (o *OperatingSystemUpdateRequest) SetName(v string) {
 	o.Name.Set(&v)
 }
-
 // SetNameNil sets the value for Name to be an explicit nil
 func (o *OperatingSystemUpdateRequest) SetNameNil() {
 	o.Name.Set(nil)
@@ -155,7 +154,6 @@ func (o *OperatingSystemUpdateRequest) HasDescription() bool {
 func (o *OperatingSystemUpdateRequest) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *OperatingSystemUpdateRequest) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -198,7 +196,6 @@ func (o *OperatingSystemUpdateRequest) HasIpxeScript() bool {
 func (o *OperatingSystemUpdateRequest) SetIpxeScript(v string) {
 	o.IpxeScript.Set(&v)
 }
-
 // SetIpxeScriptNil sets the value for IpxeScript to be an explicit nil
 func (o *OperatingSystemUpdateRequest) SetIpxeScriptNil() {
 	o.IpxeScript.Set(nil)
@@ -241,7 +238,6 @@ func (o *OperatingSystemUpdateRequest) HasImageUrl() bool {
 func (o *OperatingSystemUpdateRequest) SetImageUrl(v string) {
 	o.ImageUrl.Set(&v)
 }
-
 // SetImageUrlNil sets the value for ImageUrl to be an explicit nil
 func (o *OperatingSystemUpdateRequest) SetImageUrlNil() {
 	o.ImageUrl.Set(nil)
@@ -284,7 +280,6 @@ func (o *OperatingSystemUpdateRequest) HasImageSha() bool {
 func (o *OperatingSystemUpdateRequest) SetImageSha(v string) {
 	o.ImageSha.Set(&v)
 }
-
 // SetImageShaNil sets the value for ImageSha to be an explicit nil
 func (o *OperatingSystemUpdateRequest) SetImageShaNil() {
 	o.ImageSha.Set(nil)
@@ -327,7 +322,6 @@ func (o *OperatingSystemUpdateRequest) HasImageAuthType() bool {
 func (o *OperatingSystemUpdateRequest) SetImageAuthType(v string) {
 	o.ImageAuthType.Set(&v)
 }
-
 // SetImageAuthTypeNil sets the value for ImageAuthType to be an explicit nil
 func (o *OperatingSystemUpdateRequest) SetImageAuthTypeNil() {
 	o.ImageAuthType.Set(nil)
@@ -370,7 +364,6 @@ func (o *OperatingSystemUpdateRequest) HasImageAuthToken() bool {
 func (o *OperatingSystemUpdateRequest) SetImageAuthToken(v string) {
 	o.ImageAuthToken.Set(&v)
 }
-
 // SetImageAuthTokenNil sets the value for ImageAuthToken to be an explicit nil
 func (o *OperatingSystemUpdateRequest) SetImageAuthTokenNil() {
 	o.ImageAuthToken.Set(nil)
@@ -413,7 +406,6 @@ func (o *OperatingSystemUpdateRequest) HasImageDisk() bool {
 func (o *OperatingSystemUpdateRequest) SetImageDisk(v string) {
 	o.ImageDisk.Set(&v)
 }
-
 // SetImageDiskNil sets the value for ImageDisk to be an explicit nil
 func (o *OperatingSystemUpdateRequest) SetImageDiskNil() {
 	o.ImageDisk.Set(nil)
@@ -456,7 +448,6 @@ func (o *OperatingSystemUpdateRequest) HasRootFsId() bool {
 func (o *OperatingSystemUpdateRequest) SetRootFsId(v string) {
 	o.RootFsId.Set(&v)
 }
-
 // SetRootFsIdNil sets the value for RootFsId to be an explicit nil
 func (o *OperatingSystemUpdateRequest) SetRootFsIdNil() {
 	o.RootFsId.Set(nil)
@@ -499,7 +490,6 @@ func (o *OperatingSystemUpdateRequest) HasRootFsLabel() bool {
 func (o *OperatingSystemUpdateRequest) SetRootFsLabel(v string) {
 	o.RootFsLabel.Set(&v)
 }
-
 // SetRootFsLabelNil sets the value for RootFsLabel to be an explicit nil
 func (o *OperatingSystemUpdateRequest) SetRootFsLabelNil() {
 	o.RootFsLabel.Set(nil)
@@ -542,7 +532,6 @@ func (o *OperatingSystemUpdateRequest) HasPhoneHomeEnabled() bool {
 func (o *OperatingSystemUpdateRequest) SetPhoneHomeEnabled(v bool) {
 	o.PhoneHomeEnabled.Set(&v)
 }
-
 // SetPhoneHomeEnabledNil sets the value for PhoneHomeEnabled to be an explicit nil
 func (o *OperatingSystemUpdateRequest) SetPhoneHomeEnabledNil() {
 	o.PhoneHomeEnabled.Set(nil)
@@ -585,7 +574,6 @@ func (o *OperatingSystemUpdateRequest) HasUserData() bool {
 func (o *OperatingSystemUpdateRequest) SetUserData(v string) {
 	o.UserData.Set(&v)
 }
-
 // SetUserDataNil sets the value for UserData to be an explicit nil
 func (o *OperatingSystemUpdateRequest) SetUserDataNil() {
 	o.UserData.Set(nil)
@@ -631,7 +619,6 @@ func (o *OperatingSystemUpdateRequest) HasIsCloudInit() bool {
 func (o *OperatingSystemUpdateRequest) SetIsCloudInit(v bool) {
 	o.IsCloudInit.Set(&v)
 }
-
 // SetIsCloudInitNil sets the value for IsCloudInit to be an explicit nil
 func (o *OperatingSystemUpdateRequest) SetIsCloudInitNil() {
 	o.IsCloudInit.Set(nil)
@@ -674,7 +661,6 @@ func (o *OperatingSystemUpdateRequest) HasAllowOverride() bool {
 func (o *OperatingSystemUpdateRequest) SetAllowOverride(v bool) {
 	o.AllowOverride.Set(&v)
 }
-
 // SetAllowOverrideNil sets the value for AllowOverride to be an explicit nil
 func (o *OperatingSystemUpdateRequest) SetAllowOverrideNil() {
 	o.AllowOverride.Set(nil)
@@ -717,7 +703,6 @@ func (o *OperatingSystemUpdateRequest) HasIsActive() bool {
 func (o *OperatingSystemUpdateRequest) SetIsActive(v bool) {
 	o.IsActive.Set(&v)
 }
-
 // SetIsActiveNil sets the value for IsActive to be an explicit nil
 func (o *OperatingSystemUpdateRequest) SetIsActiveNil() {
 	o.IsActive.Set(nil)
@@ -760,7 +745,6 @@ func (o *OperatingSystemUpdateRequest) HasDeactivationNote() bool {
 func (o *OperatingSystemUpdateRequest) SetDeactivationNote(v string) {
 	o.DeactivationNote.Set(&v)
 }
-
 // SetDeactivationNoteNil sets the value for DeactivationNote to be an explicit nil
 func (o *OperatingSystemUpdateRequest) SetDeactivationNoteNil() {
 	o.DeactivationNote.Set(nil)
@@ -803,7 +787,6 @@ func (o *OperatingSystemUpdateRequest) HasIpxeTemplateId() bool {
 func (o *OperatingSystemUpdateRequest) SetIpxeTemplateId(v string) {
 	o.IpxeTemplateId.Set(&v)
 }
-
 // SetIpxeTemplateIdNil sets the value for IpxeTemplateId to be an explicit nil
 func (o *OperatingSystemUpdateRequest) SetIpxeTemplateIdNil() {
 	o.IpxeTemplateId.Set(nil)
@@ -879,7 +862,7 @@ func (o *OperatingSystemUpdateRequest) SetIpxeTemplateArtifacts(v []OperatingSys
 }
 
 func (o OperatingSystemUpdateRequest) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -983,3 +966,4 @@ func (v *NullableOperatingSystemUpdateRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

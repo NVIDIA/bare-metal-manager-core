@@ -27,9 +27,10 @@ use common::api_fixtures::{
 use libredfish::{EnabledDisabled, SystemPowerControl};
 use model::instance::status::tenant::TenantState;
 use model::machine::{
-    DpuInitState, FailureCause, FailureDetails, FailureSource, InstallDpuOsState, InstanceState,
-    Machine, MachineLastRebootRequestedMode, MachineState, ManagedHostState, PowerState,
-    ReprovisionState, SetBootOrderInfo, SetBootOrderState, StateMachineArea, UnlockHostState,
+    DpuDiscoveringState, DpuDiscoveringStates, DpuInitState, DpuInitStates, FailureCause,
+    FailureDetails, FailureSource, InstallDpuOsState, InstanceState, Machine,
+    MachineLastRebootRequestedMode, MachineState, ManagedHostState, PowerState, ReprovisionState,
+    SetBootOrderInfo, SetBootOrderState, StateMachineArea, UnlockHostState,
 };
 use model::test_support::HardwareInfoTemplate;
 use rpc::forge::MachineArchitecture;
@@ -273,9 +274,15 @@ async fn prepare_dpu_reprovision_host_boot_check(
     )
     .await
     .unwrap();
-    db::machine::trigger_dpu_reprovisioning_request(&dpu_machine.id, &mut txn, "AdminCli", true)
-        .await
-        .unwrap();
+    db::machine::trigger_dpu_reprovisioning_request(
+        &dpu_machine.id,
+        &mut txn,
+        "AdminCli",
+        true,
+        false,
+    )
+    .await
+    .unwrap();
     txn.commit().await.unwrap();
 
     dpu_machine
@@ -591,7 +598,8 @@ async fn test_dpu_for_reprovisioning_fail_if_maintenance_not_set(pool: sqlx::PgP
                     machine_id: mh.dpu().id.into(),
                     mode: rpc::forge::dpu_reprovisioning_request::Mode::Set as i32,
                     initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
-                    update_firmware: true
+                    update_firmware: true,
+                    force: false,
                 },
             ))
             .await
@@ -612,7 +620,8 @@ async fn test_dpu_for_reprovisioning_fail_if_state_is_not_ready(pool: sqlx::PgPo
                     machine_id: dpu_machine_id.into(),
                     mode: rpc::forge::dpu_reprovisioning_request::Mode::Set as i32,
                     initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
-                    update_firmware: true
+                    update_firmware: true,
+                    force: false,
                 },
             ))
             .await
@@ -1155,7 +1164,8 @@ async fn test_dpu_for_set_but_clear_failed(pool: sqlx::PgPool) {
                     machine_id: mh.dpu().id.into(),
                     mode: rpc::forge::dpu_reprovisioning_request::Mode::Clear as i32,
                     initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
-                    update_firmware: true
+                    update_firmware: true,
+                    force: false,
                 },
             ))
             .await
@@ -1492,6 +1502,7 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
                     mode: Mode::Restart as i32,
                     initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
                     update_firmware: false,
+                    force: false,
                 },
             ))
             .await
@@ -1570,9 +1581,15 @@ async fn test_restart_dpu_reprov_unassigned_host_boot_failure(pool: sqlx::PgPool
 
     let failed_at = Utc::now();
     let mut txn = env.pool.begin().await.unwrap();
-    db::machine::trigger_dpu_reprovisioning_request(&dpu_machine.id, &mut txn, "AdminCli", true)
-        .await
-        .unwrap();
+    db::machine::trigger_dpu_reprovisioning_request(
+        &dpu_machine.id,
+        &mut txn,
+        "AdminCli",
+        true,
+        false,
+    )
+    .await
+    .unwrap();
     db::machine::update_dpu_reprovision_explicit_start_time(&dpu_machine.id, failed_at, &mut txn)
         .await
         .unwrap();
@@ -2110,6 +2127,7 @@ async fn test_instance_reprov_restart_failed_impl(pool: sqlx::PgPool) {
                     mode: Mode::Restart as i32,
                     initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
                     update_firmware: false,
+                    force: false,
                 },
             ))
             .await
@@ -2226,6 +2244,7 @@ async fn test_dpu_for_reprovisioning_cannot_restart_if_not_started(pool: sqlx::P
                 mode: rpc::forge::dpu_reprovisioning_request::Mode::Restart as i32,
                 initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
                 update_firmware: true,
+                force: false,
             },
         ))
         .await
@@ -2269,5 +2288,101 @@ impl TestManagedHost {
             ))
             .await
             .unwrap();
+    }
+}
+
+// A DPU stuck in ingestion has no HostUpdateInProgress health alert, so a
+// non-forced request is rejected (see
+// test_dpu_for_reprovisioning_fail_if_maintenance_not_set). A forced request
+// must instead succeed and persist the force flag for the controller to act on.
+#[crate::sqlx_test]
+async fn test_dpu_force_reprovisioning_bypasses_precondition(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+
+    env.api
+        .trigger_dpu_reprovisioning(tonic::Request::new(
+            ::rpc::forge::DpuReprovisioningRequest {
+                dpu_id: None,
+                machine_id: mh.dpu().id.into(),
+                mode: Mode::Set as i32,
+                initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
+                update_firmware: false,
+                force: true,
+            },
+        ))
+        .await
+        .expect("forced reprovisioning should bypass the health-alert precondition");
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu = mh.dpu().db_machine(&mut txn).await;
+    let req = dpu
+        .reprovision_requested
+        .expect("forced reprovisioning should persist a request");
+    assert!(req.force, "persisted request should carry the force flag");
+}
+
+// A forced request on a host still in an ingestion substate restarts the
+// ingestion state machine from discovery and clears the one-shot force flag.
+#[crate::sqlx_test]
+async fn test_force_reprovisioning_restarts_ingestion(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    for ingestion_substate in [
+        DpuInitState::WaitingForPlatformConfiguration,
+        DpuInitState::WaitingForNetworkConfig,
+    ] {
+        let mh = common::api_fixtures::create_managed_host(&env).await;
+
+        let mut txn = env.pool.begin().await.unwrap();
+        db::machine::update_state(
+            &mut txn,
+            &mh.id,
+            &ManagedHostState::DPUInit {
+                dpu_states: DpuInitStates {
+                    states: mh
+                        .dpu_ids
+                        .iter()
+                        .map(|id| (*id, ingestion_substate.clone()))
+                        .collect(),
+                },
+            },
+        )
+        .await
+        .unwrap();
+        db::machine::trigger_dpu_reprovisioning_request(
+            &mh.dpu().id,
+            &mut txn,
+            "AdminCli",
+            false,
+            true,
+        )
+        .await
+        .unwrap();
+        txn.commit().await.unwrap();
+
+        let dpu = mh.dpu().next_iteration_machine(&env).await;
+
+        let expected = ManagedHostState::DpuDiscoveringState {
+            dpu_states: DpuDiscoveringStates {
+                states: mh
+                    .dpu_ids
+                    .iter()
+                    .map(|id| (*id, DpuDiscoveringState::Initializing))
+                    .collect(),
+            },
+        };
+        assert_eq!(
+            dpu.current_state(),
+            &expected,
+            "forced reprovisioning from {ingestion_substate:?} should restart ingestion from discovery",
+        );
+
+        let mut txn = env.pool.begin().await.unwrap();
+        let dpu = mh.dpu().db_machine(&mut txn).await;
+        assert!(
+            dpu.reprovision_requested.is_none(),
+            "forced reprovisioning should clear the one-shot request",
+        );
     }
 }

@@ -245,7 +245,6 @@ func (o *MachineMetadata) HasLifecycleState() bool {
 func (o *MachineMetadata) SetLifecycleState(v MachineLifecycleState) {
 	o.LifecycleState.Set(&v)
 }
-
 // SetLifecycleStateNil sets the value for LifecycleState to be an explicit nil
 func (o *MachineMetadata) SetLifecycleStateNil() {
 	o.LifecycleState.Set(nil)
@@ -257,7 +256,7 @@ func (o *MachineMetadata) UnsetLifecycleState() {
 }
 
 func (o MachineMetadata) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -322,3 +321,4 @@ func (v *NullableMachineMetadata) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

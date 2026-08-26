@@ -320,7 +320,6 @@ func (o *DpuMachineInterface) HasVendor() bool {
 func (o *DpuMachineInterface) SetVendor(v string) {
 	o.Vendor.Set(&v)
 }
-
 // SetVendorNil sets the value for Vendor to be an explicit nil
 func (o *DpuMachineInterface) SetVendorNil() {
 	o.Vendor.Set(nil)
@@ -363,7 +362,6 @@ func (o *DpuMachineInterface) HasCreated() bool {
 func (o *DpuMachineInterface) SetCreated(v time.Time) {
 	o.Created.Set(&v)
 }
-
 // SetCreatedNil sets the value for Created to be an explicit nil
 func (o *DpuMachineInterface) SetCreatedNil() {
 	o.Created.Set(nil)
@@ -406,7 +404,6 @@ func (o *DpuMachineInterface) HasLastDhcp() bool {
 func (o *DpuMachineInterface) SetLastDhcp(v time.Time) {
 	o.LastDhcp.Set(&v)
 }
-
 // SetLastDhcpNil sets the value for LastDhcp to be an explicit nil
 func (o *DpuMachineInterface) SetLastDhcpNil() {
 	o.LastDhcp.Set(nil)
@@ -450,7 +447,7 @@ func (o *DpuMachineInterface) SetIsBmc(v bool) {
 }
 
 func (o DpuMachineInterface) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -530,3 +527,4 @@ func (v *NullableDpuMachineInterface) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

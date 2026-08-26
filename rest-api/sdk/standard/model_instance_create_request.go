@@ -14,8 +14,8 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
+	"bytes"
 	"fmt"
 )
 
@@ -148,7 +148,6 @@ func (o *InstanceCreateRequest) HasDescription() bool {
 func (o *InstanceCreateRequest) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *InstanceCreateRequest) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -215,7 +214,6 @@ func (o *InstanceCreateRequest) HasInstanceTypeId() bool {
 func (o *InstanceCreateRequest) SetInstanceTypeId(v string) {
 	o.InstanceTypeId.Set(&v)
 }
-
 // SetInstanceTypeIdNil sets the value for InstanceTypeId to be an explicit nil
 func (o *InstanceCreateRequest) SetInstanceTypeIdNil() {
 	o.InstanceTypeId.Set(nil)
@@ -258,7 +256,6 @@ func (o *InstanceCreateRequest) HasMachineId() bool {
 func (o *InstanceCreateRequest) SetMachineId(v string) {
 	o.MachineId.Set(&v)
 }
-
 // SetMachineIdNil sets the value for MachineId to be an explicit nil
 func (o *InstanceCreateRequest) SetMachineIdNil() {
 	o.MachineId.Set(nil)
@@ -357,7 +354,6 @@ func (o *InstanceCreateRequest) HasUserData() bool {
 func (o *InstanceCreateRequest) SetUserData(v string) {
 	o.UserData.Set(&v)
 }
-
 // SetUserDataNil sets the value for UserData to be an explicit nil
 func (o *InstanceCreateRequest) SetUserDataNil() {
 	o.UserData.Set(nil)
@@ -400,7 +396,6 @@ func (o *InstanceCreateRequest) HasOperatingSystemId() bool {
 func (o *InstanceCreateRequest) SetOperatingSystemId(v string) {
 	o.OperatingSystemId.Set(&v)
 }
-
 // SetOperatingSystemIdNil sets the value for OperatingSystemId to be an explicit nil
 func (o *InstanceCreateRequest) SetOperatingSystemIdNil() {
 	o.OperatingSystemId.Set(nil)
@@ -443,7 +438,6 @@ func (o *InstanceCreateRequest) HasPowerProfile() bool {
 func (o *InstanceCreateRequest) SetPowerProfile(v string) {
 	o.PowerProfile.Set(&v)
 }
-
 // SetPowerProfileNil sets the value for PowerProfile to be an explicit nil
 func (o *InstanceCreateRequest) SetPowerProfileNil() {
 	o.PowerProfile.Set(nil)
@@ -486,7 +480,6 @@ func (o *InstanceCreateRequest) HasNetworkSecurityGroupId() bool {
 func (o *InstanceCreateRequest) SetNetworkSecurityGroupId(v string) {
 	o.NetworkSecurityGroupId.Set(&v)
 }
-
 // SetNetworkSecurityGroupIdNil sets the value for NetworkSecurityGroupId to be an explicit nil
 func (o *InstanceCreateRequest) SetNetworkSecurityGroupIdNil() {
 	o.NetworkSecurityGroupId.Set(nil)
@@ -529,7 +522,6 @@ func (o *InstanceCreateRequest) HasIpxeScript() bool {
 func (o *InstanceCreateRequest) SetIpxeScript(v string) {
 	o.IpxeScript.Set(&v)
 }
-
 // SetIpxeScriptNil sets the value for IpxeScript to be an explicit nil
 func (o *InstanceCreateRequest) SetIpxeScriptNil() {
 	o.IpxeScript.Set(nil)
@@ -861,7 +853,7 @@ func (o *InstanceCreateRequest) SetAllowUnhealthyMachine(v bool) {
 }
 
 func (o InstanceCreateRequest) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -948,10 +940,10 @@ func (o *InstanceCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -1006,3 +998,4 @@ func (v *NullableInstanceCreateRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

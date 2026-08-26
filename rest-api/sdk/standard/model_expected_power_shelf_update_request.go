@@ -104,7 +104,6 @@ func (o *ExpectedPowerShelfUpdateRequest) HasId() bool {
 func (o *ExpectedPowerShelfUpdateRequest) SetId(v string) {
 	o.Id.Set(&v)
 }
-
 // SetIdNil sets the value for Id to be an explicit nil
 func (o *ExpectedPowerShelfUpdateRequest) SetIdNil() {
 	o.Id.Set(nil)
@@ -150,7 +149,6 @@ func (o *ExpectedPowerShelfUpdateRequest) HasBmcMacAddress() bool {
 func (o *ExpectedPowerShelfUpdateRequest) SetBmcMacAddress(v string) {
 	o.BmcMacAddress.Set(&v)
 }
-
 // SetBmcMacAddressNil sets the value for BmcMacAddress to be an explicit nil
 func (o *ExpectedPowerShelfUpdateRequest) SetBmcMacAddressNil() {
 	o.BmcMacAddress.Set(nil)
@@ -193,7 +191,6 @@ func (o *ExpectedPowerShelfUpdateRequest) HasDefaultBmcUsername() bool {
 func (o *ExpectedPowerShelfUpdateRequest) SetDefaultBmcUsername(v string) {
 	o.DefaultBmcUsername.Set(&v)
 }
-
 // SetDefaultBmcUsernameNil sets the value for DefaultBmcUsername to be an explicit nil
 func (o *ExpectedPowerShelfUpdateRequest) SetDefaultBmcUsernameNil() {
 	o.DefaultBmcUsername.Set(nil)
@@ -236,7 +233,6 @@ func (o *ExpectedPowerShelfUpdateRequest) HasDefaultBmcPassword() bool {
 func (o *ExpectedPowerShelfUpdateRequest) SetDefaultBmcPassword(v string) {
 	o.DefaultBmcPassword.Set(&v)
 }
-
 // SetDefaultBmcPasswordNil sets the value for DefaultBmcPassword to be an explicit nil
 func (o *ExpectedPowerShelfUpdateRequest) SetDefaultBmcPasswordNil() {
 	o.DefaultBmcPassword.Set(nil)
@@ -279,7 +275,6 @@ func (o *ExpectedPowerShelfUpdateRequest) HasShelfSerialNumber() bool {
 func (o *ExpectedPowerShelfUpdateRequest) SetShelfSerialNumber(v string) {
 	o.ShelfSerialNumber.Set(&v)
 }
-
 // SetShelfSerialNumberNil sets the value for ShelfSerialNumber to be an explicit nil
 func (o *ExpectedPowerShelfUpdateRequest) SetShelfSerialNumberNil() {
 	o.ShelfSerialNumber.Set(nil)
@@ -322,7 +317,6 @@ func (o *ExpectedPowerShelfUpdateRequest) HasBmcIpAddress() bool {
 func (o *ExpectedPowerShelfUpdateRequest) SetBmcIpAddress(v string) {
 	o.BmcIpAddress.Set(&v)
 }
-
 // SetBmcIpAddressNil sets the value for BmcIpAddress to be an explicit nil
 func (o *ExpectedPowerShelfUpdateRequest) SetBmcIpAddressNil() {
 	o.BmcIpAddress.Set(nil)
@@ -365,7 +359,6 @@ func (o *ExpectedPowerShelfUpdateRequest) HasRackId() bool {
 func (o *ExpectedPowerShelfUpdateRequest) SetRackId(v string) {
 	o.RackId.Set(&v)
 }
-
 // SetRackIdNil sets the value for RackId to be an explicit nil
 func (o *ExpectedPowerShelfUpdateRequest) SetRackIdNil() {
 	o.RackId.Set(nil)
@@ -408,7 +401,6 @@ func (o *ExpectedPowerShelfUpdateRequest) HasName() bool {
 func (o *ExpectedPowerShelfUpdateRequest) SetName(v string) {
 	o.Name.Set(&v)
 }
-
 // SetNameNil sets the value for Name to be an explicit nil
 func (o *ExpectedPowerShelfUpdateRequest) SetNameNil() {
 	o.Name.Set(nil)
@@ -451,7 +443,6 @@ func (o *ExpectedPowerShelfUpdateRequest) HasManufacturer() bool {
 func (o *ExpectedPowerShelfUpdateRequest) SetManufacturer(v string) {
 	o.Manufacturer.Set(&v)
 }
-
 // SetManufacturerNil sets the value for Manufacturer to be an explicit nil
 func (o *ExpectedPowerShelfUpdateRequest) SetManufacturerNil() {
 	o.Manufacturer.Set(nil)
@@ -494,7 +485,6 @@ func (o *ExpectedPowerShelfUpdateRequest) HasModel() bool {
 func (o *ExpectedPowerShelfUpdateRequest) SetModel(v string) {
 	o.Model.Set(&v)
 }
-
 // SetModelNil sets the value for Model to be an explicit nil
 func (o *ExpectedPowerShelfUpdateRequest) SetModelNil() {
 	o.Model.Set(nil)
@@ -537,7 +527,6 @@ func (o *ExpectedPowerShelfUpdateRequest) HasDescription() bool {
 func (o *ExpectedPowerShelfUpdateRequest) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *ExpectedPowerShelfUpdateRequest) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -580,7 +569,6 @@ func (o *ExpectedPowerShelfUpdateRequest) HasSlotId() bool {
 func (o *ExpectedPowerShelfUpdateRequest) SetSlotId(v int32) {
 	o.SlotId.Set(&v)
 }
-
 // SetSlotIdNil sets the value for SlotId to be an explicit nil
 func (o *ExpectedPowerShelfUpdateRequest) SetSlotIdNil() {
 	o.SlotId.Set(nil)
@@ -623,7 +611,6 @@ func (o *ExpectedPowerShelfUpdateRequest) HasTrayIdx() bool {
 func (o *ExpectedPowerShelfUpdateRequest) SetTrayIdx(v int32) {
 	o.TrayIdx.Set(&v)
 }
-
 // SetTrayIdxNil sets the value for TrayIdx to be an explicit nil
 func (o *ExpectedPowerShelfUpdateRequest) SetTrayIdxNil() {
 	o.TrayIdx.Set(nil)
@@ -666,7 +653,6 @@ func (o *ExpectedPowerShelfUpdateRequest) HasHostId() bool {
 func (o *ExpectedPowerShelfUpdateRequest) SetHostId(v int32) {
 	o.HostId.Set(&v)
 }
-
 // SetHostIdNil sets the value for HostId to be an explicit nil
 func (o *ExpectedPowerShelfUpdateRequest) SetHostIdNil() {
 	o.HostId.Set(nil)
@@ -710,7 +696,7 @@ func (o *ExpectedPowerShelfUpdateRequest) SetLabels(v map[string]string) {
 }
 
 func (o ExpectedPowerShelfUpdateRequest) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -802,3 +788,4 @@ func (v *NullableExpectedPowerShelfUpdateRequest) UnmarshalJSON(src []byte) erro
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

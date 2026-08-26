@@ -23,9 +23,9 @@ type SiteStatus string
 
 // List of SiteStatus
 const (
-	SITESTATUS_PENDING    SiteStatus = "Pending"
+	SITESTATUS_PENDING SiteStatus = "Pending"
 	SITESTATUS_REGISTERED SiteStatus = "Registered"
-	SITESTATUS_ERROR      SiteStatus = "Error"
+	SITESTATUS_ERROR SiteStatus = "Error"
 )
 
 // All allowed values of SiteStatus enum
@@ -113,3 +113,4 @@ func (v *NullableSiteStatus) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

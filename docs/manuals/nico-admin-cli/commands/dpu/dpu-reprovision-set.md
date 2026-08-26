@@ -9,7 +9,7 @@ nico-admin-cli-dpu-reprovision-set - Set the DPU in reprovisioning mode.
 ## SYNOPSIS
 
 **nico-admin-cli dpu reprovision set** \<**-i**\|**--id**\>
-\[**-u**\|**--update-firmware**\] \[**--update-message**\]
+\[**-u**\|**--update-firmware**\] \[**--update-message**\] \[**--force**\]
 \[**--extended**\] \[**--sort-by**\] \[**-h**\|**--help**\]
 
 ## DESCRIPTION
@@ -25,6 +25,11 @@ all DPUs should be reprovisioned.
 **-u**, **--update-firmware**  
 **--update-message** *\<UPDATE_MESSAGE\>*  
 If set, a HostUpdateInProgress health alert will be applied to the host
+
+**--force**  
+Force reprovisioning regardless of the Machine state to recover DPUs
+stuck in ingestion. Restarts the ingestion state machine and skips the
+HostUpdateInProgress precondition. Has no effect on assigned Machines.
 
 **--extended**  
 Extended result output.
@@ -52,6 +57,7 @@ Print help (see a summary with -h)
 nico-admin-cli dpu reprovision set --id 12345678-1234-5678-90ab-cdef01234567
 nico-admin-cli dpu reprovision set --id abcdef01-2345-6789-abcd-ef0123456789
 nico-admin-cli dpu reprovision set --id 12345678-1234-5678-90ab-cdef01234567 --update-firmware --update-message "scheduled firmware refresh"
+nico-admin-cli dpu reprovision set --id 12345678-1234-5678-90ab-cdef01234567 --force
 ```
 
 ---

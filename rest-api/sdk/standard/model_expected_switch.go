@@ -268,7 +268,6 @@ func (o *ExpectedSwitch) HasRackId() bool {
 func (o *ExpectedSwitch) SetRackId(v string) {
 	o.RackId.Set(&v)
 }
-
 // SetRackIdNil sets the value for RackId to be an explicit nil
 func (o *ExpectedSwitch) SetRackIdNil() {
 	o.RackId.Set(nil)
@@ -311,7 +310,6 @@ func (o *ExpectedSwitch) HasBmcIpAddress() bool {
 func (o *ExpectedSwitch) SetBmcIpAddress(v string) {
 	o.BmcIpAddress.Set(&v)
 }
-
 // SetBmcIpAddressNil sets the value for BmcIpAddress to be an explicit nil
 func (o *ExpectedSwitch) SetBmcIpAddressNil() {
 	o.BmcIpAddress.Set(nil)
@@ -354,7 +352,6 @@ func (o *ExpectedSwitch) HasName() bool {
 func (o *ExpectedSwitch) SetName(v string) {
 	o.Name.Set(&v)
 }
-
 // SetNameNil sets the value for Name to be an explicit nil
 func (o *ExpectedSwitch) SetNameNil() {
 	o.Name.Set(nil)
@@ -397,7 +394,6 @@ func (o *ExpectedSwitch) HasManufacturer() bool {
 func (o *ExpectedSwitch) SetManufacturer(v string) {
 	o.Manufacturer.Set(&v)
 }
-
 // SetManufacturerNil sets the value for Manufacturer to be an explicit nil
 func (o *ExpectedSwitch) SetManufacturerNil() {
 	o.Manufacturer.Set(nil)
@@ -440,7 +436,6 @@ func (o *ExpectedSwitch) HasModel() bool {
 func (o *ExpectedSwitch) SetModel(v string) {
 	o.Model.Set(&v)
 }
-
 // SetModelNil sets the value for Model to be an explicit nil
 func (o *ExpectedSwitch) SetModelNil() {
 	o.Model.Set(nil)
@@ -483,7 +478,6 @@ func (o *ExpectedSwitch) HasDescription() bool {
 func (o *ExpectedSwitch) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *ExpectedSwitch) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -526,7 +520,6 @@ func (o *ExpectedSwitch) HasSlotId() bool {
 func (o *ExpectedSwitch) SetSlotId(v int32) {
 	o.SlotId.Set(&v)
 }
-
 // SetSlotIdNil sets the value for SlotId to be an explicit nil
 func (o *ExpectedSwitch) SetSlotIdNil() {
 	o.SlotId.Set(nil)
@@ -569,7 +562,6 @@ func (o *ExpectedSwitch) HasTrayIdx() bool {
 func (o *ExpectedSwitch) SetTrayIdx(v int32) {
 	o.TrayIdx.Set(&v)
 }
-
 // SetTrayIdxNil sets the value for TrayIdx to be an explicit nil
 func (o *ExpectedSwitch) SetTrayIdxNil() {
 	o.TrayIdx.Set(nil)
@@ -612,7 +604,6 @@ func (o *ExpectedSwitch) HasHostId() bool {
 func (o *ExpectedSwitch) SetHostId(v int32) {
 	o.HostId.Set(&v)
 }
-
 // SetHostIdNil sets the value for HostId to be an explicit nil
 func (o *ExpectedSwitch) SetHostIdNil() {
 	o.HostId.Set(nil)
@@ -720,7 +711,7 @@ func (o *ExpectedSwitch) SetUpdated(v time.Time) {
 }
 
 func (o ExpectedSwitch) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -818,3 +809,4 @@ func (v *NullableExpectedSwitch) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

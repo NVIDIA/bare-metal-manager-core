@@ -22,13 +22,14 @@ import (
 	"strings"
 )
 
+
 // DPUExtensionServiceAPIService DPUExtensionServiceAPI service
 type DPUExtensionServiceAPIService service
 
 type ApiCreateDpuExtensionServiceRequest struct {
-	ctx                              context.Context
-	ApiService                       *DPUExtensionServiceAPIService
-	org                              string
+	ctx context.Context
+	ApiService *DPUExtensionServiceAPIService
+	org string
 	dpuExtensionServiceCreateRequest *DpuExtensionServiceCreateRequest
 }
 
@@ -48,27 +49,26 @@ Create a DPU Extension Service for the current Tenant.
 
 Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiCreateDpuExtensionServiceRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiCreateDpuExtensionServiceRequest
 */
 func (a *DPUExtensionServiceAPIService) CreateDpuExtensionService(ctx context.Context, org string) ApiCreateDpuExtensionServiceRequest {
 	return ApiCreateDpuExtensionServiceRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return DpuExtensionService
+//  @return DpuExtensionService
 func (a *DPUExtensionServiceAPIService) CreateDpuExtensionServiceExecute(r ApiCreateDpuExtensionServiceRequest) (*DpuExtensionService, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPost
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *DpuExtensionService
+		localVarHTTPMethod   = http.MethodPost
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *DpuExtensionService
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "DPUExtensionServiceAPIService.CreateDpuExtensionService")
@@ -131,8 +131,8 @@ func (a *DPUExtensionServiceAPIService) CreateDpuExtensionServiceExecute(r ApiCr
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -142,8 +142,8 @@ func (a *DPUExtensionServiceAPIService) CreateDpuExtensionServiceExecute(r ApiCr
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -161,9 +161,9 @@ func (a *DPUExtensionServiceAPIService) CreateDpuExtensionServiceExecute(r ApiCr
 }
 
 type ApiDeleteDpuExtensionServiceRequest struct {
-	ctx                   context.Context
-	ApiService            *DPUExtensionServiceAPIService
-	org                   string
+	ctx context.Context
+	ApiService *DPUExtensionServiceAPIService
+	org string
 	dpuExtensionServiceId string
 }
 
@@ -180,16 +180,16 @@ DPU Extension Service must be owned by current Tenant. No versions of the DPU Ex
 
 Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param dpuExtensionServiceId ID of the DPU Extension Service
-	@return ApiDeleteDpuExtensionServiceRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param dpuExtensionServiceId ID of the DPU Extension Service
+ @return ApiDeleteDpuExtensionServiceRequest
 */
 func (a *DPUExtensionServiceAPIService) DeleteDpuExtensionService(ctx context.Context, org string, dpuExtensionServiceId string) ApiDeleteDpuExtensionServiceRequest {
 	return ApiDeleteDpuExtensionServiceRequest{
-		ApiService:            a,
-		ctx:                   ctx,
-		org:                   org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		dpuExtensionServiceId: dpuExtensionServiceId,
 	}
 }
@@ -197,9 +197,9 @@ func (a *DPUExtensionServiceAPIService) DeleteDpuExtensionService(ctx context.Co
 // Execute executes the request
 func (a *DPUExtensionServiceAPIService) DeleteDpuExtensionServiceExecute(r ApiDeleteDpuExtensionServiceRequest) (*http.Response, error) {
 	var (
-		localVarHTTPMethod = http.MethodDelete
-		localVarPostBody   interface{}
-		formFiles          []formFile
+		localVarHTTPMethod   = http.MethodDelete
+		localVarPostBody     interface{}
+		formFiles            []formFile
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "DPUExtensionServiceAPIService.DeleteDpuExtensionService")
@@ -261,8 +261,8 @@ func (a *DPUExtensionServiceAPIService) DeleteDpuExtensionServiceExecute(r ApiDe
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarHTTPResponse, newErr
 	}
@@ -271,11 +271,11 @@ func (a *DPUExtensionServiceAPIService) DeleteDpuExtensionServiceExecute(r ApiDe
 }
 
 type ApiDeleteDpuExtensionServiceVersionRequest struct {
-	ctx                   context.Context
-	ApiService            *DPUExtensionServiceAPIService
-	org                   string
+	ctx context.Context
+	ApiService *DPUExtensionServiceAPIService
+	org string
 	dpuExtensionServiceId string
-	version               string
+	version string
 }
 
 func (r ApiDeleteDpuExtensionServiceVersionRequest) Execute() (*http.Response, error) {
@@ -291,28 +291,28 @@ DPU Extension Service must be owned by current Tenant. The version being deleted
 
 Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param dpuExtensionServiceId ID of the DPU Extension Service
-	@param version Version of the DPU Extension Service
-	@return ApiDeleteDpuExtensionServiceVersionRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param dpuExtensionServiceId ID of the DPU Extension Service
+ @param version Version of the DPU Extension Service
+ @return ApiDeleteDpuExtensionServiceVersionRequest
 */
 func (a *DPUExtensionServiceAPIService) DeleteDpuExtensionServiceVersion(ctx context.Context, org string, dpuExtensionServiceId string, version string) ApiDeleteDpuExtensionServiceVersionRequest {
 	return ApiDeleteDpuExtensionServiceVersionRequest{
-		ApiService:            a,
-		ctx:                   ctx,
-		org:                   org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		dpuExtensionServiceId: dpuExtensionServiceId,
-		version:               version,
+		version: version,
 	}
 }
 
 // Execute executes the request
 func (a *DPUExtensionServiceAPIService) DeleteDpuExtensionServiceVersionExecute(r ApiDeleteDpuExtensionServiceVersionRequest) (*http.Response, error) {
 	var (
-		localVarHTTPMethod = http.MethodDelete
-		localVarPostBody   interface{}
-		formFiles          []formFile
+		localVarHTTPMethod   = http.MethodDelete
+		localVarPostBody     interface{}
+		formFiles            []formFile
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "DPUExtensionServiceAPIService.DeleteDpuExtensionServiceVersion")
@@ -375,8 +375,8 @@ func (a *DPUExtensionServiceAPIService) DeleteDpuExtensionServiceVersionExecute(
 				newErr.error = err.Error()
 				return localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarHTTPResponse, newErr
 	}
@@ -385,16 +385,16 @@ func (a *DPUExtensionServiceAPIService) DeleteDpuExtensionServiceVersionExecute(
 }
 
 type ApiGetAllDpuExtensionServiceRequest struct {
-	ctx             context.Context
-	ApiService      *DPUExtensionServiceAPIService
-	org             string
-	siteId          *string
-	status          *string
-	query           *string
+	ctx context.Context
+	ApiService *DPUExtensionServiceAPIService
+	org string
+	siteId *string
+	status *string
+	query *string
 	includeRelation *string
-	pageNumber      *int32
-	pageSize        *int32
-	orderBy         *string
+	pageNumber *int32
+	pageSize *int32
+	orderBy *string
 }
 
 // Filter DPU Extension Services by Site ID
@@ -446,31 +446,30 @@ func (r ApiGetAllDpuExtensionServiceRequest) Execute() ([]DpuExtensionService, *
 /*
 GetAllDpuExtensionService Retrieve all DPU Extension Services
 
-# Retrieve all DPU Extension Services for the current Tenant
+Retrieve all DPU Extension Services for the current Tenant
 
 Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiGetAllDpuExtensionServiceRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiGetAllDpuExtensionServiceRequest
 */
 func (a *DPUExtensionServiceAPIService) GetAllDpuExtensionService(ctx context.Context, org string) ApiGetAllDpuExtensionServiceRequest {
 	return ApiGetAllDpuExtensionServiceRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return []DpuExtensionService
+//  @return []DpuExtensionService
 func (a *DPUExtensionServiceAPIService) GetAllDpuExtensionServiceExecute(r ApiGetAllDpuExtensionServiceRequest) ([]DpuExtensionService, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue []DpuExtensionService
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  []DpuExtensionService
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "DPUExtensionServiceAPIService.GetAllDpuExtensionService")
@@ -556,8 +555,8 @@ func (a *DPUExtensionServiceAPIService) GetAllDpuExtensionServiceExecute(r ApiGe
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -575,9 +574,9 @@ func (a *DPUExtensionServiceAPIService) GetAllDpuExtensionServiceExecute(r ApiGe
 }
 
 type ApiGetDpuExtensionServiceRequest struct {
-	ctx                   context.Context
-	ApiService            *DPUExtensionServiceAPIService
-	org                   string
+	ctx context.Context
+	ApiService *DPUExtensionServiceAPIService
+	org string
 	dpuExtensionServiceId string
 }
 
@@ -588,35 +587,34 @@ func (r ApiGetDpuExtensionServiceRequest) Execute() (*DpuExtensionService, *http
 /*
 GetDpuExtensionService Retrieve DPU Extension Service
 
-# Retrieve a DPU Extension Service for the current Tenant by ID
+Retrieve a DPU Extension Service for the current Tenant by ID
 
 DPU Extension Service must be owned by current Tenant.
 
 Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param dpuExtensionServiceId ID of the DPU Extension Service
-	@return ApiGetDpuExtensionServiceRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param dpuExtensionServiceId ID of the DPU Extension Service
+ @return ApiGetDpuExtensionServiceRequest
 */
 func (a *DPUExtensionServiceAPIService) GetDpuExtensionService(ctx context.Context, org string, dpuExtensionServiceId string) ApiGetDpuExtensionServiceRequest {
 	return ApiGetDpuExtensionServiceRequest{
-		ApiService:            a,
-		ctx:                   ctx,
-		org:                   org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		dpuExtensionServiceId: dpuExtensionServiceId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return DpuExtensionService
+//  @return DpuExtensionService
 func (a *DPUExtensionServiceAPIService) GetDpuExtensionServiceExecute(r ApiGetDpuExtensionServiceRequest) (*DpuExtensionService, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *DpuExtensionService
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *DpuExtensionService
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "DPUExtensionServiceAPIService.GetDpuExtensionService")
@@ -678,8 +676,8 @@ func (a *DPUExtensionServiceAPIService) GetDpuExtensionServiceExecute(r ApiGetDp
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -697,11 +695,11 @@ func (a *DPUExtensionServiceAPIService) GetDpuExtensionServiceExecute(r ApiGetDp
 }
 
 type ApiGetDpuExtensionServiceVersionRequest struct {
-	ctx                   context.Context
-	ApiService            *DPUExtensionServiceAPIService
-	org                   string
+	ctx context.Context
+	ApiService *DPUExtensionServiceAPIService
+	org string
 	dpuExtensionServiceId string
-	version               string
+	version string
 }
 
 func (r ApiGetDpuExtensionServiceVersionRequest) Execute() (*DpuExtensionServiceVersionInfo, *http.Response, error) {
@@ -717,31 +715,30 @@ DPU Extension Service must be owned by current Tenant.
 
 Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param dpuExtensionServiceId ID of the DPU Extension Service
-	@param version Version of the DPU Extension Service
-	@return ApiGetDpuExtensionServiceVersionRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param dpuExtensionServiceId ID of the DPU Extension Service
+ @param version Version of the DPU Extension Service
+ @return ApiGetDpuExtensionServiceVersionRequest
 */
 func (a *DPUExtensionServiceAPIService) GetDpuExtensionServiceVersion(ctx context.Context, org string, dpuExtensionServiceId string, version string) ApiGetDpuExtensionServiceVersionRequest {
 	return ApiGetDpuExtensionServiceVersionRequest{
-		ApiService:            a,
-		ctx:                   ctx,
-		org:                   org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		dpuExtensionServiceId: dpuExtensionServiceId,
-		version:               version,
+		version: version,
 	}
 }
 
 // Execute executes the request
-//
-//	@return DpuExtensionServiceVersionInfo
+//  @return DpuExtensionServiceVersionInfo
 func (a *DPUExtensionServiceAPIService) GetDpuExtensionServiceVersionExecute(r ApiGetDpuExtensionServiceVersionRequest) (*DpuExtensionServiceVersionInfo, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *DpuExtensionServiceVersionInfo
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *DpuExtensionServiceVersionInfo
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "DPUExtensionServiceAPIService.GetDpuExtensionServiceVersion")
@@ -804,8 +801,8 @@ func (a *DPUExtensionServiceAPIService) GetDpuExtensionServiceVersionExecute(r A
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -815,8 +812,8 @@ func (a *DPUExtensionServiceAPIService) GetDpuExtensionServiceVersionExecute(r A
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -834,10 +831,10 @@ func (a *DPUExtensionServiceAPIService) GetDpuExtensionServiceVersionExecute(r A
 }
 
 type ApiUpdateDpuExtensionServiceRequest struct {
-	ctx                              context.Context
-	ApiService                       *DPUExtensionServiceAPIService
-	org                              string
-	dpuExtensionServiceId            string
+	ctx context.Context
+	ApiService *DPUExtensionServiceAPIService
+	org string
+	dpuExtensionServiceId string
 	dpuExtensionServiceUpdateRequest *DpuExtensionServiceUpdateRequest
 }
 
@@ -859,29 +856,28 @@ DPU Extension Service must be owned by current Tenant. A new version will be cre
 
 Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param dpuExtensionServiceId ID of the DPU Extension Service
-	@return ApiUpdateDpuExtensionServiceRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param dpuExtensionServiceId ID of the DPU Extension Service
+ @return ApiUpdateDpuExtensionServiceRequest
 */
 func (a *DPUExtensionServiceAPIService) UpdateDpuExtensionService(ctx context.Context, org string, dpuExtensionServiceId string) ApiUpdateDpuExtensionServiceRequest {
 	return ApiUpdateDpuExtensionServiceRequest{
-		ApiService:            a,
-		ctx:                   ctx,
-		org:                   org,
+		ApiService: a,
+		ctx: ctx,
+		org: org,
 		dpuExtensionServiceId: dpuExtensionServiceId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return DpuExtensionService
+//  @return DpuExtensionService
 func (a *DPUExtensionServiceAPIService) UpdateDpuExtensionServiceExecute(r ApiUpdateDpuExtensionServiceRequest) (*DpuExtensionService, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPatch
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *DpuExtensionService
+		localVarHTTPMethod   = http.MethodPatch
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *DpuExtensionService
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "DPUExtensionServiceAPIService.UpdateDpuExtensionService")
@@ -945,8 +941,8 @@ func (a *DPUExtensionServiceAPIService) UpdateDpuExtensionServiceExecute(r ApiUp
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -956,8 +952,8 @@ func (a *DPUExtensionServiceAPIService) UpdateDpuExtensionServiceExecute(r ApiUp
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -967,8 +963,8 @@ func (a *DPUExtensionServiceAPIService) UpdateDpuExtensionServiceExecute(r ApiUp
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

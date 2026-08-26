@@ -21,7 +21,7 @@ import (
 
 // TenantIdentityConfigCreateOrUpdateRequest - Tenant identity configuration payload. `issuer`, `defaultAudience`, and `tokenTtlSeconds` are required. `enabled` is optional and defaults to `true` when omitted. The `org` identifier is taken from the URL path segment `{org}`.  Two request shapes are supported, distinguished by whether the PUT also forces a signing-key rotation:    1. **Without key rotation** -- `rotateKey` is omitted or `false`;      `signingKeyOverlapSeconds` must be omitted.   2. **With key rotation** -- `rotateKey: true` and      `signingKeyOverlapSeconds` are both required; the Core gRPC      API generates a fresh ES256 keypair into the other key slot,      swaps the active signer, and arms a JWKS overlap window for      the previous key.
 type TenantIdentityConfigCreateOrUpdateRequest struct {
-	TenantIdentityConfigCreateOrUpdateRequestWithKeyRotation    *TenantIdentityConfigCreateOrUpdateRequestWithKeyRotation
+	TenantIdentityConfigCreateOrUpdateRequestWithKeyRotation *TenantIdentityConfigCreateOrUpdateRequestWithKeyRotation
 	TenantIdentityConfigCreateOrUpdateRequestWithoutKeyRotation *TenantIdentityConfigCreateOrUpdateRequestWithoutKeyRotation
 }
 
@@ -38,6 +38,7 @@ func TenantIdentityConfigCreateOrUpdateRequestWithoutKeyRotationAsTenantIdentity
 		TenantIdentityConfigCreateOrUpdateRequestWithoutKeyRotation: v,
 	}
 }
+
 
 // Unmarshal JSON data into one of the pointers in the struct
 func (dst *TenantIdentityConfigCreateOrUpdateRequest) UnmarshalJSON(data []byte) error {
@@ -107,7 +108,7 @@ func (src TenantIdentityConfigCreateOrUpdateRequest) MarshalJSON() ([]byte, erro
 }
 
 // Get the actual instance
-func (obj *TenantIdentityConfigCreateOrUpdateRequest) GetActualInstance() interface{} {
+func (obj *TenantIdentityConfigCreateOrUpdateRequest) GetActualInstance() (interface{}) {
 	if obj == nil {
 		return nil
 	}
@@ -124,7 +125,7 @@ func (obj *TenantIdentityConfigCreateOrUpdateRequest) GetActualInstance() interf
 }
 
 // Get the actual instance value
-func (obj TenantIdentityConfigCreateOrUpdateRequest) GetActualInstanceValue() interface{} {
+func (obj TenantIdentityConfigCreateOrUpdateRequest) GetActualInstanceValue() (interface{}) {
 	if obj.TenantIdentityConfigCreateOrUpdateRequestWithKeyRotation != nil {
 		return *obj.TenantIdentityConfigCreateOrUpdateRequestWithKeyRotation
 	}
@@ -172,3 +173,5 @@ func (v *NullableTenantIdentityConfigCreateOrUpdateRequest) UnmarshalJSON(src []
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+
+

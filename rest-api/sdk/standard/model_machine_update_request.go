@@ -87,7 +87,6 @@ func (o *MachineUpdateRequest) HasInstanceTypeId() bool {
 func (o *MachineUpdateRequest) SetInstanceTypeId(v string) {
 	o.InstanceTypeId.Set(&v)
 }
-
 // SetInstanceTypeIdNil sets the value for InstanceTypeId to be an explicit nil
 func (o *MachineUpdateRequest) SetInstanceTypeIdNil() {
 	o.InstanceTypeId.Set(nil)
@@ -130,7 +129,6 @@ func (o *MachineUpdateRequest) HasClearInstanceType() bool {
 func (o *MachineUpdateRequest) SetClearInstanceType(v bool) {
 	o.ClearInstanceType.Set(&v)
 }
-
 // SetClearInstanceTypeNil sets the value for ClearInstanceType to be an explicit nil
 func (o *MachineUpdateRequest) SetClearInstanceTypeNil() {
 	o.ClearInstanceType.Set(nil)
@@ -173,7 +171,6 @@ func (o *MachineUpdateRequest) HasSetMaintenanceMode() bool {
 func (o *MachineUpdateRequest) SetSetMaintenanceMode(v bool) {
 	o.SetMaintenanceMode.Set(&v)
 }
-
 // SetSetMaintenanceModeNil sets the value for SetMaintenanceMode to be an explicit nil
 func (o *MachineUpdateRequest) SetSetMaintenanceModeNil() {
 	o.SetMaintenanceMode.Set(nil)
@@ -216,7 +213,6 @@ func (o *MachineUpdateRequest) HasMaintenanceMessage() bool {
 func (o *MachineUpdateRequest) SetMaintenanceMessage(v string) {
 	o.MaintenanceMessage.Set(&v)
 }
-
 // SetMaintenanceMessageNil sets the value for MaintenanceMessage to be an explicit nil
 func (o *MachineUpdateRequest) SetMaintenanceMessageNil() {
 	o.MaintenanceMessage.Set(nil)
@@ -324,7 +320,7 @@ func (o *MachineUpdateRequest) SetHealthIssue(v MachineHealthIssue) {
 }
 
 func (o MachineUpdateRequest) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -392,3 +388,4 @@ func (v *NullableMachineUpdateRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

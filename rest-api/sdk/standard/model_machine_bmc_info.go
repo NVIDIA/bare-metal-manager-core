@@ -81,7 +81,6 @@ func (o *MachineBMCInfo) HasIp() bool {
 func (o *MachineBMCInfo) SetIp(v string) {
 	o.Ip.Set(&v)
 }
-
 // SetIpNil sets the value for Ip to be an explicit nil
 func (o *MachineBMCInfo) SetIpNil() {
 	o.Ip.Set(nil)
@@ -124,7 +123,6 @@ func (o *MachineBMCInfo) HasMac() bool {
 func (o *MachineBMCInfo) SetMac(v string) {
 	o.Mac.Set(&v)
 }
-
 // SetMacNil sets the value for Mac to be an explicit nil
 func (o *MachineBMCInfo) SetMacNil() {
 	o.Mac.Set(nil)
@@ -167,7 +165,6 @@ func (o *MachineBMCInfo) HasVersion() bool {
 func (o *MachineBMCInfo) SetVersion(v string) {
 	o.Version.Set(&v)
 }
-
 // SetVersionNil sets the value for Version to be an explicit nil
 func (o *MachineBMCInfo) SetVersionNil() {
 	o.Version.Set(nil)
@@ -210,7 +207,6 @@ func (o *MachineBMCInfo) HasFirmwareRevision() bool {
 func (o *MachineBMCInfo) SetFirmwareRevision(v string) {
 	o.FirmwareRevision.Set(&v)
 }
-
 // SetFirmwareRevisionNil sets the value for FirmwareRevision to be an explicit nil
 func (o *MachineBMCInfo) SetFirmwareRevisionNil() {
 	o.FirmwareRevision.Set(nil)
@@ -222,7 +218,7 @@ func (o *MachineBMCInfo) UnsetFirmwareRevision() {
 }
 
 func (o MachineBMCInfo) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -281,3 +277,4 @@ func (v *NullableMachineBMCInfo) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

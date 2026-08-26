@@ -22,14 +22,15 @@ import (
 	"strings"
 )
 
+
 // DPUReprovisionAPIService DPUReprovisionAPI service
 type DPUReprovisionAPIService service
 
 type ApiReprovisionMachineDpuRequest struct {
-	ctx                   context.Context
-	ApiService            *DPUReprovisionAPIService
-	org                   string
-	machineId             string
+	ctx context.Context
+	ApiService *DPUReprovisionAPIService
+	org string
+	machineId string
 	dpuReprovisionRequest *DpuReprovisionRequest
 }
 
@@ -51,33 +52,38 @@ create a Machine health report containing an alert whose ID is
 `PreventAllocations`. When an Instance is attached to the Machine,
 `acknowledgeAttachedInstance` must be `true`.
 
+To recover DPUs stuck in ingestion (before the Machine reaches a ready
+state), set `force` to `true`. A forced request restarts the ingestion
+state machine and does not require the `HostUpdateInProgress` health
+report precondition. `force` has no effect on assigned Machines, which
+retain the standard reprovisioning approval flow.
+
 For Infrastructure Providers: Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
 For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled and Tenant Account with Machine's Provider. User must have authorization role with `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param machineId ID of the Machine
-	@return ApiReprovisionMachineDpuRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param machineId ID of the Machine
+ @return ApiReprovisionMachineDpuRequest
 */
 func (a *DPUReprovisionAPIService) ReprovisionMachineDpu(ctx context.Context, org string, machineId string) ApiReprovisionMachineDpuRequest {
 	return ApiReprovisionMachineDpuRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		machineId:  machineId,
+		ctx: ctx,
+		org: org,
+		machineId: machineId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return MessageResponse
+//  @return MessageResponse
 func (a *DPUReprovisionAPIService) ReprovisionMachineDpuExecute(r ApiReprovisionMachineDpuRequest) (*MessageResponse, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPatch
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *MessageResponse
+		localVarHTTPMethod   = http.MethodPatch
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *MessageResponse
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "DPUReprovisionAPIService.ReprovisionMachineDpu")
@@ -144,8 +150,8 @@ func (a *DPUReprovisionAPIService) ReprovisionMachineDpuExecute(r ApiReprovision
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -155,8 +161,8 @@ func (a *DPUReprovisionAPIService) ReprovisionMachineDpuExecute(r ApiReprovision
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 404 {
@@ -166,8 +172,8 @@ func (a *DPUReprovisionAPIService) ReprovisionMachineDpuExecute(r ApiReprovision
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 500 {
@@ -177,8 +183,8 @@ func (a *DPUReprovisionAPIService) ReprovisionMachineDpuExecute(r ApiReprovision
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

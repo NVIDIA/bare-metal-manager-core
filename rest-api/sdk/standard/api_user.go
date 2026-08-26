@@ -22,13 +22,14 @@ import (
 	"strings"
 )
 
+
 // UserAPIService UserAPI service
 type UserAPIService service
 
 type ApiGetUserRequest struct {
-	ctx        context.Context
+	ctx context.Context
 	ApiService *UserAPIService
-	org        string
+	org string
 }
 
 func (r ApiGetUserRequest) Execute() (*User, *http.Response, error) {
@@ -40,27 +41,26 @@ GetUser Retrieve Current User
 
 Retrieve details of the current user.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiGetUserRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiGetUserRequest
 */
 func (a *UserAPIService) GetUser(ctx context.Context, org string) ApiGetUserRequest {
 	return ApiGetUserRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return User
+//  @return User
 func (a *UserAPIService) GetUserExecute(r ApiGetUserRequest) (*User, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *User
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *User
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "UserAPIService.GetUser")
@@ -121,8 +121,8 @@ func (a *UserAPIService) GetUserExecute(r ApiGetUserRequest) (*User, *http.Respo
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

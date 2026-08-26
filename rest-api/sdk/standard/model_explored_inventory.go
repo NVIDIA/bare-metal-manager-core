@@ -14,8 +14,8 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
+	"bytes"
 	"fmt"
 )
 
@@ -24,9 +24,9 @@ var _ MappedNullable = &ExploredInventory{}
 
 // ExploredInventory Firmware inventory entry from a Redfish UpdateService.
 type ExploredInventory struct {
-	Id          string         `json:"id"`
+	Id string `json:"id"`
 	Description NullableString `json:"description,omitempty"`
-	Version     NullableString `json:"version,omitempty"`
+	Version NullableString `json:"version,omitempty"`
 	ReleaseDate NullableString `json:"releaseDate,omitempty"`
 }
 
@@ -106,7 +106,6 @@ func (o *ExploredInventory) HasDescription() bool {
 func (o *ExploredInventory) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *ExploredInventory) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -149,7 +148,6 @@ func (o *ExploredInventory) HasVersion() bool {
 func (o *ExploredInventory) SetVersion(v string) {
 	o.Version.Set(&v)
 }
-
 // SetVersionNil sets the value for Version to be an explicit nil
 func (o *ExploredInventory) SetVersionNil() {
 	o.Version.Set(nil)
@@ -192,7 +190,6 @@ func (o *ExploredInventory) HasReleaseDate() bool {
 func (o *ExploredInventory) SetReleaseDate(v string) {
 	o.ReleaseDate.Set(&v)
 }
-
 // SetReleaseDateNil sets the value for ReleaseDate to be an explicit nil
 func (o *ExploredInventory) SetReleaseDateNil() {
 	o.ReleaseDate.Set(nil)
@@ -204,7 +201,7 @@ func (o *ExploredInventory) UnsetReleaseDate() {
 }
 
 func (o ExploredInventory) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -239,10 +236,10 @@ func (o *ExploredInventory) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -297,3 +294,4 @@ func (v *NullableExploredInventory) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

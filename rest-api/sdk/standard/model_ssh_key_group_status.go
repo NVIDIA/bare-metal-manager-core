@@ -23,9 +23,9 @@ type SshKeyGroupStatus string
 
 // List of SshKeyGroupStatus
 const (
-	SSHKEYGROUPSTATUS_SYNCING  SshKeyGroupStatus = "Syncing"
-	SSHKEYGROUPSTATUS_SYNCED   SshKeyGroupStatus = "Synced"
-	SSHKEYGROUPSTATUS_ERROR    SshKeyGroupStatus = "Error"
+	SSHKEYGROUPSTATUS_SYNCING SshKeyGroupStatus = "Syncing"
+	SSHKEYGROUPSTATUS_SYNCED SshKeyGroupStatus = "Synced"
+	SSHKEYGROUPSTATUS_ERROR SshKeyGroupStatus = "Error"
 	SSHKEYGROUPSTATUS_DELETING SshKeyGroupStatus = "Deleting"
 )
 
@@ -115,3 +115,4 @@ func (v *NullableSshKeyGroupStatus) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

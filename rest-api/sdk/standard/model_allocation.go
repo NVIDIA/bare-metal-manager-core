@@ -160,7 +160,6 @@ func (o *Allocation) HasDescription() bool {
 func (o *Allocation) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *Allocation) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -428,7 +427,7 @@ func (o *Allocation) SetUpdated(v time.Time) {
 }
 
 func (o Allocation) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -508,3 +507,4 @@ func (v *NullableAllocation) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

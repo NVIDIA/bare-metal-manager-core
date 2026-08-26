@@ -21,6 +21,11 @@ func TestAPIMachineDpuReprovisionRequestValidateAndToProto(t *testing.T) {
 	assert.Equal(t, corev1.DpuReprovisioningRequest_Restart, protoReq.GetMode())
 	assert.Equal(t, corev1.UpdateInitiator_AdminCli, protoReq.GetInitiator())
 	assert.True(t, protoReq.GetUpdateFirmware())
+	assert.False(t, protoReq.GetForce(), "force must default to false when unset")
+
+	forced := APIMachineDpuReprovisionRequest{Mode: MachineDpuReprovisionModeSet, Force: true}
+	require.NoError(t, forced.Validate())
+	assert.True(t, forced.ToProto("machine-2").GetForce(), "force must map through to the proto request")
 
 	assert.Error(t, (&APIMachineDpuReprovisionRequest{}).Validate())
 	assert.Error(t, (&APIMachineDpuReprovisionRequest{Mode: MachineDpuReprovisionMode("restart")}).Validate())

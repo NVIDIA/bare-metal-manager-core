@@ -153,7 +153,6 @@ func (o *VpcRoutingProfileOverrides) HasLeakDefaultRouteFromUnderlay() bool {
 func (o *VpcRoutingProfileOverrides) SetLeakDefaultRouteFromUnderlay(v bool) {
 	o.LeakDefaultRouteFromUnderlay.Set(&v)
 }
-
 // SetLeakDefaultRouteFromUnderlayNil sets the value for LeakDefaultRouteFromUnderlay to be an explicit nil
 func (o *VpcRoutingProfileOverrides) SetLeakDefaultRouteFromUnderlayNil() {
 	o.LeakDefaultRouteFromUnderlay.Set(nil)
@@ -196,7 +195,6 @@ func (o *VpcRoutingProfileOverrides) HasLeakTenantHostRoutesToUnderlay() bool {
 func (o *VpcRoutingProfileOverrides) SetLeakTenantHostRoutesToUnderlay(v bool) {
 	o.LeakTenantHostRoutesToUnderlay.Set(&v)
 }
-
 // SetLeakTenantHostRoutesToUnderlayNil sets the value for LeakTenantHostRoutesToUnderlay to be an explicit nil
 func (o *VpcRoutingProfileOverrides) SetLeakTenantHostRoutesToUnderlayNil() {
 	o.LeakTenantHostRoutesToUnderlay.Set(nil)
@@ -239,7 +237,6 @@ func (o *VpcRoutingProfileOverrides) HasTenantLeakCommunitiesAccepted() bool {
 func (o *VpcRoutingProfileOverrides) SetTenantLeakCommunitiesAccepted(v bool) {
 	o.TenantLeakCommunitiesAccepted.Set(&v)
 }
-
 // SetTenantLeakCommunitiesAcceptedNil sets the value for TenantLeakCommunitiesAccepted to be an explicit nil
 func (o *VpcRoutingProfileOverrides) SetTenantLeakCommunitiesAcceptedNil() {
 	o.TenantLeakCommunitiesAccepted.Set(nil)
@@ -317,7 +314,7 @@ func (o *VpcRoutingProfileOverrides) SetAllowedAnycastPrefixes(v []string) {
 }
 
 func (o VpcRoutingProfileOverrides) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -385,3 +382,4 @@ func (v *NullableVpcRoutingProfileOverrides) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

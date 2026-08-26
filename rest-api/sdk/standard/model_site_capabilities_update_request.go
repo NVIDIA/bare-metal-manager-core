@@ -85,7 +85,6 @@ func (o *SiteCapabilitiesUpdateRequest) HasNativeNetworking() bool {
 func (o *SiteCapabilitiesUpdateRequest) SetNativeNetworking(v bool) {
 	o.NativeNetworking.Set(&v)
 }
-
 // SetNativeNetworkingNil sets the value for NativeNetworking to be an explicit nil
 func (o *SiteCapabilitiesUpdateRequest) SetNativeNetworkingNil() {
 	o.NativeNetworking.Set(nil)
@@ -128,7 +127,6 @@ func (o *SiteCapabilitiesUpdateRequest) HasNetworkSecurityGroup() bool {
 func (o *SiteCapabilitiesUpdateRequest) SetNetworkSecurityGroup(v bool) {
 	o.NetworkSecurityGroup.Set(&v)
 }
-
 // SetNetworkSecurityGroupNil sets the value for NetworkSecurityGroup to be an explicit nil
 func (o *SiteCapabilitiesUpdateRequest) SetNetworkSecurityGroupNil() {
 	o.NetworkSecurityGroup.Set(nil)
@@ -171,7 +169,6 @@ func (o *SiteCapabilitiesUpdateRequest) HasNvLinkPartition() bool {
 func (o *SiteCapabilitiesUpdateRequest) SetNvLinkPartition(v bool) {
 	o.NvLinkPartition.Set(&v)
 }
-
 // SetNvLinkPartitionNil sets the value for NvLinkPartition to be an explicit nil
 func (o *SiteCapabilitiesUpdateRequest) SetNvLinkPartitionNil() {
 	o.NvLinkPartition.Set(nil)
@@ -214,7 +211,6 @@ func (o *SiteCapabilitiesUpdateRequest) HasFlow() bool {
 func (o *SiteCapabilitiesUpdateRequest) SetFlow(v bool) {
 	o.Flow.Set(&v)
 }
-
 // SetFlowNil sets the value for Flow to be an explicit nil
 func (o *SiteCapabilitiesUpdateRequest) SetFlowNil() {
 	o.Flow.Set(nil)
@@ -257,7 +253,6 @@ func (o *SiteCapabilitiesUpdateRequest) HasImageBasedOperatingSystem() bool {
 func (o *SiteCapabilitiesUpdateRequest) SetImageBasedOperatingSystem(v bool) {
 	o.ImageBasedOperatingSystem.Set(&v)
 }
-
 // SetImageBasedOperatingSystemNil sets the value for ImageBasedOperatingSystem to be an explicit nil
 func (o *SiteCapabilitiesUpdateRequest) SetImageBasedOperatingSystemNil() {
 	o.ImageBasedOperatingSystem.Set(nil)
@@ -300,7 +295,6 @@ func (o *SiteCapabilitiesUpdateRequest) HasDpsPowerManagement() bool {
 func (o *SiteCapabilitiesUpdateRequest) SetDpsPowerManagement(v bool) {
 	o.DpsPowerManagement.Set(&v)
 }
-
 // SetDpsPowerManagementNil sets the value for DpsPowerManagement to be an explicit nil
 func (o *SiteCapabilitiesUpdateRequest) SetDpsPowerManagementNil() {
 	o.DpsPowerManagement.Set(nil)
@@ -312,7 +306,7 @@ func (o *SiteCapabilitiesUpdateRequest) UnsetDpsPowerManagement() {
 }
 
 func (o SiteCapabilitiesUpdateRequest) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -377,3 +371,4 @@ func (v *NullableSiteCapabilitiesUpdateRequest) UnmarshalJSON(src []byte) error 
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

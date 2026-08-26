@@ -22,13 +22,14 @@ import (
 	"strings"
 )
 
+
 // TenantAccountAPIService TenantAccountAPI service
 type TenantAccountAPIService service
 
 type ApiCreateTenantAccountRequest struct {
-	ctx                        context.Context
-	ApiService                 *TenantAccountAPIService
-	org                        string
+	ctx context.Context
+	ApiService *TenantAccountAPIService
+	org string
 	tenantAccountCreateRequest *TenantAccountCreateRequest
 }
 
@@ -50,27 +51,26 @@ Org must have an Infrastructure Provider entity. User must have authorization ro
 
 Infrastructure Provider can create a Tenant Account by specifying the Tenant's UUID or Tenant's org name. This sets the Tenant Account status to "Invited". The Tenant can then view the account information and accept the account by updating the Tenant Account.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiCreateTenantAccountRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiCreateTenantAccountRequest
 */
 func (a *TenantAccountAPIService) CreateTenantAccount(ctx context.Context, org string) ApiCreateTenantAccountRequest {
 	return ApiCreateTenantAccountRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return TenantAccount
+//  @return TenantAccount
 func (a *TenantAccountAPIService) CreateTenantAccountExecute(r ApiCreateTenantAccountRequest) (*TenantAccount, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPost
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *TenantAccount
+		localVarHTTPMethod   = http.MethodPost
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *TenantAccount
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TenantAccountAPIService.CreateTenantAccount")
@@ -133,8 +133,8 @@ func (a *TenantAccountAPIService) CreateTenantAccountExecute(r ApiCreateTenantAc
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -144,8 +144,8 @@ func (a *TenantAccountAPIService) CreateTenantAccountExecute(r ApiCreateTenantAc
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -163,10 +163,10 @@ func (a *TenantAccountAPIService) CreateTenantAccountExecute(r ApiCreateTenantAc
 }
 
 type ApiDeleteTenantAccountRequest struct {
-	ctx        context.Context
+	ctx context.Context
 	ApiService *TenantAccountAPIService
-	org        string
-	accountId  string
+	org string
+	accountId string
 }
 
 func (r ApiDeleteTenantAccountRequest) Execute() (*MessageResponse, *http.Response, error) {
@@ -182,29 +182,28 @@ Org must have an Infrastructure Provider entity, and the specified Tenant Accoun
 
 Tenant cannot delete a Tenant Account.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param accountId ID of the Tenant Account
-	@return ApiDeleteTenantAccountRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param accountId ID of the Tenant Account
+ @return ApiDeleteTenantAccountRequest
 */
 func (a *TenantAccountAPIService) DeleteTenantAccount(ctx context.Context, org string, accountId string) ApiDeleteTenantAccountRequest {
 	return ApiDeleteTenantAccountRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		accountId:  accountId,
+		ctx: ctx,
+		org: org,
+		accountId: accountId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return MessageResponse
+//  @return MessageResponse
 func (a *TenantAccountAPIService) DeleteTenantAccountExecute(r ApiDeleteTenantAccountRequest) (*MessageResponse, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodDelete
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *MessageResponse
+		localVarHTTPMethod   = http.MethodDelete
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *MessageResponse
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TenantAccountAPIService.DeleteTenantAccount")
@@ -266,8 +265,8 @@ func (a *TenantAccountAPIService) DeleteTenantAccountExecute(r ApiDeleteTenantAc
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -285,16 +284,16 @@ func (a *TenantAccountAPIService) DeleteTenantAccountExecute(r ApiDeleteTenantAc
 }
 
 type ApiGetAllTenantAccountRequest struct {
-	ctx                      context.Context
-	ApiService               *TenantAccountAPIService
-	org                      string
+	ctx context.Context
+	ApiService *TenantAccountAPIService
+	org string
 	infrastructureProviderId *string
-	tenantId                 *string
-	query                    *string
-	includeRelation          *string
-	pageNumber               *int32
-	pageSize                 *int32
-	orderBy                  *string
+	tenantId *string
+	query *string
+	includeRelation *string
+	pageNumber *int32
+	pageSize *int32
+	orderBy *string
 }
 
 // Filter Tenant Accounts by Infrastructure Provider ID. Deprecated: Infrastructure Provider is now inferred from the org&#39;s membership.
@@ -351,27 +350,26 @@ Retrieve all Tenant Accounts for the org.
 
 The Infrastructure Provider and Tenant are inferred from the org's membership. User must have authorization role with `PROVIDER_ADMIN`, `PROVIDER_VIEWER`, or `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiGetAllTenantAccountRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @return ApiGetAllTenantAccountRequest
 */
 func (a *TenantAccountAPIService) GetAllTenantAccount(ctx context.Context, org string) ApiGetAllTenantAccountRequest {
 	return ApiGetAllTenantAccountRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
+		ctx: ctx,
+		org: org,
 	}
 }
 
 // Execute executes the request
-//
-//	@return []TenantAccount
+//  @return []TenantAccount
 func (a *TenantAccountAPIService) GetAllTenantAccountExecute(r ApiGetAllTenantAccountRequest) ([]TenantAccount, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue []TenantAccount
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  []TenantAccount
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TenantAccountAPIService.GetAllTenantAccount")
@@ -457,8 +455,8 @@ func (a *TenantAccountAPIService) GetAllTenantAccountExecute(r ApiGetAllTenantAc
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -476,13 +474,13 @@ func (a *TenantAccountAPIService) GetAllTenantAccountExecute(r ApiGetAllTenantAc
 }
 
 type ApiGetTenantAccountRequest struct {
-	ctx                      context.Context
-	ApiService               *TenantAccountAPIService
-	org                      string
-	accountId                string
+	ctx context.Context
+	ApiService *TenantAccountAPIService
+	org string
+	accountId string
 	infrastructureProviderId *string
-	tenantId                 *string
-	includeRelation          *string
+	tenantId *string
+	includeRelation *string
 }
 
 // Filter Tenant Accounts by Infrastructure Provider ID. Deprecated: Infrastructure Provider is now inferred from the org&#39;s membership.
@@ -516,29 +514,28 @@ Retrieve a Tenant Account by ID.
 
 The Infrastructure Provider and Tenant are inferred from the org's membership. User must have authorization role with `PROVIDER_ADMIN`, `PROVIDER_VIEWER`, or `TENANT_ADMIN` suffix.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param accountId ID of the Tenant Account
-	@return ApiGetTenantAccountRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param accountId ID of the Tenant Account
+ @return ApiGetTenantAccountRequest
 */
 func (a *TenantAccountAPIService) GetTenantAccount(ctx context.Context, org string, accountId string) ApiGetTenantAccountRequest {
 	return ApiGetTenantAccountRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		accountId:  accountId,
+		ctx: ctx,
+		org: org,
+		accountId: accountId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return TenantAccount
+//  @return TenantAccount
 func (a *TenantAccountAPIService) GetTenantAccountExecute(r ApiGetTenantAccountRequest) (*TenantAccount, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodGet
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *TenantAccount
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *TenantAccount
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TenantAccountAPIService.GetTenantAccount")
@@ -609,8 +606,8 @@ func (a *TenantAccountAPIService) GetTenantAccountExecute(r ApiGetTenantAccountR
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -628,10 +625,10 @@ func (a *TenantAccountAPIService) GetTenantAccountExecute(r ApiGetTenantAccountR
 }
 
 type ApiUpdateTenantAccountRequest struct {
-	ctx                        context.Context
-	ApiService                 *TenantAccountAPIService
-	org                        string
-	accountId                  string
+	ctx context.Context
+	ApiService *TenantAccountAPIService
+	org string
+	accountId string
 	tenantAccountUpdateRequest *TenantAccountUpdateRequest
 }
 
@@ -656,29 +653,28 @@ Provider Admins may replace `siteCapabilities` to configure the Tenant Account d
 
 Org must have a Tenant entity whose ID matches the `tenantId` of the Tenant Account object when accepting an invite. User must have authorization role with `TENANT_ADMIN` suffix to accept; `PROVIDER_ADMIN` suffix to update `siteCapabilities`. Tenant Admins can only update a Tenant Account that has `Invited` status.
 
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param accountId ID of the Tenant Account
-	@return ApiUpdateTenantAccountRequest
+ @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ @param org Name of the Org
+ @param accountId ID of the Tenant Account
+ @return ApiUpdateTenantAccountRequest
 */
 func (a *TenantAccountAPIService) UpdateTenantAccount(ctx context.Context, org string, accountId string) ApiUpdateTenantAccountRequest {
 	return ApiUpdateTenantAccountRequest{
 		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		accountId:  accountId,
+		ctx: ctx,
+		org: org,
+		accountId: accountId,
 	}
 }
 
 // Execute executes the request
-//
-//	@return TenantAccount
+//  @return TenantAccount
 func (a *TenantAccountAPIService) UpdateTenantAccountExecute(r ApiUpdateTenantAccountRequest) (*TenantAccount, *http.Response, error) {
 	var (
-		localVarHTTPMethod  = http.MethodPatch
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *TenantAccount
+		localVarHTTPMethod   = http.MethodPatch
+		localVarPostBody     interface{}
+		formFiles            []formFile
+		localVarReturnValue  *TenantAccount
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TenantAccountAPIService.UpdateTenantAccount")
@@ -742,8 +738,8 @@ func (a *TenantAccountAPIService) UpdateTenantAccountExecute(r ApiUpdateTenantAc
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
@@ -753,8 +749,8 @@ func (a *TenantAccountAPIService) UpdateTenantAccountExecute(r ApiUpdateTenantAc
 				newErr.error = err.Error()
 				return localVarReturnValue, localVarHTTPResponse, newErr
 			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
+					newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+					newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}

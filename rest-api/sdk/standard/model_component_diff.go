@@ -246,7 +246,7 @@ func (o *ComponentDiff) SetFieldDiffs(v []FieldDiff) {
 }
 
 func (o ComponentDiff) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -311,3 +311,4 @@ func (v *NullableComponentDiff) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

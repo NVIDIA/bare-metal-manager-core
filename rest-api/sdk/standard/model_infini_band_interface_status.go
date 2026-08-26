@@ -23,11 +23,11 @@ type InfiniBandInterfaceStatus string
 
 // List of InfiniBandInterfaceStatus
 const (
-	INFINIBANDINTERFACESTATUS_PENDING      InfiniBandInterfaceStatus = "Pending"
+	INFINIBANDINTERFACESTATUS_PENDING InfiniBandInterfaceStatus = "Pending"
 	INFINIBANDINTERFACESTATUS_PROVISIONING InfiniBandInterfaceStatus = "Provisioning"
-	INFINIBANDINTERFACESTATUS_READY        InfiniBandInterfaceStatus = "Ready"
-	INFINIBANDINTERFACESTATUS_DELETING     InfiniBandInterfaceStatus = "Deleting"
-	INFINIBANDINTERFACESTATUS_ERROR        InfiniBandInterfaceStatus = "Error"
+	INFINIBANDINTERFACESTATUS_READY InfiniBandInterfaceStatus = "Ready"
+	INFINIBANDINTERFACESTATUS_DELETING InfiniBandInterfaceStatus = "Deleting"
+	INFINIBANDINTERFACESTATUS_ERROR InfiniBandInterfaceStatus = "Error"
 )
 
 // All allowed values of InfiniBandInterfaceStatus enum
@@ -117,3 +117,4 @@ func (v *NullableInfiniBandInterfaceStatus) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

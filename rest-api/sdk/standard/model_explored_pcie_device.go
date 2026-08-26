@@ -22,15 +22,15 @@ var _ MappedNullable = &ExploredPCIeDevice{}
 
 // ExploredPCIeDevice Redfish PCIe device reported during exploration.
 type ExploredPCIeDevice struct {
-	Description     NullableString        `json:"description,omitempty"`
-	FirmwareVersion NullableString        `json:"firmwareVersion,omitempty"`
-	GpuVendor       NullableString        `json:"gpuVendor,omitempty"`
-	Id              NullableString        `json:"id,omitempty"`
-	Manufacturer    NullableString        `json:"manufacturer,omitempty"`
-	Name            NullableString        `json:"name,omitempty"`
-	PartNumber      NullableString        `json:"partNumber,omitempty"`
-	SerialNumber    NullableString        `json:"serialNumber,omitempty"`
-	Status          *ExploredSystemStatus `json:"status,omitempty"`
+	Description NullableString `json:"description,omitempty"`
+	FirmwareVersion NullableString `json:"firmwareVersion,omitempty"`
+	GpuVendor NullableString `json:"gpuVendor,omitempty"`
+	Id NullableString `json:"id,omitempty"`
+	Manufacturer NullableString `json:"manufacturer,omitempty"`
+	Name NullableString `json:"name,omitempty"`
+	PartNumber NullableString `json:"partNumber,omitempty"`
+	SerialNumber NullableString `json:"serialNumber,omitempty"`
+	Status *ExploredSystemStatus `json:"status,omitempty"`
 }
 
 // NewExploredPCIeDevice instantiates a new ExploredPCIeDevice object
@@ -82,7 +82,6 @@ func (o *ExploredPCIeDevice) HasDescription() bool {
 func (o *ExploredPCIeDevice) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *ExploredPCIeDevice) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -125,7 +124,6 @@ func (o *ExploredPCIeDevice) HasFirmwareVersion() bool {
 func (o *ExploredPCIeDevice) SetFirmwareVersion(v string) {
 	o.FirmwareVersion.Set(&v)
 }
-
 // SetFirmwareVersionNil sets the value for FirmwareVersion to be an explicit nil
 func (o *ExploredPCIeDevice) SetFirmwareVersionNil() {
 	o.FirmwareVersion.Set(nil)
@@ -168,7 +166,6 @@ func (o *ExploredPCIeDevice) HasGpuVendor() bool {
 func (o *ExploredPCIeDevice) SetGpuVendor(v string) {
 	o.GpuVendor.Set(&v)
 }
-
 // SetGpuVendorNil sets the value for GpuVendor to be an explicit nil
 func (o *ExploredPCIeDevice) SetGpuVendorNil() {
 	o.GpuVendor.Set(nil)
@@ -211,7 +208,6 @@ func (o *ExploredPCIeDevice) HasId() bool {
 func (o *ExploredPCIeDevice) SetId(v string) {
 	o.Id.Set(&v)
 }
-
 // SetIdNil sets the value for Id to be an explicit nil
 func (o *ExploredPCIeDevice) SetIdNil() {
 	o.Id.Set(nil)
@@ -254,7 +250,6 @@ func (o *ExploredPCIeDevice) HasManufacturer() bool {
 func (o *ExploredPCIeDevice) SetManufacturer(v string) {
 	o.Manufacturer.Set(&v)
 }
-
 // SetManufacturerNil sets the value for Manufacturer to be an explicit nil
 func (o *ExploredPCIeDevice) SetManufacturerNil() {
 	o.Manufacturer.Set(nil)
@@ -297,7 +292,6 @@ func (o *ExploredPCIeDevice) HasName() bool {
 func (o *ExploredPCIeDevice) SetName(v string) {
 	o.Name.Set(&v)
 }
-
 // SetNameNil sets the value for Name to be an explicit nil
 func (o *ExploredPCIeDevice) SetNameNil() {
 	o.Name.Set(nil)
@@ -340,7 +334,6 @@ func (o *ExploredPCIeDevice) HasPartNumber() bool {
 func (o *ExploredPCIeDevice) SetPartNumber(v string) {
 	o.PartNumber.Set(&v)
 }
-
 // SetPartNumberNil sets the value for PartNumber to be an explicit nil
 func (o *ExploredPCIeDevice) SetPartNumberNil() {
 	o.PartNumber.Set(nil)
@@ -383,7 +376,6 @@ func (o *ExploredPCIeDevice) HasSerialNumber() bool {
 func (o *ExploredPCIeDevice) SetSerialNumber(v string) {
 	o.SerialNumber.Set(&v)
 }
-
 // SetSerialNumberNil sets the value for SerialNumber to be an explicit nil
 func (o *ExploredPCIeDevice) SetSerialNumberNil() {
 	o.SerialNumber.Set(nil)
@@ -427,7 +419,7 @@ func (o *ExploredPCIeDevice) SetStatus(v ExploredSystemStatus) {
 }
 
 func (o ExploredPCIeDevice) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -501,3 +493,4 @@ func (v *NullableExploredPCIeDevice) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

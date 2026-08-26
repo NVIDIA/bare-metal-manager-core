@@ -14,8 +14,8 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
+	"bytes"
 	"fmt"
 )
 
@@ -88,7 +88,6 @@ func (o *SshKeyGroupUpdateRequest) HasName() bool {
 func (o *SshKeyGroupUpdateRequest) SetName(v string) {
 	o.Name.Set(&v)
 }
-
 // SetNameNil sets the value for Name to be an explicit nil
 func (o *SshKeyGroupUpdateRequest) SetNameNil() {
 	o.Name.Set(nil)
@@ -131,7 +130,6 @@ func (o *SshKeyGroupUpdateRequest) HasDescription() bool {
 func (o *SshKeyGroupUpdateRequest) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *SshKeyGroupUpdateRequest) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -231,7 +229,7 @@ func (o *SshKeyGroupUpdateRequest) SetVersion(v string) {
 }
 
 func (o SshKeyGroupUpdateRequest) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -269,10 +267,10 @@ func (o *SshKeyGroupUpdateRequest) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -327,3 +325,4 @@ func (v *NullableSshKeyGroupUpdateRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

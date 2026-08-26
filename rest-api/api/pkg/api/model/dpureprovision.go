@@ -45,6 +45,8 @@ type APIMachineDpuReprovisionRequest struct {
 	UpdateFirmware bool                      `json:"updateFirmware"`
 	// AcknowledgeAttachedInstance indicates the caller is aware that an Instance is currently attached to the Machine.
 	AcknowledgeAttachedInstance *bool `json:"acknowledgeAttachedInstance"`
+	// Force restarts reprovisioning regardless of the Machine state, to recover DPUs stuck in ingestion. It has no effect on assigned Machines.
+	Force bool `json:"force"`
 }
 
 // Validate validates the APIMachineDpuReprovisionRequest
@@ -64,5 +66,6 @@ func (amdrr *APIMachineDpuReprovisionRequest) ToProto(machineID string) *corev1.
 		// TODO: Add end user initiator in Core gRPC API
 		Initiator:      corev1.UpdateInitiator_AdminCli,
 		UpdateFirmware: amdrr.UpdateFirmware,
+		Force:          amdrr.Force,
 	}
 }

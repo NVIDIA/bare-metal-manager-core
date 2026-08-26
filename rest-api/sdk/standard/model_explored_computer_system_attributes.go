@@ -74,7 +74,6 @@ func (o *ExploredComputerSystemAttributes) HasNicMode() bool {
 func (o *ExploredComputerSystemAttributes) SetNicMode(v string) {
 	o.NicMode.Set(&v)
 }
-
 // SetNicModeNil sets the value for NicMode to be an explicit nil
 func (o *ExploredComputerSystemAttributes) SetNicModeNil() {
 	o.NicMode.Set(nil)
@@ -86,7 +85,7 @@ func (o *ExploredComputerSystemAttributes) UnsetNicMode() {
 }
 
 func (o ExploredComputerSystemAttributes) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -136,3 +135,4 @@ func (v *NullableExploredComputerSystemAttributes) UnmarshalJSON(src []byte) err
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

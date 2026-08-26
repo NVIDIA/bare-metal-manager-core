@@ -81,7 +81,6 @@ func (o *InstanceTypeUpdateRequest) HasName() bool {
 func (o *InstanceTypeUpdateRequest) SetName(v string) {
 	o.Name.Set(&v)
 }
-
 // SetNameNil sets the value for Name to be an explicit nil
 func (o *InstanceTypeUpdateRequest) SetNameNil() {
 	o.Name.Set(nil)
@@ -124,7 +123,6 @@ func (o *InstanceTypeUpdateRequest) HasDescription() bool {
 func (o *InstanceTypeUpdateRequest) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *InstanceTypeUpdateRequest) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -200,7 +198,7 @@ func (o *InstanceTypeUpdateRequest) SetMachineCapabilities(v []MachineCapability
 }
 
 func (o InstanceTypeUpdateRequest) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -259,3 +257,4 @@ func (v *NullableInstanceTypeUpdateRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

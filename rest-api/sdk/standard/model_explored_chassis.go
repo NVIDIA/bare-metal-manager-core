@@ -14,8 +14,8 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
+	"bytes"
 	"fmt"
 )
 
@@ -24,12 +24,12 @@ var _ MappedNullable = &ExploredChassis{}
 
 // ExploredChassis Redfish Chassis reported during exploration.
 type ExploredChassis struct {
-	Id              string                   `json:"id"`
+	Id string `json:"id"`
 	NetworkAdapters []ExploredNetworkAdapter `json:"networkAdapters,omitempty"`
-	Manufacturer    NullableString           `json:"manufacturer,omitempty"`
-	Model           NullableString           `json:"model,omitempty"`
-	PartNumber      NullableString           `json:"partNumber,omitempty"`
-	SerialNumber    NullableString           `json:"serialNumber,omitempty"`
+	Manufacturer NullableString `json:"manufacturer,omitempty"`
+	Model NullableString `json:"model,omitempty"`
+	PartNumber NullableString `json:"partNumber,omitempty"`
+	SerialNumber NullableString `json:"serialNumber,omitempty"`
 }
 
 type _ExploredChassis ExploredChassis
@@ -140,7 +140,6 @@ func (o *ExploredChassis) HasManufacturer() bool {
 func (o *ExploredChassis) SetManufacturer(v string) {
 	o.Manufacturer.Set(&v)
 }
-
 // SetManufacturerNil sets the value for Manufacturer to be an explicit nil
 func (o *ExploredChassis) SetManufacturerNil() {
 	o.Manufacturer.Set(nil)
@@ -183,7 +182,6 @@ func (o *ExploredChassis) HasModel() bool {
 func (o *ExploredChassis) SetModel(v string) {
 	o.Model.Set(&v)
 }
-
 // SetModelNil sets the value for Model to be an explicit nil
 func (o *ExploredChassis) SetModelNil() {
 	o.Model.Set(nil)
@@ -226,7 +224,6 @@ func (o *ExploredChassis) HasPartNumber() bool {
 func (o *ExploredChassis) SetPartNumber(v string) {
 	o.PartNumber.Set(&v)
 }
-
 // SetPartNumberNil sets the value for PartNumber to be an explicit nil
 func (o *ExploredChassis) SetPartNumberNil() {
 	o.PartNumber.Set(nil)
@@ -269,7 +266,6 @@ func (o *ExploredChassis) HasSerialNumber() bool {
 func (o *ExploredChassis) SetSerialNumber(v string) {
 	o.SerialNumber.Set(&v)
 }
-
 // SetSerialNumberNil sets the value for SerialNumber to be an explicit nil
 func (o *ExploredChassis) SetSerialNumberNil() {
 	o.SerialNumber.Set(nil)
@@ -281,7 +277,7 @@ func (o *ExploredChassis) UnsetSerialNumber() {
 }
 
 func (o ExploredChassis) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -322,10 +318,10 @@ func (o *ExploredChassis) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -380,3 +376,4 @@ func (v *NullableExploredChassis) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

@@ -86,7 +86,6 @@ func (o *ExpectedRackUpdateRequest) HasId() bool {
 func (o *ExpectedRackUpdateRequest) SetId(v string) {
 	o.Id.Set(&v)
 }
-
 // SetIdNil sets the value for Id to be an explicit nil
 func (o *ExpectedRackUpdateRequest) SetIdNil() {
 	o.Id.Set(nil)
@@ -132,7 +131,6 @@ func (o *ExpectedRackUpdateRequest) HasRackId() bool {
 func (o *ExpectedRackUpdateRequest) SetRackId(v string) {
 	o.RackId.Set(&v)
 }
-
 // SetRackIdNil sets the value for RackId to be an explicit nil
 func (o *ExpectedRackUpdateRequest) SetRackIdNil() {
 	o.RackId.Set(nil)
@@ -175,7 +173,6 @@ func (o *ExpectedRackUpdateRequest) HasRackProfileId() bool {
 func (o *ExpectedRackUpdateRequest) SetRackProfileId(v string) {
 	o.RackProfileId.Set(&v)
 }
-
 // SetRackProfileIdNil sets the value for RackProfileId to be an explicit nil
 func (o *ExpectedRackUpdateRequest) SetRackProfileIdNil() {
 	o.RackProfileId.Set(nil)
@@ -218,7 +215,6 @@ func (o *ExpectedRackUpdateRequest) HasName() bool {
 func (o *ExpectedRackUpdateRequest) SetName(v string) {
 	o.Name.Set(&v)
 }
-
 // SetNameNil sets the value for Name to be an explicit nil
 func (o *ExpectedRackUpdateRequest) SetNameNil() {
 	o.Name.Set(nil)
@@ -261,7 +257,6 @@ func (o *ExpectedRackUpdateRequest) HasDescription() bool {
 func (o *ExpectedRackUpdateRequest) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *ExpectedRackUpdateRequest) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -305,7 +300,7 @@ func (o *ExpectedRackUpdateRequest) SetLabels(v map[string]string) {
 }
 
 func (o ExpectedRackUpdateRequest) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -370,3 +365,4 @@ func (v *NullableExpectedRackUpdateRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

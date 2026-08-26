@@ -99,7 +99,6 @@ func (o *SiteUpdateRequest) HasName() bool {
 func (o *SiteUpdateRequest) SetName(v string) {
 	o.Name.Set(&v)
 }
-
 // SetNameNil sets the value for Name to be an explicit nil
 func (o *SiteUpdateRequest) SetNameNil() {
 	o.Name.Set(nil)
@@ -142,7 +141,6 @@ func (o *SiteUpdateRequest) HasDescription() bool {
 func (o *SiteUpdateRequest) SetDescription(v string) {
 	o.Description.Set(&v)
 }
-
 // SetDescriptionNil sets the value for Description to be an explicit nil
 func (o *SiteUpdateRequest) SetDescriptionNil() {
 	o.Description.Set(nil)
@@ -217,7 +215,6 @@ func (o *SiteUpdateRequest) HasSerialConsoleHostname() bool {
 func (o *SiteUpdateRequest) SetSerialConsoleHostname(v string) {
 	o.SerialConsoleHostname.Set(&v)
 }
-
 // SetSerialConsoleHostnameNil sets the value for SerialConsoleHostname to be an explicit nil
 func (o *SiteUpdateRequest) SetSerialConsoleHostnameNil() {
 	o.SerialConsoleHostname.Set(nil)
@@ -465,7 +462,7 @@ func (o *SiteUpdateRequest) SetCapabilities(v SiteCapabilitiesUpdateRequest) {
 }
 
 func (o SiteUpdateRequest) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -545,3 +542,4 @@ func (v *NullableSiteUpdateRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

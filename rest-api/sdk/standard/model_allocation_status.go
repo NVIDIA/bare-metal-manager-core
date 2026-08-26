@@ -23,10 +23,10 @@ type AllocationStatus string
 
 // List of AllocationStatus
 const (
-	ALLOCATIONSTATUS_PENDING    AllocationStatus = "Pending"
+	ALLOCATIONSTATUS_PENDING AllocationStatus = "Pending"
 	ALLOCATIONSTATUS_REGISTERED AllocationStatus = "Registered"
-	ALLOCATIONSTATUS_DELETING   AllocationStatus = "Deleting"
-	ALLOCATIONSTATUS_ERROR      AllocationStatus = "Error"
+	ALLOCATIONSTATUS_DELETING AllocationStatus = "Deleting"
+	ALLOCATIONSTATUS_ERROR AllocationStatus = "Error"
 )
 
 // All allowed values of AllocationStatus enum
@@ -115,3 +115,4 @@ func (v *NullableAllocationStatus) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

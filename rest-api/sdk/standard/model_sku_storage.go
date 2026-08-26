@@ -215,7 +215,6 @@ func (o *SkuStorage) HasMinSizeMiB() bool {
 func (o *SkuStorage) SetMinSizeMiB(v uint32) {
 	o.MinSizeMiB.Set(&v)
 }
-
 // SetMinSizeMiBNil sets the value for MinSizeMiB to be an explicit nil
 func (o *SkuStorage) SetMinSizeMiBNil() {
 	o.MinSizeMiB.Set(nil)
@@ -258,7 +257,6 @@ func (o *SkuStorage) HasMaxSizeMiB() bool {
 func (o *SkuStorage) SetMaxSizeMiB(v uint32) {
 	o.MaxSizeMiB.Set(&v)
 }
-
 // SetMaxSizeMiBNil sets the value for MaxSizeMiB to be an explicit nil
 func (o *SkuStorage) SetMaxSizeMiBNil() {
 	o.MaxSizeMiB.Set(nil)
@@ -302,7 +300,7 @@ func (o *SkuStorage) SetPciPatterns(v []string) {
 }
 
 func (o SkuStorage) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -370,3 +368,4 @@ func (v *NullableSkuStorage) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

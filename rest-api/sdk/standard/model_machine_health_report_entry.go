@@ -14,10 +14,10 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
 	"time"
+	"bytes"
+	"fmt"
 )
 
 // checks if the MachineHealthReportEntry type satisfies the MappedNullable interface at compile time
@@ -237,7 +237,7 @@ func (o *MachineHealthReportEntry) SetMode(v string) {
 }
 
 func (o MachineHealthReportEntry) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -277,10 +277,10 @@ func (o *MachineHealthReportEntry) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -335,3 +335,4 @@ func (v *NullableMachineHealthReportEntry) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

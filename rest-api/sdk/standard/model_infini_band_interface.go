@@ -226,7 +226,6 @@ func (o *InfiniBandInterface) HasVendor() bool {
 func (o *InfiniBandInterface) SetVendor(v string) {
 	o.Vendor.Set(&v)
 }
-
 // SetVendorNil sets the value for Vendor to be an explicit nil
 func (o *InfiniBandInterface) SetVendorNil() {
 	o.Vendor.Set(nil)
@@ -333,7 +332,6 @@ func (o *InfiniBandInterface) HasVirtualFunctionId() bool {
 func (o *InfiniBandInterface) SetVirtualFunctionId(v int32) {
 	o.VirtualFunctionId.Set(&v)
 }
-
 // SetVirtualFunctionIdNil sets the value for VirtualFunctionId to be an explicit nil
 func (o *InfiniBandInterface) SetVirtualFunctionIdNil() {
 	o.VirtualFunctionId.Set(nil)
@@ -376,7 +374,6 @@ func (o *InfiniBandInterface) HasGuid() bool {
 func (o *InfiniBandInterface) SetGuid(v string) {
 	o.Guid.Set(&v)
 }
-
 // SetGuidNil sets the value for Guid to be an explicit nil
 func (o *InfiniBandInterface) SetGuidNil() {
 	o.Guid.Set(nil)
@@ -484,7 +481,7 @@ func (o *InfiniBandInterface) SetUpdated(v time.Time) {
 }
 
 func (o InfiniBandInterface) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -567,3 +564,4 @@ func (v *NullableInfiniBandInterface) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

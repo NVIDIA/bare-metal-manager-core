@@ -79,7 +79,6 @@ func (o *DpuExtensionServiceObservabilityConfig) HasName() bool {
 func (o *DpuExtensionServiceObservabilityConfig) SetName(v string) {
 	o.Name.Set(&v)
 }
-
 // SetNameNil sets the value for Name to be an explicit nil
 func (o *DpuExtensionServiceObservabilityConfig) SetNameNil() {
 	o.Name.Set(nil)
@@ -155,7 +154,7 @@ func (o *DpuExtensionServiceObservabilityConfig) SetLogging(v DpuExtensionServic
 }
 
 func (o DpuExtensionServiceObservabilityConfig) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -211,3 +210,4 @@ func (v *NullableDpuExtensionServiceObservabilityConfig) UnmarshalJSON(src []byt
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

@@ -25,8 +25,8 @@ type TenantAccountStatus string
 const (
 	TENANTACCOUNTSTATUS_PENDING TenantAccountStatus = "Pending"
 	TENANTACCOUNTSTATUS_INVITED TenantAccountStatus = "Invited"
-	TENANTACCOUNTSTATUS_READY   TenantAccountStatus = "Ready"
-	TENANTACCOUNTSTATUS_ERROR   TenantAccountStatus = "Error"
+	TENANTACCOUNTSTATUS_READY TenantAccountStatus = "Ready"
+	TENANTACCOUNTSTATUS_ERROR TenantAccountStatus = "Error"
 )
 
 // All allowed values of TenantAccountStatus enum
@@ -115,3 +115,4 @@ func (v *NullableTenantAccountStatus) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

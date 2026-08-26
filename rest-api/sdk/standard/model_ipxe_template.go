@@ -14,10 +14,10 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
 	"time"
+	"bytes"
+	"fmt"
 )
 
 // checks if the IpxeTemplate type satisfies the MappedNullable interface at compile time
@@ -38,9 +38,9 @@ type IpxeTemplate struct {
 	// Artifact names required for the template
 	RequiredArtifacts []string `json:"requiredArtifacts"`
 	// Template visibility: Internal or Public
-	Visibility string     `json:"visibility"`
-	Created    *time.Time `json:"created,omitempty"`
-	Updated    *time.Time `json:"updated,omitempty"`
+	Visibility string `json:"visibility"`
+	Created *time.Time `json:"created,omitempty"`
+	Updated *time.Time `json:"updated,omitempty"`
 }
 
 type _IpxeTemplate IpxeTemplate
@@ -302,7 +302,7 @@ func (o *IpxeTemplate) SetUpdated(v time.Time) {
 }
 
 func (o IpxeTemplate) MarshalJSON() ([]byte, error) {
-	toSerialize, err := o.ToMap()
+	toSerialize,err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -346,10 +346,10 @@ func (o *IpxeTemplate) UnmarshalJSON(data []byte) (err error) {
 	err = json.Unmarshal(data, &allProperties)
 
 	if err != nil {
-		return err
+		return err;
 	}
 
-	for _, requiredProperty := range requiredProperties {
+	for _, requiredProperty := range(requiredProperties) {
 		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
 			return fmt.Errorf("no value given for required property %v", requiredProperty)
 		}
@@ -404,3 +404,4 @@ func (v *NullableIpxeTemplate) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

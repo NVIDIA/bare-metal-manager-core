@@ -23,11 +23,11 @@ type NetworkSecurityGroupStatus string
 
 // List of NetworkSecurityGroupStatus
 const (
-	NETWORKSECURITYGROUPSTATUS_PENDING      NetworkSecurityGroupStatus = "Pending"
+	NETWORKSECURITYGROUPSTATUS_PENDING NetworkSecurityGroupStatus = "Pending"
 	NETWORKSECURITYGROUPSTATUS_PROVISIONING NetworkSecurityGroupStatus = "Provisioning"
-	NETWORKSECURITYGROUPSTATUS_READY        NetworkSecurityGroupStatus = "Ready"
-	NETWORKSECURITYGROUPSTATUS_DELETING     NetworkSecurityGroupStatus = "Deleting"
-	NETWORKSECURITYGROUPSTATUS_ERROR        NetworkSecurityGroupStatus = "Error"
+	NETWORKSECURITYGROUPSTATUS_READY NetworkSecurityGroupStatus = "Ready"
+	NETWORKSECURITYGROUPSTATUS_DELETING NetworkSecurityGroupStatus = "Deleting"
+	NETWORKSECURITYGROUPSTATUS_ERROR NetworkSecurityGroupStatus = "Error"
 )
 
 // All allowed values of NetworkSecurityGroupStatus enum
@@ -117,3 +117,4 @@ func (v *NullableNetworkSecurityGroupStatus) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

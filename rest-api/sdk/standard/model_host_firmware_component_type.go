@@ -23,16 +23,16 @@ type HostFirmwareComponentType string
 
 // List of HostFirmwareComponentType
 const (
-	HOSTFIRMWARECOMPONENTTYPE_BMC               HostFirmwareComponentType = "BMC"
-	HOSTFIRMWARECOMPONENTTYPE_CEC               HostFirmwareComponentType = "CEC"
-	HOSTFIRMWARECOMPONENTTYPE_UEFI              HostFirmwareComponentType = "UEFI"
-	HOSTFIRMWARECOMPONENTTYPE_NIC               HostFirmwareComponentType = "NIC"
-	HOSTFIRMWARECOMPONENTTYPE_CPLD_MB           HostFirmwareComponentType = "CpldMb"
-	HOSTFIRMWARECOMPONENTTYPE_CPLD_PDB          HostFirmwareComponentType = "CpldPdb"
-	HOSTFIRMWARECOMPONENTTYPE_HGX_BMC           HostFirmwareComponentType = "HgxBmc"
+	HOSTFIRMWARECOMPONENTTYPE_BMC HostFirmwareComponentType = "BMC"
+	HOSTFIRMWARECOMPONENTTYPE_CEC HostFirmwareComponentType = "CEC"
+	HOSTFIRMWARECOMPONENTTYPE_UEFI HostFirmwareComponentType = "UEFI"
+	HOSTFIRMWARECOMPONENTTYPE_NIC HostFirmwareComponentType = "NIC"
+	HOSTFIRMWARECOMPONENTTYPE_CPLD_MB HostFirmwareComponentType = "CpldMb"
+	HOSTFIRMWARECOMPONENTTYPE_CPLD_PDB HostFirmwareComponentType = "CpldPdb"
+	HOSTFIRMWARECOMPONENTTYPE_HGX_BMC HostFirmwareComponentType = "HgxBmc"
 	HOSTFIRMWARECOMPONENTTYPE_COMBINED_BMC_UEFI HostFirmwareComponentType = "CombinedBmcUefi"
-	HOSTFIRMWARECOMPONENTTYPE_GPU               HostFirmwareComponentType = "GPU"
-	HOSTFIRMWARECOMPONENTTYPE_CX7               HostFirmwareComponentType = "Cx7"
+	HOSTFIRMWARECOMPONENTTYPE_GPU HostFirmwareComponentType = "GPU"
+	HOSTFIRMWARECOMPONENTTYPE_CX7 HostFirmwareComponentType = "Cx7"
 )
 
 // All allowed values of HostFirmwareComponentType enum
@@ -127,3 +127,4 @@ func (v *NullableHostFirmwareComponentType) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
+

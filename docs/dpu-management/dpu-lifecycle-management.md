@@ -322,6 +322,31 @@ curl -X PATCH "${BASE_URL}/v2/org/${ORG}/nico/machine/${MACHINE_ID}/dpu/reprovis
 
 Use `Set` mode in the PATCH operation to start reprovisioning and `Clear` to remove a pending request. `Restart` mode accepts a host ID only, and restarts DPUs that already have a reprovisioning request. If an Instance is attached to the Machine, also pass `"acknowledgeAttachedInstance": true`. The REST `updateFirmware` field is accepted for compatibility, but firmware is always verified and updated during reprovisioning.
 
+### Recovering a DPU Stuck in Ingestion
+
+The manual and automatic flows above act on hosts that have reached `Ready` (or a tenant-allocated `Assigned` host, which follows the approval flow). A DPU that never finished ingestion — one still in a `DPUInitializing` substate such as `WaitingForPlatformConfiguration`, `WaitingForNetworkConfig`, or `WaitingForPlatformPowercycle` — is not `Ready`, so an ordinary reprovisioning request does not move it.
+
+To recover such a DPU, set `--force` (CLI) or `"force": true` (REST). A forced request restarts the ingestion state machine from the beginning: NICo reinstalls the NICo BFB and drives the DPU back through discovery, network configuration, and health.
+
+```bash
+nico-admin-cli -a <api-url> dpu reprovision set \
+  --id <host-or-dpu-machine-id> \
+  --force
+```
+
+```bash
+curl -X PATCH "${BASE_URL}/v2/org/${ORG}/nico/machine/${MACHINE_ID}/dpu/reprovision" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"mode":"Set","force":true}'
+```
+
+A forced request behaves differently from a standard one in three ways:
+
+- It does **not** require the `HostUpdateInProgress` health alert precondition, so no health report needs to be created first.
+- It is a one-shot kick: NICo clears the force flag as soon as it restarts ingestion, so ingestion is not repeatedly reset on later ticks.
+- It has **no effect on tenant-allocated (`Assigned`) hosts**, which continue to use the standard reprovisioning approval flow.
+
 ### Monitoring Reprovisioning Progress
 
 ```bash

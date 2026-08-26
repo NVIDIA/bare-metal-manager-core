@@ -2497,6 +2497,11 @@ pub struct ReprovisionRequest {
     pub user_approval_received: bool,
     #[serde(default)]
     pub restart_reprovision_requested_at: DateTime<Utc>,
+    /// When set, reprovisioning is forced regardless of the managed host state.
+    /// Used to recover DPUs stuck in ingestion (non-Ready, non-Assigned states)
+    /// by restarting the ingestion state machine.
+    #[serde(default)]
+    pub force: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -3606,6 +3611,29 @@ mod tests {
     }
 
     #[test]
+    fn reprovision_request_force_defaults_false_for_legacy_blobs() {
+        // A request persisted before the force flag existed omits it and must
+        // load as a non-forced request.
+        let legacy = r#"{
+            "requested_at": "2026-01-01T00:00:00Z",
+            "initiator": "AdminCli",
+            "update_firmware": false
+        }"#;
+        let req: ReprovisionRequest =
+            serde_json::from_str(legacy).expect("legacy request blob should deserialize");
+        assert!(!req.force, "a missing force flag must default to false");
+
+        // A forced request round-trips through JSON.
+        let forced = ReprovisionRequest {
+            force: true,
+            ..req
+        };
+        let json = serde_json::to_string(&forced).unwrap();
+        let round_tripped: ReprovisionRequest = serde_json::from_str(&json).unwrap();
+        assert!(round_tripped.force, "force flag must survive serialization");
+    }
+
+    #[test]
     fn ready_boot_config_defaults_survive_persisted_state_loading() {
         scenarios!(
             run = |json| serde_json::from_str::<ReadyBootConfigState>(json).map_err(drop);
@@ -3805,6 +3833,7 @@ mod tests {
                         started_at: None,
                         user_approval_received: false,
                         restart_reprovision_requested_at: DateTime::<Utc>::UNIX_EPOCH,
+                        force: false,
                     });
                 dpu
             })
