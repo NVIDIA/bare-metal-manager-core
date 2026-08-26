@@ -330,6 +330,9 @@ fn publish_bootstrap_ca(contents: &[u8], source_ca_path: &Path) -> eyre::Result<
 /// listener and the token validator.
 const CA_REPUBLISH_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
+/// How often the agent collects and reports its LLDP neighbors.
+const LLDP_REPORT_INTERVAL: Duration = Duration::from_secs(120);
+
 /// Copies the configured trust anchor into its `pub/` mirror when the two
 /// differ.
 ///

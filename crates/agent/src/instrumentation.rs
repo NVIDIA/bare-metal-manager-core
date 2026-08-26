@@ -159,6 +159,7 @@ enum ReportLoop {
     ConfigFetch,
     FmdsPush,
     NetworkStatus,
+    Lldp,
 }
 
 pub(crate) enum InventoryReport {
@@ -186,6 +187,11 @@ pub(crate) enum NetworkStatus {
     Succeeded,
     ConnectionFailed { forge_api: String, error: String },
     RpcFailed { error: String },
+}
+
+pub(crate) enum LldpReport {
+    Succeeded,
+    Failed { error: String },
 }
 
 /// The one metric the Events below record.
@@ -362,6 +368,36 @@ struct NetworkStatusRpcFailed {
     error: String,
 }
 
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_lldp_report_succeeded",
+    metric_family = DpuAgentReport,
+    log = info,
+    message = "Reported LLDP neighbors"
+)]
+struct LldpReportSucceeded {
+    #[label]
+    report_loop: ReportLoop,
+    #[label]
+    outcome: Outcome,
+}
+
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_lldp_report_failed",
+    metric_family = DpuAgentReport,
+    log = error,
+    message = "Could not report LLDP neighbors"
+)]
+struct LldpReportFailed {
+    #[label]
+    report_loop: ReportLoop,
+    #[label]
+    outcome: Outcome,
+    #[context]
+    error: String,
+}
+
 impl InventoryReport {
     pub(crate) fn emit(self) {
         match self {
@@ -439,6 +475,22 @@ impl NetworkStatus {
             }
             Self::RpcFailed { error } => carbide_instrument::emit(NetworkStatusRpcFailed {
                 report_loop: ReportLoop::NetworkStatus,
+                outcome: Outcome::Error,
+                error,
+            }),
+        }
+    }
+}
+
+impl LldpReport {
+    pub(crate) fn emit(self) {
+        match self {
+            Self::Succeeded => carbide_instrument::emit(LldpReportSucceeded {
+                report_loop: ReportLoop::Lldp,
+                outcome: Outcome::Ok,
+            }),
+            Self::Failed { error } => carbide_instrument::emit(LldpReportFailed {
+                report_loop: ReportLoop::Lldp,
                 outcome: Outcome::Error,
                 error,
             }),

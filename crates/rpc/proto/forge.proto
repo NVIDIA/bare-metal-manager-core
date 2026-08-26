@@ -458,6 +458,9 @@ service Forge {
   // MachineInventory
   rpc UpdateAgentReportedInventory(DpuAgentInventoryReport) returns (google.protobuf.Empty);
 
+  // Periodic LLDP neighbor report from a running agent (DPU agent or scout).
+  rpc ReportLldpNeighbors(LldpNeighborReport) returns (google.protobuf.Empty);
+
   // Phone Home
   rpc UpdateInstancePhoneHomeLastContact(InstancePhoneHomeLastContactRequest) returns (InstancePhoneHomeLastContactResponse);
 
@@ -4353,6 +4356,18 @@ message MachineInventorySoftwareComponent {
   string name = 1;
   string version = 2;
   string url = 3;
+}
+
+// Full snapshot of a machine's current LLDP neighbors, keyed by local NIC MAC.
+message LldpNeighborReport {
+  common.MachineId machine_id = 1;
+  repeated InterfaceLldp interfaces = 2;
+}
+
+message InterfaceLldp {
+  // Local NIC MAC address (the machine's own port).
+  string mac_address = 1;
+  machine_discovery.LldpSwitchData lldp = 2;
 }
 
 // Summary of a health report source: its mode and source identifier.

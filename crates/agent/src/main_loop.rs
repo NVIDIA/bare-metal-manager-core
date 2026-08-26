@@ -29,6 +29,7 @@ use ::rpc::forge::ManagedHostNetworkConfigResponse;
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use ::rpc::{forge as rpc, forge_tls_client};
 use carbide_host_support::agent_config::AgentConfig;
+use carbide_host_support::lldp_report::ReportOutcome;
 use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_rpc_utils::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 use carbide_systemd::systemd;
@@ -57,7 +58,8 @@ use crate::fmds_client::FmdsUpdater;
 use crate::health::HealthCheckParams;
 use crate::host_machine_id::get_host_machine_id_retry;
 use crate::instrumentation::{
-    NetworkStatus, OvsRestart, create_metrics, get_dpu_agent_meter, get_prometheus_registry,
+    LldpReport, NetworkStatus, OvsRestart, create_metrics, get_dpu_agent_meter,
+    get_prometheus_registry,
 };
 use crate::machine_inventory_updater::MachineInventoryUpdaterConfig;
 use crate::network_monitor::{self, NetworkPingerType};
@@ -410,6 +412,12 @@ pub(super) async fn setup_and_run(
         .as_ref()
         .map(|prefix| InterfaceTranslationMode::Prepend(prefix.clone()));
 
+    let lldp_reporter = carbide_host_support::lldp_report::LldpReporter::new(
+        machine_id,
+        forge_api_server.clone(),
+        forge_client_config.as_ref().clone(),
+    );
+
     let mut main_loop = MainLoop {
         forge_client_config,
         build_version,
@@ -425,8 +433,10 @@ pub(super) async fn setup_and_run(
         version_check_time: std::time::Instant::now(),
         inventory_updater_time: std::time::Instant::now(),
         ca_republish_time: std::time::Instant::now(),
+        lldp_report_time: std::time::Instant::now(),
         started_at: std::time::Instant::now(),
         inventory_updater_config,
+        lldp_reporter,
         options,
         agent_config,
         forge_api_server,
@@ -464,7 +474,9 @@ struct MainLoop {
     version_check_time: std::time::Instant,
     inventory_updater_time: std::time::Instant,
     ca_republish_time: std::time::Instant,
+    lldp_report_time: std::time::Instant,
     inventory_updater_config: MachineInventoryUpdaterConfig,
+    lldp_reporter: carbide_host_support::lldp_report::LldpReporter,
     options: command_line::RunOptions,
     agent_config: AgentConfig,
     forge_api_server: String,
@@ -1321,6 +1333,11 @@ impl MainLoop {
             crate::republish_bootstrap_ca_if_changed(&self.agent_config.forge_system.root_ca);
         }
 
+        if now > self.lldp_report_time {
+            self.lldp_report_time = now.add(crate::LLDP_REPORT_INTERVAL);
+            self.report_lldp_neighbors().await;
+        }
+
         if now > self.inventory_updater_time {
             self.inventory_updater_time =
                 now.add(self.inventory_updater_config.update_inventory_interval);
@@ -1388,6 +1405,32 @@ impl MainLoop {
             stop_agent: false,
             loop_period,
         })
+    }
+
+    /// Collect the LLDP neighbors this machine sees and report them to nico-api.
+    async fn report_lldp_neighbors(&mut self) {
+        let neighbors = match crate::collect_lldp_neighbors(&self.options.agent_platform_type).await
+        {
+            Ok(neighbors) => neighbors,
+            Err(error) => {
+                tracing::warn!(%error, "Could not collect LLDP neighbors; skipping report");
+                return;
+            }
+        };
+
+        match self.lldp_reporter.report_if_changed(neighbors).await {
+            Ok(ReportOutcome::Sent) => LldpReport::Succeeded.emit(),
+            Ok(ReportOutcome::UnchangedSkipped) => {
+                tracing::debug!("LLDP neighbors unchanged; skipping report")
+            }
+            Ok(ReportOutcome::EmptySkipped) => {
+                tracing::debug!("No LLDP neighbors found; skipping report")
+            }
+            Err(error) => LldpReport::Failed {
+                error: error.to_string(),
+            }
+            .emit(),
+        }
     }
 
     async fn perform_upgrade_check(&mut self, now: std::time::Instant) -> IterationResult {
