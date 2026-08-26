@@ -846,7 +846,7 @@ impl MachineStateHandler {
                         let powercycle_needed =
                             self.enable_astra_all_nics(mh_snapshot, ctx).await?;
                         tracing::info!(
-                            "SDM ConfigureAstra state: EnableNics, powercycle_needed: {}",
+                            "ConfigureAstra state: EnableNics, powercycle_needed: {}",
                             powercycle_needed
                         );
                         if powercycle_needed {
@@ -860,12 +860,12 @@ impl MachineStateHandler {
                                 tracing::error!(
                                     machine_id = %mh_snapshot.host_snapshot.id,
                                     error = %e,
-                                    "SDM ConfigureAstra failed to ACPowercycle host"
+                                    "ConfigureAstra failed to ACPowercycle host"
                                 );
                                 return Err(e);
                             }
                             tracing::info!(
-                                "SDM ConfigureAstra called handler_host_power_control with ACPowercycle"
+                                "ConfigureAstra called handler_host_power_control with ACPowercycle"
                             );
                             return Ok(StateHandlerOutcome::transition(
                                 ManagedHostState::ConfigureAstra {
@@ -2157,7 +2157,7 @@ impl MachineStateHandler {
     ) -> Result<(), StateHandlerError> {
         tracing::info!(
             machine_id = %mh_snapshot.host_snapshot.id,
-            "SDM Enabling Astra on NIC {nic_index}"
+            "Enabling Astra on NIC {nic_index}"
         );
 
         // Create the redfish client from the machine snapshot.
@@ -2179,7 +2179,7 @@ impl MachineStateHandler {
         let mac_address = MacAddress::from_str(&mac_address).map_err(|e| {
             tracing::error!(
                 machine_id = %mh_snapshot.host_snapshot.id,
-                "SDM Invalid SPX NIC MAC address {mac_address}: {e}"
+                "Invalid SPX NIC MAC address {mac_address}: {e}"
             );
             StateHandlerError::GenericError(eyre!("invalid SPX NIC MAC address {mac_address}: {e}"))
         })?;
@@ -2188,7 +2188,7 @@ impl MachineStateHandler {
         // Does this mac address match the mac address in the passed in expected interface?
         if mac_address != expected_nic.mac_address {
             tracing::error!(
-                "SDM Actual MAC address {mac_address} does not match expected MAC address {expected_mac_address} for NIC {nic_index}"
+                "Actual MAC address {mac_address} does not match expected MAC address {expected_mac_address} for NIC {nic_index}"
             );
             return Err(StateHandlerError::GenericError(eyre!(
                 "mac address mismatch: expected {expected_mac_address}, got {mac_address}"
@@ -2257,7 +2257,7 @@ impl MachineStateHandler {
         if !ctx.services.site_config.astra_enabled {
             tracing::debug!(
                 machine_id = %mh_snapshot.host_snapshot.id,
-                "SDM Astra not enabled for this site, skipping NIC enablement"
+                "Astra not enabled for this site, skipping NIC enablement"
             );
             return Ok(false);
         }
@@ -2270,7 +2270,7 @@ impl MachineStateHandler {
         let Some(bmc_mac_address) = mh_snapshot.host_snapshot.status.bmc_info.mac else {
             tracing::debug!(
                 machine_id = %mh_snapshot.host_snapshot.id,
-                "SDM No BMC MAC address configured"
+                "No BMC MAC address configured"
             );
             return Err(StateHandlerError::MissingData {
                 object_id: mh_snapshot.host_snapshot.id.to_string(),
@@ -2289,7 +2289,7 @@ impl MachineStateHandler {
                         machine_id = %mh_snapshot.host_snapshot.id,
                         %bmc_mac_address,
                         error = %err,
-                        "SDM Failed to look up expected machine for Astra enablement"
+                        "Failed to look up expected machine for Astra enablement"
                     );
                     StateHandlerError::DBError(Box::new(err))
                 })?;
@@ -2309,7 +2309,7 @@ impl MachineStateHandler {
         if host_nics.is_empty() {
             tracing::info!(
                 machine_id = %mh_snapshot.host_snapshot.id,
-                "SDM No host NICs found for Astra enablement"
+                "No host NICs found for Astra enablement"
             );
             return Ok(false);
         }
@@ -2331,7 +2331,7 @@ impl MachineStateHandler {
                     machine_id = %mh_snapshot.host_snapshot.id,
                     nic_index,
                     error = %e,
-                    "SDM Failed to enable Astra on CX9 NIC"
+                    "Failed to enable Astra on CX9 NIC"
                 );
                 return Err(e);
             }
@@ -2340,7 +2340,7 @@ impl MachineStateHandler {
 
         tracing::info!(
             machine_id = %mh_snapshot.host_snapshot.id,
-            "SDM Enabled Astra on {enabled_any_cx9} CX9 NICs"
+            "Enabled Astra on {enabled_any_cx9} CX9 NICs"
         );
 
         Ok(enabled_any_cx9)
