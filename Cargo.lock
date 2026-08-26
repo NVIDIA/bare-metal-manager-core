@@ -1629,6 +1629,7 @@ dependencies = [
  "carbide-secrets",
  "carbide-sqlx-testing",
  "carbide-test-support",
+ "carbide-uuid",
  "chrono",
  "libredfish",
  "mac_address",

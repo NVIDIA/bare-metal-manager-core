@@ -25,7 +25,7 @@ use carbide_redfish::libredfish::RedfishAuth;
 use carbide_secrets::credentials::{BmcCredentialType, CredentialKey};
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine::{HostMachineId, MachineId};
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::{VpcId, VpcPrefixId};
 use db::{DatabaseError, ObjectColumnFilter, WithTransaction, network_security_group};
@@ -46,7 +46,7 @@ use model::instance::config::tenant_config::TenantConfig;
 use model::instance::snapshot::InstanceSnapshot;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
-    HostHealthConfig, InstanceState, LoadSnapshotOptions, ManagedHostState,
+    HostHealthConfig, HostMachine, InstanceState, LoadSnapshotOptions, ManagedHostState,
     ManagedHostStateSnapshot,
 };
 use model::metadata::Metadata;
@@ -61,7 +61,6 @@ use tonic::{Request, Response, Status};
 use crate::api::{Api, log_machine_id, log_request_data, log_tenant_organization_id};
 use crate::cfg::file::CarbideConfig;
 use crate::ethernet_virtualization::validate_instance_interface_routing_profiles;
-use crate::handlers::utils::convert_and_log_machine_id;
 use crate::instance::{
     InstanceAllocationRequest, allocate_ib_port_guid, allocate_instance, allocate_network,
     allocate_spx_port_mac, ib_memberships_from_config, load_extension_services,
@@ -75,7 +74,7 @@ use crate::{CarbideError, CarbideResult};
 /// Admin `force_delete_instance` is not subject to this check.
 async fn ensure_instance_release_not_blocked_by_prevent_instance_deletion(
     txn: &mut db::Transaction<'_>,
-    machine_id: &MachineId,
+    machine_id: &HostMachineId,
     host_health: HostHealthConfig,
 ) -> Result<(), CarbideError> {
     let Some(snapshot) = db::managed_host::load_snapshot(
@@ -292,7 +291,7 @@ pub(crate) async fn find_by_machine_id(
 ) -> Result<Response<rpc::InstanceList>, Status> {
     log_request_data(&request);
 
-    let machine_id = convert_and_log_machine_id::<MachineId>(Some(&request.into_inner()))?;
+    let machine_id = request.into_inner();
 
     let mut txn = api.txn_begin().await?;
 
@@ -482,9 +481,9 @@ fn log_delete_attribution(delete_attribution: Option<&rpc::DeleteAttribution>) {
 /// releases to prevent infinite loops where RepairSystem triggers itself repeatedly.
 async fn handle_instance_release_from_repair_tenant(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    machine_id: &MachineId,
+    machine_id: &HostMachineId,
     issue: Option<&rpc::Issue>,
-    machine: &model::machine::Machine,
+    machine: &HostMachine,
     tenant_organization_id: &str,
 ) -> Result<(), CarbideError> {
     let has_request_repair = machine
@@ -506,7 +505,7 @@ async fn handle_instance_release_from_repair_tenant(
                 create_tenant_reported_issue_override(issue, tenant_organization_id);
             apply_health_override(
                 txn,
-                machine_id,
+                machine_id.as_machine_id(),
                 &override_report,
                 "TenantReportedIssue for repair tenant issues (no auto-repair to prevent cycles)",
             )
@@ -535,7 +534,7 @@ async fn handle_instance_release_from_repair_tenant(
         // Repair completed successfully - Good to remove the RequestRepair override.
         remove_health_override(
             txn,
-            machine_id,
+            machine_id.as_machine_id(),
             health_report::REPAIR_REQUEST_MERGE_SOURCE,
             "RequestRepair removed - repair completed successfully",
         )
@@ -556,7 +555,7 @@ async fn handle_instance_release_from_repair_tenant(
                 create_tenant_reported_issue_override(issue, tenant_organization_id);
             apply_health_override(
                 txn,
-                machine_id,
+                machine_id.as_machine_id(),
                 &override_report,
                 "TenantReportedIssue updated for repair tenant (no auto-repair to prevent cycles)",
             )
@@ -565,7 +564,7 @@ async fn handle_instance_release_from_repair_tenant(
             // No new issues - Remove TenantReportedIssue override to make machine available in ready pool
             remove_health_override(
                 txn,
-                machine_id,
+                machine_id.as_machine_id(),
                 "tenant-reported-issue",
                 "TenantReportedIssue removed - repair completed successfully",
             )
@@ -576,7 +575,7 @@ async fn handle_instance_release_from_repair_tenant(
         // to send the machine for Forge team intervention, preventing auto-repair loops.
         remove_health_override(
             txn,
-            machine_id,
+            machine_id.as_machine_id(),
             health_report::REPAIR_REQUEST_MERGE_SOURCE,
             "RequestRepair removed for incomplete repair",
         )
@@ -611,7 +610,7 @@ async fn handle_instance_release_from_repair_tenant(
             create_tenant_reported_issue_override(&issue_to_apply, tenant_organization_id);
         apply_health_override(
             txn,
-            machine_id,
+            machine_id.as_machine_id(),
             &override_report,
             "TenantReportedIssue for incomplete repair (no auto-repair to prevent cycles)",
         )
@@ -639,7 +638,7 @@ async fn handle_instance_release_from_repair_tenant(
 /// on the machine before it can be allocated to new instances.
 async fn handle_instance_release_from_regular_tenant_and_report_issue(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    machine_id: &MachineId,
+    machine_id: &HostMachineId,
     issue: &rpc::Issue,
     auto_repair_enabled: bool,
     tenant_organization_id: &str,
@@ -655,7 +654,7 @@ async fn handle_instance_release_from_regular_tenant_and_report_issue(
     let tenant_override = create_tenant_reported_issue_override(issue, tenant_organization_id);
     apply_health_override(
         txn,
-        machine_id,
+        machine_id.as_machine_id(),
         &tenant_override,
         "TenantReportedIssue for regular tenant",
     )
@@ -666,7 +665,7 @@ async fn handle_instance_release_from_regular_tenant_and_report_issue(
         let repair_override = create_request_repair_override(issue);
         apply_health_override(
             txn,
-            machine_id,
+            machine_id.as_machine_id(),
             &repair_override,
             "RequestRepair for regular tenant (auto-repair enabled)",
         )
@@ -889,7 +888,7 @@ pub(crate) async fn update_phone_home_last_contact(
     // attached to that host. Phone-home calls originate from the DPU agent on the host.
     // Skipped when bypass_rbac is enabled (caller_machine_id is None).
     if let Some(ref caller_machine_id) = caller_machine_id {
-        let caller_is_host = *caller_machine_id == instance.machine_id;
+        let caller_is_host = *caller_machine_id == instance.machine_id.into();
         let caller_is_attached_dpu = if caller_is_host {
             false
         } else {
@@ -2133,8 +2132,7 @@ async fn update_instance_spx_config(
         only_svpc: false,
         only_astra: false,
     };
-    let host_machine_id = carbide_uuid::machine::HostMachineId::try_from(mid)
-        .map_err(|error| CarbideError::internal(error.to_string()))?;
+    let host_machine_id = mid;
     let dpa_interfaces =
         db::dpa_interface::find_by_machine_id(txn.as_mut(), host_machine_id, dpa_search_config)
             .await?;
@@ -2259,7 +2257,7 @@ impl HydrateFromDeprecatedFields for rpc::InstanceAllocationRequest {
 
         let ns_id = match db::network_segment::find_ids_by_machine_id(
             txn,
-            &machine_id,
+            machine_id.as_host_machine_id(),
             Some(NetworkSegmentType::HostInband),
         )
         .await?

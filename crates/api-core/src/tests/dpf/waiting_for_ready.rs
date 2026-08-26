@@ -183,7 +183,7 @@ async fn test_waiting_for_ready_reboot_flow(pool: sqlx::PgPool) {
         actions
     );
 
-    reboot_completed(&env, mh.id.into()).await;
+    reboot_completed(&env, mh.id).await;
 
     // Complete On, observe DPU readiness, then cross the DeviceReady barrier.
     timeout(TEST_TIMEOUT, async {
@@ -691,7 +691,7 @@ async fn test_waiting_for_ready_host_already_off(pool: sqlx::PgPool) {
         actions
     );
 
-    reboot_completed(&env, mh.id.into()).await;
+    reboot_completed(&env, mh.id).await;
 
     // Complete On, observe DPU readiness, then cross the DeviceReady barrier.
     timeout(TEST_TIMEOUT, async {

@@ -7,12 +7,45 @@ package common;
 
 option go_package = "github.com/NVIDIA/infra-controller/rest-api/proto/core";
 
+// Identifies any machine (fm100h, fm100p, fm100d).
 message MachineId {
+  string id = 1;
+}
+
+// Identifies a DPU machine (fm100d).
+message DpuMachineId {
+  string id = 1;
+}
+
+// Identifies either a stable or predicted host machine (fm100h or fm100p).
+message HostMachineId {
+  string id = 1;
+}
+
+// Identifies a stable host machine (fm100h).
+message StableHostMachineId {
+  string id = 1;
+}
+
+// Identifies a predicted host machine (fm100p).
+message PredictedHostMachineId {
   string id = 1;
 }
 
 message MachineIdList {
   repeated MachineId machine_ids = 1;
+}
+
+message HostMachineIdList {
+  repeated HostMachineId machine_ids = 1;
+}
+
+message DpuMachineIdList {
+  repeated DpuMachineId machine_ids = 1;
+}
+
+message StableHostMachineIdList {
+  repeated StableHostMachineId machine_ids = 1;
 }
 
 // A list of strings

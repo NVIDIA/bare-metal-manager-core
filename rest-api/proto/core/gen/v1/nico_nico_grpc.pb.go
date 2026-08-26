@@ -717,7 +717,7 @@ type ForgeClient interface {
 	FindSitePrefixStateHistories(ctx context.Context, in *SitePrefixStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error)
 	FindTenantOrganizationIds(ctx context.Context, in *TenantSearchFilter, opts ...grpc.CallOption) (*TenantOrganizationIdList, error)
 	FindTenantsByOrganizationIds(ctx context.Context, in *TenantByOrganizationIdsRequest, opts ...grpc.CallOption) (*TenantList, error)
-	FindConnectedDevicesByDpuMachineIds(ctx context.Context, in *MachineIdList, opts ...grpc.CallOption) (*ConnectedDeviceList, error)
+	FindConnectedDevicesByDpuMachineIds(ctx context.Context, in *DpuMachineIdList, opts ...grpc.CallOption) (*ConnectedDeviceList, error)
 	FindMachineIdsByBmcIps(ctx context.Context, in *BmcIpList, opts ...grpc.CallOption) (*MachineIdBmcIpPairs, error)
 	FindMacAddressByBmcIp(ctx context.Context, in *BmcIp, opts ...grpc.CallOption) (*MacAddressBmcIp, error)
 	FindBmcIps(ctx context.Context, in *FindBmcIpsRequest, opts ...grpc.CallOption) (*BmcIpList, error)
@@ -1166,7 +1166,7 @@ type ForgeClient interface {
 	GetManagedHostQuarantineState(ctx context.Context, in *GetManagedHostQuarantineStateRequest, opts ...grpc.CallOption) (*GetManagedHostQuarantineStateResponse, error)
 	SetManagedHostQuarantineState(ctx context.Context, in *SetManagedHostQuarantineStateRequest, opts ...grpc.CallOption) (*SetManagedHostQuarantineStateResponse, error)
 	ClearManagedHostQuarantineState(ctx context.Context, in *ClearManagedHostQuarantineStateRequest, opts ...grpc.CallOption) (*ClearManagedHostQuarantineStateResponse, error)
-	ResetHostReprovisioning(ctx context.Context, in *MachineId, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	ResetHostReprovisioning(ctx context.Context, in *StableHostMachineId, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Copy BFB to DPU's RSHIM
 	CopyBfbToDpuRshim(ctx context.Context, in *CopyBfbToDpuRshimRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Spectrum-X East West Networking related calls
@@ -1367,7 +1367,7 @@ type ForgeClient interface {
 	// this is the only way to discover which machines to name. Split ids-then-
 	// details because a fleet-wide rollout can leave every host waiting at once,
 	// and the worklist must not become one unbounded response.
-	FindPendingDPUServiceSyncIds(ctx context.Context, in *FindPendingDPUServiceSyncIdsRequest, opts ...grpc.CallOption) (*MachineIdList, error)
+	FindPendingDPUServiceSyncIds(ctx context.Context, in *FindPendingDPUServiceSyncIdsRequest, opts ...grpc.CallOption) (*StableHostMachineIdList, error)
 	FindPendingDPUServiceSyncsByIds(ctx context.Context, in *FindPendingDPUServiceSyncsByIdsRequest, opts ...grpc.CallOption) (*ListPendingDPUServiceSyncsResponse, error)
 	// One machine's recorded sync history, newest first. Needs no paging: the
 	// database caps retained history per machine.
@@ -2639,7 +2639,7 @@ func (c *forgeClient) FindTenantsByOrganizationIds(ctx context.Context, in *Tena
 	return out, nil
 }
 
-func (c *forgeClient) FindConnectedDevicesByDpuMachineIds(ctx context.Context, in *MachineIdList, opts ...grpc.CallOption) (*ConnectedDeviceList, error) {
+func (c *forgeClient) FindConnectedDevicesByDpuMachineIds(ctx context.Context, in *DpuMachineIdList, opts ...grpc.CallOption) (*ConnectedDeviceList, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ConnectedDeviceList)
 	err := c.cc.Invoke(ctx, Forge_FindConnectedDevicesByDpuMachineIds_FullMethodName, in, out, cOpts...)
@@ -5119,7 +5119,7 @@ func (c *forgeClient) ClearManagedHostQuarantineState(ctx context.Context, in *C
 	return out, nil
 }
 
-func (c *forgeClient) ResetHostReprovisioning(ctx context.Context, in *MachineId, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (c *forgeClient) ResetHostReprovisioning(ctx context.Context, in *StableHostMachineId, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, Forge_ResetHostReprovisioning_FullMethodName, in, out, cOpts...)
@@ -6122,9 +6122,9 @@ func (c *forgeClient) GetDPFServiceVersions(ctx context.Context, in *GetDPFServi
 	return out, nil
 }
 
-func (c *forgeClient) FindPendingDPUServiceSyncIds(ctx context.Context, in *FindPendingDPUServiceSyncIdsRequest, opts ...grpc.CallOption) (*MachineIdList, error) {
+func (c *forgeClient) FindPendingDPUServiceSyncIds(ctx context.Context, in *FindPendingDPUServiceSyncIdsRequest, opts ...grpc.CallOption) (*StableHostMachineIdList, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(MachineIdList)
+	out := new(StableHostMachineIdList)
 	err := c.cc.Invoke(ctx, Forge_FindPendingDPUServiceSyncIds_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -6515,7 +6515,7 @@ type ForgeServer interface {
 	FindSitePrefixStateHistories(context.Context, *SitePrefixStateHistoriesRequest) (*StateHistories, error)
 	FindTenantOrganizationIds(context.Context, *TenantSearchFilter) (*TenantOrganizationIdList, error)
 	FindTenantsByOrganizationIds(context.Context, *TenantByOrganizationIdsRequest) (*TenantList, error)
-	FindConnectedDevicesByDpuMachineIds(context.Context, *MachineIdList) (*ConnectedDeviceList, error)
+	FindConnectedDevicesByDpuMachineIds(context.Context, *DpuMachineIdList) (*ConnectedDeviceList, error)
 	FindMachineIdsByBmcIps(context.Context, *BmcIpList) (*MachineIdBmcIpPairs, error)
 	FindMacAddressByBmcIp(context.Context, *BmcIp) (*MacAddressBmcIp, error)
 	FindBmcIps(context.Context, *FindBmcIpsRequest) (*BmcIpList, error)
@@ -6964,7 +6964,7 @@ type ForgeServer interface {
 	GetManagedHostQuarantineState(context.Context, *GetManagedHostQuarantineStateRequest) (*GetManagedHostQuarantineStateResponse, error)
 	SetManagedHostQuarantineState(context.Context, *SetManagedHostQuarantineStateRequest) (*SetManagedHostQuarantineStateResponse, error)
 	ClearManagedHostQuarantineState(context.Context, *ClearManagedHostQuarantineStateRequest) (*ClearManagedHostQuarantineStateResponse, error)
-	ResetHostReprovisioning(context.Context, *MachineId) (*emptypb.Empty, error)
+	ResetHostReprovisioning(context.Context, *StableHostMachineId) (*emptypb.Empty, error)
 	// Copy BFB to DPU's RSHIM
 	CopyBfbToDpuRshim(context.Context, *CopyBfbToDpuRshimRequest) (*emptypb.Empty, error)
 	// Spectrum-X East West Networking related calls
@@ -7165,7 +7165,7 @@ type ForgeServer interface {
 	// this is the only way to discover which machines to name. Split ids-then-
 	// details because a fleet-wide rollout can leave every host waiting at once,
 	// and the worklist must not become one unbounded response.
-	FindPendingDPUServiceSyncIds(context.Context, *FindPendingDPUServiceSyncIdsRequest) (*MachineIdList, error)
+	FindPendingDPUServiceSyncIds(context.Context, *FindPendingDPUServiceSyncIdsRequest) (*StableHostMachineIdList, error)
 	FindPendingDPUServiceSyncsByIds(context.Context, *FindPendingDPUServiceSyncsByIdsRequest) (*ListPendingDPUServiceSyncsResponse, error)
 	// One machine's recorded sync history, newest first. Needs no paging: the
 	// database caps retained history per machine.
@@ -7575,7 +7575,7 @@ func (UnimplementedForgeServer) FindTenantOrganizationIds(context.Context, *Tena
 func (UnimplementedForgeServer) FindTenantsByOrganizationIds(context.Context, *TenantByOrganizationIdsRequest) (*TenantList, error) {
 	return nil, status.Error(codes.Unimplemented, "method FindTenantsByOrganizationIds not implemented")
 }
-func (UnimplementedForgeServer) FindConnectedDevicesByDpuMachineIds(context.Context, *MachineIdList) (*ConnectedDeviceList, error) {
+func (UnimplementedForgeServer) FindConnectedDevicesByDpuMachineIds(context.Context, *DpuMachineIdList) (*ConnectedDeviceList, error) {
 	return nil, status.Error(codes.Unimplemented, "method FindConnectedDevicesByDpuMachineIds not implemented")
 }
 func (UnimplementedForgeServer) FindMachineIdsByBmcIps(context.Context, *BmcIpList) (*MachineIdBmcIpPairs, error) {
@@ -8319,7 +8319,7 @@ func (UnimplementedForgeServer) SetManagedHostQuarantineState(context.Context, *
 func (UnimplementedForgeServer) ClearManagedHostQuarantineState(context.Context, *ClearManagedHostQuarantineStateRequest) (*ClearManagedHostQuarantineStateResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ClearManagedHostQuarantineState not implemented")
 }
-func (UnimplementedForgeServer) ResetHostReprovisioning(context.Context, *MachineId) (*emptypb.Empty, error) {
+func (UnimplementedForgeServer) ResetHostReprovisioning(context.Context, *StableHostMachineId) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method ResetHostReprovisioning not implemented")
 }
 func (UnimplementedForgeServer) CopyBfbToDpuRshim(context.Context, *CopyBfbToDpuRshimRequest) (*emptypb.Empty, error) {
@@ -8619,7 +8619,7 @@ func (UnimplementedForgeServer) GetDPFHostSnapshot(context.Context, *GetDPFHostS
 func (UnimplementedForgeServer) GetDPFServiceVersions(context.Context, *GetDPFServiceVersionsRequest) (*DPFServiceVersionsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetDPFServiceVersions not implemented")
 }
-func (UnimplementedForgeServer) FindPendingDPUServiceSyncIds(context.Context, *FindPendingDPUServiceSyncIdsRequest) (*MachineIdList, error) {
+func (UnimplementedForgeServer) FindPendingDPUServiceSyncIds(context.Context, *FindPendingDPUServiceSyncIdsRequest) (*StableHostMachineIdList, error) {
 	return nil, status.Error(codes.Unimplemented, "method FindPendingDPUServiceSyncIds not implemented")
 }
 func (UnimplementedForgeServer) FindPendingDPUServiceSyncsByIds(context.Context, *FindPendingDPUServiceSyncsByIdsRequest) (*ListPendingDPUServiceSyncsResponse, error) {
@@ -10893,7 +10893,7 @@ func _Forge_FindTenantsByOrganizationIds_Handler(srv interface{}, ctx context.Co
 }
 
 func _Forge_FindConnectedDevicesByDpuMachineIds_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(MachineIdList)
+	in := new(DpuMachineIdList)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -10905,7 +10905,7 @@ func _Forge_FindConnectedDevicesByDpuMachineIds_Handler(srv interface{}, ctx con
 		FullMethod: Forge_FindConnectedDevicesByDpuMachineIds_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ForgeServer).FindConnectedDevicesByDpuMachineIds(ctx, req.(*MachineIdList))
+		return srv.(ForgeServer).FindConnectedDevicesByDpuMachineIds(ctx, req.(*DpuMachineIdList))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -15357,7 +15357,7 @@ func _Forge_ClearManagedHostQuarantineState_Handler(srv interface{}, ctx context
 }
 
 func _Forge_ResetHostReprovisioning_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(MachineId)
+	in := new(StableHostMachineId)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -15369,7 +15369,7 @@ func _Forge_ResetHostReprovisioning_Handler(srv interface{}, ctx context.Context
 		FullMethod: Forge_ResetHostReprovisioning_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ForgeServer).ResetHostReprovisioning(ctx, req.(*MachineId))
+		return srv.(ForgeServer).ResetHostReprovisioning(ctx, req.(*StableHostMachineId))
 	}
 	return interceptor(ctx, in, info, handler)
 }

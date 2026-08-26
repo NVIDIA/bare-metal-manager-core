@@ -176,7 +176,11 @@ async fn release_instances_from_vpcs(
         .api
         .find_machines_by_ids(
             rpc::forge::MachinesByIdsRequest {
-                machine_ids: instances.iter().filter_map(|i| i.machine_id).collect(),
+                machine_ids: instances
+                    .iter()
+                    .filter_map(|i| i.machine_id)
+                    .map(Into::into)
+                    .collect(),
                 include_history: false,
             }
             .into_request(),
@@ -508,7 +512,7 @@ async fn test_vpc_peering_network_config(
     let response = env
         .api
         .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
-            dpu_machine_id: Some(dpu_machine_id.into()),
+            dpu_machine_id: Some(dpu_machine_id),
         }))
         .await
         .unwrap()
@@ -555,7 +559,7 @@ async fn test_vpc_peering_network_config_exclusive_etv(
     let response = env
         .api
         .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
-            dpu_machine_id: Some(dpu_machine_id.into()),
+            dpu_machine_id: Some(dpu_machine_id),
         }))
         .await
         .unwrap()
@@ -588,7 +592,7 @@ async fn test_vpc_peering_deletion_upon_vpc_deletion(
     let response = env
         .api
         .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
-            dpu_machine_id: Some(dpu_machine_id.into()),
+            dpu_machine_id: Some(dpu_machine_id),
         }))
         .await
         .unwrap()
@@ -613,7 +617,7 @@ async fn test_vpc_peering_deletion_upon_vpc_deletion(
     let response = env
         .api
         .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
-            dpu_machine_id: Some(dpu_machine_id.into()),
+            dpu_machine_id: Some(dpu_machine_id),
         }))
         .await
         .unwrap()
@@ -685,7 +689,7 @@ async fn test_vpc_peering_network_config_ordered_peerings(
     let response = env
         .api
         .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
-            dpu_machine_id: Some(dpu_machine_id.into()),
+            dpu_machine_id: Some(dpu_machine_id),
         }))
         .await?
         .into_inner();

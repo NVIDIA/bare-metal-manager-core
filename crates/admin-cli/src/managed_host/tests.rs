@@ -25,7 +25,7 @@
 
 use carbide_test_support::Outcome::*;
 use carbide_test_support::scenarios;
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine::{HostMachineId, MachineId};
 use clap::{CommandFactory, Parser};
 
 use super::*;
@@ -241,7 +241,7 @@ fn parse_power_options_routes_to_power_options() {
                 "--desired-power-state",
                 "on",
             ][..] => Yields((
-                Some(TEST_MACHINE_ID.parse::<MachineId>().unwrap()),
+                Some(TEST_MACHINE_ID.parse::<HostMachineId>().unwrap()),
                 Some(rpc::forge::PowerState::On as i32),
             )),
         }

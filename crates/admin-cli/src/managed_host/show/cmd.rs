@@ -20,7 +20,7 @@ use std::fmt::Write;
 
 use ::rpc::Machine;
 use ::rpc::admin_cli::OutputFormat;
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine::DpuMachineId;
 use health_report::HealthProbeAlert;
 use prettytable::{Cell, Row, Table};
 use serde::Serialize;
@@ -572,8 +572,8 @@ pub(super) async fn show(
     // Find connected devices for all machines
     let dpu_machine_ids = machines
         .iter()
-        .filter_map(|m| m.id)
-        .collect::<Vec<MachineId>>();
+        .filter_map(|m| m.id.and_then(|id| DpuMachineId::try_from(id).ok()))
+        .collect::<Vec<_>>();
 
     let connected_devices = api_client
         .0

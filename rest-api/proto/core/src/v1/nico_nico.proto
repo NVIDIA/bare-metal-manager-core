@@ -255,7 +255,7 @@ service Forge {
   rpc FindSitePrefixStateHistories(SitePrefixStateHistoriesRequest) returns (StateHistories);
   rpc FindTenantOrganizationIds(TenantSearchFilter) returns (TenantOrganizationIdList);
   rpc FindTenantsByOrganizationIds(TenantByOrganizationIdsRequest) returns (TenantList);
-  rpc FindConnectedDevicesByDpuMachineIds(common.MachineIdList) returns (ConnectedDeviceList);
+  rpc FindConnectedDevicesByDpuMachineIds(common.DpuMachineIdList) returns (ConnectedDeviceList);
   rpc FindMachineIdsByBmcIps(BmcIpList) returns (MachineIdBmcIpPairs);
   rpc FindMacAddressByBmcIp(BmcIp) returns (MacAddressBmcIp);
   rpc FindBmcIps(FindBmcIpsRequest) returns (BmcIpList);
@@ -805,7 +805,7 @@ service Forge {
   rpc SetManagedHostQuarantineState(SetManagedHostQuarantineStateRequest) returns (SetManagedHostQuarantineStateResponse);
   rpc ClearManagedHostQuarantineState(ClearManagedHostQuarantineStateRequest) returns (ClearManagedHostQuarantineStateResponse);
 
-  rpc ResetHostReprovisioning(common.MachineId) returns (google.protobuf.Empty);
+  rpc ResetHostReprovisioning(common.StableHostMachineId) returns (google.protobuf.Empty);
   // Copy BFB to DPU's RSHIM
   rpc CopyBfbToDpuRshim(CopyBfbToDpuRshimRequest) returns (google.protobuf.Empty);
 
@@ -1043,7 +1043,7 @@ service Forge {
   // this is the only way to discover which machines to name. Split ids-then-
   // details because a fleet-wide rollout can leave every host waiting at once,
   // and the worklist must not become one unbounded response.
-  rpc FindPendingDPUServiceSyncIds(FindPendingDPUServiceSyncIdsRequest) returns (common.MachineIdList);
+  rpc FindPendingDPUServiceSyncIds(FindPendingDPUServiceSyncIdsRequest) returns (common.StableHostMachineIdList);
   rpc FindPendingDPUServiceSyncsByIds(FindPendingDPUServiceSyncsByIdsRequest) returns (ListPendingDPUServiceSyncsResponse);
   // One machine's recorded sync history, newest first. Needs no paging: the
   // database caps retained history per machine.
@@ -2969,7 +2969,7 @@ message InstanceAllocationRequest {
   // The Machine on top of which we create an Instance
   // If we go towards "we already have instances model", this would become more of a
   // AssignInstanceToTenant request, and the ID would be the instance_id
-  common.MachineId machine_id = 1;
+  common.StableHostMachineId machine_id = 1;
 
 
   // Desired configuration for the allocated instance
@@ -3397,7 +3397,7 @@ message InstanceInfinibandStatus {
 }
 
 message DpuExtensionServiceStatus {
-  common.MachineId dpu_machine_id = 1;
+  common.DpuMachineId dpu_machine_id = 1;
   DpuExtensionServiceDeploymentStatus status = 2;
   optional string error_message = 3;
   repeated DpuExtensionServiceComponent components = 4;
@@ -3428,7 +3428,7 @@ message Instance {
   // Instance ID
   common.InstanceId id = 1;
   // The ID of the host machine which is utilized for this Instance (host_machine_id)
-  common.MachineId machine_id = 2;
+  common.StableHostMachineId machine_id = 2;
   Metadata metadata = 3;
 
   // The InstanceTypeId associated with the Instance.
@@ -3960,8 +3960,8 @@ message MachineStatus {
   optional machine_discovery.DiscoveryInfo discovery_info = 2;
   google.protobuf.Timestamp last_reboot_time = 3;
   google.protobuf.Timestamp last_observation_time = 4;
-  optional common.MachineId associated_host_machine_id = 5;
-  repeated common.MachineId associated_dpu_machine_ids = 6;
+  optional common.HostMachineId associated_host_machine_id = 5;
+  repeated common.DpuMachineId associated_dpu_machine_ids = 6;
   optional google.protobuf.Timestamp last_reboot_requested_time = 7;
   optional string last_reboot_requested_mode = 8;
   optional string dpu_agent_version = 9;
@@ -4043,7 +4043,7 @@ message Machine {
   // Other machine ids associated with this machine
   // Deprecated: use status.associated_host_machine_id
   // TODO: change to reserved once rest-api uses MachineStatus
-  optional common.MachineId associated_host_machine_id = 19 [deprecated = true];
+  optional common.HostMachineId associated_host_machine_id = 19 [deprecated = true];
   reserved 20; /* previously: optional common.MachineId associated_dpu_machine_id = 20; */
 
   // Hardware inventory (NIC firmware, etc.). Discovered at ingestion time; not operator-mutable.
@@ -4062,7 +4062,7 @@ message Machine {
   // Fields are not ordered numerically, check the whole message for max field number
   // Deprecated: use status.associated_dpu_machine_ids
   // TODO: change to reserved once rest-api uses MachineStatus
-  repeated common.MachineId associated_dpu_machine_ids = 26 [deprecated = true];
+  repeated common.DpuMachineId associated_dpu_machine_ids = 26 [deprecated = true];
 
   // For Host Machines returns the aggregate health of the host
   // For DPUs, it returns the individual DPU health
@@ -4244,7 +4244,7 @@ message PowerShelfMetadataUpdateRequest {
 }
 
 message DpuAgentInventoryReport {
-  common.MachineId machine_id = 1;
+  common.DpuMachineId machine_id = 1;
   MachineComponentInventory inventory = 2;
 }
 
@@ -4347,7 +4347,7 @@ enum InterfaceType {
 
 message MachineInterface {
   common.MachineInterfaceId id = 1;
-  optional common.MachineId attached_dpu_machine_id = 2;
+  optional common.DpuMachineId attached_dpu_machine_id = 2;
   common.MachineId machine_id = 3;
   common.NetworkSegmentId segment_id = 4;
 
@@ -4654,7 +4654,7 @@ enum MachineHardwareInfoUpdateType {
 }
 
 message ManagedHostNetworkConfigRequest {
-  common.MachineId dpu_machine_id = 1;
+  common.DpuMachineId dpu_machine_id = 1;
 }
 
 message ManagedHostNetworkConfigResponse {
@@ -4846,7 +4846,7 @@ enum VpcIsolationBehaviorType {
 }
 
 message GetManagedHostQuarantineStateRequest {
-  common.MachineId machine_id = 1;
+  common.HostMachineId machine_id = 1;
 }
 
 message GetManagedHostQuarantineStateResponse {
@@ -4854,7 +4854,7 @@ message GetManagedHostQuarantineStateResponse {
 }
 
 message SetManagedHostQuarantineStateRequest {
-  common.MachineId machine_id = 1;
+  common.HostMachineId machine_id = 1;
   ManagedHostQuarantineState quarantine_state = 2;
 }
 
@@ -4863,7 +4863,7 @@ message SetManagedHostQuarantineStateResponse {
 }
 
 message ClearManagedHostQuarantineStateRequest {
-  common.MachineId machine_id = 1;
+  common.HostMachineId machine_id = 1;
 }
 
 message ClearManagedHostQuarantineStateResponse {
@@ -5098,7 +5098,7 @@ message AdminForceDeleteMachineRequest {
 }
 
 message DecommissionManagedHostRequest {
-  common.MachineId machine_id = 1;
+  common.StableHostMachineId machine_id = 1;
 }
 
 message DecommissionManagedHostResponse {
@@ -5604,7 +5604,7 @@ enum InterfaceFunctionType {
 
 // What nico-dpu-agent reports. Will grow over time.
 message DpuNetworkStatus {
-  common.MachineId dpu_machine_id = 1;
+  common.DpuMachineId dpu_machine_id = 1;
   google.protobuf.Timestamp observed_at = 2;
   // Legacy mechanism to indicate DPU health.
   reserved 3; // Was NetworkHealth health = 3; - // Replaced by the `dpu_health` field
@@ -6122,7 +6122,7 @@ message DpuReprovisioningListRequest {
 
 message DpuReprovisioningListResponse {
   message DpuReprovisioningListItem {
-    common.MachineId id = 1; // Dpu Machine ID
+    common.DpuMachineId id = 1; // Dpu Machine ID
     string state = 2; // ManagedHost state
     string initiator = 3; // Who requested this reprovisioning.
     google.protobuf.Timestamp requested_at = 4; // When reprovisioning was requested.
@@ -6138,7 +6138,7 @@ message HostReprovisioningRequest {
     Set = 0;
     Clear = 1;
   }
-  common.MachineId machine_id = 1;
+  common.StableHostMachineId machine_id = 1;
   Mode mode = 2;
   UpdateInitiator initiator = 3;
 }
@@ -6196,7 +6196,7 @@ message NicLockdownCredentialRotationRequest {
     Clear = 2;
   }
   Mode mode = 1;
-  common.MachineId machine_id = 2;
+  common.HostMachineId machine_id = 2;
 }
 
 message HostReprovisioningListRequest {
@@ -6414,7 +6414,7 @@ message ClearHostUefiPasswordResponse {
 
 message SetDpuUefiPasswordRequest {
   // The DPU machine to set the UEFI password on.
-  common.MachineId dpu_id = 1;
+  common.DpuMachineId dpu_id = 1;
   // UUID, IP address, hostname or MAC address resolving to the DPU machine
   // (preferred over dpu_id).
   optional string machine_query = 2;
@@ -6722,7 +6722,7 @@ message MachineRebootCompletedRequest {
 }
 
 message ScoutFirmwareUpgradeStatusRequest {
-  common.MachineId machine_id = 1;
+  common.HostMachineId machine_id = 1;
   bool success = 2;
   int32 exit_code = 3;
   string stdout = 4;
@@ -7905,7 +7905,7 @@ message SkuSearchFilter {
 
 message DpaInterface {
   common.DpaInterfaceId id = 1;
-  common.MachineId machine_id = 2;
+  common.HostMachineId machine_id = 2;
   string mac_addr = 3;
 
   google.protobuf.Timestamp created = 4;
@@ -7953,7 +7953,7 @@ enum DpaInterfaceType {
 }
 
 message DpaInterfaceCreationRequest {
-  common.MachineId machine_id = 1;
+  common.HostMachineId machine_id = 1;
   string mac_addr = 2;
   string device_type = 3;
   string pci_name = 4;
@@ -7992,7 +7992,7 @@ message SkuUpdateMetadataRequest {
 }
 
 message PowerOptionRequest {
-  repeated common.MachineId machine_id = 1;
+  repeated common.HostMachineId machine_id = 1;
 }
 
 enum PowerState {
@@ -8002,7 +8002,7 @@ enum PowerState {
 }
 
 message PowerOptionUpdateRequest {
-  common.MachineId machine_id = 1;
+  common.HostMachineId machine_id = 1;
   PowerState power_state = 2;
 }
 
@@ -8011,7 +8011,7 @@ message PowerOptions {
   google.protobuf.Timestamp desired_state_updated_at = 2;
   PowerState actual_state = 3;
   google.protobuf.Timestamp actual_state_updated_at = 4;
-  common.MachineId host_id = 5;
+  common.HostMachineId host_id = 5;
   string desired_power_state_version = 6;
   google.protobuf.Timestamp next_power_state_fetch_at = 7;
   int32 off_counter = 8;
@@ -8759,19 +8759,19 @@ message DisableRemediationRequest {
 /// and the api server will give you back the other one(s).
 message FindAppliedRemediationIdsRequest {
   optional common.RemediationId remediation_id = 1;
-  optional common.MachineId dpu_machine_id = 2;
+  optional common.DpuMachineId dpu_machine_id = 2;
 }
 message AppliedRemediationIdList {
   repeated common.RemediationId remediation_ids = 1;
-  repeated common.MachineId dpu_machine_ids = 2;
+  repeated common.DpuMachineId dpu_machine_ids = 2;
 }
 message FindAppliedRemediationsRequest {
   common.RemediationId remediation_id = 1;
-  common.MachineId dpu_machine_id = 2;
+  common.DpuMachineId dpu_machine_id = 2;
 }
 message AppliedRemediation {
   common.RemediationId remediation_id = 1;
-  common.MachineId dpu_machine_id = 2;
+  common.DpuMachineId dpu_machine_id = 2;
   int32 attempt = 3;
   bool succeeded = 4;
   google.protobuf.Timestamp applied_time = 5;
@@ -8782,7 +8782,7 @@ message AppliedRemediationList {
 }
 
 message GetNextRemediationForMachineRequest {
-  common.MachineId dpu_machine_id = 1;
+  common.DpuMachineId dpu_machine_id = 1;
 }
 message GetNextRemediationForMachineResponse {
   optional common.RemediationId remediation_id = 1;
@@ -8790,7 +8790,7 @@ message GetNextRemediationForMachineResponse {
 }
 message RemediationAppliedRequest {
   common.RemediationId remediation_id = 1;
-  common.MachineId dpu_machine_id = 2;
+  common.DpuMachineId dpu_machine_id = 2;
   RemediationApplicationStatus status = 3;
 }
 message RemediationApplicationStatus {
@@ -8800,8 +8800,8 @@ message RemediationApplicationStatus {
 // end DPU remediation models
 
 message SetPrimaryDpuRequest {
-  common.MachineId host_machine_id = 1;
-  common.MachineId dpu_machine_id = 2;
+  common.StableHostMachineId host_machine_id = 1;
+  common.DpuMachineId dpu_machine_id = 2;
   // Deprecated compatibility alias for `force_reconcile`.
   bool reboot = 3 [deprecated = true];
   // Request another controller reconciliation even when the selected DPU is
@@ -8810,7 +8810,7 @@ message SetPrimaryDpuRequest {
 }
 
 message SetPrimaryInterfaceRequest {
-  common.MachineId host_machine_id = 1;
+  common.StableHostMachineId host_machine_id = 1;
   common.MachineInterfaceId interface_id = 2;
   // Deprecated compatibility alias for `force_reconcile`.
   bool reboot = 3 [deprecated = true];
@@ -9272,13 +9272,13 @@ message MachinePositionInfo {
 }
 
 message ModifyDPFStateRequest {
-  common.MachineId machine_id = 1;
+  common.HostMachineId machine_id = 1;
   bool dpf_enabled = 2;
 }
 
 message DPFStateResponse {
   message DPFState {
-    common.MachineId machine_id = 1;
+    common.HostMachineId machine_id = 1;
     bool enabled = 2;
     bool used_for_ingestion = 3;
   }
@@ -9286,13 +9286,13 @@ message DPFStateResponse {
 }
 
 message GetDPFStateRequest {
-  repeated common.MachineId machine_ids = 1;
+  repeated common.HostMachineId machine_ids = 1;
 }
 
 // --- DPF host snapshot ---
 
 message GetDPFHostSnapshotRequest {
-  common.MachineId host_machine_id = 1;
+  common.HostMachineId host_machine_id = 1;
 }
 
 // Returns the snapshot as a JSON string. The server-side curates the field
@@ -9341,7 +9341,7 @@ message ReleaseDPUServiceSyncHoldRequest {
     // node, so accepting one would silently widen the request from a single DPU
     // to every DPU on its host. Assigned hosts are declined -- name the instance
     // instead.
-    common.MachineIdList machine_ids = 1;
+    common.StableHostMachineIdList machine_ids = 1;
     // Release the hosts currently holding these instances, even though they are
     // assigned. Naming an instance is the acknowledgement that its tenant will
     // be disrupted, and each consent covers only the instance named: if a host
@@ -9373,7 +9373,7 @@ enum DPUServiceSyncReleaseStatus {
 }
 
 message DPUServiceSyncReleaseResult {
-  common.MachineId machine_id = 1;
+  common.StableHostMachineId machine_id = 1;
   DPUServiceSyncReleaseStatus status = 2;
   // Names the DPU or instance responsible on the deferred statuses, and the
   // error on FAILED. Empty otherwise.
@@ -9391,17 +9391,17 @@ message FindPendingDPUServiceSyncIdsRequest {
 
 message FindPendingDPUServiceSyncsByIdsRequest {
   // Bounded by the server's `max_find_by_ids`, like every other by-ids call.
-  repeated common.MachineId machine_ids = 1;
+  repeated common.StableHostMachineId machine_ids = 1;
 }
 
 message ListDPUServiceSyncHistoryRequest {
-  common.MachineId machine_id = 1;
+  common.StableHostMachineId machine_id = 1;
 }
 
 // One recorded DPU service sync. Completed entries appear only in the history
 // form.
 message PendingDPUServiceSync {
-  common.MachineId machine_id = 1;
+  common.StableHostMachineId machine_id = 1;
   // First time DPF was seen waiting on this machine. Survives repeat requests,
   // so it measures the whole wait rather than the last observation.
   google.protobuf.Timestamp requested_at = 2;
@@ -9452,7 +9452,7 @@ message PowerShelfIdList {
 
 message GetComponentInventoryRequest {
   oneof target {
-    common.MachineIdList machine_ids = 1;
+    common.HostMachineIdList machine_ids = 1;
     SwitchIdList switch_ids = 2;
     PowerShelfIdList power_shelf_ids = 3;
   }
@@ -9471,7 +9471,7 @@ message GetComponentInventoryResponse {
 
 message ComponentPowerControlRequest {
   oneof target {
-    common.MachineIdList machine_ids = 1;
+    common.HostMachineIdList machine_ids = 1;
     SwitchIdList switch_ids = 2;
     PowerShelfIdList power_shelf_ids = 3;
   }
@@ -9546,7 +9546,7 @@ enum ComputeTrayComponent {
 }
 
 message UpdateComputeTrayFirmwareTarget {
-  common.MachineIdList machine_ids = 1;
+  common.HostMachineIdList machine_ids = 1;
   repeated ComputeTrayComponent components = 2;
 }
 
@@ -9595,7 +9595,7 @@ message UpdateComponentFirmwareResponse {
 
 message GetComponentFirmwareStatusRequest {
   oneof target {
-    common.MachineIdList machine_ids = 1;
+    common.HostMachineIdList machine_ids = 1;
     SwitchIdList switch_ids = 2;
     PowerShelfIdList power_shelf_ids = 3;
     RackIdList rack_ids = 4;
@@ -9608,7 +9608,7 @@ message GetComponentFirmwareStatusResponse {
 
 message ListComponentFirmwareVersionsRequest {
   oneof target {
-    common.MachineIdList machine_ids = 1;
+    common.HostMachineIdList machine_ids = 1;
     SwitchIdList switch_ids = 2;
     PowerShelfIdList power_shelf_ids = 3;
     RackIdList rack_ids = 4;

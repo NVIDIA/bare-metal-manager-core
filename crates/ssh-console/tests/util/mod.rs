@@ -20,7 +20,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bmc_mock::HostnameQuerying;
-use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
+use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType, StableHostMachineId};
 use eyre::Context;
 use futures::future::join_all;
 use futures_util::future::BoxFuture;
@@ -85,20 +85,13 @@ mod fixtures {
 pub(crate) async fn run_baseline_test_environment(
     machines: Vec<MockBmcType>,
 ) -> eyre::Result<Option<BaselineTestEnvironment>> {
-    let mock_bmc_handles: Vec<(MockBmcHandle, MachineId, MockBmcType)> =
+    let mock_bmc_handles: Vec<(MockBmcHandle, StableHostMachineId, MockBmcType)> =
         join_all(machines.iter().map(|bmc_type| {
             // Generate random machine ID's for each mocked host
-            let machine_id = carbide_uuid::machine::MachineId::new(
-                MachineIdSource::Tpm,
-                rand::random(),
-                match bmc_type {
-                    MockBmcType::Ssh
-                    | MockBmcType::LenovoSr650Ssh
-                    | MockBmcType::LenovoAmiSsh
-                    | MockBmcType::Ipmi => MachineType::Host,
-                    MockBmcType::DpuSsh => MachineType::Dpu,
-                },
-            );
+            let machine_id: StableHostMachineId =
+                MachineId::new(MachineIdSource::Tpm, rand::random(), MachineType::Host)
+                    .try_into()
+                    .expect("mock host ID should have a stable-host subtype");
 
             async move {
                 let bmc_handle = match bmc_type {

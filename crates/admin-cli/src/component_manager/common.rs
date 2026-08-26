@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine::HostMachineId;
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
@@ -124,10 +124,10 @@ pub(super) struct MachineTargetArgs {
         value_delimiter = ',',
         help = "Machine IDs to target"
     )]
-    machine_ids: Vec<MachineId>,
+    machine_ids: Vec<HostMachineId>,
 }
 
-impl From<MachineTargetArgs> for rpc::common::MachineIdList {
+impl From<MachineTargetArgs> for rpc::common::HostMachineIdList {
     fn from(args: MachineTargetArgs) -> Self {
         Self {
             machine_ids: args.machine_ids,

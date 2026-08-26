@@ -19,7 +19,7 @@ use std::net::{IpAddr, Ipv6Addr};
 use std::str::FromStr;
 
 use carbide_network::ip::IpAddressFamily;
-use carbide_uuid::machine::MachineInterfaceId;
+use carbide_uuid::machine::{AsMachineId, MachineIdSubtypeTrait, MachineInterfaceId};
 use carbide_uuid::network::NetworkSegmentId;
 use common::api_fixtures::network_segment::{
     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
@@ -949,7 +949,7 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
     let response = env
         .api
         .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
-            dpu_machine_id: Some(mh.dpu().id.into()),
+            dpu_machine_id: Some(mh.dpu().id),
         }))
         .await
         .unwrap()
@@ -3404,10 +3404,14 @@ async fn test_discover_dhcp_dangling_address_is_not_found(
 /// Resolve a machine_interface + its segment gateway for the given host, so
 /// the test can drive a DHCP request with the same relay the real host would
 /// see in production.
-async fn host_interface_and_gateway(
+async fn host_interface_and_gateway<ID>(
     env: &TestEnv,
-    host_machine_id: carbide_uuid::machine::HostMachineId,
-) -> Result<(MacAddress, IpAddr), Box<dyn std::error::Error>> {
+    host_machine_id: ID,
+) -> Result<(MacAddress, IpAddr), Box<dyn std::error::Error>>
+where
+    ID: MachineIdSubtypeTrait,
+    db::DatabaseError: From<<ID as TryFrom<carbide_uuid::machine::MachineId>>::Error>,
+{
     let mut txn = env.pool.begin().await?;
     let interfaces_by_machine =
         db::machine_interface::find_by_machine_ids(txn.as_mut(), &[host_machine_id]).await?;
@@ -3434,11 +3438,11 @@ async fn host_interface_and_gateway(
 /// `instances.machine_id`, so a minimal INSERT is enough.
 async fn attach_bare_instance(
     env: &TestEnv,
-    machine_id: carbide_uuid::machine::HostMachineId,
+    machine_id: impl MachineIdSubtypeTrait,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = env.pool.begin().await?;
     sqlx::query("INSERT INTO instances (machine_id) VALUES ($1)")
-        .bind(machine_id)
+        .bind(machine_id.to_machine_id())
         .execute(txn.as_mut())
         .await?;
     txn.commit().await?;

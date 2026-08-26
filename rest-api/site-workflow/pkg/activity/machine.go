@@ -200,7 +200,7 @@ func (mm *ManageMachine) GetDpuMachinesByIDs(ctx context.Context, dpuMachineIDs 
 	for _, machine := range machineList.Machines {
 		if machine.MachineType == corev1.MachineType_DPU {
 			networkConfigReq := &corev1.ManagedHostNetworkConfigRequest{
-				DpuMachineId: machine.Id,
+				DpuMachineId: &corev1.DpuMachineId{Id: machine.Id.Id},
 			}
 			networkConfig, nerr := grpcServiceClient.GetManagedHostNetworkConfig(ctx, networkConfigReq)
 			if nerr != nil {

@@ -33,7 +33,7 @@ use carbide_dpf::{
 use carbide_uuid::machine::{DpuMachineId, HostMachineId};
 use model::dpa_interface::DpaInterface;
 use model::dpu_machine_update::OutdatedDpfDpu;
-use model::machine::{Machine, ManagedHostStateSnapshot};
+use model::machine::{DpuMachine, ManagedHostStateSnapshot};
 use model::machine_pending_action::{MachinePendingAction, MachinePendingActionKind};
 use sqlx::PgPool;
 use state_controller::controller::Enqueuer;
@@ -123,7 +123,7 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
     /// profile. This returns `Err` when the DMI product name is absent.
     fn deployment_type_for_dpu(
         &self,
-        dpu: &Machine,
+        dpu: &DpuMachine,
         astra_nics: bool,
     ) -> Result<DpuDeploymentType, DpfError>;
 
@@ -716,7 +716,7 @@ impl DpfOperations for DpfSdkOps {
 
     fn deployment_type_for_dpu(
         &self,
-        dpu: &Machine,
+        dpu: &DpuMachine,
         astra_nics: bool,
     ) -> Result<DpuDeploymentType, DpfError> {
         let product_name = dpu

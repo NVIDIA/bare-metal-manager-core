@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 use ::rpc::forge as rpc;
-use carbide_uuid::machine::{HostMachineId, MachineId};
+use carbide_uuid::machine::{HostMachineId, MachineId, StableHostMachineId};
 use itertools::Itertools;
 use model::machine::{
     HostReprovisionState, InstanceState, LoadSnapshotOptions, ManagedHostState, ScoutUpgradeResult,
@@ -28,15 +28,19 @@ use crate::handlers::utils::{StateHandlerWakeupFailed, WakeupTrigger, convert_an
 
 pub(crate) async fn reset_host_reprovisioning(
     api: &Api,
-    request: Request<MachineId>,
+    request: Request<StableHostMachineId>,
 ) -> Result<Response<()>, Status> {
     log_request_data(&request);
-    let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
+    let machine_id = request.into_inner();
 
     let mut txn = api.txn_begin().await?;
 
-    db::host_machine_update::reset_host_reprovisioning_request(&mut txn, &machine_id, false)
-        .await?;
+    db::host_machine_update::reset_host_reprovisioning_request(
+        &mut txn,
+        machine_id.as_host_machine_id(),
+        false,
+    )
+    .await?;
     txn.commit().await?;
 
     Ok(Response::new(()))
@@ -50,7 +54,7 @@ pub(crate) async fn trigger_host_reprovisioning(
 
     log_request_data(&request);
     let req = request.into_inner();
-    let machine_id = convert_and_log_machine_id::<MachineId>(req.machine_id.as_ref())?;
+    let machine_id: StableHostMachineId = convert_and_log_machine_id(req.machine_id.as_ref())?;
 
     let mut txn = api.txn_begin().await?;
 
@@ -74,14 +78,17 @@ pub(crate) async fn trigger_host_reprovisioning(
             db::host_machine_update::trigger_host_reprovisioning_request(
                 &mut txn,
                 initiator,
-                &machine_id,
+                machine_id.as_host_machine_id(),
             )
             .await?;
             Some(initiator)
         }
         Mode::Clear => {
-            db::host_machine_update::clear_host_reprovisioning_request(&mut txn, &machine_id)
-                .await?;
+            db::host_machine_update::clear_host_reprovisioning_request(
+                &mut txn,
+                machine_id.as_host_machine_id(),
+            )
+            .await?;
             None
         }
     };
@@ -97,7 +104,7 @@ pub(crate) async fn trigger_host_reprovisioning(
             crate::machine_update_manager::metrics::FirmwareUpdateProgress {
                 target: crate::machine_update_manager::metrics::FirmwareUpdateTarget::Host,
                 phase: crate::machine_update_manager::metrics::FirmwareUpdatePhase::Started,
-                machine_id,
+                machine_id: machine_id.into(),
                 detail: initiator.to_string(),
             },
         );
@@ -169,7 +176,7 @@ pub(crate) async fn report_scout_firmware_upgrade_status(
     log_request_data(&request);
 
     let req = request.into_inner();
-    let machine_id = convert_and_log_machine_id::<HostMachineId>(req.machine_id.as_ref())?;
+    let machine_id: HostMachineId = convert_and_log_machine_id(req.machine_id.as_ref())?;
 
     let (machine, mut txn) = api.load_machine(&machine_id, Default::default()).await?;
 

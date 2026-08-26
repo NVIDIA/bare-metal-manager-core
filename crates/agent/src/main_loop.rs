@@ -32,7 +32,7 @@ use carbide_host_support::agent_config::AgentConfig;
 use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_rpc_utils::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 use carbide_systemd::systemd;
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine::DpuMachineId;
 use eyre::WrapErr;
 use forge_certs::cert_renewal::ClientCertRenewer;
 use forge_dpu_remediation::remediation::{MachineInfo, RemediationExecutor};
@@ -78,7 +78,7 @@ use crate::{
 // metadata service use the information fetched be the periodic fetcher by reading
 // the information stored by the periodic config fetcher.
 pub(super) async fn setup_and_run(
-    machine_id: MachineId,
+    machine_id: DpuMachineId,
     factory_mac_address: MacAddress,
     forge_client_config: Arc<ForgeClientConfig>,
     agent_config: AgentConfig,
@@ -428,7 +428,7 @@ pub(super) async fn setup_and_run(
 
 struct MainLoop {
     forge_client_config: Arc<ForgeClientConfig>,
-    machine_id: MachineId,
+    machine_id: DpuMachineId,
     factory_mac_address: MacAddress,
     build_version: String,
     periodic_config_reader: Box<periodic_config_fetcher::PeriodicConfigFetcherReader>,

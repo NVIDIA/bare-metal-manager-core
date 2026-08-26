@@ -42,7 +42,7 @@
 //! cannot be repaired by the automatic path. Recovering those is an explicit
 //! operator action rather than something this handler infers.
 
-use model::machine::{Machine, ManagedHostState, ManagedHostStateSnapshot};
+use model::machine::{HostMachine, ManagedHostState, ManagedHostStateSnapshot};
 use model::machine_pending_action::MachinePendingActionActor;
 use model::machine_pending_action::MachinePendingActionKind::DpuServiceSync;
 use state_controller::state_handler::{
@@ -145,10 +145,15 @@ pub(super) async fn handle_pending_dpu_actions(
 
 async fn pending_sync_is_outstanding(
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
-    host: &Machine,
+    host: &HostMachine,
 ) -> Result<bool, StateHandlerError> {
     let mut conn = ctx.services.db_pool.acquire().await?;
-    Ok(db::machine_pending_action::is_outstanding(&mut *conn, &host.id, DpuServiceSync).await?)
+    Ok(db::machine_pending_action::is_outstanding(
+        &mut *conn,
+        host.id.as_machine_id(),
+        DpuServiceSync,
+    )
+    .await?)
 }
 
 /// Marks this host's pending DPU service sync as done.
@@ -158,7 +163,7 @@ async fn pending_sync_is_outstanding(
 /// causes apart when it writes the marker.
 pub(super) async fn complete_pending_sync(
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
-    host: &Machine,
+    host: &HostMachine,
 ) -> Result<bool, StateHandlerError> {
     let mut conn = ctx.services.db_pool.acquire().await?;
     // Both callers are carbide acting on its own: this handler having confirmed
@@ -166,7 +171,7 @@ pub(super) async fn complete_pending_sync(
     // itself. An operator-driven release records itself separately.
     Ok(db::machine_pending_action::complete(
         &mut conn,
-        &host.id,
+        host.id.as_machine_id(),
         DpuServiceSync,
         MachinePendingActionActor::Automatic,
     )

@@ -405,7 +405,7 @@ exit ||
         //
         // The second boot enables HBN.  This is handled here when the DPU is
         // waiting for the network install
-        if let Ok(dpu_machine_id) = machine.dpu_machine_id() {
+        if let Ok(dpu_machine_id) = carbide_uuid::machine::DpuMachineId::try_from(machine.id) {
             if let Some(reprov_state) = &machine
                 .current_state()
                 .as_reprovision_state(&dpu_machine_id)
@@ -530,8 +530,12 @@ exit ||
                         // now that we're serving the script. Always-PXE instances don't use
                         // this flag (they rely on run_provisioning_instructions_on_every_boot).
                         if instance.use_custom_pxe_on_boot {
-                            db::instance::use_custom_ipxe_on_next_boot(&machine_id, false, txn)
-                                .await?;
+                            db::instance::use_custom_ipxe_on_next_boot(
+                                &instance.machine_id,
+                                false,
+                                txn,
+                            )
+                            .await?;
                         }
 
                         match instance.config.os.variant {

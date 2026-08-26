@@ -33,7 +33,7 @@ use ::rpc::forge as rpc;
 use carbide_machine_controller::dpu_service_sync::{
     ReleaseOutcome, TenantPolicy, release_hold_if_dpus_are_current,
 };
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine::{HostMachineId, MachineId, MachineIdSubtypeTrait, StableHostMachineId};
 use db::managed_host::load_snapshot;
 use model::machine::LoadSnapshotOptions;
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -61,14 +61,21 @@ const MAX_RELEASE_BATCH: usize = 256;
 pub(crate) async fn find_pending_dpu_service_sync_ids(
     api: &Api,
     request: Request<rpc::FindPendingDpuServiceSyncIdsRequest>,
-) -> Result<Response<::rpc::common::MachineIdList>, Status> {
+) -> Result<Response<::rpc::common::StableHostMachineIdList>, Status> {
     log_request_data(&request);
 
     let machine_ids =
         db::machine_pending_action::find_outstanding_machine_ids(api.pg_pool(), DpuServiceSync)
             .await?;
 
-    Ok(Response::new(::rpc::common::MachineIdList { machine_ids }))
+    let machine_ids = machine_ids
+        .into_iter()
+        .map(TryInto::try_into)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(CarbideError::from)?;
+    Ok(Response::new(::rpc::common::StableHostMachineIdList {
+        machine_ids,
+    }))
 }
 
 /// Detail for a bounded slice of the worklist.
@@ -114,10 +121,13 @@ pub(crate) async fn list_dpu_service_sync_history(
     request: Request<rpc::ListDpuServiceSyncHistoryRequest>,
 ) -> Result<Response<rpc::ListPendingDpuServiceSyncsResponse>, Status> {
     log_request_data(&request);
-    let machine_id = convert_and_log_machine_id(request.get_ref().machine_id.as_ref())?;
+    let machine_id: StableHostMachineId =
+        convert_and_log_machine_id(request.get_ref().machine_id.as_ref())?;
 
     let mut txn = api.txn_begin().await?;
-    let actions = db::machine_pending_action::find_all_for_machine(&mut txn, &machine_id).await?;
+    let actions =
+        db::machine_pending_action::find_all_for_machine(&mut txn, machine_id.as_machine_id())
+            .await?;
     let pending = project(api, &mut txn, actions).await?;
     txn.commit().await?;
 
@@ -133,7 +143,10 @@ async fn project(
     txn: &mut db::Transaction<'_>,
     actions: Vec<model::machine_pending_action::MachinePendingAction>,
 ) -> Result<Vec<rpc::PendingDpuServiceSync>, Status> {
-    let machine_ids: Vec<MachineId> = actions.iter().map(|action| action.machine_id).collect();
+    let machine_ids: Vec<HostMachineId> = actions
+        .iter()
+        .filter_map(|action| HostMachineId::try_from(action.machine_id).ok())
+        .collect();
     let states = machine_states(txn, &machine_ids).await?;
     let instances = db::instance::find_by_machine_ids(txn, &machine_ids.iter().collect::<Vec<_>>())
         .await?
@@ -141,29 +154,33 @@ async fn project(
         .map(|instance| (instance.machine_id, instance.id))
         .collect::<HashMap<_, _>>();
 
-    Ok(actions
+    actions
         .into_iter()
-        .map(|action| rpc::PendingDpuServiceSync {
-            machine_id: Some(action.machine_id),
-            requested_at: Some(action.requested_at.into()),
-            state: states
-                .get(&action.machine_id)
-                .cloned()
-                .unwrap_or_else(|| "unknown".to_string()),
-            instance_id: instances.get(&action.machine_id).copied(),
-            completed_at: action.completed_at.map(Into::into),
-            // Left absent while outstanding. `UpdateInitiator::AdminCli` is zero,
-            // so a default here would misreport every waiting machine as
-            // operator-completed.
-            completed_by: action.completed_by.map(|actor| {
-                match actor {
-                    MachinePendingActionActor::Automatic => rpc::UpdateInitiator::Automatic,
-                    MachinePendingActionActor::AdminCli => rpc::UpdateInitiator::AdminCli,
-                }
-                .into()
-            }),
+        .map(|action| {
+            let host_machine_id = StableHostMachineId::try_from(action.machine_id)?;
+            Ok::<_, CarbideError>(rpc::PendingDpuServiceSync {
+                machine_id: Some(host_machine_id),
+                requested_at: Some(action.requested_at.into()),
+                state: states
+                    .get(host_machine_id.as_host_machine_id())
+                    .cloned()
+                    .unwrap_or_else(|| "unknown".to_string()),
+                instance_id: instances.get(host_machine_id.as_host_machine_id()).copied(),
+                completed_at: action.completed_at.map(Into::into),
+                // Left absent while outstanding. `UpdateInitiator::AdminCli` is zero,
+                // so a default here would misreport every waiting machine as
+                // operator-completed.
+                completed_by: action.completed_by.map(|actor| {
+                    match actor {
+                        MachinePendingActionActor::Automatic => rpc::UpdateInitiator::Automatic,
+                        MachinePendingActionActor::AdminCli => rpc::UpdateInitiator::AdminCli,
+                    }
+                    .into()
+                }),
+            })
         })
-        .collect())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(Into::into)
 }
 
 /// Releases the DPF maintenance hold for the named machines.
@@ -218,7 +235,7 @@ async fn resolve_target(
             .machine_ids
             .iter()
             // Naming a machine says nothing about the tenant that may be on it.
-            .map(|machine_id| (*machine_id, TenantPolicy::RefuseIfAssigned))
+            .map(|machine_id| ((*machine_id).into(), TenantPolicy::RefuseIfAssigned))
             .collect()),
         Some(Target::InstanceIds(list)) => {
             // Checked before the loop, not just in `validate`: resolving costs a
@@ -237,7 +254,7 @@ async fn resolve_target(
                 // Consent is for this instance, not for its host: if the host
                 // has been reallocated since, the new tenant agreed to nothing.
                 targets.push((
-                    instance.machine_id,
+                    instance.machine_id.into(),
                     TenantPolicy::AllowNamedInstance(*instance_id),
                 ));
             }
@@ -347,7 +364,11 @@ async fn release_one(
     };
 
     rpc::DpuServiceSyncReleaseResult {
-        machine_id: Some(machine_id),
+        machine_id: Some(
+            machine_id
+                .try_into()
+                .expect("DPU service sync targets stable hosts"),
+        ),
         status: status.into(),
         detail,
     }
@@ -416,10 +437,14 @@ async fn release_one_inner(
 
 /// The managed state of each machine, for the worklist's "why is this waiting"
 /// column.
-async fn machine_states(
+async fn machine_states<ID>(
     txn: &mut db::Transaction<'_>,
-    machine_ids: &[MachineId],
-) -> Result<HashMap<MachineId, String>, Status> {
+    machine_ids: &[ID],
+) -> Result<HashMap<ID, String>, Status>
+where
+    ID: MachineIdSubtypeTrait,
+    db::DatabaseError: From<<ID as TryFrom<MachineId>>::Error>,
+{
     if machine_ids.is_empty() {
         return Ok(HashMap::new());
     }

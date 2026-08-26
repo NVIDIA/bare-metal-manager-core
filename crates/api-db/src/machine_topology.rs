@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 
-use carbide_uuid::machine::{MachineId, MachineIdSubtypeTrait};
+use carbide_uuid::machine::{AsMachineId, MachineId, MachineIdSubtypeTrait};
 use chrono::{TimeDelta, Utc};
 use itertools::Itertools;
 use model::bmc_info::BmcInfo;
@@ -189,6 +189,7 @@ pub async fn lock_by_machine_id(
     Ok(())
 }
 
+// TODO: should this be HostMachineId-only instead of an arbitrary machine type?
 pub async fn find_by_machine_ids<ID: MachineIdSubtypeTrait>(
     txn: &mut PgConnection,
     machine_ids: &[ID],
@@ -296,10 +297,15 @@ pub async fn find_machine_bmc_pairs(
 /// The BMC IP is returned as `Option<String>`:
 /// - `Some(ip)` if the topology has a valid BMC IP
 /// - `None` if the linked interface exists but has no BMC IP (caller can log/handle this case)
-pub async fn find_machine_bmc_pairs_by_machine_id(
+pub async fn find_machine_bmc_pairs_by_machine_id<ID>(
     txn: &mut PgConnection,
-    machine_ids: Vec<MachineId>,
-) -> Result<Vec<(MachineId, Option<String>)>, DatabaseError> {
+    machine_ids: Vec<ID>,
+) -> Result<Vec<(ID, Option<String>)>, DatabaseError>
+where
+    ID: MachineIdSubtypeTrait,
+    ID: TryFrom<MachineId>,
+    DatabaseError: From<<ID as TryFrom<MachineId>>::Error>,
+{
     let query = r#"
         SELECT DISTINCT ON (mi.machine_id) mi.machine_id, host(mia.address)
         FROM machine_interfaces mi
@@ -308,13 +314,25 @@ pub async fn find_machine_bmc_pairs_by_machine_id(
             AND mi.machine_id = ANY($1)
         ORDER BY mi.machine_id, family(mia.address), mia.address
     "#;
-    sqlx::query_as(query)
-        .bind(machine_ids)
+    let results: Vec<(MachineId, Option<String>)> = sqlx::query_as(query)
+        .bind(
+            machine_ids
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>(),
+        )
         .fetch_all(txn)
         .await
         .map_err(|e| {
             DatabaseError::new("machine_topologies find_machine_bmc_pairs_by_machine_id", e)
+        })?;
+
+    Ok(results
+        .into_iter()
+        .map(|(machine_id, host)| {
+            Ok::<_, <ID as TryFrom<MachineId>>::Error>((ID::try_from(machine_id)?, host))
         })
+        .collect::<Result<Vec<_>, <ID as TryFrom<MachineId>>::Error>>()?)
 }
 
 /// Find any topology with a product, chassis, or board serial number exactly matching the input.

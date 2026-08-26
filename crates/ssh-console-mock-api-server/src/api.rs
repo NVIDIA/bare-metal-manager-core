@@ -120,11 +120,9 @@ impl Forge for MockApiServer {
             return Err(Status::invalid_argument("missing machine ID"));
         };
 
-        let Some(mock_host) = self
-            .mock_hosts
-            .iter()
-            .find(|mock_host| mock_host.machine_id == machine_id)
-        else {
+        let Some(mock_host) = self.mock_hosts.iter().find(|mock_host| {
+            carbide_uuid::machine::MachineId::from(mock_host.machine_id) == machine_id
+        }) else {
             return Err(Status::not_found("no machine with that ID"));
         };
 
@@ -147,7 +145,7 @@ impl Forge for MockApiServer {
             machine_ids: self
                 .mock_hosts
                 .iter()
-                .map(|mock_host| mock_host.machine_id)
+                .map(|mock_host| mock_host.machine_id.into())
                 .collect(),
         }))
     }

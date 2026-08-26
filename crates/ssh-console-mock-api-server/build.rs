@@ -42,6 +42,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_server(true)
         .build_client(false) // we're using ForgeApiClient from rpc crate
         .extern_path(".common.MachineId", "::carbide_uuid::machine::MachineId")
+        .extern_path(
+            ".common.DpuMachineId",
+            "::carbide_uuid::machine::DpuMachineId",
+        )
+        .extern_path(
+            ".common.HostMachineId",
+            "::carbide_uuid::machine::HostMachineId",
+        )
+        .extern_path(
+            ".common.StableHostMachineId",
+            "::carbide_uuid::machine::StableHostMachineId",
+        )
+        .extern_path(
+            ".common.PredictedHostMachineId",
+            "::carbide_uuid::machine::PredictedHostMachineId",
+        )
         .extern_path(".common.RackId", "::carbide_uuid::rack::RackId")
         .extern_path(
             ".common.RackProfileId",

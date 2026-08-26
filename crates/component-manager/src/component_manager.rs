@@ -8,12 +8,12 @@ use std::time::Duration;
 use carbide_rack::firmware_object::rack_maintenance_access_token_key;
 use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_secrets::credentials::{CredentialManager, Credentials};
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine::HostMachineId;
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use db::{ObjectColumnFilter, WithTransaction};
 use librms::RmsApi;
-use model::machine::MachineMaintenanceOperation;
+use model::machine::{HostMachine, MachineMaintenanceOperation};
 use model::rack::{MaintenanceActivity, MaintenanceScope, RackState};
 use model::rack_type::{RackHardwareTopology, RackProfileConfig};
 use model::switch::SwitchMaintenanceOperation;
@@ -62,7 +62,7 @@ pub struct SwitchMaintenanceRequestResult {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MachineMaintenanceRequestResult {
-    pub machine_id: MachineId,
+    pub machine_id: HostMachineId,
     pub error: Option<String>,
 }
 
@@ -366,7 +366,7 @@ impl ComponentManager {
     pub async fn request_machine_maintenance_via_state_controller(
         &self,
         db_pool: &PgPool,
-        machine_ids: &[MachineId],
+        machine_ids: &[HostMachineId],
         operation: MachineMaintenanceOperation,
         initiator: &str,
     ) -> Result<Vec<MachineMaintenanceRequestResult>, ComponentManagerError> {
@@ -390,7 +390,7 @@ impl ComponentManager {
                     .await
                     .map_err(|error| ComponentManagerError::Internal(error.to_string()))?;
 
-                    let by_id: HashMap<MachineId, model::machine::Machine> = existing
+                    let by_id: HashMap<HostMachineId, HostMachine> = existing
                         .into_iter()
                         .map(|machine| (machine.id, machine))
                         .collect();
@@ -404,14 +404,6 @@ impl ComponentManager {
                             });
                             continue;
                         };
-
-                        if !machine_id.machine_type().is_host() {
-                            results.push(MachineMaintenanceRequestResult {
-                                machine_id: *machine_id,
-                                error: Some(format!("machine {machine_id} is not a host machine")),
-                            });
-                            continue;
-                        }
 
                         if matches!(
                             machine.state.value,

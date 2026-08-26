@@ -35,7 +35,7 @@ use crate::generated::{common, machine_discovery};
 
 #[derive(Debug, Clone)]
 pub struct MockHost {
-    pub machine_id: carbide_uuid::machine::MachineId,
+    pub machine_id: carbide_uuid::machine::StableHostMachineId,
     pub instance_id: Uuid,
     pub tenant_public_key: String,
     pub sys_vendor: &'static str,
@@ -57,7 +57,7 @@ impl From<MockHost> for forge::Machine {
             ..Default::default()
         });
         Self {
-            id: Some(value.machine_id),
+            id: Some(value.machine_id.into()),
             // Deprecated flat field kept for backwards-compat with callers that haven't
             // migrated to status.discovery_info yet.
             discovery_info: discovery_info.clone(),

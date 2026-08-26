@@ -15,7 +15,9 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::{DpuMachineId, MachineInterfaceId, StableHostMachineId};
+use carbide_uuid::machine::{
+    DpuMachineId, MachineIdSubtypeTrait, MachineInterfaceId, StableHostMachineId,
+};
 use model::hardware_info::HardwareInfo;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{Machine, MachineInterfaceSnapshot, MachineState, ManagedHostState};
@@ -362,7 +364,7 @@ async fn select_primary_interface_from_scout<'a>(
     txn: &mut sqlx::PgConnection,
     host_machine_id: StableHostMachineId,
     hardware_info: &HardwareInfo,
-    machine: &Machine,
+    machine: &Machine<impl MachineIdSubtypeTrait>,
     interface_snapshots: &'a [MachineInterfaceSnapshot],
 ) -> CarbideResult<Option<(&'a MachineInterfaceSnapshot, MachineBootInterfaceTarget)>> {
     // First, confirm that scout can still replace the selection source now that the machine row is

@@ -25,7 +25,7 @@ use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, Credentials,
 };
 use carbide_utils::none_if_empty::NoneIfEmpty;
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine::HostMachineId;
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
@@ -47,7 +47,7 @@ use model::component_manager::{
 };
 use model::firmware::FirmwareComponentType;
 use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{Machine, MachineMaintenanceOperation};
+use model::machine::{HostMachine, MachineMaintenanceOperation};
 use model::power_shelf::PowerShelfMaintenanceOperation;
 use model::rack::{FirmwareUpgradeJob, MaintenanceActivity};
 use model::switch::SwitchMaintenanceOperation;
@@ -381,7 +381,7 @@ fn switch_maintenance_request_result_to_component_result(
 async fn queue_machine_power_control_via_state_controller(
     api: &Api,
     cm: &ComponentManager,
-    machine_ids: &[carbide_uuid::machine::MachineId],
+    machine_ids: &[HostMachineId],
     action: PowerAction,
 ) -> Result<Vec<rpc::ComponentResult>, Status> {
     let operation = map_machine_maintenance_operation(action);
@@ -391,7 +391,7 @@ async fn queue_machine_power_control_via_state_controller(
 async fn queue_machine_maintenance_via_state_controller(
     api: &Api,
     cm: &ComponentManager,
-    machine_ids: &[carbide_uuid::machine::MachineId],
+    machine_ids: &[HostMachineId],
     operation: MachineMaintenanceOperation,
 ) -> Result<Vec<rpc::ComponentResult>, Status> {
     let results = cm
@@ -683,7 +683,7 @@ fn push_rack_firmware_target(
 
 async fn group_machine_ids_by_rack(
     api: &Api,
-    machine_ids: &[MachineId],
+    machine_ids: &[HostMachineId],
 ) -> Result<Vec<RackFirmwareMaintenanceTarget>, Status> {
     let machines = db::machine::find(
         api.db_reader().as_mut(),
@@ -720,7 +720,7 @@ async fn group_machine_ids_by_rack(
 }
 
 /// Returns whether the machine is a rack-scale MNNVL server (GB200, GB300, etc.).
-fn is_rack_scale_server(machine: &Machine) -> bool {
+fn is_rack_scale_server(machine: &HostMachine) -> bool {
     machine
         .status
         .hardware_info
@@ -735,9 +735,9 @@ fn is_rack_scale_server(machine: &Machine) -> bool {
 /// Unknown ids are a hard error here (firmware path); power control collects
 /// them as per-machine results instead via [`machine_is_rack_scale`].
 fn partition_loaded_compute_machines_by_rack_scale(
-    machines_by_id: &HashMap<MachineId, Machine>,
-    machine_ids: &[MachineId],
-) -> Result<(Vec<MachineId>, Vec<MachineId>), Status> {
+    machines_by_id: &HashMap<HostMachineId, HostMachine>,
+    machine_ids: &[HostMachineId],
+) -> Result<(Vec<HostMachineId>, Vec<HostMachineId>), Status> {
     let mut rack_scale = Vec::new();
     let mut standalone = Vec::new();
     for &machine_id in machine_ids {
@@ -755,8 +755,8 @@ fn partition_loaded_compute_machines_by_rack_scale(
 /// simply absent from the returned map, left for the caller to handle.
 async fn load_machines_by_id(
     api: &Api,
-    machine_ids: &[MachineId],
-) -> Result<HashMap<MachineId, Machine>, Status> {
+    machine_ids: &[HostMachineId],
+) -> Result<HashMap<HostMachineId, HostMachine>, Status> {
     let machines = db::machine::find(
         api.db_reader().as_mut(),
         db::ObjectFilter::List(machine_ids),
@@ -775,8 +775,8 @@ async fn load_machines_by_id(
 /// the map. Callers decide whether an unknown id aborts the batch or is
 /// collected as a per-machine error.
 fn machine_is_rack_scale(
-    machines_by_id: &HashMap<MachineId, Machine>,
-    machine_id: MachineId,
+    machines_by_id: &HashMap<HostMachineId, HostMachine>,
+    machine_id: HostMachineId,
 ) -> Result<bool, Status> {
     let machine = machines_by_id
         .get(&machine_id)
@@ -787,7 +787,7 @@ fn machine_is_rack_scale(
 /// Initiate a firmware upgrade for standalone (non rack-scale) servers
 async fn schedule_host_reprovisioning_firmware_update(
     api: &Api,
-    machine_ids: &[MachineId],
+    machine_ids: &[HostMachineId],
 ) -> Vec<rpc::ComponentResult> {
     let mut results = Vec::with_capacity(machine_ids.len());
     for machine_id in machine_ids {
@@ -801,7 +801,7 @@ async fn schedule_host_reprovisioning_firmware_update(
 
 async fn schedule_one_host_reprovisioning_firmware_update(
     api: &Api,
-    machine_id: &MachineId,
+    machine_id: &HostMachineId,
 ) -> Result<(), String> {
     let mut txn = api
         .txn_begin()
@@ -1293,12 +1293,12 @@ async fn resolve_power_shelf_endpoints(
 
 struct ResolvedComputeTrayEndpoints {
     endpoints: Vec<ComputeTrayEndpoint>,
-    ip_to_machine_id: HashMap<IpAddr, carbide_uuid::machine::MachineId>,
+    ip_to_machine_id: HashMap<IpAddr, HostMachineId>,
 }
 
 struct ComputeTrayEndpoints {
     resolved: ResolvedComputeTrayEndpoints,
-    unresolved: Vec<UnresolvedDevice<carbide_uuid::machine::MachineId>>,
+    unresolved: Vec<UnresolvedDevice<HostMachineId>>,
 }
 
 /// Resolve BMC endpoints from an already-loaded machine map.
@@ -1307,8 +1307,8 @@ struct ComputeTrayEndpoints {
 /// partition) reuse that map here so the machine table is not queried again.
 async fn resolve_compute_tray_endpoints_from_machines(
     credential_manager: &dyn CredentialManager,
-    machines_by_id: &HashMap<MachineId, Machine>,
-    machine_ids: &[MachineId],
+    machines_by_id: &HashMap<HostMachineId, HostMachine>,
+    machine_ids: &[HostMachineId],
 ) -> ComputeTrayEndpoints {
     let mut endpoints = Vec::with_capacity(machine_ids.len());
     let mut ip_to_machine_id = HashMap::with_capacity(machine_ids.len());
@@ -1448,7 +1448,7 @@ fn exploration_report_firmware_versions(
 /// inferred from `update_complete` and the machine's reprovision state.
 fn derive_machine_firmware_update_status(
     machine_id: &str,
-    machine: Option<&Machine>,
+    machine: Option<&HostMachine>,
     actual_firmware: Option<&HashMap<String, String>>,
     desired_entries: &[rpc::DesiredFirmwareVersionEntry],
 ) -> rpc::FirmwareUpdateStatus {
@@ -1506,7 +1506,7 @@ fn derive_machine_firmware_update_status(
 
 async fn machine_firmware_statuses(
     api: &Api,
-    machine_ids: &[MachineId],
+    machine_ids: &[HostMachineId],
 ) -> Result<Vec<rpc::FirmwareUpdateStatus>, Status> {
     let machines = db::machine::find(
         api.db_reader().as_mut(),
@@ -1516,7 +1516,7 @@ async fn machine_firmware_statuses(
     .await
     .map_err(|e| Status::internal(format!("failed to look up machines: {e}")))?;
 
-    let machine_by_id: HashMap<MachineId, Machine> = machines
+    let machine_by_id: HashMap<HostMachineId, HostMachine> = machines
         .into_iter()
         .map(|machine| (machine.id, machine))
         .collect();
@@ -1533,7 +1533,7 @@ async fn machine_firmware_statuses(
         .await
         .map_err(|e| Status::internal(format!("db error: {e}")))?;
 
-    let ip_to_machine_id: HashMap<IpAddr, MachineId> = bmc_pairs
+    let ip_to_machine_id: HashMap<IpAddr, HostMachineId> = bmc_pairs
         .into_iter()
         .filter_map(|(machine_id, ip_str)| {
             let ip: IpAddr = ip_str?.parse().ok()?;
@@ -1550,7 +1550,7 @@ async fn machine_firmware_statuses(
             .map_err(|e| Status::internal(format!("db error: {e}")))?
     };
 
-    let mut actual_firmware_by_machine: HashMap<MachineId, HashMap<String, String>> =
+    let mut actual_firmware_by_machine: HashMap<HostMachineId, HashMap<String, String>> =
         HashMap::new();
     for endpoint in endpoints {
         let Some(machine_id) = ip_to_machine_id.get(&endpoint.address).copied() else {
@@ -1594,7 +1594,7 @@ async fn machine_firmware_statuses(
 /// inline error entry; successfully queried IDs carry the backend result.
 fn map_compute_tray_firmware_status(
     s: component_manager::compute_tray_manager::ComputeTrayFirmwareUpdateStatus,
-    ip_to_machine_id: &HashMap<IpAddr, MachineId>,
+    ip_to_machine_id: &HashMap<IpAddr, HostMachineId>,
 ) -> rpc::FirmwareUpdateStatus {
     let id = ip_to_machine_id
         .get(&s.bmc_ip)
@@ -1615,8 +1615,8 @@ fn map_compute_tray_firmware_status(
 async fn compute_tray_firmware_statuses(
     cm: &ComponentManager,
     api: &Api,
-    machines_by_id: &HashMap<MachineId, Machine>,
-    machine_ids: &[MachineId],
+    machines_by_id: &HashMap<HostMachineId, HostMachine>,
+    machine_ids: &[HostMachineId],
 ) -> Result<Vec<rpc::FirmwareUpdateStatus>, Status> {
     let resolved = resolve_compute_tray_endpoints_from_machines(
         api.credential_manager.as_ref(),
@@ -1936,7 +1936,7 @@ pub(crate) async fn component_power_control(
 /// status code is preserved per machine (e.g. `Unavailable` for a backend that
 /// is down) rather than flattened to `InternalError`.
 fn partition_error_results(
-    machine_ids: &[MachineId],
+    machine_ids: &[HostMachineId],
     status: &Status,
 ) -> Vec<rpc::ComponentResult> {
     machine_ids
@@ -1955,8 +1955,8 @@ fn partition_error_results(
 async fn dispatch_compute_tray_power_control(
     api: &Api,
     backend: &dyn ComputeTrayManager,
-    machines_by_id: &HashMap<MachineId, Machine>,
-    machine_ids: &[MachineId],
+    machines_by_id: &HashMap<HostMachineId, HostMachine>,
+    machine_ids: &[HostMachineId],
     action: PowerAction,
 ) -> Result<(Vec<rpc::ComponentResult>, Vec<IpAddr>), Status> {
     let resolved = resolve_compute_tray_endpoints_from_machines(
@@ -2079,14 +2079,10 @@ pub(crate) async fn component_configure_switch_certificate(
 /// Best-effort insert or removal of the health report override used to
 /// suppress external alerting during compute power control.
 /// Returns `true` when the operation succeeded.
-async fn power_control_health_override(
-    api: &Api,
-    machine_id: carbide_uuid::machine::MachineId,
-    insert: bool,
-) -> bool {
+async fn power_control_health_override(api: &Api, machine_id: HostMachineId, insert: bool) -> bool {
     let result = if insert {
         let req = rpc::InsertMachineHealthReportRequest {
-            machine_id: Some(machine_id),
+            machine_id: Some(machine_id.into()),
             health_report_entry: Some(rpc::HealthReportEntry {
                 report: Some(::rpc::health::HealthReport {
                     source: MACHINE_POWER_OVERRIDE_SOURCE.to_string(),
@@ -2113,7 +2109,7 @@ async fn power_control_health_override(
             .map(|_| ())
     } else {
         let req = rpc::RemoveMachineHealthReportRequest {
-            machine_id: Some(machine_id),
+            machine_id: Some(machine_id.into()),
             source: MACHINE_POWER_OVERRIDE_SOURCE.to_string(),
         };
         crate::handlers::health::remove_machine_health_report(api, Request::new(req))
@@ -2634,9 +2630,9 @@ enum FirmwareStatusRouting {
     Partitioned {
         /// IDs with a persisted backend job — route to `compute_tray` so callers
         /// can poll the live in-flight state.
-        persisted: Vec<MachineId>,
+        persisted: Vec<HostMachineId>,
         /// Remaining IDs — route to `machine_firmware_statuses` (DB-only).
-        fallback: Vec<MachineId>,
+        fallback: Vec<HostMachineId>,
     },
 }
 
@@ -2648,9 +2644,9 @@ enum FirmwareStatusRouting {
 ///   `backend_firmware_object_job_id`; route to `compute_tray`.
 /// - `fallback_ids` — remaining IDs; route to `machine_firmware_statuses`.
 fn partition_by_backend_job_id(
-    machine_ids: &[MachineId],
-    machines_by_id: &HashMap<MachineId, Machine>,
-) -> (Vec<MachineId>, Vec<MachineId>) {
+    machine_ids: &[HostMachineId],
+    machines_by_id: &HashMap<HostMachineId, HostMachine>,
+) -> (Vec<HostMachineId>, Vec<HostMachineId>) {
     machine_ids.iter().copied().partition(|id| {
         machines_by_id
             .get(id)
@@ -2666,8 +2662,8 @@ fn partition_by_backend_job_id(
 /// go to the live backend; the rest fall back to the DB-only path.
 fn select_firmware_status_routing(
     use_state_controller: bool,
-    machine_ids: &[MachineId],
-    machines_by_id: &HashMap<MachineId, Machine>,
+    machine_ids: &[HostMachineId],
+    machines_by_id: &HashMap<HostMachineId, HostMachine>,
 ) -> FirmwareStatusRouting {
     if !use_state_controller {
         FirmwareStatusRouting::DirectDispatch
@@ -3912,8 +3908,16 @@ mod tests {
 
     use carbide_secrets::credentials::Credentials;
     use carbide_secrets::test_support::credentials::TestCredentialManager;
+    use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
     use model::hardware_info::{Gpu, GpuPlatformInfo, HardwareInfo};
-    use model::test_support::machine_snapshot::{dpu_machine_id, host_machine, host_machine_id};
+    use model::machine::HostMachine;
+    use model::test_support::machine_snapshot::{host_machine, host_machine_id};
+
+    fn compute_host_machine_id(index: u8) -> HostMachineId {
+        MachineId::new(MachineIdSource::Tpm, [index; 32], MachineType::Host)
+            .try_into()
+            .expect("test host ID should have a host subtype")
+    }
 
     /// A GPU carrying NVLink platform metadata and an MNNVL family name — what
     /// `is_mnnvl_capable` keys off of to flag a rack-scale (GB200) server.
@@ -3938,19 +3942,19 @@ mod tests {
         }
     }
 
-    fn machine_with_hardware(hardware_info: Option<HardwareInfo>) -> Machine {
-        let mut machine = host_machine();
+    fn machine_with_hardware(hardware_info: Option<HardwareInfo>) -> HostMachine {
+        let mut machine: HostMachine = host_machine().into();
         machine.status.hardware_info = hardware_info;
         machine
     }
 
-    fn machine_with_id(mut machine: Machine, id: MachineId) -> Machine {
+    fn machine_with_id(mut machine: HostMachine, id: HostMachineId) -> HostMachine {
         machine.id = id;
         machine
     }
 
     /// Rack-scale: at least one MNNVL-capable GPU.
-    fn rack_scale_machine() -> Machine {
+    fn rack_scale_machine() -> HostMachine {
         machine_with_hardware(Some(HardwareInfo {
             gpus: vec![mnnvl_gpu()],
             ..Default::default()
@@ -3958,7 +3962,7 @@ mod tests {
     }
 
     /// Standalone: no MNNVL-capable GPU.
-    fn standalone_machine() -> Machine {
+    fn standalone_machine() -> HostMachine {
         machine_with_hardware(Some(HardwareInfo::default()))
     }
 
@@ -3966,10 +3970,14 @@ mod tests {
     /// loop without a database: unknown ids become per-machine NotFound results,
     /// and only machines with a successful power-option update join a partition.
     fn prepare_dispatch_lists(
-        machines_by_id: &HashMap<MachineId, Machine>,
-        machine_ids: &[MachineId],
-        power_option_ok: &HashMap<MachineId, bool>,
-    ) -> (Vec<MachineId>, Vec<MachineId>, Vec<rpc::ComponentResult>) {
+        machines_by_id: &HashMap<HostMachineId, HostMachine>,
+        machine_ids: &[HostMachineId],
+        power_option_ok: &HashMap<HostMachineId, bool>,
+    ) -> (
+        Vec<HostMachineId>,
+        Vec<HostMachineId>,
+        Vec<rpc::ComponentResult>,
+    ) {
         let mut results = Vec::new();
         let mut rack_scale_ids = Vec::new();
         let mut standalone_ids = Vec::new();
@@ -4000,7 +4008,7 @@ mod tests {
 
     #[test]
     fn machine_is_rack_scale_classifies_rack_standalone_and_unknown() {
-        let id = host_machine_id();
+        let id = compute_host_machine_id(0);
 
         let rack_map = HashMap::from([(id, rack_scale_machine())]);
         assert!(
@@ -4022,27 +4030,27 @@ mod tests {
 
     #[test]
     fn mixed_batch_routes_rack_to_rack_partition_and_standalone_to_core_partition() {
-        let rack_id = host_machine_id();
-        let standalone_id = dpu_machine_id(0);
+        let rack_id = compute_host_machine_id(0);
+        let standalone_id = compute_host_machine_id(1);
         let machines = HashMap::from([
             (rack_id, machine_with_id(rack_scale_machine(), rack_id)),
             (
-                standalone_id.into(),
-                machine_with_id(standalone_machine(), standalone_id.into()),
+                standalone_id,
+                machine_with_id(standalone_machine(), standalone_id),
             ),
         ]);
 
         let (rack, standalone, results) =
-            prepare_dispatch_lists(&machines, &[rack_id, standalone_id.into()], &HashMap::new());
+            prepare_dispatch_lists(&machines, &[rack_id, standalone_id], &HashMap::new());
 
         assert!(results.is_empty());
         assert_eq!(rack, vec![rack_id]);
-        assert_eq!(standalone, vec![standalone_id.into()]);
+        assert_eq!(standalone, vec![standalone_id]);
     }
 
     #[test]
     fn all_rack_scale_batch_uses_only_rack_partition() {
-        let id = host_machine_id();
+        let id = compute_host_machine_id(0);
         let machines = HashMap::from([(id, rack_scale_machine())]);
         let (rack, standalone, results) = prepare_dispatch_lists(&machines, &[id], &HashMap::new());
         assert!(results.is_empty());
@@ -4052,7 +4060,7 @@ mod tests {
 
     #[test]
     fn all_standalone_batch_uses_only_standalone_partition() {
-        let id = host_machine_id();
+        let id = compute_host_machine_id(0);
         let machines = HashMap::from([(id, standalone_machine())]);
         let (rack, standalone, results) = prepare_dispatch_lists(&machines, &[id], &HashMap::new());
         assert!(results.is_empty());
@@ -4062,12 +4070,12 @@ mod tests {
 
     #[test]
     fn unknown_machine_id_is_not_found_and_does_not_abort_rest_of_batch() {
-        let known = host_machine_id();
-        let unknown = dpu_machine_id(1);
+        let known = compute_host_machine_id(0);
+        let unknown = compute_host_machine_id(1);
         let machines = HashMap::from([(known, standalone_machine())]);
 
         let (rack, standalone, results) =
-            prepare_dispatch_lists(&machines, &[unknown.into(), known], &HashMap::new());
+            prepare_dispatch_lists(&machines, &[unknown, known], &HashMap::new());
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].component_id, unknown.to_string());
@@ -4081,19 +4089,16 @@ mod tests {
 
     #[test]
     fn power_option_failure_is_not_dispatched_while_siblings_are() {
-        let ok_id = host_machine_id();
-        let fail_id = dpu_machine_id(0);
+        let ok_id = compute_host_machine_id(0);
+        let fail_id = compute_host_machine_id(1);
         let machines = HashMap::from([
             (ok_id, machine_with_id(rack_scale_machine(), ok_id)),
-            (
-                fail_id.into(),
-                machine_with_id(standalone_machine(), fail_id.into()),
-            ),
+            (fail_id, machine_with_id(standalone_machine(), fail_id)),
         ]);
-        let power_ok = HashMap::from([(ok_id, true), (fail_id.into(), false)]);
+        let power_ok = HashMap::from([(ok_id, true), (fail_id, false)]);
 
         let (rack, standalone, results) =
-            prepare_dispatch_lists(&machines, &[ok_id, fail_id.into()], &power_ok);
+            prepare_dispatch_lists(&machines, &[ok_id, fail_id], &power_ok);
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].component_id, fail_id.to_string());
@@ -4107,7 +4112,7 @@ mod tests {
 
     #[test]
     fn partition_error_results_reports_one_error_per_machine() {
-        let ids = [host_machine_id(), dpu_machine_id(0).into()];
+        let ids = [compute_host_machine_id(0), compute_host_machine_id(1)];
         let status = Status::unavailable("backend down");
 
         let results = partition_error_results(&ids, &status);
@@ -4126,19 +4131,19 @@ mod tests {
 
     #[tokio::test]
     async fn resolve_from_machines_reports_missing_id_and_bmc_gaps() {
-        let missing_id = dpu_machine_id(0);
-        let no_mac_id = host_machine_id();
-        let no_ip_id = dpu_machine_id(1);
+        let missing_id = compute_host_machine_id(0);
+        let no_mac_id = compute_host_machine_id(1);
+        let no_ip_id = compute_host_machine_id(2);
 
         let mut no_mac = standalone_machine();
         no_mac.id = no_mac_id;
         no_mac.status.bmc_info.mac = None;
 
         let mut no_ip = standalone_machine();
-        no_ip.id = no_ip_id.into();
+        no_ip.id = no_ip_id;
         no_ip.status.bmc_info.ip = None;
 
-        let machines = HashMap::from([(no_mac_id, no_mac), (no_ip_id.into(), no_ip)]);
+        let machines = HashMap::from([(no_mac_id, no_mac), (no_ip_id, no_ip)]);
         let creds = TestCredentialManager::new(Credentials::UsernamePassword {
             username: "u".into(),
             password: "p".into(),
@@ -4147,7 +4152,7 @@ mod tests {
         let resolved = resolve_compute_tray_endpoints_from_machines(
             &creds,
             &machines,
-            &[missing_id.into(), no_mac_id, no_ip_id.into()],
+            &[missing_id, no_mac_id, no_ip_id],
         )
         .await;
 
@@ -4157,7 +4162,7 @@ mod tests {
             resolved
                 .unresolved
                 .iter()
-                .any(|u| u.id == missing_id.into() && u.reason.contains("machine not found"))
+                .any(|u| u.id == missing_id && u.reason.contains("machine not found"))
         );
         assert!(
             resolved
@@ -4169,13 +4174,13 @@ mod tests {
             resolved
                 .unresolved
                 .iter()
-                .any(|u| u.id == no_ip_id.into() && u.reason.contains("BMC IP"))
+                .any(|u| u.id == no_ip_id && u.reason.contains("BMC IP"))
         );
     }
 
     #[tokio::test]
     async fn resolve_from_machines_builds_endpoint_when_bmc_and_creds_present() {
-        let id = host_machine_id();
+        let id = compute_host_machine_id(0);
         let machine = standalone_machine();
         let bmc_ip = machine.status.bmc_info.ip.expect("fixture has BMC IP");
         let machines = HashMap::from([(id, machine)]);
@@ -4203,7 +4208,7 @@ mod tests {
         target_version: &'static str,
         error: Option<&'static str>,
         /// When `Some`, the IP is present in `ip_to_machine_id`.
-        machine_id: Option<MachineId>,
+        machine_id: Option<HostMachineId>,
         expected_component_id: String,
         expected_state: rpc::FirmwareUpdateState,
         expected_success: bool,
@@ -4248,7 +4253,7 @@ mod tests {
     fn map_compute_tray_firmware_status_cases() {
         let known_ip: IpAddr = "10.0.0.1".parse().unwrap();
         let unknown_ip: IpAddr = "10.0.0.2".parse().unwrap();
-        let id = host_machine_id();
+        let id: HostMachineId = host_machine_id().into();
         let id_str = id.to_string();
         let unknown_ip_str = unknown_ip.to_string();
 
@@ -4297,9 +4302,9 @@ mod tests {
 
     #[test]
     fn firmware_status_routing_covers_all_dispatch_paths() {
-        let id_a = host_machine_id();
-        let id_b = dpu_machine_id(0);
-        let id_c = dpu_machine_id(1);
+        let id_a: HostMachineId = host_machine_id().into();
+        let id_b = compute_host_machine_id(1);
+        let id_c = compute_host_machine_id(2);
 
         let mut machine_with_rms_job = machine_with_id(standalone_machine(), id_a);
         machine_with_rms_job.status.backend_firmware_object_job_id =
@@ -4307,14 +4312,8 @@ mod tests {
 
         let machines = HashMap::from([
             (id_a, machine_with_rms_job),
-            (
-                id_b.into(),
-                machine_with_id(standalone_machine(), id_b.into()),
-            ),
-            (
-                id_c.into(),
-                machine_with_id(standalone_machine(), id_c.into()),
-            ),
+            (id_b, machine_with_id(standalone_machine(), id_b)),
+            (id_c, machine_with_id(standalone_machine(), id_c)),
         ]);
 
         struct Case {
@@ -4326,7 +4325,7 @@ mod tests {
             expect_fallback_indices: &'static [usize],
         }
 
-        let all_ids = [id_a, id_b.into(), id_c.into()];
+        let all_ids = [id_a, id_b, id_c];
 
         let cases = [
             Case {
@@ -4356,13 +4355,13 @@ mod tests {
         ];
 
         for case in &cases {
-            let ids: Vec<MachineId> = case.ids.iter().map(|&i| all_ids[i]).collect();
-            let expect_persisted: Vec<MachineId> = case
+            let ids: Vec<HostMachineId> = case.ids.iter().map(|&i| all_ids[i]).collect();
+            let expect_persisted: Vec<HostMachineId> = case
                 .expect_persisted_indices
                 .iter()
                 .map(|&i| all_ids[i])
                 .collect();
-            let expect_fallback: Vec<MachineId> = case
+            let expect_fallback: Vec<HostMachineId> = case
                 .expect_fallback_indices
                 .iter()
                 .map(|&i| all_ids[i])

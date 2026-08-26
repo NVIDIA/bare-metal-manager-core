@@ -1803,7 +1803,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 			// Build instance allocation request using pre-built configs
 			instanceRequest := &corev1.InstanceAllocationRequest{
 				InstanceId: &corev1.InstanceId{Value: instance.GetSiteID().String()},
-				MachineId:  &corev1.MachineId{Id: *instance.MachineID},
+				MachineId:  &corev1.StableHostMachineId{Id: *instance.MachineID},
 				Metadata: &corev1.Metadata{
 					Name:        instance.Name,
 					Description: description,

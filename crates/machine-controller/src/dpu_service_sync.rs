@@ -26,8 +26,8 @@
 
 use carbide_dpf::sdk::{dpu_cr_name, dpu_node_cr_name};
 use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::MachineId;
-use model::machine::Machine;
+use carbide_uuid::machine::DpuMachineId;
+use model::machine::{DpuMachine, HostMachine};
 use model::machine_pending_action::MachinePendingActionActor;
 use model::machine_pending_action::MachinePendingActionKind::DpuServiceSync;
 use sqlx::PgPool;
@@ -64,10 +64,10 @@ pub enum ReleaseOutcome {
     Released,
     /// A DPU still differs from its DPUDeployment, so its OS is about to be
     /// replaced. Retrying achieves nothing until it has been reprovisioned.
-    DeferredDpuOutdated { dpu: MachineId },
+    DeferredDpuOutdated { dpu: DpuMachineId },
     /// A DPU could not be evaluated at all. Unlike an outdated DPU this is worth
     /// retrying, since it usually means Kubernetes was unreachable.
-    DeferredUnknown { dpu: MachineId, reason: String },
+    DeferredUnknown { dpu: DpuMachineId, reason: String },
     /// The host is assigned and the policy did not permit disrupting it.
     DeferredHostAssigned { instance: InstanceId },
     /// The attempt failed part-way. Retryable.
@@ -89,8 +89,8 @@ pub enum ReleaseOutcome {
 pub async fn release_hold_if_dpus_are_current(
     dpf_sdk: &dyn DpfOperations,
     db_pool: &PgPool,
-    host: &Machine,
-    dpus: &[Machine],
+    host: &HostMachine,
+    dpus: &[DpuMachine],
     tenant_policy: TenantPolicy,
     actor: MachinePendingActionActor,
 ) -> ReleaseOutcome {
@@ -151,7 +151,8 @@ pub async fn release_hold_if_dpus_are_current(
     // instead. That narrows the window to this query plus the patch rather than
     // closing it; the pending action survives, so a host that slips through is
     // caught once its instance is gone.
-    let assigned = match db::instance::find_id_by_machine_id(db_pool, &host.id).await {
+    let assigned = match db::instance::find_id_by_machine_id(db_pool, host.id.as_machine_id()).await
+    {
         Ok(assigned) => assigned,
         Err(error) => {
             return ReleaseOutcome::Failed {
@@ -192,8 +193,13 @@ pub async fn release_hold_if_dpus_are_current(
             };
         }
     };
-    if let Err(error) =
-        db::machine_pending_action::complete(&mut conn, &host.id, DpuServiceSync, actor).await
+    if let Err(error) = db::machine_pending_action::complete(
+        &mut conn,
+        host.id.as_machine_id(),
+        DpuServiceSync,
+        actor,
+    )
+    .await
     {
         return ReleaseOutcome::Failed {
             reason: format!("released the hold but could not record it as completed: {error}"),

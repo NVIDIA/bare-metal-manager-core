@@ -25,6 +25,7 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use carbide_api_core::Api;
 use carbide_rpc_utils::managed_host_display::get_memory_details;
 use carbide_rpc_utils::{ManagedHostMetadata, reason_to_user_string};
+use carbide_uuid::machine::MachineIdSubtypeTrait;
 use db::managed_host;
 use hyper::http::StatusCode;
 use itertools::Itertools;
@@ -182,7 +183,7 @@ impl ManagedHostRowDisplay {
             machine_id: host_snapshot.id.to_string(),
             state: host_snapshot.state.value.to_string(),
             time_in_state_above_sla: machine::state_sla(
-                &host_snapshot.id,
+                host_snapshot.id.as_machine_id(),
                 &host_snapshot.state.value,
                 &host_snapshot.state.version,
                 &aggregate_health,
@@ -218,8 +219,8 @@ impl ManagedHostRowDisplay {
     }
 }
 
-impl From<model::machine::Machine> for AttachedDpuRowDisplay {
-    fn from(item: Machine) -> Self {
+impl<ID: MachineIdSubtypeTrait> From<Machine<ID>> for AttachedDpuRowDisplay {
+    fn from(item: Machine<ID>) -> Self {
         let bmc_ip = item
             .status
             .bmc_info
