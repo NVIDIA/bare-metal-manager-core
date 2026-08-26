@@ -106,7 +106,8 @@ type SiteContact struct {
 // arriving inventory may predate it, which means the inventory should not be acted on for that
 // object. The threshold follows the collection interval the Site Agent reports, and falls back
 // to the default for a Site that has not reported one yet, so an unreported Site keeps the
-// protection it had before the field existed.
+// protection it had before the field existed. The Site Agent refuses a schedule slower than
+// cutil.MaxInventoryReceiptInterval, so the reported interval is followed as given.
 func (st *Site) IsTimeWithinStaleInventoryThreshold(actionTime time.Time) bool {
 	interval := cutil.DefaultInventoryReceiptInterval
 	if st != nil && st.InventoryIntervalSeconds != nil && *st.InventoryIntervalSeconds > 0 {

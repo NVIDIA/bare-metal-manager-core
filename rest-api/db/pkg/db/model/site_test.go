@@ -1918,7 +1918,7 @@ func TestSite_IsTimeWithinStaleInventoryThreshold(t *testing.T) {
 		{
 			// The same age that clears the fallback is still too recent for a slower Site.
 			name:       "follows a reported interval longer than the fallback",
-			site:       &Site{InventoryIntervalSeconds: cutil.GetPtr(600)},
+			site:       &Site{InventoryIntervalSeconds: cutil.GetPtr(300)},
 			actionTime: time.Now().Add(-(cutil.DefaultInventoryReceiptInterval + cutil.StaleInventoryBuffer + time.Second)),
 			want:       true,
 		},

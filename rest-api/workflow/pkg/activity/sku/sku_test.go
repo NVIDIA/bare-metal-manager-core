@@ -250,9 +250,10 @@ func TestManageSku_DeletionRespectsStaleInventoryThreshold(t *testing.T) {
 			createdAgo: 2 * cutil.DefaultInventoryReceiptInterval,
 		},
 		{
+			// Older than the default threshold, still inside the reported one.
 			name:           "created within a longer reported interval survives",
-			createdAgo:     2 * cutil.DefaultInventoryReceiptInterval,
-			intervalSecs:   cutil.GetPtr(int((10 * cutil.DefaultInventoryReceiptInterval).Seconds())),
+			createdAgo:     4 * time.Minute,
+			intervalSecs:   cutil.GetPtr(300),
 			expectSurvives: true,
 		},
 		{
