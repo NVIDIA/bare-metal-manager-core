@@ -24,19 +24,20 @@ use model::hardware_info::HardwareInfo;
 use model::machine::Machine;
 use model::machine_boot_interface::BootInterfaceSelectionSource;
 use model::network_segment::NetworkSegmentType;
+use model::pci::PciBdfOrderingKey;
 use rpc::forge::BootInterfaceSelectionSource as RpcBootInterfaceSelectionSource;
 
-/// Bounded outcomes recorded for each Scout PCI evaluation.
+/// Comparison recorded for each scout PCI candidate.
 #[derive(Clone, Copy, Debug, Eq, LabelValue, PartialEq)]
-enum EvaluationResult {
-    /// The Scout candidate matches the stored boot interface.
-    Agreement,
-    /// The Scout candidate differs from the stored boot interface.
-    Disagreement,
+enum ScoutPciComparison {
+    /// The scout candidate matches the stored boot interface.
+    MatchesStored,
+    /// The scout candidate differs from the stored boot interface.
+    DiffersFromStored,
     /// The report or stored selection is missing required information.
-    Incomplete,
-    /// The stored interfaces or report do not identify one candidate.
-    Ambiguous,
+    MissingData,
+    /// An identifier expected to be unique maps to multiple interfaces or BDF keys.
+    IdentifierCollision,
 }
 
 /// The stored identity fields needed to match and describe one candidate.
@@ -47,60 +48,64 @@ struct EligibleInterface {
     dpu_machine_id: MachineId,
 }
 
-/// One eligible interface paired with its normalized Scout PCI slot.
+/// One eligible interface paired with its parsed scout endpoint BDF.
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Candidate {
     interface: EligibleInterface,
+    ordering_key: PciBdfOrderingKey,
     pci_slot: String,
 }
 
 impl Candidate {
-    /// Converts this candidate to the context attached to an evaluation.
-    fn subject(&self) -> EvaluationSubject {
-        EvaluationSubject {
+    /// Converts this candidate to the context attached to a comparison.
+    fn subject(&self) -> ComparisonSubject {
+        ComparisonSubject {
+            machine_interface_id: self.interface.machine_interface_id,
             mac_address: self.interface.mac_address,
             pci_slot: Some(self.pci_slot.clone()),
         }
     }
 }
 
-/// Interface and slot details that explain which evidence produced a result.
+/// Interface and slot details used to produce a comparison.
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct EvaluationSubject {
+struct ComparisonSubject {
+    machine_interface_id: MachineInterfaceId,
     mac_address: MacAddress,
     pci_slot: Option<String>,
 }
 
-impl EvaluationSubject {
-    /// Builds context for an interface before its PCI slot is available.
+impl ComparisonSubject {
+    /// Builds context for an interface before its PCI BDF is available.
     fn for_interface(interface: EligibleInterface) -> Self {
         Self {
+            machine_interface_id: interface.machine_interface_id,
             mac_address: interface.mac_address,
             pci_slot: None,
         }
     }
 }
 
-/// A Scout PCI result with no side effects that is emitted after discovery commits.
+/// A scout PCI comparison with the context needed to record it.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct Evaluation {
-    result: EvaluationResult,
-    subject: Option<EvaluationSubject>,
+pub(in crate::handlers) struct Comparison {
+    comparison: ScoutPciComparison,
+    subject: Option<ComparisonSubject>,
     desired_mac_address: Option<MacAddress>,
     selection_source: Option<BootInterfaceSelectionSource>,
     reason: &'static str,
 }
 
-impl Evaluation {
-    /// Captures a result and its stored machine context without emitting it.
+impl Comparison {
+    /// Captures a comparison and its stored machine context without emitting it.
     fn from_machine(
         machine: &Machine,
-        result: EvaluationResult,
-        subject: Option<EvaluationSubject>,
+        comparison: ScoutPciComparison,
+        subject: Option<ComparisonSubject>,
         reason: &'static str,
     ) -> Self {
         Self {
-            result,
+            comparison,
             subject,
             desired_mac_address: machine
                 .config
@@ -115,15 +120,25 @@ impl Evaluation {
         }
     }
 
-    /// Emits the evaluation metric and its diagnostic log.
-    pub(super) fn emit(self, machine_id: &MachineId) {
+    /// Returns the selected interface when the report identified one complete candidate.
+    pub(in crate::handlers) fn candidate_interface_id(&self) -> Option<MachineInterfaceId> {
+        let interface_id = self.subject.as_ref()?.machine_interface_id;
+        matches!(
+            self.comparison,
+            ScoutPciComparison::MatchesStored | ScoutPciComparison::DiffersFromStored
+        )
+        .then_some(interface_id)
+    }
+
+    /// Emits the comparison metric and its structured log.
+    pub(in crate::handlers) fn emit(self, machine_id: &MachineId) {
         let (interface_mac_address, pci_slot) = self.subject.map_or_else(
             || (None, None),
             |subject| (Some(subject.mac_address.to_string()), subject.pci_slot),
         );
 
-        carbide_instrument::emit(ScoutPciEvaluated {
-            result: self.result,
+        carbide_instrument::emit(ScoutPciCompared {
+            result: self.comparison,
             machine_id: machine_id.to_string(),
             interface_mac_address,
             desired_mac_address: self
@@ -139,7 +154,7 @@ impl Evaluation {
     }
 }
 
-/// Metric and diagnostic record for one completed Scout PCI evaluation.
+/// Metric and structured log for one recorded scout PCI comparison.
 #[derive(Event)]
 #[event(
     event_name = "scout_pci_evaluated",
@@ -147,12 +162,12 @@ impl Evaluation {
     component = "nico-api",
     log = dynamic,
     metric = counter,
-    message = "Evaluated Scout PCI boot interface evidence",
-    describe = "Number of comparisons between PCI slots reported by Scout and the stored boot interface, by result."
+    message = "Recorded scout PCI evaluation of the stored boot interface selection",
+    describe = "Number of comparisons between scout PCI address ordering and stored boot interface selections, by result."
 )]
-struct ScoutPciEvaluated {
+struct ScoutPciCompared {
     #[label]
-    result: EvaluationResult,
+    result: ScoutPciComparison,
     #[context]
     machine_id: String,
     #[context]
@@ -167,20 +182,23 @@ struct ScoutPciEvaluated {
     reason: &'static str,
 }
 
-impl DynamicLog for ScoutPciEvaluated {
-    /// Uses warning for results that need attention and debug for agreement.
+impl DynamicLog for ScoutPciCompared {
+    /// Uses warning for comparisons that need attention and debug for matches.
     fn log_at(&self) -> LogAt {
         match self.result {
-            EvaluationResult::Agreement => LogAt::Level(tracing::Level::DEBUG),
-            EvaluationResult::Disagreement
-            | EvaluationResult::Incomplete
-            | EvaluationResult::Ambiguous => LogAt::Level(tracing::Level::WARN),
+            ScoutPciComparison::MatchesStored => LogAt::Level(tracing::Level::DEBUG),
+            ScoutPciComparison::DiffersFromStored
+            | ScoutPciComparison::MissingData
+            | ScoutPciComparison::IdentifierCollision => LogAt::Level(tracing::Level::WARN),
         }
     }
 }
 
-/// Compares PCI slots reported by Scout with the machine's stored boot interface.
-pub(super) fn evaluate(hardware_info: &HardwareInfo, machine: &Machine) -> Option<Evaluation> {
+/// Compares endpoint PCI BDFs reported by scout with the stored boot interface.
+pub(in crate::handlers) fn compare(
+    hardware_info: &HardwareInfo,
+    machine: &Machine,
+) -> Option<Comparison> {
     let eligible_interfaces = eligible_interfaces(machine);
     if eligible_interfaces.len() < 2 {
         return None;
@@ -204,34 +222,34 @@ pub(super) fn evaluate(hardware_info: &HardwareInfo, machine: &Machine) -> Optio
     }
 
     if let Some(interface) = first_duplicate_mac(&eligible_interfaces) {
-        return Some(Evaluation::from_machine(
+        return Some(Comparison::from_machine(
             machine,
-            EvaluationResult::Ambiguous,
-            Some(EvaluationSubject::for_interface(interface)),
+            ScoutPciComparison::IdentifierCollision,
+            Some(ComparisonSubject::for_interface(interface)),
             "eligible interface MAC is not unique",
         ));
     }
     if let Some(interface) = first_duplicate_dpu(&eligible_interfaces) {
-        return Some(Evaluation::from_machine(
+        return Some(Comparison::from_machine(
             machine,
-            EvaluationResult::Ambiguous,
-            Some(EvaluationSubject::for_interface(interface)),
+            ScoutPciComparison::IdentifierCollision,
+            Some(ComparisonSubject::for_interface(interface)),
             "eligible interface DPU ID is not unique",
         ));
     }
 
     let candidates = match candidates_from_report(hardware_info, machine, &eligible_interfaces) {
         Ok(candidates) => candidates,
-        Err(evaluation) => return Some(evaluation),
+        Err(comparison) => return Some(comparison),
     };
     let candidate = candidates
         .into_iter()
-        .min_by(|left, right| left.pci_slot.cmp(&right.pci_slot))?;
+        .min_by(|left, right| left.ordering_key.cmp(&right.ordering_key))?;
 
     let Some(desired_mac_address) = desired_mac_address else {
-        return Some(Evaluation::from_machine(
+        return Some(Comparison::from_machine(
             machine,
-            EvaluationResult::Incomplete,
+            ScoutPciComparison::MissingData,
             Some(candidate.subject()),
             "stored boot interface is missing",
         ));
@@ -241,9 +259,9 @@ pub(super) fn evaluate(hardware_info: &HardwareInfo, machine: &Machine) -> Optio
         .iter()
         .any(|interface| interface.mac_address == desired_mac_address)
     {
-        return Some(Evaluation::from_machine(
+        return Some(Comparison::from_machine(
             machine,
-            EvaluationResult::Incomplete,
+            ScoutPciComparison::MissingData,
             Some(candidate.subject()),
             "stored boot interface is not present on this host",
         ));
@@ -292,12 +310,12 @@ fn first_duplicate_dpu(interfaces: &[EligibleInterface]) -> Option<EligibleInter
         .find(|interface| !seen.insert(interface.dpu_machine_id))
 }
 
-/// Matches every eligible MAC to one report row and one nonblank PCI slot.
+/// Matches every eligible MAC to one report row and one complete endpoint BDF.
 fn candidates_from_report(
     hardware_info: &HardwareInfo,
     machine: &Machine,
     eligible_interfaces: &[EligibleInterface],
-) -> Result<Vec<Candidate>, Evaluation> {
+) -> Result<Vec<Candidate>, Comparison> {
     let mut candidates = Vec::with_capacity(eligible_interfaces.len());
 
     for interface in eligible_interfaces {
@@ -306,19 +324,19 @@ fn candidates_from_report(
             .iter()
             .filter(|reported| reported.mac_address == interface.mac_address);
         let Some(reported) = matches.next() else {
-            return Err(Evaluation::from_machine(
+            return Err(Comparison::from_machine(
                 machine,
-                EvaluationResult::Incomplete,
-                Some(EvaluationSubject::for_interface(*interface)),
-                "eligible interface has no Scout report row",
+                ScoutPciComparison::MissingData,
+                Some(ComparisonSubject::for_interface(*interface)),
+                "eligible interface has no scout report row",
             ));
         };
         if matches.next().is_some() {
-            return Err(Evaluation::from_machine(
+            return Err(Comparison::from_machine(
                 machine,
-                EvaluationResult::Ambiguous,
-                Some(EvaluationSubject::for_interface(*interface)),
-                "eligible interface has multiple Scout report rows",
+                ScoutPciComparison::IdentifierCollision,
+                Some(ComparisonSubject::for_interface(*interface)),
+                "eligible interface has multiple scout report rows",
             ));
         }
 
@@ -329,53 +347,70 @@ fn candidates_from_report(
             .map(str::trim)
             .filter(|slot| !slot.is_empty())
         else {
-            return Err(Evaluation::from_machine(
+            return Err(Comparison::from_machine(
                 machine,
-                EvaluationResult::Incomplete,
-                Some(EvaluationSubject::for_interface(*interface)),
-                "eligible interface report has no PCI slot",
+                ScoutPciComparison::MissingData,
+                Some(ComparisonSubject::for_interface(*interface)),
+                "eligible interface report has no PCI BDF",
             ));
+        };
+        let subject = ComparisonSubject {
+            machine_interface_id: interface.machine_interface_id,
+            mac_address: interface.mac_address,
+            pci_slot: Some(pci_slot.to_string()),
+        };
+        let ordering_key = match PciBdfOrderingKey::from_bdf(pci_slot) {
+            Ok(ordering_key) => ordering_key,
+            Err(_) => {
+                return Err(Comparison::from_machine(
+                    machine,
+                    ScoutPciComparison::MissingData,
+                    Some(subject),
+                    "eligible interface report has malformed PCI BDF",
+                ));
+            }
         };
 
         candidates.push(Candidate {
             interface: *interface,
-            pci_slot: pci_slot.to_ascii_lowercase(),
+            ordering_key,
+            pci_slot: pci_slot.to_string(),
         });
     }
 
-    let mut slots = HashSet::with_capacity(candidates.len());
+    let mut ordering_keys = HashSet::with_capacity(candidates.len());
     if let Some(candidate) = candidates
         .iter()
-        .find(|candidate| !slots.insert(candidate.pci_slot.as_str()))
+        .find(|candidate| !ordering_keys.insert(&candidate.ordering_key))
     {
-        return Err(Evaluation::from_machine(
+        return Err(Comparison::from_machine(
             machine,
-            EvaluationResult::Ambiguous,
+            ScoutPciComparison::IdentifierCollision,
             Some(candidate.subject()),
-            "eligible interfaces share a reported PCI slot",
+            "eligible interfaces share a parsed PCI BDF key",
         ));
     }
 
     Ok(candidates)
 }
 
-/// Compares the Scout candidate with the stored desired boot interface MAC.
+/// Compares the scout candidate with the stored desired boot interface MAC.
 fn compare_candidate(
     machine: &Machine,
     candidate: Candidate,
     desired_mac_address: MacAddress,
-) -> Evaluation {
+) -> Comparison {
     if candidate.interface.mac_address == desired_mac_address {
-        Evaluation::from_machine(
+        Comparison::from_machine(
             machine,
-            EvaluationResult::Agreement,
+            ScoutPciComparison::MatchesStored,
             Some(candidate.subject()),
             "candidate matches the stored boot interface",
         )
     } else {
-        Evaluation::from_machine(
+        Comparison::from_machine(
             machine,
-            EvaluationResult::Disagreement,
+            ScoutPciComparison::DiffersFromStored,
             Some(candidate.subject()),
             "candidate differs from the stored boot interface",
         )
@@ -385,7 +420,7 @@ fn compare_candidate(
 #[cfg(test)]
 mod tests {
     use carbide_instrument::testing::{MetricsCapture, capture_logs};
-    use carbide_test_support::{Check, check_values};
+    use carbide_test_support::{Check, check_values, value_scenarios};
     use config_version::Versioned;
     use model::hardware_info::{NetworkInterface, PciDeviceProperties};
     use model::machine::MachineInterfaceSnapshot;
@@ -396,23 +431,22 @@ mod tests {
 
     use super::*;
 
-    /// One variation from the complete, agreeing evaluator fixture.
+    /// One variation from the complete, matching comparison fixture.
     #[derive(Clone, Copy)]
-    enum EvaluationCase {
+    enum ComparisonCase {
         NotEnoughInterfaces,
         BdfOrdering,
         ReversedRows,
-        Disagreement,
-        SecondAgreement,
+        DiffersFromStored,
         DomainOrdering,
         NormalizedOrdering,
-        StringOrdering,
+        MalformedSlot,
         MissingRow,
         MissingPci,
         MissingSlot,
         BlankSlot,
         DuplicateRow,
-        DuplicateSlot,
+        DuplicateKey,
         DuplicateMac,
         DuplicateDpu,
         MissingDesired,
@@ -452,13 +486,14 @@ mod tests {
         interface
     }
 
-    /// Builds one Scout network row with the supplied PCI slot.
+    /// Builds one scout network row with the supplied endpoint PCI BDF.
     fn reported_interface(mac_address: MacAddress, slot: Option<&str>) -> NetworkInterface {
         NetworkInterface {
             mac_address,
             pci_properties: Some(PciDeviceProperties {
                 vendor: String::new(),
                 device: String::new(),
+                // DEVPATH is deliberately not required for endpoint-BDF ordering.
                 path: String::new(),
                 numa_node: 0,
                 description: None,
@@ -467,96 +502,86 @@ mod tests {
         }
     }
 
-    /// Builds a machine and returns the evaluator's bounded result.
-    fn run_evaluation(case: EvaluationCase) -> Option<EvaluationResult> {
+    /// Builds a machine and returns its bounded scout PCI comparison.
+    fn run_comparison(case: ComparisonCase) -> Option<ScoutPciComparison> {
         let mut machine = host_machine();
         machine.status.interfaces = vec![
             eligible_interface(mac(1), dpu_machine_id(0)),
             eligible_interface(mac(2), dpu_machine_id(1)),
         ];
         let mut reports = vec![
-            reported_interface(mac(1), Some("0000:02:00.0")),
-            reported_interface(mac(2), Some("0000:0a:00.0")),
+            reported_interface(mac(1), Some("0:2:0.0")),
+            reported_interface(mac(2), Some("0:10:0.0")),
         ];
         let mut desired_mac_address = Some(mac(1));
 
         match case {
-            EvaluationCase::NotEnoughInterfaces => machine.status.interfaces.truncate(1),
-            EvaluationCase::BdfOrdering => {}
-            EvaluationCase::ReversedRows => {
+            ComparisonCase::NotEnoughInterfaces => machine.status.interfaces.truncate(1),
+            ComparisonCase::BdfOrdering => {}
+            ComparisonCase::ReversedRows => {
                 machine.status.interfaces.reverse();
                 reports.reverse();
             }
-            EvaluationCase::Disagreement => {
+            ComparisonCase::DiffersFromStored => {
                 reports = vec![
-                    reported_interface(mac(1), Some("0000:0a:00.0")),
-                    reported_interface(mac(2), Some("0000:02:00.0")),
+                    reported_interface(mac(1), Some("0:10:0.0")),
+                    reported_interface(mac(2), Some("0:2:0.0")),
                 ];
             }
-            EvaluationCase::SecondAgreement => {
+            ComparisonCase::DomainOrdering => {
                 reports = vec![
-                    reported_interface(mac(1), Some("0000:0a:00.0")),
-                    reported_interface(mac(2), Some("0000:02:00.0")),
-                ];
-                desired_mac_address = Some(mac(2));
-            }
-            EvaluationCase::DomainOrdering => {
-                reports = vec![
-                    reported_interface(mac(1), Some("0001:00:00.0")),
-                    reported_interface(mac(2), Some("0000:ff:00.0")),
+                    reported_interface(mac(1), Some("1:0:0.0")),
+                    reported_interface(mac(2), Some("0:ff:0.0")),
                 ];
                 desired_mac_address = Some(mac(2));
             }
-            EvaluationCase::NormalizedOrdering => {
+            ComparisonCase::NormalizedOrdering => {
                 reports = vec![
                     reported_interface(mac(1), Some(" 0000:0A:00.0 ")),
-                    reported_interface(mac(2), Some("0000:0b:00.0")),
+                    reported_interface(mac(2), Some("0:b:0.0")),
                 ];
             }
-            EvaluationCase::StringOrdering => {
-                reports = vec![
-                    reported_interface(mac(1), Some("Riser_Slot1")),
-                    reported_interface(mac(2), Some("riser_slot2")),
-                ];
+            ComparisonCase::MalformedSlot => {
+                reports[0].pci_properties.as_mut().unwrap().slot = Some("Riser_Slot1".to_string());
             }
-            EvaluationCase::MissingRow => {
+            ComparisonCase::MissingRow => {
                 reports.remove(0);
             }
-            EvaluationCase::MissingPci => reports[0].pci_properties = None,
-            EvaluationCase::MissingSlot => {
+            ComparisonCase::MissingPci => reports[0].pci_properties = None,
+            ComparisonCase::MissingSlot => {
                 reports[0].pci_properties.as_mut().unwrap().slot = None;
             }
-            EvaluationCase::BlankSlot => {
+            ComparisonCase::BlankSlot => {
                 reports[0].pci_properties.as_mut().unwrap().slot = Some(" \t".to_string());
             }
-            EvaluationCase::DuplicateRow => reports.insert(0, reports[0].clone()),
-            EvaluationCase::DuplicateSlot => {
+            ComparisonCase::DuplicateRow => reports.insert(0, reports[0].clone()),
+            ComparisonCase::DuplicateKey => {
                 reports[1].pci_properties.as_mut().unwrap().slot =
-                    Some(" 0000:02:00.0 ".to_string());
+                    Some("0000:0002:00.00".to_string());
             }
-            EvaluationCase::DuplicateMac => {
+            ComparisonCase::DuplicateMac => {
                 machine.status.interfaces[1] = eligible_interface(mac(1), dpu_machine_id(1));
             }
-            EvaluationCase::DuplicateDpu => {
+            ComparisonCase::DuplicateDpu => {
                 machine.status.interfaces[1] = eligible_interface(mac(2), dpu_machine_id(0));
             }
-            EvaluationCase::MissingDesired => desired_mac_address = None,
-            EvaluationCase::UnknownDesired => desired_mac_address = Some(mac(9)),
-            EvaluationCase::IntegratedInterface => {
+            ComparisonCase::MissingDesired => desired_mac_address = None,
+            ComparisonCase::UnknownDesired => desired_mac_address = Some(mac(9)),
+            ComparisonCase::IntegratedInterface => {
                 machine.status.interfaces.push(integrated_interface());
                 reports.push(reported_interface(mac(9), Some("0000:01:00.0")));
             }
-            EvaluationCase::IntegratedDesired => {
+            ComparisonCase::IntegratedDesired => {
                 machine.status.interfaces.push(integrated_interface());
                 reports.push(reported_interface(mac(9), Some("0000:01:00.0")));
                 desired_mac_address = Some(mac(9));
             }
-            EvaluationCase::IntegratedDesiredWithMissingSlot => {
+            ComparisonCase::IntegratedDesiredWithMissingSlot => {
                 machine.status.interfaces.push(integrated_interface());
                 reports[0].pci_properties.as_mut().unwrap().slot = None;
                 desired_mac_address = Some(mac(9));
             }
-            EvaluationCase::ExtraReportRow => {
+            ComparisonCase::ExtraReportRow => {
                 reports.push(reported_interface(mac(9), None));
             }
         }
@@ -572,145 +597,172 @@ mod tests {
             network_interfaces: reports,
             ..HardwareInfo::default()
         };
-        evaluate(&hardware_info, &machine).map(|evaluation| evaluation.result)
+        compare(&hardware_info, &machine).map(|comparison| comparison.comparison)
     }
 
-    /// Builds one compact evaluator table row.
-    macro_rules! evaluation_case {
+    /// Builds one compact comparison table row.
+    macro_rules! comparison_case {
         ($scenario:literal, $input:ident, $expect:ident) => {
             Check {
                 scenario: $scenario,
-                input: EvaluationCase::$input,
-                expect: Some(EvaluationResult::$expect),
+                input: ComparisonCase::$input,
+                expect: Some(ScoutPciComparison::$expect),
             }
         };
         ($scenario:literal, $input:ident) => {
             Check {
                 scenario: $scenario,
-                input: EvaluationCase::$input,
+                input: ComparisonCase::$input,
                 expect: None,
             }
         };
     }
 
-    /// The evaluator covers ordering, completeness, ambiguity, and comparison as one table.
+    /// One table covers ordering, missing data, identifier collisions, and stored matching.
     #[test]
-    fn evaluator_uses_complete_unambiguous_scout_slot_mappings() {
+    fn comparison_requires_complete_unique_scout_bdf_mappings() {
         check_values(
             [
-                evaluation_case!(
+                comparison_case!(
                     "fewer than two eligible interfaces are ignored",
                     NotEnoughInterfaces
                 ),
-                evaluation_case!("slot 02 sorts before slot 0a", BdfOrdering, Agreement),
-                evaluation_case!(
+                comparison_case!(
+                    "variable-width numeric BDF 2 sorts before 10 without DEVPATH",
+                    BdfOrdering,
+                    MatchesStored
+                ),
+                comparison_case!(
                     "stored and report row order do not affect selection",
                     ReversedRows,
-                    Agreement
+                    MatchesStored
                 ),
-                evaluation_case!(
-                    "lower second slot disagrees with the stored first interface",
-                    Disagreement,
-                    Disagreement
+                comparison_case!(
+                    "lower second BDF differs from the stored first interface",
+                    DiffersFromStored,
+                    DiffersFromStored
                 ),
-                evaluation_case!(
-                    "lower second slot agrees with the stored second interface",
-                    SecondAgreement,
-                    Agreement
-                ),
-                evaluation_case!("lower domain sorts first", DomainOrdering, Agreement),
-                evaluation_case!(
-                    "slot comparison ignores case and surrounding whitespace",
+                comparison_case!("lower domain sorts first", DomainOrdering, MatchesStored),
+                comparison_case!(
+                    "BDF comparison ignores case, padding, and surrounding whitespace",
                     NormalizedOrdering,
-                    Agreement
+                    MatchesStored
                 ),
-                evaluation_case!(
-                    "arbitrary slot values are compared as strings",
-                    StringOrdering,
-                    Agreement
+                comparison_case!(
+                    "arbitrary PCI slot values are not valid BDFs",
+                    MalformedSlot,
+                    MissingData
                 ),
-                evaluation_case!("missing report row is incomplete", MissingRow, Incomplete),
-                evaluation_case!(
-                    "missing PCI properties are incomplete",
-                    MissingPci,
-                    Incomplete
+                comparison_case!("report row is missing", MissingRow, MissingData),
+                comparison_case!("PCI properties are missing", MissingPci, MissingData),
+                comparison_case!("PCI BDF is missing", MissingSlot, MissingData),
+                comparison_case!("blank PCI BDF is missing data", BlankSlot, MissingData),
+                comparison_case!(
+                    "duplicate report row causes an identifier collision",
+                    DuplicateRow,
+                    IdentifierCollision
                 ),
-                evaluation_case!("missing PCI slot is incomplete", MissingSlot, Incomplete),
-                evaluation_case!("blank PCI slot is incomplete", BlankSlot, Incomplete),
-                evaluation_case!("duplicate report row is ambiguous", DuplicateRow, Ambiguous),
-                evaluation_case!(
-                    "duplicate normalized PCI slot is ambiguous",
-                    DuplicateSlot,
-                    Ambiguous
+                comparison_case!(
+                    "numeric-equivalent BDFs cause an identifier collision",
+                    DuplicateKey,
+                    IdentifierCollision
                 ),
-                evaluation_case!(
-                    "duplicate eligible MAC is ambiguous",
+                comparison_case!(
+                    "duplicate eligible MAC causes an identifier collision",
                     DuplicateMac,
-                    Ambiguous
+                    IdentifierCollision
                 ),
-                evaluation_case!(
-                    "duplicate eligible DPU identity is ambiguous",
+                comparison_case!(
+                    "duplicate eligible DPU identity causes an identifier collision",
                     DuplicateDpu,
-                    Ambiguous
+                    IdentifierCollision
                 ),
-                evaluation_case!(
-                    "missing stored target is incomplete",
-                    MissingDesired,
-                    Incomplete
-                ),
-                evaluation_case!(
-                    "unknown stored target is incomplete",
+                comparison_case!("stored target is missing", MissingDesired, MissingData),
+                comparison_case!(
+                    "unknown stored target is missing data",
                     UnknownDesired,
-                    Incomplete
+                    MissingData
                 ),
-                evaluation_case!(
+                comparison_case!(
                     "integrated interface is excluded from DPU ordering",
                     IntegratedInterface,
-                    Agreement
+                    MatchesStored
                 ),
-                evaluation_case!(
+                comparison_case!(
                     "integrated boot interface needs no DPU comparison",
                     IntegratedDesired
                 ),
-                evaluation_case!(
-                    "integrated boot interface is ignored before DPU evidence is checked",
+                comparison_case!(
+                    "integrated boot interface is ignored before scout PCI BDFs are checked",
                     IntegratedDesiredWithMissingSlot
                 ),
-                evaluation_case!("unrelated Scout row is ignored", ExtraReportRow, Agreement),
+                comparison_case!(
+                    "unrelated scout row is ignored",
+                    ExtraReportRow,
+                    MatchesStored
+                ),
             ],
-            run_evaluation,
+            run_comparison,
         );
     }
 
-    /// One table covers every result's metric label and diagnostic level.
+    /// Only comparisons with a complete candidate expose an interface for automatic selection.
     #[test]
-    fn event_emits_every_result_with_candidate_context() {
-        /// Expected observable values for one bounded evaluation result.
+    fn candidate_interface_requires_complete_comparison() {
+        let interface_id = MachineInterfaceId::from(uuid::Uuid::from_u128(1));
+        value_scenarios!(run = |comparison: ScoutPciComparison| {
+            Comparison {
+                comparison,
+                subject: Some(ComparisonSubject {
+                    machine_interface_id: interface_id,
+                    mac_address: mac(1),
+                    pci_slot: Some("0000:02:00.0".to_string()),
+                }),
+                desired_mac_address: Some(mac(1)),
+                selection_source: Some(BootInterfaceSelectionSource::RedfishChassisId),
+                reason: "test reason",
+            }
+            .candidate_interface_id()
+        };
+            "complete" {
+                ScoutPciComparison::DiffersFromStored => Some(interface_id),
+            }
+            "not selectable" {
+                ScoutPciComparison::MissingData => None,
+                ScoutPciComparison::IdentifierCollision => None,
+            }
+        );
+    }
+
+    /// One table covers every comparison's metric label and log level.
+    #[test]
+    fn event_emits_every_comparison_with_candidate_context() {
+        /// Expected observable values for one bounded comparison.
         struct EventCase {
-            result: EvaluationResult,
+            comparison: ScoutPciComparison,
             label: &'static str,
             level: tracing::Level,
         }
 
         let cases = [
             EventCase {
-                result: EvaluationResult::Agreement,
-                label: "agreement",
+                comparison: ScoutPciComparison::MatchesStored,
+                label: "matches_stored",
                 level: tracing::Level::DEBUG,
             },
             EventCase {
-                result: EvaluationResult::Disagreement,
-                label: "disagreement",
+                comparison: ScoutPciComparison::DiffersFromStored,
+                label: "differs_from_stored",
                 level: tracing::Level::WARN,
             },
             EventCase {
-                result: EvaluationResult::Incomplete,
-                label: "incomplete",
+                comparison: ScoutPciComparison::MissingData,
+                label: "missing_data",
                 level: tracing::Level::WARN,
             },
             EventCase {
-                result: EvaluationResult::Ambiguous,
-                label: "ambiguous",
+                comparison: ScoutPciComparison::IdentifierCollision,
+                label: "identifier_collision",
                 level: tracing::Level::WARN,
             },
         ];
@@ -718,14 +770,15 @@ mod tests {
         let machine_id = host_machine_id();
         let logs = capture_logs(|| {
             for case in &cases {
-                Evaluation {
-                    result: case.result,
-                    subject: Some(EvaluationSubject {
+                Comparison {
+                    comparison: case.comparison,
+                    subject: Some(ComparisonSubject {
+                        machine_interface_id: MachineInterfaceId::from(uuid::Uuid::from_u128(1)),
                         mac_address: mac(1),
                         pci_slot: Some("0000:02:00.0".to_string()),
                     }),
                     desired_mac_address: Some(mac(1)),
-                    selection_source: Some(BootInterfaceSelectionSource::RedfishUefiPci),
+                    selection_source: Some(BootInterfaceSelectionSource::RedfishChassisId),
                     reason: "test reason",
                 }
                 .emit(&machine_id);
@@ -739,7 +792,7 @@ mod tests {
                     "carbide_scout_pci_evaluations_total",
                     &[("result", case.label)],
                 ) >= 1.0,
-                "missing result series {}",
+                "missing comparison series {}",
                 case.label,
             );
             assert_eq!(
@@ -747,6 +800,7 @@ mod tests {
                 "wrong log level for {}",
                 case.label,
             );
+            assert_eq!(logs[index].field("result"), Some(case.label));
         }
 
         let machine_id = machine_id.to_string();

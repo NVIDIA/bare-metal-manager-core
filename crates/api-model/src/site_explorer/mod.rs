@@ -29,8 +29,8 @@ use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use itertools::Itertools;
-use lazy_static::lazy_static;
 use mac_address::MacAddress;
+#[cfg(test)]
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -44,6 +44,7 @@ use crate::machine::machine_id::{MissingHardwareInfo, from_hardware_info_with_ty
 use crate::machine_boot_interface::{
     BootInterfaceSelectionSource, MachineBootInterface, MachineBootInterfaceTarget,
 };
+use crate::pci::{UefiPciOrderingKey, UefiPciOrderingKeyParseError, normalize_uefi_device_path};
 use crate::power_shelf::power_shelf_id;
 use crate::switch::switch_id;
 
@@ -383,36 +384,16 @@ impl EndpointExplorationReport {
             })
             .collect::<Vec<&EthernetInterface>>();
 
-        // If any of the interface does not contain pci path, return None.
-        if interfaces.iter().any(|x| x.uefi_device_path.is_none()) {
-            return None;
-        }
-
-        let Some(first) = interfaces.first() else {
-            // PCI path is missing from all interfaces, can't sort based on pci path.
-            return None;
-        };
-
-        let interface_with_min_pci = interfaces.iter().fold(first, |acc, x| {
-            // It can never be none as verified above.
-            if let (Some(pci_path), Some(existing_path)) =
-                (&x.uefi_device_path, &acc.uefi_device_path)
-            {
-                let path = &pci_path.0;
-                let existing_path = &existing_path.0;
-
-                if let Ok(res) =
-                    version_compare::compare_to(path, existing_path, version_compare::Cmp::Lt)
-                    && res
-                {
-                    return x;
-                }
-
-                return acc;
-            }
-
-            acc
-        });
+        let interfaces = interfaces
+            .into_iter()
+            .map(|interface| {
+                let ordering_key = interface.uefi_device_path.as_ref()?.ordering_key().ok()?;
+                Some((interface, ordering_key))
+            })
+            .collect::<Option<Vec<_>>>()?;
+        let (interface_with_min_pci, _) = interfaces
+            .into_iter()
+            .min_by(|(_, left), (_, right)| left.cmp(right))?;
 
         // If we know the bootable interface name, find the MAC address associated with it.
         interface_with_min_pci
@@ -1575,58 +1556,19 @@ pub struct EthernetInterface {
 #[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize, Clone)]
 pub struct UefiDevicePath(String);
 
-lazy_static! {
-    // Not anchored at start: GB300/Grace UEFI device paths prefix the PciRoot
-    // node with vendor/MMIO nodes, e.g.
-    // VenHw(<guid>)/MemoryMapped(0xB,...)/PciRoot(0x16)/Pci(0x0,0x0)/Pci(0x0,0x0)
-    // An `^PciRoot` anchor never matches those and aborts the whole exploration
-    // (`Could not match regex in PCI Device Path`). Match PciRoot wherever it appears.
-    static ref PCI_ROOT_REGEX: Regex =
-        Regex::new(r"PciRoot\(([^)]*)\)").expect("must always compile");
-    static ref PCI_NODE_REGEX: Regex = Regex::new(r"/Pci\(([^)]*)\)").expect("must always compile");
+impl UefiDevicePath {
+    fn ordering_key(&self) -> Result<UefiPciOrderingKey, UefiPciOrderingKeyParseError> {
+        UefiPciOrderingKey::from_normalized_uefi_path(&self.0)
+    }
 }
 
 impl FromStr for UefiDevicePath {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // UEFI 2.10 §10.3.4: PciRoot followed by one or more Pci nodes,
-        // e.g. PciRoot(0x8)/Pci(0x2,0xa)/Pci(0x0,0x0) (NIC behind a bridge) or
-        //      PciRoot(0x7)/Pci(0x0,0x0)            (NIC on a root port).
-        // Trailing /MAC(...) is optional and discarded.
-
-        let st = s.rsplit_once("/MAC").map(|x| x.0).unwrap_or(s);
-
-        let mut pci = vec![];
-        let mut push_group = |group: &str| -> Result<(), String> {
-            for hex in group.split(',') {
-                let hex_int = u32::from_str_radix(&hex.to_lowercase().replace("0x", ""), 16)
-                    .map_err(|e| {
-                        format!("Can't convert pci address to int {hex}, error: {e} for pci: {s}")
-                    })?;
-                pci.push(hex_int.to_string());
-            }
-            Ok(())
-        };
-
-        let root = PCI_ROOT_REGEX
-            .captures(st)
-            .and_then(|c| c.get(1))
-            .ok_or_else(|| format!("Could not match regex in PCI Device Path {s}."))?;
-        push_group(root.as_str())?;
-
-        let mut had_pci = false;
-        for cap in PCI_NODE_REGEX.captures_iter(st) {
-            if let Some(g) = cap.get(1) {
-                had_pci = true;
-                push_group(g.as_str())?;
-            }
-        }
-        if !had_pci {
-            return Err(format!("Could not match regex in PCI Device Path {s}."));
-        }
-
-        Ok(UefiDevicePath(pci.join(".")))
+        normalize_uefi_device_path(s)
+            .map(UefiDevicePath)
+            .map_err(|error| format!("could not parse PCI device path {s}: {error}"))
     }
 }
 
@@ -3703,7 +3645,7 @@ mod tests {
             [
                 Case {
                     scenario: "two Pci nodes",
-                    input: "PciRoot(0x2)/Pci(0x1,0x0)/Pci(0x0,0x1)",
+                    input: "PciRoot(0X2)/Pci(0x1,0X0)/Pci(0X0,0x1)",
                     expect: Yields("2.1.0.0.1".to_string()),
                 },
                 Case {
@@ -3724,9 +3666,19 @@ mod tests {
                     expect: Yields("0.1.0.0.0.0.0".to_string()),
                 },
                 Case {
+                    scenario: "vendor and memory-mapped prefix",
+                    input: "VenHw(1E5A432C-0466-4D31-B009-D4D9239271D3)/MemoryMapped(0xB,0x14140000,0x14141FFF)/PciRoot(0x16)/Pci(0x0,0x0)/Pci(0x0,0x0)",
+                    expect: Yields("22.0.0.0.0".to_string()),
+                },
+                Case {
                     // PciRoot without any Pci node should fail.
                     scenario: "PciRoot without any Pci node",
                     input: "PciRoot(0x7)/MAC(525400A8282F,0x1)",
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "embedded hexadecimal prefix",
+                    input: "PciRoot(0x10x2)/Pci(0x0,0x0)",
                     expect: Fails,
                 },
             ],
@@ -3734,6 +3686,25 @@ mod tests {
             // errors, so discard it; yield the dotted address on success.
             |path| UefiDevicePath::from_str(path).map(|u| u.0).map_err(drop),
         );
+
+        let malformed = "PciRoot(0x7)/Pci(not-hex,0x0)";
+        assert!(
+            UefiDevicePath::from_str(malformed)
+                .unwrap_err()
+                .contains(malformed)
+        );
+    }
+
+    #[test]
+    fn uefi_device_path_json_remains_a_normalized_string() {
+        let path = UefiDevicePath::from_str(
+            "PciRoot(0x11)/Pci(0x1,0x0)/Pci(0x0,0xa)/MAC(A088C20C87C6,0x1)",
+        )
+        .unwrap();
+
+        let json = serde_json::to_string(&path).unwrap();
+        assert_eq!(json, r#""17.1.0.0.10""#);
+        assert_eq!(serde_json::from_str::<UefiDevicePath>(&json).unwrap(), path);
     }
 
     #[test]

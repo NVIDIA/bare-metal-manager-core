@@ -348,6 +348,24 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub allow_insecure_discovery: bool,
 
+    /// Controls whether NICo may reconcile a boot interface selection recorded as
+    /// `RedfishChassisId` or `RedfishSerialNumber` after ordering DPU-attached Admin interfaces
+    /// by the `domain:bus:device.function` PCI addresses in scout's `HardwareInfo`.
+    ///
+    /// The setting is read at startup and defaults to `false`. NICo records available comparisons
+    /// in structured logs and `carbide_scout_pci_evaluations_total` regardless of this setting.
+    /// When `false`, it does not change the selection. When `true`, reconciliation requires at
+    /// least two eligible interfaces, a complete and unique candidate, `ManagedHostState::Ready`
+    /// or `ManagedHostState::HostInit` with `MachineState::Discovered`, no `Instance` or primary
+    /// interface prediction, and no conflicting or integrated-NIC primary.
+    ///
+    /// If the selected MAC is already desired and primary, NICo changes only the source to
+    /// `ScoutReportPci`. Otherwise it updates the desired target and primary together and enqueues
+    /// the state handler. A `Ready` host enters `BootConfiguring`; `HostInit` completes its reboot
+    /// handshake first.
+    #[serde(default)]
+    pub scout_boot_interface_correction_enabled: bool,
+
     /// Infiniband fabrics managed by the site
     /// Note: At the moment, only a single fabric is supported
     #[serde(default)]
@@ -5568,6 +5586,7 @@ mod tests {
         );
         assert!(config.dhcp_servers.is_empty());
         assert!(!config.allow_insecure_discovery);
+        assert!(!config.scout_boot_interface_correction_enabled);
         assert!(config.route_servers.is_empty());
         assert!(config.tls.is_none());
         assert!(config.auth.is_none());
@@ -5814,6 +5833,7 @@ mod tests {
         figment::Jail::expect_with(|jail| {
             jail.set_env("CARBIDE_API_DATABASE_URL", "postgres://othersql");
             jail.set_env("CARBIDE_API_ASN", 777);
+            jail.set_env("CARBIDE_API_SCOUT_BOOT_INTERFACE_CORRECTION_ENABLED", true);
             jail.set_env("CARBIDE_API_AUTH", "{permissive_mode=true}");
             jail.set_env(
                 "CARBIDE_API_DSX_EXCHANGE_EVENT_BUS",
@@ -5833,6 +5853,7 @@ mod tests {
             assert_eq!(config.metrics_endpoint, Some("[::]:1080".parse().unwrap()));
             assert_eq!(config.database_url, "postgres://othersql".to_string());
             assert_eq!(config.asn, 777);
+            assert!(config.scout_boot_interface_correction_enabled);
             assert_eq!(
                 config.dhcp_servers,
                 vec![Ipv4Addr::new(1, 2, 3, 4), Ipv4Addr::new(5, 6, 7, 8)]
