@@ -113,7 +113,7 @@ impl LldpReporter {
     async fn report_snapshot<F, Fut>(
         last_sent: &mut Option<Vec<InterfaceLldp>>,
         machine_id: MachineId,
-        interfaces: Vec<InterfaceLldp>,
+        mut interfaces: Vec<InterfaceLldp>,
         report_timeout: Duration,
         send: F,
     ) -> Result<ReportOutcome, LldpReportError>
@@ -124,6 +124,12 @@ impl LldpReporter {
         if interfaces.is_empty() {
             return Ok(ReportOutcome::EmptySkipped);
         }
+
+        // `lldpcli` imposes no order on its output, and one local interface can
+        // see several neighbors, each contributing an entry with the same MAC.
+        // Sort by the full link identity before the cache comparison to
+        // avoid an RPC when only the order changed.
+        interfaces.sort_by(|left, right| link_identity(left).cmp(&link_identity(right)));
 
         if last_sent.as_deref() == Some(interfaces.as_slice()) {
             return Ok(ReportOutcome::UnchangedSkipped);
@@ -140,6 +146,22 @@ impl LldpReporter {
         *last_sent = Some(interfaces);
         Ok(ReportOutcome::Sent)
     }
+}
+
+/// A local interface can see several neighbors, so
+/// the identity has to name both endpoints of the link.
+fn link_identity(interface: &InterfaceLldp) -> (&str, &str, &str, &str, &str, &str) {
+    let Some(switch) = interface.lldp.as_ref() else {
+        return (&interface.mac_address, "", "", "", "", "");
+    };
+    (
+        &interface.mac_address,
+        &switch.local_port,
+        &switch.id_type,
+        &switch.id_value,
+        &switch.remote_port_type,
+        &switch.remote_port_value,
+    )
 }
 
 async fn send_report(
@@ -174,6 +196,8 @@ mod tests {
             mac_address: mac.to_string(),
             lldp: Some(LldpSwitchData {
                 local_port: port.to_string(),
+                remote_port_type: "ifname".to_string(),
+                remote_port_value: port.to_string(),
                 ..Default::default()
             }),
         }
@@ -253,10 +277,12 @@ mod tests {
             "identical snapshot must not trigger another RPC"
         );
 
-        // Changed snapshot: differs -> Sent, one more RPC.
+        // Changed snapshot: differs -> Sent, one more RPC. `changed` doubles as
+        // the expected wire contents in the assertion below, so it has to stay
+        // in `link_identity` order -- `report_snapshot` sends a sorted snapshot.
         let changed = vec![
-            iface_lldp("aa:bb:cc:dd:ee:ff", "p0"),
             iface_lldp("aa:bb:cc:dd:ee:aa", "p1"),
+            iface_lldp("aa:bb:cc:dd:ee:ff", "p0"),
         ];
         let outcome = LldpReporter::report_snapshot(
             &mut last_sent,
@@ -273,6 +299,81 @@ mod tests {
         let received = grpc.received.borrow();
         assert_eq!(received[0].interfaces, snap);
         assert_eq!(received[1].interfaces, changed);
+    }
+
+    // Collector order carries no meaning, so a snapshot whose interfaces merely
+    // arrive in a different order is the same snapshot and must not be resent.
+    #[tokio::test]
+    async fn reordered_snapshot_is_not_resent() {
+        let mut last_sent = None;
+        let grpc = MockGrpc::default();
+
+        // Two neighbors on one local interface plus one on another, in
+        // canonical order. The first pair shares a MAC *and* a `local_port` --
+        // the shape `lldp_collector` produces for several neighbors on one port
+        // -- so only the remote port orders them; neither endpoint alone would.
+        let snap = vec![
+            InterfaceLldp {
+                mac_address: "aa:bb:cc:dd:ee:aa".to_string(),
+                lldp: Some(LldpSwitchData {
+                    local_port: "swp1".to_string(),
+                    remote_port_type: "ifname".to_string(),
+                    remote_port_value: "port-00".to_string(),
+                    ..Default::default()
+                }),
+            },
+            InterfaceLldp {
+                mac_address: "aa:bb:cc:dd:ee:aa".to_string(),
+                lldp: Some(LldpSwitchData {
+                    local_port: "swp1".to_string(),
+                    remote_port_type: "ifname".to_string(),
+                    remote_port_value: "port-01".to_string(),
+                    ..Default::default()
+                }),
+            },
+            InterfaceLldp {
+                mac_address: "aa:bb:cc:dd:ee:ff".to_string(),
+                lldp: Some(LldpSwitchData {
+                    local_port: "swp3".to_string(),
+                    remote_port_type: "ifname".to_string(),
+                    remote_port_value: "swp3".to_string(),
+                    ..Default::default()
+                }),
+            },
+        ];
+        let reversed: Vec<_> = snap.iter().rev().cloned().collect();
+
+        let outcome = LldpReporter::report_snapshot(
+            &mut last_sent,
+            machine_id(),
+            reversed,
+            TEST_REPORT_TIMEOUT,
+            grpc.sender(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(outcome, ReportOutcome::Sent);
+        assert_eq!(
+            grpc.received.borrow()[0].interfaces,
+            snap,
+            "the sent report should be in canonical link-identity order"
+        );
+
+        let outcome = LldpReporter::report_snapshot(
+            &mut last_sent,
+            machine_id(),
+            snap.clone(),
+            TEST_REPORT_TIMEOUT,
+            grpc.sender(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(outcome, ReportOutcome::UnchangedSkipped);
+        assert_eq!(
+            grpc.call_count(),
+            1,
+            "a reordered snapshot must not trigger another RPC"
+        );
     }
 
     // An empty snapshot is never sent and doesn't change the cache.
