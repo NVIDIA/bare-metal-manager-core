@@ -2,6 +2,11 @@
 -- replicas that share a SPIFFE id each hold their own session. A session's
 -- @odata.id is unique on its BMC, which makes it the natural key.
 
+-- Block concurrent writers for the rest of this transaction (reads still
+-- pass): a running API instance could otherwise re-create a duplicate
+-- between the dedup below and the new primary key, failing the migration.
+LOCK TABLE bmc_redfish_sessions IN SHARE ROW EXCLUSIVE MODE;
+
 -- A BMC that reuses a session id (e.g. slot-based ids after a reboot) can
 -- leave two identities' stale rows naming the same (mac, @odata.id). At most
 -- one of them can describe a live session, so keep the newest row.

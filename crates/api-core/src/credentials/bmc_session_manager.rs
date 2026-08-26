@@ -342,6 +342,9 @@ pub(crate) trait BmcSessionStore: Send + Sync {
         bmc_mac: MacAddress,
     ) -> Result<Vec<StoredSession>, BmcSessionError>;
 
+    /// Records a newly created session as one more row for its owner.
+    /// A row already naming this `(bmc_mac, session_odata_id)` describes a
+    /// session the BMC has since replaced, so the insert takes it over.
     async fn insert(
         &self,
         spiffe_service_id: &str,
@@ -349,15 +352,16 @@ pub(crate) trait BmcSessionStore: Send + Sync {
         session_odata_id: &str,
     ) -> Result<(), BmcSessionError>;
 
-    /// Deletes one session row, scoped to its owner so a delete racing an
-    /// [`BmcSessionStore::insert`] takeover of a reused `@odata.id` cannot
-    /// remove the new owner's row.
+    /// Deletes one session row, scoped to its owner, returning whether a row
+    /// was removed. `false` means an [`BmcSessionStore::insert`] takeover of
+    /// a reused `@odata.id` got there first: the row -- and the session it
+    /// now describes -- belong to another identity.
     async fn delete_session(
         &self,
         spiffe_service_id: &str,
         bmc_mac: MacAddress,
         session_odata_id: &str,
-    ) -> Result<(), BmcSessionError>;
+    ) -> Result<bool, BmcSessionError>;
 
     async fn delete_by_mac(&self, bmc_mac: MacAddress) -> Result<(), BmcSessionError>;
 }
@@ -411,7 +415,7 @@ impl BmcSessionStore for PgBmcSessionStore {
         spiffe_service_id: &str,
         bmc_mac: MacAddress,
         session_odata_id: &str,
-    ) -> Result<(), BmcSessionError> {
+    ) -> Result<bool, BmcSessionError> {
         let mut conn = self
             .pool
             .acquire()
@@ -591,6 +595,15 @@ impl BmcSessionManager {
     ///
     /// Runs outside the per-MAC lock; concurrent passes at worst revoke the
     /// same already-dead session, which the missing-member check tolerates.
+    ///
+    /// Claiming a row before its remote `DELETE` leaves one residual window
+    /// (a single request round-trip wide): a concurrent mint can be handed
+    /// the same reused `@odata.id` between the two, and the `DELETE` then
+    /// hits that fresh session. All that costs is one 401 on a token whose
+    /// caller refetches and re-mints -- the recovery every caller already
+    /// implements. Closing the window would take either a cross-instance
+    /// per-MAC lock held across BMC I/O, or `If-Match` preconditions on
+    /// nv-redfish's session delete; neither is worth it for that failure.
     async fn revoke_sessions_beyond_cap(
         &self,
         spiffe_service_id: &str,
@@ -612,12 +625,7 @@ impl BmcSessionManager {
             }
         };
 
-        let mut excess = sessions_beyond_cap(outstanding, self.max_sessions_per_caller);
-        // Concurrent replicas can mint within the same server-side `now()`,
-        // and an issued_at tie is broken lexically -- which can place the row
-        // just minted among the "oldest". Whatever the ordering says, the
-        // session whose token is about to be handed out must survive.
-        excess.retain(|row| ODataId::from(row.session_odata_id.clone()) != *just_minted);
+        let excess = sessions_beyond_cap(outstanding, self.max_sessions_per_caller, just_minted);
         if excess.is_empty() {
             return;
         }
@@ -638,6 +646,35 @@ impl BmcSessionManager {
 
         for row in excess {
             let session_id = ODataId::from(row.session_odata_id);
+
+            // Claim the row before touching the BMC. If the delete removed
+            // nothing, a concurrent mint took the row over after the BMC
+            // reused this @odata.id -- the session behind it is the new
+            // owner's live one and must not be revoked. (The old session is
+            // dead regardless: the BMC only reuses an id it has released.)
+            match self
+                .store
+                .delete_session(spiffe_service_id, bmc_mac, &session_id.to_string())
+                .await
+            {
+                Ok(true) => {}
+                Ok(false) => continue,
+                Err(err) => {
+                    carbide_instrument::emit(BmcSessionCleanupFailed {
+                        operation: BmcSessionCleanupOperation::DeleteSessionRows,
+                        bmc_mac_address: bmc_mac,
+                        spiffe_service_id: Some(spiffe_service_id.to_owned()),
+                        session: Some(session_id),
+                        error: err.to_string(),
+                    });
+                    continue;
+                }
+            }
+
+            // A missing member means the BMC already expired the session. A
+            // failed delete leaks it until the BMC idle timeout -- the row is
+            // already claimed, and re-inserting it could stomp a takeover, so
+            // best effort ends here.
             if let Some(session) = members.iter().find(|m| m.raw().odata_id() == &session_id)
                 && let Err(err) = session.delete().await
             {
@@ -647,24 +684,6 @@ impl BmcSessionManager {
                     spiffe_service_id: Some(spiffe_service_id.to_owned()),
                     session: Some(session_id),
                     error: format!("{err:?}"),
-                });
-                // Keep the row: with the session possibly still live on the
-                // BMC, the @odata.id is the only revocation handle.
-                continue;
-            }
-            // Revoked -- or already expired off the BMC. Either way the row
-            // no longer describes a live session.
-            if let Err(err) = self
-                .store
-                .delete_session(spiffe_service_id, bmc_mac, &session_id.to_string())
-                .await
-            {
-                carbide_instrument::emit(BmcSessionCleanupFailed {
-                    operation: BmcSessionCleanupOperation::DeleteSessionRows,
-                    bmc_mac_address: bmc_mac,
-                    spiffe_service_id: Some(spiffe_service_id.to_owned()),
-                    session: Some(session_id),
-                    error: err.to_string(),
                 });
             }
         }
@@ -853,10 +872,26 @@ impl BmcSessionManager {
 
 /// The sessions a caller must give up to fit under `cap`: the oldest ones,
 /// keeping the newest `cap`. `outstanding` is expected oldest-first, as
-/// [`BmcSessionStore::find_by_owner`] returns it.
-fn sessions_beyond_cap(outstanding: Vec<StoredSession>, cap: usize) -> Vec<StoredSession> {
+/// [`BmcSessionStore::find_by_owner`] returns it, and to contain the row for
+/// `just_minted`.
+///
+/// `just_minted` is excluded *before* the excess is selected: concurrent
+/// replicas can mint within the same server-side `now()`, and an `issued_at`
+/// tie is broken lexically, which can sort the just-minted row among the
+/// "oldest". The session whose token is about to be handed out must survive,
+/// and skipping it may not shrink the revocation count -- otherwise a tie
+/// would leave the caller one over the cap.
+fn sessions_beyond_cap(
+    outstanding: Vec<StoredSession>,
+    cap: usize,
+    just_minted: &ODataId,
+) -> Vec<StoredSession> {
     let excess = outstanding.len().saturating_sub(cap);
-    outstanding.into_iter().take(excess).collect()
+    outstanding
+        .into_iter()
+        .filter(|row| ODataId::from(row.session_odata_id.clone()) != *just_minted)
+        .take(excess)
+        .collect()
 }
 
 fn classify_unauthorized(err: &NvError<RedfishBmc>) -> Option<u16> {
@@ -964,13 +999,15 @@ mod tests {
             spiffe_service_id: &str,
             bmc_mac: MacAddress,
             session_odata_id: &str,
-        ) -> Result<(), BmcSessionError> {
-            self.rows.lock().await.retain(|row| {
+        ) -> Result<bool, BmcSessionError> {
+            let mut rows = self.rows.lock().await;
+            let before = rows.len();
+            rows.retain(|row| {
                 row.spiffe_service_id != spiffe_service_id
                     || row.bmc_mac_address != bmc_mac
                     || row.session_odata_id != session_odata_id
             });
-            Ok(())
+            Ok(rows.len() < before)
         }
 
         async fn delete_by_mac(&self, bmc_mac: MacAddress) -> Result<(), BmcSessionError> {
@@ -1008,8 +1045,8 @@ mod tests {
             _spiffe_service_id: &str,
             _bmc_mac: MacAddress,
             _session_odata_id: &str,
-        ) -> Result<(), BmcSessionError> {
-            Ok(())
+        ) -> Result<bool, BmcSessionError> {
+            Ok(true)
         }
 
         async fn delete_by_mac(&self, _bmc_mac: MacAddress) -> Result<(), BmcSessionError> {
@@ -1063,8 +1100,11 @@ mod tests {
         }
     }
 
-    fn observe_sessions_beyond_cap((rows, cap): (u8, usize)) -> Vec<String> {
-        super::sessions_beyond_cap((0..rows).map(cap_row).collect(), cap)
+    /// Runs the selection over rows `/sessions/0..rows` with the row at
+    /// index `minted` playing the just-minted session.
+    fn observe_sessions_beyond_cap((rows, cap, minted): (u8, usize, u8)) -> Vec<String> {
+        let just_minted = nv_redfish::core::ODataId::from(format!("/sessions/{minted}"));
+        super::sessions_beyond_cap((0..rows).map(cap_row).collect(), cap, &just_minted)
             .into_iter()
             .map(|row| row.session_odata_id)
             .collect()
@@ -1072,31 +1112,36 @@ mod tests {
 
     #[test]
     fn sessions_beyond_cap_keeps_the_newest_cap_sessions() {
+        // The just-minted row is the newest (last index) except where the
+        // scenario says otherwise.
         check_values(
             [
                 Check {
-                    scenario: "no sessions",
-                    input: (0, 4),
-                    expect: vec![],
-                },
-                Check {
                     scenario: "under cap",
-                    input: (3, 4),
+                    input: (3, 4, 2),
                     expect: vec![],
                 },
                 Check {
                     scenario: "exactly at cap",
-                    input: (4, 4),
+                    input: (4, 4, 3),
                     expect: vec![],
                 },
                 Check {
                     scenario: "one over revokes the oldest",
-                    input: (5, 4),
+                    input: (5, 4, 4),
                     expect: vec!["/sessions/0".to_string()],
+                },
+                // Regression: an issued_at tie can sort the just-minted row
+                // among the "oldest". It must survive, and the caller must
+                // still land on the cap -- the next-oldest goes instead.
+                Check {
+                    scenario: "minted row sorted oldest survives, next-oldest goes",
+                    input: (5, 4, 0),
+                    expect: vec!["/sessions/1".to_string()],
                 },
                 Check {
                     scenario: "many over revoke oldest first",
-                    input: (7, 4),
+                    input: (7, 4, 6),
                     expect: vec![
                         "/sessions/0".to_string(),
                         "/sessions/1".to_string(),
@@ -1105,11 +1150,11 @@ mod tests {
                 },
                 // The constructor clamps the configured cap to >= 1, so 0 is
                 // unreachable in production; the function itself still
-                // behaves sanely.
+                // behaves sanely: everything but the minted row goes.
                 Check {
-                    scenario: "cap of zero revokes everything",
-                    input: (2, 0),
-                    expect: vec!["/sessions/0".to_string(), "/sessions/1".to_string()],
+                    scenario: "cap of zero revokes everything else",
+                    input: (2, 0, 1),
+                    expect: vec!["/sessions/0".to_string()],
                 },
             ],
             observe_sessions_beyond_cap,

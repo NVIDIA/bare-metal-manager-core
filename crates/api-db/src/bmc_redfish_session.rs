@@ -83,17 +83,18 @@ pub async fn insert(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
-/// Deletes one session row, scoped to its owner. No-op if the row does not
-/// exist -- including when [`insert`] has transferred the row to another
-/// identity in the meantime (a reused `@odata.id`): the new owner's row is
-/// the only revocation handle for its live session and must survive a stale
-/// delete racing the takeover.
+/// Deletes one session row, scoped to its owner, and reports whether a row
+/// was actually removed. `false` means the row no longer belonged to this
+/// owner -- typically because [`insert`] transferred it to another identity
+/// after the BMC reused the `@odata.id`. The caller must then leave the
+/// session on the BMC alone: it is the new owner's live session, and this
+/// row was the only handle that could have revoked it.
 pub async fn delete_session(
     txn: &mut PgConnection,
     spiffe_service_id: &str,
     bmc_mac: MacAddress,
     session_odata_id: &str,
-) -> DatabaseResult<()> {
+) -> DatabaseResult<bool> {
     let query = "DELETE FROM bmc_redfish_sessions
                        WHERE spiffe_service_id = $1
                          AND bmc_mac_address = $2
@@ -105,7 +106,7 @@ pub async fn delete_session(
         .bind(session_odata_id)
         .execute(txn)
         .await
-        .map(|_| ())
+        .map(|result| result.rows_affected() > 0)
         .map_err(|e| DatabaseError::query(query, e))
 }
 
