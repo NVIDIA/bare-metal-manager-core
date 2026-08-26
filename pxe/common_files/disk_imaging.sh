@@ -470,33 +470,30 @@ function create_efi_boot_entry() {
 		fi
 
 		# Match shim's lookup order: use BOOT.CSV only when the
-		# architecture-specific file is absent or cannot be decoded.
-		candidate_csv=$(find "$candidate_dir" -maxdepth 1 -type f -iname "$boot_csv_name" -print -quit 2>/dev/null)
-		if [ ! -z "$candidate_csv" ]; then
-			candidate_csv_contents=$(iconv -f UTF-16 -t UTF-8 "$candidate_csv" 2>/dev/null)
-			[ $? -ne 0 ] && candidate_csv=
-		fi
-		if [ -z "$candidate_csv" ]; then
-			candidate_csv=$(find "$candidate_dir" -maxdepth 1 -type f -iname "BOOT.CSV" -print -quit 2>/dev/null)
-			[ -z "$candidate_csv" ] && continue
-			candidate_csv_contents=$(iconv -f UTF-16 -t UTF-8 "$candidate_csv" 2>/dev/null)
-			[ $? -ne 0 ] && continue
-		fi
-
-		# A boot hint can contain more than one loader record.
+		# architecture-specific file is absent, cannot be decoded, or has no
+		# matching loader record with a non-empty label.
 		candidate_shim_name=$(basename "$candidate_shim")
 		candidate_csv_matches=
 		candidate_csv_label=
-		while IFS= read -r candidate_csv_line || [ ! -z "$candidate_csv_line" ]; do
-			candidate_csv_line=${candidate_csv_line%$'\r'}
-			[ -z "$candidate_csv_line" ] && continue
-			IFS=',' read -r candidate_loader candidate_label _ <<< "$candidate_csv_line"
-			if [ ! -z "$candidate_label" ] && [ "${candidate_loader,,}" == "${candidate_shim_name,,}" ]; then
-				candidate_csv_matches=true
-				candidate_csv_label="$candidate_label"
-				break
-			fi
-		done <<< "$candidate_csv_contents"
+		for candidate_csv_name in "$boot_csv_name" "BOOT.CSV"; do
+			candidate_csv=$(find "$candidate_dir" -maxdepth 1 -type f -iname "$candidate_csv_name" -print -quit 2>/dev/null)
+			[ -z "$candidate_csv" ] && continue
+			candidate_csv_contents=$(iconv -f UTF-16 -t UTF-8 "$candidate_csv" 2>/dev/null)
+			[ $? -ne 0 ] && continue
+
+			# A boot hint can contain more than one loader record.
+			while IFS= read -r candidate_csv_line || [ ! -z "$candidate_csv_line" ]; do
+				candidate_csv_line=${candidate_csv_line%$'\r'}
+				[ -z "$candidate_csv_line" ] && continue
+				IFS=',' read -r candidate_loader candidate_label _ <<< "$candidate_csv_line"
+				if [ ! -z "$candidate_label" ] && [ "${candidate_loader,,}" == "${candidate_shim_name,,}" ]; then
+					candidate_csv_matches=true
+					candidate_csv_label="$candidate_label"
+					break
+				fi
+			done <<< "$candidate_csv_contents"
+			[ "$candidate_csv_matches" == true ] && break
+		done
 		[ "$candidate_csv_matches" != true ] && continue
 
 		if [ "$candidate_is_distro" == true ]; then
