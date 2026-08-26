@@ -5733,6 +5733,7 @@ message CloudInitMetaData {
   string instance_id = 1;
   string cloud_name = 2;
   string platform = 3;
+  optional string local_hostname = 4;
 }
 
 message CloudInitInstructionsRequest {
