@@ -9541,9 +9541,6 @@ message AdminForceDeleteSwitchRequest {
   // Should we delete BMC suppressions (DHCP and Site Explorer) for the switch
   // BMC MAC and declared NVOS MACs?
   bool delete_bmc_suppressions = 3;
-  // Should we delete retained boot-interface mappings for the switch BMC MAC
-  // and declared NVOS MACs?
-  bool delete_retained_boot_interfaces = 4;
 }
 
 message AdminForceDeleteSwitchResponse {

@@ -59902,11 +59902,8 @@ type AdminForceDeleteSwitchRequest struct {
 	// Should we delete BMC suppressions (DHCP and Site Explorer) for the switch
 	// BMC MAC and declared NVOS MACs?
 	DeleteBmcSuppressions bool `protobuf:"varint,3,opt,name=delete_bmc_suppressions,json=deleteBmcSuppressions,proto3" json:"delete_bmc_suppressions,omitempty"`
-	// Should we delete retained boot-interface mappings for the switch BMC MAC
-	// and declared NVOS MACs?
-	DeleteRetainedBootInterfaces bool `protobuf:"varint,4,opt,name=delete_retained_boot_interfaces,json=deleteRetainedBootInterfaces,proto3" json:"delete_retained_boot_interfaces,omitempty"`
-	unknownFields                protoimpl.UnknownFields
-	sizeCache                    protoimpl.SizeCache
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *AdminForceDeleteSwitchRequest) Reset() {
@@ -59956,13 +59953,6 @@ func (x *AdminForceDeleteSwitchRequest) GetDeleteInterfaces() bool {
 func (x *AdminForceDeleteSwitchRequest) GetDeleteBmcSuppressions() bool {
 	if x != nil {
 		return x.DeleteBmcSuppressions
-	}
-	return false
-}
-
-func (x *AdminForceDeleteSwitchRequest) GetDeleteRetainedBootInterfaces() bool {
-	if x != nil {
-		return x.DeleteRetainedBootInterfaces
 	}
 	return false
 }
@@ -69521,12 +69511,11 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x10SpxPartitionList\x12:\n" +
 	"\x0espx_partitions\x18\x01 \x03(\v2\x13.forge.SpxPartitionR\rspxPartitions\"_\n" +
 	"\x19SpxPartitionsByIdsRequest\x12B\n" +
-	"\x11spx_partition_ids\x18\x01 \x03(\v2\x16.common.SpxPartitionIdR\x0fspxPartitionIds\"\xfa\x01\n" +
+	"\x11spx_partition_ids\x18\x01 \x03(\v2\x16.common.SpxPartitionIdR\x0fspxPartitionIds\"\xb3\x01\n" +
 	"\x1dAdminForceDeleteSwitchRequest\x12-\n" +
 	"\tswitch_id\x18\x01 \x01(\v2\x10.common.SwitchIdR\bswitchId\x12+\n" +
 	"\x11delete_interfaces\x18\x02 \x01(\bR\x10deleteInterfaces\x126\n" +
-	"\x17delete_bmc_suppressions\x18\x03 \x01(\bR\x15deleteBmcSuppressions\x12E\n" +
-	"\x1fdelete_retained_boot_interfaces\x18\x04 \x01(\bR\x1cdeleteRetainedBootInterfaces\"l\n" +
+	"\x17delete_bmc_suppressions\x18\x03 \x01(\bR\x15deleteBmcSuppressions\"l\n" +
 	"\x1eAdminForceDeleteSwitchResponse\x12\x1b\n" +
 	"\tswitch_id\x18\x01 \x01(\tR\bswitchId\x12-\n" +
 	"\x12interfaces_deleted\x18\x02 \x01(\rR\x11interfacesDeleted\"\x8c\x01\n" +
