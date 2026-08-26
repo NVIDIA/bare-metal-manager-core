@@ -41,8 +41,9 @@ type Config struct {
 	// ComponentManagerRegistry is the registry containing initialized component managers.
 	ComponentManagerRegistry *componentmanager.Registry
 
-	// DataCipher decrypts sensitive operation fields only inside the final
-	// activity that needs their plaintext value.
+	// DataCipher decrypts optional sensitive operation fields only inside the
+	// final activity that needs their plaintext value. A nil cipher leaves
+	// operations without authentication data available.
 	DataCipher *secret.Cipher
 }
 
@@ -67,10 +68,6 @@ func (c *Config) Validate() error {
 			WorkflowQueue,
 		)
 	}
-	if c.DataCipher == nil {
-		return errors.New("data encryption cipher is required")
-	}
-
 	return nil
 }
 

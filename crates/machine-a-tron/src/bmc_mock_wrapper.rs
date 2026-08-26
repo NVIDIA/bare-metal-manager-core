@@ -19,9 +19,8 @@ use std::sync::Arc;
 
 use axum::Router;
 use bmc_mock::injection::InjectionStore;
-use bmc_mock::ipmi_sim::{IpmiEndpoint, IpmiSimConfig, IpmiSimHandle};
+use bmc_mock::ipmi_sim::{IpmiSimConfig, IpmiSimHandle};
 use bmc_mock::{BmcState, Callbacks, CombinedServer, HostnameQuerying, MachineInfo};
-use carbide_ipmi::DEFAULT_IPMI_PORT;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -51,6 +50,7 @@ impl BmcMockWrapper {
         hostname: Arc<dyn HostnameQuerying>,
         host_id: Uuid,
         injection: Arc<InjectionStore>,
+        bmc_reset: Option<std::time::Duration>,
     ) -> Self {
         let (bmc_mock_router, bmc_mock_state) = bmc_mock::machine_router_with_injection_store(
             machine_info,
@@ -58,6 +58,10 @@ impl BmcMockWrapper {
             host_id.to_string(),
             true,
             injection,
+            bmc_mock::MachineRouterOptions {
+                bmc_reset_duration: bmc_reset,
+                ..Default::default()
+            },
         );
 
         BmcMockWrapper {
@@ -108,21 +112,10 @@ impl BmcMockWrapper {
     }
 
     async fn start_ipmi_sim(&self) -> Result<IpmiSimHandle, MachineStateError> {
-        // Determine the reachable port advertised through Redfish:
-        // - None (unset): Use default port
-        // - Some(0): Use dynamic port (same as listen port)
-        // - Some(n): Use the specified port
-        let reachable_port = match self.app_context.app_config.ipmi_reachable_port {
-            None => Some(DEFAULT_IPMI_PORT),
-            Some(0) => None,
-            Some(port) => Some(port),
-        };
-
         let console_prompt = format!("root@{} # ", self.hostname.get_hostname());
         bmc_mock::ipmi_sim::start(
             &self.bmc_mock_state,
             IpmiSimConfig {
-                reachable_port,
                 stable_id: self.stable_id.clone(),
                 console_prompt,
             },
@@ -153,8 +146,8 @@ pub(super) struct BmcMockWrapperHandle {
 }
 
 impl BmcMockWrapperHandle {
-    pub(super) fn ipmi_endpoint(&self) -> Option<IpmiEndpoint> {
-        self._ipmi_sim_handle.as_ref().map(|handle| handle.endpoint)
+    pub(super) fn ipmi_port(&self) -> Option<u16> {
+        self._ipmi_sim_handle.as_ref().map(|handle| handle.port)
     }
 
     pub(super) fn ssh_endpoint_port(&self) -> Option<u16> {

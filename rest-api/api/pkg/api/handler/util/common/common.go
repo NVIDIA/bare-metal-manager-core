@@ -135,13 +135,14 @@ func GetTenantForOrg(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, or
 	return &ts[0], nil
 }
 
-// GetIPBlockFromIDString gets the ip block from the ip block id string
-func GetIPBlockFromIDString(ctx context.Context, tx *cdb.Tx, idStr string, dbSession *cdb.Session) (*cdbm.IPBlock, error) {
+// GetIPBlockFromIDString gets the IPBlock matching both the ID and the caller's
+// visibility filter.
+func GetIPBlockFromIDString(ctx context.Context, tx *cdb.Tx, idStr string, filter cdbm.IPBlockFilterInput, dbSession *cdb.Session) (*cdbm.IPBlock, error) {
 	id, err := uuid.Parse(idStr)
 	if err != nil {
 		return nil, ErrInvalidID
 	}
-	return cdbm.NewIPBlockDAO(dbSession).GetByID(ctx, tx, id, nil)
+	return cdbm.NewIPBlockDAO(dbSession).GetOne(ctx, tx, id, filter, nil)
 }
 
 // GetInstanceTypeFromIDString gets the instance type from the instance type id string

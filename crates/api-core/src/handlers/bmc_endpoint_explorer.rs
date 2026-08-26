@@ -22,7 +22,7 @@ use ::rpc::model::machine::machine_id::try_parse_machine_id;
 use carbide_redfish::boot_interface::BootInterfaceTarget;
 use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::device::DeviceId;
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine::{HostMachineId, HostMachineIdSubtype, MachineId};
 use db::WithTransaction;
 use db::machine_interface::find_by_ip;
 use libredfish::RoleId;
@@ -210,11 +210,6 @@ fn resolve_admin_boot_interface_target(
     }
 }
 
-fn has_managed_boot_target(machine_id: &MachineId) -> bool {
-    let machine_type = machine_id.machine_type();
-    machine_type.is_host() || machine_type.is_predicted_host()
-}
-
 /// Parses the optional admin field after treating whitespace-only input as
 /// absent.
 fn parse_boot_interface_mac(value: Option<&str>) -> Result<Option<MacAddress>, CarbideError> {
@@ -234,12 +229,14 @@ async fn desired_boot_interface_target(
     txn: &mut PgConnection,
     machine_id: Option<MachineId>,
 ) -> Result<Option<MachineBootInterfaceTarget>, CarbideError> {
-    let Some(machine_id) = machine_id.filter(has_managed_boot_target) else {
+    let Some(Ok(host_machine_id)) = machine_id.map(HostMachineId::try_from) else {
         return Ok(None);
     };
-    Ok(db::machine_desired_boot_interface::lock(txn, &machine_id)
-        .await?
-        .map(|desired| desired.value))
+    Ok(
+        db::machine_desired_boot_interface::lock(txn, &host_machine_id)
+            .await?
+            .map(|desired| desired.value),
+    )
 }
 
 /// Returns whether a confirmed host can start reconciliation immediately.
@@ -249,24 +246,32 @@ async fn desired_boot_interface_target(
 /// attached.
 async fn boot_interface_reconciliation_eligible(
     txn: &mut PgConnection,
-    machine_id: Option<MachineId>,
+    machine_id: Option<HostMachineId>,
 ) -> Result<bool, CarbideError> {
-    let Some(machine_id) = machine_id.filter(|id| id.machine_type().is_host()) else {
+    let Some(HostMachineIdSubtype::Stable(machine_id)) =
+        machine_id.map(|id| id.host_machine_id_subtype())
+    else {
         return Ok(false);
     };
-    let machine = db::machine::find_one(&mut *txn, &machine_id, MachineSearchConfig::default())
-        .await?
-        .ok_or_else(|| CarbideError::NotFoundError {
-            kind: "machine",
-            id: machine_id.to_string(),
-        })?;
+    let machine = db::machine::find_one(
+        &mut *txn,
+        machine_id.as_machine_id(),
+        MachineSearchConfig::default(),
+    )
+    .await?
+    .ok_or_else(|| CarbideError::NotFoundError {
+        kind: "machine",
+        id: machine_id.to_string(),
+    })?;
     if !matches!(machine.current_state(), ManagedHostState::Ready) {
         return Ok(false);
     }
 
-    Ok(db::instance::find_id_by_machine_id(txn, &machine_id)
-        .await?
-        .is_none())
+    Ok(
+        db::instance::find_id_by_machine_id(txn, machine_id.as_machine_id())
+            .await?
+            .is_none(),
+    )
 }
 
 /// Resolves a required declarative target when the endpoint's actual owner is
@@ -280,8 +285,8 @@ fn managed_boot_interface_target(
     desired: Option<&MachineBootInterfaceTarget>,
     candidates: Option<&BootInterfaceCandidates>,
     entered_mac: Option<MacAddress>,
-) -> Result<Option<(MachineId, BootInterfaceTarget)>, CarbideError> {
-    let Some(machine_id) = machine_id.filter(has_managed_boot_target) else {
+) -> Result<Option<(HostMachineId, BootInterfaceTarget)>, CarbideError> {
+    let Some(Ok(host_machine_id)) = machine_id.map(HostMachineId::try_from) else {
         return Ok(None);
     };
     let target = resolve_admin_boot_interface_target(None, desired, candidates, entered_mac)
@@ -290,7 +295,7 @@ fn managed_boot_interface_target(
                 "no boot interface available: enter a MAC or explore the host first".to_string(),
             )
         })?;
-    Ok(Some((machine_id, target)))
+    Ok(Some((host_machine_id, target)))
 }
 
 /// What a host machine offers boot-interface resolution to select from: its
@@ -710,7 +715,7 @@ pub(crate) async fn machine_setup(
 
     // Unlike a boot-order-only request, machine setup still has useful BIOS
     // work when the managed host has no resolvable boot target.
-    let managed_machine_id = owning_machine_id.filter(has_managed_boot_target);
+    let managed_machine_id = owning_machine_id.and_then(|id| HostMachineId::try_from(id).ok());
     let managed_target = managed_machine_id.zip(resolve_admin_boot_interface_target(
         None,
         desired.as_ref(),

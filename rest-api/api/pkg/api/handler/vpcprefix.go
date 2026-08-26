@@ -159,15 +159,12 @@ func (csh CreateVpcPrefixHandler) Handle(c echo.Context) error {
 
 	// Validate IPBlocks in request
 	// NOTE: model validation ensures non-nil IPv4BlockID
-	ipBlock, err := common.GetIPBlockFromIDString(ctx, nil, *apiRequest.IPBlockID, csh.dbSession)
+	ipBlockFilter := cdbm.IPBlockFilterInput{}
+	ipBlockFilter.TenantAllocated(tenant.ID)
+	ipBlock, err := common.GetIPBlockFromIDString(ctx, nil, *apiRequest.IPBlockID, ipBlockFilter, csh.dbSession)
 	if err != nil {
 		logger.Warn().Err(err).Msg("error getting IPv4 IPBlock in request")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Error retrieving ipv4 IPBlock from request", nil)
-	}
-	// ipv4block is derived, check if it belongs to tenant via an allocation
-	if ipBlock.TenantID == nil || *ipBlock.TenantID != tenant.ID {
-		logger.Warn().Msg("IPv4 IPBlock in request does not belong to tenant")
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "ipv4 IPBlock in request does not belong to tenant", nil)
 	}
 	if vpc.SiteID != ipBlock.SiteID {
 		logger.Warn().Msg("IPv4 Block specified in request and VPC do not belong to the same Site")

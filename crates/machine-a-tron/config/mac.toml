@@ -82,10 +82,7 @@ enable_ipmi_simulation = false
 
 [machines.config]
 host_count = 3
-vpc_count = 3
-# vpc_count = 10
 dpu_per_host_count = 1
-subnets_per_vpc = 2
 dpu_reboot_delay = 10  # in units of seconds
 host_reboot_delay = 10 # in units of seconds
 

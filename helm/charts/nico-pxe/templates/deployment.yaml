@@ -69,6 +69,7 @@ spec:
             - /bin/sh
             - -c
             - |
+              ulimit -Sn {{ .Values.fileDescriptorLimit | int }} || exit 1
               if [ -x /opt/nico/nico ]; then BIN=/opt/nico/nico; else BIN=/opt/carbide/carbide; fi
               exec "$BIN" -s {{ .Values.bootArtifacts.servePath }}
           env:

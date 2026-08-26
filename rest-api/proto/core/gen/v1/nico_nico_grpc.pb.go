@@ -135,6 +135,7 @@ const (
 	Forge_FindPowerShelfStateHistories_FullMethodName                       = "/forge.Forge/FindPowerShelfStateHistories"
 	Forge_FindRackStateHistories_FullMethodName                             = "/forge.Forge/FindRackStateHistories"
 	Forge_FindSwitchStateHistories_FullMethodName                           = "/forge.Forge/FindSwitchStateHistories"
+	Forge_FindSwitchHealthHistories_FullMethodName                          = "/forge.Forge/FindSwitchHealthHistories"
 	Forge_FindNetworkSegmentStateHistories_FullMethodName                   = "/forge.Forge/FindNetworkSegmentStateHistories"
 	Forge_FindVpcPrefixStateHistories_FullMethodName                        = "/forge.Forge/FindVpcPrefixStateHistories"
 	Forge_FindSitePrefixStateHistories_FullMethodName                       = "/forge.Forge/FindSitePrefixStateHistories"
@@ -695,6 +696,7 @@ type ForgeClient interface {
 	FindPowerShelfStateHistories(ctx context.Context, in *PowerShelfStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error)
 	FindRackStateHistories(ctx context.Context, in *RackStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error)
 	FindSwitchStateHistories(ctx context.Context, in *SwitchStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error)
+	FindSwitchHealthHistories(ctx context.Context, in *SwitchHealthHistoriesRequest, opts ...grpc.CallOption) (*HealthHistories, error)
 	FindNetworkSegmentStateHistories(ctx context.Context, in *NetworkSegmentStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error)
 	FindVpcPrefixStateHistories(ctx context.Context, in *VpcPrefixStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error)
 	FindSitePrefixStateHistories(ctx context.Context, in *SitePrefixStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error)
@@ -2501,6 +2503,16 @@ func (c *forgeClient) FindSwitchStateHistories(ctx context.Context, in *SwitchSt
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(StateHistories)
 	err := c.cc.Invoke(ctx, Forge_FindSwitchStateHistories_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) FindSwitchHealthHistories(ctx context.Context, in *SwitchHealthHistoriesRequest, opts ...grpc.CallOption) (*HealthHistories, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(HealthHistories)
+	err := c.cc.Invoke(ctx, Forge_FindSwitchHealthHistories_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -6389,6 +6401,7 @@ type ForgeServer interface {
 	FindPowerShelfStateHistories(context.Context, *PowerShelfStateHistoriesRequest) (*StateHistories, error)
 	FindRackStateHistories(context.Context, *RackStateHistoriesRequest) (*StateHistories, error)
 	FindSwitchStateHistories(context.Context, *SwitchStateHistoriesRequest) (*StateHistories, error)
+	FindSwitchHealthHistories(context.Context, *SwitchHealthHistoriesRequest) (*HealthHistories, error)
 	FindNetworkSegmentStateHistories(context.Context, *NetworkSegmentStateHistoriesRequest) (*StateHistories, error)
 	FindVpcPrefixStateHistories(context.Context, *VpcPrefixStateHistoriesRequest) (*StateHistories, error)
 	FindSitePrefixStateHistories(context.Context, *SitePrefixStateHistoriesRequest) (*StateHistories, error)
@@ -7408,6 +7421,9 @@ func (UnimplementedForgeServer) FindRackStateHistories(context.Context, *RackSta
 }
 func (UnimplementedForgeServer) FindSwitchStateHistories(context.Context, *SwitchStateHistoriesRequest) (*StateHistories, error) {
 	return nil, status.Error(codes.Unimplemented, "method FindSwitchStateHistories not implemented")
+}
+func (UnimplementedForgeServer) FindSwitchHealthHistories(context.Context, *SwitchHealthHistoriesRequest) (*HealthHistories, error) {
+	return nil, status.Error(codes.Unimplemented, "method FindSwitchHealthHistories not implemented")
 }
 func (UnimplementedForgeServer) FindNetworkSegmentStateHistories(context.Context, *NetworkSegmentStateHistoriesRequest) (*StateHistories, error) {
 	return nil, status.Error(codes.Unimplemented, "method FindNetworkSegmentStateHistories not implemented")
@@ -10548,6 +10564,24 @@ func _Forge_FindSwitchStateHistories_Handler(srv interface{}, ctx context.Contex
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ForgeServer).FindSwitchStateHistories(ctx, req.(*SwitchStateHistoriesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_FindSwitchHealthHistories_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SwitchHealthHistoriesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).FindSwitchHealthHistories(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_FindSwitchHealthHistories_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).FindSwitchHealthHistories(ctx, req.(*SwitchHealthHistoriesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -17637,6 +17671,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "FindSwitchStateHistories",
 			Handler:    _Forge_FindSwitchStateHistories_Handler,
+		},
+		{
+			MethodName: "FindSwitchHealthHistories",
+			Handler:    _Forge_FindSwitchHealthHistories_Handler,
 		},
 		{
 			MethodName: "FindNetworkSegmentStateHistories",

@@ -840,6 +840,12 @@ func (rs *FlowServerImpl) decommissionRackImpl(
 			"target_spec is required",
 		)
 	}
+	if targetSpec.GetComponents() != nil {
+		return nil, status.Error(
+			codes.InvalidArgument,
+			"decommission requires rack targets; component targets are not supported",
+		)
+	}
 
 	info := &operations.DecommissionTaskInfo{
 		RuleID: protobuf.UUIDStringFrom(req.GetRuleId()),
@@ -1394,6 +1400,9 @@ func (rs *FlowServerImpl) encryptFirmwareAuthenticationData(
 func firmwareAuthenticationStatusError(err error) error {
 	if firmwareauth.IsInvalidData(err) {
 		return status.Error(codes.InvalidArgument, err.Error())
+	}
+	if errors.Is(err, firmwareauth.ErrDataCipherNotConfigured) {
+		return status.Error(codes.FailedPrecondition, err.Error())
 	}
 
 	return status.Error(codes.Internal, err.Error())

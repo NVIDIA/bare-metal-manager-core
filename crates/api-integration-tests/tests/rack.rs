@@ -127,10 +127,16 @@ async fn run_machine_a_tron_racks_test(
                             timing_overrides: Some(LifecycleTimingOverrides {
                                 host: PartialLifecycleTimings {
                                     reboot: Some(Duration::from_secs(1)),
+                                    // ZERO disables the BMC self-reset offline window entirely,
+                                    // keeping ingestion at its pre-feature pace
+                                    bmc_reset: Some(Duration::ZERO),
                                     ..Default::default()
                                 },
                                 dpu: PartialLifecycleTimings {
                                     reboot: Some(Duration::from_secs(1)),
+                                    // ZERO disables the BMC self-reset offline window entirely,
+                                    // keeping ingestion at its pre-feature pace
+                                    bmc_reset: Some(Duration::ZERO),
                                     ..Default::default()
                                 },
                             }),
@@ -143,7 +149,6 @@ async fn run_machine_a_tron_racks_test(
                             run_interval_working: Duration::from_millis(100),
                             run_interval_idle: Duration::from_secs(1),
                             network_status_run_interval: Duration::from_secs(1),
-                            network_virtualization_type: None,
                             dpus_in_nic_mode: false,
                             dpu_firmware_versions: None,
                             dpu_agent_version: None,
@@ -163,10 +168,16 @@ async fn run_machine_a_tron_racks_test(
                             timing_overrides: Some(LifecycleTimingOverrides {
                                 host: PartialLifecycleTimings {
                                     reboot: Some(Duration::from_secs(1)),
+                                    // ZERO disables the BMC self-reset offline window entirely,
+                                    // keeping ingestion at its pre-feature pace
+                                    bmc_reset: Some(Duration::ZERO),
                                     ..Default::default()
                                 },
                                 dpu: PartialLifecycleTimings {
                                     reboot: Some(Duration::from_secs(1)),
+                                    // ZERO disables the BMC self-reset offline window entirely,
+                                    // keeping ingestion at its pre-feature pace
+                                    bmc_reset: Some(Duration::ZERO),
                                     ..Default::default()
                                 },
                             }),
@@ -179,7 +190,6 @@ async fn run_machine_a_tron_racks_test(
                             run_interval_working: Duration::from_millis(100),
                             run_interval_idle: Duration::from_secs(1),
                             network_status_run_interval: Duration::from_secs(1),
-                            network_virtualization_type: None,
                             dpus_in_nic_mode: false,
                             dpu_firmware_versions: None,
                             dpu_agent_version: None,
@@ -205,7 +215,6 @@ async fn run_machine_a_tron_racks_test(
         api_refresh_interval: Duration::from_millis(500),
         mock_bmc_ssh_server: false,
         enable_ipmi_simulation: false,
-        ipmi_reachable_port: None,
         hw_mac_address_ranges: None,
         mac_address_pool: None,
         ufm_mock: Default::default(),

@@ -37,9 +37,9 @@ use forge_tls::client_config::{
 };
 use mac_address::MacAddress;
 use machine_a_tron::{
-    AppEvent, BmcMockRegistry, ControlState, DeviceStatusConfig, DhcpClient, MachineATron,
-    MachineATronArgs, MachineATronConfig, MachineATronContext, SimulatorLifecycle, Tui,
-    TuiHostLogs, api_throttler, append_control_routes,
+    BmcMockRegistry, ControlState, DeviceStatusConfig, DhcpClient, MachineATron, MachineATronArgs,
+    MachineATronConfig, MachineATronContext, SimulatorLifecycle, Tui, TuiHostLogs, api_throttler,
+    append_control_routes,
 };
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use rpc::protos::forge_api_client::ForgeApiClient;
@@ -226,13 +226,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
 
     // Run TUI
-    let (app_tx, app_rx) = mpsc::channel(5000);
+    let (stop_tx, stop_rx) = mpsc::channel(1);
     let (tui_handle, tui_event_tx, tui_quit_tx) = if tui_enabled {
         let (ui_tx, ui_rx) = mpsc::channel(5000);
         let (quit_tx, quit_rx) = mpsc::channel(1);
 
         let tui_handle = Some(tokio::spawn(async {
-            let mut tui = Tui::new(ui_rx, quit_rx, app_tx, tui_host_logs);
+            let mut tui = Tui::new(ui_rx, quit_rx, stop_tx, tui_host_logs);
             _ = tui.run().await.inspect_err(|e| {
                 let estr = format!("Error running TUI: {e}");
                 tracing::error!(error = %e, "TUI failed");
@@ -252,13 +252,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 _ = sigterm.recv() => {}
                 _ = sigint.recv() => {}
             }
-            app_tx.send(AppEvent::Quit).await.ok();
+            stop_tx.send(()).await.ok();
         });
 
         (None, None, None)
     };
 
-    let mat_result = mat.run(simulators, tui_event_tx.clone(), app_rx).await;
+    let mat_result = mat.run(simulators, tui_event_tx.clone(), stop_rx).await;
 
     if let Some(hosted_ufm) = hosted_ufm {
         hosted_ufm.shutdown().await?;

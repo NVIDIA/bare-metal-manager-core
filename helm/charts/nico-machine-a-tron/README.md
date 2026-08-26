@@ -195,7 +195,7 @@ spec:
     targetPort: 1266  # Redfish listen port from machine-a-tron (default: service.bmcMock.port)
     protocol: TCP
   - name: ipmi        # Only present when IPMI simulation is enabled and BMC reports bmc.ipmi
-    port: 623
+    port: 16023
     targetPort: 16023  # IPMI listen port from machine-a-tron
     protocol: UDP
   selector:
@@ -275,47 +275,39 @@ hardware types have IPMI support).
 ```yaml
 machineATron:
   enableIpmiSimulation: true
-  # For K8s controller mode, use dynamic ports so each BMC gets a unique port
-  ipmiReachablePort: 0
 ```
 
-**Port Configuration:**
-
-| `ipmiReachablePort` | Behavior |
-|---------------------|----------|
-| Unset (default) | Advertise port 623 in Redfish |
-| `0` | Use dynamic port (required for K8s controller mode) |
-| `1-65535` | Use specified port |
+Machine-a-tron assigns each IPMI simulator a unique dynamic UDP port. The same
+port is advertised through Redfish and used by the simulator. IPMI SOL requires
+these ports to match because payload activation can direct the client to the
+simulator's bound port.
 
 **Deployment Mode Considerations:**
 
 | Mode | IPMI Accessible? | Notes |
 |------|------------------|-------|
-| Controller mode (`useSingleBmcMock: true` + `mat-k8s-controller`) |Yes | Use `ipmiReachablePort: 0`. Controller creates per-BMC Services with dynamic IPMI ports. |
-| Shared-proxy mode (`useSingleBmcMock: true` without controller) |No | No per-BMC Services to route dynamic IPMI ports. IPMI simulators run but are not externally reachable. |
-| Override mode (`useSingleBmcMock: false`) |Yes | Each BMC gets its own IP address. Use `ipmiReachablePort: 623` (default) or a fixed port. |
+| Controller mode (`useSingleBmcMock: true` + `mat-k8s-controller`) | Yes | The controller creates per-BMC Services using each simulator's dynamic port. |
+| Shared-proxy mode (`useSingleBmcMock: true` without controller) | No | No per-BMC Services expose the dynamic IPMI ports. |
+| Override mode (`useSingleBmcMock: false`) | Yes | Each BMC advertises its simulator's dynamic port through Redfish. |
 
 > **Note:** IPMI ports are only added to Services for host machines with
-> IPMI-capable hardware types (eg, NVIDIA GB300, Supermicro GB300)
-
-When using K8s controller mode (`machineATron.useSingleBmcMock: true`), set
-`ipmiReachablePort: 0` so each IPMI simulator gets a unique dynamic port that
-the `mat-k8s-controller` can map to individual Services.
+> IPMI-capable hardware types (eg, NVIDIA GB300, Supermicro GB300).
 
 When enabled:
 
 1. Machine-a-tron starts an independent IPMI simulator (`ipmi_sim`) for each
-   IPMI-capable host BMC
+   IPMI-capable host BMC.
 2. The `/machines/status` API reports `bmc.ipmi` with `reachable_port` and
-   `listen_port` for each BMC with IPMI enabled
+   `listen_port` set to the same dynamic port for each BMC with IPMI enabled.
 3. The `mat-k8s-controller` creates UDP Service ports for IPMI access alongside
-   the existing TCP Redfish port (controller mode only)
+   the existing TCP Redfish port, using the dynamic IPMI port for both `port`
+   and `targetPort` (controller mode only).
 
 **Requirements:**
 
 - The machine-a-tron container image must include `ipmi_sim` (from `openipmi`)
-  and `ipmitool` - these are included in the standard image
-- Only IPMI-capable hardware types will expose IPMI endpoints
+  and `ipmitool` - these are included in the standard image.
+- Only IPMI-capable hardware types will expose IPMI endpoints.
 
 ### MAC Address Pool Configuration
 

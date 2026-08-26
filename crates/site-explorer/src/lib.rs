@@ -633,6 +633,7 @@ impl SiteExplorer {
                 return exploration_error_to_metric_label(err);
             }
             SiteExplorerError::Internal { .. } => "internal",
+            SiteExplorerError::InvalidHostMachineId { .. } => "invalid_host_machine_id",
         }
         .to_string()
     }

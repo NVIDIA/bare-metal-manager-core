@@ -157,6 +157,9 @@ navigation:
 
     - section: Operations (Day 2)
       contents:
+        - page: Upgrading NICo
+          path: manuals/upgrade.md
+          slug: upgrading-nico
         - section: DPU Management
           contents:
             - page: DPU Lifecycle Management

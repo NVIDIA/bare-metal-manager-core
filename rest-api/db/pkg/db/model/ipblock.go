@@ -83,6 +83,7 @@ type IPBlock struct {
 	InfrastructureProvider   *InfrastructureProvider `bun:"rel:belongs-to,join:infrastructure_provider_id=id"`
 	TenantID                 *uuid.UUID              `bun:"tenant_id,type:uuid"`
 	Tenant                   *Tenant                 `bun:"rel:belongs-to,join:tenant_id=id"`
+	SitePrefixID             *uuid.UUID              `bun:"site_prefix_id,type:uuid"`
 	RoutingType              string                  `bun:"routing_type,notnull"`
 	Prefix                   string                  `bun:"prefix,notnull"`
 	PrefixLength             int                     `bun:"prefix_length,notnull"`
@@ -103,13 +104,17 @@ type IPBlockCreateInput struct {
 	SiteID                   uuid.UUID
 	InfrastructureProviderID uuid.UUID
 	TenantID                 *uuid.UUID
-	RoutingType              string
-	Prefix                   string
-	PrefixLength             int
-	ProtocolVersion          string
-	FullGrant                bool
-	Status                   string
-	CreatedBy                *uuid.UUID
+	// SitePrefixID identifies the backing Core SitePrefix. Together with
+	// TenantID, it identifies a private Tenant SitePrefix; a Site fabric root
+	// may also carry this ID when linked to Core.
+	SitePrefixID    *uuid.UUID
+	RoutingType     string
+	Prefix          string
+	PrefixLength    int
+	ProtocolVersion string
+	FullGrant       bool
+	Status          string
+	CreatedBy       *uuid.UUID
 }
 
 // IPBlockUpdateInput input parameters for Update method
@@ -149,7 +154,26 @@ type IPBlockFilterInput struct {
 	FullGrant                 *bool
 	Statuses                  []string
 	ExcludeDerived            bool
+	ExcludeTenantSitePrefixes bool
 	SearchQuery               *string
+}
+
+// ProviderVisible applies the provider's IPBlock visibility rules to the filter.
+func (filter *IPBlockFilterInput) ProviderVisible(infrastructureProviderID uuid.UUID) {
+	filter.InfrastructureProviderIDs = []uuid.UUID{infrastructureProviderID}
+	filter.ExcludeTenantSitePrefixes = true
+}
+
+// SiteFabric applies the provider's Site fabric root rules to the filter.
+func (filter *IPBlockFilterInput) SiteFabric(infrastructureProviderID uuid.UUID) {
+	filter.InfrastructureProviderIDs = []uuid.UUID{infrastructureProviderID}
+	filter.ExcludeDerived = true
+}
+
+// TenantAllocated applies the tenant's Allocation IPBlock rules to the filter.
+func (filter *IPBlockFilterInput) TenantAllocated(tenantID uuid.UUID) {
+	filter.TenantIDs = []uuid.UUID{tenantID}
+	filter.ExcludeTenantSitePrefixes = true
 }
 
 var _ bun.BeforeAppendModelHook = (*IPBlock)(nil)
@@ -183,7 +207,9 @@ type IPBlockDAO interface {
 	//
 	GetByID(ctx context.Context, tx *db.Tx, id uuid.UUID, includeRelations []string) (*IPBlock, error)
 	//
-	GetCountByStatus(ctx context.Context, tx *db.Tx, infrastructureProviderID *uuid.UUID, siteID *uuid.UUID, tenantID *uuid.UUID) (map[string]int, error)
+	GetOne(ctx context.Context, tx *db.Tx, id uuid.UUID, filter IPBlockFilterInput, includeRelations []string) (*IPBlock, error)
+	//
+	GetCountByStatus(ctx context.Context, tx *db.Tx, filter IPBlockFilterInput) (map[string]int, error)
 	//
 	GetAll(ctx context.Context, tx *db.Tx, filter IPBlockFilterInput, page paginator.PageInput, includeRelations []string) ([]IPBlock, int, error)
 	//
@@ -227,6 +253,7 @@ func (ipbsd IPBlockSQLDAO) Create(ctx context.Context, tx *db.Tx, input IPBlockC
 		SiteID:                   input.SiteID,
 		InfrastructureProviderID: input.InfrastructureProviderID,
 		TenantID:                 input.TenantID,
+		SitePrefixID:             input.SitePrefixID,
 		RoutingType:              input.RoutingType,
 		Prefix:                   input.Prefix,
 		PrefixLength:             input.PrefixLength,
@@ -280,10 +307,40 @@ func (ipbsd IPBlockSQLDAO) GetByID(ctx context.Context, tx *db.Tx, id uuid.UUID,
 	return ipb, nil
 }
 
+// GetOne returns the IPBlock with the given ID when it also matches the filter.
+func (ipbsd IPBlockSQLDAO) GetOne(ctx context.Context, tx *db.Tx, id uuid.UUID, filter IPBlockFilterInput, includeRelations []string) (*IPBlock, error) {
+	ctx, ipblockDAOSpan := ipbsd.tracerSpan.CreateChildInCurrentContext(ctx, "IPBlockDAO.GetOne")
+	if ipblockDAOSpan != nil {
+		defer ipblockDAOSpan.End()
+	}
+
+	filter.IPBlockIDs = []uuid.UUID{id}
+	ipb := &IPBlock{}
+	query := db.GetIDB(tx, ipbsd.dbSession).NewSelect().Model(ipb)
+	query, err := ipbsd.setQueryWithFilter(query, filter, ipblockDAOSpan)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, relation := range includeRelations {
+		query = query.Relation(relation)
+	}
+
+	err = query.Scan(ctx)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, db.ErrDoesNotExist
+		}
+		return nil, err
+	}
+
+	return ipb, nil
+}
+
 // GetCountByStatus returns count of IPBlocks for given status
 // Errors are returned only when there is a db related error
 // if records not found, then error is nil, but length of returned map is 0
-func (ipbsd IPBlockSQLDAO) GetCountByStatus(ctx context.Context, tx *db.Tx, infrastructureProviderID *uuid.UUID, siteID *uuid.UUID, tenantID *uuid.UUID) (map[string]int, error) {
+func (ipbsd IPBlockSQLDAO) GetCountByStatus(ctx context.Context, tx *db.Tx, filter IPBlockFilterInput) (map[string]int, error) {
 	// Create a child span and set the attributes for current request
 	ctx, ipblockDAOSpan := ipbsd.tracerSpan.CreateChildInCurrentContext(ctx, "IPBlockDAO.GetCountByStatus")
 	if ipblockDAOSpan != nil {
@@ -294,29 +351,23 @@ func (ipbsd IPBlockSQLDAO) GetCountByStatus(ctx context.Context, tx *db.Tx, infr
 	var statusQueryResults []map[string]interface{}
 
 	query := db.GetIDB(tx, ipbsd.dbSession).NewSelect().Model(ipb)
-	if infrastructureProviderID != nil {
-		query = query.Where("ipb.infrastructure_provider_id = ?", *infrastructureProviderID)
-
-		if ipblockDAOSpan != nil {
-			ipbsd.tracerSpan.SetAttribute(ipblockDAOSpan, "infrastructure_provider_id", infrastructureProviderID.String())
-		}
+	query, err := ipbsd.setQueryWithFilter(query, filter, ipblockDAOSpan)
+	if err != nil {
+		return nil, err
 	}
-	if siteID != nil {
-		query = query.Where("ipb.site_id = ?", *siteID)
-
-		if ipblockDAOSpan != nil {
-			ipbsd.tracerSpan.SetAttribute(ipblockDAOSpan, "site_id", siteID.String())
-		}
+	// Count callers scope by one provider, site, or tenant. Record that owner ID
+	// as a string because the tracer ignores slice values.
+	if len(filter.InfrastructureProviderIDs) == 1 {
+		ipbsd.tracerSpan.SetAttribute(ipblockDAOSpan, "infrastructure_provider_id", filter.InfrastructureProviderIDs[0].String())
 	}
-	if tenantID != nil {
-		query = query.Where("ipb.tenant_id = ?", *tenantID)
-
-		if ipblockDAOSpan != nil {
-			ipbsd.tracerSpan.SetAttribute(ipblockDAOSpan, "tenant_id", tenantID.String())
-		}
+	if len(filter.SiteIDs) == 1 {
+		ipbsd.tracerSpan.SetAttribute(ipblockDAOSpan, "site_id", filter.SiteIDs[0].String())
+	}
+	if len(filter.TenantIDs) == 1 {
+		ipbsd.tracerSpan.SetAttribute(ipblockDAOSpan, "tenant_id", filter.TenantIDs[0].String())
 	}
 
-	err := query.Column("ipb.status").ColumnExpr("COUNT(*) AS total_count").GroupExpr("ipb.status").Scan(ctx, &statusQueryResults)
+	err = query.Column("ipb.status").ColumnExpr("COUNT(*) AS total_count").GroupExpr("ipb.status").Scan(ctx, &statusQueryResults)
 	if err != nil {
 		return nil, err
 	}
@@ -339,6 +390,76 @@ func (ipbsd IPBlockSQLDAO) GetCountByStatus(ctx context.Context, tx *db.Tx, infr
 	return results, nil
 }
 
+func (ipbsd IPBlockSQLDAO) setQueryWithFilter(query *bun.SelectQuery, filter IPBlockFilterInput, span *stracer.CurrentContextSpan) (*bun.SelectQuery, error) {
+	if filter.TenantIDs != nil && filter.ExcludeDerived {
+		return nil, db.ErrInvalidParams
+	}
+
+	if filter.SiteIDs != nil {
+		query = query.Where("ipb.site_id IN (?)", bun.In(filter.SiteIDs))
+		ipbsd.tracerSpan.SetAttribute(span, "site_id", filter.SiteIDs)
+	}
+	if filter.InfrastructureProviderIDs != nil {
+		query = query.Where("ipb.infrastructure_provider_id IN (?)", bun.In(filter.InfrastructureProviderIDs))
+		ipbsd.tracerSpan.SetAttribute(span, "infrastructure_provider_id", filter.InfrastructureProviderIDs)
+	}
+	if filter.TenantIDs != nil {
+		query = query.Where("ipb.tenant_id IN (?)", bun.In(filter.TenantIDs))
+		ipbsd.tracerSpan.SetAttribute(span, "tenant_id", filter.TenantIDs)
+	}
+	if filter.RoutingTypes != nil {
+		query = query.Where("ipb.routing_type IN (?)", bun.In(filter.RoutingTypes))
+		ipbsd.tracerSpan.SetAttribute(span, "routing_type", filter.RoutingTypes)
+	}
+	if filter.Names != nil {
+		query = query.Where("ipb.name IN (?)", bun.In(filter.Names))
+		ipbsd.tracerSpan.SetAttribute(span, "name", filter.Names)
+	}
+	if filter.FullGrant != nil {
+		query = query.Where("ipb.full_grant = ?", *filter.FullGrant)
+		ipbsd.tracerSpan.SetAttribute(span, "full_grant", filter.FullGrant)
+	}
+	if filter.ExcludeDerived {
+		query = query.Where("ipb.tenant_id IS NULL")
+		ipbsd.tracerSpan.SetAttribute(span, "exclude_derived", filter.ExcludeDerived)
+	}
+	if filter.ExcludeTenantSitePrefixes {
+		// A SitePrefix managed by the operator may have SitePrefixID without
+		// TenantID. Only both fields identify a private Tenant SitePrefix.
+		query = query.Where("(ipb.tenant_id IS NULL OR ipb.site_prefix_id IS NULL)")
+	}
+	if filter.Prefixes != nil {
+		query = query.Where("ipb.prefix IN (?)", bun.In(filter.Prefixes))
+		ipbsd.tracerSpan.SetAttribute(span, "prefix", filter.Prefixes)
+	}
+	if filter.PrefixLengths != nil {
+		query = query.Where("ipb.prefix_length IN (?)", bun.In(filter.PrefixLengths))
+		ipbsd.tracerSpan.SetAttribute(span, "prefix_length", filter.PrefixLengths)
+	}
+	if filter.Statuses != nil {
+		query = query.Where("ipb.status IN (?)", bun.In(filter.Statuses))
+		ipbsd.tracerSpan.SetAttribute(span, "status", filter.Statuses)
+	}
+	if filter.IPBlockIDs != nil {
+		query = query.Where("ipb.id IN (?)", bun.In(filter.IPBlockIDs))
+		ipbsd.tracerSpan.SetAttribute(span, "id", filter.IPBlockIDs)
+	}
+
+	searchQuery, searchTokens, ok := db.NormalizeSearchQuery(filter.SearchQuery)
+	if ok {
+		query = query.WhereGroup(" AND ", func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.
+				Where("to_tsvector('english', (coalesce(ipb.name, ' ') || ' ' || coalesce(ipb.description, ' ') || ' ' || coalesce(ipb.status, ' '))) @@ to_tsquery('english', ?)", *searchTokens).
+				WhereOr("ipb.name ILIKE ?", "%"+searchQuery+"%").
+				WhereOr("ipb.description ILIKE ?", "%"+searchQuery+"%").
+				WhereOr("ipb.status ILIKE ?", "%"+searchQuery+"%")
+		})
+		ipbsd.tracerSpan.SetAttribute(span, "search_query", searchQuery)
+	}
+
+	return query, nil
+}
+
 // GetAll returns all IPBlocks filtering by Site, InfrastructureProvider
 // Tenant,  RoutingType or Name
 // errors are returned only when there is a db related error
@@ -354,67 +475,9 @@ func (ipbsd IPBlockSQLDAO) GetAll(ctx context.Context, tx *db.Tx, filter IPBlock
 	ipbs := []IPBlock{}
 
 	query := db.GetIDB(tx, ipbsd.dbSession).NewSelect().Model(&ipbs)
-	if filter.SiteIDs != nil {
-		query = query.Where("ipb.site_id IN (?)", bun.In(filter.SiteIDs))
-		ipbsd.tracerSpan.SetAttribute(ipblockDAOSpan, "site_id", filter.SiteIDs)
-	}
-	if filter.InfrastructureProviderIDs != nil {
-		query = query.Where("ipb.infrastructure_provider_id IN (?)", bun.In(filter.InfrastructureProviderIDs))
-		ipbsd.tracerSpan.SetAttribute(ipblockDAOSpan, "infrastructure_provider_id", filter.InfrastructureProviderIDs)
-	}
-	if filter.TenantIDs != nil {
-		if filter.ExcludeDerived {
-			return nil, 0, db.ErrInvalidParams
-		}
-
-		query = query.Where("ipb.tenant_id IN (?)", bun.In(filter.TenantIDs))
-		ipbsd.tracerSpan.SetAttribute(ipblockDAOSpan, "tenant_id", filter.TenantIDs)
-	}
-	if filter.RoutingTypes != nil {
-		query = query.Where("ipb.routing_type IN (?)", bun.In(filter.RoutingTypes))
-		ipbsd.tracerSpan.SetAttribute(ipblockDAOSpan, "routing_type", filter.RoutingTypes)
-	}
-	if filter.Names != nil {
-		query = query.Where("ipb.name IN (?)", bun.In(filter.Names))
-		ipbsd.tracerSpan.SetAttribute(ipblockDAOSpan, "name", filter.Names)
-	}
-	if filter.FullGrant != nil {
-		query = query.Where("ipb.full_grant = ?", *filter.FullGrant)
-		ipbsd.tracerSpan.SetAttribute(ipblockDAOSpan, "full_grant", filter.FullGrant)
-	}
-	if filter.ExcludeDerived {
-		query = query.Where("ipb.tenant_id IS ?", nil)
-		ipbsd.tracerSpan.SetAttribute(ipblockDAOSpan, "exclude_derived", filter.ExcludeDerived)
-	}
-	if filter.Prefixes != nil {
-		query = query.Where("ipb.prefix IN (?)", bun.In(filter.Prefixes))
-		ipbsd.tracerSpan.SetAttribute(ipblockDAOSpan, "prefix", filter.Prefixes)
-	}
-	if filter.PrefixLengths != nil {
-		query = query.Where("ipb.prefix_length IN (?)", bun.In(filter.PrefixLengths))
-		ipbsd.tracerSpan.SetAttribute(ipblockDAOSpan, "prefix_length", filter.PrefixLengths)
-	}
-	if filter.Statuses != nil {
-		query = query.Where("ipb.status IN (?)", bun.In(filter.Statuses))
-		ipbsd.tracerSpan.SetAttribute(ipblockDAOSpan, "status", filter.Statuses)
-	}
-
-	if filter.IPBlockIDs != nil {
-		query = query.Where("ipb.id IN (?)", bun.In(filter.IPBlockIDs))
-		ipbsd.tracerSpan.SetAttribute(ipblockDAOSpan, "id", filter.IPBlockIDs)
-	}
-
-	searchQuery, searchTokens, ok := db.NormalizeSearchQuery(filter.SearchQuery)
-	if ok {
-		query = query.WhereGroup(" AND ", func(q *bun.SelectQuery) *bun.SelectQuery {
-			return q.
-				Where("to_tsvector('english', (coalesce(ipb.name, ' ') || ' ' || coalesce(ipb.description, ' ') || ' ' || coalesce(ipb.status, ' '))) @@ to_tsquery('english', ?)", *searchTokens).
-				WhereOr("ipb.name ILIKE ?", "%"+searchQuery+"%").
-				WhereOr("ipb.description ILIKE ?", "%"+searchQuery+"%").
-				WhereOr("ipb.status ILIKE ?", "%"+searchQuery+"%")
-		})
-
-		ipbsd.tracerSpan.SetAttribute(ipblockDAOSpan, "search_query", searchQuery)
+	query, err := ipbsd.setQueryWithFilter(query, filter, ipblockDAOSpan)
+	if err != nil {
+		return nil, 0, err
 	}
 
 	for _, relation := range includeRelations {
