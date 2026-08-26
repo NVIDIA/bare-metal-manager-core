@@ -237,9 +237,8 @@ func (s *Session) getTenantID(_ context.Context) (string, error) {
 // enforces this capability using a Ready Tenant Account for the Site's
 // Infrastructure Provider plus any site-specific override, so the TUI mirrors
 // that resolution before offering specific Machines.
-func (s *Session) tenantHasTargetedInstanceCreationAtSite(ctx context.Context, siteID string) (bool, error) {
-	siteID = strings.TrimSpace(siteID)
-	if siteID == "" {
+func (s *Session) tenantHasTargetedInstanceCreationAtSite(ctx context.Context, vpcSiteID string) (bool, error) {
+	if vpcSiteID == "" {
 		return false, fmt.Errorf("selected VPC has no site ID")
 	}
 
@@ -252,7 +251,7 @@ func (s *Session) tenantHasTargetedInstanceCreationAtSite(ctx context.Context, s
 		"GET",
 		apiPath(s, "site/{id}"),
 		map[string]string{
-			"id": siteID,
+			"id": vpcSiteID,
 		},
 		nil,
 		nil,
@@ -265,7 +264,7 @@ func (s *Session) tenantHasTargetedInstanceCreationAtSite(ctx context.Context, s
 	if err != nil {
 		return false, fmt.Errorf("parsing selected VPC site: %w", err)
 	}
-	providerID := strings.TrimSpace(str(site, "infrastructureProviderId"))
+	providerID := str(site, "infrastructureProviderId")
 	if providerID == "" {
 		return false, fmt.Errorf("selected VPC site has no infrastructure provider ID")
 	}
@@ -281,20 +280,20 @@ func (s *Session) tenantHasTargetedInstanceCreationAtSite(ctx context.Context, s
 		return false, fmt.Errorf("fetching tenant accounts for selected VPC site: %w", err)
 	}
 	for _, account := range accounts {
-		status := strings.TrimSpace(str(account, "status"))
+		status := str(account, "status")
 		if !strings.EqualFold(status, "Ready") {
 			continue
 		}
-		accountProviderID := strings.TrimSpace(str(account, "infrastructureProviderId"))
+		accountProviderID := str(account, "infrastructureProviderId")
 		if accountProviderID != providerID {
 			continue
 		}
-		accountTenantID := strings.TrimSpace(str(account, "tenantId"))
+		accountTenantID := str(account, "tenantId")
 		if accountTenantID != tenantID {
 			continue
 		}
 
-		return targetedInstanceCreationAtSite(account, siteID), nil
+		return targetedInstanceCreationAtSite(account, vpcSiteID), nil
 	}
 	return false, nil
 }
@@ -321,7 +320,7 @@ func targetedInstanceCreationAtSite(account map[string]interface{}, siteID strin
 			continue
 		}
 		for _, capabilitySiteID := range siteIDs {
-			if strings.TrimSpace(capabilitySiteID) == siteID {
+			if capabilitySiteID == siteID {
 				return enabled
 			}
 		}

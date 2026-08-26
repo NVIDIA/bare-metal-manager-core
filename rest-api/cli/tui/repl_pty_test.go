@@ -138,7 +138,7 @@ func TestCLIRegression_RealTerminalAndNonInteractive(t *testing.T) {
 		terminal.send(t, "\r")
 		terminal.waitFor(t, "Instance name")
 		terminal.send(t, "no-prefix-instance\r")
-		terminal.waitFor(t, "no vpc-prefixes available for the selected VPC")
+		terminal.waitFor(t, "no Ready VPC prefixes available for selected VPC")
 
 		// A lone Escape must cancel a real selector without waiting forever.
 		terminal.send(t, "scope site\r")
@@ -199,25 +199,25 @@ func TestCLIRegression_RealTerminalAndNonInteractive(t *testing.T) {
 		terminal.send(t, "fnn-instance\r")
 		terminal.waitFor(t, "VPC prefix for DPU 0 physical interface:")
 		terminal.send(t, "\r")
-		terminal.waitFor(t, "Add a virtual function for DPU 0 (configured interfaces: 1)?")
+		terminal.waitFor(t, "Add a virtual function for DPU 0 (configured functions: 1)?")
 		terminal.send(t, "y\r")
 		terminal.waitFor(t, "VPC prefix for DPU 0 virtual interface:")
 		terminal.send(t, "\r")
 		terminal.waitFor(t, "Virtual function ID for DPU 0 (0-15)")
 		terminal.send(t, "3\r")
-		terminal.waitFor(t, "Add a virtual function for DPU 0 (configured interfaces: 2)?")
+		terminal.waitFor(t, "Add a virtual function for DPU 0 (configured functions: 2)?")
 		terminal.send(t, "y\r")
 		terminal.waitFor(t, "VPC prefix for DPU 0 virtual interface:")
 		terminal.send(t, "\r")
 		terminal.waitFor(t, "Virtual function ID for DPU 0 (0-15)")
 		terminal.send(t, "4\r")
-		terminal.waitFor(t, "Add a virtual function for DPU 0 (configured interfaces: 3)?")
+		terminal.waitFor(t, "Add a virtual function for DPU 0 (configured functions: 3)?")
 		terminal.send(t, "n\r")
 		terminal.waitFor(t, "Configure DPU 1?")
 		terminal.send(t, "y\r")
 		terminal.waitFor(t, "VPC prefix for DPU 1 physical interface:")
 		terminal.send(t, "\r")
-		terminal.waitFor(t, "Add a virtual function for DPU 1 (configured interfaces: 1)?")
+		terminal.waitFor(t, "Add a virtual function for DPU 1 (configured functions: 1)?")
 		terminal.send(t, "n\r")
 		terminal.waitFor(t, "Instance created: fnn-instance")
 		fnnTranscript := terminal.transcript()[fnnCommandStart:]
@@ -489,14 +489,25 @@ func TestCLIRegression_RealTerminalAndNonInteractive(t *testing.T) {
 			http.MethodGet,
 			"/v2/org/acme/nico/machine/machine-1",
 		)
-		require.Len(t, machineDetailRequests, 2)
+		require.Len(t, machineDetailRequests, 3)
 		subnetRequests := recorder.matching(
 			http.MethodGet,
 			"/v2/org/acme/nico/subnet",
 		)
 		require.Len(t, subnetRequests, 1)
+		assert.Contains(t, subnetRequests[0].Query, "status=Ready")
 		assert.Contains(t, subnetRequests[0].Query, "siteId=site-1")
 		assert.Contains(t, subnetRequests[0].Query, "vpcId=vpc-1")
+		vpcPrefixListRequests := recorder.matching(
+			http.MethodGet,
+			"/v2/org/acme/nico/vpc-prefix",
+		)
+		require.Len(t, vpcPrefixListRequests, 3)
+		for _, request := range vpcPrefixListRequests {
+			assert.Contains(t, request.Query, "status=Ready")
+			assert.Contains(t, request.Query, "siteId=site-1")
+			assert.Contains(t, request.Query, "vpcId=vpc-2")
+		}
 
 		bmcRequests := recorder.matching(
 			http.MethodPut,
@@ -666,6 +677,13 @@ func newInteractiveRegressionHandler(recorder *cliRegressionRecorder) http.Handl
 			]`)
 		case request.Method == http.MethodGet &&
 			request.URL.Path == "/v2/org/acme/nico/subnet":
+			if request.URL.Query().Get("status") == "Ready" {
+				_, _ = io.WriteString(w, `[
+					{"id":"subnet-1","name":"tenant-subnet","siteId":"site-1","vpcId":"vpc-1","status":"Ready"},
+					{"id":"subnet-2","name":"tenant-subnet-two","siteId":"site-1","vpcId":"vpc-1","status":"Ready"}
+				]`)
+				return
+			}
 			_, _ = io.WriteString(w, `[
 				{"id":"subnet-pending","name":"pending-subnet","siteId":"site-1","vpcId":"vpc-1","status":"Pending"},
 				{"id":"subnet-1","name":"tenant-subnet","siteId":"site-1","vpcId":"vpc-1","status":"Ready"},
@@ -719,6 +737,23 @@ func newInteractiveRegressionHandler(recorder *cliRegressionRecorder) http.Handl
 			_, _ = io.WriteString(w, `{"id":"prefix-1","name":"tenant-prefix","status":"Pending"}`)
 		case request.Method == http.MethodGet &&
 			request.URL.Path == "/v2/org/acme/nico/vpc-prefix":
+			if request.URL.Query().Get("status") == "Ready" {
+				readyRequestCount := len(recorder.matching(
+					http.MethodGet,
+					"/v2/org/acme/nico/vpc-prefix",
+				))
+				if readyRequestCount == 1 {
+					_, _ = io.WriteString(w, `[]`)
+					return
+				}
+				_, _ = io.WriteString(w, `[
+					{"id":"vpc-prefix-1","name":"ready-prefix-one","vpcId":"vpc-2","status":"Ready"},
+					{"id":"vpc-prefix-2","name":"ready-prefix-two","vpcId":"vpc-2","status":"Ready"},
+					{"id":"vpc-prefix-3","name":"ready-prefix-three","vpcId":"vpc-2","status":"Ready"},
+					{"id":"vpc-prefix-4","name":"ready-prefix-four","vpcId":"vpc-2","status":"Ready"}
+				]`)
+				return
+			}
 			_, _ = io.WriteString(w, `[
 				{"id":"vpc-prefix-pending","name":"pending-prefix","vpcId":"vpc-2","status":"Pending"},
 				{"id":"vpc-prefix-1","name":"ready-prefix-one","vpcId":"vpc-2","status":"Ready"},
@@ -742,7 +777,7 @@ func newInteractiveRegressionHandler(recorder *cliRegressionRecorder) http.Handl
 				http.MethodGet,
 				"/v2/org/acme/nico/machine/machine-1",
 			))
-			if machineDetailRequestCount > 1 {
+			if machineDetailRequestCount != 2 {
 				_, _ = io.WriteString(w, `{
 					"id":"machine-1",
 					"siteId":"site-1",

@@ -310,16 +310,10 @@ func promptInstanceMachine(s *Session, ctx context.Context, siteID string) (*Sel
 
 	// Temporarily clear VPC scope so fetchMachines returns all Site Machines
 	// rather than Machines already assigned to the scoped VPC.
-	savedVpcID := s.Scope.VpcID
-	savedVpcName := s.Scope.VpcName
-	s.Scope.VpcID = ""
-	s.Scope.VpcName = ""
-	machines, fetchErr := fetchMachinesWithSiteFallback(
-		s,
-		"Machine listing requires a site filter. Select a site.",
-	)
-	s.Scope.VpcID = savedVpcID
-	s.Scope.VpcName = savedVpcName
+	savedVpcID, savedVpcName := s.Scope.VpcID, s.Scope.VpcName
+	s.Scope.VpcID, s.Scope.VpcName = "", ""
+	machines, fetchErr := fetchMachinesWithSiteFallback(s, "Machine listing requires a site filter. Select a site.")
+	s.Scope.VpcID, s.Scope.VpcName = savedVpcID, savedVpcName
 	if fetchErr != nil {
 		return nil, fmt.Errorf("fetching machines: %w", fetchErr)
 	}
@@ -2797,7 +2791,7 @@ func cmdInstanceCreate(s *Session, _ []string) error {
 	if err != nil {
 		return err
 	}
-	vpcSiteID := strings.TrimSpace(vpc.Extra["siteId"])
+	vpcSiteID := vpc.Extra["siteId"]
 	setSiteScopeFromID(s, vpcSiteID)
 
 	machine, err := promptInstanceMachine(s, ctx, vpcSiteID)
@@ -2805,7 +2799,7 @@ func cmdInstanceCreate(s *Session, _ []string) error {
 		return err
 	}
 	if networkConfig.detectMultiDPU {
-		dpuCapability, capabilityErr := fetchInstanceDPUCapability(s, machine.ID)
+		dpuCapability, capabilityErr := fetchInstanceMultiDPUCapability(s, machine.ID)
 		if capabilityErr != nil {
 			return capabilityErr
 		}
@@ -2842,7 +2836,7 @@ func cmdInstanceCreate(s *Session, _ []string) error {
 		s.Cache.InvalidateFiltered()
 	}()
 
-	interfaces, err := promptInstanceInterfaces(s, ctx, networkConfig)
+	interfaces, err := promptInstanceInterfaces(s, networkConfig)
 	if err != nil {
 		return err
 	}
@@ -2853,8 +2847,8 @@ func cmdInstanceCreate(s *Session, _ []string) error {
 	}
 
 	body := map[string]interface{}{
-		"machineId": machine.ID,
 		"name":      name,
+		"machineId": machine.ID,
 		"vpcId":     vpc.ID,
 	}
 	if osID != nil {
@@ -2904,7 +2898,7 @@ func instanceNetworkConfigForVPC(vpc *NamedItem) (instanceNetworkConfig, error) 
 		return instanceNetworkConfig{}, fmt.Errorf("selected VPC is missing")
 	}
 
-	virtualizationType := strings.TrimSpace(vpc.Extra["networkVirtualizationType"])
+	virtualizationType := vpc.Extra["networkVirtualizationType"]
 	switch virtualizationType {
 	case "ETHERNET_VIRTUALIZER":
 		return instanceNetworkConfig{
@@ -2941,7 +2935,7 @@ type instanceDPUCapability struct {
 	count int
 }
 
-func fetchInstanceDPUCapability(s *Session, machineID string) (*instanceDPUCapability, error) {
+func fetchInstanceMultiDPUCapability(s *Session, machineID string) (*instanceDPUCapability, error) {
 	body, _, err := s.Client.Do(
 		"GET",
 		apiPath(s, "machine/{id}"),
@@ -2969,16 +2963,16 @@ func fetchInstanceDPUCapability(s *Session, machineID string) (*instanceDPUCapab
 	}
 
 	for _, capability := range machine.MachineCapabilities {
-		if !strings.EqualFold(strings.TrimSpace(capability.Type), "Network") {
+		if !strings.EqualFold(capability.Type, "Network") {
 			continue
 		}
-		if !strings.EqualFold(strings.TrimSpace(capability.DeviceType), "DPU") {
+		if !strings.EqualFold(capability.DeviceType, "DPU") {
 			continue
 		}
 		if capability.Count == nil || *capability.Count <= 1 {
 			continue
 		}
-		name := strings.TrimSpace(capability.Name)
+		name := capability.Name
 		if name == "" {
 			continue
 		}
@@ -2995,19 +2989,13 @@ func fetchInstanceDPUCapability(s *Session, machineID string) (*instanceDPUCapab
 // virtualizer VPCs use subnets, FNN VPCs use VPC prefixes, and Flat VPCs use
 // autoNetwork without explicit interfaces. For interface-backed VPCs, the
 // first interface is always prompted; subsequent interfaces are opt-in.
-func promptInstanceInterfaces(s *Session, ctx context.Context, networkConfig instanceNetworkConfig) ([]map[string]interface{}, error) {
+func promptInstanceInterfaces(s *Session, networkConfig instanceNetworkConfig) ([]map[string]interface{}, error) {
 	if networkConfig.autoNetwork {
 		return nil, nil
 	}
-	items, err := s.Resolver.Fetch(ctx, networkConfig.resourceType)
+	readyItems, err := fetchReadyInstanceNetworkResources(s, networkConfig)
 	if err != nil {
 		return nil, fmt.Errorf("listing %s for selected VPC: %w", networkConfig.plural, err)
-	}
-	readyItems := make([]NamedItem, 0, len(items))
-	for _, item := range items {
-		if strings.EqualFold(strings.TrimSpace(item.Status), "Ready") {
-			readyItems = append(readyItems, item)
-		}
 	}
 	if len(readyItems) == 0 {
 		return nil, fmt.Errorf("no Ready %s available for selected VPC", networkConfig.plural)
@@ -3059,7 +3047,10 @@ func promptInstanceInterfaces(s *Session, ctx context.Context, networkConfig ins
 			"isPhysical":              isPhysical,
 		}
 		if !isPhysical {
-			virtualFunctionID, promptErr := promptRequiredVirtualFunctionID(usedVirtualFunctionIDs)
+			virtualFunctionID, promptErr := promptVirtualFunctionID(
+				"Virtual function ID (0-15)",
+				usedVirtualFunctionIDs,
+			)
 			if promptErr != nil {
 				return ifaces, promptErr
 			}
@@ -3067,6 +3058,32 @@ func promptInstanceInterfaces(s *Session, ctx context.Context, networkConfig ins
 		}
 		ifaces = append(ifaces, iface)
 	}
+}
+
+func fetchReadyInstanceNetworkResources(s *Session, networkConfig instanceNetworkConfig) ([]NamedItem, error) {
+	query := map[string]string{
+		"status": "Ready",
+	}
+	if s.Scope.SiteID != "" {
+		query["siteId"] = s.Scope.SiteID
+	}
+	if s.Scope.VpcID != "" {
+		query["vpcId"] = s.Scope.VpcID
+	}
+
+	resources, err := s.fetchAll(apiPath(s, networkConfig.resourceType), query)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]NamedItem, len(resources))
+	for i, resource := range resources {
+		items[i] = NamedItem{
+			Name: str(resource, "name"),
+			ID:   str(resource, "id"),
+			Raw:  resource,
+		}
+	}
+	return items, nil
 }
 
 const (
@@ -3123,7 +3140,7 @@ func promptMultiDPUInstanceInterfaces(s *Session, networkConfig instanceNetworkC
 				break
 			}
 			more, confirmErr := PromptConfirm(fmt.Sprintf(
-				"Add a virtual function for DPU %d (configured interfaces: %d)?",
+				"Add a virtual function for DPU %d (configured functions: %d)?",
 				deviceInstance,
 				countInterfacesForDevice(ifaces, deviceInstance),
 			))
@@ -3142,7 +3159,10 @@ func promptMultiDPUInstanceInterfaces(s *Session, networkConfig instanceNetworkC
 			if selectErr != nil {
 				return ifaces, selectErr
 			}
-			virtualFunctionID, promptErr := promptDeviceVirtualFunctionID(deviceInstance, &vfIDs)
+			virtualFunctionID, promptErr := promptVirtualFunctionID(
+				fmt.Sprintf("Virtual function ID for DPU %d (0-15)", deviceInstance),
+				vfIDs.used,
+			)
 			if promptErr != nil {
 				return ifaces, promptErr
 			}
@@ -3179,15 +3199,6 @@ func countInterfacesForDevice(ifaces []map[string]interface{}, deviceInstance in
 		}
 	}
 	return count
-}
-
-func promptDeviceVirtualFunctionID(deviceInstance int, vfIDs *deviceVirtualFunctionIDs) (int, error) {
-	label := fmt.Sprintf("Virtual function ID for DPU %d (0-15)", deviceInstance)
-	return promptVirtualFunctionID(label, vfIDs.used)
-}
-
-func promptRequiredVirtualFunctionID(used map[int]bool) (int, error) {
-	return promptVirtualFunctionID("Virtual function ID (0-15)", used)
 }
 
 func promptVirtualFunctionID(label string, used map[int]bool) (int, error) {

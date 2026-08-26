@@ -5,7 +5,7 @@ package tui
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -115,7 +115,7 @@ func TestInstanceNetworkConfigForVPC(t *testing.T) {
 	})
 }
 
-func TestFetchInstanceDPUCapability(t *testing.T) {
+func TestFetchInstanceMultiDPUCapability(t *testing.T) {
 	tests := []struct {
 		name         string
 		responseBody string
@@ -184,7 +184,7 @@ func TestFetchInstanceDPUCapability(t *testing.T) {
 				"acme",
 				"",
 			)
-			got, err := fetchInstanceDPUCapability(session, "machine-1")
+			got, err := fetchInstanceMultiDPUCapability(session, "machine-1")
 
 			if test.wantErr != "" {
 				require.Error(t, err)
@@ -197,7 +197,7 @@ func TestFetchInstanceDPUCapability(t *testing.T) {
 	}
 }
 
-func TestPromptRequiredVirtualFunctionID(t *testing.T) {
+func TestPromptVirtualFunctionID(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
@@ -243,7 +243,7 @@ func TestPromptRequiredVirtualFunctionID(t *testing.T) {
 			var got int
 			_, err := withStdin(t, test.input, func() (string, error) {
 				var promptErr error
-				got, promptErr = promptRequiredVirtualFunctionID(used)
+				got, promptErr = promptVirtualFunctionID("Virtual function ID", used)
 				return "", promptErr
 			})
 
@@ -251,31 +251,6 @@ func TestPromptRequiredVirtualFunctionID(t *testing.T) {
 			assert.Equal(t, test.want, got)
 		})
 	}
-}
-
-func TestPromptDeviceVirtualFunctionID(t *testing.T) {
-	t.Run("IDs are required and unique", func(t *testing.T) {
-		vfIDs := &deviceVirtualFunctionIDs{
-			used: make(map[int]bool),
-		}
-		var first int
-		_, err := withStdin(t, "3\n", func() (string, error) {
-			var promptErr error
-			first, promptErr = promptDeviceVirtualFunctionID(0, vfIDs)
-			return "", promptErr
-		})
-		require.NoError(t, err)
-		assert.Equal(t, 3, first)
-
-		var second int
-		_, err = withStdin(t, "\n3\n4\n", func() (string, error) {
-			var promptErr error
-			second, promptErr = promptDeviceVirtualFunctionID(0, vfIDs)
-			return "", promptErr
-		})
-		require.NoError(t, err)
-		assert.Equal(t, 4, second)
-	})
 }
 
 func TestDeviceVirtualFunctionIDsExhausted(t *testing.T) {
@@ -436,7 +411,7 @@ func TestPromptInstanceInterfaces(t *testing.T) {
 		virtualizationType string
 		resourceType       string
 		items              []NamedItem
-		fetchErr           error
+		responseStatus     int
 		input              string
 		want               []map[string]interface{}
 		wantErr            string
@@ -446,11 +421,6 @@ func TestPromptInstanceInterfaces(t *testing.T) {
 			virtualizationType: "ETHERNET_VIRTUALIZER",
 			resourceType:       "subnet",
 			items: []NamedItem{
-				{
-					Name:   "pending-subnet",
-					ID:     "subnet-pending",
-					Status: "Pending",
-				},
 				{
 					Name:   "tenant-subnet",
 					ID:     "subnet-1",
@@ -470,11 +440,6 @@ func TestPromptInstanceInterfaces(t *testing.T) {
 			virtualizationType: "FNN",
 			resourceType:       "vpc-prefix",
 			items: []NamedItem{
-				{
-					Name:   "provisioning-prefix",
-					ID:     "vpc-prefix-provisioning",
-					Status: "Provisioning",
-				},
 				{
 					Name:   "tenant-prefix",
 					ID:     "vpc-prefix-1",
@@ -520,24 +485,17 @@ func TestPromptInstanceInterfaces(t *testing.T) {
 			wantErr:            "no Ready subnets available for selected VPC",
 		},
 		{
-			name:               "only non-Ready VPC prefixes returns a local error",
+			name:               "empty Ready VPC prefix response returns a local error",
 			virtualizationType: "FNN",
 			resourceType:       "vpc-prefix",
-			items: []NamedItem{
-				{
-					Name:   "provisioning-prefix",
-					ID:     "vpc-prefix-provisioning",
-					Status: "Provisioning",
-				},
-			},
-			wantErr: "no Ready VPC prefixes available for selected VPC",
+			wantErr:            "no Ready VPC prefixes available for selected VPC",
 		},
 		{
 			name:               "VPC prefix lookup failure returns a local error",
 			virtualizationType: "FNN",
 			resourceType:       "vpc-prefix",
-			fetchErr:           errors.New("API unavailable"),
-			wantErr:            "listing VPC prefixes for selected VPC: API unavailable",
+			responseStatus:     http.StatusServiceUnavailable,
+			wantErr:            "listing VPC prefixes for selected VPC",
 		},
 		{
 			name:               "flat VPC does not fetch explicit interface resources",
@@ -547,24 +505,43 @@ func TestPromptInstanceInterfaces(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			cache := NewCache()
-			resolver := NewResolver(cache)
-			fetchedResourceTypes := []string{}
-			resourceTypes := []string{"subnet", "vpc-prefix"}
-			for _, resourceType := range resourceTypes {
-				registeredResourceType := resourceType
-				resolver.RegisterFetcher(registeredResourceType, func(context.Context) ([]NamedItem, error) {
-					fetchedResourceTypes = append(fetchedResourceTypes, registeredResourceType)
-					if registeredResourceType != test.resourceType {
-						return nil, errors.New("unexpected resource fetch")
+			requestCount := 0
+			var requestPath string
+			var requestStatus string
+			var requestSiteID string
+			var requestVPCID string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				requestCount++
+				requestPath = request.URL.Path
+				requestStatus = request.URL.Query().Get("status")
+				requestSiteID = request.URL.Query().Get("siteId")
+				requestVPCID = request.URL.Query().Get("vpcId")
+				if test.responseStatus != 0 {
+					w.WriteHeader(test.responseStatus)
+					_, writeErr := io.WriteString(w, `{"message":"API unavailable"}`)
+					require.NoError(t, writeErr)
+					return
+				}
+				resources := make([]map[string]interface{}, len(test.items))
+				for i, item := range test.items {
+					resources[i] = map[string]interface{}{
+						"id":     item.ID,
+						"name":   item.Name,
+						"status": item.Status,
 					}
-					return test.items, test.fetchErr
-				})
-			}
-			session := &Session{
-				Cache:    cache,
-				Resolver: resolver,
-			}
+				}
+				writeErr := json.NewEncoder(w).Encode(resources)
+				require.NoError(t, writeErr)
+			}))
+			defer server.Close()
+
+			session := NewSession(
+				appcli.NewClient(server.URL, "acme", "token", nil, false),
+				"acme",
+				"",
+			)
+			session.Scope.SiteID = "site-1"
+			session.Scope.VpcID = "vpc-1"
 			vpc := &NamedItem{
 				Extra: map[string]string{
 					"networkVirtualizationType": test.virtualizationType,
@@ -576,7 +553,7 @@ func TestPromptInstanceInterfaces(t *testing.T) {
 
 			_, err := withStdin(t, test.input, func() (string, error) {
 				var promptErr error
-				got, promptErr = promptInstanceInterfaces(session, context.Background(), networkConfig)
+				got, promptErr = promptInstanceInterfaces(session, networkConfig)
 				return "", promptErr
 			})
 
@@ -588,10 +565,40 @@ func TestPromptInstanceInterfaces(t *testing.T) {
 				assert.Equal(t, test.want, got)
 			}
 			if test.resourceType == "" {
-				assert.Empty(t, fetchedResourceTypes)
+				assert.Zero(t, requestCount)
 			} else {
-				assert.Equal(t, []string{test.resourceType}, fetchedResourceTypes)
+				assert.Equal(t, 1, requestCount)
+				assert.Equal(t, "/v2/org/acme/nico/"+test.resourceType, requestPath)
+				assert.Equal(t, "Ready", requestStatus)
+				assert.Equal(t, "site-1", requestSiteID)
+				assert.Equal(t, "vpc-1", requestVPCID)
 			}
 		})
 	}
+}
+
+func TestFetchReadyInstanceNetworkResourcesOmitsStatusFromPickerItems(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		assert.Equal(t, "Ready", request.URL.Query().Get("status"))
+		_, err := io.WriteString(w, `[
+			{"id":"subnet-1","name":"subnet-one","status":"Ready"},
+			{"id":"subnet-2","name":"subnet-two","status":"Ready"}
+		]`)
+		require.NoError(t, err)
+	}))
+	defer server.Close()
+
+	session := NewSession(
+		appcli.NewClient(server.URL, "acme", "token", nil, false),
+		"acme",
+		"",
+	)
+	items, err := fetchReadyInstanceNetworkResources(session, instanceNetworkConfig{
+		resourceType: "subnet",
+	})
+
+	require.NoError(t, err)
+	require.Len(t, items, 2)
+	assert.Empty(t, items[0].Status)
+	assert.Empty(t, items[1].Status)
 }
