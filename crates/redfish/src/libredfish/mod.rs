@@ -1181,7 +1181,7 @@ mod tests {
             let sim = RedfishSim::default();
             // Force the anonymous service-root probe to yield an unrecognized
             // vendor so probing falls through to the Chassis Manufacturer.
-            sim.set_service_root_vendor(Some("Contoso".to_string()));
+            sim.set_service_root_vendor(Some("Unrecognized Vendor".to_string()));
             sim.set_chassis_manufacturer(Some(manufacturer.to_string()));
 
             let vendor = sim
@@ -1198,7 +1198,7 @@ mod tests {
     #[tokio::test]
     async fn probe_bmc_vendor_errors_when_vendor_unresolvable() {
         let sim = RedfishSim::default();
-        sim.set_service_root_vendor(Some("Contoso".to_string()));
+        sim.set_service_root_vendor(Some("Unrecognized Vendor".to_string()));
         sim.set_chassis_manufacturer(Some("Acme".to_string()));
 
         let err = sim
