@@ -3062,7 +3062,8 @@ func promptInstanceInterfaces(s *Session, networkConfig instanceNetworkConfig) (
 
 func fetchReadyInstanceNetworkResources(s *Session, networkConfig instanceNetworkConfig) ([]NamedItem, error) {
 	query := map[string]string{
-		"status": "Ready",
+		"orderBy": "NAME_ASC",
+		"status":  "Ready",
 	}
 	if s.Scope.SiteID != "" {
 		query["siteId"] = s.Scope.SiteID
@@ -3106,7 +3107,7 @@ func promptMultiDPUInstanceInterfaces(s *Session, networkConfig instanceNetworkC
 		return nil, fmt.Errorf("multi-DPU interface prompting requires a DPU capability")
 	}
 	ifaces := make([]map[string]interface{}, 0, capability.count)
-	for deviceInstance := 0; deviceInstance < capability.count; deviceInstance++ {
+	for deviceInstance := range capability.count {
 		if deviceInstance > 0 {
 			configureDevice, confirmErr := PromptConfirm(fmt.Sprintf("Configure DPU %d?", deviceInstance))
 			if confirmErr != nil {

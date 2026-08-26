@@ -495,6 +495,7 @@ func TestCLIRegression_RealTerminalAndNonInteractive(t *testing.T) {
 			"/v2/org/acme/nico/subnet",
 		)
 		require.Len(t, subnetRequests, 1)
+		assert.Contains(t, subnetRequests[0].Query, "orderBy=NAME_ASC")
 		assert.Contains(t, subnetRequests[0].Query, "status=Ready")
 		assert.Contains(t, subnetRequests[0].Query, "siteId=site-1")
 		assert.Contains(t, subnetRequests[0].Query, "vpcId=vpc-1")
@@ -504,6 +505,7 @@ func TestCLIRegression_RealTerminalAndNonInteractive(t *testing.T) {
 		)
 		require.Len(t, vpcPrefixListRequests, 3)
 		for _, request := range vpcPrefixListRequests {
+			assert.Contains(t, request.Query, "orderBy=NAME_ASC")
 			assert.Contains(t, request.Query, "status=Ready")
 			assert.Contains(t, request.Query, "siteId=site-1")
 			assert.Contains(t, request.Query, "vpcId=vpc-2")

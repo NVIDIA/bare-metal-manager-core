@@ -506,12 +506,14 @@ func TestPromptInstanceInterfaces(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			requestCount := 0
+			var requestOrderBy string
 			var requestPath string
 			var requestStatus string
 			var requestSiteID string
 			var requestVPCID string
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 				requestCount++
+				requestOrderBy = request.URL.Query().Get("orderBy")
 				requestPath = request.URL.Path
 				requestStatus = request.URL.Query().Get("status")
 				requestSiteID = request.URL.Query().Get("siteId")
@@ -568,6 +570,7 @@ func TestPromptInstanceInterfaces(t *testing.T) {
 				assert.Zero(t, requestCount)
 			} else {
 				assert.Equal(t, 1, requestCount)
+				assert.Equal(t, "NAME_ASC", requestOrderBy)
 				assert.Equal(t, "/v2/org/acme/nico/"+test.resourceType, requestPath)
 				assert.Equal(t, "Ready", requestStatus)
 				assert.Equal(t, "site-1", requestSiteID)
@@ -579,6 +582,7 @@ func TestPromptInstanceInterfaces(t *testing.T) {
 
 func TestFetchReadyInstanceNetworkResourcesOmitsStatusFromPickerItems(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		assert.Equal(t, "NAME_ASC", request.URL.Query().Get("orderBy"))
 		assert.Equal(t, "Ready", request.URL.Query().Get("status"))
 		_, err := io.WriteString(w, `[
 			{"id":"subnet-1","name":"subnet-one","status":"Ready"},
