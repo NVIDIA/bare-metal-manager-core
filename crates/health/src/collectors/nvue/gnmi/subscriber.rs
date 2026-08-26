@@ -20,6 +20,7 @@ use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
+use carbide_uuid::rack::RackId;
 use prometheus::{Counter, Gauge, Histogram, HistogramOpts, IntGauge, Opts};
 use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
@@ -36,7 +37,9 @@ use super::sample_processor::{GnmiSampleProcessor, NVUE_GNMI_SAMPLE_STREAM_ID, n
 use crate::HealthError;
 use crate::bmc::{CREDENTIAL_REFRESH_TIMEOUT, CredentialProvider};
 use crate::collectors::Collector;
-use crate::collectors::runtime::{BackoffConfig, ExponentialBackoff, StreamingConnectionGuard};
+use crate::collectors::runtime::{
+    BackoffConfig, ExponentialBackoff, StreamingConnectionGuard, collector_metric_labels,
+};
 use crate::config::{MtlsProfileConfig, NvueGnmiConfig};
 use crate::endpoint::{BmcAddr, BmcCredentials, BmcEndpoint};
 use crate::metrics::CollectorRegistry;
@@ -185,6 +188,7 @@ struct GnmiStreamConfig {
 #[derive(Clone)]
 struct GnmiClientProvider {
     switch_id: String,
+    rack_id: Option<RackId>,
     switch_connect_host: String,
     port: u16,
     request_timeout: Duration,
@@ -216,6 +220,7 @@ impl GnmiClientProvider {
         Ok((
             GnmiClient::new(GnmiClientConfig {
                 switch_id: self.switch_id.clone(),
+                rack_id: self.rack_id.clone(),
                 host: self.switch_connect_host.clone(),
                 port: self.port,
                 username: credentials.username,
@@ -236,6 +241,7 @@ impl GnmiClientProvider {
                 error = ?refresh_error,
                 original_error = ?error,
                 switch_id = %self.switch_id,
+                rack_id = self.rack_id.as_ref().map(tracing::field::display),
                 "Failed to refresh NVUE gNMI credentials after authentication error"
             );
         }
@@ -259,6 +265,7 @@ impl GnmiClientProvider {
                 error = ?refresh_error,
                 original_error = ?status,
                 switch_id = %self.switch_id,
+                rack_id = self.rack_id.as_ref().map(tracing::field::display),
                 "Failed to refresh NVUE gNMI credentials after authentication stream status"
             );
         }
@@ -467,6 +474,7 @@ pub(crate) fn spawn_gnmi_collector(
 
     let client_provider = GnmiClientProvider {
         switch_id: switch_id.clone(),
+        rack_id: endpoint.rack_id.clone(),
         switch_connect_host,
         port: gnmi_config.gnmi_port,
         request_timeout: gnmi_config.request_timeout,
@@ -483,13 +491,11 @@ pub(crate) fn spawn_gnmi_collector(
     let collector_removed_sample_context = sample_event_context.clone();
     let mut collector_removed_on_change_context = None;
 
-    let sample_const_labels = HashMap::from([
-        (
-            "collector_type".to_string(),
-            NVUE_GNMI_SAMPLE_STREAM_ID.to_string(),
-        ),
-        ("endpoint_key".to_string(), endpoint.hash_key().into_owned()),
-    ]);
+    let sample_const_labels = collector_metric_labels(
+        NVUE_GNMI_SAMPLE_STREAM_ID,
+        endpoint.hash_key().into_owned(),
+        endpoint,
+    );
 
     let sample_stream_metrics = GnmiStreamMetrics::new(registry, &prefix, "", sample_const_labels)?;
 
@@ -506,13 +512,11 @@ pub(crate) fn spawn_gnmi_collector(
     };
 
     let on_change_state = if gnmi_config.system_events_enabled {
-        let on_change_const_labels = HashMap::from([
-            (
-                "collector_type".to_string(),
-                ON_CHANGE_STREAM_ID_SYSTEM_EVENTS.to_string(),
-            ),
-            ("endpoint_key".to_string(), endpoint.hash_key().into_owned()),
-        ]);
+        let on_change_const_labels = collector_metric_labels(
+            ON_CHANGE_STREAM_ID_SYSTEM_EVENTS,
+            endpoint.hash_key().into_owned(),
+            endpoint,
+        );
 
         let on_change_stream_metrics =
             GnmiStreamMetrics::new(registry, &prefix, "_events", on_change_const_labels.clone())?;
@@ -544,6 +548,9 @@ pub(crate) fn spawn_gnmi_collector(
     let collector_removed_data_sink = data_sink;
 
     Ok(Collector::spawn_task(move |cancel_token| async move {
+        // Keep the subregistry registered until both gNMI stream tasks finish.
+        let _collector_registry = collector_registry;
+
         let sample_handle = tokio::spawn(gnmi_sample_task(
             cancel_token.clone(),
             sample_config,
@@ -618,6 +625,7 @@ async fn gnmi_sample_task(
                 tracing::warn!(
                     error = ?e.error,
                     switch_id = %sample_processor.switch_id,
+                    rack_id = config.client_provider.rack_id.as_ref().map(tracing::field::display),
                     "nvue_gnmi SAMPLE: connection failed, backing off"
                 );
             }
@@ -630,6 +638,7 @@ async fn gnmi_sample_task(
                 backoff.reset();
                 tracing::info!(
                     switch_id = %sample_processor.switch_id,
+                    rack_id = config.client_provider.rack_id.as_ref().map(tracing::field::display),
                     "nvue_gnmi SAMPLE: stream connected"
                 );
 
@@ -638,6 +647,7 @@ async fn gnmi_sample_task(
                         stream_metrics.connection_state.set(SHUTDOWN);
                         tracing::info!(
                             switch_id = %sample_processor.switch_id,
+                            rack_id = config.client_provider.rack_id.as_ref().map(tracing::field::display),
                             "nvue_gnmi SAMPLE: cancelled, shutting down"
                         );
                         return;
@@ -652,6 +662,7 @@ async fn gnmi_sample_task(
                             stream_metrics.server_initiated_closures_total.inc();
                             tracing::info!(
                                 switch_id = %sample_processor.switch_id,
+                                rack_id = config.client_provider.rack_id.as_ref().map(tracing::field::display),
                                 "nvue_gnmi SAMPLE: stream closed by server, reconnecting"
                             );
                             backoff.reset();
@@ -668,6 +679,7 @@ async fn gnmi_sample_task(
                             tracing::warn!(
                                 error = ?e,
                                 switch_id = %sample_processor.switch_id,
+                                rack_id = config.client_provider.rack_id.as_ref().map(tracing::field::display),
                                 "nvue_gnmi SAMPLE: stream error, reconnecting"
                             );
                             break;
@@ -729,6 +741,7 @@ async fn gnmi_on_change_task(
                     error = ?e.error,
                     switch_id = %on_change_processor.switch_id,
                     stream = %on_change_processor.collector_name,
+                    rack_id = client_provider.rack_id.as_ref().map(tracing::field::display),
                     "nvue_gnmi ON_CHANGE: connection failed, backing off"
                 );
             }
@@ -742,6 +755,7 @@ async fn gnmi_on_change_task(
                 tracing::info!(
                     switch_id = %on_change_processor.switch_id,
                     stream = %on_change_processor.collector_name,
+                    rack_id = client_provider.rack_id.as_ref().map(tracing::field::display),
                     "nvue_gnmi ON_CHANGE: stream connected"
                 );
 
@@ -751,6 +765,7 @@ async fn gnmi_on_change_task(
                         tracing::info!(
                             switch_id = %on_change_processor.switch_id,
                             stream = %on_change_processor.collector_name,
+                            rack_id = client_provider.rack_id.as_ref().map(tracing::field::display),
                             "nvue_gnmi ON_CHANGE: cancelled, shutting down"
                         );
                         return;
@@ -766,6 +781,7 @@ async fn gnmi_on_change_task(
                             tracing::info!(
                                 switch_id = %on_change_processor.switch_id,
                                 stream = %on_change_processor.collector_name,
+                                rack_id = client_provider.rack_id.as_ref().map(tracing::field::display),
                                 "nvue_gnmi ON_CHANGE: stream closed by server, reconnecting"
                             );
                             backoff.reset();
@@ -782,6 +798,7 @@ async fn gnmi_on_change_task(
                                 error = ?e,
                                 switch_id = %on_change_processor.switch_id,
                                 stream = %on_change_processor.collector_name,
+                                rack_id = client_provider.rack_id.as_ref().map(tracing::field::display),
                                 "nvue_gnmi ON_CHANGE: stream error, reconnecting"
                             );
                             break;
@@ -919,6 +936,7 @@ mod tests {
         let addr = test_addr();
         GnmiClientProvider {
             switch_id: "switch-1".to_string(),
+            rack_id: None,
             switch_connect_host: addr.ip.to_string(),
             port: 9339,
             request_timeout: Duration::from_secs(1),

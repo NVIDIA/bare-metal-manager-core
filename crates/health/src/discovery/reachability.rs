@@ -163,12 +163,21 @@ pub(super) async fn reconcile_reachability_collectors(
                 ctx.collectors
                     .insert(CollectorKind::Reachability, key.clone(), collector);
 
-                tracing::info!(endpoint_key = %key, "Started TCP reachability collection");
+                tracing::info!(
+                    endpoint_key = %key,
+                    rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
+                    "Started TCP reachability collection"
+                );
             }
 
             Err(error) => {
                 // An absent entry is retried on the next discovery pass.
-                tracing::error!(?error, endpoint_key = %key, "Could not start TCP reachability collection");
+                tracing::error!(
+                    ?error,
+                    endpoint_key = %key,
+                    rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
+                    "Could not start TCP reachability collection"
+                );
             }
         }
     }

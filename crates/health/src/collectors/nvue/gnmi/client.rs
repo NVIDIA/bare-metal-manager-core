@@ -17,6 +17,7 @@
 
 use std::time::Duration;
 
+use carbide_uuid::rack::RackId;
 use tokio_stream::StreamExt;
 use tonic::metadata::MetadataMap;
 use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
@@ -132,6 +133,7 @@ pub(super) fn nvue_subscribe_paths(paths_config: &NvueGnmiPaths) -> Vec<Path> {
 #[derive(Clone)]
 pub(super) struct GnmiClient {
     switch_id: String,
+    rack_id: Option<RackId>,
     host: String,
     port: u16,
     username: Option<String>,
@@ -145,6 +147,9 @@ pub(super) struct GnmiClient {
 pub(super) struct GnmiClientConfig {
     /// Switch identifier used in logs and error messages.
     pub switch_id: String,
+
+    /// Optional rack identifier added to endpoint-scoped logs.
+    pub rack_id: Option<RackId>,
 
     /// Switch host or IP address used for the gNMI channel.
     pub host: String,
@@ -204,6 +209,7 @@ impl GnmiClient {
     pub(super) fn new(config: GnmiClientConfig) -> Self {
         Self {
             switch_id: config.switch_id,
+            rack_id: config.rack_id,
             host: config.host,
             port: config.port,
             username: config.username,
@@ -250,12 +256,14 @@ impl GnmiClient {
             tracing::debug!(
                 switch_id = %self.switch_id,
                 target = %target,
+                rack_id = self.rack_id.as_ref().map(tracing::field::display),
                 "gNMI TLS channel established with certificate verification disabled"
             );
         } else {
             tracing::debug!(
                 switch_id = %self.switch_id,
                 target = %target,
+                rack_id = self.rack_id.as_ref().map(tracing::field::display),
                 "gNMI TLS channel established"
             );
         }
@@ -287,6 +295,7 @@ impl GnmiClient {
         tracing::debug!(
             switch_id = %self.switch_id,
             sample_interval_nanoseconds = sample_interval_nanos,
+            rack_id = self.rack_id.as_ref().map(tracing::field::display),
             "gNMI SAMPLE stream opened"
         );
 
@@ -316,6 +325,7 @@ impl GnmiClient {
 
         tracing::debug!(
             switch_id = %self.switch_id,
+            rack_id = self.rack_id.as_ref().map(tracing::field::display),
             "gNMI ON_CHANGE stream opened"
         );
 
