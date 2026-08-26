@@ -420,6 +420,19 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub uefi_rotation_enabled: bool,
 
+    /// Site-wide enable for NIC lockdown IKM rotation. When `false` (the
+    /// default), the SuperNIC lock/unlock flow keeps deriving keys from (and
+    /// re-locking cards at) their current tracked IKM version, so a staged
+    /// `RotateCredential(lockdown_ikm)` bumps the site-wide target without any
+    /// card migrating -- the deliberate cutover flip. When `true`, the
+    /// assignment-cycle lock derives from the staged site-wide target, so cards
+    /// migrate to the new IKM as tenants cycle. Unlock always derives from the
+    /// version a card is actually locked under regardless of this flag, so
+    /// flipping it off never bricks an already-migrated card. This is the fleet
+    /// kill-switch for rolling the feature out site-by-site.
+    #[serde(default)]
+    pub lockdown_ikm_rotation_enabled: bool,
+
     /// Site-wide enable for factory-resetting the host BMC during tenant
     /// release. When `false` (the default), tenant release skips the BMC
     /// factory-reset sub-flow entirely and proceeds directly to `PowerCycle`.
