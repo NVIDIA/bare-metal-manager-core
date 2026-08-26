@@ -1709,7 +1709,6 @@ dependencies = [
  "prost",
  "serde_json",
  "tempfile",
- "test-cdylib",
  "tokio",
  "tokio-util",
  "tonic",
@@ -11592,18 +11591,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "test-cdylib"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8f41b1f729f5ff5177beab62e5a9251e318df8386e260ab3c944cff502ee78d"
-dependencies = [
- "cargo_metadata",
- "serde",
- "serde_json",
- "toml 0.5.11",
-]
-
-[[package]]
 name = "thin-vec"
 version = "0.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11825,15 +11812,6 @@ dependencies = [
  "pin-project-lite",
  "slab",
  "tokio",
-]
-
-[[package]]
-name = "toml"
-version = "0.5.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4f7f0dd8d50a853a531c426359045b1998f04219d88799810762cd4ad314234"
-dependencies = [
- "serde",
 ]
 
 [[package]]
