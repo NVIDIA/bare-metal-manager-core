@@ -254,7 +254,8 @@ func (cah CreateAllocationHandler) Handle(c echo.Context) error {
 				dbac.ResourceTypeID = it.ID
 				dbInstanceTypeMap[it.ID] = it
 			case cdbm.AllocationResourceTypeIPBlock:
-				providerFilter := cdbm.NewProviderVisibleIPBlockFilter(ip.ID)
+				providerFilter := cdbm.IPBlockFilterInput{}
+				providerFilter.ProviderVisible(ip.ID)
 				ipb, serr := common.GetIPBlockFromIDString(ctx, tx, ac.ResourceTypeID, providerFilter, cah.dbSession)
 				if serr != nil {
 					logger.Warn().Err(serr).Str("Resource ID", ac.ResourceTypeID).Msg("error getting IP Block for Allocation Constraint")

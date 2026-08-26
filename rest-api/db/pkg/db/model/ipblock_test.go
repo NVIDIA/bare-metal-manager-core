@@ -392,6 +392,13 @@ func TestIPBlockSQLDAO_GetOne(t *testing.T) {
 	tenantSitePrefixID := uuid.New()
 	tenantSitePrefix := create("tenant-site-prefix", &tenant.ID, &tenantSitePrefixID, 32)
 
+	providerVisibleFilter := IPBlockFilterInput{}
+	providerVisibleFilter.ProviderVisible(provider.ID)
+	siteFabricFilter := IPBlockFilterInput{}
+	siteFabricFilter.SiteFabric(provider.ID)
+	tenantAllocatedFilter := IPBlockFilterInput{}
+	tenantAllocatedFilter.TenantAllocated(tenant.ID)
+
 	tests := []struct {
 		name    string
 		id      uuid.UUID
@@ -401,33 +408,33 @@ func TestIPBlockSQLDAO_GetOne(t *testing.T) {
 		{
 			name:   "provider sees Site fabric root",
 			id:     providerRoot.ID,
-			filter: NewProviderVisibleIPBlockFilter(provider.ID),
+			filter: providerVisibleFilter,
 		},
 		{
 			name:   "root filter sees Site fabric root with SitePrefix ID",
 			id:     providerRoot.ID,
-			filter: NewProviderRootIPBlockFilter(provider.ID),
+			filter: siteFabricFilter,
 		},
 		{
 			name:   "provider sees Allocation",
 			id:     allocation.ID,
-			filter: NewProviderVisibleIPBlockFilter(provider.ID),
+			filter: providerVisibleFilter,
 		},
 		{
 			name:    "provider cannot see Tenant SitePrefix",
 			id:      tenantSitePrefix.ID,
-			filter:  NewProviderVisibleIPBlockFilter(provider.ID),
+			filter:  providerVisibleFilter,
 			wantErr: db.ErrDoesNotExist,
 		},
 		{
 			name:   "Allocation filter sees Allocation",
 			id:     allocation.ID,
-			filter: NewAllocationBackedIPBlockFilter(tenant.ID),
+			filter: tenantAllocatedFilter,
 		},
 		{
 			name:    "Allocation filter excludes Tenant SitePrefix",
 			id:      tenantSitePrefix.ID,
-			filter:  NewAllocationBackedIPBlockFilter(tenant.ID),
+			filter:  tenantAllocatedFilter,
 			wantErr: db.ErrDoesNotExist,
 		},
 	}
@@ -514,8 +521,12 @@ func TestIPBlockSQLDAO_GetCountByStatus(t *testing.T) {
 
 	// OTEL Spanner configuration
 	_, _, ctx = testCommonTraceProviderSetup(t, ctx)
-	providerVisibleFilter := NewProviderVisibleIPBlockFilter(ip.ID)
-	allocationBackedFilter := NewAllocationBackedIPBlockFilter(tenant.ID)
+	providerVisibleFilter := IPBlockFilterInput{}
+	providerVisibleFilter.ProviderVisible(ip.ID)
+	tenantAllocatedFilter := IPBlockFilterInput{}
+	tenantAllocatedFilter.TenantAllocated(tenant.ID)
+	unknownProviderFilter := IPBlockFilterInput{}
+	unknownProviderFilter.ProviderVisible(uuid.New())
 	statusCounts := func(provisioning int) map[string]int {
 		return map[string]int{
 			IPBlockStatusDeleting:     0,
@@ -546,12 +557,12 @@ func TestIPBlockSQLDAO_GetCountByStatus(t *testing.T) {
 		},
 		{
 			name:   "Allocation counts exclude Tenant SitePrefix",
-			filter: allocationBackedFilter,
+			filter: tenantAllocatedFilter,
 			want:   statusCounts(1),
 		},
 		{
 			name:   "unknown provider returns zero counts",
-			filter: NewProviderVisibleIPBlockFilter(uuid.New()),
+			filter: unknownProviderFilter,
 			want:   statusCounts(0),
 		},
 		{

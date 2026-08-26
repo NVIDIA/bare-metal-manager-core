@@ -163,7 +163,8 @@ func (csh CreateSubnetHandler) Handle(c echo.Context) error {
 
 	// Validate IPBlocks in request
 	// NOTE: model validation ensures non-nil IPv4BlockID
-	ipBlockFilter := cdbm.NewAllocationBackedIPBlockFilter(tenant.ID)
+	ipBlockFilter := cdbm.IPBlockFilterInput{}
+	ipBlockFilter.TenantAllocated(tenant.ID)
 	ipv4Block, err := common.GetIPBlockFromIDString(ctx, nil, *apiRequest.IPv4BlockID, ipBlockFilter, csh.dbSession)
 	if err != nil {
 		logger.Warn().Err(err).Msg("error getting IPv4 IPBlock in request")

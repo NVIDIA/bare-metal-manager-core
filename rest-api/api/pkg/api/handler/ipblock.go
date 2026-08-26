@@ -377,13 +377,13 @@ func (gaipbh GetAllIPBlockHandler) Handle(c echo.Context) error {
 
 	if provider != nil {
 		// Retrieve all IP Blocks from Provider perspective
-		ipbs, _, err := ipbDAO.GetAll(ctx, nil, cdbm.IPBlockFilterInput{
-			SiteIDs:                   siteIDs,
-			InfrastructureProviderIDs: []uuid.UUID{provider.ID},
-			Statuses:                  statuses,
-			SearchQuery:               searchQuery,
-			ExcludeDerived:            true,
-		}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+		providerFilter := cdbm.IPBlockFilterInput{
+			SiteIDs:     siteIDs,
+			Statuses:    statuses,
+			SearchQuery: searchQuery,
+		}
+		providerFilter.SiteFabric(provider.ID)
+		ipbs, _, err := ipbDAO.GetAll(ctx, nil, providerFilter, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 
 		if err != nil {
 			logger.Error().Err(err).Msg("error getting IPBlocks from db")
@@ -397,10 +397,12 @@ func (gaipbh GetAllIPBlockHandler) Handle(c echo.Context) error {
 
 	if tenant != nil {
 		// Retrieve all IP Blocks from Tenant perspective
-		tenantFilter := cdbm.NewAllocationBackedIPBlockFilter(tenant.ID)
-		tenantFilter.SiteIDs = siteIDs
-		tenantFilter.Statuses = statuses
-		tenantFilter.SearchQuery = searchQuery
+		tenantFilter := cdbm.IPBlockFilterInput{
+			SiteIDs:     siteIDs,
+			Statuses:    statuses,
+			SearchQuery: searchQuery,
+		}
+		tenantFilter.TenantAllocated(tenant.ID)
 		ipbs, _, err := ipbDAO.GetAll(ctx, nil, tenantFilter, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 
 		if err != nil {
@@ -612,7 +614,8 @@ func (gadipbh GetAllDerivedIPBlockHandler) Handle(c echo.Context) error {
 	ipbDAO := cdbm.NewIPBlockDAO(gadipbh.dbSession)
 
 	// The requested parent must be a root belonging to this provider.
-	parentFilter := cdbm.NewProviderRootIPBlockFilter(ip.ID)
+	parentFilter := cdbm.IPBlockFilterInput{}
+	parentFilter.SiteFabric(ip.ID)
 	ipb, err := ipbDAO.GetOne(ctx, nil, ipbID, parentFilter, nil)
 	if err != nil {
 		if errors.Is(err, cdb.ErrDoesNotExist) {
@@ -787,7 +790,8 @@ func (gipbh GetIPBlockHandler) Handle(c echo.Context) error {
 
 	var ipb *cdbm.IPBlock
 	if provider != nil {
-		providerFilter := cdbm.NewProviderVisibleIPBlockFilter(provider.ID)
+		providerFilter := cdbm.IPBlockFilterInput{}
+		providerFilter.ProviderVisible(provider.ID)
 		ipb, err = ipbDAO.GetOne(ctx, nil, ipbID, providerFilter, qIncludeRelations)
 		if err != nil && !errors.Is(err, cdb.ErrDoesNotExist) {
 			logger.Error().Err(err).Msg("error retrieving IPBlock visible to provider from DB")
@@ -796,7 +800,8 @@ func (gipbh GetIPBlockHandler) Handle(c echo.Context) error {
 	}
 
 	if ipb == nil && tenant != nil {
-		tenantFilter := cdbm.NewAllocationBackedIPBlockFilter(tenant.ID)
+		tenantFilter := cdbm.IPBlockFilterInput{}
+		tenantFilter.TenantAllocated(tenant.ID)
 		ipb, err = ipbDAO.GetOne(ctx, nil, ipbID, tenantFilter, qIncludeRelations)
 		if err != nil && !errors.Is(err, cdb.ErrDoesNotExist) {
 			logger.Error().Err(err).Msg("error retrieving IPBlock visible to tenant from DB")
@@ -933,7 +938,8 @@ func (uipbh UpdateIPBlockHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Error retrieving infrastructureProvider for org", nil)
 	}
 
-	providerFilter := cdbm.NewProviderVisibleIPBlockFilter(ip.ID)
+	providerFilter := cdbm.IPBlockFilterInput{}
+	providerFilter.ProviderVisible(ip.ID)
 	ipb, err := ipbDAO.GetOne(ctx, nil, ipbID, providerFilter, nil)
 	if err != nil {
 		if errors.Is(err, cdb.ErrDoesNotExist) {
@@ -1091,8 +1097,9 @@ func (dipbh DeleteIPBlockHandler) Handle(c echo.Context) error {
 		logger.Warn().Err(err).Msg("error getting infrastructure provider for org")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Error getting Infrastructure Provider for Org", nil)
 	}
-	providerRootFilter := cdbm.NewProviderRootIPBlockFilter(ip.ID)
-	ipb, err := ipbDAO.GetOne(ctx, nil, ipbID, providerRootFilter, nil)
+	siteFabricFilter := cdbm.IPBlockFilterInput{}
+	siteFabricFilter.SiteFabric(ip.ID)
+	ipb, err := ipbDAO.GetOne(ctx, nil, ipbID, siteFabricFilter, nil)
 	if err != nil {
 		if errors.Is(err, cdb.ErrDoesNotExist) {
 			logger.Warn().Str("IP Block ID", ipbID.String()).Msg("IPBlock not visible to provider")

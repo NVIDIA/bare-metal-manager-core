@@ -159,7 +159,8 @@ func (csh CreateVpcPrefixHandler) Handle(c echo.Context) error {
 
 	// Validate IPBlocks in request
 	// NOTE: model validation ensures non-nil IPv4BlockID
-	ipBlockFilter := cdbm.NewAllocationBackedIPBlockFilter(tenant.ID)
+	ipBlockFilter := cdbm.IPBlockFilterInput{}
+	ipBlockFilter.TenantAllocated(tenant.ID)
 	ipBlock, err := common.GetIPBlockFromIDString(ctx, nil, *apiRequest.IPBlockID, ipBlockFilter, csh.dbSession)
 	if err != nil {
 		logger.Warn().Err(err).Msg("error getting IPv4 IPBlock in request")

@@ -104,14 +104,17 @@ type IPBlockCreateInput struct {
 	SiteID                   uuid.UUID
 	InfrastructureProviderID uuid.UUID
 	TenantID                 *uuid.UUID
-	SitePrefixID             *uuid.UUID
-	RoutingType              string
-	Prefix                   string
-	PrefixLength             int
-	ProtocolVersion          string
-	FullGrant                bool
-	Status                   string
-	CreatedBy                *uuid.UUID
+	// SitePrefixID identifies the backing Core SitePrefix. Together with
+	// TenantID, it identifies a private Tenant SitePrefix; a Site fabric root
+	// may also carry this ID when linked to Core.
+	SitePrefixID    *uuid.UUID
+	RoutingType     string
+	Prefix          string
+	PrefixLength    int
+	ProtocolVersion string
+	FullGrant       bool
+	Status          string
+	CreatedBy       *uuid.UUID
 }
 
 // IPBlockUpdateInput input parameters for Update method
@@ -155,31 +158,22 @@ type IPBlockFilterInput struct {
 	SearchQuery               *string
 }
 
-// NewProviderVisibleIPBlockFilter returns root and Allocation IPBlocks that
-// belong to the provider. It excludes private Tenant SitePrefixes.
-func NewProviderVisibleIPBlockFilter(infrastructureProviderID uuid.UUID) IPBlockFilterInput {
-	return IPBlockFilterInput{
-		InfrastructureProviderIDs: []uuid.UUID{infrastructureProviderID},
-		ExcludeTenantSitePrefixes: true,
-	}
+// ProviderVisible applies the provider's IPBlock visibility rules to the filter.
+func (filter *IPBlockFilterInput) ProviderVisible(infrastructureProviderID uuid.UUID) {
+	filter.InfrastructureProviderIDs = []uuid.UUID{infrastructureProviderID}
+	filter.ExcludeTenantSitePrefixes = true
 }
 
-// NewProviderRootIPBlockFilter returns only root IPBlocks belonging to the
-// provider.
-func NewProviderRootIPBlockFilter(infrastructureProviderID uuid.UUID) IPBlockFilterInput {
-	return IPBlockFilterInput{
-		InfrastructureProviderIDs: []uuid.UUID{infrastructureProviderID},
-		ExcludeDerived:            true,
-	}
+// SiteFabric applies the provider's Site fabric root rules to the filter.
+func (filter *IPBlockFilterInput) SiteFabric(infrastructureProviderID uuid.UUID) {
+	filter.InfrastructureProviderIDs = []uuid.UUID{infrastructureProviderID}
+	filter.ExcludeDerived = true
 }
 
-// NewAllocationBackedIPBlockFilter returns Allocation IPBlocks belonging to
-// the tenant. It excludes private Tenant SitePrefixes.
-func NewAllocationBackedIPBlockFilter(tenantID uuid.UUID) IPBlockFilterInput {
-	return IPBlockFilterInput{
-		TenantIDs:                 []uuid.UUID{tenantID},
-		ExcludeTenantSitePrefixes: true,
-	}
+// TenantAllocated applies the tenant's Allocation IPBlock rules to the filter.
+func (filter *IPBlockFilterInput) TenantAllocated(tenantID uuid.UUID) {
+	filter.TenantIDs = []uuid.UUID{tenantID}
+	filter.ExcludeTenantSitePrefixes = true
 }
 
 var _ bun.BeforeAppendModelHook = (*IPBlock)(nil)
