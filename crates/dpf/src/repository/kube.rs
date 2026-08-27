@@ -39,6 +39,7 @@ use crate::crds::dpuclusters_generated::DPUCluster;
 use crate::crds::dpudeployments_generated::DPUDeployment;
 use crate::crds::dpudevices_generated::DPUDevice;
 use crate::crds::dpuflavors_generated::DPUFlavor;
+use crate::crds::dpuflavortemplates_generated::DPUFlavorTemplate;
 use crate::crds::dpunodemaintenances_generated::DPUNodeMaintenance;
 use crate::crds::dpunodes_generated::DPUNode;
 use crate::crds::dpus_generated::DPU;
@@ -337,6 +338,24 @@ impl DpuFlavorRepository for KubeRepository {
         let namespace = flavor.meta().namespace.as_deref().unwrap_or("default");
         let api = self.api(namespace);
         Ok(api.create(&PostParams::default(), flavor).await?)
+    }
+}
+
+#[async_trait]
+impl DpuFlavorTemplateRepository for KubeRepository {
+    async fn get(
+        &self,
+        name: &str,
+        namespace: &str,
+    ) -> Result<Option<DPUFlavorTemplate>, DpfError> {
+        let api = self.api(namespace);
+        Ok(api.get_opt(name).await?)
+    }
+
+    async fn create(&self, template: &DPUFlavorTemplate) -> Result<DPUFlavorTemplate, DpfError> {
+        let namespace = template.meta().namespace.as_deref().unwrap_or("default");
+        let api = self.api(namespace);
+        Ok(api.create(&PostParams::default(), template).await?)
     }
 }
 

@@ -29,6 +29,7 @@ use crate::crds::bfbs_generated::BFB;
 use crate::crds::bluefieldsoftwares_generated::BlueFieldSoftware;
 use crate::crds::dpudeployments_generated::DPUDeployment;
 use crate::crds::dpuflavors_generated::DPUFlavor;
+use crate::crds::dpuflavortemplates_generated::DPUFlavorTemplate;
 use crate::crds::dpus_generated::{DPU, DpuStatusPhase};
 use crate::crds::dpuserviceconfigurations_generated::DPUServiceConfiguration;
 use crate::crds::dpuserviceinterfaces_generated::DPUServiceInterface;
@@ -37,9 +38,9 @@ use crate::crds::dpuservicetemplates_generated::DPUServiceTemplate;
 use crate::error::DpfError;
 use crate::repository::{
     BfbRepository, BlueFieldSoftwareRepository, DpfOperatorConfigRepository,
-    DpuDeploymentRepository, DpuFlavorRepository, DpuRepository, DpuServiceConfigurationRepository,
-    DpuServiceInterfaceRepository, DpuServiceNADRepository, DpuServiceTemplateRepository,
-    K8sConfigRepository,
+    DpuDeploymentRepository, DpuFlavorRepository, DpuFlavorTemplateRepository, DpuRepository,
+    DpuServiceConfigurationRepository, DpuServiceInterfaceRepository, DpuServiceNADRepository,
+    DpuServiceTemplateRepository, K8sConfigRepository,
 };
 use crate::sdk::ResourceLabeler;
 use crate::types::*;
@@ -64,6 +65,7 @@ struct InitializationMock {
     bfbs: Arc<DashMap<String, BFB>>,
     bluefield_softwares: Arc<DashMap<String, BlueFieldSoftware>>,
     flavors: Arc<DashMap<String, DPUFlavor>>,
+    flavor_templates: Arc<DashMap<String, DPUFlavorTemplate>>,
     dpus: Arc<DashMap<String, DPU>>,
     deployments: Arc<DashMap<String, DPUDeployment>>,
     service_templates: Arc<DashMap<String, DPUServiceTemplate>>,
@@ -225,6 +227,21 @@ impl DpuFlavorRepository for InitializationMock {
     async fn create(&self, f: &DPUFlavor) -> Result<DPUFlavor, DpfError> {
         self.flavors.insert(resource_key(f), f.clone());
         Ok(f.clone())
+    }
+}
+
+#[async_trait]
+impl DpuFlavorTemplateRepository for InitializationMock {
+    async fn get(&self, name: &str, ns: &str) -> Result<Option<DPUFlavorTemplate>, DpfError> {
+        Ok(self
+            .flavor_templates
+            .get(&ns_key(ns, name))
+            .map(|r| r.clone()))
+    }
+    async fn create(&self, template: &DPUFlavorTemplate) -> Result<DPUFlavorTemplate, DpfError> {
+        self.flavor_templates
+            .insert(resource_key(template), template.clone());
+        Ok(template.clone())
     }
 }
 
@@ -712,12 +729,20 @@ async fn scoped_bf3_bf4_and_astra_initialization_coexists() {
         },
     ];
 
+    mock.configs.insert(
+        ns_key(TEST_NS, "ra2.2-runtime"),
+        BTreeMap::from([(
+            "RA2.2-runtime.yaml".to_string(),
+            "runtimeConfig:\n  roce: []\n".to_string(),
+        )]),
+    );
+
     // Apply every class through the public split-initialization path used by multi-deployment setup.
     for config in &configs {
         sdk.create_initialization_objects(config).await.unwrap();
     }
 
-    // All immutable flavors and deployments must coexist without overwrite.
+    // All immutable flavors/templates and deployments must coexist without overwrite.
     assert_eq!(
         DpuDeploymentRepository::list(&mock, TEST_NS)
             .await
@@ -725,7 +750,8 @@ async fn scoped_bf3_bf4_and_astra_initialization_coexists() {
             .len(),
         3
     );
-    assert_eq!(mock.flavors.len(), 3);
+    assert_eq!(mock.flavors.len(), 2);
+    assert_eq!(mock.flavor_templates.len(), 1);
 
     // The effective inventories must produce exact, non-overlapping scoped resource names.
     let interfaces = DpuServiceInterfaceRepository::list(&mock, TEST_NS)
@@ -1041,18 +1067,31 @@ async fn scoped_bf3_bf4_and_astra_initialization_coexists() {
     );
     // Astra's flavor derives PF_TOTAL_SF from static service endpoints and the DOCA Weave DHCP
     // Agent PF allocation, and must not render configured peer bridges.
-    let astra_flavor =
-        DpuFlavorRepository::get(&mock, astra.spec.dpus.flavor.as_deref().unwrap(), TEST_NS)
-            .await
-            .unwrap()
-            .expect("Astra deployment-referenced flavor must exist");
+    assert!(astra.spec.dpus.flavor.is_none());
+    let astra_template = DpuFlavorTemplateRepository::get(
+        &mock,
+        astra.spec.dpus.flavor_template.as_deref().unwrap(),
+        TEST_NS,
+    )
+    .await
+    .unwrap()
+    .expect("Astra deployment-referenced flavor template must exist");
+    let astra_flavor = DPUFlavor {
+        metadata: Default::default(),
+        spec: serde_json::from_str(&astra_template.spec.template).unwrap(),
+    };
+    let astra_interfaces = crate::sdk::build_astra_dpu_interfaces_vec();
+    let expected_astra_pf_total_sf =
+        crate::sdk::calculate_astra_pf_total_sf(astra_interfaces.as_slice())
+            .expect("canonical Astra inventory must have valid SF capacity");
+    let expected_astra_pf_total_sf_parameter = format!("PF_TOTAL_SF={expected_astra_pf_total_sf}");
     assert!(
         astra_flavor.spec.nvconfig.as_ref().unwrap()[0]
             .parameters
             .as_ref()
             .unwrap()
             .iter()
-            .any(|parameter| parameter == "PF_TOTAL_SF=36")
+            .any(|parameter| parameter == &expected_astra_pf_total_sf_parameter)
     );
     assert!(
         !astra_flavor
