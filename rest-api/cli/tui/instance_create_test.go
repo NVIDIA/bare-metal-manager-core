@@ -319,12 +319,19 @@ func TestPromptMultiDPUInstanceInterfaces(t *testing.T) {
 
 func TestSession_tenantHasTargetedInstanceCreationAtSite(t *testing.T) {
 	tests := []struct {
-		name         string
-		capabilities []interface{}
-		want         bool
+		name          string
+		scopeVPCID    string
+		siteID        string
+		siteResponse  string
+		siteStatus    int
+		accountStatus int
+		capabilities  []interface{}
+		want          bool
+		wantErr       string
 	}{
 		{
-			name: "enabled by account default",
+			name:   "enabled by account default",
+			siteID: "site-1",
 			capabilities: []interface{}{
 				map[string]interface{}{
 					"targetedInstanceCreation": true,
@@ -333,7 +340,8 @@ func TestSession_tenantHasTargetedInstanceCreationAtSite(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "disabled by account default",
+			name:   "disabled by account default",
+			siteID: "site-1",
 			capabilities: []interface{}{
 				map[string]interface{}{
 					"targetedInstanceCreation": false,
@@ -341,7 +349,8 @@ func TestSession_tenantHasTargetedInstanceCreationAtSite(t *testing.T) {
 			},
 		},
 		{
-			name: "site override enables disabled default",
+			name:   "site override enables disabled default",
+			siteID: "site-1",
 			capabilities: []interface{}{
 				map[string]interface{}{
 					"targetedInstanceCreation": false,
@@ -356,7 +365,8 @@ func TestSession_tenantHasTargetedInstanceCreationAtSite(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "site override disables enabled default",
+			name:   "site override disables enabled default",
+			siteID: "site-1",
 			capabilities: []interface{}{
 				map[string]interface{}{
 					"targetedInstanceCreation": true,
@@ -370,7 +380,8 @@ func TestSession_tenantHasTargetedInstanceCreationAtSite(t *testing.T) {
 			},
 		},
 		{
-			name: "unrelated site override preserves default",
+			name:   "unrelated site override preserves default",
+			siteID: "site-1",
 			capabilities: []interface{}{
 				map[string]interface{}{
 					"targetedInstanceCreation": true,
@@ -384,6 +395,67 @@ func TestSession_tenantHasTargetedInstanceCreationAtSite(t *testing.T) {
 			},
 			want: true,
 		},
+		{
+			name:    "missing site ID in site scope",
+			wantErr: "site ID is missing",
+		},
+		{
+			name:       "missing site ID in VPC scope",
+			scopeVPCID: "vpc-1",
+			wantErr:    "selected VPC has no site ID",
+		},
+		{
+			name:       "site lookup failure in site scope",
+			siteID:     "site-1",
+			siteStatus: http.StatusServiceUnavailable,
+			wantErr:    "fetching site: API error 503: unavailable",
+		},
+		{
+			name:       "site lookup failure in VPC scope",
+			scopeVPCID: "vpc-1",
+			siteID:     "site-1",
+			siteStatus: http.StatusServiceUnavailable,
+			wantErr:    "fetching selected VPC site: API error 503: unavailable",
+		},
+		{
+			name:         "invalid site response in site scope",
+			siteID:       "site-1",
+			siteResponse: "{",
+			wantErr:      "parsing site: unexpected end of JSON input",
+		},
+		{
+			name:         "invalid site response in VPC scope",
+			scopeVPCID:   "vpc-1",
+			siteID:       "site-1",
+			siteResponse: "{",
+			wantErr:      "parsing selected VPC site: unexpected end of JSON input",
+		},
+		{
+			name:         "missing provider ID in site scope",
+			siteID:       "site-1",
+			siteResponse: `{}`,
+			wantErr:      "site has no infrastructure provider ID",
+		},
+		{
+			name:         "missing provider ID in VPC scope",
+			scopeVPCID:   "vpc-1",
+			siteID:       "site-1",
+			siteResponse: `{}`,
+			wantErr:      "selected VPC site has no infrastructure provider ID",
+		},
+		{
+			name:          "account lookup failure in site scope",
+			siteID:        "site-1",
+			accountStatus: http.StatusServiceUnavailable,
+			wantErr:       "fetching tenant accounts for site: API error 503: unavailable",
+		},
+		{
+			name:          "account lookup failure in VPC scope",
+			scopeVPCID:    "vpc-1",
+			siteID:        "site-1",
+			accountStatus: http.StatusServiceUnavailable,
+			wantErr:       "fetching tenant accounts for selected VPC site: API error 503: unavailable",
+		},
 	}
 
 	for _, test := range tests {
@@ -394,11 +466,27 @@ func TestSession_tenantHasTargetedInstanceCreationAtSite(t *testing.T) {
 					_, err := io.WriteString(w, `{"id":"tenant-1"}`)
 					require.NoError(t, err)
 				case "/v2/org/acme/nico/site/site-1":
-					_, err := io.WriteString(w, `{"infrastructureProviderId":"provider-1"}`)
+					if test.siteStatus != 0 {
+						w.WriteHeader(test.siteStatus)
+						_, err := io.WriteString(w, `{"message":"unavailable"}`)
+						require.NoError(t, err)
+						return
+					}
+					siteResponse := test.siteResponse
+					if siteResponse == "" {
+						siteResponse = `{"infrastructureProviderId":"provider-1"}`
+					}
+					_, err := io.WriteString(w, siteResponse)
 					require.NoError(t, err)
 				case "/v2/org/acme/nico/tenant/account":
 					assert.Equal(t, "provider-1", request.URL.Query().Get("infrastructureProviderId"))
 					assert.Equal(t, "tenant-1", request.URL.Query().Get("tenantId"))
+					if test.accountStatus != 0 {
+						w.WriteHeader(test.accountStatus)
+						_, err := io.WriteString(w, `{"message":"unavailable"}`)
+						require.NoError(t, err)
+						return
+					}
 					err := json.NewEncoder(w).Encode([]map[string]interface{}{
 						{
 							"status":                   "Ready",
@@ -419,9 +507,15 @@ func TestSession_tenantHasTargetedInstanceCreationAtSite(t *testing.T) {
 				"acme",
 				"",
 			)
+			session.Scope.VpcID = test.scopeVPCID
 
-			got, err := session.tenantHasTargetedInstanceCreationAtSite(context.Background(), "site-1")
+			got, err := session.tenantHasTargetedInstanceCreationAtSite(context.Background(), test.siteID)
 
+			if test.wantErr != "" {
+				require.EqualError(t, err, test.wantErr)
+				assert.False(t, got)
+				return
+			}
 			require.NoError(t, err)
 			assert.Equal(t, test.want, got)
 		})

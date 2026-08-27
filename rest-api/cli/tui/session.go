@@ -6,6 +6,7 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -237,9 +238,14 @@ func (s *Session) getTenantID(_ context.Context) (string, error) {
 // enforces this capability using a Ready Tenant Account for the Site's
 // Infrastructure Provider plus any site-specific override, so the TUI mirrors
 // that resolution before offering specific Machines.
-func (s *Session) tenantHasTargetedInstanceCreationAtSite(ctx context.Context, vpcSiteID string) (bool, error) {
-	if vpcSiteID == "" {
-		return false, fmt.Errorf("selected VPC has no site ID")
+func (s *Session) tenantHasTargetedInstanceCreationAtSite(ctx context.Context, siteID string) (bool, error) {
+	isSiteContext := s.Scope.VpcID != ""
+	if siteID == "" {
+		message := "site ID is missing"
+		if isSiteContext {
+			message = "selected VPC has no site ID"
+		}
+		return false, errors.New(message)
 	}
 
 	tenantID, err := s.getTenantID(ctx)
@@ -251,22 +257,28 @@ func (s *Session) tenantHasTargetedInstanceCreationAtSite(ctx context.Context, v
 		"GET",
 		apiPath(s, "site/{id}"),
 		map[string]string{
-			"id": vpcSiteID,
+			"id": siteID,
 		},
 		nil,
 		nil,
 	)
+	var siteString string
+	if isSiteContext {
+		siteString = "selected VPC site"
+	} else {
+		siteString = "site"
+	}
 	if err != nil {
-		return false, fmt.Errorf("fetching selected VPC site: %w", err)
+		return false, fmt.Errorf("fetching %s: %w", siteString, err)
 	}
 	var site map[string]interface{}
 	err = json.Unmarshal(body, &site)
 	if err != nil {
-		return false, fmt.Errorf("parsing selected VPC site: %w", err)
+		return false, fmt.Errorf("parsing %s: %w", siteString, err)
 	}
 	providerID := str(site, "infrastructureProviderId")
 	if providerID == "" {
-		return false, fmt.Errorf("selected VPC site has no infrastructure provider ID")
+		return false, fmt.Errorf("%s has no infrastructure provider ID", siteString)
 	}
 
 	accounts, err := s.fetchAll(
@@ -277,7 +289,7 @@ func (s *Session) tenantHasTargetedInstanceCreationAtSite(ctx context.Context, v
 		},
 	)
 	if err != nil {
-		return false, fmt.Errorf("fetching tenant accounts for selected VPC site: %w", err)
+		return false, fmt.Errorf("fetching tenant accounts for %s: %w", siteString, err)
 	}
 	for _, account := range accounts {
 		status := str(account, "status")
@@ -314,7 +326,7 @@ func (s *Session) tenantHasTargetedInstanceCreationAtSite(ctx context.Context, v
 				continue
 			}
 			for _, capabilitySiteID := range siteIDs {
-				if capabilitySiteID == vpcSiteID {
+				if capabilitySiteID == siteID {
 					return enabled, nil
 				}
 			}
