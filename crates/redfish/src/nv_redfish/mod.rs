@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+pub mod vendor_pin;
+
 use std::borrow::Cow;
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
@@ -26,6 +28,7 @@ use arc_swap::ArcSwap;
 use carbide_secrets::credentials::Credentials;
 use carbide_utils::HostPortPair;
 use carbide_utils::redfish::format_forwarded_host_parameter;
+use libredfish::model::service_root::RedfishVendor;
 pub use nv_redfish::bmc_http::reqwest::BmcError;
 use nv_redfish::bmc_http::reqwest::{
     Client as RedfishReqwestClient, ClientParams as RedfishReqwestClientParams,
@@ -35,8 +38,11 @@ use nv_redfish::oem::hpe::ilo_service_ext::ManagerType as HpeManagerType;
 use nv_redfish::{Error as NvError, ServiceRoot as NvServiceRoot};
 use reqwest::header::HeaderMap;
 use url::Url;
+use vendor_pin::VendorPinnedHttpClient;
 
-pub type RedfishBmc = HttpBmc<RedfishReqwestClient>;
+use crate::vendor_override::BmcVendorOverrideResolver;
+
+pub type RedfishBmc = HttpBmc<VendorPinnedHttpClient<RedfishReqwestClient>>;
 pub type ServiceRoot = NvServiceRoot<RedfishBmc>;
 pub type Error = NvError<RedfishBmc>;
 
@@ -44,14 +50,20 @@ pub type Error = NvError<RedfishBmc>;
 /// observe BMC replacements, upgrades, and configuration changes.
 const DEFAULT_SERVICE_ROOT_CACHE_TTL: Duration = Duration::from_secs(60 * 60);
 
-pub fn new_pool(proxy_address: Arc<ArcSwap<Option<HostPortPair>>>) -> Arc<NvRedfishClientPool> {
-    NvRedfishClientPool::new(proxy_address).into()
+/// Builds the production pool.
+/// Pass [`NoBmcVendorOverrides`] to opt out of the operator vendor pin.
+pub fn new_pool(
+    proxy_address: Arc<ArcSwap<Option<HostPortPair>>>,
+    vendor_override_resolver: Arc<dyn BmcVendorOverrideResolver>,
+) -> Arc<NvRedfishClientPool> {
+    NvRedfishClientPool::new(proxy_address, vendor_override_resolver).into()
 }
 
 pub struct NvRedfishClientPool {
     proxy_address: Arc<ArcSwap<Option<HostPortPair>>>,
     cache: Arc<Mutex<ServiceRootCache>>,
     cache_ttl: Duration,
+    vendor_override_resolver: Arc<dyn BmcVendorOverrideResolver>,
 }
 
 #[derive(Default)]
@@ -113,11 +125,21 @@ struct PoolKey {
     proxy_address: Arc<Option<HostPortPair>>,
     bmc_address: SocketAddr,
     credentials: BmcCredentials,
+    /// The pin the cached root was built under. Keyed so that setting or clearing
+    /// a pin takes effect on the next call instead of after the cache lifetime.
+    pinned_vendor: Option<RedfishVendor>,
 }
 
 impl NvRedfishClientPool {
-    pub fn new(proxy_address: Arc<ArcSwap<Option<HostPortPair>>>) -> Self {
-        Self::with_cache_ttl(proxy_address, DEFAULT_SERVICE_ROOT_CACHE_TTL)
+    pub fn new(
+        proxy_address: Arc<ArcSwap<Option<HostPortPair>>>,
+        vendor_override_resolver: Arc<dyn BmcVendorOverrideResolver>,
+    ) -> Self {
+        Self::with_cache_ttl(
+            proxy_address,
+            DEFAULT_SERVICE_ROOT_CACHE_TTL,
+            vendor_override_resolver,
+        )
     }
 
     /// Creates a client pool with an explicit service-root cache lifetime.
@@ -127,11 +149,29 @@ impl NvRedfishClientPool {
     pub fn with_cache_ttl(
         proxy_address: Arc<ArcSwap<Option<HostPortPair>>>,
         cache_ttl: Duration,
+        vendor_override_resolver: Arc<dyn BmcVendorOverrideResolver>,
     ) -> Self {
         Self {
             proxy_address,
             cache: Default::default(),
             cache_ttl,
+            vendor_override_resolver,
+        }
+    }
+
+    /// The operator pinned vendor for `host`, or `None` for detection.
+    /// A resolver failure is advisory here, so it warns and falls back.
+    async fn pinned_bmc_vendor(&self, host: &str) -> Option<RedfishVendor> {
+        match self.vendor_override_resolver.vendor_override(host).await {
+            Ok(vendor) => vendor,
+            Err(error) => {
+                tracing::warn!(
+                    bmc = %host,
+                    %error,
+                    "Failed to resolve bmc_vendor_override, using automatic detection"
+                );
+                None
+            }
         }
     }
 
@@ -156,12 +196,18 @@ impl NvRedfishClientPool {
 
         let Credentials::UsernamePassword { username, password } = credentials;
         let bmc_credentials = BmcCredentials::new(username, password);
+        let pinned_vendor = self.pinned_bmc_vendor(&bmc_address.ip().to_string()).await;
 
-        if let Some(sevice_root) = self.cached_root(bmc_address, bmc_credentials.clone()) {
+        if let Some(sevice_root) =
+            self.cached_root(bmc_address, bmc_credentials.clone(), pinned_vendor)
+        {
             Ok(sevice_root)
         } else {
-            let bmc = self.create_bmc(bmc_address, bmc_credentials.clone(), false)?;
+            let bmc =
+                self.create_bmc(bmc_address, bmc_credentials.clone(), false, pinned_vendor)?;
             let service_root = ServiceRoot::new(bmc).await?;
+            // A pin to `Hpe` already reads back as `HPE`, since the decorator
+            // rewrote the service root before this parsed it.
             let service_root = if service_root.vendor()
                 == Some(nv_redfish::service_root::Vendor::new("HPE"))
                 && let Some(HpeManagerType::Ilo(version)) = service_root
@@ -179,14 +225,20 @@ impl NvRedfishClientPool {
                 // when reqwest thinks that connection is alive but it
                 // is about to close by server. Reusing such
                 // connections causes errors.
-                let bmc = self.create_bmc(bmc_address, bmc_credentials.clone(), true)?;
+                let bmc =
+                    self.create_bmc(bmc_address, bmc_credentials.clone(), true, pinned_vendor)?;
                 service_root.replace_bmc(bmc.clone())
             } else {
                 service_root
             };
             let service_root = Arc::new(service_root);
             if should_cache(&service_root) {
-                self.update_cache(bmc_address, bmc_credentials, service_root.clone());
+                self.update_cache(
+                    bmc_address,
+                    bmc_credentials,
+                    pinned_vendor,
+                    service_root.clone(),
+                );
             }
             Ok(service_root)
         }
@@ -196,12 +248,14 @@ impl NvRedfishClientPool {
         &self,
         bmc_address: SocketAddr,
         credentials: BmcCredentials,
+        pinned_vendor: Option<RedfishVendor>,
     ) -> Option<Arc<ServiceRoot>> {
         let proxy_address = self.proxy_address.load();
         let key = PoolKey {
             proxy_address: proxy_address.clone(),
             bmc_address,
             credentials,
+            pinned_vendor,
         };
         self.cache
             .lock()
@@ -215,6 +269,7 @@ impl NvRedfishClientPool {
         &self,
         bmc_address: SocketAddr,
         credentials: BmcCredentials,
+        pinned_vendor: Option<RedfishVendor>,
         root: Arc<ServiceRoot>,
     ) {
         let proxy_address = self.proxy_address.load();
@@ -222,6 +277,7 @@ impl NvRedfishClientPool {
             proxy_address: proxy_address.clone(),
             bmc_address,
             credentials,
+            pinned_vendor,
         };
         let mut cache = self
             .cache
@@ -263,11 +319,12 @@ impl NvRedfishClientPool {
         }
     }
 
-    pub fn create_bmc(
+    fn create_bmc(
         &self,
         bmc_address: SocketAddr,
         credentials: BmcCredentials,
         connection_close: bool,
+        pinned_vendor: Option<RedfishVendor>,
     ) -> Result<Arc<RedfishBmc>, Error> {
         let proxy_address = self.proxy_address.load();
         let bmc_url = build_bmc_url(proxy_address.as_ref(), bmc_address)
@@ -293,6 +350,8 @@ impl NvRedfishClientPool {
             RedfishReqwestClientParams::new().accept_invalid_certs(true),
         )
         .map_err(|err| Error::Bmc(err.into()))?;
+        // Wrapped so the pin reaches the platform `nv_redfish` classifies.
+        let client = VendorPinnedHttpClient::new(client, pinned_vendor);
         Ok(Arc::new(RedfishBmc::with_custom_headers(
             client,
             bmc_url,
@@ -342,6 +401,7 @@ mod tests {
             proxy_address: Arc::new(None),
             bmc_address: "127.0.0.1:443".parse().unwrap(),
             credentials: BmcCredentials::new("root".to_string(), "password".to_string()),
+            pinned_vendor: None,
         };
         let mut cache = ServiceRootCache {
             expirations: BinaryHeap::from([Reverse(CacheExpiration {

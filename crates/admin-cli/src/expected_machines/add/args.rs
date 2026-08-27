@@ -200,6 +200,13 @@ pub(crate) struct Args {
         help = "If true, do not lock down the server as part of lifecycle management within the state machine. If unset or false, preserve the default behavior of locking down the server after configuring the BIOS."
     )]
     disable_lockdown: Option<bool>,
+
+    #[clap(
+        long = "bmc-vendor-override",
+        value_name = "BMC_VENDOR_OVERRIDE",
+        help = "Pin the Redfish BMC vendor for this host. Once set it governs how NICo talks to this BMC. It picks which libredfish driver each Redfish client dispatches on, the vendor nv-redfish classifies the host by, the vendor recorded by Site Explorer, and therefore the firmware config lookup, the IPMI-vs-Redfish restart choice and the BMC console transport. The host's own DMI data is untouched, though where NICo would pick a Redfish client from that DMI vendor the pin outranks it. A RedfishVendor variant name, case-sensitive (e.g. Dell, Supermicro, NvidiaDpu, Hpe, Lenovo). Unset means automatic detection. Only the vendor is asserted, and everything else the BMC reports is left alone, so each library classifies the host the way it normally would for that vendor. Because the pin replaces detection rather than supplementing it, a wrong value can fail exploration outright instead of being ignored, and the failure is reported as the host's last exploration error. It also selects which Redfish account change NICo issues when it changes this BMC's password on the initial factory bootstrap, on the site-wide rotation schedule, when restoring credentials after a factory reset, and for bmc-machine set-root-password. A wrong pin can therefore send the wrong account change to a factory BMC. Only that choice is pinned. The clients that probe a BMC, that bootstrap it from the factory, and that carry the password change itself are still built with no vendor at all, since they must reach a BMC before any vendor is usable. bmc-machine probe-vendor is unaffected and keeps reporting what the BMC says about itself. A pin asserts a vendor rather than a platform, so it also brings that vendor's behavior, including how BMC user accounts are created and deleted and which vendor workarounds apply. Because only the vendor field is asserted, a pin naming a sub-variant such as NvidiaGH200, VeraRubin, NvidiaDpu or a power shelf still needs the product and Redfish version the BMC reports to agree, and where they do not the host can end up classified as nothing rather than as the pinned platform."
+    )]
+    bmc_vendor_override: Option<String>,
 }
 
 impl Args {
@@ -258,6 +265,7 @@ impl TryFrom<Args> for rpc::forge::ExpectedMachine {
                     disable_lockdown: Some(dl),
                 }
             }),
+            bmc_vendor_override: value.bmc_vendor_override,
         })
     }
 }

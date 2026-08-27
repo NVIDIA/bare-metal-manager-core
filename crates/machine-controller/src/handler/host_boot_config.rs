@@ -478,7 +478,7 @@ mod tests {
 
     use carbide_health_metrics::PerObjectMetricsRegistry;
     use carbide_redfish::libredfish::test_support::{RedfishSim, RedfishSimBootInterfaceRef};
-    use carbide_redfish::libredfish::{RedfishAuth, RedfishClientPool};
+    use carbide_redfish::libredfish::{RedfishAuth, RedfishClientPool, VendorSelection};
     use carbide_secrets::test_support::credentials::TestCredentialManager;
     use carbide_test_support::value_scenarios;
     use model::machine_boot_interface::MachineBootInterface;
@@ -531,7 +531,12 @@ mod tests {
 
         let redfish_sim = Arc::new(RedfishSim::default());
         let redfish_client = redfish_sim
-            .create_client(REDFISH_HOST, None, RedfishAuth::Anonymous, None)
+            .create_client(
+                REDFISH_HOST,
+                None,
+                RedfishAuth::Anonymous,
+                VendorSelection::Detect,
+            )
             .await
             .unwrap();
         redfish_sim.set_machine_setup_bios_job_id(Some("bios-job".to_string()));

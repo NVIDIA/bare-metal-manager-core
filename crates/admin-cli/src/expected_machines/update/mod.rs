@@ -82,6 +82,7 @@ impl Run for Args {
                     }
                 }),
                 interfaces,
+                expected_machine.bmc_vendor_override,
             )
             .await?;
         Ok(())

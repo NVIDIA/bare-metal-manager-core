@@ -30,7 +30,11 @@ use libredfish::model::service_root::RedfishVendor;
 use libredfish::{Endpoint, Redfish};
 
 use crate::libredfish::instrumented::{InstrumentedRedfish, REDFISH_BACKEND};
-use crate::libredfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
+use crate::libredfish::vendor_selection::ClientMode;
+use crate::libredfish::{
+    BmcVendorOverrideResolver, RedfishAuth, RedfishClientCreationError, RedfishClientPool,
+    VendorSelection,
+};
 
 /// Formats a host for the URL authority that `libredfish` constructs internally.
 ///
@@ -49,6 +53,7 @@ pub(super) struct RedfishClientPoolImpl {
     pool: libredfish::RedfishClientPool,
     credential_reader: Arc<dyn CredentialReader>,
     proxy_address: Arc<ArcSwap<Option<HostPortPair>>>,
+    vendor_override_resolver: Arc<dyn BmcVendorOverrideResolver>,
 }
 
 impl RedfishClientPoolImpl {
@@ -56,11 +61,31 @@ impl RedfishClientPoolImpl {
         credential_reader: Arc<dyn CredentialReader>,
         pool: libredfish::RedfishClientPool,
         proxy_address: Arc<ArcSwap<Option<HostPortPair>>>,
+        vendor_override_resolver: Arc<dyn BmcVendorOverrideResolver>,
     ) -> Self {
         RedfishClientPoolImpl {
             credential_reader,
             pool,
             proxy_address,
+            vendor_override_resolver,
+        }
+    }
+
+    /// The operator pinned vendor for `host`, or `None` for detection.
+    /// The single place a resolver failure is handled, and it cannot fail hard.
+    async fn pinned_vendor(&self, host: &str) -> Option<RedfishVendor> {
+        match self.vendor_override_resolver.vendor_override(host).await {
+            Ok(vendor) => vendor,
+            Err(error) => {
+                // Warn, matching the `nv_redfish` pool. Every BMC client is built
+                // through here, so a quieter line would hide a resolver outage.
+                tracing::warn!(
+                    bmc = %host,
+                    %error,
+                    "Failed to resolve bmc_vendor_override, using automatic detection"
+                );
+                None
+            }
         }
     }
 }
@@ -72,7 +97,7 @@ impl RedfishClientPool for RedfishClientPoolImpl {
         host: &str,
         port: Option<u16>,
         auth: RedfishAuth,
-        vendor: Option<RedfishVendor>,
+        vendor: VendorSelection,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
         let original_host = host;
 
@@ -134,11 +159,18 @@ impl RedfishClientPool for RedfishClientPoolImpl {
             Vec::default()
         };
 
+        // Resolve the operator pin only for the modes it can apply to. The
+        // uninitialized mode returns first, as a vendor breaks factory bootstrap.
+        let mode = match vendor {
+            VendorSelection::Uninitialized => ClientMode::Uninitialized,
+            selection => selection.resolve(self.pinned_vendor(original_host).await),
+        };
+
         // The initializing paths below make HTTP calls of their own, so they
         // are metered like any other Redfish operation.
-        let client = match vendor {
+        let client = match mode {
             // Auto-detect vendor from the service root.
-            None => red::instrumented(
+            ClientMode::Detect => red::instrumented(
                 REDFISH_BACKEND,
                 "create_client",
                 self.pool
@@ -146,20 +178,14 @@ impl RedfishClientPool for RedfishClientPoolImpl {
             )
             .await
             .map_err(RedfishClientCreationError::RedfishError)?,
-            // Unknown means "no vendor" — return a standard client without
-            // making any HTTP calls (used by the anonymous probe client).
-            // This restores the behavior of the old `initialize: false` path
-            // which called create_standard_client. The full initialization
-            // path (create_client_with_vendor) makes HTTP calls to /Systems,
-            // /Managers, etc. that fail with 401 on BMCs requiring auth.
-            // With no I/O here, there is no external call to meter either.
-            Some(RedfishVendor::Unknown) => self
+            // No vendor, so return a standard client making no HTTP calls, as the
+            // anonymous probe needs. /Systems answers 401 where auth is required.
+            ClientMode::Uninitialized => self
                 .pool
                 .create_standard_client_with_custom_headers(endpoint, custom_headers)
                 .map_err(RedfishClientCreationError::RedfishError)
                 .map(|c| c as Box<dyn Redfish>)?,
-            // Use the provided vendor directly.
-            Some(vendor) => red::instrumented(
+            ClientMode::Vendor(vendor) => red::instrumented(
                 REDFISH_BACKEND,
                 "create_client",
                 self.pool
@@ -176,6 +202,10 @@ impl RedfishClientPool for RedfishClientPoolImpl {
 
     fn credential_reader(&self) -> &dyn CredentialReader {
         &*self.credential_reader
+    }
+
+    async fn pinned_bmc_vendor(&self, host: &str) -> Option<RedfishVendor> {
+        self.pinned_vendor(host).await
     }
 }
 

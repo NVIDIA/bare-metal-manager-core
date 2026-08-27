@@ -6586,6 +6586,11 @@ message ExpectedMachine {
   // host_nics, including `[]`; older clients leave it false so an unknown
   // nested HostBmc is not removed by a read-modify-write.
   bool replace_host_nics = 19;
+  // Operator pinned Redfish BMC vendor, a `RedfishVendor` name such as "Dell",
+  // forced into libredfish. Unset keeps whatever the stored row holds, so a
+  // client predating this field cannot clear a pin. Empty clears it, which
+  // returns the host to automatic detection.
+  optional string bmc_vendor_override = 20;
 
   // WARNING: Following fields are not present in Core, but added directly in REST snapshot
   optional string name = 21;

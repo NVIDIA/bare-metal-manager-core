@@ -196,12 +196,85 @@ impl IntoModel<Evidence> for libredfish::model::component_integrity::Evidence {
     }
 }
 
+/// Parse a vendor name via libredfish's own `Deserialize` impl, so NICo keeps
+/// no vendor list. Returns `None` when the name matches no variant.
+pub fn redfish_vendor_from_str(
+    name: &str,
+) -> Option<libredfish::model::service_root::RedfishVendor> {
+    use serde::Deserialize;
+    let de = serde::de::value::StrDeserializer::<serde::de::value::Error>::new(name);
+    libredfish::model::service_root::RedfishVendor::deserialize(de).ok()
+}
+
+/// Resolve an operator stored override string into a forced `RedfishVendor`.
+/// Absent, empty, unmatched, or `Unknown` all mean no override.
+pub fn redfish_vendor_override(
+    host: &str,
+    raw: Option<&str>,
+) -> Option<libredfish::model::service_root::RedfishVendor> {
+    use libredfish::model::service_root::RedfishVendor;
+
+    let name = raw.filter(|s| !s.is_empty())?;
+    let vendor = redfish_vendor_from_str(name).filter(|vendor| *vendor != RedfishVendor::Unknown);
+    if vendor.is_none() {
+        tracing::warn!(
+            bmc = %host,
+            bmc_vendor_override = %name,
+            "bmc_vendor_override matches no usable Redfish vendor, using automatic detection"
+        );
+    }
+    vendor
+}
+
 #[cfg(test)]
 mod tests {
     use carbide_test_support::value_scenarios;
     use libredfish::model::service_root::RedfishVendor;
 
     use super::*;
+
+    #[test]
+    fn parses_known_variant_names() {
+        assert_eq!(redfish_vendor_from_str("Dell"), Some(RedfishVendor::Dell));
+        assert_eq!(
+            redfish_vendor_from_str("NvidiaDpu"),
+            Some(RedfishVendor::NvidiaDpu)
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_or_miscased_names() {
+        assert_eq!(redfish_vendor_from_str("dell"), None);
+        assert_eq!(redfish_vendor_from_str("NotARealVendor"), None);
+        assert_eq!(redfish_vendor_from_str(""), None);
+    }
+
+    #[test]
+    fn override_helper_handles_empty_and_unmatched() {
+        assert_eq!(redfish_vendor_override("bmc", None), None);
+        assert_eq!(redfish_vendor_override("bmc", Some("")), None);
+        assert_eq!(
+            redfish_vendor_override("bmc", Some("Dell")),
+            Some(RedfishVendor::Dell)
+        );
+        assert_eq!(redfish_vendor_override("bmc", Some("bogus")), None);
+    }
+
+    /// `Unknown` parses, but it is the pool sentinel for an uninitialized client
+    /// rather than a pinnable vendor, so the resolver drops it for detection.
+    #[test]
+    fn override_helper_rejects_unknown_sentinel() {
+        assert_eq!(
+            redfish_vendor_from_str("Unknown"),
+            Some(RedfishVendor::Unknown),
+            "the parser reports whichever variant the name matched"
+        );
+        assert_eq!(
+            redfish_vendor_override("bmc", Some("Unknown")),
+            None,
+            "the override resolver falls back to automatic detection"
+        );
+    }
 
     #[test]
     fn redfish_vendors_map_to_bmc_vendors() {

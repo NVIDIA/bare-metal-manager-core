@@ -36900,6 +36900,11 @@ type ExpectedMachine struct {
 	// host_nics, including `[]`; older clients leave it false so an unknown
 	// nested HostBmc is not removed by a read-modify-write.
 	ReplaceHostNics bool `protobuf:"varint,19,opt,name=replace_host_nics,json=replaceHostNics,proto3" json:"replace_host_nics,omitempty"`
+	// Operator pinned Redfish BMC vendor, a `RedfishVendor` name such as "Dell",
+	// forced into libredfish. Unset keeps whatever the stored row holds, so a
+	// client predating this field cannot clear a pin. Empty clears it, which
+	// returns the host to automatic detection.
+	BmcVendorOverride *string `protobuf:"bytes,20,opt,name=bmc_vendor_override,json=bmcVendorOverride,proto3,oneof" json:"bmc_vendor_override,omitempty"`
 	// WARNING: Following fields are not present in Core, but added directly in REST snapshot
 	Name            *string `protobuf:"bytes,21,opt,name=name,proto3,oneof" json:"name,omitempty"`
 	Manufacturer    *string `protobuf:"bytes,22,opt,name=manufacturer,proto3,oneof" json:"manufacturer,omitempty"`
@@ -37075,6 +37080,13 @@ func (x *ExpectedMachine) GetReplaceHostNics() bool {
 		return x.ReplaceHostNics
 	}
 	return false
+}
+
+func (x *ExpectedMachine) GetBmcVendorOverride() string {
+	if x != nil && x.BmcVendorOverride != nil {
+		return *x.BmcVendorOverride
+	}
+	return ""
 }
 
 func (x *ExpectedMachine) GetName() string {
@@ -67667,7 +67679,7 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x0e_ip_allocation\"[\n" +
 	"\x14HostLifecycleProfile\x12.\n" +
 	"\x10disable_lockdown\x18\x01 \x01(\bH\x00R\x0fdisableLockdown\x88\x01\x01B\x13\n" +
-	"\x11_disable_lockdown\"\x8e\f\n" +
+	"\x11_disable_lockdown\"\xdb\f\n" +
 	"\x0fExpectedMachine\x12&\n" +
 	"\x0fbmc_mac_address\x18\x01 \x01(\tR\rbmcMacAddress\x12!\n" +
 	"\fbmc_username\x18\x02 \x01(\tR\vbmcUsername\x12!\n" +
@@ -67689,16 +67701,17 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\bdpu_mode\x18\x10 \x01(\x0e2\x0e.forge.DpuModeH\aR\adpuMode\x88\x01\x01\x12V\n" +
 	"\x16host_lifecycle_profile\x18\x11 \x01(\v2\x1b.forge.HostLifecycleProfileH\bR\x14hostLifecycleProfile\x88\x01\x01\x12K\n" +
 	"\x11bmc_ip_allocation\x18\x12 \x01(\x0e2\x1a.forge.BmcIpAllocationTypeH\tR\x0fbmcIpAllocation\x88\x01\x01\x12*\n" +
-	"\x11replace_host_nics\x18\x13 \x01(\bR\x0freplaceHostNics\x12\x17\n" +
-	"\x04name\x18\x15 \x01(\tH\n" +
-	"R\x04name\x88\x01\x01\x12'\n" +
-	"\fmanufacturer\x18\x16 \x01(\tH\vR\fmanufacturer\x88\x01\x01\x12\x19\n" +
-	"\x05model\x18\x17 \x01(\tH\fR\x05model\x88\x01\x01\x12%\n" +
-	"\vdescription\x18\x18 \x01(\tH\rR\vdescription\x88\x01\x01\x12.\n" +
-	"\x10firmware_version\x18\x19 \x01(\tH\x0eR\x0ffirmwareVersion\x88\x01\x01\x12\x1c\n" +
-	"\aslot_id\x18\x1a \x01(\x05H\x0fR\x06slotId\x88\x01\x01\x12\x1e\n" +
-	"\btray_idx\x18\x1b \x01(\x05H\x10R\atrayIdx\x88\x01\x01\x12\x1c\n" +
-	"\ahost_id\x18\x1c \x01(\x05H\x11R\x06hostId\x88\x01\x01B\t\n" +
+	"\x11replace_host_nics\x18\x13 \x01(\bR\x0freplaceHostNics\x123\n" +
+	"\x13bmc_vendor_override\x18\x14 \x01(\tH\n" +
+	"R\x11bmcVendorOverride\x88\x01\x01\x12\x17\n" +
+	"\x04name\x18\x15 \x01(\tH\vR\x04name\x88\x01\x01\x12'\n" +
+	"\fmanufacturer\x18\x16 \x01(\tH\fR\fmanufacturer\x88\x01\x01\x12\x19\n" +
+	"\x05model\x18\x17 \x01(\tH\rR\x05model\x88\x01\x01\x12%\n" +
+	"\vdescription\x18\x18 \x01(\tH\x0eR\vdescription\x88\x01\x01\x12.\n" +
+	"\x10firmware_version\x18\x19 \x01(\tH\x0fR\x0ffirmwareVersion\x88\x01\x01\x12\x1c\n" +
+	"\aslot_id\x18\x1a \x01(\x05H\x10R\x06slotId\x88\x01\x01\x12\x1e\n" +
+	"\btray_idx\x18\x1b \x01(\x05H\x11R\atrayIdx\x88\x01\x01\x12\x1c\n" +
+	"\ahost_id\x18\x1c \x01(\x05H\x12R\x06hostId\x88\x01\x01B\t\n" +
 	"\a_sku_idB\x05\n" +
 	"\x03_idB\n" +
 	"\n" +
@@ -67709,7 +67722,8 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x17_bmc_retain_credentialsB\v\n" +
 	"\t_dpu_modeB\x19\n" +
 	"\x17_host_lifecycle_profileB\x14\n" +
-	"\x12_bmc_ip_allocationB\a\n" +
+	"\x12_bmc_ip_allocationB\x16\n" +
+	"\x14_bmc_vendor_overrideB\a\n" +
 	"\x05_nameB\x0f\n" +
 	"\r_manufacturerB\b\n" +
 	"\x06_modelB\x0e\n" +

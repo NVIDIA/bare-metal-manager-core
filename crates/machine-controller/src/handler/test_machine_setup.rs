@@ -18,7 +18,7 @@
 use std::collections::HashMap;
 
 use carbide_redfish::libredfish::test_support::{RedfishSim, RedfishSimAction};
-use carbide_redfish::libredfish::{RedfishAuth, RedfishClientPool};
+use carbide_redfish::libredfish::{RedfishAuth, RedfishClientPool, VendorSelection};
 use carbide_secrets::credentials::{CredentialKey, CredentialType};
 use libredfish::BiosProfileType;
 use libredfish::model::service_root::RedfishVendor;
@@ -57,7 +57,7 @@ async fn test_oem_manager_profiles_passed_to_machine_setup() {
             RedfishAuth::Key(CredentialKey::HostRedfish {
                 credential_type: CredentialType::SiteDefault,
             }),
-            None,
+            VendorSelection::Detect,
         )
         .await
         .unwrap();

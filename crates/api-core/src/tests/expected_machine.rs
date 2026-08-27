@@ -736,6 +736,7 @@ async fn test_add_expected_machine_dpu_serials(pool: sqlx::PgPool) {
         bmc_ip_allocation: None,
         replace_host_nics: false,
         host_lifecycle_profile: None,
+        bmc_vendor_override: None,
         #[allow(deprecated)]
         dpf_enabled: true,
     };

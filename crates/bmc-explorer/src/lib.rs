@@ -414,6 +414,8 @@ async fn build_delta_powershelf_report<B: Bmc>(
     })
 }
 
+/// Refine a pinned platform with facts only the explored hardware can supply.
+/// The pin selects the family and the hardware selects the variant.
 pub(crate) fn hw_type<B: Bmc>(
     root: &nv_redfish::ServiceRoot<B>,
     explored_system: &ExploredComputerSystem<B>,

@@ -434,6 +434,8 @@ pub async fn lookup_bmc_access_info(
     ip: IpAddr,
     port: Option<u16>,
 ) -> DatabaseResult<BmcAccessInfo> {
+    // The operator vendor pin is deliberately not read here. It resolves inside
+    // `create_client`, so a copy here would be a second source of truth.
     let mac_address = find_by_ip(db, ip)
         .await?
         .ok_or_else(|| DatabaseError::NotFoundError {
@@ -446,6 +448,32 @@ pub async fn lookup_bmc_access_info(
         port,
         mac_address,
     })
+}
+
+/// Resolve the operator pinned Redfish vendor for the BMC reachable at `ip`.
+/// Bridges the MAC keyed pin to a BMC address. No pin is normal, not an error.
+pub async fn find_bmc_vendor_override_by_ip(
+    db: impl DbReader<'_>,
+    ip: IpAddr,
+) -> DatabaseResult<Option<String>> {
+    let query = r"SELECT em.bmc_vendor_override
+        FROM machine_interface_addresses mia
+        INNER JOIN machine_interfaces mi ON mi.id = mia.interface_id
+        INNER JOIN expected_machines em ON em.bmc_mac_address = mi.mac_address
+        WHERE mia.address = $1::inet
+          AND mi.interface_type = 'Bmc'
+          AND em.bmc_vendor_override IS NOT NULL
+        -- One address should reach one BMC, but a stale or duplicated interface
+        -- row can make several match. Order so the answer cannot flip between
+        -- calls and leave a BMC dispatching on a different vendor each time.
+        ORDER BY em.bmc_mac_address
+        LIMIT 1";
+    sqlx::query_scalar(query)
+        .bind(ip)
+        .fetch_optional(db)
+        .await
+        .map(Option::flatten)
+        .map_err(|e| DatabaseError::query(query, e))
 }
 
 pub async fn find_by_ip(

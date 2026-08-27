@@ -1255,6 +1255,7 @@ dependencies = [
  "librms",
  "mac_address",
  "mockito",
+ "moka",
  "mqttea",
  "nras",
  "num_cpus",

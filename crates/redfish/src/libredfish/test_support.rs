@@ -43,7 +43,10 @@ use libredfish::{
 };
 use mac_address::MacAddress;
 
-use crate::libredfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
+use crate::libredfish::vendor_selection::ClientMode;
+use crate::libredfish::{
+    RedfishAuth, RedfishClientCreationError, RedfishClientPool, VendorSelection,
+};
 
 const TRIGGER_EVIDENCE_TASK_ID: &str = "SpdmTriggerEvidenceTaskId";
 
@@ -73,6 +76,9 @@ struct RedfishSimState {
     /// Records every call to `RedfishClientPool::create_client` so tests can
     /// assert what vendor was passed at each call site.
     create_client_calls: Vec<CreateClientCall>,
+    /// Operator pinned vendors by BMC host, standing in for the stored value.
+    /// Empty by default, so seed it to assert a pin reaches a given call site.
+    vendor_overrides: HashMap<String, RedfishVendor>,
     /// When set, `change_password` fails with
     /// [`RedfishError::PasswordChangeRequired`] to model a factory BMC (e.g.
     /// Viking) that refuses the by-username change until the initial
@@ -146,6 +152,11 @@ fn sim_http_error(status: http::StatusCode, url: &str, body: &str) -> RedfishErr
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateClientCall {
     pub host: String,
+    /// What the call site asked for, before any pin was applied. Assert on this
+    /// to prove a probe path stayed uninitialized.
+    pub selection: VendorSelection,
+    /// The vendor the client was built with, after the pin was applied. `None`
+    /// means detection. Assert on this to prove a pin took effect.
     pub vendor: Option<RedfishVendor>,
 }
 
@@ -443,6 +454,16 @@ impl RedfishSim {
     /// drive model-specific behavior such as DPU factory credential selection.
     pub fn set_service_root_product(&self, product: Option<String>) {
         self.state.lock().unwrap().service_root_product = product;
+    }
+
+    /// Pin an operator vendor for `host`, standing in for the stored value.
+    /// `host` must match what the call site passes, the BMC IP without its port.
+    pub fn set_vendor_override(&self, host: &str, vendor: RedfishVendor) {
+        self.state
+            .lock()
+            .unwrap()
+            .vendor_overrides
+            .insert(host.to_string(), vendor);
     }
 
     /// Override the `Manufacturer` reported by `get_chassis`, so tests can
@@ -2431,13 +2452,24 @@ impl RedfishClientPool for RedfishSim {
         host: &str,
         port: Option<u16>,
         auth: RedfishAuth,
-        vendor: Option<RedfishVendor>,
+        vendor: VendorSelection,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
         {
             let mut state = self.state.lock().unwrap();
+            // Apply the seeded pin as the production pool does, so a test
+            // asserting on `vendor` sees what a real client would dispatch on.
+            let pin = state.vendor_overrides.get(host).copied();
+            let applied = match vendor.resolve(pin) {
+                ClientMode::Detect => None,
+                ClientMode::Vendor(vendor) => Some(vendor),
+                // Recorded as `Unknown` to match how this mode was spelled
+                // before `VendorSelection`, which the rotation assertions read.
+                ClientMode::Uninitialized => Some(RedfishVendor::Unknown),
+            };
             state.create_client_calls.push(CreateClientCall {
                 host: host.to_string(),
-                vendor,
+                selection: vendor,
+                vendor: applied,
             });
             let default_lockdown = state.default_lockdown.unwrap_or(EnabledDisabled::Disabled);
             state
@@ -2461,6 +2493,15 @@ impl RedfishClientPool for RedfishSim {
 
     fn credential_reader(&self) -> &dyn CredentialReader {
         &self.credential_manager
+    }
+
+    async fn pinned_bmc_vendor(&self, host: &str) -> Option<RedfishVendor> {
+        self.state
+            .lock()
+            .unwrap()
+            .vendor_overrides
+            .get(host)
+            .copied()
     }
 
     async fn uefi_setup(

@@ -1388,3 +1388,136 @@ async fn test_expected_interface_role_controls_observed_interface_creation(
 
     Ok(())
 }
+
+/// The pin is keyed by BMC MAC while consumers hold a BMC address, so this query
+/// bridges the two. A broken join would silence every pin and fail no other test.
+#[crate::sqlx_test]
+async fn find_bmc_vendor_override_by_ip_bridges_mac_keyed_pin_to_bmc_address(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let segment = create_test_segment(&pool, "bmc-vendor-override-segment").await?;
+
+    // Mac, ip, hostname and the pin, where `None` means no expected machine row.
+    let fixtures: [(MacAddress, IpAddr, &str, Option<&str>); 5] = [
+        (
+            "7A:7B:7C:7D:7E:51".parse()?,
+            "192.0.2.51".parse()?,
+            "pinned",
+            Some("Dell"),
+        ),
+        (
+            "7A:7B:7C:7D:7E:52".parse()?,
+            "192.0.2.52".parse()?,
+            "no-machine",
+            None,
+        ),
+        (
+            "7A:7B:7C:7D:7E:53".parse()?,
+            "192.0.2.53".parse()?,
+            "null-pin",
+            Some(""),
+        ),
+        (
+            "7A:7B:7C:7D:7E:54".parse()?,
+            "192.0.2.54".parse()?,
+            "bogus-pin",
+            Some("NotAVendor"),
+        ),
+        (
+            "7A:7B:7C:7D:7E:55".parse()?,
+            "2001:db8::55".parse()?,
+            "v6-pinned",
+            Some("NvidiaDpu"),
+        ),
+    ];
+
+    let mut txn = db::Transaction::begin(&pool).await?;
+    for (index, (mac, ip, hostname, pin)) in fixtures.iter().enumerate() {
+        let interface_id: uuid::Uuid = sqlx::query_scalar(
+            "INSERT INTO machine_interfaces
+                 (segment_id, mac_address, primary_interface, hostname, interface_type)
+             VALUES ($1, $2, false, $3, 'Bmc') RETURNING id",
+        )
+        .bind(segment)
+        .bind(mac)
+        .bind(hostname)
+        .fetch_one(txn.as_pgconn())
+        .await?;
+
+        sqlx::query(
+            "INSERT INTO machine_interface_addresses (interface_id, address) VALUES ($1, $2::inet)",
+        )
+        .bind(interface_id)
+        .bind(ip)
+        .execute(txn.as_pgconn())
+        .await?;
+
+        if let Some(pin) = pin {
+            // An empty string stores as SQL NULL, covering the unset shape too.
+            sqlx::query(
+                "INSERT INTO expected_machines
+                    (serial_number, bmc_mac_address, bmc_username, bmc_password, bmc_vendor_override)
+                 VALUES ($1, $2, 'root', 'pass', NULLIF($3, ''))",
+            )
+            .bind(format!("VVG121G{index}"))
+            .bind(mac)
+            .bind(pin)
+            .execute(txn.as_pgconn())
+            .await?;
+        }
+    }
+
+    for (_, ip, hostname, expected) in fixtures.iter() {
+        // The query hands back the raw string. Parsing and rejecting unusable
+        // names happens a layer up, so a bogus name survives this one intact.
+        let expected = expected.filter(|pin| !pin.is_empty()).map(str::to_string);
+        assert_eq!(
+            find_bmc_vendor_override_by_ip(txn.as_pgconn(), *ip).await?,
+            expected,
+            "pin lookup for {hostname} at {ip}"
+        );
+    }
+
+    // An address with no interface row at all has no pin, and is not an error.
+    assert_eq!(
+        find_bmc_vendor_override_by_ip(txn.as_pgconn(), "192.0.2.99".parse()?).await?,
+        None,
+        "an unknown BMC address simply has no pin"
+    );
+
+    // A pin belongs to a BMC, so a data interface sharing an expected machine MAC
+    // must not hand its pin to whatever else answers on that address.
+    let data_mac: MacAddress = "7A:7B:7C:7D:7E:56".parse()?;
+    let data_ip: IpAddr = "192.0.2.56".parse()?;
+    let data_interface: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO machine_interfaces
+             (segment_id, mac_address, primary_interface, hostname, interface_type)
+         VALUES ($1, $2, false, 'data-nic', 'Data') RETURNING id",
+    )
+    .bind(segment)
+    .bind(data_mac)
+    .fetch_one(txn.as_pgconn())
+    .await?;
+    sqlx::query(
+        "INSERT INTO machine_interface_addresses (interface_id, address) VALUES ($1, $2::inet)",
+    )
+    .bind(data_interface)
+    .bind(data_ip)
+    .execute(txn.as_pgconn())
+    .await?;
+    sqlx::query(
+        "INSERT INTO expected_machines
+            (serial_number, bmc_mac_address, bmc_username, bmc_password, bmc_vendor_override)
+         VALUES ('VVG121GZ', $1, 'root', 'pass', 'Dell')",
+    )
+    .bind(data_mac)
+    .execute(txn.as_pgconn())
+    .await?;
+    assert_eq!(
+        find_bmc_vendor_override_by_ip(txn.as_pgconn(), data_ip).await?,
+        None,
+        "a non BMC interface must never resolve a pin"
+    );
+
+    Ok(())
+}

@@ -57,6 +57,7 @@ impl Run for Args {
                         disable_lockdown: Some(dl),
                     }),
                 self.interfaces,
+                self.bmc_vendor_override,
             )
             .await?;
         Ok(())
