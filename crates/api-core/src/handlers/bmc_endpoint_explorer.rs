@@ -1073,6 +1073,7 @@ pub(crate) async fn admin_gpu_reset(
     let chassis_id = req
         .chassis_id
         .none_if_empty()
+        // xtask:allow-error-case: HGX_Chassis_0 is a case-sensitive Redfish chassis id
         .ok_or_else(|| Status::invalid_argument("chassis_id is required (e.g. \"HGX_Chassis_0\")"))?;
 
     let mut txn = api.txn_begin().await?;
