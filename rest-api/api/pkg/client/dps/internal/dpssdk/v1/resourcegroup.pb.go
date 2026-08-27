@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 //*
 // Resource Groups manage power policies for temporary workload allocations on datacenter hardware.
 // They provide ephemeral power management that overrides topology defaults during job execution.

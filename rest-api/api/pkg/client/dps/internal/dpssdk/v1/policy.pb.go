@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 //*
 // Policy specifies the power policies for devices. Policies are defined within a topology with unique names
 // describing the power min-max values.

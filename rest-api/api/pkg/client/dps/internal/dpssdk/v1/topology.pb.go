@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 //*
 // Topology defines the entities in a data center (PDUs, PSUs, nodes, etc.)
 // and how they are connected.
