@@ -103,6 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let app_state = AppState {
         engine: Engine::from(tera),
+        static_dir: opts.static_dir.clone(),
         runtime_config,
         prometheus_handle,
         otel_registry: otel_metrics.registry.clone(),

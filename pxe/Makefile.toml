@@ -1333,7 +1333,7 @@ script = '''
     set -e
     dhclient oob_net0
     cd /mnt/tmp/
-    curl http://carbide-pxe.forge/api/v0/cloud-init/user-data -o user_data.sh
+    curl http://carbide-pxe.forge/api/v0/cloud-init/dpu/user-data -o user_data.sh
     sed -i '/ZOF/d' user_data.sh
     source user_data.sh
     carbide_modify_os

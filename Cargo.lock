@@ -2814,6 +2814,7 @@ dependencies = [
  "metrics-endpoint",
  "metrics-exporter-prometheus",
  "mime",
+ "opentelemetry 0.32.0",
  "pin-project-lite",
  "prometheus",
  "rand 0.10.1",

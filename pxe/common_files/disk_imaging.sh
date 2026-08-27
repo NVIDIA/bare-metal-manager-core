@@ -818,7 +818,7 @@ function main() {
 		if [ ! -z "$line" ]; then
 			distro_release=$(echo $line|cut -d'=' -f2)
 		fi
-		line=$(echo $i|grep 'ds=nocloud-net;s')
+		line=$(echo $i|grep 'ds=nocloud')
 		if [ ! -z "$line" ]; then
 			cloud_init_url=$(echo $line|cut -d'=' -f3)
 		fi

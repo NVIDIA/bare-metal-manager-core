@@ -28,7 +28,7 @@ use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::metrics::ApiMetricsEmitter;
-use crate::api::{Api, log_request_data};
+use crate::api::{Api, log_machine_id, log_request_data};
 use crate::compat::BuildAndFillLegacyFields;
 use crate::handlers::utils::{StateHandlerWakeupFailed, WakeupTrigger, convert_and_log_machine_id};
 
@@ -142,7 +142,18 @@ pub(crate) fn report_forge_scout_error(
     request: Request<rpc::ForgeScoutErrorReport>,
 ) -> Result<Response<rpc::ForgeScoutErrorReportResult>, Status> {
     log_request_data(&request);
-    let _machine_id = convert_and_log_machine_id(request.into_inner().machine_id.as_ref())?;
+
+    // The machine ID is optional here, deliberately, and must stay that way.
+    // This RPC exists to report failures that happen *before* discovery
+    // completes -- a DPU whose kickstart died, a host whose cloud-init did not
+    // apply -- when the caller can identify itself only by machine interface.
+    // forge-scout has always sent `machine_id: None` on this path for exactly
+    // that reason, so demanding one rejected every such report with
+    // InvalidArgument("machine ID") while the value was only ever used to tag
+    // the log line. Log it when it is there; accept the report when it is not.
+    if let Some(machine_id) = request.into_inner().machine_id.as_ref() {
+        log_machine_id(machine_id);
+    }
 
     // `log_request_data` will already provide us the error message
     // Therefore we don't have to do anything else

@@ -70,6 +70,32 @@ static IN_QEMU_VM: Lazy<RwLock<DevEnv>> = Lazy::new(|| RwLock::new(DevEnv { in_q
 const POLL_INTERVAL: Duration = Duration::from_secs(60);
 const REBOOT_COMPLETED_PATH: &str = "/tmp/reboot_completed";
 const MAX_FIRMWARE_UPGRADE_STATUS_FIELD_SIZE: usize = 1500;
+const CLOUD_INIT_OUTPUT_LOG: &str = "/var/log/cloud-init-output.log";
+
+/// The one `cloud-init status` value that means the boot's customization
+/// completed with nothing wrong.
+const CLOUD_INIT_STATUS_CLEAN: &str = "done";
+
+/// `cloud-init status` values that are recognized and mean customization did
+/// not complete cleanly. Kept explicit so an unrecognized value can be told
+/// apart from these and treated as unknown instead of as a failure: cloud-init
+/// publishes no stability guarantee for this output, and the version shipped
+/// in noble moves underneath us.
+const CLOUD_INIT_STATUS_NOT_CLEAN: &[&str] =
+    &["not run", "not started", "running", "error", "disabled"];
+
+/// How long to let `cloud-init status --wait` block before giving up on it.
+///
+/// This is a backstop, not the time bound on site customization. That bound is
+/// cloud-init's own `TimeoutStartSec`: a stage that hangs is killed by systemd,
+/// and `--wait` returns as soon as the run reaches a terminal state. What this
+/// guards against is `--wait` itself never returning, which would leave the
+/// machine in discovery forever without ever registering -- the one outcome
+/// worse than customization failing. It is therefore set well above any
+/// legitimate cloud-init run rather than tuned to one, and is deliberately not
+/// configurable: the value a site would ever want to change is cloud-init's
+/// unit timeout, which lives in the image.
+const CLOUD_INIT_WAIT_TIMEOUT: Duration = Duration::from_secs(600);
 
 async fn check_if_running_in_qemu() {
     use tokio::process::Command;
@@ -213,6 +239,14 @@ async fn run_as_service(config: &Options) -> Result<(), eyre::Report> {
         }
         None => None,
     };
+
+    // Wait for cloud-init to finish applying this boot's site customization,
+    // then report how it went. This blocks, by design: scout must not describe
+    // a machine that is still being set up. It is deliberately outside the loop
+    // below and ahead of registration -- it describes the boot, it happens
+    // once, and a customization failure must be reported even if registration
+    // then fails.
+    report_cloud_init_outcome(config).await;
 
     // Implement the logic to run as a service here
     let (machine_interface_id, machine_id) = initial_setup(config).await?;
@@ -732,12 +766,25 @@ async fn handle_mlxreport_commands(
     }
 }
 
-// Return the last 1500 bytes of the cloud-init-output.log file as a String
-fn get_log_str() -> eyre::Result<String> {
+// Return the last 1500 bytes of the cloud-init-output.log file as a String.
+//
+// Never fails. An unreadable or empty log is not an error to propagate but the
+// very thing worth reporting -- it says cloud-init was disabled or never ran --
+// so it becomes the message rather than suppressing the report that carries it.
+fn get_log_str() -> String {
+    let text = match std::fs::read_to_string(CLOUD_INIT_OUTPUT_LOG) {
+        Ok(text) => text,
+        Err(error) => {
+            tracing::warn!(
+                path = CLOUD_INIT_OUTPUT_LOG,
+                %error,
+                "could not read the cloud-init output log"
+            );
+            return format!("no {CLOUD_INIT_OUTPUT_LOG} present, did cloud-init run?");
+        }
+    };
+
     let mut ret_str = String::new();
-
-    let text = std::fs::read_to_string("/var/log/cloud-init-output.log")?;
-
     for line in text.lines().rev() {
         let line_str = format!("{line}\n");
         ret_str.insert_str(0, &line_str);
@@ -746,7 +793,180 @@ fn get_log_str() -> eyre::Result<String> {
         }
     }
 
-    Ok(ret_str)
+    if ret_str.is_empty() {
+        return format!("{CLOUD_INIT_OUTPUT_LOG} is present but empty");
+    }
+
+    ret_str
+}
+
+/// How this boot's cloud-init customization went, as far as `cloud-init
+/// status` will say.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CloudInitOutcome {
+    /// cloud-init finished and reported nothing wrong.
+    Clean,
+    /// cloud-init ran and did not finish cleanly, or reports that it never
+    /// started.
+    NotClean,
+    /// `cloud-init` could not be run at all. Kept separate from `NotClean`
+    /// because it is a different fault with a different owner: not a snippet a
+    /// site got wrong, but cloud-init missing from the image that was supposed
+    /// to ship it. Both are reported, so no site customization silently goes
+    /// unapplied, but they should not be diagnosed as the same thing.
+    Unavailable,
+    /// `cloud-init status --wait` did not return within
+    /// [`CLOUD_INIT_WAIT_TIMEOUT`]. Separate again, because it points at
+    /// cloud-init being wedged rather than at a snippet failing, and because it
+    /// is the case where scout gave up waiting rather than cloud-init giving an
+    /// answer.
+    TimedOut,
+    /// cloud-init said something we do not recognize. Deliberately not treated
+    /// as failure: the site's snippets are shared, so misreading one new status
+    /// string would have every machine in discovery report an error at once.
+    Unknown,
+}
+
+/// Classifies `cloud-init status`, consuming only the exit code and the bare
+/// status value -- nothing structured, and none of the fields cloud-init
+/// documents as unstable.
+///
+/// The exit code is primary: 0 success, 1 crashed, 2 recoverable errors. The
+/// status string is the secondary check, and earns its place by catching the
+/// quiet cases -- `disabled` and `not run` both exit 0 while meaning the
+/// snippets never applied.
+fn classify_cloud_init_status(exit_code: Option<i32>, status_output: &str) -> CloudInitOutcome {
+    // `--wait` writes progress dots to stdout while it blocks, so the status
+    // block is not necessarily flush against the start of its line: a real
+    // reply looks like "..status: done". Leading dots are stripped before the
+    // prefix test, and the test stays anchored to the start of what is left so
+    // that "extended_status:" -- which also contains "status:" -- cannot be
+    // mistaken for it.
+    let status = status_output
+        .lines()
+        .find_map(|line| line.trim_start_matches(['.', ' ']).strip_prefix("status:"))
+        .map(str::trim);
+
+    match (exit_code, status) {
+        (Some(0), Some(CLOUD_INIT_STATUS_CLEAN)) => CloudInitOutcome::Clean,
+        (Some(0), Some(status)) if CLOUD_INIT_STATUS_NOT_CLEAN.contains(&status) => {
+            CloudInitOutcome::NotClean
+        }
+        // A non-zero exit is unambiguous whatever the status string says.
+        (Some(code), _) if code != 0 => CloudInitOutcome::NotClean,
+        // Exit 0 with a status we do not know, no status line at all, or a
+        // `cloud-init status` killed by a signal.
+        _ => CloudInitOutcome::Unknown,
+    }
+}
+
+/// Asks cloud-init how this boot's site customization went, logging its full
+/// answer locally.
+///
+/// The verbose output stays on this host by design. A bad snippet is site-wide,
+/// so the same failure fires on every machine in discovery at once; keeping the
+/// detail local and sending only a bounded payload bounds that structurally
+/// rather than by policy.
+async fn get_cloud_init_outcome() -> CloudInitOutcome {
+    use std::process::Stdio;
+
+    use tokio::process::Command;
+
+    // --wait blocks until the run reaches a terminal state, which is what
+    // orders scout after site customization. Doing it here rather than through
+    // a systemd After= is not a stylistic choice: cloud-final.service is
+    // ordered after multi-user.target, so any unit in multi-user that orders
+    // after it forms a cycle systemd breaks by deleting scout's start job.
+    //
+    // kill_on_drop matters: on timeout the future below is dropped, and that
+    // is what reaps the child rather than leaving it blocked forever.
+    let child = Command::new("cloud-init")
+        .args(["status", "--wait", "--long"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn();
+
+    let child = match child {
+        Ok(child) => child,
+        Err(error) => {
+            // cloud-init is part of the Scout image, so failing to run it at
+            // all means customization certainly did not happen.
+            tracing::error!(%error, "could not run cloud-init status");
+            return CloudInitOutcome::Unavailable;
+        }
+    };
+
+    let output = match tokio::time::timeout(CLOUD_INIT_WAIT_TIMEOUT, child.wait_with_output()).await
+    {
+        Ok(Ok(output)) => output,
+        Ok(Err(error)) => {
+            tracing::error!(%error, "cloud-init status did not run to completion");
+            return CloudInitOutcome::Unavailable;
+        }
+        Err(_elapsed) => {
+            tracing::error!(
+                timeout_seconds = CLOUD_INIT_WAIT_TIMEOUT.as_secs(),
+                "cloud-init did not finish within the wait backstop; continuing without it"
+            );
+            return CloudInitOutcome::TimedOut;
+        }
+    };
+
+    let status_output = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    tracing::info!(
+        exit_code = ?output.status.code(),
+        status_output = %status_output.trim(),
+        stderr = %stderr.trim(),
+        "cloud-init status",
+    );
+
+    classify_cloud_init_status(output.status.code(), &status_output)
+}
+
+/// Reports a cloud-init outcome that was not clean, so an ineffective snippet
+/// is visible centrally rather than only on this host's console.
+///
+/// Runs before registration and does not depend on it, because a customization
+/// failure is worth knowing about even when registration then fails too. It
+/// must never fail the boot, so everything here is logged and swallowed.
+async fn report_cloud_init_outcome(config: &Options) {
+    match get_cloud_init_outcome().await {
+        CloudInitOutcome::Clean => {
+            tracing::info!("cloud-init reported a clean boot");
+        }
+        CloudInitOutcome::Unknown => {
+            tracing::warn!(
+                "cloud-init reported a status we do not recognize; treating it as unknown \
+                 rather than as a failure and not reporting it"
+            );
+        }
+        outcome @ (CloudInitOutcome::NotClean
+        | CloudInitOutcome::Unavailable
+        | CloudInitOutcome::TimedOut) => {
+            let detail = match outcome {
+                CloudInitOutcome::Unavailable => {
+                    "cloud-init could not be run at all; this image may not have it installed"
+                }
+                CloudInitOutcome::TimedOut => {
+                    "cloud-init did not finish within the wait backstop and may be wedged"
+                }
+                _ => "cloud-init did not complete cleanly",
+            };
+            let Some(machine_interface_id) = config.machine_interface_id else {
+                tracing::error!(
+                    detail,
+                    "no machine interface ID to report the failure against"
+                );
+                return;
+            };
+            tracing::error!(detail, "reporting the cloud-init failure to the API");
+            if let Err(error) = logerror_to_carbide(config, machine_interface_id).await {
+                tracing::error!(%error, "could not report the cloud-init failure to the API");
+            }
+        }
+    }
 }
 
 // Send error string to carbide api to log, indicating that the cloud-init script failed.
@@ -755,7 +975,7 @@ async fn logerror_to_carbide(
     config: &Options,
     machine_interface_id: uuid::Uuid,
 ) -> eyre::Result<()> {
-    let err_str = get_log_str()?;
+    let err_str = get_log_str();
     let request: tonic::Request<ForgeScoutErrorReport> =
         tonic::Request::new(ForgeScoutErrorReport {
             machine_id: None,
@@ -970,6 +1190,114 @@ fn check_certs_validity(client_cert_path: &str) -> CarbideClientResult<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The contract with cloud-init, spelled out: the exit code decides, the
+    /// status string catches the exit-0 cases that still mean nothing applied,
+    /// and anything unfamiliar is unknown rather than a failure.
+    #[test]
+    fn cloud_init_status_is_classified_conservatively() {
+        struct Case {
+            scenario: &'static str,
+            exit_code: Option<i32>,
+            output: &'static str,
+            expect: CloudInitOutcome,
+        }
+
+        let cases = [
+            Case {
+                scenario: "clean run",
+                exit_code: Some(0),
+                output: "status: done\nextended_status: done\nboot_status_code: enabled-by-kernel-cmdline\n",
+                expect: CloudInitOutcome::Clean,
+            },
+            // Verbatim shape of a real reply: `--wait` prints a dot per poll
+            // before the status block, so the first line does not begin with
+            // "status:". Getting this wrong classified a perfectly clean boot
+            // as unrecognized.
+            Case {
+                scenario: "clean run behind the progress dots --wait prints",
+                exit_code: Some(0),
+                output: "..status: done\nextended_status: done\nboot_status_code: enabled-by-generator\nerrors: []\nrecoverable_errors: {}\n",
+                expect: CloudInitOutcome::Clean,
+            },
+            Case {
+                scenario: "dots on their own line",
+                exit_code: Some(0),
+                output: "....\nstatus: done\n",
+                expect: CloudInitOutcome::Clean,
+            },
+            Case {
+                scenario: "extended_status must never be read as status",
+                exit_code: Some(0),
+                output: "extended_status: degraded done\n",
+                expect: CloudInitOutcome::Unknown,
+            },
+            Case {
+                scenario: "degraded still reads done, and the exit code is what flags it",
+                exit_code: Some(2),
+                output: "status: done\nextended_status: degraded done\n",
+                expect: CloudInitOutcome::NotClean,
+            },
+            Case {
+                scenario: "crashed",
+                exit_code: Some(1),
+                output: "status: error\n",
+                expect: CloudInitOutcome::NotClean,
+            },
+            Case {
+                scenario: "disabled exits 0, so the status string is load-bearing",
+                exit_code: Some(0),
+                output: "status: disabled\n",
+                expect: CloudInitOutcome::NotClean,
+            },
+            Case {
+                scenario: "never ran",
+                exit_code: Some(0),
+                output: "status: not run\n",
+                expect: CloudInitOutcome::NotClean,
+            },
+            Case {
+                scenario: "a status value we have never seen is not a failure",
+                exit_code: Some(0),
+                output: "status: reticulating\n",
+                expect: CloudInitOutcome::Unknown,
+            },
+            Case {
+                scenario: "output with no status line at all",
+                exit_code: Some(0),
+                output: "something entirely different\n",
+                expect: CloudInitOutcome::Unknown,
+            },
+            Case {
+                scenario: "killed by a signal tells us nothing about cloud-init",
+                exit_code: None,
+                output: "",
+                expect: CloudInitOutcome::Unknown,
+            },
+        ];
+
+        for case in cases {
+            assert_eq!(
+                classify_cloud_init_status(case.exit_code, case.output),
+                case.expect,
+                "case '{}' failed",
+                case.scenario,
+            );
+        }
+    }
+
+    /// A missing log must produce a message rather than an error, because
+    /// "cloud-init never ran" is precisely the case worth reporting.
+    #[test]
+    fn missing_cloud_init_log_becomes_the_message() {
+        // The test host is not a Scout boot, so the log is genuinely absent.
+        if !std::path::Path::new(CLOUD_INIT_OUTPUT_LOG).exists() {
+            assert_eq!(
+                get_log_str(),
+                format!("no {CLOUD_INIT_OUTPUT_LOG} present, did cloud-init run?"),
+            );
+        }
+    }
 
     #[test]
     fn truncate_handles_short_long_and_utf8_values() {
