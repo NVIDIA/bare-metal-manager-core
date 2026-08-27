@@ -113,7 +113,7 @@ data:
 
     {{/*
     DHCP Configuration
-    When global.dhcp.enabled and dhcpRelay.baseIP are set, use UDP relay mode.
+    When dhcpRelay.baseIP is set, use UDP relay mode.
     Otherwise, use API mode (default, no [dhcp] section needed).
     */}}
     {{- if $dhcpRelayEnabled }}
