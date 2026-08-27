@@ -2748,6 +2748,7 @@ dependencies = [
  "bytes",
  "carbide-host-support",
  "carbide-instrument",
+ "carbide-libmlx-model",
  "carbide-rpc",
  "carbide-test-support",
  "carbide-tls",
