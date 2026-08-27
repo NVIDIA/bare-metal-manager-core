@@ -1762,7 +1762,7 @@ async fn initialize_and_start_controllers<'a>(
 
         if !carbide_config.is_svpc_enabled() && !carbide_config.is_astra_enabled() {
             tracing::info!(
-                "DPA is enabled but neither SVPC nor Astra is enabled. Skipping DPA setup."
+                "No EastWest Ethernets config is enabled but neither SVPC nor Astra is enabled. Skipping DPA setup."
             );
         }
 
@@ -1779,7 +1779,7 @@ async fn initialize_and_start_controllers<'a>(
 
             info.mqtt_client = Some(svpc_mqtt_client);
 
-            tracing::info!("DPA MQTT client started for SVPC");
+            tracing::info!("SVPC MQTT client started for SVPC");
         }
 
         if carbide_config.is_svpc_enabled() || carbide_config.is_astra_enabled() {
@@ -1796,11 +1796,10 @@ async fn initialize_and_start_controllers<'a>(
             )
             .start(join_set, cancel_token.clone())?;
 
-            tracing::info!(
-                "DPA monitor started for SVPC or Astra with subnet_ip: {:?}, subnet_mask: {:?}",
+            tracing::info!(ewethers_enabled=carbide_config.ewethers_enabled,
                 subnet_ip,
-                subnet_mask
-            );
+                subnet_mask,
+                "East west fabric monitor started for fabrics");
         }
     }
 
