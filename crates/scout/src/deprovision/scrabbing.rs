@@ -916,7 +916,7 @@ async fn set_ib_link_up() -> Result<(), CarbideClientError> {
                     let slot = p.slot.unwrap();
                     // Set P1 (required - all IB devices have P1)
                     match cmdrun::run_prog(
-                        "mstconfig",
+                        "mlxconfig",
                         ["-y", "-d", &slot, "set", "KEEP_IB_LINK_UP_P1=1"],
                     )
                     .await
@@ -934,7 +934,7 @@ async fn set_ib_link_up() -> Result<(), CarbideClientError> {
                     }
                     // Set P2 (optional - only dual-port devices have P2)
                     match cmdrun::run_prog(
-                        "mstconfig",
+                        "mlxconfig",
                         ["-y", "-d", &slot, "set", "KEEP_IB_LINK_UP_P2=1"],
                     )
                     .await
@@ -978,7 +978,7 @@ async fn reset_ib_devices() -> Result<(), CarbideClientError> {
             for ib in ibs {
                 if let Some(p) = ib.pci_properties {
                     let slot = p.slot.unwrap();
-                    match cmdrun::run_prog("mstconfig", ["-y", "-d", &slot, "reset"]).await {
+                    match cmdrun::run_prog("mlxconfig", ["-y", "-d", &slot, "reset"]).await {
                         Ok(_) => {
                             tracing::info!("reset IB device {} successfully.", slot);
                         }
