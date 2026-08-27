@@ -64,81 +64,105 @@ func (s *powerProvisionerStub) ActivateResourceGroup(_ context.Context, resource
 }
 
 func TestProvisionMachinePower(t *testing.T) {
-	t.Run("authorizes before mutation and compensates", func(t *testing.T) {
-		stub := &powerProvisionerStub{}
-		rollback, err := provisionMachinePower(context.Background(), stub, "group-a", machinePowerAssignment{
-			machineID:    "machine-a",
-			powerProfile: "performance",
-		})
-		require.NoError(t, err)
-		require.NotNil(t, rollback)
-		require.NoError(t, rollback())
-		assert.Equal(t, []string{
-			"validate:performance:machine-a",
-			"add:group-a:machine-a:performance",
-			"activate:group-a",
-			"remove:group-a:machine-a",
-		}, stub.calls)
-	})
+	tests := []struct {
+		name          string
+		stub          *powerProvisionerStub
+		assignment    machinePowerAssignment
+		expectedError string
+		rollback      bool
+		expectedCalls []string
+	}{
+		{
+			name:       "authorizes before mutation and compensates",
+			stub:       &powerProvisionerStub{},
+			assignment: machinePowerAssignment{machineID: "machine-a", powerProfile: "performance"},
+			rollback:   true,
+			expectedCalls: []string{
+				"validate:performance:machine-a", "add:group-a:machine-a:performance",
+				"activate:group-a", "remove:group-a:machine-a",
+			},
+		},
+		{
+			name:          "cleans up failed activation",
+			stub:          &powerProvisionerStub{failAt: map[string]error{"activate:group-a": errors.New("denied")}},
+			assignment:    machinePowerAssignment{machineID: "machine-a"},
+			expectedError: "activate DPS resource group",
+			expectedCalls: []string{"add:group-a:machine-a:", "activate:group-a", "remove:group-a:machine-a"},
+		},
+	}
 
-	t.Run("cleans up failed activation", func(t *testing.T) {
-		stub := &powerProvisionerStub{failAt: map[string]error{"activate:group-a": errors.New("denied")}}
-		rollback, err := provisionMachinePower(context.Background(), stub, "group-a", machinePowerAssignment{machineID: "machine-a"})
-		require.ErrorContains(t, err, "activate DPS resource group")
-		assert.Nil(t, rollback)
-		assert.Equal(t, []string{
-			"add:group-a:machine-a:",
-			"activate:group-a",
-			"remove:group-a:machine-a",
-		}, stub.calls)
-	})
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			rollback, err := provisionMachinePower(context.Background(), test.stub, "group-a", test.assignment)
+			if test.expectedError != "" {
+				require.ErrorContains(t, err, test.expectedError)
+				assert.Nil(t, rollback)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, rollback)
+				if test.rollback {
+					require.NoError(t, rollback())
+				}
+			}
+			assert.Equal(t, test.expectedCalls, test.stub.calls)
+		})
+	}
 }
 
 func TestProvisionMachineBatchPower(t *testing.T) {
-	t.Run("authorizes before mutation and compensates", func(t *testing.T) {
-		stub := &powerProvisionerStub{}
-		rollback, err := provisionMachineBatchPower(context.Background(), stub, "group-a", []machinePowerAssignment{
-			{machineID: "machine-a", powerProfile: "performance"},
-			{machineID: "machine-b", powerProfile: "performance"},
-		})
-		require.NoError(t, err)
-		require.NotNil(t, rollback)
-		require.NoError(t, rollback())
-		assert.Equal(t, []string{
-			"validate:performance:machine-a,machine-b",
-			"add:group-a:machine-a,machine-b:performance",
-			"activate:group-a",
-			"remove:group-a:machine-a,machine-b",
-		}, stub.calls)
-	})
+	assignments := []machinePowerAssignment{
+		{machineID: "machine-a", powerProfile: "performance"},
+		{machineID: "machine-b", powerProfile: "performance"},
+	}
+	tests := []struct {
+		name          string
+		stub          *powerProvisionerStub
+		expectedError string
+		rollback      bool
+		expectedCalls []string
+	}{
+		{
+			name:     "authorizes before mutation and compensates",
+			stub:     &powerProvisionerStub{},
+			rollback: true,
+			expectedCalls: []string{
+				"validate:performance:machine-a,machine-b", "add:group-a:machine-a,machine-b:performance",
+				"activate:group-a", "remove:group-a:machine-a,machine-b",
+			},
+		},
+		{
+			name:          "does not mutate after rejected preflight",
+			stub:          &powerProvisionerStub{failAt: map[string]error{"validate:performance:machine-a,machine-b": errors.New("denied")}},
+			expectedError: "validate DPS batch allocation",
+			expectedCalls: []string{"validate:performance:machine-a,machine-b"},
+		},
+		{
+			name:          "cleans up a failed batch add",
+			stub:          &powerProvisionerStub{failAt: map[string]error{"add:group-a:machine-a,machine-b:performance": errors.New("unavailable")}},
+			expectedError: "add machines to DPS resource group",
+			expectedCalls: []string{
+				"validate:performance:machine-a,machine-b", "add:group-a:machine-a,machine-b:performance",
+				"remove:group-a:machine-a,machine-b",
+			},
+		},
+	}
 
-	t.Run("does not mutate after rejected preflight", func(t *testing.T) {
-		stub := &powerProvisionerStub{failAt: map[string]error{
-			"validate:performance:machine-a,machine-b": errors.New("denied"),
-		}}
-		rollback, err := provisionMachineBatchPower(context.Background(), stub, "group-a", []machinePowerAssignment{
-			{machineID: "machine-a", powerProfile: "performance"},
-			{machineID: "machine-b", powerProfile: "performance"},
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			rollback, err := provisionMachineBatchPower(context.Background(), test.stub, "group-a", assignments)
+			if test.expectedError != "" {
+				require.ErrorContains(t, err, test.expectedError)
+				assert.Nil(t, rollback)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, rollback)
+				if test.rollback {
+					require.NoError(t, rollback())
+				}
+			}
+			assert.Equal(t, test.expectedCalls, test.stub.calls)
 		})
-		require.ErrorContains(t, err, "validate DPS batch allocation")
-		assert.Nil(t, rollback)
-		assert.Equal(t, []string{"validate:performance:machine-a,machine-b"}, stub.calls)
-	})
-
-	t.Run("cleans up a failed batch add", func(t *testing.T) {
-		stub := &powerProvisionerStub{failAt: map[string]error{"add:group-a:machine-a,machine-b:performance": errors.New("unavailable")}}
-		rollback, err := provisionMachineBatchPower(context.Background(), stub, "group-a", []machinePowerAssignment{
-			{machineID: "machine-a", powerProfile: "performance"},
-			{machineID: "machine-b", powerProfile: "performance"},
-		})
-		require.ErrorContains(t, err, "add machines to DPS resource group")
-		assert.Nil(t, rollback)
-		assert.Equal(t, []string{
-			"validate:performance:machine-a,machine-b",
-			"add:group-a:machine-a,machine-b:performance",
-			"remove:group-a:machine-a,machine-b",
-		}, stub.calls)
-	})
+	}
 }
 
 func TestUpdateMachinePower(t *testing.T) {

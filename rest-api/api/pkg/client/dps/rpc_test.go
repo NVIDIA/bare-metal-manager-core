@@ -184,9 +184,6 @@ func TestClient_ResourceGroupLifecycleRequests(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, client.CreateResourceGroup(ctx, " group-a ", 42))
-	require.NoError(t, client.AddMachines(ctx, "group-a", []string{" machine-a ", "machine-b"}, " performance "))
-	require.NoError(t, client.UpdateMachineProfile(ctx, "group-a", "machine-a", ""))
-	require.NoError(t, client.RemoveMachines(ctx, "group-a", []string{"machine-a", "machine-b"}))
 	require.NoError(t, client.ActivateResourceGroup(ctx, "group-a"))
 	require.NoError(t, client.DeleteResourceGroup(ctx, "group-a"))
 
@@ -197,29 +194,105 @@ func TestClient_ResourceGroupLifecycleRequests(t *testing.T) {
 	assert.True(t, server.createRequest.GetPrsEnabled())
 	assert.True(t, server.createRequest.GetSharedGpuEnable())
 
-	require.NotNil(t, server.addRequest)
-	assert.Equal(t, []string{"machine-a", "machine-b"}, server.addRequest.GetResourceNames())
-	assert.True(t, server.addRequest.GetStrict())
-	assert.False(t, server.addRequest.GetAllowReprovision())
-	require.NotNil(t, server.addRequest.PolicyName)
-	assert.Equal(t, "performance", server.addRequest.GetPolicyName())
-
-	require.NotNil(t, server.updateRequest)
-	assert.Nil(t, server.updateRequest.GetAsync())
-	require.Len(t, server.updateRequest.GetUpdates(), 1)
-	update := server.updateRequest.GetUpdates()[0]
-	assert.Equal(t, "machine-a", update.GetResourceName())
-	require.IsType(t, &dpsv1.ResourceGroupUpdateResourcesRequest_ResourcePolicy_PolicyName{}, update.GetPolicyUpdate())
-	assert.Equal(t, "", update.GetPolicyName())
-
-	require.NotNil(t, server.removeRequest)
-	assert.Equal(t, []string{"machine-a", "machine-b"}, server.removeRequest.GetResourceNames())
 	assert.Equal(t, "group-a", server.activateGroup)
 	assert.True(t, server.activateRequest.GetStrict())
 	assert.False(t, server.activateRequest.GetAllowReprovision())
 	assert.Nil(t, server.activateRequest.GetAsync())
 	assert.Equal(t, "group-a", server.deleteGroup)
 	assert.True(t, server.deleteRequest.GetWppsDisableAsyncVerification())
+}
+
+func TestClient_AddMachines(t *testing.T) {
+	tests := []struct {
+		name          string
+		resourceGroup string
+		machineIDs    []string
+		powerProfile  string
+		expectedError string
+	}{
+		{name: "adds batch", resourceGroup: "group-a", machineIDs: []string{" machine-a ", "machine-b"}, powerProfile: " performance "},
+		{name: "rejects empty batch", resourceGroup: "group-a", expectedError: "machine IDs are required"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := &testDPSServer{}
+			client := newTestClient(t, server)
+			err := client.AddMachines(context.Background(), test.resourceGroup, test.machineIDs, test.powerProfile)
+			if test.expectedError != "" {
+				require.ErrorContains(t, err, test.expectedError)
+				assert.Nil(t, server.addRequest)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, server.addRequest)
+			assert.Equal(t, []string{"machine-a", "machine-b"}, server.addRequest.GetResourceNames())
+			assert.True(t, server.addRequest.GetStrict())
+			assert.False(t, server.addRequest.GetAllowReprovision())
+			require.NotNil(t, server.addRequest.PolicyName)
+			assert.Equal(t, "performance", server.addRequest.GetPolicyName())
+		})
+	}
+}
+
+func TestClient_UpdateMachineProfile(t *testing.T) {
+	tests := []struct {
+		name          string
+		machineID     string
+		powerProfile  string
+		expectedError string
+	}{
+		{name: "clears profile", machineID: "machine-a"},
+		{name: "rejects empty machine ID", machineID: " ", expectedError: "machine ID is required"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := &testDPSServer{}
+			client := newTestClient(t, server)
+			err := client.UpdateMachineProfile(context.Background(), "group-a", test.machineID, test.powerProfile)
+			if test.expectedError != "" {
+				require.ErrorContains(t, err, test.expectedError)
+				assert.Nil(t, server.updateRequest)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, server.updateRequest)
+			assert.Nil(t, server.updateRequest.GetAsync())
+			require.Len(t, server.updateRequest.GetUpdates(), 1)
+			update := server.updateRequest.GetUpdates()[0]
+			assert.Equal(t, "machine-a", update.GetResourceName())
+			require.IsType(t, &dpsv1.ResourceGroupUpdateResourcesRequest_ResourcePolicy_PolicyName{}, update.GetPolicyUpdate())
+			assert.Equal(t, "", update.GetPolicyName())
+		})
+	}
+}
+
+func TestClient_RemoveMachines(t *testing.T) {
+	tests := []struct {
+		name          string
+		machineIDs    []string
+		expectedError string
+	}{
+		{name: "removes batch", machineIDs: []string{" machine-a ", "machine-b"}},
+		{name: "rejects empty batch", expectedError: "machine IDs are required"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := &testDPSServer{}
+			client := newTestClient(t, server)
+			err := client.RemoveMachines(context.Background(), "group-a", test.machineIDs)
+			if test.expectedError != "" {
+				require.ErrorContains(t, err, test.expectedError)
+				assert.Nil(t, server.removeRequest)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, server.removeRequest)
+			assert.Equal(t, []string{"machine-a", "machine-b"}, server.removeRequest.GetResourceNames())
+		})
+	}
 }
 
 func TestClient_ValidateAllocation(t *testing.T) {
