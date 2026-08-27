@@ -625,6 +625,16 @@ impl CurrentNetworkVersion {
         // DHCP is always enabled; this deprecated flag no longer controls
         // rendering.
         config.enable_dhcp = false;
+
+        // HBN rendering does not consume the family-neutral address list. Exclude
+        // it from the fingerprint so changes to that staged field do not trigger
+        // an apply that cannot render them.
+        if let Some(admin_interface) = &mut config.admin_interface {
+            admin_interface.addresses.clear();
+        }
+        for interface in &mut config.tenant_interfaces {
+            interface.addresses.clear();
+        }
     }
 
     /// `normalize_set_like_inputs` sorts inputs that HBN treats as sets, but
@@ -932,7 +942,8 @@ impl MainLoop {
                 let proposed_routes: Vec<_> = conf
                     .tenant_interfaces
                     .iter()
-                    .filter_map(|x| IpNetwork::from_str(x.prefix.as_str()).ok())
+                    .filter_map(|interface| interface.prefix.as_deref())
+                    .filter_map(|prefix| IpNetwork::from_str(prefix).ok())
                     .collect();
 
                 let tenant_peers = ethernet_virtualization::tenant_peers(&conf);

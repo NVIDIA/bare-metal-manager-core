@@ -34,8 +34,9 @@ use crate::crds::dpuflavors_generated::{
     DpuFlavorNvconfigDevice, DpuFlavorOvs, DpuFlavorSpec, DpuFlavorSysctl,
     DpuFlavorSystemdServices, DpuFlavorSystemdServicesOperation,
 };
+use crate::crds::dpuflavortemplates_generated::{DPUFlavorTemplate, DpuFlavorTemplateSpec};
 use crate::types::{
-    ASTRA_PF_TOTAL_SF, DEFAULT_DPU_NUM_OF_VFS, DEFAULT_PF_TOTAL_SF_RESERVED, DOCA_HBN_SERVICE_NAME,
+    DEFAULT_DPU_NUM_OF_VFS, DEFAULT_PF_TOTAL_SF_RESERVED, DOCA_HBN_SERVICE_NAME,
     DpfInterceptBridge, DpfInterceptBridging, DpfProxyDetails, DpuDeploymentType,
     DpuServiceInterfaceTemplateDefinition, DpuServiceInterfaceTemplateType,
 };
@@ -48,6 +49,15 @@ impl DPUFlavor {
     /// Returns `"{default_flavor_name}-{hash}"` where the hash is the first 8 bytes (16 hex chars)
     /// of a stable SHA-256 digest of the spec. The name changes whenever the spec changes, which
     /// causes outdated DPUs to be reprovisioned by MachineUpdateManager.
+    pub fn unique_name(&self, default_flavor_name: &str) -> Result<String, crate::error::DpfError> {
+        let json = serde_json::to_string(&self.spec)?;
+        let short_hash = hex::encode(&Sha256::digest(json.as_bytes())[..8]);
+        Ok(format!("{default_flavor_name}-{short_hash}"))
+    }
+}
+
+impl DPUFlavorTemplate {
+    /// Returns a hash-derived name that changes whenever the template changes.
     pub fn unique_name(&self, default_flavor_name: &str) -> Result<String, crate::error::DpfError> {
         let json = serde_json::to_string(&self.spec)?;
         let short_hash = hex::encode(&Sha256::digest(json.as_bytes())[..8]);
@@ -330,9 +340,6 @@ fn get_bf4_astra_ovs_defaults() -> String {
         "if [ -x /opt/dpf/extra-script-pre-ovs.sh ]; then /opt/dpf/extra-script-pre-ovs.sh; fi\n",
         "# Shared helper used by the called scripts; exported so they inherit it\n",
         "\n",
-        "# create an entry in /etc/hosts to allow self hostname resolution: (bug fix)\n",
-        "grep -qw \"$HOSTNAME\" /etc/hosts || echo \"127.0.0.1 $HOSTNAME\" | sudo tee -a /etc/hosts > /dev/null\n",
-        "\n",
         "_ovs-vsctl() {\n",
         "  ovs-vsctl --timeout 30 \"$@\"\n",
         "}\n",
@@ -341,7 +348,14 @@ fn get_bf4_astra_ovs_defaults() -> String {
         "# 1. Configure OVS bridges and xplane ports\n",
         "/etc/mellanox/ovs-script.sh\n",
         "\n",
-        "# 2. Configure rail bridge addressing (netplan)\n",
+        "# 2. Enable OVS metrics for xplane and Weave\n",
+        "_ovs-vsctl set Open_vSwitch . \\\n",
+        "  'other_config:flow-metric-labels=\"to_plane,from_plane,device_name,group,plane\"' \\\n",
+        "  other_config:doca-telemetry-interval=\"1000\" \\\n",
+        "  other_config:doca-telemetry-ipc=\"true\" \\\n",
+        "  other_config:doca-telemetry-source-id=\"xplane\"\n",
+        "\n",
+        "# 3. Configure rail bridge addressing (netplan)\n",
         "/etc/mellanox/xplane-bridge.sh\n",
         "if [ -x /opt/dpf/extra-script-post-ovs.sh ]; then /opt/dpf/extra-script-post-ovs.sh; fi\n",
     )
@@ -361,8 +375,10 @@ fn validate_proxy_string(value: &str, field: &str) -> Result<(), crate::error::D
     Ok(())
 }
 
-/// Build the DPUFlavor spec for a specific deployment type. If `proxy` is set, a containerd
-/// proxy drop-in config file is appended so the DPU can pull images through the proxy.
+/// Build a DPUFlavor for BF3 or generic BF4. If `proxy` is set, a containerd proxy drop-in
+/// config file is appended so the DPU can pull images through the proxy.
+///
+/// Astra uses [`flavor_bf4_astra`] because it is represented by a DPUFlavorTemplate.
 ///
 /// Returns `ConfigError` if any proxy string contains characters that would break the generated
 /// systemd `Environment="..."` lines (quotes, newlines, or other control characters).
@@ -375,12 +391,23 @@ pub fn default_flavor_for(
     // Selects the DPUFlavor variant to build for the given deployment type.
     deployment_type: DpuDeploymentType,
 ) -> Result<DPUFlavor, crate::error::DpfError> {
+    if matches!(deployment_type, DpuDeploymentType::Bf4Astra) {
+        return Err(crate::error::DpfError::ConfigError(
+            "BF4 Astra uses DPUFlavorTemplate; use flavor_bf4_astra instead".to_string(),
+        ));
+    }
+
+    let pf_total_sf = match deployment_type {
+        DpuDeploymentType::Bf3 | DpuDeploymentType::Bf4Generic => DEFAULT_PF_TOTAL_SF_RESERVED,
+        DpuDeploymentType::Bf4Astra => unreachable!("handled above"),
+    };
+
     default_flavor_for_with_topology(
         namespace,
         proxy,
         deployment_type,
         DEFAULT_DPU_NUM_OF_VFS,
-        DEFAULT_PF_TOTAL_SF_RESERVED,
+        pf_total_sf,
         None,
         None,
     )
@@ -396,7 +423,6 @@ pub(crate) fn default_flavor_for_with_topology(
     intercept_bridging: Option<&DpfInterceptBridging>,
     dhcp_acl_interfaces: Option<&[DpuServiceInterfaceTemplateDefinition]>,
 ) -> Result<DPUFlavor, crate::error::DpfError> {
-    // Astra deliberately ignores both site-wide inputs.
     match deployment_type {
         DpuDeploymentType::Bf4Generic => flavor_bf4_with_topology(
             namespace,
@@ -406,7 +432,9 @@ pub(crate) fn default_flavor_for_with_topology(
             intercept_bridging,
             dhcp_acl_interfaces,
         ),
-        DpuDeploymentType::Bf4Astra => flavor_bf4_astra(namespace, proxy),
+        DpuDeploymentType::Bf4Astra => Err(crate::error::DpfError::ConfigError(
+            "BF4 Astra uses DPUFlavorTemplate; call flavor_bf4_astra() instead".to_string(),
+        )),
         DpuDeploymentType::Bf3 => default_flavor_with_topology(
             namespace,
             proxy,
@@ -490,50 +518,51 @@ fn flavor_bf4_with_topology(
     })
 }
 
-/// Build the BF4 Astra DPUFlavor spec, with BF4-astra grub and OVS
-/// configuration.
-/// If `proxy` is set, a containerd proxy drop-in config file is appended so the DPU can pull
-/// images through the proxy.
+/// Builds the BF4 Astra DPUFlavorTemplate.
 ///
-/// Returns `ConfigError` if any proxy string contains characters that would
-/// break the generated systemd `Environment="..."` lines (quotes, newlines,
-/// or other control characters).
-///
-/// `metadata.name` is left unset; callers must set it (typically via [`DPUFlavor::unique_name`])
-/// before creating the resource in the cluster.
+/// The DPF operator renders this template for each DPU and creates the resulting DPUFlavor.
 pub fn flavor_bf4_astra(
     namespace: &str,
     proxy: &Option<DpfProxyDetails>,
-) -> Result<DPUFlavor, crate::error::DpfError> {
-    Ok(DPUFlavor {
+    pf_total_sf: u32,
+) -> Result<DPUFlavorTemplate, crate::error::DpfError> {
+    let flavor_spec = DpuFlavorSpec {
+        bfcfg_parameters: None,
+        config_files: Some(get_bf4_astra_config_files(proxy)?),
+        containerd_config: Some(DpuFlavorContainerdConfig {
+            registry_endpoint: None,
+        }),
+        dpu_mode: None,
+        dpu_resources: None,
+        ew_nic_configurations: Some(bf4_astra_ew_nic_configurations()),
+        grub: Some(bf4_astra_grub_params()),
+        host_network_interface_configs: None,
+        nvconfig: Some(vec![get_bf4_astra_nvconfig(pf_total_sf)]),
+        ovs: Some(DpuFlavorOvs {
+            raw_config_script: Some(get_bf4_astra_ovs_defaults()),
+        }),
+        packages: Some(vec![]),
+        sysctl: Some(DpuFlavorSysctl {
+            parameters: Some(vec![]),
+        }),
+        system_reserved_resources: None,
+        systemd_services: Some(vec![]),
+        host_os_init: None,
+        scalable_functions: None,
+    };
+
+    Ok(DPUFlavorTemplate {
         metadata: ObjectMeta {
             name: None,
             namespace: Some(namespace.to_string()),
             ..Default::default()
         },
-        spec: DpuFlavorSpec {
-            bfcfg_parameters: None,
-            config_files: Some(get_bf4_astra_config_files(proxy)?),
-            containerd_config: Some(DpuFlavorContainerdConfig {
-                registry_endpoint: None,
-            }),
-            dpu_mode: None,
+        spec: DpuFlavorTemplateSpec {
             dpu_resources: None,
-            ew_nic_configurations: Some(bf4_astra_ew_nic_configurations()),
-            grub: Some(bf4_astra_grub_params()),
-            host_network_interface_configs: None,
-            nvconfig: Some(vec![get_bf4_astra_nvconfig()]),
-            ovs: Some(DpuFlavorOvs {
-                raw_config_script: Some(get_bf4_astra_ovs_defaults()),
-            }),
-            packages: Some(vec![]),
-            sysctl: Some(DpuFlavorSysctl {
-                parameters: Some(vec![]),
-            }),
             system_reserved_resources: None,
-            systemd_services: Some(vec![]),
-            host_os_init: None,
-            scalable_functions: None,
+            // The CRD accepts either YAML or JSON. JSON avoids a separate YAML serializer
+            // dependency while still producing the DPUFlavor body the operator renders.
+            template: serde_json::to_string_pretty(&flavor_spec)?,
         },
     })
 }
@@ -1068,246 +1097,18 @@ fn get_bf4_astra_config_files(
             r#type: None,
         },
         DpuFlavorConfigFiles {
-            content_from: None,
+            content_from: Some(DpuFlavorConfigFilesContentFrom {
+                config_map_key_ref: Some(DpuFlavorConfigFilesContentFromConfigMapKeyRef {
+                    name: Some("ra2.2-runtime".to_string()),
+                    key: "RA2.2-runtime.yaml".to_string(),
+                    optional: None,
+                }),
+            }),
             operation: Some(DpuFlavorConfigFilesOperation::Override),
             path: "/bindata/spectrum-x/RA2.2-runtime.yaml".to_string(),
             permissions: Some("0644".to_string()),
-            raw: Some(
-                concat!(
-                    "# Copyright 2025 NVIDIA CORPORATION & AFFILIATES\n",
-                    "#\n",
-                    "# Licensed under the Apache License, Version 2.0 (the \"License\");\n",
-                    "# you may not use this file except in compliance with the License.\n",
-                    "# You may obtain a copy of the License at\n",
-                    "#\n",
-                    "#     http://www.apache.org/licenses/LICENSE-2.0\n",
-                    "#\n",
-                    "# Unless required by applicable law or agreed to in writing, software\n",
-                    "# distributed under the License is distributed on an \"AS IS\" BASIS,\n",
-                    "# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n",
-                    "# See the License for the specific language governing permissions and\n",
-                    "# limitations under the License.\n",
-                    "#\n",
-                    "# SPDX-License-Identifier: Apache-2.0\n",
-                    "runtimeConfig:\n",
-                    "  roce:\n",
-                    "    - name: Trust\n",
-                    "      value: dscp\n",
-                    "      dmsPath: /interfaces/interface/nvidia/qos/config/trust-mode\n",
-                    "      valueType: string\n",
-                    "      alternativeValue: QOS_TRUST_MODE_DSCP\n",
-                    "    - name: PFC\n",
-                    "      value: \"00010000\"\n",
-                    "      dmsPath: /interfaces/interface/nvidia/qos/config/pfc\n",
-                    "      valueType: string\n",
-                    "  adaptiveRouting:\n",
-                    "    - name: Enable CC per plane\n",
-                    "      value: \"0x00000001\"\n",
-                    "      multiplane: hwplb\n",
-                    "      mlxreg:\n",
-                    "        register: ROCE_ACCL\n",
-                    "        field: cc_per_plane_en\n",
-                    "        setFields:\n",
-                    "          - name: cc_per_plane_en\n",
-                    "            value: \"0x1\"\n",
-                    "          - name: cc_per_plane_en_field_select\n",
-                    "            value: \"0x1\"\n",
-                    "    - name: Adaptive Retransmission\n",
-                    "      value: true\n",
-                    "      dmsPath: /interfaces/interface/nvidia/roce/config/adaptive-retransmission\n",
-                    "      valueType: bool\n",
-                    "    - name: Tx Window\n",
-                    "      value: true\n",
-                    "      dmsPath: /interfaces/interface/nvidia/roce/config/tx-window\n",
-                    "      valueType: bool\n",
-                    "    - name: Slow Restart\n",
-                    "      value: false\n",
-                    "      dmsPath: /interfaces/interface/nvidia/roce/config/slow-restart\n",
-                    "      valueType: bool\n",
-                    "    - name: Slow Restart Idle\n",
-                    "      value: false\n",
-                    "      dmsPath: /interfaces/interface/nvidia/roce/config/slow-restart-idle\n",
-                    "      valueType: bool\n",
-                    "    - name: CC Probe MP mode\n",
-                    "      value: \"0x00000001\"\n",
-                    "      multiplane: hwplb\n",
-                    "      mlxreg:\n",
-                    "        register: ROCE_ACCL\n",
-                    "        field: cc_probe_mp_mode\n",
-                    "        setFields:\n",
-                    "          - name: cc_probe_mp_mode\n",
-                    "            value: \"0x1\"\n",
-                    "          - name: cc_probe_mp_mode_field_select\n",
-                    "            value: \"0x1\"\n",
-                    "    - name: Adaptive Routing Force\n",
-                    "      value: true\n",
-                    "      dmsPath: /interfaces/interface/nvidia/roce/config/adaptive-routing-force\n",
-                    "      valueType: bool\n",
-                    "  congestionControl:\n",
-                    "    - name: Congestion Control on RP points\n",
-                    "      value: true\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/config/priority/rp_enabled\n",
-                    "      valueType: bool\n",
-                    "      alternativeValue: \"1\"\n",
-                    "      hwplbFirstPortOnly: true\n",
-                    "    - name: Congestion Control on NP points\n",
-                    "      value: true\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/config/priority/np_enabled\n",
-                    "      valueType: bool\n",
-                    "      alternativeValue: \"1\"\n",
-                    "      hwplbFirstPortOnly: true\n",
-                    "    - name: Congestion Control\n",
-                    "      value: true\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/config/enabled\n",
-                    "      valueType: bool\n",
-                    "    - name: Congestion Control with Counters\n",
-                    "      value: true\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/config/counter_enable\n",
-                    "      valueType: bool\n",
-                    "    - name: DCQCN\n",
-                    "      value: false\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/slot[id=15]/config/enabled\n",
-                    "      valueType: bool\n",
-                    "    - name: Bandwidth\n",
-                    "      value: 400\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=0]/config/value\n",
-                    "      valueType: int\n",
-                    "      deviceId: \"1023\"\n",
-                    "      breakout: 2\n",
-                    "    - name: Bandwidth\n",
-                    "      value: 200\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=0]/config/value\n",
-                    "      valueType: int\n",
-                    "      deviceId: \"1023\"\n",
-                    "      breakout: 4\n",
-                    "    - name: Bandwidth\n",
-                    "      value: 400\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=0]/config/value\n",
-                    "      valueType: int\n",
-                    "      deviceId: \"1025\"\n",
-                    "      breakout: 2\n",
-                    "    - name: Bandwidth\n",
-                    "      value: 200\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=0]/config/value\n",
-                    "      valueType: int\n",
-                    "      deviceId: \"1025\"\n",
-                    "      breakout: 4\n",
-                    "    - name: Bandwidth\n",
-                    "      value: 200\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=0]/config/value\n",
-                    "      valueType: int\n",
-                    "      deviceId: \"a2dc\"\n",
-                    "      breakout: 2\n",
-                    "    - name: Bandwidth\n",
-                    "      value: 100\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=0]/config/value\n",
-                    "      valueType: int\n",
-                    "      deviceId: \"a2dc\"\n",
-                    "      breakout: 4\n",
-                    "    - name: Responsiveness Alpha Factor\n",
-                    "      value: 6553\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=1]/config/value\n",
-                    "      valueType: int\n",
-                    "    - name: Maximum Decrease Factor\n",
-                    "      value: 63570\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=2]/config/value\n",
-                    "      valueType: int\n",
-                    "    - name: Maximum Increase Factor\n",
-                    "      value: 69468\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=3]/config/value\n",
-                    "      valueType: int\n",
-                    "    - name: Additive Increase Step Size\n",
-                    "      value: 96\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=4]/config/value\n",
-                    "      valueType: int\n",
-                    "    - name: High Additive Increase Step Size\n",
-                    "      value: 1700\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=5]/config/value\n",
-                    "      valueType: int\n",
-                    "    - name: High Additive Increase Interval Period\n",
-                    "      value: 200000\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=6]/config/value\n",
-                    "      valueType: int\n",
-                    "    - name: ZTR_CC_CONGESTION_DELAY_THRESHOLD\n",
-                    "      value: 13000\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=7]/config/value\n",
-                    "      valueType: int\n",
-                    "    - name: Maximum Queuing Delay\n",
-                    "      value: 250000\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=8]/config/value\n",
-                    "      valueType: int\n",
-                    "    - name: Rate on First Congestion\n",
-                    "      value: 524288\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=9]/config/value\n",
-                    "      valueType: int\n",
-                    "    - name: Delay Only\n",
-                    "      value: 0\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=10]/config/value\n",
-                    "      valueType: int\n",
-                    "    - name: CNP Validity\n",
-                    "      value: 1\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=11]/config/value\n",
-                    "      valueType: int\n",
-                    "    - name: Transmit Rate Decrement Step\n",
-                    "      value: 1\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=12]/config/value\n",
-                    "      valueType: int\n",
-                    "    - name: Fixed Transmission Rate\n",
-                    "      value: 0\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=13]/config/value\n",
-                    "      valueType: int\n",
-                    "    - name: Fast Scheduling Factor\n",
-                    "      value: 2097152\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=14]/config/value\n",
-                    "      valueType: int\n",
-                    "    - name: Topology Awareness\n",
-                    "      value: 1\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=15]/config/value\n",
-                    "      valueType: int\n",
-                    "    - name: Advanced Features\n",
-                    "      value: 1\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=16]/config/value\n",
-                    "      valueType: int\n",
-                    "    - name: Troubleshooting Capabilities\n",
-                    "      value: 0\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=17]/config/value\n",
-                    "      valueType: int\n",
-                    "    - name: CC_FIXED_CWND\n",
-                    "      value: 0\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=18]/config/value\n",
-                    "      valueType: int\n",
-                    "    - name: Enable CC Plane Failure Detection\n",
-                    "      value: 1\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=22]/config/value\n",
-                    "      valueType: int\n",
-                    "      multiplane: hwplb\n",
-                    "    - name: CC Plane Failure Threshold\n",
-                    "      value: 3\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=23]/config/value\n",
-                    "      valueType: int\n",
-                    "      multiplane: hwplb\n",
-                    "    - name: CC Plane Recovery Threshold\n",
-                    "      value: 1\n",
-                    "      dmsPath: /interfaces/interface/nvidia/cc/slot[id=0]/param[id=24]/config/value\n",
-                    "      valueType: int\n",
-                    "      multiplane: hwplb\n",
-                    "  interPacketGap:\n",
-                    "    pureL3:\n",
-                    "      - name: Inter Packet Gap for no overlay\n",
-                    "        value: 25\n",
-                    "        dmsPath: /interfaces/interface/ethernet/nvidia/config/inter-packet-gap\n",
-                    "        valueType: int\n",
-                    "    l3EVPN:\n",
-                    "      - name: Inter Packet Gap for L3 EVPN overlay\n",
-                    "        value: 33\n",
-                    "        dmsPath: /interfaces/interface/ethernet/nvidia/config/inter-packet-gap\n",
-                    "        valueType: int\n",
-                    "docaCCVersion: 3.4.0\n",
-                    "useSoftwareCCAlgorithm: true\n",
-                )
-                .to_string(),
-            ),
-            r#type: None,
+            raw: None,
+            r#type: Some(DpuFlavorConfigFilesType::AgentApplied),
         },
         DpuFlavorConfigFiles {
             content_from: None,
@@ -1323,16 +1124,7 @@ fn get_bf4_astra_config_files(
                     "\n",
                     "ovs-appctl --timeout 15 dpctl/del-dp system@ovs-system || true\n",
                     "\n",
-                    "# Run devlink commands to set eswitch multiport:\n",
-                    "CX9_DEVS=(pci/0004:03:00 pci/0005:03:00 pci/0004:06:00 pci/0005:06:00 pci/0000:03:00 pci/0001:03:00 pci/0000:06:00 pci/0001:06:00)\n",
-                    "for dev in \"${CX9_DEVS[@]}\"; do\n",
-                    "  for i in 0 1 2 3; do devlink dev eswitch set ${dev}.$i mode switchdev; done\n",
-                    "done\n",
-                    "for dev in \"${CX9_DEVS[@]}\"; do\n",
-                    "  for i in 0 1 2 3; do devlink dev param set ${dev}.$i name esw_multiport value true cmode runtime; done\n",
-                    "done\n",
-                    "\n",
-                    "# 2. Configure OVS\n",
+                   "# Configure OVS\n",
                     "_ovs-vsctl set Open_vSwitch . other_config:doca-init=true\n",
                     "_ovs-vsctl set Open_vSwitch . other_config:dpdk-max-memzones=50000\n",
                     "_ovs-vsctl set Open_vSwitch . other_config:hw-offload=true\n",
@@ -1642,11 +1434,11 @@ fn get_nvconfig(num_of_vfs: u32, pf_total_sf: u32) -> DpuFlavorNvconfig {
     }
 }
 
-fn get_bf4_astra_nvconfig() -> DpuFlavorNvconfig {
+fn get_bf4_astra_nvconfig(pf_total_sf: u32) -> DpuFlavorNvconfig {
     let parameters = vec![
         "PF_BAR2_ENABLE=0".to_string(),
         "PER_PF_NUM_SF=1".to_string(),
-        format!("PF_TOTAL_SF={ASTRA_PF_TOTAL_SF}"),
+        format!("PF_TOTAL_SF={pf_total_sf}"),
         "PF_SF_BAR_SIZE=14".to_string(),
         "NUM_PF_MSIX_VALID=0".to_string(),
         "PF_NUM_PF_MSIX_VALID=1".to_string(),
@@ -1726,6 +1518,20 @@ mod tests {
             https_proxy: https_proxy.to_string(),
             no_proxy: no_proxy.iter().map(|s| s.to_string()).collect(),
         })
+    }
+
+    fn expected_astra_pf_total_sf_parameter() -> String {
+        let interfaces = crate::sdk::build_astra_dpu_interfaces_vec();
+        let pf_total_sf = crate::sdk::calculate_astra_pf_total_sf(interfaces.as_slice())
+            .expect("canonical Astra inventory must have valid SF capacity");
+        format!("PF_TOTAL_SF={pf_total_sf}")
+    }
+
+    fn astra_flavor_spec(proxy: &Option<DpfProxyDetails>) -> DpuFlavorSpec {
+        let interfaces = crate::sdk::build_astra_dpu_interfaces_vec();
+        let pf_total_sf = crate::sdk::calculate_astra_pf_total_sf(interfaces.as_slice()).unwrap();
+        let template = flavor_bf4_astra("astra-ns", proxy, pf_total_sf).unwrap();
+        serde_json::from_str(&template.spec.template).unwrap()
     }
 
     /// The `raw` body of the trailing (proxy) config file built by `default_flavor`.
@@ -1959,10 +1765,14 @@ mod tests {
         assert!(generic_bf4.contains(&"NUM_OF_VFS=5".to_string()));
         assert!(generic_bf4.contains(&"PF_TOTAL_SF=63".to_string()));
 
-        // Astra retains its established fixed hardware configuration.
-        let astra = parameters(flavor_bf4_astra("ns", &None).unwrap());
+        // Astra retains its established fixed VF configuration and derives SF capacity from its
+        // static service endpoints and DOCA Weave DHCP Agent PF allocation.
+        let astra = parameters(DPUFlavor {
+            metadata: ObjectMeta::default(),
+            spec: astra_flavor_spec(&None),
+        });
         assert!(astra.contains(&"NUM_OF_VFS=46".to_string()));
-        assert!(astra.contains(&"PF_TOTAL_SF=40".to_string()));
+        assert!(astra.contains(&expected_astra_pf_total_sf_parameter()));
     }
 
     /// Verifies normalized input order cannot change rendered flavor identity.
@@ -2364,7 +2174,20 @@ mod tests {
 
     #[test]
     fn bf4_astra_flavor_spec_invariants() {
-        let flavor = flavor_bf4_astra("astra-ns", &None).unwrap();
+        let flavor_template = flavor_bf4_astra(
+            "astra-ns",
+            &None,
+            crate::sdk::calculate_astra_pf_total_sf(
+                crate::sdk::build_astra_dpu_interfaces_vec().as_slice(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let flavor = DPUFlavor {
+            metadata: ObjectMeta::default(),
+            spec: serde_json::from_str(&flavor_template.spec.template).unwrap(),
+        };
+        let expected_pf_total_sf = expected_astra_pf_total_sf_parameter();
         let ew_nic = flavor
             .spec
             .ew_nic_configurations
@@ -2407,8 +2230,8 @@ mod tests {
             run = |valid| valid;
             "namespace is passed through and name is left unset" {
                 (
-                    flavor.metadata.namespace.as_deref() == Some("astra-ns")
-                        && flavor.metadata.name.is_none()
+                    flavor_template.metadata.namespace.as_deref() == Some("astra-ns")
+                        && flavor_template.metadata.name.is_none()
                 ) => true,
             }
 
@@ -2457,11 +2280,11 @@ mod tests {
                 ) => true,
             }
 
-            "Astra nvconfig requests 40 total SFs and 46 VFs" {
+            "Astra nvconfig requests endpoint-derived total SFs and 46 VFs" {
                 (
                     nvconfig_parameters
                         .iter()
-                        .any(|parameter| parameter == "PF_TOTAL_SF=40")
+                        .any(|parameter| parameter == &expected_pf_total_sf)
                         && nvconfig_parameters
                             .iter()
                             .any(|parameter| parameter == "NUM_OF_VFS=46")
@@ -2475,44 +2298,20 @@ mod tests {
                 ) => true,
             }
 
+            "OVS bootstrap enables xplane and Weave metrics" {
+                (
+                    ovs_script.contains("'other_config:flow-metric-labels=\"to_plane,from_plane,device_name,group,plane\"'")
+                        && ovs_script.contains("other_config:doca-telemetry-interval=\"1000\"")
+                        && ovs_script.contains("other_config:doca-telemetry-ipc=\"true\"")
+                        && ovs_script.contains("other_config:doca-telemetry-source-id=\"xplane\"")
+                ) => true,
+            }
+
             "OVS bootstrap recreates the HBN bridge" {
                 ovs_setup_script
                     .find("_ovs-vsctl --if-exists del-br br-hbn")
                     .zip(ovs_setup_script.find("_ovs-vsctl --may-exist add-br br-hbn"))
                     .is_some_and(|(delete_bridge, add_bridge)| delete_bridge < add_bridge) => true,
-            }
-
-            "Spectrum-X config has the Adaptive Routing Force setting" {
-                {
-                    let spectrum = flavor
-                        .spec
-                        .config_files
-                        .as_ref()
-                        .unwrap()
-                        .iter()
-                        .find(|file| file.path == "/bindata/spectrum-x/RA2.2-runtime.yaml")
-                        .and_then(|file| file.raw.as_ref())
-                        .unwrap();
-                    serde_yaml::from_str::<serde_yaml::Value>(spectrum)
-                        .ok()
-                        .is_some_and(|document| {
-                            let runtime = &document["runtimeConfig"];
-                            runtime["adaptiveRouting"]
-                                .as_sequence()
-                                .is_some_and(|settings| {
-                                    settings.iter().any(|setting| {
-                                        setting["name"].as_str() == Some("Adaptive Routing Force")
-                                            && setting["value"].as_bool() == Some(true)
-                                            && setting["valueType"].as_str() == Some("bool")
-                                            && setting["dmsPath"].as_str()
-                                                == Some(
-                                                    "/interfaces/interface/nvidia/roce/config/adaptive-routing-force",
-                                                )
-                                    })
-                                })
-                                && runtime["congestionControl"].is_sequence()
-                        })
-                } => true,
             }
 
             "xplane bridge setup diagnoses missing serial and address mappings" {
@@ -2581,9 +2380,7 @@ mod tests {
     fn bf4_astra_proxy_config_file_count() {
         value_scenarios!(
             run = |p| {
-                let files = flavor_bf4_astra("astra-ns", &p)
-                    .unwrap()
-                    .spec
+                let files = astra_flavor_spec(&p)
                     .config_files
                     .unwrap();
                 let proxy_file_count = files

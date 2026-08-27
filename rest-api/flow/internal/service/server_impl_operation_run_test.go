@@ -106,7 +106,7 @@ func TestCreateOperationRunAuthenticationDataStatusCodes(t *testing.T) {
 		{
 			name:               "missing cipher",
 			authenticationData: sharedServiceAuthenticationData("token"),
-			wantCode:           codes.Internal,
+			wantCode:           codes.FailedPrecondition,
 		},
 		{
 			name:               "authentication with dpu-only subtargets",
@@ -124,14 +124,16 @@ func TestCreateOperationRunAuthenticationDataStatusCodes(t *testing.T) {
 				tt.authenticationData
 			req.Configuration.Operation.GetUpgradeFirmware().SubTargets =
 				tt.subTargets
+			manager := &mockOperationRunManager{}
 			server := &FlowServerImpl{
-				operationRunManager: &mockOperationRunManager{},
+				operationRunManager: manager,
 				dataCipher:          tt.cipher,
 			}
 
 			_, err := server.CreateOperationRun(context.Background(), req)
 
 			require.Equal(t, tt.wantCode, status.Code(err))
+			require.Zero(t, manager.createCalls)
 		})
 	}
 }

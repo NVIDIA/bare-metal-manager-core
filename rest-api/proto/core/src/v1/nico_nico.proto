@@ -104,8 +104,11 @@ service Forge {
   rpc FindPowerShelves(PowerShelfQuery) returns (PowerShelfList);
   rpc FindPowerShelfIds(PowerShelfSearchFilter) returns (PowerShelfIdList);
   rpc FindPowerShelvesByIds(PowerShelvesByIdsRequest) returns (PowerShelfList);
+  // Starts the decommissioning workflow for a Ready managed power shelf.
+  rpc DecommissionPowerShelf(DecommissionPowerShelfRequest) returns (DecommissionPowerShelfResponse);
   rpc DeletePowerShelf(PowerShelfDeletionRequest) returns (PowerShelfDeletionResult);
-  // Force deletes a Power Shelf and optionally its associated interfaces from the database.
+  // Force deletes a Power Shelf and optionally its associated interfaces
+  // and BMC suppressions from the database.
   rpc AdminForceDeletePowerShelf(AdminForceDeletePowerShelfRequest) returns (AdminForceDeletePowerShelfResponse);
   // Request a maintenance operation (PowerOn / PowerOff) for a Power Shelf.
   // When the power shelf is in Ready state, the power shelf state controller
@@ -117,6 +120,9 @@ service Forge {
   rpc FindSwitchIds(SwitchSearchFilter) returns (SwitchIdList);
   rpc FindSwitchesByIds(SwitchesByIdsRequest) returns (SwitchList);
   rpc DeleteSwitch(SwitchDeletionRequest) returns (SwitchDeletionResult);
+  // Starts managed-switch decommissioning. The switch must be Ready and the
+  // Component Manager switch backend must be RMS.
+  rpc DecommissionSwitch(DecommissionSwitchRequest) returns (DecommissionSwitchResponse);
   // Force deletes a Switch and optionally its associated interfaces from the database.
   rpc AdminForceDeleteSwitch(AdminForceDeleteSwitchRequest) returns (AdminForceDeleteSwitchResponse);
 
@@ -241,6 +247,7 @@ service Forge {
   rpc FindPowerShelfStateHistories(PowerShelfStateHistoriesRequest) returns (StateHistories);
   rpc FindRackStateHistories(RackStateHistoriesRequest) returns (StateHistories);
   rpc FindSwitchStateHistories(SwitchStateHistoriesRequest) returns (StateHistories);
+  rpc FindSwitchHealthHistories(SwitchHealthHistoriesRequest) returns (HealthHistories);
   rpc FindNetworkSegmentStateHistories(NetworkSegmentStateHistoriesRequest) returns (StateHistories);
   rpc FindVpcPrefixStateHistories(VpcPrefixStateHistoriesRequest) returns (StateHistories);
   rpc FindSitePrefixStateHistories(SitePrefixStateHistoriesRequest) returns (StateHistories);
@@ -2302,6 +2309,13 @@ message PowerShelfCreationRequest {
   optional common.PowerShelfId id = 2;
 }
 
+message DecommissionPowerShelfRequest {
+  common.PowerShelfId power_shelf_id = 1;
+}
+
+message DecommissionPowerShelfResponse {
+}
+
 message PowerShelfDeletionRequest {
   common.PowerShelfId id = 1;
 }
@@ -2526,6 +2540,13 @@ message SwitchDeletionRequest {
 message SwitchDeletionResult {
 }
 
+message DecommissionSwitchRequest {
+  common.SwitchId switch_id = 1;
+}
+
+message DecommissionSwitchResponse {
+}
+
 // The state that a object/resource had at a certain point in time
 message StateHistoryRecord {
   string state = 1;
@@ -2539,6 +2560,14 @@ message StateHistoryRecords {
 
 message SwitchStateHistoriesRequest {
   repeated common.SwitchId switch_ids = 1;
+}
+
+message SwitchHealthHistoriesRequest {
+  repeated common.SwitchId switch_ids = 1;
+  // Optional: Start time of the range (inclusive) for filtering health history
+  google.protobuf.Timestamp start_time = 2;
+  // Optional: End time of the range (inclusive) for filtering health history
+  google.protobuf.Timestamp end_time = 3;
 }
 
 message StateHistories {
@@ -3144,6 +3173,7 @@ message InstanceDpuExtensionServiceConfig {
 message InstanceDpuExtensionServicesConfig {
   repeated InstanceDpuExtensionServiceConfig service_configs = 1;
 }
+
 // Desired nvlink configuration for an instance
 message InstanceNVLinkConfig {
   // Configures how instance nvlink gpus are set up
@@ -4666,8 +4696,11 @@ message ManagedHostNetworkConfigResponse {
   // Host primary interface id
   optional string host_interface_id = 102;
 
-  // temporary flag for telling a DPU how many links it needs to have up to be considered healthy.
-  // if not set, all links must be up.
+  // Minimum number of functioning DPU ToR links. The default is two. Zero
+  // disables ToR uplink health checks, one allows either link to satisfy the
+  // minimum, and values above two produce a configuration health alert. When
+  // checks are enabled, a failed primary link is still reported because PXE
+  // boot depends on it.
   optional uint32 min_dpu_functioning_links = 103;
 
   // Is it a primary DPU
@@ -4830,17 +4863,17 @@ message FlatInterfaceConfig {
 
   // Deprecated: use addresses.
   // In CIDR notation.
-  string gateway = 4 [deprecated = true];
+  optional string gateway = 4 [deprecated = true];
   // Deprecated: use addresses.
   // Host admin IP for admin network, host IP for tenant.
-  string ip = 5 [deprecated = true];
+  optional string ip = 5 [deprecated = true];
   // Deprecated: use addresses.
   // The interface-specific prefix allocation (which may be a /32 for
   // just the host IP, or a larger allocation, like a /30, for FNN). The
   // `ip` as configured above will be contained within the `interface_prefix`
   // provided here, and the `interface_prefix` will be contained within
   // the `prefix` below (field 8).
-  string interface_prefix = 11 [deprecated = true];
+  optional string interface_prefix = 11 [deprecated = true];
   // If the interface is defined as a virtual function (associated
   // `function_type == InterfaceFunctionType::VIRTUAL_FUNCTION`,
   // then this value is set and specifies the virtual function ID that is configured
@@ -4862,7 +4895,7 @@ message FlatInterfaceConfig {
   // ultimately do want a DPU-specific prefix allocation to be its
   // own prefix entry in the `network_prefixes` table (or something
   // similar).
-  string prefix = 8 [deprecated = true];
+  optional string prefix = 8 [deprecated = true];
   // FQDN
   string fqdn = 9;
   // boot_url
@@ -4886,8 +4919,10 @@ message FlatInterfaceConfig {
   // tenant_vrf_loopback_ip is an administrative IP assigned from
   // the FNN L3 allocated /30 DPU prefix. The tenant is not expected
   // to be able to access this IP; it is intended for monitoring
-  // and debugging by operators.
-  optional string tenant_vrf_loopback_ip = 14;
+  // and debugging by operators. This IPv4-only compatibility field
+  // is absent when the loopback is IPv6; use addresses for that value.
+  // Deprecated: use addresses.
+  optional string tenant_vrf_loopback_ip = 14 [deprecated = true];
 
   // Is this interface using L2 or L3.
   bool is_l2_segment = 15;
@@ -4899,7 +4934,8 @@ message FlatInterfaceConfig {
   optional uint32 mtu = 18;
 
   // IPv6 configuration for FNN interfaces that include IPv6.
-  optional FlatInterfaceIpv6Config ipv6_interface_config = 19;
+  // Deprecated: use addresses.
+  optional FlatInterfaceIpv6Config ipv6_interface_config = 19 [deprecated = true];
 
   // Route imports and tagging details for exports used by FNN configs.
   // This is scoped to the VPC that owns this interface.
@@ -4909,11 +4945,14 @@ message FlatInterfaceConfig {
   // profile for this interface.
   optional FlatInterfaceRoutingProfile interface_routing_profile = 21;
 
-  // Family-neutral replacement for gateway, ip, interface_prefix, prefix, svi_ip,
-  // and ipv6_interface_config. An empty list identifies a legacy payload. Writers
-  // must emit at most one entry per family, ordered V4 before V6. A family absent
-  // from this list has empty deprecated compatibility fields. Readers must select
-  // entries by address_family rather than position.
+  // Family-neutral replacement for gateway, ip, interface_prefix, prefix,
+  // svi_ip, tenant_vrf_loopback_ip, and ipv6_interface_config. An empty list
+  // identifies a legacy payload. Writers must emit at most one entry per
+  // family, ordered V4 before V6. Readers must select entries by address_family
+  // rather than position. Writers leave a family's deprecated compatibility
+  // fields absent when that family is absent. Readers may preserve a deprecated
+  // tenant_vrf_loopback_ip or prefixless IPv6 sidecar when a populated list
+  // omits that value. At most one entry may contain tenant_vrf_loopback_ip.
   repeated InterfaceAddressConfig addresses = 22;
 
   // The details of the network security group associated with
@@ -5129,13 +5168,28 @@ message AdminRebootRequest {
 message AdminRebootResponse {
 }
 
-// Must provide either machine_id or ip/mac pair
+// Must provide exactly one target: bmc_endpoint_request or device_id (the
+// deprecated machine_id is still accepted as sugar for device_id.machine_id).
 message AdminBmcResetRequest {
+  // Redfish Manager.Reset type. Unspecified = per-vendor default
+  // (GracefulRestart for the standard/switch/power-shelf path).
+  enum ResetType {
+    Unspecified = 0;
+    GracefulRestart = 1;
+    ForceRestart = 2;
+  }
+  // A direct BMC endpoint (IP/MAC), resolved server-side. Alternative to device_id.
   optional BmcEndpointRequest bmc_endpoint_request = 1;
-  optional string machine_id = 2;
+  // Deprecated: use device_id (DeviceId.machine_id) instead. Still accepted.
+  optional string machine_id = 2 [deprecated = true];
   // When true, reset the BMC via ipmitool instead of Redfish.
   // ipmitool bmc reset requests may be silently ignored if the BMC is in lockdown mode.
   bool use_ipmitool = 3;
+  // ID of the device that owns the target BMC: a machine (host or DPU BMC), a
+  // switch (switch BMC), or a power shelf (its PMC).
+  common.DeviceId device_id = 4;
+  // Redfish Manager.Reset type. Applies to the Redfish path only (not ipmitool).
+  ResetType reset_type = 5;
 }
 
 message AdminBmcResetResponse {
@@ -5475,12 +5529,18 @@ message CloudInitDiscoveryInstructions {
   // How the DPU obtains the CA used to authenticate NICo. The zero value
   // preserves the legacy download behavior for rolling upgrades.
   BootstrapCaSource bootstrap_ca_source = 13;
+
+  // Fixed platform mlxconfig profile to apply while provisioning the DPU.
+  // Omitting this field is equivalent to DPU_NV_CONFIG_PROFILE_UNSPECIFIED
+  // and applies no additional platform settings.
+  DpuNvConfigProfile dpu_nvconfig_profile = 14;
 }
 
 message CloudInitMetaData {
   string instance_id = 1;
   string cloud_name = 2;
   string platform = 3;
+  optional string local_hostname = 4;
 }
 
 message CloudInitInstructionsRequest {
@@ -8661,7 +8721,20 @@ message SetPrimaryInterfaceRequest {
 // DPU Extension Service Types and Messages
 enum DpuExtensionServiceType {
   KUBERNETES_POD = 0;
-  // Add supported service types in the future
+  DPF_HELM_CHART = 1;
+}
+
+// Enumerates the lifecycle states of an extension service registration.
+//
+// This is distinct from DpuExtensionServiceDeploymentStatus, which describes
+// an individual service deployment on an instance.
+enum DpuExtensionServiceLifecycleState {
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_CREATING = 0;
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_READY = 1;
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_UPDATING = 2;
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_DELETING = 3;
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_DELETED = 4;
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_FAILED = 5;
 }
 
 message UsernamePassword {
@@ -8713,6 +8786,10 @@ message DpuExtensionService {
   string description = 8;
   string created = 9;
   string updated = 10;
+
+  // The lifecycle of the extension service registration itself. This is
+  // independent from deployment status on individual instances.
+  LifecycleStatus lifecycle_status = 11;
 }
 
 message CreateDpuExtensionServiceRequest {
@@ -9501,7 +9578,12 @@ message AdminForceDeleteSwitchRequest {
   // The Switch ID to force delete.
   common.SwitchId switch_id = 1;
   // Should we delete the machine interfaces associated with this switch?
+  // When set, also deletes interfaces whose MACs match the switch BMC MAC or
+  // declared NVOS MACs.
   bool delete_interfaces = 2;
+  // Should we delete BMC suppressions (DHCP and Site Explorer) for the switch
+  // BMC MAC and declared NVOS MACs?
+  bool delete_bmc_suppressions = 3;
 }
 
 message AdminForceDeleteSwitchResponse {
@@ -9511,12 +9593,16 @@ message AdminForceDeleteSwitchResponse {
   uint32 interfaces_deleted = 2;
 }
 
-// Force deletes a Power Shelf and optionally its associated interfaces.
+// Force deletes a Power Shelf and optionally its associated interfaces
+// and BMC suppressions.
 message AdminForceDeletePowerShelfRequest {
   // The Power Shelf ID to force delete.
   common.PowerShelfId power_shelf_id = 1;
   // Should we delete the machine interfaces associated with this power shelf?
   bool delete_interfaces = 2;
+  // Should we delete BMC suppressions (site explorer and DHCP) for this power
+  // shelf's BMC MAC?
+  bool delete_bmc_suppressions = 3;
 }
 
 message AdminForceDeletePowerShelfResponse {
@@ -10042,16 +10128,31 @@ message InterfaceAddressConfig {
 
   // Family shared by every address and prefix in this entry. Must be V4 or V6.
   AddressFamily address_family = 1;
-  // IPv4 gateway CIDR. For IPv6, the DPU-side port/linknet CIDR used as
-  // gateway_cidr, matching FlatInterfaceIpv6Config.interface_prefix.
-  string gateway = 2;
-  // Host address, without a prefix length. Empty only for a V6 entry whose
-  // owning VPC has SLAAC enabled; interface_prefix remains populated then.
+  // IPv4 gateway CIDR. IPv6 entries omit this value; their DPU-side link
+  // prefix remains in interface_prefix, which the agent renders as gateway_cidr.
+  optional string gateway = 2;
+  // Host address, without a prefix length. This may be empty for SLAAC or an
+  // entry that contains only a loopback.
   string ip = 3;
   // Prefix allocated to this interface, such as an FNN linknet or host route.
+  // This may be empty for a prefixless persisted IPv6 interface or an entry
+  // that contains only a loopback.
   string interface_prefix = 4;
-  // Prefix for the network segment that contains this interface.
+  // Prefix for the network segment that contains this interface. This may be
+  // empty when the entry contains only a loopback.
   string prefix = 5;
   // DPU-hosted SVI address used as the host gateway when configured.
   optional string svi_ip = 6;
+  // Administrative FNN tenant VRF loopback used by operators for monitoring
+  // and debugging; the tenant is not expected to access this address. Writers
+  // must set this value on at most one family entry.
+  optional string tenant_vrf_loopback_ip = 7;
+}
+
+// Selects a fixed, versioned mlxconfig profile for DPU provisioning.
+enum DpuNvConfigProfile {
+  // No platform profile is selected.
+  DPU_NV_CONFIG_PROFILE_UNSPECIFIED = 0;
+  // Version 1 of the validated GB200/B3240 CPU as Root Complex profile.
+  DPU_NV_CONFIG_PROFILE_GB200_B3240_V1 = 1;
 }

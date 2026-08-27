@@ -24,6 +24,10 @@ func TestAPITrayJSONContract(t *testing.T) {
 	value, ok := got["nvLinkDomainId"]
 	assert.True(t, ok)
 	assert.Nil(t, value)
+	assert.Equal(t, map[string]any{
+		"pendingTaskCount": float64(0),
+		"activeTaskCount":  float64(0),
+	}, got["taskStats"])
 }
 
 func TestProtoToAPIComponentTypeName(t *testing.T) {

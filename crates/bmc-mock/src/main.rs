@@ -137,7 +137,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             bmc_mock::ipmi_sim::start(
                 state,
                 bmc_mock::ipmi_sim::IpmiSimConfig {
-                    reachable_port: None,
                     stable_id: "standalone-bmc-mock".to_string(),
                     console_prompt: "root@bmc-mock # ".to_string(),
                 },
@@ -360,6 +359,7 @@ fn generated_mock(config: GeneratedMockConfig) -> (Router, BmcState) {
             String::default(),
             false,
             MachineRouterOptions {
+                bmc_reset_duration: None,
                 virtual_media_devices: Some(vec![
                     VirtualMediaDeviceConfig {
                         id: Cow::Borrowed("Cd"),

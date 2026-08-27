@@ -377,13 +377,13 @@ func (gaipbh GetAllIPBlockHandler) Handle(c echo.Context) error {
 
 	if provider != nil {
 		// Retrieve all IP Blocks from Provider perspective
-		ipbs, _, err := ipbDAO.GetAll(ctx, nil, cdbm.IPBlockFilterInput{
-			SiteIDs:                   siteIDs,
-			InfrastructureProviderIDs: []uuid.UUID{provider.ID},
-			Statuses:                  statuses,
-			SearchQuery:               searchQuery,
-			ExcludeDerived:            true,
-		}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+		providerFilter := cdbm.IPBlockFilterInput{
+			SiteIDs:     siteIDs,
+			Statuses:    statuses,
+			SearchQuery: searchQuery,
+		}
+		providerFilter.SiteFabric(provider.ID)
+		ipbs, _, err := ipbDAO.GetAll(ctx, nil, providerFilter, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 
 		if err != nil {
 			logger.Error().Err(err).Msg("error getting IPBlocks from db")
@@ -397,12 +397,13 @@ func (gaipbh GetAllIPBlockHandler) Handle(c echo.Context) error {
 
 	if tenant != nil {
 		// Retrieve all IP Blocks from Tenant perspective
-		ipbs, _, err := ipbDAO.GetAll(ctx, nil, cdbm.IPBlockFilterInput{
+		tenantFilter := cdbm.IPBlockFilterInput{
 			SiteIDs:     siteIDs,
-			TenantIDs:   []uuid.UUID{tenant.ID},
 			Statuses:    statuses,
 			SearchQuery: searchQuery,
-		}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+		}
+		tenantFilter.TenantAllocated(tenant.ID)
+		ipbs, _, err := ipbDAO.GetAll(ctx, nil, tenantFilter, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 
 		if err != nil {
 			logger.Error().Err(err).Msg("error getting IPBlocks from db")
@@ -612,26 +613,16 @@ func (gadipbh GetAllDerivedIPBlockHandler) Handle(c echo.Context) error {
 
 	ipbDAO := cdbm.NewIPBlockDAO(gadipbh.dbSession)
 
-	// Check that IPBlock exists
-	ipb, err := ipbDAO.GetByID(ctx, nil, ipbID, qIncludeRelations)
+	// The requested parent must be a root belonging to this provider.
+	parentFilter := cdbm.IPBlockFilterInput{}
+	parentFilter.SiteFabric(ip.ID)
+	ipb, err := ipbDAO.GetOne(ctx, nil, ipbID, parentFilter, nil)
 	if err != nil {
-		if err == cdb.ErrDoesNotExist {
+		if errors.Is(err, cdb.ErrDoesNotExist) {
 			return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Could not find parent IPBlock with specified ID", nil)
 		}
 		logger.Error().Err(err).Msg("error retrieving parent IPBlock DB entity")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve parent IP Blocks, error communicating with DB", nil)
-	}
-
-	// Verify ipblock's infrastructure provider matches org's infrastructure provider
-	if ipb.InfrastructureProviderID != ip.ID {
-		logger.Warn().Msg("ipblock specified in URL is not owned by the provider of current org")
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "IP Block specified in URL is not owned by the Provider of current Org", nil)
-	}
-
-	// Verify provided ipblock is parent
-	if ipb.TenantID != nil {
-		logger.Warn().Msg("ipblock specified in url cannot be a derived block allocated to Tenant")
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "IP Block specified in URL cannot be a derived block allocated to Tenant", nil)
 	}
 
 	// Get allocation constraints by resourcetype ID (parent IPBlock)
@@ -797,31 +788,30 @@ func (gipbh GetIPBlockHandler) Handle(c echo.Context) error {
 
 	ipbDAO := cdbm.NewIPBlockDAO(gipbh.dbSession)
 
-	// Get IP Block from DB
-	ipb, err := ipbDAO.GetByID(ctx, nil, ipbID, qIncludeRelations)
-	if err != nil {
-		if err == cdb.ErrDoesNotExist {
-			logger.Warn().Err(err).Msg("IP Block not found")
-			return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Could not find IP Block with specified ID", nil)
-		}
-		logger.Error().Err(err).Msg("error retrieving IP Block from DB by ID")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve IP Block, DB error", nil)
-	}
-
-	// Check if IP Block is associated with Provider
-	isAssociated := false
+	var ipb *cdbm.IPBlock
 	if provider != nil {
-		// Note: We're allowing Providers to retrieve IP Blocks they created as well as IP Blocks created through Allocations
-		isAssociated = provider.ID == ipb.InfrastructureProviderID
+		providerFilter := cdbm.IPBlockFilterInput{}
+		providerFilter.ProviderVisible(provider.ID)
+		ipb, err = ipbDAO.GetOne(ctx, nil, ipbID, providerFilter, qIncludeRelations)
+		if err != nil && !errors.Is(err, cdb.ErrDoesNotExist) {
+			logger.Error().Err(err).Msg("error retrieving IPBlock visible to provider from DB")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve IP Block, DB error", nil)
+		}
 	}
 
-	if !isAssociated && tenant != nil {
-		// Check if IP Block is associated with Tenant
-		isAssociated = ipb.TenantID != nil && tenant.ID == *ipb.TenantID
+	if ipb == nil && tenant != nil {
+		tenantFilter := cdbm.IPBlockFilterInput{}
+		tenantFilter.TenantAllocated(tenant.ID)
+		ipb, err = ipbDAO.GetOne(ctx, nil, ipbID, tenantFilter, qIncludeRelations)
+		if err != nil && !errors.Is(err, cdb.ErrDoesNotExist) {
+			logger.Error().Err(err).Msg("error retrieving IPBlock visible to tenant from DB")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve IP Block, DB error", nil)
+		}
 	}
 
-	if !isAssociated {
-		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "IP Block is not associated with org", nil)
+	if ipb == nil {
+		logger.Warn().Str("IP Block ID", ipbID.String()).Msg("IPBlock not visible to org")
+		return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Could not find IP Block with specified ID", nil)
 	}
 
 	// Get status details
@@ -941,13 +931,6 @@ func (uipbh UpdateIPBlockHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Error validating IP Block update request data", verr)
 	}
 
-	// Check that IPBlock exists
-	ipb, err := ipbDAO.GetByID(ctx, nil, ipbID, nil)
-	if err != nil {
-		logger.Warn().Err(err).Msg("error retrieving IPBlock DB entity")
-		return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Could not retrieve IPBlock to update", nil)
-	}
-
 	// Check that the org's infrastructureProvider matches infrastructure provider in ipBlock
 	ip, err := common.GetInfrastructureProviderForOrg(ctx, nil, uipbh.dbSession, org)
 	if err != nil {
@@ -955,11 +938,16 @@ func (uipbh UpdateIPBlockHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Error retrieving infrastructureProvider for org", nil)
 	}
 
-	// CHeck that InfrastructureProvider in IPBlock matches infrastructureProvider in org
-	if ipb.InfrastructureProviderID != ip.ID {
-		logger.Warn().Msg("infrastructureProvider in ipBlock does not match infrastructureProvider in org")
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest,
-			"InfrastructureProvider in org does not match InfrastructureProvider in IPBlock", nil)
+	providerFilter := cdbm.IPBlockFilterInput{}
+	providerFilter.ProviderVisible(ip.ID)
+	ipb, err := ipbDAO.GetOne(ctx, nil, ipbID, providerFilter, nil)
+	if err != nil {
+		if errors.Is(err, cdb.ErrDoesNotExist) {
+			logger.Warn().Str("IP Block ID", ipbID.String()).Msg("IPBlock not visible to provider")
+			return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Could not retrieve IPBlock to update", nil)
+		}
+		logger.Error().Err(err).Msg("error retrieving provider IPBlock DB entity")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve IPBlock, DB error", nil)
 	}
 
 	var names []string
@@ -1103,30 +1091,22 @@ func (dipbh DeleteIPBlockHandler) Handle(c echo.Context) error {
 
 	ipbDAO := cdbm.NewIPBlockDAO(dipbh.dbSession)
 
-	// Check that IPBlock exists
-	ipb, err := ipbDAO.GetByID(ctx, nil, ipbID, nil)
-	if err != nil {
-		logger.Warn().Str("IP Block ID", ipbID.String()).Err(err).Msg("error retrieving IP Block DB entity")
-		return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Specified IP Block does not exist, or has been deleted", nil)
-	}
-
 	// Check that the org's infrastructureProvider matches infrastructureProvider in IPBlock
 	ip, err := common.GetInfrastructureProviderForOrg(ctx, nil, dipbh.dbSession, org)
 	if err != nil {
 		logger.Warn().Err(err).Msg("error getting infrastructure provider for org")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Error getting Infrastructure Provider for Org", nil)
 	}
-	if ip.ID != ipb.InfrastructureProviderID {
-		logger.Warn().Msg("infrastructureProvider in org does not match infrastructureProvider in ipBlock")
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "IP Block does not belong to current Infrastructure Provider", nil)
-	}
-
-	// Verify that the IPBlock does not have a tenant field set
-	// these are derived IPBlocks associated with an Allocation Constraint
-	// and cannot be deleted directly
-	if ipb.TenantID != nil {
-		logger.Warn().Msg("cannot delete derived IP Block")
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Allocated Tenant IP Blocks cannot be deleted directly, they are deleted when Allocation is deleted", nil)
+	siteFabricFilter := cdbm.IPBlockFilterInput{}
+	siteFabricFilter.SiteFabric(ip.ID)
+	ipb, err := ipbDAO.GetOne(ctx, nil, ipbID, siteFabricFilter, nil)
+	if err != nil {
+		if errors.Is(err, cdb.ErrDoesNotExist) {
+			logger.Warn().Str("IP Block ID", ipbID.String()).Msg("IPBlock not visible to provider")
+			return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Specified IP Block does not exist, or has been deleted", nil)
+		}
+		logger.Error().Str("IP Block ID", ipbID.String()).Err(err).Msg("error retrieving provider IP Block DB entity")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve IPBlock, DB error", nil)
 	}
 
 	// Verify that the IPBlock does not have any allocations associated with it

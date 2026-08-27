@@ -40,7 +40,6 @@ use futures::future::join_all;
 use itertools::Itertools;
 use mac_address::MacAddress;
 use model::machine_boot_interface::BootInterfaceSelectionSource;
-use sqlx::{Postgres, Row};
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
 
@@ -493,7 +492,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
 
     // Before the initial host bootstrap, the dns_records view
     // should contain 0 entries.
-    assert_eq!(0i64, get_dns_record_count(&db_pool).await);
+    assert_eq!(0i64, db::test_support::dns::record_count(&db_pool).await);
 
     run_machine_a_tron_machine_test(
         HardwareType::DellPowerEdgeR750,
@@ -516,7 +515,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
                 // - 2x "human friendly" (ADM) for Host + DPU.
                 // - 2x Machine ID (BMC) for Host + DPU.
                 // - 2x Machine ID (ADM) for Host + DPU.
-                assert_eq!(8i64, get_dns_record_count(&db_pool).await);
+                assert_eq!(8i64, db::test_support::dns::record_count(&db_pool).await);
 
                 // Metrics are only updated after the machine state controller run one more
                 // time since the emitted metrics are for states at the start of the iteration.
@@ -1203,10 +1202,16 @@ where
                 timing_overrides: Some(LifecycleTimingOverrides {
                     host: PartialLifecycleTimings {
                         reboot: Some(Duration::from_secs(1)),
+                        // ZERO disables the BMC self-reset offline window entirely,
+                        // keeping ingestion at its pre-feature pace
+                        bmc_reset: Some(Duration::ZERO),
                         ..Default::default()
                     },
                     dpu: PartialLifecycleTimings {
                         reboot: Some(Duration::from_secs(1)),
+                        // ZERO disables the BMC self-reset offline window entirely,
+                        // keeping ingestion at its pre-feature pace
+                        bmc_reset: Some(Duration::ZERO),
                         ..Default::default()
                     },
                 }),
@@ -1216,14 +1221,11 @@ where
                 // machine-a-tron sends direct host DHCP through the DPU network.
                 host_inband_dhcp_relay_address: Some(Ipv4Addr::new(10, 10, 11, 2)),
                 bmc_dhcp_relay_address: TEST_BMC_DHCP_RELAY_ADDRESS,
-                vpc_count: 0,
-                subnets_per_vpc: 0,
                 run_interval_idle: Duration::from_secs(1),
                 run_interval_working: Duration::from_millis(100),
                 network_status_run_interval: Duration::from_secs(1),
                 scout_run_interval: Duration::from_secs(1),
                 discovery_retry_interval: Duration::from_millis(100),
-                network_virtualization_type: None,
                 dpus_in_nic_mode,
                 dpu_firmware_versions: None,
                 host_firmware_versions: None,
@@ -1236,7 +1238,6 @@ where
         log_format: LogFormat::Compact,
         bmc_mock_port: 0, // unused, we're using dynamic ports on localhost
         bmc_mock_certs_dir: None,
-        tui_enabled: false,
         configure_carbide_bmc_proxy_host: None,
         persist_dir: None,
         cleanup_on_quit: false,
@@ -1246,7 +1247,6 @@ where
         api_refresh_interval: Duration::from_millis(500),
         mock_bmc_ssh_server: false,
         enable_ipmi_simulation: false,
-        ipmi_reachable_port: None,
         hw_mac_address_ranges: None,
         mac_address_pool: None,
         ufm_mock: Default::default(),
@@ -1298,15 +1298,16 @@ fn assert_relay_selection(
     );
 
     for dpu in machine_handle.dpus() {
-        let details = dpu.host_details();
-        let dpu_bmc_ip: Ipv4Addr = details.oob_ip.parse()?;
+        let dpu_bmc_ip = dpu.bmc_ip().context("DPU doesn't have BMC IP")?;
         eyre::ensure!(
             TEST_BMC_NETWORK_PREFIX.contains(&dpu_bmc_ip),
             "DPU BMC DHCP used the underlay relay: {dpu_bmc_ip}"
         );
 
         if !dpus_in_nic_mode {
-            let dpu_underlay_ip: Ipv4Addr = details.machine_ip.parse()?;
+            let dpu_underlay_ip = dpu
+                .machine_ip()
+                .context("DPU doesn't have machine IP address")?;
             eyre::ensure!(
                 dpu_underlay_ip.octets()[..3] == underlay_dhcp_relay_address.octets()[..3],
                 "DPU OOB boot DHCP used the BMC relay: {dpu_underlay_ip}"
@@ -1315,19 +1316,4 @@ fn assert_relay_selection(
     }
 
     Ok(())
-}
-
-// Get the current number of rows in the dns_records view,
-// which is expected to start at 0, and then progress, as
-// the test continues.
-//
-// TODO(chet): Find a common place for this and the same exact
-// function in api/tests/dns.rs to exist, instead of it being
-// in two places.
-pub async fn get_dns_record_count(pool: &sqlx::Pool<Postgres>) -> i64 {
-    let mut txn = pool.begin().await.unwrap();
-    let query = "SELECT COUNT(*) as row_cnt FROM dns_records";
-    let rows = sqlx::query::<_>(query).fetch_one(&mut *txn).await.unwrap();
-    txn.commit().await.unwrap();
-    rows.try_get("row_cnt").unwrap()
 }

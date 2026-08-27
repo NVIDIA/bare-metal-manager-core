@@ -16,7 +16,7 @@
  */
 
 use ::rpc::forge as rpc;
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine::{DpuMachineId, StableHostMachineId};
 use model::machine::ManagedHostState;
 use model::machine::machine_search_config::MachineSearchConfig;
 use tonic::{Request, Response, Status};
@@ -112,17 +112,21 @@ pub(crate) async fn set_primary_dpu(
     log_request_data(&request);
 
     let request = request.into_inner();
-    let host_machine_id = request
+    let host_machine_id: StableHostMachineId = request
         .host_machine_id
-        .ok_or_else(|| CarbideError::InvalidArgument("host machine ID is required".to_string()))?;
-    let dpu_machine_id = request
+        .ok_or_else(|| CarbideError::InvalidArgument("host machine ID is required".to_string()))?
+        .try_into()
+        .map_err(CarbideError::from)?;
+    let dpu_machine_id: DpuMachineId = request
         .dpu_machine_id
-        .ok_or_else(|| CarbideError::InvalidArgument("DPU machine ID is required".to_string()))?;
+        .ok_or_else(|| CarbideError::InvalidArgument("DPU machine ID is required".to_string()))?
+        .try_into()
+        .map_err(CarbideError::from)?;
     // `reboot` is only a compatibility alias for `force_reconcile`.
     #[allow(deprecated)]
     let force_reconcile = request.force_reconcile || request.reboot;
 
-    log_machine_id(&host_machine_id);
+    log_machine_id(host_machine_id.as_machine_id());
 
     set_primary_interface_and_enqueue_reconciliation(
         api,
@@ -143,9 +147,11 @@ pub(crate) async fn set_primary_interface(
     log_request_data(&request);
 
     let request = request.into_inner();
-    let host_machine_id = request
+    let host_machine_id: StableHostMachineId = request
         .host_machine_id
-        .ok_or_else(|| CarbideError::InvalidArgument("host machine ID is required".to_string()))?;
+        .ok_or_else(|| CarbideError::InvalidArgument("host machine ID is required".to_string()))?
+        .try_into()
+        .map_err(CarbideError::from)?;
     let interface_id = request
         .interface_id
         .ok_or_else(|| CarbideError::InvalidArgument("interface ID is required".to_string()))?;
@@ -153,7 +159,7 @@ pub(crate) async fn set_primary_interface(
     #[allow(deprecated)]
     let force_reconcile = request.force_reconcile || request.reboot;
 
-    log_machine_id(&host_machine_id);
+    log_machine_id(host_machine_id.as_machine_id());
 
     set_primary_interface_and_enqueue_reconciliation(
         api,
@@ -168,12 +174,17 @@ pub(crate) async fn set_primary_interface(
 /// boot reconciliation is needed.
 async fn set_primary_interface_and_enqueue_reconciliation(
     api: &Api,
-    host_machine_id: MachineId,
+    host_machine_id: StableHostMachineId,
     selector: PrimaryInterfaceSelector,
     force_reconcile: bool,
 ) -> Result<Response<()>, Status> {
     let update = update_primary_interface(api, host_machine_id, selector, force_reconcile).await?;
-    enqueue_boot_interface_reconciliation(api, host_machine_id, update.reconciliation_needed).await;
+    enqueue_boot_interface_reconciliation(
+        api,
+        host_machine_id.into(),
+        update.reconciliation_needed,
+    )
+    .await;
 
     Ok(Response::new(()))
 }

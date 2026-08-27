@@ -130,7 +130,7 @@ func TestServiceBuilder_BuildService_WithIPMI(t *testing.T) {
 				ListenPort:    8443,
 			},
 			IPMI: &matclient.EndpointStatus{
-				ReachablePort: 623,
+				ReachablePort: 16023,
 				ListenPort:    16023,
 			},
 		},
@@ -159,7 +159,7 @@ func TestServiceBuilder_BuildService_WithIPMI(t *testing.T) {
 
 	require.NotNil(t, ipmiPort)
 	assert.Equal(t, corev1.ProtocolUDP, ipmiPort.Protocol)
-	assert.Equal(t, int32(623), ipmiPort.Port)
+	assert.Equal(t, int32(16023), ipmiPort.Port)
 	assert.Equal(t, intstr.FromInt32(16023), ipmiPort.TargetPort)
 
 	// Check IPMI annotation

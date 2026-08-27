@@ -99,6 +99,8 @@ type APIClient struct {
 
 	MetadataAPI *MetadataAPIService
 
+	NVLinkDomainAPI *NVLinkDomainAPIService
+
 	NVLinkLogicalPartitionAPI *NVLinkLogicalPartitionAPIService
 
 	NetworkSecurityGroupAPI *NetworkSecurityGroupAPIService
@@ -186,6 +188,7 @@ func NewAPIClient(cfg *Configuration) *APIClient {
 	c.MeasuredBootTrustedMachineAPI = (*MeasuredBootTrustedMachineAPIService)(&c.common)
 	c.MeasuredBootTrustedProfileAPI = (*MeasuredBootTrustedProfileAPIService)(&c.common)
 	c.MetadataAPI = (*MetadataAPIService)(&c.common)
+	c.NVLinkDomainAPI = (*NVLinkDomainAPIService)(&c.common)
 	c.NVLinkLogicalPartitionAPI = (*NVLinkLogicalPartitionAPIService)(&c.common)
 	c.NetworkSecurityGroupAPI = (*NetworkSecurityGroupAPIService)(&c.common)
 	c.OperatingSystemAPI = (*OperatingSystemAPIService)(&c.common)

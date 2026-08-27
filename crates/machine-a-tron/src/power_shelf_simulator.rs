@@ -21,14 +21,12 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use bmc_mock::injection::InjectionStore;
-use bmc_mock::ipmi_sim::IpmiEndpoint;
 use bmc_mock::mac_address_pool::{MacAddressPool, PoolConfig as MacAddressPoolConfig};
 use bmc_mock::{
     BmcCommand, Callbacks, HardwareType, HostMachineInfo, HostnameQuerying, MachineInfo,
     MockPowerState, POWER_CYCLE_DELAY, SetSystemPowerError, SetSystemPowerResult,
     SystemPowerControl,
 };
-use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
@@ -40,13 +38,12 @@ use crate::machine_state_machine::{MachineStateError, OsImage};
 use crate::power_shelf_fsm::{Action, Event, PowerShelfFsm, Timer};
 use crate::saturating_add_duration_to_instant;
 use crate::status::{BmcStatus, DeviceKind, DeviceStatus, DeviceStatusConfig, EndpointStatus};
-use crate::tui::UiUpdate;
 
 #[derive(Debug)]
 struct PowerShelfLiveState {
     power_state: MockPowerState,
     bmc_ip: Option<Ipv4Addr>,
-    ipmi_endpoint: Option<IpmiEndpoint>,
+    ipmi_port: Option<u16>,
     ssh_endpoint_port: Option<u16>,
     ssh_host_key: Option<String>,
     state: &'static str,
@@ -57,7 +54,7 @@ impl PowerShelfLiveState {
         Self {
             power_state: fsm.power_state(),
             bmc_ip: None,
-            ipmi_endpoint: None,
+            ipmi_port: None,
             ssh_endpoint_port: None,
             ssh_host_key: None,
             state: fsm.state_string(),
@@ -358,6 +355,8 @@ impl PowerShelfActor {
             Arc::new(PowerShelfHostname),
             self.mat_id,
             self.bmc_injection.clone(),
+            // no lifecycle timing profile for this device kind yet
+            None,
         );
         if self.host_info.hw_type != HardwareType::LiteOnPowerShelf
             && let Some(password) = self.app_context.app_config.host_bmc_password.as_deref()
@@ -388,9 +387,7 @@ impl PowerShelfActor {
         {
             let mut state = self.live_state.write().unwrap();
             state.bmc_ip = Some(dhcp_info.ip_address);
-            state.ipmi_endpoint = bmc_handle
-                .as_ref()
-                .and_then(|handle| handle.ipmi_endpoint());
+            state.ipmi_port = bmc_handle.as_ref().and_then(|handle| handle.ipmi_port());
             state.ssh_endpoint_port = bmc_handle
                 .as_ref()
                 .and_then(|handle| handle.ssh_endpoint_port());
@@ -500,13 +497,6 @@ impl PowerShelfHandle {
         self.0.mat_id
     }
 
-    pub(crate) fn attach_to_tui(
-        &self,
-        _tui_event_tx: Option<mpsc::Sender<UiUpdate>>,
-    ) -> eyre::Result<()> {
-        Ok(())
-    }
-
     pub(crate) fn pause(&self) -> eyre::Result<()> {
         self.0.mailbox.send(PowerShelfMessage::SetPaused(true))?;
         Ok(())
@@ -542,8 +532,8 @@ impl PowerShelfHandle {
             bmc: BmcStatus {
                 ip: state.bmc_ip.map(|ip| ip.to_string()),
                 redfish: EndpointStatus::redfish(config),
-                ipmi: state.ipmi_endpoint.map(Into::into),
-                ssh: state.ssh_endpoint_port.map(EndpointStatus::ssh),
+                ipmi: state.ipmi_port.map(EndpointStatus::same_port),
+                ssh: state.ssh_endpoint_port.map(EndpointStatus::same_port),
             },
             dpus: Vec::new(),
         }

@@ -986,6 +986,9 @@ jobs:
               # when the tests fail.
               trap "chown -R ${HOST_OWNER} /sccache 2>/dev/null || true" EXIT
               git config --global --add safe.directory /carbide
+              # max_connections is startup-only; the default of 100 is too low
+              # when Cargo runs several SQLx-backed test binaries concurrently.
+              printf "max_connections = 1000\n" | tee -a /etc/postgresql/*/main/postgresql.conf
               /etc/init.d/postgresql start
               sudo -u postgres psql -c "ALTER USER root WITH SUPERUSER;"
               createdb root

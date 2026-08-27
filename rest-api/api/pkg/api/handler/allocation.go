@@ -254,16 +254,15 @@ func (cah CreateAllocationHandler) Handle(c echo.Context) error {
 				dbac.ResourceTypeID = it.ID
 				dbInstanceTypeMap[it.ID] = it
 			case cdbm.AllocationResourceTypeIPBlock:
-				ipb, serr := common.GetIPBlockFromIDString(ctx, tx, ac.ResourceTypeID, cah.dbSession)
+				providerFilter := cdbm.IPBlockFilterInput{}
+				providerFilter.ProviderVisible(ip.ID)
+				ipb, serr := common.GetIPBlockFromIDString(ctx, tx, ac.ResourceTypeID, providerFilter, cah.dbSession)
 				if serr != nil {
 					logger.Warn().Err(serr).Str("Resource ID", ac.ResourceTypeID).Msg("error getting IP Block for Allocation Constraint")
 					return cutil.NewAPIError(http.StatusBadRequest, "Error retrieving IPBlock in Allocation Constraint in request", nil)
 				}
 				if ipb.SiteID != site.ID {
 					return cutil.NewAPIError(http.StatusBadRequest, fmt.Sprintf("IP Block: %s in Allocation Constraint doesn't belong Site specified in request", ipb.ID.String()), nil)
-				}
-				if ipb.InfrastructureProviderID != ip.ID {
-					return cutil.NewAPIError(http.StatusBadRequest, fmt.Sprintf("IP Block: %s in Allocation Constraint doesn't belong to current Provider", ipb.ID.String()), nil)
 				}
 
 				// Allocate a child prefix in ipam

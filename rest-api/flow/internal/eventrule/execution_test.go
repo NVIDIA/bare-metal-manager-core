@@ -4,6 +4,7 @@
 package eventrule
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -16,8 +17,10 @@ import (
 
 func TestNewExecution(t *testing.T) {
 	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
+
 	execution, err := NewExecution(uuid.New(), "notify", &NoopPlan{Reason: "test"}, now)
 	require.NoError(t, err)
+
 	require.NotEqual(t, uuid.Nil, execution.ID)
 	require.Equal(t, ExecutionStatusPending, execution.Status)
 	require.Zero(t, execution.Attempts)
@@ -43,13 +46,17 @@ func TestPlannedExecutionValidate(t *testing.T) {
 			wantErr: "execution plan is required",
 		},
 	}
+
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			err := test.planned.Validate()
+
 			if test.wantErr == "" {
 				require.NoError(t, err)
+
 				return
 			}
+
 			require.ErrorContains(t, err, test.wantErr)
 		})
 	}
@@ -59,8 +66,10 @@ func TestNewExecutionSkipsEmptySubmitTaskPlan(t *testing.T) {
 	operationInfo := &operations.PowerControlTaskInfo{
 		Operation: operations.PowerOperationForcePowerOff,
 	}
+
 	info, err := operationInfo.Marshal()
 	require.NoError(t, err)
+
 	execution, err := NewExecution(
 		uuid.New(),
 		"power_off",
@@ -75,42 +84,159 @@ func TestNewExecutionSkipsEmptySubmitTaskPlan(t *testing.T) {
 		time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC),
 	)
 	require.NoError(t, err)
+
 	require.Equal(t, ExecutionStatusSkipped, execution.Status)
 	require.Equal(t, ExecutionReasonNoTargets, execution.Reason)
 	require.Zero(t, execution.Attempts)
 	require.NoError(t, execution.Validate())
 }
 
-func TestExecutionTransitionTo(t *testing.T) {
+func TestExecution_Claim(t *testing.T) {
 	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
-	execution, err := NewExecution(uuid.New(), "notify", &NoopPlan{}, now)
-	require.NoError(t, err)
+	tests := map[string]struct {
+		updatedAt time.Time
+		claimAt   time.Time
+		wantErr   string
+	}{
+		"claimed": {
+			claimAt: now.Add(time.Second),
+		},
+		"claim time before latest update": {
+			updatedAt: now.Add(2 * time.Second),
+			claimAt:   now.Add(time.Second),
+			wantErr:   "execution claim time cannot precede update time",
+		},
+	}
 
-	retryAt := now.Add(time.Second)
-	require.NoError(t, execution.TransitionTo(
-		DeferredExecutionResult(ExecutionReasonAttemptFailed, "temporary", time.Minute),
-		retryAt,
-	))
-	require.Equal(t, ExecutionStatusDeferred, execution.Status)
-	require.Equal(t, 1, execution.Attempts)
-	require.Equal(t, retryAt.Add(time.Minute), execution.NextAttemptAt)
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			execution, err := NewExecution(uuid.New(), "notify", &NoopPlan{}, now)
+			require.NoError(t, err)
+			if !test.updatedAt.IsZero() {
+				execution.UpdatedAt = test.updatedAt
+			}
 
-	completedAt := retryAt.Add(time.Second)
-	require.NoError(t, execution.TransitionTo(CompletedExecutionResult(), completedAt))
-	require.Equal(t, ExecutionStatusCompleted, execution.Status)
-	require.Equal(t, 2, execution.Attempts)
-	require.True(t, execution.NextAttemptAt.IsZero())
-	require.ErrorContains(
-		t,
-		execution.TransitionTo(FailedExecutionResult("late"), completedAt.Add(time.Second)),
-		"cannot transition",
-	)
+			before := execution.Clone()
+			token := uuid.New()
+			err = execution.Claim("scheduler-1", token, test.claimAt)
+			if test.wantErr != "" {
+				require.ErrorContains(t, err, test.wantErr)
+				require.Equal(t, before, *execution)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, ExecutionStatusRunning, execution.Status)
+			require.Equal(t, 1, execution.Attempts)
+			require.Equal(t, token, execution.ClaimToken)
+			require.Equal(t, "scheduler-1", execution.ClaimOwner)
+			require.True(t, execution.NextAttemptAt.IsZero())
+			require.Equal(t, test.claimAt, execution.UpdatedAt)
+			require.NoError(t, execution.Validate())
+
+			require.ErrorContains(
+				t,
+				execution.Claim("scheduler-1", uuid.New(), now.Add(2*time.Second)),
+				"cannot be claimed",
+			)
+		})
+	}
+}
+
+func TestExecution_TransitionClaimedTo(t *testing.T) {
+	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
+	tests := map[string]struct {
+		result          ExecutionResult
+		token           func(uuid.UUID) uuid.UUID
+		claimAfter      time.Duration
+		transitionAfter time.Duration
+		want            ExecutionStatus
+		wantAttempts    int
+		wantErr         string
+	}{
+		"completed": {
+			result:          CompletedExecutionResult(),
+			transitionAfter: time.Second,
+			want:            ExecutionStatusCompleted,
+			wantAttempts:    1,
+		},
+		"deferred": {
+			result:          DeferredExecutionResult(ExecutionReasonAttemptFailed, "temporary", time.Minute),
+			transitionAfter: time.Second,
+			want:            ExecutionStatusDeferred,
+			wantAttempts:    1,
+		},
+		"interrupted": {
+			result: DeferredExecutionResult(
+				ExecutionReasonAttemptInterrupted,
+				context.Canceled.Error(),
+				time.Minute,
+			),
+			transitionAfter: time.Second,
+			want:            ExecutionStatusDeferred,
+		},
+		"failed": {
+			result:          FailedExecutionResult("terminal"),
+			transitionAfter: time.Second,
+			want:            ExecutionStatusFailed,
+			wantAttempts:    1,
+		},
+		"stale token": {
+			result:          CompletedExecutionResult(),
+			token:           func(uuid.UUID) uuid.UUID { return uuid.New() },
+			transitionAfter: time.Second,
+			wantErr:         "execution claim lost",
+		},
+		"transition time before latest update": {
+			result:          CompletedExecutionResult(),
+			claimAfter:      2 * time.Second,
+			transitionAfter: time.Second,
+			wantErr:         "execution transition time cannot precede update time",
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			execution, err := NewExecution(uuid.New(), "notify", &NoopPlan{}, now)
+			require.NoError(t, err)
+
+			claimToken := uuid.New()
+			require.NoError(t, execution.Claim("scheduler-1", claimToken, now.Add(test.claimAfter)))
+			before := execution.Clone()
+
+			transitionToken := claimToken
+			if test.token != nil {
+				transitionToken = test.token(claimToken)
+			}
+
+			err = execution.TransitionClaimedTo(
+				transitionToken,
+				test.result,
+				now.Add(test.transitionAfter),
+			)
+			if test.wantErr != "" {
+				require.ErrorContains(t, err, test.wantErr)
+				require.Equal(t, before, *execution)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, test.want, execution.Status)
+			require.Equal(t, test.wantAttempts, execution.Attempts)
+			require.Equal(t, uuid.Nil, execution.ClaimToken)
+			require.Empty(t, execution.ClaimOwner)
+			require.NoError(t, execution.Validate())
+		})
+	}
 }
 
 func TestExecutionValidate(t *testing.T) {
 	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
 	valid, err := NewExecution(uuid.New(), "notify", &NoopPlan{}, now)
 	require.NoError(t, err)
+
 	tests := map[string]struct {
 		mutate  func(*Execution)
 		wantErr string
@@ -136,18 +262,51 @@ func TestExecutionValidate(t *testing.T) {
 			mutate:  func(execution *Execution) { execution.Attempts = 1 },
 			wantErr: "pending execution cannot have attempts",
 		},
+		"running without claim token": {
+			mutate: func(execution *Execution) {
+				execution.ExecutionState = ExecutionState{
+					ExecutionStatusDetails: ExecutionStatusDetails{Status: ExecutionStatusRunning},
+				}
+				execution.Attempts = 1
+				execution.ClaimOwner = "scheduler-1"
+			},
+			wantErr: "running execution requires claim token",
+		},
+		"running with invalid claim owner": {
+			mutate: func(execution *Execution) {
+				execution.ExecutionState = ExecutionState{
+					ExecutionStatusDetails: ExecutionStatusDetails{Status: ExecutionStatusRunning},
+				}
+				execution.Attempts = 1
+				execution.ClaimToken = uuid.New()
+			},
+			wantErr: "execution claim owner is empty",
+		},
+		"non-running with claim token": {
+			mutate:  func(execution *Execution) { execution.ClaimToken = uuid.New() },
+			wantErr: "pending execution cannot have claim token",
+		},
+		"non-running with claim owner": {
+			mutate:  func(execution *Execution) { execution.ClaimOwner = "scheduler-1" },
+			wantErr: "pending execution cannot have claim owner",
+		},
 	}
+
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			execution := valid.Clone()
 			if test.mutate != nil {
 				test.mutate(&execution)
 			}
+
 			err := execution.Validate()
+
 			if test.wantErr == "" {
 				require.NoError(t, err)
+
 				return
 			}
+
 			require.ErrorContains(t, err, test.wantErr)
 		})
 	}
@@ -159,25 +318,39 @@ func TestExecutionResultValidate(t *testing.T) {
 		wantErr string
 	}{
 		"completed": {result: CompletedExecutionResult()},
-		"skipped":   {result: SkippedExecutionResult(ExecutionReasonNoTargets)},
 		"deferred":  {result: DeferredExecutionResult(ExecutionReasonAttemptFailed, "temporary", time.Second)},
 		"failed":    {result: FailedExecutionResult("terminal")},
 		"pending result": {
 			result:  ExecutionResult{ExecutionStatusDetails: ExecutionStatusDetails{Status: ExecutionStatusPending}},
 			wantErr: "pending is not an execution result",
 		},
+		"running result": {
+			result:  ExecutionResult{ExecutionStatusDetails: ExecutionStatusDetails{Status: ExecutionStatusRunning}},
+			wantErr: "running is not an execution result",
+		},
+		"skipped result": {
+			result: ExecutionResult{ExecutionStatusDetails: ExecutionStatusDetails{
+				Status: ExecutionStatusSkipped,
+				Reason: ExecutionReasonNoTargets,
+			}},
+			wantErr: "skipped is not an execution result",
+		},
 		"negative retry": {
 			result:  DeferredExecutionResult(ExecutionReasonAttemptFailed, "temporary", -time.Second),
 			wantErr: "cannot be negative",
 		},
 	}
+
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			err := test.result.Validate()
+
 			if test.wantErr == "" {
 				require.NoError(t, err)
+
 				return
 			}
+
 			require.ErrorContains(t, err, test.wantErr)
 		})
 	}

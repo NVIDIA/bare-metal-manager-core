@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/credential"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/model"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
@@ -92,10 +93,6 @@ func ComponentFrom(dao model.Component) *component.Component {
 		bmcsByType[t] = append(bmcsByType[t], BMCFrom(bd))
 	}
 
-	var componentID string
-	if dao.ComponentID != nil {
-		componentID = *dao.ComponentID
-	}
 	var nvlDomainID uuid.UUID
 	if dao.Rack != nil && dao.Rack.NVLDomainID != uuid.Nil {
 		nvlDomainID = dao.Rack.NVLDomainID
@@ -118,7 +115,7 @@ func ComponentFrom(dao model.Component) *component.Component {
 			HostID:    dao.HostID,
 		},
 		BmcsByType:  bmcsByType,
-		ComponentID: componentID,
+		ComponentID: cutil.GetValueOrZero(dao.ComponentID),
 		RackID:      dao.RackID,
 		NVLDomainID: nvlDomainID,
 		PowerState:  powerStateFromDAO(dao.PowerState),
@@ -294,10 +291,7 @@ func ComponentTo(c *component.Component, rackID uuid.UUID) *model.Component {
 		TrayIndex:       c.Position.TrayIndex,
 		HostID:          c.Position.HostID,
 		RackID:          rackID,
-	}
-
-	if c.ComponentID != "" {
-		compDAO.ComponentID = &c.ComponentID
+		ComponentID:     cutil.GetPtrIfNotZero(c.ComponentID),
 	}
 
 	for _, t := range devicetypes.BMCTypes() {

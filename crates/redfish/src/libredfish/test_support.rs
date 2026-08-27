@@ -36,9 +36,10 @@ use libredfish::model::storage::Drives;
 use libredfish::model::task::Task;
 use libredfish::model::update_service::{ComponentType, TransferProtocolType, UpdateService};
 use libredfish::model::{ODataId, ODataLinks};
+use libredfish::standard::RedfishStandard;
 use libredfish::{
-    Assembly, Chassis, Collection, EnabledDisabled, JobState, NetworkAdapter, PowerState, Redfish,
-    RedfishError, Resource, SystemPowerControl,
+    Assembly, Chassis, Collection, EnabledDisabled, JobState, ManagerResetType, NetworkAdapter,
+    PowerState, Redfish, RedfishError, Resource, SystemPowerControl,
 };
 use mac_address::MacAddress;
 
@@ -556,7 +557,7 @@ impl From<libredfish::BootInterfaceRef<'_>> for RedfishSimBootInterfaceRef {
 #[derive(Debug, Clone, PartialEq)]
 pub enum RedfishSimAction {
     Power(libredfish::SystemPowerControl),
-    BmcReset,
+    BmcReset(Option<ManagerResetType>),
     SetUtcTimezone,
     SetNtpServers(Vec<String>),
     MachineSetup {
@@ -661,6 +662,10 @@ impl RedfishSimClient {
 }
 
 impl Redfish for RedfishSimClient {
+    fn std_redfish(&self) -> &RedfishStandard {
+        panic!("RedfishSimClient must implement Redfish operations directly")
+    }
+
     fn get_power_state<'a>(
         &'a self,
     ) -> libredfish::RedfishFuture<'a, Result<libredfish::PowerState, RedfishError>> {
@@ -695,11 +700,16 @@ impl Redfish for RedfishSimClient {
         false
     }
 
-    fn bmc_reset<'a>(&'a self) -> libredfish::RedfishFuture<'a, Result<(), RedfishError>> {
+    fn bmc_reset<'a>(
+        &'a self,
+        reset_type: Option<ManagerResetType>,
+    ) -> libredfish::RedfishFuture<'a, Result<(), RedfishError>> {
         Box::pin(async move {
             let mut state = self.state.lock().unwrap();
             let host_state = state.hosts.get_mut(&self._host).unwrap();
-            host_state.actions.push(RedfishSimAction::BmcReset);
+            host_state
+                .actions
+                .push(RedfishSimAction::BmcReset(reset_type));
             Ok(())
         })
     }

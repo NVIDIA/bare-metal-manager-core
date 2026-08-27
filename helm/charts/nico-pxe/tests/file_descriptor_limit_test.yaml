@@ -1,0 +1,16 @@
+suite: pxe file descriptor limit
+templates:
+  - templates/deployment.yaml
+tests:
+  - it: uses the default soft limit
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: 'ulimit -Sn 65536 \|\| exit 1'
+  - it: allows an override
+    set:
+      fileDescriptorLimit: 32768
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: 'ulimit -Sn 32768 \|\| exit 1'

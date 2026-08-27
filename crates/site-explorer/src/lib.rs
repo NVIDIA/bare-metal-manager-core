@@ -633,6 +633,7 @@ impl SiteExplorer {
                 return exploration_error_to_metric_label(err);
             }
             SiteExplorerError::Internal { .. } => "internal",
+            SiteExplorerError::InvalidHostMachineId { .. } => "invalid_host_machine_id",
         }
         .to_string()
     }
@@ -3400,7 +3401,7 @@ impl SiteExplorer {
         let bmc_target_addr = SocketAddr::new(endpoint.address, bmc_target_port);
         match self
             .endpoint_explorer
-            .redfish_reset_bmc(bmc_target_addr, endpoint.iface)
+            .redfish_reset_bmc(bmc_target_addr, endpoint.iface, None)
             .await
         {
             Ok(_) => {

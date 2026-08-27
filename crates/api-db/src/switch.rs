@@ -127,6 +127,7 @@ pub async fn create(txn: &mut PgConnection, new_switch: &NewSwitch) -> DatabaseR
         bmc_mac_address: new_switch.bmc_mac_address,
         bmc_info: None,
         bmc_credential_rotation_requested: false,
+        decommission_requested: false,
         controller_state: Versioned {
             value: state,
             version: controller_state_version,
@@ -410,6 +411,36 @@ pub async fn clear_switch_reprovisioning_requested(
         .await
         .map_err(|e| DatabaseError::new("clear_switch_reprovisioning_requested", e))?;
     Ok(())
+}
+
+/// Records a request to start decommissioning when the switch is Ready.
+pub async fn set_decommission_requested(
+    txn: &mut PgConnection,
+    switch_id: SwitchId,
+) -> DatabaseResult<()> {
+    const QUERY: &str =
+        "UPDATE switches SET decommission_requested = TRUE WHERE id = $1 RETURNING id";
+    sqlx::query_as::<_, SwitchId>(QUERY)
+        .bind(switch_id)
+        .fetch_one(txn)
+        .await
+        .map(|_| ())
+        .map_err(|error| DatabaseError::new("switch::set_decommission_requested", error))
+}
+
+/// Clears a decommission request as the controller enters the workflow.
+pub async fn clear_decommission_requested(
+    txn: &mut PgConnection,
+    switch_id: SwitchId,
+) -> DatabaseResult<()> {
+    const QUERY: &str =
+        "UPDATE switches SET decommission_requested = FALSE WHERE id = $1 RETURNING id";
+    sqlx::query_as::<_, SwitchId>(QUERY)
+        .bind(switch_id)
+        .fetch_one(txn)
+        .await
+        .map(|_| ())
+        .map_err(|error| DatabaseError::new("switch::clear_decommission_requested", error))
 }
 
 /// Clears a rack-owned reprovisioning request before the switch leaves `Ready`.

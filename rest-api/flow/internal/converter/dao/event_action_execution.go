@@ -5,8 +5,8 @@ package dao
 
 import (
 	"fmt"
-	"time"
 
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	dbmodel "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/model"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
 	eventrulecodec "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/codec"
@@ -19,26 +19,12 @@ func EventActionExecutionTo(
 	if err := execution.Validate(); err != nil {
 		return nil, err
 	}
+
 	plan, err := eventrulecodec.MarshalExecutionPlan(execution.Plan)
 	if err != nil {
 		return nil, fmt.Errorf("encode execution plan: %w", err)
 	}
 
-	var nextAttemptAt *time.Time
-	if !execution.NextAttemptAt.IsZero() {
-		next := execution.NextAttemptAt
-		nextAttemptAt = &next
-	}
-	var reason *string
-	if execution.Reason != eventrule.ExecutionReasonNone {
-		value := string(execution.Reason)
-		reason = &value
-	}
-	var statusMessage *string
-	if execution.StatusMessage != "" {
-		value := execution.StatusMessage
-		statusMessage = &value
-	}
 	return &dbmodel.EventActionExecution{
 		ID:            execution.ID,
 		EventID:       execution.EventID,
@@ -46,12 +32,14 @@ func EventActionExecutionTo(
 		ActionType:    string(execution.Plan.Type()),
 		Plan:          plan,
 		Status:        string(execution.Status),
-		Reason:        reason,
+		Reason:        cutil.GetPtrIfNotZero(string(execution.Reason)),
 		Attempts:      execution.Attempts,
-		StatusMessage: statusMessage,
+		ClaimToken:    cutil.GetPtrIfNotZero(execution.ClaimToken),
+		ClaimOwner:    cutil.GetPtrIfNotZero(execution.ClaimOwner),
+		StatusMessage: cutil.GetPtrIfNotZero(execution.StatusMessage),
 		CreatedAt:     execution.CreatedAt,
 		UpdatedAt:     execution.UpdatedAt,
-		NextAttemptAt: nextAttemptAt,
+		NextAttemptAt: cutil.GetPtrIfNotZero(execution.NextAttemptAt),
 	}, nil
 }
 
@@ -63,18 +51,6 @@ func EventActionExecutionFrom(
 		return nil, nil
 	}
 
-	var nextAttemptAt time.Time
-	if persisted.NextAttemptAt != nil {
-		nextAttemptAt = *persisted.NextAttemptAt
-	}
-	var reason eventrule.ExecutionReason
-	if persisted.Reason != nil {
-		reason = eventrule.ExecutionReason(*persisted.Reason)
-	}
-	var statusMessage string
-	if persisted.StatusMessage != nil {
-		statusMessage = *persisted.StatusMessage
-	}
 	plan, err := eventrulecodec.UnmarshalExecutionPlan(persisted.Plan)
 	if err != nil {
 		return nil, fmt.Errorf(
@@ -83,6 +59,7 @@ func EventActionExecutionFrom(
 			err,
 		)
 	}
+
 	if string(plan.Type()) != persisted.ActionType {
 		return nil, fmt.Errorf(
 			"%w: action type %q does not match plan type %q",
@@ -91,25 +68,30 @@ func EventActionExecutionFrom(
 			plan.Type(),
 		)
 	}
+
 	execution := &eventrule.Execution{
 		ExecutionState: eventrule.ExecutionState{
 			ExecutionStatusDetails: eventrule.ExecutionStatusDetails{
 				Status:        eventrule.ExecutionStatus(persisted.Status),
-				Reason:        reason,
-				StatusMessage: statusMessage,
+				Reason:        eventrule.ExecutionReason(cutil.GetValueOrZero(persisted.Reason)),
+				StatusMessage: cutil.GetValueOrZero(persisted.StatusMessage),
 			},
-			NextAttemptAt: nextAttemptAt,
+			NextAttemptAt: cutil.GetValueOrZero(persisted.NextAttemptAt),
 		},
 		ID:         persisted.ID,
 		EventID:    persisted.EventID,
 		ActionName: persisted.ActionName,
 		Plan:       plan,
 		Attempts:   persisted.Attempts,
+		ClaimToken: cutil.GetValueOrZero(persisted.ClaimToken),
+		ClaimOwner: cutil.GetValueOrZero(persisted.ClaimOwner),
 		CreatedAt:  persisted.CreatedAt,
 		UpdatedAt:  persisted.UpdatedAt,
 	}
+
 	if err := execution.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %w", eventrule.ErrInvalidPersistedExecution, err)
 	}
+
 	return execution, nil
 }

@@ -21,13 +21,11 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use bmc_mock::injection::InjectionStore;
-use bmc_mock::ipmi_sim::IpmiEndpoint;
 use bmc_mock::mac_address_pool::{MacAddressPool, PoolConfig as MacAddressPoolConfig};
 use bmc_mock::{
     BmcCommand, Callbacks, HostMachineInfo, HostnameQuerying, MachineInfo, MockPowerState,
     POWER_CYCLE_DELAY, SetSystemPowerError, SetSystemPowerResult, SystemPowerControl,
 };
-use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
@@ -39,7 +37,6 @@ use crate::machine_state_machine::{MachineStateError, OsImage};
 use crate::saturating_add_duration_to_instant;
 use crate::status::{BmcStatus, DeviceKind, DeviceStatus, DeviceStatusConfig, EndpointStatus};
 use crate::switch_fsm::{Action, DhcpEndpoint, Event, SwitchFsm, Timer};
-use crate::tui::UiUpdate;
 
 fn abandon_nvos_dhcp_on_power_change(actions: &mut VecDeque<Action>) {
     actions.retain(|action| !matches!(action, Action::Dhcp(DhcpEndpoint::Nvos)));
@@ -50,7 +47,7 @@ struct SwitchLiveState {
     power_state: MockPowerState,
     bmc_ip: Option<Ipv4Addr>,
     nvos_ip: Option<Ipv4Addr>,
-    ipmi_endpoint: Option<IpmiEndpoint>,
+    ipmi_port: Option<u16>,
     ssh_endpoint_port: Option<u16>,
     ssh_host_key: Option<String>,
     state: &'static str,
@@ -62,7 +59,7 @@ impl SwitchLiveState {
             power_state: fsm.power_state(),
             bmc_ip: None,
             nvos_ip: None,
-            ipmi_endpoint: None,
+            ipmi_port: None,
             ssh_endpoint_port: None,
             ssh_host_key: None,
             state: fsm.state_string(),
@@ -402,6 +399,8 @@ impl SwitchActor {
             Arc::new(SwitchHostname),
             self.mat_id,
             self.bmc_injection.clone(),
+            // no lifecycle timing profile for this device kind yet
+            None,
         );
         if let Some(password) = self.app_context.app_config.host_bmc_password.as_deref() {
             bmc_mock
@@ -430,9 +429,7 @@ impl SwitchActor {
         {
             let mut state = self.live_state.write().unwrap();
             state.bmc_ip = Some(dhcp_info.ip_address);
-            state.ipmi_endpoint = bmc_handle
-                .as_ref()
-                .and_then(|handle| handle.ipmi_endpoint());
+            state.ipmi_port = bmc_handle.as_ref().and_then(|handle| handle.ipmi_port());
             state.ssh_endpoint_port = bmc_handle
                 .as_ref()
                 .and_then(|handle| handle.ssh_endpoint_port());
@@ -546,13 +543,6 @@ impl SwitchHandle {
         self.0.mat_id
     }
 
-    pub(crate) fn attach_to_tui(
-        &self,
-        _tui_event_tx: Option<mpsc::Sender<UiUpdate>>,
-    ) -> eyre::Result<()> {
-        Ok(())
-    }
-
     pub(crate) fn pause(&self) -> eyre::Result<()> {
         self.0.mailbox.send(SwitchMessage::SetPaused(true))?;
         Ok(())
@@ -588,8 +578,8 @@ impl SwitchHandle {
             bmc: BmcStatus {
                 ip: state.bmc_ip.map(|ip| ip.to_string()),
                 redfish: EndpointStatus::redfish(config),
-                ipmi: state.ipmi_endpoint.map(Into::into),
-                ssh: state.ssh_endpoint_port.map(EndpointStatus::ssh),
+                ipmi: state.ipmi_port.map(EndpointStatus::same_port),
+                ssh: state.ssh_endpoint_port.map(EndpointStatus::same_port),
             },
             dpus: Vec::new(),
         }

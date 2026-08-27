@@ -4,6 +4,7 @@
 package model
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -191,4 +192,44 @@ func TestTaskListOptionsToFilterable_FullQuerySQL(t *testing.T) {
 	}
 	assert.Equal(t, 0, strings.Count(gotSQL, " OR "),
 		"filters must be AND-combined, got: %s", gotSQL)
+}
+
+func TestListTasksForRacksByStatus_GeneratedSQL(t *testing.T) {
+	rackID := uuid.MustParse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+	db := newOfflineBun()
+	var tasks []Task
+
+	q := listTasksForRacksByStatusQuery(
+		db,
+		&tasks,
+		[]uuid.UUID{rackID},
+		taskcommon.NonTerminalTaskStatuses(),
+	)
+	sql, err := q.AppendQuery(db.Formatter(), nil)
+	require.NoError(t, err)
+	got := string(sql)
+
+	for _, fragment := range []string{
+		`"t"."id"`,
+		`"t"."rack_id"`,
+		`"t"."attributes"`,
+		`"t"."status"`,
+		`rack_id IN`,
+		rackID.String(),
+		`status IN`,
+	} {
+		assert.Contains(t, got, fragment)
+	}
+	assert.NotContains(t, got, `"t"."report"`)
+}
+
+func TestListTasksForRacksByStatus_EmptyFilter(t *testing.T) {
+	tasks, err := ListTasksForRacksByStatus(
+		context.Background(),
+		nil,
+		nil,
+		taskcommon.NonTerminalTaskStatuses(),
+	)
+	require.NoError(t, err)
+	assert.Empty(t, tasks)
 }

@@ -24,6 +24,24 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			wantErr: "unsupported event-rule store backend",
 		},
+		"missing scheduler instance id": {
+			mutate: func(config *Config) {
+				config.Scheduler.InstanceID = ""
+			},
+			wantErr: "scheduler instance ID: execution claim owner is empty",
+		},
+		"invalid scheduler runtime": {
+			mutate: func(config *Config) {
+				config.Scheduler.Runtime.PollInterval = 0
+			},
+			wantErr: "scheduler poll interval must be positive",
+		},
+		"invalid scheduler policy": {
+			mutate: func(config *Config) {
+				config.Scheduler.Policy.MaxAttempts = 0
+			},
+			wantErr: "retry max attempts must be positive",
+		},
 		"missing inventory reader": {
 			mutate: func(config *Config) {
 				config.Inventory = nil

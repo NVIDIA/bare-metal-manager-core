@@ -40,13 +40,13 @@ use regex::Regex;
 
 use crate::cfg::file::{
     AuthConfig, CarbideConfig, DpaConfig, DpaInterfaceStateControllerConfig,
-    DpuConfig as InitialDpuConfig, DsxExchangeEventBusConfig, FnnConfig,
-    IbPartitionStateControllerConfig, KmsConfig, ListenMode, MachineUpdater,
-    MeasuredBootMetricsCollectorConfig, MqttAuthConfig, NetworkSecurityGroupConfig,
-    NetworkSegmentStateControllerConfig, NodeAuthConfig, PowerShelfStateControllerConfig,
-    RackStateControllerConfig, SecretsConfig, SpdmConfig, SpdmStateControllerConfig,
-    SwitchStateControllerConfig, TracingConfig, VmaasConfig, VpcPeeringPolicy,
-    VpcPrefixStateControllerConfig, default_bmc_session_lockout_threshold,
+    DpuConfig as InitialDpuConfig, DsxExchangeEventBusConfig,
+    ExtensionServiceStateControllerConfig, FnnConfig, IbPartitionStateControllerConfig, KmsConfig,
+    ListenMode, MachineUpdater, MeasuredBootMetricsCollectorConfig, MqttAuthConfig,
+    NetworkSecurityGroupConfig, NetworkSegmentStateControllerConfig, NodeAuthConfig,
+    PowerShelfStateControllerConfig, RackStateControllerConfig, SecretsConfig, SpdmConfig,
+    SpdmStateControllerConfig, SwitchStateControllerConfig, TracingConfig, VmaasConfig,
+    VpcPeeringPolicy, VpcPrefixStateControllerConfig, default_bmc_session_lockout_threshold,
     default_database_pool_acquire_timeout, default_database_pool_idle_timeout,
     default_database_pool_max_lifetime, default_max_find_by_ids,
     default_max_site_prefixes_per_tenant, default_pxe_public_base_url,
@@ -199,6 +199,7 @@ pub fn get() -> CarbideConfig {
         dpu_ipmi_tool_impl: None,
         dpu_ipmi_reboot_attempts: Some(0),
         bmc_session_lockout_threshold: default_bmc_session_lockout_threshold(),
+        bmc_max_sessions_per_caller: crate::cfg::file::default_bmc_max_sessions_per_caller(),
         allow_bmc_basic_auth_fallback: false,
         allow_insecure_discovery: true,
         initial_domain_name: Some("test.com".to_string()),
@@ -245,6 +246,9 @@ pub fn get() -> CarbideConfig {
         },
         vpc_prefix_state_controller: VpcPrefixStateControllerConfig {
             vpc_prefix_drain_time: Duration::seconds(2),
+            controller: StateControllerConfig::default(),
+        },
+        extension_service_state_controller: ExtensionServiceStateControllerConfig {
             controller: StateControllerConfig::default(),
         },
         ib_partition_state_controller: IbPartitionStateControllerConfig {

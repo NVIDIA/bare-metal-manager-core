@@ -38,6 +38,9 @@ pub struct BmcState {
     pub account_service_state: Arc<AccountServiceState>,
     pub(crate) session_service_state: Arc<SessionServiceState>,
     pub injection: Arc<InjectionStore>,
+    /// BMC self-reset simulation window (None = feature disabled; resets
+    /// stay no-ops as before).
+    pub availability: Option<Arc<crate::availability::BmcAvailabilityState>>,
     pub(crate) callbacks: Option<Arc<dyn crate::Callbacks>>,
     /// Whether this BMC advertises and serves the `/redfish/v1/Systems`
     /// collection. Delta power shelves expose no `ComputerSystem` collection,

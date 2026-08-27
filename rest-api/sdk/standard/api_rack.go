@@ -1047,7 +1047,7 @@ List Tasks targeting the specified Rack.
 
 Tasks are site-scoped; `siteId` must be the Site that owns the Rack. Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-Filters compose with AND: setting `activeOnly=true` restricts the result to tasks that are still in a non-terminal state (`Pending`, `Running`, `Waiting`). Results are ordered by creation time descending, then Task UUID descending, before pagination; the `X-Pagination` response header reports the total count over the post-filter set.
+Filters compose with AND: setting `activeOnly=true` restricts the result to tasks that are still in a non-terminal REST state (`Pending` or `Running`). Results are ordered by creation time descending, then Task UUID descending, before pagination; the `X-Pagination` response header reports the total count over the post-filter set.
 
 By default the `report` field is omitted from each task in the response. Set `includeReport=true` to include it; this is opt-in because report bodies can be several KB and pulling them across the list path persists the full payload in each caller-side workflow record. Single-task `GET /rack/task/{id}` and `POST /rack/task/{id}/cancel` always include the report.
 

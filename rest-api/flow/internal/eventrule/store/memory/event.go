@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"time"
 
 	converterdao "github.com/NVIDIA/infra-controller/rest-api/flow/internal/converter/dao"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
@@ -40,9 +41,12 @@ func (s *Store) Events() ([]eventrule.Event, error) {
 // ObserveEvent returns and records an existing source event. A missing event
 // is represented by (nil, nil).
 func (s *Store) ObserveEvent(
-	_ context.Context,
+	ctx context.Context,
 	key eventrule.EventKey,
 ) (*eventrule.Event, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err := key.Validate(); err != nil {
 		return nil, err
 	}
@@ -50,6 +54,13 @@ func (s *Store) ObserveEvent(
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	return s.observeEvent(key, s.now().UTC())
+}
+
+func (s *Store) observeEvent(
+	key eventrule.EventKey,
+	now time.Time,
+) (*eventrule.Event, error) {
 	id, exists := s.eventsByKey[key]
 	if !exists {
 		return nil, nil
@@ -61,8 +72,6 @@ func (s *Store) ObserveEvent(
 	}
 
 	event.Observations++
-	now := s.now().UTC()
-
 	if now.After(event.LastObservedAt) {
 		event.LastObservedAt = now
 	}
@@ -72,56 +81,6 @@ func (s *Store) ObserveEvent(
 	}
 
 	return s.event(id)
-}
-
-// CreateEvent inserts and returns a durable event. A concurrent duplicate
-// records another observation and returns (nil, nil).
-func (s *Store) CreateEvent(
-	_ context.Context,
-	definition eventrule.Event,
-) (*eventrule.Event, error) {
-	if err := definition.ValidateDefinition(); err != nil {
-		return nil, err
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	now := s.now().UTC()
-
-	if id, exists := s.eventsByKey[definition.Key]; exists {
-		event, err := s.event(id)
-		if err != nil {
-			return nil, err
-		}
-
-		event.Observations++
-
-		if now.After(event.LastObservedAt) {
-			event.LastObservedAt = now
-		}
-
-		if err := s.setEvent(event); err != nil {
-			return nil, err
-		}
-
-		return nil, nil
-	}
-
-	event, err := eventrule.NewEvent(definition, now)
-	if err != nil {
-		return nil, err
-	}
-
-	persisted, err := converterdao.EventTo(event)
-	if err != nil {
-		return nil, err
-	}
-
-	s.events[event.ID] = *persisted
-	s.eventsByKey[event.Key] = event.ID
-
-	return s.event(event.ID)
 }
 
 func (s *Store) event(id uuid.UUID) (*eventrule.Event, error) {

@@ -313,6 +313,16 @@ pub struct CarbideConfig {
     #[serde(default = "default_bmc_session_lockout_threshold")]
     pub bmc_session_lockout_threshold: u32,
 
+    /// Cap on outstanding Redfish sessions per calling service identity per
+    /// BMC. Every `GetBmcCredentials` call mints a fresh session, so this is
+    /// what bounds a caller's session slots on the BMC: a mint that pushes
+    /// past the cap revokes that caller's oldest sessions. Size it to the
+    /// caller's replica count plus headroom for restarts.
+    /// Default is 4 (two replicas, each holding a current and a next
+    /// session). Values below 1 are treated as 1.
+    #[serde(default = "default_bmc_max_sessions_per_caller")]
+    pub bmc_max_sessions_per_caller: usize,
+
     /// When `true`, `GetBmcCredentials` may return
     /// `UsernamePassword` credentials for BMCs whose Redfish ServiceRoot
     /// does not expose `SessionService`. When `false` (the default), such
@@ -438,6 +448,10 @@ pub struct CarbideConfig {
     /// VpcPrefixStateController related configuration parameter
     #[serde(default)]
     pub vpc_prefix_state_controller: VpcPrefixStateControllerConfig,
+
+    /// ExtensionServiceStateController related configuration parameter
+    #[serde(default)]
+    pub extension_service_state_controller: ExtensionServiceStateControllerConfig,
 
     /// IbPartitionStateController related configuration parameter
     #[serde(default)]
@@ -3131,6 +3145,14 @@ impl Default for VpcPrefixStateControllerConfig {
     }
 }
 
+/// Extension-service state-controller configuration.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct ExtensionServiceStateControllerConfig {
+    /// Common state-controller configuration.
+    #[serde(default = "StateControllerConfig::default")]
+    pub controller: StateControllerConfig,
+}
+
 /// IbPartitionStateController related config
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -3212,7 +3234,7 @@ pub struct SwitchStateControllerConfig {
 
     /// Switch services that receive installed mTLS certificates during RMS
     /// `configure_switch_certificate` calls initiated by the switch state
-    /// machine.
+    /// machine or the direct `ComponentConfigureSwitchCertificate` RPC path.
     ///
     /// When this field is omitted or empty, all supported services are used.
     ///
@@ -3367,6 +3389,10 @@ const fn default_api_admission_client_idle_timeout() -> std::time::Duration {
 
 pub const fn default_bmc_session_lockout_threshold() -> u32 {
     3
+}
+
+pub const fn default_bmc_max_sessions_per_caller() -> usize {
+    4
 }
 
 /// DpuConfig related internal configuration
@@ -5386,6 +5412,10 @@ mod tests {
             config.bmc_session_lockout_threshold,
             default_bmc_session_lockout_threshold()
         );
+        // The literal, not the helper: this pins the documented default so a
+        // drive-by change to the helper cannot silently diverge from the
+        // config docs.
+        assert_eq!(config.bmc_max_sessions_per_caller, 4);
         assert!(
             !config.allow_bmc_basic_auth_fallback,
             "allow_bmc_basic_auth_fallback must default to false to preserve \
@@ -5413,6 +5443,10 @@ mod tests {
         assert_eq!(
             config.vpc_prefix_state_controller,
             VpcPrefixStateControllerConfig::default()
+        );
+        assert_eq!(
+            config.extension_service_state_controller,
+            ExtensionServiceStateControllerConfig::default()
         );
         assert_eq!(
             config.ib_partition_state_controller,

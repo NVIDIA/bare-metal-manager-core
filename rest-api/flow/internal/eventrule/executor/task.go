@@ -34,16 +34,16 @@ func (e *TaskExecutor) Execute(ctx context.Context, request ExecutionRequest) er
 		return terminalError(fmt.Errorf("task manager and execution task store are required"))
 	}
 
-	plan, ok := request.Execution.Plan.(*eventrule.SubmitTaskPlan)
+	plan, ok := request.Plan.(*eventrule.SubmitTaskPlan)
 	if !ok || plan == nil {
 		return terminalError(fmt.Errorf(
 			"task executor received plan %T",
-			request.Execution.Plan,
+			request.Plan,
 		))
 	}
 
 	for _, target := range plan.Targets {
-		if err := e.submitTarget(ctx, *request.Execution, plan, target); err != nil {
+		if err := e.submitTarget(ctx, request.ExecutionID, plan, target); err != nil {
 			return err
 		}
 	}
@@ -53,24 +53,24 @@ func (e *TaskExecutor) Execute(ctx context.Context, request ExecutionRequest) er
 
 func (e *TaskExecutor) submitTarget(
 	ctx context.Context,
-	execution eventrule.Execution,
+	executionID uuid.UUID,
 	plan *eventrule.SubmitTaskPlan,
 	target operation.RackExecutionTarget,
 ) error {
-	associated, err := e.associations.GetExecutionTask(ctx, execution.ID, target.RackID)
+	associated, err := e.associations.GetExecutionTask(ctx, executionID, target.RackID)
 	if err != nil {
 		return retryableError("load execution task association", err)
 	}
 
 	if associated != nil {
-		if err := validateTaskAssociation(associated, execution.ID, target.RackID); err != nil {
+		if err := validateTaskAssociation(associated, executionID, target.RackID); err != nil {
 			return terminalError(err)
 		}
 
 		return nil
 	}
 
-	request, err := operationRequest(execution.ID, plan, target)
+	request, err := operationRequest(executionID, plan, target)
 	if err != nil {
 		return terminalError(err)
 	}
@@ -85,7 +85,7 @@ func (e *TaskExecutor) submitTarget(
 	}
 
 	requested := eventrule.ExecutionTask{
-		ExecutionID: execution.ID,
+		ExecutionID: executionID,
 		RackID:      target.RackID,
 		TaskID:      taskIDs[0],
 	}
@@ -99,7 +99,7 @@ func (e *TaskExecutor) submitTarget(
 		return terminalError(errors.New("execution task store returned a nil association"))
 	}
 
-	if err := validateTaskAssociation(associated, execution.ID, target.RackID); err != nil {
+	if err := validateTaskAssociation(associated, executionID, target.RackID); err != nil {
 		return terminalError(err)
 	}
 

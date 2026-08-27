@@ -390,12 +390,16 @@ impl DHCPv6Factory {
         )
     }
 
-    /// Build a CONFIRM for an address the client wants to keep using.
-    pub(crate) fn confirm(idx: u8, address: Ipv6Addr) -> Vec<u8> {
-        Self::relay_wrap(
-            Self::client_message_with_address(idx, MessageType::Confirm, address, None),
-            true,
-        )
+    // Build a CONFIRM with an independent client identity and transaction ID.
+    pub(crate) fn confirm(idx: u8, transaction_id: u8, address: Ipv6Addr) -> Vec<u8> {
+        let mut message =
+            Self::client_message_with_address(idx, MessageType::Confirm, address, None);
+        message.set_xid([0xaa, 0xcc, transaction_id]);
+        let mut inner = Vec::new();
+        message.encode(&mut Encoder::new(&mut inner)).unwrap();
+        // relay_wrap_payload derives option 79 from idx explicitly, keeping the
+        // relay identity independent of the transaction ID.
+        Self::relay_wrap_payload(&inner, idx, true, 0)
     }
 
     /// Build the default stateful SOLICIT message used by most lease tests.
