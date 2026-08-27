@@ -9087,7 +9087,7 @@ type RuntimeConfig struct {
 	BomValidationEnabled                            bool     `protobuf:"varint,35,opt,name=bom_validation_enabled,json=bomValidationEnabled,proto3" json:"bom_validation_enabled,omitempty"`
 	BomValidationIgnoreUnassignedMachines           bool     `protobuf:"varint,36,opt,name=bom_validation_ignore_unassigned_machines,json=bomValidationIgnoreUnassignedMachines,proto3" json:"bom_validation_ignore_unassigned_machines,omitempty"` // TODO: Remove after all consumers updated
 	DpuNicFirmwareUpdateVersions                    []string `protobuf:"bytes,37,rep,name=dpu_nic_firmware_update_versions,json=dpuNicFirmwareUpdateVersions,proto3" json:"dpu_nic_firmware_update_versions,omitempty"`
-	DpaEnabled                                      bool     `protobuf:"varint,38,opt,name=dpa_enabled,json=dpaEnabled,proto3" json:"dpa_enabled,omitempty"`
+	EwethersEnabled                                 bool     `protobuf:"varint,38,opt,name=ewethers_enabled,json=ewethersEnabled,proto3" json:"ewethers_enabled,omitempty"`
 	MqttEndpoint                                    string   `protobuf:"bytes,39,opt,name=mqtt_endpoint,json=mqttEndpoint,proto3" json:"mqtt_endpoint,omitempty"`
 	Sitename                                        *string  `protobuf:"bytes,40,opt,name=sitename,proto3,oneof" json:"sitename,omitempty"`
 	BomValidationAutoGenerateMissingSku             bool     `protobuf:"varint,41,opt,name=bom_validation_auto_generate_missing_sku,json=bomValidationAutoGenerateMissingSku,proto3" json:"bom_validation_auto_generate_missing_sku,omitempty"`
@@ -9372,9 +9372,9 @@ func (x *RuntimeConfig) GetDpuNicFirmwareUpdateVersions() []string {
 	return nil
 }
 
-func (x *RuntimeConfig) GetDpaEnabled() bool {
+func (x *RuntimeConfig) GetEwethersEnabled() bool {
 	if x != nil {
-		return x.DpaEnabled
+		return x.EwethersEnabled
 	}
 	return false
 }
@@ -65109,7 +65109,7 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x0ebuild_hostname\x18\x06 \x01(\tR\rbuildHostname\x12:\n" +
 	"\fcapabilities\x18\a \x03(\x0e2\x16.forge.BuildCapabilityR\fcapabilities\x12@\n" +
 	"\x0eruntime_config\x182 \x01(\v2\x14.forge.RuntimeConfigH\x00R\rruntimeConfig\x88\x01\x01B\x11\n" +
-	"\x0f_runtime_config\"\xe9\x17\n" +
+	"\x0f_runtime_config\"\xf3\x17\n" +
 	"\rRuntimeConfig\x12\x16\n" +
 	"\x06listen\x18\x01 \x01(\tR\x06listen\x12)\n" +
 	"\x10metrics_endpoint\x18\x02 \x01(\tR\x0fmetricsEndpoint\x12!\n" +
@@ -65144,9 +65144,8 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x16vpc_isolation_behavior\x18\" \x01(\tR\x14vpcIsolationBehavior\x124\n" +
 	"\x16bom_validation_enabled\x18# \x01(\bR\x14bomValidationEnabled\x12X\n" +
 	")bom_validation_ignore_unassigned_machines\x18$ \x01(\bR%bomValidationIgnoreUnassignedMachines\x12F\n" +
-	" dpu_nic_firmware_update_versions\x18% \x03(\tR\x1cdpuNicFirmwareUpdateVersions\x12\x1f\n" +
-	"\vdpa_enabled\x18& \x01(\bR\n" +
-	"dpaEnabled\x12#\n" +
+	" dpu_nic_firmware_update_versions\x18% \x03(\tR\x1cdpuNicFirmwareUpdateVersions\x12)\n" +
+	"\x10ewethers_enabled\x18& \x01(\bR\x0fewethersEnabled\x12#\n" +
 	"\rmqtt_endpoint\x18' \x01(\tR\fmqttEndpoint\x12\x1f\n" +
 	"\bsitename\x18( \x01(\tH\x02R\bsitename\x88\x01\x01\x12U\n" +
 	"(bom_validation_auto_generate_missing_sku\x18) \x01(\bR#bomValidationAutoGenerateMissingSku\x12f\n" +
