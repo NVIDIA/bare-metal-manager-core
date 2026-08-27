@@ -643,29 +643,6 @@ func (mst ManageSite) MonitorInventoryReceiptForAllSites(ctx context.Context) er
 				}
 			}
 
-			if mst.cfg.GetNotificationsPagerDutyEnabled() {
-				// Send PagerDuty notification
-				pc := util.NewPagerDutyClient(mst.cfg.GetNotificationsPagerDutyIntegrationKey())
-				customDetails := map[string]string{
-					"site_id":             site.ID.String(),
-					"site_name":           site.Name,
-					"threshold_minutes":   fmt.Sprintf("%.0f", SiteInventoryReceiptThreshold.Minutes()),
-					"last_inventory_time": site.InventoryReceived.Format(time.RFC3339),
-					"time_since_last":     time.Since(*site.InventoryReceived).String(),
-					"description":         fmt.Sprintf("Site hasn't received Machine inventory for longer than threshold period of: %v minutes", SiteInventoryReceiptThreshold.Minutes()),
-				}
-				err := pc.SendPagerDutyAlertWithDedupeKey(
-					ctx,
-					fmt.Sprintf("Site Disconnection Detected: %s", site.Name),
-					"cloud-workflow-monitor",
-					fmt.Sprintf("site-disconnection-%s", site.ID.String()),
-					customDetails,
-				)
-				if err != nil {
-					logger.Error().Err(err).Msg("failed to send PagerDuty notification for Site down event")
-				}
-			}
-
 			// Set Site status to error
 			errMsg := fmt.Sprintf("Site hasn't received inventory for longer than threshold period of: %v minutes", SiteInventoryReceiptThreshold.Minutes())
 			serr := mst.updateSiteStatusInDB(ctx, nil, site.ID, ccu.GetPtr(cdbm.SiteStatusError), &errMsg)

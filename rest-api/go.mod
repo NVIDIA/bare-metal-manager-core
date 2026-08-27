@@ -13,7 +13,6 @@ require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/NVIDIA/infra-controller/rest-api/sdk/standard v0.0.0-00010101000000-000000000000
 	github.com/Nerzal/gocloak/v13 v13.9.0
-	github.com/PagerDuty/go-pagerduty v1.8.0
 	github.com/avast/retry-go/v4 v4.7.0
 	github.com/creack/pty v1.1.24
 	github.com/bufbuild/buf v1.72.0

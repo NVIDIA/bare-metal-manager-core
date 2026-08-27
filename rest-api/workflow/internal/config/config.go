@@ -81,11 +81,6 @@ const (
 	// ConfigNotificationsSlackWebhookURLPath specifies file path to read Slack webhook URL
 	ConfigNotificationsSlackWebhookURLPath = "notifications.slack.webhookURLPath"
 
-	// ConfigNotificationsPagerDutyIntegrationKey specifies the PagerDuty integration key
-	ConfigNotificationsPagerDutyIntegrationKey = "notifications.pagerduty.integrationKey"
-	// ConfigNotificationsPagerDutyIntegrationKeyPath specifies file path to read PagerDuty integration key
-	ConfigNotificationsPagerDutyIntegrationKeyPath = "notifications.pagerduty.integrationKeyPath"
-
 	// ConfigSiteManagerEndpoint is the service endpoint for site manager
 	ConfigSiteManagerEndpoint = "siteManager.svcEndpoint"
 
@@ -174,10 +169,6 @@ func NewConfig() *Config {
 
 	if c.GetNotificationsSlackWebhookURLPath() != "" {
 		c.setNotificationsSlackWebhookURL()
-	}
-
-	if c.GetNotificationsPagerDutyIntegrationKeyPath() != "" {
-		c.setNotificationsPagerDutyIntegrationKey()
 	}
 
 	c.setTemporalNamespace()
@@ -285,18 +276,6 @@ func (c *Config) setNotificationsSlackWebhookURL() {
 		log.Err(err).Str("notifications.slack.webhookURLPath", c.GetNotificationsSlackWebhookURLPath()).Msg("failed to read Slack webhook URL from file")
 	} else {
 		c.v.Set(ConfigNotificationsSlackWebhookURL, string(webhookURLBytes))
-	}
-}
-
-// setNotificationsPagerDutyIntegrationKey sets the PagerDuty integration key by reading from integration key path
-func (c *Config) setNotificationsPagerDutyIntegrationKey() {
-	log.Warn().Str("notifications.pagerduty.integrationKeyPath", c.GetNotificationsPagerDutyIntegrationKeyPath()).Msg("setting PagerDuty integration key by reading from integration key path")
-
-	integrationKeyBytes, err := os.ReadFile(c.GetNotificationsPagerDutyIntegrationKeyPath())
-	if err != nil {
-		log.Err(err).Str("notifications.pagerduty.integrationKeyPath", c.GetNotificationsPagerDutyIntegrationKeyPath()).Msg("failed to read PagerDuty integration key from file")
-	} else {
-		c.v.Set(ConfigNotificationsPagerDutyIntegrationKey, string(integrationKeyBytes))
 	}
 }
 
@@ -513,26 +492,6 @@ func (c *Config) SetNotificationsSlackWebhookURL(value string) {
 // GetNotificationsSlackWebhookURLPath gets the file path to read slack webhook url
 func (c *Config) GetNotificationsSlackWebhookURLPath() string {
 	return c.v.GetString(ConfigNotificationsSlackWebhookURLPath)
-}
-
-// GetNotificationsPagerDutyEnabled returns if PagerDuty notifications are enabled
-func (c *Config) GetNotificationsPagerDutyEnabled() bool {
-	return c.GetNotificationsPagerDutyIntegrationKey() != "" || c.GetNotificationsPagerDutyIntegrationKeyPath() != ""
-}
-
-// GetNotificationsPagerDutyIntegrationKey gets the PagerDuty integration key
-func (c *Config) GetNotificationsPagerDutyIntegrationKey() string {
-	return c.v.GetString(ConfigNotificationsPagerDutyIntegrationKey)
-}
-
-// SetNotificationsPagerDutyIntegrationKey sets the PagerDuty integration key
-func (c *Config) SetNotificationsPagerDutyIntegrationKey(value string) {
-	c.v.Set(ConfigNotificationsPagerDutyIntegrationKey, value)
-}
-
-// GetNotificationsPagerDutyIntegrationKeyPath gets the file path to read PagerDuty integration key
-func (c *Config) GetNotificationsPagerDutyIntegrationKeyPath() string {
-	return c.v.GetString(ConfigNotificationsPagerDutyIntegrationKeyPath)
 }
 
 // SetSiteManagerEndpoint sets the endpoint
