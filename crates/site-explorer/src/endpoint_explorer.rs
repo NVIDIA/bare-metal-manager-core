@@ -78,6 +78,18 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         action: libredfish::SystemPowerControl,
     ) -> Result<(), EndpointExplorationError>;
 
+    /// Reset a Redfish Chassis (e.g. a GPU baseboard) out-of-band via the BMC at
+    /// `address`, resolving credentials from `interface`. `chassis_id` is the
+    /// Redfish Chassis id (e.g. "HGX_Chassis_0"). Errors if credentials cannot be
+    /// loaded or the Redfish request fails.
+    async fn redfish_chassis_reset(
+        &self,
+        address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+        chassis_id: &str,
+        action: libredfish::SystemPowerControl,
+    ) -> Result<(), EndpointExplorationError>;
+
     async fn have_credentials(&self, interface: &MachineInterfaceSnapshot) -> bool;
 
     async fn disable_secure_boot(

@@ -265,6 +265,16 @@ impl EndpointExplorer for MockEndpointExplorer {
         Ok(())
     }
 
+    async fn redfish_chassis_reset(
+        &self,
+        _address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+        _chassis_id: &str,
+        _action: SystemPowerControl,
+    ) -> Result<(), EndpointExplorationError> {
+        Ok(())
+    }
+
     async fn have_credentials(&self, _interface: &MachineInterfaceSnapshot) -> bool {
         true
     }

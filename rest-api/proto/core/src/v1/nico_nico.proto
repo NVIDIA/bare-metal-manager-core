@@ -710,6 +710,9 @@ service Forge {
   rpc AdminBmcReset(AdminBmcResetRequest) returns (AdminBmcResetResponse);
   // Admin Power Control
   rpc AdminPowerControl(AdminPowerControlRequest) returns (AdminPowerControlResponse);
+  // Reset a GPU baseboard (e.g. HGX) via Redfish Chassis.Reset; resets all GPUs
+  // on it. Unset/On maps to ForceRestart; GracefulShutdown and ForceOff are rejected.
+  rpc AdminGpuReset(AdminGpuResetRequest) returns (AdminGpuResetResponse);
   // Disable Secure Boot
   rpc DisableSecureBoot(BmcEndpointRequest) returns (DisableSecureBootResponse);
   // Set Lockdown (Enable or Disable)
@@ -6933,6 +6936,19 @@ message AdminPowerControlRequest {
 
 message AdminPowerControlResponse {
   optional string msg = 1;
+}
+
+message AdminGpuResetRequest {
+  // Machine whose GPU baseboard BMC is targeted. Required.
+  common.MachineId machine_id = 1;
+  // Redfish Chassis id to reset, e.g. "HGX_Chassis_0". Required.
+  string chassis_id = 2;
+  // Reset type. Unset/On defaults to ForceRestart; GracefulShutdown and ForceOff
+  // are rejected so a reset never leaves the baseboard powered off.
+  AdminPowerControlRequest.SystemPowerControl action = 3;
+}
+
+message AdminGpuResetResponse {
 }
 
 message GetRedfishJobStateRequest {
