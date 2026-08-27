@@ -196,7 +196,7 @@ data:
     oob_dhcp_relay_address = {{ $section.oobDhcpRelayAddress | default "192.168.192.1" | quote }}
     admin_dhcp_relay_address = {{ $section.adminDhcpRelayAddress | default "192.168.176.1" | quote }}
     dpus_in_nic_mode = {{ $section.dpusInNicMode | default $defaults.dpusInNicMode | default false }}
-    {{- $hostFw := $section.hostFirmwareVersions | default $defaults.hostFirmwareVersions }}
+    {{- $hostFw := ternary $section.hostFirmwareVersions (default $defaults.hostFirmwareVersions $section.hostFirmwareVersions) (hasKey $section "hostFirmwareVersions") }}
     {{- with $hostFw }}
 
     [machines.{{ $sectionName }}.host_firmware_versions]

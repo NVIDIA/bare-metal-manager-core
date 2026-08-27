@@ -296,6 +296,8 @@ pods:
         adminDhcpRelayAddress: "192.168.176.1"
         ## Host firmware upgrade simulation (optional).
         ## Set initial versions older than the API's desired versions to trigger
+        ## the upgrade flow: version detection -> upload -> task polling ->
+        ## power-cycle -> inventory verification.
         ## Supported platforms: DGX H100, Wiwynn GB200, Lenovo GB300, Dell R750/R760.
         # hostFirmwareVersions:
         #   bmc: "24.08.00"
