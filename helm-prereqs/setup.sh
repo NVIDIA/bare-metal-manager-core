@@ -200,6 +200,12 @@ _reject_bundled_flow_manager_upgrade() {
     local container_names
     local container_name
     local manager_containers
+    local rollout_state
+    local generation observed_generation desired_replicas updated_replicas
+    local ready_replicas available_replicas total_replicas
+    local pod_rows
+    local pod_name pod_phase pod_containers pod_container
+    local manager_pods
 
     if ! container_names="$(
         kubectl get deployment flow -n flow --ignore-not-found \
@@ -217,11 +223,69 @@ _reject_bundled_flow_manager_upgrade() {
                 ;;
         esac
     done <<< "${container_names}"
-    [[ -z "${manager_containers}" ]] && return
+    if [[ -n "${manager_containers}" ]]; then
+        echo "ERROR: automatic upgrade from a Flow deployment that bundles ${manager_containers} is unsupported." >&2
+        echo "Preserve the existing release, or handle its dependencies and upgrade only the flow Helm release to the Flow-only chart before rerunning setup.sh." >&2
+        return 1
+    fi
 
-    echo "ERROR: automatic upgrade from a Flow deployment that bundles ${manager_containers} is unsupported." >&2
-    echo "Migrate Core to RMS or external manager endpoints, upgrade only the flow Helm release to the Flow-only chart, then rerun setup.sh." >&2
-    return 1
+    # A failed manual Helm upgrade can update the Deployment template while an
+    # old PSM/NSM Pod remains active. Require a completed rollout before shared
+    # prerequisites or credentials can be changed.
+    if [[ -n "${container_names}" ]]; then
+        if ! rollout_state="$(
+            kubectl get deployment flow -n flow \
+                -o jsonpath='{.metadata.generation}{"|"}{.status.observedGeneration}{"|"}{.spec.replicas}{"|"}{.status.updatedReplicas}{"|"}{.status.readyReplicas}{"|"}{.status.availableReplicas}{"|"}{.status.replicas}'
+        )"; then
+            echo "ERROR: unable to inspect flow/flow rollout status; refusing to continue." >&2
+            return 1
+        fi
+        IFS='|' read -r generation observed_generation desired_replicas \
+            updated_replicas ready_replicas available_replicas total_replicas \
+            <<< "${rollout_state}"
+        updated_replicas="${updated_replicas:-0}"
+        ready_replicas="${ready_replicas:-0}"
+        available_replicas="${available_replicas:-0}"
+        total_replicas="${total_replicas:-0}"
+        if [[ -z "${generation}" || -z "${observed_generation}" || \
+              -z "${desired_replicas}" || \
+              "${observed_generation}" != "${generation}" || \
+              "${updated_replicas}" != "${desired_replicas}" || \
+              "${ready_replicas}" != "${desired_replicas}" || \
+              "${available_replicas}" != "${desired_replicas}" || \
+              "${total_replicas}" != "${desired_replicas}" ]]; then
+            echo "ERROR: flow/flow rollout is incomplete; old manager Pods may still be running." >&2
+            echo "Complete or roll back the Flow-only Helm upgrade before rerunning setup.sh." >&2
+            return 1
+        fi
+    fi
+
+    if ! pod_rows="$(
+        kubectl get pods -n flow -l app=flow --ignore-not-found \
+            -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.phase}{"\t"}{range .spec.containers[*]}{.name}{" "}{end}{"\n"}{end}'
+    )"; then
+        echo "ERROR: unable to inspect active Flow Pods for bundled manager containers; refusing to continue." >&2
+        return 1
+    fi
+    manager_pods=""
+    while IFS=$'\t' read -r pod_name pod_phase pod_containers; do
+        [[ -z "${pod_name}" ]] && continue
+        case "${pod_phase}" in
+            Succeeded|Failed) continue ;;
+        esac
+        for pod_container in ${pod_containers}; do
+            case "${pod_container}" in
+                psm|nsm)
+                    manager_pods="${manager_pods:+${manager_pods}, }${pod_name}/${pod_container}"
+                    ;;
+            esac
+        done
+    done <<< "${pod_rows}"
+    if [[ -n "${manager_pods}" ]]; then
+        echo "ERROR: active Flow Pods still contain bundled managers: ${manager_pods}." >&2
+        echo "Complete or roll back the Flow-only Helm upgrade before rerunning setup.sh." >&2
+        return 1
+    fi
 }
 
 _reject_bundled_flow_manager_upgrade
@@ -1469,6 +1533,12 @@ else
     echo "=== Observability — skipped (pass --with-observability or run observability/install-observability.sh later) ==="
 fi
 
+# The initial guard proved that both the desired Deployment and active Flow
+# Pods are manager-free. After preflight and the Core phase completes or is
+# skipped, revoke predecessor hook credentials and RBAC before --skip-rest can
+# exit. Fresh installs have no legacy markers, so this is a read-only no-op.
+"${SCRIPT_DIR}/cleanup-legacy-flow-managers.sh"
+
 # ---------------------------------------------------------------------------
 # 7. NICo REST full stack
 #    Order of operations:
@@ -1884,10 +1954,6 @@ else
     helm upgrade --install flow "${NICO_FLOW_CHART}" \
         "${NICO_FLOW_ARGS[@]}" \
         --timeout 300s --wait
-    # The initial guard requires a staged upgrade to remove legacy manager
-    # containers first. Revoke their hook credentials and RBAC only after the
-    # Flow-only Helm upgrade has succeeded.
-    "${SCRIPT_DIR}/cleanup-legacy-flow-managers.sh"
     echo "NICo Flow deployed"
 fi
 

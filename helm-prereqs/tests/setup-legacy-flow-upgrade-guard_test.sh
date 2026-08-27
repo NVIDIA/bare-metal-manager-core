@@ -26,25 +26,31 @@ cat > "${TEST_TMP_DIR}/bin/kubectl" <<'FAKE_KUBECTL'
 set -euo pipefail
 printf '%s\n' "$*" >> "${TEST_LOG}"
 
-case "${TEST_SCENARIO}" in
-    error)
-        exit 1
-        ;;
-    absent)
-        ;;
-    flow)
-        printf 'flow\n'
-        ;;
-    psm)
-        printf 'flow\npsm\n'
-        ;;
-    nsm)
-        printf 'flow\nnsm\n'
-        ;;
-    both)
-        printf 'flow\npsm\nnsm\n'
-        ;;
-esac
+if [[ "$*" == *'get deployment flow -n flow --ignore-not-found'* ]]; then
+    case "${TEST_SCENARIO}" in
+        error_deployment) exit 1 ;;
+        absent|absent_old_pod) ;;
+        psm) printf 'flow\npsm\n' ;;
+        nsm) printf 'flow\nnsm\n' ;;
+        both) printf 'flow\npsm\nnsm\n' ;;
+        *) printf 'flow\n' ;;
+    esac
+elif [[ "$*" == *'get deployment flow -n flow -o jsonpath='* ]]; then
+    case "${TEST_SCENARIO}" in
+        error_rollout) exit 1 ;;
+        rollout_incomplete) printf '2|1|1|1|1|1|2' ;;
+        rollout_scaled_zero) printf '2|2|0||||' ;;
+        *) printf '2|2|1|1|1|1|1' ;;
+    esac
+elif [[ "$*" == *'get pods -n flow -l app=flow'* ]]; then
+    case "${TEST_SCENARIO}" in
+        error_pods) exit 1 ;;
+        absent) ;;
+        old_pod|absent_old_pod) printf 'flow-old\tRunning\tflow psm nsm \n' ;;
+        terminal_old_pod) printf 'flow-old\tFailed\tflow psm nsm \n' ;;
+        *) printf 'flow-new\tRunning\tflow \n' ;;
+    esac
+fi
 FAKE_KUBECTL
 chmod +x "${TEST_TMP_DIR}/bin/kubectl"
 
@@ -53,7 +59,7 @@ run_guard() {
         _reject_bundled_flow_manager_upgrade
 }
 
-for supported in absent flow; do
+for supported in absent flow rollout_scaled_zero terminal_old_pod; do
     : > "${TEST_LOG}"
     run_guard "${supported}"
     grep -Fqx -- \
@@ -70,13 +76,32 @@ for unsupported in psm nsm both; do
     if ! grep -Fq -- \
         'upgrade only the flow Helm release to the Flow-only chart' \
         <<< "${guard_output}"; then
-        echo "guard did not provide the staged Flow upgrade action" >&2
+        echo "guard did not provide the manual Flow overwrite action" >&2
         exit 1
     fi
 done
 
-if (run_guard error); then
-    echo "guard accepted a Deployment inspection failure" >&2
+for unsafe in rollout_incomplete old_pod absent_old_pod; do
+    if guard_output="$(run_guard "${unsafe}" 2>&1)"; then
+        echo "guard accepted unsafe rollout scenario: ${unsafe}" >&2
+        exit 1
+    fi
+    if ! grep -Eq -- 'rollout is incomplete|active Flow Pods still contain' \
+        <<< "${guard_output}"; then
+        echo "guard did not explain unsafe rollout scenario: ${unsafe}" >&2
+        exit 1
+    fi
+done
+
+for error_scenario in error_deployment error_rollout error_pods; do
+    if (run_guard "${error_scenario}"); then
+        echo "guard accepted inspection failure: ${error_scenario}" >&2
+        exit 1
+    fi
+done
+
+if ! grep -Fq -- 'get pods -n flow -l app=flow --ignore-not-found' "${TEST_LOG}"; then
+    echo "guard did not inspect actual Flow Pods" >&2
     exit 1
 fi
 

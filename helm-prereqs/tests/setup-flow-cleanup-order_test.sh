@@ -12,15 +12,18 @@ if [[ "$(grep -Fc '"${SCRIPT_DIR}/cleanup-legacy-flow-managers.sh"' "${SETUP_SH}
     exit 1
 fi
 
-skip_line="$(grep -nF 'if "${SKIP_FLOW}"; then' "${SETUP_SH}" | head -1 | cut -d: -f1)"
-else_line="$(awk -v start="${skip_line}" 'NR > start && /^else$/ { print NR; exit }' "${SETUP_SH}")"
-upgrade_line="$(grep -nF 'helm upgrade --install flow "${NICO_FLOW_CHART}"' "${SETUP_SH}" | cut -d: -f1)"
+guard_line="$(grep -nF '_reject_bundled_flow_manager_upgrade' "${SETUP_SH}" | tail -1 | cut -d: -f1)"
+preflight_line="$(grep -nF 'source "${SCRIPT_DIR}/preflight.sh"' "${SETUP_SH}" | cut -d: -f1)"
+first_install_line="$(grep -nF 'helmfile sync -l name=postgres-operator' "${SETUP_SH}" | cut -d: -f1)"
+core_upgrade_line="$(grep -nF '(cd "${SCRIPT_DIR}/.." && "${NICO_CORE_CMD[@]}")' "${SETUP_SH}" | cut -d: -f1)"
 cleanup_line="$(grep -nF '"${SCRIPT_DIR}/cleanup-legacy-flow-managers.sh"' "${SETUP_SH}" | cut -d: -f1)"
-branch_end_line="$(awk -v start="${cleanup_line}" 'NR > start && /^fi$/ { print NR; exit }' "${SETUP_SH}")"
+rest_skip_line="$(grep -nF 'if "${SKIP_REST}"; then' "${SETUP_SH}" | head -1 | cut -d: -f1)"
+flow_skip_line="$(grep -nF 'if "${SKIP_FLOW}"; then' "${SETUP_SH}" | head -1 | cut -d: -f1)"
 
-if ! (( skip_line < else_line && else_line < upgrade_line && \
-        upgrade_line < cleanup_line && cleanup_line < branch_end_line )); then
-    echo "legacy cleanup must run only in the non-skip branch after Flow upgrade" >&2
+if ! (( guard_line < preflight_line && preflight_line < first_install_line && \
+        first_install_line < core_upgrade_line && core_upgrade_line < cleanup_line && \
+        cleanup_line < rest_skip_line && cleanup_line < flow_skip_line )); then
+    echo "legacy cleanup must run after guard, preflight, and Core, but before REST and Flow skip exits" >&2
     exit 1
 fi
 

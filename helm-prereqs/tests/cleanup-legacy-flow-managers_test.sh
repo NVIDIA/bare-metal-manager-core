@@ -15,7 +15,13 @@ cat > "${TEST_TMP_DIR}/bin/kubectl" <<'FAKE_KUBECTL'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "${TEST_LOG}"
-if [[ "$*" == *"get secret vaultroottoken"* ]]; then
+if [[ "$*" == *"get job/flow-vault-tokens serviceaccount/flow-vault-tokens-sa"* ]]; then
+    case "${TEST_MARKERS:-present}" in
+        present) printf 'job.batch/flow-vault-tokens\n' ;;
+        absent) ;;
+        error) exit 1 ;;
+    esac
+elif [[ "$*" == *"get secret vaultroottoken"* ]]; then
     printf 'cm9vdC10b2tlbg=='
 elif [[ "$*" == *"exec -i vault-0"* ]]; then
     IFS= read -r token
@@ -32,6 +38,13 @@ PATH="${TEST_TMP_DIR}/bin:${PATH}" \
 assert_logged() {
     if ! grep -Fq -- "$1" "${TEST_LOG}"; then
         echo "missing expected kubectl invocation: $1" >&2
+        exit 1
+    fi
+}
+
+assert_not_logged() {
+    if grep -Fq -- "$1" "${TEST_LOG}"; then
+        echo "unexpected kubectl invocation: $1" >&2
         exit 1
     fi
 }
@@ -69,12 +82,37 @@ if ! (( job_line < binding_line && binding_line < exec_line && exec_line < secre
     exit 1
 fi
 
+# A fresh install has no legacy markers. Cleanup must stop before requesting the
+# Vault root token or mutating any resource.
+: > "${TEST_LOG}"
+TEST_MARKERS=absent PATH="${TEST_TMP_DIR}/bin:${PATH}" \
+    "${SCRIPT_DIR}/../cleanup-legacy-flow-managers.sh"
+assert_logged "get job/flow-vault-tokens serviceaccount/flow-vault-tokens-sa"
+assert_logged "get secret/psm-vault-token secret/nsm-vault-token"
+assert_logged "get clusterrole/flow-vault-tokens-writer clusterrolebinding/flow-vault-tokens-writer"
+assert_not_logged "get secret vaultroottoken"
+assert_not_logged "exec -i vault-0"
+assert_not_logged "delete job flow-vault-tokens"
+
+# Marker inspection errors fail closed before Vault access or mutations.
+: > "${TEST_LOG}"
+if TEST_MARKERS=error PATH="${TEST_TMP_DIR}/bin:${PATH}" \
+    "${SCRIPT_DIR}/../cleanup-legacy-flow-managers.sh"; then
+    echo "cleanup accepted a legacy marker inspection failure" >&2
+    exit 1
+fi
+assert_not_logged "get secret vaultroottoken"
+assert_not_logged "delete job flow-vault-tokens"
+
 # A missing root token must stop after authorization removal and before deleting
 # the workload token Secrets, preserving evidence and allowing cleanup to retry.
 cat > "${TEST_TMP_DIR}/bin/kubectl" <<'FAKE_EMPTY_ROOT_KUBECTL'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "${TEST_LOG}"
+if [[ "$*" == *"get job/flow-vault-tokens serviceaccount/flow-vault-tokens-sa"* ]]; then
+    printf 'job.batch/flow-vault-tokens\n'
+fi
 FAKE_EMPTY_ROOT_KUBECTL
 chmod +x "${TEST_TMP_DIR}/bin/kubectl"
 : > "${TEST_LOG}"

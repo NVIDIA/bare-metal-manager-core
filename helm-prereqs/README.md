@@ -253,25 +253,29 @@ unreachable registry host skips the image checks entirely
 
 The Flow chart no longer deploys PSM or NSM, and `setup.sh` does not support an
 automatic upgrade from a Flow Deployment that still contains either manager
-container. The guard applies even when NICo Core already uses the default RMS
-backends.
+container. This check runs before preflight or any cluster mutation, including
+when `--skip-flow` or `--skip-rest` is set.
 
-Before upgrading a site with custom Core values or site configuration, check
-for `componentManager.nvSwitchBackend: nsm`,
+To preserve the bundled managers, leave the existing Flow release unchanged
+and stop the upgrade. `setup.sh` cannot upgrade the other components while that
+predecessor topology remains.
+
+To replace the bundled managers with Flow only, first handle any site-specific
+dependencies outside `setup.sh`. In particular, inspect custom Core values and
+configuration for `componentManager.nvSwitchBackend: nsm`,
 `componentManager.powerShelfBackend: psm`, `nv_switch_backend = "nsm"`, or
-`power_shelf_backend = "psm"`. Change those roles to
-[RMS](../docs/configuration/component-manager-rms.md), or configure an
-externally managed NSM or PSM endpoint. Apply that Core configuration and
-verify the Core rollout while the predecessor managers are still running;
-editing a values or configuration file without deploying it is not sufficient.
-An external endpoint must not resolve to the `psm` or `nsm` Service that the
-next step removes.
+`power_shelf_backend = "psm"`. Move those roles to
+[RMS](../docs/configuration/component-manager-rms.md) or to an externally
+managed endpoint, and deploy and verify that Core change using the site's
+existing process. This release does not provide a Core or manager data
+migration. An external endpoint must not resolve to the `psm` or `nsm` Service
+removed by the Flow upgrade.
 
-Then perform a staged deployment upgrade from the repository root. The first
-command upgrades only the Flow release while its predecessor prerequisites are
-still present. Reusing the release values preserves its site-specific image and
-registry settings; explicitly set the target Flow image repository and tag if
-they need to change for this release.
+After those dependencies are handled, upgrade only the existing Flow release
+from the repository root. Reusing the release values preserves site-specific
+image and registry settings; the explicit repository and tag select the target
+Flow image. This is a normal Helm rolling upgrade: do not use `--force` and do
+not patch the Deployment or upgrade `nico-prereqs` first.
 
 ```bash
 helm upgrade flow ./helm/charts/nico-flow \
@@ -282,33 +286,31 @@ helm upgrade flow ./helm/charts/nico-flow \
   --timeout 300s \
   --wait
 
-kubectl get deployment flow -n flow \
-  -o jsonpath='{.spec.template.spec.containers[*].name}{"\n"}'
+kubectl rollout status deployment/flow -n flow --timeout=300s
 
-./helm-prereqs/setup.sh -y
+kubectl get pods -n flow -l app=flow \
+  --field-selector=status.phase!=Succeeded,status.phase!=Failed \
+  -o jsonpath='{range .items[*]}{.metadata.name}{": "}{.spec.containers[*].name}{"\n"}{end}'
 ```
 
-The first command upgrades the existing `flow` release to the Flow-only chart.
-Helm replaces the old three-container Pod with a Pod containing only Flow and
-deletes the PSM and NSM Services. Their prerequisites remain temporarily
-because `nico-prereqs` has not been upgraded yet.
+Helm replaces the old three-container Pod with a Flow-only Pod and deletes the
+PSM and NSM Services. Stop and resolve or roll back any failed rollout. Before
+continuing, every active Pod returned by the second verification command must
+omit `psm` and `nsm`.
 
-The `kubectl` command must print only `flow` before setup is rerun. Setup then
-upgrades `nico-prereqs`, removes the retired manager prerequisite resources,
-reapplies the Flow-only chart idempotently, and cleans up the old Vault
-credentials and RBAC. The PSM and NSM PostgreSQL databases and users remain in
-PostgreSQL but are no longer managed by the chart. `--skip-flow` does not bypass
-the initial guard because setup would still upgrade the shared prerequisite
-release. Do not manually patch the Deployment or upgrade `nico-prereqs` first.
+Then rerun the exact `setup.sh` invocation used for the site, with the same
+environment, values files, site overlay, DPF choice, and other options. Setup
+verifies the Deployment rollout and active Pods again before mutation. After
+preflight and the Core phase completes or is skipped, it removes any remaining
+legacy Vault tokens, policies, Secrets, and cluster-wide RBAC even when
+`--skip-rest` or `--skip-flow` is set.
 
-The guard runs before preflight can create temporary check Pods and before the
-installation phases, so it does not change the cluster. Upgrading the
-prerequisites first can remove the old External Secrets resources and
-garbage-collect the PSM/NSM database credential Secrets. The Zalando Postgres
-operator retains the
-databases and users themselves, so an operator who has securely retained the
-username and password can reconnect or recreate the Kubernetes Secret, but
-this is a manual recovery path rather than a supported automatic upgrade.
+Upgrading `nico-prereqs` removes the retired ExternalSecret resources and may
+garbage-collect their generated PSM/NSM database credential Secrets. The
+Zalando Postgres operator retains the databases and users themselves for manual
+rollback or recovery, but the chart no longer manages them or their
+credentials. Retain any credentials needed for that recovery before choosing
+the overwrite path.
 
 ## What gets deployed
 

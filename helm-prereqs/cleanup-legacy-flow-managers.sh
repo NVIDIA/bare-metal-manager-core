@@ -11,6 +11,36 @@ NICO_SYSTEM_NS="${NICO_SYSTEM_NS:-nico-system}"
 NICO_FLOW_NAMESPACE="${NICO_FLOW_NAMESPACE:-flow}"
 VAULT_NS="${VAULT_NS:-vault}"
 
+_namespaced_markers=""
+_flow_markers=""
+_cluster_markers=""
+if ! _namespaced_markers="$(
+    kubectl get job/flow-vault-tokens serviceaccount/flow-vault-tokens-sa \
+        -n "${NICO_SYSTEM_NS}" --ignore-not-found -o name
+)"; then
+    echo "ERROR: unable to inspect legacy PSM/NSM hook resources" >&2
+    exit 1
+fi
+if ! _flow_markers="$(
+    kubectl get secret/psm-vault-token secret/nsm-vault-token \
+        -n "${NICO_FLOW_NAMESPACE}" --ignore-not-found -o name
+)"; then
+    echo "ERROR: unable to inspect legacy PSM/NSM token Secrets" >&2
+    exit 1
+fi
+if ! _cluster_markers="$(
+    kubectl get clusterrole/flow-vault-tokens-writer \
+        clusterrolebinding/flow-vault-tokens-writer \
+        --ignore-not-found -o name
+)"; then
+    echo "ERROR: unable to inspect legacy PSM/NSM hook RBAC" >&2
+    exit 1
+fi
+if [[ -z "${_namespaced_markers}${_flow_markers}${_cluster_markers}" ]]; then
+    echo "No legacy PSM/NSM hook resources found; skipping cleanup"
+    exit 0
+fi
+
 echo "Cleaning up legacy PSM/NSM deployment credentials and hook RBAC..."
 
 # Stop token minting and remove its cluster-wide authorization before touching

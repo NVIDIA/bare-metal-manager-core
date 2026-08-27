@@ -1,12 +1,12 @@
 # Upgrading NICo <Badge intent="info">v2.1</Badge> <Badge intent="launch" minimal>New</Badge>
 
-`setup.sh` is designed to be **idempotent** for supported deployment topologies: running it against an existing NICo installation upgrades each component in place. The same script and values files used for initial installation are the mechanism for upgrades — there is no separate upgrade script. A predecessor Flow Deployment that bundles PSM or NSM requires the [staged manager migration](../../helm-prereqs/README.md#upgrading-deployments-that-bundled-psm-and-nsm) before setup can run.
+`setup.sh` is designed to be **idempotent** for supported deployment topologies: running it against an existing NICo installation upgrades each component in place. The same script and values files used for initial installation are the mechanism for upgrades — there is no separate upgrade script. For a predecessor Flow Deployment that bundles PSM or NSM, first choose whether to preserve it or follow the [manual Flow-only overwrite guidance](../../helm-prereqs/README.md#upgrading-deployments-that-bundled-psm-and-nsm).
 
 This page documents how each component behaves when you re-run `setup.sh` against a live cluster, what to prepare before upgrading, and version-specific considerations for the 2.0-to-2.1 upgrade path.
 
 ## How setup.sh handles upgrades
 
-After any required staged migration, every installation phase is safe to re-run:
+After any required manual Flow overwrite, every installation phase is safe to re-run:
 
 | Phase | Behavior on re-run |
 | ----- | ------------------ |
@@ -22,7 +22,7 @@ After any required staged migration, every installation phase is safe to re-run:
 | **6 — NICo Core** | `helm upgrade --install nico` rolls out the new Core image tag. The PostgreSQL database schema is migrated by the pre-upgrade Job (uses the `imagepullsecret` Secret, which is upserted). NICo state (host records, machine state, firmware inventory) lives in PostgreSQL and is preserved. |
 | **6b — DPF enablement** | On DPF-enabled sites only: refreshes the BMC-root credential, then runs a **second** `helm upgrade` of Core with the `[dpf]` block enabled and restarts `nico-api`. Core therefore rolls out twice on a DPF site. |
 | **7a–7g — NICo REST** | REST components are upgraded via `helm upgrade --install`. The `nico_rest` PostgreSQL database is migrated in-place by the REST migration Job. Temporal workflow state is preserved. The Keycloak realm and client credentials are preserved. |
-| **7h — NICo Flow** | The Flow-only release is upgraded in place. A predecessor Deployment that still contains PSM or NSM is rejected before setup changes the cluster and must first follow the staged manager migration. |
+| **7h — NICo Flow** | The Flow-only release is upgraded in place. A predecessor Deployment or active Pod that still contains PSM or NSM is rejected before setup changes the cluster. |
 | **7i — NICo REST site-agent** | The site-agent StatefulSet is upgraded. The site UUID (stored in the `site-registration` Secret) and REST site record are preserved. |
 
 ### What is preserved across upgrades
@@ -46,7 +46,7 @@ After any required staged migration, every installation phase is safe to re-run:
 
 Complete every item before running `setup.sh`. Missing any of these can cause the upgrade to fail or leave the cluster in a partially upgraded state.
 
-If `flow/flow` still contains a `psm` or `nsm` container, do not run setup yet. Follow the [staged manager migration](../../helm-prereqs/README.md#upgrading-deployments-that-bundled-psm-and-nsm); setup rejects that predecessor topology before making any cluster change.
+If `flow/flow` or an active Flow Pod still contains a `psm` or `nsm` container, do not run setup yet. Preserve that release, or follow the [manual Flow-only overwrite guidance](../../helm-prereqs/README.md#upgrading-deployments-that-bundled-psm-and-nsm). Setup rejects that predecessor topology or an incomplete Flow-only rollout before making any cluster change.
 
 <Steps toc={true}>
 
@@ -202,7 +202,7 @@ If a phase fails, `setup.sh` prints `SETUP FAILED` and offers: `Run clean.sh to 
 | ---- | ----------- |
 | `--skip-core` | Skip Phase 6 only. Prerequisites and the REST stack still upgrade; NICo Core is left on its current image. Useful when the Core image did not change. |
 | `--skip-rest` | Skip Phase 7 only. Prerequisites and NICo Core still upgrade; the REST stack is left untouched. |
-| `--skip-flow` | Skip the Flow upgrade (Phase 7h). It does not bypass the preflight guard that rejects automatic upgrades from a Flow Deployment containing bundled PSM/NSM containers. Follow the [manager migration guidance](../../helm-prereqs/README.md#upgrading-deployments-that-bundled-psm-and-nsm). |
+| `--skip-flow` | Skip the Flow upgrade (Phase 7h). It does not bypass the initial guard for bundled PSM/NSM containers or an incomplete Flow-only rollout. Follow the [preserve-or-overwrite guidance](../../helm-prereqs/README.md#upgrading-deployments-that-bundled-psm-and-nsm). |
 | `--skip-dpf` | Use **only** if DPF is not enabled at this site. This is not a pure skip: it clears `INSTALL_DPF`, which drops phases 5b and 6b *and* redeploys NICo Core with the `[dpf]` block disabled — on a DPF-enabled site that is a config change, not a skip. |
 | `--core-values <file>` | Use a per-site NICo Core values file (same as initial install). |
 | `--metallb-config <path>` | Use a site-specific MetalLB manifest or kustomize dir (same as initial install). |
