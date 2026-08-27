@@ -1384,15 +1384,15 @@ pub(crate) async fn trigger_dpu_reprovisioning(
             }
 
             // A non-ready reset of an assigned host tears down the live instance, so require the ack.
-            if triggered_from_non_ready_state && let Some(instance) = snapshot.instance.as_ref() {
-                if !req.allow_reset_with_instance {
-                    return Err(CarbideError::InvalidArgument(format!(
-                        "machine {machine_id} is assigned to a live instance; set allow_reset_with_instance to acknowledge disrupting it"
-                    ))
-                    .into());
-                }
-                // Acknowledged: tombstone the instance so the controller tears it down before re-ingestion.
-                db::instance::mark_as_deleted(instance.id, &mut txn).await?;
+            // The controller performs the actual deletion during the Reset flow; here we only enforce the ack.
+            if triggered_from_non_ready_state
+                && snapshot.instance.is_some()
+                && !req.allow_reset_with_instance
+            {
+                return Err(CarbideError::InvalidArgument(format!(
+                    "machine {machine_id} is assigned to a live instance; set allow_reset_with_instance to acknowledge disrupting it"
+                ))
+                .into());
             }
 
             if machine_id.machine_type().is_dpu() {

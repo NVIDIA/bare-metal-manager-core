@@ -455,6 +455,7 @@ impl TestEnv {
                 retry_count,
             },
             ManagedHostState::DPUReprovision { .. } => state.clone(),
+            ManagedHostState::Reset { .. } => state.clone(),
             ManagedHostState::Measuring { .. } => state.clone(),
             ManagedHostState::PostAssignedMeasuring { .. } => state.clone(),
             ManagedHostState::PreAssignedMeasuring { .. } => state.clone(),

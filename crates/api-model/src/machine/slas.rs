@@ -41,6 +41,9 @@ pub const FORCE_DELETION: Duration = Duration::from_secs(30 * 60);
 
 pub const DPU_REPROVISION: Duration = Duration::from_secs(30 * 60);
 
+// Host reset: delete the DPF CRs and wait until they are gone.
+pub const RESET: Duration = Duration::from_secs(30 * 60);
+
 pub const HOST_REPROVISION: Duration = Duration::from_secs(40 * 60);
 
 pub const MEASUREMENT_WAIT_FOR_MEASUREMENT: Duration = Duration::from_secs(30 * 60);

@@ -77,6 +77,14 @@ fn dpf_snapshot_with_crs(dpu_count: usize) -> HostDpfSnapshot {
     }
 }
 
+fn dpf_snapshot_empty() -> HostDpfSnapshot {
+    HostDpfSnapshot {
+        dpu_node: None,
+        dpu_devices: vec![],
+        dpus: vec![],
+    }
+}
+
 #[crate::sqlx_test]
 async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
     let dpf_sdk: Arc<dyn DpfOperations> = Arc::new(default_mock(DpuDeploymentType::Bf3));
@@ -326,8 +334,24 @@ async fn test_dpf_inventory_uses_host_context_and_preserves_last_good_value(pool
 #[crate::sqlx_test]
 async fn test_reprov_from_non_ready_state_reenters_dpu_init(pool: sqlx::PgPool) {
     let mut mock = default_mock(DpuDeploymentType::Bf3);
-    mock.expect_snapshot_host()
-        .returning(|_| Ok(dpf_snapshot_with_crs(1)));
+    // The reset flow deletes the DPF CRs, waits until they are gone, then the
+    // reprovision recreates them. Model that with a flag the delete calls flip:
+    // snapshot reports the CRs until deletion and an empty host afterwards.
+    let crs_deleted = Arc::new(AtomicBool::new(false));
+    let crs_deleted_snapshot = crs_deleted.clone();
+    mock.expect_snapshot_host().returning(move |_| {
+        if crs_deleted_snapshot.load(Ordering::SeqCst) {
+            Ok(dpf_snapshot_empty())
+        } else {
+            Ok(dpf_snapshot_with_crs(1))
+        }
+    });
+    let crs_deleted_node = crs_deleted.clone();
+    mock.expect_delete_dpu_node().returning(move |_| {
+        crs_deleted_node.store(true, Ordering::SeqCst);
+        Ok(())
+    });
+    mock.expect_delete_dpu_device().returning(|_| Ok(()));
     mock.expect_reprovision_dpu().returning(|_, _| Ok(()));
     let dpf_sdk: Arc<dyn DpfOperations> = Arc::new(mock);
 

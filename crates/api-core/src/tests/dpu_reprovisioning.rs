@@ -29,7 +29,8 @@ use model::instance::status::tenant::TenantState;
 use model::machine::{
     DpuInitState, FailureCause, FailureDetails, FailureSource, InstallDpuOsState, InstanceState,
     Machine, MachineLastRebootRequestedMode, MachineState, ManagedHostState, PowerState,
-    ReprovisionState, SetBootOrderInfo, SetBootOrderState, StateMachineArea, UnlockHostState,
+    ReprovisionState, ResetState, SetBootOrderInfo, SetBootOrderState, StateMachineArea,
+    UnlockHostState,
 };
 use model::test_support::HardwareInfoTemplate;
 use rpc::forge::MachineArchitecture;
@@ -1640,8 +1641,8 @@ async fn test_restart_dpu_reprov_unassigned_host_boot_failure(pool: sqlx::PgPool
 }
 
 // A `mh reset` request from a non-ready host state (triggered_from_non_ready_state,
-// started_at == None) is picked up by the controller and starts reprovisioning,
-// abandoning the Failed state.
+// started_at == None) is picked up by the controller and enters the reset flow at
+// DeletingInstance, abandoning the Failed state.
 #[crate::sqlx_test]
 async fn test_reprov_starts_from_non_ready_failed_state(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
@@ -1681,15 +1682,21 @@ async fn test_reprov_starts_from_non_ready_failed_state(pool: sqlx::PgPool) {
 
     let dpu = dpu_machine.next_iteration_machine(&env).await;
     assert!(
-        matches!(dpu.current_state(), ManagedHostState::DPUReprovision { .. }),
-        "expected DPUReprovision, got {:?}",
+        matches!(
+            dpu.current_state(),
+            ManagedHostState::Reset {
+                reset_state: ResetState::DeletingInstance
+            }
+        ),
+        "expected Reset/DeletingInstance, got {:?}",
         dpu.current_state()
     );
-    // started_at is stamped so the initial trigger cannot re-fire (loop guard).
+    // started_at is stamped only when reprovision actually begins (end of the reset
+    // flow); the Reset state itself is now the loop guard against re-firing.
     assert!(
         dpu.reprovision_requested
             .as_ref()
-            .is_some_and(|request| request.started_at.is_some())
+            .is_some_and(|request| request.started_at.is_none())
     );
 }
 
@@ -1829,16 +1836,17 @@ async fn test_non_ready_reset_with_instance_accepts_ack_impl(pool: sqlx::PgPool)
     );
 }
 
-// An acknowledged reset tombstones the live instance so the controller tears it down before re-ingestion.
+// An acknowledged reset leaves the instance untouched in the API; the controller
+// hard-deletes it during the Reset flow, so the API must not tombstone it.
 #[crate::sqlx_test]
-async fn test_non_ready_reset_with_instance_tombstones_instance(pool: sqlx::PgPool) {
-    Box::pin(test_non_ready_reset_with_instance_tombstones_instance_impl(
+async fn test_non_ready_reset_leaves_instance_for_controller(pool: sqlx::PgPool) {
+    Box::pin(test_non_ready_reset_leaves_instance_for_controller_impl(
         pool,
     ))
     .await;
 }
 
-async fn test_non_ready_reset_with_instance_tombstones_instance_impl(pool: sqlx::PgPool) {
+async fn test_non_ready_reset_leaves_instance_for_controller_impl(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let mh = create_managed_host(&env).await;
@@ -1878,10 +1886,77 @@ async fn test_non_ready_reset_with_instance_tombstones_instance_impl(pool: sqlx:
     .unwrap();
     let instance = snapshot
         .instance
-        .expect("instance row must still exist after being tombstoned");
+        .expect("instance row must still exist; the API must not delete it");
     assert!(
-        instance.deleted.is_some(),
-        "an acknowledged reset must tombstone the instance so the controller tears it down"
+        instance.deleted.is_none(),
+        "the API must leave the instance live; the controller deletes it during the Reset flow"
+    );
+}
+
+// The controller hard-deletes the tenant instance during the reset flow
+// (DeletingInstance), so by the time the host advances to DeletingCrs the
+// instance row is gone from the database entirely (not merely tombstoned).
+#[crate::sqlx_test]
+async fn test_non_ready_reset_deletes_instance_in_controller(pool: sqlx::PgPool) {
+    Box::pin(test_non_ready_reset_deletes_instance_in_controller_impl(
+        pool,
+    ))
+    .await;
+}
+
+async fn test_non_ready_reset_deletes_instance_in_controller_impl(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let mh = create_managed_host(&env).await;
+    mh.instance_builer(&env)
+        .single_interface_network_config(segment_id)
+        .build()
+        .await;
+
+    wedge_assigned_host_into_failed_for_reset(&env, &mh).await;
+
+    env.api
+        .trigger_dpu_reprovisioning(tonic::Request::new(
+            ::rpc::forge::DpuReprovisioningRequest {
+                dpu_id: None,
+                machine_id: mh.id.into(),
+                mode: Mode::Set as i32,
+                initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
+                update_firmware: false,
+                allow_reset_with_instance: true,
+            },
+        ))
+        .await
+        .expect("acknowledged reset of an assigned host must be accepted");
+
+    // Run until the host clears the instance step and reaches DeletingCrs. We stop
+    // there so the CR-deletion step (which needs a DPF SDK) never runs.
+    env.run_machine_state_controller_iteration_until_state_condition(&mh.id, 5, |machine| {
+        matches!(
+            machine.current_state(),
+            ManagedHostState::Reset {
+                reset_state: ResetState::DeletingCrs
+            }
+        )
+    })
+    .await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let snapshot = db::managed_host::load_snapshot(
+        txn.as_mut(),
+        &mh.id,
+        model::machine::LoadSnapshotOptions {
+            include_history: false,
+            include_instance_data: true,
+            host_health_config: env.config.host_health,
+        },
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(
+        snapshot.instance.is_none(),
+        "the controller must hard-delete the instance during the reset flow"
     );
 }
 

@@ -1302,6 +1302,13 @@ pub enum ManagedHostState {
         dpu_states: DpuReprovisionStates,
     },
 
+    /// Host reset: delete its tenant instance and DPF CRs and wait until they
+    /// are gone, then hand off to the existing non-ready reprovision flow for a
+    /// clean re-ingestion.
+    Reset {
+        reset_state: ResetState,
+    },
+
     /// State used to indicate that host reprovisioning is going on
     HostReprovision {
         reprovision_state: HostReprovisionState,
@@ -1646,6 +1653,20 @@ impl ManagedHostState {
                 if *retry_count >= MAX_FIRMWARE_UPGRADE_RETRIES
         )
     }
+}
+
+/// Sub-states of [`ManagedHostState::Reset`]: delete the tenant instance,
+/// delete the DPF CRs, then wait until they are gone before handing off to
+/// the reprovision flow.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ResetState {
+    /// Delete the tenant instance and release its network resources.
+    DeletingInstance,
+    /// Delete the DPUNode + DPUDevice CRs.
+    DeletingCrs,
+    /// Wait until the DPUNode + DPUDevice CRs are fully deleted.
+    WaitUntilCrsDeleted,
 }
 
 // Since order is derived, Enum members must be in initial to last state sequence.
@@ -2795,6 +2816,7 @@ impl Display for ManagedHostState {
                     .unwrap_or("Unknown".to_string());
                 write!(f, "Reprovisioning/{dpu_lowest_state}")
             }
+            ManagedHostState::Reset { reset_state } => write!(f, "Reset/{reset_state:?}"),
             ManagedHostState::HostReprovision {
                 reprovision_state, ..
             } => {
@@ -2905,6 +2927,7 @@ impl ManagedHostState {
                         .unwrap_or("Unknown DPU".to_string())
                 )
             }
+            ManagedHostState::Reset { reset_state } => format!("Reset/{reset_state:?}"),
             ManagedHostState::HostReprovision {
                 reprovision_state, ..
             } => {
@@ -3154,6 +3177,7 @@ pub fn state_sla(
         ManagedHostState::DPUReprovision { .. } => {
             StateSla::with_sla(slas::DPU_REPROVISION, time_in_state)
         }
+        ManagedHostState::Reset { .. } => StateSla::with_sla(slas::RESET, time_in_state),
         ManagedHostState::HostReprovision { .. } => {
             // Multiple types of firmware may need to be updated, and in some cases it can take a while.
             // This SHOULD be enough based on current observed behavior, but may need to be extended.

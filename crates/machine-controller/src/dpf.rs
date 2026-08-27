@@ -81,6 +81,12 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
         dpu_device_names: &[String],
     ) -> Result<(), DpfError>;
 
+    /// Delete a DPUNode CR.
+    async fn delete_dpu_node(&self, node_name: &str) -> Result<(), DpfError>;
+
+    /// Delete a DPUDevice CR.
+    async fn delete_dpu_device(&self, dpu_device_name: &str) -> Result<(), DpfError>;
+
     /// Get the current phase of a DPU (for status reporting).
     async fn get_dpu_phase(
         &self,
@@ -613,6 +619,14 @@ impl DpfOperations for DpfSdkOps {
         dpu_device_names: &[String],
     ) -> Result<(), DpfError> {
         self.sdk.force_delete_host(node_id, dpu_device_names).await
+    }
+
+    async fn delete_dpu_node(&self, node_name: &str) -> Result<(), DpfError> {
+        self.sdk.delete_dpu_node(node_name).await
+    }
+
+    async fn delete_dpu_device(&self, dpu_device_name: &str) -> Result<(), DpfError> {
+        self.sdk.delete_dpu_device(dpu_device_name).await
     }
 
     async fn reprovision_dpu(
