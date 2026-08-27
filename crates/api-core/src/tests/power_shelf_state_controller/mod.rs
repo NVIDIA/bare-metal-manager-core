@@ -29,6 +29,7 @@ use tokio_util::sync::CancellationToken;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::create_test_env;
 mod bmc_rotation;
+mod decommissioning;
 mod error_state;
 mod fixtures;
 mod maintenance;

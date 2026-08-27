@@ -184,6 +184,7 @@ mod tests {
             controller_state_outcome: None,
             bmc_mac_address: None,
             bmc_credential_rotation_requested: false,
+            decommission_requested: false,
             bmc_info: None,
             rack_id: None,
             power_shelf_maintenance_requested: None,

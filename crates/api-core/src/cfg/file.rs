@@ -449,6 +449,10 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub vpc_prefix_state_controller: VpcPrefixStateControllerConfig,
 
+    /// ExtensionServiceStateController related configuration parameter
+    #[serde(default)]
+    pub extension_service_state_controller: ExtensionServiceStateControllerConfig,
+
     /// IbPartitionStateController related configuration parameter
     #[serde(default)]
     pub ib_partition_state_controller: IbPartitionStateControllerConfig,
@@ -3009,7 +3013,9 @@ impl CarbideConfig {
     }
 
     pub fn get_hb_interval(&self) -> Option<chrono::TimeDelta> {
-        self.ewethers_config.as_ref().map(|conf| conf.svpc.hb_interval)
+        self.ewethers_config
+            .as_ref()
+            .map(|conf| conf.svpc.hb_interval)
     }
 
     /// Returns true if the DSX Exchange Event Bus is enabled.
@@ -3160,6 +3166,14 @@ impl Default for VpcPrefixStateControllerConfig {
     }
 }
 
+/// Extension-service state-controller configuration.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct ExtensionServiceStateControllerConfig {
+    /// Common state-controller configuration.
+    #[serde(default = "StateControllerConfig::default")]
+    pub controller: StateControllerConfig,
+}
+
 /// IbPartitionStateController related config
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -3241,7 +3255,7 @@ pub struct SwitchStateControllerConfig {
 
     /// Switch services that receive installed mTLS certificates during RMS
     /// `configure_switch_certificate` calls initiated by the switch state
-    /// machine.
+    /// machine or the direct `ComponentConfigureSwitchCertificate` RPC path.
     ///
     /// When this field is omitted or empty, all supported services are used.
     ///
@@ -3942,8 +3956,16 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
                 .allow_allocation_on_validation_failure,
             dpu_nic_firmware_update_versions: value.dpu_config.dpu_nic_firmware_update_versions,
             ewethers_enabled: value.ewethers_config.clone().unwrap_or_default().enabled,
-            svpc_enabled: value.ewethers_config.clone().unwrap_or_default().svpc_enabled,
-            astra_enabled: value.ewethers_config.clone().unwrap_or_default().astra_enabled,
+            svpc_enabled: value
+                .ewethers_config
+                .clone()
+                .unwrap_or_default()
+                .svpc_enabled,
+            astra_enabled: value
+                .ewethers_config
+                .clone()
+                .unwrap_or_default()
+                .astra_enabled,
             mqtt_endpoint: value
                 .ewethers_config
                 .clone()
@@ -5461,6 +5483,10 @@ mod tests {
             VpcPrefixStateControllerConfig::default()
         );
         assert_eq!(
+            config.extension_service_state_controller,
+            ExtensionServiceStateControllerConfig::default()
+        );
+        assert_eq!(
             config.ib_partition_state_controller,
             IbPartitionStateControllerConfig::default()
         );
@@ -6124,7 +6150,8 @@ svpc_enabled=true
 mqtt_endpoint = "mqtt.forge"
         "#;
 
-        let dpa_config: EwEthersConfig = Figment::new().merge(Toml::string(toml)).extract().unwrap();
+        let dpa_config: EwEthersConfig =
+            Figment::new().merge(Toml::string(toml)).extract().unwrap();
 
         assert_eq!(
             dpa_config,

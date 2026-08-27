@@ -104,8 +104,11 @@ service Forge {
   rpc FindPowerShelves(PowerShelfQuery) returns (PowerShelfList);
   rpc FindPowerShelfIds(PowerShelfSearchFilter) returns (PowerShelfIdList);
   rpc FindPowerShelvesByIds(PowerShelvesByIdsRequest) returns (PowerShelfList);
+  // Starts the decommissioning workflow for a Ready managed power shelf.
+  rpc DecommissionPowerShelf(DecommissionPowerShelfRequest) returns (DecommissionPowerShelfResponse);
   rpc DeletePowerShelf(PowerShelfDeletionRequest) returns (PowerShelfDeletionResult);
-  // Force deletes a Power Shelf and optionally its associated interfaces from the database.
+  // Force deletes a Power Shelf and optionally its associated interfaces
+  // and BMC suppressions from the database.
   rpc AdminForceDeletePowerShelf(AdminForceDeletePowerShelfRequest) returns (AdminForceDeletePowerShelfResponse);
   // Request a maintenance operation (PowerOn / PowerOff) for a Power Shelf.
   // When the power shelf is in Ready state, the power shelf state controller
@@ -117,6 +120,9 @@ service Forge {
   rpc FindSwitchIds(SwitchSearchFilter) returns (SwitchIdList);
   rpc FindSwitchesByIds(SwitchesByIdsRequest) returns (SwitchList);
   rpc DeleteSwitch(SwitchDeletionRequest) returns (SwitchDeletionResult);
+  // Starts managed-switch decommissioning. The switch must be Ready and the
+  // Component Manager switch backend must be RMS.
+  rpc DecommissionSwitch(DecommissionSwitchRequest) returns (DecommissionSwitchResponse);
   // Force deletes a Switch and optionally its associated interfaces from the database.
   rpc AdminForceDeleteSwitch(AdminForceDeleteSwitchRequest) returns (AdminForceDeleteSwitchResponse);
 
@@ -241,6 +247,7 @@ service Forge {
   rpc FindPowerShelfStateHistories(PowerShelfStateHistoriesRequest) returns (StateHistories);
   rpc FindRackStateHistories(RackStateHistoriesRequest) returns (StateHistories);
   rpc FindSwitchStateHistories(SwitchStateHistoriesRequest) returns (StateHistories);
+  rpc FindSwitchHealthHistories(SwitchHealthHistoriesRequest) returns (HealthHistories);
   rpc FindNetworkSegmentStateHistories(NetworkSegmentStateHistoriesRequest) returns (StateHistories);
   rpc FindVpcPrefixStateHistories(VpcPrefixStateHistoriesRequest) returns (StateHistories);
   rpc FindSitePrefixStateHistories(SitePrefixStateHistoriesRequest) returns (StateHistories);
@@ -2305,6 +2312,13 @@ message PowerShelfCreationRequest {
   optional common.PowerShelfId id = 2;
 }
 
+message DecommissionPowerShelfRequest {
+  common.PowerShelfId power_shelf_id = 1;
+}
+
+message DecommissionPowerShelfResponse {
+}
+
 message PowerShelfDeletionRequest {
   common.PowerShelfId id = 1;
 }
@@ -2529,6 +2543,13 @@ message SwitchDeletionRequest {
 message SwitchDeletionResult {
 }
 
+message DecommissionSwitchRequest {
+  common.SwitchId switch_id = 1;
+}
+
+message DecommissionSwitchResponse {
+}
+
 // The state that a object/resource had at a certain point in time
 message StateHistoryRecord {
   string state = 1;
@@ -2542,6 +2563,14 @@ message StateHistoryRecords {
 
 message SwitchStateHistoriesRequest {
   repeated common.SwitchId switch_ids = 1;
+}
+
+message SwitchHealthHistoriesRequest {
+  repeated common.SwitchId switch_ids = 1;
+  // Optional: Start time of the range (inclusive) for filtering health history
+  google.protobuf.Timestamp start_time = 2;
+  // Optional: End time of the range (inclusive) for filtering health history
+  google.protobuf.Timestamp end_time = 3;
 }
 
 message StateHistories {
@@ -3147,6 +3176,7 @@ message InstanceDpuExtensionServiceConfig {
 message InstanceDpuExtensionServicesConfig {
   repeated InstanceDpuExtensionServiceConfig service_configs = 1;
 }
+
 // Desired nvlink configuration for an instance
 message InstanceNVLinkConfig {
   // Configures how instance nvlink gpus are set up
@@ -5502,12 +5532,18 @@ message CloudInitDiscoveryInstructions {
   // How the DPU obtains the CA used to authenticate NICo. The zero value
   // preserves the legacy download behavior for rolling upgrades.
   BootstrapCaSource bootstrap_ca_source = 13;
+
+  // Fixed platform mlxconfig profile to apply while provisioning the DPU.
+  // Omitting this field is equivalent to DPU_NV_CONFIG_PROFILE_UNSPECIFIED
+  // and applies no additional platform settings.
+  DpuNvConfigProfile dpu_nvconfig_profile = 14;
 }
 
 message CloudInitMetaData {
   string instance_id = 1;
   string cloud_name = 2;
   string platform = 3;
+  optional string local_hostname = 4;
 }
 
 message CloudInitInstructionsRequest {
@@ -8688,7 +8724,20 @@ message SetPrimaryInterfaceRequest {
 // DPU Extension Service Types and Messages
 enum DpuExtensionServiceType {
   KUBERNETES_POD = 0;
-  // Add supported service types in the future
+  DPF_HELM_CHART = 1;
+}
+
+// Enumerates the lifecycle states of an extension service registration.
+//
+// This is distinct from DpuExtensionServiceDeploymentStatus, which describes
+// an individual service deployment on an instance.
+enum DpuExtensionServiceLifecycleState {
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_CREATING = 0;
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_READY = 1;
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_UPDATING = 2;
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_DELETING = 3;
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_DELETED = 4;
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_FAILED = 5;
 }
 
 message UsernamePassword {
@@ -8740,6 +8789,10 @@ message DpuExtensionService {
   string description = 8;
   string created = 9;
   string updated = 10;
+
+  // The lifecycle of the extension service registration itself. This is
+  // independent from deployment status on individual instances.
+  LifecycleStatus lifecycle_status = 11;
 }
 
 message CreateDpuExtensionServiceRequest {
@@ -9528,7 +9581,12 @@ message AdminForceDeleteSwitchRequest {
   // The Switch ID to force delete.
   common.SwitchId switch_id = 1;
   // Should we delete the machine interfaces associated with this switch?
+  // When set, also deletes interfaces whose MACs match the switch BMC MAC or
+  // declared NVOS MACs.
   bool delete_interfaces = 2;
+  // Should we delete BMC suppressions (DHCP and Site Explorer) for the switch
+  // BMC MAC and declared NVOS MACs?
+  bool delete_bmc_suppressions = 3;
 }
 
 message AdminForceDeleteSwitchResponse {
@@ -9538,12 +9596,16 @@ message AdminForceDeleteSwitchResponse {
   uint32 interfaces_deleted = 2;
 }
 
-// Force deletes a Power Shelf and optionally its associated interfaces.
+// Force deletes a Power Shelf and optionally its associated interfaces
+// and BMC suppressions.
 message AdminForceDeletePowerShelfRequest {
   // The Power Shelf ID to force delete.
   common.PowerShelfId power_shelf_id = 1;
   // Should we delete the machine interfaces associated with this power shelf?
   bool delete_interfaces = 2;
+  // Should we delete BMC suppressions (site explorer and DHCP) for this power
+  // shelf's BMC MAC?
+  bool delete_bmc_suppressions = 3;
 }
 
 message AdminForceDeletePowerShelfResponse {
@@ -10088,4 +10150,12 @@ message InterfaceAddressConfig {
   // and debugging; the tenant is not expected to access this address. Writers
   // must set this value on at most one family entry.
   optional string tenant_vrf_loopback_ip = 7;
+}
+
+// Selects a fixed, versioned mlxconfig profile for DPU provisioning.
+enum DpuNvConfigProfile {
+  // No platform profile is selected.
+  DPU_NV_CONFIG_PROFILE_UNSPECIFIED = 0;
+  // Version 1 of the validated GB200/B3240 CPU as Root Complex profile.
+  DPU_NV_CONFIG_PROFILE_GB200_B3240_V1 = 1;
 }

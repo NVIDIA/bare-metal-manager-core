@@ -164,3 +164,62 @@ pub(crate) async fn remove_machine_health_report(
 
     Ok(Response::new(()))
 }
+
+/// Shared implementation of the `Find<Type>HealthHistories` RPCs. Each per-type
+/// handler unwraps its request and forwards the object IDs, the target history
+/// table, and the optional inclusive time range; the map returned by
+/// [`db::health_history::find_by_object_ids`] is keyed by the object-id string,
+/// which is what the shared `HealthHistories` response expects.
+pub(crate) async fn find_health_histories<Id, Ts>(
+    api: &Api,
+    ids: Vec<Id>,
+    table_id: db::health_history::HealthHistoryTableId,
+    start_time: Option<Ts>,
+    end_time: Option<Ts>,
+) -> Result<Response<rpc::HealthHistories>, Status>
+where
+    Id: std::fmt::Display,
+    chrono::DateTime<chrono::Utc>: TryFrom<Ts>,
+{
+    let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
+    if ids.len() > max_find_by_ids {
+        return Err(CarbideError::InvalidArgument(format!(
+            "no more than {max_find_by_ids} IDs can be accepted"
+        ))
+        .into());
+    } else if ids.is_empty() {
+        return Err(
+            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+        );
+    }
+
+    // Convert protobuf timestamps to chrono DateTime
+    let start_time = start_time
+        .map(chrono::DateTime::<chrono::Utc>::try_from)
+        .transpose()
+        .map_err(|_| CarbideError::InvalidArgument("invalid start_time timestamp".to_string()))?;
+    let end_time = end_time
+        .map(chrono::DateTime::<chrono::Utc>::try_from)
+        .transpose()
+        .map_err(|_| CarbideError::InvalidArgument("invalid end_time timestamp".to_string()))?;
+
+    let mut txn = api.txn_begin().await?;
+
+    let results =
+        db::health_history::find_by_object_ids(&mut txn, table_id, &ids, start_time, end_time)
+            .await?;
+
+    let mut response = rpc::HealthHistories::default();
+    for (object_id, records) in results {
+        response.histories.insert(
+            object_id,
+            ::rpc::forge::HealthHistoryRecords {
+                records: records.into_iter().map(Into::into).collect(),
+            },
+        );
+    }
+
+    txn.commit().await?;
+
+    Ok(Response::new(response))
+}

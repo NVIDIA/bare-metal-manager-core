@@ -33,11 +33,15 @@ use component_manager::power_shelf_manager::Backend as PowerShelfBackend;
 use db::switch as db_switch;
 use model::component_manager::ConfigureSwitchCertificateState;
 use model::controller_outcome::PersistentStateHandlerOutcome;
-use model::switch::{ConfigureCertificateState, ConfiguringState, SwitchControllerState};
+use model::switch::{
+    ConfigureCertificateState, ConfiguringState, SwitchControllerState, SwitchDecommissioningState,
+};
 use rpc::forge::forge_server::Forge;
+use rpc::forge::{AdminForceDeleteSwitchRequest, DecommissionSwitchRequest};
 use state_controller::config::IterationConfig;
 use state_controller::controller::StateController;
 use tokio_util::sync::CancellationToken;
+use tonic::Request;
 
 use crate::tests::common;
 use crate::tests::common::api_fixtures::{create_test_env, get_config_with_rack_profiles};
@@ -82,6 +86,121 @@ fn nvos_and_nmxc_activities() -> Vec<model::rack::MaintenanceActivity> {
 /// Empty activities means all phases, matching rack `MaintenanceScope::should_run`.
 fn all_phases_activities() -> Vec<model::rack::MaintenanceActivity> {
     vec![]
+}
+
+#[crate::sqlx_test]
+async fn decommission_request_enters_rms_workflow(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+
+    let mut txn = pool.begin().await?;
+    set_switch_rack_id(txn.as_mut(), &switch_id, &"rack-id-1".into()).await?;
+    transition_switch_controller_state(txn.as_mut(), &switch_id, SwitchControllerState::Ready)
+        .await?;
+    txn.commit().await?;
+
+    env.api
+        .decommission_switch(Request::new(DecommissionSwitchRequest {
+            switch_id: Some(switch_id),
+        }))
+        .await?;
+
+    let mut connection = pool.acquire().await?;
+    let switch = db_switch::find_by_id(&mut connection, &switch_id)
+        .await?
+        .expect("switch should exist");
+    assert!(switch.decommission_requested);
+    drop(connection);
+
+    env.run_switch_controller_iteration().await;
+    let mut connection = pool.acquire().await?;
+    let switch = db_switch::find_by_id(&mut connection, &switch_id)
+        .await?
+        .expect("switch should exist");
+    assert!(!switch.decommission_requested);
+    assert!(matches!(
+        switch.controller_state.value,
+        SwitchControllerState::Decommissioning {
+            decommissioning_state: SwitchDecommissioningState::SuppressingSiteExplorer,
+        }
+    ));
+    let bmc_mac = switch
+        .bmc_mac_address
+        .expect("switch fixture should have a BMC MAC");
+    drop(connection);
+
+    env.run_switch_controller_iteration().await;
+    let mut connection = pool.acquire().await?;
+    let switch = db_switch::find_by_id(&mut connection, &switch_id)
+        .await?
+        .expect("switch should exist");
+    assert!(matches!(
+        switch.controller_state.value,
+        SwitchControllerState::Decommissioning {
+            decommissioning_state: SwitchDecommissioningState::SuppressingSiteExplorer,
+        }
+    ));
+    let suppression = db::bmc_suppression::find(
+        &mut *connection,
+        bmc_mac,
+        model::bmc_suppression::BmcSuppressionSubsystem::SiteExplorer,
+    )
+    .await?
+    .expect("Site Explorer suppression should be requested");
+    assert!(suppression.acknowledged_at.is_none());
+    drop(connection);
+
+    let mut txn = pool.begin().await?;
+    assert!(
+        db::bmc_suppression::acknowledge(
+            txn.as_mut(),
+            bmc_mac,
+            model::bmc_suppression::BmcSuppressionSubsystem::SiteExplorer,
+        )
+        .await?
+    );
+    txn.commit().await?;
+
+    env.run_switch_controller_iteration().await;
+    let mut connection = pool.acquire().await?;
+    let switch = db_switch::find_by_id(&mut connection, &switch_id)
+        .await?
+        .expect("switch should exist");
+    assert!(matches!(
+        switch.controller_state.value,
+        SwitchControllerState::Decommissioning {
+            decommissioning_state: SwitchDecommissioningState::SuppressingNvosDhcp,
+        }
+    ));
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn force_delete_switch_clears_associated_mac_state(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+
+    env.api
+        .admin_force_delete_switch(Request::new(AdminForceDeleteSwitchRequest {
+            switch_id: Some(switch_id),
+            delete_interfaces: true,
+            delete_bmc_suppressions: true,
+        }))
+        .await?;
+
+    let mut connection = pool.acquire().await?;
+    assert!(
+        db_switch::find_by_id(&mut connection, &switch_id)
+            .await?
+            .is_none()
+    );
+
+    Ok(())
 }
 
 async fn build_test_component_manager(

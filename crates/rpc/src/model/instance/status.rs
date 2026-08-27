@@ -123,15 +123,17 @@ pub fn instance_status_from_config_and_observation(
         );
 
     let extension_services =
-        model::instance::status::extension_service::InstanceExtensionServicesStatus::from_config_and_observations(
+        model::instance::status::extension_service::InstanceExtensionServicesStatus::from_config_and_type_observations(
             &used_dpu_ids,
             extension_services_config,
             &observations.extension_services,
+            delete_requested,
         );
     let extension_services_ready =
         model::instance::status::extension_service::is_extension_services_ready(
             &extension_services,
         );
+
     let nvlink = model::instance::status::nvlink::InstanceNvLinkStatus::from_config_and_observation(
         nvlink_config,
         nvlink_status,

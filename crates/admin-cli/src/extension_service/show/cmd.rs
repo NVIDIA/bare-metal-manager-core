@@ -68,6 +68,7 @@ pub(in crate::extension_service) fn convert_extension_services_to_table(
         "Version Counter",
         "Active Versions",
         "Description",
+        "Lifecycle State",
         "Created",
         "Updated",
     ]);
@@ -78,6 +79,16 @@ pub(in crate::extension_service) fn convert_extension_services_to_table(
             .unwrap_or("Unknown");
 
         let active_versions = service.active_versions.join(", ");
+        let lifecycle_state = service
+            .lifecycle_status
+            .as_ref()
+            .and_then(|status| {
+                serde_json::from_str::<serde_json::Value>(&status.state)
+                    .ok()
+                    .and_then(|state| state.get("state")?.as_str().map(str::to_string))
+                    .or_else(|| (!status.state.is_empty()).then(|| status.state.clone()))
+            })
+            .unwrap_or_else(|| "Unknown".to_string());
 
         table.add_row(row![
             service.service_id,
@@ -87,6 +98,7 @@ pub(in crate::extension_service) fn convert_extension_services_to_table(
             service.version_ctr,
             active_versions,
             service.description,
+            lifecycle_state,
             service.created,
             service.updated,
         ]);

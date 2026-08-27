@@ -82,6 +82,16 @@ func (s TaskStatus) IsFinished() bool {
 		s == TaskStatusTerminated
 }
 
+// NonTerminalTaskStatuses returns every status surfaced by active-only task
+// queries and inventory task statistics.
+func NonTerminalTaskStatuses() []TaskStatus {
+	return []TaskStatus{
+		TaskStatusWaiting,
+		TaskStatusPending,
+		TaskStatusRunning,
+	}
+}
+
 type TaskListOptions struct {
 	TaskType TaskType
 	RackID   uuid.UUID

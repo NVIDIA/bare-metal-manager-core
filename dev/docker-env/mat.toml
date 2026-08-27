@@ -64,11 +64,9 @@ pxe_server_port = "1083"
 
 [machines.config]
 host_count = 1
-vpc_count = 2
 dpu_per_host_count = 1
 dpu_reboot_delay = 20  # in units of seconds
 host_reboot_delay = 20 # in units of seconds
-subnets_per_vpc = 2
 
 # These addresses must correspond to subnets defined in your
 # carbide-api-site-config.toml. Nothing actually binds to these addresses, it is

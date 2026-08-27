@@ -243,11 +243,7 @@ func taskListOptionsToFilterable(
 		filters = append(filters, dbquery.Filter{
 			Column:   "status",
 			Operator: dbquery.OperatorIn,
-			Value: []taskcommon.TaskStatus{
-				taskcommon.TaskStatusWaiting,
-				taskcommon.TaskStatusPending,
-				taskcommon.TaskStatusRunning,
-			},
+			Value:    taskcommon.NonTerminalTaskStatuses(),
 		})
 	}
 
@@ -335,6 +331,37 @@ func ListTasksForRackByStatus(
 		OrderExpr("created_at ASC").
 		Scan(ctx)
 	return tasks, err
+}
+
+// ListTasksForRacksByStatus returns tasks for the requested racks matching any
+// of the given statuses.
+func ListTasksForRacksByStatus(
+	ctx context.Context,
+	idb bun.IDB,
+	rackIDs []uuid.UUID,
+	statuses []taskcommon.TaskStatus,
+) ([]Task, error) {
+	if len(rackIDs) == 0 || len(statuses) == 0 {
+		return []Task{}, nil
+	}
+
+	var tasks []Task
+	err := listTasksForRacksByStatusQuery(idb, &tasks, rackIDs, statuses).
+		Scan(ctx)
+	return tasks, err
+}
+
+func listTasksForRacksByStatusQuery(
+	idb bun.IDB,
+	tasks *[]Task,
+	rackIDs []uuid.UUID,
+	statuses []taskcommon.TaskStatus,
+) *bun.SelectQuery {
+	return idb.NewSelect().
+		Model(tasks).
+		Column("id", "rack_id", "attributes", "status").
+		Where("rack_id IN (?)", bun.In(rackIDs)).
+		Where("status IN (?)", bun.In(statuses))
 }
 
 // ListRacksWithWaitingTasks returns the distinct rack IDs that have at least

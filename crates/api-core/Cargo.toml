@@ -41,6 +41,7 @@ carbide-credential-rotation = { path = "../credential-rotation", default-feature
 carbide-dpa = { path = "../dpa" }
 carbide-dpa-manager = { path = "../dpa-manager" }
 carbide-dpf = { path = "../dpf" }
+carbide-extension-service-controller = { path = "../extension-service-controller" }
 carbide-firmware = { path = "../firmware" }
 carbide-health-metrics = { path = "../health-metrics" }
 carbide-health-report = { path = "../health-report" }

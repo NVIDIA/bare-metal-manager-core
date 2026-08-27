@@ -176,6 +176,12 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
         dpu_device_name: &str,
         changes: BTreeMap<String, Option<String>>,
     ) -> Result<(), DpfError>;
+
+    /// Returns the DPU-cluster node labels on one DPUDevice CR.
+    async fn get_dpu_device_node_labels(
+        &self,
+        dpu_device_name: &str,
+    ) -> Result<BTreeMap<String, String>, DpfError>;
 }
 
 /// Check whether the DPUNode and DPUDevice CRs are missing for the given host.
@@ -781,5 +787,12 @@ impl DpfOperations for DpfSdkOps {
         self.sdk
             .merge_dpu_device_node_labels(dpu_device_name, changes)
             .await
+    }
+
+    async fn get_dpu_device_node_labels(
+        &self,
+        dpu_device_name: &str,
+    ) -> Result<BTreeMap<String, String>, DpfError> {
+        self.sdk.get_dpu_device_node_labels(dpu_device_name).await
     }
 }

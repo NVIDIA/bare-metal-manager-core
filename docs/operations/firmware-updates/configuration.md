@@ -394,6 +394,18 @@ product_family = "gb200"
 [rack_profiles.NVL72.firmware_object]
 url = "https://firmware.example.com/objects/nvl72.json"
 fetch_timeout = "30s"
+
+[rack_profiles.NVL72.rack_capabilities.compute]
+vendor = "NVIDIA"
+count = 18
+
+[rack_profiles.NVL72.rack_capabilities.switch]
+vendor = "NVIDIA"
+count = 9
+
+[rack_profiles.NVL72.rack_capabilities.power_shelf]
+vendor = "LiteOn"
+count = 8
 ```
 
 The `url` field identifies the document location. The optional `fetch_timeout`

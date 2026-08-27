@@ -262,6 +262,17 @@ fn deployment(bfb: Option<&str>, blue_field_software: Option<&str>, ready: bool)
     }
 }
 
+fn template_deployment(
+    bfb: Option<&str>,
+    blue_field_software: Option<&str>,
+    ready: bool,
+) -> DPUDeployment {
+    let mut deployment = deployment(bfb, blue_field_software, ready);
+    deployment.spec.dpus.flavor = None;
+    deployment.spec.dpus.flavor_template = Some("astra-flavor-template".to_string());
+    deployment
+}
+
 async fn is_outdated(mock: OutdatedDpuMock) -> Result<bool, DpfError> {
     DpfSdkBuilder::new(mock, TEST_NS, String::new())
         .build_without_resources()
@@ -335,6 +346,25 @@ async fn a_dpu_whose_flavor_drifted_is_outdated() {
     );
 
     assert!(is_outdated(mock).await.expect("evaluated"));
+}
+
+#[tokio::test]
+async fn a_template_deployment_does_not_compare_its_template_name_with_dpu_flavor() {
+    let dpu = dpu(
+        None,
+        Some("bf-software-abc"),
+        None,
+        "per-dpu-rendered-flavor",
+    );
+    let deployment = template_deployment(None, Some("bf-software-abc"), true);
+
+    // is_dpu_outdated and find_outdated_dpus_dpf share dpu_comparison: a
+    // DPUFlavorTemplate name is not comparable with its generated DPUFlavor.
+    assert!(
+        !is_outdated(OutdatedDpuMock::with(dpu, deployment))
+            .await
+            .expect("template deployment can be evaluated")
+    );
 }
 
 #[tokio::test]

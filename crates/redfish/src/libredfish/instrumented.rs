@@ -61,6 +61,7 @@ use libredfish::model::task::Task;
 use libredfish::model::thermal::Thermal;
 use libredfish::model::update_service::{ComponentType, TransferProtocolType, UpdateService};
 use libredfish::model::{BootOption, ComputerSystem, Manager, ODataId};
+use libredfish::standard::RedfishStandard;
 use libredfish::{
     Assembly, BiosProfileType, BiosProfileVendor, Boot, BootInterfaceRef, BootOptions,
     BootOverride, Chassis, Collection, EnabledDisabled, EthernetInterface, JobState,
@@ -167,6 +168,10 @@ macro_rules! delegate_with_red {
 }
 
 impl Redfish for InstrumentedRedfish {
+    fn std_redfish(&self) -> &RedfishStandard {
+        self.inner.std_redfish()
+    }
+
     delegate_with_red! {
         fn change_username<'a>(&'a self, old_name: &'a str, new_name: &'a str) -> ();
         fn get_accounts<'a>(&'a self) -> Vec<ManagerAccount>;

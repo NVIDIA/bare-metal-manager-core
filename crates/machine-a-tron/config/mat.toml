@@ -101,9 +101,7 @@ enable_ipmi_simulation = false
 # atomic racks declared above.
 # rack_id = "rack-001"
 host_count = 3
-vpc_count = 10
 dpu_per_host_count = 1
-subnets_per_vpc = 2
 dpu_reboot_delay = 20  # in units of seconds
 host_reboot_delay = 20 # in units of seconds
 

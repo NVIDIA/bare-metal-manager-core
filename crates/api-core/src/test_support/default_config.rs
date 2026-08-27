@@ -39,8 +39,8 @@ use model::resource_pool::{self};
 use regex::Regex;
 
 use crate::cfg::file::{
-    AuthConfig, CarbideConfig, EwEthersConfig, DpaInterfaceStateControllerConfig,
-    DpuConfig as InitialDpuConfig, DsxExchangeEventBusConfig, FnnConfig,
+    AuthConfig, CarbideConfig, DpaInterfaceStateControllerConfig, DpuConfig as InitialDpuConfig,
+    DsxExchangeEventBusConfig, EwEthersConfig, ExtensionServiceStateControllerConfig, FnnConfig,
     IbPartitionStateControllerConfig, KmsConfig, ListenMode, MachineUpdater,
     MeasuredBootMetricsCollectorConfig, MqttAuthConfig, NetworkSecurityGroupConfig,
     NetworkSegmentStateControllerConfig, NodeAuthConfig, PowerShelfStateControllerConfig,
@@ -246,6 +246,9 @@ pub fn get() -> CarbideConfig {
         },
         vpc_prefix_state_controller: VpcPrefixStateControllerConfig {
             vpc_prefix_drain_time: Duration::seconds(2),
+            controller: StateControllerConfig::default(),
+        },
+        extension_service_state_controller: ExtensionServiceStateControllerConfig {
             controller: StateControllerConfig::default(),
         },
         ib_partition_state_controller: IbPartitionStateControllerConfig {
