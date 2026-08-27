@@ -28,7 +28,7 @@ type Tray struct {
 	Id *string `json:"id,omitempty"`
 	// ID of the component
 	ComponentId *string `json:"componentId,omitempty"`
-	// Type of the tray
+	// Type of the tray. `Unknown` is reported when the component type is not recognized.
 	Type *string `json:"type,omitempty"`
 	// Name of the tray
 	Name *string `json:"name,omitempty"`
