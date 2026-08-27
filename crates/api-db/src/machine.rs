@@ -698,7 +698,10 @@ pub async fn update_cleanup_time(
     machine: &Machine,
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
-    let query = "UPDATE machines SET last_cleanup_time=NOW() WHERE id=$1 RETURNING id";
+    // A cleanup transaction can begin before a concurrent state transition commits. Record the
+    // update time, not the transaction start time, so completed cleanup is newer than that state.
+    let query =
+        "UPDATE machines SET last_cleanup_time=clock_timestamp() WHERE id=$1 RETURNING id";
     let _id = sqlx::query_as::<_, MachineId>(query)
         .bind(machine.id.to_string())
         .fetch_one(txn)
@@ -3312,6 +3315,82 @@ mod test {
             pool_stats: Arc::new(Mutex::new(HashMap::new())),
             _stop_sender: stop_sender,
         }
+    }
+
+    #[crate::sqlx_test]
+    async fn cleanup_time_follows_state_committed_after_transaction_start(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let machine_id =
+            MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")?;
+        let mut setup_txn = pool.begin().await?;
+        super::create(
+            setup_txn.as_mut(),
+            None,
+            &machine_id,
+            ManagedHostState::Ready,
+            None,
+            2,
+        )
+        .await?;
+        setup_txn.commit().await?;
+
+        let mut cleanup_txn = pool.begin().await?;
+        let cleanup_transaction_started_at: chrono::DateTime<chrono::Utc> =
+            sqlx::query_scalar("SELECT transaction_timestamp()")
+                .fetch_one(cleanup_txn.as_mut())
+                .await?;
+        let machine = super::find_one(
+            cleanup_txn.as_mut(),
+            &machine_id,
+            MachineSearchConfig::default(),
+        )
+        .await?
+        .expect("machine should exist before recording cleanup");
+
+        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        let mut state_txn = pool.begin().await?;
+        let machine_for_state_update = super::find_one(
+            state_txn.as_mut(),
+            &machine_id,
+            MachineSearchConfig::default(),
+        )
+        .await?
+        .expect("machine should exist before advancing its state version");
+        super::advance(
+            &machine_for_state_update,
+            state_txn.as_mut(),
+            &ManagedHostState::Ready,
+            None,
+        )
+        .await?;
+        state_txn.commit().await?;
+
+        super::update_cleanup_time(&machine, cleanup_txn.as_mut()).await?;
+        cleanup_txn.commit().await?;
+
+        let mut verify_txn = pool.begin().await?;
+        let machine = super::find_one(
+            verify_txn.as_mut(),
+            &machine_id,
+            MachineSearchConfig::default(),
+        )
+        .await?
+        .expect("machine should exist after recording cleanup");
+        let cleanup_time = machine
+            .status
+            .last_cleanup_time
+            .expect("cleanup time should be recorded");
+        assert!(
+            cleanup_transaction_started_at < machine.state.version.timestamp(),
+            "the test must start the cleanup transaction before advancing the state version"
+        );
+        assert!(
+            cleanup_time > machine.state.version.timestamp(),
+            "cleanup recorded after a state transition must be newer than that state version"
+        );
+
+        Ok(())
     }
 
     #[crate::sqlx_test]
