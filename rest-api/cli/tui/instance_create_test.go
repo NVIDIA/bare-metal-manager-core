@@ -120,7 +120,7 @@ func TestFetchInstanceMultiDPUCapability(t *testing.T) {
 		name         string
 		responseBody string
 		status       int
-		want         *instanceDPUCapability
+		want         *instanceDPUDeviceNetworkCapability
 		wantErr      string
 	}{
 		{
@@ -132,7 +132,7 @@ func TestFetchInstanceMultiDPUCapability(t *testing.T) {
 				]
 			}`,
 			status: http.StatusOK,
-			want: &instanceDPUCapability{
+			want: &instanceDPUDeviceNetworkCapability{
 				name:  "BlueField-3",
 				count: 2,
 			},
@@ -274,7 +274,7 @@ func TestPromptMultiDPUInstanceInterfaces(t *testing.T) {
 		Resolver: resolver,
 	}
 	networkConfig := instanceNetworkConfig{
-		dpuCapability: &instanceDPUCapability{
+		dpuCapability: &instanceDPUDeviceNetworkCapability{
 			name:  "dual-dpu-network",
 			count: 2,
 		},
@@ -317,11 +317,10 @@ func TestPromptMultiDPUInstanceInterfaces(t *testing.T) {
 	})
 }
 
-func TestTargetedInstanceCreationAtSite(t *testing.T) {
+func TestSession_tenantHasTargetedInstanceCreationAtSite(t *testing.T) {
 	tests := []struct {
 		name         string
 		capabilities []interface{}
-		siteID       string
 		want         bool
 	}{
 		{
@@ -331,8 +330,7 @@ func TestTargetedInstanceCreationAtSite(t *testing.T) {
 					"targetedInstanceCreation": true,
 				},
 			},
-			siteID: "site-1",
-			want:   true,
+			want: true,
 		},
 		{
 			name: "disabled by account default",
@@ -341,7 +339,6 @@ func TestTargetedInstanceCreationAtSite(t *testing.T) {
 					"targetedInstanceCreation": false,
 				},
 			},
-			siteID: "site-1",
 		},
 		{
 			name: "site override enables disabled default",
@@ -356,8 +353,7 @@ func TestTargetedInstanceCreationAtSite(t *testing.T) {
 					"targetedInstanceCreation": true,
 				},
 			},
-			siteID: "site-1",
-			want:   true,
+			want: true,
 		},
 		{
 			name: "site override disables enabled default",
@@ -372,7 +368,6 @@ func TestTargetedInstanceCreationAtSite(t *testing.T) {
 					"targetedInstanceCreation": false,
 				},
 			},
-			siteID: "site-1",
 		},
 		{
 			name: "unrelated site override preserves default",
@@ -387,19 +382,47 @@ func TestTargetedInstanceCreationAtSite(t *testing.T) {
 					"targetedInstanceCreation": false,
 				},
 			},
-			siteID: "site-1",
-			want:   true,
+			want: true,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			account := map[string]interface{}{
-				"siteCapabilities": test.capabilities,
-			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				switch request.URL.Path {
+				case "/v2/org/acme/nico/tenant/current":
+					_, err := io.WriteString(w, `{"id":"tenant-1"}`)
+					require.NoError(t, err)
+				case "/v2/org/acme/nico/site/site-1":
+					_, err := io.WriteString(w, `{"infrastructureProviderId":"provider-1"}`)
+					require.NoError(t, err)
+				case "/v2/org/acme/nico/tenant/account":
+					assert.Equal(t, "provider-1", request.URL.Query().Get("infrastructureProviderId"))
+					assert.Equal(t, "tenant-1", request.URL.Query().Get("tenantId"))
+					err := json.NewEncoder(w).Encode([]map[string]interface{}{
+						{
+							"status":                   "Ready",
+							"infrastructureProviderId": "provider-1",
+							"tenantId":                 "tenant-1",
+							"siteCapabilities":         test.capabilities,
+						},
+					})
+					require.NoError(t, err)
+				default:
+					http.NotFound(w, request)
+				}
+			}))
+			defer server.Close()
 
-			got := targetedInstanceCreationAtSite(account, test.siteID)
+			session := NewSession(
+				appcli.NewClient(server.URL, "acme", "token", nil, false),
+				"acme",
+				"",
+			)
 
+			got, err := session.tenantHasTargetedInstanceCreationAtSite(context.Background(), "site-1")
+
+			require.NoError(t, err)
 			assert.Equal(t, test.want, got)
 		})
 	}

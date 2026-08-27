@@ -293,39 +293,35 @@ func (s *Session) tenantHasTargetedInstanceCreationAtSite(ctx context.Context, v
 			continue
 		}
 
-		return targetedInstanceCreationAtSite(account, vpcSiteID), nil
-	}
-	return false, nil
-}
-
-func targetedInstanceCreationAtSite(account map[string]interface{}, siteID string) bool {
-	rawCapabilities, ok := account["siteCapabilities"].([]interface{})
-	if !ok {
-		return false
-	}
-
-	defaultEnabled := false
-	for _, rawCapability := range rawCapabilities {
-		capability, ok := rawCapability.(map[string]interface{})
+		rawCapabilities, ok := account["siteCapabilities"].([]interface{})
 		if !ok {
-			continue
+			return false, nil
 		}
-		enabled, ok := capability["targetedInstanceCreation"].(bool)
-		if !ok {
-			continue
-		}
-		siteIDs := stringSlice(capability["siteIds"])
-		if len(siteIDs) == 0 {
-			defaultEnabled = enabled
-			continue
-		}
-		for _, capabilitySiteID := range siteIDs {
-			if capabilitySiteID == siteID {
-				return enabled
+
+		defaultEnabled := false
+		for _, rawCapability := range rawCapabilities {
+			capability, ok := rawCapability.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			enabled, ok := capability["targetedInstanceCreation"].(bool)
+			if !ok {
+				continue
+			}
+			siteIDs := stringSlice(capability["siteIds"])
+			if len(siteIDs) == 0 {
+				defaultEnabled = enabled
+				continue
+			}
+			for _, capabilitySiteID := range siteIDs {
+				if capabilitySiteID == vpcSiteID {
+					return enabled, nil
+				}
 			}
 		}
+		return defaultEnabled, nil
 	}
-	return defaultEnabled
+	return false, nil
 }
 
 // getInfrastructureProviderID returns the current infrastructure provider ID, caching it for the session.

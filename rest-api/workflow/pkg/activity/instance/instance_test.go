@@ -102,7 +102,7 @@ func TestResolvedVpcPrefixIDs(t *testing.T) {
 	}
 }
 
-func TestDeviceLessFNNInterfaceKey(t *testing.T) {
+func TestGetDevicelessInterfaceKey(t *testing.T) {
 	prefixID := uuid.NewString()
 	tests := []struct {
 		name              string
@@ -134,7 +134,7 @@ func TestDeviceLessFNNInterfaceKey(t *testing.T) {
 	keys := make(map[string]bool, len(tests))
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := deviceLessFNNInterfaceKey(prefixID, test.isPhysical, test.virtualFunctionID)
+			got := getDevicelessInterfaceKey(prefixID, test.isPhysical, test.virtualFunctionID)
 
 			assert.Equal(t, test.want, got)
 			assert.False(t, keys[got], "reconciliation keys must be unique for a shared VPC prefix")

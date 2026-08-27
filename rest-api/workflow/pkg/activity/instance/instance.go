@@ -55,14 +55,14 @@ func resolvedVpcPrefixIDs(prefixes *corev1.InstanceInterfaceResolvedVpcPrefixes)
 	return prefixes.Ipv6VpcPrefixId, nil
 }
 
-func deviceLessFNNInterfaceKey(vpcPrefixID string, isPhysical bool, virtualFunctionID *int) string {
+func getDevicelessInterfaceKey(networkResourceID string, isPhysical bool, virtualFunctionID *int) string {
 	if isPhysical {
-		return vpcPrefixID + "-physical"
+		return networkResourceID + "-physical"
 	}
 	if virtualFunctionID == nil {
-		return vpcPrefixID + "-virtual"
+		return networkResourceID + "-virtual"
 	}
-	return fmt.Sprintf("%s-virtual-%d", vpcPrefixID, *virtualFunctionID)
+	return fmt.Sprintf("%s-virtual-%d", networkResourceID, *virtualFunctionID)
 }
 
 // Activity functions
@@ -416,7 +416,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 					} else if ifc.VpcID == nil && ifc.VpcPrefixID != nil {
 						// Device-less FNN interfaces may share a VPC Prefix, so include
 						// the function identity in the reconciliation key.
-						key := deviceLessFNNInterfaceKey(ifc.VpcPrefixID.String(), ifc.IsPhysical, ifc.VirtualFunctionID)
+						key := getDevicelessInterfaceKey(ifc.VpcPrefixID.String(), ifc.IsPhysical, ifc.VirtualFunctionID)
 						interfaceMap[key] = &curIfc
 					}
 
@@ -465,7 +465,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 								virtualFunctionID = &value
 							}
 							isPhysical := interfaceConfig.FunctionType == corev1.InterfaceFunctionType_PHYSICAL_FUNCTION
-							key := deviceLessFNNInterfaceKey(networkDetails.VpcPrefixId.Value, isPhysical, virtualFunctionID)
+							key := getDevicelessInterfaceKey(networkDetails.VpcPrefixId.Value, isPhysical, virtualFunctionID)
 							ifc, ok = interfaceMap[key]
 						}
 					case *corev1.InstanceInterfaceConfig_SegmentId:

@@ -2885,7 +2885,7 @@ func cmdInstanceCreate(s *Session, _ []string) error {
 type instanceNetworkConfig struct {
 	autoNetwork    bool
 	detectMultiDPU bool
-	dpuCapability  *instanceDPUCapability
+	dpuCapability  *instanceDPUDeviceNetworkCapability
 	resourceType   string
 	reuseResources bool
 	singular       string
@@ -2930,12 +2930,12 @@ func instanceNetworkConfigForVPC(vpc *NamedItem) (instanceNetworkConfig, error) 
 	}
 }
 
-type instanceDPUCapability struct {
+type instanceDPUDeviceNetworkCapability struct {
 	name  string
 	count int
 }
 
-func fetchInstanceMultiDPUCapability(s *Session, machineID string) (*instanceDPUCapability, error) {
+func fetchInstanceMultiDPUCapability(s *Session, machineID string) (*instanceDPUDeviceNetworkCapability, error) {
 	body, _, err := s.Client.Do(
 		"GET",
 		apiPath(s, "machine/{id}"),
@@ -2976,7 +2976,7 @@ func fetchInstanceMultiDPUCapability(s *Session, machineID string) (*instanceDPU
 		if name == "" {
 			continue
 		}
-		return &instanceDPUCapability{
+		return &instanceDPUDeviceNetworkCapability{
 			name:  name,
 			count: *capability.Count,
 		}, nil
