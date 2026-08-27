@@ -41,7 +41,9 @@ use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_machine_id, log_request_data, log_request_data_redacted};
-use crate::handlers::utils::{enqueue_boot_interface_reconciliation, resolve_bmc_address};
+use crate::handlers::utils::{
+    convert_and_log_machine_id, enqueue_boot_interface_reconciliation, resolve_bmc_address,
+};
 
 /// Converts the admin request into the authority used by boot reconciliation.
 ///
@@ -1045,6 +1047,51 @@ async fn redfish_power_control(
     Ok(Response::new(()))
 }
 
+fn map_gpu_reset_action(action: i32) -> Result<libredfish::SystemPowerControl, Status> {
+    use rpc::admin_power_control_request::SystemPowerControl as Spc;
+    let action = Spc::try_from(action).map_err(|_| Status::invalid_argument("unknown action"))?;
+    Ok(match action {
+        Spc::GracefulRestart => libredfish::SystemPowerControl::GracefulRestart,
+        Spc::AcPowercycle => libredfish::SystemPowerControl::ACPowercycle,
+        Spc::On | Spc::ForceRestart => libredfish::SystemPowerControl::ForceRestart,
+        Spc::GracefulShutdown | Spc::ForceOff => {
+            return Err(Status::invalid_argument(
+                "action must be a reset type (ForceRestart, GracefulRestart, or ACPowercycle)",
+            ));
+        }
+    })
+}
+
+pub(crate) async fn admin_gpu_reset(
+    api: &Api,
+    request: Request<rpc::AdminGpuResetRequest>,
+) -> Result<Response<rpc::AdminGpuResetResponse>, Status> {
+    log_request_data(&request);
+    let req = request.into_inner();
+    let machine_id = convert_and_log_machine_id(req.machine_id.as_ref())?;
+    let chassis_id = req
+        .chassis_id
+        .none_if_empty()
+        .ok_or_else(|| Status::invalid_argument("chassis_id is required (e.g. \"HGX_Chassis_0\")"))?;
+
+    let mut txn = api.txn_begin().await?;
+    let (bmc_endpoint_request, _) =
+        validate_and_complete_bmc_endpoint_request(&mut txn, None, Some(machine_id)).await?;
+    txn.commit().await?;
+
+    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &bmc_endpoint_request).await?;
+    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
+
+    let action = map_gpu_reset_action(req.action)?;
+
+    api.endpoint_explorer
+        .redfish_chassis_reset(bmc_addr, &machine_interface, &chassis_id, action)
+        .await
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
+
+    Ok(Response::new(rpc::AdminGpuResetResponse {}))
+}
+
 pub(crate) async fn bmc_credential_status(
     api: &Api,
     request: tonic::Request<rpc::BmcEndpointRequest>,
@@ -1556,6 +1603,20 @@ mod tests {
                 ResetType::ForceRestart => Some(libredfish::ManagerResetType::ForceRestart),
             }
         );
+    }
+
+    #[test]
+    fn gpu_reset_action_maps_resets_and_rejects_power_off() {
+        use super::rpc::admin_power_control_request::SystemPowerControl as Spc;
+        use libredfish::SystemPowerControl as L;
+        let f = map_gpu_reset_action;
+        assert!(matches!(f(Spc::GracefulRestart as i32), Ok(L::GracefulRestart)));
+        assert!(matches!(f(Spc::AcPowercycle as i32), Ok(L::ACPowercycle)));
+        assert!(matches!(f(Spc::ForceRestart as i32), Ok(L::ForceRestart)));
+        assert!(matches!(f(Spc::On as i32), Ok(L::ForceRestart)));
+        assert!(matches!(f(Spc::GracefulShutdown as i32), Err(_)));
+        assert!(matches!(f(Spc::ForceOff as i32), Err(_)));
+        assert!(matches!(f(9999), Err(_)));
     }
 
     fn predicted(mac: &str, boot_interface_id: Option<&str>) -> PredictedMachineInterface {

@@ -487,6 +487,25 @@ impl RedfishClient {
         Ok(())
     }
 
+    pub(super) async fn chassis_reset(
+        &self,
+        bmc_ip_address: SocketAddr,
+        credentials: Credentials,
+        chassis_id: &str,
+        action: libredfish::SystemPowerControl,
+    ) -> Result<(), EndpointExplorationError> {
+        let client = self
+            .create_authenticated_redfish_client(bmc_ip_address, credentials)
+            .await
+            .map_err(map_redfish_client_creation_error)?;
+
+        client
+            .chassis_reset(chassis_id, action)
+            .await
+            .map_err(map_redfish_error)?;
+        Ok(())
+    }
+
     pub(super) async fn disable_secure_boot(
         &self,
         bmc_ip_address: SocketAddr,
