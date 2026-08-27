@@ -303,11 +303,11 @@ func (cdesh CreateDpuExtensionServiceHandler) Handle(c echo.Context) error {
 			status = cdbm.DpuExtensionServiceStatusPending
 			statusMessage = "Core accepted DPU Extension Service, pending DPF reconciliation"
 
-			coreStatus, cerr := cdbm.DpuExtensionServiceStatusFromLifecycleStatus(controllerDpuExtensionService.LifecycleStatus)
+			updatedStatus, cerr := cdbm.DpuExtensionServiceStatusFromLifecycleStatus(controllerDpuExtensionService.LifecycleStatus)
 			if cerr != nil {
 				logger.Error().Err(cerr).Msg("error deriving DPU Extension Service status from Core lifecycle status")
 			} else {
-				status = coreStatus
+				status = updatedStatus
 				statusMessage = fmt.Sprintf("Core reports DPU Extension Service in %s status", status)
 			}
 		}
@@ -941,11 +941,11 @@ func (udesh UpdateDpuExtensionServiceHandler) Handle(c echo.Context) error {
 		if dpuExtensionService.ServiceType == cdbm.DpuExtensionServiceServiceTypeDpfHelmChart {
 			status = nil
 
-			coreStatus, cerr := cdbm.DpuExtensionServiceStatusFromLifecycleStatus(controllerDpuExtensionService.LifecycleStatus)
+			updatedStatus, cerr := cdbm.DpuExtensionServiceStatusFromLifecycleStatus(controllerDpuExtensionService.LifecycleStatus)
 			if cerr != nil {
 				logger.Error().Err(cerr).Msg("error deriving DPU Extension Service status from Core lifecycle status")
 			} else {
-				status = &coreStatus
+				status = &updatedStatus
 			}
 		}
 		reUpdatedDpuExtensionService, err = desDAO.Update(ctx, nil, cdbm.DpuExtensionServiceUpdateInput{

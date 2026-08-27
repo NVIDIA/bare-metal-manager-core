@@ -192,12 +192,12 @@ func (mde ManageDpuExtensionService) UpdateDpuExtensionServicesInDB(ctx context.
 			status = nil
 			statusMessage = nil
 
-			coreStatus, cerr := cdbm.DpuExtensionServiceStatusFromLifecycleStatus(controllerDpuExtensionService.LifecycleStatus)
+			updatedStatus, cerr := cdbm.DpuExtensionServiceStatusFromLifecycleStatus(controllerDpuExtensionService.LifecycleStatus)
 			if cerr != nil {
 				slogger.Error().Err(cerr).Msg("failed to derive DPU Extension Service status from Core lifecycle status")
-			} else if coreStatus != dpuExtensionService.Status {
-				status = cutil.GetPtr(coreStatus)
-				statusMessage = cutil.GetPtr(fmt.Sprintf("Core reports DPU Extension Service in %s status", coreStatus))
+			} else if updatedStatus != dpuExtensionService.Status {
+				status = cutil.GetPtr(updatedStatus)
+				statusMessage = cutil.GetPtr(fmt.Sprintf("Core reports DPU Extension Service in %s status", updatedStatus))
 			}
 		}
 
