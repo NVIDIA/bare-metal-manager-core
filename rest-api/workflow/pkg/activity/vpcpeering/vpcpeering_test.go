@@ -16,6 +16,7 @@ import (
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/uptrace/bun/extra/bundebug"
 	"go.temporal.io/sdk/testsuite"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -226,6 +227,7 @@ func TestManageVpcPeering_UpdateVpcPeeringsInDB(t *testing.T) {
 	site := testVpcPeeringBuildSite(t, dbSession, ip, "test-site", user)
 	site2 := testVpcPeeringBuildSite(t, dbSession, ip, "test-site-2", user)
 	site3 := testVpcPeeringBuildSite(t, dbSession, ip, "test-site-3", user)
+	site4 := testVpcPeeringBuildSite(t, dbSession, ip, "test-site-4", user)
 	tenant := testVpcPeeringBuildTenant(t, dbSession, "test-tenant", org, user)
 
 	// Build VPCs
@@ -235,6 +237,9 @@ func TestManageVpcPeering_UpdateVpcPeeringsInDB(t *testing.T) {
 	assert.NotNil(t, vpc2)
 	vpc3 := testVpcPeeringBuildVPC(t, dbSession, "vpc-3", ip, tenant, site, nil, nil, nil, user, "READY")
 	assert.NotNil(t, vpc3)
+	recoveredVpc1 := testVpcPeeringBuildVPC(t, dbSession, "recovered-vpc-1", ip, tenant, site4, nil, nil, nil, user, cdbm.VpcStatusReady)
+	recoveredVpc2 := testVpcPeeringBuildVPC(t, dbSession, "recovered-vpc-2", ip, tenant, site4, nil, nil, nil, user, cdbm.VpcStatusReady)
+	recoveredVpcPeeringID := uuid.New()
 
 	// Create VPC Peerings in DB
 	vp1 := testVpcPeeringBuildVpcPeering(t, dbSession, vpc1.ID, vpc2.ID, site.ID, false, user.ID)
@@ -445,6 +450,28 @@ func TestManageVpcPeering_UpdateVpcPeeringsInDB(t *testing.T) {
 			readyVpcPeerings:   pagedVpcPeerings[0:34],
 			deletedVpcPeerings: pagedVpcPeerings[34:38],
 		},
+		{
+			name: "test Vpc Peering inventory auto creates missing object",
+			fields: fields{
+				dbSession:      dbSession,
+				siteClientPool: tSiteClientPool,
+				env:            env,
+			},
+			args: args{
+				ctx:    ctx,
+				siteID: site4.ID,
+				vpcPeeringInventory: &corev1.VPCPeeringInventory{
+					VpcPeerings: []*corev1.VpcPeering{
+						{
+							Id:        &corev1.VpcPeeringId{Value: recoveredVpcPeeringID.String()},
+							VpcId:     &corev1.VpcId{Value: recoveredVpc1.ID.String()},
+							PeerVpcId: &corev1.VpcId{Value: recoveredVpc2.ID.String()},
+						},
+					},
+				},
+			},
+			readyVpcPeerings: []*cdbm.VpcPeering{{ID: recoveredVpcPeeringID}},
+		},
 	}
 
 	for _, tt := range tests {
@@ -475,6 +502,69 @@ func TestManageVpcPeering_UpdateVpcPeeringsInDB(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestManageVpcPeering_CreateOrUpdateVpcPeeringFromSite(t *testing.T) {
+	ctx := context.Background()
+	dbSession := testVpcPeeringInitDB(t)
+	defer dbSession.Close()
+	testVpcPeeringSetupSchema(t, dbSession)
+
+	org := "test-recovery-org"
+	user := testVpcPeeringBuildUser(t, dbSession, uuid.NewString(), org, []string{"FORGE_PROVIDER_ADMIN"})
+	infrastructureProvider := testVpcPeeringSiteBuildInfrastructureProvider(t, dbSession, "test-provider", org, user)
+	site := testVpcPeeringBuildSite(t, dbSession, infrastructureProvider, "test-site", user)
+	tenant := testVpcPeeringBuildTenant(t, dbSession, "test-tenant", org, user)
+	vpc1 := testVpcPeeringBuildVPC(t, dbSession, "vpc-1", infrastructureProvider, tenant, site, nil, nil, nil, user, cdbm.VpcStatusReady)
+	vpc2 := testVpcPeeringBuildVPC(t, dbSession, "vpc-2", infrastructureProvider, tenant, site, nil, nil, nil, user, cdbm.VpcStatusReady)
+
+	vpcPeeringID := uuid.New()
+	controllerVpcPeering := &corev1.VpcPeering{
+		Id:        &corev1.VpcPeeringId{Value: vpcPeeringID.String()},
+		VpcId:     &corev1.VpcId{Value: vpc1.ID.String()},
+		PeerVpcId: &corev1.VpcId{Value: vpc2.ID.String()},
+	}
+	manager := NewManageVpcPeering(dbSession, nil)
+	vpcPeeringDAO := cdbm.NewVpcPeeringDAO(dbSession)
+
+	t.Run("skips VPC Peering with missing VPC", func(t *testing.T) {
+		recovered := manager.createOrUpdateVpcPeeringFromSite(ctx, site, &corev1.VpcPeering{
+			Id:        &corev1.VpcPeeringId{Value: uuid.NewString()},
+			VpcId:     &corev1.VpcId{Value: uuid.NewString()},
+			PeerVpcId: &corev1.VpcId{Value: vpc2.ID.String()},
+		})
+		assert.Nil(t, recovered)
+	})
+
+	createSucceeded := t.Run("creates VPC Peering from Site inventory", func(t *testing.T) {
+		recovered := manager.createOrUpdateVpcPeeringFromSite(ctx, site, controllerVpcPeering)
+		require.NotNil(t, recovered)
+		assert.Equal(t, vpcPeeringID, recovered.ID)
+		assert.Equal(t, vpc1.ID, recovered.Vpc1ID)
+		assert.Equal(t, vpc2.ID, recovered.Vpc2ID)
+		assert.Equal(t, site.ID, recovered.SiteID)
+		assert.False(t, recovered.IsMultiTenant)
+		assert.Nil(t, recovered.InfrastructureProviderID)
+		require.NotNil(t, recovered.TenantID)
+		assert.Equal(t, tenant.ID, *recovered.TenantID)
+		assert.Equal(t, cdbm.VpcPeeringStatusReady, recovered.Status)
+		assert.Equal(t, site.CreatedBy, recovered.CreatedBy)
+	})
+	if !createSucceeded {
+		t.FailNow()
+	}
+
+	t.Run("undeletes VPC Peering from Site inventory", func(t *testing.T) {
+		err := vpcPeeringDAO.UpdateStatusByID(ctx, nil, vpcPeeringID, cdbm.VpcPeeringStatusDeleting)
+		require.NoError(t, err)
+		require.NoError(t, vpcPeeringDAO.Delete(ctx, nil, vpcPeeringID))
+
+		recovered := manager.createOrUpdateVpcPeeringFromSite(ctx, site, controllerVpcPeering)
+		require.NotNil(t, recovered)
+		assert.Equal(t, vpcPeeringID, recovered.ID)
+		assert.Equal(t, cdbm.VpcPeeringStatusReady, recovered.Status)
+		assert.Nil(t, recovered.Deleted)
+	})
 }
 
 func TestNewManageVpcPeering(t *testing.T) {
