@@ -471,10 +471,15 @@ fi
 
 # RMS requirements. RMS is opt-in (--install-rms / NICO_INSTALL_RMS=true).
 if [[ "${INSTALL_RMS:-false}" == "true" ]]; then
+    command -v git &>/dev/null || \
+        ERRORS+=("RMS requires 'git' to clone nv-rms — install it, or set NICO_RMS_CHART to a local chart path")
     [[ -z "${NICO_RMS_IMAGE_TAG:-}" ]] && \
         ERRORS+=("NICO_RMS_IMAGE_TAG is not set    (RMS API server image tag; the rack-manager chart fails at render without one — required with --install-rms)")
-    if [[ -z "${NICO_RMS_CHART:-}" && -z "${NICO_RMS_NGC_API_KEY:-${REGISTRY_PULL_SECRET:-}}" ]]; then
-        ERRORS+=("NICO_RMS_NGC_API_KEY / REGISTRY_PULL_SECRET not set and NICO_RMS_CHART not set — the rack-manager chart pull from NGC needs a key, or point NICO_RMS_CHART at a local chart")
+    # The default rms-api image is entitlement-gated on NGC; without a key the
+    # pod lands in ImagePullBackOff. A mirror override lifts the requirement.
+    if [[ -z "${NICO_RMS_NGC_API_KEY:-${REGISTRY_PULL_SECRET:-}}" && \
+          -z "${NICO_RMS_IMAGE_REPO:-}" ]]; then
+        ERRORS+=("NICO_RMS_NGC_API_KEY / REGISTRY_PULL_SECRET not set — the default rms-api image is entitlement-gated on NGC; set a key, or point NICO_RMS_IMAGE_REPO at your own mirror")
     fi
 fi
 
