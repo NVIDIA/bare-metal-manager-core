@@ -35,7 +35,7 @@ use db::work_lock_manager::WorkLockManagerHandle;
 use model::rack::{MaintenanceActivity, MaintenanceScope};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::Meter;
-use rustls::{ClientConfig, RootCertStore};
+use rustls::{CertificateError, ClientConfig, Error as RustlsError, RootCertStore};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer, ServerName};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
@@ -60,6 +60,12 @@ struct SwitchCertificateMonitorTarget {
     switch_id: SwitchId,
     rack_id: RackId,
     endpoint_url: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum CertificateProbeOutcome {
+    Observed(CertificateInfo),
+    Expired,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -544,8 +550,9 @@ impl SwitchCertificateMonitor {
                 }
             };
 
-            let observed = match observed_cert {
-                Ok(observed_cert) => {
+            let (observed_cert, rotation_required, probe_success, probe_error) = match observed_cert
+            {
+                Ok(CertificateProbeOutcome::Observed(observed_cert)) => {
                     let rotation_required = cert_expires_within(
                         &observed_cert,
                         self.config.nmx_c_certificate_rotation.rotate_before_expiry,
@@ -567,34 +574,6 @@ impl SwitchCertificateMonitor {
                         );
                     }
 
-                    let (apply_status, apply_error) = if rotation_required {
-                        match self
-                            .request_nmx_cluster_configuration_with_rack_state_controller(
-                                &target,
-                                cancel_token,
-                            )
-                            .await
-                        {
-                            Ok(apply_status) => (apply_status, String::new()),
-                            Err(error) if error == Self::APPLY_CANCELLED_ERROR => {
-                                tracing::info!("SwitchCertificateMonitor stop was requested");
-                                return Ok(());
-                            }
-                            Err(error) => {
-                                tracing::warn!(
-                                    switch_id = %target.switch_id,
-                                    rack_id = %rack_id_label,
-                                    endpoint = %target.endpoint_url,
-                                    error = %error,
-                                    "Failed to request NMX-C cluster configuration via rack state machine"
-                                );
-                                (SwitchCertApplyStatus::Error, error)
-                            }
-                        }
-                    } else {
-                        (SwitchCertApplyStatus::NotNeeded, String::new())
-                    };
-
                     tracing::debug!(
                         switch_id = %target.switch_id,
                         rack_id = %rack_id_label,
@@ -604,15 +583,22 @@ impl SwitchCertificateMonitor {
                         rotation_required,
                         "Observed NMX-C server certificate"
                     );
-
-                    ObservedSwitchCertMetrics {
-                        probe_success: true,
-                        rotation_required,
-                        observed_cert: Some(observed_cert),
-                        error: String::new(),
-                        apply_status,
-                        apply_error,
-                    }
+                    (Some(observed_cert), rotation_required, true, String::new())
+                }
+                Ok(CertificateProbeOutcome::Expired) => {
+                    tracing::warn!(
+                        switch_id = %target.switch_id,
+                        rack_id = %rack_id_label,
+                        endpoint = %target.endpoint_url,
+                        "NMX-C server certificate is expired"
+                    );
+                    (
+                        None,
+                        true,
+                        false,
+                        "TLS handshake failed because the NMX-C server certificate is expired"
+                            .to_string(),
+                    )
                 }
                 Err(error) if error == Self::PROBE_CANCELLED_ERROR => {
                     tracing::info!("SwitchCertificateMonitor stop was requested");
@@ -626,17 +612,54 @@ impl SwitchCertificateMonitor {
                         error = %error,
                         "Failed to probe NMX-C server certificate"
                     );
-                    ObservedSwitchCertMetrics {
+                    metrics.observed_certs.push(ObservedSwitchCertMetrics {
                         probe_success: false,
                         rotation_required: false,
                         observed_cert: None,
                         error,
                         apply_status: SwitchCertApplyStatus::Skipped,
                         apply_error: String::new(),
-                    }
+                    });
+                    continue;
                 }
             };
-            metrics.observed_certs.push(observed);
+
+            let (apply_status, apply_error) = if rotation_required {
+                match self
+                    .request_nmx_cluster_configuration_with_rack_state_controller(
+                        &target,
+                        cancel_token,
+                    )
+                    .await
+                {
+                    Ok(apply_status) => (apply_status, String::new()),
+                    Err(error) if error == Self::APPLY_CANCELLED_ERROR => {
+                        tracing::info!("SwitchCertificateMonitor stop was requested");
+                        return Ok(());
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            switch_id = %target.switch_id,
+                            rack_id = %rack_id_label,
+                            endpoint = %target.endpoint_url,
+                            error = %error,
+                            "Failed to request NMX-C cluster configuration via rack state machine"
+                        );
+                        (SwitchCertApplyStatus::Error, error)
+                    }
+                }
+            } else {
+                (SwitchCertApplyStatus::NotNeeded, String::new())
+            };
+
+            metrics.observed_certs.push(ObservedSwitchCertMetrics {
+                probe_success,
+                rotation_required,
+                observed_cert,
+                error: probe_error,
+                apply_status,
+                apply_error,
+            });
         }
 
         Ok(())
@@ -746,7 +769,7 @@ impl SwitchCertificateMonitor {
         &self,
         endpoint_url: &str,
         cancel_token: &CancellationToken,
-    ) -> Result<CertificateInfo, String> {
+    ) -> Result<CertificateProbeOutcome, String> {
         let uri = endpoint_url
             .parse::<http::Uri>()
             .map_err(|error| format!("invalid NMX-C endpoint URI {endpoint_url}: {error}"))?;
@@ -799,11 +822,20 @@ impl SwitchCertificateMonitor {
             tls_stream = tokio::time::timeout(
                 probe_timeout,
                 connector.connect(server_name, tcp_stream),
-            ) => tls_stream
-                .map_err(|_| {
-                    format!("TLS handshake timed out for {endpoint_url} after {probe_timeout:?}")
-                })?
-                .map_err(|error| format!("TLS handshake failed for {endpoint_url}: {error}"))?,
+            ) => match tls_stream {
+                Err(_) => {
+                    return Err(format!(
+                        "TLS handshake timed out for {endpoint_url} after {probe_timeout:?}"
+                    ));
+                }
+                Ok(Err(error)) if tls_error_is_expired_certificate(&error) => {
+                    return Ok(CertificateProbeOutcome::Expired);
+                }
+                Ok(Err(error)) => {
+                    return Err(format!("TLS handshake failed for {endpoint_url}: {error}"));
+                }
+                Ok(Ok(tls_stream)) => tls_stream,
+            },
         };
 
         let peer_certs =
@@ -813,8 +845,20 @@ impl SwitchCertificateMonitor {
         let leaf_cert = peer_certs.first().ok_or_else(|| {
             format!("NMX-C endpoint {endpoint_url} served an empty certificate chain")
         })?;
-        certificate_info_from_der(leaf_cert.as_ref())
+        certificate_info_from_der(leaf_cert.as_ref()).map(CertificateProbeOutcome::Observed)
     }
+}
+
+fn tls_error_is_expired_certificate(error: &io::Error) -> bool {
+    // tokio-rustls retains the rustls handshake error inside io::Error.
+    matches!(
+        error
+            .get_ref()
+            .and_then(|source| source.downcast_ref::<RustlsError>()),
+        Some(RustlsError::InvalidCertificate(
+            CertificateError::ExpiredContext { .. }
+        ))
+    )
 }
 
 async fn build_tls_client_config(config: &NvLinkConfig) -> Result<ClientConfig, String> {
@@ -942,10 +986,10 @@ fn probe_status(cert: &ObservedSwitchCertMetrics) -> &'static str {
 }
 
 fn rotation_window_status(cert: &ObservedSwitchCertMetrics) -> &'static str {
-    if cert.observed_cert.is_none() {
-        "unknown"
-    } else if cert.rotation_required {
+    if cert.rotation_required {
         "expiring_soon"
+    } else if cert.observed_cert.is_none() {
+        "unknown"
     } else {
         "ok"
     }
@@ -996,8 +1040,59 @@ mod tests {
     use carbide_instrument::testing::{MetricsCapture, capture_logs};
     use carbide_test_support::{Check, check_values};
     use rcgen::{CertifiedKey, generate_simple_self_signed};
+    use rustls_pki_types::UnixTime;
 
     use super::*;
+
+    #[test]
+    fn probe_classifies_only_expired_certificate_tls_errors_for_rotation() {
+        let now = UnixTime::since_unix_epoch(Duration::from_secs(2_000_000_000));
+        check_values(
+            [
+                Check {
+                    scenario: "expired certificate",
+                    input: io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        RustlsError::InvalidCertificate(CertificateError::ExpiredContext {
+                            time: now,
+                            not_after: UnixTime::since_unix_epoch(Duration::from_secs(
+                                1_900_000_000,
+                            )),
+                        }),
+                    ),
+                    expect: true,
+                },
+                Check {
+                    scenario: "certificate hostname mismatch",
+                    input: io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        RustlsError::InvalidCertificate(CertificateError::NotValidForName),
+                    ),
+                    expect: false,
+                },
+                Check {
+                    scenario: "non-TLS I/O error",
+                    input: io::Error::new(io::ErrorKind::ConnectionReset, "connection reset"),
+                    expect: false,
+                },
+            ],
+            |error| tls_error_is_expired_certificate(&error),
+        );
+    }
+
+    #[test]
+    fn expired_certificate_without_metadata_is_in_rotation_window() {
+        let cert = ObservedSwitchCertMetrics {
+            probe_success: false,
+            rotation_required: true,
+            observed_cert: None,
+            error: "certificate expired".to_string(),
+            apply_status: SwitchCertApplyStatus::Pending,
+            apply_error: String::new(),
+        };
+
+        assert_eq!(rotation_window_status(&cert), "expiring_soon");
+    }
 
     #[test]
     fn certificate_info_from_der_returns_fingerprint_and_expiry() {
