@@ -33,7 +33,7 @@ type PlannedExecution struct {
 
 // Validate checks the action identity and its corresponding execution plan.
 func (p PlannedExecution) Validate() error {
-	if err := validateIdentifier("event rule action name", p.ActionName); err != nil {
+	if err := ValidateIdentifier("event rule action name", p.ActionName); err != nil {
 		return err
 	}
 
