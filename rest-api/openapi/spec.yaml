@@ -3381,8 +3381,9 @@ paths:
       description: |-
         Get all VPC peerings.
         Tenant Admin can get all peerings where the tenant owns at least one VPC.
-        Provider Admin can get all peerings in a site.
-        User must have authorization role with `TENANT_ADMIN` or `PROVIDER_ADMIN` suffix.
+        Provider Admin can retrieve all multi-Tenant VPC Peerings. It should be noted that
+        only Provider Admins can create multi-Tenant Peerings. User must have authorization role
+        with `TENANT_ADMIN` or `PROVIDER_ADMIN` suffix.
       parameters:
         - schema:
             type: string
