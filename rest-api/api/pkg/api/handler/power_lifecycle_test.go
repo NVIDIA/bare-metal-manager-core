@@ -6,6 +6,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -27,7 +28,7 @@ func (s *powerProvisionerStub) ListPowerProfiles(context.Context) ([]string, err
 }
 
 func (s *powerProvisionerStub) ValidateAllocation(_ context.Context, machineIDs []string, powerProfile string) error {
-	return s.call("validate:" + powerProfile + ":" + joinMachineIDs(machineIDs))
+	return s.call("validate:" + powerProfile + ":" + strings.Join(machineIDs, ","))
 }
 
 func (s *powerProvisionerStub) CreateResourceGroup(_ context.Context, resourceGroup string, _ int64) error {
@@ -42,6 +43,10 @@ func (s *powerProvisionerStub) AddMachine(_ context.Context, resourceGroup, mach
 	return s.call("add:" + resourceGroup + ":" + machineID + ":" + powerProfile)
 }
 
+func (s *powerProvisionerStub) AddMachines(_ context.Context, resourceGroup string, machineIDs []string, powerProfile string) error {
+	return s.call("add:" + resourceGroup + ":" + strings.Join(machineIDs, ",") + ":" + powerProfile)
+}
+
 func (s *powerProvisionerStub) UpdateMachineProfile(_ context.Context, resourceGroup, machineID, powerProfile string) error {
 	return s.call("update:" + resourceGroup + ":" + machineID + ":" + powerProfile)
 }
@@ -50,19 +55,12 @@ func (s *powerProvisionerStub) RemoveMachine(_ context.Context, resourceGroup, m
 	return s.call("remove:" + resourceGroup + ":" + machineID)
 }
 
-func (s *powerProvisionerStub) ActivateResourceGroup(_ context.Context, resourceGroup string) error {
-	return s.call("activate:" + resourceGroup)
+func (s *powerProvisionerStub) RemoveMachines(_ context.Context, resourceGroup string, machineIDs []string) error {
+	return s.call("remove:" + resourceGroup + ":" + strings.Join(machineIDs, ","))
 }
 
-func joinMachineIDs(machineIDs []string) string {
-	result := ""
-	for i, machineID := range machineIDs {
-		if i > 0 {
-			result += ","
-		}
-		result += machineID
-	}
-	return result
+func (s *powerProvisionerStub) ActivateResourceGroup(_ context.Context, resourceGroup string) error {
+	return s.call("activate:" + resourceGroup)
 }
 
 func TestProvisionMachinePower(t *testing.T) {
@@ -108,11 +106,9 @@ func TestProvisionMachineBatchPower(t *testing.T) {
 		require.NoError(t, rollback())
 		assert.Equal(t, []string{
 			"validate:performance:machine-a,machine-b",
-			"add:group-a:machine-a:performance",
-			"add:group-a:machine-b:performance",
+			"add:group-a:machine-a,machine-b:performance",
 			"activate:group-a",
-			"remove:group-a:machine-b",
-			"remove:group-a:machine-a",
+			"remove:group-a:machine-a,machine-b",
 		}, stub.calls)
 	})
 
@@ -128,17 +124,51 @@ func TestProvisionMachineBatchPower(t *testing.T) {
 		assert.Nil(t, rollback)
 		assert.Equal(t, []string{"validate:performance:machine-a,machine-b"}, stub.calls)
 	})
+
+	t.Run("cleans up a failed batch add", func(t *testing.T) {
+		stub := &powerProvisionerStub{failAt: map[string]error{"add:group-a:machine-a,machine-b:performance": errors.New("unavailable")}}
+		rollback, err := provisionMachineBatchPower(context.Background(), stub, "group-a", []machinePowerAssignment{
+			{machineID: "machine-a", powerProfile: "performance"},
+			{machineID: "machine-b", powerProfile: "performance"},
+		})
+		require.ErrorContains(t, err, "add machines to DPS resource group")
+		assert.Nil(t, rollback)
+		assert.Equal(t, []string{
+			"validate:performance:machine-a,machine-b",
+			"add:group-a:machine-a,machine-b:performance",
+			"remove:group-a:machine-a,machine-b",
+		}, stub.calls)
+	})
 }
 
-func TestUpdateMachinePowerTreatsClearAsDPSAuthorizedMutation(t *testing.T) {
-	stub := &powerProvisionerStub{}
-	rollback, err := updateMachinePower(context.Background(), stub, "group-a", machinePowerAssignment{machineID: "machine-a"}, "performance")
-	require.NoError(t, err)
-	require.NoError(t, rollback())
-	assert.Equal(t, []string{
-		"update:group-a:machine-a:",
-		"update:group-a:machine-a:performance",
-	}, stub.calls)
+func TestUpdateMachinePower(t *testing.T) {
+	tests := []struct {
+		name          string
+		powerProfile  string
+		previous      string
+		expectedCalls []string
+	}{
+		{
+			name:          "clear remains a DPS-authorized mutation",
+			previous:      "performance",
+			expectedCalls: []string{"update:group-a:machine-a:", "update:group-a:machine-a:performance"},
+		},
+		{
+			name:          "set validates before updating",
+			powerProfile:  "performance",
+			expectedCalls: []string{"validate:performance:machine-a", "update:group-a:machine-a:performance", "update:group-a:machine-a:"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stub := &powerProvisionerStub{}
+			rollback, err := updateMachinePower(context.Background(), stub, "group-a", machinePowerAssignment{machineID: "machine-a", powerProfile: test.powerProfile}, test.previous)
+			require.NoError(t, err)
+			require.NoError(t, rollback())
+			assert.Equal(t, test.expectedCalls, stub.calls)
+		})
+	}
 }
 
 func TestPreparePowerResourceGroupChange(t *testing.T) {
@@ -191,6 +221,22 @@ func TestPreparePowerResourceGroupChange(t *testing.T) {
 		require.ErrorContains(t, err, "validate DPS resource-group migration")
 		assert.Nil(t, change)
 		assert.Equal(t, []string{"validate:balanced:machine-b"}, stub.calls)
+	})
+
+	t.Run("reactivates old group after restoring first failed move", func(t *testing.T) {
+		stub := &powerProvisionerStub{failAt: map[string]error{"add:group-b:machine-a:performance": errors.New("denied")}}
+		change, err := preparePowerResourceGroupChange(context.Background(), stub, 42, "group-a", "group-b", []machinePowerAssignment{{machineID: "machine-a", powerProfile: "performance"}})
+		require.ErrorContains(t, err, "add machine to replacement DPS resource group")
+		assert.Nil(t, change)
+		assert.Equal(t, []string{
+			"validate:performance:machine-a",
+			"create:group-b",
+			"remove:group-a:machine-a",
+			"add:group-b:machine-a:performance",
+			"add:group-a:machine-a:performance",
+			"activate:group-a",
+			"delete:group-b",
+		}, stub.calls)
 	})
 
 	t.Run("clears before commit and can roll back", func(t *testing.T) {

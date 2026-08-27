@@ -1286,11 +1286,20 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 	var dpsRollback func() error
 
 	err = cdb.WithTx(ctx, bcih.dbSession, func(tx *cdb.Tx) error {
-		if bcih.cfg.GetDPSEnabled() && vpc.PowerResourceGroup != nil {
+		if bcih.cfg.GetDPSEnabled() {
 			lockErr := acquireVPCPowerLock(ctx, tx, vpc.ID)
 			if lockErr != nil {
 				logger.Error().Err(lockErr).Str("vpcID", vpc.ID.String()).Msg("failed to serialize DPS operations for VPC")
 				return cutil.NewAPIError(http.StatusConflict, "Another power operation is already in progress for the VPC", nil)
+			}
+			lockedVPC, lockErr := cdbm.NewVpcDAO(bcih.dbSession).GetByID(ctx, tx, vpc.ID, nil)
+			if lockErr != nil {
+				logger.Error().Err(lockErr).Str("vpcID", vpc.ID.String()).Msg("failed to reload VPC after acquiring its power lock")
+				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to reload VPC power configuration", nil)
+			}
+			vpc = lockedVPC
+			if apiRequest.PowerProfile != nil && vpc.PowerResourceGroup == nil {
+				return cutil.NewAPIError(http.StatusBadRequest, "A power profile requires the VPC to have a power resource group", nil)
 			}
 		}
 

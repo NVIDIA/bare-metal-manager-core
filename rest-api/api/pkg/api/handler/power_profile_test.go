@@ -108,7 +108,8 @@ func TestValidatePowerProfile(t *testing.T) {
 				assert.Equal(t, tt.wantCode, apiErr.Code)
 			}
 			assert.Equal(t, tt.wantProfile, tt.profile)
-			if provider, ok := tt.provider.(*policyProviderStub); ok {
+			provider, ok := tt.provider.(*policyProviderStub)
+			if ok {
 				assert.Equal(t, tt.wantCalls, provider.calls)
 			}
 		})

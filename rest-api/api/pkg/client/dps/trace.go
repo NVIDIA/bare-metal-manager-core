@@ -23,7 +23,7 @@ func (c metadataCarrier) Get(key string) string {
 }
 
 func (c metadataCarrier) Set(key, value string) {
-	c[strings.ToLower(key)] = append(c[strings.ToLower(key)], value)
+	c[strings.ToLower(key)] = []string{value}
 }
 
 func (c metadataCarrier) Keys() []string {

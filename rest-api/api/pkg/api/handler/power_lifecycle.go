@@ -91,23 +91,20 @@ func provisionMachineBatchPower(ctx context.Context, provisioner dpsclient.Power
 		}
 	}
 
-	added := make([]machinePowerAssignment, 0, len(assignments))
+	added := false
 	rollback := func() error {
-		var rollbackErr error
-		rollbackCtx := context.WithoutCancel(ctx)
-		for _, assignment := range slices.Backward(added) {
-			rollbackErr = errors.Join(rollbackErr, provisioner.RemoveMachine(rollbackCtx, resourceGroup, assignment.machineID))
+		if !added {
+			return nil
 		}
-		return rollbackErr
+		return provisioner.RemoveMachines(context.WithoutCancel(ctx), resourceGroup, machineIDs)
 	}
-	for _, assignment := range assignments {
-		err := provisioner.AddMachine(ctx, resourceGroup, assignment.machineID, assignment.powerProfile)
-		if err != nil {
-			return nil, errors.Join(fmt.Errorf("add machine to DPS resource group: %w", err), rollback())
-		}
-		added = append(added, assignment)
+	err := provisioner.AddMachines(ctx, resourceGroup, machineIDs, powerProfile)
+	if err != nil {
+		cleanupErr := provisioner.RemoveMachines(context.WithoutCancel(ctx), resourceGroup, machineIDs)
+		return nil, errors.Join(fmt.Errorf("add machines to DPS resource group: %w", err), cleanupErr)
 	}
-	err := provisioner.ActivateResourceGroup(ctx, resourceGroup)
+	added = true
+	err = provisioner.ActivateResourceGroup(ctx, resourceGroup)
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("activate DPS resource group: %w", err), rollback())
 	}
@@ -183,6 +180,7 @@ func preparePowerResourceGroupChange(ctx context.Context, provisioner dpsclient.
 	}
 
 	moved := make([]machinePowerAssignment, 0, len(assignments))
+	restoredToOldGroup := false
 	rollback := func() error {
 		var rollbackErr error
 		rollbackCtx := context.WithoutCancel(ctx)
@@ -194,7 +192,7 @@ func preparePowerResourceGroupChange(ctx context.Context, provisioner dpsclient.
 				rollbackErr = errors.Join(rollbackErr, provisioner.AddMachine(rollbackCtx, oldGroup, assignment.machineID, assignment.powerProfile))
 			}
 		}
-		if oldGroup != "" && len(moved) > 0 {
+		if oldGroup != "" && (len(moved) > 0 || restoredToOldGroup) {
 			rollbackErr = errors.Join(rollbackErr, provisioner.ActivateResourceGroup(rollbackCtx, oldGroup))
 		}
 		if createdNewGroup {
@@ -216,6 +214,7 @@ func preparePowerResourceGroupChange(ctx context.Context, provisioner dpsclient.
 				var restoreErr error
 				if oldGroup != "" {
 					restoreErr = provisioner.AddMachine(context.WithoutCancel(ctx), oldGroup, assignment.machineID, assignment.powerProfile)
+					restoredToOldGroup = restoreErr == nil
 				}
 				return nil, errors.Join(fmt.Errorf("add machine to replacement DPS resource group: %w", err), restoreErr, rollback())
 			}

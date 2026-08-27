@@ -49,8 +49,10 @@ type ResourceGroupProvisioner interface {
 	CreateResourceGroup(ctx context.Context, resourceGroup string, externalID int64) error
 	DeleteResourceGroup(ctx context.Context, resourceGroup string) error
 	AddMachine(ctx context.Context, resourceGroup, machineID, powerProfile string) error
+	AddMachines(ctx context.Context, resourceGroup string, machineIDs []string, powerProfile string) error
 	UpdateMachineProfile(ctx context.Context, resourceGroup, machineID, powerProfile string) error
 	RemoveMachine(ctx context.Context, resourceGroup, machineID string) error
+	RemoveMachines(ctx context.Context, resourceGroup string, machineIDs []string) error
 	ActivateResourceGroup(ctx context.Context, resourceGroup string) error
 }
 

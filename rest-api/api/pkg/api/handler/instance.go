@@ -1138,11 +1138,20 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 	var dpsRollback func() error
 
 	err = cdb.WithTx(ctx, cih.dbSession, func(tx *cdb.Tx) error {
-		if cih.cfg.GetDPSEnabled() && vpc.PowerResourceGroup != nil {
+		if cih.cfg.GetDPSEnabled() {
 			lockErr := acquireVPCPowerLock(ctx, tx, vpc.ID)
 			if lockErr != nil {
 				logger.Error().Err(lockErr).Str("vpcID", vpc.ID.String()).Msg("failed to serialize DPS operations for VPC")
 				return cutil.NewAPIError(http.StatusConflict, "Another power operation is already in progress for the VPC", nil)
+			}
+			lockedVPC, lockErr := cdbm.NewVpcDAO(cih.dbSession).GetByID(ctx, tx, vpc.ID, nil)
+			if lockErr != nil {
+				logger.Error().Err(lockErr).Str("vpcID", vpc.ID.String()).Msg("failed to reload VPC after acquiring its power lock")
+				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to reload VPC power configuration", nil)
+			}
+			vpc = lockedVPC
+			if apiRequest.PowerProfile != nil && vpc.PowerResourceGroup == nil {
+				return cutil.NewAPIError(http.StatusBadRequest, "A power profile requires the VPC to have a power resource group", nil)
 			}
 		}
 
@@ -3325,11 +3334,20 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 	var dpsProfileRollback func() error
 
 	err = cdb.WithTx(ctx, uih.dbSession, func(tx *cdb.Tx) error {
-		if uih.cfg.GetDPSEnabled() && apiRequest.PowerProfile != nil && vpc.PowerResourceGroup != nil {
+		if uih.cfg.GetDPSEnabled() && apiRequest.PowerProfile != nil {
 			lockErr := acquireVPCPowerLock(ctx, tx, vpc.ID)
 			if lockErr != nil {
 				logger.Error().Err(lockErr).Str("vpcID", vpc.ID.String()).Msg("failed to serialize DPS operations for VPC")
 				return cutil.NewAPIError(http.StatusConflict, "Another power operation is already in progress for the VPC", nil)
+			}
+			lockedVPC, lockErr := cdbm.NewVpcDAO(uih.dbSession).GetByID(ctx, tx, vpc.ID, nil)
+			if lockErr != nil {
+				logger.Error().Err(lockErr).Str("vpcID", vpc.ID.String()).Msg("failed to reload VPC after acquiring its power lock")
+				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to reload VPC power configuration", nil)
+			}
+			vpc = lockedVPC
+			if vpc.PowerResourceGroup == nil {
+				return cutil.NewAPIError(http.StatusBadRequest, "A power profile update requires the VPC to have a power resource group", nil)
 			}
 		}
 
@@ -5412,12 +5430,18 @@ func (dih DeleteInstanceHandler) Handle(c echo.Context) error {
 	var timeoutResp func() error
 
 	err = cdb.WithTx(ctx, dih.dbSession, func(tx *cdb.Tx) error {
-		if dih.cfg.GetDPSEnabled() && instance.Vpc != nil && instance.Vpc.PowerResourceGroup != nil {
+		if dih.cfg.GetDPSEnabled() && instance.Vpc != nil {
 			lockErr := acquireVPCPowerLock(ctx, tx, instance.Vpc.ID)
 			if lockErr != nil {
 				logger.Error().Err(lockErr).Str("vpcID", instance.Vpc.ID.String()).Msg("failed to serialize DPS operations for VPC")
 				return cutil.NewAPIError(http.StatusConflict, "Another power operation is already in progress for the VPC", nil)
 			}
+			lockedVPC, lockErr := cdbm.NewVpcDAO(dih.dbSession).GetByID(ctx, tx, instance.Vpc.ID, nil)
+			if lockErr != nil {
+				logger.Error().Err(lockErr).Str("vpcID", instance.Vpc.ID.String()).Msg("failed to reload VPC after acquiring its power lock")
+				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to reload VPC power configuration", nil)
+			}
+			instance.Vpc = lockedVPC
 		}
 
 		// Update Instance to set status to Deleting

@@ -20,8 +20,9 @@ import (
 )
 
 const (
-	readOnlyAttempts  = 2
-	readOnlyRetryWait = time.Second
+	readOnlyAttempts        = 2
+	readOnlyRetryWait       = time.Second
+	alreadyActiveDiagnostic = "already active"
 )
 
 var errAllocationRejected = errors.New("DPS allocation would not succeed")
@@ -232,14 +233,21 @@ func (c *Client) DeleteResourceGroup(ctx context.Context, resourceGroup string) 
 // AddMachine adds one NICo machine to a DPS resource group. An empty profile
 // omits the entity-level policy so DPS uses the group or topology policy.
 func (c *Client) AddMachine(ctx context.Context, resourceGroup, machineID, powerProfile string) error {
-	resourceGroup, machineID, err := requiredAssociationNames(resourceGroup, machineID)
+	return c.AddMachines(ctx, resourceGroup, []string{machineID}, powerProfile)
+}
+
+// AddMachines adds NICo machines to a DPS resource group in one request. An
+// empty profile omits the entity-level policy so DPS uses the group or topology
+// policy.
+func (c *Client) AddMachines(ctx context.Context, resourceGroup string, machineIDs []string, powerProfile string) error {
+	resourceGroup, machineIDs, err := requiredAssociationNames(resourceGroup, machineIDs)
 	if err != nil {
 		return err
 	}
 
 	request := &dpsv1.ResourceGroupAddResourcesRequest{
 		GroupName:        resourceGroup,
-		ResourceNames:    []string{machineID},
+		ResourceNames:    machineIDs,
 		Strict:           true,
 		AllowReprovision: false,
 	}
@@ -260,10 +268,11 @@ func (c *Client) AddMachine(ctx context.Context, resourceGroup, machineID, power
 // UpdateMachineProfile sets or clears one machine's entity-level policy. The
 // policy_name oneof is always present, including when its value is empty.
 func (c *Client) UpdateMachineProfile(ctx context.Context, resourceGroup, machineID, powerProfile string) error {
-	resourceGroup, machineID, err := requiredAssociationNames(resourceGroup, machineID)
+	resourceGroup, machineIDs, err := requiredAssociationNames(resourceGroup, []string{machineID})
 	if err != nil {
 		return err
 	}
+	machineID = machineIDs[0]
 	powerProfile = strings.TrimSpace(powerProfile)
 
 	requestCtx, cancel := c.requestContext(ctx)
@@ -287,7 +296,13 @@ func (c *Client) UpdateMachineProfile(ctx context.Context, resourceGroup, machin
 
 // RemoveMachine removes one NICo machine from a DPS resource group.
 func (c *Client) RemoveMachine(ctx context.Context, resourceGroup, machineID string) error {
-	resourceGroup, machineID, err := requiredAssociationNames(resourceGroup, machineID)
+	return c.RemoveMachines(ctx, resourceGroup, []string{machineID})
+}
+
+// RemoveMachines removes NICo machines from a DPS resource group in one
+// request.
+func (c *Client) RemoveMachines(ctx context.Context, resourceGroup string, machineIDs []string) error {
+	resourceGroup, machineIDs, err := requiredAssociationNames(resourceGroup, machineIDs)
 	if err != nil {
 		return err
 	}
@@ -296,7 +311,7 @@ func (c *Client) RemoveMachine(ctx context.Context, resourceGroup, machineID str
 	defer cancel()
 	response, err := c.resourceGroups.ResourceGroupRemoveResources(requestCtx, &dpsv1.ResourceGroupRemoveResourcesRequest{
 		GroupName:     resourceGroup,
-		ResourceNames: []string{machineID},
+		ResourceNames: machineIDs,
 	})
 	if err != nil {
 		return fmt.Errorf("DPS ResourceGroupRemoveResources %q: %w", resourceGroup, err)
@@ -327,7 +342,9 @@ func (c *Client) ActivateResourceGroup(ctx context.Context, resourceGroup string
 	}
 	responseErr := responseStatus("ActivateResourceGroup", response.GetStatus())
 	if responseErr != nil {
-		if strings.Contains(strings.ToLower(responseErr.Error()), "already active") {
+		// DPS 0.8 reports idempotent activation through this diagnostic text
+		// instead of a structured status code.
+		if strings.Contains(strings.ToLower(responseErr.Error()), alreadyActiveDiagnostic) {
 			return nil
 		}
 		return responseErr
@@ -335,16 +352,23 @@ func (c *Client) ActivateResourceGroup(ctx context.Context, resourceGroup string
 	return nil
 }
 
-func requiredAssociationNames(resourceGroup, machineID string) (string, string, error) {
+func requiredAssociationNames(resourceGroup string, machineIDs []string) (string, []string, error) {
 	resourceGroup, err := requiredName("resource group", resourceGroup)
 	if err != nil {
-		return "", "", err
+		return "", nil, err
 	}
-	machineID, err = requiredName("machine ID", machineID)
-	if err != nil {
-		return "", "", err
+	if len(machineIDs) == 0 {
+		return "", nil, fmt.Errorf("machine IDs are required")
 	}
-	return resourceGroup, machineID, nil
+	normalizedMachineIDs := make([]string, 0, len(machineIDs))
+	for _, machineID := range machineIDs {
+		machineID, err = requiredName("machine ID", machineID)
+		if err != nil {
+			return "", nil, err
+		}
+		normalizedMachineIDs = append(normalizedMachineIDs, machineID)
+	}
+	return resourceGroup, normalizedMachineIDs, nil
 }
 
 func requiredName(field, value string) (string, error) {

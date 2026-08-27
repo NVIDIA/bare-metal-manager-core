@@ -854,6 +854,12 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 				logger.Error().Err(lockErr).Str("vpcID", vpc.ID.String()).Msg("failed to serialize DPS operations for VPC")
 				return cutil.NewAPIError(http.StatusConflict, "Another power operation is already in progress for the VPC", nil)
 			}
+			lockedVPC, lockErr := vpcDAO.GetByID(ctx, tx, vpc.ID, nil)
+			if lockErr != nil {
+				logger.Error().Err(lockErr).Str("vpcID", vpc.ID.String()).Msg("failed to reload VPC after acquiring its power lock")
+				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to reload VPC power configuration", nil)
+			}
+			vpc = lockedVPC
 
 			if vpc.PowerResourceGroup != nil {
 				dpsOldGroup = *vpc.PowerResourceGroup
@@ -1913,12 +1919,18 @@ func (dvh DeleteVPCHandler) Handle(c echo.Context) error {
 	var timeoutResp func() error
 
 	err = cdb.WithTx(ctx, dvh.dbSession, func(tx *cdb.Tx) error {
-		if dvh.cfg.GetDPSEnabled() && vpc.PowerResourceGroup != nil {
+		if dvh.cfg.GetDPSEnabled() {
 			lockErr := acquireVPCPowerLock(ctx, tx, vpc.ID)
 			if lockErr != nil {
 				logger.Error().Err(lockErr).Str("vpcID", vpc.ID.String()).Msg("failed to serialize DPS operations for VPC")
 				return cutil.NewAPIError(http.StatusConflict, "Another power operation is already in progress for the VPC", nil)
 			}
+			lockedVPC, lockErr := vpcDAO.GetByID(ctx, tx, vpc.ID, nil)
+			if lockErr != nil {
+				logger.Error().Err(lockErr).Str("vpcID", vpc.ID.String()).Msg("failed to reload VPC after acquiring its power lock")
+				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to reload VPC power configuration", nil)
+			}
+			vpc = lockedVPC
 			lockedInstances, _, lockErr := insDAO.GetAll(ctx, tx, cdbm.InstanceFilterInput{TenantIDs: []uuid.UUID{vpc.TenantID}, VpcIDs: []uuid.UUID{vpc.ID}}, cdbp.PageInput{}, nil)
 			if lockErr != nil {
 				logger.Error().Err(lockErr).Str("vpcID", vpc.ID.String()).Msg("failed to retrieve instances for VPC deletion")

@@ -147,14 +147,35 @@ func newTestClient(t *testing.T, server *testDPSServer) *Client {
 }
 
 func TestClient_ListPowerProfiles(t *testing.T) {
-	client := newTestClient(t, &testDPSServer{
-		policies: []string{" balanced ", "performance", "", "balanced"},
-	})
+	tests := []struct {
+		name          string
+		server        *testDPSServer
+		expected      []string
+		expectedCalls int
+	}{
+		{
+			name:          "normalizes policy names",
+			server:        &testDPSServer{policies: []string{" balanced ", "performance", "", "balanced"}},
+			expected:      []string{"balanced", "performance"},
+			expectedCalls: 1,
+		},
+		{
+			name:          "retries unavailable once",
+			server:        &testDPSServer{policies: []string{"performance"}, policyErrors: []error{status.Error(codes.Unavailable, "retry")}},
+			expected:      []string{"performance"},
+			expectedCalls: 2,
+		},
+	}
 
-	profiles, err := client.ListPowerProfiles(context.Background())
-
-	require.NoError(t, err)
-	assert.Equal(t, []string{"balanced", "performance"}, profiles)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client := newTestClient(t, test.server)
+			profiles, err := client.ListPowerProfiles(context.Background())
+			require.NoError(t, err)
+			assert.Equal(t, test.expected, profiles)
+			assert.Equal(t, test.expectedCalls, test.server.policyCalls)
+		})
+	}
 }
 
 func TestClient_ResourceGroupLifecycleRequests(t *testing.T) {
@@ -163,9 +184,9 @@ func TestClient_ResourceGroupLifecycleRequests(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, client.CreateResourceGroup(ctx, " group-a ", 42))
-	require.NoError(t, client.AddMachine(ctx, "group-a", " machine-a ", " performance "))
+	require.NoError(t, client.AddMachines(ctx, "group-a", []string{" machine-a ", "machine-b"}, " performance "))
 	require.NoError(t, client.UpdateMachineProfile(ctx, "group-a", "machine-a", ""))
-	require.NoError(t, client.RemoveMachine(ctx, "group-a", "machine-a"))
+	require.NoError(t, client.RemoveMachines(ctx, "group-a", []string{"machine-a", "machine-b"}))
 	require.NoError(t, client.ActivateResourceGroup(ctx, "group-a"))
 	require.NoError(t, client.DeleteResourceGroup(ctx, "group-a"))
 
@@ -177,7 +198,7 @@ func TestClient_ResourceGroupLifecycleRequests(t *testing.T) {
 	assert.True(t, server.createRequest.GetSharedGpuEnable())
 
 	require.NotNil(t, server.addRequest)
-	assert.Equal(t, []string{"machine-a"}, server.addRequest.GetResourceNames())
+	assert.Equal(t, []string{"machine-a", "machine-b"}, server.addRequest.GetResourceNames())
 	assert.True(t, server.addRequest.GetStrict())
 	assert.False(t, server.addRequest.GetAllowReprovision())
 	require.NotNil(t, server.addRequest.PolicyName)
@@ -192,7 +213,7 @@ func TestClient_ResourceGroupLifecycleRequests(t *testing.T) {
 	assert.Equal(t, "", update.GetPolicyName())
 
 	require.NotNil(t, server.removeRequest)
-	assert.Equal(t, []string{"machine-a"}, server.removeRequest.GetResourceNames())
+	assert.Equal(t, []string{"machine-a", "machine-b"}, server.removeRequest.GetResourceNames())
 	assert.Equal(t, "group-a", server.activateGroup)
 	assert.True(t, server.activateRequest.GetStrict())
 	assert.False(t, server.activateRequest.GetAllowReprovision())
@@ -202,51 +223,57 @@ func TestClient_ResourceGroupLifecycleRequests(t *testing.T) {
 }
 
 func TestClient_ValidateAllocation(t *testing.T) {
-	server := &testDPSServer{
-		validationResult: &dpsv1.ValidateAllocationResponse_AllocationValidationResult{
-			Status:                 &dpsv1.Status{Ok: true},
-			AllocationWouldSucceed: true,
+	tests := []struct {
+		name          string
+		server        *testDPSServer
+		expectedError error
+		expectedCalls int
+	}{
+		{
+			name: "accepts allocation",
+			server: &testDPSServer{validationResult: &dpsv1.ValidateAllocationResponse_AllocationValidationResult{
+				Status:                 &dpsv1.Status{Ok: true},
+				AllocationWouldSucceed: true,
+			}},
+			expectedCalls: 1,
+		},
+		{
+			name: "rejects denied allocation",
+			server: &testDPSServer{validationResult: &dpsv1.ValidateAllocationResponse_AllocationValidationResult{
+				Status: &dpsv1.Status{Ok: true},
+			}},
+			expectedError: errAllocationRejected,
+			expectedCalls: 1,
+		},
+		{
+			name: "retries unavailable once",
+			server: &testDPSServer{
+				validateErrors: []error{status.Error(codes.Unavailable, "retry")},
+				validationResult: &dpsv1.ValidateAllocationResponse_AllocationValidationResult{
+					Status:                 &dpsv1.Status{Ok: true},
+					AllocationWouldSucceed: true,
+				},
+			},
+			expectedCalls: 2,
 		},
 	}
-	client := newTestClient(t, server)
 
-	require.NoError(t, client.ValidateAllocation(context.Background(), []string{" machine-b ", "machine-a", "machine-a"}, " performance "))
-	require.NotNil(t, server.validateRequest)
-	assert.Equal(t, []string{"machine-a", "machine-b"}, server.validateRequest.GetDeviceNames())
-	assert.Equal(t, "performance", server.validateRequest.GetPolicyName())
-	assert.True(t, server.validateRequest.GetStrict())
-}
-
-func TestClient_ValidateAllocationRejectsDeniedRequest(t *testing.T) {
-	client := newTestClient(t, &testDPSServer{
-		validationResult: &dpsv1.ValidateAllocationResponse_AllocationValidationResult{
-			Status: &dpsv1.Status{Ok: true},
-		},
-	})
-
-	err := client.ValidateAllocation(context.Background(), []string{"machine-a"}, "performance")
-	require.ErrorIs(t, err, errAllocationRejected)
-}
-
-func TestClient_ReadOnlyOperationsRetryUnavailableOnce(t *testing.T) {
-	server := &testDPSServer{
-		policies:       []string{"performance"},
-		policyErrors:   []error{status.Error(codes.Unavailable, "retry")},
-		validateErrors: []error{status.Error(codes.Unavailable, "retry")},
-		validationResult: &dpsv1.ValidateAllocationResponse_AllocationValidationResult{
-			Status:                 &dpsv1.Status{Ok: true},
-			AllocationWouldSucceed: true,
-		},
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client := newTestClient(t, test.server)
+			err := client.ValidateAllocation(context.Background(), []string{" machine-b ", "machine-a", "machine-a"}, " performance ")
+			if test.expectedError == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, test.expectedError)
+			}
+			assert.Equal(t, test.expectedCalls, test.server.validateCalls)
+			require.NotNil(t, test.server.validateRequest)
+			assert.Equal(t, []string{"machine-a", "machine-b"}, test.server.validateRequest.GetDeviceNames())
+			assert.Equal(t, "performance", test.server.validateRequest.GetPolicyName())
+			assert.True(t, test.server.validateRequest.GetStrict())
+		})
 	}
-	client := newTestClient(t, server)
-
-	profiles, err := client.ListPowerProfiles(context.Background())
-	require.NoError(t, err)
-	assert.Equal(t, []string{"performance"}, profiles)
-	assert.Equal(t, 2, server.policyCalls)
-
-	require.NoError(t, client.ValidateAllocation(context.Background(), []string{"machine-a"}, "performance"))
-	assert.Equal(t, 2, server.validateCalls)
 }
 
 func TestClient_IdempotentLifecycleResponses(t *testing.T) {
