@@ -360,9 +360,11 @@ async fn a_template_deployment_does_not_compare_its_template_name_with_dpu_flavo
 
     // is_dpu_outdated and find_outdated_dpus_dpf share dpu_comparison: a
     // DPUFlavorTemplate name is not comparable with its generated DPUFlavor.
-    assert!(!is_outdated(OutdatedDpuMock::with(dpu, deployment))
-        .await
-        .expect("template deployment can be evaluated"));
+    assert!(
+        !is_outdated(OutdatedDpuMock::with(dpu, deployment))
+            .await
+            .expect("template deployment can be evaluated")
+    );
 }
 
 #[tokio::test]
