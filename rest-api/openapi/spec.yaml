@@ -28655,7 +28655,7 @@ components:
         data:
           type: string
           maxLength: 131072
-          description: Deployment spec, limited to 131072 UTF-8 bytes. KubernetesPod requires a parseable Pod manifest declaring at least one container, whose kind, when present, is Pod. DpfHelmChart requires a strict JSON object with repoURL, chartName, chartVersion, security.privileged, and optional values; repoURL must use https:// or oci://, and serviceDaemonSet.nodeSelector is unsupported.
+          description: Deployment spec, limited to 131072 bytes once UTF-8 encoded; characters outside ASCII count as more than one byte. KubernetesPod requires a parseable Pod manifest declaring at least one container, whose kind, when present, is Pod. DpfHelmChart requires a strict JSON object with repoURL, chartName, chartVersion, security.privileged, and optional values; repoURL must use https:// or oci://, and serviceDaemonSet.nodeSelector is unsupported.
         credentials:
           $ref: '#/components/schemas/DpuExtensionServiceCredentials'
           description: Credentials to download resources specified in DPU Extension Service data; unsupported for DpfHelmChart
@@ -28699,7 +28699,7 @@ components:
             - string
             - 'null'
           maxLength: 131072
-          description: Deployment spec for the DPU Extension Service, limited to 131072 UTF-8 bytes. For KubernetesPod this is the same Pod manifest accepted on create. For DpfHelmChart this is the same strict JSON definition accepted on create and updates stable V1 in place.
+          description: Deployment spec for the DPU Extension Service, limited to 131072 bytes once UTF-8 encoded; characters outside ASCII count as more than one byte. For KubernetesPod this is the same Pod manifest accepted on create. For DpfHelmChart this is the same strict JSON definition accepted on create and updates stable V1 in place.
         credentials:
           $ref: '#/components/schemas/DpuExtensionServiceCredentials'
           description: Credentials to download resources specified in DPU Extension Service data; unsupported for DpfHelmChart
