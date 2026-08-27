@@ -19,8 +19,6 @@ mod boot_interface_resolution;
 mod client_resolution;
 pub(in crate::tests) mod common;
 mod component_manager;
-mod credential;
-mod dns;
 mod dpf;
 mod dpu_machine_update;
 mod dpu_nic_firmware;

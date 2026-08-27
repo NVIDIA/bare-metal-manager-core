@@ -104,7 +104,7 @@ async fn switch_firmware_status_uses_only_current_cycle_persistence(
         Some(&RackFirmwareUpgradeStatus {
             task_id: "current-task".into(),
             status: RackFirmwareUpgradeState::Failed {
-                cause: "current RMS failure".into(),
+                cause: "current backend failure".into(),
             },
             started_at: Some(current_requested_at),
             ended_at: Some(current_requested_at),
@@ -164,13 +164,20 @@ async fn switch_firmware_status_uses_only_current_cycle_persistence(
             .as_ref()
             .expect("current status must carry a result")
             .error,
-        "current RMS failure"
+        "current backend failure"
     );
     assert_eq!(
         status_by_id[&switch_ids[2].to_string()].state,
         rpc::FirmwareUpdateState::FwStateQueued as i32,
         "an accepted request without a persisted device result is still queued"
     );
+
+    for switch_id in &switch_ids {
+        assert_eq!(
+            status_by_id[&switch_id.to_string()].target_version, "firmware-object-json",
+            "the active request supplies the target version the backend never persists"
+        );
+    }
 
     Ok(())
 }
