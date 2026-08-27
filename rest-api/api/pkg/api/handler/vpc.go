@@ -341,7 +341,7 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 	}
 
 	dpsGroupCreated := false
-	if cvh.cfg.GetPowerProvisioningMode() == config.PowerProvisioningModeDPS && apiRequest.PowerResourceGroup != nil {
+	if cvh.cfg.GetDPSEnabled() && apiRequest.PowerResourceGroup != nil {
 		if cvh.dps == nil {
 			return cutil.NewAPIErrorResponse(c, http.StatusServiceUnavailable, "DPS power provisioning is unavailable", nil)
 		}
@@ -848,7 +848,7 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 	var timeoutResp func() error
 
 	err = cdb.WithTx(ctx, uvh.dbSession, func(tx *cdb.Tx) error {
-		if uvh.cfg.GetPowerProvisioningMode() == config.PowerProvisioningModeDPS && apiRequest.PowerResourceGroup != nil {
+		if uvh.cfg.GetDPSEnabled() && apiRequest.PowerResourceGroup != nil {
 			lockErr := acquireVPCPowerLock(ctx, tx, vpc.ID)
 			if lockErr != nil {
 				logger.Error().Err(lockErr).Str("vpcID", vpc.ID.String()).Msg("failed to serialize DPS operations for VPC")
@@ -1913,7 +1913,7 @@ func (dvh DeleteVPCHandler) Handle(c echo.Context) error {
 	var timeoutResp func() error
 
 	err = cdb.WithTx(ctx, dvh.dbSession, func(tx *cdb.Tx) error {
-		if dvh.cfg.GetPowerProvisioningMode() == config.PowerProvisioningModeDPS && vpc.PowerResourceGroup != nil {
+		if dvh.cfg.GetDPSEnabled() && vpc.PowerResourceGroup != nil {
 			lockErr := acquireVPCPowerLock(ctx, tx, vpc.ID)
 			if lockErr != nil {
 				logger.Error().Err(lockErr).Str("vpcID", vpc.ID.String()).Msg("failed to serialize DPS operations for VPC")
@@ -2021,7 +2021,7 @@ func (dvh DeleteVPCHandler) Handle(c echo.Context) error {
 	if timeoutResp != nil {
 		return timeoutResp()
 	}
-	if dvh.cfg.GetPowerProvisioningMode() == config.PowerProvisioningModeDPS && vpc.PowerResourceGroup != nil && dvh.dps != nil {
+	if dvh.cfg.GetDPSEnabled() && vpc.PowerResourceGroup != nil && dvh.dps != nil {
 		cleanupErr := dvh.dps.DeleteResourceGroup(context.WithoutCancel(ctx), *vpc.PowerResourceGroup)
 		if cleanupErr != nil {
 			logger.Error().Err(cleanupErr).Str("powerResourceGroup", *vpc.PowerResourceGroup).Msg("failed to delete DPS resource group; external reconciliation is required")

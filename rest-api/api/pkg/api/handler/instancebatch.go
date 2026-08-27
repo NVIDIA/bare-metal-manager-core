@@ -423,7 +423,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 		logger.Warn().Msg("VPC specified in request data is not ready")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "VPC specified in request data is not ready", nil)
 	}
-	if bcih.cfg.GetPowerProvisioningMode() == config.PowerProvisioningModeDPS && apiRequest.PowerProfile != nil && vpc.PowerResourceGroup == nil {
+	if bcih.cfg.GetDPSEnabled() && apiRequest.PowerProfile != nil && vpc.PowerResourceGroup == nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "A power profile requires the VPC to have a power resource group", nil)
 	}
 
@@ -485,7 +485,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 	if apiErr := util.ValidateSitePowerManagement(site.Config, apiRequest.PowerProfile); apiErr != nil {
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 	}
-	apiErr := validatePowerProfile(ctx, bcih.cfg.GetPowerProvisioningMode(), bcih.dps, apiRequest.PowerProfile)
+	apiErr := validatePowerProfile(ctx, bcih.cfg.GetDPSEnabled(), bcih.dps, apiRequest.PowerProfile)
 	if apiErr != nil {
 		logger.Warn().Err(apiErr.Diagnosis()).Msg("failed to validate batch Instance power profile")
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
@@ -1286,7 +1286,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 	var dpsRollback func() error
 
 	err = cdb.WithTx(ctx, bcih.dbSession, func(tx *cdb.Tx) error {
-		if bcih.cfg.GetPowerProvisioningMode() == config.PowerProvisioningModeDPS && vpc.PowerResourceGroup != nil {
+		if bcih.cfg.GetDPSEnabled() && vpc.PowerResourceGroup != nil {
 			lockErr := acquireVPCPowerLock(ctx, tx, vpc.ID)
 			if lockErr != nil {
 				logger.Error().Err(lockErr).Str("vpcID", vpc.ID.String()).Msg("failed to serialize DPS operations for VPC")
@@ -1359,7 +1359,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 		if apiErr != nil {
 			return apiErr
 		}
-		if bcih.cfg.GetPowerProvisioningMode() == config.PowerProvisioningModeDPS && vpc.PowerResourceGroup != nil {
+		if bcih.cfg.GetDPSEnabled() && vpc.PowerResourceGroup != nil {
 			assignments := make([]machinePowerAssignment, 0, len(machines))
 			for _, machine := range machines {
 				assignment := machinePowerAssignment{machineID: machine.ID}

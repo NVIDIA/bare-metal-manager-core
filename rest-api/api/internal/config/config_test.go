@@ -92,55 +92,52 @@ func TestConfig_ValidatePowerProvisioningConfig(t *testing.T) {
 		wantError string
 	}{
 		{
-			name: "accepts external mode without DPS settings",
-			values: map[string]any{
-				ConfigPowerProvisioningMode: PowerProvisioningModeExternal,
-			},
+			name: "accepts disabled DPS without connection settings",
 		},
 		{
-			name: "rejects unknown mode",
+			name: "rejects non-boolean DPS enablement",
 			values: map[string]any{
-				ConfigPowerProvisioningMode: "unknown",
+				ConfigDPSEnabled: "external",
 			},
-			wantError: "must be \"external\" or \"dps\"",
+			wantError: "enabled must be a boolean",
 		},
 		{
-			name: "requires endpoint in DPS mode",
+			name: "requires endpoint when DPS is enabled",
 			values: map[string]any{
-				ConfigPowerProvisioningMode: PowerProvisioningModeDPS,
-				ConfigDPSRequestTimeout:     "15s",
+				ConfigDPSEnabled:        true,
+				ConfigDPSRequestTimeout: "15s",
 			},
 			wantError: "endpoint is required",
 		},
 		{
-			name: "rejects whitespace endpoint in DPS mode",
+			name: "rejects whitespace endpoint when DPS is enabled",
 			values: map[string]any{
-				ConfigPowerProvisioningMode: PowerProvisioningModeDPS,
-				ConfigDPSEndpoint:           "   ",
-				ConfigDPSRequestTimeout:     "15s",
+				ConfigDPSEnabled:        true,
+				ConfigDPSEndpoint:       "   ",
+				ConfigDPSRequestTimeout: "15s",
 			},
 			wantError: "endpoint is required",
 		},
 		{
-			name: "requires positive timeout in DPS mode",
+			name: "requires positive timeout when DPS is enabled",
 			values: map[string]any{
-				ConfigPowerProvisioningMode: PowerProvisioningModeDPS,
-				ConfigDPSEndpoint:           "dps.example.com:443",
-				ConfigDPSRequestTimeout:     "0s",
-				ConfigDPSTokenPath:          "/var/run/secrets/dps/token",
-				ConfigDPSCAPath:             "/var/run/secrets/dps/ca.crt",
+				ConfigDPSEnabled:        true,
+				ConfigDPSEndpoint:       "dps.example.com:443",
+				ConfigDPSRequestTimeout: "0s",
+				ConfigDPSTokenPath:      "/var/run/secrets/dps/token",
+				ConfigDPSCAPath:         "/var/run/secrets/dps/ca.crt",
 			},
 			wantError: "must be greater than zero",
 		},
 		{
-			name: "accepts complete DPS mode",
+			name: "accepts complete enabled DPS configuration",
 			values: map[string]any{
-				ConfigPowerProvisioningMode: PowerProvisioningModeDPS,
-				ConfigDPSEndpoint:           "dps.example.com:443",
-				ConfigDPSRequestTimeout:     "15s",
-				ConfigDPSTokenPath:          "/var/run/secrets/dps/token",
-				ConfigDPSCAPath:             "/var/run/secrets/dps/ca.crt",
-				ConfigDPSServerName:         "dps.example.com",
+				ConfigDPSEnabled:        true,
+				ConfigDPSEndpoint:       "dps.example.com:443",
+				ConfigDPSRequestTimeout: "15s",
+				ConfigDPSTokenPath:      "/var/run/secrets/dps/token",
+				ConfigDPSCAPath:         "/var/run/secrets/dps/ca.crt",
+				ConfigDPSServerName:     "dps.example.com",
 			},
 		},
 	}

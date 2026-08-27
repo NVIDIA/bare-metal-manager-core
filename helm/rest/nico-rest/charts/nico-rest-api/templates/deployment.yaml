@@ -69,7 +69,7 @@ spec:
             {{- end }}
             - name: tmp
               mountPath: /tmp
-            {{- if eq .Values.config.powerProvisioning.mode "dps" }}
+            {{- if .Values.config.powerProvisioning.dps.enabled }}
             - name: dps
               mountPath: /var/secrets/dps
               readOnly: true
@@ -121,7 +121,7 @@ spec:
               - key: password
                 path: password
         {{- end }}
-        {{- if eq .Values.config.powerProvisioning.mode "dps" }}
+        {{- if .Values.config.powerProvisioning.dps.enabled }}
         - name: dps
           secret:
             secretName: {{ .Values.secrets.dps }}

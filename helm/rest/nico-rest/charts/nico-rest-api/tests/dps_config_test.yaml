@@ -7,29 +7,29 @@ templates:
 set:
   config.keycloak.enabled: true
 tests:
-  - it: accepts the default external mode
+  - it: accepts DPS disabled by default
     asserts:
       - isKind:
           of: ConfigMap
 
-  - it: rejects an unsupported power-provisioning mode
+  - it: rejects non-boolean DPS enablement
     set:
-      config.powerProvisioning.mode: invalid
+      config.powerProvisioning.dps.enabled: external
     asserts:
       - failedTemplate:
-          errorMessage: config.powerProvisioning.mode must be external or dps
+          errorMessage: config.powerProvisioning.dps.enabled must be a boolean
 
-  - it: requires an endpoint in direct mode
+  - it: requires an endpoint when DPS is enabled
     set:
-      config.powerProvisioning.mode: dps
+      config.powerProvisioning.dps.enabled: true
       secrets.dps: nico-dps-client
     asserts:
       - failedTemplate:
           errorMessage: config.powerProvisioning.dps.endpoint is required when direct DPS integration is enabled
 
-  - it: requires an existing credentials Secret in direct mode
+  - it: requires an existing credentials Secret when DPS is enabled
     set:
-      config.powerProvisioning.mode: dps
+      config.powerProvisioning.dps.enabled: true
       config.powerProvisioning.dps.endpoint: dps.example.test:443
     asserts:
       - failedTemplate:

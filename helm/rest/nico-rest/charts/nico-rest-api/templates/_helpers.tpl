@@ -38,11 +38,10 @@ app.kubernetes.io/component: api
 {{- end -}}
 
 {{- define "nico-rest-api.validatePowerProvisioning" -}}
-{{- $mode := .Values.config.powerProvisioning.mode -}}
-{{- if not (has $mode (list "external" "dps")) -}}
-{{- fail "config.powerProvisioning.mode must be external or dps" -}}
+{{- if not (kindIs "bool" .Values.config.powerProvisioning.dps.enabled) -}}
+{{- fail "config.powerProvisioning.dps.enabled must be a boolean" -}}
 {{- end -}}
-{{- if eq $mode "dps" -}}
+{{- if .Values.config.powerProvisioning.dps.enabled -}}
 {{- if not .Values.config.powerProvisioning.dps.endpoint -}}
 {{- fail "config.powerProvisioning.dps.endpoint is required when direct DPS integration is enabled" -}}
 {{- end -}}

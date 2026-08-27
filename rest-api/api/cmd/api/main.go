@@ -87,7 +87,7 @@ func main() {
 	scp := sc.NewClientPool(tcfg)
 
 	var powerProvisioner dpsclient.PowerProvisioner
-	if cfg.GetPowerProvisioningMode() == config.PowerProvisioningModeDPS {
+	if cfg.GetDPSEnabled() {
 		dps, err := dpsclient.NewClient(cfg.GetDPSConfig())
 		if err != nil {
 			log.Panic().Err(err).Msg("failed to initialize DPS client")

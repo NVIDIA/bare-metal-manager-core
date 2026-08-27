@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
 	dpsclient "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/dps"
 )
 
@@ -31,7 +30,7 @@ func TestValidatePowerProfile(t *testing.T) {
 	providerFailure := errors.New("DPS unavailable")
 	tests := []struct {
 		name        string
-		mode        string
+		dpsEnabled  bool
 		profile     *string
 		provider    dpsclient.PolicyProvider
 		wantProfile *string
@@ -39,35 +38,34 @@ func TestValidatePowerProfile(t *testing.T) {
 		wantCalls   int
 	}{
 		{
-			name:        "external mode trusts profile without calling DPS",
-			mode:        config.PowerProvisioningModeExternal,
+			name:        "disabled DPS trusts profile without calling DPS",
 			profile:     stringPointer("launchlayer-profile"),
 			provider:    &policyProviderStub{err: providerFailure},
 			wantProfile: stringPointer("launchlayer-profile"),
 		},
 		{
-			name:     "DPS mode preserves omitted profile",
-			mode:     config.PowerProvisioningModeDPS,
-			provider: &policyProviderStub{err: providerFailure},
+			name:       "enabled DPS preserves omitted profile",
+			dpsEnabled: true,
+			provider:   &policyProviderStub{err: providerFailure},
 		},
 		{
-			name:        "DPS mode preserves explicit clear",
-			mode:        config.PowerProvisioningModeDPS,
+			name:        "enabled DPS preserves explicit clear",
+			dpsEnabled:  true,
 			profile:     stringPointer(""),
 			provider:    &policyProviderStub{err: providerFailure},
 			wantProfile: stringPointer(""),
 		},
 		{
-			name:        "DPS mode validates and normalizes set profile",
-			mode:        config.PowerProvisioningModeDPS,
+			name:        "enabled DPS validates and normalizes set profile",
+			dpsEnabled:  true,
 			profile:     stringPointer("  efficient  "),
 			provider:    &policyProviderStub{profiles: []string{"efficient"}},
 			wantProfile: stringPointer("efficient"),
 			wantCalls:   1,
 		},
 		{
-			name:        "DPS mode rejects unknown profile",
-			mode:        config.PowerProvisioningModeDPS,
+			name:        "enabled DPS rejects unknown profile",
+			dpsEnabled:  true,
 			profile:     stringPointer("unknown"),
 			provider:    &policyProviderStub{profiles: []string{"efficient"}},
 			wantProfile: stringPointer("unknown"),
@@ -75,16 +73,16 @@ func TestValidatePowerProfile(t *testing.T) {
 			wantCalls:   1,
 		},
 		{
-			name:        "DPS mode rejects whitespace-only set profile",
-			mode:        config.PowerProvisioningModeDPS,
+			name:        "enabled DPS rejects whitespace-only set profile",
+			dpsEnabled:  true,
 			profile:     stringPointer("   "),
 			provider:    &policyProviderStub{profiles: []string{"efficient"}},
 			wantProfile: stringPointer("   "),
 			wantCode:    http.StatusBadRequest,
 		},
 		{
-			name:        "DPS mode reports discovery failure",
-			mode:        config.PowerProvisioningModeDPS,
+			name:        "enabled DPS reports discovery failure",
+			dpsEnabled:  true,
 			profile:     stringPointer("efficient"),
 			provider:    &policyProviderStub{err: providerFailure},
 			wantProfile: stringPointer("efficient"),
@@ -92,8 +90,8 @@ func TestValidatePowerProfile(t *testing.T) {
 			wantCalls:   1,
 		},
 		{
-			name:        "DPS mode reports missing client",
-			mode:        config.PowerProvisioningModeDPS,
+			name:        "enabled DPS reports missing client",
+			dpsEnabled:  true,
 			profile:     stringPointer("efficient"),
 			wantProfile: stringPointer("efficient"),
 			wantCode:    http.StatusServiceUnavailable,
@@ -102,7 +100,7 @@ func TestValidatePowerProfile(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			apiErr := validatePowerProfile(context.Background(), tt.mode, tt.provider, tt.profile)
+			apiErr := validatePowerProfile(context.Background(), tt.dpsEnabled, tt.provider, tt.profile)
 			if tt.wantCode == 0 {
 				require.Nil(t, apiErr)
 			} else {

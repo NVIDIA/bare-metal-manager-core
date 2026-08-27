@@ -35,7 +35,7 @@ secrets:
   # and the password is read from /var/secrets/db/password (supports live rotation).
   # Created by nico-prereqs ESO (nico-rest-db-eso) when rest.enabled=true.
   dbCreds: db-creds
-  # -- Existing Secret mounted when powerProvisioning.mode is dps. It must
+  # -- Existing Secret mounted when direct DPS integration is enabled. It must
   # contain the keys "token" and "ca.crt". NICo does not create or renew the token.
   dps: ""
 
@@ -80,12 +80,11 @@ config:
   tracing:
     enabled: false
     serviceName: nico-rest-api
-  # -- Power-provisioning owner. "external" means a controlling service such
-  # as LaunchLayer coordinates DPS; "dps" enables direct NICo-to-DPS calls.
   powerProvisioning:
-    mode: external
     dps:
-      # -- DPS gRPC endpoint. Required when mode is dps.
+      # -- Whether NICo makes direct calls to DPS. Disabled by default.
+      enabled: false
+      # -- DPS gRPC endpoint. Required when DPS integration is enabled.
       endpoint: ""
       # -- Overall deadline applied independently to each DPS RPC.
       requestTimeout: 15s

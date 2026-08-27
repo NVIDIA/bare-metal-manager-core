@@ -70,12 +70,11 @@ rateLimiter:
   burst: 30         # maximum burst size
   expiresIn: 180    # expiration time in seconds (3 minutes)
 
-# external is for deployments where LaunchLayer drives both NICo and DPS. In
-# dps mode, NICo assumes LaunchLayer's DPS responsibilities and makes direct,
-# synchronous authenticated gRPC calls to the configured DPS service.
+# Enable DPS when NICo must make direct, synchronous authenticated gRPC calls
+# to the configured service. It is disabled by default.
 powerProvisioning:
-  mode: external
   dps:
+    enabled: false
     endpoint: ""
     requestTimeout: 15s
     tokenPath: ""

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -136,9 +137,8 @@ const (
 	// ConfigRateLimiterExpiresIn specifies the expiration time in seconds
 	ConfigRateLimiterExpiresIn = "rateLimiter.expiresIn"
 
-	// ConfigPowerProvisioningMode selects whether LaunchLayer or NICo owns DPS
-	// associations.
-	ConfigPowerProvisioningMode = "powerProvisioning.mode"
+	// ConfigDPSEnabled controls whether NICo makes direct DPS calls.
+	ConfigDPSEnabled = "powerProvisioning.dps.enabled"
 	// ConfigDPSEndpoint is the remote DPS gRPC endpoint.
 	ConfigDPSEndpoint = "powerProvisioning.dps.endpoint"
 	// ConfigDPSRequestTimeout bounds each direct DPS operation.
@@ -149,11 +149,6 @@ const (
 	ConfigDPSCAPath = "powerProvisioning.dps.tls.caPath"
 	// ConfigDPSServerName optionally overrides TLS server-name verification.
 	ConfigDPSServerName = "powerProvisioning.dps.tls.serverName"
-)
-
-const (
-	PowerProvisioningModeExternal = "external"
-	PowerProvisioningModeDPS      = "dps"
 )
 
 // IssuerConfig represents a single issuer configuration entry
@@ -278,8 +273,7 @@ func NewConfig() *Config {
 	c.v.SetDefault(ConfigRateLimiterBurst, 30)      // burst of 30 requests
 	c.v.SetDefault(ConfigRateLimiterExpiresIn, 180) // 180 seconds (3 minutes)
 
-	// LaunchLayer owns DPS associations unless NICo integration is explicitly enabled.
-	c.v.SetDefault(ConfigPowerProvisioningMode, PowerProvisioningModeExternal)
+	c.v.SetDefault(ConfigDPSEnabled, false)
 	c.v.SetDefault(ConfigDPSRequestTimeout, 15*time.Second)
 
 	c.v.AutomaticEnv()
@@ -564,33 +558,49 @@ func (c *Config) GetDPSConfig() dpsclient.Config {
 	}
 }
 
-// ValidatePowerProvisioningConfig validates settings required when NICo owns
-// DPS associations. External mode is the LaunchLayer-managed deployment and
-// intentionally ignores DPS connection fields.
+// ValidatePowerProvisioningConfig validates settings required for direct DPS
+// integration. DPS connection fields are ignored when integration is disabled.
 func (c *Config) ValidatePowerProvisioningConfig() error {
-	mode := c.GetPowerProvisioningMode()
-	if mode == PowerProvisioningModeExternal {
-		return nil
+	enabled, err := c.validateDPSEnabled()
+	if err != nil {
+		return err
 	}
-	if mode != PowerProvisioningModeDPS {
-		return fmt.Errorf("powerProvisioning.mode must be %q or %q", PowerProvisioningModeExternal, PowerProvisioningModeDPS)
+	if !enabled {
+		return nil
 	}
 
 	dpsConfig := c.GetDPSConfig()
 	if strings.TrimSpace(dpsConfig.Endpoint) == "" {
-		return fmt.Errorf("powerProvisioning.dps.endpoint is required in DPS mode")
+		return fmt.Errorf("powerProvisioning.dps.endpoint is required when DPS integration is enabled")
 	}
 	if strings.TrimSpace(dpsConfig.TokenPath) == "" {
-		return fmt.Errorf("powerProvisioning.dps.tokenPath is required in DPS mode")
+		return fmt.Errorf("powerProvisioning.dps.tokenPath is required when DPS integration is enabled")
 	}
 	if strings.TrimSpace(dpsConfig.CAPath) == "" {
-		return fmt.Errorf("powerProvisioning.dps.tls.caPath is required in DPS mode")
+		return fmt.Errorf("powerProvisioning.dps.tls.caPath is required when DPS integration is enabled")
 	}
 	if dpsConfig.RequestTimeout <= 0 {
 		return fmt.Errorf("powerProvisioning.dps.requestTimeout must be greater than zero")
 	}
 
 	return nil
+}
+
+func (c *Config) validateDPSEnabled() (bool, error) {
+	value := c.v.Get(ConfigDPSEnabled)
+	switch typed := value.(type) {
+	case nil:
+		return false, nil
+	case bool:
+		return typed, nil
+	case string:
+		enabled, err := strconv.ParseBool(strings.TrimSpace(typed))
+		if err == nil {
+			return enabled, nil
+		}
+	}
+
+	return false, fmt.Errorf("powerProvisioning.dps.enabled must be a boolean")
 }
 
 // NewRateLimiterConfig initializes and returns a configuration object for rate limiting
@@ -779,9 +789,9 @@ func (c *Config) GetSentryDSN() string {
 	return c.v.GetString(ConfigSentryDSN)
 }
 
-// GetPowerProvisioningMode returns the owner of DPS associations.
-func (c *Config) GetPowerProvisioningMode() string {
-	return strings.ToLower(c.v.GetString(ConfigPowerProvisioningMode))
+// GetDPSEnabled reports whether NICo makes direct DPS calls.
+func (c *Config) GetDPSEnabled() bool {
+	return c.v.GetBool(ConfigDPSEnabled)
 }
 
 // GetDBHost returns the host of the database

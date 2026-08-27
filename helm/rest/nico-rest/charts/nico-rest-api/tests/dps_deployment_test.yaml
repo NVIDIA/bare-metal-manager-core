@@ -8,7 +8,7 @@ set:
   global.image.repository: example.test
   global.image.tag: latest
 tests:
-  - it: does not mount DPS credentials in external mode
+  - it: does not mount DPS credentials when DPS is disabled
     asserts:
       - notContains:
           path: spec.template.spec.containers[0].volumeMounts
@@ -19,9 +19,9 @@ tests:
           content:
             name: dps
 
-  - it: mounts the externally managed DPS credentials in direct mode
+  - it: mounts DPS credentials when DPS is enabled
     set:
-      config.powerProvisioning.mode: dps
+      config.powerProvisioning.dps.enabled: true
       config.powerProvisioning.dps.endpoint: dps.example.test:443
       secrets.dps: nico-dps-client
     asserts:
