@@ -57,6 +57,11 @@ const (
 	// zero Core value means the server is unlimited, not that Flow should build
 	// one unbounded response.
 	flowFindByIDsBatchSize = 100
+
+	// coreGRPCMaxRecvMsgSize raises the Go gRPC 4 MiB default for Core responses.
+	// Core's expected-inventory RPCs return complete snapshots in one response,
+	// which can exceed that default for larger sites.
+	coreGRPCMaxRecvMsgSize = 32 * 1024 * 1024
 )
 
 type grpcClient struct {
@@ -171,6 +176,14 @@ func (c *batchingForgeClient) visitPowerShelfBatches(
 
 var testingMsgOnce sync.Once
 
+func coreGRPCDialOptions(transportCredentials credentials.TransportCredentials) []grpc.DialOption {
+	return []grpc.DialOption{
+		grpc.WithTransportCredentials(transportCredentials),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(coreGRPCMaxRecvMsgSize)),
+		grpc.WithChainUnaryInterceptor(grpclog.UnaryClientInterceptor("nico-core-api")),
+	}
+}
+
 // NewClient creates a GRPC connection pool to nico-core-api.  Returning success does not mean that we have yet made an actual connection;
 // that happens when making an actual request.
 func NewClient(grpcTimeout time.Duration) (Client, error) {
@@ -194,11 +207,7 @@ func NewClient(grpcTimeout time.Duration) (Client, error) {
 		return nil, err
 	}
 
-	conn, err := grpc.NewClient(
-		nicoURL,
-		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
-		grpc.WithChainUnaryInterceptor(grpclog.UnaryClientInterceptor("nico-core-api")),
-	)
+	conn, err := grpc.NewClient(nicoURL, coreGRPCDialOptions(credentials.NewTLS(tlsConfig))...)
 	if err != nil {
 		return nil, fmt.Errorf("Unable to connect to nico-core-api: %w", err)
 	}
