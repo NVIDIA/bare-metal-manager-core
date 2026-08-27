@@ -1062,6 +1062,7 @@ fn map_gpu_reset_action(action: i32) -> Result<libredfish::SystemPowerControl, S
     })
 }
 
+/// Handle an administrative out-of-band GPU baseboard reset and return the reset response.
 pub(crate) async fn admin_gpu_reset(
     api: &Api,
     request: Request<rpc::AdminGpuResetRequest>,
@@ -1609,14 +1610,18 @@ mod tests {
     fn gpu_reset_action_maps_resets_and_rejects_power_off() {
         use super::rpc::admin_power_control_request::SystemPowerControl as Spc;
         use libredfish::SystemPowerControl as L;
-        let f = map_gpu_reset_action;
-        assert!(matches!(f(Spc::GracefulRestart as i32), Ok(L::GracefulRestart)));
-        assert!(matches!(f(Spc::AcPowercycle as i32), Ok(L::ACPowercycle)));
-        assert!(matches!(f(Spc::ForceRestart as i32), Ok(L::ForceRestart)));
-        assert!(matches!(f(Spc::On as i32), Ok(L::ForceRestart)));
-        assert!(matches!(f(Spc::GracefulShutdown as i32), Err(_)));
-        assert!(matches!(f(Spc::ForceOff as i32), Err(_)));
-        assert!(matches!(f(9999), Err(_)));
+        value_scenarios!(run = |a: i32| { map_gpu_reset_action(a).map_err(|_| ()) };
+            "gpu reset action mapping" {
+                Spc::GracefulRestart as i32 => Ok(L::GracefulRestart),
+                Spc::AcPowercycle as i32 => Ok(L::ACPowercycle),
+                Spc::ForceRestart as i32 => Ok(L::ForceRestart),
+                Spc::On as i32 => Ok(L::ForceRestart),
+                0 => Ok(L::ForceRestart), // omitted action (proto3 default) -> ForceRestart
+                Spc::GracefulShutdown as i32 => Err(()),
+                Spc::ForceOff as i32 => Err(()),
+                9999 => Err(()),
+            }
+        );
     }
 
     fn predicted(mac: &str, boot_interface_id: Option<&str>) -> PredictedMachineInterface {
