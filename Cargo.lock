@@ -2524,6 +2524,7 @@ dependencies = [
  "carbide-uuid",
  "chrono",
  "futures-util",
+ "libc",
  "reqwest 0.13.4",
  "serde",
  "serde_json",
@@ -2531,6 +2532,7 @@ dependencies = [
  "tokio",
  "tonic",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
