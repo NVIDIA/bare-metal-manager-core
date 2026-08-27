@@ -81,7 +81,7 @@ service:
 ## path in Kubernetes deployments.
 ##
 ## Prerequisites:
-##   - nico-dhcp must be deployed in the same namespace
+##   - nico-dhcp must be deployed (default: nico-system namespace)
 ##   - A dedicated K8s ServiceCIDR for relay IPs (e.g., mat-dhcp-services)
 ##
 ## Each pod gets a unique ClusterIP Service for receiving DHCP replies:
