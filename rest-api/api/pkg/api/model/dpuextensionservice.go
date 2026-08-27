@@ -35,6 +35,10 @@ const (
 	DpuExtensionServiceMaxObservabilityConfigNameLength = 64
 	// DpuExtensionServiceMaxObservabilityPropertyLength is the max length for endpoint and path properties
 	DpuExtensionServiceMaxObservabilityPropertyLength = 128
+	// DpfCredentialsUnsupportedError reports credentials on a DpfHelmChart request, which Core rejects
+	DpfCredentialsUnsupportedError = "`credentials` is unsupported for 'DpfHelmChart' services, they must be preprovisioned in the Site"
+	// DpfObservabilityUnsupportedError reports observability on a DpfHelmChart request, which Core rejects
+	DpfObservabilityUnsupportedError = "`observability` is unsupported for 'DpfHelmChart' services"
 )
 
 var (
@@ -160,6 +164,9 @@ func (descr *APIDpuExtensionServiceCreateRequest) Validate() error {
 
 	// Validate credentials if provided
 	if descr.Credentials != nil {
+		if descr.ServiceType == DpuExtensionServiceTypeDpfHelmChart {
+			return errors.New(DpfCredentialsUnsupportedError)
+		}
 		err = descr.Credentials.Validate()
 		if err != nil {
 			return err
@@ -167,6 +174,9 @@ func (descr *APIDpuExtensionServiceCreateRequest) Validate() error {
 	}
 
 	if descr.Observability != nil {
+		if descr.ServiceType == DpuExtensionServiceTypeDpfHelmChart {
+			return errors.New(DpfObservabilityUnsupportedError)
+		}
 		err = descr.Observability.Validate()
 		if err != nil {
 			return err

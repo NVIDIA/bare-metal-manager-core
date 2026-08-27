@@ -869,6 +869,8 @@ Update a specific DPU Extension Service.
 
 DPU Extension Service must be owned by current Tenant. A new version will be created if data or credentials are modified.
 
+For a `DpfHelmChart` service, `credentials` and `observability` are unsupported, and `data` is accepted only while the service is `Ready` and only when it differs from the current definition.
+
 Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().

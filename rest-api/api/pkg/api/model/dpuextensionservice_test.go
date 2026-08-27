@@ -119,6 +119,34 @@ func TestAPIDpuExtensionServiceCreateRequest_Validate(t *testing.T) {
 			expectErr: true,
 		},
 		{
+			desc: "error when DPF Helm chart request carries credentials",
+			obj: APIDpuExtensionServiceCreateRequest{
+				Name:        "test-service",
+				ServiceType: DpuExtensionServiceTypeDpfHelmChart,
+				SiteID:      validUUID,
+				Data:        `{"repoURL":"https://example.com/charts","chartName":"chart","chartVersion":"1.0.0","security.privileged":false}`,
+				Credentials: &APIDpuExtensionServiceCredentials{
+					RegistryURL: "https://registry.hub.docker.com",
+					Username:    cutil.GetPtr("testuser"),
+					Password:    cutil.GetPtr("testpass"),
+				},
+			},
+			expectErr: true,
+		},
+		{
+			desc: "error when DPF Helm chart request carries observability",
+			obj: APIDpuExtensionServiceCreateRequest{
+				Name:        "test-service",
+				ServiceType: DpuExtensionServiceTypeDpfHelmChart,
+				SiteID:      validUUID,
+				Data:        `{"repoURL":"https://example.com/charts","chartName":"chart","chartVersion":"1.0.0","security.privileged":false}`,
+				Observability: &APIDpuExtensionServiceObservability{
+					Configs: []APIDpuExtensionServiceObservabilityConfig{},
+				},
+			},
+			expectErr: true,
+		},
+		{
 			desc: "ok when credentials are provided",
 			obj: APIDpuExtensionServiceCreateRequest{
 				Name:        "test-service",

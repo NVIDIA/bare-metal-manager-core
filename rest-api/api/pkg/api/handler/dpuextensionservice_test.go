@@ -887,6 +887,24 @@ func TestUpdateDpuExtensionServiceHandler_Handle(t *testing.T) {
 			expectedStatus:        http.StatusBadRequest,
 		},
 		{
+			name:                  "error when DPF Helm chart update carries only credentials",
+			reqOrgName:            tnOrg,
+			dpuExtensionServiceID: desDpf.ID.String(),
+			reqBody:               `{"credentials": {"registryUrl": "https://registry.hub.docker.com", "username": "testuser", "password": "testpass"}}`,
+			user:                  tnu1,
+			expectedErr:           true,
+			expectedStatus:        http.StatusBadRequest,
+		},
+		{
+			name:                  "error when DPF Helm chart update carries only observability",
+			reqOrgName:            tnOrg,
+			dpuExtensionServiceID: desDpf.ID.String(),
+			reqBody:               `{"observability": {"configs": []}}`,
+			user:                  tnu1,
+			expectedErr:           true,
+			expectedStatus:        http.StatusBadRequest,
+		},
+		{
 			name:                  "error when DPU Extension Service does not exist",
 			reqOrgName:            tnOrg,
 			dpuExtensionServiceID: uuid.New().String(),
@@ -980,6 +998,10 @@ func TestUpdateDpuExtensionServiceHandler_Handle(t *testing.T) {
 			require.NoError(t, err)
 
 			require.Equal(t, tt.expectedStatus, rec.Code)
+
+			if strings.Contains(tt.name, "carries only") {
+				assert.Nil(t, capturedUpdateRequest)
+			}
 
 			if !tt.expectedErr && rec.Code == http.StatusOK {
 				var apiDES model.APIDpuExtensionService

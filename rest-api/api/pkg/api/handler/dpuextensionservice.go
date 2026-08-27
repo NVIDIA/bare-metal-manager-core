@@ -768,6 +768,18 @@ func (udesh UpdateDpuExtensionServiceHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "DPU Extension Service does not belong to current Tenant", nil)
 	}
 
+	// Core rejects either option for a DPF Helm chart, so fail before dispatch.
+	if dpuExtensionService.ServiceType == cdbm.DpuExtensionServiceServiceTypeDpfHelmChart {
+		if apiRequest.Credentials != nil {
+			logger.Warn().Msg(model.DpfCredentialsUnsupportedError)
+			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, model.DpfCredentialsUnsupportedError, nil)
+		}
+		if apiRequest.Observability != nil {
+			logger.Warn().Msg(model.DpfObservabilityUnsupportedError)
+			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, model.DpfObservabilityUnsupportedError, nil)
+		}
+	}
+
 	// The request does not carry the service type, so the stored service decides
 	// which data format applies.
 	if apiRequest.Data != nil {
