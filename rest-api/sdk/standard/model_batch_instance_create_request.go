@@ -34,6 +34,8 @@ type BatchInstanceCreateRequest struct {
 	TenantId string `json:"tenantId"`
 	// ID of the Instance Type to use for all Instances in the batch
 	InstanceTypeId string `json:"instanceTypeId"`
+	// Optional exact-match selector applied to Machine labels during placement. Property names are arbitrary Machine label keys rather than predefined selector fields. Every supplied key/value pair must match (AND semantics). An omitted or empty object does not restrict placement. The selector constrains placement only; it is not persisted on the created Instances.  A non-empty object requires the Tenant to have effective `targetedInstanceCreation` capability for the selected Site; otherwise the request is rejected with 403. Selection occurs before topology optimization. When `topologyOptimized` is true, all selected Machines must both match the selector and belong to the same NVLink domain. If too few matching Machines are available, the request is rejected with 409.
+	MachineLabelSelector map[string]string `json:"machineLabelSelector,omitempty"`
 	// ID of the VPC the Instances should belong to
 	VpcId string `json:"vpcId"`
 	// IDs of additional VPCs the Instances should attach to through non-primary interfaces. This field may only be specified when every entry in `interfaces` uses `vpcPrefixId` or `vpcId`. IDs must be unique, must be valid UUIDs, and must not include the primary `vpcId`.
@@ -235,6 +237,38 @@ func (o *BatchInstanceCreateRequest) GetInstanceTypeIdOk() (*string, bool) {
 // SetInstanceTypeId sets field value
 func (o *BatchInstanceCreateRequest) SetInstanceTypeId(v string) {
 	o.InstanceTypeId = v
+}
+
+// GetMachineLabelSelector returns the MachineLabelSelector field value if set, zero value otherwise.
+func (o *BatchInstanceCreateRequest) GetMachineLabelSelector() map[string]string {
+	if o == nil || IsNil(o.MachineLabelSelector) {
+		var ret map[string]string
+		return ret
+	}
+	return o.MachineLabelSelector
+}
+
+// GetMachineLabelSelectorOk returns a tuple with the MachineLabelSelector field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *BatchInstanceCreateRequest) GetMachineLabelSelectorOk() (map[string]string, bool) {
+	if o == nil || IsNil(o.MachineLabelSelector) {
+		return map[string]string{}, false
+	}
+	return o.MachineLabelSelector, true
+}
+
+// HasMachineLabelSelector returns a boolean if a field has been set.
+func (o *BatchInstanceCreateRequest) HasMachineLabelSelector() bool {
+	if o != nil && !IsNil(o.MachineLabelSelector) {
+		return true
+	}
+
+	return false
+}
+
+// SetMachineLabelSelector gets a reference to the given map[string]string and assigns it to the MachineLabelSelector field.
+func (o *BatchInstanceCreateRequest) SetMachineLabelSelector(v map[string]string) {
+	o.MachineLabelSelector = v
 }
 
 // GetVpcId returns the VpcId field value
@@ -845,6 +879,9 @@ func (o BatchInstanceCreateRequest) ToMap() (map[string]interface{}, error) {
 	}
 	toSerialize["tenantId"] = o.TenantId
 	toSerialize["instanceTypeId"] = o.InstanceTypeId
+	if !IsNil(o.MachineLabelSelector) {
+		toSerialize["machineLabelSelector"] = o.MachineLabelSelector
+	}
 	toSerialize["vpcId"] = o.VpcId
 	if !IsNil(o.SecondaryVpcIds) {
 		toSerialize["secondaryVpcIds"] = o.SecondaryVpcIds

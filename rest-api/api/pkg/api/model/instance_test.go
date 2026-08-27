@@ -15,6 +15,7 @@ import (
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
+	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -409,6 +410,11 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 		DpuExtensionServiceDeployments []APIDpuExtensionServiceDeploymentRequest
 		NVLinkInterfaces               []APINVLinkInterfaceCreateOrUpdateRequest
 		Labels                         map[string]string
+		MachineLabelSelector           map[string]string
+	}
+	tooManyMachineLabelSelector := make(map[string]string, util.LabelCountMax+1)
+	for i := 0; i <= util.LabelCountMax; i++ {
+		tooManyMachineLabelSelector[fmt.Sprintf("key-%d", i)] = "value"
 	}
 	tests := []struct {
 		name                 string
@@ -441,6 +447,46 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 			},
 			checkDefaultPhysical: true,
 			wantErr:              false,
+		},
+		{
+			name: "test valid Instance with Machine label selector",
+			fields: fields{
+				Name:                 "test-name",
+				TenantID:             uuid.NewString(),
+				InstanceTypeID:       uuid.NewString(),
+				VpcID:                uuid.NewString(),
+				OperatingSystemID:    cutil.GetPtr(uuid.NewString()),
+				Interfaces:           []APIInterfaceCreateOrUpdateRequest{{SubnetID: cutil.GetPtr(uuid.NewString())}},
+				MachineLabelSelector: map[string]string{"custom-machine-label": "required-value"},
+			},
+		},
+		{
+			name: "test invalid Instance with NUL in Machine label selector",
+			fields: fields{
+				Name:                 "test-name",
+				TenantID:             uuid.NewString(),
+				InstanceTypeID:       uuid.NewString(),
+				VpcID:                uuid.NewString(),
+				OperatingSystemID:    cutil.GetPtr(uuid.NewString()),
+				Interfaces:           []APIInterfaceCreateOrUpdateRequest{{SubnetID: cutil.GetPtr(uuid.NewString())}},
+				MachineLabelSelector: map[string]string{"custom-machine-label": "required\x00value"},
+			},
+			wantErr:          true,
+			wantErrorMessage: "machineLabelSelector: machine label selector keys and values must not contain NUL characters",
+		},
+		{
+			name: "test invalid Instance with too many Machine label selector",
+			fields: fields{
+				Name:                 "test-name",
+				TenantID:             uuid.NewString(),
+				InstanceTypeID:       uuid.NewString(),
+				VpcID:                uuid.NewString(),
+				OperatingSystemID:    cutil.GetPtr(uuid.NewString()),
+				Interfaces:           []APIInterfaceCreateOrUpdateRequest{{SubnetID: cutil.GetPtr(uuid.NewString())}},
+				MachineLabelSelector: tooManyMachineLabelSelector,
+			},
+			wantErr:          true,
+			wantErrorMessage: "machineLabelSelector: up to 10 key/value pairs can be specified in labels",
 		},
 		{
 			name: "test valid Instance with InfiniBand interface create request",
@@ -981,6 +1027,7 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 				DpuExtensionServiceDeployments: tt.fields.DpuExtensionServiceDeployments,
 				NVLinkInterfaces:               tt.fields.NVLinkInterfaces,
 				Labels:                         tt.fields.Labels,
+				MachineLabelSelector:           tt.fields.MachineLabelSelector,
 			}
 
 			err := icr.Validate()
@@ -1003,6 +1050,10 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 }
 
 func TestAPIBatchInstanceCreateRequest_Validate(t *testing.T) {
+	tooManyMachineLabelSelector := make(map[string]string, util.LabelCountMax+1)
+	for i := 0; i <= util.LabelCountMax; i++ {
+		tooManyMachineLabelSelector[fmt.Sprintf("key-%d", i)] = "value"
+	}
 	tests := []struct {
 		name             string
 		req              APIBatchInstanceCreateRequest
@@ -1023,6 +1074,49 @@ func TestAPIBatchInstanceCreateRequest_Validate(t *testing.T) {
 				},
 			},
 			wantErr: false,
+		},
+		{
+			name: "succeeds with Machine label selector",
+			req: APIBatchInstanceCreateRequest{
+				NamePrefix:           "test-batch",
+				Count:                2,
+				TenantID:             uuid.NewString(),
+				InstanceTypeID:       uuid.NewString(),
+				VpcID:                uuid.NewString(),
+				IpxeScript:           cutil.GetPtr("test ipxe"),
+				Interfaces:           []APIInterfaceCreateOrUpdateRequest{{SubnetID: cutil.GetPtr(uuid.NewString())}},
+				MachineLabelSelector: map[string]string{"custom-machine-label": "required-value"},
+			},
+		},
+		{
+			name: "fails with NUL in Machine label selector",
+			req: APIBatchInstanceCreateRequest{
+				NamePrefix:           "test-batch",
+				Count:                2,
+				TenantID:             uuid.NewString(),
+				InstanceTypeID:       uuid.NewString(),
+				VpcID:                uuid.NewString(),
+				IpxeScript:           cutil.GetPtr("test ipxe"),
+				Interfaces:           []APIInterfaceCreateOrUpdateRequest{{SubnetID: cutil.GetPtr(uuid.NewString())}},
+				MachineLabelSelector: map[string]string{"custom\x00machine-label": "required-value"},
+			},
+			wantErr:          true,
+			wantErrorMessage: "machineLabelSelector: machine label selector keys and values must not contain NUL characters",
+		},
+		{
+			name: "fails with too many Machine label selector",
+			req: APIBatchInstanceCreateRequest{
+				NamePrefix:           "test-batch",
+				Count:                2,
+				TenantID:             uuid.NewString(),
+				InstanceTypeID:       uuid.NewString(),
+				VpcID:                uuid.NewString(),
+				IpxeScript:           cutil.GetPtr("test ipxe"),
+				Interfaces:           []APIInterfaceCreateOrUpdateRequest{{SubnetID: cutil.GetPtr(uuid.NewString())}},
+				MachineLabelSelector: tooManyMachineLabelSelector,
+			},
+			wantErr:          true,
+			wantErrorMessage: "machineLabelSelector: up to 10 key/value pairs can be specified in labels",
 		},
 		{
 			name: "fails when any interface uses requested ip",
@@ -1122,6 +1216,68 @@ func TestInstanceCreateRequestsValidatePowerProfile(t *testing.T) {
 				require.NoError(t, err)
 			})
 		}
+	}
+}
+
+func TestValidateMachineLabelSelector(t *testing.T) {
+	tooManyFilters := make(map[string]string, util.LabelCountMax+1)
+	for i := 0; i <= util.LabelCountMax; i++ {
+		tooManyFilters[fmt.Sprintf("key-%d", i)] = "value"
+	}
+
+	tests := []struct {
+		name    string
+		filters map[string]string
+		wantErr bool
+	}{
+		{
+			name: "empty",
+		},
+		{
+			name: "valid",
+			filters: map[string]string{
+				"failure-domain": "fd-a",
+				"power-domain":   "pd-2",
+			},
+		},
+		{
+			name:    "too many",
+			filters: tooManyFilters,
+			wantErr: true,
+		},
+		{
+			name:    "empty key",
+			filters: map[string]string{"": "value"},
+			wantErr: true,
+		},
+		{
+			name:    "empty value allowed",
+			filters: map[string]string{"key": ""},
+		},
+		{
+			name:    "NUL in key",
+			filters: map[string]string{"key\x00suffix": "value"},
+			wantErr: true,
+		},
+		{
+			name:    "NUL in value",
+			filters: map[string]string{"key": "value\x00suffix"},
+			wantErr: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateMachineLabelSelector(test.filters)
+			if !test.wantErr {
+				require.NoError(t, err)
+				return
+			}
+
+			require.Error(t, err)
+			assert.IsType(t, validation.Errors{}, err)
+			assert.Contains(t, err.Error(), "machineLabelSelector")
+		})
 	}
 }
 

@@ -21562,6 +21562,8 @@ components:
           labels:
             region: portland
             env: staging
+          machineLabelSelector:
+            custom-machine-label: required-value
           interfaces:
             - subnetId: 1f232bf0-7b90-456e-b9b0-38d9fea4171a
               isPhysical: false
@@ -21682,6 +21684,12 @@ components:
             - string
             - 'null'
           description: ID of of specific Machine to use for Instance. Requires Targeted Instance Creation capability enabled for Tenant
+        machineLabelSelector:
+          $ref: '#/components/schemas/MachineLabelSelector'
+          description: |-
+            Optional exact-match selector applied to Machine labels during placement. Property names are arbitrary Machine label keys rather than predefined selector fields. Every supplied key/value pair must match (AND semantics). An omitted or empty object does not restrict placement.
+
+            A non-empty object requires the Tenant to have effective `targetedInstanceCreation` capability for the selected Site; otherwise the request is rejected with 403. When `instanceTypeId` is supplied, NICo selects from Ready, unassigned Machines of that Instance Type that match the selector. When `machineId` is supplied, the specified Machine must match the selector or the request is rejected with 400. The selector constrains placement only; it is not persisted on the created Instance.
         vpcId:
           type: string
           format: uuid
@@ -21781,6 +21789,8 @@ components:
           labels:
             workload: training
             env: production
+          machineLabelSelector:
+            custom-machine-label: required-value
           interfaces:
             - subnetId: 1f232bf0-7b90-456e-b9b0-38d9fea4171a
               isPhysical: true
@@ -21837,6 +21847,12 @@ components:
           type: string
           format: uuid
           description: ID of the Instance Type to use for all Instances in the batch
+        machineLabelSelector:
+          $ref: '#/components/schemas/MachineLabelSelector'
+          description: |-
+            Optional exact-match selector applied to Machine labels during placement. Property names are arbitrary Machine label keys rather than predefined selector fields. Every supplied key/value pair must match (AND semantics). An omitted or empty object does not restrict placement. The selector constrains placement only; it is not persisted on the created Instances.
+
+            A non-empty object requires the Tenant to have effective `targetedInstanceCreation` capability for the selected Site; otherwise the request is rejected with 403. Selection occurs before topology optimization. When `topologyOptimized` is true, all selected Machines must both match the selector and belong to the same NVLink domain. If too few matching Machines are available, the request is rejected with 409.
         vpcId:
           type: string
           format: uuid
@@ -29120,6 +29136,22 @@ components:
       maxProperties: 10
       additionalProperties:
         type: string
+    MachineLabelSelector:
+      title: Machine Label Selector
+      type: object
+      maxProperties: 10
+      propertyNames:
+        minLength: 1
+        maxLength: 255
+        pattern: '^[^\u0000]*[^\s\u0000][^\u0000]*$'
+      additionalProperties:
+        type: string
+        maxLength: 255
+        pattern: '^[^\u0000]*$'
+      description: Property names are arbitrary Machine label keys supplied by the caller; there is no predefined set of selector fields. Every property must have a string value; an empty string is allowed, but JSON null is not. Keys must not be empty or whitespace-only. Keys and values may contain at most 255 characters and must not contain the Unicode NUL character (U+0000).
+      examples:
+        - custom-machine-label: required-value
+        - empty-value-label: ''
     MachineGPUStats:
       title: MachineGPUStats
       description: GPU summary stats for a single GPU type across machines at a site
