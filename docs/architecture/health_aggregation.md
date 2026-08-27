@@ -336,10 +336,10 @@ Additional fields may be present besides the minimum ones listed below.
 | `health_report.alert_count` | `int_value` (signed 64-bit) | Always | Number of alerts in the report, including any omitted from `health_report.alerts`, bounded to `0..=i64::MAX`. |
 | `health_report.observed_at` | string | Optional | Observation time as RFC 3339 UTC with nanosecond precision, for example `2026-07-31T12:34:56.000000000Z`. Omitted when the report carries no observation time. |
 | `health_report.schema_version` | string | Always | `v1` for the contract documented here. |
-| `health_report.source` | string | Always | The collector that assessed the report: `bmc-sensors`, `bmc-events`, `bmc-leak-detectors`, `tray-leak-detection`, `rack-leak-detection`, `nvue-leakage`, or `gpu-inventory`. |
+| `health_report.source` | string | Always | The collector that assessed the report: `bmc-sensors`, `bmc-events`, `bmc-leak-detectors`, `nmxc-domain-state`, `tray-leak-detection`, `rack-leak-detection`, `nvue-leakage`, or `gpu-inventory`. |
 | `health_report.success_count` | `int_value` (signed 64-bit) | Always | Number of entries in `health_report.successes`, bounded to `0..=i64::MAX`. |
 | `health_report.successes` | array of `kvlist` | Always | One entry per succeeded probe, empty when the report has none. |
-| `health_report.target` | string | Optional | The kind of inventory object assessed: `machine`, `power-shelf`, `rack`, or `switch`. Omitted when the report names no target. |
+| `health_report.target` | string | Optional | The kind of inventory object assessed: `machine`, `nvlink-domain`, `power-shelf`, `rack`, or `switch`. Omitted when the report names no target. |
 
 `health_report.success_count` equals the length of `health_report.successes`
 while that length is representable as `i64`, and otherwise saturates at
@@ -352,7 +352,7 @@ Every `health_report.successes` entry carries at least these fields:
 
 | Field | OTLP type | Presence | Value |
 | --------- | --------- | -------- | ----- |
-| `probe_id` | string | Always | The probe that ran: `BmcSensor`, `IntrusionSensorTriggered`, `BmcLeakDetection`, `NvueLeakage`, or `SkuValidation`. See [Health probe IDs](health/health_probe_ids.md) for the shared probe-ID catalogue. |
+| `probe_id` | string | Always | The probe that ran. See [Health probe IDs](health/health_probe_ids.md) for the supported IDs. |
 | `target` | string | Optional | The probed component, such as a sensor or leak-detector ID. Omitted when the probe ID fully describes what was tested. |
 
 When `health_report.alerts` is present, every JSON object carries the same

@@ -24,6 +24,7 @@ pub mod event_mapper;
 mod events;
 mod health_report;
 mod log_file;
+mod nvlink_domain_health_report;
 pub(crate) mod otlp;
 mod power_shelf_health_report;
 mod prometheus;
@@ -39,6 +40,7 @@ pub use events::{
 };
 pub use health_report::HealthReportSink;
 pub use log_file::LogFileSink;
+pub use nvlink_domain_health_report::NvLinkDomainHealthReportSink;
 pub use power_shelf_health_report::PowerShelfHealthReportSink;
 pub use prometheus::PrometheusSink;
 pub use rack_health_report::RackHealthReportSink;
@@ -96,7 +98,8 @@ pub(crate) struct HealthReportSubmitted {
     pub target: HealthReportTarget,
     #[label]
     pub outcome: carbide_instrument::Outcome,
-    /// The machine, rack, switch, or power shelf the report describes.
+
+    /// The machine, NVLink domain, rack, switch, or power shelf the report describes.
     #[context]
     pub id: String,
     #[context]
