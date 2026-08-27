@@ -543,7 +543,7 @@ workloads like ovnkube-node that also use `hostNetwork: true`. Workloads in pod
 network namespaces cannot reach this endpoint.
 </Note>
 
-### 6.4 Security
+### Security
 
 - The OTLP receiver binds only to loopback (`127.0.0.1`), preventing access from outside the node
 - Loopback does not authenticate callers - any process in the host network namespace can send spans
