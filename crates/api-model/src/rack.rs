@@ -191,6 +191,11 @@ pub enum FirmwareProgressState {
 }
 
 impl FirmwareProgressState {
+    /// Returns `true` once the upgrade has settled and will not advance again
+    /// without a new request, so callers can stop polling the backend for this
+    /// device and treat its `ended_at` as final. `Unknown` is not terminal: an
+    /// unrecognized value is treated as still in flight rather than silently
+    /// completed.
     pub fn is_terminal(&self) -> bool {
         matches!(self, Self::Completed | Self::Failed)
     }
@@ -763,6 +768,10 @@ pub struct MaintenanceScope {
     /// Which maintenance activities to perform. Empty means all activities.
     #[serde(default)]
     pub activities: Vec<MaintenanceActivity>,
+    /// When this request was accepted, stamped by the server rather than
+    /// supplied by the caller. It marks the boundary of the current maintenance
+    /// cycle, so a persisted per-device status can be tested against it to tell
+    /// this request's result from a leftover of the previous one.
     #[serde(default)]
     pub requested_at: Option<DateTime<Utc>>,
 }
@@ -778,6 +787,15 @@ impl MaintenanceScope {
         self.activities.is_empty() || self.activities.iter().any(|a| a.same_kind(activity))
     }
 
+    /// Returns `true` when `other` selects the same devices and activities as
+    /// this scope, used to tell a resubmission of the pending request
+    /// (`AlreadyPending`) from a different one arriving while it is still in
+    /// flight (`Busy`).
+    ///
+    /// This deliberately ignores [`Self::requested_at`]. That field is stamped
+    /// on acceptance, so the pending scope always carries one and an incoming
+    /// scope never does; comparing it would make every resubmission look like a
+    /// different request and turn an idempotent retry into a spurious `Busy`.
     pub fn same_request(&self, other: &Self) -> bool {
         self.machine_ids == other.machine_ids
             && self.switch_ids == other.switch_ids

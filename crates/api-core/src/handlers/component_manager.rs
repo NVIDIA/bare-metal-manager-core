@@ -2077,9 +2077,10 @@ fn derive_machine_firmware_update_status(
     // results do. Without this a compute tray reports FwStateFailed with an empty
     // error and the backend reason never reaches the operator.
     let result = if state == rpc::FirmwareUpdateState::FwStateFailed {
-        machine_firmware_failure_reason(machine).map_or_else(
-            || success_result(machine_id),
-            |reason| error_result(machine_id, reason),
+        error_result(
+            machine_id,
+            machine_firmware_failure_reason(machine)
+                .unwrap_or_else(|| "firmware upgrade failed without a recorded reason".to_owned()),
         )
     } else {
         success_result(machine_id)
