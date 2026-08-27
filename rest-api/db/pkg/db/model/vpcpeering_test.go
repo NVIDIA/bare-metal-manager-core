@@ -263,9 +263,12 @@ func TestVpcPeeringSQLDAO_Create(t *testing.T) {
 					assert.Equal(t, i.InfrastructureProviderID, got.InfrastructureProviderID)
 					assert.Equal(t, i.TenantID, got.TenantID)
 					assert.Equal(t, i.CreatedBy, got.CreatedBy)
-					if i.Status != "" {
-						assert.Equal(t, i.Status, got.Status)
+
+					expectedStatus := i.Status
+					if expectedStatus == "" {
+						expectedStatus = VpcPeeringStatusPending
 					}
+					assert.Equal(t, expectedStatus, got.Status)
 				}
 				if tc.verifyChildSpanner {
 					span := otrace.SpanFromContext(ctx)
@@ -634,7 +637,7 @@ func TestVpcPeeringSQLDAO_UpdateStatusByID(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestVpcPeeringSQLDAO_ClearDeleted(t *testing.T) {
+func TestVpcPeeringSQLDAO_Clear(t *testing.T) {
 	ctx := context.Background()
 	dbSession := testInstanceInitDB(t)
 	defer dbSession.Close()
@@ -673,24 +676,40 @@ func TestVpcPeeringSQLDAO_ClearDeleted(t *testing.T) {
 	require.Len(t, deleted, 1)
 	require.NotNil(t, deleted[0].Deleted)
 
-	t.Run("clears soft-delete marker", func(t *testing.T) {
-		cleared, clearErr := vpcPeeringDAO.Clear(ctx, nil, VpcPeeringClearInput{
-			VpcPeeringID: vpcPeering.ID,
-			Deleted:      true,
-		})
-		require.NoError(t, clearErr)
-		require.NotNil(t, cleared)
-		assert.Nil(t, cleared.Deleted)
-		assert.Equal(t, VpcPeeringStatusDeleting, cleared.Status)
-	})
+	tests := []struct {
+		name          string
+		vpcPeeringID  uuid.UUID
+		expectedError error
+	}{
+		{
+			name:         "clears soft-delete marker",
+			vpcPeeringID: vpcPeering.ID,
+		},
+		{
+			name:          "returns not found for unknown VPC Peering",
+			vpcPeeringID:  uuid.New(),
+			expectedError: db.ErrDoesNotExist,
+		},
+	}
 
-	t.Run("returns not found for unknown VPC Peering", func(t *testing.T) {
-		_, clearErr := vpcPeeringDAO.Clear(ctx, nil, VpcPeeringClearInput{
-			VpcPeeringID: uuid.New(),
-			Deleted:      true,
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cleared, clearErr := vpcPeeringDAO.Clear(ctx, nil, VpcPeeringClearInput{
+				VpcPeeringID: test.vpcPeeringID,
+				Deleted:      true,
+			})
+			if test.expectedError != nil {
+				require.ErrorIs(t, clearErr, test.expectedError)
+				assert.Nil(t, cleared)
+				return
+			}
+
+			require.NoError(t, clearErr)
+			require.NotNil(t, cleared)
+			assert.Nil(t, cleared.Deleted)
+			assert.Equal(t, VpcPeeringStatusDeleting, cleared.Status)
 		})
-		assert.ErrorIs(t, clearErr, db.ErrDoesNotExist)
-	})
+	}
 }
 
 func TestVpcPeeringSQLDAO_Delete(t *testing.T) {
