@@ -2672,8 +2672,15 @@ fn dpu_comparison(namespace: &str, dpu: &DPU, deployment: &DPUDeployment) -> Dpu
     let Some(cr_name) = dpu.metadata.name.clone() else {
         return DpuComparison::Inconclusive;
     };
-    let expected_flavor = deployment.spec.dpus.flavor.clone().unwrap_or_default();
-    let flavor_matches = dpu.spec.dpu_flavor == expected_flavor;
+    // DPUFlavorTemplate is rendered into a per-DPU DPUFlavor by DPF, so the
+    // template name cannot be compared with DPU.spec.dpuFlavor. Only ordinary
+    // DPUFlavor deployments provide a flavor name that is meaningful here.
+    let flavor_matches = deployment
+        .spec
+        .dpus
+        .flavor
+        .as_ref()
+        .is_none_or(|expected_flavor| dpu.spec.dpu_flavor == *expected_flavor);
 
     // A DPUDeployment provisions from either a BFB or a BlueFieldSoftware CR;
     // the DPU CRD enforces that exactly one is set. BFB staleness is read from
