@@ -5528,6 +5528,11 @@ message CloudInitDiscoveryInstructions {
   // How the DPU obtains the CA used to authenticate NICo. The zero value
   // preserves the legacy download behavior for rolling upgrades.
   BootstrapCaSource bootstrap_ca_source = 13;
+
+  // Fixed platform mlxconfig profile to apply while provisioning the DPU.
+  // Omitting this field is equivalent to DPU_NV_CONFIG_PROFILE_UNSPECIFIED
+  // and applies no additional platform settings.
+  DpuNvConfigProfile dpu_nvconfig_profile = 14;
 }
 
 message CloudInitMetaData {
@@ -10124,4 +10129,12 @@ message InterfaceAddressConfig {
   // and debugging; the tenant is not expected to access this address. Writers
   // must set this value on at most one family entry.
   optional string tenant_vrf_loopback_ip = 7;
+}
+
+// Selects a fixed, versioned mlxconfig profile for DPU provisioning.
+enum DpuNvConfigProfile {
+  // No platform profile is selected.
+  DPU_NV_CONFIG_PROFILE_UNSPECIFIED = 0;
+  // Version 1 of the validated GB200/B3240 CPU as Root Complex profile.
+  DPU_NV_CONFIG_PROFILE_GB200_B3240_V1 = 1;
 }
