@@ -233,6 +233,12 @@ jobs:
           # provenance would embed private downstream repo refs into artifacts
           provenance: ${{ github.repository == 'NVIDIA/infra-controller' && 'mode=min' || 'false' }}
           tags: ${{ steps.tag_list.outputs.tags }}
+          # Stamp the source commit so a content-addressed tag (e.g. base images
+          # tagged src-<hash>) can be traced back to the commit that built it via
+          # `docker buildx imagetools inspect`.
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           build-args: ${{ steps.parse-args.outputs.build_args }}
           cache-from: ${{ inputs.cache && 'type=gha' || '' }}
           # Never exported from this branch. The Actions cache is a single 50 GB

@@ -93,6 +93,11 @@ cargo make build-and-test-release-container-services
 cargo make build-cli
 ```
 
+CI content-addresses the base and builder container images, building each only when its
+definition changes and reusing it otherwise. Force a rebuild of all of them by putting
+`ci-rebuild-base-containers` in a commit message. See
+[Continuous Integration](CONTRIBUTING.md#continuous-integration).
+
 ### Testing
 
 ```bash
