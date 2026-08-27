@@ -694,14 +694,17 @@ pub async fn update_restart_verification_status(
     Ok(())
 }
 
+/// Records the database statement execution time as the machine's cleanup timestamp.
+///
+/// This ensures cleanup completed after a concurrent state transition is recorded as newer than
+/// that transition, even when the cleanup transaction began first.
 pub async fn update_cleanup_time(
     machine: &Machine,
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
     // A cleanup transaction can begin before a concurrent state transition commits. Record the
     // update time, not the transaction start time, so completed cleanup is newer than that state.
-    let query =
-        "UPDATE machines SET last_cleanup_time=clock_timestamp() WHERE id=$1 RETURNING id";
+    let query = "UPDATE machines SET last_cleanup_time=clock_timestamp() WHERE id=$1 RETURNING id";
     let _id = sqlx::query_as::<_, MachineId>(query)
         .bind(machine.id.to_string())
         .fetch_one(txn)
