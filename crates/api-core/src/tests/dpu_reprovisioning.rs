@@ -274,15 +274,9 @@ async fn prepare_dpu_reprovision_host_boot_check(
     )
     .await
     .unwrap();
-    db::machine::trigger_dpu_reprovisioning_request(
-        &dpu_machine.id,
-        &mut txn,
-        "AdminCli",
-        true,
-        false,
-    )
-    .await
-    .unwrap();
+    db::machine::trigger_dpu_reprovisioning_request(&dpu_machine.id, &mut txn, "AdminCli", true)
+        .await
+        .unwrap();
     txn.commit().await.unwrap();
 
     dpu_machine
@@ -1581,15 +1575,9 @@ async fn test_restart_dpu_reprov_unassigned_host_boot_failure(pool: sqlx::PgPool
 
     let failed_at = Utc::now();
     let mut txn = env.pool.begin().await.unwrap();
-    db::machine::trigger_dpu_reprovisioning_request(
-        &dpu_machine.id,
-        &mut txn,
-        "AdminCli",
-        true,
-        false,
-    )
-    .await
-    .unwrap();
+    db::machine::trigger_dpu_reprovisioning_request(&dpu_machine.id, &mut txn, "AdminCli", true)
+        .await
+        .unwrap();
     db::machine::update_dpu_reprovision_explicit_start_time(&dpu_machine.id, failed_at, &mut txn)
         .await
         .unwrap();
@@ -1640,9 +1628,9 @@ async fn test_restart_dpu_reprov_unassigned_host_boot_failure(pool: sqlx::PgPool
     );
 }
 
-// A `mh reset` request from a non-ready host state (triggered_from_non_ready_state,
-// started_at == None) is picked up by the controller and enters the reset flow at
-// DeletingInstance, abandoning the Failed state.
+// A `mh reset` request (reset_requested, started_at == None) from a non-ready host
+// state is picked up by the controller and enters the reset flow at DeletingInstance,
+// abandoning the Failed state.
 #[crate::sqlx_test]
 async fn test_reprov_starts_from_non_ready_failed_state(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
@@ -1652,15 +1640,9 @@ async fn test_reprov_starts_from_non_ready_failed_state(pool: sqlx::PgPool) {
 
     let failed_at = Utc::now();
     let mut txn = env.pool.begin().await.unwrap();
-    db::machine::trigger_dpu_reprovisioning_request(
-        &dpu_machine.id,
-        &mut txn,
-        "AdminCli",
-        false,
-        true,
-    )
-    .await
-    .unwrap();
+    db::machine::trigger_dpu_reset_request(&dpu_machine.id, &mut txn, "AdminCli")
+        .await
+        .unwrap();
     db::machine::update_state(
         &mut txn,
         &mh.id,
@@ -1691,17 +1673,17 @@ async fn test_reprov_starts_from_non_ready_failed_state(pool: sqlx::PgPool) {
         "expected Reset/DeletingInstance, got {:?}",
         dpu.current_state()
     );
-    // started_at is stamped only when reprovision actually begins (end of the reset
-    // flow); the Reset state itself is now the loop guard against re-firing.
+    // reset_requested.started_at is stamped only at handoff (end of the reset flow);
+    // the Reset state itself is the loop guard against re-firing here.
     assert!(
-        dpu.reprovision_requested
+        dpu.reset_requested
             .as_ref()
             .is_some_and(|request| request.started_at.is_none())
     );
 }
 
-// The same fresh request without triggered_from_non_ready_state is left untouched in a
-// non-ready state: only the `mh reset` flag opens the non-ready path.
+// A plain reprovision request (not a reset) is left untouched in a non-ready state:
+// only a reset_requested marker opens the non-ready path.
 #[crate::sqlx_test]
 async fn test_normal_request_does_not_start_from_non_ready_state(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
@@ -1711,15 +1693,9 @@ async fn test_normal_request_does_not_start_from_non_ready_state(pool: sqlx::PgP
 
     let failed_at = Utc::now();
     let mut txn = env.pool.begin().await.unwrap();
-    db::machine::trigger_dpu_reprovisioning_request(
-        &dpu_machine.id,
-        &mut txn,
-        "AdminCli",
-        false,
-        false,
-    )
-    .await
-    .unwrap();
+    db::machine::trigger_dpu_reprovisioning_request(&dpu_machine.id, &mut txn, "AdminCli", false)
+        .await
+        .unwrap();
     db::machine::update_state(
         &mut txn,
         &mh.id,
@@ -1788,12 +1764,12 @@ async fn test_non_ready_reset_with_instance_requires_ack_impl(pool: sqlx::PgPool
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = mh.dpu().db_machine(&mut txn).await;
     assert!(
-        dpu.reprovision_requested.is_none(),
-        "a rejected reset must not write a reprovision request"
+        dpu.reset_requested.is_none(),
+        "a rejected reset must not write a reset request"
     );
 }
 
-// With the acknowledgment the same reset is accepted and writes a non-ready reprovision request.
+// With the acknowledgment the same reset is accepted and writes a reset request.
 #[crate::sqlx_test]
 async fn test_non_ready_reset_with_instance_accepts_ack(pool: sqlx::PgPool) {
     Box::pin(test_non_ready_reset_with_instance_accepts_ack_impl(pool)).await;
@@ -1827,12 +1803,12 @@ async fn test_non_ready_reset_with_instance_accepts_ack_impl(pool: sqlx::PgPool)
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = mh.dpu().db_machine(&mut txn).await;
     let request = dpu
-        .reprovision_requested
+        .reset_requested
         .as_ref()
-        .expect("acknowledged reset must write a reprovision request");
+        .expect("acknowledged reset must write a reset request");
     assert!(
-        request.triggered_from_non_ready_state,
-        "a host-level reset from a non-ready state must mark the request accordingly"
+        request.started_at.is_none(),
+        "a fresh reset request must not be marked started yet"
     );
 }
 
@@ -2027,8 +2003,8 @@ async fn test_reset_rejected_from_non_resettable_state(pool: sqlx::PgPool) {
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = mh.dpu().db_machine(&mut txn).await;
     assert!(
-        dpu.reprovision_requested.is_none(),
-        "a rejected reset must not write a reprovision request"
+        dpu.reset_requested.is_none(),
+        "a rejected reset must not write a reset request"
     );
 }
 
@@ -2041,15 +2017,9 @@ async fn test_non_ready_reprov_does_not_start_from_force_deletion(pool: sqlx::Pg
     mh.mark_machine_for_updates().await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    db::machine::trigger_dpu_reprovisioning_request(
-        &dpu_machine.id,
-        &mut txn,
-        "AdminCli",
-        false,
-        true,
-    )
-    .await
-    .unwrap();
+    db::machine::trigger_dpu_reset_request(&dpu_machine.id, &mut txn, "AdminCli")
+        .await
+        .unwrap();
     db::machine::update_state(&mut txn, &mh.id, &ManagedHostState::ForceDeletion)
         .await
         .unwrap();

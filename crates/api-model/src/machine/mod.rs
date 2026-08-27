@@ -839,6 +839,9 @@ pub struct Machine {
     /// Last time when machine reprovision requested.
     pub reprovision_requested: Option<ReprovisionRequest>,
 
+    /// Set when a host reset is requested; cleared at completion with `reprovision_requested`.
+    pub reset_requested: Option<ResetRequest>,
+
     /// Last time when host reprovision requested
     pub host_reprovision_requested: Option<HostReprovisionRequest>,
 
@@ -2531,9 +2534,16 @@ pub struct ReprovisionRequest {
     pub user_approval_received: bool,
     #[serde(default)]
     pub restart_reprovision_requested_at: DateTime<Utc>,
-    /// Set when the reprovision was triggered from a non-ready host state (via `mh reset`).
+}
+
+/// Stored per DPU when a host reset (`mh reset` from a non-ready state) is requested.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResetRequest {
+    pub requested_at: DateTime<Utc>,
+    pub initiator: String,
+    /// Stamped at handoff to reprovisioning; guards the hinge from re-firing.
     #[serde(default)]
-    pub triggered_from_non_ready_state: bool,
+    pub started_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -3907,7 +3917,6 @@ mod tests {
                         started_at: None,
                         user_approval_received: false,
                         restart_reprovision_requested_at: DateTime::<Utc>::UNIX_EPOCH,
-                        triggered_from_non_ready_state: false,
                     });
                 dpu
             })

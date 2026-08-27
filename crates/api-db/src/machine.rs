@@ -51,7 +51,7 @@ use model::machine::{
     CURRENT_STATE_MODEL_VERSION, Dpf, DpuInfo, DpuInfoStatusObservation, DpuOsOperationalState,
     DpuRepresentorStatus, FailureDetails, HostProfile, Machine, MachineInterfaceSnapshot,
     MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineMaintenanceOperation,
-    MachineValidationContext, ManagedHostState, ReprovisionRequest, UpgradeDecision,
+    MachineValidationContext, ManagedHostState, ReprovisionRequest, ResetRequest, UpgradeDecision,
 };
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::metadata::Metadata;
@@ -1732,8 +1732,6 @@ pub async fn trigger_dpu_reprovisioning_request(
     txn: &mut PgConnection,
     initiator: &str,
     update_firmware: bool,
-    // True only for the `mh reset` (non-ready) path; false for normal reprovisioning.
-    triggered_from_non_ready_state: bool,
 ) -> Result<(), DatabaseError> {
     let reprovision_time = chrono::Utc::now();
     let req = ReprovisionRequest {
@@ -1743,7 +1741,6 @@ pub async fn trigger_dpu_reprovisioning_request(
         started_at: None,
         user_approval_received: false,
         restart_reprovision_requested_at: reprovision_time,
-        triggered_from_non_ready_state,
     };
 
     let query = "UPDATE machines SET reprovisioning_requested=$2 WHERE id=$1 RETURNING id";
@@ -1753,6 +1750,63 @@ pub async fn trigger_dpu_reprovisioning_request(
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(())
+}
+
+// Record a host reset request (`mh reset` from a non-ready state) for this DPU.
+pub async fn trigger_dpu_reset_request(
+    machine_id: &MachineId,
+    txn: &mut PgConnection,
+    initiator: &str,
+) -> Result<(), DatabaseError> {
+    let req = ResetRequest {
+        requested_at: chrono::Utc::now(),
+        initiator: initiator.to_string(),
+        started_at: None,
+    };
+
+    let query = "UPDATE machines SET reset_requested=$2 WHERE id=$1 RETURNING id";
+    let _id = sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .bind(sqlx::types::Json(req))
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(())
+}
+
+// Stamp `reset_requested.started_at` when the reset hands off to reprovisioning.
+pub async fn update_dpu_reset_start_time(
+    machine_id: &MachineId,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let query = r#"UPDATE machines
+                        SET reset_requested=
+                                    jsonb_set(reset_requested, '{started_at}', $2, true)
+                       WHERE id=$1 RETURNING id"#;
+    let _id = sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .bind(sqlx::types::Json(chrono::Utc::now()))
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(())
+}
+
+// Clear the reset request at completion, or on cancel.
+pub async fn clear_dpu_reset_request(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE machines SET reset_requested=NULL WHERE id=$1 RETURNING id";
+    let _id = sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::new("clear reset_requested", e))?;
 
     Ok(())
 }

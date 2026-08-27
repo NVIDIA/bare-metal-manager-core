@@ -1353,7 +1353,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
             );
 
             // A per-DPU request from a non-ready host is never reconciled.
-            let triggered_from_non_ready_state = if machine_id.machine_type().is_dpu() {
+            let is_host_reset = if machine_id.machine_type().is_dpu() {
                 if !ready_state {
                     return Err(CarbideError::InvalidArgument(format!(
                         "per-DPU reprovisioning of {machine_id} is only supported when the host is ready; use a host-level reset to reprovision from other states"
@@ -1374,9 +1374,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
                 true
             };
 
-            if triggered_from_non_ready_state
-                && !snapshot.host_snapshot.config.dpf.used_for_ingestion
-            {
+            if is_host_reset && !snapshot.host_snapshot.config.dpf.used_for_ingestion {
                 return Err(CarbideError::InvalidArgument(format!(
                     "machine {machine_id} was not ingested via DPF; reprovisioning from a non-ready state is only supported for DPF-managed DPUs"
                 ))
@@ -1385,10 +1383,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
 
             // A non-ready reset of an assigned host tears down the live instance, so require the ack.
             // The controller performs the actual deletion during the Reset flow; here we only enforce the ack.
-            if triggered_from_non_ready_state
-                && snapshot.instance.is_some()
-                && !req.allow_reset_with_instance
-            {
+            if is_host_reset && snapshot.instance.is_some() && !req.allow_reset_with_instance {
                 return Err(CarbideError::InvalidArgument(format!(
                     "machine {machine_id} is assigned to a live instance; set allow_reset_with_instance to acknowledge disrupting it"
                 ))
@@ -1401,9 +1396,13 @@ pub(crate) async fn trigger_dpu_reprovisioning(
                     &mut txn,
                     initiator,
                     req.update_firmware,
-                    triggered_from_non_ready_state,
                 )
                 .await?;
+            } else if is_host_reset {
+                for dpu_snapshot in &snapshot.dpu_snapshots {
+                    db::machine::trigger_dpu_reset_request(&dpu_snapshot.id, &mut txn, initiator)
+                        .await?;
+                }
             } else {
                 for dpu_snapshot in &snapshot.dpu_snapshots {
                     db::machine::trigger_dpu_reprovisioning_request(
@@ -1411,7 +1410,6 @@ pub(crate) async fn trigger_dpu_reprovisioning(
                         &mut txn,
                         initiator,
                         req.update_firmware,
-                        triggered_from_non_ready_state,
                     )
                     .await?;
                 }

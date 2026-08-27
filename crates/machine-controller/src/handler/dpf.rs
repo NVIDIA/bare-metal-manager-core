@@ -159,11 +159,10 @@ fn waiting_for_ready_exit_state(
         }
         ManagedHostState::DPUReprovision { .. } => {
             // Non-ready reset re-runs full ingestion; standard reprovision keeps the fast path.
-            let full_ingestion = state.dpu_snapshots.iter().any(|d| {
-                d.reprovision_requested
-                    .as_ref()
-                    .is_some_and(|r| r.triggered_from_non_ready_state)
-            });
+            let full_ingestion = state
+                .dpu_snapshots
+                .iter()
+                .any(|d| d.reset_requested.is_some());
             if full_ingestion {
                 // Ingest every current DPU, not just those in the prior reprovision map.
                 let states = state
@@ -583,15 +582,16 @@ async fn handle_dpf_device_ready(
     let next = waiting_for_ready_exit_state(state)?;
 
     // Full-ingestion exit (DPUReprovision → DPUInit) skips RebootHost, where the
-    // standard path clears reprovision_requested. Clear it here in the same txn,
-    // else the Ready handler re-triggers reprovision when the host reaches Ready.
-    // Scope to the reprovision fork; ordinary DPUInit ingestion has nothing to clear.
+    // standard path clears reprovisioning. Clear both requests here in the same txn:
+    // reprovision so the Ready handler doesn't re-trigger it, and reset so the hinge
+    // doesn't re-enter the reset flow. Scope to the reprovision fork.
     if matches!(next, ManagedHostState::DPUInit { .. })
         && matches!(state.managed_state, ManagedHostState::DPUReprovision { .. })
     {
         let mut txn = ctx.services.db_pool.begin().await?;
         for dpu in &state.dpu_snapshots {
             db::machine::clear_dpu_reprovisioning_request(&mut txn, &dpu.id, false).await?;
+            db::machine::clear_dpu_reset_request(&mut txn, &dpu.id).await?;
         }
         return Ok(StateHandlerOutcome::transition(next).with_txn(txn));
     }

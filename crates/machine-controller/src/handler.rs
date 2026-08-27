@@ -792,7 +792,7 @@ impl MachineStateHandler {
 
         // Initial `mh reset` from a non-ready state (eligibility enforced at the API).
         // Excludes the restart path above, which needs started_at.is_some().
-        if non_ready_initial_reprov_needed(&mh_snapshot.dpu_snapshots, &mh_state) {
+        if non_ready_initial_reset_needed(&mh_snapshot.dpu_snapshots, &mh_state) {
             // Enter the reset flow: delete the instance, then the DPF CRs, then
             // hand off to the non-ready reprovision flow that recreates them.
             return Ok(StateHandlerOutcome::transition(ManagedHostState::Reset {
@@ -2286,9 +2286,9 @@ impl MachineStateHandler {
         Ok(None)
     }
 
-    /// Start a DPU reprovision from a non-ready host state (`mh reset`): rebuild
-    /// all DPUs and then run full ingestion, abandoning whatever the host was doing.
-    async fn start_non_ready_reprov(
+    /// Hand off a host reset to reprovisioning: rebuild all DPUs that had a reset
+    /// requested, convert each reset into a reprovision, and run full ingestion.
+    async fn start_non_ready_reset(
         &self,
         state: &ManagedHostStateSnapshot,
         ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
@@ -2296,17 +2296,32 @@ impl MachineStateHandler {
         let dpus_for_reprov = state
             .dpu_snapshots
             .iter()
-            .filter(|d| d.reprovision_requested.is_some())
+            .filter(|d| d.reset_requested.is_some())
             .collect_vec();
 
         for dpu in &dpus_for_reprov {
             handler_restart_dpu(dpu, ctx, state.host_snapshot.config.dpf.used_for_ingestion)
                 .await?;
+            // Convert the reset into a reprovision: create reprovision_requested,
+            // stamp its start time, and stamp reset_requested.started_at so the
+            // hinge won't re-enter the reset flow while reprovisioning runs.
+            let initiator = dpu
+                .reset_requested
+                .as_ref()
+                .map(|r| r.initiator.clone())
+                .unwrap_or_default();
+            ctx.pending_db_writes
+                .push(MachineWriteOp::TriggerDpuReprovision {
+                    machine_id: dpu.id,
+                    initiator,
+                });
             ctx.pending_db_writes
                 .push(MachineWriteOp::UpdateDpuReprovisionStartTime {
                     machine_id: dpu.id,
                     time: Utc::now(),
                 });
+            ctx.pending_db_writes
+                .push(MachineWriteOp::UpdateResetStartTime { machine_id: dpu.id });
         }
 
         // A reset abandons whatever failed before it. Any surviving failure record on
@@ -2449,7 +2464,7 @@ impl MachineStateHandler {
                         "waiting for reset DPF CRs to be deleted".to_string(),
                     ));
                 }
-                let next = self.start_non_ready_reprov(state, ctx).await?;
+                let next = self.start_non_ready_reset(state, ctx).await?;
                 Ok(StateHandlerOutcome::transition(next))
             }
         }
@@ -2535,13 +2550,16 @@ fn dpu_reprovisioning_needed(dpu_snapshots: &[Machine]) -> bool {
 }
 
 /// True when a non-ready `mh reset` request is waiting to start. The
-/// `started_at.is_none()` guard stops it re-firing once reprovision has begun.
-fn non_ready_initial_reprov_needed(
+/// `started_at.is_none()` guard stops it re-firing once handoff has begun.
+fn non_ready_initial_reset_needed(
     dpu_snapshots: &[Machine],
     managed_state: &ManagedHostState,
 ) -> bool {
-    // A reset is allowed from any state except force deletion, which must never be resurrected.
-    if matches!(managed_state, ManagedHostState::ForceDeletion) {
+    // Never reset from force deletion (must not be resurrected) or mid DPU discovery.
+    if matches!(
+        managed_state,
+        ManagedHostState::ForceDeletion | ManagedHostState::DpuDiscoveringState { .. }
+    ) {
         return false;
     }
     // Already inside the reset flow (deleting instance / CRs / waiting); don't re-fire the hinge.
@@ -2549,9 +2567,9 @@ fn non_ready_initial_reprov_needed(
         return false;
     }
     dpu_snapshots.iter().any(|d| {
-        d.reprovision_requested
+        d.reset_requested
             .as_ref()
-            .is_some_and(|r| r.started_at.is_none() && r.triggered_from_non_ready_state)
+            .is_some_and(|r| r.started_at.is_none())
     })
 }
 

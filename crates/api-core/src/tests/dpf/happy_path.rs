@@ -375,18 +375,12 @@ async fn test_reprov_from_non_ready_state_reenters_dpu_init(pool: sqlx::PgPool) 
     txn.commit().await.unwrap();
 
     // Wedge the host in a non-ready Failed state carrying a fresh `mh reset` request
-    // (triggered_from_non_ready_state = true, started_at == None).
+    // (reset_requested, started_at == None).
     let failed_at = Utc::now();
     let mut txn = env.pool.begin().await.unwrap();
-    db::machine::trigger_dpu_reprovisioning_request(
-        &mh.dpu().id,
-        &mut txn,
-        "AdminCli",
-        false,
-        true,
-    )
-    .await
-    .unwrap();
+    db::machine::trigger_dpu_reset_request(&mh.dpu().id, &mut txn, "AdminCli")
+        .await
+        .unwrap();
     db::machine::update_state(
         &mut txn,
         &mh.id,
@@ -415,9 +409,10 @@ async fn test_reprov_from_non_ready_state_reenters_dpu_init(pool: sqlx::PgPool) 
     )
     .await;
 
-    // The request was cleared on the DPUInit fork, so Ready will not re-trigger it.
+    // Both requests were cleared on the DPUInit fork, so Ready will not re-trigger.
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = mh.dpu().db_machine(&mut txn).await;
     assert!(dpu.reprovision_requested.is_none());
+    assert!(dpu.reset_requested.is_none());
     txn.commit().await.unwrap();
 }

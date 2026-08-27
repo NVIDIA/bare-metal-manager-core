@@ -68,6 +68,15 @@ pub enum MachineWriteOp {
         machine_id: MachineId,
         time: DateTime<Utc>,
     },
+    /// Create a fresh reprovision_requested (reset -> reprovision handoff).
+    TriggerDpuReprovision {
+        machine_id: MachineId,
+        initiator: String,
+    },
+    /// Stamp reset_requested.started_at so the reset hinge won't re-fire.
+    UpdateResetStartTime {
+        machine_id: MachineId,
+    },
     UpdateHostReprovisionStartTime {
         machine_id: MachineId,
         time: DateTime<Utc>,
@@ -151,6 +160,17 @@ impl WriteOp for MachineWriteOp {
             UpdateDpuReprovisionStartTime { machine_id, time } => {
                 db::machine::update_dpu_reprovision_explicit_start_time(&machine_id, time, txn)
                     .await?
+            }
+            TriggerDpuReprovision {
+                machine_id,
+                initiator,
+            } => {
+                // update_firmware is deprecated/ignored; fw update is attempted every reprovision.
+                db::machine::trigger_dpu_reprovisioning_request(&machine_id, txn, &initiator, false)
+                    .await?
+            }
+            UpdateResetStartTime { machine_id } => {
+                db::machine::update_dpu_reset_start_time(&machine_id, txn).await?
             }
             UpdateHostReprovisionStartTime { machine_id, time } => {
                 db::machine::update_host_reprovision_explicit_start_time(&machine_id, time, txn)
