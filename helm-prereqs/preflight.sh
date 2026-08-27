@@ -469,6 +469,15 @@ if [[ -n "${KUBECONFIG:-}" && ! -f "${KUBECONFIG}" ]]; then
     ERRORS+=("KUBECONFIG='${KUBECONFIG}' does not exist — check the path to your cluster kubeconfig")
 fi
 
+# RMS requirements. RMS is opt-in (--install-rms / NICO_INSTALL_RMS=true).
+if [[ "${INSTALL_RMS:-false}" == "true" ]]; then
+    [[ -z "${NICO_RMS_IMAGE_TAG:-}" ]] && \
+        ERRORS+=("NICO_RMS_IMAGE_TAG is not set    (RMS API server image tag; the rack-manager chart fails at render without one — required with --install-rms)")
+    if [[ -z "${NICO_RMS_CHART:-}" && -z "${NICO_RMS_NGC_API_KEY:-${REGISTRY_PULL_SECRET:-}}" ]]; then
+        ERRORS+=("NICO_RMS_NGC_API_KEY / REGISTRY_PULL_SECRET not set and NICO_RMS_CHART not set — the rack-manager chart pull from NGC needs a key, or point NICO_RMS_CHART at a local chart")
+    fi
+fi
+
 # DPF requirements. DPF installs by default; these apply unless --skip-dpf
 # (NICO_SKIP_DPF=true / NICO_INSTALL_DPF=false), which clears INSTALL_DPF.
 if [[ "${INSTALL_DPF:-true}" == "true" ]]; then

@@ -99,6 +99,25 @@
 #                          Same override for the nico-dhcp-server chart.
 #   NICO_DPF_OTEL_CHART_VERSION
 #                          Same override for the nico-otelcol chart.
+#   NICO_INSTALL_RMS       Install the NVIDIA Rack Manager Service (rack-manager
+#                          chart, phase 5c). Default: false — opt in with
+#                          --install-rms once the site has NGC access to the
+#                          rms-dev org. Same as --install-rms.
+#   NICO_RMS_CHART         Local rack-manager chart path (directory or .tgz),
+#                          e.g. an nv-rms checkout's helm/ dir. When set, no
+#                          NGC chart pull happens. Default: unset (pull from NGC).
+#   NICO_RMS_CHART_VERSION rack-manager chart version to pull from NGC. NGC
+#                          publishes with an -OSS suffix. Default: 1.0.1-OSS
+#   NICO_RMS_IMAGE_REPO    RMS API server image repository.
+#                          Default: nvcr.io/0837451325059433/rms-dev/rms-api
+#   NICO_RMS_IMAGE_TAG     RMS API server image tag (git-describe style, e.g.
+#                          v0.8.0). REQUIRED when RMS install is enabled — the
+#                          chart hard-fails at render without a tag.
+#   NICO_RMS_NGC_API_KEY   NGC API key for the chart pull and the rms-pull-secret.
+#                          Default: $REGISTRY_PULL_SECRET
+#   NICO_RMS_NAMESPACE     Namespace for the rack-manager release. Must match
+#                          helm-prereqs/values.yaml::rms.namespace (the ESO
+#                          credential sync targets it). Default: rack-manager
 #
 # Usage:
 #   export KUBECONFIG=/path/to/kubeconfig
@@ -113,6 +132,7 @@
 #   ./setup.sh --skip-flow              # skip Phase 7h NICo Flow (REST still installs)
 #                                       #   pair with helm-prereqs/values.yaml::flow.enabled=false
 #                                       #   to skip Flow prerequisites (database / ESO) too
+#   ./setup.sh --install-rms            # also install the Rack Manager Service (phase 5c)
 #   ./setup.sh --skip-core --skip-rest  # fully non-interactive infra-only run
 #   ./setup.sh --core-values /path/to/values.yaml      # use site-specific values for Phase 6
 #   ./setup.sh --metallb-config /path/to/metallb.yaml  # use site-specific MetalLB config (file or kustomize dir)
@@ -144,6 +164,11 @@ SKIP_FLOW=false
 # use the deprecated iPXE DPU path). NICO_INSTALL_DPF=false is honored too.
 INSTALL_DPF="${NICO_INSTALL_DPF:-true}"
 [[ "${NICO_SKIP_DPF:-false}" == "true" ]] && INSTALL_DPF=false
+# RMS (Rack Manager Service) is OPT-IN for now: the rack-manager chart and
+# rms-api image live in the NGC rms-dev org, which most sites cannot pull from
+# yet, and the image tag has no safe default. Flip the default once the chart
+# is public.
+INSTALL_RMS="${NICO_INSTALL_RMS:-false}"
 WITH_OBSERVABILITY="${WITH_OBSERVABILITY:-false}"
 CORE_VALUES=""
 METALLB_CONFIG=""
@@ -156,6 +181,8 @@ while [[ $# -gt 0 ]]; do
         --skip-flow)    SKIP_FLOW=true ;;
         --install-dpf)  INSTALL_DPF=true ;;   # explicit; DPF is the default
         --skip-dpf)     INSTALL_DPF=false ;;
+        --install-rms)  INSTALL_RMS=true ;;
+        --skip-rms)     INSTALL_RMS=false ;;  # explicit; RMS is opt-in for now
         --with-observability) WITH_OBSERVABILITY=true ;;
         --debug)        set -x         ;;
         --core-values)
@@ -173,7 +200,7 @@ while [[ $# -gt 0 ]]; do
             SITE_OVERLAY="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"
             [[ ! -d "${SITE_OVERLAY}" ]] && { echo "Error: --site-overlay directory not found: $2"; exit 1; }
             shift ;;
-        *) echo "Usage: $0 [-y] [--skip-core] [--skip-rest] [--skip-flow] [--skip-dpf] [--with-observability] [--core-values <file>] [--metallb-config <file-or-dir>] [--site-overlay <dir>] [--debug]"; exit 1 ;;
+        *) echo "Usage: $0 [-y] [--skip-core] [--skip-rest] [--skip-flow] [--skip-dpf] [--install-rms] [--with-observability] [--core-values <file>] [--metallb-config <file-or-dir>] [--site-overlay <dir>] [--debug]"; exit 1 ;;
     esac
     shift
 done
@@ -183,7 +210,7 @@ done
 # (in-tree rest-api/) and NICO_REST_HELM_DIR (in-tree helm/rest/). Exits 1 if
 # user declines to continue.
 # ---------------------------------------------------------------------------
-export AUTO_YES SKIP_CORE SKIP_REST SKIP_FLOW INSTALL_DPF
+export AUTO_YES SKIP_CORE SKIP_REST SKIP_FLOW INSTALL_DPF INSTALL_RMS
 # Validate INSTALL_DPF BEFORE sourcing preflight — preflight gates its DPF
 # checks on INSTALL_DPF==true, so a garbage NICO_INSTALL_DPF would otherwise
 # silently skip those checks before erroring here.
@@ -191,6 +218,13 @@ case "${INSTALL_DPF}" in
     true|false) ;;
     *) echo "Error: NICO_INSTALL_DPF must be true or false (got '${INSTALL_DPF}')"; exit 1 ;;
 esac
+case "${INSTALL_RMS}" in
+    true|false) ;;
+    *) echo "Error: NICO_INSTALL_RMS must be true or false (got '${INSTALL_RMS}')"; exit 1 ;;
+esac
+# Re-exported under the NICO_ name for values/nico-prereqs-dynamic.yaml.gotmpl,
+# which gates the rms database / user / ESO sync on it at helmfile sync time.
+export NICO_INSTALL_RMS="${INSTALL_RMS}"
 
 # The predecessor Flow chart bundled PSM and NSM in the Flow Deployment. This
 # release does not provide an automatic migration for those workloads. Stop
@@ -307,6 +341,16 @@ NICO_DPF_NICO_NGC_API_KEY="${NICO_DPF_NICO_NGC_API_KEY:-${NICO_DPF_NGC_API_KEY}}
 # to the chart version (NICO_DPF_VERSION) but can differ for a self-built image.
 NICO_DPF_IMAGE_REPO="${NICO_DPF_IMAGE_REPO:-nvcr.io/nvidia/doca/dpf-system}"
 NICO_DPF_IMAGE_TAG="${NICO_DPF_IMAGE_TAG:-${NICO_DPF_VERSION}}"
+# RMS (rack-manager chart, phase 5c). Chart versions on NGC carry an -OSS
+# suffix and image tags are git-describe style, decoupled from the chart
+# version — NICO_RMS_IMAGE_TAG has no default and preflight requires it when
+# RMS install is enabled.
+NICO_RMS_CHART="${NICO_RMS_CHART:-}"
+NICO_RMS_CHART_VERSION="${NICO_RMS_CHART_VERSION:-1.0.1-OSS}"
+NICO_RMS_IMAGE_REPO="${NICO_RMS_IMAGE_REPO:-nvcr.io/0837451325059433/rms-dev/rms-api}"
+NICO_RMS_IMAGE_TAG="${NICO_RMS_IMAGE_TAG:-}"
+NICO_RMS_NGC_API_KEY="${NICO_RMS_NGC_API_KEY:-${REGISTRY_PULL_SECRET:-}}"
+NICO_RMS_NAMESPACE="${NICO_RMS_NAMESPACE:-rack-manager}"
 # Site-wide BMC root password. Optional: when provided, setup.sh calls
 # nico-admin-cli (phase 6b) to store the credential via the API so DPU
 # provisioning starts immediately. When omitted, carbide-api starts cleanly
@@ -1195,6 +1239,140 @@ if ! "${SKIP_CORE}"; then
     else
         echo "REGISTRY_PULL_SECRET not set — skipping imagepullsecret creation (air-gapped or pre-loaded registry)."
     fi
+fi
+
+# ---------------------------------------------------------------------------
+# 5c. RMS (NVIDIA Rack Manager Service) — optional rack-management backend.
+#     nico-api's chart defaults already dial rms-api-server.rack-manager.svc
+#     :8801 with component-manager backends set to rms; this phase provides
+#     that server. Needs nico-pg-cluster + ESO (5: the rms database, user, and
+#     rms-db-eso sync are created by nico-prereqs when NICO_INSTALL_RMS=true)
+#     and the vault-nico-issuer ClusterIssuer (5) for the mTLS certificate.
+#     Runs before Core (6) only so rack operations work as soon as Core is up;
+#     Core's RMS client is lazy and tolerates RMS arriving later.
+# ---------------------------------------------------------------------------
+if "${INSTALL_RMS}"; then
+    _SETUP_PHASE="[5c] Rack Manager Service"
+    echo ""
+    echo "=== [5c] RMS (Rack Manager Service) ==="
+
+    # 5c.1 Namespace. Created here (not by the chart) so the pull secret and
+    #      the ESO credential sync have somewhere to land before helm runs.
+    #      The rms-db-eso ClusterExternalSecret selects it by metadata.name.
+    kubectl create namespace "${NICO_RMS_NAMESPACE}" --dry-run=client -o yaml \
+        | kubectl apply -f -
+
+    # 5c.2 Image pull secret. Same off-argv construction as the DPF secrets:
+    #      the NGC key must never appear in an exec argument.
+    if [[ -n "${NICO_RMS_NGC_API_KEY}" ]]; then
+        echo "Creating rms-pull-secret in ${NICO_RMS_NAMESPACE}..."
+        _rms_auth="$(printf '%s' "\$oauthtoken:${NICO_RMS_NGC_API_KEY}" | base64 | tr -d '\n')"
+        kubectl create secret generic rms-pull-secret \
+            --namespace "${NICO_RMS_NAMESPACE}" \
+            --type=kubernetes.io/dockerconfigjson \
+            --from-file=.dockerconfigjson=<(printf \
+                '{"auths":{"%s":{"username":"$oauthtoken","password":"%s","auth":"%s"}}}' \
+                "nvcr.io" "${NICO_RMS_NGC_API_KEY}" "${_rms_auth}") \
+            --dry-run=client -o yaml | kubectl apply -f -
+        unset _rms_auth
+    else
+        echo "NICO_RMS_NGC_API_KEY not set — skipping rms-pull-secret (mirror or pre-loaded registry)."
+    fi
+
+    # 5c.3 Resolve the chart: local checkout/tarball via NICO_RMS_CHART, or
+    #      pull the pinned version from NGC into a cache dir. The pull is
+    #      skipped when the exact tarball is already cached.
+    if [[ -n "${NICO_RMS_CHART}" ]]; then
+        _RMS_CHART="${NICO_RMS_CHART}"
+        echo "Using local rack-manager chart: ${_RMS_CHART}"
+    else
+        _RMS_CHART_CACHE="${SCRIPT_DIR}/.rms-chart"
+        _RMS_CHART="${_RMS_CHART_CACHE}/rack-manager-${NICO_RMS_CHART_VERSION}.tgz"
+        if [[ ! -f "${_RMS_CHART}" ]]; then
+            [[ -z "${NICO_RMS_NGC_API_KEY}" ]] && {
+                echo "Error: pulling the rack-manager chart from NGC needs NICO_RMS_NGC_API_KEY"
+                echo "       (or set NICO_RMS_CHART to a local chart path)."
+                exit 1
+            }
+            echo "Pulling rack-manager ${NICO_RMS_CHART_VERSION} from NGC..."
+            mkdir -p "${_RMS_CHART_CACHE}"
+            helm pull \
+                "https://helm.ngc.nvidia.com/0837451325059433/rms-dev/charts/rack-manager-${NICO_RMS_CHART_VERSION}.tgz" \
+                --username='$oauthtoken' --password "${NICO_RMS_NGC_API_KEY}" \
+                --destination "${_RMS_CHART_CACHE}"
+        fi
+        echo "rack-manager chart: ${_RMS_CHART}"
+    fi
+
+    # 5c.4 Wait for the ESO-synced DB credentials. The rms database/user are
+    #      declared on nico-pg-cluster by nico-prereqs (phase 5); the Zalando
+    #      operator mints the credentials Secret and rms-db-eso projects it here.
+    echo "Waiting for RMS DB credentials..."
+    _rms_creds_ok=false
+    for _rms_i in $(seq 1 36); do
+        if kubectl get secret rms.nico.nico-pg-cluster.credentials \
+            -n "${NICO_RMS_NAMESPACE}" &>/dev/null; then
+            _rms_creds_ok=true
+            break
+        fi
+        echo "  credentials not yet synced (${_rms_i}/36) — retrying in 5s..."
+        sleep 5
+    done
+    if [[ "${_rms_creds_ok}" == "false" ]]; then
+        echo "Error: rms.nico.nico-pg-cluster.credentials never appeared in ${NICO_RMS_NAMESPACE}."
+        echo "  → Check 'kubectl describe clusterexternalsecret rms-db-eso' and that the"
+        echo "    Zalando operator created the rms user (kubectl get secret -n postgres | grep rms)."
+        echo "  → Confirm nico-prereqs synced with NICO_INSTALL_RMS=true (phase 5 of this run)."
+        exit 1
+    fi
+    echo "RMS DB credentials ready"
+
+    # 5c.5 Install. No --wait: the pod cannot start until cert-manager writes
+    #      the TLS Secret, so waiting is done explicitly below where each
+    #      failure mode gets its own message instead of a generic helm timeout.
+    NICO_RMS_CMD=(
+        helm upgrade --install rack "${_RMS_CHART}"
+        --namespace "${NICO_RMS_NAMESPACE}"
+        -f "${SCRIPT_DIR}/values/rms.yaml"
+        # The chart renders into .Values.namespace, not the -n flag; set both.
+        --set "namespace=${NICO_RMS_NAMESPACE}"
+        --set-string "apiServer.image.repository=${NICO_RMS_IMAGE_REPO}"
+        --set-string "global.image.tag=${NICO_RMS_IMAGE_TAG}"
+    )
+    [[ -n "${NICO_RMS_NGC_API_KEY}" ]] && \
+        NICO_RMS_CMD+=(--set "global.imagePullSecrets[0].name=rms-pull-secret")
+    "${WITH_OBSERVABILITY}" && \
+        NICO_RMS_CMD+=(--set "apiServer.serviceMonitor.enabled=true")
+    echo "Installing rack-manager helm chart..."
+    "${NICO_RMS_CMD[@]}"
+
+    # 5c.6 Certificate first: issuance is async, and the deployment sits in
+    #      ContainerCreating until the Secret exists.
+    echo "Waiting for the RMS API server certificate..."
+    kubectl wait --for=condition=Ready certificate/rms-api-server-certificate \
+        -n "${NICO_RMS_NAMESPACE}" --timeout=180s
+
+    # The RMS binary refuses to start unless ca.crt is present in the TLS
+    # Secret (it is the client-CA for mTLS). cert-manager's Vault issuer does
+    # not populate ca.crt under every role/chain configuration, so verify it
+    # here with a targeted message rather than letting the pod crashloop.
+    if [[ -z "$(kubectl get secret rms-api-server-certificate \
+            -n "${NICO_RMS_NAMESPACE}" -o jsonpath='{.data.ca\.crt}' 2>/dev/null)" ]]; then
+        echo "Error: the issued Secret rms-api-server-certificate has no ca.crt."
+        echo "  → RMS requires ca.crt as the mTLS client CA and will not start without it."
+        echo "  → Check the vault-nico-issuer CA chain configuration, or pre-create a"
+        echo "    Secret with tls.crt/tls.key/ca.crt and set apiServer.tls.existingSecret."
+        exit 1
+    fi
+
+    echo "Waiting for rms-api-server rollout..."
+    kubectl rollout status deployment/rms-api-server \
+        -n "${NICO_RMS_NAMESPACE}" --timeout=300s
+    echo "RMS ready: rms-api-server.${NICO_RMS_NAMESPACE}.svc.cluster.local:8801"
+else
+    echo ""
+    echo "=== [5c] RMS (Rack Manager Service) ==="
+    echo "Skipped (opt in with --install-rms once the site has NGC rms-dev access)."
 fi
 
 # ---------------------------------------------------------------------------
