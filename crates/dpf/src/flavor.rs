@@ -350,7 +350,7 @@ fn get_bf4_astra_ovs_defaults() -> String {
         "\n",
         "# 2. Enable OVS metrics for xplane and Weave\n",
         "_ovs-vsctl set Open_vSwitch . \\\n",
-        "  other_config:flow-metric-labels=\"to_plane,from_plane,device_name,group,plane\" \\\n",
+        "  'other_config:flow-metric-labels=\"to_plane,from_plane,device_name,group,plane\"' \\\n",
         "  other_config:doca-telemetry-interval=\"1000\" \\\n",
         "  other_config:doca-telemetry-ipc=\"true\" \\\n",
         "  other_config:doca-telemetry-source-id=\"xplane\"\n",
@@ -2300,7 +2300,7 @@ mod tests {
 
             "OVS bootstrap enables xplane and Weave metrics" {
                 (
-                    ovs_script.contains("other_config:flow-metric-labels=\"to_plane,from_plane,device_name,group,plane\"")
+                    ovs_script.contains("'other_config:flow-metric-labels=\"to_plane,from_plane,device_name,group,plane\"'")
                         && ovs_script.contains("other_config:doca-telemetry-interval=\"1000\"")
                         && ovs_script.contains("other_config:doca-telemetry-ipc=\"true\"")
                         && ovs_script.contains("other_config:doca-telemetry-source-id=\"xplane\"")

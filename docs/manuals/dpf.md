@@ -479,7 +479,7 @@ rules:
     verbs: ["get", "create", "patch"]
   - apiGroups: [""]
     resources: ["configmaps"]
-    verbs: ["create"]
+    verbs: ["get", "create"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -752,6 +752,12 @@ uses `DPUFlavorTemplate`. BF3 uses a BFB URL (`bfb_url`), while BF4 uses a
 Every active deployment must have a **unique** `deployment_name`, `flavor_name`,
 and `node_label_key`; carbide-api validates this at startup and refuses to start
 if any deployments collide.
+
+#### BF4 Astra Spectrum-X runtime ConfigMap
+
+BF4 Astra requires a `ra2.2-runtime` ConfigMap in the DPF operator namespace
+(normally `dpf-operator-system`) containing an `RA2.2-runtime.yaml` key.
+Create it before enabling `[dpf.deployments.bf4_astra]`.
 
 ```toml
 # BF3 is present by default. Override only if any change is needed.

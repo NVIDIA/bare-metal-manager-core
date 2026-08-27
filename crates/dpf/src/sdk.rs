@@ -764,12 +764,12 @@ async fn create_dpu_flavor_template<R: DpuFlavorTemplateRepository>(
             let existing = DpuFlavorTemplateRepository::get(repo, &name, namespace).await?;
             match existing {
                 None => Err(DpfError::InvalidState(format!(
-                    "DPUFlavorTemplate {name} disappeared after AlreadyExists conflict; \\
+                    "DPUFlavorTemplate {name} disappeared after AlreadyExists conflict; \
                      will retry on next reconcile",
                 ))),
                 Some(template) if template.metadata.deletion_timestamp.is_some() => {
                     Err(DpfError::InvalidState(format!(
-                        "DPUFlavorTemplate {name} is being deleted (has deletionTimestamp); \\
+                        "DPUFlavorTemplate {name} is being deleted (has deletionTimestamp); \
                          cannot re-create until the old resource is fully removed",
                     )))
                 }
