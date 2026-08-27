@@ -199,6 +199,15 @@ include_sensor_thresholds = true
 fetch_interval = "2m"
 fetch_concurrency = 4
 
+# Redfish telemetry service: pre-aggregated metric reports, one GET per report
+# instead of one per resource. Published under the `hw_telemetry` series name so
+# it stays distinct from `hw_sensor` and `hw_metric`, which can cover the same
+# readings. Only platforms that implement TelemetryService produce anything here;
+# on the rest the collector is a cheap no-op. Disabled by default. Uncomment to
+# enable:
+# [collectors.telemetry]
+# fetch_interval = "1m"
+
 [collectors.firmware]
 firmware_refresh_interval = "30m"
 

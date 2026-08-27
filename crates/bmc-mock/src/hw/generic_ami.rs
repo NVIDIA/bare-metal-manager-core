@@ -95,6 +95,7 @@ impl GenericAmi<'_> {
                 log_services: None,
                 storage: None,
                 processors: None,
+                memory: None,
                 base_bios: Some(
                     redfish::bios::builder(&redfish::bios::resource(system_id))
                         .attributes(json!({"EndlessBoot":""}))

@@ -34,6 +34,7 @@ use crate::config::{
     MtlsProfileConfig, NmxcCollectorConfig as NmxcCollectorOptions,
     NmxtCollectorConfig as NmxtCollectorOptions, NvueCollectorConfig as NvueCollectorOptions,
     SensorCollectorConfig as SensorCollectorOptions,
+    TelemetryCollectorConfig as TelemetryCollectorOptions,
 };
 use crate::limiter::RateLimiter;
 use crate::metrics::{MetricsManager, operation_duration_buckets_seconds};
@@ -44,6 +45,7 @@ pub(super) enum CollectorKind {
     Discovery,
     Sensor,
     Metrics,
+    Telemetry,
     Logs,
     Firmware,
     LeakDetector,
@@ -55,10 +57,11 @@ pub(super) enum CollectorKind {
 }
 
 impl CollectorKind {
-    pub(super) const ALL: [CollectorKind; 11] = [
+    pub(super) const ALL: [CollectorKind; 12] = [
         CollectorKind::Discovery,
         CollectorKind::Sensor,
         CollectorKind::Metrics,
+        CollectorKind::Telemetry,
         CollectorKind::Logs,
         CollectorKind::Firmware,
         CollectorKind::LeakDetector,
@@ -74,6 +77,7 @@ pub(super) struct CollectorState {
     discovery: HashMap<Cow<'static, str>, Collector>,
     sensors: HashMap<Cow<'static, str>, Collector>,
     metrics: HashMap<Cow<'static, str>, Collector>,
+    telemetry: HashMap<Cow<'static, str>, Collector>,
     firmware: HashMap<Cow<'static, str>, Collector>,
     leak_detector: HashMap<Cow<'static, str>, Collector>,
     logs: HashMap<Cow<'static, str>, Collector>,
@@ -91,6 +95,7 @@ impl CollectorState {
             discovery: HashMap::new(),
             sensors: HashMap::new(),
             metrics: HashMap::new(),
+            telemetry: HashMap::new(),
             firmware: HashMap::new(),
             leak_detector: HashMap::new(),
             logs: HashMap::new(),
@@ -108,6 +113,7 @@ impl CollectorState {
             CollectorKind::Discovery => &self.discovery,
             CollectorKind::Sensor => &self.sensors,
             CollectorKind::Metrics => &self.metrics,
+            CollectorKind::Telemetry => &self.telemetry,
             CollectorKind::Logs => &self.logs,
             CollectorKind::Firmware => &self.firmware,
             CollectorKind::LeakDetector => &self.leak_detector,
@@ -127,6 +133,7 @@ impl CollectorState {
             CollectorKind::Discovery => &mut self.discovery,
             CollectorKind::Sensor => &mut self.sensors,
             CollectorKind::Metrics => &mut self.metrics,
+            CollectorKind::Telemetry => &mut self.telemetry,
             CollectorKind::Logs => &mut self.logs,
             CollectorKind::Firmware => &mut self.firmware,
             CollectorKind::LeakDetector => &mut self.leak_detector,
@@ -178,6 +185,7 @@ impl CollectorState {
             .keys()
             .chain(self.sensors.keys())
             .chain(self.metrics.keys())
+            .chain(self.telemetry.keys())
             .chain(self.logs.keys())
             .chain(self.firmware.keys())
             .chain(self.leak_detector.keys())
@@ -215,6 +223,7 @@ pub struct DiscoveryLoopContext {
     pub(crate) discovery_config: DiscoveryConfig,
     pub(crate) sensors_config: Configurable<SensorCollectorOptions>,
     pub(crate) metrics_config: Configurable<MetricsCollectorOptions>,
+    pub(crate) telemetry_config: Configurable<TelemetryCollectorOptions>,
     pub(crate) logs_config: Configurable<LogsCollectorOptions>,
     pub(crate) firmware_config: Configurable<FirmwareCollectorOptions>,
     pub(crate) leak_detector_config: Configurable<LeakDetectorCollectorOptions>,
@@ -291,6 +300,7 @@ impl DiscoveryLoopContext {
             discovery_config: config.collectors.discovery.clone(),
             sensors_config: config.collectors.sensors.clone(),
             metrics_config: config.collectors.metrics.clone(),
+            telemetry_config: config.collectors.telemetry.clone(),
             logs_config: config.collectors.logs.clone(),
             firmware_config: config.collectors.firmware.clone(),
             leak_detector_config: config.collectors.leak_detector.clone(),

@@ -28,6 +28,7 @@ pub mod leak_detector;
 pub mod log_service;
 pub mod manager;
 pub mod manager_network_protocol;
+pub mod memory;
 pub mod network_adapter;
 pub mod network_device_function;
 pub mod oem;

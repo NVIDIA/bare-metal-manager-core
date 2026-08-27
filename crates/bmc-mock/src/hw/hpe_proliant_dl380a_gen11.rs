@@ -117,6 +117,7 @@ impl HpeProliantDl380aGen11<'_> {
                 log_services: None,
                 storage: None,
                 processors: None,
+                memory: None,
                 serial_console: None,
                 secure_boot_available: true,
                 // Locked-down production state expected by nico: USB boot off,

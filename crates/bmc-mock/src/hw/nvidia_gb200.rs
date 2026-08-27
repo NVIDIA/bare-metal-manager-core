@@ -106,6 +106,17 @@ impl BiancaBoard<'_> {
         })
     }
 
+    /// The HBM stack behind each GPU on this board.
+    ///
+    /// Capacity mirrors the `GB200 186GB HBM3e` model the GPU chassis
+    /// reports.
+    pub fn hgx_gpu_memory(&self, system_id: &str) -> [redfish::memory::Memory; 2] {
+        self.gpu_chassis_ids().map(|ids| {
+            let memory_id = format!("{}_DRAM_0", ids.pcie_device_id);
+            redfish::memory::hbm(system_id, &memory_id, 186 * 1024)
+        })
+    }
+
     pub fn hgx_gpu_chassis(&self) -> [redfish::chassis::SingleChassisConfig; 2] {
         self.gpu_chassis_ids().map(|ids| {
             let sensors = redfish::sensor::generate_chassis_sensors(
