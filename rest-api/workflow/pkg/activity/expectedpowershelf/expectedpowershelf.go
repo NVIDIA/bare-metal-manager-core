@@ -142,6 +142,15 @@ func (mei ManageExpectedPowerShelf) UpdateExpectedPowerShelvesInDB(ctx context.C
 			continue
 		}
 
+		// A row written since the Site collected this inventory holds changes the snapshot
+		// cannot know about, including any made through the API, so writing the reported values
+		// over them would lose those edits.
+		if site.IsTimeWithinStaleInventoryThreshold(cur.Updated) {
+			logger.Info().Str("ExpectedPowerShelfID", cur.ID.String()).Msg("not updating ExpectedPowerShelf yet because it changed more recently than the inventory interval")
+
+			continue
+		}
+
 		// update if any field differs
 		if cur.BmcMacAddress != reported.BmcMacAddress ||
 			cur.ShelfSerialNumber != reported.ShelfSerialNumber ||

@@ -134,6 +134,15 @@ func (mer ManageExpectedRack) UpdateExpectedRacksInDB(ctx context.Context, siteI
 			continue
 		}
 
+		// A row written since the Site collected this inventory holds changes the snapshot
+		// cannot know about, including any made through the API, so writing the reported values
+		// over them would lose those edits.
+		if site.IsTimeWithinStaleInventoryThreshold(cur.Updated) {
+			logger.Info().Str("ExpectedRackID", cur.ID.String()).Msg("not updating ExpectedRack yet because it changed more recently than the inventory interval")
+
+			continue
+		}
+
 		// update if any field differs
 		if cur.RackProfileID != reported.RackProfileID ||
 			cur.Name != reported.Name ||

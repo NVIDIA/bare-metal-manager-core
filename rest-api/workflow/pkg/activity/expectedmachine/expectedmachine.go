@@ -194,6 +194,15 @@ func (mei ManageExpectedMachine) UpdateExpectedMachinesInDB(ctx context.Context,
 			continue
 		}
 
+		// A row written since the Site collected this inventory holds changes the snapshot
+		// cannot know about, including any made through the API, so writing the reported values
+		// over them would lose those edits.
+		if site.IsTimeWithinStaleInventoryThreshold(cur.Updated) {
+			logger.Info().Str("ExpectedMachineID", cur.ID.String()).Msg("not updating ExpectedMachine yet because it changed more recently than the inventory interval")
+
+			continue
+		}
+
 		// update if any field differs
 		if cur.BmcMacAddress != reported.BmcMacAddress ||
 			cur.ChassisSerialNumber != reported.ChassisSerialNumber ||

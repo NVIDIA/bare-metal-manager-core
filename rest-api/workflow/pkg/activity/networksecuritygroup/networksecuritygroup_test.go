@@ -16,6 +16,7 @@ import (
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
+	cwu "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -506,6 +507,8 @@ func TestManageNetworkSecurityGroup_UpdateNetworkSecurityGroupsInDB(t *testing.T
 			}
 
 			mv.siteClientPool.IDClientMap[tt.args.siteID.String()] = tt.fields.clientPoolClient
+
+			cwu.TestInventoryAgeUpdatedTimestamp(tt.args.ctx, t, dbSession, (*cdbm.NetworkSecurityGroup)(nil))
 
 			err := mv.UpdateNetworkSecurityGroupsInDB(tt.args.ctx, tt.args.siteID, tt.args.networkSecurityGroupInventory)
 			assert.Equal(t, tt.wantErr, err != nil)

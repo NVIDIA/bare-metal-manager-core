@@ -705,6 +705,8 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 
 			mv.siteClientPool.IDClientMap[tt.args.siteID.String()] = tt.fields.clientPoolClient
 
+			cwu.TestInventoryAgeUpdatedTimestamp(tt.args.ctx, t, dbSession, (*cdbm.Vpc)(nil))
+
 			_, err := mv.UpdateVpcsInDB(tt.args.ctx, tt.args.siteID, tt.args.vpcInventory)
 			assert.Equal(t, tt.wantErr, err != nil)
 
@@ -1005,6 +1007,7 @@ func TestManageVpc_UpdateVpcsInDB_AutoCreatesAndRestores(t *testing.T) {
 		require.Len(t, deletedVpcs, 1)
 		require.NotNil(t, deletedVpcs[0].Deleted)
 
+		cwu.TestInventoryAgeUpdatedTimestamp(ctx, t, dbSession, (*cdbm.Vpc)(nil))
 		_, err = manager.UpdateVpcsInDB(ctx, site.ID, inventory)
 		require.NoError(t, err)
 		restoredVpc, err := vpcDAO.GetByID(ctx, nil, controllerVpcID, nil)

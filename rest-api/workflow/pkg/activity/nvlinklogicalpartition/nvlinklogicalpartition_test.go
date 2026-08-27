@@ -424,6 +424,8 @@ func TestManageNVLinkLogicalPartition_UpdateNVLinkLogicalPartitionsInDB(t *testi
 			mtc := &tmocks.Client{}
 			mnvllp.siteClientPool.IDClientMap[st1.ID.String()] = mtc
 
+			cwu.TestInventoryAgeUpdatedTimestamp(tt.args.ctx, t, dbSession, (*cdbm.NVLinkLogicalPartition)(nil))
+
 			err := mnvllp.UpdateNVLinkLogicalPartitionsInDB(tt.args.ctx, tt.args.siteID, tt.args.nvLinkLogicalPartitionInventory)
 			assert.Equal(t, tt.wantErr, err != nil)
 

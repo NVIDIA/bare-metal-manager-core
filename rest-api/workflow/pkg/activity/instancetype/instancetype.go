@@ -101,10 +101,17 @@ func (mv ManageInstanceType) UpdateInstanceTypesInDB(ctx context.Context, siteID
 
 		} else if instanceType.Version != controllerInstanceType.Version {
 
-			err := mv.UpdateInstanceTypeInCloud(ctx, site, instanceTypeDAO, macCapDAO, instanceType, controllerInstanceType)
-			if err != nil {
-				slogger.Error().Err(err).Msg("failed to update instance type in DB")
-				continue
+			// The update overwrites Name and Description from the report, so a row written since
+			// the Site collected this inventory would lose an edit made through the API. Skipping
+			// only the update keeps the reported-ID bookkeeping below intact.
+			if site.IsTimeWithinStaleInventoryThreshold(instanceType.Updated) {
+				slogger.Info().Msg("not updating InstanceType yet because it changed more recently than the inventory interval")
+			} else {
+				err := mv.UpdateInstanceTypeInCloud(ctx, site, instanceTypeDAO, macCapDAO, instanceType, controllerInstanceType)
+				if err != nil {
+					slogger.Error().Err(err).Msg("failed to update instance type in DB")
+					continue
+				}
 			}
 
 		}
