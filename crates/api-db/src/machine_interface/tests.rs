@@ -132,40 +132,6 @@ async fn create_managed_segment(
 }
 
 #[crate::sqlx_test]
-async fn invalidation_time_follows_dhcp_started_after_transaction_start(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut invalidation_txn = pool.begin().await?;
-    let transaction_started_at: chrono::DateTime<chrono::Utc> =
-        sqlx::query_scalar("SELECT transaction_timestamp()")
-            .fetch_one(invalidation_txn.as_mut())
-            .await?;
-
-    tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-    let dhcp_started_at: chrono::DateTime<chrono::Utc> =
-        sqlx::query_scalar("SELECT clock_timestamp()")
-            .fetch_one(&pool)
-            .await?;
-
-    record_deletion(invalidation_txn.as_mut()).await?;
-    invalidation_txn.commit().await?;
-
-    let mut verify_txn = pool.begin().await?;
-    let invalidation_time = db::dhcp_record::last_invalidation_time(verify_txn.as_mut()).await?;
-    assert!(
-        transaction_started_at < dhcp_started_at,
-        "the invalidation transaction must start before the DHCP server"
-    );
-    assert!(
-        invalidation_time > dhcp_started_at,
-        "an invalidation committed after a DHCP server starts must be newer than that server"
-    );
-    verify_txn.commit().await?;
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
 async fn find_by_machine_id_for_update_locks_non_bmc_interfaces_in_id_order(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {

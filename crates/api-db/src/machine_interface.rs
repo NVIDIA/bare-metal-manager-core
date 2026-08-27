@@ -3666,14 +3666,10 @@ pub async fn delete(
     record_deletion(txn).await
 }
 
-/// Records that machine interface data may have been invalidated so DHCP servers restart and
-/// reload their configuration.
-///
-/// The timestamp reflects statement execution rather than transaction start, ensuring an
-/// invalidation committed after a DHCP server starts is not recorded as older than that server.
+/// Record that machine interface data may have been invalidated so DHCP
+/// servers restart and reload their configuration.
 pub async fn record_deletion(txn: &mut PgConnection) -> Result<(), DatabaseError> {
-    const QUERY: &str =
-        "UPDATE machine_interfaces_deletion SET last_deletion=clock_timestamp() WHERE id = 1";
+    const QUERY: &str = "UPDATE machine_interfaces_deletion SET last_deletion=NOW() WHERE id = 1";
     sqlx::query(QUERY)
         .execute(txn)
         .await
