@@ -71,6 +71,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_dpu_agent_report_total</td><td>counter</td><td>Number of DPU-agent report-loop iterations, by loop and outcome</td></tr>
 <tr><td>carbide_dpu_agent_service_restart_attempts_total</td><td>counter</td><td>Number of DPU-agent service restart attempts, by service and result.</td></tr>
 <tr><td>carbide_dpu_agent_version_count</td><td>gauge</td><td>Number of DPU agents which have reported a certain version.</td></tr>
+<tr><td>carbide_dpu_bmc_service_credential_rotation_results_total</td><td>counter</td><td>Number of persisted DPU BMC service credential rotation results, by result</td></tr>
 <tr><td>carbide_dpu_firmware_version_count</td><td>gauge</td><td>Number of DPUs which have reported a certain firmware version.</td></tr>
 <tr><td>carbide_dpu_remediation_executor_failures_total</td><td>counter</td><td>Number of DPU remediation executor failures, by failure stage.</td></tr>
 <tr><td>carbide_dpu_uefi_password_setup_skips_total</td><td>counter</td><td>Number of DPU UEFI password setup operations skipped, by reason.</td></tr>

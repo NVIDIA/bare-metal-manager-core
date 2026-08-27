@@ -330,6 +330,10 @@ const (
 	RotationCredentialType_ROTATION_DPU_UEFI                    RotationCredentialType = 3
 	RotationCredentialType_ROTATION_NVOS                        RotationCredentialType = 4
 	RotationCredentialType_ROTATION_LOCKDOWN_IKM                RotationCredentialType = 5
+	// BF4 DPU BMC `service` account password. Only BF4 DPUs expose this account;
+	// other devices are never enrolled, so a rotation converges just the BF4 DPU
+	// BMCs.
+	RotationCredentialType_ROTATION_DPU_BMC_SERVICE RotationCredentialType = 6
 )
 
 // Enum value maps for RotationCredentialType.
@@ -341,6 +345,7 @@ var (
 		3: "ROTATION_DPU_UEFI",
 		4: "ROTATION_NVOS",
 		5: "ROTATION_LOCKDOWN_IKM",
+		6: "ROTATION_DPU_BMC_SERVICE",
 	}
 	RotationCredentialType_value = map[string]int32{
 		"ROTATION_CREDENTIAL_TYPE_UNSPECIFIED": 0,
@@ -349,6 +354,7 @@ var (
 		"ROTATION_DPU_UEFI":                    3,
 		"ROTATION_NVOS":                        4,
 		"ROTATION_LOCKDOWN_IKM":                5,
+		"ROTATION_DPU_BMC_SERVICE":             6,
 	}
 )
 
@@ -70211,14 +70217,15 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x04NmxM\x10\n" +
 	"\x12\x1b\n" +
 	"\x17BgpSiteWideLeafPassword\x10\v\x12\x1a\n" +
-	"\x16SiteWideNicLockdownIkm\x10\f*\xb1\x01\n" +
+	"\x16SiteWideNicLockdownIkm\x10\f*\xcf\x01\n" +
 	"\x16RotationCredentialType\x12(\n" +
 	"$ROTATION_CREDENTIAL_TYPE_UNSPECIFIED\x10\x00\x12\x10\n" +
 	"\fROTATION_BMC\x10\x01\x12\x16\n" +
 	"\x12ROTATION_HOST_UEFI\x10\x02\x12\x15\n" +
 	"\x11ROTATION_DPU_UEFI\x10\x03\x12\x11\n" +
 	"\rROTATION_NVOS\x10\x04\x12\x19\n" +
-	"\x15ROTATION_LOCKDOWN_IKM\x10\x05*S\n" +
+	"\x15ROTATION_LOCKDOWN_IKM\x10\x05\x12\x1c\n" +
+	"\x18ROTATION_DPU_BMC_SERVICE\x10\x06*S\n" +
 	"\x0fBuildCapability\x12 \n" +
 	"\x1cBUILD_CAPABILITY_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aBUILD_CAPABILITY_VPC_SLAAC\x10\x01*\x89\x01\n" +

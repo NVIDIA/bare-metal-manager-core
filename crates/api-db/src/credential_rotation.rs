@@ -110,6 +110,7 @@ pub enum CredentialRotationType {
     DpuUefi,
     Nvos,
     LockdownIkm,
+    DpuBmcService,
 }
 
 /// Records that `device_mac` now carries the current site-wide `credential_type`
@@ -1049,6 +1050,9 @@ async fn nvos_device_rotation_status(
 // than as a standalone top-level module.
 #[cfg(test)]
 mod test_backfill;
+
+#[cfg(test)]
+mod test_dpu_bmc_service_backfill;
 
 #[cfg(test)]
 mod tests {
