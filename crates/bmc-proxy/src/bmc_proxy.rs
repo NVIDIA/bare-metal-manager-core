@@ -62,7 +62,23 @@ use crate::metrics::{
 };
 
 const TLS_REFRESH_INTERVAL: Duration = Duration::from_secs(5 * 60);
-const MAX_BODY_SIZE: usize = 8 * 1024 * 1024; // 8MiB body size limit (matches nginx ingress controller defaults)
+/// Bodies up to this size are buffered and forwarded with the exact framing
+/// BMCs have always seen. Anything larger -- Redfish multipart firmware
+/// pushes, mainly -- is streamed through instead of being rejected, which the
+/// old 8 MiB hard cap did. (8 MiB matches nginx ingress controller defaults.)
+const MAX_BUFFERED_BODY_SIZE: usize = 8 * 1024 * 1024;
+/// Total-request budget for ordinary exchanges; the shared client's default
+/// and the base that streamed-upload timeouts build on.
+const UPSTREAM_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+/// Floor transfer rate used to scale a streamed upload's timeout from its
+/// declared size, mirroring libredfish's firmware-upload heuristic. The
+/// shared client's 60-second default would abort any large image mid-push.
+const MIN_UPLOAD_BANDWIDTH_BYTES_PER_SEC: u64 = 10_000;
+/// Ceiling on a streamed upload's scaled timeout. The declared length is
+/// caller-supplied, so without a cap a lying `Content-Length` would let a
+/// stalled request pin a proxy task and a BMC connection indefinitely. Four
+/// hours covers any real firmware image at the floor rate.
+const MAX_UPLOAD_TIMEOUT: Duration = Duration::from_secs(4 * 60 * 60);
 
 #[derive(thiserror::Error, Debug)]
 pub(crate) enum BmcProxyError {
@@ -679,10 +695,6 @@ async fn proxy_request_inner(
 
     copy_request_headers(&parts.headers, &mut bmc_client_info.header_map);
 
-    let body = axum::body::to_bytes(body, MAX_BODY_SIZE)
-        .await
-        .map_err(|e| error_response((StatusCode::BAD_REQUEST, e.to_string()).into()))?;
-
     let mut upstream_uri_parts = bmc_client_info.base_upstream_uri.into_parts();
     upstream_uri_parts.path_and_query = Some(path_and_query);
     let upstream_uri = Uri::from_parts(upstream_uri_parts)
@@ -700,7 +712,9 @@ async fn proxy_request_inner(
         })?;
 
     if method_supports_body(&parts.method) {
-        upstream_request = upstream_request.body(body);
+        upstream_request = attach_request_body(upstream_request, &parts.headers, body)
+            .await
+            .map_err(|e| error_response((StatusCode::BAD_REQUEST, e.to_string()).into()))?;
     }
 
     let started = Instant::now();
@@ -886,6 +900,49 @@ fn method_supports_body(method: &Method) -> bool {
     // Redfish services can accept DELETE payloads, so only the methods this
     // proxy treats as bodyless are excluded.
     !matches!(*method, Method::GET | Method::HEAD)
+}
+
+/// Attaches the caller's body to the upstream request.
+///
+/// Small and unsized bodies are buffered, so the upstream sees the same
+/// `Content-Length` framing as before streaming existed. A body whose
+/// declared length exceeds [`MAX_BUFFERED_BODY_SIZE`] is streamed through
+/// with its length forwarded explicitly -- an explicit `Content-Length`
+/// keeps hyper from switching to chunked transfer encoding, which BMC
+/// firmwares commonly reject -- and with a timeout scaled to that length,
+/// because the client-wide 60-second default assumes small exchanges.
+async fn attach_request_body(
+    request: reqwest_middleware::RequestBuilder,
+    headers: &HeaderMap,
+    body: Body,
+) -> Result<reqwest_middleware::RequestBuilder, axum::Error> {
+    let declared_length = headers
+        .get(axum::http::header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok());
+
+    match declared_length {
+        // A streamed body cannot be replayed, so reqwest's redirect layer
+        // forwards a BMC 307/308 to the caller as-is instead of following it
+        // the way buffered requests do. Callers pushing firmware should use
+        // the canonical UpdateService URI rather than rely on redirects.
+        Some(length) if length > MAX_BUFFERED_BODY_SIZE as u64 => Ok(request
+            .header(axum::http::header::CONTENT_LENGTH, length)
+            .timeout(sized_upload_timeout(length))
+            .body(reqwest::Body::wrap_stream(body.into_data_stream()))),
+        // An unsized (chunked) body keeps the old 8 MiB bound: without a
+        // declared length there is nothing to scale a timeout by, and no
+        // Content-Length to preserve toward the BMC.
+        _ => Ok(request.body(axum::body::to_bytes(body, MAX_BUFFERED_BODY_SIZE).await?)),
+    }
+}
+
+/// Time allowed for a streamed upload of `length` bytes: the ordinary
+/// request budget plus the transfer itself at worst-case OOB bandwidth,
+/// bounded by [`MAX_UPLOAD_TIMEOUT`] because `length` is caller-supplied.
+fn sized_upload_timeout(length: u64) -> Duration {
+    (UPSTREAM_REQUEST_TIMEOUT + Duration::from_secs(length / MIN_UPLOAD_BANDWIDTH_BYTES_PER_SEC))
+        .min(MAX_UPLOAD_TIMEOUT)
 }
 
 fn is_hop_by_hop_header(name: &str) -> bool {
@@ -1141,7 +1198,7 @@ fn build_http_client() -> Result<reqwest_middleware::ClientWithMiddleware, BmcPr
         .danger_accept_invalid_certs(true)
         .redirect(reqwest::redirect::Policy::limited(5))
         .connect_timeout(std::time::Duration::from_secs(5)) // Limit connections to 5 seconds
-        .timeout(std::time::Duration::from_secs(60)) // Limit the overall request to 60 seconds
+        .timeout(UPSTREAM_REQUEST_TIMEOUT) // Limit the overall request; uploads override per request
         .pool_max_idle_per_host(4)
         .build()
         .map_err(|err| {
@@ -1183,6 +1240,7 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use std::str::FromStr;
     use std::sync::Arc;
+    use std::time::Duration;
 
     use axum::body::Body;
     use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, Request, StatusCode};
@@ -1206,11 +1264,12 @@ mod tests {
 
     use super::{
         BmcCredentials, BmcProxyState, ConnectionFailReason, CredentialCache, ForwardedTarget,
-        TcpAcceptFailed, TlsCertificateReloadFailed, TlsConnectionFailed,
-        authorize_principal_allow_list, bmc_proxy_request_span, build_authority, build_response,
-        copy_request_headers, create_client, evict_cached_credentials, forwarded_header_value,
-        get_http_client, ip_for_forwarded_target, is_hop_by_hop_header, method_supports_body,
-        parse_forwarded_host_value, request_principal_ids, span_status,
+        MAX_BUFFERED_BODY_SIZE, TcpAcceptFailed, TlsCertificateReloadFailed, TlsConnectionFailed,
+        attach_request_body, authorize_principal_allow_list, bmc_proxy_request_span,
+        build_authority, build_http_client, build_response, copy_request_headers, create_client,
+        evict_cached_credentials, forwarded_header_value, get_http_client, ip_for_forwarded_target,
+        is_hop_by_hop_header, method_supports_body, parse_forwarded_host_value,
+        request_principal_ids, span_status,
     };
     use crate::metrics::MethodLabel;
 
@@ -2266,6 +2325,126 @@ mod tests {
             summarize_created_client,
         )
         .await;
+    }
+
+    /// One observation of [`attach_request_body`]: whether the built request
+    /// carries a buffered body (`as_bytes()` is `Some`), an explicit
+    /// `Content-Length`, and a per-request timeout override.
+    #[derive(Debug, PartialEq)]
+    struct AttachedBodySummary {
+        buffered: bool,
+        explicit_content_length: Option<String>,
+        timeout_secs: Option<u64>,
+    }
+
+    async fn observe_attached_body(
+        declared_length: Option<u64>,
+    ) -> Result<AttachedBodySummary, String> {
+        let client = build_http_client().map_err(|e| e.to_string())?;
+        let mut headers = HeaderMap::new();
+        if let Some(length) = declared_length {
+            headers.insert(
+                axum::http::header::CONTENT_LENGTH,
+                HeaderValue::from_str(&length.to_string()).expect("valid header value"),
+            );
+        }
+
+        let request = attach_request_body(
+            client.post("https://bmc.invalid/redfish/v1/UpdateService"),
+            &headers,
+            Body::from("payload"),
+        )
+        .await
+        .map_err(|e| e.to_string())?
+        .build()
+        .map_err(|e| e.to_string())?;
+
+        Ok(AttachedBodySummary {
+            buffered: request.body().is_some_and(|b| b.as_bytes().is_some()),
+            explicit_content_length: request
+                .headers()
+                .get(axum::http::header::CONTENT_LENGTH)
+                .map(|v| v.to_str().expect("UTF-8 header").to_string()),
+            timeout_secs: request.timeout().map(Duration::as_secs),
+        })
+    }
+
+    // The framing contract: small and unsized bodies are buffered so BMCs see
+    // exactly what they always did; only a body declared larger than the
+    // buffer bound streams, with its length forwarded (hyper would otherwise
+    // switch to chunked transfer, which BMC firmwares commonly reject) and a
+    // timeout scaled to the transfer instead of the 60-second default.
+    #[tokio::test]
+    async fn request_bodies_buffer_small_and_stream_large() {
+        let large = (MAX_BUFFERED_BODY_SIZE as u64) + 1;
+        check_cases_async(
+            [
+                Case {
+                    scenario: "no declared length stays buffered",
+                    input: None,
+                    expect: Yields(AttachedBodySummary {
+                        buffered: true,
+                        explicit_content_length: None,
+                        timeout_secs: None,
+                    }),
+                },
+                Case {
+                    scenario: "small declared length stays buffered",
+                    input: Some(1024),
+                    expect: Yields(AttachedBodySummary {
+                        buffered: true,
+                        explicit_content_length: None,
+                        timeout_secs: None,
+                    }),
+                },
+                Case {
+                    scenario: "length at the bound stays buffered",
+                    input: Some(MAX_BUFFERED_BODY_SIZE as u64),
+                    expect: Yields(AttachedBodySummary {
+                        buffered: true,
+                        explicit_content_length: None,
+                        timeout_secs: None,
+                    }),
+                },
+                Case {
+                    scenario: "length past the bound streams",
+                    input: Some(large),
+                    expect: Yields(AttachedBodySummary {
+                        buffered: false,
+                        explicit_content_length: Some(large.to_string()),
+                        timeout_secs: Some(super::sized_upload_timeout(large).as_secs()),
+                    }),
+                },
+            ],
+            observe_attached_body,
+        )
+        .await;
+    }
+
+    #[test]
+    fn sized_upload_timeout_scales_with_declared_length() {
+        check_values(
+            [
+                Check {
+                    scenario: "tiny transfer keeps the base budget",
+                    input: 1024,
+                    expect: 60,
+                },
+                Check {
+                    scenario: "a 50 MB image gets its transfer time",
+                    input: 50_000_000,
+                    expect: 60 + 5_000,
+                },
+                // The declared length is caller-supplied; a lie must not buy
+                // an unbounded hold on a proxy task and a BMC connection.
+                Check {
+                    scenario: "a lying length is capped",
+                    input: u64::MAX,
+                    expect: 4 * 60 * 60,
+                },
+            ],
+            |length| super::sized_upload_timeout(length).as_secs(),
+        );
     }
 
     #[tokio::test]
