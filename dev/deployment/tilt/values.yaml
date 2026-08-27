@@ -249,8 +249,6 @@ nico-machine-a-tron:
         [machines.rack-machines]
         hw_type = "wiwynn_gb200_nvl"
         host_count = 2
-        vpc_count = 0
-        subnets_per_vpc = 0
         dpu_per_host_count = 2
         dpu_reboot_delay = 1
         host_reboot_delay = 1

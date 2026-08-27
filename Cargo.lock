@@ -672,7 +672,7 @@ version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "144e573728da132683b9488acd528274c790e07fc06ff81ee29f9d8f8b1041e0"
 dependencies = [
- "blowfish 0.10.0",
+ "blowfish",
  "pbkdf2",
  "sha2 0.11.0",
 ]
@@ -773,15 +773,6 @@ dependencies = [
 
 [[package]]
 name = "block-buffer"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4152116fd6e9dadb291ae18fc1ec3575ed6d84c29642d97890f4b4a3417297e4"
-dependencies = [
- "generic-array 0.14.7",
-]
-
-[[package]]
-name = "block-buffer"
 version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3078c7629b62d3f0439517fa394996acacc5cbc91c5a20d8c658e77abd503a71"
@@ -806,17 +797,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "710f1dd022ef4e93f8a438b4ba958de7f64308434fa6a87104481645cc30068b"
 dependencies = [
  "hybrid-array",
-]
-
-[[package]]
-name = "blowfish"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32fa6a061124e37baba002e496d203e23ba3d7b73750be82dbfbc92913048a5b"
-dependencies = [
- "byteorder",
- "cipher 0.2.5",
- "opaque-debug",
 ]
 
 [[package]]
@@ -1064,7 +1044,6 @@ dependencies = [
  "colored",
  "config-version",
  "containerd-client",
- "ctor",
  "data-encoding",
  "diff",
  "eyre",
@@ -1188,6 +1167,7 @@ dependencies = [
  "carbide-dpa",
  "carbide-dpa-manager",
  "carbide-dpf",
+ "carbide-extension-service-controller",
  "carbide-firmware",
  "carbide-health-metrics",
  "carbide-health-report",
@@ -1609,6 +1589,7 @@ dependencies = [
  "logfmt",
  "mac_address",
  "metrics-endpoint",
+ "moka",
  "opentelemetry 0.32.0",
  "opentelemetry-otlp",
  "opentelemetry-prometheus",
@@ -1709,7 +1690,6 @@ dependencies = [
  "prost",
  "serde_json",
  "tempfile",
- "test-cdylib",
  "tokio",
  "tokio-util",
  "tonic",
@@ -1991,6 +1971,25 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+]
+
+[[package]]
+name = "carbide-extension-service-controller"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "carbide-api-db",
+ "carbide-api-model",
+ "carbide-dpf",
+ "carbide-machine-controller",
+ "carbide-uuid",
+ "config-version",
+ "kube",
+ "serde_json",
+ "sqlx",
+ "state-controller",
+ "thiserror 2.0.18",
+ "tracing",
 ]
 
 [[package]]
@@ -2802,6 +2801,7 @@ dependencies = [
  "bytes",
  "carbide-host-support",
  "carbide-instrument",
+ "carbide-libmlx-model",
  "carbide-rpc",
  "carbide-test-support",
  "carbide-tls",
@@ -3077,7 +3077,6 @@ dependencies = [
  "lazy_static",
  "metrics-endpoint",
  "once_cell",
- "pwhash",
  "regex",
  "reqwest 0.13.4",
  "serde",
@@ -3662,15 +3661,6 @@ checksum = "57663b653d948a338bfb3eeba9bb2fd5fcfaecb9e199e87e1eda4d9e8b240fd9"
 dependencies = [
  "ciborium-io",
  "half",
-]
-
-[[package]]
-name = "cipher"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12f8e7987cbd042a63249497f41aed09f8e65add917ea6566effbc56578d6801"
-dependencies = [
- "generic-array 0.14.7",
 ]
 
 [[package]]
@@ -4263,16 +4253,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "crypto-mac"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4857fd85a0c34b3c3297875b747c1e02e06b6a0ea32dd892d8192b9ce0813ea6"
-dependencies = [
- "generic-array 0.14.7",
- "subtle",
-]
-
-[[package]]
 name = "crypto-primes"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4645,15 +4625,6 @@ name = "diff"
 version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56254986775e3233ffa9c4d7d3faaf6d36a2c09d30b20687e9f88bc8bafc16c8"
-
-[[package]]
-name = "digest"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3dd60d1080a57a05ab032377049e0591415d2b31afd7028356dbf3cc6dcb066"
-dependencies = [
- "generic-array 0.14.7",
-]
 
 [[package]]
 name = "digest"
@@ -5911,16 +5882,6 @@ dependencies = [
 
 [[package]]
 name = "hmac"
-version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1441c6b1e930e2817404b5046f1f989899143a12bf92de603b69f4e0aee1e15"
-dependencies = [
- "crypto-mac",
- "digest 0.9.0",
-]
-
-[[package]]
-name = "hmac"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
@@ -6932,7 +6893,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.46.9#cb00c08928241f9b3f3f4ed6617cecac336a74e2"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.47.1#6cff6843cd09dfee5b066ea6f16c2b9c69ca5953"
 dependencies = [
  "chrono",
  "clap",
@@ -7161,17 +7122,6 @@ checksum = "26d142aeadbc4e8c679fc6d93fbe7efe1c021fa7d80629e615915b519e3bc6de"
 dependencies = [
  "libc",
  "stable_deref_trait",
-]
-
-[[package]]
-name = "md-5"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b5a279bb9607f9f53c22d496eade00d138d1bdcccd07d74650387cf94942a15"
-dependencies = [
- "block-buffer 0.9.0",
- "digest 0.9.0",
- "opaque-debug",
 ]
 
 [[package]]
@@ -9160,21 +9110,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pwhash"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "419a3ad8fa9f9d445e69d9b185a24878ae6e6f55c96e4512f4a0e28cd3bc5c56"
-dependencies = [
- "blowfish 0.7.0",
- "byteorder",
- "hmac 0.10.1",
- "md-5 0.9.1",
- "rand 0.8.6",
- "sha-1",
- "sha2 0.9.9",
-]
-
-[[package]]
 name = "quanta"
 version = "0.12.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10598,19 +10533,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sha-1"
-version = "0.9.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99cd6713db3cf16b6c84e06321e049a9b9f699826e16096d23bbcc44d15d51a6"
-dependencies = [
- "block-buffer 0.9.0",
- "cfg-if",
- "cpufeatures 0.2.17",
- "digest 0.9.0",
- "opaque-debug",
-]
-
-[[package]]
 name = "sha1"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10630,19 +10552,6 @@ dependencies = [
  "cfg-if",
  "cpufeatures 0.3.0",
  "digest 0.11.3",
-]
-
-[[package]]
-name = "sha2"
-version = "0.9.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d58a1e1bf39749807d89cf2d98ac2dfa0ff1cb3faa38fbb64dd88ac8013d800"
-dependencies = [
- "block-buffer 0.9.0",
- "cfg-if",
- "cpufeatures 0.2.17",
- "digest 0.9.0",
- "opaque-debug",
 ]
 
 [[package]]
@@ -11089,7 +10998,7 @@ dependencies = [
  "itoa",
  "log",
  "mac_address",
- "md-5 0.11.0",
+ "md-5",
  "memchr",
  "rand 0.10.1",
  "serde",
@@ -11592,18 +11501,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "test-cdylib"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8f41b1f729f5ff5177beab62e5a9251e318df8386e260ab3c944cff502ee78d"
-dependencies = [
- "cargo_metadata",
- "serde",
- "serde_json",
- "toml 0.5.11",
-]
-
-[[package]]
 name = "thin-vec"
 version = "0.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11825,15 +11722,6 @@ dependencies = [
  "pin-project-lite",
  "slab",
  "tokio",
-]
-
-[[package]]
-name = "toml"
-version = "0.5.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4f7f0dd8d50a853a531c426359045b1998f04219d88799810762cd4ad314234"
-dependencies = [
- "serde",
 ]
 
 [[package]]

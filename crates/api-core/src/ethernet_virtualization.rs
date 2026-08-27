@@ -185,6 +185,11 @@ struct PrefixPair<'a> {
     v6: Option<&'a NetworkPrefix>,
 }
 
+// Find the IPv4 NetworkPrefix without relying on database result ordering.
+fn find_ipv4_prefix(prefixes: &[NetworkPrefix]) -> Option<&NetworkPrefix> {
+    prefixes.iter().find(|prefix| prefix.prefix.is_ipv4())
+}
+
 impl<'a> PrefixPair<'a> {
     /// Find the IPv4 (optional) and IPv6 (optional) prefixes from a slice.
     fn from_segment_prefixes(
@@ -192,7 +197,7 @@ impl<'a> PrefixPair<'a> {
         _instance_id: InstanceId,
         _segment_id: carbide_uuid::network::NetworkSegmentId,
     ) -> Result<Self, CarbideError> {
-        let v4 = prefixes.iter().find(|p| p.prefix.is_ipv4());
+        let v4 = find_ipv4_prefix(prefixes);
         let v6 = prefixes.iter().find(|p| p.prefix.is_ipv6());
         Ok(Self { v4, v6 })
     }
@@ -458,12 +463,12 @@ pub(crate) async fn admin_network(
         .into());
     };
 
-    let prefix = match admin_segment.prefixes.first() {
+    let prefix = match find_ipv4_prefix(&admin_segment.prefixes) {
         Some(p) => p,
         None => {
             return Err(CarbideError::Internal {
                 message: format!(
-                    "Admin network segment '{}' has no network_prefix, expected 1",
+                    "admin network segment '{}' has no IPv4 network prefix",
                     admin_segment.id,
                 ),
             }
@@ -922,8 +927,48 @@ pub(crate) fn resolve_security_group_rule(
 #[cfg(test)]
 mod test {
     use carbide_test_support::value_scenarios;
+    use carbide_uuid::network::{NetworkPrefixId, NetworkSegmentId};
 
     use super::*;
+
+    // Build a NetworkPrefix with only the fields needed by the selection test.
+    fn network_prefix(prefix: &str) -> NetworkPrefix {
+        NetworkPrefix {
+            id: NetworkPrefixId::new(),
+            segment_id: NetworkSegmentId::new(),
+            prefix: prefix.parse().unwrap(),
+            gateway: None,
+            dhcpv6_link_address: None,
+            num_reserved: 0,
+            vpc_prefix_id: None,
+            vpc_prefix: None,
+            svi_ip: None,
+            num_free_ips: None,
+        }
+    }
+
+    // Verify that the admin IPv4 selector never depends on family ordering and
+    // does not treat an IPv6-only segment as IPv4-capable.
+    #[test]
+    fn ipv4_prefix_selection_is_independent_of_family_order() {
+        let v4 = network_prefix("192.0.2.0/24");
+        let v6 = network_prefix("2001:db8::/64");
+
+        value_scenarios!(
+            run = |prefixes: Vec<NetworkPrefix>| {
+                find_ipv4_prefix(&prefixes).map(|prefix| prefix.prefix)
+            };
+            "IPv4 before IPv6" {
+                vec![v4.clone(), v6.clone()] => Some(v4.prefix),
+            }
+            "IPv6 before IPv4" {
+                vec![v6.clone(), v4.clone()] => Some(v4.prefix),
+            }
+            "IPv6 only" {
+                vec![v6] => None,
+            }
+        );
+    }
 
     #[allow(deprecated)]
     fn legacy_interface_config(

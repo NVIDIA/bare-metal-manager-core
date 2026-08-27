@@ -245,6 +245,9 @@ tags:
   - name: Rack
     description: |-
       Rack is a physical enclosure that contains a number of Machines. Racks are the physical building blocks of a Site.
+  - name: NVLink Domain
+    description: |-
+      An NVLink Domain represents an NVLink fabric spanning one or more Racks. NVLink Domain operation endpoints submit asynchronous work for every Rack that belongs to the selected NVLink Domain.
   - name: Tray
     description: |-
       Tray represents a component within a Rack.
@@ -1250,7 +1253,7 @@ paths:
 
         Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix, and the Site must belong to that Provider and have NICo Flow enabled.
 
-        Setting `activeOnly=true` restricts the result to tasks in a non-terminal state (`Pending`, `Running`, or `Waiting`). Results are ordered by creation time descending, then Task UUID descending, before pagination. The `X-Pagination` response header reports the total count over the post-filter set.
+        Setting `activeOnly=true` restricts the result to tasks in a non-terminal REST state (`Pending` or `Running`). Results are ordered by creation time descending, then Task UUID descending, before pagination. The `X-Pagination` response header reports the total count over the post-filter set.
 
         By default the `report` field is omitted from each Task in the response. Set `includeReport=true` to include it; this is opt-in because report bodies can be several KB.
       parameters:
@@ -10976,6 +10979,9 @@ paths:
                       description: Primary compute rack
                       nvLinkDomainIds:
                         - 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
+                      taskStats:
+                        pendingTaskCount: 0
+                        activeTaskCount: 0
                       location:
                         region: us-east-1
                         datacenter: DC-01
@@ -11062,6 +11068,9 @@ paths:
                     description: Primary compute rack
                     nvLinkDomainIds:
                       - 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
+                    taskStats:
+                      pendingTaskCount: 0
+                      activeTaskCount: 0
                     location:
                       region: us-east-1
                       datacenter: DC-01
@@ -11699,7 +11708,7 @@ paths:
         for backward compatibility; prefer this path for new clients.
 
         Cancellation is best-effort and idempotent: tasks in non-terminal
-        states (`Pending`, `Running`, `Waiting`) are marked `Terminated`
+        states (`Pending`, `Running`) are marked `Terminated`
         and any underlying Temporal workflow is terminated. Cancelling an
         already-`Terminated` task returns the same task without changes.
         Tasks that have already finished (`Succeeded` or `Failed`) cannot
@@ -12816,7 +12825,7 @@ paths:
 
         Tasks are site-scoped; `siteId` must be the Site that owns the Rack. Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-        Filters compose with AND: setting `activeOnly=true` restricts the result to tasks that are still in a non-terminal state (`Pending`, `Running`, `Waiting`). Results are ordered by creation time descending, then Task UUID descending, before pagination; the `X-Pagination` response header reports the total count over the post-filter set.
+        Filters compose with AND: setting `activeOnly=true` restricts the result to tasks that are still in a non-terminal REST state (`Pending` or `Running`). Results are ordered by creation time descending, then Task UUID descending, before pagination; the `X-Pagination` response header reports the total count over the post-filter set.
 
         By default the `report` field is omitted from each task in the response. Set `includeReport=true` to include it; this is opt-in because report bodies can be several KB and pulling them across the list path persists the full payload in each caller-side workflow record. Single-task `GET /rack/task/{id}` and `POST /rack/task/{id}/cancel` always include the report.
       parameters:
@@ -12879,6 +12888,221 @@ paths:
           $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
+  '/v2/org/{org}/nico/domain/nvlink/power':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    patch:
+      summary: Power control NVLink Domains
+      operationId: power-control-nvlink-domains
+      description: |-
+        Power control one or more NVLink Domains identified by UUID. Flow resolves each NVLink Domain to its member Racks and creates one task per Rack.
+
+        Supported power states: `on`, `off`, `cycle`, `forceoff`, `forcecycle`.
+
+        Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchUpdateNVLinkDomainPowerStateRequest'
+            examples:
+              power-off-domains:
+                value:
+                  siteId: 550e8400-e29b-41d4-a716-446655440000
+                  domainIds:
+                    - 650e8400-e29b-41d4-a716-446655440001
+                    - 750e8400-e29b-41d4-a716-446655440002
+                  state: 'off'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdatePowerStateResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+        '503':
+          $ref: '#/components/responses/GenericHttpError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
+      tags:
+        - NVLink Domain
+  '/v2/org/{org}/nico/domain/nvlink/{id}/power':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: ID of the NVLink Domain
+    patch:
+      summary: Power control an NVLink Domain
+      operationId: power-control-nvlink-domain
+      description: |-
+        Power control an NVLink Domain identified by UUID. Flow resolves the NVLink Domain to its member Racks and creates one task per Rack.
+
+        Supported power states: `on`, `off`, `cycle`, `forceoff`, `forcecycle`.
+
+        Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePowerStateRequest'
+            examples:
+              power-cycle:
+                value:
+                  siteId: 550e8400-e29b-41d4-a716-446655440000
+                  state: cycle
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdatePowerStateResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+        '503':
+          $ref: '#/components/responses/GenericHttpError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
+      tags:
+        - NVLink Domain
+  '/v2/org/{org}/nico/domain/nvlink/firmware':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    patch:
+      summary: Firmware update NVLink Domains
+      operationId: firmware-update-nvlink-domains
+      description: |-
+        Update firmware for one or more NVLink Domains identified by UUID. Flow resolves each NVLink Domain to its member Racks and creates one task per Rack.
+
+        Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchNVLinkDomainFirmwareUpdateRequest'
+            examples:
+              update-domains:
+                value:
+                  siteId: 550e8400-e29b-41d4-a716-446655440000
+                  domainIds:
+                    - 650e8400-e29b-41d4-a716-446655440001
+                    - 750e8400-e29b-41d4-a716-446655440002
+                  version: '24.11.0'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FirmwareUpdateResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+        '503':
+          $ref: '#/components/responses/GenericHttpError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
+      tags:
+        - NVLink Domain
+  '/v2/org/{org}/nico/domain/nvlink/{id}/firmware':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: ID of the NVLink Domain
+    patch:
+      summary: Firmware update an NVLink Domain
+      operationId: firmware-update-nvlink-domain
+      description: |-
+        Update firmware for an NVLink Domain identified by UUID. Flow resolves the NVLink Domain to its member Racks and creates one task per Rack.
+
+        Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NVLinkDomainFirmwareUpdateRequest'
+            examples:
+              with-version:
+                value:
+                  siteId: 550e8400-e29b-41d4-a716-446655440000
+                  version: '24.11.0'
+              default-version:
+                value:
+                  siteId: 550e8400-e29b-41d4-a716-446655440000
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FirmwareUpdateResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+        '503':
+          $ref: '#/components/responses/GenericHttpError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
+      tags:
+        - NVLink Domain
   '/v2/org/{org}/nico/tray':
     parameters:
       - schema:
@@ -13004,6 +13228,9 @@ paths:
                         hostId: 1
                       rackId: 550e8400-e29b-41d4-a716-446655440000
                       nvLinkDomainId: 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
+                      taskStats:
+                        pendingTaskCount: 0
+                        activeTaskCount: 0
           headers:
             X-Pagination:
               schema:
@@ -13072,6 +13299,9 @@ paths:
                       hostId: 1
                     rackId: 550e8400-e29b-41d4-a716-446655440000
                     nvLinkDomainId: 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
+                    taskStats:
+                      pendingTaskCount: 0
+                      activeTaskCount: 0
         '403':
           $ref: '#/components/responses/ForbiddenError'
         '404':
@@ -13494,7 +13724,7 @@ paths:
 
         Tasks are site-scoped; `siteId` must be the Site that owns the Tray. Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-        Filters compose with AND: setting `activeOnly=true` restricts the result to tasks that are still in a non-terminal state (`Pending`, `Running`, `Waiting`). Results are ordered by creation time descending, then Task UUID descending, before pagination; the `X-Pagination` response header reports the total count over the post-filter set.
+        Filters compose with AND: setting `activeOnly=true` restricts the result to tasks that are still in a non-terminal REST state (`Pending` or `Running`). Results are ordered by creation time descending, then Task UUID descending, before pagination; the `X-Pagination` response header reports the total count over the post-filter set.
 
         By default the `report` field is omitted from each task in the response. Set `includeReport=true` to include it; this is opt-in because report bodies can be several KB and pulling them across the list path persists the full payload in each caller-side workflow record. Single-task `GET /rack/task/{id}` and `POST /rack/task/{id}/cancel` always include the report.
       parameters:
@@ -22467,6 +22697,7 @@ components:
       description: Rack represents a physical rack in the datacenter
       required:
         - nvLinkDomainIds
+        - taskStats
       examples:
         - id: 550e8400-e29b-41d4-a716-446655440000
           name: Rack-01
@@ -22476,6 +22707,9 @@ components:
           description: Primary compute rack
           nvLinkDomainIds:
             - 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
+          taskStats:
+            pendingTaskCount: 0
+            activeTaskCount: 0
           location:
             region: us-east-1
             datacenter: DC-01
@@ -22531,6 +22765,8 @@ components:
           description: Components within the Rack. Only returned when includeComponents is true.
           items:
             $ref: '#/components/schemas/RackComponent'
+        taskStats:
+          $ref: '#/components/schemas/TaskStats'
     RackLocation:
       title: RackLocation
       type: object
@@ -22717,6 +22953,7 @@ components:
       description: 'Tray represents a component within a rack (e.g. compute node, NVSwitch, power shelf)'
       required:
         - nvLinkDomainId
+        - taskStats
       examples:
         - id: 660e8400-e29b-41d4-a716-446655440001
           componentId: fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
@@ -22738,6 +22975,9 @@ components:
               ipAddress: 192.168.1.100
           rackId: 550e8400-e29b-41d4-a716-446655440000
           nvLinkDomainId: 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
+          taskStats:
+            pendingTaskCount: 3
+            activeTaskCount: 1
       properties:
         id:
           type: string
@@ -22809,6 +23049,8 @@ components:
             - 'null'
           format: uuid
           description: ID of the NVLink Domain containing this Tray's Rack. Null when the Rack is not assigned to an NVLink Domain.
+        taskStats:
+          $ref: '#/components/schemas/TaskStats'
     TrayPosition:
       title: TrayPosition
       type: object
@@ -22875,6 +23117,138 @@ components:
           minimum: 0
           description: |-
             Restrict to trays at this rack slot (matches `position.slotId`). Requires `rackId` or `rackName`. Composes with the rest of the filter via AND.
+    BatchUpdateNVLinkDomainPowerStateRequest:
+      title: BatchUpdateNVLinkDomainPowerStateRequest
+      type: object
+      description: Request body for power control of explicitly selected NVLink Domains
+      required:
+        - siteId
+        - domainIds
+        - state
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site
+        domainIds:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+          description: UUIDs of the NVLink Domains to power control. IDs must be unique after UUID normalization (case-insensitive).
+        state:
+          type: string
+          enum:
+            - 'on'
+            - 'off'
+            - cycle
+            - forceoff
+            - forcecycle
+          description: Target power state
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins every task spawned by
+            this operation to the named rule and overrides Flow's default rule
+            resolution.
+        overrideReadinessCheck:
+          type: boolean
+          default: false
+          description: |-
+            When true, proceed even if one or more target components (or hosts
+            on the owning rack for rack-scoped components) are reported as not
+            ready by their persisted status. Intended for operator-supervised
+            maintenance.
+      examples:
+        - siteId: 550e8400-e29b-41d4-a716-446655440000
+          domainIds:
+            - 650e8400-e29b-41d4-a716-446655440001
+            - 750e8400-e29b-41d4-a716-446655440002
+          state: cycle
+    NVLinkDomainFirmwareUpdateRequest:
+      title: NVLinkDomainFirmwareUpdateRequest
+      type: object
+      description: Request body for an NVLink Domain firmware update
+      required:
+        - siteId
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site
+        version:
+          type:
+            - string
+            - 'null'
+          description: Target firmware version. When empty, null, or omitted, use the default firmware version for each targeted component.
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins every task spawned by
+            this operation to the named rule and overrides Flow's default rule
+            resolution.
+        overrideReadinessCheck:
+          type: boolean
+          default: false
+          description: |-
+            When true, proceed even if one or more target components (or hosts
+            on the owning rack for rack-scoped components) are reported as not
+            ready by their persisted status. Intended for operator-supervised
+            maintenance.
+      examples:
+        - siteId: 550e8400-e29b-41d4-a716-446655440000
+          version: '24.11.0'
+        - siteId: 550e8400-e29b-41d4-a716-446655440000
+    BatchNVLinkDomainFirmwareUpdateRequest:
+      title: BatchNVLinkDomainFirmwareUpdateRequest
+      type: object
+      description: Request body for firmware updates of explicitly selected NVLink Domains
+      required:
+        - siteId
+        - domainIds
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site
+        domainIds:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+          description: UUIDs of the NVLink Domains to update. IDs must be unique after UUID normalization (case-insensitive).
+        version:
+          type:
+            - string
+            - 'null'
+          description: Target firmware version. When empty, null, or omitted, use the default firmware version for each targeted component.
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins every task spawned by
+            this operation to the named rule and overrides Flow's default rule
+            resolution.
+        overrideReadinessCheck:
+          type: boolean
+          default: false
+          description: |-
+            When true, proceed even if one or more target components (or hosts
+            on the owning rack for rack-scoped components) are reported as not
+            ready by their persisted status. Intended for operator-supervised
+            maintenance.
+      examples:
+        - siteId: 550e8400-e29b-41d4-a716-446655440000
+          domainIds:
+            - 650e8400-e29b-41d4-a716-446655440001
+            - 750e8400-e29b-41d4-a716-446655440002
+          version: '24.11.0'
     BatchUpdateRackPowerStateRequest:
       title: BatchUpdateRackPowerStateRequest
       type: object
@@ -23084,7 +23458,6 @@ components:
           enum:
             - Unknown
             - Pending
-            - Waiting
             - Running
             - Succeeded
             - Failed
@@ -23159,6 +23532,27 @@ components:
                   - componentType: PowerShelf
                     status: skipped
                     totalComponents: 0
+    TaskStats:
+      title: TaskStats
+      type: object
+      description: |-
+        Counts of non-terminal tasks currently associated with a rack or tray.
+        Rack stats include component-scoped tasks on the rack; tray stats
+        include only tasks that explicitly target the tray.
+      required:
+        - pendingTaskCount
+        - activeTaskCount
+      properties:
+        pendingTaskCount:
+          type: integer
+          format: uint32
+          minimum: 0
+          description: Number of associated tasks in Waiting or Pending state.
+        activeTaskCount:
+          type: integer
+          format: uint32
+          minimum: 0
+          description: Number of associated tasks in Running state.
     OperationRule:
       title: OperationRule
       type: object

@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+mod decommission;
 mod delete;
 mod force_delete;
 mod health_report;
@@ -22,6 +23,9 @@ mod list;
 mod maintenance;
 mod metadata;
 mod show;
+
+#[cfg(test)]
+mod tests;
 
 use clap::Parser;
 
@@ -33,9 +37,11 @@ pub(crate) enum Cmd {
     Show(show::Args),
     #[clap(about = "List all power shelves")]
     List(list::Args),
+    #[clap(about = "Start decommissioning a managed power shelf")]
+    Decommission(decommission::Args),
     #[clap(about = "Delete a power shelf")]
     Delete(delete::Args),
-    #[clap(about = "Force delete a power shelf and optionally its interfaces")]
+    #[clap(about = "Force delete a power shelf and optionally its interfaces and BMC suppressions")]
     ForceDelete(force_delete::Args),
     #[clap(subcommand, about = "Manage Power Shelf Metadata")]
     Metadata(metadata::Args),

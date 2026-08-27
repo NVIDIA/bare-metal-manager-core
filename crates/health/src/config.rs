@@ -3527,8 +3527,18 @@ reload_interval = "30s"
     }
 
     #[test]
+    #[allow(clippy::result_large_err)] // Figment controls the error representation.
     fn test_load_defaults() {
-        let config = Config::load(None).expect("should load defaults");
+        let mut config = None;
+        // Jail clears inherited configuration and serializes this load with tests that
+        // temporarily modify process-global environment variables.
+        figment::Jail::expect_with(|jail| {
+            jail.clear_env();
+            config = Some(Config::load(None).expect("should load defaults"));
+            Ok(())
+        });
+
+        let config = config.expect("default config should be loaded");
         assert_eq!(config.shard, 0);
         assert_eq!(config.shards_count, 1);
         assert_eq!(config.cache_size, 100);

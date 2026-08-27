@@ -1033,15 +1033,32 @@ func (c *grpcClient) DecommissionMachine(ctx context.Context, machineID string) 
 }
 
 // DecommissionSwitch initiates decommissioning of the given switch via Core.
-// TODO: Core Decommission Switch RPC pending — stub returns not-implemented.
-func (c *grpcClient) DecommissionSwitch(_ context.Context, switchID string) error {
-	return fmt.Errorf("not yet implemented: Core DecommissionSwitch RPC pending (switch %s)", switchID)
+func (c *grpcClient) DecommissionSwitch(ctx context.Context, switchID string) error {
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	_, err := c.gclient.DecommissionSwitch(ctx, &corev1.DecommissionSwitchRequest{
+		SwitchId: &corev1.SwitchId{Id: switchID},
+	})
+	if err != nil {
+		return fmt.Errorf("decommission switch %s: %w", switchID, err)
+	}
+	return nil
 }
 
 // DecommissionPowerShelf initiates decommissioning of the given power shelf via Core.
-// TODO: Core Decommission PowerShelf RPC pending — stub returns not-implemented.
-func (c *grpcClient) DecommissionPowerShelf(_ context.Context, shelfID string) error {
-	return fmt.Errorf("not yet implemented: Core DecommissionPowerShelf RPC pending (shelf %s)", shelfID)
+func (c *grpcClient) DecommissionPowerShelf(ctx context.Context, shelfID string) error {
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	_, err := c.gclient.DecommissionPowerShelf(ctx, &corev1.DecommissionPowerShelfRequest{
+		PowerShelfId: &corev1.PowerShelfId{Id: shelfID},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to decommission power shelf %s: %w", shelfID, err)
+	}
+
+	return nil
 }
 
 // AllowIngestionAndPowerOn opens NICo's power-on gate for a

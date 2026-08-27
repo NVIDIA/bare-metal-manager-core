@@ -55,6 +55,16 @@ func resolvedVpcPrefixIDs(prefixes *corev1.InstanceInterfaceResolvedVpcPrefixes)
 	return prefixes.Ipv6VpcPrefixId, nil
 }
 
+func getDevicelessInterfaceKey(networkResourceID string, isPhysical bool, virtualFunctionID *int) string {
+	if isPhysical {
+		return networkResourceID + "-physical"
+	}
+	if virtualFunctionID == nil {
+		return networkResourceID + "-virtual"
+	}
+	return fmt.Sprintf("%s-virtual-%d", networkResourceID, *virtualFunctionID)
+}
+
 // Activity functions
 
 // UpdateInstancesInDB is a Temporal activity that takes a collection of Instance data pushed by Site Agent and updates the DB
@@ -404,8 +414,10 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 						}
 						interfaceMap[deviceInstanceId] = &curIfc
 					} else if ifc.VpcID == nil && ifc.VpcPrefixID != nil {
-						// FNN interface
-						interfaceMap[ifc.VpcPrefixID.String()] = &curIfc
+						// Device-less FNN interfaces may share a VPC Prefix, so include
+						// the function identity in the reconciliation key.
+						key := getDevicelessInterfaceKey(ifc.VpcPrefixID.String(), ifc.IsPhysical, ifc.VirtualFunctionID)
+						interfaceMap[key] = &curIfc
 					}
 
 					if ifc.SubnetID != nil && ifc.Status != cdbm.InterfaceStatusDeleting {
@@ -446,8 +458,15 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 							// Multi DPU interface
 							ifc, ok = interfaceMap[deviceInstanceId]
 						} else {
-							// FNN interface
-							ifc, ok = interfaceMap[networkDetails.VpcPrefixId.Value]
+							// Device-less FNN interface
+							var virtualFunctionID *int
+							if interfaceConfig.VirtualFunctionId != nil {
+								value := int(*interfaceConfig.VirtualFunctionId)
+								virtualFunctionID = &value
+							}
+							isPhysical := interfaceConfig.FunctionType == corev1.InterfaceFunctionType_PHYSICAL_FUNCTION
+							key := getDevicelessInterfaceKey(networkDetails.VpcPrefixId.Value, isPhysical, virtualFunctionID)
+							ifc, ok = interfaceMap[key]
 						}
 					case *corev1.InstanceInterfaceConfig_SegmentId:
 						ifc, ok = interfaceMap[networkDetails.SegmentId.Value]

@@ -449,6 +449,10 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub vpc_prefix_state_controller: VpcPrefixStateControllerConfig,
 
+    /// ExtensionServiceStateController related configuration parameter
+    #[serde(default)]
+    pub extension_service_state_controller: ExtensionServiceStateControllerConfig,
+
     /// IbPartitionStateController related configuration parameter
     #[serde(default)]
     pub ib_partition_state_controller: IbPartitionStateControllerConfig,
@@ -3141,6 +3145,14 @@ impl Default for VpcPrefixStateControllerConfig {
     }
 }
 
+/// Extension-service state-controller configuration.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct ExtensionServiceStateControllerConfig {
+    /// Common state-controller configuration.
+    #[serde(default = "StateControllerConfig::default")]
+    pub controller: StateControllerConfig,
+}
+
 /// IbPartitionStateController related config
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -3222,7 +3234,7 @@ pub struct SwitchStateControllerConfig {
 
     /// Switch services that receive installed mTLS certificates during RMS
     /// `configure_switch_certificate` calls initiated by the switch state
-    /// machine.
+    /// machine or the direct `ComponentConfigureSwitchCertificate` RPC path.
     ///
     /// When this field is omitted or empty, all supported services are used.
     ///
@@ -5431,6 +5443,10 @@ mod tests {
         assert_eq!(
             config.vpc_prefix_state_controller,
             VpcPrefixStateControllerConfig::default()
+        );
+        assert_eq!(
+            config.extension_service_state_controller,
+            ExtensionServiceStateControllerConfig::default()
         );
         assert_eq!(
             config.ib_partition_state_controller,

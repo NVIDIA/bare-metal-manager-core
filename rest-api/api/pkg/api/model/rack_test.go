@@ -32,7 +32,8 @@ func TestAPIRackJSONContract(t *testing.T) {
 		"serialNumber":"",
 		"description":"Core rack description",
 		"nvLinkDomainIds":[],
-		"location":{"region":"","datacenter":"DC1","room":"","position":""}
+		"location":{"region":"","datacenter":"DC1","room":"","position":""},
+		"taskStats":{"pendingTaskCount":0,"activeTaskCount":0}
 	}`, string(got))
 }
 
