@@ -1083,7 +1083,7 @@ type ForgeClient interface {
 	// Admin Power Control
 	AdminPowerControl(ctx context.Context, in *AdminPowerControlRequest, opts ...grpc.CallOption) (*AdminPowerControlResponse, error)
 	// Reset a GPU baseboard (e.g. HGX) via Redfish Chassis.Reset; resets all GPUs
-	// on it. Unset/On maps to ForceRestart; GracefulShutdown and ForceOff are rejected.
+	// on it. Accepts ForceRestart/GracefulRestart/ACPowercycle; Unset/On defaults to ForceRestart; GracefulShutdown and ForceOff are rejected.
 	AdminGpuReset(ctx context.Context, in *AdminGpuResetRequest, opts ...grpc.CallOption) (*AdminGpuResetResponse, error)
 	// Disable Secure Boot
 	DisableSecureBoot(ctx context.Context, in *BmcEndpointRequest, opts ...grpc.CallOption) (*DisableSecureBootResponse, error)
@@ -6849,7 +6849,7 @@ type ForgeServer interface {
 	// Admin Power Control
 	AdminPowerControl(context.Context, *AdminPowerControlRequest) (*AdminPowerControlResponse, error)
 	// Reset a GPU baseboard (e.g. HGX) via Redfish Chassis.Reset; resets all GPUs
-	// on it. Unset/On maps to ForceRestart; GracefulShutdown and ForceOff are rejected.
+	// on it. Accepts ForceRestart/GracefulRestart/ACPowercycle; Unset/On defaults to ForceRestart; GracefulShutdown and ForceOff are rejected.
 	AdminGpuReset(context.Context, *AdminGpuResetRequest) (*AdminGpuResetResponse, error)
 	// Disable Secure Boot
 	DisableSecureBoot(context.Context, *BmcEndpointRequest) (*DisableSecureBootResponse, error)
