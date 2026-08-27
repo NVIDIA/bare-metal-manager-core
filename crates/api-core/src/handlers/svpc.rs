@@ -125,10 +125,23 @@ pub(super) async fn process_scout_req(
     Ok(fac::Action::MlxAction(fac::MlxAction { device_actions }))
 }
 
-/// Resolve the site-wide lockdown IKM version to *lock* a card under on this
-/// assignment cycle.
+/// Resolve the lockdown IKM version to *lock* a card under on this assignment
+/// cycle.
 ///
-/// With `lockdown_ikm_rotation_enabled`, this is the staged site-wide target, so
+/// An in-flight lock takes precedence over either branch below: if a lock is
+/// already staged (`rotating_to_version` set), we re-derive that exact version.
+/// A card's physical lock version is frozen once it locks -- it cannot change
+/// without an unlock first -- and dpa-manager's `handle_locking` promotes
+/// whatever `rotating_to_version` holds when the card reports Locked (it checks
+/// lockmode, never the version). Re-reading the site-wide target or the card's
+/// last-confirmed `current_version` on a later reconciliation could overwrite the
+/// staged marker and record a convergence version the hardware was never on --
+/// e.g. if `lockdown_ikm_rotation_enabled` flips between staging the lock and
+/// observing it. This mirrors the unlock path, which already prefers
+/// `rotating_to_version`.
+///
+/// When no lock is in flight, the branch is chosen by the flag. With
+/// `lockdown_ikm_rotation_enabled`, this is the staged site-wide target, so
 /// cards migrate forward to the new IKM as tenants cycle (the lazy-migration
 /// path). With rotation disabled -- the default -- it is the card's own current
 /// tracked version, so a staged `RotateCredential(lockdown_ikm)` target does not
@@ -148,6 +161,18 @@ async fn resolve_lock_ikm_version(api: &Api, mac: MacAddress) -> CarbideResult<i
             "failed to acquire connection to resolve lockdown lock IKM version: {e}"
         ))
     })?;
+    // An in-flight lock wins over both branches: re-derive the staged version so
+    // a later reconciliation cannot overwrite it (see the doc comment).
+    let device_state = db::credential_rotation::device_rotation_operation_state(
+        &mut *conn,
+        db::credential_rotation::CredentialRotationType::LockdownIkm,
+        mac,
+    )
+    .await?;
+    if let Some(in_flight) = device_state.as_ref().and_then(|s| s.rotating_to_version) {
+        return Ok(in_flight);
+    }
+
     // Versions stay DB-native `i32` throughout this handler (Postgres has no
     // unsigned int); the sole `u32` conversion happens once at the derivation
     // boundary (`ikm_version_u32` -> `build_supernic_lockdown_key`).
@@ -161,14 +186,9 @@ async fn resolve_lock_ikm_version(api: &Api, mac: MacAddress) -> CarbideResult<i
             db::credential_rotation::CredentialRotationType::LockdownIkm,
         ))?
     } else {
-        db::credential_rotation::device_rotation_operation_state(
-            &mut *conn,
-            db::credential_rotation::CredentialRotationType::LockdownIkm,
-            mac,
-        )
-        .await?
-        .and_then(|s| s.current_version)
-        .unwrap_or(crate::dpa::lockdown::SEED_LOCKDOWN_IKM_VERSION as i32)
+        device_state
+            .and_then(|s| s.current_version)
+            .unwrap_or(crate::dpa::lockdown::SEED_LOCKDOWN_IKM_VERSION as i32)
     };
     Ok(version)
 }
