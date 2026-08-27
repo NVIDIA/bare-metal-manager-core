@@ -1074,7 +1074,7 @@ pub(crate) async fn admin_gpu_reset(
         .chassis_id
         .none_if_empty()
         // xtask:allow-error-case: HGX_Chassis_0 is a case-sensitive Redfish chassis id
-        .ok_or_else(|| Status::invalid_argument("chassis_id is required (e.g. \"HGX_Chassis_0\")"))?;
+        .ok_or_else(|| Status::invalid_argument("chassis_id is required (e.g. HGX_Chassis_0)"))?;
 
     let mut txn = api.txn_begin().await?;
     let (bmc_endpoint_request, _) =
@@ -1609,8 +1609,9 @@ mod tests {
 
     #[test]
     fn gpu_reset_action_maps_resets_and_rejects_power_off() {
-        use super::rpc::admin_power_control_request::SystemPowerControl as Spc;
         use libredfish::SystemPowerControl as L;
+
+        use super::rpc::admin_power_control_request::SystemPowerControl as Spc;
         value_scenarios!(run = |a: i32| { map_gpu_reset_action(a).map_err(|_| ()) };
             "gpu reset action mapping" {
                 Spc::GracefulRestart as i32 => Ok(L::GracefulRestart),
