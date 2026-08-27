@@ -61,20 +61,46 @@ func ValidatePodYaml(yamlData []byte) error {
 	return nil
 }
 
-// ValidateDpfHelmChartData checks that the given bytes are a DPF Helm chart definition
+// ValidateDpfHelmChartData checks that the given bytes are a DPF Helm chart definition.
+// The field rules mirror DpfHelmChartServiceData::validate in Core so an invalid
+// definition is rejected with a specific message before a workflow is dispatched.
 func ValidateDpfHelmChartData(jsonData []byte) error {
 	var chart struct {
-		RepoURL      string `json:"repoURL"`
-		ChartName    string `json:"chartName"`
-		ChartVersion string `json:"chartVersion"`
+		RepoURL            string         `json:"repoURL"`
+		ChartName          string         `json:"chartName"`
+		ChartVersion       string         `json:"chartVersion"`
+		SecurityPrivileged *bool          `json:"security.privileged"`
+		Values             map[string]any `json:"values"`
 	}
 
 	if err := json.Unmarshal(jsonData, &chart); err != nil {
 		return fmt.Errorf("failed to parse json: %w", err)
 	}
 
-	if chart.RepoURL == "" || chart.ChartName == "" || chart.ChartVersion == "" {
-		return errors.New("chart definition must specify repoURL, chartName, and chartVersion")
+	if chart.RepoURL == "" {
+		return errors.New("repoURL must not be empty")
+	}
+
+	if !strings.HasPrefix(chart.RepoURL, "oci://") && !strings.HasPrefix(chart.RepoURL, "https://") {
+		return errors.New("repoURL must begin with oci:// or https://")
+	}
+
+	if chart.ChartName == "" {
+		return errors.New("chartName must not be empty")
+	}
+
+	if chart.ChartVersion == "" {
+		return errors.New("chartVersion must not be empty")
+	}
+
+	if chart.SecurityPrivileged == nil {
+		return errors.New("security.privileged must be specified")
+	}
+
+	if serviceDaemonSet, ok := chart.Values["serviceDaemonSet"].(map[string]any); ok {
+		if _, reserved := serviceDaemonSet["nodeSelector"]; reserved {
+			return errors.New("values may not set NICo-owned field serviceDaemonSet.nodeSelector")
+		}
 	}
 
 	return nil
