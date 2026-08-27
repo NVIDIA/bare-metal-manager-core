@@ -3,8 +3,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Remove security-sensitive resources left by the retired PSM/NSM Vault-token
-# Helm hook. Database state and credentials are intentionally retained for
-# rollback; see helm-prereqs/README.md.
+# Helm hook. PostgreSQL retains the manager databases and users, but the chart
+# no longer manages their Kubernetes credential Secrets.
 set -euo pipefail
 
 NICO_SYSTEM_NS="${NICO_SYSTEM_NS:-nico-system}"

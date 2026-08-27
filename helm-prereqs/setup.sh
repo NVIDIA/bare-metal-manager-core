@@ -191,6 +191,41 @@ case "${INSTALL_DPF}" in
     true|false) ;;
     *) echo "Error: NICO_INSTALL_DPF must be true or false (got '${INSTALL_DPF}')"; exit 1 ;;
 esac
+
+# The predecessor Flow chart bundled PSM and NSM in the Flow Deployment. This
+# release does not provide an automatic migration for those workloads. Stop
+# before preflight creates temporary check Pods or any installation phase can
+# remove prerequisites the legacy managers still use.
+_reject_bundled_flow_manager_upgrade() {
+    local container_names
+    local container_name
+    local manager_containers
+
+    if ! container_names="$(
+        kubectl get deployment flow -n flow --ignore-not-found \
+            -o jsonpath='{range .spec.template.spec.containers[*]}{.name}{"\n"}{end}'
+    )"; then
+        echo "ERROR: unable to inspect flow/flow for bundled manager containers; refusing to continue." >&2
+        return 1
+    fi
+
+    manager_containers=""
+    while IFS= read -r container_name; do
+        case "${container_name}" in
+            psm|nsm)
+                manager_containers="${manager_containers:+${manager_containers}, }${container_name}"
+                ;;
+        esac
+    done <<< "${container_names}"
+    [[ -z "${manager_containers}" ]] && return
+
+    echo "ERROR: automatic upgrade from a Flow deployment that bundles ${manager_containers} is unsupported." >&2
+    echo "Migrate Core to RMS or external manager endpoints, upgrade only the flow Helm release to the Flow-only chart, then rerun setup.sh." >&2
+    return 1
+}
+
+_reject_bundled_flow_manager_upgrade
+
 # shellcheck source=preflight.sh
 source "${SCRIPT_DIR}/preflight.sh"
 
@@ -1849,9 +1884,9 @@ else
     helm upgrade --install flow "${NICO_FLOW_CHART}" \
         "${NICO_FLOW_ARGS[@]}" \
         --timeout 300s --wait
-    # Revoke retired manager credentials only after Helm has successfully
-    # replaced the predecessor pod. --skip-flow therefore preserves a legacy
-    # Flow release and everything it still needs to run.
+    # The initial guard requires a staged upgrade to remove legacy manager
+    # containers first. Revoke their hook credentials and RBAC only after the
+    # Flow-only Helm upgrade has succeeded.
     "${SCRIPT_DIR}/cleanup-legacy-flow-managers.sh"
     echo "NICo Flow deployed"
 fi

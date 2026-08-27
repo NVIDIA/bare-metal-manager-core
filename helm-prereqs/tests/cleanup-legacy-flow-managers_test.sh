@@ -70,7 +70,7 @@ if ! (( job_line < binding_line && binding_line < exec_line && exec_line < secre
 fi
 
 # A missing root token must stop after authorization removal and before deleting
-# the workload token Secrets; this leaves the predecessor workload recoverable.
+# the workload token Secrets, preserving evidence and allowing cleanup to retry.
 cat > "${TEST_TMP_DIR}/bin/kubectl" <<'FAKE_EMPTY_ROOT_KUBECTL'
 #!/usr/bin/env bash
 set -euo pipefail

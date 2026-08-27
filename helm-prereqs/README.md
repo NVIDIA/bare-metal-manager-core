@@ -251,35 +251,64 @@ unreachable registry host skips the image checks entirely
 
 ## Upgrading deployments that bundled PSM and NSM
 
-The Flow chart no longer deploys PSM or NSM. The NICo Core chart and binary
-default both component-manager roles to RMS, so sites using the defaults do not
-need a backend configuration change.
+The Flow chart no longer deploys PSM or NSM, and `setup.sh` does not support an
+automatic upgrade from a Flow Deployment that still contains either manager
+container. The guard applies even when NICo Core already uses the default RMS
+backends.
 
 Before upgrading a site with custom Core values or site configuration, check
 for `componentManager.nvSwitchBackend: nsm`,
 `componentManager.powerShelfBackend: psm`, `nv_switch_backend = "nsm"`, or
 `power_shelf_backend = "psm"`. Change those roles to
 [RMS](../docs/configuration/component-manager-rms.md), or configure an
-externally managed NSM or PSM endpoint, before removing the bundled managers.
+externally managed NSM or PSM endpoint. Apply that Core configuration and
+verify the Core rollout while the predecessor managers are still running;
+editing a values or configuration file without deploying it is not sufficient.
+An external endpoint must not resolve to the `psm` or `nsm` Service that the
+next step removes.
 
-Re-run `setup.sh` for the upgrade. The Flow Helm upgrade removes the PSM and
-NSM containers, Services, volumes, and configuration. After that upgrade
-succeeds, setup removes the retired Vault-token hook Job, service account,
-cluster-wide RBAC, Kubernetes token Secrets, Vault policies, and every Vault
-token minted by earlier hook runs. `--skip-flow` performs neither operation, so
-an intentionally retained predecessor Flow release keeps its runtime
-credentials.
+Then perform a staged deployment upgrade from the repository root. The first
+command upgrades only the Flow release while its predecessor prerequisites are
+still present. Reusing the release values preserves its site-specific image and
+registry settings; explicitly set the target Flow image repository and tag if
+they need to change for this release.
 
-The Zalando Postgres operator retains the old `psm` and `nsm` databases and
-users, and External Secrets Operator retains their generated credential
-Secrets. Vault KV data under the PSM and NSM paths is also retained. This state
-supports rollback, but a bare `helm rollback` is insufficient because the old
-token hook runs only for installs and upgrades. Re-run the predecessor
-release's setup/helmfile workflow so its `nico-prereqs` upgrade recreates the
-Vault policies and tokens before it restores the former Flow release. After
-the rollback window closes, the site owner can remove the retained databases,
-users, credential Secrets, and Vault KV data according to the site's data
-retention policy.
+```bash
+helm upgrade flow ./helm/charts/nico-flow \
+  --namespace flow \
+  --reuse-values \
+  --set global.image.repository="${NICO_IMAGE_REGISTRY}" \
+  --set global.image.tag="${NICO_REST_IMAGE_TAG}" \
+  --timeout 300s \
+  --wait
+
+kubectl get deployment flow -n flow \
+  -o jsonpath='{.spec.template.spec.containers[*].name}{"\n"}'
+
+./helm-prereqs/setup.sh -y
+```
+
+The first command upgrades the existing `flow` release to the Flow-only chart.
+Helm replaces the old three-container Pod with a Pod containing only Flow and
+deletes the PSM and NSM Services. Their prerequisites remain temporarily
+because `nico-prereqs` has not been upgraded yet.
+
+The `kubectl` command must print only `flow` before setup is rerun. Setup then
+upgrades `nico-prereqs`, removes the retired manager prerequisite resources,
+reapplies the Flow-only chart idempotently, and cleans up the old Vault
+credentials and RBAC. The PSM and NSM PostgreSQL databases and users remain in
+PostgreSQL but are no longer managed by the chart. `--skip-flow` does not bypass
+the initial guard because setup would still upgrade the shared prerequisite
+release. Do not manually patch the Deployment or upgrade `nico-prereqs` first.
+
+The guard runs before preflight can create temporary check Pods and before the
+installation phases, so it does not change the cluster. Upgrading the
+prerequisites first can remove the old External Secrets resources and
+garbage-collect the PSM/NSM database credential Secrets. The Zalando Postgres
+operator retains the
+databases and users themselves, so an operator who has securely retained the
+username and password can reconnect or recreate the Kubernetes Secret, but
+this is a manual recovery path rather than a supported automatic upgrade.
 
 ## What gets deployed
 

@@ -153,7 +153,7 @@ extraEnv:
   flow: []
 
 ## Docker registry pull secret created by the chart in the flow namespace.
-## setup.sh phase 7i renders dockerconfigjson from REGISTRY_PULL_SECRET and
+## setup.sh phase 7h renders dockerconfigjson from REGISTRY_PULL_SECRET and
 ## passes it via --set. The default placeholder ({"auths":{}}) lets the
 ## chart install on air-gapped / pre-loaded clusters without overrides.
 ## Set create=false to skip if the secret is provisioned out of band.

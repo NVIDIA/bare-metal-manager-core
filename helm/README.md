@@ -356,7 +356,7 @@ helm diff upgrade nico ./helm \
 
 Deployments upgrading from a Flow release that bundled PSM and NSM must first
 follow the
-[backend migration and retained-state procedure](../helm-prereqs/README.md#upgrading-deployments-that-bundled-psm-and-nsm).
+[manual manager migration guidance](../helm-prereqs/README.md#upgrading-deployments-that-bundled-psm-and-nsm).
 
 ### Upgrading from pre-2.0.0 (carbide/forge naming)
 
