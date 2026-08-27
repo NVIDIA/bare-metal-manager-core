@@ -1064,7 +1064,6 @@ dependencies = [
  "colored",
  "config-version",
  "containerd-client",
- "ctor",
  "data-encoding",
  "diff",
  "eyre",
@@ -1188,6 +1187,7 @@ dependencies = [
  "carbide-dpa",
  "carbide-dpa-manager",
  "carbide-dpf",
+ "carbide-extension-service-controller",
  "carbide-firmware",
  "carbide-health-metrics",
  "carbide-health-report",
@@ -1609,6 +1609,7 @@ dependencies = [
  "logfmt",
  "mac_address",
  "metrics-endpoint",
+ "moka",
  "opentelemetry 0.32.0",
  "opentelemetry-otlp",
  "opentelemetry-prometheus",
@@ -1709,7 +1710,6 @@ dependencies = [
  "prost",
  "serde_json",
  "tempfile",
- "test-cdylib",
  "tokio",
  "tokio-util",
  "tonic",
@@ -1991,6 +1991,25 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+]
+
+[[package]]
+name = "carbide-extension-service-controller"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "carbide-api-db",
+ "carbide-api-model",
+ "carbide-dpf",
+ "carbide-machine-controller",
+ "carbide-uuid",
+ "config-version",
+ "kube",
+ "serde_json",
+ "sqlx",
+ "state-controller",
+ "thiserror 2.0.18",
+ "tracing",
 ]
 
 [[package]]
@@ -2802,6 +2821,7 @@ dependencies = [
  "bytes",
  "carbide-host-support",
  "carbide-instrument",
+ "carbide-libmlx-model",
  "carbide-rpc",
  "carbide-test-support",
  "carbide-tls",
@@ -6932,7 +6952,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.46.9#cb00c08928241f9b3f3f4ed6617cecac336a74e2"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.47.1#6cff6843cd09dfee5b066ea6f16c2b9c69ca5953"
 dependencies = [
  "chrono",
  "clap",
@@ -11592,18 +11612,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "test-cdylib"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8f41b1f729f5ff5177beab62e5a9251e318df8386e260ab3c944cff502ee78d"
-dependencies = [
- "cargo_metadata",
- "serde",
- "serde_json",
- "toml 0.5.11",
-]
-
-[[package]]
 name = "thin-vec"
 version = "0.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11825,15 +11833,6 @@ dependencies = [
  "pin-project-lite",
  "slab",
  "tokio",
-]
-
-[[package]]
-name = "toml"
-version = "0.5.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4f7f0dd8d50a853a531c426359045b1998f04219d88799810762cd4ad314234"
-dependencies = [
- "serde",
 ]
 
 [[package]]

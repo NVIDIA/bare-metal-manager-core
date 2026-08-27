@@ -22,6 +22,7 @@ use std::ops::Deref;
 
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineType};
+use carbide_uuid::rack::RackId;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use model::machine::{LoadSnapshotOptions, ManagedHostStateSnapshot};
@@ -79,6 +80,35 @@ pub async fn load_host_ids(txn: impl DbReader<'_>) -> Result<Vec<MachineId>, Dat
         .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new("managed_host::load_host_ids", e))
+}
+
+/// Finds managed hosts in a rack that are assigned to instances.
+///
+/// Locks every machine row in the rack until this transaction commits.
+pub async fn find_assigned_hosts_in_rack(
+    txn: &mut PgConnection,
+    rack_id: &RackId,
+) -> Result<Vec<(MachineId, InstanceId)>, DatabaseError> {
+    let rows: Vec<(MachineId, Option<InstanceId>)> = sqlx::query_as(
+        r#"
+        SELECT m.id, i.id
+        FROM machines m
+        LEFT JOIN instances i ON i.machine_id = m.id
+        WHERE m.rack_id = $1
+        ORDER BY m.id
+        FOR UPDATE OF m
+        "#,
+    )
+    .bind(rack_id)
+    .fetch_all(txn)
+    .await
+    .map_err(|e| DatabaseError::new("managed_host::find_assigned_hosts_in_rack", e))?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|(machine_id, instance_id)| {
+            instance_id.map(|instance_id| (machine_id, instance_id))
+        })
+        .collect())
 }
 
 /// Loads ManagedHost snapshots from the database for all enumerated machines

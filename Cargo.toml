@@ -27,7 +27,7 @@ repository = "https://github.com/NVIDIA/infra-controller"
 
 [workspace.dependencies]
 clap = { version = "4", features = ["derive", "env"] }
-libredfish = { git = "https://github.com/NVIDIA/libredfish.git", tag = "v0.46.9" }
+libredfish = { git = "https://github.com/NVIDIA/libredfish.git", tag = "v0.47.1" }
 librms = { git = "https://github.com/dsx-ai-factory/nv-rms-client.git", tag = "v0.10.1" }
 ansi-to-html = "0.2.2"
 
@@ -232,7 +232,6 @@ tar = "0.4.40"
 temp-dir = "0.2.0"
 tempfile = "3.8"
 tera = "1.20"
-test-cdylib = "1.1.0"
 thiserror = "2.0.14"
 tikv-jemallocator = "0.6.1"
 time = "0.3.36"

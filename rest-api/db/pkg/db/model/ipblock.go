@@ -6,6 +6,8 @@ package model
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"net/netip"
 	"time"
 
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
@@ -96,6 +98,19 @@ type IPBlock struct {
 	CreatedBy                *uuid.UUID              `bun:"created_by,type:uuid"`
 }
 
+// ContainsPrefix reports whether prefix belongs to this IPBlock.
+func (ipb *IPBlock) ContainsPrefix(prefix netip.Prefix) bool {
+	if ipb == nil {
+		return false
+	}
+
+	ipBlockPrefix, err := netip.ParsePrefix(fmt.Sprintf("%s/%d", ipb.Prefix, ipb.PrefixLength))
+	return err == nil &&
+		ipBlockPrefix.Addr().BitLen() == prefix.Addr().BitLen() &&
+		ipBlockPrefix.Bits() <= prefix.Bits() &&
+		ipBlockPrefix.Contains(prefix.Addr())
+}
+
 // IPBlockCreateInput input parameters for Create method
 type IPBlockCreateInput struct {
 	IPBlockID                *uuid.UUID
@@ -156,6 +171,8 @@ type IPBlockFilterInput struct {
 	ExcludeDerived            bool
 	ExcludeTenantSitePrefixes bool
 	SearchQuery               *string
+	// IncludeDeleted returns soft-deleted rows in addition to active ones.
+	IncludeDeleted bool
 }
 
 // ProviderVisible applies the provider's IPBlock visibility rules to the filter.
@@ -475,6 +492,9 @@ func (ipbsd IPBlockSQLDAO) GetAll(ctx context.Context, tx *db.Tx, filter IPBlock
 	ipbs := []IPBlock{}
 
 	query := db.GetIDB(tx, ipbsd.dbSession).NewSelect().Model(&ipbs)
+	if filter.IncludeDeleted {
+		query = query.WhereAllWithDeleted()
+	}
 	query, err := ipbsd.setQueryWithFilter(query, filter, ipblockDAOSpan)
 	if err != nil {
 		return nil, 0, err

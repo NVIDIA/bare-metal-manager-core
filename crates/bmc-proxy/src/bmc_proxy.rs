@@ -16,7 +16,6 @@
  */
 
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::net::{AddrParseError, IpAddr, Ipv6Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -40,12 +39,12 @@ use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto;
 use hyper_util::service::TowerToHyperService;
 use mac_address::{MacAddress, MacParseError};
+use moka::future::Cache as MokaCache;
 use rpc::forge;
 use rpc::forge::find_bmc_ips_request::LookupBy;
 use rpc::forge_api_client::ForgeApiClient;
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use tokio::net::TcpListener;
-use tokio::sync::Mutex;
 use tokio::task::JoinSet;
 use tokio_rustls::rustls::server::WebPkiClientVerifier;
 use tokio_rustls::rustls::{RootCertStore, ServerConfig};
@@ -105,13 +104,54 @@ struct BmcProxyState {
     config: Arc<crate::Config>,
     api_client: ForgeApiClient,
     credential_cache: CredentialCache,
-    client_cache: HttpClientCache,
+    /// One client for every upstream: reqwest pools connections per host
+    /// internally, so per-BMC clients bought nothing and grew without bound.
+    http_client: reqwest_middleware::ClientWithMiddleware,
     ip_cache: LookupToIpCache,
 }
 
-type CredentialCache = Arc<Mutex<HashMap<IpAddr, BmcCredentials>>>;
-type HttpClientCache = Arc<Mutex<HashMap<IpAddr, reqwest_middleware::ClientWithMiddleware>>>;
-type LookupToIpCache = Arc<Mutex<HashMap<LookupBy, IpAddr>>>;
+/// Cached BMC credentials by IP. Correctness comes from the 401/403 eviction
+/// in [`proxy_request`]. Expiry is idle-based, not lifetime-based: an entry
+/// a caller keeps using stays served even through a long nico-api outage
+/// (the availability the pre-cache-bound proxy provided), while an entry for
+/// a machine that stopped existing falls out once nothing asks for it. The
+/// capacity bounds memory.
+type CredentialCache = MokaCache<IpAddr, BmcCredentials>;
+/// Resolved `Forwarded: mac=`/`serial=` targets. A BMC that moves to a new
+/// IP produces connection errors, not 401s, so no request-path signal evicts
+/// these -- the TTL is what heals a stale resolution.
+type LookupToIpCache = MokaCache<LookupBy, IpAddr>;
+
+/// How long a resolved BMC IP may be served before the API is asked again.
+const IP_CACHE_TTL: Duration = Duration::from_secs(10 * 60);
+/// How long unused cached credentials linger before falling out.
+const CREDENTIAL_CACHE_IDLE_TTL: Duration = Duration::from_secs(60 * 60);
+/// Upper bound on cached entries; sized far above any realistic BMC fleet.
+const CACHE_MAX_ENTRIES: u64 = 100_000;
+
+fn bounded_cache<K, V>(ttl: Duration) -> MokaCache<K, V>
+where
+    K: std::hash::Hash + Eq + Send + Sync + 'static,
+    V: Clone + Send + Sync + 'static,
+{
+    MokaCache::builder()
+        .time_to_live(ttl)
+        .max_capacity(CACHE_MAX_ENTRIES)
+        .build()
+}
+
+/// Like [`bounded_cache`], but expiry counts from last use rather than from
+/// insertion, so entries under active traffic never expire.
+fn idle_bounded_cache<K, V>(idle_ttl: Duration) -> MokaCache<K, V>
+where
+    K: std::hash::Hash + Eq + Send + Sync + 'static,
+    V: Clone + Send + Sync + 'static,
+{
+    MokaCache::builder()
+        .time_to_idle(idle_ttl)
+        .max_capacity(CACHE_MAX_ENTRIES)
+        .build()
+}
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 enum ForwardedTarget<'a> {
@@ -190,9 +230,9 @@ pub(crate) async fn start(
     let state = BmcProxyState {
         config,
         api_client,
-        credential_cache: Default::default(),
-        client_cache: Default::default(),
-        ip_cache: Default::default(),
+        credential_cache: idle_bounded_cache(CREDENTIAL_CACHE_IDLE_TTL),
+        http_client: build_http_client()?,
+        ip_cache: bounded_cache(IP_CACHE_TTL),
     };
 
     let app = Router::new()
@@ -687,7 +727,7 @@ async fn proxy_request_inner(
         target_ip,
         &state.api_client,
         &state.credential_cache,
-        &state.client_cache,
+        state.http_client.clone(),
         &state.config.bmc_proxy,
     )
     .await
@@ -751,8 +791,8 @@ async fn ip_for_forwarded_target(
         ForwardedTarget::Serial(serial) => LookupBy::Serial(serial.to_string()),
     };
 
-    if let Some(ip) = state.ip_cache.lock().await.get(&lookup_by) {
-        return Ok(Some(*ip));
+    if let Some(ip) = state.ip_cache.get(&lookup_by).await {
+        return Ok(Some(ip));
     }
 
     let lookup_by_str = match &lookup_by {
@@ -807,7 +847,7 @@ async fn ip_for_forwarded_target(
     };
 
     if let Some(ip) = ip {
-        state.ip_cache.lock().await.insert(lookup_by, ip);
+        state.ip_cache.insert(lookup_by, ip).await;
     }
     Ok(ip)
 }
@@ -1111,7 +1151,7 @@ async fn create_client(
     ip: IpAddr,
     api_client: &ForgeApiClient,
     credential_cache: &CredentialCache,
-    client_cache: &HttpClientCache,
+    http_client: reqwest_middleware::ClientWithMiddleware,
     bmc_proxy: &Option<HostPortPair>,
 ) -> Result<BmcClientInfo, BmcProxyError> {
     // Bracket the BMC's own IP off its typed variant (IPv4 renders unchanged),
@@ -1134,8 +1174,6 @@ async fn create_client(
     if add_custom_header {
         header_map.insert("forwarded", format!("host={ip}").parse().unwrap());
     }
-    let http_client = get_http_client(ip, client_cache).await?;
-
     let credentials = get_bmc_credentials(ip, api_client, credential_cache).await?;
 
     let base_authority = build_authority(host, port);
@@ -1162,7 +1200,7 @@ async fn get_bmc_credentials(
     api_client: &ForgeApiClient,
     credential_cache: &CredentialCache,
 ) -> Result<BmcCredentials, BmcProxyError> {
-    if let Some(credentials) = credential_cache.lock().await.get(&ip).cloned() {
+    if let Some(credentials) = credential_cache.get(&ip).await {
         tracing::debug!(bmc_ip_address = %ip, "Using cached BMC credentials");
         return Ok(credentials);
     }
@@ -1186,10 +1224,7 @@ async fn get_bmc_credentials(
         .ok_or(BmcProxyError::NoCredentials(ip))?
         .try_into()?;
 
-    credential_cache
-        .lock()
-        .await
-        .insert(ip, credentials.clone());
+    credential_cache.insert(ip, credentials.clone()).await;
     Ok(credentials)
 }
 
@@ -1210,24 +1245,8 @@ fn build_http_client() -> Result<reqwest_middleware::ClientWithMiddleware, BmcPr
         .build())
 }
 
-async fn get_http_client(
-    ip: IpAddr,
-    client_cache: &HttpClientCache,
-) -> Result<reqwest_middleware::ClientWithMiddleware, BmcProxyError> {
-    let mut client_cache = client_cache.lock().await;
-    if let Some(client) = client_cache.get(&ip) {
-        tracing::debug!(bmc_ip_address = %ip, "Using cached BMC HTTP client");
-        return Ok(client.clone());
-    }
-
-    tracing::debug!(bmc_ip_address = %ip, "Creating cached BMC HTTP client");
-    let client = build_http_client()?;
-    client_cache.insert(ip, client.clone());
-    Ok(client)
-}
-
 async fn evict_cached_credentials(ip: IpAddr, credential_cache: &CredentialCache) {
-    if credential_cache.lock().await.remove(&ip).is_some() {
+    if credential_cache.remove(&ip).await.is_some() {
         tracing::info!(bmc_ip_address = %ip, "Evicted cached BMC credentials after upstream auth failure");
     }
 }
@@ -1259,19 +1278,18 @@ mod tests {
     use rpc::forge::find_bmc_ips_request::LookupBy;
     use rpc::forge_api_client::ForgeApiClient;
     use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
-    use tokio::sync::Mutex;
     use tokio_stream::iter;
 
     use super::{
-        BmcCredentials, BmcProxyState, ConnectionFailReason, CredentialCache, ForwardedTarget,
-        MAX_BUFFERED_BODY_SIZE, TcpAcceptFailed, TlsCertificateReloadFailed, TlsConnectionFailed,
-        attach_request_body, authorize_principal_allow_list, bmc_proxy_request_span,
-        build_authority, build_http_client, build_response, copy_request_headers, create_client,
-        evict_cached_credentials, forwarded_header_value, get_http_client, ip_for_forwarded_target,
-        is_hop_by_hop_header, method_supports_body, parse_forwarded_host_value,
-        request_principal_ids, span_status,
+        BmcCredentials, BmcProxyState, CREDENTIAL_CACHE_IDLE_TTL, ConnectionFailReason,
+        CredentialCache, ForwardedTarget, IP_CACHE_TTL, MAX_BUFFERED_BODY_SIZE, MethodLabel,
+        TcpAcceptFailed, TlsCertificateReloadFailed, TlsConnectionFailed, attach_request_body,
+        authorize_principal_allow_list, bmc_proxy_request_span, bounded_cache, build_authority,
+        build_http_client, build_response, copy_request_headers, create_client,
+        evict_cached_credentials, forwarded_header_value, idle_bounded_cache,
+        ip_for_forwarded_target, is_hop_by_hop_header, method_supports_body,
+        parse_forwarded_host_value, request_principal_ids, span_status,
     };
-    use crate::metrics::MethodLabel;
 
     const TEST_CONFIG: &str = r#"
         [tls]
@@ -1358,21 +1376,25 @@ mod tests {
         credentials: CredentialSummary,
     }
 
-    fn test_state_with_config(config: &str, ip_cache: HashMap<LookupBy, IpAddr>) -> BmcProxyState {
+    fn test_state_with_config(config: &str) -> BmcProxyState {
         let client_config = ForgeClientConfig::default();
         let api_config = ApiConfig::new("https://example.com", &client_config);
 
         BmcProxyState {
             config: Arc::new(crate::Config::parse(config).expect("test config should parse")),
             api_client: ForgeApiClient::new(&api_config),
-            credential_cache: Default::default(),
-            client_cache: Default::default(),
-            ip_cache: Arc::new(Mutex::new(ip_cache)),
+            credential_cache: idle_bounded_cache(CREDENTIAL_CACHE_IDLE_TTL),
+            http_client: build_http_client().expect("test HTTP client builds"),
+            ip_cache: bounded_cache(IP_CACHE_TTL),
         }
     }
 
-    fn test_state_with_ip_cache(ip_cache: HashMap<LookupBy, IpAddr>) -> BmcProxyState {
-        test_state_with_config(TEST_CONFIG, ip_cache)
+    async fn test_state_with_ip_cache(seeded_ips: HashMap<LookupBy, IpAddr>) -> BmcProxyState {
+        let state = test_state_with_config(TEST_CONFIG);
+        for (lookup_by, ip) in seeded_ips {
+            state.ip_cache.insert(lookup_by, ip).await;
+        }
+        state
     }
 
     struct AuthorizationRequestCase {
@@ -1615,14 +1637,16 @@ mod tests {
         let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 5));
         // Prepopulate the cache so this test never falls through to the real
         // ForgeApiClient path.
-        let credential_cache: CredentialCache = Arc::new(Mutex::new(HashMap::from([(
-            ip,
-            BmcCredentials::UsernamePassword {
-                username: "admin".to_string(),
-                password: "secret".to_string(),
-            },
-        )])));
-        let client_cache = Default::default();
+        let credential_cache: CredentialCache = idle_bounded_cache(CREDENTIAL_CACHE_IDLE_TTL);
+        credential_cache
+            .insert(
+                ip,
+                BmcCredentials::UsernamePassword {
+                    username: "admin".to_string(),
+                    password: "secret".to_string(),
+                },
+            )
+            .await;
         let client_config = ForgeClientConfig::default();
         let api_config = ApiConfig::new("https://example.com", &client_config);
         let api_client = ForgeApiClient::new(&api_config);
@@ -1631,7 +1655,7 @@ mod tests {
             ip,
             &api_client,
             &credential_cache,
-            &client_cache,
+            build_http_client().expect("test HTTP client builds"),
             &proxy_override(case),
         )
         .await
@@ -2020,7 +2044,7 @@ mod tests {
     /// still rejects the request but moves only the middleware-error counter.
     #[test]
     fn request_acl_authorization_emits_the_matching_event() {
-        let state = test_state_with_config(AUTHORIZATION_TEST_CONFIG, HashMap::new());
+        let state = test_state_with_config(AUTHORIZATION_TEST_CONFIG);
         let service_principal =
             || Principal::SpiffeServiceIdentifier("forge-system/carbide-api".to_string());
 
@@ -2078,7 +2102,7 @@ mod tests {
     /// response and is counted as an authorization wiring error instead.
     #[test]
     fn principal_allow_list_authorization_emits_the_matching_event() {
-        let state = test_state_with_config(AUTHORIZATION_TEST_CONFIG, HashMap::new());
+        let state = test_state_with_config(AUTHORIZATION_TEST_CONFIG);
         let service_principal =
             || Principal::SpiffeServiceIdentifier("forge-system/carbide-api".to_string());
 
@@ -2134,7 +2158,7 @@ mod tests {
     #[tokio::test]
     async fn forwarded_ip_target_resolves_without_lookup() {
         let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 5));
-        let state = test_state_with_ip_cache(HashMap::new());
+        let state = test_state_with_ip_cache(HashMap::new()).await;
 
         assert_eq!(
             ip_for_forwarded_target(&ForwardedTarget::Ip(ip), &state)
@@ -2149,7 +2173,8 @@ mod tests {
         let mac = MacAddress::from_str("00:11:22:33:44:55").unwrap();
         let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 5));
         let state =
-            test_state_with_ip_cache(HashMap::from([(LookupBy::MacAddress(mac.to_string()), ip)]));
+            test_state_with_ip_cache(HashMap::from([(LookupBy::MacAddress(mac.to_string()), ip)]))
+                .await;
 
         assert_eq!(
             ip_for_forwarded_target(&ForwardedTarget::Mac(mac), &state)
@@ -2164,7 +2189,8 @@ mod tests {
         let serial = "DGX-A100-0001";
         let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 5));
         let state =
-            test_state_with_ip_cache(HashMap::from([(LookupBy::Serial(serial.to_string()), ip)]));
+            test_state_with_ip_cache(HashMap::from([(LookupBy::Serial(serial.to_string()), ip)]))
+                .await;
 
         assert_eq!(
             ip_for_forwarded_target(&ForwardedTarget::Serial(serial), &state)
@@ -2247,26 +2273,6 @@ mod tests {
         .expect("request should build");
 
         assert_eq!(request.headers().get("X-Auth-Token").unwrap(), "token-123");
-    }
-
-    #[tokio::test]
-    async fn http_clients_are_cached_per_ip() {
-        let cache = Default::default();
-        let first_ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 5));
-        let second_ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 6));
-
-        get_http_client(first_ip, &cache)
-            .await
-            .expect("first client");
-        get_http_client(first_ip, &cache)
-            .await
-            .expect("cached client");
-        assert_eq!(cache.lock().await.len(), 1);
-
-        get_http_client(second_ip, &cache)
-            .await
-            .expect("second client");
-        assert_eq!(cache.lock().await.len(), 2);
     }
 
     #[tokio::test]
@@ -2450,18 +2456,20 @@ mod tests {
     #[tokio::test]
     async fn evict_cached_credentials_removes_entry_for_ip() {
         let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 5));
-        let credential_cache: CredentialCache = Arc::new(Mutex::new(HashMap::new()));
-        credential_cache.lock().await.insert(
-            ip,
-            BmcCredentials::UsernamePassword {
-                username: "admin".to_string(),
-                password: "secret".to_string(),
-            },
-        );
+        let credential_cache: CredentialCache = idle_bounded_cache(CREDENTIAL_CACHE_IDLE_TTL);
+        credential_cache
+            .insert(
+                ip,
+                BmcCredentials::UsernamePassword {
+                    username: "admin".to_string(),
+                    password: "secret".to_string(),
+                },
+            )
+            .await;
 
         evict_cached_credentials(ip, &credential_cache).await;
 
-        assert!(!credential_cache.lock().await.contains_key(&ip));
+        assert!(credential_cache.get(&ip).await.is_none());
     }
 
     #[tokio::test]

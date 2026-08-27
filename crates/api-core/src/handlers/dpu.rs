@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, Ipv6Addr};
 use std::str::FromStr;
 
@@ -36,13 +36,17 @@ use db::{
 use futures_util::future::join_all;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
-use model::extension_service::{ExtensionService, ExtensionServiceVersionInfo};
+use model::extension_service::{
+    ExtensionService, ExtensionServiceType, ExtensionServiceVersionInfo,
+};
 use model::hardware_info::{MachineInventory, MachineInventorySoftwareComponent};
 use model::instance::config::extension_services::InstanceExtensionServiceConfig;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::network::MachineNetworkStatusObservation;
 use model::machine::upgrade_policy::{AgentUpgradePolicy, BuildVersion};
-use model::machine::{InstanceState, LoadSnapshotOptions, ManagedHostState};
+use model::machine::{
+    InstanceState, LoadSnapshotOptions, ManagedHostState, ManagedHostStateSnapshot,
+};
 use model::machine_update_module::HOST_UPDATE_HEALTH_PROBE_ID;
 use model::network_segment::NetworkSegmentSearchConfig;
 use tonic::{Request, Response, Status};
@@ -177,7 +181,7 @@ async fn get_managed_host_network_config_inner(
         }
     };
 
-    let maybe_instance =
+    let mut maybe_instance =
         Option::<rpc::Instance>::rpc_try_from(snapshot.clone()).map_err(CarbideError::from)?;
 
     let primary_dpu_snapshot = snapshot
@@ -606,11 +610,35 @@ async fn get_managed_host_network_config_inner(
             .map(|config| config.service_id)
             .unique()
             .collect_vec();
-        let services_by_id = db::extension_service::find_by_ids(&mut txn, &service_ids, false)
-            .await?
-            .into_iter()
-            .map(|service| (service.id, service))
-            .collect::<HashMap<_, _>>();
+        let services_by_id =
+            db::extension_service::find_by_ids(&mut txn, &service_ids, false, false)
+                .await?
+                .into_iter()
+                .map(|service| (service.id, service))
+                .collect::<HashMap<_, _>>();
+
+        // The nested Instance is also consumed by the agent. Keep its
+        // extension-service view aligned with the dedicated agent payload so
+        // a DPF service cannot leak through that compatibility field either.
+        let agent_service_ids: HashSet<_> = services_by_id
+            .values()
+            .filter(|service| {
+                service.service_type == ExtensionServiceType::KubernetesPod
+                    && service.deleted.is_none()
+            })
+            .map(|service| service.id.to_string())
+            .collect();
+        if let Some(instance) = maybe_instance.as_mut()
+            && let Some(config) = instance.config.as_mut()
+            && let Some(extension_services) = config.dpu_extension_services.as_mut()
+        {
+            extension_services
+                .service_configs
+                .retain(|config| agent_service_ids.contains(&config.service_id));
+            if extension_services.service_configs.is_empty() {
+                config.dpu_extension_services = None;
+            }
+        }
 
         let mut extension_service_info: Vec<ExtensionServiceInfo> =
             Vec::with_capacity(service_configs.len());
@@ -622,6 +650,14 @@ async fn get_managed_host_network_config_inner(
                     kind: "ExtensionService",
                     id: config.service_id.to_string(),
                 })?;
+
+            // A DPF Helm service may be active or retained as a removed
+            // attachment while DPF finishes its own cleanup. In either case
+            // it must not produce agent configuration, trigger a version
+            // lookup, or read a credential from Vault.
+            if service.service_type == ExtensionServiceType::DpfHelmChart {
+                continue;
+            }
 
             // The pinned version is looked up individually so the exact
             // `version == config.version` selection (and its full data/credential/observability
@@ -1009,6 +1045,31 @@ pub(crate) async fn record_dpu_network_status(
         "Applied network configs",
     );
 
+    // Instance extension service observation is now separate from network observation.
+    let extension_service_observation = request
+        .dpu_extension_service_version
+        .is_some()
+        .then(|| {
+            model::instance::status::extension_service::InstanceExtensionServiceStatusObservation::try_from(
+                &request,
+            )
+        })
+        .transpose()
+        .map_err(CarbideError::from)?
+        .map(|mut observation| {
+            observation.retain_agent_managed_statuses();
+            observation
+        });
+    if let Some(extension_service_observation) = &extension_service_observation {
+        db::machine::update_extension_service_status_observation(
+            &mut txn,
+            &dpu_machine_id,
+            model::extension_service::ExtensionServiceType::KubernetesPod,
+            extension_service_observation,
+        )
+        .await?;
+    }
+
     // Store the DPU submitted health-report
     let mut health_report = health_report::HealthReport::try_from(
         request
@@ -1276,6 +1337,59 @@ pub(crate) async fn dpu_agent_upgrade_policy_action(
     Ok(tonic::Response::new(response))
 }
 
+/// Refuses a reprovision request that would migrate a host to DPF while its
+/// instance still has extension services attached.
+///
+/// Migrating flips the extension-service delivery path from the DPU agent to
+/// DPUDevice placement labels, and an existing attachment cannot follow: it was
+/// admitted against the agent path, and only a detach moves it. Reprovisioning a
+/// strict subset of DPUs keeps the host on the legacy path and stays allowed.
+///
+/// `dpf_based_dpu_provisioning_possible` enforces the same invariant for
+/// reprovisioning the state machine starts on its own; this exists so an
+/// operator gets an actionable error instead of a silent legacy fallback.
+fn reject_dpf_migration_that_would_strand_extension_services(
+    api: &Api,
+    snapshot: &ManagedHostStateSnapshot,
+    machine_id: &MachineId,
+) -> Result<(), CarbideError> {
+    let host = &snapshot.host_snapshot;
+    if host.config.dpf.used_for_ingestion
+        || !host.config.dpf.enabled
+        || !api.runtime_config.dpf.enabled
+    {
+        return Ok(());
+    }
+
+    // Requesting the host reprovisions every DPU. Requesting a single DPU only
+    // completes the set if every other DPU is already requested.
+    let migrates_host_to_dpf = if machine_id.machine_type().is_dpu() {
+        snapshot
+            .dpu_snapshots
+            .iter()
+            .all(|dpu| dpu.id == *machine_id || dpu.reprovision_requested.is_some())
+    } else {
+        snapshot.has_managed_dpus()
+    };
+
+    let has_attached_extension_services = snapshot.instance.as_ref().is_some_and(|instance| {
+        !instance
+            .config
+            .extension_services
+            .service_configs
+            .is_empty()
+    });
+
+    if migrates_host_to_dpf && has_attached_extension_services {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "reprovisioning would migrate host {} to DPF, which cannot deliver the extension services attached to its instance; detach them first",
+            host.id,
+        )));
+    }
+
+    Ok(())
+}
+
 /// Trigger DPU reprovisioning
 /// In case user passes a DPU ID, trigger_dpu_reprovisioning only for that particular DPU.
 /// In case user passes a host id, trigger_dpu_reprovisioning
@@ -1297,7 +1411,8 @@ pub(crate) async fn trigger_dpu_reprovisioning(
         &machine_id,
         LoadSnapshotOptions {
             include_history: false,
-            include_instance_data: false,
+            // The attached extension services checked below live on the instance.
+            include_instance_data: true,
             host_health_config: api.runtime_config.host_health,
         },
     )
@@ -1341,6 +1456,8 @@ pub(crate) async fn trigger_dpu_reprovisioning(
 
     match req.mode() {
         Mode::Set => {
+            reject_dpf_migration_that_would_strand_extension_services(api, &snapshot, &machine_id)?;
+
             let initiator = req.initiator().as_str_name();
             if machine_id.machine_type().is_dpu() {
                 db::machine::trigger_dpu_reprovisioning_request(

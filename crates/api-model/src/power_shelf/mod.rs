@@ -82,6 +82,10 @@ pub struct PowerShelf {
     /// device.
     pub bmc_credential_rotation_requested: bool,
 
+    /// When set by the API, the state controller transitions a Ready power shelf
+    /// into the decommissioning workflow and clears the marker atomically.
+    pub decommission_requested: bool,
+
     /// BMC/PMC endpoint (MAC/IP + machine-interface id) resolved from the `Bmc`
     /// machine_interface linked back to this power shelf. Populated by the
     /// standard power-shelf load query, so every consumer (handlers, state
@@ -155,6 +159,7 @@ impl<'r> FromRow<'r, PgRow> for PowerShelf {
             bmc_credential_rotation_requested: row
                 .try_get("bmc_credential_rotation_requested")
                 .unwrap_or(false),
+            decommission_requested: row.try_get("decommission_requested").unwrap_or(false),
             bmc_info,
             controller_state: Versioned {
                 value: controller_state.0,
@@ -263,10 +268,32 @@ pub enum PowerShelfControllerState {
     ReProvisioning {
         reprovisioning_state: ReProvisioningState,
     },
+    /// Managed decommissioning workflow in progress.
+    Decommissioning {
+        decommissioning_state: PowerShelfDecommissioningState,
+    },
     /// There is error in PowerShelf; PowerShelf can not be used if it's in error.
     Error { cause: String },
     /// The PowerShelf is in the process of deleting.
     Deleting,
+}
+
+/// Progress through managed power-shelf decommissioning.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum PowerShelfDecommissioningState {
+    /// Site Explorer is being suppressed before the destructive reset.
+    SuppressingSiteExplorer,
+    /// BMC DHCP is suppressed before the BMC factory reset so post-reset discovers are ignored.
+    SuppressingBmcDhcp,
+    /// Issues the BMC factory reset.
+    FactoryResetBmc,
+    /// Waiting for the pre-reset BMC DHCP suppression to be acknowledged.
+    WaitingForBmcDhcpAcknowledgement,
+    /// Managed per-device credentials are being removed after factory reset.
+    DeletingManagedCredentials,
+    /// Terminal substate: the power shelf has been removed from managed service.
+    Decommissioned,
 }
 
 /// Returns the SLA for the current state
@@ -302,6 +329,31 @@ pub fn state_sla(state: &PowerShelfControllerState, state_version: &ConfigVersio
             std::time::Duration::from_secs(slas::REPROVISIONING),
             time_in_state,
         ),
+        PowerShelfControllerState::Decommissioning {
+            decommissioning_state,
+        } => match decommissioning_state {
+            PowerShelfDecommissioningState::SuppressingSiteExplorer => StateSla::with_sla(
+                std::time::Duration::from_secs(slas::DECOMMISSIONING_SUPPRESSING_SITE_EXPLORER),
+                time_in_state,
+            ),
+            PowerShelfDecommissioningState::SuppressingBmcDhcp => StateSla::with_sla(
+                std::time::Duration::from_secs(slas::DECOMMISSIONING_SUPPRESSING_BMC_DHCP),
+                time_in_state,
+            ),
+            PowerShelfDecommissioningState::FactoryResetBmc => StateSla::with_sla(
+                std::time::Duration::from_secs(slas::DECOMMISSIONING_FACTORY_RESET_BMC),
+                time_in_state,
+            ),
+            PowerShelfDecommissioningState::WaitingForBmcDhcpAcknowledgement => StateSla::with_sla(
+                std::time::Duration::from_secs(slas::DECOMMISSIONING_WAITING_FOR_BMC_DHCP_ACK),
+                time_in_state,
+            ),
+            PowerShelfDecommissioningState::DeletingManagedCredentials => StateSla::with_sla(
+                std::time::Duration::from_secs(slas::DECOMMISSIONING_DELETING_MANAGED_CREDENTIALS),
+                time_in_state,
+            ),
+            PowerShelfDecommissioningState::Decommissioned => StateSla::no_sla(),
+        },
         PowerShelfControllerState::Error { .. } => StateSla::no_sla(),
         PowerShelfControllerState::Deleting => StateSla::with_sla(
             std::time::Duration::from_secs(slas::DELETING),
@@ -423,6 +475,83 @@ mod tests {
                         .to_string(),
                     PowerShelfControllerState::ReProvisioning {
                         reprovisioning_state: ReProvisioningState::WaitingForRackFirmwareUpgrade,
+                    },
+                )),
+            }
+
+            "decommissioning: suppressing Site Explorer" {
+                PowerShelfControllerState::Decommissioning {
+                    decommissioning_state:
+                        PowerShelfDecommissioningState::SuppressingSiteExplorer,
+                } => Yields((
+                    r#"{"state":"decommissioning","decommissioning_state":{"state":"suppressingsiteexplorer"}}"#
+                        .to_string(),
+                    PowerShelfControllerState::Decommissioning {
+                        decommissioning_state:
+                            PowerShelfDecommissioningState::SuppressingSiteExplorer,
+                    },
+                )),
+            }
+
+            "decommissioning: suppressing BMC DHCP" {
+                PowerShelfControllerState::Decommissioning {
+                    decommissioning_state: PowerShelfDecommissioningState::SuppressingBmcDhcp,
+                } => Yields((
+                    r#"{"state":"decommissioning","decommissioning_state":{"state":"suppressingbmcdhcp"}}"#
+                        .to_string(),
+                    PowerShelfControllerState::Decommissioning {
+                        decommissioning_state: PowerShelfDecommissioningState::SuppressingBmcDhcp,
+                    },
+                )),
+            }
+
+            "decommissioning: factory resetting BMC" {
+                PowerShelfControllerState::Decommissioning {
+                    decommissioning_state: PowerShelfDecommissioningState::FactoryResetBmc,
+                } => Yields((
+                    r#"{"state":"decommissioning","decommissioning_state":{"state":"factoryresetbmc"}}"#
+                        .to_string(),
+                    PowerShelfControllerState::Decommissioning {
+                        decommissioning_state: PowerShelfDecommissioningState::FactoryResetBmc,
+                    },
+                )),
+            }
+
+            "decommissioning: waiting for BMC DHCP acknowledgement" {
+                PowerShelfControllerState::Decommissioning {
+                    decommissioning_state:
+                        PowerShelfDecommissioningState::WaitingForBmcDhcpAcknowledgement,
+                } => Yields((
+                    r#"{"state":"decommissioning","decommissioning_state":{"state":"waitingforbmcdhcpacknowledgement"}}"#
+                        .to_string(),
+                    PowerShelfControllerState::Decommissioning {
+                        decommissioning_state:
+                            PowerShelfDecommissioningState::WaitingForBmcDhcpAcknowledgement,
+                    },
+                )),
+            }
+
+            "decommissioning: deleting managed credentials" {
+                PowerShelfControllerState::Decommissioning {
+                    decommissioning_state: PowerShelfDecommissioningState::DeletingManagedCredentials,
+                } => Yields((
+                    r#"{"state":"decommissioning","decommissioning_state":{"state":"deletingmanagedcredentials"}}"#
+                        .to_string(),
+                    PowerShelfControllerState::Decommissioning {
+                        decommissioning_state:
+                            PowerShelfDecommissioningState::DeletingManagedCredentials,
+                    },
+                )),
+            }
+
+            "decommissioning: decommissioned" {
+                PowerShelfControllerState::Decommissioning {
+                    decommissioning_state: PowerShelfDecommissioningState::Decommissioned,
+                } => Yields((
+                    r#"{"state":"decommissioning","decommissioning_state":{"state":"decommissioned"}}"#
+                        .to_string(),
+                    PowerShelfControllerState::Decommissioning {
+                        decommissioning_state: PowerShelfDecommissioningState::Decommissioned,
                     },
                 )),
             }
@@ -792,6 +921,44 @@ mod tests {
 
             "rotatingbmc has the rotating-bmc SLA" {
                 PowerShelfControllerState::RotatingBmc { retry_count: 0 } => (secs(slas::ROTATING_BMC), true),
+            }
+
+            "decommissioning suppressing-site-explorer has an SLA" {
+                PowerShelfControllerState::Decommissioning {
+                    decommissioning_state:
+                        PowerShelfDecommissioningState::SuppressingSiteExplorer,
+                } => (secs(slas::DECOMMISSIONING_SUPPRESSING_SITE_EXPLORER), true),
+            }
+
+            "decommissioning suppressing-bmc-dhcp has an SLA" {
+                PowerShelfControllerState::Decommissioning {
+                    decommissioning_state: PowerShelfDecommissioningState::SuppressingBmcDhcp,
+                } => (secs(slas::DECOMMISSIONING_SUPPRESSING_BMC_DHCP), true),
+            }
+
+            "decommissioning factory-reset-bmc has an SLA" {
+                PowerShelfControllerState::Decommissioning {
+                    decommissioning_state: PowerShelfDecommissioningState::FactoryResetBmc,
+                } => (secs(slas::DECOMMISSIONING_FACTORY_RESET_BMC), true),
+            }
+
+            "decommissioning waiting-for-bmc-dhcp-ack has an SLA" {
+                PowerShelfControllerState::Decommissioning {
+                    decommissioning_state:
+                        PowerShelfDecommissioningState::WaitingForBmcDhcpAcknowledgement,
+                } => (secs(slas::DECOMMISSIONING_WAITING_FOR_BMC_DHCP_ACK), true),
+            }
+
+            "decommissioning deleting-managed-credentials has an SLA" {
+                PowerShelfControllerState::Decommissioning {
+                    decommissioning_state: PowerShelfDecommissioningState::DeletingManagedCredentials,
+                } => (secs(slas::DECOMMISSIONING_DELETING_MANAGED_CREDENTIALS), true),
+            }
+
+            "decommissioning decommissioned carries no SLA" {
+                PowerShelfControllerState::Decommissioning {
+                    decommissioning_state: PowerShelfDecommissioningState::Decommissioned,
+                } => (None, false),
             }
 
             "ready carries no SLA" {

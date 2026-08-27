@@ -1278,3 +1278,60 @@ func TestVpcPrefixSQLDAO_GetPrefixUsage(t *testing.T) {
 		})
 	}
 }
+
+func TestVpcPrefixSQLDAO_ClearDeleted(t *testing.T) {
+	ctx := context.Background()
+	dbSession := testVpcPrefixInitDB(t)
+	defer dbSession.Close()
+	testVpcPrefixSetupSchema(t, dbSession)
+
+	ip := testVpcPrefixBuildInfrastructureProvider(t, dbSession, "testIP")
+	site := testVpcPrefixBuildSite(t, dbSession, ip, "testSite")
+	tenant := testVpcPrefixBuildTenant(t, dbSession, "testTenant")
+	user := testVpcPrefixBuildUser(t, dbSession, "testUser")
+	ipBlock := testVpcPrefixBuildIPBlock(t, dbSession, &site.ID, &ip.ID, "ipBlock", &user.ID)
+	vpc := testVpcPrefixBuildVpc(t, dbSession, ip, site, tenant, "testVpc")
+	vpcPrefixDAO := NewVpcPrefixDAO(dbSession)
+
+	vpcPrefix, err := vpcPrefixDAO.Create(ctx, nil, VpcPrefixCreateInput{
+		Name:         "test-clear-deleted",
+		TenantOrg:    "test",
+		SiteID:       site.ID,
+		VpcID:        vpc.ID,
+		TenantID:     tenant.ID,
+		IpBlockID:    &ipBlock.ID,
+		Prefix:       "192.0.2.0/24",
+		PrefixLength: 24,
+		Status:       VpcPrefixStatusError,
+		CreatedBy:    user.ID,
+	})
+	require.NoError(t, err)
+	require.NoError(t, vpcPrefixDAO.Delete(ctx, nil, vpcPrefix.ID))
+
+	t.Run("clears soft-delete marker", func(t *testing.T) {
+		cleared, clearErr := vpcPrefixDAO.Clear(ctx, nil, VpcPrefixClearInput{
+			VpcPrefixID: vpcPrefix.ID,
+			Deleted:     true,
+		})
+		require.NoError(t, clearErr)
+		require.NotNil(t, cleared)
+		assert.Nil(t, cleared.Deleted)
+
+		updated, updateErr := vpcPrefixDAO.Update(ctx, nil, VpcPrefixUpdateInput{
+			VpcPrefixID:     vpcPrefix.ID,
+			Status:          cutil.GetPtr(VpcPrefixStatusReady),
+			IsMissingOnSite: cutil.GetPtr(false),
+		})
+		require.NoError(t, updateErr)
+		assert.Equal(t, VpcPrefixStatusReady, updated.Status)
+		assert.False(t, updated.IsMissingOnSite)
+	})
+
+	t.Run("returns not found for unknown VPC Prefix", func(t *testing.T) {
+		_, clearErr := vpcPrefixDAO.Clear(ctx, nil, VpcPrefixClearInput{
+			VpcPrefixID: uuid.New(),
+			Deleted:     true,
+		})
+		assert.ErrorIs(t, clearErr, db.ErrDoesNotExist)
+	})
+}

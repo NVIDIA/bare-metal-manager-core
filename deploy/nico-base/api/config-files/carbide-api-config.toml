@@ -118,11 +118,13 @@ test_selection_mode = "EnableAll"
 # Per-site [component_manager] configures switch and power shelf backends.
 
 # Optional per-site mTLS certificate bindings:
-# - [switch_state_controller].switch_mtls_services applies to each switch and
-#   defaults to all four SwitchMtlsService values.
+# - [switch_state_controller].switch_mtls_services applies to switch state
+#   controller operations and direct ComponentConfigureSwitchCertificate RPC
+#   calls. It defaults to all four SwitchMtlsService values.
 # - [rack_state_controller].nmx_cluster_switch_mtls_services is accepted and
 #   ignored. Rack maintenance does not configure switch certificates.
-# A non-empty list replaces its default; an omitted or empty list uses it.
+# A non-empty switch_mtls_services list replaces its default. An omitted or
+# empty list uses the default.
 # Service selection does not enable the underlying service. See
 # docs/architecture/state_machines/switch_configure_certificate.md for service
 # values and workflow scope.
