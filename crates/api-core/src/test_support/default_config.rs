@@ -39,7 +39,7 @@ use model::resource_pool::{self};
 use regex::Regex;
 
 use crate::cfg::file::{
-    AuthConfig, CarbideConfig, DpaConfig, DpaInterfaceStateControllerConfig,
+    AuthConfig, CarbideConfig, EwEthersConfig, DpaInterfaceStateControllerConfig,
     DpuConfig as InitialDpuConfig, DsxExchangeEventBusConfig, FnnConfig,
     IbPartitionStateControllerConfig, KmsConfig, ListenMode, MachineUpdater,
     MeasuredBootMetricsCollectorConfig, MqttAuthConfig, NetworkSecurityGroupConfig,
@@ -306,7 +306,7 @@ pub fn get() -> CarbideConfig {
         listen_mode: ListenMode::Tls,
         listen_only: false,
         nvlink_config: Some(NvLinkConfig::default()),
-        dpa_config: Some(DpaConfig {
+        ewethers_config: Some(EwEthersConfig {
             enabled: true,
             svpc_enabled: true,
             astra_enabled: false,

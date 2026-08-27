@@ -99,7 +99,7 @@ Use `site_explorer.dpu_policy` instead.
 | `bom_validation` | `BomValidationConfig` | *(see below)* | `machines` | BOM/SKU validation (see [BomValidationConfig](#bomvalidationconfig)). |
 | `bios_profiles` | `BiosProfileVendor` | *(default)* | `machines` | BIOS profiles by vendor/model for Redfish BIOS management. |
 | `selected_profile` | `BiosProfileType` | *(default)* | `machines` | Default BIOS profile type applied to machines. |
-| `dpa_config` | `Option<DpaConfig>` | — | `networking` | Cluster Interconnect (east-west Ethernet) config (see [DpaConfig](#dpaconfig)). |
+| `dpa_config` | `Option<EwFabricConfig>` | — | `networking` | Cluster Interconnect (east-west Ethernet) config (see [EwFabricConfig](#dpaconfig)). |
 | `dsx_exchange_event_bus` | `Option<DsxExchangeEventBusConfig>` | — | `integrations` | MQTT event bus for managed-host state publishing plus BMS metadata subscription and rack/isolation/heartbeat publishing (see [DsxExchangeEventBusConfig](#dsxexchangeeventbusconfig)). |
 | `datacenter_asn` | `u32` | `11414` | `networking` | Datacenter ASN used by FNN for DC-specific route targets. |
 | `nvlink_config` | `Option<NvLinkConfig>` | — | `hardware` | NvLink partitioning via NMX-C (see [NvLinkConfig](#nvlinkconfig)). |
@@ -699,7 +699,7 @@ override are combined, properties still unset use the effective defaults above.
 |-------|------|---------|-------------|
 | `prefix` | `IpNetwork` | **required** | IPv4 or IPv6 CIDR prefix accepted by a prefix-list policy. |
 
-### `DpaConfig`
+### `EwFabricConfig`
 
 | Field | Type | Default | Description |
 | ------- | ------ | --------- | ------------- |

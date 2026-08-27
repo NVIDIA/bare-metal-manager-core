@@ -96,7 +96,7 @@ use crate::api::Api;
 use crate::api::metrics::ApiMetricsEmitter;
 use crate::cfg::file::{CarbideConfig, InitialObjectsConfig, ListenMode, VmaasConfig};
 use crate::cfg::load::all_configuration_files;
-use crate::dpa::handler::start_dpa_handler;
+use crate::dpa::handler::start_svpc_handler;
 use crate::dynamic_settings::DynamicSettings;
 use crate::handlers::machine_validation::apply_config_on_startup;
 use crate::listener::{AdminUiRoutesBuilder, ApiListenMode};
@@ -1755,7 +1755,7 @@ async fn initialize_and_start_controllers<'a>(
     })
     .start(join_set, cancel_token.clone())?;
 
-    if carbide_config.is_dpa_enabled() {
+    if carbide_config.is_ewethers_enabled() {
         let subnet_ip = carbide_config.get_dpa_subnet_ip()?;
 
         let subnet_mask = carbide_config.get_dpa_subnet_mask()?;
@@ -1773,11 +1773,11 @@ async fn initialize_and_start_controllers<'a>(
         };
 
         if carbide_config.is_svpc_enabled() {
-            let dpa_mqtt_client =
-                start_dpa_handler(join_set, api_service.clone(), cancel_token.clone()).await?;
-            dpa_mqtt_client.register_metrics(&meter, "dpa");
+            let svpc_mqtt_client =
+                start_svpc_handler(join_set, api_service.clone(), cancel_token.clone()).await?;
+            svpc_mqtt_client.register_metrics(&meter, "dpa");
 
-            info.mqtt_client = Some(dpa_mqtt_client);
+            info.mqtt_client = Some(svpc_mqtt_client);
 
             tracing::info!("DPA MQTT client started for SVPC");
         }
@@ -1790,7 +1790,7 @@ async fn initialize_and_start_controllers<'a>(
                 db_pool.clone().into(),
                 dpa_info,
                 meter.clone(),
-                carbide_config.dpa_config.clone().unwrap_or_default(),
+                carbide_config.ewethers_config.clone().unwrap_or_default(),
                 carbide_config.host_health,
                 work_lock_manager_handle.clone(),
             )

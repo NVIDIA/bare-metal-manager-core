@@ -846,8 +846,9 @@ impl MachineStateHandler {
                         let powercycle_needed =
                             self.enable_astra_all_nics(mh_snapshot, ctx).await?;
                         tracing::info!(
-                            "ConfigureAstra state: EnableNics, powercycle_needed: {}",
-                            powercycle_needed
+                            machine_id = %mh_snapshot.host_snapshot.id,
+                            powercycle_needed,
+                            "ConfigureAstra state: EnableNics"
                         );
                         if powercycle_needed {
                             if let Err(e) = handler_host_power_control(
@@ -2113,7 +2114,7 @@ impl MachineStateHandler {
                     instance_state: InstanceState::DpaProvisioning,
                 };
 
-                if !ctx.services.site_config.dpa_enabled {
+                if !ctx.services.site_config.ewethers_enabled {
                     // If DPA is not enabled, we don't need to do any DPA provisioning.
                     // So go directly to WaitingForDpaToBeReady state, where we will change
                     // the network status of our DPUs.
@@ -2317,12 +2318,13 @@ impl MachineStateHandler {
         // At this point, we need to use Redfish to get all the CX cards in the host.
         // The end point to explore is /redfish/v1/Chassis/CX_$i
 
-        let mut enabled_any_cx9 = false;
-        for (nic_index, expected_nic) in host_nics
+        let cx9_nics: Vec<_> = host_nics
             .iter()
             .filter(|nic| nic.nic_type.as_deref() == Some("CX9"))
-            .enumerate()
-        {
+            .collect();
+        let enabled_any_cx9 = !cx9_nics.is_empty();
+
+        for (nic_index, expected_nic) in cx9_nics.into_iter().enumerate() {
             if let Err(e) = self
                 .enable_astra_nic(nic_index as u8, mh_snapshot, ctx, expected_nic)
                 .await
@@ -2335,7 +2337,6 @@ impl MachineStateHandler {
                 );
                 return Err(e);
             }
-            enabled_any_cx9 = true;
         }
 
         tracing::info!(
@@ -8201,7 +8202,7 @@ impl StateHandler for InstanceStateHandler {
                     // This involves the DPA State Machine sending SetVNI commands to the NICs, and getting
                     // an ACK. If any of the interfaces has not yet heard back the ACk, we will continue to
                     // be in the current state.
-                    if ctx.services.site_config.dpa_enabled {
+                    if ctx.services.site_config.ewethers_enabled {
                         for dpa_interface in &mh_snapshot.dpa_interface_snapshots {
                             if !dpa_interface.managed_host_network_config_version_synced(
                                 &mh_snapshot.instance,
@@ -8933,7 +8934,7 @@ impl StateHandler for InstanceStateHandler {
 
                     // Check each DPA interface associated with the machine to make sure the DPA NIC has updated
                     // its network config (setting VNI to zero in this case).
-                    if ctx.services.site_config.dpa_enabled {
+                    if ctx.services.site_config.ewethers_enabled {
                         for dpa_interface in &mh_snapshot.dpa_interface_snapshots {
                             // We're heading back to admin and a DPA still in
                             // Provisioning has nothing to ack -- it never
@@ -9167,7 +9168,7 @@ impl StateHandler for InstanceStateHandler {
                     // no longer be able to interact with scout.
 
                     let mut txn = ctx.services.db_pool.begin().await?;
-                    if ctx.services.site_config.dpa_enabled {
+                    if ctx.services.site_config.ewethers_enabled {
                         for dpa_interface in &mh_snapshot.dpa_interface_snapshots {
                             let (mut netconf, version) =
                                 dpa_interface.network_config.clone().take();
@@ -9192,7 +9193,7 @@ impl StateHandler for InstanceStateHandler {
                     // an ACK. If any of the interfaces has not yet heard back the ACk, we will continue to
                     // be in the current state.
 
-                    if ctx.services.site_config.dpa_enabled {
+                    if ctx.services.site_config.ewethers_enabled {
                         for dpa_interface in &mh_snapshot.dpa_interface_snapshots {
                             if !dpa_interface.managed_host_network_config_version_synced(
                                 &mh_snapshot.instance,

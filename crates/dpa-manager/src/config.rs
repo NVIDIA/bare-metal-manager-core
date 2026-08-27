@@ -91,7 +91,7 @@ pub struct MqttAuthConfig {
 
 /// SVPC (Scalable VPC) MQTT connection settings.
 ///
-/// These were previously inlined in [`DpaConfig`]; they are grouped here so the
+/// These were previously inlined in [`EwFabricConfig`]; they are grouped here so the
 /// SVPC path owns its own MQTT endpoint, port, heartbeat interval, and
 /// authentication configuration.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -141,7 +141,7 @@ impl Default for SvpcConfig {
 /// The VNI to be used by DPA will be the same as the parent VPC.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
-pub struct DpaConfig {
+pub struct EwEthersConfig {
     /// Global enable/disable of Cluster Interconnect Network.
     #[serde(default)]
     pub enabled: bool,
@@ -157,7 +157,7 @@ pub struct DpaConfig {
     pub astra_enabled: bool,
 
     /// Base IPv4 address of the DPA/Cluster Interconnect subnet.
-    #[serde(default = "DpaConfig::default_subnet_ip")]
+    #[serde(default = "EwEthersConfig::default_subnet_ip")]
     pub subnet_ip: Ipv4Addr,
 
     /// CIDR prefix length for the DPA subnet.
@@ -166,7 +166,7 @@ pub struct DpaConfig {
 
     /// The interval at which we run the DPA monitor.
     #[serde(
-        default = "DpaConfig::default_monitor_run_interval",
+        default = "EwEthersConfig::default_monitor_run_interval",
         deserialize_with = "deserialize_duration",
         serialize_with = "as_std_duration"
     )]
@@ -177,7 +177,7 @@ pub struct DpaConfig {
     pub svpc: SvpcConfig,
 }
 
-impl DpaConfig {
+impl EwEthersConfig {
     pub const fn default_monitor_run_interval() -> std::time::Duration {
         std::time::Duration::from_secs(60)
     }
@@ -187,7 +187,7 @@ impl DpaConfig {
     }
 }
 
-impl Default for DpaConfig {
+impl Default for EwEthersConfig {
     fn default() -> Self {
         Self {
             enabled: false,
