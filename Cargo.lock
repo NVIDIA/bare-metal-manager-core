@@ -1832,6 +1832,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "async-trait",
+ "carbide-libmlx-model",
  "carbide-test-support",
  "carbide-utils",
  "carbide-uuid",
@@ -2489,6 +2490,7 @@ dependencies = [
  "carbide-health-report",
  "carbide-instrument",
  "carbide-ipmi",
+ "carbide-libmlx-model",
  "carbide-measured-boot",
  "carbide-proto-compiler",
  "carbide-redfish",

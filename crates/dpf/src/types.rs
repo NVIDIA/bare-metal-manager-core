@@ -684,6 +684,8 @@ pub struct DpuServiceHelmChartObservation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum DpuDeploymentType {
     Bf3,
+    /// BF3 B3240 on a GB200 platform using CPU as Root Complex mode.
+    Bf3Gb200,
     Bf4Generic,
     Bf4Astra,
 }

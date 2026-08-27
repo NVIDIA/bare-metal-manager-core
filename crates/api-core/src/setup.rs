@@ -649,7 +649,7 @@ async fn initialize_dpf_sdk(
         return Ok(None);
     }
 
-    let mut deployments = vec!["bf3"];
+    let mut deployments = vec!["bf3", "bf3_gb200"];
     if carbide_config.dpf.deployments.bf4_generic.is_some() {
         deployments.push("bf4_generic");
     }
@@ -730,7 +730,9 @@ async fn initialize_dpf_sdk(
                 .resolved_services_for(deployment, deployment_type);
             let interfaces = match deployment_type {
                 DpuDeploymentType::Bf4Astra => &astra_interfaces,
-                DpuDeploymentType::Bf3 | DpuDeploymentType::Bf4Generic => &effective_interfaces,
+                DpuDeploymentType::Bf3
+                | DpuDeploymentType::Bf3Gb200
+                | DpuDeploymentType::Bf4Generic => &effective_interfaces,
             };
             carbide_dpf::InitDpfResourcesConfig {
                 bfb_url: deployment.bfb_url.clone().unwrap_or_default(),
@@ -750,9 +752,9 @@ async fn initialize_dpf_sdk(
                 pf_total_sf_reserved: carbide_config.dpf.pf_total_sf_reserved,
                 intercept_bridging: match deployment_type {
                     DpuDeploymentType::Bf4Astra => None,
-                    DpuDeploymentType::Bf3 | DpuDeploymentType::Bf4Generic => {
-                        intercept_bridging.clone()
-                    }
+                    DpuDeploymentType::Bf3
+                    | DpuDeploymentType::Bf3Gb200
+                    | DpuDeploymentType::Bf4Generic => intercept_bridging.clone(),
                 },
                 interfaces: interfaces.clone(),
                 proxy: carbide_config.dpf.proxy.clone(),
@@ -764,6 +766,15 @@ async fn initialize_dpf_sdk(
     sdk.create_initialization_objects(&make_init_config(bf3, DpuDeploymentType::Bf3, None))
         .await
         .map_err(|err| eyre::eyre!("failed to initialize bf3 DPF deployment: {err}"))?;
+
+    let bf3_gb200 = bf3.bf3_gb200();
+    sdk.create_initialization_objects(&make_init_config(
+        &bf3_gb200,
+        DpuDeploymentType::Bf3Gb200,
+        None,
+    ))
+    .await
+    .map_err(|err| eyre::eyre!("failed to initialize bf3 GB200 DPF deployment: {err}"))?;
 
     if let Some(bf4) = &carbide_config.dpf.deployments.bf4_generic {
         // Validation guarantees `bluefield_software` is set with exactly one PSID
@@ -820,8 +831,8 @@ async fn initialize_dpf_sdk(
 /// Build per-deployment-type node selector labels for the DPF labeler registry.
 ///
 /// Each deployment gets two labels: the shared `dpu-enabled` marker and its
-/// own deployment-specific key. BF3 is always included;
-/// BF4Generic is added when configured.
+/// own deployment-specific key. Both BF3 variants are always included;
+/// configured BF4 variants are added.
 fn build_deployment_type_labels(
     carbide_config: &CarbideConfig,
 ) -> std::collections::BTreeMap<DpuDeploymentType, std::collections::BTreeMap<String, String>> {
@@ -839,6 +850,11 @@ fn build_deployment_type_labels(
         DpuDeploymentType::Bf3,
         make_labels(&carbide_config.dpf.deployments.bf3.node_label_key),
     )]);
+    let bf3_gb200 = carbide_config.dpf.deployments.bf3.bf3_gb200();
+    map.insert(
+        DpuDeploymentType::Bf3Gb200,
+        make_labels(&bf3_gb200.node_label_key),
+    );
 
     if let Some(bf4) = &carbide_config.dpf.deployments.bf4_generic {
         map.insert(
@@ -2192,6 +2208,24 @@ mod tests {
             ))
             .extract()
             .expect("minimal CarbideConfig parses")
+    }
+
+    #[test]
+    fn dpf_labels_include_the_derived_gb200_deployment() {
+        let config = minimal_carbide_config();
+        let labels = build_deployment_type_labels(&config);
+        let gb200_label = format!("{}-gb200", config.dpf.deployments.bf3.node_label_key);
+
+        assert_eq!(
+            labels.get(&DpuDeploymentType::Bf3Gb200),
+            Some(&BTreeMap::from([
+                (
+                    carbide_dpf::DPU_ENABLED_NODE_LABEL.to_string(),
+                    "true".to_string()
+                ),
+                (gb200_label, "true".to_string()),
+            ]))
+        );
     }
 
     fn network_definition(mtu: i32) -> NetworkDefinition {
