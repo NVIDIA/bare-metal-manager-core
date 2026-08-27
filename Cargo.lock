@@ -1064,7 +1064,6 @@ dependencies = [
  "colored",
  "config-version",
  "containerd-client",
- "ctor",
  "data-encoding",
  "diff",
  "eyre",
