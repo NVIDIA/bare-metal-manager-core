@@ -14317,6 +14317,14 @@ paths:
       responses:
         '202':
           description: DPF Helm chart deletion accepted; reconciliation continues asynchronously
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '204':
           description: Kubernetes Pod service deleted synchronously
         '403':

@@ -988,7 +988,7 @@ func NewDeleteDpuExtensionServiceHandler(dbSession *cdb.Session, tc tclient.Clie
 // @Security ApiKeyAuth
 // @Param org path string true "Name of NGC organization"
 // @Param dpuExtensionServiceId path string true "ID of DPU Extension Service"
-// @Success 202 "DPF Helm chart deletion accepted"
+// @Success 202 {object} model.APIMessageResponse "DPF Helm chart deletion accepted"
 // @Success 204 "Kubernetes Pod service deleted"
 // @Router /v2/org/{org}/nico/dpu-extension-service/{dpuExtensionServiceId} [delete]
 func (ddesh DeleteDpuExtensionServiceHandler) Handle(c echo.Context) error {
@@ -1169,7 +1169,7 @@ func (ddesh DeleteDpuExtensionServiceHandler) Handle(c echo.Context) error {
 	logger.Info().Msg("finishing API handler")
 
 	if isDpfHelmChart {
-		return c.NoContent(http.StatusAccepted)
+		return c.JSON(http.StatusAccepted, model.NewAPIDeletionAcceptedResponse())
 	}
 
 	return c.NoContent(http.StatusNoContent)

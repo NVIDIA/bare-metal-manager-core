@@ -1192,7 +1192,7 @@ func TestDeleteDpuExtensionServiceHandler_Handle(t *testing.T) {
 				assert.ErrorIs(t, err, cdb.ErrDoesNotExist)
 			}
 			if !tt.expectedErr && rec.Code == http.StatusAccepted {
-				assert.Empty(t, rec.Body.Bytes())
+				assertDeletionAcceptedResponse(t, rec.Body.Bytes())
 				desDAO := cdbm.NewDpuExtensionServiceDAO(dbSession)
 				stored, getErr := desDAO.GetByID(context.Background(), nil, uuid.MustParse(tt.dpuExtensionServiceID), nil)
 				require.NoError(t, getErr)
