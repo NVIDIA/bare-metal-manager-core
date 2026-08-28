@@ -707,15 +707,24 @@ service Forge {
   // Machine-Validation test list
   rpc GetMachineValidationTests(MachineValidationTestsGetRequest) returns (MachineValidationTestsGetResponse);
 
+  // A request without plugin creates a legacy test. A plugin creates an immutable
+  // revision that starts unverified and disabled; it must be verified before enablement.
   rpc AddMachineValidationTest(MachineValidationTestAddRequest) returns (MachineValidationTestAddUpdateResponse);
 
   rpc UpdateMachineValidationTest(MachineValidationTestUpdateRequest) returns (MachineValidationTestAddUpdateResponse);
 
+  // Verifies one immutable plugin revision. Verification is required before enablement.
   rpc MachineValidationTestVerfied(MachineValidationTestVerfiedRequest) returns (MachineValidationTestVerfiedResponse);
 
   rpc MachineValidationTestNextVersion(MachineValidationTestNextVersionRequest) returns (MachineValidationTestNextVersionResponse);
 
+  // Enables or disables a revision. Plugin enablement requires verification and,
+  // for host_access_full, separate approval of the exact revision.
   rpc MachineValidationTestEnableDisableTest(MachineValidationTestEnableDisableTestRequest) returns (MachineValidationTestEnableDisableTestResponse);
+
+  // Approves the writable host-root mount for one verified plugin revision.
+  // The request fails unless that exact immutable revision requests host_access_full.
+  rpc MachineValidationTestApproveFullHost(MachineValidationTestFullHostApprovalRequest) returns (MachineValidationTestFullHostApprovalResponse);
 
   rpc UpdateMachineValidationRun(MachineValidationRunRequest) returns (MachineValidationRunResponse);
 
@@ -7362,6 +7371,9 @@ message MachineValidationTestUpdateRequest {
     repeated string custom_tags = 16;
     repeated string components = 17;
     optional bool is_enabled = 19;
+    // Plugin revisions are immutable. This field is accepted only when creating
+    // a new revision and cannot modify an existing plugin revision.
+    optional MachineValidationPlugin plugin = 20;
   }
   string test_id = 1;
   string version = 2;
@@ -7389,6 +7401,7 @@ message MachineValidationTestAddRequest {
   repeated string custom_tags = 16;
   repeated string components = 17;
   optional bool is_enabled = 18;
+  optional MachineValidationPlugin plugin = 19;
 }
 message MachineValidationTestAddUpdateResponse {
   string test_id = 1;
@@ -7432,6 +7445,32 @@ message MachineValidationTest {
   repeated string components = 21;
   string last_modified_at = 22;
   bool is_enabled = 23;
+  // OCI plugin configuration for this immutable revision, if plugin-backed.
+  optional MachineValidationPlugin plugin = 24;
+  // Server-managed approval required for plugin.host_access_full.
+  bool full_host_approved = 25;
+}
+
+// A generic OCI plugin. The image is an immutable digest-pinned reference and
+// entrypoint arguments are passed directly to the container runtime.
+message MachineValidationPlugin {
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  string image = 1;
+  repeated string entrypoint = 2;
+  // JSON object of non-secret site-defined values included in input.json.
+  string parameters_json = 3;
+  bool privileged = 4;
+  bool host_access_full = 5;
+}
+
+message MachineValidationTestFullHostApprovalRequest {
+  string test_id = 1;
+  string version = 2;
+}
+
+message MachineValidationTestFullHostApprovalResponse {
+  string message = 1;
 }
 message MachineValidationTestNextVersionResponse {
   string test_id = 1;
