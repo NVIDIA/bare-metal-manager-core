@@ -115,7 +115,7 @@ templates:
     template: |
       #!ipxe
       # Ubuntu autoinstall template
-      kernel {{kernel}} BOOTIF=01-${netX/mac:hexhyp} ip=dhcp fb=false url={{install_iso}} autoinstall ds=nocloud;s=${tenant-cloudinit-url} console=tty0 console={{console}},115200 initrd=initrd.magic
+      kernel {{kernel}} BOOTIF=01-${netX/mac:hexhyp} ip=dhcp fb=false url={{install_iso}} autoinstall ds=nocloud-net;s=${tenant-cloudinit-url} console=tty0 console={{console}},115200 initrd=initrd.magic
       initrd {{initrd}}
       boot
 
@@ -135,7 +135,7 @@ templates:
       - console
     template: |
       #!ipxe
-      kernel {{kernel}} fsck.mode=skip autoinstall ip=dhcp BOOTIF=01-${netX/mac:hexhyp} url={{install_iso}} nvme-core.multipath=n nouveau.modeset=0 console=tty0 console={{console}},115200 nooemconfig force-platform={{force_platform}} force-ai={{ai_cfg}} ds=nocloud;s=${tenant-cloudinit-url}
+      kernel {{kernel}} fsck.mode=skip autoinstall ip=dhcp BOOTIF=01-${netX/mac:hexhyp} url={{install_iso}} nvme-core.multipath=n nouveau.modeset=0 console=tty0 console={{console}},115200 nooemconfig force-platform={{force_platform}} force-ai={{ai_cfg}} ds=nocloud-net;s=${tenant-cloudinit-url}
       initrd {{initrd}}
       boot
 

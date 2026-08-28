@@ -14,7 +14,7 @@ automatically; a script that hard-codes a hostname instead does not.
 | Variable | Value | Use it for |
 |---|---|---|
 | `${base-url}` | The boot-artifact tree, `…/public/blobs/` | Chaining to a kernel, initrd, or EFI image NICo serves |
-| `${tenant-cloudinit-url}` | The NoCloud datasource for an assigned instance | `ds=nocloud;s=${tenant-cloudinit-url}` in an OS install script |
+| `${tenant-cloudinit-url}` | The NoCloud datasource for an assigned instance | `ds=nocloud-net;s=${tenant-cloudinit-url}` in an OS install script |
 | `${dpu-cloudinit-url}` | The BlueField kickstart endpoint | Internal — DPU provisioning only |
 | `${scout-cloudinit-url}` | The discovery OS's NoCloud datasource | Internal — set on the Scout kernel command line only |
 | `${cloudinit-url}` | Alias of `${tenant-cloudinit-url}` | **Deprecated** — see below |
@@ -26,9 +26,9 @@ provisioning flows, and referencing them from a tenant script will not do anythi
 
 Booting an OS installer against a cloud-init datasource:
 
-```
+```text
 #!ipxe
-kernel ${base-url}/internal/x86_64/vmlinuz ip=dhcp autoinstall ds=nocloud;s=${tenant-cloudinit-url} initrd=initrd.magic
+kernel ${base-url}/internal/x86_64/vmlinuz ip=dhcp autoinstall ds=nocloud-net;s=${tenant-cloudinit-url} initrd=initrd.magic
 initrd ${base-url}/internal/x86_64/initrd
 boot
 ```

@@ -18,15 +18,13 @@
 //! The NoCloud datasource served to a host booting the Scout discovery image.
 //!
 //! A site drops cloud-config files into a directory this service serves; those
-//! files are listed here as a cloud-init `#include` document, and the machine
-//! applies them before the Scout service starts. The API puts this prefix on
-//! the Scout kernel command line and nowhere else, so only discovery hosts
-//! reach it.
+//! files are listed here as a cloud-init `#include` document, applied before the
+//! Scout service starts.
 //!
-//! Nothing here answers with the generic error template, unlike its sibling
-//! prefixes. A document that fails to parse stops NoCloud bringing the
-//! datasource up at all, which would cost the snippets entirely -- so every
-//! failure short of the process dying still serves something valid.
+//! Unlike its sibling prefixes, nothing here answers with the generic error
+//! template. A document that fails to parse stops NoCloud bringing the
+//! datasource up at all, so every failure short of the process dying still
+//! serves something valid.
 
 use std::path::Path;
 
@@ -42,61 +40,48 @@ use crate::metrics::{
     BootEndpoint, CloudInitConsumer, OutcomeReason, PxeBootOutcome, PxeSnippetDirectoryUnreadable,
 };
 
-/// Every outcome on these routes carries the same endpoint label.
 const ENDPOINT: BootEndpoint = BootEndpoint::CloudInit(CloudInitConsumer::Scout);
 
-/// Where snippets live, relative to the static-file directory this service was
-/// given on the command line. Expressing it relatively is what lets the feature
-/// name no mount point of its own and follow whatever the deployment
-/// configures.
+/// Relative to the static-file directory, so the feature needs no mount point of
+/// its own and follows whatever the deployment configures.
 const SNIPPET_SUBDIR: &str = "blobs/internal/cloud-init.d/scout";
 
 /// The URL path the existing static handler serves that same directory under.
 const SNIPPET_URL_PATH: &str = "/public/blobs/internal/cloud-init.d/scout";
 
-/// `instance-id` of last resort. NoCloud needs the field to bring the
-/// datasource up, and a datasource that fails to come up costs the snippets
-/// entirely, so a machine the API can identify by neither machine nor
-/// interface still gets a usable document.
+/// NoCloud needs an `instance-id` to bring the datasource up, so a machine the
+/// API can identify by neither machine nor interface still gets a valid one.
 const FALLBACK_INSTANCE_ID: &str = "nico-discovery";
 
-/// The rendering context for `scout-user-data`.
 #[derive(Serialize)]
 struct ScoutUserData {
-    /// Absolute URLs of the snippets, in filename order. Empty renders the
-    /// no-op document instead of an `#include` list.
+    /// Empty renders the no-op document instead of an `#include` list.
     snippet_urls: Vec<String>,
 }
 
-/// The rendering context for `scout-meta-data`.
 #[derive(Serialize)]
 struct ScoutMetaData {
     instance_id: String,
-    /// Omitted entirely rather than sent empty, so the template leaves the
-    /// field out and cloud-init falls back to its own hostname derivation.
+    /// Omitted rather than sent empty, so cloud-init falls back to its own
+    /// hostname derivation.
     #[serde(skip_serializing_if = "Option::is_none")]
     local_hostname: Option<String>,
 }
 
-/// What a scan of the snippet directory found.
 #[derive(Debug, PartialEq)]
 enum SnippetScan {
-    /// Snippet filenames, sorted.
     Found(Vec<String>),
-    /// No directory, or a directory holding nothing servable. This is the
-    /// supported default, not a fault: the mechanism is unconditional but
-    /// configuring it is optional.
+    /// No directory, or nothing servable in it. The supported default, not a
+    /// fault: the mechanism is unconditional, configuring it is optional.
     NotConfigured,
-    /// The directory exists but could not be listed. Snippets a site did
-    /// configure are silently not applied, which is the one case here worth
-    /// alerting on.
+    /// The directory exists but could not be listed, so snippets a site did
+    /// configure are silently not applied. The one case here worth alerting on.
     Unreadable(String),
 }
 
-/// Whether a filename can go into an `#include` list unescaped. Snippet names
-/// are conventionally `10-auth.yaml`; anything outside that shape is skipped
-/// rather than percent-encoded, so a name can never change meaning between the
-/// directory listing and the URL a machine fetches.
+/// Names outside the conventional `10-auth.yaml` shape are skipped rather than
+/// percent-encoded, so a name cannot change meaning between the listing and the
+/// URL a machine fetches.
 fn is_url_safe_snippet_name(name: &str) -> bool {
     !name.is_empty()
         && name
@@ -106,10 +91,9 @@ fn is_url_safe_snippet_name(name: &str) -> bool {
 
 /// Lists the snippet directory in filename order.
 ///
-/// Metadata is read through symlinks deliberately: a ConfigMap mount presents
-/// each key as a symlink into a hidden `..data` directory, so following links
-/// is what makes the Kubernetes case work while still skipping that directory
-/// itself. Names beginning with a dot are skipped for the same reason.
+/// Metadata is read through symlinks so that ConfigMap mounts work, since they
+/// present each key as a symlink into a hidden `..data` directory; dotted names
+/// are skipped so that directory itself is not served.
 fn scan_snippet_dir(static_dir: &str) -> SnippetScan {
     let dir = Path::new(static_dir).join(SNIPPET_SUBDIR);
 
@@ -186,19 +170,11 @@ fn scan_snippet_dir(static_dir: &str) -> SnippetScan {
 }
 
 /// The base URL a machine should fetch snippets from: its own override when it
-/// has one -- an external host on the static-assignments segment reached this
-/// service by that name because it is the one it can resolve -- otherwise the
-/// configured PXE URL.
+/// has one, otherwise the configured PXE URL.
 ///
-/// Deliberately not `static_pxe_url`, even though snippets are served from the
-/// same `/public/blobs/` tree that the iPXE script's `base-url` reaches through
-/// it. That URL is not "the static half of this service": it points at an nginx
-/// cache sitting in front of carbide-pxe, and the local development
-/// environment's nginx does not forward to the origin, so anything served
-/// through it has to be copied across by hand. Snippets are small, they change
-/// while someone is iterating on them, and sending them through a cache that
-/// needs manual population would make the feature tedious to develop against
-/// for no benefit.
+/// Deliberately not `static_pxe_url`, which names an nginx cache in front of
+/// this service. Snippets are small and change whenever a site edits them, so
+/// they are served from the origin rather than through a cache.
 fn snippet_base_url(machine: &Machine, state: &AppState) -> String {
     let url = machine
         .instructions
@@ -208,13 +184,9 @@ fn snippet_base_url(machine: &Machine, state: &AppState) -> String {
     url.trim_end_matches('/').to_string()
 }
 
-/// The hostname on the machine interface the API resolved the caller to.
-///
-/// This is the discovery equivalent of the instance name the tenant path sends
-/// as `local-hostname`: the interface record is what the DNS entry is built
-/// from, so it is already a hostname and needs no further validation. Without
-/// it every machine in discovery calls itself `scout`, which makes a console or
-/// a log line impossible to attribute to a specific machine.
+/// The hostname on the machine interface the API resolved the caller to. Needs
+/// no validation: it is the record the DNS entry is built from. Without it every
+/// machine in discovery calls itself `scout`.
 fn interface_hostname(machine: &Machine) -> Option<String> {
     let hostname = machine
         .instructions
@@ -242,10 +214,9 @@ fn interface_id(machine: &Machine) -> Option<String> {
 /// Serves the `#include` list of the site's snippets, or a no-op
 /// `#cloud-config` when none are configured.
 ///
-/// A directory that cannot be read is answered with the no-op document too.
-/// Failing the request instead would take the datasource down over a fault the
-/// machine can do nothing about, and the emitted Event is the signal that the
-/// snippets did not arrive.
+/// An unreadable directory gets the no-op document too, rather than failing the
+/// request and taking the datasource down over a fault the machine cannot act
+/// on; the emitted Event is the signal that the snippets did not arrive.
 async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoResponse {
     let snippet_urls = match scan_snippet_dir(&state.static_dir) {
         SnippetScan::Found(names) => {
@@ -283,14 +254,11 @@ async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoRespons
     )
 }
 
-/// Serves NoCloud's `meta-data`, whose `instance-id` carries the machine ID.
+/// Serves NoCloud's `meta-data`, whose `instance-id` carries the machine ID so
+/// a snippet can read machine identity without scraping `/proc/cmdline`.
 ///
-/// The API already populates that field when it resolves the caller by client
-/// IP, independently of and prior to Scout registering, so a snippet reads
-/// machine identity here rather than scraping `/proc/cmdline`. The field is
-/// optional and can be unset, so it falls back to the interface ID: this
-/// document must always be valid, because a datasource that fails to come up
-/// costs the snippets entirely.
+/// The field is optional, so it falls back to the interface ID and then to a
+/// placeholder; this document must always be valid.
 async fn meta_data(machine: Machine, state: State<AppState>) -> impl IntoResponse {
     let instance_id = match machine.instructions.metadata.as_ref() {
         Some(metadata) => metadata.instance_id.clone(),
@@ -328,9 +296,8 @@ async fn meta_data(machine: Machine, state: State<AppState>) -> impl IntoRespons
 }
 
 /// Builds the route table for the Scout discovery datasource served under
-/// `path_prefix`: `user-data` and `meta-data`, the two documents NoCloud needs.
-/// `vendor-data` is deliberately absent -- NoCloud treats it as optional and
-/// carries on without it, and there is nothing for this path to put in it.
+/// `path_prefix`: `user-data` and `meta-data`. `vendor-data` is absent because
+/// NoCloud treats it as optional and this path has nothing to put in it.
 pub(crate) fn get_router(path_prefix: &str) -> Router<AppState> {
     Router::new()
         .route(
@@ -519,9 +486,8 @@ mod tests {
         );
     }
 
-    /// A caller with no machine still gets a document, and it is counted as
-    /// served -- the interface ID standing in for the machine ID is the
-    /// designed path, not a degraded one.
+    /// A caller with no machine still gets a document, counted as served: the
+    /// interface ID standing in is the designed path, not a degraded one.
     #[tokio::test]
     async fn meta_data_falls_back_to_the_interface_id() {
         let metrics = MetricsCapture::start();
@@ -541,10 +507,9 @@ mod tests {
         );
     }
 
-    /// The rendered documents are what a machine actually consumes, so they
-    /// are checked against the real templates: an `#include` list in filename
-    /// order when snippets exist, and a no-op `#cloud-config` when none do.
-    /// Both carry the operator documentation either way.
+    /// Both forms against the real templates: an `#include` list in filename
+    /// order when snippets exist, a no-op `#cloud-config` when none do, and the
+    /// operator documentation in either case.
     #[test]
     fn user_data_template_renders_both_forms() {
         let template_glob = concat!(env!("CARGO_MANIFEST_DIR"), "/../../pxe/templates/**/*");
@@ -575,9 +540,7 @@ mod tests {
         assert!(without_snippets.contains("\n{}\n"));
         assert!(!without_snippets.contains("http://"));
 
-        // The three operator rules ship on every boot, in both forms. The time
-        // bound names the mechanism and how to read the live value rather than
-        // asserting a number this service does not enforce.
+        // The three operator rules ship on every boot, in both forms.
         for rendered in [&with_snippets, &without_snippets] {
             assert!(rendered.contains("COMPOSING SNIPPETS."));
             assert!(rendered.contains("merge_how:"));
@@ -588,18 +551,13 @@ mod tests {
         }
     }
 
-    /// The configured path, end to end: real files in a real directory, through
-    /// the real handler and the real template, to the bytes a machine receives.
-    ///
-    /// Every other test here covers one half -- the directory scan, or the
-    /// template with URLs handed to it. This is the only one that proves the
-    /// two are wired together, and it is the path that has never run on
-    /// hardware, because nothing mounts a snippet yet.
+    /// The configured path end to end: real files in a real directory, through
+    /// the real handler and template, to the bytes a machine receives. The only
+    /// test proving the scan and the template are wired together.
     #[tokio::test]
     async fn user_data_serves_an_include_list_of_the_configured_snippets() {
-        // Serializes against the tests that assert exact counter deltas: driving
-        // a handler emits into the shared registry, and MetricsCapture::start is
-        // what takes the lock that keeps those deltas meaningful.
+        // Takes the lock that keeps other tests' exact counter deltas meaningful,
+        // since driving a handler emits into the shared registry.
         let _metrics = MetricsCapture::start();
 
         let root = tempfile::tempdir().unwrap();
@@ -637,20 +595,17 @@ mod tests {
             "snippets must be listed in filename order, got:\n{body}"
         );
 
-        // The operator documentation ships with the list, not only with the
-        // no-op document.
+        // Operator documentation ships with the list, not only the no-op form.
         assert!(body.contains("DO NOT REBOOT FROM A SNIPPET."));
         assert!(body.contains("NO SECRETS."));
     }
 
-    /// A discovery host is told its own name, so a console or a log line can
-    /// be attributed to a machine instead of to yet another host called
-    /// `scout`.
+    /// A discovery host is told its own name, so console and log lines can be
+    /// attributed to a machine rather than to another host called `scout`.
     #[tokio::test]
     async fn meta_data_serves_the_interface_hostname_as_local_hostname() {
-        // Serializes against the tests that assert exact counter deltas: driving
-        // a handler emits into the shared registry, and MetricsCapture::start is
-        // what takes the lock that keeps those deltas meaningful.
+        // Takes the lock that keeps other tests' exact counter deltas meaningful,
+        // since driving a handler emits into the shared registry.
         let _metrics = MetricsCapture::start();
 
         let response = meta_data(
@@ -674,9 +629,8 @@ mod tests {
     /// empty one, leaving cloud-init to derive a hostname itself.
     #[tokio::test]
     async fn meta_data_omits_local_hostname_when_the_interface_has_none() {
-        // Serializes against the tests that assert exact counter deltas: driving
-        // a handler emits into the shared registry, and MetricsCapture::start is
-        // what takes the lock that keeps those deltas meaningful.
+        // Takes the lock that keeps other tests' exact counter deltas meaningful,
+        // since driving a handler emits into the shared registry.
         let _metrics = MetricsCapture::start();
 
         let response = meta_data(

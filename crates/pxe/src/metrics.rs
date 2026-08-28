@@ -73,10 +73,9 @@ pub(crate) enum CloudInitConsumer {
     Scout,
 }
 
-/// The boot-path endpoint an outcome describes, as a bounded metric label:
-/// the two iPXE script routes plus the cloud-init routes (user-data,
-/// meta-data, vendor-data), each carrying the consumer it is intended to
-/// serve.
+/// The boot-path endpoint an outcome describes, as a bounded metric label.
+/// Cloud-init values are scoped to the consumer rather than the document, so
+/// every document a consumer fetches shares one label value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BootEndpoint {
     Whoami,
@@ -109,12 +108,10 @@ impl LabelValue for BootEndpoint {
 /// response; a template that later fails to render returns a real 5xx the
 /// `http_*` metrics count, which is outside this metric's HTTP-200 scope.
 ///
-/// The Scout discovery routes add two non-error outcomes of their own.
-/// `instructions_empty` there means no snippets are configured, which is the
-/// supported default rather than a fault, and `snippet_directory_unreadable`
-/// means the directory exists but could not be listed -- the one case where
-/// snippets a site did configure are silently not applied, so it is the only
-/// one worth alerting on.
+/// Two of these are non-error outcomes on the Scout routes:
+/// `instructions_empty` means no snippets are configured, the supported
+/// default, and `snippet_directory_unreadable` means configured snippets were
+/// silently not applied -- the only one worth alerting on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
 pub(crate) enum OutcomeReason {
     Ok,
@@ -197,11 +194,9 @@ pub(crate) struct PxeCustomIpxeFetchFailed {
     pub(super) error: String,
 }
 
-/// `PxeSnippetDirectoryUnreadable` records a Scout discovery `user-data`
-/// request that could not list the snippet directory. The request is still
-/// answered -- with the no-snippets document, because failing the datasource
-/// would cost more than the snippets do -- so this Event is the only signal
-/// that a site's configured snippets did not reach the machine.
+/// A Scout `user-data` request that could not list the snippet directory. The
+/// request is still answered with the no-snippets document, so this Event is
+/// the only signal that configured snippets did not reach the machine.
 #[derive(Event)]
 #[event(
     event_name = "pxe_snippet_directory_unreadable",

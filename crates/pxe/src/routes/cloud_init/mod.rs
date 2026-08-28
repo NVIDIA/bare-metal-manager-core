@@ -23,12 +23,9 @@
 //! | `tenant/` | An assigned instance's NoCloud datasource | `user-data`, `meta-data`, `vendor-data`, `network-config` |
 //! | `scout/` | A host booting the discovery OS | `user-data`, `meta-data` |
 //!
-//! The three are separate prefixes rather than one set of routes that works
-//! out who is calling, because that question has no clean answer from the
-//! data: a machine mid-transition can resolve to more than one of them. The
-//! URL a machine uses is fixed when it boots -- the DPU's from `bfks=`, the
-//! other two from `ds=nocloud;s=` -- so the prefix it arrives on already
-//! says which it is, with no inference and no shared failure modes.
+//! Separate prefixes rather than one set of routes that infers the caller,
+//! because a machine mid-transition can resolve to more than one consumer. The
+//! URL is fixed at boot, so the prefix already says which it is.
 
 use std::collections::HashMap;
 
@@ -42,14 +39,12 @@ pub(crate) mod dpu;
 pub(crate) mod scout;
 pub(crate) mod tenant;
 
-/// The generic-failure funnel for the cloud-init routes: whatever data was
-/// missing, the client receives the same generic error template, and the
-/// caller says which missing data it was -- the reason label carries the
-/// per-site truth while the response stays generic.
+/// The generic-failure funnel: the client always receives the same error
+/// template, while the caller's `reason` label records what was actually
+/// missing.
 ///
-/// The Scout routes deliberately do not use this. Answering them with the
-/// error template would stop NoCloud bringing the datasource up at all, and a
-/// datasource that fails to come up costs the snippets entirely.
+/// The Scout routes do not use this -- the error template would stop NoCloud
+/// bringing the datasource up at all, costing the snippets entirely.
 fn log_and_generate_generic_error(
     error: String,
     reason: OutcomeReason,

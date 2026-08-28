@@ -44,16 +44,13 @@ systemctl enable lldpd
 #     ###   !!!  DO NOT REBOOT FROM A CLOUD-INIT SNIPPET.  EVER.  !!!    ###
 #     ###                                                                ###
 #     ######################################################################
-#     Scout runs from a RAMdisk, so a reboot is a full re-PXE that re-runs
-#     every snippet from scratch -- one rebooting snippet is an unbounded loop
-#     across every machine in discovery at the site. Dropping this module stops
-#     cloud-init rebooting on its own; nothing can stop a snippet calling
-#     reboot itself.
+#     A reboot re-PXEs and re-runs every snippet from scratch, so one rebooting
+#     snippet loops every machine in discovery at the site. This stops
+#     cloud-init rebooting on its own; nothing stops a snippet doing it itself.
 #
 #   resizefs
-#     This is a RAMdisk: there is no block device to grow, so the module can
-#     only fail, and one recoverable error makes every discovery boot report
-#     degraded.
+#     It's a RAMdisk -- no block device to grow, so it can only fail, and one
+#     recoverable error marks every discovery boot degraded.
 for module in power_state_change resizefs
 do
   sed -i "/^[[:space:]]*-[[:space:]]*${module}[[:space:]]*\$/d" /etc/cloud/cloud.cfg

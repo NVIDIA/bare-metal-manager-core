@@ -602,7 +602,7 @@ exit ||
                                     }
                                     if instance.config.os.user_data.is_some() {
                                         qcow_imaging_ipxe +=
-                                            " ds=nocloud;s=${tenant-cloudinit-url}";
+                                            " ds=nocloud-net;s=${tenant-cloudinit-url}";
                                     }
                                     qcow_imaging_ipxe += "\r\nboot";
                                     qcow_imaging_ipxe
