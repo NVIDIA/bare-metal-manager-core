@@ -217,22 +217,149 @@ function resolve_esp_partition() {
 	fi
 }
 
+function device_is_on_disk() {
+	local device=$1
+	local disk=$2
+	local disk_maj_min
+	local ancestor_output
+	local -a physical_disks
+
+	disk_maj_min=$(lsblk -dnro MAJ:MIN "$disk") || return 1
+	if [ -z "$disk_maj_min" ]; then
+		return 1
+	fi
+
+	ancestor_output=$(lsblk -snro MAJ:MIN,TYPE "$device") || return 1
+	mapfile -t physical_disks < <(
+		printf '%s\n' "$ancestor_output" |
+			awk '$2 == "disk" { print $1 }' |
+			sort -u
+	)
+
+	[ "${#physical_disks[@]}" -eq 1 ] &&
+		[ "${physical_disks[0]}" == "$disk_maj_min" ]
+}
+
+function find_devices_by_identifier() {
+	local identifier_type=$1
+	local identifier=$2
+	local -n devices_out=$3
+	local blkid_output
+	local blkid_status
+
+	case "$identifier_type" in
+		UUID|LABEL)
+			;;
+		*)
+			echo "Unsupported block device identifier type: $identifier_type" | tee "$log_output" >&2
+			return 1
+			;;
+	esac
+
+	devices_out=()
+	blkid_output=$(blkid -c /dev/null -t "$identifier_type=$identifier" -o device 2>&1)
+	blkid_status=$?
+
+	case "$blkid_status" in
+		0)
+			if [ -z "$blkid_output" ]; then
+				echo "blkid returned success without a device for $identifier_type=$identifier" | tee "$log_output" >&2
+				return 1
+			fi
+			mapfile -t devices_out <<< "$blkid_output"
+			;;
+		2)
+			# blkid uses status 2 for a token that was not found. Only accept
+			# the silent, empty form as an expected no-match result.
+			if [ ! -z "$blkid_output" ]; then
+				echo "blkid failed while looking up $identifier_type=$identifier: $blkid_output" | tee "$log_output" >&2
+				return 1
+			fi
+			;;
+		*)
+			echo "blkid failed while looking up $identifier_type=$identifier with status $blkid_status: ${blkid_output:-no diagnostic}" | tee "$log_output" >&2
+			return 1
+			;;
+	esac
+}
+
+function check_identifier_conflicts() {
+	local identifier_type=$1
+	local identifier=$2
+	local disk=$3
+	local -a matching_devices
+	local match_device
+
+	find_devices_by_identifier "$identifier_type" "$identifier" matching_devices || return 1
+	for match_device in "${matching_devices[@]}"; do
+		if ! device_is_on_disk "$match_device" "$disk"; then
+			echo "Device $match_device with $identifier_type=$identifier is not exclusively backed by image disk $disk" | tee "$log_output" >&2
+			return 1
+		fi
+	done
+
+	return 0
+}
+
+function precheck_image_identifiers() {
+	if [ ! -z "$rootfs_uuid" ]; then
+		check_identifier_conflicts UUID "$rootfs_uuid" "$image_disk" || return 1
+	elif [ ! -z "$rootfs_label" ]; then
+		check_identifier_conflicts LABEL "$rootfs_label" "$image_disk" || return 1
+	fi
+	if [ ! -z "$bootfs_uuid" ]; then
+		check_identifier_conflicts UUID "$bootfs_uuid" "$image_disk" || return 1
+	fi
+	if [ ! -z "$efifs_uuid" ]; then
+		check_identifier_conflicts UUID "$efifs_uuid" "$image_disk" || return 1
+	fi
+}
+
+function resolve_device_on_disk() {
+	local identifier_type=$1
+	local identifier=$2
+	local disk=$3
+	local -a matching_devices
+	local match_count
+	local match_device
+
+	find_devices_by_identifier "$identifier_type" "$identifier" matching_devices || return 1
+	match_count=${#matching_devices[@]}
+	if [ "$match_count" -eq 0 ]; then
+		echo "No device found with $identifier_type=$identifier" | tee "$log_output" >&2
+		return 1
+	fi
+	if [ "$match_count" -ne 1 ]; then
+		echo "Expected exactly one device with $identifier_type=$identifier, found $match_count: ${matching_devices[*]}" | tee "$log_output" >&2
+		return 1
+	fi
+
+	match_device=${matching_devices[0]}
+	if ! device_is_on_disk "$match_device" "$disk"; then
+		echo "Device $match_device with $identifier_type=$identifier is not exclusively backed by image disk $disk" | tee "$log_output" >&2
+		return 1
+	fi
+
+	echo "$match_device"
+}
+
 function get_root_dev() {
 	if [ ! -z "$rootfs_uuid" ]; then
-		root_dev=$(blkid -U $rootfs_uuid)
+		root_dev=$(resolve_device_on_disk UUID "$rootfs_uuid" "$image_disk") || return 1
 	elif [ ! -z "$rootfs_label" ]; then
-		root_dev=$(blkid -L $rootfs_label)
+		root_dev=$(resolve_device_on_disk LABEL "$rootfs_label" "$image_disk") || return 1
 	else
 		echo "rootfs_uuid not specified and rootfs_label not determined" | tee $log_output
 		echo "skipping root device changes" | tee $log_output
 	fi
 	if [ ! -z "$efi_label" ]; then
-		efi_dev=$(blkid -L $efi_label)
+		efi_dev=$(resolve_device_on_disk LABEL "$efi_label" "$image_disk") || efi_dev=
 	fi
 	if [ -z "$efi_dev" ] && [ ! -z "$image_disk" ]; then
 		echo "EFI partition not found by label [$efi_label]; falling back to GPT partition type EF00 (EFI System Partition) on $image_disk" | tee $log_output
 		efi_dev=$(resolve_esp_partition "$image_disk")
 	fi
+	return 0
 }
 
 function is_port_in_list() {
@@ -307,7 +434,7 @@ function modify_grub_cfg() {
 	if [ ! -d "/mnt/boot/grub" ]; then
 		boot_part=
 		if [ ! -z "$bootfs_uuid" ]; then
-			boot_part=$(blkid -U $bootfs_uuid)
+			boot_part=$(resolve_device_on_disk UUID "$bootfs_uuid" "$image_disk") || return 1
 		fi
 		is_nvme=$(echo $image_disk | grep nvme)
 		if [ -z "$boot_part" ]; then
@@ -325,7 +452,7 @@ function modify_grub_cfg() {
 			mount "$boot_part" /mnt/boot
 		fi
 		# we want to mount efi now as it can contain uefi grub.cfg
-		mount_efi
+		mount_efi || return 1
 		efi_mounted=true
 		grub_cfg=
 		if [ -f "/mnt/boot/grub/grub.cfg" ]; then
@@ -349,7 +476,7 @@ function modify_grub_cfg() {
 	echo "Updating grub configuration" | tee $log_output
 	# if we skipped grub mount before we want to mount efi now
 	if [ -z "$efi_mounted" ]; then
-		mount_efi
+		mount_efi || return 1
 	fi
 	# Check if grub2-mkconfig exists, means we are in rhel distro, falback to update-grub if not found
 	if [ -f "/mnt/usr/sbin/grub2-mkconfig" ]; then
@@ -670,7 +797,7 @@ function set_boot_order() {
 
 function mount_efi() {
 	if [ ! -z "$efifs_uuid" ]; then
-		efi_dev=$(blkid -U $efifs_uuid)
+		efi_dev=$(resolve_device_on_disk UUID "$efifs_uuid" "$image_disk") || return 1
 	fi
 	if [ ! -z "$efi_dev" ]; then
 		mkdir -p /mnt/boot/efi
@@ -835,8 +962,6 @@ function main() {
 		line=$(echo $i|grep 'rootfs_label')
 		if [ ! -z "$line" ]; then
 			rootfs_label=$(echo $line|cut -d'=' -f2)
-		else
-			rootfs_label="cloudimg-rootfs" #default rootfs name for cloud images
 		fi
 		line=$(echo $i|grep 'bootfs_uuid')
 		if [ ! -z "$line" ]; then
@@ -856,6 +981,9 @@ function main() {
 		fi
 
 	done
+	if [ -z "$rootfs_uuid" ] && [ -z "$rootfs_label" ]; then
+		rootfs_label="cloudimg-rootfs" #default rootfs name for cloud images
+	fi
 
 	if [ ! -z "$distro_name" ]; then
 		get_distro_image
@@ -890,6 +1018,13 @@ function main() {
 	if [ -z "$image_disk" -o "$image_disk" == "smallest" ]; then
 		find_bootdisk
 	fi
+	resolved_image_disk=$(readlink -e -- "$image_disk")
+	if [ -z "$resolved_image_disk" ] || [ ! -b "$resolved_image_disk" ]; then
+		echo "Image disk $image_disk does not exist or is not a block device" | tee $log_output
+		return 1;
+	fi
+	image_disk=$resolved_image_disk
+	precheck_image_identifiers || return 1
 
 	echo "Imaging $file to $image_disk" | tee $log_output
 	qemu-img convert -p -O raw -S 0 $file $image_disk 2>&1 | tee $log_output
@@ -908,7 +1043,7 @@ function main() {
 	done
 	if [ ! -z "$rootfs_uuid" -o ! -z "$rootfs_label" ]; then
 		# find the root partition/volume
-		get_root_dev
+		get_root_dev || return 1
 		echo "Root device [$root_dev]" | tee $log_output
 		if [ -b "$root_dev" ]; then
 			mount "$root_dev" /mnt 2>&1 | tee $log_output
@@ -918,7 +1053,7 @@ function main() {
 			fi
 			if [ "${update_grub_cfg}" == "yes" ]; then
 				echo "Updating grub cfg" | tee $log_output
-				modify_grub_cfg
+				modify_grub_cfg || return 1
 			fi
 			if [ ! -z "$cloud_init_url" ]; then
 				add_cloud_init
