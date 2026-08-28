@@ -6,7 +6,6 @@ package executor
 import (
 	"context"
 	"errors"
-	"sync"
 	"testing"
 	"time"
 
@@ -25,8 +24,7 @@ func TestTaskExecutorExecute(t *testing.T) {
 	componentID := uuid.New()
 	request := submitTaskExecutionRequest(t, rackID, componentID)
 	manager := &recordingTaskManager{taskIDs: []uuid.UUID{uuid.New()}}
-	associations := newExecutionTaskStore()
-	executor := &TaskExecutor{manager: manager, associations: associations}
+	executor := &TaskExecutor{manager: manager}
 
 	require.NoError(t, executor.Execute(context.Background(), request))
 	require.Len(t, manager.requests, 1)
@@ -35,39 +33,39 @@ func TestTaskExecutorExecute(t *testing.T) {
 
 	require.Equal(t, rackID, submitted.RequiredRackID)
 	require.Equal(t, taskIdempotencyKey(request.ExecutionID, rackID), submitted.IdempotencyKey)
+	require.Equal(t, operation.TriggerTypeEventRuleExecution, submitted.TriggerType)
+	require.Equal(t, request.ExecutionID, *submitted.TriggerID)
 	require.Equal(t, operation.TargetSpec{
 		Components: []operation.ComponentTarget{{UUID: componentID}},
 	}, submitted.TargetSpec)
 
-	// A retry reconciles the persisted association and does not resubmit.
+	// A retry resubmits the same idempotency key so the task manager can return
+	// the existing task.
 	require.NoError(t, executor.Execute(context.Background(), request))
-	require.Len(t, manager.requests, 1)
+	require.Len(t, manager.requests, 2)
+	require.Equal(t, submitted.IdempotencyKey, manager.requests[1].IdempotencyKey)
 }
 
 func TestTaskExecutorClassifiesFailures(t *testing.T) {
 	request := submitTaskExecutionRequest(t, uuid.New(), uuid.New())
 	tests := map[string]struct {
 		manager        *recordingTaskManager
-		associations   *memoryExecutionTaskStore
 		mutate         func(*ExecutionRequest)
 		wantErr        string
 		classification error
 	}{
 		"submission failure is retryable": {
 			manager:        &recordingTaskManager{err: errors.New("task service unavailable")},
-			associations:   newExecutionTaskStore(),
 			wantErr:        "task service unavailable",
 			classification: ErrRetryable,
 		},
 		"invalid task count is terminal": {
 			manager:        &recordingTaskManager{},
-			associations:   newExecutionTaskStore(),
 			wantErr:        "exactly one valid task id",
 			classification: ErrTerminal,
 		},
 		"wrong plan is terminal": {
-			manager:      &recordingTaskManager{},
-			associations: newExecutionTaskStore(),
+			manager: &recordingTaskManager{},
 			mutate: func(request *ExecutionRequest) {
 				request.Plan = &eventrule.NoopPlan{}
 			},
@@ -85,10 +83,7 @@ func TestTaskExecutorClassifiesFailures(t *testing.T) {
 				test.mutate(&input)
 			}
 
-			executor := &TaskExecutor{
-				manager:      test.manager,
-				associations: test.associations,
-			}
+			executor := &TaskExecutor{manager: test.manager}
 
 			err := executor.Execute(context.Background(), input)
 
@@ -159,47 +154,4 @@ func (m *recordingTaskManager) SubmitTask(
 	m.requests = append(m.requests, request)
 
 	return m.taskIDs, m.err
-}
-
-type memoryExecutionTaskStore struct {
-	mu      sync.Mutex
-	records map[string]eventrule.ExecutionTask
-}
-
-func newExecutionTaskStore() *memoryExecutionTaskStore {
-	return &memoryExecutionTaskStore{records: make(map[string]eventrule.ExecutionTask)}
-}
-
-func (s *memoryExecutionTaskStore) GetExecutionTask(
-	_ context.Context,
-	executionID uuid.UUID,
-	rackID uuid.UUID,
-) (*eventrule.ExecutionTask, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	record, ok := s.records[executionID.String()+":"+rackID.String()]
-	if !ok {
-		return nil, nil
-	}
-
-	return &record, nil
-}
-
-func (s *memoryExecutionTaskStore) CreateExecutionTask(
-	_ context.Context,
-	association eventrule.ExecutionTask,
-) (*eventrule.ExecutionTask, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	key := association.ExecutionID.String() + ":" + association.RackID.String()
-
-	if existing, ok := s.records[key]; ok {
-		return &existing, nil
-	}
-
-	s.records[key] = association
-
-	return &association, nil
 }

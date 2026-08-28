@@ -119,7 +119,7 @@ func (s *PostgresStore) GetTaskByIdempotencyKey(
 		return nil, errors.GRPCErrorInternal(err.Error())
 	}
 
-	return dao.TaskFrom(taskDao), nil
+	return taskFromDAO(taskDao)
 }
 
 // GetTask retrieves a single task by its ID.
@@ -131,7 +131,7 @@ func (s *PostgresStore) GetTask(
 	if err != nil {
 		return nil, errors.GRPCErrorInternal(err.Error())
 	}
-	return dao.TaskFrom(taskDao), nil
+	return taskFromDAO(taskDao)
 }
 
 // GetTasks retrieves tasks by their IDs.
@@ -151,7 +151,11 @@ func (s *PostgresStore) GetTasks(
 			return nil, errors.GRPCErrorInternal(err.Error())
 		}
 
-		results = append(results, dao.TaskFrom(taskDao))
+		converted, err := taskFromDAO(taskDao)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, converted)
 	}
 
 	return results, nil
@@ -170,7 +174,11 @@ func (s *PostgresStore) ListTasks(
 
 	results := make([]*taskdef.Task, 0, len(taskDaos))
 	for _, taskDao := range taskDaos {
-		results = append(results, dao.TaskFrom(&taskDao))
+		converted, err := taskFromDAO(&taskDao)
+		if err != nil {
+			return nil, 0, err
+		}
+		results = append(results, converted)
 	}
 
 	return results, total, nil
@@ -194,7 +202,11 @@ func (s *PostgresStore) ListNonTerminalTasksForRacks(
 
 	results := make([]*taskdef.Task, 0, len(taskDaos))
 	for i := range taskDaos {
-		results = append(results, dao.TaskFrom(&taskDaos[i]))
+		converted, err := taskFromDAO(&taskDaos[i])
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, converted)
 	}
 	return results, nil
 }
@@ -269,7 +281,11 @@ func (s *PostgresStore) ListActiveTasksForRack(
 
 	result := make([]*taskdef.Task, len(tasks))
 	for i := range tasks {
-		result[i] = dao.TaskFrom(&tasks[i])
+		converted, err := taskFromDAO(&tasks[i])
+		if err != nil {
+			return nil, err
+		}
+		result[i] = converted
 	}
 	return result, nil
 }
@@ -289,9 +305,22 @@ func (s *PostgresStore) ListWaitingTasksForRack(
 
 	result := make([]*taskdef.Task, len(tasks))
 	for i := range tasks {
-		result[i] = dao.TaskFrom(&tasks[i])
+		converted, err := taskFromDAO(&tasks[i])
+		if err != nil {
+			return nil, err
+		}
+		result[i] = converted
 	}
 	return result, nil
+}
+
+func taskFromDAO(taskDAO *model.Task) (*taskdef.Task, error) {
+	converted, err := dao.TaskFrom(taskDAO)
+	if err != nil {
+		return nil, errors.GRPCErrorInternal(err.Error())
+	}
+
+	return converted, nil
 }
 
 // ListRacksWithWaitingTasks returns distinct rack IDs with waiting tasks.

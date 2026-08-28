@@ -17,6 +17,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/leakage/detector"
 	eventrulemanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/manager"
 	eventrulescheduler "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/scheduler"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/store/memory"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	identifier "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/Identifier"
@@ -73,9 +74,7 @@ func TestDetector_EventRuleIntegration(t *testing.T) {
 			tasks := &recordingTaskManager{}
 
 			ruleManager, err := eventrulemanager.New(eventrulemanager.Config{
-				Store: eventrulemanager.StoreConfig{
-					Backend: eventrulemanager.StoreBackendMemory,
-				},
+				Store: memory.New(),
 				Scheduler: eventrulemanager.SchedulerConfig{
 					InstanceID: "leakage-detector-integration",
 					Runtime:    eventrulescheduler.DefaultRuntimeConfig(),

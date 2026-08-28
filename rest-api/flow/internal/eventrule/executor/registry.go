@@ -16,9 +16,8 @@ type Registry struct {
 
 // Config contains the dependencies used to assemble the supported executors.
 type Config struct {
-	TaskManager    TaskManager
-	ExecutionTasks eventrule.ExecutionTaskStore
-	AlertSender    AlertSender
+	TaskManager TaskManager
+	AlertSender AlertSender
 }
 
 // Validate checks that the dependencies for required executors are present.
@@ -26,11 +25,6 @@ func (c Config) Validate() error {
 	if c.TaskManager == nil {
 		return fmt.Errorf("task manager is required")
 	}
-
-	if c.ExecutionTasks == nil {
-		return fmt.Errorf("execution task store is required")
-	}
-
 	return nil
 }
 
@@ -49,10 +43,7 @@ func New(config Config) (*Registry, error) {
 		return nil, err
 	}
 
-	taskExecutor := &TaskExecutor{
-		manager:      config.TaskManager,
-		associations: config.ExecutionTasks,
-	}
+	taskExecutor := &TaskExecutor{manager: config.TaskManager}
 	if err := registry.register(eventrule.ActionTypeSubmitTask, taskExecutor); err != nil {
 		return nil, err
 	}

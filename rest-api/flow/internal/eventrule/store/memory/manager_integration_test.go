@@ -11,6 +11,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/leakage"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/manager"
 	eventscheduler "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/scheduler"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/store/memory"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
 	identifier "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/Identifier"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/component"
@@ -24,9 +25,7 @@ func TestManagerIntegration(t *testing.T) {
 	eventType := leakage.TypeHardwareLeakDetected
 	builtIn := leakage.DefaultRule()
 	ruleManager, err := manager.New(manager.Config{
-		Store: manager.StoreConfig{
-			Backend: manager.StoreBackendMemory,
-		},
+		Store: memory.New(),
 		Scheduler: manager.SchedulerConfig{
 			InstanceID: "memory-manager-integration-test",
 			Runtime:    eventscheduler.DefaultRuntimeConfig(),

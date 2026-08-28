@@ -24,7 +24,7 @@ import (
 // internally assembled event-processing runtime.
 type Manager struct {
 	builtIns  *builtInRegistry
-	store     eventRuleStore
+	store     eventrule.Store
 	targets   *target.Registry
 	executors *eventexecutor.Registry
 	processor *eventprocessor.Processor
@@ -37,12 +37,7 @@ func New(config Config) (*Manager, error) {
 		return nil, err
 	}
 
-	store, err := newStore(config.Store)
-	if err != nil {
-		return nil, err
-	}
-
-	executors, err := newExecutorRegistry(config, store)
+	executors, err := newExecutorRegistry(config)
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +55,7 @@ func New(config Config) (*Manager, error) {
 	executionScheduler, err := eventscheduler.New(eventscheduler.Config{
 		InstanceID: config.Scheduler.InstanceID,
 		Dependencies: eventscheduler.Dependencies{
-			Store:     store,
+			Store:     config.Store,
 			Executors: executors,
 		},
 		Runtime: config.Scheduler.Runtime,
@@ -72,7 +67,7 @@ func New(config Config) (*Manager, error) {
 
 	processor, err := newProcessor(
 		config,
-		store,
+		config.Store,
 		builtIns,
 		targets,
 		executionScheduler,
@@ -83,7 +78,7 @@ func New(config Config) (*Manager, error) {
 
 	return &Manager{
 		builtIns:  builtIns,
-		store:     store,
+		store:     config.Store,
 		targets:   targets,
 		executors: executors,
 		processor: processor,
@@ -140,7 +135,7 @@ func newBuiltInRulesRegistry(
 
 func newProcessor(
 	config Config,
-	store eventRuleStore,
+	store eventrule.Store,
 	builtIns *builtInRegistry,
 	targets *target.Registry,
 	notifier eventprocessor.ExecutionNotifier,
@@ -156,14 +151,10 @@ func newProcessor(
 	return eventprocessor.New(cfg)
 }
 
-func newExecutorRegistry(
-	config Config,
-	executionTasks eventrule.ExecutionTaskStore,
-) (*eventexecutor.Registry, error) {
+func newExecutorRegistry(config Config) (*eventexecutor.Registry, error) {
 	cfg := eventexecutor.Config{
-		TaskManager:    config.TaskManager,
-		ExecutionTasks: executionTasks,
-		AlertSender:    config.AlertSender,
+		TaskManager: config.TaskManager,
+		AlertSender: config.AlertSender,
 	}
 
 	return eventexecutor.New(cfg)

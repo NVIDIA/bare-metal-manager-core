@@ -243,28 +243,3 @@ func NewExecution(
 func (e Execution) Key() ExecutionKey {
 	return ExecutionKey{EventID: e.EventID, ActionName: e.ActionName}
 }
-
-// ExecutionTask records one rack-partitioned task created for an execution.
-// An execution may have at most one associated task per rack.
-type ExecutionTask struct {
-	ExecutionID uuid.UUID
-	RackID      uuid.UUID
-	TaskID      uuid.UUID
-}
-
-// Validate checks the execution, rack, and task identities.
-func (a ExecutionTask) Validate() error {
-	if a.ExecutionID == uuid.Nil {
-		return fmt.Errorf("execution id is required")
-	}
-
-	if a.RackID == uuid.Nil {
-		return fmt.Errorf("rack id is required")
-	}
-
-	if a.TaskID == uuid.Nil {
-		return fmt.Errorf("task id is required")
-	}
-
-	return nil
-}
