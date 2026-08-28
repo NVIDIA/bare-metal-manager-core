@@ -98,6 +98,7 @@ pub mod switch;
 pub mod tenant;
 pub mod tenant_identity_config;
 pub mod tenant_keyset;
+pub mod tenant_prefix_overlap;
 pub mod trim_table;
 pub mod vpc;
 pub mod vpc_dpu_loopback;
