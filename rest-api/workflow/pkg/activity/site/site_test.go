@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"reflect"
 	"testing"
 	"time"
 
@@ -420,9 +419,10 @@ func TestNewManageSite(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewManageSite(tt.args.dbSession, tt.args.siteClientPool, tt.args.tc, tt.args.cfg, tt.args.siteHealthMetrics); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("NewManageSite() = %v, want %v", got, tt.want)
-			}
+			assert.Equal(t, tt.want, NewManageSite(
+				tt.args.dbSession, tt.args.siteClientPool, tt.args.tc,
+				tt.args.cfg, tt.args.siteHealthMetrics,
+			))
 		})
 	}
 }
@@ -473,8 +473,8 @@ func TestManageSite_MonitorInventoryReceiptForAllSites(t *testing.T) {
 	cfg2 := config.NewConfig()
 	cfg2.SetNotificationsSlackWebhookURL("")
 
-	// One registry across both cases, so the second run proves the gauges drop
-	// the Sites the first run moved out of Registered.
+	// One registry across every case, so a later run sees what the earlier ones
+	// published and can prove a Site keeps or loses its series.
 	reg := prometheus.NewRegistry()
 	siteHealthMetrics := cwm.NewSiteHealthMetrics(reg)
 
@@ -490,6 +490,7 @@ func TestManageSite_MonitorInventoryReceiptForAllSites(t *testing.T) {
 		name          string
 		fields        fields
 		args          args
+		setup         func(t *testing.T)
 		wantStatus    map[uuid.UUID]string
 		wantGauge     map[string]float64
 		wantCertGauge map[string]float64
@@ -537,12 +538,45 @@ func TestManageSite_MonitorInventoryReceiptForAllSites(t *testing.T) {
 			wantStatus: map[uuid.UUID]string{
 				site4.ID: cdbm.SiteStatusError,
 			},
-			// site2 and site4 went to Error in the case above, so they stop reporting.
+			// site2 and site4 went to Error in the case above and are still
+			// disconnected, so they have to keep reporting. Dropping them here
+			// would resolve the alert while the outage continues.
 			wantGauge: map[string]float64{
+				site2.Name: float64(site2.InventoryReceived.Unix()),
+				site3.Name: float64(site3.InventoryReceived.Unix()),
+				site4.Name: float64(site4.InventoryReceived.Unix()),
+				site5.Name: 0,
+			},
+			wantCertGauge: map[string]float64{
+				site2.Name: 0,
+				site3.Name: float64(site3CertExpiry.Unix()),
+				site4.Name: 0,
+				site5.Name: 0,
+			},
+		},
+		{
+			name: "test monitor inventory receipt drops a deleted Site",
+			fields: fields{
+				dbSession:      dbSession,
+				siteClientPool: tSiteClientPool,
+				cfg:            cfg2,
+			},
+			args: args{
+				ctx: ctx,
+			},
+			setup: func(t *testing.T) {
+				derr := cdbm.NewSiteDAO(dbSession).Delete(ctx, nil, site4.ID)
+				assert.NoError(t, derr)
+			},
+			// A Site that no longer exists is the one case the rebuild has to
+			// clear, otherwise it ages into an alert nothing can resolve.
+			wantGauge: map[string]float64{
+				site2.Name: float64(site2.InventoryReceived.Unix()),
 				site3.Name: float64(site3.InventoryReceived.Unix()),
 				site5.Name: 0,
 			},
 			wantCertGauge: map[string]float64{
+				site2.Name: 0,
 				site3.Name: float64(site3CertExpiry.Unix()),
 				site5.Name: 0,
 			},
@@ -550,6 +584,10 @@ func TestManageSite_MonitorInventoryReceiptForAllSites(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.setup != nil {
+				tt.setup(t)
+			}
+
 			mst := ManageSite{
 				dbSession:         tt.fields.dbSession,
 				siteClientPool:    tt.fields.siteClientPool,
