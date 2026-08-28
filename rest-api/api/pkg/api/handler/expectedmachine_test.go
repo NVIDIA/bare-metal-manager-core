@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
@@ -2714,16 +2716,180 @@ func TestUpdateExpectedMachineHandler_BmcCredentialsForwardedToWorkflow(t *testi
 	}
 }
 
-// TestUpdateExpectedMachinesHandler_Handle tests the batch update handler
+func TestExpectedMachineUpdateFields(t *testing.T) {
+	t.Run("tracks every request field except ID and BMC IP address", func(t *testing.T) {
+		requestFieldCount := reflect.TypeOf(model.APIExpectedMachineUpdateRequest{}).NumField()
+		updateFieldCount := reflect.TypeOf(expectedMachineUpdateFieldSet{}).NumField()
+		assert.Equal(t, requestFieldCount-2, updateFieldCount)
+	})
+
+	fieldPresenceTests := []struct {
+		name      string
+		setField  func(*model.APIExpectedMachineUpdateRequest)
+		wantEqual bool
+	}{
+		{
+			name:      "ID identifies the target instead of an update field",
+			setField:  func(req *model.APIExpectedMachineUpdateRequest) { req.ID = cutil.GetPtr(uuid.NewString()) },
+			wantEqual: true,
+		},
+		{
+			name:      "BMC IP address may vary per machine",
+			setField:  func(req *model.APIExpectedMachineUpdateRequest) { req.BmcIpAddress = cutil.GetPtr("192.0.2.10") },
+			wantEqual: true,
+		},
+		{
+			name: "empty host lifecycle profile is an omitted update",
+			setField: func(req *model.APIExpectedMachineUpdateRequest) {
+				req.HostLifecycleProfile = &model.APIHostLifecycleProfile{}
+			},
+			wantEqual: true,
+		},
+		{
+			name: "BMC MAC address",
+			setField: func(req *model.APIExpectedMachineUpdateRequest) {
+				req.BmcMacAddress = cutil.GetPtr("00:11:22:33:44:55")
+			},
+		},
+		{
+			name:     "default BMC username",
+			setField: func(req *model.APIExpectedMachineUpdateRequest) { req.DefaultBmcUsername = cutil.GetPtr("admin") },
+		},
+		{
+			name:     "default BMC password",
+			setField: func(req *model.APIExpectedMachineUpdateRequest) { req.DefaultBmcPassword = cutil.GetPtr("password") },
+		},
+		{
+			name:     "chassis serial number",
+			setField: func(req *model.APIExpectedMachineUpdateRequest) { req.ChassisSerialNumber = cutil.GetPtr("SERIAL") },
+		},
+		{
+			name:     "empty fallback DPU serial numbers",
+			setField: func(req *model.APIExpectedMachineUpdateRequest) { req.FallbackDPUSerialNumbers = []string{} },
+		},
+		{
+			name:     "SKU ID",
+			setField: func(req *model.APIExpectedMachineUpdateRequest) { req.SkuID = cutil.GetPtr(uuid.NewString()) },
+		},
+		{
+			name:     "rack ID",
+			setField: func(req *model.APIExpectedMachineUpdateRequest) { req.RackID = cutil.GetPtr("rack-1") },
+		},
+		{
+			name:     "name",
+			setField: func(req *model.APIExpectedMachineUpdateRequest) { req.Name = cutil.GetPtr("machine") },
+		},
+		{
+			name:     "manufacturer",
+			setField: func(req *model.APIExpectedMachineUpdateRequest) { req.Manufacturer = cutil.GetPtr("NVIDIA") },
+		},
+		{
+			name:     "model",
+			setField: func(req *model.APIExpectedMachineUpdateRequest) { req.Model = cutil.GetPtr("test") },
+		},
+		{
+			name:     "description",
+			setField: func(req *model.APIExpectedMachineUpdateRequest) { req.Description = cutil.GetPtr("test") },
+		},
+		{
+			name:     "slot ID",
+			setField: func(req *model.APIExpectedMachineUpdateRequest) { req.SlotID = cutil.GetPtr(int32(1)) },
+		},
+		{
+			name:     "tray index",
+			setField: func(req *model.APIExpectedMachineUpdateRequest) { req.TrayIdx = cutil.GetPtr(int32(1)) },
+		},
+		{
+			name:     "host ID",
+			setField: func(req *model.APIExpectedMachineUpdateRequest) { req.HostID = cutil.GetPtr(int32(1)) },
+		},
+		{
+			name:     "DPF enablement",
+			setField: func(req *model.APIExpectedMachineUpdateRequest) { req.IsDpfEnabled = cutil.GetPtr(true) },
+		},
+		{
+			name:     "empty labels",
+			setField: func(req *model.APIExpectedMachineUpdateRequest) { req.Labels = map[string]string{} },
+		},
+		{
+			name: "host lifecycle profile setting",
+			setField: func(req *model.APIExpectedMachineUpdateRequest) {
+				req.HostLifecycleProfile = &model.APIHostLifecycleProfile{DisableLockdown: cutil.GetPtr(true)}
+			},
+		},
+	}
+
+	emptyFields := expectedMachineUpdateFields(model.APIExpectedMachineUpdateRequest{})
+	for _, tt := range fieldPresenceTests {
+		t.Run(tt.name, func(t *testing.T) {
+			request := model.APIExpectedMachineUpdateRequest{}
+			tt.setField(&request)
+			assert.Equal(t, tt.wantEqual, expectedMachineUpdateFields(request) == emptyFields)
+		})
+	}
+
+	t.Run("values may differ when field presence matches", func(t *testing.T) {
+		first := model.APIExpectedMachineUpdateRequest{
+			Name:                     cutil.GetPtr("first"),
+			FallbackDPUSerialNumbers: []string{"DPU-1"},
+			Labels:                   map[string]string{"machine": "first"},
+			HostLifecycleProfile:     &model.APIHostLifecycleProfile{DisableLockdown: cutil.GetPtr(true)},
+		}
+		second := model.APIExpectedMachineUpdateRequest{
+			Name:                     cutil.GetPtr("second"),
+			FallbackDPUSerialNumbers: []string{},
+			Labels:                   map[string]string{},
+			HostLifecycleProfile:     &model.APIHostLifecycleProfile{DisableLockdown: cutil.GetPtr(false)},
+		}
+		assert.Equal(t, expectedMachineUpdateFields(first), expectedMachineUpdateFields(second))
+	})
+}
+
 func TestUpdateExpectedMachinesHandler_Handle(t *testing.T) {
 	// Setup
 	e := echo.New()
+	cfg := common.GetTestConfig()
+
+	fieldSetTests := []struct {
+		name        string
+		requestBody string
+	}{
+		{
+			name: "rejects differing ordinary field sets before database access",
+			requestBody: `[
+				{"id":"00000000-0000-0000-0000-000000000001","fallbackDPUSerialNumbers":[]},
+				{"id":"00000000-0000-0000-0000-000000000002","labels":{}}
+			]`,
+		},
+		{
+			name: "rejects differing host lifecycle profile field sets before database access",
+			requestBody: `[
+				{"id":"00000000-0000-0000-0000-000000000001","name":"first"},
+				{"id":"00000000-0000-0000-0000-000000000002","name":"second","hostLifecycleProfile":{"disableLockdown":true}}
+			]`,
+		},
+	}
+	for _, tt := range fieldSetTests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPatch, "/v2/org/test-org/nico/expected-machine/batch", strings.NewReader(tt.requestBody))
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			c.Set("user", &cdbm.User{})
+			c.SetParamNames("orgName")
+			c.SetParamValues("test-org")
+
+			handler := NewUpdateExpectedMachinesHandler(nil, nil, cfg)
+			err := handler.Handle(c)
+			require.NoError(t, err)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Contains(t, rec.Body.String(), "same set of fields")
+		})
+	}
 
 	// Initialize test database
 	dbSession := testExpectedMachineInitDB(t)
 	defer dbSession.Close()
-
-	cfg := common.GetTestConfig()
 
 	// Prepare client pool for workflow calls
 	tcfg, _ := cfg.GetTemporalConfig()
@@ -2966,13 +3132,17 @@ func TestUpdateExpectedMachinesHandler_Handle(t *testing.T) {
 		},
 		{
 			name: "BMC MAC address change rejects the whole batch",
+			// Keep both requests on the same field set so this case reaches the
+			// BMC MAC immutability check.
 			requestBody: []model.APIExpectedMachineUpdateRequest{
 				{
-					ID:            cutil.GetPtr(testEM1.ID.String()),
-					BmcMacAddress: cutil.GetPtr("AA:BB:CC:DD:EE:FF"),
+					ID:                  cutil.GetPtr(testEM1.ID.String()),
+					BmcMacAddress:       cutil.GetPtr("AA:BB:CC:DD:EE:FF"),
+					ChassisSerialNumber: cutil.GetPtr("REJECTED-BATCH-COMPANION"),
 				},
 				{
 					ID:                  cutil.GetPtr(testEM2.ID.String()),
+					BmcMacAddress:       cutil.GetPtr(testEM2.BmcMacAddress),
 					ChassisSerialNumber: cutil.GetPtr("REJECTED-BATCH-CHANGE"),
 				},
 			},
