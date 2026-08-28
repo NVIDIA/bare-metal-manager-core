@@ -18,6 +18,7 @@
 mod decommission;
 mod delete;
 mod force_delete;
+mod health_history;
 mod health_report;
 mod list;
 mod maintenance;
@@ -58,4 +59,6 @@ pub(crate) enum Cmd {
         visible_alias = "hr"
     )]
     HealthReport(health_report::Args),
+    #[clap(about = "Show power shelf health history")]
+    HealthHistory(health_history::Args),
 }
