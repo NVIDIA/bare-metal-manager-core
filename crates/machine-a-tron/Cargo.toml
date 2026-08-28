@@ -49,8 +49,6 @@ chrono = { workspace = true }
 thiserror = { workspace = true }
 axum = { workspace = true }
 tower = { workspace = true }
-crossterm = { features = ["event-stream"], workspace = true }
-ratatui = { workspace = true }
 mac_address = { workspace = true }
 futures = { workspace = true }
 figment = { features = ["toml"], workspace = true }

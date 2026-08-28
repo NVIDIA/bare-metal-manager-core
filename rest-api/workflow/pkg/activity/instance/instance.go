@@ -187,7 +187,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 		// We'll add a 5 second buffer to account for a little clock skew/drift.
 		// The only thing that might be safe to perform is propagation status clearing,
 		// but only if we never allow multiple inventory processes to run concurrently.
-		if time.Since(instance.Updated) < cwutil.InventoryReceiptInterval+(time.Second*5) {
+		if site.IsTimeWithinStaleInventoryThreshold(instance.Updated) {
 			slogger.Warn().Msg("instance updated more recently than inventory received time, skipping processing")
 			continue
 		}
@@ -716,7 +716,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 		// Determine which InfiniBand Interfaces in Deleting state can be deleted
 		if isInfiniBandConfigStatusEmpty || isInfiniBandConfigSynced {
 			for _, ibifc := range deletingInfiniBandInterfaces {
-				if util.IsTimeWithinStaleInventoryThreshold(ibifc.Updated) {
+				if site.IsTimeWithinStaleInventoryThreshold(ibifc.Updated) {
 					// If the InfiniBand Interface was modified within stale inventory threshold, defer to next inventory update
 					continue
 				}
@@ -793,7 +793,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 
 			if !exists {
 				// If the DPU Extension Service Deployment was modified within stale inventory threshold, defer to next inventory update
-				if util.IsTimeWithinStaleInventoryThreshold(desd.Updated) {
+				if site.IsTimeWithinStaleInventoryThreshold(desd.Updated) {
 					continue
 				}
 
@@ -929,7 +929,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 		// Delete NVLink Interfaces that are not present in the controller Instance
 		if isNVLinkConfigStatusEmpty || isNVLinkConfigSynced {
 			for _, nvlifc := range deletingNVLinkInterfaces {
-				if util.IsTimeWithinStaleInventoryThreshold(nvlifc.Updated) {
+				if site.IsTimeWithinStaleInventoryThreshold(nvlifc.Updated) {
 					// If the NVLink Interface was modified within stale inventory threshold, defer to next inventory update
 					continue
 				}
@@ -1037,7 +1037,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 			}
 		} else if instance.ControllerInstanceID != nil {
 			// Was this created within inventory receipt interval? If so, we may be processing an older inventory
-			if time.Since(instance.Created) < cwutil.InventoryReceiptInterval {
+			if site.IsTimeWithinStaleInventoryThreshold(instance.Created) {
 				continue
 			}
 

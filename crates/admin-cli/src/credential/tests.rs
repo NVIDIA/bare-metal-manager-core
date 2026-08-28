@@ -455,6 +455,10 @@ fn rotation_credential_kind_to_proto() {
         RotationCredentialType::from(RotationCredentialKind::LockdownIkm),
         RotationCredentialType::RotationLockdownIkm
     ));
+    assert!(matches!(
+        RotationCredentialType::from(RotationCredentialKind::DpuBmcService),
+        RotationCredentialType::RotationDpuBmcService
+    ));
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -528,6 +532,10 @@ fn rotation_credential_kind_value_enum() {
     assert!(matches!(
         RotationCredentialKind::from_str("lockdown-ikm", false),
         Ok(RotationCredentialKind::LockdownIkm)
+    ));
+    assert!(matches!(
+        RotationCredentialKind::from_str("dpu-bmc-service", false),
+        Ok(RotationCredentialKind::DpuBmcService)
     ));
     assert!(RotationCredentialKind::from_str("invalid", false).is_err());
 }

@@ -353,6 +353,10 @@ impl TestEnv {
             dpu_uefi_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
                 db::credential_rotation::CredentialRotationType::DpuUefi,
             ),
+            dpu_bmc_service_rotation_gate:
+                carbide_credential_rotation::RotationGate::new_for_family(
+                    db::credential_rotation::CredentialRotationType::DpuBmcService,
+                ),
             per_object_metrics_registry: self.per_object_metrics_registry(),
             per_object_info: None,
         }
@@ -1573,6 +1577,10 @@ pub(in crate::tests) async fn create_test_env_with_overrides(
                 dpu_uefi_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
                     db::credential_rotation::CredentialRotationType::DpuUefi,
                 ),
+                dpu_bmc_service_rotation_gate:
+                    carbide_credential_rotation::RotationGate::new_for_family(
+                        db::credential_rotation::CredentialRotationType::DpuBmcService,
+                    ),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
                 per_object_info: None,
             }

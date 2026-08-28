@@ -623,7 +623,7 @@ async fn set_sitewide_bmc_root_credentials(
 async fn set_sitewide_nic_lockdown_ikm(api: &Api, password: String) -> Result<(), CarbideError> {
     let credential_key = CredentialKey::NicLockdownIkm {
         credential_type: NicLockdownIkm::SiteWide {
-            version: crate::dpa::lockdown::CURRENT_LOCKDOWN_IKM_VERSION,
+            version: crate::dpa::lockdown::SEED_LOCKDOWN_IKM_VERSION,
         },
     };
 

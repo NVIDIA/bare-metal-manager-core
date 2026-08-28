@@ -663,6 +663,13 @@ func (icr *APIInstanceCreateRequest) ValidateAndSetOperatingSystemData(cfg *conf
 	mergedIpxeScript := icr.IpxeScript
 	mergedAlwaysBootWithCustomIpxe := icr.AlwaysBootWithCustomIpxe
 
+	// If the request supplies no user-data of its own, the document being
+	// edited is the base OS's blob, whose phone-home block NICo authored
+	// whenever the OS was stored with phone-home enabled. That block is
+	// removed by key, because the URL frozen into it may predate a change
+	// to site.phoneHomeUrl. Caller-supplied user-data stays URL-matched.
+	nicoAuthoredPhoneHome := icr.UserData == nil && os != nil && os.PhoneHomeEnabled
+
 	if os == nil {
 		// If no OS is being chosen...
 		// The expectation is that iPXE, user-data, and phone-home
@@ -821,7 +828,14 @@ func (icr *APIInstanceCreateRequest) ValidateAndSetOperatingSystemData(cfg *conf
 				// so we want to do this check silently and not alert people who
 				// are using non-YAML user-data.
 
-				if err := util.RemovePhoneHomeFromUserData(documentRoot, cutil.GetPtr(cfg.GetSitePhoneHomeUrl())); err != nil {
+				// NICo's own block is removed by key, because the URL frozen
+				// into it may predate a change to site.phoneHomeUrl.
+				var phoneHomeURLFilter *string
+				if !nicoAuthoredPhoneHome {
+					phoneHomeURLFilter = cutil.GetPtr(cfg.GetSitePhoneHomeUrl())
+				}
+
+				if err := util.RemovePhoneHomeFromUserData(documentRoot, phoneHomeURLFilter); err != nil {
 					return validation.Errors{
 						"userData": errors.New("failed to disable phone-home in userData after processing phone home config"),
 					}
@@ -1019,6 +1033,13 @@ func (bicr *APIBatchInstanceCreateRequest) ValidateAndSetOperatingSystemData(cfg
 	mergedIpxeScript := bicr.IpxeScript
 	mergedAlwaysBootWithCustomIpxe := bicr.AlwaysBootWithCustomIpxe
 
+	// If the request supplies no user-data of its own, the document being
+	// edited is the base OS's blob, whose phone-home block NICo authored
+	// whenever the OS was stored with phone-home enabled. That block is
+	// removed by key, because the URL frozen into it may predate a change
+	// to site.phoneHomeUrl. Caller-supplied user-data stays URL-matched.
+	nicoAuthoredPhoneHome := bicr.UserData == nil && os != nil && os.PhoneHomeEnabled
+
 	if os == nil {
 		// If no OS is being chosen...
 		// The expectation is that iPXE, user-data, and phone-home
@@ -1143,7 +1164,14 @@ func (bicr *APIBatchInstanceCreateRequest) ValidateAndSetOperatingSystemData(cfg
 				}
 
 			} else if isUserDataValidYAML {
-				if err := util.RemovePhoneHomeFromUserData(documentRoot, cutil.GetPtr(cfg.GetSitePhoneHomeUrl())); err != nil {
+				// NICo's own block is removed by key, because the URL frozen
+				// into it may predate a change to site.phoneHomeUrl.
+				var phoneHomeURLFilter *string
+				if !nicoAuthoredPhoneHome {
+					phoneHomeURLFilter = cutil.GetPtr(cfg.GetSitePhoneHomeUrl())
+				}
+
+				if err := util.RemovePhoneHomeFromUserData(documentRoot, phoneHomeURLFilter); err != nil {
 					return validation.Errors{
 						"userData": errors.New("failed to disable phone-home in userData after processing phone home config"),
 					}
@@ -1249,6 +1277,22 @@ func (iur *APIInstanceUpdateRequest) ValidateAndSetOperatingSystemData(cfg *conf
 	mergedPhoneHomeEnabled := iur.PhoneHomeEnabled
 	mergedIpxeScript := iur.IpxeScript
 	mergedAlwaysBootWithCustomIpxe := iur.AlwaysBootWithCustomIpxe
+
+	// If the request supplies no user-data of its own, the document being
+	// edited is a stored blob — the new base OS's when the request changes
+	// the OS, otherwise the instance's — and any phone-home block in it was
+	// authored by NICo whenever that blob was stored with phone-home
+	// enabled. Such a block is removed by key, because the URL frozen into
+	// it may predate a change to site.phoneHomeUrl. Caller-supplied
+	// user-data stays URL-matched.
+	nicoAuthoredPhoneHome := false
+	if iur.UserData == nil {
+		if iur.OperatingSystemID != nil {
+			nicoAuthoredPhoneHome = os != nil && os.PhoneHomeEnabled
+		} else {
+			nicoAuthoredPhoneHome = instance.PhoneHomeEnabled
+		}
+	}
 
 	if os == nil {
 		// If the OS is being cleared...
@@ -1437,7 +1481,14 @@ func (iur *APIInstanceUpdateRequest) ValidateAndSetOperatingSystemData(cfg *conf
 				// so we want to do this check silently and not alert people who
 				// are using non-YAML user-data.
 
-				if err := util.RemovePhoneHomeFromUserData(documentRoot, cutil.GetPtr(cfg.GetSitePhoneHomeUrl())); err != nil {
+				// NICo's own block is removed by key, because the URL frozen
+				// into it may predate a change to site.phoneHomeUrl.
+				var phoneHomeURLFilter *string
+				if !nicoAuthoredPhoneHome {
+					phoneHomeURLFilter = cutil.GetPtr(cfg.GetSitePhoneHomeUrl())
+				}
+
+				if err := util.RemovePhoneHomeFromUserData(documentRoot, phoneHomeURLFilter); err != nil {
 					return validation.Errors{
 						"userData": errors.New("failed to disable phone-home in userData after processing phone home config"),
 					}

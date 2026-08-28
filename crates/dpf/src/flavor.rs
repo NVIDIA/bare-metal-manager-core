@@ -20,6 +20,7 @@
 use std::collections::BTreeSet;
 use std::fmt::Write;
 
+use carbide_libmlx_model::nvconfig::DpuNvConfigProfile;
 use kube::core::ObjectMeta;
 use sha2::{Digest, Sha256};
 
@@ -63,6 +64,34 @@ impl DPUFlavorTemplate {
         let short_hash = hex::encode(&Sha256::digest(json.as_bytes())[..8]);
         Ok(format!("{default_flavor_name}-{short_hash}"))
     }
+}
+
+#[derive(serde::Serialize)]
+struct DpuFlavorTemplateBody<'a> {
+    spec: &'a DpuFlavorSpec,
+}
+
+/// Wraps a DPUFlavor spec in the body DPF expects in a DPUFlavorTemplate.
+pub(crate) fn flavor_template_from_flavor(
+    flavor: &DPUFlavor,
+) -> Result<DPUFlavorTemplate, crate::error::DpfError> {
+    Ok(DPUFlavorTemplate {
+        metadata: ObjectMeta {
+            name: None,
+            namespace: flavor.metadata.namespace.clone(),
+            ..Default::default()
+        },
+        spec: DpuFlavorTemplateSpec {
+            dpu_resources: None,
+            system_reserved_resources: None,
+            template: serde_yaml::to_string(&DpuFlavorTemplateBody { spec: &flavor.spec })
+                .map_err(|error| {
+                    crate::error::DpfError::ConfigError(format!(
+                        "failed to serialize DPUFlavorTemplate: {error}"
+                    ))
+                })?,
+        },
+    })
 }
 
 fn get_default_ovs_defaults_base() -> String {
@@ -398,7 +427,9 @@ pub fn default_flavor_for(
     }
 
     let pf_total_sf = match deployment_type {
-        DpuDeploymentType::Bf3 | DpuDeploymentType::Bf4Generic => DEFAULT_PF_TOTAL_SF_RESERVED,
+        DpuDeploymentType::Bf3 | DpuDeploymentType::Bf3Gb200 | DpuDeploymentType::Bf4Generic => {
+            DEFAULT_PF_TOTAL_SF_RESERVED
+        }
         DpuDeploymentType::Bf4Astra => unreachable!("handled above"),
     };
 
@@ -435,9 +466,10 @@ pub(crate) fn default_flavor_for_with_topology(
         DpuDeploymentType::Bf4Astra => Err(crate::error::DpfError::ConfigError(
             "BF4 Astra uses DPUFlavorTemplate; call flavor_bf4_astra() instead".to_string(),
         )),
-        DpuDeploymentType::Bf3 => default_flavor_with_topology(
+        DpuDeploymentType::Bf3 | DpuDeploymentType::Bf3Gb200 => default_flavor_with_topology(
             namespace,
             proxy,
+            deployment_type,
             num_of_vfs,
             pf_total_sf,
             intercept_bridging,
@@ -551,20 +583,15 @@ pub fn flavor_bf4_astra(
         scalable_functions: None,
     };
 
-    Ok(DPUFlavorTemplate {
+    let flavor = DPUFlavor {
         metadata: ObjectMeta {
             name: None,
             namespace: Some(namespace.to_string()),
             ..Default::default()
         },
-        spec: DpuFlavorTemplateSpec {
-            dpu_resources: None,
-            system_reserved_resources: None,
-            // The CRD accepts either YAML or JSON. JSON avoids a separate YAML serializer
-            // dependency while still producing the DPUFlavor body the operator renders.
-            template: serde_json::to_string_pretty(&flavor_spec)?,
-        },
-    })
+        spec: flavor_spec,
+    };
+    flavor_template_from_flavor(&flavor)
 }
 
 /// Default grub kernel parameters for the BF4 flavor.
@@ -723,6 +750,7 @@ pub fn default_flavor(
     default_flavor_with_topology(
         namespace,
         proxy,
+        DpuDeploymentType::Bf3,
         DEFAULT_DPU_NUM_OF_VFS,
         DEFAULT_PF_TOTAL_SF_RESERVED,
         None,
@@ -734,6 +762,7 @@ pub fn default_flavor(
 fn default_flavor_with_topology(
     namespace: &str,
     proxy: &Option<DpfProxyDetails>,
+    deployment_type: DpuDeploymentType,
     num_of_vfs: u32,
     pf_total_sf: u32,
     intercept_bridging: Option<&DpfInterceptBridging>,
@@ -756,13 +785,13 @@ fn default_flavor_with_topology(
             bfcfg_parameters: Some(bfcfg_parameters),
             config_files: Some(get_config_files(
                 proxy,
-                DpuDeploymentType::Bf3,
+                deployment_type,
                 dhcp_acl_interfaces,
             )?),
             containerd_config: None,
             grub: Some(get_default_grub()),
             host_network_interface_configs: None,
-            nvconfig: Some(vec![get_nvconfig(num_of_vfs, pf_total_sf)]),
+            nvconfig: Some(vec![get_nvconfig(num_of_vfs, pf_total_sf, deployment_type)]),
             ovs: Some(crate::crds::dpuflavors_generated::DpuFlavorOvs {
                 raw_config_script: Some(get_default_ovs_defaults_with_topology(intercept_bridging)),
             }),
@@ -804,7 +833,8 @@ fn get_default_grub() -> DpuFlavorGrub {
 /// Returns the base set of config files, plus an optional containerd proxy drop-in if `proxy` is set.
 ///
 /// `deployment_type` selects the few settings that differ between the deployments sharing this
-/// base set (BF3 and BF4 generic); [`get_bf4_astra_config_files`] builds the BF4 Astra set.
+/// base set (both BF3 variants and BF4 generic); [`get_bf4_astra_config_files`] builds the BF4
+/// Astra set.
 fn get_config_files(
     proxy: &Option<DpfProxyDetails>,
     deployment_type: DpuDeploymentType,
@@ -1332,6 +1362,29 @@ fn get_bf4_astra_config_files(
                     "} > \"$NETPLAN_FILE\"\n",
                     "\n",
                     "netplan apply\n",
+                    "\n",
+                    "# Block until oob_net0 has an IP again, since netplan\n",
+                    "# apply can transiently drop it. Avoids a race with\n",
+                    "# dpuagent joining the cluster afterwards.\n",
+                    "OOB_IFACE=\"oob_net0\"\n",
+                    "OOB_WAIT_TIMEOUT=120\n",
+                    "SECONDS=0\n",
+                    "\n",
+                    "while :; do\n",
+                    "    if ip -4 -o addr show dev \"$OOB_IFACE\" scope global 2>/dev/null | grep -q \"inet \"; then\n",
+                    "        echo \"xplane-bridge.sh: ${OOB_IFACE} has an IP after ${SECONDS}s\"\n",
+                    "        break\n",
+                    "    fi\n",
+                    "\n",
+                    "    if [ \"$SECONDS\" -ge \"$OOB_WAIT_TIMEOUT\" ]; then\n",
+                    "        echo \"xplane-bridge.sh: timed out after ${OOB_WAIT_TIMEOUT}s waiting for ${OOB_IFACE} to have an IP\" >&2\n",
+                    "        exit 1\n",
+                    "    fi\n",
+                    "\n",
+                    "    echo \"xplane-bridge.sh: waiting for ${OOB_IFACE} to get an IP (${SECONDS}s elapsed)\"\n",
+                    "    sleep 2\n",
+                    "done\n",
+                    "\n",
                 )
                 .to_string(),
             ),
@@ -1406,9 +1459,13 @@ fn get_bf4_astra_config_files(
     Ok(config_files)
 }
 
-/// Builds BF3 nvconfig with the validated site VF population.
-fn get_nvconfig(num_of_vfs: u32, pf_total_sf: u32) -> DpuFlavorNvconfig {
-    let parameters = vec![
+/// Builds BF3 NVConfig with the validated site VF population and platform profile.
+fn get_nvconfig(
+    num_of_vfs: u32,
+    pf_total_sf: u32,
+    deployment_type: DpuDeploymentType,
+) -> DpuFlavorNvconfig {
+    let mut parameters = vec![
         "PF_BAR2_ENABLE=0".to_string(),
         "PER_PF_NUM_SF=1".to_string(),
         format!("PF_TOTAL_SF={pf_total_sf}"),
@@ -1426,6 +1483,27 @@ fn get_nvconfig(num_of_vfs: u32, pf_total_sf: u32) -> DpuFlavorNvconfig {
         "LINK_TYPE_P1=ETH".to_string(),
         "LINK_TYPE_P2=ETH".to_string(),
     ];
+
+    if deployment_type == DpuDeploymentType::Bf3Gb200 {
+        // DPF v26.4 accepts at most 32 parameters. These two assignments set
+        // values that DPF already restores to their firmware default of 0, so
+        // omitting them preserves the required platform state.
+        // TODO(chet): Add PCI_SWITCH0_UPSTREAM_PORT_BUS=0 and
+        // PCI_SWITCH0_UPSTREAM_PORT_PEX=0 after DPF accepts more than 32
+        // NVConfig parameters.
+        parameters.extend(
+            DpuNvConfigProfile::Gb200B3240V1
+                .parameters()
+                .iter()
+                .filter(|parameter| {
+                    !matches!(
+                        **parameter,
+                        "PCI_SWITCH0_UPSTREAM_PORT_BUS=0" | "PCI_SWITCH0_UPSTREAM_PORT_PEX=0"
+                    )
+                })
+                .map(|parameter| (*parameter).to_string()),
+        );
+    }
 
     DpuFlavorNvconfig {
         // DPF does not allow anyother wild card. It takes only '*'
@@ -1531,7 +1609,12 @@ mod tests {
         let interfaces = crate::sdk::build_astra_dpu_interfaces_vec();
         let pf_total_sf = crate::sdk::calculate_astra_pf_total_sf(interfaces.as_slice()).unwrap();
         let template = flavor_bf4_astra("astra-ns", proxy, pf_total_sf).unwrap();
-        serde_json::from_str(&template.spec.template).unwrap()
+        flavor_spec_from_template(&template)
+    }
+
+    fn flavor_spec_from_template(template: &DPUFlavorTemplate) -> DpuFlavorSpec {
+        let body: serde_yaml::Value = serde_yaml::from_str(&template.spec.template).unwrap();
+        serde_yaml::from_value(body["spec"].clone()).unwrap()
     }
 
     /// The `raw` body of the trailing (proxy) config file built by `default_flavor`.
@@ -1757,7 +1840,10 @@ mod tests {
             |flavor: DPUFlavor| flavor.spec.nvconfig.unwrap()[0].parameters.clone().unwrap();
 
         // BF3 and generic BF4 consume the validated site value.
-        let bf3 = parameters(default_flavor_with_topology("ns", &None, 3, 61, None, None).unwrap());
+        let bf3 = parameters(
+            default_flavor_with_topology("ns", &None, DpuDeploymentType::Bf3, 3, 61, None, None)
+                .unwrap(),
+        );
         assert!(bf3.contains(&"NUM_OF_VFS=3".to_string()));
         assert!(bf3.contains(&"PF_TOTAL_SF=61".to_string()));
         let generic_bf4 =
@@ -1775,6 +1861,44 @@ mod tests {
         assert!(astra.contains(&expected_astra_pf_total_sf_parameter()));
     }
 
+    #[test]
+    fn gb200_bf3_nvconfig_appends_the_bounded_profile_in_order() {
+        let parameters = |deployment_type| {
+            get_nvconfig(16, DEFAULT_PF_TOTAL_SF_RESERVED, deployment_type)
+                .parameters
+                .unwrap()
+        };
+        let bf3 = parameters(DpuDeploymentType::Bf3);
+        let gb200 = parameters(DpuDeploymentType::Bf3Gb200);
+
+        assert_eq!(bf3.len(), 16);
+        assert_eq!(gb200.len(), 32);
+        assert_eq!(&gb200[..bf3.len()], bf3.as_slice());
+        assert_eq!(
+            &gb200[bf3.len()..],
+            [
+                "OFF_BOARD_SERIALIZER=1",
+                "PCI_BUS00_HIERARCHY_TYPE=1",
+                "PCI_BUS00_SPEED=5",
+                "PCI_BUS00_WIDTH=5",
+                "PCI_BUS10_HIERARCHY_TYPE=1",
+                "PCI_BUS10_SPEED=4",
+                "PCI_BUS10_WIDTH=3",
+                "PCI_BUS12_HIERARCHY_TYPE=1",
+                "PCI_BUS12_SPEED=4",
+                "PCI_BUS12_WIDTH=3",
+                "PCI_BUS14_HIERARCHY_TYPE=1",
+                "PCI_BUS14_SPEED=4",
+                "PCI_BUS14_WIDTH=3",
+                "PCI_BUS16_HIERARCHY_TYPE=1",
+                "PCI_BUS16_SPEED=4",
+                "PCI_BUS16_WIDTH=3",
+            ]
+        );
+        assert!(!gb200.contains(&"PCI_SWITCH0_UPSTREAM_PORT_BUS=0".to_string()));
+        assert!(!gb200.contains(&"PCI_SWITCH0_UPSTREAM_PORT_PEX=0".to_string()));
+    }
+
     /// Verifies normalized input order cannot change rendered flavor identity.
     #[test]
     fn intercept_bridging_input_order_does_not_change_flavor_hash() {
@@ -1790,6 +1914,7 @@ mod tests {
             default_flavor_with_topology(
                 "ns",
                 &None,
+                DpuDeploymentType::Bf3,
                 16,
                 DEFAULT_PF_TOTAL_SF_RESERVED + 7,
                 Some(topology),
@@ -2183,9 +2308,16 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
+        let template_body: serde_yaml::Value =
+            serde_yaml::from_str(&flavor_template.spec.template).unwrap();
+        let template_fields = template_body
+            .as_mapping()
+            .expect("DPUFlavorTemplate body must be a YAML mapping");
+        assert_eq!(template_fields.len(), 1);
+        assert!(template_fields.contains_key("spec"));
         let flavor = DPUFlavor {
             metadata: ObjectMeta::default(),
-            spec: serde_json::from_str(&flavor_template.spec.template).unwrap(),
+            spec: flavor_spec_from_template(&flavor_template),
         };
         let expected_pf_total_sf = expected_astra_pf_total_sf_parameter();
         let ew_nic = flavor
@@ -2330,6 +2462,27 @@ mod tests {
                     ) && xplane_script.contains(
                         "no rail address mapping for DPU serial ${LOCAL_SERIAL}; NODE_ADDR=${NODE_ADDR:-unset} GW_ADDR=${GW_ADDR:-unset}"
                     )
+                } => true,
+            }
+
+            "xplane bridge setup waits for OOB connectivity" {
+                {
+                    let xplane_script = flavor
+                        .spec
+                        .config_files
+                        .as_ref()
+                        .unwrap()
+                        .iter()
+                        .find(|file| file.path == "/etc/mellanox/xplane-bridge.sh")
+                        .and_then(|file| file.raw.as_ref())
+                        .unwrap();
+                    xplane_script.contains("OOB_WAIT_TIMEOUT=120")
+                        && xplane_script.contains(
+                            "ip -4 -o addr show dev \"$OOB_IFACE\" scope global",
+                        )
+                        && xplane_script.contains(
+                            "timed out after ${OOB_WAIT_TIMEOUT}s waiting for ${OOB_IFACE} to have an IP",
+                        )
                 } => true,
             }
 
@@ -2825,7 +2978,7 @@ mod tests {
 
     #[test]
     fn default_nvconfig_shape() {
-        let nv = get_nvconfig(16, DEFAULT_PF_TOTAL_SF_RESERVED);
+        let nv = get_nvconfig(16, DEFAULT_PF_TOTAL_SF_RESERVED, DpuDeploymentType::Bf3);
         value_scenarios!(
             run = |v| v;
             "device is the only allowed wildcard variant" {

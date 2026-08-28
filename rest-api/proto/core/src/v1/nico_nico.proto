@@ -245,7 +245,9 @@ service Forge {
   rpc FindMachineStateHistories(MachineStateHistoriesRequest) returns (MachineStateHistories);
   rpc FindMachineHealthHistories(MachineHealthHistoriesRequest) returns (HealthHistories);
   rpc FindPowerShelfStateHistories(PowerShelfStateHistoriesRequest) returns (StateHistories);
+  rpc FindPowerShelfHealthHistories(PowerShelfHealthHistoriesRequest) returns (HealthHistories);
   rpc FindRackStateHistories(RackStateHistoriesRequest) returns (StateHistories);
+  rpc FindRackHealthHistories(RackHealthHistoriesRequest) returns (HealthHistories);
   rpc FindSwitchStateHistories(SwitchStateHistoriesRequest) returns (StateHistories);
   rpc FindSwitchHealthHistories(SwitchHealthHistoriesRequest) returns (HealthHistories);
   rpc FindNetworkSegmentStateHistories(NetworkSegmentStateHistoriesRequest) returns (StateHistories);
@@ -1433,6 +1435,10 @@ enum RotationCredentialType {
   ROTATION_DPU_UEFI = 3;
   ROTATION_NVOS = 4;
   ROTATION_LOCKDOWN_IKM = 5;
+  // BF4 DPU BMC `service` account password. Only BF4 DPUs expose this account;
+  // other devices are never enrolled, so a rotation converges just the BF4 DPU
+  // BMCs.
+  ROTATION_DPU_BMC_SERVICE = 6;
 }
 
 message RotateCredentialRequest {
@@ -2344,6 +2350,14 @@ message PowerShelfMaintenanceRequest {
 
 message PowerShelfStateHistoriesRequest {
   repeated common.PowerShelfId power_shelf_ids = 1;
+}
+
+message PowerShelfHealthHistoriesRequest {
+  repeated common.PowerShelfId power_shelf_ids = 1;
+  // Optional: Start time of the range (inclusive) for filtering health history
+  google.protobuf.Timestamp start_time = 2;
+  // Optional: End time of the range (inclusive) for filtering health history
+  google.protobuf.Timestamp end_time = 3;
 }
 
 message PowerShelfQuery {
@@ -8096,6 +8110,14 @@ message RackStatus {
 
 message RackStateHistoriesRequest {
   repeated common.RackId rack_ids = 1;
+}
+
+message RackHealthHistoriesRequest {
+  repeated common.RackId rack_ids = 1;
+  // Optional: Start time of the range (inclusive) for filtering health history
+  google.protobuf.Timestamp start_time = 2;
+  // Optional: End time of the range (inclusive) for filtering health history
+  google.protobuf.Timestamp end_time = 3;
 }
 
 message DeleteRackRequest {

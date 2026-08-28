@@ -286,9 +286,8 @@ simulator's bound port.
 
 | Mode | IPMI Accessible? | Notes |
 |------|------------------|-------|
-| Controller mode (`useSingleBmcMock: true` + `mat-k8s-controller`) | Yes | The controller creates per-BMC Services using each simulator's dynamic port. |
-| Shared-proxy mode (`useSingleBmcMock: true` without controller) | No | No per-BMC Services expose the dynamic IPMI ports. |
-| Override mode (`useSingleBmcMock: false`) | Yes | Each BMC advertises its simulator's dynamic port through Redfish. |
+| Controller mode (with `mat-k8s-controller`) | Yes | The controller creates per-BMC Services using each simulator's dynamic port. |
+| Shared-proxy mode (without `mat-k8s-controller`) | No | No per-BMC Services expose the dynamic IPMI ports. |
 
 > **Note:** IPMI ports are only added to Services for host machines with
 > IPMI-capable hardware types (eg, NVIDIA GB300, Supermicro GB300).
