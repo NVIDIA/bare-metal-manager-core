@@ -20,6 +20,8 @@ import (
 
 	// Imports for API doc generation
 	_ "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/tracing"
 )
 
 const (
@@ -43,6 +45,8 @@ const (
 // @in header
 // @name Authorization
 func main() {
+	// First: interceptors and handlers below capture the global propagator.
+	tracing.InstallPropagator()
 	// Initialize logger
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	zerolog.LevelFieldName = ZerologLevelFieldName

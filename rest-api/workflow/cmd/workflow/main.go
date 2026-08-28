@@ -104,6 +104,8 @@ import (
 
 	nvLinkLogicalPartitionActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/nvlinklogicalpartition"
 	nvLinkLogicalPartitionWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/nvlinklogicalpartition"
+
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/tracing"
 )
 
 const (
@@ -114,6 +116,8 @@ const (
 )
 
 func main() {
+	// First: interceptors and handlers below capture the global propagator.
+	tracing.InstallPropagator()
 	// Initialize context
 	ctx := context.Background()
 

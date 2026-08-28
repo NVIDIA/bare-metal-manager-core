@@ -13,6 +13,8 @@ import (
 	components "github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components"
 	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/datatypes/elektratypes"
 	"github.com/rs/zerolog/log"
+
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/tracing"
 )
 
 // InitElektra initializes the Elektra site agent framework
@@ -42,6 +44,8 @@ func InitElektra() {
 }
 
 func main() {
+	// First: interceptors and handlers below capture the global propagator.
+	tracing.InstallPropagator()
 	InitElektra()
 	// sleep
 	// Wait forever
