@@ -1501,9 +1501,11 @@ pub struct SpiffeIdentity {
 ///
 /// The connection-identifying fields are required (non-optional), so a value
 /// of this type cannot be constructed without naming the target Vault, its PKI
-/// mount, and its role. None of these fields fall back to the process-global
-/// `VAULT_*` environment variables — that fallback is exactly what would
-/// silently re-point a half-configured cert Vault back at the credential Vault.
+/// mount, and its role. Those fields do not fall back to process-global
+/// `VAULT_*` environment variables, so a half-configured cert Vault cannot be
+/// silently re-pointed to the credential Vault. The namespace is the exception:
+/// it inherits `VAULT_NAMESPACE` so the default deployment uses one Vault
+/// namespace consistently for credentials and certificates.
 #[derive(Clone)]
 pub struct DedicatedVaultConfig {
     /// Vault address, e.g. `https://vault.example:8200`. Required.
@@ -1521,9 +1523,17 @@ pub struct DedicatedVaultConfig {
     /// or `VAULT_CACERT`) — this is TLS trust material, not a Vault selector.
     pub vault_cacert: Option<String>,
     /// Optional Vault Enterprise or HCP Vault Dedicated namespace for this
-    /// certificate Vault. This remains explicit so a separate certificate
-    /// Vault is never silently selected by the credential Vault's environment.
+    /// certificate Vault. Takes precedence over `VAULT_NAMESPACE`.
     pub namespace: Option<String>,
+}
+
+impl DedicatedVaultConfig {
+    /// Resolves the dedicated Vault namespace from configuration, then the
+    /// shared `VAULT_NAMESPACE` environment setting.
+    fn namespace(&self) -> Option<String> {
+        normalize_vault_namespace(self.namespace.clone())
+            .or_else(|| normalize_vault_namespace(env::var(VAULT_NAMESPACE_ENV_VAR).ok()))
+    }
 }
 
 // Hand-rolled so the root `token` is never printed verbatim in logs or errors;
@@ -1594,7 +1604,7 @@ pub fn create_dedicated_vault_client(
         kv_mount_location: String::new(),
         pki_mount_location: config.pki_mount_location.clone(),
         pki_role_name: config.pki_role_name.clone(),
-        namespace: normalize_vault_namespace(config.namespace.clone()),
+        namespace: config.namespace(),
         spiffe_trust_domain: spiffe.trust_domain,
         spiffe_machine_base_path: spiffe.machine_base_path,
         vault_root_ca_path,
@@ -1803,6 +1813,32 @@ mod tests {
                 err.to_string().contains("non-empty"),
                 "unexpected error: {err}"
             );
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn dedicated_vault_namespace_inherits_environment_with_config_precedence() {
+        // SAFETY: `#[serial]` prevents this test from racing other tests that
+        // participate in process-environment mutation.
+        unsafe {
+            std::env::set_var("VAULT_NAMESPACE", "from-environment");
+        }
+
+        assert_eq!(
+            dedicated_config().namespace().as_deref(),
+            Some("from-environment")
+        );
+
+        let configured = DedicatedVaultConfig {
+            namespace: Some("from-config".to_string()),
+            ..dedicated_config()
+        };
+        assert_eq!(configured.namespace().as_deref(), Some("from-config"));
+
+        // SAFETY: paired with the setup above in this serialized test.
+        unsafe {
+            std::env::remove_var("VAULT_NAMESPACE");
         }
     }
 

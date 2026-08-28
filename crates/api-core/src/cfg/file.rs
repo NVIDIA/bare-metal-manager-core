@@ -1072,7 +1072,7 @@ pub struct DedicatedVaultSettings {
     #[serde(default)]
     pub vault_cacert: Option<String>,
     /// Optional Vault Enterprise or HCP Vault Dedicated namespace for this
-    /// dedicated certificate client.
+    /// dedicated certificate client. Takes precedence over `VAULT_NAMESPACE`.
     #[serde(default)]
     pub namespace: Option<String>,
 }
