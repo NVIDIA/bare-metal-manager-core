@@ -70,16 +70,16 @@ func (cd *Component) Get(
 	var query *bun.SelectQuery
 
 	if cd.ID != uuid.Nil {
-		query = idb.NewSelect().Model(&component).Where("id = ?", cd.ID)
+		query = idb.NewSelect().Model(&component).Where("c.id = ?", cd.ID)
 	} else {
 		query = idb.NewSelect().Model(&component).Where(
-			"manufacturer = ? AND serial_number = ?",
+			"c.manufacturer = ? AND c.serial_number = ?",
 			cd.Manufacturer,
 			cd.SerialNumber,
 		)
 	}
 
-	query = query.Relation("BMCs")
+	query = query.Relation("BMCs").Relation("Rack")
 
 	if err := query.Scan(ctx); err != nil {
 		return nil, err
@@ -103,7 +103,7 @@ func GetAllComponents(ctx context.Context, idb bun.IDB) (ret []Component, err er
 // component's BMCs relation preloaded (callers rely on this for BMC-MAC-based
 // linking).
 func GetComponentsByType(ctx context.Context, idb bun.IDB, componentType devicetypes.ComponentType) (ret []Component, err error) {
-	err = idb.NewSelect().Model(&ret).Where("type = ?", devicetypes.ComponentTypeToString(componentType)).Relation("BMCs").Scan(ctx)
+	err = idb.NewSelect().Model(&ret).Where("c.type = ?", devicetypes.ComponentTypeToString(componentType)).Relation("BMCs").Relation("Rack").Scan(ctx)
 	return ret, err
 }
 
@@ -133,18 +133,18 @@ func GetListOfComponents(
 	// Build filterables list from all provided filters
 	filterables := make([]dbquery.Filterable, 0)
 
-	if filterable := info.ToFilterable("name"); filterable != nil {
+	if filterable := info.ToFilterable("c.name"); filterable != nil {
 		filterables = append(filterables, filterable)
 	}
 
 	if manufacturerFilter != nil {
-		if filterable := manufacturerFilter.ToFilterable("manufacturer"); filterable != nil {
+		if filterable := manufacturerFilter.ToFilterable("c.manufacturer"); filterable != nil {
 			filterables = append(filterables, filterable)
 		}
 	}
 
 	if modelFilter != nil {
-		if filterable := modelFilter.ToFilterable("model"); filterable != nil {
+		if filterable := modelFilter.ToFilterable("c.model"); filterable != nil {
 			filterables = append(filterables, filterable)
 		}
 	}
@@ -156,7 +156,7 @@ func GetListOfComponents(
 			typeStrings = append(typeStrings, devicetypes.ComponentTypeToString(ct))
 		}
 		filterables = append(filterables, &dbquery.Filter{
-			Column:   "type",
+			Column:   "c.type",
 			Operator: dbquery.OperatorIn,
 			Value:    typeStrings,
 		})
@@ -167,11 +167,13 @@ func GetListOfComponents(
 	}
 
 	if orderBy != nil {
-		conf.DefaultOrderBy = []dbquery.OrderBy{*orderBy}
+		qualifiedOrderBy := *orderBy
+		qualifiedOrderBy.Column = "c." + qualifiedOrderBy.Column
+		conf.DefaultOrderBy = []dbquery.OrderBy{qualifiedOrderBy}
 	}
 
 	// Always include BMCs relation
-	conf.Relations = []string{"BMCs"}
+	conf.Relations = []string{"BMCs", "Rack"}
 
 	q, err := dbquery.New(ctx, conf)
 	if err != nil {
@@ -194,9 +196,10 @@ func (cd *Component) Patch(ctx context.Context, idb bun.IDB) error {
 func (cd *Component) GetIncludingDeleted(ctx context.Context, idb bun.IDB) (*Component, error) {
 	var comp Component
 	err := idb.NewSelect().Model(&comp).
-		Where("id = ?", cd.ID).
+		Where("c.id = ?", cd.ID).
 		WhereAllWithDeleted().
 		Relation("BMCs").
+		Relation("Rack").
 		Scan(ctx)
 	if err != nil {
 		return nil, err

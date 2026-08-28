@@ -75,8 +75,11 @@ type ManageSite struct {
 
 // Activity functions
 
-// UpdateSiteInDB is a Temporal activity that updates the Site metadata in the DB.
-func (mst ManageSite) UpdateSiteInDB(ctx context.Context, siteID uuid.UUID, buildInfo *corev1.BuildInfo) error {
+// UpdateSiteInDB is a Temporal activity that updates the Site metadata in the DB. A nil
+// siteAgentBuildInfo, which is what an older Site Agent reports, leaves the stored Site Agent
+// values alone rather than erasing what an earlier report established.
+func (mst ManageSite) UpdateSiteInDB(ctx context.Context, siteID uuid.UUID, coreBuildInfo *corev1.BuildInfo,
+	siteAgentBuildInfo *corev1.SiteAgentBuildInfo) error {
 	logger := log.With().Str("Activity", "UpdateSiteInDB").Str("Site ID", siteID.String()).Logger()
 
 	logger.Info().Msg("starting activity")
@@ -94,7 +97,7 @@ func (mst ManageSite) UpdateSiteInDB(ctx context.Context, siteID uuid.UUID, buil
 		return err
 	}
 
-	vpcSlaac := slices.Contains(buildInfo.GetCapabilities(), corev1.BuildCapability_BUILD_CAPABILITY_VPC_SLAAC)
+	vpcSlaac := slices.Contains(coreBuildInfo.GetCapabilities(), corev1.BuildCapability_BUILD_CAPABILITY_VPC_SLAAC)
 	updateInput := cdbm.SiteUpdateInput{
 		SiteID: site.ID,
 	}
@@ -109,12 +112,25 @@ func (mst ManageSite) UpdateSiteInDB(ctx context.Context, siteID uuid.UUID, buil
 	}
 
 	// Update build version for Site when Core reports a changed, non-empty value.
-	siteControllerVersion := buildInfo.GetBuildVersion()
+	siteControllerVersion := coreBuildInfo.GetBuildVersion()
 	if siteControllerVersion != "" && (site.SiteControllerVersion == nil || (site.SiteControllerVersion != nil && *site.SiteControllerVersion != siteControllerVersion)) {
 		updateInput.SiteControllerVersion = &siteControllerVersion
 	}
 
-	if updateInput.Config == nil && updateInput.SiteControllerVersion == nil {
+	siteAgentVersion := siteAgentBuildInfo.GetVersion()
+	if siteAgentVersion != "" && (site.SiteAgentVersion == nil || *site.SiteAgentVersion != siteAgentVersion) {
+		updateInput.SiteAgentVersion = &siteAgentVersion
+	}
+
+	// The Site Agent leaves the interval unset when it cannot derive one from its schedule, and
+	// a sub-second interval cannot come from a cron schedule, so neither is worth storing.
+	inventoryIntervalSeconds := int(siteAgentBuildInfo.GetInventoryInterval().AsDuration().Seconds())
+	if inventoryIntervalSeconds > 0 && (site.InventoryIntervalSeconds == nil || *site.InventoryIntervalSeconds != inventoryIntervalSeconds) {
+		updateInput.InventoryIntervalSeconds = &inventoryIntervalSeconds
+	}
+
+	if updateInput.Config == nil && updateInput.SiteControllerVersion == nil &&
+		updateInput.SiteAgentVersion == nil && updateInput.InventoryIntervalSeconds == nil {
 		return nil
 	}
 

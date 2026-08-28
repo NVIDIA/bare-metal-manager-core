@@ -54,6 +54,11 @@ pub(super) enum UefiCredentialType {
 ///
 /// NVOS is listed because the server can stage site-wide NVOS targets. Device
 /// convergence depends on the switch-controller and component-manager path.
+///
+/// DpuUefi is the DPU *UEFI* password; DpuBmcService is the BF4 DPU *BMC*
+/// `service` account -- distinct credentials on the same device. Only BF4 DPUs
+/// expose the `service` account, so a `dpu-bmc-service` rotation converges just
+/// the BF4 DPU BMCs.
 #[derive(ValueEnum, Parser, Debug, Clone)]
 pub(super) enum RotationCredentialKind {
     Bmc,
@@ -61,6 +66,7 @@ pub(super) enum RotationCredentialKind {
     DpuUefi,
     Nvos,
     LockdownIkm,
+    DpuBmcService,
 }
 
 impl From<RotationCredentialKind> for rpc::forge::RotationCredentialType {
@@ -72,6 +78,7 @@ impl From<RotationCredentialKind> for rpc::forge::RotationCredentialType {
             RotationCredentialKind::DpuUefi => RotationDpuUefi,
             RotationCredentialKind::Nvos => RotationNvos,
             RotationCredentialKind::LockdownIkm => RotationLockdownIkm,
+            RotationCredentialKind::DpuBmcService => RotationDpuBmcService,
         }
     }
 }

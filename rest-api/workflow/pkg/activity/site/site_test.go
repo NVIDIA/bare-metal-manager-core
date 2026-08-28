@@ -44,6 +44,7 @@ import (
 	tosv1mock "go.temporal.io/api/operatorservicemock/v1"
 	twsv1mock "go.temporal.io/api/workflowservicemock/v1"
 	tmocks "go.temporal.io/sdk/mocks"
+	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 // testTemporalSiteClientPool Building site client pool
@@ -1244,7 +1245,11 @@ func TestManageSite_UpdateSiteInDB(t *testing.T) {
 	mst := NewManageSite(resources.dbSession, nil, nil, nil)
 	siteDAO := cdbm.NewSiteDAO(resources.dbSession)
 
-	createSite := func(t *testing.T, version *string, config *cdbm.SiteConfig) *cdbm.Site {
+	// The stored Site Agent version every case starts from, so a case that expects it untouched
+	// does not have to restate it.
+	const existingAgentVersion = "1.0.0"
+
+	createSite := func(t *testing.T, version *string, config *cdbm.SiteConfig, intervalSeconds *int) *cdbm.Site {
 		t.Helper()
 		site := &cdbm.Site{
 			ID:                       uuid.New(),
@@ -1253,7 +1258,8 @@ func TestManageSite_UpdateSiteInDB(t *testing.T) {
 			Org:                      "test",
 			InfrastructureProviderID: resources.provider.ID,
 			SiteControllerVersion:    version,
-			SiteAgentVersion:         cutil.GetPtr("1.0.0"),
+			SiteAgentVersion:         cutil.GetPtr(existingAgentVersion),
+			InventoryIntervalSeconds: intervalSeconds,
 			IsInfinityEnabled:        true,
 			Status:                   cdbm.SiteStatusRegistered,
 			CreatedBy:                resources.user.ID,
@@ -1268,9 +1274,13 @@ func TestManageSite_UpdateSiteInDB(t *testing.T) {
 		name                  string
 		existingVersion       *string
 		existingConfig        *cdbm.SiteConfig
+		existingInterval      *int
 		buildInfo             *corev1.BuildInfo
+		siteAgentBuildInfo    *corev1.SiteAgentBuildInfo
 		wantVersion           *string
 		wantVpcSlaac          bool
+		wantAgentVersion      *string
+		wantInterval          *int
 		wantDBUpdate          bool
 		wantVpcSlaacKeyAbsent bool
 		wantErr               bool
@@ -1278,6 +1288,57 @@ func TestManageSite_UpdateSiteInDB(t *testing.T) {
 		useUnknownSiteID      bool
 		omitVpcSlaacKey       bool
 	}{
+		{
+			name:           "stores the reported Site Agent version and interval",
+			existingConfig: &cdbm.SiteConfig{},
+			buildInfo:      &corev1.BuildInfo{},
+			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{
+				Version:           "2.0.0",
+				InventoryInterval: durationpb.New(time.Minute),
+			},
+			wantAgentVersion: cutil.GetPtr("2.0.0"),
+			wantInterval:     cutil.GetPtr(60),
+			wantDBUpdate:     true,
+		},
+		{
+			name:             "updates a changed interval",
+			existingConfig:   &cdbm.SiteConfig{},
+			existingInterval: cutil.GetPtr(180),
+			buildInfo:        &corev1.BuildInfo{},
+			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{
+				Version:           existingAgentVersion,
+				InventoryInterval: durationpb.New(time.Minute),
+			},
+			wantInterval: cutil.GetPtr(60),
+			wantDBUpdate: true,
+		},
+		{
+			// An older Site Agent reports nothing about itself, which must not erase what an
+			// earlier report established.
+			name:             "leaves Site Agent values alone when nothing is reported",
+			existingConfig:   &cdbm.SiteConfig{},
+			existingInterval: cutil.GetPtr(180),
+			buildInfo:        &corev1.BuildInfo{},
+			wantInterval:     cutil.GetPtr(180),
+		},
+		{
+			name:               "keeps the stored interval when the report omits it",
+			existingConfig:     &cdbm.SiteConfig{},
+			existingInterval:   cutil.GetPtr(180),
+			buildInfo:          &corev1.BuildInfo{},
+			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{Version: existingAgentVersion},
+			wantInterval:       cutil.GetPtr(180),
+		},
+		{
+			// A sub-second interval cannot come from a cron schedule, so it is not stored.
+			name:           "ignores a sub-second interval",
+			existingConfig: &cdbm.SiteConfig{},
+			buildInfo:      &corev1.BuildInfo{},
+			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{
+				Version:           existingAgentVersion,
+				InventoryInterval: durationpb.New(500 * time.Millisecond),
+			},
+		},
 		{
 			name:            "updates version while VPC SLAAC remains false",
 			existingVersion: nil,
@@ -1413,7 +1474,7 @@ func TestManageSite_UpdateSiteInDB(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			site := createSite(t, tt.existingVersion, tt.existingConfig)
+			site := createSite(t, tt.existingVersion, tt.existingConfig, tt.existingInterval)
 			if tt.omitVpcSlaacKey {
 				_, err := resources.dbSession.DB.NewUpdate().
 					Model((*cdbm.Site)(nil)).
@@ -1436,7 +1497,7 @@ func TestManageSite_UpdateSiteInDB(t *testing.T) {
 				siteID = uuid.New()
 			}
 
-			err = mst.UpdateSiteInDB(ctx, siteID, tt.buildInfo)
+			err = mst.UpdateSiteInDB(ctx, siteID, tt.buildInfo, tt.siteAgentBuildInfo)
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.wantNonRetryable {
@@ -1461,6 +1522,22 @@ func TestManageSite_UpdateSiteInDB(t *testing.T) {
 			}
 			require.NotNil(t, got.Config)
 			assert.Equal(t, tt.wantVpcSlaac, got.Config.VpcSlaac)
+
+			// A nil expectation means the report left the stored value as createSite wrote it.
+			wantAgentVersion := existingAgentVersion
+			if tt.wantAgentVersion != nil {
+				wantAgentVersion = *tt.wantAgentVersion
+			}
+			require.NotNil(t, got.SiteAgentVersion)
+			assert.Equal(t, wantAgentVersion, *got.SiteAgentVersion)
+
+			if tt.wantInterval == nil {
+				assert.Nil(t, got.InventoryIntervalSeconds)
+			} else {
+				require.NotNil(t, got.InventoryIntervalSeconds)
+				assert.Equal(t, *tt.wantInterval, *got.InventoryIntervalSeconds)
+			}
+
 			if tt.wantDBUpdate {
 				assert.True(t, got.Updated.After(originalUpdated))
 			} else {

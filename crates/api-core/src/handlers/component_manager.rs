@@ -2444,7 +2444,10 @@ pub(crate) async fn update_component_firmware(
                             &resolved.resolved.endpoints,
                             &req.target_version,
                             &components,
-                            &FirmwareUpdateOptions::default(),
+                            &FirmwareUpdateOptions {
+                                force_update,
+                                ..FirmwareUpdateOptions::default()
+                            },
                         )
                         .await
                         .map_err(component_manager_error_to_status)?;

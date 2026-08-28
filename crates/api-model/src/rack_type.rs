@@ -19,10 +19,13 @@ use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
 
+use carbide_libmlx_model::nvconfig::DpuNvConfigProfile;
 use carbide_utils::config::as_std_duration;
 use duration_str::deserialize_duration;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+use crate::hardware_info::HardwareInfo;
 
 /// RackHardwareType identifies the hardware type of a rack.
 /// This is a flexible string-based type to allow new hardware types
@@ -88,6 +91,22 @@ pub enum RackProductFamily {
     ///
     /// The original spelling is preserved after outer whitespace is removed.
     Other(String),
+}
+
+/// Selects the fixed DPU NVConfig profile supported by a rack and DPU identity.
+///
+/// A profile is selected only for a GB200 rack and an exact supported DPU part
+/// number. Missing identity does not select a profile.
+pub fn select_dpu_nvconfig_profile(
+    product_family: Option<&RackProductFamily>,
+    hardware_info: Option<&HardwareInfo>,
+) -> Option<DpuNvConfigProfile> {
+    if product_family != Some(&RackProductFamily::Gb200) {
+        return None;
+    }
+
+    let part_number = &hardware_info?.dpu_info.as_ref()?.part_number;
+    DpuNvConfigProfile::for_gb200_b3240_part_number(part_number)
 }
 
 impl RackProductFamily {
@@ -471,9 +490,73 @@ impl RackProfileConfig {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{scenarios, value_scenarios};
+    use carbide_test_support::{Check, check_values, scenarios, value_scenarios};
 
     use super::*;
+    use crate::hardware_info::DpuData;
+
+    fn dpu_hardware_info(part_number: &str) -> HardwareInfo {
+        HardwareInfo {
+            dpu_info: Some(DpuData {
+                part_number: part_number.to_string(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn dpu_nvconfig_profile_requires_matching_rack_and_dpu_identity() {
+        check_values(
+            [
+                Check {
+                    scenario: "GB200 rack with supported B3240",
+                    input: (
+                        Some(RackProductFamily::Gb200),
+                        Some(dpu_hardware_info("900-9D3B6-00CN-PA0")),
+                    ),
+                    expect: Some(DpuNvConfigProfile::Gb200B3240V1),
+                },
+                Check {
+                    scenario: "other rack family with supported B3240",
+                    input: (
+                        Some(RackProductFamily::Gb300),
+                        Some(dpu_hardware_info("900-9D3B6-00CN-PA0")),
+                    ),
+                    expect: None,
+                },
+                Check {
+                    scenario: "GB200 rack with another BlueField 3 product",
+                    input: (
+                        Some(RackProductFamily::Gb200),
+                        Some(dpu_hardware_info("900-9D3B6-00CV-AA0")),
+                    ),
+                    expect: None,
+                },
+                Check {
+                    scenario: "GB200 rack without DPU hardware information",
+                    input: (Some(RackProductFamily::Gb200), None),
+                    expect: None,
+                },
+                Check {
+                    scenario: "GB200 rack without DPU identity",
+                    input: (
+                        Some(RackProductFamily::Gb200),
+                        Some(HardwareInfo::default()),
+                    ),
+                    expect: None,
+                },
+                Check {
+                    scenario: "missing rack family with supported B3240",
+                    input: (None, Some(dpu_hardware_info("900-9D3B6-00CN-PA0"))),
+                    expect: None,
+                },
+            ],
+            |(product_family, hardware_info)| {
+                select_dpu_nvconfig_profile(product_family.as_ref(), hardware_info.as_ref())
+            },
+        );
+    }
 
     #[test]
     fn test_rack_profile_config_lookup() {
@@ -967,63 +1050,6 @@ count = 2
 
             "empty product family" {
                 "\"  \"" => Fails,
-            }
-        );
-    }
-
-    // RackHardwareTopology serde.
-
-    // JSON round-trip: each topology variant serializes to its expected
-    // snake_case string and deserializes back to itself. Projected to
-    // (json, value_back); the (non-PartialEq) serde_json error is discarded.
-    #[test]
-    fn test_rack_hardware_topology_serde_round_trip() {
-        scenarios!(
-            run = |variant| {
-                let json = serde_json::to_string(&variant).map_err(drop)?;
-                let back: RackHardwareTopology = serde_json::from_str(&json).map_err(drop)?;
-                Ok::<_, ()>((json, back))
-            };
-            "gb200 nvl36 round-trips" {
-                RackHardwareTopology::Gb200Nvl36r1C2g4Topology => Yields((
-                    "\"gb200_nvl36r1_c2g4_topology\"".to_string(),
-                    RackHardwareTopology::Gb200Nvl36r1C2g4Topology,
-                )),
-            }
-
-            "gb300 nvl36 round-trips" {
-                RackHardwareTopology::Gb300Nvl36r1C2g4Topology => Yields((
-                    "\"gb300_nvl36r1_c2g4_topology\"".to_string(),
-                    RackHardwareTopology::Gb300Nvl36r1C2g4Topology,
-                )),
-            }
-
-            "gb200 nvl72 round-trips" {
-                RackHardwareTopology::Gb200Nvl72r1C2g4Topology => Yields((
-                    "\"gb200_nvl72r1_c2g4_topology\"".to_string(),
-                    RackHardwareTopology::Gb200Nvl72r1C2g4Topology,
-                )),
-            }
-
-            "gb300 nvl72 round-trips" {
-                RackHardwareTopology::Gb300Nvl72r1C2g4Topology => Yields((
-                    "\"gb300_nvl72r1_c2g4_topology\"".to_string(),
-                    RackHardwareTopology::Gb300Nvl72r1C2g4Topology,
-                )),
-            }
-
-            "vr nvl8 rtf round-trips" {
-                RackHardwareTopology::VrNvl8r1C2g4RtfTopology => Yields((
-                    "\"vr_nvl8r1_c2g4_rtf_topology\"".to_string(),
-                    RackHardwareTopology::VrNvl8r1C2g4RtfTopology,
-                )),
-            }
-
-            "vr nvl72 round-trips" {
-                RackHardwareTopology::VrNvl72r1C2g4Topology => Yields((
-                    "\"vr_nvl72r1_c2g4_topology\"".to_string(),
-                    RackHardwareTopology::VrNvl72r1C2g4Topology,
-                )),
             }
         );
     }

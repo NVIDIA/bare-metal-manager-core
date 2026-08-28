@@ -471,6 +471,8 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 		logger.Warn().Err(verr).Msg("error validating Instance creation request data")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Error validating Instance creation request data", verr)
 	}
+	logger.Info().Interface("MachineLabelSelector", apiRequest.MachineLabelSelector).
+		Msg("validated Instance creation placement selector")
 
 	// Validate the tenant for which this Instance is being created
 	tenant, err := common.GetTenantForOrg(ctx, nil, cih.dbSession, org)
@@ -547,7 +549,9 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 		logger.Warn().Msg(fmt.Sprintf("The Site: %v where this Instance is being created is not in Registered state", vpc.SiteID.String()))
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "The Site where this Instance is being created is not in Registered state", nil)
 	}
-
+	if apiErr := util.ValidateSitePowerManagement(site.Config, apiRequest.PowerProfile); apiErr != nil {
+		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
+	}
 	// Begin validating interfaces
 	// Fetch and validate Subnets, VPC Prefixes, and VPC selections
 	sbDAO := cdbm.NewSubnetDAO(cih.dbSession)
@@ -710,6 +714,7 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 
 			dbInterfaces = append(dbInterfaces, cdbm.Interface{
 				SubnetID:           &subnetID,
+				Subnet:             subnet,
 				IsPhysical:         ifc.IsPhysical,
 				RequestedIpAddress: nil, // RequestedIpAddress requires a VPC prefix, and model validation enforces this.
 				Status:             cdbm.InterfaceStatusPending,
@@ -1095,15 +1100,22 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 
 	// Validate the targeted instance creation capability before opening the
 	// transaction so no writes or locks happen for an unauthorized request.
-	if apiRequest.MachineID != nil {
+	// A non-empty label selector can narrow placement to a single Machine, so it
+	// require the same privilege as an explicit Machine ID.
+	if apiRequest.MachineID != nil || len(apiRequest.MachineLabelSelector) > 0 {
 		privilegedAccess, derr := common.TenantHasTargetedInstanceCreation(ctx, nil, cih.dbSession, tenant, &common.TenantPrivilegeScope{SiteID: &site.ID})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error checking effective targeted instance creation for Site")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to verify capability for Site", nil)
 		}
 		if !privilegedAccess {
-			logger.Warn().Msg("tenant does not have capability to create instances from specific machine")
-			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Tenant does not have capability to create Instances using specific Machine ID", nil)
+			if apiRequest.MachineID != nil {
+				logger.Warn().Msg("tenant does not have capability to create instances from specific machine")
+				return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Tenant does not have capability to create Instances using specific Machine ID", nil)
+			}
+
+			logger.Warn().Msg("tenant does not have capability to create instances using Machine label selector")
+			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Tenant does not have capability to create Instances using Machine label selector", nil)
 		}
 	}
 
@@ -1128,7 +1140,7 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 			}
 
 			// Retrieve Machine by ID
-			machine, err = mDAO.GetByID(ctx, nil, *apiRequest.MachineID, nil, false)
+			machine, err = mDAO.GetByID(ctx, tx, *apiRequest.MachineID, nil, true)
 			if err != nil {
 				if err == cdb.ErrDoesNotExist {
 					return cutil.NewAPIError(http.StatusBadRequest, "Could not find Machine with ID specified in request data", nil)
@@ -1141,6 +1153,14 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 			if machine.SiteID != site.ID {
 				logger.Warn().Msg("Machine specified in request is not part of the site")
 				return cutil.NewAPIError(http.StatusBadRequest, fmt.Sprintf("Machine specified in request does not belong to Site: %s", site.Name), nil)
+			}
+
+			if !machine.MatchesLabelSelector(apiRequest.MachineLabelSelector) {
+				logger.Warn().Str("MachineID", machine.ID).
+					Interface("MachineLabelSelector", apiRequest.MachineLabelSelector).
+					Msg("Machine specified in request does not match Machine label selector")
+				return cutil.NewAPIError(http.StatusBadRequest,
+					"Machine specified in request does not match machineLabelSelector", nil)
 			}
 
 			// Validate Machine availability. Note: allowUnhealthyMachine also bypasses
@@ -1316,6 +1336,9 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 		} // if apiRequest.InstanceTypeID != nil
 
 		// NOTE: At this stage, we have a Machine ID whether it was provided in request or selected through Instance Type
+		logger.Info().Str("MachineID", machine.ID).
+			Interface("MachineLabelSelector", apiRequest.MachineLabelSelector).
+			Msg("selected Machine for Instance creation")
 
 		mcDAO := cdbm.NewMachineCapabilityDAO(cih.dbSession)
 
@@ -1566,6 +1589,7 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 			IsUpdatePending:          false,
 			Status:                   cdbm.InstanceStatusPending,
 			PowerStatus:              cutil.GetPtr(cdbm.InstancePowerStatusRebooting),
+			PowerProfile:             apiRequest.PowerProfile,
 			CreatedBy:                dbUser.ID,
 		}
 
@@ -1865,6 +1889,7 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 			},
 			Config: &corev1.InstanceConfig{
 				NetworkSecurityGroupId: instance.NetworkSecurityGroupID,
+				PowerProfile:           instance.PowerProfile,
 				Tenant: &corev1.TenantConfig{
 					TenantOrganizationId: tenant.Org,
 					TenantKeysetIds:      instanceSshKeyGroupIds,
@@ -2483,7 +2508,9 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 		logger.Error().Str("Site ID", site.ID.String()).Str("Site Status", site.Status).Msg("Unable to update Instance, Site is not in Registered state")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Site is not in Registered state - cannot update Instance", nil)
 	}
-
+	if apiErr := util.ValidateSitePowerManagement(site.Config, apiRequest.PowerProfile); apiErr != nil {
+		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
+	}
 	// If the instance is in some stage of deprovisioning, there's nothing to update.
 	// We could move this up even higher, but we might not want to reveal status at all until
 	// we know the caller has access to this instance.
@@ -2581,8 +2608,8 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 	// Collect all Subnet and VPC Prefix IDs for batch query
 	subnetIDs := []uuid.UUID{}
 	vpcPrefixIDs := []uuid.UUID{}
-	subnetIfcMap := map[uuid.UUID]int{}
-	vpcPrefixIfcMap := map[uuid.UUID]int{}
+	subnetIfcMap := map[uuid.UUID]uint64{}
+	vpcPrefixIfcMap := map[uuid.UUID]uint64{}
 
 	for _, ifc := range apiRequest.Interfaces {
 		if ifc.SubnetID != nil {
@@ -2638,8 +2665,8 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, interfaceVpcErr.Code, interfaceVpcErr.Message, interfaceVpcErr.Data)
 	}
 
-	existingSubnetIfcMap := map[uuid.UUID]int{}
-	existingVpcPrefixIfcMap := map[uuid.UUID]int{}
+	existingSubnetIfcMap := map[uuid.UUID]uint64{}
+	existingVpcPrefixIfcMap := map[uuid.UUID]uint64{}
 	if len(apiRequest.Interfaces) > 0 {
 		ifcDAO := cdbm.NewInterfaceDAO(uih.dbSession)
 		existingIfcsForCapacity, _, err := ifcDAO.GetAll(ctx, nil, cdbm.InterfaceFilterInput{InstanceIDs: []uuid.UUID{instance.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
@@ -2649,6 +2676,10 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 		}
 		for i := range existingIfcsForCapacity {
 			eifc := &existingIfcsForCapacity[i]
+			if eifc.Status == cdbm.InterfaceStatusDeleting {
+				continue
+			}
+
 			if eifc.SubnetID != nil {
 				existingSubnetIfcMap[*eifc.SubnetID]++
 			}
@@ -2742,9 +2773,13 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 			}
 
 			// Check if Subnet is exhausted
-			incomingInterfaceIPs := subnetIfcMap[subnetID] - existingSubnetIfcMap[subnetID]
+			incomingInterfaceIPs := uint64(0)
+			if subnetIfcMap[subnetID] > existingSubnetIfcMap[subnetID] {
+				incomingInterfaceIPs = subnetIfcMap[subnetID] - existingSubnetIfcMap[subnetID]
+			}
+
 			subnetUsage := subnetUsageMap[subnetID]
-			if subnetUsage != nil && subnetUsage.AvailableIPs > 0 && subnetUsage.AcquiredIPs+uint64(incomingInterfaceIPs) > subnetUsage.AvailableIPs {
+			if incomingInterfaceIPs > 0 && subnetUsage != nil && subnetUsage.AvailableIPs > 0 && subnetUsage.AcquiredIPs+incomingInterfaceIPs > subnetUsage.AvailableIPs {
 				msg := fmt.Sprintf(
 					"Subnet %v does not have enough IP addresses: %d of %d IP addresses remain available, but the %d additional interface(s) in this request require %d IP address(es)",
 					subnetID, subnetUsage.AvailableIPs-subnetUsage.AcquiredIPs, subnetUsage.AvailableIPs, incomingInterfaceIPs, incomingInterfaceIPs,
@@ -2755,6 +2790,7 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 
 			dbInterfaces = append(dbInterfaces, cdbm.Interface{
 				SubnetID:           &subnetID,
+				Subnet:             subnet,
 				IsPhysical:         ifc.IsPhysical,
 				RequestedIpAddress: nil, // RequestedIpAddress requires a VPC prefix, and model validation enforces this.
 				Status:             cdbm.InterfaceStatusPending,
@@ -2826,9 +2862,13 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 			}
 
 			// Check if VPC Prefix is exhausted
-			incomingInterfaceIPs := max(vpcPrefixIfcMap[vpcPrefixID]-existingVpcPrefixIfcMap[vpcPrefixID], 0)
+			incomingInterfaceIPs := uint64(0)
+			if vpcPrefixIfcMap[vpcPrefixID] > existingVpcPrefixIfcMap[vpcPrefixID] {
+				incomingInterfaceIPs = vpcPrefixIfcMap[vpcPrefixID] - existingVpcPrefixIfcMap[vpcPrefixID]
+			}
+
 			vpUsage := vpcPrefixUsageMap[vpcPrefixID]
-			if vpUsage != nil && vpUsage.AvailableIPs > 0 && vpUsage.AcquiredIPs+uint64(incomingInterfaceIPs)*2 > vpUsage.AvailableIPs {
+			if incomingInterfaceIPs > 0 && vpUsage != nil && vpUsage.AvailableIPs > 0 && vpUsage.AcquiredIPs+incomingInterfaceIPs*2 > vpUsage.AvailableIPs {
 				msg := fmt.Sprintf(
 					"VPC Prefix %v does not have enough IP addresses: %d of %d IP addresses remain available, but the %d additional interface(s) in this request require %d IP addresses",
 					vpcPrefixID, vpUsage.AvailableIPs-vpUsage.AcquiredIPs, vpUsage.AvailableIPs, incomingInterfaceIPs, incomingInterfaceIPs*2,
@@ -3269,6 +3309,7 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 					UserData:                 apiRequest.UserData,
 					AutoNetwork:              apiRequest.AutoNetwork,
 					Labels:                   apiRequest.Labels,
+					PowerProfile:             apiRequest.PowerProfile,
 				},
 			},
 		)
@@ -3294,6 +3335,11 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 			// We should always clear details for any NSG change so that users don't see stale
 			// status.
 			clearInput.NetworkSecurityGroupPropagationDetails = true
+			shouldClear = true
+		}
+
+		if apiRequest.PowerProfile != nil && *apiRequest.PowerProfile == "" {
+			clearInput.PowerProfile = true
 			shouldClear = true
 		}
 
@@ -3460,8 +3506,8 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 		//     return an empty list. Reads after this should reflect the
 		//     auto contract (no explicit interfaces) rather than the
 		//     stale rows that pre-dated the mode switch.
-		//   - Explicit interfaces in the request: create the new rows
-		//     and mark the previous rows as Deleting (existing behavior).
+		//   - Explicit interfaces in the request: reuse matching rows,
+		//     create new rows, and mark only removed rows as Deleting.
 		//   - Neither (no interface change, not switching to auto):
 		//     carry the existing rows forward.
 		switch {
@@ -3476,7 +3522,34 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 			}
 			newdbIfcs = []cdbm.Interface{}
 		case len(apiRequest.Interfaces) > 0:
+			existingIfcMap := make(map[string][]cdbm.Interface, len(existingIfcs))
+			for existingIfcIndex := range existingIfcs {
+				if existingIfcs[existingIfcIndex].Status == cdbm.InterfaceStatusDeleting {
+					continue
+				}
+
+				key := existingIfcs[existingIfcIndex].EthernetInterfaceKey()
+				existingIfcMap[key] = append(existingIfcMap[key], existingIfcs[existingIfcIndex])
+			}
+
+			reusedIfcIDs := make(map[uuid.UUID]bool)
 			for _, dbifc := range dbInterfaces {
+				key := dbifc.EthernetInterfaceKey()
+				existingIfcsForKey := existingIfcMap[key]
+
+				if len(existingIfcsForKey) > 0 {
+					reusedIfc := existingIfcsForKey[0]
+					if len(existingIfcsForKey) == 1 {
+						delete(existingIfcMap, key)
+					} else {
+						existingIfcMap[key] = existingIfcsForKey[1:]
+					}
+
+					reusedIfcIDs[reusedIfc.ID] = true
+					newdbIfcs = append(newdbIfcs, reusedIfc)
+					continue
+				}
+
 				input := cdbm.InterfaceCreateInput{
 					InstanceID:           instance.ID,
 					SubnetID:             dbifc.SubnetID,
@@ -3502,19 +3575,36 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 				ifc := *newDbifc
 				ifc.Vpc = dbifc.Vpc
 				ifc.VpcPrefix = dbifc.VpcPrefix // We created the interface in the DB based on the values in dbifc, so we can populate this as well.
+				ifc.Subnet = dbifc.Subnet
 				// Add the new Interface to the list of new Interfaces
 				newdbIfcs = append(newdbIfcs, ifc)
 			}
 
-			// Update status of existing Interfaces to Deleting
-			for i := range existingIfcs {
-				existingIfcs[i].Status = cdbm.InterfaceStatusDeleting
-				_, err := ifcDAO.Update(ctx, tx, cdbm.InterfaceUpdateInput{InterfaceID: existingIfcs[i].ID, Status: cutil.GetPtr(cdbm.InterfaceStatusDeleting)})
-				if err != nil {
-					logger.Error().Err(err).Msg("failed to update Interface record in DB")
-					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Interface for Instance, DB error", nil)
+			unmatchedIfcs := make([]cdbm.Interface, 0, len(existingIfcs)-len(reusedIfcIDs))
+			for existingIfcIndex := range existingIfcs {
+				if reusedIfcIDs[existingIfcs[existingIfcIndex].ID] {
+					continue
 				}
+
+				if existingIfcs[existingIfcIndex].Status != cdbm.InterfaceStatusDeleting {
+					existingIfcs[existingIfcIndex].Status = cdbm.InterfaceStatusDeleting
+
+					// Deleting rows retain their associations and allocated addresses until Site cleanup releases them.
+					_, err := ifcDAO.Update(ctx, tx, cdbm.InterfaceUpdateInput{
+						InterfaceID: existingIfcs[existingIfcIndex].ID,
+						Status:      cutil.GetPtr(cdbm.InterfaceStatusDeleting),
+					})
+					if err != nil {
+						logger.Error().Err(err).Msg("failed to update Interface record in DB")
+
+						return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Interface for Instance, DB error", nil)
+					}
+				}
+
+				unmatchedIfcs = append(unmatchedIfcs, existingIfcs[existingIfcIndex])
 			}
+
+			existingIfcs = unmatchedIfcs
 		default:
 			newdbIfcs = existingIfcs
 		}
@@ -4001,6 +4091,7 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 			},
 			Config: &corev1.InstanceConfig{
 				NetworkSecurityGroupId: ui.NetworkSecurityGroupID,
+				PowerProfile:           ui.PowerProfile,
 				Tenant: &corev1.TenantConfig{
 					TenantOrganizationId: tenant.Org,
 					TenantKeysetIds:      instanceSshKeyGroupIds,

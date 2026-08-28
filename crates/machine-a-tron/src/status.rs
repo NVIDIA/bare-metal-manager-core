@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 use bmc_mock::HardwareType;
-use bmc_mock::ipmi_sim::IpmiEndpoint;
 use serde::Serialize;
 use ufm_mock::{EpochId, Generation, InventoryId};
 
@@ -111,6 +110,8 @@ pub struct BmcStatus {
     pub redfish: EndpointStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ipmi: Option<EndpointStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ssh: Option<EndpointStatus>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -126,13 +127,11 @@ impl EndpointStatus {
             listen_port: config.redfish_listen_port,
         }
     }
-}
 
-impl From<IpmiEndpoint> for EndpointStatus {
-    fn from(endpoint: IpmiEndpoint) -> Self {
+    pub fn same_port(port: u16) -> Self {
         Self {
-            reachable_port: endpoint.reachable_port,
-            listen_port: endpoint.listen_port,
+            reachable_port: port,
+            listen_port: port,
         }
     }
 }

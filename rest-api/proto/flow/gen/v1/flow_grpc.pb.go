@@ -47,6 +47,7 @@ const (
 	Flow_UpgradeFirmware_FullMethodName          = "/v1.Flow/UpgradeFirmware"
 	Flow_BringUpRack_FullMethodName              = "/v1.Flow/BringUpRack"
 	Flow_IngestRack_FullMethodName               = "/v1.Flow/IngestRack"
+	Flow_DecommissionRack_FullMethodName         = "/v1.Flow/DecommissionRack"
 	Flow_PowerOnRack_FullMethodName              = "/v1.Flow/PowerOnRack"
 	Flow_PowerOffRack_FullMethodName             = "/v1.Flow/PowerOffRack"
 	Flow_PowerResetRack_FullMethodName           = "/v1.Flow/PowerResetRack"
@@ -118,6 +119,7 @@ type FlowClient interface {
 	UpgradeFirmware(ctx context.Context, in *UpgradeFirmwareRequest, opts ...grpc.CallOption) (*SubmitTaskResponse, error)
 	BringUpRack(ctx context.Context, in *BringUpRackRequest, opts ...grpc.CallOption) (*SubmitTaskResponse, error)
 	IngestRack(ctx context.Context, in *IngestRackRequest, opts ...grpc.CallOption) (*SubmitTaskResponse, error)
+	DecommissionRack(ctx context.Context, in *DecommissionRackRequest, opts ...grpc.CallOption) (*SubmitTaskResponse, error)
 	PowerOnRack(ctx context.Context, in *PowerOnRackRequest, opts ...grpc.CallOption) (*SubmitTaskResponse, error)
 	PowerOffRack(ctx context.Context, in *PowerOffRackRequest, opts ...grpc.CallOption) (*SubmitTaskResponse, error)
 	PowerResetRack(ctx context.Context, in *PowerResetRackRequest, opts ...grpc.CallOption) (*SubmitTaskResponse, error)
@@ -405,6 +407,16 @@ func (c *flowClient) IngestRack(ctx context.Context, in *IngestRackRequest, opts
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SubmitTaskResponse)
 	err := c.cc.Invoke(ctx, Flow_IngestRack_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowClient) DecommissionRack(ctx context.Context, in *DecommissionRackRequest, opts ...grpc.CallOption) (*SubmitTaskResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SubmitTaskResponse)
+	err := c.cc.Invoke(ctx, Flow_DecommissionRack_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -813,6 +825,7 @@ type FlowServer interface {
 	UpgradeFirmware(context.Context, *UpgradeFirmwareRequest) (*SubmitTaskResponse, error)
 	BringUpRack(context.Context, *BringUpRackRequest) (*SubmitTaskResponse, error)
 	IngestRack(context.Context, *IngestRackRequest) (*SubmitTaskResponse, error)
+	DecommissionRack(context.Context, *DecommissionRackRequest) (*SubmitTaskResponse, error)
 	PowerOnRack(context.Context, *PowerOnRackRequest) (*SubmitTaskResponse, error)
 	PowerOffRack(context.Context, *PowerOffRackRequest) (*SubmitTaskResponse, error)
 	PowerResetRack(context.Context, *PowerResetRackRequest) (*SubmitTaskResponse, error)
@@ -936,6 +949,9 @@ func (UnimplementedFlowServer) BringUpRack(context.Context, *BringUpRackRequest)
 }
 func (UnimplementedFlowServer) IngestRack(context.Context, *IngestRackRequest) (*SubmitTaskResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method IngestRack not implemented")
+}
+func (UnimplementedFlowServer) DecommissionRack(context.Context, *DecommissionRackRequest) (*SubmitTaskResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DecommissionRack not implemented")
 }
 func (UnimplementedFlowServer) PowerOnRack(context.Context, *PowerOnRackRequest) (*SubmitTaskResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method PowerOnRack not implemented")
@@ -1496,6 +1512,24 @@ func _Flow_IngestRack_Handler(srv interface{}, ctx context.Context, dec func(int
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(FlowServer).IngestRack(ctx, req.(*IngestRackRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Flow_DecommissionRack_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DecommissionRackRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServer).DecommissionRack(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Flow_DecommissionRack_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServer).DecommissionRack(ctx, req.(*DecommissionRackRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2268,6 +2302,10 @@ var Flow_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "IngestRack",
 			Handler:    _Flow_IngestRack_Handler,
+		},
+		{
+			MethodName: "DecommissionRack",
+			Handler:    _Flow_DecommissionRack_Handler,
 		},
 		{
 			MethodName: "PowerOnRack",

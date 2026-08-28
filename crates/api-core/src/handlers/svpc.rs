@@ -24,6 +24,7 @@ use db::dpa_interface;
 use eyre::eyre;
 use libmlx::device::report::MlxDeviceReport;
 use libmlx::profile::serialization::SerializableProfile;
+use mac_address::MacAddress;
 use model::dpa_interface::{
     CardState, DpaInterface, DpaInterfaceControllerState, DpaInterfaceType, DpaLockMode,
     DpaSearchConfig, NewDpaInterface,
@@ -49,7 +50,10 @@ pub(super) async fn process_scout_req(
     api: &Api,
     machine_id: MachineId,
 ) -> CarbideResult<fac::Action> {
-    if !api.runtime_config.is_dpa_enabled() {
+    if !api.runtime_config.is_ewethers_enabled() || !api.runtime_config.is_svpc_enabled() {
+        tracing::info!(
+            "DPA is not enabled or SVPC is not enabled, skipping SVPC process_scout_req"
+        );
         return Ok(fac::Action::noop());
     }
 
@@ -124,6 +128,104 @@ pub(super) async fn process_scout_req(
     Ok(fac::Action::MlxAction(fac::MlxAction { device_actions }))
 }
 
+/// Resolve the lockdown IKM version to *lock* a card under on this assignment
+/// cycle.
+///
+/// An in-flight lock takes precedence over either branch below: if a lock is
+/// already staged (`rotating_to_version` set), we re-derive that exact version.
+/// A card's physical lock version is frozen once it locks -- it cannot change
+/// without an unlock first -- and dpa-manager's `handle_locking` promotes
+/// whatever `rotating_to_version` holds when the card reports Locked (it checks
+/// lockmode, never the version). Re-reading the site-wide target or the card's
+/// last-confirmed `current_version` on a later reconciliation could overwrite the
+/// staged marker and record a convergence version the hardware was never on --
+/// e.g. if `lockdown_ikm_rotation_enabled` flips between staging the lock and
+/// observing it. This mirrors the unlock path, which already prefers
+/// `rotating_to_version`.
+///
+/// When no lock is in flight, the branch is chosen by the flag. With
+/// `lockdown_ikm_rotation_enabled`, this is the staged site-wide target, so
+/// cards migrate forward to the new IKM as tenants cycle (the lazy-migration
+/// path). With rotation disabled -- the default -- it is the card's own current
+/// tracked version, so a staged `RotateCredential(lockdown_ikm)` target does not
+/// migrate any card until the deliberate cutover flip, and an already-migrated
+/// card re-locks at the version it is on rather than being reverted.
+///
+/// The two branches resolve their fallback differently on purpose. The site-wide
+/// `lockdown_ikm` target row is seeded for every site by the backfill migration
+/// (and by `set_initial_target_version` on the first `RotateCredential`), so a
+/// missing target is a corrupted invariant we surface rather than paper over --
+/// mirroring `record_device_converged`. A per-card row, by contrast, is created
+/// lazily on first lock and only backfilled for already-locked cards, so a card
+/// with no row / no tracked version legitimately falls back to the seed version.
+async fn resolve_lock_ikm_version(api: &Api, mac: MacAddress) -> CarbideResult<i32> {
+    let mut conn = api.database_connection.acquire().await.map_err(|e| {
+        CarbideError::GenericErrorFromReport(eyre!(
+            "failed to acquire connection to resolve lockdown lock IKM version: {e}"
+        ))
+    })?;
+    // An in-flight lock wins over both branches: re-derive the staged version so
+    // a later reconciliation cannot overwrite it (see the doc comment).
+    let device_state = db::credential_rotation::device_rotation_operation_state(
+        &mut *conn,
+        db::credential_rotation::CredentialRotationType::LockdownIkm,
+        mac,
+    )
+    .await?;
+    if let Some(in_flight) = device_state.as_ref().and_then(|s| s.rotating_to_version) {
+        return Ok(in_flight);
+    }
+
+    // Versions stay DB-native `i32` throughout this handler (Postgres has no
+    // unsigned int); the sole `u32` conversion happens once at the derivation
+    // boundary (`ikm_version_u32` -> `build_supernic_lockdown_key`).
+    let version = if api.runtime_config.lockdown_ikm_rotation_enabled {
+        db::credential_rotation::current_target_version(
+            &mut conn,
+            db::credential_rotation::CredentialRotationType::LockdownIkm,
+        )
+        .await?
+        .ok_or(db::DatabaseError::MissingSitewideRotationTarget(
+            db::credential_rotation::CredentialRotationType::LockdownIkm,
+        ))?
+    } else {
+        device_state
+            .and_then(|s| s.current_version)
+            .unwrap_or(crate::dpa::lockdown::SEED_LOCKDOWN_IKM_VERSION as i32)
+    };
+    Ok(version)
+}
+
+/// Resolve the lockdown IKM version to *unlock* a card with: the version it is
+/// actually locked under. That is the in-flight `rotating_to_version` if a lock
+/// is mid-flight (a crash window where the card may already be physically locked
+/// under it), otherwise the last-confirmed `current_version`, otherwise the seed
+/// version for a card with no tracked lock yet.
+///
+/// This is always version-aware, independent of `lockdown_ikm_rotation_enabled`: a
+/// card that already migrated to a newer IKM must be unlocked with that IKM, or
+/// it would be bricked. Because the assignment cycle always unlocks a card
+/// before re-locking it, a locked card's version is always exactly this resolved
+/// value, so a single key suffices.
+async fn resolve_unlock_ikm_version(api: &Api, mac: MacAddress) -> CarbideResult<i32> {
+    let mut conn = api.database_connection.acquire().await.map_err(|e| {
+        CarbideError::GenericErrorFromReport(eyre!(
+            "failed to acquire connection to resolve lockdown unlock IKM version: {e}"
+        ))
+    })?;
+    // DB-native `i32`; converted to `u32` once via `ikm_version_u32` at the
+    // derivation call. No row / no tracked version falls back to the seed.
+    let version = db::credential_rotation::device_rotation_operation_state(
+        &mut *conn,
+        db::credential_rotation::CredentialRotationType::LockdownIkm,
+        mac,
+    )
+    .await?
+    .and_then(|s| s.rotating_to_version.or(s.current_version))
+    .unwrap_or(crate::dpa::lockdown::SEED_LOCKDOWN_IKM_VERSION as i32);
+    Ok(version)
+}
+
 /// Build and return a command to unlock the DPA.
 async fn build_unlock_command(
     api: &Api,
@@ -131,10 +233,21 @@ async fn build_unlock_command(
     machine_id: MachineId,
     pci_name: &str,
 ) -> CarbideResult<DpaCommand<'static>> {
-    let lockdown = crate::dpa::lockdown::build_supernic_lockdown_key(
+    // DB-native `i32`; converted to the `u32` the derivation layer uses. The
+    // rotation columns carry a non-negative CHECK, so a negative here is a
+    // corrupted invariant, surfaced rather than silently wrapped.
+    let version = resolve_unlock_ikm_version(api, sn.mac_address).await?;
+    let ikm_version = u32::try_from(version).map_err(|e| CarbideError::Internal {
+        message: format!(
+            "lockdown IKM unlock version {version} is negative for DPA {pci_name}: {e}"
+        ),
+    })?;
+
+    let key = crate::dpa::lockdown::build_supernic_lockdown_key(
         &api.database_connection,
         sn.id,
         &*api.credential_manager,
+        ikm_version,
     )
     .await
     .map_err(|e| {
@@ -143,12 +256,12 @@ async fn build_unlock_command(
         ))
     })?;
 
-    tracing::info!(%machine_id, %pci_name, "Unlocking DPA");
+    tracing::info!(%machine_id, %pci_name, ikm_version, "Unlocking DPA");
 
     // The unlock flow does not record convergence, so the derived IKM version is
     // not persisted here.
     Ok(DpaCommand {
-        op: OpCode::Unlock { key: lockdown.key },
+        op: OpCode::Unlock { key },
     })
 }
 
@@ -297,10 +410,23 @@ async fn build_lock_command(
     machine_id: MachineId,
     pci_name: &str,
 ) -> CarbideResult<DpaCommand<'static>> {
-    let lockdown = crate::dpa::lockdown::build_supernic_lockdown_key(
+    // Resolve the IKM version to lock this card under: the site-wide target when
+    // rotation is enabled, else the card's current version (see
+    // `resolve_lock_ikm_version`). Kept as DB-native `i32` for the staging write
+    // below, and converted to `u32` for the derivation layer; the rotation
+    // columns carry a non-negative CHECK, so a negative is a corrupted invariant.
+    let target_version = resolve_lock_ikm_version(api, sn.mac_address).await?;
+    let ikm_version = u32::try_from(target_version).map_err(|e| CarbideError::Internal {
+        message: format!(
+            "lockdown IKM lock version {target_version} is negative for DPA {pci_name}: {e}"
+        ),
+    })?;
+
+    let key = crate::dpa::lockdown::build_supernic_lockdown_key(
         &api.database_connection,
         sn.id,
         &*api.credential_manager,
+        ikm_version,
     )
     .await
     .map_err(|e| {
@@ -318,12 +444,6 @@ async fn build_lock_command(
     // already recorded our intent to use; if the write fails we surface the error
     // and do not lock. The writer is idempotent across the per-cycle
     // re-derivation while Locking.
-    let ikm_version = i32::try_from(lockdown.ikm_version).map_err(|e| CarbideError::Internal {
-        message: format!(
-            "lockdown IKM version {} does not fit in i32 for DPA {pci_name}: {e}",
-            lockdown.ikm_version
-        ),
-    })?;
     let mut conn = api.database_connection.acquire().await.map_err(|e| {
         CarbideError::GenericErrorFromReport(eyre!(
             "failed to acquire connection to stage lockdown IKM rotation for DPA {pci_name}: {e}"
@@ -333,13 +453,13 @@ async fn build_lock_command(
         &mut conn,
         sn.mac_address,
         db::credential_rotation::CredentialRotationType::LockdownIkm,
-        ikm_version,
+        target_version,
     )
     .await?;
 
-    tracing::info!(%machine_id, %pci_name, ikm_version = lockdown.ikm_version, "Locking DPA");
+    tracing::info!(%machine_id, %pci_name, ikm_version = target_version, "Locking DPA");
     Ok(DpaCommand {
-        op: OpCode::Lock { key: lockdown.key },
+        op: OpCode::Lock { key },
     })
 }
 
@@ -506,7 +626,10 @@ pub(crate) async fn publish_mlx_device_report(
     log_request_data(&request);
     let req = request.into_inner();
 
-    if !api.runtime_config.is_dpa_enabled() {
+    if !api.runtime_config.is_ewethers_enabled() || !api.runtime_config.is_svpc_enabled() {
+        tracing::info!(
+            "DPA is not enabled or SVPC is not enabled, skipping SVPC publish_mlx_device_report"
+        );
         return Ok(Response::new(
             mlx_device_pb::PublishMlxDeviceReportResponse {},
         ));
@@ -662,7 +785,10 @@ pub(crate) async fn publish_mlx_observation_report(
 ) -> Result<Response<mlx_device_pb::PublishMlxObservationReportResponse>, Status> {
     log_request_data(&request);
 
-    if !api.runtime_config.is_dpa_enabled() {
+    if !api.runtime_config.is_ewethers_enabled() || !api.runtime_config.is_svpc_enabled() {
+        tracing::info!(
+            "DPA is not enabled or SVPC is not enabled, skipping SVPC publish_mlx_observation_report"
+        );
         return Ok(Response::new(
             mlx_device_pb::PublishMlxObservationReportResponse {},
         ));

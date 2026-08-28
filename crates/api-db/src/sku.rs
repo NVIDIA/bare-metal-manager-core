@@ -346,6 +346,28 @@ pub async fn generate_sku_from_machine_at_version(
     }
 }
 
+fn memory_components_from_hardware_info(
+    hardware_info: &HardwareInfo,
+) -> (BTreeMap<(String, u32), SkuComponentMemory>, u64) {
+    let mut mem_components: BTreeMap<(String, u32), SkuComponentMemory> = BTreeMap::default();
+    let mut total_mem = 0u64;
+    for mem in &hardware_info.memory_devices {
+        if let Some(cap) = mem.size_mb {
+            total_mem = total_mem.saturating_add((cap as u64).saturating_mul(mem.count as u64));
+            let key = (mem.mem_type.clone().unwrap_or_default(), cap);
+            mem_components
+                .entry(key.clone())
+                .and_modify(|entry| entry.count = entry.count.saturating_add(mem.count))
+                .or_insert(SkuComponentMemory {
+                    capacity_mb: key.1,
+                    memory_type: key.0,
+                    count: mem.count,
+                });
+        }
+    }
+    (mem_components, total_mem)
+}
+
 pub async fn generate_sku_from_machine_at_version_0_or_1(
     txn: impl DbReader<'_>,
     machine_id: &MachineId,
@@ -397,7 +419,7 @@ pub async fn generate_sku_from_machine_at_version_0_or_1(
         let key = (gpu.name.clone(), gpu.total_memory.clone());
         gpu_components
             .entry(key)
-            .and_modify(|entry| entry.count += 1)
+            .and_modify(|entry| entry.count = entry.count.saturating_add(1))
             .or_insert(SkuComponentGpu {
                 vendor,
                 model: gpu.name.clone(),
@@ -406,22 +428,7 @@ pub async fn generate_sku_from_machine_at_version_0_or_1(
             });
     }
 
-    let mut mem_components: BTreeMap<(String, u32), SkuComponentMemory> = BTreeMap::default();
-    let mut total_mem = 0u64;
-    for mem in &hardware_info.memory_devices {
-        if let Some(cap) = mem.size_mb {
-            total_mem += cap as u64;
-            let key = (mem.mem_type.clone().unwrap_or_default(), cap);
-            mem_components
-                .entry(key.clone())
-                .and_modify(|entry| entry.count += 1)
-                .or_insert(SkuComponentMemory {
-                    capacity_mb: key.1,
-                    memory_type: key.0,
-                    count: 1,
-                });
-        }
-    }
+    let (mem_components, total_mem) = memory_components_from_hardware_info(hardware_info);
 
     let ib_capabilities = MachineCapabilityInfiniband::from_ib_interfaces_and_status(
         &hardware_info.infiniband_interfaces,
@@ -546,22 +553,7 @@ pub fn generate_base_sku_from_hardware(
         .sorted()
         .collect();
 
-    let mut mem_components: BTreeMap<(String, u32), SkuComponentMemory> = BTreeMap::default();
-    let mut total_mem = 0u64;
-    for mem in &hardware_info.memory_devices {
-        if let Some(cap) = mem.size_mb {
-            total_mem += cap as u64;
-            let key = (mem.mem_type.clone().unwrap_or_default(), cap);
-            mem_components
-                .entry(key.clone())
-                .and_modify(|entry| entry.count += 1)
-                .or_insert(SkuComponentMemory {
-                    capacity_mb: key.1,
-                    memory_type: key.0,
-                    count: 1,
-                });
-        }
-    }
+    let (mem_components, total_mem) = memory_components_from_hardware_info(hardware_info);
 
     let infiniband_devices: Vec<SkuComponentInfinibandDevices> = capabilities
         .infiniband
@@ -848,4 +840,113 @@ pub async fn generate_sku_from_machine_at_version_5(
         });
 
     Ok(sku)
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::{Check, check_values};
+    use model::hardware_info::MemoryDeviceGroup;
+    use model::test_support::machine_snapshot::host_machine;
+
+    use super::*;
+
+    fn group(mem_type: Option<&str>, size_mb: Option<u32>, count: u32) -> MemoryDeviceGroup {
+        MemoryDeviceGroup {
+            size_mb,
+            mem_type: mem_type.map(str::to_owned),
+            count,
+        }
+    }
+
+    fn mem(memory_type: &str, capacity_mb: u32, count: u32) -> SkuComponentMemory {
+        SkuComponentMemory {
+            memory_type: memory_type.to_owned(),
+            capacity_mb,
+            count,
+        }
+    }
+
+    /// Runs `generate_base_sku_from_hardware` over `devices` and returns the resulting
+    /// memory components, sorted for order-independent comparison.
+    fn generated_memory(devices: Vec<MemoryDeviceGroup>) -> Vec<SkuComponentMemory> {
+        let machine = host_machine();
+        let hardware_info = HardwareInfo {
+            memory_devices: devices,
+            ..Default::default()
+        };
+        let sku = generate_base_sku_from_hardware(&machine, CURRENT_SKU_VERSION, &hardware_info);
+        let mut memory = sku.components.memory;
+        memory.sort();
+        memory
+    }
+
+    #[test]
+    fn generate_base_sku_from_hardware_groups_memory_devices() {
+        check_values(
+            [
+                Check {
+                    scenario: "no memory devices produce no memory components",
+                    input: vec![],
+                    expect: vec![],
+                },
+                Check {
+                    scenario: "a single group becomes a single component",
+                    input: vec![group(Some("DDR5"), Some(65536), 8)],
+                    expect: vec![mem("DDR5", 65536, 8)],
+                },
+                Check {
+                    scenario: "groups with distinct type or size stay separate",
+                    input: vec![
+                        group(Some("DDR5"), Some(65536), 8),
+                        group(Some("DDR5"), Some(32768), 4),
+                        group(Some("DDR4"), Some(65536), 2),
+                    ],
+                    expect: {
+                        let mut expect = vec![
+                            mem("DDR5", 65536, 8),
+                            mem("DDR5", 32768, 4),
+                            mem("DDR4", 65536, 2),
+                        ];
+                        expect.sort();
+                        expect
+                    },
+                },
+                Check {
+                    scenario: "non-consecutive groups with the same type and size merge",
+                    input: vec![
+                        group(Some("DDR5"), Some(65536), 4),
+                        group(Some("DDR4"), Some(32768), 1),
+                        group(Some("DDR5"), Some(65536), 4),
+                    ],
+                    expect: {
+                        let mut expect = vec![mem("DDR5", 65536, 8), mem("DDR4", 32768, 1)];
+                        expect.sort();
+                        expect
+                    },
+                },
+                Check {
+                    scenario: "groups without a size are dropped from the SKU",
+                    input: vec![
+                        group(Some("DDR5"), None, 4),
+                        group(Some("DDR5"), Some(65536), 1),
+                    ],
+                    expect: vec![mem("DDR5", 65536, 1)],
+                },
+                Check {
+                    scenario: "a missing memory type defaults to an empty string",
+                    input: vec![group(None, Some(65536), 2)],
+                    expect: vec![mem("", 65536, 2)],
+                },
+                Check {
+                    scenario: "merged counts saturate instead of overflowing",
+                    input: vec![
+                        group(Some("DDR5"), Some(u32::MAX), u32::MAX),
+                        group(Some("DDR5"), Some(u32::MAX), u32::MAX),
+                    ],
+                    expect: vec![mem("DDR5", u32::MAX, u32::MAX)],
+                },
+            ],
+            generated_memory,
+        );
+    }
 }

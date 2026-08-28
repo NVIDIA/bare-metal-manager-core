@@ -65,12 +65,46 @@ function verify_sha() {
 	echo "$sha $file" | $shasum --check 2>&1 | tee $log_output
 }
 
+function find_efi_disk() {
+	for disk in "$@"
+	do
+		if lsblk -nrpo PARTTYPE "$disk" | grep -Eqi '^(c12a7328-f81f-11d2-ba4b-00a0c93ec93b|0xef)$'; then
+			echo "$disk"
+			return 0
+		fi
+	done
+	return 1
+}
+
 function find_bootdisk() {
-	if [ -b /dev/nvme0n1 ]; then
-		image_disk="/dev/nvme0n1"
-	elif [ -b /dev/sda ]; then
-		image_disk="/dev/sda"
+	disks=$(lsblk -bdnpo NAME,SIZE,TYPE | awk '$3 == "disk" { print $1, $2 }' | sort -k2,2n -k1,1V)
+	disk_names=$(echo "$disks" | awk 'NF { print $1 }' | sort -V)
+
+	if [ "$image_disk" == "smallest" ]; then
+		smallest_size=$(echo "$disks" | awk 'NR == 1 { print $2 }')
+		candidate_disks=$(echo "$disks" | awk -v size="$smallest_size" '$2 == size { print $1 }' | sort -V)
+		candidate_count=$(echo "$candidate_disks" | awk 'NF { count++ } END { print count + 0 }')
+
+		selected_disk=
+		if [ "$candidate_count" -gt 1 ]; then
+			selected_disk=$(find_efi_disk $candidate_disks)
+		fi
+		if [ -z "$selected_disk" ]; then
+			selected_disk=$(echo "$candidate_disks" | head -n 1)
+		fi
+		image_disk=$selected_disk
 	else
+		image_disk=$(find_efi_disk $disk_names)
+		if [ -z "$image_disk" ]; then
+			if [ -b /dev/nvme0n1 ]; then
+				image_disk="/dev/nvme0n1"
+			elif [ -b /dev/sda ]; then
+				image_disk="/dev/sda"
+			fi
+		fi
+	fi
+
+	if [ -z "$image_disk" ]; then
 		echo "Boot drive not detected or specified" | tee $log_output
 		exit 1;
 	fi
@@ -391,11 +425,14 @@ function create_efi_boot_entry() {
 	fi
 
 	shim_arch=
+	boot_csv_name=
 	efi_arch=$(uname -m)
 	if [ "$efi_arch" == "x86_64" ]; then
 		shim_arch="x64"
+		boot_csv_name="BOOTX64.CSV"
 	elif [ "$efi_arch" == "aarch64" ]; then
 		shim_arch="aa64"
+		boot_csv_name="BOOTAA64.CSV"
 	else
 		echo "Unsupported arch $efi_arch for EFI boot entry creation" | tee $log_output
 		return 0
@@ -408,19 +445,74 @@ function create_efi_boot_entry() {
 	# Sort rather than taking whatever the filesystem yields first: an ESP
 	# reprovisioned over a different distro can hold more than one shim (e.g.
 	# a leftover EFI/dgx alongside the new EFI/ubuntu), and -print -quit
-	# would pick between them nondeterministically. Prefer the directory
-	# matching distro_name when it was supplied on the kernel cmdline.
-	shim_paths=$(find /mnt/boot/efi/EFI -mindepth 2 -maxdepth 2 -iname "shim${shim_arch}.efi" 2>/dev/null | sort)
+	# would pick between them nondeterministically. Prefer the distro_name
+	# directory when one was supplied, then a shim paired with an architecture-
+	# matching boot hint CSV whose first field names that shim.
+	shim_paths=$(find /mnt/boot/efi/EFI -mindepth 2 -maxdepth 2 -type f -iname "shim${shim_arch}.efi" 2>/dev/null | sort)
 	if [ -z "$shim_paths" ]; then
 		echo "No shim${shim_arch}.efi found under /mnt/boot/efi/EFI/*, skipping EFI boot entry creation" | tee $log_output
 		return 0
 	fi
-	shim_path=
-	if [ ! -z "$distro_name" ]; then
-		shim_path=$(printf '%s\n' "$shim_paths" | grep -iE "/EFI/$distro_name/[^/]+$" | head -n1)
-	fi
-	if [ -z "$shim_path" ]; then
-		shim_path=$(printf '%s\n' "$shim_paths" | head -n1)
+	shim_path=$(printf '%s\n' "$shim_paths" | head -n1)
+	distro_shim_path=
+	paired_shim_path=
+	paired_csv_label=
+	csv_label=
+	while IFS= read -r candidate_shim; do
+		candidate_dir=$(dirname "$candidate_shim")
+		candidate_distro_name=$(basename "$candidate_dir")
+		candidate_is_distro=
+		if [ ! -z "$distro_name" ] && [ "${candidate_distro_name,,}" == "${distro_name,,}" ]; then
+			candidate_is_distro=true
+			if [ -z "$distro_shim_path" ]; then
+				distro_shim_path="$candidate_shim"
+			fi
+		fi
+
+		# Match shim's lookup order: use BOOT.CSV only when the
+		# architecture-specific file is absent, cannot be decoded, or has no
+		# matching loader record with a non-empty label.
+		candidate_shim_name=$(basename "$candidate_shim")
+		candidate_csv_matches=
+		candidate_csv_label=
+		for candidate_csv_name in "$boot_csv_name" "BOOT.CSV"; do
+			candidate_csv=$(find "$candidate_dir" -maxdepth 1 -type f -iname "$candidate_csv_name" -print -quit 2>/dev/null)
+			[ -z "$candidate_csv" ] && continue
+			candidate_csv_contents=$(iconv -f UTF-16 -t UTF-8 "$candidate_csv" 2>/dev/null)
+			[ $? -ne 0 ] && continue
+
+			# A boot hint can contain more than one loader record.
+			while IFS= read -r candidate_csv_line || [ ! -z "$candidate_csv_line" ]; do
+				candidate_csv_line=${candidate_csv_line%$'\r'}
+				[ -z "$candidate_csv_line" ] && continue
+				IFS=',' read -r candidate_loader candidate_label _ <<< "$candidate_csv_line"
+				if [ ! -z "$candidate_label" ] && [ "${candidate_loader,,}" == "${candidate_shim_name,,}" ]; then
+					candidate_csv_matches=true
+					candidate_csv_label="$candidate_label"
+					break
+				fi
+			done <<< "$candidate_csv_contents"
+			[ "$candidate_csv_matches" == true ] && break
+		done
+		[ "$candidate_csv_matches" != true ] && continue
+
+		if [ "$candidate_is_distro" == true ]; then
+			shim_path="$candidate_shim"
+			csv_label="$candidate_csv_label"
+			break
+		fi
+		if [ -z "$paired_shim_path" ]; then
+			paired_shim_path="$candidate_shim"
+			paired_csv_label="$candidate_csv_label"
+		fi
+	done <<< "$shim_paths"
+	if [ -z "$csv_label" ]; then
+		if [ ! -z "$distro_shim_path" ]; then
+			shim_path="$distro_shim_path"
+		elif [ ! -z "$paired_shim_path" ]; then
+			shim_path="$paired_shim_path"
+			csv_label="$paired_csv_label"
+		fi
 	fi
 	if [ "$(printf '%s\n' "$shim_paths" | wc -l)" -gt 1 ]; then
 		echo "Multiple shim${shim_arch}.efi found on ESP, using $shim_path:" | tee $log_output
@@ -436,11 +528,7 @@ function create_efi_boot_entry() {
 	# authoritative source per the UEFI shim convention: <loader>,<label>,
 	# <optional args>,<description>, UTF-16 encoded), falling back to the
 	# ESP directory name.
-	label=
-	csv_file=$(find "$efi_dir" -maxdepth 1 -iname "*.csv" -print -quit 2>/dev/null)
-	if [ ! -z "$csv_file" ]; then
-		label=$(iconv -f UTF-16 -t UTF-8 "$csv_file" 2>/dev/null | tr -d '\r' | head -n1 | cut -d',' -f2)
-	fi
+	label="$csv_label"
 	if [ -z "$label" ]; then
 		label="$distro_dir"
 	fi
@@ -694,6 +782,7 @@ function main() {
 	#  image_sha=[sha1/sha256/sha384/sha512]
 	# use the disk the tenant specified optionally
 	#  image_disk=/dev/nvme0n1
+	#  image_disk=smallest
 	for i in `cat /proc/cmdline`
 	do
 		#echo $line
@@ -798,7 +887,7 @@ function main() {
 			return 1;
 		fi
 	fi
-	if [ -z "$image_disk" ]; then
+	if [ -z "$image_disk" -o "$image_disk" == "smallest" ]; then
 		find_bootdisk
 	fi
 

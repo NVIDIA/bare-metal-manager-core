@@ -1053,7 +1053,8 @@ func (furh UpdateRackFirmwareHandler) Handle(c echo.Context) error {
 	}
 
 	flowResp, err := common.ExecuteFirmwareUpdateWorkflow(ctx, c, logger, stc, targetSpec, apiRequest.Version,
-		nil, apiRequest.RuleID, apiRequest.OverrideReadinessCheck, fmt.Sprintf("rack-firmware-update-%s", rackStrID), "Rack")
+		nil, apiRequest.AuthenticationData.ToProto(), apiRequest.SiteID, apiRequest.RuleID,
+		apiRequest.OverrideReadinessCheck, fmt.Sprintf("rack-firmware-update-%s", rackStrID), "Rack")
 	if err != nil {
 		return err
 	}
@@ -1171,7 +1172,8 @@ func (furbh BatchUpdateRackFirmwareHandler) Handle(c echo.Context) error {
 	targetSpec := request.Filter.ToTargetSpec()
 
 	flowResp, err := common.ExecuteFirmwareUpdateWorkflow(ctx, c, logger, stc, targetSpec, request.Version,
-		nil, request.RuleID, request.OverrideReadinessCheck, fmt.Sprintf("rack-firmware-batch-update-%s", common.RequestHash(request.Filter)), "Rack")
+		nil, request.AuthenticationData.ToProto(), request.SiteID, request.RuleID,
+		request.OverrideReadinessCheck, fmt.Sprintf("rack-firmware-batch-update-%s", common.RequestHash(request.Filter)), "Rack")
 	if err != nil {
 		return err
 	}

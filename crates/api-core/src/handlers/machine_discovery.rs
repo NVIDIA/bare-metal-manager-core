@@ -21,7 +21,7 @@ use std::sync::atomic::Ordering;
 
 use ::rpc::forge as rpc;
 use carbide_utils::none_if_empty::NoneIfEmpty;
-use carbide_uuid::machine::MachineIdSource;
+use carbide_uuid::machine::{MachineId, MachineIdSource};
 use carbide_uuid::nvlink::NvLinkDomainId;
 use db::WithTransaction;
 use futures_util::FutureExt;
@@ -37,6 +37,37 @@ use crate::handlers::client_resolution::{
 };
 use crate::handlers::utils::convert_and_log_machine_id;
 use crate::{CarbideError, attestation as attest};
+
+mod scout_pci;
+
+/// Loads the state needed for optional Scout PCI diagnostics after discovery commits.
+///
+/// The caller has released the discovery locks, and failures here are ignored so
+/// this diagnostic cannot reject an otherwise successful machine registration.
+async fn load_scout_pci_evaluation(
+    api: &Api,
+    hardware_info: &HardwareInfo,
+    machine_id: &MachineId,
+) -> Option<scout_pci::Evaluation> {
+    match db::machine::find_one(api.pg_pool(), machine_id, MachineSearchConfig::default()).await {
+        Ok(Some(machine)) => scout_pci::evaluate(hardware_info, &machine),
+        Ok(None) => {
+            tracing::warn!(
+                %machine_id,
+                "Skipping Scout PCI evaluation because the discovered machine was not found"
+            );
+            None
+        }
+        Err(error) => {
+            tracing::warn!(
+                %machine_id,
+                error = %error,
+                "Skipping Scout PCI evaluation after discovery"
+            );
+            None
+        }
+    }
+}
 
 pub(crate) async fn discover_machine(
     api: &Api,
@@ -565,6 +596,18 @@ pub(crate) async fn discover_machine(
 
     txn.commit().await?;
     drop(admin_admission);
+
+    // Authentication and stable ID resolution are complete. Use this request's
+    // HardwareInfo so an older stored topology cannot stand in for the Scout report.
+    let scout_pci_evaluation =
+        if discovery_reporter == rpc::MachineDiscoveryReporter::Scout && !hardware_info.is_dpu() {
+            load_scout_pci_evaluation(api, &hardware_info, &stable_machine_id).await
+        } else {
+            None
+        };
+    if let Some(evaluation) = scout_pci_evaluation {
+        evaluation.emit(&stable_machine_id);
+    }
 
     let machine_certificate = if attest_key_challenge.is_none() {
         if std::env::var("UNSUPPORTED_CERTIFICATE_PROVIDER").is_ok() {

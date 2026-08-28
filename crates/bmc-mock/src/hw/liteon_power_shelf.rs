@@ -19,7 +19,7 @@ use std::borrow::Cow;
 
 use mac_address::MacAddress;
 
-use crate::redfish;
+use crate::{hw, redfish};
 
 pub(crate) struct LiteOnPowerShelf<'a> {
     pub(crate) bmc_mac_address: MacAddress,
@@ -86,7 +86,7 @@ impl LiteOnPowerShelf<'_> {
                 base_bios: Some(
                     redfish::bios::builder(&redfish::bios::resource(system_id)).build(),
                 ),
-                serial_console: None,
+                serial_console: Some(hw::openbmc::enabled_serial_console()),
                 secure_boot_available: false,
             }],
         }

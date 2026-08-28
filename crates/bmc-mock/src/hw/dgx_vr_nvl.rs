@@ -137,7 +137,7 @@ impl DgxVrNvl<'_> {
                     model: Some("VR NVL72".into()),
                     oem: redfish::computer_system::Oem::Generic,
                     callbacks: Some(callbacks),
-                    serial_console: None,
+                    serial_console: Some(hw::openbmc::enabled_serial_console()),
                     secure_boot_available: true,
                     serial_number: Some(self.system_0_serial_number.to_string().into()),
                     storage: None,

@@ -14,20 +14,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::collections::HashSet;
-use std::path::Path;
 
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use carbide_uuid::machine_validation::MachineValidationId;
 use lazy_static::lazy_static;
 use rpc::forge::{ForgeAgentControlResponse, MachineArchitecture};
 use tempfile::TempDir;
-use uuid::Uuid;
 
-use crate::DeviceHandle;
 use crate::api_client::ClientApiError;
 use crate::config::MachineATronContext;
-use crate::machine_state_machine::AddressConfigError;
 
 lazy_static! {
     static ref BMC_MOCK_SOCKET_TEMP_DIR: TempDir = tempfile::Builder::new()
@@ -179,122 +174,6 @@ fn parse_pxe_response(pxe_script: &str) -> Result<PxeResponse, PxeError> {
         boot_target,
         machine_interface_id,
     })
-}
-
-pub(super) async fn get_next_free_machine(
-    provisionable_handles: &Vec<DeviceHandle>,
-    assigned_mat_ids: &HashSet<Uuid>,
-) -> Option<DeviceHandle> {
-    for machine in provisionable_handles {
-        if assigned_mat_ids.contains(&machine.mat_id()) {
-            continue;
-        }
-        let state = machine.api_state().await.ok()?;
-        if state == "Ready" {
-            return Some(machine.clone());
-        }
-    }
-    None
-}
-
-pub(super) async fn add_address_to_interface(
-    address: &str,
-    interface: &str,
-) -> Result<(), AddressConfigError> {
-    if interface_has_address(interface, address).await? {
-        tracing::info!(
-            ip_address = %address,
-            interface_name = %interface,
-            "Skipping address addition; already configured",
-        );
-        return Ok(());
-    }
-
-    tracing::info!(
-        ip_address = %address,
-        interface_name = %interface,
-        "Adding address",
-    );
-    let wrapper_cmd = find_sudo_command();
-    let mut cmd = tokio::process::Command::new(wrapper_cmd);
-    #[cfg(not(target_os = "macos"))]
-    let output = cmd
-        .args(["ip", "a", "add", address, "dev", interface])
-        .output()
-        .await?;
-    #[cfg(target_os = "macos")]
-    let output = cmd
-        .args([
-            // Prevent sudo from trying to read password.
-            "--non-interactive",
-            "ifconfig",
-            interface,
-            "add",
-            address,
-            "up",
-        ])
-        .output()
-        .await?;
-
-    if !output.status.success() {
-        return Err(AddressConfigError::CommandFailure(Box::new(cmd), output));
-    }
-
-    Ok(())
-}
-#[cfg(target_os = "macos")]
-async fn interface_has_address(
-    _interface: &str,
-    _address: &str,
-) -> Result<bool, AddressConfigError> {
-    Ok(false)
-}
-
-#[cfg(not(target_os = "macos"))]
-async fn interface_has_address(interface: &str, address: &str) -> Result<bool, AddressConfigError> {
-    let mut cmd = tokio::process::Command::new("/usr/bin/env");
-
-    let output = cmd
-        .args([
-            "ip",
-            "a",
-            "s",
-            "to",
-            &[address, "32"].join("/"),
-            "dev",
-            interface,
-        ])
-        .output()
-        .await?;
-
-    if !output.status.success() {
-        return Err(AddressConfigError::CommandFailure(Box::new(cmd), output));
-    }
-    if output.stdout.is_empty() {
-        Ok(false)
-    } else {
-        Ok(true)
-    }
-}
-
-fn find_sudo_command() -> &'static str {
-    std::env::var("PATH")
-        .ok()
-        .and_then(|path| {
-            path.split(":").find_map(|dir| {
-                if std::fs::exists(Path::new(dir).join("sudo")).unwrap_or(false) {
-                    Some("sudo")
-                } else if std::fs::exists(Path::new(dir).join("doas")).unwrap_or(false) {
-                    Some("doas")
-                } else {
-                    None
-                }
-            })
-        })
-        .unwrap_or_else(|| {
-            tracing::warn!("could not find sudo or doas in PATH, falling back on /usr/bin/env");
-            "/usr/bin/env"
-        })
 }
 
 #[cfg(test)]

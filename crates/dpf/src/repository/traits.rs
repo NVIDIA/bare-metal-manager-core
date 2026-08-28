@@ -25,10 +25,12 @@ use async_trait::async_trait;
 
 use crate::crds::bfbs_generated::BFB;
 use crate::crds::bluefieldsoftwares_generated::BlueFieldSoftware;
+use crate::crds::dpfoperatorconfigs_generated::DPFOperatorConfig;
 use crate::crds::dpuclusters_generated::DPUCluster;
 use crate::crds::dpudeployments_generated::DPUDeployment;
 use crate::crds::dpudevices_generated::DPUDevice;
 use crate::crds::dpuflavors_generated::DPUFlavor;
+use crate::crds::dpuflavortemplates_generated::DPUFlavorTemplate;
 use crate::crds::dpunodemaintenances_generated::DPUNodeMaintenance;
 use crate::crds::dpunodes_generated::DPUNode;
 use crate::crds::dpus_generated::DPU;
@@ -153,6 +155,14 @@ pub trait DpuFlavorRepository: Send + Sync {
     async fn create(&self, flavor: &DPUFlavor) -> Result<DPUFlavor, DpfError>;
 }
 
+/// Repository for DPUFlavorTemplate resources.
+#[async_trait]
+pub trait DpuFlavorTemplateRepository: Send + Sync {
+    async fn get(&self, name: &str, namespace: &str)
+    -> Result<Option<DPUFlavorTemplate>, DpfError>;
+    async fn create(&self, template: &DPUFlavorTemplate) -> Result<DPUFlavorTemplate, DpfError>;
+}
+
 /// Repository for DPUSet resources.
 #[async_trait]
 pub trait DpuSetRepository: Send + Sync {
@@ -259,6 +269,17 @@ pub trait K8sConfigRepository: Send + Sync {
         name: &str,
         namespace: &str,
     ) -> Result<Option<BTreeMap<String, String>>, DpfError>;
+    /// Create a ConfigMap, reporting `false` when one already exists.
+    ///
+    /// Distinct from `apply_configmap`, which force-applies and would overwrite
+    /// content the object already holds.
+    async fn create_configmap(
+        &self,
+        name: &str,
+        namespace: &str,
+        data: BTreeMap<String, String>,
+    ) -> Result<bool, DpfError>;
+
     async fn apply_configmap(
         &self,
         name: &str,
@@ -285,6 +306,9 @@ pub trait K8sConfigRepository: Send + Sync {
 /// Repository for DPFOperatorConfig resources.
 #[async_trait]
 pub trait DpfOperatorConfigRepository: Send + Sync {
+    async fn get(&self, name: &str, namespace: &str)
+    -> Result<Option<DPFOperatorConfig>, DpfError>;
+
     async fn patch(
         &self,
         name: &str,
@@ -305,6 +329,7 @@ pub trait DpfRepository:
     + DpuNodeRepository
     + DpuNodeMaintenanceRepository
     + DpuFlavorRepository
+    + DpuFlavorTemplateRepository
     + DpuSetRepository
     + DpuClusterRepository
     + DpuDeploymentRepository

@@ -158,7 +158,8 @@ pub(super) async fn lookup(
         password,
         mac: _,
         port: _,
-        ssh_port,
+        ssh_port: _,
+        serial_console_ssh_port,
         ipmi_port,
         vendor,
     } = forge_api_client
@@ -183,11 +184,9 @@ pub(super) async fn lookup(
     })?;
 
     let port = match &bmc_vendor {
-        BmcVendor::Ssh(ssh_bmc_vendor) => ssh_port
-            .map(u16::try_from)
-            .transpose()
+        BmcVendor::Ssh(ssh_bmc_vendor) => nonzero_serial_console_ssh_port(serial_console_ssh_port)
             .map_err(|e| LookupError::InvalidBmcMetadata {
-                reason: format!("invalid ssh port: {e:?}"),
+                reason: format!("invalid SSH serial-console port: {e:?}"),
             })?
             .or(config.override_bmc_ssh_port)
             .unwrap_or(match ssh_bmc_vendor {
@@ -235,6 +234,14 @@ pub(super) async fn lookup(
     };
 
     Ok(connection_details)
+}
+
+fn nonzero_serial_console_ssh_port(
+    port: Option<u32>,
+) -> Result<Option<u16>, std::num::TryFromIntError> {
+    port.filter(|port| *port != 0)
+        .map(u16::try_from)
+        .transpose()
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -401,5 +408,22 @@ impl AtomicConnectionState {
 impl Default for AtomicConnectionState {
     fn default() -> Self {
         AtomicConnectionState::new(State::Disconnected)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::nonzero_serial_console_ssh_port;
+
+    #[test]
+    fn validates_serial_console_ssh_port() {
+        assert_eq!(nonzero_serial_console_ssh_port(None).unwrap(), None);
+        assert_eq!(nonzero_serial_console_ssh_port(Some(0)).unwrap(), None);
+        assert_eq!(nonzero_serial_console_ssh_port(Some(1)).unwrap(), Some(1));
+        assert_eq!(
+            nonzero_serial_console_ssh_port(Some(u16::MAX.into())).unwrap(),
+            Some(u16::MAX)
+        );
+        assert!(nonzero_serial_console_ssh_port(Some(u32::from(u16::MAX) + 1)).is_err());
     }
 }

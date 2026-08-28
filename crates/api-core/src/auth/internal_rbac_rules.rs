@@ -303,8 +303,16 @@ impl InternalRBACRules {
         x.perm("FindExploredMlxDeviceHostIds", vec![ForgeAdminCLI]);
         x.perm("FindExploredMlxDevicesByIds", vec![ForgeAdminCLI]);
         x.perm("AdminForceDeleteMachine", vec![ForgeAdminCLI, Machineatron]);
+        x.perm(
+            "DecommissionManagedHost",
+            vec![ForgeAdminCLI, Machineatron, Flow],
+        );
         x.perm("AdminForceDeleteRack", vec![ForgeAdminCLI, Machineatron]);
         x.perm("AdminForceDeleteSwitch", vec![ForgeAdminCLI, Machineatron]);
+        x.perm(
+            "DecommissionSwitch",
+            vec![ForgeAdminCLI, Machineatron, Flow],
+        );
         x.perm(
             "AdminForceDeletePowerShelf",
             vec![ForgeAdminCLI, Machineatron],
@@ -497,6 +505,7 @@ impl InternalRBACRules {
         x.perm("GetIpxeTemplate", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("ListIpxeTemplates", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindRackStateHistories", vec![ForgeAdminCLI, Machineatron]);
+        x.perm("FindRackHealthHistories", vec![ForgeAdminCLI, Machineatron]);
         x.perm("RebootCompleted", vec![Machineatron, Scout]);
         x.perm("PersistValidationResult", vec![Scout, SiteAgent]);
         x.perm(
@@ -728,6 +737,10 @@ impl InternalRBACRules {
             vec![ForgeAdminCLI, Machineatron, Flow],
         );
         x.perm("CreatePowerShelf", vec![ForgeAdminCLI, Machineatron]);
+        x.perm(
+            "DecommissionPowerShelf",
+            vec![ForgeAdminCLI, Machineatron, Flow],
+        );
         x.perm("DeletePowerShelf", vec![ForgeAdminCLI, Machineatron]);
         x.perm(
             "AddExpectedPowerShelf",
@@ -763,6 +776,10 @@ impl InternalRBACRules {
         );
         x.perm(
             "FindPowerShelfStateHistories",
+            vec![ForgeAdminCLI, Machineatron, Flow],
+        );
+        x.perm(
+            "FindPowerShelfHealthHistories",
             vec![ForgeAdminCLI, Machineatron, Flow],
         );
         x.perm(
@@ -842,6 +859,10 @@ impl InternalRBACRules {
         );
         x.perm(
             "FindSwitchStateHistories",
+            vec![ForgeAdminCLI, Machineatron, Flow],
+        );
+        x.perm(
+            "FindSwitchHealthHistories",
             vec![ForgeAdminCLI, Machineatron, Flow],
         );
         x.perm("FindRackIds", vec![ForgeAdminCLI, SiteAgent, Flow]);
@@ -951,8 +972,8 @@ impl InternalRBACRules {
     pub(super) fn allowed(&self, msg: &str, user_principals: &[crate::auth::Principal]) -> bool {
         if let Some(perm_info) = self.perms.get(msg) {
             if user_principals.is_empty() {
-                // No proper cert presented, but we will allow stuff that allows just Anonymous
-                return perm_info.principals.as_slice() == [Principal::Anonymous];
+                // No proper cert presented, but we allow any rule that lists Anonymous.
+                return perm_info.principals.contains(&Principal::Anonymous);
             }
             user_principals.iter().any(|user_principal| {
                 perm_info
@@ -1107,6 +1128,17 @@ mod rbac_rule_tests {
                 None,
             ))],
         ));
+    }
+
+    #[test]
+    fn anonymous_rules_allow_certless_callers() {
+        // Certless callers must be allowed when a rule lists Anonymous among other principals.
+        for method in ["GetJWKS", "GetOpenIDConfiguration"] {
+            assert!(
+                InternalRBACRules::allowed_from_static(method, &[]),
+                "{method}"
+            );
+        }
     }
 
     #[test]

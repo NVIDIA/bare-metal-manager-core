@@ -47,6 +47,8 @@ type Instance struct {
 	OperatingSystemId NullableString `json:"operatingSystemId,omitempty"`
 	// ID of the attached Network Security Group, if any
 	NetworkSecurityGroupId NullableString `json:"networkSecurityGroupId,omitempty"`
+	// External power provisioning profile associated with the Instance.
+	PowerProfile NullableString `json:"powerProfile,omitempty"`
 	// Propagation details for the attached Network Security Group
 	NetworkSecurityGroupPropagationDetails *NetworkSecurityGroupPropagationDetails `json:"networkSecurityGroupPropagationDetails,omitempty"`
 	// Indicates if the Network Security Group is inherited from VPC
@@ -549,6 +551,49 @@ func (o *Instance) SetNetworkSecurityGroupIdNil() {
 // UnsetNetworkSecurityGroupId ensures that no value is present for NetworkSecurityGroupId, not even an explicit nil
 func (o *Instance) UnsetNetworkSecurityGroupId() {
 	o.NetworkSecurityGroupId.Unset()
+}
+
+// GetPowerProfile returns the PowerProfile field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *Instance) GetPowerProfile() string {
+	if o == nil || IsNil(o.PowerProfile.Get()) {
+		var ret string
+		return ret
+	}
+	return *o.PowerProfile.Get()
+}
+
+// GetPowerProfileOk returns a tuple with the PowerProfile field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+func (o *Instance) GetPowerProfileOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.PowerProfile.Get(), o.PowerProfile.IsSet()
+}
+
+// HasPowerProfile returns a boolean if a field has been set.
+func (o *Instance) HasPowerProfile() bool {
+	if o != nil && o.PowerProfile.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetPowerProfile gets a reference to the given NullableString and assigns it to the PowerProfile field.
+func (o *Instance) SetPowerProfile(v string) {
+	o.PowerProfile.Set(&v)
+}
+
+// SetPowerProfileNil sets the value for PowerProfile to be an explicit nil
+func (o *Instance) SetPowerProfileNil() {
+	o.PowerProfile.Set(nil)
+}
+
+// UnsetPowerProfile ensures that no value is present for PowerProfile, not even an explicit nil
+func (o *Instance) UnsetPowerProfile() {
+	o.PowerProfile.Unset()
 }
 
 // GetNetworkSecurityGroupPropagationDetails returns the NetworkSecurityGroupPropagationDetails field value if set, zero value otherwise.
@@ -1387,6 +1432,9 @@ func (o Instance) ToMap() (map[string]interface{}, error) {
 	}
 	if o.NetworkSecurityGroupId.IsSet() {
 		toSerialize["networkSecurityGroupId"] = o.NetworkSecurityGroupId.Get()
+	}
+	if o.PowerProfile.IsSet() {
+		toSerialize["powerProfile"] = o.PowerProfile.Get()
 	}
 	if !IsNil(o.NetworkSecurityGroupPropagationDetails) {
 		toSerialize["networkSecurityGroupPropagationDetails"] = o.NetworkSecurityGroupPropagationDetails

@@ -29,10 +29,30 @@ impl SerialConsole {
     pub(crate) fn to_json(&self) -> serde_json::Value {
         self.value.clone()
     }
+
+    pub(crate) fn has_enabled_ssh(&self) -> bool {
+        self.value
+            .get("SSH")
+            .and_then(|ssh| ssh.get("ServiceEnabled"))
+            .and_then(serde_json::Value::as_bool)
+            == Some(true)
+    }
+
+    pub(crate) fn with_ssh_port(&self, port: u16) -> Self {
+        Self {
+            value: self.value.clone().patch(json!({ "SSH": { "Port": port } })),
+        }
+    }
 }
 
 pub(crate) fn builder() -> SerialConsoleBuilder {
     SerialConsoleBuilder { value: json!({}) }
+}
+
+pub(crate) fn simulated_ssh(port: u16) -> SerialConsole {
+    builder()
+        .ssh(&protocol_builder().service_enabled(true).port(port).build())
+        .build()
 }
 
 pub(crate) struct SerialConsoleBuilder {
@@ -99,14 +119,6 @@ impl SerialConsoleProtocolBuilder {
 
     pub(crate) fn port(self, value: u16) -> Self {
         self.apply_patch(json!({ "Port": value }))
-    }
-
-    pub(crate) fn shared_with_manager_cli(self, value: bool) -> Self {
-        self.apply_patch(json!({ "SharedWithManagerCLI": value }))
-    }
-
-    pub(crate) fn console_entry_command(self, value: &str) -> Self {
-        self.add_str_field("ConsoleEntryCommand", value)
     }
 
     pub(crate) fn hot_key_sequence_display(self, value: &str) -> Self {

@@ -4,6 +4,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -15,6 +16,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/grpcproxy"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 )
 
 // testFlowProxyReply makes run resolve to msg the way the site's Flow proxy
@@ -79,4 +81,23 @@ func testFlowProxyRequest(t *testing.T, args mock.Arguments, req proto.Message) 
 	proxyReq, ok := args.Get(3).(grpcproxy.Request)
 	require.True(t, ok, "workflow arg must be a grpcproxy.Request")
 	require.NoError(t, protojson.Unmarshal(proxyReq.RequestJSON, req))
+}
+
+// testFlowProxyRequestWithSecrets restores the encrypted fields the same way
+// the site activity does, then decodes the complete Flow request into req.
+func testFlowProxyRequestWithSecrets(t *testing.T, args mock.Arguments, secretKey, expectedSecret string, req proto.Message) {
+	t.Helper()
+
+	proxyReq, ok := args.Get(3).(grpcproxy.Request)
+	require.True(t, ok, "workflow arg must be a grpcproxy.Request")
+	require.NotEmpty(t, proxyReq.EncryptedSecrets)
+	require.NotContains(t, string(proxyReq.RequestJSON), expectedSecret,
+		"authentication data must not be present in Temporal request JSON")
+	var readableRequest map[string]any
+	require.NoError(t, json.Unmarshal(proxyReq.RequestJSON, &readableRequest))
+	require.Equal(t, grpcproxy.RedactedPlaceholder, readableRequest["authenticationData"])
+	secretsJSON := cutil.DecryptData(proxyReq.EncryptedSecrets, secretKey)
+	restoredJSON, err := grpcproxy.MergeSecrets(proxyReq.RequestJSON, secretsJSON)
+	require.NoError(t, err)
+	require.NoError(t, protojson.Unmarshal(restoredJSON, req))
 }

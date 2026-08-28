@@ -130,7 +130,7 @@ func TestServiceBuilder_BuildService_WithIPMI(t *testing.T) {
 				ListenPort:    8443,
 			},
 			IPMI: &matclient.EndpointStatus{
-				ReachablePort: 623,
+				ReachablePort: 16023,
 				ListenPort:    16023,
 			},
 		},
@@ -159,11 +159,46 @@ func TestServiceBuilder_BuildService_WithIPMI(t *testing.T) {
 
 	require.NotNil(t, ipmiPort)
 	assert.Equal(t, corev1.ProtocolUDP, ipmiPort.Protocol)
-	assert.Equal(t, int32(623), ipmiPort.Port)
+	assert.Equal(t, int32(16023), ipmiPort.Port)
 	assert.Equal(t, intstr.FromInt32(16023), ipmiPort.TargetPort)
 
 	// Check IPMI annotation
 	assert.Equal(t, "16023", svc.Annotations[AnnotationIPMIListenPort])
+}
+
+func TestServiceBuilder_BuildService_WithSSH(t *testing.T) {
+	builder := &ServiceBuilder{
+		Namespace: "test-ns",
+		BaseSelector: map[string]string{
+			"app": "machine-a-tron",
+		},
+	}
+
+	machine := &matclient.MachineStatus{
+		MatID:      "dpu-uuid-12345678",
+		APIState:   "Ready",
+		PowerState: "On",
+		BMC: matclient.BMCStatus{
+			IP: ptr("192.168.1.101"),
+			Redfish: matclient.EndpointStatus{
+				ReachablePort: 443,
+				ListenPort:    8444,
+			},
+			SSH: &matclient.EndpointStatus{
+				ReachablePort: 32022,
+				ListenPort:    32022,
+			},
+		},
+	}
+
+	svc := builder.BuildService(machine, MachineTypeDPU, "parent-host-uuid", "")
+
+	require.Len(t, svc.Spec.Ports, 2)
+	assert.Equal(t, PortNameSSH, svc.Spec.Ports[1].Name)
+	assert.Equal(t, corev1.ProtocolTCP, svc.Spec.Ports[1].Protocol)
+	assert.Equal(t, int32(32022), svc.Spec.Ports[1].Port)
+	assert.Equal(t, intstr.FromInt32(32022), svc.Spec.Ports[1].TargetPort)
+	assert.Equal(t, "32022", svc.Annotations[AnnotationSSHListenPort])
 }
 
 func TestServiceBuilder_BuildService_DPU(t *testing.T) {

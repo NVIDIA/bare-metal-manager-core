@@ -325,6 +325,26 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
     table
 }
 
+/// `memory_device_groups` didn't exist before condensing was introduced; rehydrate and clear it
+/// on both the deprecated top-level `discovery_info` and `status.discovery_info` so a raw JSON
+/// dump of `machine` stays byte-for-byte identical to the pre-condensing output, which only ever
+/// had `memory_devices`.
+#[allow(deprecated)]
+fn rehydrate_machine_memory_devices(machine: &mut rpc::Machine) -> CarbideCliResult<()> {
+    if let Some(discovery_info) = machine.discovery_info.as_mut() {
+        discovery_info.rehydrate_memory_devices()?;
+    }
+    if let Some(discovery_info) = machine
+        .status
+        .as_mut()
+        .and_then(|s| s.discovery_info.as_mut())
+    {
+        discovery_info.rehydrate_memory_devices()?;
+    }
+    Ok(())
+}
+
+#[allow(deprecated)]
 async fn show_all_machines(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: &OutputFormat,
@@ -344,6 +364,24 @@ async fn show_all_machines(
 
     match output_format {
         OutputFormat::Json => {
+            for machine in machines.machines.iter_mut() {
+                if let Err(e) = rehydrate_machine_memory_devices(machine) {
+                    // we log the error but continue the iteration, so one machine with
+                    // malformed memory_device_groups doesn't blank out the whole listing.
+                    // rehydrate_memory_devices() leaves memory_device_groups uncleared on
+                    // error, so this machine's JSON keeps the grouped shape instead of the
+                    // legacy memory_devices shape other machines get. That's intentional:
+                    // clearing the groups here would force us to either fabricate a
+                    // memory_devices list from data we just rejected, or emit an empty one
+                    // that looks like "no memory" — both are misleading. Surfacing the raw,
+                    // ungrouped-but-unconverted data is more honest than a plausible-looking
+                    // but wrong legacy-shaped record.
+                    eprintln!(
+                        "Could not rehydrate memory devices for machine {}: {e}",
+                        machine.id.map(|id| id.to_string()).unwrap_or_default()
+                    );
+                }
+            }
             async_writeln!(output_file, "{}", serde_json::to_string_pretty(&machines)?)?;
         }
         OutputFormat::AsciiTable => {
@@ -361,6 +399,7 @@ async fn show_all_machines(
     Ok(())
 }
 
+#[allow(deprecated)]
 async fn show_machine_information(
     machine_id: MachineId,
     args: &Args,
@@ -368,9 +407,10 @@ async fn show_machine_information(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
-    let machine = api_client.get_machine(machine_id).await?;
+    let mut machine = api_client.get_machine(machine_id).await?;
     match output_format {
         OutputFormat::Json => {
+            rehydrate_machine_memory_devices(&mut machine)?;
             async_write!(output_file, "{}", serde_json::to_string_pretty(&machine)?)?
         }
         OutputFormat::AsciiTable => async_write!(
@@ -480,4 +520,169 @@ pub(crate) async fn get_next_free_machine(
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use rpc::DiscoveryInfo;
+    use rpc::errors::RpcDataConversionError;
+    use rpc::machine_discovery::{MemoryDevice, MemoryDeviceGroup};
+
+    use super::*;
+
+    fn group(size_mb: u32, mem_type: &str, count: u32) -> MemoryDeviceGroup {
+        MemoryDeviceGroup {
+            size_mb: Some(size_mb),
+            mem_type: Some(mem_type.to_string()),
+            count,
+        }
+    }
+
+    #[allow(deprecated)]
+    fn machine_with_discovery_info(
+        top: Option<DiscoveryInfo>,
+        status: Option<DiscoveryInfo>,
+    ) -> Machine {
+        Machine {
+            discovery_info: top,
+            status: Some(forgerpc::MachineStatus {
+                discovery_info: status,
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn rehydrates_grouped_records_in_both_discovery_locations() {
+        let mut machine = machine_with_discovery_info(
+            Some(DiscoveryInfo {
+                memory_device_groups: vec![group(16384, "DDR5", 2)],
+                ..Default::default()
+            }),
+            Some(DiscoveryInfo {
+                memory_device_groups: vec![group(8192, "DDR4", 3)],
+                ..Default::default()
+            }),
+        );
+
+        rehydrate_machine_memory_devices(&mut machine).unwrap();
+
+        let top = machine.discovery_info.as_ref().unwrap();
+        assert_eq!(
+            top.memory_devices,
+            vec![
+                MemoryDevice {
+                    size_mb: Some(16384),
+                    mem_type: Some("DDR5".to_string()),
+                };
+                2
+            ]
+        );
+        assert!(top.memory_device_groups.is_empty());
+
+        let status = machine
+            .status
+            .as_ref()
+            .unwrap()
+            .discovery_info
+            .as_ref()
+            .unwrap();
+        assert_eq!(
+            status.memory_devices,
+            vec![
+                MemoryDevice {
+                    size_mb: Some(8192),
+                    mem_type: Some("DDR4".to_string()),
+                };
+                3
+            ]
+        );
+        assert!(status.memory_device_groups.is_empty());
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn zero_count_groups_leave_legacy_memory_devices_untouched_in_both_locations() {
+        let legacy = vec![MemoryDevice {
+            size_mb: Some(8192),
+            mem_type: Some("DDR4".to_string()),
+        }];
+        let mut machine = machine_with_discovery_info(
+            Some(DiscoveryInfo {
+                memory_device_groups: vec![group(16384, "DDR5", 0)],
+                memory_devices: legacy.clone(),
+                ..Default::default()
+            }),
+            Some(DiscoveryInfo {
+                memory_device_groups: vec![group(16384, "DDR5", 0)],
+                memory_devices: legacy.clone(),
+                ..Default::default()
+            }),
+        );
+
+        rehydrate_machine_memory_devices(&mut machine).unwrap();
+
+        let top = machine.discovery_info.as_ref().unwrap();
+        assert_eq!(top.memory_devices, legacy);
+        assert!(top.memory_device_groups.is_empty());
+
+        let status = machine
+            .status
+            .as_ref()
+            .unwrap()
+            .discovery_info
+            .as_ref()
+            .unwrap();
+        assert_eq!(status.memory_devices, legacy);
+        assert!(status.memory_device_groups.is_empty());
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn aggregate_count_above_max_is_rejected() {
+        let max = MemoryDeviceGroup::MAX_REHYDRATE_COUNT;
+        let big_group = group(8192, "DDR4", max / 2 + 1);
+        let big_discovery_info = || DiscoveryInfo {
+            memory_device_groups: vec![big_group.clone(), big_group.clone()],
+            ..Default::default()
+        };
+
+        for mut machine in [
+            machine_with_discovery_info(Some(big_discovery_info()), None),
+            machine_with_discovery_info(None, Some(big_discovery_info())),
+        ] {
+            let err = rehydrate_machine_memory_devices(&mut machine).unwrap_err();
+            assert!(matches!(
+                err,
+                CarbideCliError::RpcDataConversionError(
+                    RpcDataConversionError::MemoryDeviceCountExceeded(_, m)
+                ) if m == max
+            ));
+        }
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn json_dump_contains_memory_devices_and_omits_memory_device_groups() {
+        let mut machine = machine_with_discovery_info(
+            Some(DiscoveryInfo {
+                memory_device_groups: vec![group(16384, "DDR5", 2)],
+                ..Default::default()
+            }),
+            Some(DiscoveryInfo {
+                memory_device_groups: vec![group(8192, "DDR4", 1)],
+                ..Default::default()
+            }),
+        );
+
+        rehydrate_machine_memory_devices(&mut machine).unwrap();
+
+        let json = serde_json::to_string(&machine).unwrap();
+        assert!(json.contains("memory_devices"));
+        assert!(json.contains("DDR5"));
+        assert!(json.contains("DDR4"));
+        assert!(!json.contains("memory_device_groups"));
+    }
 }

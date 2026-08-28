@@ -33,6 +33,8 @@ pub const HOST_INIT: Duration = Duration::from_secs(30 * 60);
 // controlled reboots, and final observation after lockdown is restored.
 pub const BOOT_CONFIGURING: Duration = Duration::from_secs(90 * 60);
 
+pub const CONFIGURE_ASTRA: Duration = Duration::from_secs(30 * 60);
+
 pub const WAITING_FOR_CLEANUP: Duration = Duration::from_secs(30 * 60);
 
 pub const CREATED: Duration = Duration::from_secs(30 * 60);
@@ -84,6 +86,42 @@ pub const ROTATING_HOST_UEFI: Duration = Duration::from_secs(40 * 60);
 // the engine's short per-device backoff without tripping the SLA on the first
 // retry.
 pub const ROTATING_DPU_UEFI: Duration = Duration::from_secs(40 * 60);
+
+/// SLA for Site Explorer suppression acknowledgement during decommissioning.
+pub const DECOMMISSIONING_SUPPRESSING_SITE_EXPLORER: Duration = Duration::from_secs(5 * 60);
+
+/// SLA for host deconfiguration during decommissioning (lockdown clear, UEFI
+/// password/job work, and UEFI settings reset).
+pub const DECOMMISSIONING_DECONFIGURING_HOST: Duration = Duration::from_secs(40 * 60);
+
+/// SLA for DPU deconfiguration during decommissioning (DPF delete and/or vanilla
+/// BFB install plus boot).
+pub const DECOMMISSIONING_DECONFIGURING_DPUS: Duration = Duration::from_secs(40 * 60);
+
+/// SLA for recording OOB DHCP suppression during decommissioning.
+pub const DECOMMISSIONING_SUPPRESSING_OOB_DHCP: Duration = Duration::from_secs(5 * 60);
+
+/// SLA for the host power cycle that forces OOB rediscovery during decommissioning.
+pub const DECOMMISSIONING_POWER_CYCLING_HOST: Duration = Duration::from_secs(5 * 60);
+
+/// SLA for waiting for OOB DHCP suppression acknowledgement after the host power
+/// cycle.
+pub const DECOMMISSIONING_WAITING_FOR_OOB_DHCP_ACKNOWLEDGEMENT: Duration =
+    Duration::from_secs(15 * 60);
+
+/// SLA for recording BMC DHCP suppression during decommissioning.
+pub const DECOMMISSIONING_SUPPRESSING_BMC_DHCP: Duration = Duration::from_secs(5 * 60);
+
+/// SLA for BMC factory reset during decommissioning.
+pub const DECOMMISSIONING_FACTORY_RESETTING_BMCS: Duration = Duration::from_secs(5 * 60);
+
+/// SLA for waiting for BMC DHCP suppression acknowledgement after factory reset.
+pub const DECOMMISSIONING_WAITING_FOR_BMC_DHCP_ACKNOWLEDGEMENT: Duration =
+    Duration::from_secs(15 * 60);
+
+/// SLA for deleting managed per-device BMC and DPU credentials during
+/// decommissioning.
+pub const DECOMMISSIONING_DELETING_MANAGED_CREDENTIALS: Duration = Duration::from_secs(5 * 60);
 
 /// Configuration for machine state SLA durations.
 #[derive(Clone, Debug, PartialEq)]

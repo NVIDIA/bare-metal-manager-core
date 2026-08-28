@@ -32,6 +32,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let expected_initial_states_json = serde_json::json!([
         {"state": "created"},
+        {"state": "configureastra", "configure_astra_state": {"state": "enablenics"}},
         {"state": "dpudiscoveringstate", "dpu_states": {"states": {&dpu_machine_id_string: {"dpudiscoverystate": "initializing"}}}},
         {"state": "dpudiscoveringstate", "dpu_states": {"states": {&dpu_machine_id_string: {"dpudiscoverystate": "configuring"}}}},
         {"state": "dpudiscoveringstate", "dpu_states": {"states": {&dpu_machine_id_string: {"dpudiscoverystate": "enablershim"}}}},
@@ -197,6 +198,8 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
                 delete_bmc_interfaces: false,
                 delete_bmc_credentials: false,
                 allow_delete_with_orphaned_dpf_crds: false,
+                delete_bmc_suppressions: false,
+                delete_retained_boot_interfaces: false,
             },
         ))
         .await

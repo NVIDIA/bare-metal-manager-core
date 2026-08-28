@@ -413,6 +413,7 @@ impl ApiEndpointSource {
                     Err(error) => tracing::warn!(
                         ?machine,
                         ?error,
+                        rack_id = machine.rack_id.as_ref().map(tracing::field::display),
                         "Could not add machine endpoint due to error"
                     ),
                 }
@@ -438,6 +439,7 @@ impl ApiEndpointSource {
                         Err(error) => tracing::warn!(
                             ?switch,
                             ?error,
+                            rack_id = switch.rack_id.as_ref().map(tracing::field::display),
                             "Could not add switch endpoint due to error"
                         ),
                     }
@@ -448,6 +450,7 @@ impl ApiEndpointSource {
                         Err(error) => tracing::warn!(
                             ?switch,
                             ?error,
+                            rack_id = switch.rack_id.as_ref().map(tracing::field::display),
                             "Could not add switch host endpoint due to error"
                         ),
                     }
@@ -482,6 +485,7 @@ impl ApiEndpointSource {
                         Err(error) => tracing::warn!(
                             ?power_shelf,
                             ?error,
+                            rack_id = power_shelf.rack_id.as_ref().map(tracing::field::display),
                             "Could not add power shelf endpoint due to error"
                         ),
                     }
@@ -611,7 +615,7 @@ impl ApiEndpointSource {
                 id: power_shelf.id,
                 serial,
             })),
-            None,
+            power_shelf.rack_id.clone(),
             ApiCredentialKind::Bmc,
         )
     }
@@ -935,6 +939,46 @@ mod tests {
                 switch.nvlink_domain_uuid
             },
         );
+    }
+
+    #[test]
+    fn power_shelf_endpoint_preserves_api_rack_id()
+    -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let api_url = Url::parse("https://127.0.0.1:1079")?;
+
+        let source = ApiEndpointSource::new(
+            Arc::new(ApiClientWrapper::new(
+                "test-ca.pem".to_string(),
+                "test-client.pem".to_string(),
+                "test-client-key.pem".to_string(),
+                &api_url,
+            )),
+            reqwest(),
+            None,
+            10,
+            None,
+        );
+
+        let rack_id = RackId::new("RACK_1");
+
+        let endpoint = source.extract_power_shelf_endpoint(&rpc::forge::PowerShelf {
+            config: Some(rpc::forge::PowerShelfConfig {
+                name: "power-shelf-a".to_string(),
+                ..Default::default()
+            }),
+            bmc_info: Some(rpc::forge::BmcInfo {
+                ip: Some("10.0.0.1".to_string()),
+                mac: Some(test_mac().to_string()),
+                port: Some(443),
+                ..Default::default()
+            }),
+            rack_id: Some(rack_id.clone()),
+            ..Default::default()
+        })?;
+
+        assert_eq!(endpoint.rack_id.as_ref(), Some(&rack_id));
+
+        Ok(())
     }
 
     #[tokio::test]

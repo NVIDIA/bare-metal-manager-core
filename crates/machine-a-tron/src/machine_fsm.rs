@@ -15,19 +15,37 @@
  * limitations under the License.
  */
 
+use std::time::Duration;
+
 use bmc_mock::{BmcEvent, MockPowerState};
 
+use crate::dhcp_retry_fsm::{
+    Action as RetryAction, DhcpRetryFsm, Event as RetryEvent, Milliseconds,
+};
 use crate::machine_state_machine::OsImage;
 
 type FsmReturn<Fsm> = (Fsm, Vec<Action>);
 
 #[derive(Clone, Copy, Debug)]
-pub(super) enum MachineFsm {
-    BmcInit { power_on: bool, bmc_only: bool },
-    Init,
+pub(super) struct MachineFsm {
+    state: MachineState,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum MachineState {
+    BmcInit {
+        power_on: bool,
+        bmc_only: bool,
+        dhcp_retry: DhcpRetryFsm,
+    },
+    Init {
+        dhcp_retry: DhcpRetryFsm,
+    },
     MachineDown,
     DhcpComplete,
-    MachineUp { os_fsm: OsFsm },
+    MachineUp {
+        os_fsm: OsFsm,
+    },
     BmcOnlyMachineUp,
     BmcOnlyMachineDown,
 }
@@ -35,12 +53,52 @@ pub(super) enum MachineFsm {
 impl MachineFsm {
     pub(super) fn init(power_on: bool, bmc_only: bool) -> FsmReturn<Self> {
         (
-            Self::BmcInit { power_on, bmc_only },
+            Self {
+                state: MachineState::BmcInit {
+                    power_on,
+                    bmc_only,
+                    dhcp_retry: DhcpRetryFsm::new(),
+                },
+            },
             vec![Action::Dhcp(DhcpType::Bmc)],
         )
     }
 
-    pub(super) fn event(self, event: Event) -> (Self, Vec<Action>) {
+    pub(super) fn event(self, event: Event) -> FsmReturn<Self> {
+        let (state, actions) = self.state.event(event);
+        (Self { state }, actions)
+    }
+
+    pub(super) fn is_up(&self) -> bool {
+        self.state.is_up()
+    }
+
+    pub(super) fn is_bmc_only(&self) -> bool {
+        matches!(
+            self.state,
+            MachineState::BmcOnlyMachineUp | MachineState::BmcOnlyMachineDown
+        )
+    }
+
+    pub(super) fn is_bmc_initializing(&self) -> bool {
+        matches!(self.state, MachineState::BmcInit { .. })
+    }
+
+    pub(super) fn power_state(&self) -> MockPowerState {
+        self.state.power_state()
+    }
+
+    pub(super) fn state_string(&self) -> &'static str {
+        self.state.state_string()
+    }
+
+    pub(super) fn booted_os(&self) -> Option<OsImage> {
+        self.state.booted_os()
+    }
+}
+
+impl MachineState {
+    fn event(self, event: Event) -> FsmReturn<Self> {
         // A managed DPU that applied a staged NIC-mode flip is now a plain NIC,
         // not a DPU: converge it to the dormant BMC-only track from any active
         // state. Producing this transition here (rather than assigning the state
@@ -50,12 +108,20 @@ impl MachineFsm {
                 Self::BmcOnlyMachineUp | Self::BmcOnlyMachineDown => (self, vec![]),
                 // Clean up as the DPU parks: drop its relay handle and cached
                 // discovery state so the flipped NIC stops serving host DHCP.
-                _ => (Self::BmcOnlyMachineUp, vec![Action::CleanupOnPowerOff]),
+                _ => {
+                    let mut actions = self.abandon_dhcp_retry();
+                    actions.push(Action::CleanupOnPowerOff);
+                    (Self::BmcOnlyMachineUp, actions)
+                }
             };
         }
         match self {
-            Self::BmcInit { power_on, bmc_only } => self.fsm_bmc_init(event, power_on, bmc_only),
-            Self::Init => self.fsm_init(event),
+            Self::BmcInit {
+                power_on,
+                bmc_only,
+                dhcp_retry,
+            } => self.fsm_bmc_init(event, power_on, bmc_only, dhcp_retry),
+            Self::Init { dhcp_retry } => self.fsm_init(event, dhcp_retry),
             Self::MachineDown => self.fsm_machine_down(event),
             Self::DhcpComplete => self.fsm_dhcp_complete(event),
             Self::MachineUp { os_fsm } => self.fsm_machine_up(event, os_fsm),
@@ -65,17 +131,17 @@ impl MachineFsm {
         }
     }
 
-    pub(super) fn is_up(&self) -> bool {
+    fn is_up(&self) -> bool {
         matches!(self, Self::MachineUp { .. } | Self::BmcOnlyMachineUp)
     }
 
-    pub(super) fn power_state(&self) -> MockPowerState {
+    fn power_state(&self) -> MockPowerState {
         match self {
             Self::BmcInit { power_on: true, .. } => MockPowerState::On,
             Self::BmcInit {
                 power_on: false, ..
             } => MockPowerState::Off,
-            Self::Init => MockPowerState::On,
+            Self::Init { .. } => MockPowerState::On,
             Self::MachineDown => MockPowerState::Off,
             Self::DhcpComplete => MockPowerState::On,
             Self::MachineUp { .. } => MockPowerState::On,
@@ -84,10 +150,10 @@ impl MachineFsm {
         }
     }
 
-    pub(super) fn state_string(&self) -> &'static str {
+    fn state_string(&self) -> &'static str {
         match self {
             Self::BmcInit { .. } => "BmcInit",
-            Self::Init => "Init",
+            Self::Init { .. } => "Init",
             Self::MachineDown => "MachineDown",
             Self::DhcpComplete => "DhcpComplete",
             Self::MachineUp { .. } => "MachineUp",
@@ -96,7 +162,7 @@ impl MachineFsm {
         }
     }
 
-    pub(super) fn booted_os(&self) -> Option<OsImage> {
+    fn booted_os(&self) -> Option<OsImage> {
         match self {
             Self::MachineUp {
                 os_fsm: OsFsm::Scout { .. },
@@ -111,9 +177,38 @@ impl MachineFsm {
         }
     }
 
-    fn fsm_bmc_init(self, event: Event, power_on: bool, bmc_only: bool) -> (Self, Vec<Action>) {
+    fn fsm_bmc_init(
+        self,
+        event: Event,
+        power_on: bool,
+        bmc_only: bool,
+        dhcp_retry: DhcpRetryFsm,
+    ) -> (Self, Vec<Action>) {
         match event {
-            Event::DhcpComplete(DhcpType::Bmc) => {
+            Event::DhcpFailed(jitter) => {
+                let (dhcp_retry, actions) = dhcp_retry.event(RetryEvent::Failed(jitter));
+                (
+                    Self::BmcInit {
+                        power_on,
+                        bmc_only,
+                        dhcp_retry,
+                    },
+                    map_retry_actions(actions, DhcpType::Bmc),
+                )
+            }
+            Event::DhcpRetryExpired => {
+                let (dhcp_retry, actions) = dhcp_retry.event(RetryEvent::TimerExpired);
+                (
+                    Self::BmcInit {
+                        power_on,
+                        bmc_only,
+                        dhcp_retry,
+                    },
+                    map_retry_actions(actions, DhcpType::Bmc),
+                )
+            }
+            Event::DhcpComplete => {
+                let (_, retry_actions) = dhcp_retry.event(RetryEvent::Completed);
                 let next_state = if bmc_only {
                     if power_on {
                         Self::BmcOnlyMachineUp
@@ -121,21 +216,25 @@ impl MachineFsm {
                         Self::BmcOnlyMachineDown
                     }
                 } else if power_on {
-                    Self::Init
+                    Self::Init {
+                        dhcp_retry: DhcpRetryFsm::new(),
+                    }
                 } else {
                     Self::MachineDown
                 };
-                let actions = if power_on && !bmc_only {
+                let mut actions = map_retry_actions(retry_actions, DhcpType::Bmc);
+                actions.extend(if power_on && !bmc_only {
                     vec![Action::SetupBmc, Action::SetTimer(Timer::MachineOn)]
                 } else {
                     vec![Action::SetupBmc]
-                };
+                });
                 (next_state, actions)
             }
             Event::PowerOn => (
                 Self::BmcInit {
                     bmc_only,
                     power_on: true,
+                    dhcp_retry,
                 },
                 if power_on {
                     vec![]
@@ -147,6 +246,7 @@ impl MachineFsm {
                 Self::BmcInit {
                     bmc_only,
                     power_on: false,
+                    dhcp_retry,
                 },
                 vec![],
             ),
@@ -154,6 +254,7 @@ impl MachineFsm {
                 Self::BmcInit {
                     bmc_only,
                     power_on: false,
+                    dhcp_retry,
                 },
                 vec![Action::SetTimer(Timer::PowerCycle)],
             ),
@@ -161,6 +262,7 @@ impl MachineFsm {
                 Self::BmcInit {
                     bmc_only,
                     power_on: true,
+                    dhcp_retry,
                 },
                 vec![],
             ),
@@ -168,8 +270,22 @@ impl MachineFsm {
         }
     }
 
-    fn fsm_init(self, event: Event) -> (Self, Vec<Action>) {
+    fn fsm_init(self, event: Event, dhcp_retry: DhcpRetryFsm) -> (Self, Vec<Action>) {
         match event {
+            Event::DhcpFailed(jitter) => {
+                let (dhcp_retry, actions) = dhcp_retry.event(RetryEvent::Failed(jitter));
+                (
+                    Self::Init { dhcp_retry },
+                    map_retry_actions(actions, DhcpType::Machine),
+                )
+            }
+            Event::DhcpRetryExpired => {
+                let (dhcp_retry, actions) = dhcp_retry.event(RetryEvent::TimerExpired);
+                (
+                    Self::Init { dhcp_retry },
+                    map_retry_actions(actions, DhcpType::Machine),
+                )
+            }
             Event::TimerAlert(Timer::MachineOn) => (
                 self,
                 vec![
@@ -177,11 +293,27 @@ impl MachineFsm {
                     Action::Dhcp(DhcpType::Machine),
                 ],
             ),
-            Event::DhcpComplete(DhcpType::Machine) => {
-                (Self::DhcpComplete, vec![Action::PxeBootRequest])
+            Event::DhcpComplete => {
+                let (_, retry_actions) = dhcp_retry.event(RetryEvent::Completed);
+                let mut actions = map_retry_actions(retry_actions, DhcpType::Machine);
+                actions.push(Action::PxeBootRequest);
+                (Self::DhcpComplete, actions)
             }
-            Event::PowerCycle => self.machine_down_on_power_cycle(),
-            Event::PowerOff => self.machine_down_on_power_off(),
+            Event::PowerCycle => {
+                let (_, retry_actions) = dhcp_retry.event(RetryEvent::Abandon);
+                let mut actions = map_retry_actions(retry_actions, DhcpType::Machine);
+                actions.extend([
+                    Action::CleanupOnPowerOff,
+                    Action::SetTimer(Timer::PowerCycle),
+                ]);
+                (Self::MachineDown, actions)
+            }
+            Event::PowerOff => {
+                let (_, retry_actions) = dhcp_retry.event(RetryEvent::Abandon);
+                let mut actions = map_retry_actions(retry_actions, DhcpType::Machine);
+                actions.push(Action::CleanupOnPowerOff);
+                (Self::MachineDown, actions)
+            }
             _ => (self, vec![]),
         }
     }
@@ -189,9 +321,12 @@ impl MachineFsm {
     fn fsm_machine_down(self, event: Event) -> (Self, Vec<Action>) {
         match event {
             Event::PowerCycle => (self, vec![Action::SetTimer(Timer::PowerCycle)]),
-            Event::PowerOn | Event::TimerAlert(Timer::PowerCycle) => {
-                (Self::Init, vec![Action::SetTimer(Timer::MachineOn)])
-            }
+            Event::PowerOn | Event::TimerAlert(Timer::PowerCycle) => (
+                Self::Init {
+                    dhcp_retry: DhcpRetryFsm::new(),
+                },
+                vec![Action::SetTimer(Timer::MachineOn)],
+            ),
             _ => (self, vec![]),
         }
     }
@@ -275,11 +410,38 @@ impl MachineFsm {
             ],
         )
     }
+
+    fn abandon_dhcp_retry(self) -> Vec<Action> {
+        let (dhcp_retry, dhcp_type) = match self {
+            Self::BmcInit { dhcp_retry, .. } => (dhcp_retry, DhcpType::Bmc),
+            Self::Init { dhcp_retry } => (dhcp_retry, DhcpType::Machine),
+            _ => return vec![],
+        };
+        let (_, actions) = dhcp_retry.event(RetryEvent::Abandon);
+        map_retry_actions(actions, dhcp_type)
+    }
+}
+
+fn map_retry_actions(actions: Vec<RetryAction>, dhcp_type: DhcpType) -> Vec<Action> {
+    actions
+        .into_iter()
+        .map(|action| map_retry_action(action, dhcp_type))
+        .collect()
+}
+
+fn map_retry_action(action: RetryAction, dhcp_type: DhcpType) -> Action {
+    match action {
+        RetryAction::Schedule { delay } => Action::ScheduleDhcpRetry { delay },
+        RetryAction::Run => Action::Dhcp(dhcp_type),
+        RetryAction::Cancel => Action::CancelDhcpRetry,
+    }
 }
 
 #[derive(Copy, Clone, Debug)]
 pub(super) enum Event {
-    DhcpComplete(DhcpType),
+    DhcpComplete,
+    DhcpFailed(Milliseconds),
+    DhcpRetryExpired,
     PowerOn,
     PowerOff,
     PowerCycle,
@@ -292,11 +454,20 @@ pub(super) enum Event {
     DpuFlippedToNicMode,
 }
 
+#[cfg(test)]
+impl Event {
+    fn dhcp_failed_with_jitter(jitter: Milliseconds) -> Self {
+        Self::DhcpFailed(jitter)
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 pub(super) enum Action {
     SetupBmc,
     SetTimer(Timer),
     Dhcp(DhcpType),
+    ScheduleDhcpRetry { delay: Duration },
+    CancelDhcpRetry,
     PxeBootRequest,
     InitialDiscoveryRequest(OsImage),
     AgentControlRequest(OsImage),
@@ -313,7 +484,7 @@ pub(super) enum Timer {
     DpuAgentControlPoll,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub(super) enum DhcpType {
     Bmc,
     Machine,
@@ -477,17 +648,17 @@ mod tests {
             (false, true, ExpectedState::BmcOnlyMachineDown, false),
         ] {
             let (fsm, _) = MachineFsm::init(power_on, bmc_only);
-            let (fsm, actions) = fsm.event(Event::DhcpComplete(DhcpType::Bmc));
+            let (fsm, actions) = fsm.event(Event::DhcpComplete);
 
             assert!(
                 match expected_state {
-                    ExpectedState::Init => matches!(fsm, MachineFsm::Init),
-                    ExpectedState::MachineDown => matches!(fsm, MachineFsm::MachineDown),
+                    ExpectedState::Init => matches!(fsm.state, MachineState::Init { .. }),
+                    ExpectedState::MachineDown => matches!(fsm.state, MachineState::MachineDown),
                     ExpectedState::BmcOnlyMachineUp => {
-                        matches!(fsm, MachineFsm::BmcOnlyMachineUp)
+                        matches!(fsm.state, MachineState::BmcOnlyMachineUp)
                     }
                     ExpectedState::BmcOnlyMachineDown => {
-                        matches!(fsm, MachineFsm::BmcOnlyMachineDown)
+                        matches!(fsm.state, MachineState::BmcOnlyMachineDown)
                     }
                 },
                 "unexpected state for power_on={power_on}, bmc_only={bmc_only}"
@@ -504,5 +675,37 @@ mod tests {
                 "unexpected actions for power_on={power_on}, bmc_only={bmc_only}"
             );
         }
+    }
+
+    #[test]
+    fn bmc_retry_survives_power_changes() {
+        let (fsm, _) = MachineFsm::init(true, false);
+        let (fsm, actions) = fsm.event(Event::dhcp_failed_with_jitter(Milliseconds::new(0)));
+        assert!(matches!(
+            actions.as_slice(),
+            [Action::ScheduleDhcpRetry { delay }] if *delay == Duration::from_secs(4)
+        ));
+
+        let (fsm, actions) = fsm.event(Event::PowerOff);
+        assert!(actions.is_empty());
+        let (_, actions) = fsm.event(Event::DhcpRetryExpired);
+        assert!(matches!(actions.as_slice(), [Action::Dhcp(DhcpType::Bmc)]));
+    }
+
+    #[test]
+    fn power_off_abandons_machine_dhcp_retry() {
+        let (fsm, _) = MachineFsm::init(true, false);
+        let (fsm, _) = fsm.event(Event::DhcpComplete);
+        let (fsm, _) = fsm.event(Event::dhcp_failed_with_jitter(Milliseconds::new(0)));
+
+        let (fsm, actions) = fsm.event(Event::PowerOff);
+        assert!(matches!(fsm.state, MachineState::MachineDown));
+        assert!(matches!(
+            actions.as_slice(),
+            [Action::CancelDhcpRetry, Action::CleanupOnPowerOff]
+        ));
+
+        let (_, actions) = fsm.event(Event::DhcpRetryExpired);
+        assert!(actions.is_empty());
     }
 }

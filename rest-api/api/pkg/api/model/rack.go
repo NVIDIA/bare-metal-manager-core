@@ -246,14 +246,18 @@ func (r *APIRackValidateAllRequest) QueryValues() url.Values {
 
 // APIRack is the API representation of a Rack from Flow
 type APIRack struct {
-	ID           string              `json:"id"`
-	Name         string              `json:"name"`
-	Manufacturer string              `json:"manufacturer"`
-	Model        string              `json:"model"`
-	SerialNumber string              `json:"serialNumber"`
-	Description  string              `json:"description"`
-	Location     *APIRackLocation    `json:"location,omitempty"`
-	Components   []*APIRackComponent `json:"components,omitempty"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Manufacturer string `json:"manufacturer"`
+	Model        string `json:"model"`
+	SerialNumber string `json:"serialNumber"`
+	Description  string `json:"description"`
+	// NVLinkDomainIDs identifies the NVLink Domains containing the Rack.
+	// It is empty when the Rack is not assigned to an NVLink Domain.
+	NVLinkDomainIDs []string            `json:"nvLinkDomainIds"`
+	Location        *APIRackLocation    `json:"location,omitempty"`
+	Components      []*APIRackComponent `json:"components,omitempty"`
+	TaskStats       APITaskStats        `json:"taskStats"`
 }
 
 // FromProto converts an Flow protobuf Rack to an APIRack
@@ -278,6 +282,13 @@ func (ar *APIRack) FromProto(protoRack *flowv1.Rack, includeComponents bool) {
 			ar.Description = *info.Description
 		}
 	}
+	ar.NVLinkDomainIDs = make([]string, 0, len(protoRack.GetNvlDomainIds()))
+	for _, domainID := range protoRack.GetNvlDomainIds() {
+		if domainID != nil {
+			ar.NVLinkDomainIDs = append(ar.NVLinkDomainIDs, domainID.GetId())
+		}
+	}
+	ar.TaskStats.FromProto(protoRack.GetTaskStats())
 
 	// Get location
 	if protoRack.GetLocation() != nil {

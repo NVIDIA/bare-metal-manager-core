@@ -664,6 +664,11 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Handler: apiHandler.NewMachinePowerControlHandler(dbSession, scp, cfg),
 		},
 		{
+			Path:    apiPathPrefix + "/machine/:id/decommission",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewDecommissionMachineHandler(dbSession, scp, cfg),
+		},
+		{
 			Path:    apiPathPrefix + "/machine/:id/validation/run",
 			Method:  http.MethodPost,
 			Handler: apiHandler.NewCreateMachineValidationRunHandler(dbSession, scp, cfg),
@@ -1027,7 +1032,7 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Handler: apiHandler.NewDeleteSkuHandler(dbSession, scp),
 		},
 		// Task endpoints (Flow). /rack/task/* and /task/* share get/cancel
-		// handlers; list operations are exposed under /rack/{id}/task and
+		// handlers; filtered lists are also exposed under /rack/{id}/task and
 		// /tray/{id}/task.
 		{
 			Path:    apiPathPrefix + "/rack/task/:id",
@@ -1038,6 +1043,11 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Path:    apiPathPrefix + "/rack/task/:id/cancel",
 			Method:  http.MethodPost,
 			Handler: apiHandler.NewCancelTaskHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/task",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetAllTaskHandler(dbSession, scp),
 		},
 		{
 			Path:    apiPathPrefix + "/task/:id",
@@ -1117,6 +1127,27 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Path:    apiPathPrefix + "/task/run/:id/cancel",
 			Method:  http.MethodPost,
 			Handler: apiHandler.NewCancelTaskRunHandler(dbSession, tc, scp, cfg),
+		},
+		// NVLink Domain operation endpoints (Flow).
+		{
+			Path:    apiPathPrefix + "/domain/nvlink/power",
+			Method:  http.MethodPatch,
+			Handler: apiHandler.NewBatchUpdateNVLinkDomainPowerStateHandler(dbSession, scp),
+		},
+		{
+			Path:    apiPathPrefix + "/domain/nvlink/firmware",
+			Method:  http.MethodPatch,
+			Handler: apiHandler.NewBatchUpdateNVLinkDomainFirmwareHandler(dbSession, scp),
+		},
+		{
+			Path:    apiPathPrefix + "/domain/nvlink/:id/power",
+			Method:  http.MethodPatch,
+			Handler: apiHandler.NewUpdateNVLinkDomainPowerStateHandler(dbSession, scp),
+		},
+		{
+			Path:    apiPathPrefix + "/domain/nvlink/:id/firmware",
+			Method:  http.MethodPatch,
+			Handler: apiHandler.NewUpdateNVLinkDomainFirmwareHandler(dbSession, scp),
 		},
 		{
 			Path:    apiPathPrefix + "/rack",

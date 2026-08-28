@@ -53,6 +53,12 @@ export TEMPORAL_HOST=localhost TEMPORAL_PORT=7233 TEMPORAL_NAMESPACE=flow
 ./flow serve --dev-mode
 ```
 
+`FLOW_DATA_ENCRYPTION_KEY_PATH` is optional when Flow does not need firmware
+authentication data. If it is unset, Flow starts with a warning and rejects
+requests containing non-empty `authentication_data` with `FailedPrecondition`.
+If the variable is set, the referenced file must remain readable and contain a
+valid base64-encoded 32-byte key or Flow fails at startup.
+
 **Note:** NICo is not available locally; power/firmware operations will fail. Use dev/staging for those tests.
 
 ### Test with grpcui

@@ -15,6 +15,7 @@ import (
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
+	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -362,6 +363,37 @@ func TestNewAPIInstance(t *testing.T) {
 	}
 }
 
+func TestAPIInstancePowerProfile(t *testing.T) {
+	profile := "performance"
+	instance := &cdbm.Instance{PowerProfile: &profile}
+
+	got := NewAPIInstance(instance, nil, nil, nil, nil, nil, nil, nil)
+	require.NotNil(t, got.PowerProfile)
+	assert.Equal(t, profile, *got.PowerProfile)
+	assert.True(t, (&APIInstanceUpdateRequest{PowerProfile: &profile}).IsUpdateRequest())
+}
+
+func TestAPIInstanceUpdateRequest_PowerProfileJSON(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload string
+		want    *string
+	}{
+		{name: "omitted", payload: `{}`},
+		{name: "null", payload: `{"powerProfile":null}`},
+		{name: "clear", payload: `{"powerProfile":""}`, want: cutil.GetPtr("")},
+		{name: "set", payload: `{"powerProfile":"performance"}`, want: cutil.GetPtr("performance")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var request APIInstanceUpdateRequest
+			require.NoError(t, json.Unmarshal([]byte(tt.payload), &request))
+			assert.Equal(t, tt.want, request.PowerProfile)
+		})
+	}
+}
+
 func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 	type fields struct {
 		Name                           string
@@ -378,6 +410,11 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 		DpuExtensionServiceDeployments []APIDpuExtensionServiceDeploymentRequest
 		NVLinkInterfaces               []APINVLinkInterfaceCreateOrUpdateRequest
 		Labels                         map[string]string
+		MachineLabelSelector           map[string]string
+	}
+	tooManyMachineLabelSelector := make(map[string]string, util.LabelCountMax+1)
+	for i := 0; i <= util.LabelCountMax; i++ {
+		tooManyMachineLabelSelector[fmt.Sprintf("key-%d", i)] = "value"
 	}
 	tests := []struct {
 		name                 string
@@ -410,6 +447,46 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 			},
 			checkDefaultPhysical: true,
 			wantErr:              false,
+		},
+		{
+			name: "test valid Instance with Machine label selector",
+			fields: fields{
+				Name:                 "test-name",
+				TenantID:             uuid.NewString(),
+				InstanceTypeID:       uuid.NewString(),
+				VpcID:                uuid.NewString(),
+				OperatingSystemID:    cutil.GetPtr(uuid.NewString()),
+				Interfaces:           []APIInterfaceCreateOrUpdateRequest{{SubnetID: cutil.GetPtr(uuid.NewString())}},
+				MachineLabelSelector: map[string]string{"custom-machine-label": "required-value"},
+			},
+		},
+		{
+			name: "test invalid Instance with NUL in Machine label selector",
+			fields: fields{
+				Name:                 "test-name",
+				TenantID:             uuid.NewString(),
+				InstanceTypeID:       uuid.NewString(),
+				VpcID:                uuid.NewString(),
+				OperatingSystemID:    cutil.GetPtr(uuid.NewString()),
+				Interfaces:           []APIInterfaceCreateOrUpdateRequest{{SubnetID: cutil.GetPtr(uuid.NewString())}},
+				MachineLabelSelector: map[string]string{"custom-machine-label": "required\x00value"},
+			},
+			wantErr:          true,
+			wantErrorMessage: "machineLabelSelector: machine label selector keys and values must not contain NUL characters",
+		},
+		{
+			name: "test invalid Instance with too many Machine label selector",
+			fields: fields{
+				Name:                 "test-name",
+				TenantID:             uuid.NewString(),
+				InstanceTypeID:       uuid.NewString(),
+				VpcID:                uuid.NewString(),
+				OperatingSystemID:    cutil.GetPtr(uuid.NewString()),
+				Interfaces:           []APIInterfaceCreateOrUpdateRequest{{SubnetID: cutil.GetPtr(uuid.NewString())}},
+				MachineLabelSelector: tooManyMachineLabelSelector,
+			},
+			wantErr:          true,
+			wantErrorMessage: "machineLabelSelector: up to 10 key/value pairs can be specified in labels",
 		},
 		{
 			name: "test valid Instance with InfiniBand interface create request",
@@ -950,6 +1027,7 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 				DpuExtensionServiceDeployments: tt.fields.DpuExtensionServiceDeployments,
 				NVLinkInterfaces:               tt.fields.NVLinkInterfaces,
 				Labels:                         tt.fields.Labels,
+				MachineLabelSelector:           tt.fields.MachineLabelSelector,
 			}
 
 			err := icr.Validate()
@@ -972,6 +1050,10 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 }
 
 func TestAPIBatchInstanceCreateRequest_Validate(t *testing.T) {
+	tooManyMachineLabelSelector := make(map[string]string, util.LabelCountMax+1)
+	for i := 0; i <= util.LabelCountMax; i++ {
+		tooManyMachineLabelSelector[fmt.Sprintf("key-%d", i)] = "value"
+	}
 	tests := []struct {
 		name             string
 		req              APIBatchInstanceCreateRequest
@@ -992,6 +1074,49 @@ func TestAPIBatchInstanceCreateRequest_Validate(t *testing.T) {
 				},
 			},
 			wantErr: false,
+		},
+		{
+			name: "succeeds with Machine label selector",
+			req: APIBatchInstanceCreateRequest{
+				NamePrefix:           "test-batch",
+				Count:                2,
+				TenantID:             uuid.NewString(),
+				InstanceTypeID:       uuid.NewString(),
+				VpcID:                uuid.NewString(),
+				IpxeScript:           cutil.GetPtr("test ipxe"),
+				Interfaces:           []APIInterfaceCreateOrUpdateRequest{{SubnetID: cutil.GetPtr(uuid.NewString())}},
+				MachineLabelSelector: map[string]string{"custom-machine-label": "required-value"},
+			},
+		},
+		{
+			name: "fails with NUL in Machine label selector",
+			req: APIBatchInstanceCreateRequest{
+				NamePrefix:           "test-batch",
+				Count:                2,
+				TenantID:             uuid.NewString(),
+				InstanceTypeID:       uuid.NewString(),
+				VpcID:                uuid.NewString(),
+				IpxeScript:           cutil.GetPtr("test ipxe"),
+				Interfaces:           []APIInterfaceCreateOrUpdateRequest{{SubnetID: cutil.GetPtr(uuid.NewString())}},
+				MachineLabelSelector: map[string]string{"custom\x00machine-label": "required-value"},
+			},
+			wantErr:          true,
+			wantErrorMessage: "machineLabelSelector: machine label selector keys and values must not contain NUL characters",
+		},
+		{
+			name: "fails with too many Machine label selector",
+			req: APIBatchInstanceCreateRequest{
+				NamePrefix:           "test-batch",
+				Count:                2,
+				TenantID:             uuid.NewString(),
+				InstanceTypeID:       uuid.NewString(),
+				VpcID:                uuid.NewString(),
+				IpxeScript:           cutil.GetPtr("test ipxe"),
+				Interfaces:           []APIInterfaceCreateOrUpdateRequest{{SubnetID: cutil.GetPtr(uuid.NewString())}},
+				MachineLabelSelector: tooManyMachineLabelSelector,
+			},
+			wantErr:          true,
+			wantErrorMessage: "machineLabelSelector: up to 10 key/value pairs can be specified in labels",
 		},
 		{
 			name: "fails when any interface uses requested ip",
@@ -1025,6 +1150,133 @@ func TestAPIBatchInstanceCreateRequest_Validate(t *testing.T) {
 			if tt.wantErrorMessage != "" && err != nil {
 				assert.Contains(t, err.Error(), tt.wantErrorMessage)
 			}
+		})
+	}
+}
+
+func TestInstanceCreateRequestsValidatePowerProfile(t *testing.T) {
+	profiles := []struct {
+		name    string
+		value   *string
+		wantErr bool
+	}{
+		{name: "omitted"},
+		{name: "empty", value: cutil.GetPtr(""), wantErr: true},
+		{name: "non-empty", value: cutil.GetPtr("balanced")},
+	}
+
+	validators := []struct {
+		name     string
+		validate func(*string) error
+	}{
+		{
+			name: "single create",
+			validate: func(powerProfile *string) error {
+				return (APIInstanceCreateRequest{
+					Name:              "test-instance",
+					TenantID:          uuid.NewString(),
+					InstanceTypeID:    cutil.GetPtr(uuid.NewString()),
+					VpcID:             uuid.NewString(),
+					OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+					PowerProfile:      powerProfile,
+					Interfaces: []APIInterfaceCreateOrUpdateRequest{
+						{SubnetID: cutil.GetPtr(uuid.NewString())},
+					},
+				}).Validate()
+			},
+		},
+		{
+			name: "batch create",
+			validate: func(powerProfile *string) error {
+				return (APIBatchInstanceCreateRequest{
+					NamePrefix:        "test-batch",
+					Count:             2,
+					TenantID:          uuid.NewString(),
+					InstanceTypeID:    uuid.NewString(),
+					VpcID:             uuid.NewString(),
+					OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+					PowerProfile:      powerProfile,
+					Interfaces: []APIInterfaceCreateOrUpdateRequest{
+						{SubnetID: cutil.GetPtr(uuid.NewString())},
+					},
+				}).Validate()
+			},
+		},
+	}
+
+	for _, validator := range validators {
+		for _, profile := range profiles {
+			t.Run(validator.name+"/"+profile.name, func(t *testing.T) {
+				err := validator.validate(profile.value)
+				if profile.wantErr {
+					require.Error(t, err)
+					assert.Contains(t, err.Error(), "`powerProfile` must not be empty")
+					return
+				}
+				require.NoError(t, err)
+			})
+		}
+	}
+}
+
+func TestValidateMachineLabelSelector(t *testing.T) {
+	tooManyFilters := make(map[string]string, util.LabelCountMax+1)
+	for i := 0; i <= util.LabelCountMax; i++ {
+		tooManyFilters[fmt.Sprintf("key-%d", i)] = "value"
+	}
+
+	tests := []struct {
+		name    string
+		filters map[string]string
+		wantErr bool
+	}{
+		{
+			name: "empty",
+		},
+		{
+			name: "valid",
+			filters: map[string]string{
+				"failure-domain": "fd-a",
+				"power-domain":   "pd-2",
+			},
+		},
+		{
+			name:    "too many",
+			filters: tooManyFilters,
+			wantErr: true,
+		},
+		{
+			name:    "empty key",
+			filters: map[string]string{"": "value"},
+			wantErr: true,
+		},
+		{
+			name:    "empty value allowed",
+			filters: map[string]string{"key": ""},
+		},
+		{
+			name:    "NUL in key",
+			filters: map[string]string{"key\x00suffix": "value"},
+			wantErr: true,
+		},
+		{
+			name:    "NUL in value",
+			filters: map[string]string{"key": "value\x00suffix"},
+			wantErr: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateMachineLabelSelector(test.filters)
+			if !test.wantErr {
+				require.NoError(t, err)
+				return
+			}
+
+			require.Error(t, err)
+			assert.IsType(t, validation.Errors{}, err)
+			assert.Contains(t, err.Error(), "machineLabelSelector")
 		})
 	}
 }
@@ -1154,13 +1406,36 @@ func TestAPIInstanceCreateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 	imageOSDeactivated.IsActive = false
 	imageOSDeactivated.ID = uuid.New()
 
+	// Phone-home is enabled and the stored user-data has a phone-home URL,
+	// but it is not the configured one: what NICo wrote back when the
+	// configured URL was different.
+	osStaleURL := &cdbm.OperatingSystem{
+		ID:         uuid.New(),
+		Name:       "ab",
+		IpxeScript: cutil.GetPtr("original ipxe"),
+		UserData: cutil.GetPtr(`#cloud-config
+package_update: true
+phone_home:
+    post: all
+    url: http://169.254.169.254:7777/latest/meta-data/phone_home
+`),
+		PhoneHomeEnabled: true,
+		IsActive:         true,
+		Status:           cdbm.OperatingSystemStatusReady,
+		AllowOverride:    true,
+		Type:             cdbm.OperatingSystemTypeIPXE,
+		CreatedBy:        uuid.New(),
+	}
+
 	tests := []struct {
-		name         string
-		fields       fields
-		cfg          *config.Config
-		os           *cdbm.OperatingSystem
-		wantUserData *string
-		wantErr      bool
+		name                     string
+		fields                   fields
+		cfg                      *config.Config
+		os                       *cdbm.OperatingSystem
+		wantUserData             *string
+		userDataSearches         []string
+		userDataNegativeSearches []string
+		wantErr                  bool
 	}{
 		{
 			name: "ipxe os selected, os has user-data, no override allowed, user-data specified, should fail",
@@ -1435,6 +1710,52 @@ func TestAPIInstanceCreateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 			cfg:     cfg1,
 			os:      os,
 		},
+		{
+			name: "test valid Instance PhoneHome disabled create request, no userData override, OS blob has stale NICo phone-home URL",
+			fields: fields{
+				Name:              "test-name",
+				Description:       cutil.GetPtr("Test description"),
+				TenantID:          uuid.NewString(),
+				InstanceTypeID:    uuid.NewString(),
+				VpcID:             uuid.NewString(),
+				OperatingSystemID: cutil.GetPtr(osStaleURL.ID.String()),
+				UserData:          nil,
+				PhoneHomeEnabled:  cutil.GetPtr(false),
+			},
+			wantErr: false,
+			cfg:     cfg1,
+			os:      osStaleURL,
+			// NICo authored the OS blob's block, so it is removed by key
+			// without matching the URL: neither the key nor the stale URL
+			// survives, while the rest of the document is preserved.
+			userDataSearches:         []string{"package_update"},
+			userDataNegativeSearches: []string{"phone_home", "169.254.169.254"},
+		},
+		{
+			name: "test valid Instance PhoneHome disabled create request with caller-supplied userData carrying its own phone-home block",
+			fields: fields{
+				Name:              "test-name",
+				Description:       cutil.GetPtr("Test description"),
+				TenantID:          uuid.NewString(),
+				InstanceTypeID:    uuid.NewString(),
+				VpcID:             uuid.NewString(),
+				OperatingSystemID: cutil.GetPtr(osStaleURL.ID.String()),
+				UserData: cutil.GetPtr(`#cloud-config
+package_update: true
+phone_home:
+    post: all
+    url: https://collector.example.com/hook
+`),
+				PhoneHomeEnabled: cutil.GetPtr(false),
+			},
+			wantErr: false,
+			cfg:     cfg1,
+			os:      osStaleURL,
+			// The document being edited is the caller's, so removal stays
+			// URL-matched and their hook survives.
+			userDataSearches:         []string{"collector.example.com", "package_update"},
+			userDataNegativeSearches: []string{"169.254.169.254"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1466,6 +1787,19 @@ func TestAPIInstanceCreateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 				assert.Contains(t, *icr.UserData, *tt.wantUserData)
 			}
 
+			if len(tt.userDataSearches) > 0 {
+				require.NotNil(t, icr.UserData)
+				for _, search := range tt.userDataSearches {
+					assert.Contains(t, *icr.UserData, search)
+				}
+			}
+
+			if icr.UserData != nil {
+				for _, search := range tt.userDataNegativeSearches {
+					assert.NotContains(t, *icr.UserData, search)
+				}
+			}
+
 			if (icr.PhoneHomeEnabled != nil && *icr.PhoneHomeEnabled) || (icr.PhoneHomeEnabled == nil && tt.os != nil && tt.os.PhoneHomeEnabled) {
 				assert.NotNil(t, icr.UserData)
 				assert.Contains(t, *icr.UserData, tt.cfg.GetSitePhoneHomeUrl())
@@ -1473,6 +1807,145 @@ func TestAPIInstanceCreateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 
 			if icr.PhoneHomeEnabled != nil && !*icr.PhoneHomeEnabled {
 				assert.NotContains(t, *icr.UserData, tt.cfg.GetSitePhoneHomeUrl())
+			}
+		})
+	}
+}
+
+func TestAPIBatchInstanceCreateRequest_ValidateAndSetOperatingSystemData(t *testing.T) {
+	cfg1 := config.NewConfig()
+	cfg1.SetSitePhoneHomeUrl("http://localhost/local")
+
+	os := &cdbm.OperatingSystem{
+		ID:               uuid.New(),
+		Name:             "ab",
+		IpxeScript:       cutil.GetPtr("original ipxe"),
+		UserData:         cutil.GetPtr(util.TestCommonCloudInit),
+		PhoneHomeEnabled: true,
+		IsActive:         true,
+		Status:           cdbm.OperatingSystemStatusReady,
+		AllowOverride:    true,
+		Type:             cdbm.OperatingSystemTypeIPXE,
+		CreatedBy:        uuid.New(),
+	}
+
+	// Phone-home is enabled and the stored user-data has a phone-home URL,
+	// but it is not the configured one: what NICo wrote back when the
+	// configured URL was different.
+	osStaleURL := &cdbm.OperatingSystem{
+		ID:         uuid.New(),
+		Name:       "ab",
+		IpxeScript: cutil.GetPtr("original ipxe"),
+		UserData: cutil.GetPtr(`#cloud-config
+package_update: true
+phone_home:
+    post: all
+    url: http://169.254.169.254:7777/latest/meta-data/phone_home
+`),
+		PhoneHomeEnabled: true,
+		IsActive:         true,
+		Status:           cdbm.OperatingSystemStatusReady,
+		AllowOverride:    true,
+		Type:             cdbm.OperatingSystemTypeIPXE,
+		CreatedBy:        uuid.New(),
+	}
+
+	tests := []struct {
+		name                     string
+		request                  *APIBatchInstanceCreateRequest
+		os                       *cdbm.OperatingSystem
+		userDataSearches         []string
+		userDataNegativeSearches []string
+		wantErr                  bool
+	}{
+		{
+			name: "PhoneHome enabled from OS, no overrides, phone-home URL inserted",
+			request: &APIBatchInstanceCreateRequest{
+				NamePrefix:     "worker",
+				Count:          2,
+				TenantID:       uuid.NewString(),
+				InstanceTypeID: uuid.NewString(),
+				VpcID:          uuid.NewString(),
+			},
+			os:               os,
+			wantErr:          false,
+			userDataSearches: []string{cfg1.GetSitePhoneHomeUrl()},
+		},
+		{
+			name: "PhoneHome disabled in request, no userData override, OS blob has stale NICo phone-home URL",
+			request: &APIBatchInstanceCreateRequest{
+				NamePrefix:       "worker",
+				Count:            2,
+				TenantID:         uuid.NewString(),
+				InstanceTypeID:   uuid.NewString(),
+				VpcID:            uuid.NewString(),
+				PhoneHomeEnabled: cutil.GetPtr(false),
+			},
+			os:      osStaleURL,
+			wantErr: false,
+			// NICo authored the OS blob's block, so it is removed by key
+			// without matching the URL: neither the key nor the stale URL
+			// survives, while the rest of the document is preserved.
+			userDataSearches:         []string{"package_update"},
+			userDataNegativeSearches: []string{"phone_home", "169.254.169.254"},
+		},
+		{
+			name: "PhoneHome disabled in request with caller-supplied userData carrying its own phone-home block",
+			request: &APIBatchInstanceCreateRequest{
+				NamePrefix:       "worker",
+				Count:            2,
+				TenantID:         uuid.NewString(),
+				InstanceTypeID:   uuid.NewString(),
+				VpcID:            uuid.NewString(),
+				PhoneHomeEnabled: cutil.GetPtr(false),
+				UserData: cutil.GetPtr(`#cloud-config
+package_update: true
+phone_home:
+    post: all
+    url: https://collector.example.com/hook
+`),
+			},
+			os:      osStaleURL,
+			wantErr: false,
+			// The document being edited is the caller's, so removal stays
+			// URL-matched and their hook survives.
+			userDataSearches:         []string{"collector.example.com", "package_update"},
+			userDataNegativeSearches: []string{"169.254.169.254"},
+		},
+		{
+			name: "no OS and no iPXE script fails",
+			request: &APIBatchInstanceCreateRequest{
+				NamePrefix:     "worker",
+				Count:          2,
+				TenantID:       uuid.NewString(),
+				InstanceTypeID: uuid.NewString(),
+				VpcID:          uuid.NewString(),
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bicr := tt.request
+
+			err := bicr.ValidateAndSetOperatingSystemData(cfg1, tt.os)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+
+			if len(tt.userDataSearches) > 0 {
+				require.NotNil(t, bicr.UserData)
+				for _, search := range tt.userDataSearches {
+					assert.Contains(t, *bicr.UserData, search)
+				}
+			}
+
+			if bicr.UserData != nil {
+				for _, search := range tt.userDataNegativeSearches {
+					assert.NotContains(t, *bicr.UserData, search)
+				}
 			}
 		})
 	}
@@ -2092,6 +2565,55 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData_Phonehome(t 
 		PhoneHomeEnabled:         false,
 	}
 
+	// Phone-home is enabled and the stored user-data has a phone-home URL,
+	// but it is not the configured one: what NICo wrote back when the
+	// configured URL was different.
+	instanceStaleURL := &cdbm.Instance{
+		ID:               uuid.New(),
+		Name:             "",
+		IpxeScript:       cutil.GetPtr("#!ipxe 9ea0c946-29af-11ef-b798-df4626ad0292"),
+		PhoneHomeEnabled: true,
+		UserData: cutil.GetPtr(`#cloud-config
+package_update: true
+phone_home:
+    post: all
+    url: http://169.254.169.254:7777/latest/meta-data/phone_home
+`),
+	}
+
+	// Phone-home was never enabled, so the stored phone-home block is the
+	// caller's, not NICo's.
+	instanceForeignPhoneHome := &cdbm.Instance{
+		ID:               uuid.New(),
+		Name:             "",
+		IpxeScript:       cutil.GetPtr("#!ipxe 9ea0c946-29af-11ef-b798-df4626ad0292"),
+		PhoneHomeEnabled: false,
+		UserData: cutil.GetPtr(`#cloud-config
+package_update: true
+phone_home:
+    post: all
+    url: https://collector.example.com/hook
+`),
+	}
+
+	// Same drift, but stored on the OS the update request switches to.
+	osStaleURL := &cdbm.OperatingSystem{
+		ID:         uuid.New(),
+		Name:       "ab",
+		IpxeScript: cutil.GetPtr("original ipxe"),
+		UserData: cutil.GetPtr(`#cloud-config
+package_update: true
+phone_home:
+    post: all
+    url: http://169.254.169.254:7777/latest/meta-data/phone_home
+`),
+		PhoneHomeEnabled: true,
+		IsActive:         true,
+		Status:           cdbm.OperatingSystemStatusReady,
+		Type:             cdbm.OperatingSystemTypeIPXE,
+		AllowOverride:    true,
+	}
+
 	tests := []struct {
 		name                     string
 		request                  *APIInstanceUpdateRequest
@@ -2281,6 +2803,83 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData_Phonehome(t 
 				// It should not find the value of the OS-level user-data.
 				// This could be a case where the OS had user-data but it was intentionally emptied for the instance.
 				"d2def8d8-29b2-11ef-81e6-07a09293ef16",
+			},
+		},
+		{
+			name: "PhoneHome disabled in request, no user-data override, instance blob has stale NICo phone-home URL",
+			request: &APIInstanceUpdateRequest{
+				Name:             cutil.GetPtr("test-name"),
+				Description:      cutil.GetPtr("Test description"),
+				PhoneHomeEnabled: cutil.GetPtr(false),
+			},
+			wantErr:  false,
+			cfg:      cfg1,
+			instance: instanceStaleURL,
+			// NICo authored the stored block, so it is removed by key without
+			// matching the URL: neither the key nor the stale URL survives,
+			// while the rest of the document is preserved.
+			userDataSearches: []string{"package_update"},
+			userDataNegativeSearches: []string{
+				"phone_home",
+				"169.254.169.254",
+			},
+		},
+		{
+			name: "PhoneHome disabled in request with caller-supplied user-data, instance blob has stale NICo phone-home URL",
+			request: &APIInstanceUpdateRequest{
+				Name:             cutil.GetPtr("test-name"),
+				Description:      cutil.GetPtr("Test description"),
+				PhoneHomeEnabled: cutil.GetPtr(false),
+				UserData: cutil.GetPtr(`#cloud-config
+package_update: true
+phone_home:
+    post: all
+    url: https://collector.example.com/hook
+`),
+			},
+			wantErr:  false,
+			cfg:      cfg1,
+			instance: instanceStaleURL,
+			// The stored blob is NICo's, but the document being edited is the
+			// caller's, so removal stays URL-matched and their hook survives.
+			userDataSearches: []string{"collector.example.com", "package_update"},
+			userDataNegativeSearches: []string{
+				"169.254.169.254",
+			},
+		},
+		{
+			name: "PhoneHome disabled in request, no user-data override, instance blob carries a caller phone-home block",
+			request: &APIInstanceUpdateRequest{
+				Name:             cutil.GetPtr("test-name"),
+				Description:      cutil.GetPtr("Test description"),
+				PhoneHomeEnabled: cutil.GetPtr(false),
+			},
+			wantErr:  false,
+			cfg:      cfg1,
+			instance: instanceForeignPhoneHome,
+			// Phone-home was never enabled on the instance, so the stored
+			// block is the caller's: removal stays URL-matched and their
+			// hook survives.
+			userDataSearches: []string{"collector.example.com", "package_update"},
+		},
+		{
+			name: "PhoneHome disabled in request while switching base OS whose blob has stale NICo phone-home URL",
+			request: &APIInstanceUpdateRequest{
+				Name:              cutil.GetPtr("test-name"),
+				Description:       cutil.GetPtr("Test description"),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+				PhoneHomeEnabled:  cutil.GetPtr(false),
+			},
+			wantErr:  false,
+			cfg:      cfg1,
+			instance: instance3,
+			os:       osStaleURL,
+			// The new base OS's blob is what gets stored, and NICo authored
+			// its block, so it is removed by key without matching the URL.
+			userDataSearches: []string{"package_update"},
+			userDataNegativeSearches: []string{
+				"phone_home",
+				"169.254.169.254",
 			},
 		},
 	}

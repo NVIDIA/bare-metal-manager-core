@@ -104,12 +104,12 @@ fn comparison_interface(id: &str, vlan_id: u32, vni: u32) -> rpc::FlatInterfaceC
         function_type: rpc::InterfaceFunctionType::Physical.into(),
         vlan_id,
         vni,
-        gateway: "10.0.0.1/24".to_string(),
-        ip: "10.0.0.2".to_string(),
-        interface_prefix: "10.0.0.0/31".to_string(),
+        gateway: Some("10.0.0.1/24".to_string()),
+        ip: Some("10.0.0.2".to_string()),
+        interface_prefix: Some("10.0.0.0/31".to_string()),
         virtual_function_id: None,
         vpc_prefixes: vec!["10.0.0.0/8".to_string(), "172.16.0.0/12".to_string()],
-        prefix: "10.0.0.0/24".to_string(),
+        prefix: Some("10.0.0.0/24".to_string()),
         fqdn: format!("{id}.example.test"),
         booturl: Some("http://boot.example.test/ipxe".to_string()),
         vpc_vni: vni + 1_000,
@@ -230,8 +230,9 @@ fn comparison_network_config() -> ManagedHostNetworkConfigResponse {
     }
 }
 
-/// Selects the unchanged baseline or one response mutation that should
-/// invalidate the HBN skip decision.
+/// Selects the unchanged baseline or one response mutation used to verify the
+/// HBN skip decision. The address-list case intentionally remains a match
+/// because HBN does not consume the list and the fingerprint excludes it.
 #[derive(Clone, Copy, Debug)]
 enum RenderedInputChange {
     Unchanged,
@@ -242,6 +243,7 @@ enum RenderedInputChange {
     SiteFabricPrefix,
     AdminInterfaceVni,
     TenantInterfaceVni,
+    TenantInterfaceIp,
     TenantInterfaceAddresses,
     TenantVpcPrefix,
     TenantPeerPrefix,
@@ -256,6 +258,7 @@ enum RenderedInputChange {
 
 impl RenderedInputChange {
     /// Applies the selected case to the shared response.
+    #[allow(deprecated)]
     fn apply(self, config: &mut ManagedHostNetworkConfigResponse) {
         match self {
             Self::Unchanged => {}
@@ -282,15 +285,30 @@ impl RenderedInputChange {
                     .vni += 1;
             }
             Self::TenantInterfaceVni => config.tenant_interfaces[1].vni += 1,
+            Self::TenantInterfaceIp => {
+                config.tenant_interfaces[1].ip = Some("10.0.0.99".to_string());
+            }
             Self::TenantInterfaceAddresses => {
-                config.tenant_interfaces[1].addresses = vec![rpc::InterfaceAddressConfig {
-                    address_family: rpc::AddressFamily::V4.into(),
-                    gateway: "10.0.0.1/24".to_string(),
-                    ip: "10.0.0.2".to_string(),
-                    interface_prefix: "10.0.0.0/31".to_string(),
-                    prefix: "10.0.0.0/24".to_string(),
-                    svi_ip: Some("10.0.0.1".to_string()),
-                }];
+                config.tenant_interfaces[1].addresses = vec![
+                    rpc::InterfaceAddressConfig {
+                        address_family: rpc::AddressFamily::V4.into(),
+                        ip: "10.0.0.2".to_string(),
+                        interface_prefix: "10.0.0.0/31".to_string(),
+                        prefix: "10.0.0.0/24".to_string(),
+                        gateway: Some("10.0.0.1/24".to_string()),
+                        svi_ip: Some("10.0.0.1".to_string()),
+                        tenant_vrf_loopback_ip: Some("10.0.0.3".to_string()),
+                    },
+                    rpc::InterfaceAddressConfig {
+                        address_family: rpc::AddressFamily::V6.into(),
+                        ip: "2001:db8::1".to_string(),
+                        interface_prefix: "2001:db8::/127".to_string(),
+                        prefix: "2001:db8::/64".to_string(),
+                        gateway: None,
+                        svi_ip: Some("2001:db8::".to_string()),
+                        tenant_vrf_loopback_ip: None,
+                    },
+                ];
             }
             Self::TenantVpcPrefix => {
                 config.tenant_interfaces[1]
@@ -347,7 +365,34 @@ impl RenderedInputChange {
 fn current_network_version_never_matches_before_first_update() {
     let config = comparison_network_config();
 
-    assert!(!CurrentNetworkVersion::default().matches_versions_from(&config));
+    assert!(!CurrentNetworkVersion::default().matches_versions_from(&config, None));
+}
+
+/// The supplemental config file's path never changes between iterations, so
+/// only its content hash can invalidate the cache: an in-place edit or a
+/// removal must force a re-render even when the response is unchanged.
+#[test]
+fn current_network_version_tracks_supplemental_config_hash() {
+    const PATCH: Option<&str> = Some(r#"{"vrf": {"storage": {}}}"#);
+    const EDITED_PATCH: Option<&str> = Some(r#"{"vrf": null}"#);
+
+    let config = comparison_network_config();
+    // (scenario, content at last reconciliation, content now, still matches?)
+    for (scenario, recorded, current, expected) in [
+        ("unchanged content matches", PATCH, PATCH, true),
+        ("edited content invalidates", PATCH, EDITED_PATCH, false),
+        ("removed config invalidates", PATCH, None, false),
+        ("still-absent config matches", None, None, true),
+        ("newly added config invalidates", None, PATCH, false),
+    ] {
+        let mut current_version = CurrentNetworkVersion::default();
+        current_version.update_from(&config, recorded);
+        assert_eq!(
+            current_version.matches_versions_from(&config, current),
+            expected,
+            "{scenario}"
+        );
+    }
 }
 
 /// Every input consumed by HBN must invalidate the cache, and either
@@ -359,9 +404,9 @@ fn current_network_version_detects_rendered_input_changes() {
     value_scenarios!(run = |change| {
         let mut config = comparison_network_config();
         let mut current = CurrentNetworkVersion::default();
-        current.update_from(&config);
+        current.update_from(&config, None);
         change.apply(&mut config);
-        current.matches_versions_from(&config)
+        current.matches_versions_from(&config, None)
     };
         "unchanged configuration" {
             RenderedInputChange::Unchanged => true,
@@ -380,7 +425,7 @@ fn current_network_version_detects_rendered_input_changes() {
         "interface rendering inputs" {
             RenderedInputChange::AdminInterfaceVni => false,
             RenderedInputChange::TenantInterfaceVni => false,
-            RenderedInputChange::TenantInterfaceAddresses => false,
+            RenderedInputChange::TenantInterfaceIp => false,
             RenderedInputChange::TenantVpcPrefix => false,
             RenderedInputChange::TenantPeerPrefix => false,
             RenderedInputChange::TenantPeerVni => false,
@@ -388,6 +433,9 @@ fn current_network_version_detects_rendered_input_changes() {
             RenderedInputChange::InterfaceRoutingProfile => false,
             RenderedInputChange::NetworkSecurityGroup => false,
             RenderedInputChange::NetworkSecurityPolicyOverride => false,
+        }
+        "family-neutral address list is not an HBN rendering input" {
+            RenderedInputChange::TenantInterfaceAddresses => true,
         }
     );
 }
@@ -487,9 +535,9 @@ fn current_network_version_ignores_set_like_input_order() {
     value_scenarios!(run = |reordering| {
         let mut config = comparison_network_config();
         let mut current = CurrentNetworkVersion::default();
-        current.update_from(&config);
+        current.update_from(&config, None);
         reordering.apply(&mut config);
-        current.matches_versions_from(&config)
+        current.matches_versions_from(&config, None)
     };
         "top-level sets" {
             SetLikeInputReordering::DhcpServers => true,
@@ -585,9 +633,9 @@ fn current_network_version_preserves_semantically_significant_order() {
         let mut config = comparison_network_config();
         reordering.prepare(&mut config);
         let mut current = CurrentNetworkVersion::default();
-        current.update_from(&config);
+        current.update_from(&config, None);
         reordering.apply(&mut config);
-        current.matches_versions_from(&config)
+        current.matches_versions_from(&config, None)
     };
         "first-match interface order" {
             OrderSensitiveInputReordering::TenantInterfaces => false,
@@ -657,9 +705,9 @@ fn current_network_version_ignores_non_hbn_inputs() {
     value_scenarios!(run = |change| {
         let mut config = comparison_network_config();
         let mut current = CurrentNetworkVersion::default();
-        current.update_from(&config);
+        current.update_from(&config, None);
         change.apply(&mut config);
-        current.matches_versions_from(&config)
+        current.matches_versions_from(&config, None)
     };
         "inputs applied outside HBN rendering" {
             NonHbnInputChange::MinimumFunctioningLinks => true,

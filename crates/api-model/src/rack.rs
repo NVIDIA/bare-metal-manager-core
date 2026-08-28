@@ -457,86 +457,56 @@ impl Display for RackMaintenanceState {
 
 /// Sub-states of `RackMaintenanceState::ConfigureNmxCluster`.
 ///
-/// `Start` selects the configured RMS API. V1 advances into certificate
-/// configuration; V2 submits the asynchronous RMS workflow directly.
-/// `ConfigureCertificates` installs mTLS certificates on the V1 primary switch
-/// via Component Manager before fabric operations begin.
-/// `DisableScaleUpFabricState` disables ScaleUpFabric state on all scoped
-/// switches before `ConfigureScaleUpFabricManager` selects, persists, and
-/// configures only the primary switch. `WaitForFabricStatus` polls
-/// `BatchGetScaleUpFabricServiceStatus` and persists the per-switch
-/// `fabric_manager_status` before advancing.
+/// `Start` submits the asynchronous RMS ScaleUpFabricManager workflow.
+/// `WaitForScaleUpFabricManagerJob` polls the submitted job; after it
+/// completes, NICo reads the observed fabric status, validates the
+/// RMS-selected primary, persists it with the per-switch Fabric Manager
+/// status, and advances to the next requested maintenance activity.
+///
+/// The remaining variants name sub-states of a workflow this version does not
+/// run. A `controller_state` row can still hold one, so they are decoded to
+/// keep that row from failing the batch queries that load every rack.
+/// Maintenance cannot resume from them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConfigureNmxClusterState {
     Start,
-    ConfigureCertificates {
-        configure_certificate: ConfigureNmxClusterCertificateState,
-    },
-    DisableScaleUpFabricState,
-    ConfigureScaleUpFabricManager,
 
-    /// Polls the asynchronous V2 configuration job.
-    ///
-    /// After the job completes, NICo reads the observed fabric status,
-    /// validates the RMS-selected primary, persists it with the per-switch
-    /// Fabric Manager status, and advances to the next requested maintenance
-    /// activity.
     WaitForScaleUpFabricManagerJob {
-        /// RMS job identifier returned by V2 submission.
+        /// RMS job identifier returned by submission.
         job_id: String,
     },
 
+    /// Retired sub-state. The braces make this a struct variant, which absorbs
+    /// the payload the retired workflow wrote; a unit variant would reject it.
+    ConfigureCertificates {},
+
+    /// Retired sub-state.
+    DisableScaleUpFabricState,
+
+    /// Retired sub-state.
+    ConfigureScaleUpFabricManager,
+
+    /// Retired sub-state.
     WaitForFabricStatus,
-}
-
-/// Sub-states of `ConfigureNmxClusterState::ConfigureCertificates`.
-///
-/// `Start` submits a certificate configuration job for the primary switch.
-/// `WaitForComplete` polls the returned RMS job id until it finishes.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ConfigureNmxClusterCertificateState {
-    Start,
-    WaitForComplete {
-        jobs: Vec<SwitchConfigureCertificateJob>,
-    },
-}
-
-/// Tracks an in-flight switch certificate configuration job during NMX cluster
-/// maintenance.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SwitchConfigureCertificateJob {
-    pub switch_id: SwitchId,
-    pub job_id: String,
 }
 
 impl Display for ConfigureNmxClusterState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ConfigureNmxClusterState::Start => write!(f, "Start"),
-            ConfigureNmxClusterState::ConfigureCertificates {
-                configure_certificate,
-            } => write!(f, "ConfigureCertificates({configure_certificate})"),
+            ConfigureNmxClusterState::WaitForScaleUpFabricManagerJob { job_id } => {
+                write!(f, "WaitForScaleUpFabricManagerJob({job_id})")
+            }
+            ConfigureNmxClusterState::ConfigureCertificates {} => {
+                write!(f, "ConfigureCertificates")
+            }
             ConfigureNmxClusterState::DisableScaleUpFabricState => {
                 write!(f, "DisableScaleUpFabricState")
             }
             ConfigureNmxClusterState::ConfigureScaleUpFabricManager => {
                 write!(f, "ConfigureScaleUpFabricManager")
             }
-            ConfigureNmxClusterState::WaitForScaleUpFabricManagerJob { job_id } => {
-                write!(f, "WaitForScaleUpFabricManagerJob({job_id})")
-            }
             ConfigureNmxClusterState::WaitForFabricStatus => write!(f, "WaitForFabricStatus"),
-        }
-    }
-}
-
-impl Display for ConfigureNmxClusterCertificateState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ConfigureNmxClusterCertificateState::Start => write!(f, "Start"),
-            ConfigureNmxClusterCertificateState::WaitForComplete { jobs } => {
-                write!(f, "WaitForComplete({} jobs)", jobs.len())
-            }
         }
     }
 }
@@ -890,6 +860,70 @@ mod tests {
     use carbide_uuid::switch::{SwitchIdSource, SwitchType};
 
     use super::*;
+
+    // ConfigureNmxClusterState wire compatibility
+
+    /// Pins the shapes a `controller_state` row can hold for a rack that was
+    /// mid-maintenance under the retired synchronous workflow. Decoding these
+    /// keeps one such row from failing the batch queries that load every rack.
+    #[test]
+    fn configure_nmx_cluster_state_decodes_retired_sub_states() {
+        for (encoded, expected) in [
+            (
+                serde_json::json!("DisableScaleUpFabricState"),
+                ConfigureNmxClusterState::DisableScaleUpFabricState,
+            ),
+            (
+                serde_json::json!("ConfigureScaleUpFabricManager"),
+                ConfigureNmxClusterState::ConfigureScaleUpFabricManager,
+            ),
+            (
+                serde_json::json!("WaitForFabricStatus"),
+                ConfigureNmxClusterState::WaitForFabricStatus,
+            ),
+            (
+                serde_json::json!({"ConfigureCertificates": {"configure_certificate": "Start"}}),
+                ConfigureNmxClusterState::ConfigureCertificates {},
+            ),
+            (
+                serde_json::json!({
+                    "ConfigureCertificates": {
+                        "configure_certificate": {
+                            "WaitForComplete": {"jobs": [{"switch_id": "s", "job_id": "j"}]}
+                        }
+                    }
+                }),
+                ConfigureNmxClusterState::ConfigureCertificates {},
+            ),
+        ] {
+            let decoded: ConfigureNmxClusterState = serde_json::from_value(encoded.clone())
+                .unwrap_or_else(|error| panic!("{encoded} should decode: {error}"));
+
+            assert_eq!(decoded, expected);
+        }
+    }
+
+    #[test]
+    fn rack_state_decodes_retired_nmx_sub_state_without_failing_the_row() {
+        let persisted = serde_json::json!({
+            "state": "maintenance",
+            "maintenance_state": {
+                "ConfigureNmxCluster": {"configure_nmx_cluster": "WaitForFabricStatus"}
+            }
+        });
+
+        let state: RackState =
+            serde_json::from_value(persisted).expect("persisted rack state should decode");
+
+        assert_eq!(
+            state,
+            RackState::Maintenance {
+                maintenance_state: RackMaintenanceState::ConfigureNmxCluster {
+                    configure_nmx_cluster: ConfigureNmxClusterState::WaitForFabricStatus,
+                },
+            }
+        );
+    }
 
     // ── MaintenanceScope ────────────────────────────────────────────────
 

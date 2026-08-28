@@ -90,8 +90,7 @@ pub fn instance_status_from_config_and_observation(
 ) -> Result<InstanceStatus, RpcDataConversionError> {
     let mut instance_config_synced = SyncState::Synced;
 
-    let operator_managed_networking =
-        !network_config.interfaces.is_empty() && network_config.is_host_inband();
+    let operator_managed_networking = network_config.uses_operator_managed_networking();
 
     for network_obs in observations.network.values() {
         if let Some(version_obs) = network_obs.instance_config_version
@@ -124,15 +123,17 @@ pub fn instance_status_from_config_and_observation(
         );
 
     let extension_services =
-        model::instance::status::extension_service::InstanceExtensionServicesStatus::from_config_and_observations(
+        model::instance::status::extension_service::InstanceExtensionServicesStatus::from_config_and_type_observations(
             &used_dpu_ids,
             extension_services_config,
             &observations.extension_services,
+            delete_requested,
         );
     let extension_services_ready =
         model::instance::status::extension_service::is_extension_services_ready(
             &extension_services,
         );
+
     let nvlink = model::instance::status::nvlink::InstanceNvLinkStatus::from_config_and_observation(
         nvlink_config,
         nvlink_status,

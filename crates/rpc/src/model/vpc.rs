@@ -39,10 +39,8 @@ impl From<rpc::forge::VpcSearchFilter> for VpcSearchFilter {
     }
 }
 
-#[allow(deprecated)]
 impl From<Vpc> for rpc::forge::Vpc {
     fn from(src: Vpc) -> Self {
-        let allocated_vni = src.status.vni.map(|v| v as u32);
         let desired_vni = src.config.vni.map(|v| v as u32);
         let virt_type =
             rpc::forge::VpcVirtualizationType::from(src.config.network_virtualization_type) as i32;
@@ -74,29 +72,18 @@ impl From<Vpc> for rpc::forge::Vpc {
             metadata,
 
             config: Some(rpc::forge::VpcConfig {
-                tenant_organization_id: src.config.tenant_organization_id.clone(),
-                tenant_keyset_id: src.config.tenant_keyset_id.clone(),
+                tenant_organization_id: src.config.tenant_organization_id,
+                tenant_keyset_id: src.config.tenant_keyset_id,
                 network_virtualization_type: Some(virt_type),
-                network_security_group_id: nsg_id.clone(),
+                network_security_group_id: nsg_id,
                 default_nvlink_logical_partition_id: src.config.default_nvlink_logical_partition_id,
                 vni: desired_vni,
-                routing_profile_type: src.config.routing_profile_type.clone(),
+                routing_profile_type: src.config.routing_profile_type,
                 routing_profile_overrides,
                 power_resource_group: src.config.power_resource_group.clone(),
                 slaac_enabled: Some(src.config.slaac_enabled),
             }),
             status: Some(rpc::forge::VpcStatus::from(src.status)),
-
-            // Deprecated flat fields - populated for external client compatibility.
-            // Remove after rest component use VpcConfig/VpcStatus
-            tenant_organization_id: src.config.tenant_organization_id,
-            tenant_keyset_id: src.config.tenant_keyset_id,
-            deprecated_vni: allocated_vni,
-            vni: desired_vni,
-            network_virtualization_type: Some(virt_type),
-            network_security_group_id: nsg_id,
-            default_nvlink_logical_partition_id: src.config.default_nvlink_logical_partition_id,
-            routing_profile_type: src.config.routing_profile_type,
         }
     }
 }
@@ -421,8 +408,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(deprecated)]
-    fn vpc_to_rpc_populates_structured_and_deprecated_flat_fields() {
+    fn vpc_to_rpc_populates_structured_fields() {
         let vpc = sample_vpc();
         let rpc_vpc = rpc::forge::Vpc::from(vpc);
 
@@ -440,17 +426,6 @@ mod tests {
 
         let status = rpc_vpc.status.as_ref().expect("status must be set");
         assert_eq!(status.vni, Some(100));
-
-        assert_eq!(rpc_vpc.tenant_organization_id, "tenant-1");
-        assert_eq!(rpc_vpc.tenant_keyset_id.as_deref(), Some("keyset-1"));
-        assert_eq!(rpc_vpc.vni, Some(42));
-        assert_eq!(rpc_vpc.deprecated_vni, Some(100));
-        assert_eq!(rpc_vpc.routing_profile_type.as_deref(), Some("EXTERNAL"));
-        assert_eq!(
-            rpc_vpc.network_virtualization_type,
-            Some(rpc::forge::VpcVirtualizationType::Fnn as i32)
-        );
-        assert_eq!(status.vni, rpc_vpc.deprecated_vni);
     }
 
     #[test]

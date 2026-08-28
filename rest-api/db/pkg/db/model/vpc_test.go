@@ -1753,14 +1753,6 @@ func TestVpc_ToProto(t *testing.T) {
 		require.NotNil(t, got.Status)
 		require.NotNil(t, got.Status.Vni)
 		assert.Equal(t, uint32(activeVni), *got.Status.Vni)
-
-		// Deprecated flat mirrors are no longer populated.
-		assert.Empty(t, got.TenantOrganizationId)
-		assert.Nil(t, got.NetworkVirtualizationType)
-		assert.Nil(t, got.Vni)
-		assert.Nil(t, got.DeprecatedVni)
-		assert.Nil(t, got.RoutingProfileType)
-		assert.Nil(t, got.NetworkSecurityGroupId)
 	})
 
 	t.Run("nil description and labels yield zero-value metadata", func(t *testing.T) {
@@ -1928,12 +1920,7 @@ func TestVpc_FromProto(t *testing.T) {
 		}
 	})
 
-	t.Run("clears stale fields and ignores deprecated flat fields", func(t *testing.T) {
-		// A fully populated receiver plus a proto carrying only the
-		// deprecated flat mirrors (no `config`/`status`) proves two
-		// properties at once: every optional field is reset to its zero
-		// value (clean reset, not a partial merge) and none of the flat
-		// values leak into the entity.
+	t.Run("clears stale fields when structured fields are absent", func(t *testing.T) {
 		staleNvllp := uuid.New()
 		staleNSG := "stale-nsg"
 		staleVirt := VpcFNN
@@ -1941,13 +1928,6 @@ func TestVpc_FromProto(t *testing.T) {
 		staleRequested := 7000
 		staleActive := 7001
 		staleDesc := "stale"
-
-		flatNvllp := uuid.New()
-		flatNSG := "nsg-flat"
-		flatVirt := corev1.VpcVirtualizationType_FNN
-		flatRequestedVni := uint32(15001)
-		flatAllocatedVni := uint32(15002)
-		flatRouting := "EXTERNAL"
 
 		v := &Vpc{
 			ID:                        id,
@@ -1965,15 +1945,8 @@ func TestVpc_FromProto(t *testing.T) {
 			Labels:                    map[string]string{"old": "val"},
 		}
 		v.FromProto(&corev1.Vpc{
-			Id:                              &corev1.VpcId{Value: id.String()},
-			TenantOrganizationId:            "org-flat",
-			NetworkSecurityGroupId:          &flatNSG,
-			NetworkVirtualizationType:       &flatVirt,
-			Vni:                             &flatRequestedVni,
-			DeprecatedVni:                   &flatAllocatedVni,
-			RoutingProfileType:              &flatRouting,
-			DefaultNvlinkLogicalPartitionId: &corev1.NVLinkLogicalPartitionId{Value: flatNvllp.String()},
-			Metadata:                        &corev1.Metadata{Name: "reset"},
+			Id:       &corev1.VpcId{Value: id.String()},
+			Metadata: &corev1.Metadata{Name: "reset"},
 		})
 
 		assert.Equal(t, "reset", v.Name)

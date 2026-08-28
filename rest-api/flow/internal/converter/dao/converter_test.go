@@ -389,6 +389,26 @@ func TestComponentConversion(t *testing.T) {
 	assert.Equal(t, &daoComponent, ComponentTo(&internalComponent, rackID))
 }
 
+func TestComponentFromNVLDomainMembership(t *testing.T) {
+	domainID := uuid.New()
+	tests := []struct {
+		name string
+		rack *model.Rack
+		want uuid.UUID
+	}{
+		{name: "rack relation not loaded"},
+		{name: "rack is unassigned", rack: &model.Rack{}},
+		{name: "rack is assigned", rack: &model.Rack{NVLDomainID: domainID}, want: domainID},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ComponentFrom(model.Component{Rack: tt.rack})
+			assert.Equal(t, tt.want, got.NVLDomainID)
+		})
+	}
+}
+
 func TestComponentConversionWithComponentID(t *testing.T) {
 	compID := uuid.New()
 	rackID := uuid.New()
@@ -454,6 +474,7 @@ func TestComponentConversionWithComponentID(t *testing.T) {
 func TestRackConversion(t *testing.T) {
 	// Test RackFrom and RackTo
 	rackID := uuid.New()
+	domainID := uuid.New()
 	description := map[string]any{"description": "A rack", "model": "NVL72"}
 	loc := `{"region":"US-West","data_center":"Santa Clara","room":"Mars","position":"Row 5"}`
 
@@ -465,6 +486,7 @@ func TestRackConversion(t *testing.T) {
 		Description:  description,
 		Location:     utils.JSONStringToMap("location", loc),
 		Components:   []model.Component{},
+		NVLDomainID:  domainID,
 	}
 
 	internalRack := rack.Rack{
@@ -476,12 +498,23 @@ func TestRackConversion(t *testing.T) {
 			SerialNumber: "67890",
 			Description:  "A rack",
 		},
-		Loc:        location.New([]byte(loc)),
-		Components: []component.Component{},
+		Loc:         location.New([]byte(loc)),
+		Components:  []component.Component{},
+		NVLDomainID: domainID,
 	}
 
 	assert.Equal(t, &internalRack, RackFrom(&daoRack))
 	assert.Equal(t, &daoRack, RackTo(&internalRack))
+}
+
+func TestRackFromPropagatesNVLDomainMembershipToComponents(t *testing.T) {
+	domainID := uuid.New()
+	got := RackFrom(&model.Rack{
+		NVLDomainID: domainID,
+		Components:  []model.Component{{ID: uuid.New()}},
+	})
+
+	assert.Equal(t, domainID, got.Components[0].NVLDomainID)
 }
 
 func TestRackMetadataFromDescription(t *testing.T) {

@@ -19,11 +19,10 @@ use ::rpc::model::machine::get_action_for_dpu_state;
 use ::rpc::{forge as rpc, forge_agent_control_response as fac, scout_firmware_upgrade as sfu};
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
-    BomValidating, CleanupContext, CleanupState, FailureCause, FailureDetails, FailureSource,
-    HostReprovisionState, InstanceState, MachineState, MachineValidatingState, ManagedHostState,
-    MeasuringState, StateMachineArea, ValidationState,
+    BomValidating, CleanupContext, CleanupState, DecommissioningState, DeconfiguringHostState,
+    FailureCause, FailureDetails, FailureSource, HostReprovisionState, InstanceState, MachineState,
+    MachineValidatingState, ManagedHostState, MeasuringState, StateMachineArea, ValidationState,
 };
-use model::machine_validation::{MachineValidationState, MachineValidationStatus};
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -216,26 +215,25 @@ pub(crate) async fn forge_agent_control(
                     "Machine validation progress reported by scout",
                 );
                 if *is_enabled {
-                    db::machine_validation::update_status(
-                        &mut txn,
-                        id,
-                        MachineValidationStatus {
-                            state: MachineValidationState::InProgress,
-                            ..MachineValidationStatus::default()
-                        },
-                    )
-                    .await?;
-                    let machine_validation =
-                        db::machine_validation::find_by_id(&mut txn, id).await?;
-                    (
-                        Action::MachineValidation(fac::MachineValidation {
-                            is_enabled: true,
-                            context: context.clone(),
-                            validation_id: Some(*id),
-                            filter: Some(machine_validation.filter.unwrap_or_default().into()),
-                        }),
-                        Some(txn),
-                    )
+                    if let Some(machine_validation) =
+                        db::machine_validation::mark_in_progress_if_active(&mut txn, id).await?
+                    {
+                        (
+                            Action::MachineValidation(fac::MachineValidation {
+                                is_enabled: true,
+                                context: context.clone(),
+                                validation_id: Some(*id),
+                                filter: Some(machine_validation.filter.unwrap_or_default().into()),
+                            }),
+                            Some(txn),
+                        )
+                    } else {
+                        tracing::info!(
+                            machine_validation_id = %id,
+                            "Skipping machine validation dispatch because the run is no longer active"
+                        );
+                        (Action::noop(), Some(txn))
+                    }
                 } else {
                     // This avoids sending Machine validation command scout
                     tracing::info!("Skipped machine validation");
@@ -329,6 +327,26 @@ pub(crate) async fn forge_agent_control(
                             machine_id = %machine_id,
                             error = %e,
                             "Failed to process Scout request",
+                        );
+                        (Action::noop(), None)
+                    }
+                }
+            }
+
+            ManagedHostState::Decommissioning {
+                decommissioning_state:
+                    DecommissioningState::DeconfiguringHost {
+                        deconfiguring_state: DeconfiguringHostState::WaitForSuperNicLockdown,
+                    },
+            } => {
+                txn.commit().await?;
+                match crate::handlers::svpc::process_scout_req(api, machine_id).await {
+                    Ok(action) => (action, None),
+                    Err(error) => {
+                        tracing::error!(
+                            machine_id = %machine_id,
+                            error = %error,
+                            "Failed to build SuperNIC unlock action during host decommissioning",
                         );
                         (Action::noop(), None)
                     }

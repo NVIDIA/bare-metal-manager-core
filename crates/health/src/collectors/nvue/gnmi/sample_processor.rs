@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use carbide_utils::none_if_empty::NoneIfEmpty;
+use carbide_uuid::rack::RackId;
 
 use super::client::{typed_value_to_f64, typed_value_to_string};
 use super::proto::{self, PathElem};
@@ -50,6 +51,7 @@ impl GnmiSampleProcessor {
                 tracing::warn!(
                     grpc_status_code = e.code,
                     error = %e.message,
+                    rack_id = self.event_context.rack_id().map(tracing::field::display),
                     "nvue_gnmi SAMPLE: server error in stream"
                 );
                 return;
@@ -99,6 +101,14 @@ impl GnmiSampleProcessor {
             } else if let Some(comp) = find_elem_key_ref(&combined, "component", "name") {
                 entities.insert(("component", comp));
                 self.process_component_metric(&combined, comp, val);
+            } else if let Some(sensor) = find_elem_key_ref(&combined, "leak-sensor", "id") {
+                entities.insert(("leak-sensor", sensor));
+
+                if leaf_matches(&combined, &["leak-sensor", "state", "state"]) {
+                    let current = leakage_state_to_state(typed_value_to_string(val).as_deref());
+
+                    self.emit_state_set("leakage_state", "sensor", sensor, current, LEAKAGE_STATES);
+                }
             } else if combined.iter().any(|e| e.name == "platform-general") {
                 // switch-level singleton: no name key, counted as one entity.
                 entities.insert(("platform-general", ""));
@@ -127,7 +137,9 @@ impl GnmiSampleProcessor {
         } else if let Some(metric_type) = numeric_interface_leaf(elems) {
             match typed_value_to_f64(val) {
                 Some(v) => self.emit_iface(metric_type.name, iface_name, v, metric_type.unit),
-                None => debug_unmapped_value(elems, val, metric_type.name),
+                None => {
+                    debug_unmapped_value(elems, val, metric_type.name, self.event_context.rack_id())
+                }
             }
         } else if leaf_matches(elems, &["infiniband", "state", "physical-port-state"]) {
             let current = physical_port_to_state(typed_value_to_string(val).as_deref());
@@ -150,17 +162,32 @@ impl GnmiSampleProcessor {
         } else if leaf_matches(elems, &["infiniband", "state", "speed"]) {
             match link_speed_to_gbps(typed_value_to_string(val).as_deref()) {
                 Some(v) => self.emit_iface("interface_link_speed_active", iface_name, v, "gbps"),
-                None => debug_unmapped_value(elems, val, "interface_link_speed_active"),
+                None => debug_unmapped_value(
+                    elems,
+                    val,
+                    "interface_link_speed_active",
+                    self.event_context.rack_id(),
+                ),
             }
         } else if leaf_matches(elems, &["infiniband", "state", "width"]) {
             match link_width_to_f64(typed_value_to_string(val).as_deref()) {
                 Some(v) => self.emit_iface("interface_link_width_active", iface_name, v, "lanes"),
-                None => debug_unmapped_value(elems, val, "interface_link_width_active"),
+                None => debug_unmapped_value(
+                    elems,
+                    val,
+                    "interface_link_width_active",
+                    self.event_context.rack_id(),
+                ),
             }
         } else if leaf_matches(elems, &["infiniband", "state", "supported-widths"]) {
             match link_width_to_f64(typed_value_to_string(val).as_deref()) {
                 Some(v) => self.emit_iface("interface_supported_width", iface_name, v, "lanes"),
-                None => debug_unmapped_value(elems, val, "interface_supported_width"),
+                None => debug_unmapped_value(
+                    elems,
+                    val,
+                    "interface_supported_width",
+                    self.event_context.rack_id(),
+                ),
             }
         } else if leaf_matches(elems, &["phy-diag", "state", "phy-manager-state"]) {
             let current = phy_manager_to_state(typed_value_to_string(val).as_deref());
@@ -382,7 +409,7 @@ impl GnmiSampleProcessor {
 
         match typed_value_to_f64(val) {
             Some(v) => self.emit_switch(metric_type, v, unit),
-            None => debug_unmapped_value(elems, val, metric_type),
+            None => debug_unmapped_value(elems, val, metric_type, self.event_context.rack_id()),
         }
     }
 
@@ -889,6 +916,18 @@ const FEC_HIST_NAMES: [&str; 16] = [
     "interface_fec_hist_15",
 ];
 
+const LEAKAGE_STATES: &[&str] = &["ok", "leak", "unknown"];
+
+/// Maps NVUE leakage sensor strings to the emitted StateSet domain.
+/// Missing or unrecognized values are emitted as `unknown`.
+fn leakage_state_to_state(state: Option<&str>) -> &'static str {
+    match state.map(str::trim) {
+        Some(s) if s.eq_ignore_ascii_case("ok") => "ok",
+        Some(s) if s.eq_ignore_ascii_case("leak") => "leak",
+        _ => "unknown",
+    }
+}
+
 const OPER_STATUS_STATES: &[&str] = &["up", "down"];
 
 /// oper-status string -> current StateSet state. "up" when the source reads
@@ -991,11 +1030,17 @@ fn link_speed_to_gbps(speed: Option<&str>) -> Option<f64> {
 }
 
 /// Log when an interface leaf that matched a known mapping but value wasn't caught.
-fn debug_unmapped_value(elems: &[&PathElem], val: &proto::TypedValue, metric_type: &str) {
+fn debug_unmapped_value(
+    elems: &[&PathElem],
+    val: &proto::TypedValue,
+    metric_type: &str,
+    rack_id: Option<&RackId>,
+) {
     tracing::debug!(
         leaf = %leaf_path(elems),
         raw = ?typed_value_to_string(val),
         metric_type,
+        rack_id = rack_id.map(tracing::field::display),
         "nvue_gnmi SAMPLE: matched leaf but value coercion returned None; dropping"
     );
 }
@@ -1315,6 +1360,76 @@ mod tests {
     }
 
     #[test]
+    fn leak_sensor_states_emit_distinct_state_sets() {
+        let sink = Arc::new(CapturingSink::default());
+        let mut proc = test_processor();
+        proc.data_sink = Some(sink.clone());
+
+        let cases = [("LEAK0", "ok"), ("LEAK1", "leak"), ("LEAK2", "unknown")];
+
+        let notification = proto::Notification {
+            timestamp: 0,
+            prefix: None,
+            update: cases
+                .iter()
+                .map(|(sensor, state)| proto::Update {
+                    path: Some(proto::Path {
+                        elem: vec![
+                            make_path_elem("platform-general", &[]),
+                            make_path_elem("leak-sensors", &[]),
+                            make_path_elem("leak-sensor", &[("id", sensor)]),
+                            make_path_elem("state", &[]),
+                            make_path_elem("state", &[]),
+                        ],
+                        ..Default::default()
+                    }),
+                    val: Some(make_typed_value_string(state)),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        };
+
+        assert_eq!(proc.process_notification(&notification), cases.len());
+
+        let events = sink.events.lock().expect("lock poisoned");
+
+        let samples = events
+            .iter()
+            .map(|(_, event)| {
+                let CollectorEvent::Metric(sample) = event else {
+                    panic!("expected a Metric event");
+                };
+
+                sample.as_ref()
+            })
+            .collect::<Vec<_>>();
+
+        for (sensor, state) in cases {
+            let sensor_samples = samples
+                .iter()
+                .copied()
+                .filter(|sample| {
+                    sample
+                        .labels
+                        .iter()
+                        .any(|(key, value)| key == "sensor" && value == sensor)
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+
+            assert_state_set(
+                &sensor_samples,
+                "leakage_state",
+                "sensor",
+                sensor,
+                LEAKAGE_STATES,
+                state,
+            );
+        }
+    }
+
+    #[test]
     fn test_process_notification_multiple_updates() {
         let proc = test_processor();
         let notification = proto::Notification {
@@ -1434,39 +1549,6 @@ mod tests {
     }
 
     #[test]
-    fn test_process_notification_effective_ber() {
-        let proc = test_processor();
-        let notification = proto::Notification {
-            timestamp: 0,
-            prefix: Some(proto::Path {
-                elem: vec![
-                    make_path_elem("interfaces", &[]),
-                    make_path_elem("interface", &[("name", "nvl1")]),
-                ],
-                ..Default::default()
-            }),
-            update: vec![proto::Update {
-                path: Some(proto::Path {
-                    elem: vec![
-                        make_path_elem("phy-diag", &[]),
-                        make_path_elem("state", &[]),
-                        make_path_elem("effective-ber", &[]),
-                    ],
-                    ..Default::default()
-                }),
-                val: Some(proto::TypedValue {
-                    value: Some(proto::typed_value::Value::DoubleVal(1.5e-12)),
-                }),
-                ..Default::default()
-            }],
-            ..Default::default()
-        };
-
-        let count = proc.process_notification(&notification);
-        assert_eq!(count, 1);
-    }
-
-    #[test]
     fn test_process_notification_symbol_ber_and_link_down_events() {
         let proc = test_processor();
         let notification = proto::Notification {
@@ -1506,37 +1588,6 @@ mod tests {
                     ..Default::default()
                 },
             ],
-            ..Default::default()
-        };
-
-        let count = proc.process_notification(&notification);
-        assert_eq!(count, 1);
-    }
-
-    #[test]
-    fn test_process_notification_out_errors() {
-        let proc = test_processor();
-        let notification = proto::Notification {
-            timestamp: 0,
-            prefix: Some(proto::Path {
-                elem: vec![
-                    make_path_elem("interfaces", &[]),
-                    make_path_elem("interface", &[("name", "nvl3")]),
-                ],
-                ..Default::default()
-            }),
-            update: vec![proto::Update {
-                path: Some(proto::Path {
-                    elem: vec![
-                        make_path_elem("state", &[]),
-                        make_path_elem("counters", &[]),
-                        make_path_elem("out-errors", &[]),
-                    ],
-                    ..Default::default()
-                }),
-                val: Some(make_typed_value_uint(99)),
-                ..Default::default()
-            }],
             ..Default::default()
         };
 
@@ -1828,317 +1879,6 @@ mod tests {
                     .any(|(k, v)| k == entity_label && v == entity_id),
                 "{metric_type} state {state}: missing entity label {entity_label}={entity_id}"
             );
-        }
-    }
-
-    #[test]
-    fn test_interface_numeric_leaf_table_mappings() {
-        // (leaf tail, expected metric_type, expected unit)
-        let cases: &[(&[&str], &str, &str)] = &[
-            (
-                &["state", "counters", "in-errors"],
-                "interface_in_errors",
-                "count",
-            ),
-            (
-                &["state", "counters", "out-errors"],
-                "interface_out_errors",
-                "count",
-            ),
-            (
-                &["state", "counters", "out-discards"],
-                "interface_out_discards",
-                "count",
-            ),
-            (
-                &["state", "counters", "in-octets"],
-                "interface_in_octets",
-                "bytes",
-            ),
-            (
-                &["state", "counters", "out-octets"],
-                "interface_out_octets",
-                "bytes",
-            ),
-            (
-                &["state", "counters", "in-pkts"],
-                "interface_in_packets",
-                "count",
-            ),
-            (
-                &["state", "counters", "out-pkts"],
-                "interface_out_packets",
-                "count",
-            ),
-            (
-                &["infiniband", "state", "counters", "port", "link-downed"],
-                "interface_link_downed",
-                "count",
-            ),
-            (
-                &[
-                    "infiniband",
-                    "state",
-                    "counters",
-                    "port",
-                    "link-error-recovery",
-                ],
-                "interface_link_error_recovery",
-                "count",
-            ),
-            (
-                &[
-                    "infiniband",
-                    "state",
-                    "counters",
-                    "port",
-                    "rcv-remote-phy-errors",
-                ],
-                "interface_rcv_remote_physical_errors",
-                "count",
-            ),
-            (
-                &[
-                    "infiniband",
-                    "state",
-                    "counters",
-                    "port",
-                    "rcv-switch-relay-errors",
-                ],
-                "interface_rcv_switch_relay_errors",
-                "count",
-            ),
-            (
-                &[
-                    "infiniband",
-                    "state",
-                    "counters",
-                    "port",
-                    "rcv-constraints-errors",
-                ],
-                "interface_rcv_constraint_errors",
-                "count",
-            ),
-            (
-                &[
-                    "infiniband",
-                    "state",
-                    "counters",
-                    "port",
-                    "local-link-integrity-errors",
-                ],
-                "interface_local_link_integrity_errors",
-                "count",
-            ),
-            (
-                &[
-                    "infiniband",
-                    "state",
-                    "counters",
-                    "port",
-                    "excessive-buffer-overrun",
-                ],
-                "interface_port_buffer_overrun_errors",
-                "count",
-            ),
-            (
-                &["infiniband", "state", "counters", "port", "qp1-dropped"],
-                "interface_qp1_dropped",
-                "count",
-            ),
-            (
-                &["infiniband", "state", "counters", "port", "vl15-dropped"],
-                "interface_vl15_dropped",
-                "count",
-            ),
-            (
-                &["infiniband", "state", "counters", "port", "xmit-wait"],
-                "interface_port_xmit_wait",
-                "count",
-            ),
-            (&["infiniband", "state", "mtu"], "interface_mtu", "bytes"),
-            (
-                &["infiniband", "state", "max-supported-mtus"],
-                "interface_max_supported_mtu",
-                "bytes",
-            ),
-            (
-                &["phy-diag", "state", "raw-ber"],
-                "interface_raw_ber",
-                "ratio",
-            ),
-            (
-                &["phy-diag", "state", "effective-ber"],
-                "interface_effective_ber",
-                "ratio",
-            ),
-            (
-                &["phy-diag", "state", "symbol-ber"],
-                "interface_symbol_ber",
-                "ratio",
-            ),
-            (
-                &["phy-diag", "state", "raw-ber-ch-1"],
-                "interface_raw_ber_lane0",
-                "ratio",
-            ),
-            (
-                &["phy-diag", "state", "raw-ber-ch-2"],
-                "interface_raw_ber_lane1",
-                "ratio",
-            ),
-            (
-                &["phy-diag", "state", "raw-errors-ch-1"],
-                "interface_phy_raw_errors_lane0",
-                "count",
-            ),
-            (
-                &["phy-diag", "state", "raw-errors-ch-2"],
-                "interface_phy_raw_errors_lane1",
-                "count",
-            ),
-            (
-                &["phy-diag", "state", "effective-errors"],
-                "interface_phy_effective_errors",
-                "count",
-            ),
-            (
-                &["phy-diag", "state", "zero-hist"],
-                "interface_zero_hist",
-                "count",
-            ),
-            (
-                &["phy-diag", "state", "phy-received-bits"],
-                "interface_phy_received_bits",
-                "count",
-            ),
-            (
-                &["phy-diag", "state", "port-malformed-packet-errors"],
-                "interface_port_malformed_packet_errors",
-                "count",
-            ),
-            (
-                &["phy-diag", "state", "port-neighbor-mtu-discards"],
-                "interface_port_neighbor_mtu_discards",
-                "count",
-            ),
-            (
-                &["phy-diag", "state", "port-multi-cast-rcv-pkts"],
-                "interface_port_multicast_rcv_packets",
-                "count",
-            ),
-            (
-                &["phy-diag", "state", "port-multi-cast-xmit-pkts"],
-                "interface_port_multicast_xmit_packets",
-                "count",
-            ),
-            (
-                &["phy-diag", "state", "port-uni-cast-rcv-pkts"],
-                "interface_port_unicast_rcv_packets",
-                "count",
-            ),
-            (
-                &["phy-diag", "state", "port-uni-cast-xmit-pkts"],
-                "interface_port_unicast_xmit_packets",
-                "count",
-            ),
-            (
-                &["phy-diag", "state", "port-local-physical-errors"],
-                "interface_port_local_physical_errors",
-                "count",
-            ),
-            (
-                &["phy-diag", "state", "sync-header-error-counter"],
-                "interface_sync_header_error_counter",
-                "count",
-            ),
-            (
-                &["phy-diag", "state", "port-dlid-mapping-errors"],
-                "interface_port_dlid_mapping_errors",
-                "count",
-            ),
-            (
-                &["phy-diag", "state", "port-vl-mapping-errors"],
-                "interface_port_vl_mapping_errors",
-                "count",
-            ),
-            (
-                &["phy-diag", "state", "port-looping-errors"],
-                "interface_port_looping_errors",
-                "count",
-            ),
-            (
-                &["phy-diag", "state", "port-inactive-discards"],
-                "interface_port_inactive_discards",
-                "count",
-            ),
-            (
-                &["phy-diag", "state", "rq-general-error"],
-                "interface_rq_general_error",
-                "count",
-            ),
-            (
-                &["phy-diag", "state", "plr-rcv-codes"],
-                "interface_plr_rcv_codes",
-                "count",
-            ),
-            (
-                &["phy-diag", "state", "plr-rcv-code-err"],
-                "interface_plr_rcv_codes_err",
-                "count",
-            ),
-            (
-                &["phy-diag", "state", "plr-rcv-uncorrectable-code"],
-                "interface_plr_rcv_uncorrectables_code",
-                "count",
-            ),
-            (
-                &["phy-diag", "state", "plr-xmit-codes"],
-                "interface_plr_xmit_codes",
-                "count",
-            ),
-            (
-                &["phy-diag", "state", "plr-xmit-retry-codes"],
-                "interface_plr_xmit_retrys_codes",
-                "count",
-            ),
-            (
-                &["phy-diag", "state", "plr-xmit-retry-events"],
-                "interface_plr_xmit_retrys_events",
-                "count",
-            ),
-            (
-                &["phy-diag", "state", "plr-sync-events"],
-                "interface_plr_sync_events",
-                "count",
-            ),
-            (
-                &[
-                    "phy-diag",
-                    "state",
-                    "plr-xmit-retry-events-within-t-sec-max",
-                ],
-                "interface_plr_xmit_retry_events_within_minute",
-                "count",
-            ),
-            (
-                &["phy-diag", "state", "plr-bw-loss-percent"],
-                "interface_plr_bw_loss_percent",
-                "percent",
-            ),
-        ];
-
-        for (tail, expected_name, expected_unit) in cases {
-            let (sample, _) = run_interface_leaf(tail, make_typed_value_uint(7));
-            assert_eq!(
-                &sample.metric_type, expected_name,
-                "metric_type mismatch for leaf {tail:?}"
-            );
-            assert_eq!(
-                &sample.unit, expected_unit,
-                "unit mismatch for leaf {tail:?}"
-            );
-            assert_eq!(sample.value, 7.0, "value mismatch for leaf {tail:?}");
         }
     }
 

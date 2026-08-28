@@ -46,10 +46,7 @@ const DEFAULT_FORGE_ADMIN_BMC_USERNAME: &str = "root";
 /// on the DPU.  This was directly verified by checking the maximum accepted
 /// by FRR on the DPU.  NVUE will silently accept seemingly any length,
 /// but FRR reloads fail above this length.
-const MAX_BGP_PASSWORD_LENGTH: usize = 80;
-
-#[cfg(test)]
-pub(crate) const TEST_MAX_BGP_PASSWORD_LENGTH: usize = MAX_BGP_PASSWORD_LENGTH;
+pub(crate) const MAX_BGP_PASSWORD_LENGTH: usize = 80;
 
 pub(crate) async fn create_credential(
     api: &Api,
@@ -626,7 +623,7 @@ async fn set_sitewide_bmc_root_credentials(
 async fn set_sitewide_nic_lockdown_ikm(api: &Api, password: String) -> Result<(), CarbideError> {
     let credential_key = CredentialKey::NicLockdownIkm {
         credential_type: NicLockdownIkm::SiteWide {
-            version: crate::dpa::lockdown::CURRENT_LOCKDOWN_IKM_VERSION,
+            version: crate::dpa::lockdown::SEED_LOCKDOWN_IKM_VERSION,
         },
     };
 

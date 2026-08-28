@@ -1307,6 +1307,7 @@ impl<'a> MockExploredHost<'a> {
         self
     }
 
+    #[allow(dead_code)]
     /// Run the passed closure with a mutable referece to self
     pub(in crate::tests) async fn then<F, C: FnOnce(&mut Self) -> F>(
         mut self,
@@ -1423,6 +1424,7 @@ impl<'a> MockExploredHost<'a> {
     }
 }
 
+#[allow(dead_code)]
 fn expected_switch_exploration_report() -> EndpointExplorationReport {
     EndpointExplorationReport {
         endpoint_type: EndpointType::Bmc,
@@ -1438,6 +1440,7 @@ fn expected_switch_exploration_report() -> EndpointExplorationReport {
     }
 }
 
+#[allow(dead_code)]
 async fn switch_interface_ip(
     txn: &mut sqlx::PgConnection,
     mac: mac_address::MacAddress,
@@ -1451,6 +1454,7 @@ async fn switch_interface_ip(
     Ok(addresses.first().map(|address| address.address))
 }
 
+#[allow(dead_code)]
 /// Registers mock endpoint-exploration results for every expected switch BMC and NVOS IP.
 ///
 /// Required when switches (and their static interfaces) exist before `new_mock_host` runs,

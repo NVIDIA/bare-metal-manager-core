@@ -231,11 +231,13 @@ async fn machine_detail_manages_the_desired_boot_interface(pool: sqlx::PgPool) {
         "the web request should leave Redfish work to machine-controller",
     );
 
-    let selected_desired =
-        db::machine_desired_boot_interface::get(&env.api().database_connection, &machine_id)
-            .await
-            .unwrap()
-            .expect("selecting an interface should persist a desired target");
+    let selected_desired = db::machine_desired_boot_interface::get(
+        &env.api().database_connection,
+        &machine_id.try_into().unwrap(),
+    )
+    .await
+    .unwrap()
+    .expect("selecting an interface should persist a desired target");
     assert_eq!(
         selected_desired.value.mac_address(),
         selected_interface.mac_address
@@ -303,11 +305,13 @@ async fn machine_detail_manages_the_desired_boot_interface(pool: sqlx::PgPool) {
         "restoring the default should leave Redfish work to machine-controller",
     );
 
-    let default_desired =
-        db::machine_desired_boot_interface::get(&env.api().database_connection, &machine_id)
-            .await
-            .unwrap()
-            .expect("restoring the system default should retain a desired target");
+    let default_desired = db::machine_desired_boot_interface::get(
+        &env.api().database_connection,
+        &machine_id.try_into().unwrap(),
+    )
+    .await
+    .unwrap()
+    .expect("restoring the system default should retain a desired target");
     assert_eq!(
         default_desired.value.mac_address(),
         default_interface.mac_address
@@ -341,11 +345,13 @@ async fn machine_detail_manages_the_desired_boot_interface(pool: sqlx::PgPool) {
         "requesting reconciliation should leave Redfish work to machine-controller",
     );
 
-    let reconciled_desired =
-        db::machine_desired_boot_interface::get(&env.api().database_connection, &machine_id)
-            .await
-            .unwrap()
-            .expect("requesting reconciliation should retain the desired target");
+    let reconciled_desired = db::machine_desired_boot_interface::get(
+        &env.api().database_connection,
+        &machine_id.try_into().unwrap(),
+    )
+    .await
+    .unwrap()
+    .expect("requesting reconciliation should retain the desired target");
     assert_eq!(reconciled_desired.value, default_desired.value);
     assert_ne!(reconciled_desired.version, default_desired.version);
 }
@@ -411,10 +417,13 @@ async fn machine_detail_shows_an_uninitialized_desired_boot_interface(pool: sqlx
         "an uninitialized request should not touch Redfish",
     );
     assert!(
-        db::machine_desired_boot_interface::get(&env.api().database_connection, &machine_id)
-            .await
-            .unwrap()
-            .is_none(),
+        db::machine_desired_boot_interface::get(
+            &env.api().database_connection,
+            &machine_id.try_into().unwrap()
+        )
+        .await
+        .unwrap()
+        .is_none(),
         "reconciliation without a desired target should not initialize one",
     );
 }

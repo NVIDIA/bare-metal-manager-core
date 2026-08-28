@@ -12,6 +12,7 @@ package core
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
@@ -157,6 +158,120 @@ func (x *InventoryPage) GetItemIds() []string {
 	return nil
 }
 
+// SiteAgentBuildInfo - build metadata and configuration the Site Agent reports about itself,
+// as opposed to the Core configuration it relays
+type SiteAgentBuildInfo struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Site Agent build version
+	Version string `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	// How often the Site Agent collects inventory, derived from its configured schedule.
+	// Cloud compares object timestamps against this to decide whether an inventory is stale.
+	InventoryInterval *durationpb.Duration `protobuf:"bytes,2,opt,name=inventory_interval,json=inventoryInterval,proto3" json:"inventory_interval,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *SiteAgentBuildInfo) Reset() {
+	*x = SiteAgentBuildInfo{}
+	mi := &file_inventory_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SiteAgentBuildInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SiteAgentBuildInfo) ProtoMessage() {}
+
+func (x *SiteAgentBuildInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_inventory_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SiteAgentBuildInfo.ProtoReflect.Descriptor instead.
+func (*SiteAgentBuildInfo) Descriptor() ([]byte, []int) {
+	return file_inventory_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *SiteAgentBuildInfo) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *SiteAgentBuildInfo) GetInventoryInterval() *durationpb.Duration {
+	if x != nil {
+		return x.InventoryInterval
+	}
+	return nil
+}
+
+// SiteConfigInventory - Site configuration reported periodically. Site-level reporting is
+// added to this message rather than as another workflow argument, so extending it does not
+// require a new workflow.
+type SiteConfigInventory struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Core build metadata, advertised capabilities, and runtime configuration
+	CoreBuildInfo *BuildInfo `protobuf:"bytes,1,opt,name=core_build_info,json=coreBuildInfo,proto3" json:"core_build_info,omitempty"`
+	// Build metadata and configuration owned by the Site Agent itself
+	SiteAgentBuildInfo *SiteAgentBuildInfo `protobuf:"bytes,2,opt,name=site_agent_build_info,json=siteAgentBuildInfo,proto3" json:"site_agent_build_info,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *SiteConfigInventory) Reset() {
+	*x = SiteConfigInventory{}
+	mi := &file_inventory_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SiteConfigInventory) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SiteConfigInventory) ProtoMessage() {}
+
+func (x *SiteConfigInventory) ProtoReflect() protoreflect.Message {
+	mi := &file_inventory_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SiteConfigInventory.ProtoReflect.Descriptor instead.
+func (*SiteConfigInventory) Descriptor() ([]byte, []int) {
+	return file_inventory_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *SiteConfigInventory) GetCoreBuildInfo() *BuildInfo {
+	if x != nil {
+		return x.CoreBuildInfo
+	}
+	return nil
+}
+
+func (x *SiteConfigInventory) GetSiteAgentBuildInfo() *SiteAgentBuildInfo {
+	if x != nil {
+		return x.SiteAgentBuildInfo
+	}
+	return nil
+}
+
 // DpuExtensionServiceInventory - inventory of all DPU Extension Services on Site, collected periodically
 type DpuExtensionServiceInventory struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -176,7 +291,7 @@ type DpuExtensionServiceInventory struct {
 
 func (x *DpuExtensionServiceInventory) Reset() {
 	*x = DpuExtensionServiceInventory{}
-	mi := &file_inventory_proto_msgTypes[1]
+	mi := &file_inventory_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -188,7 +303,7 @@ func (x *DpuExtensionServiceInventory) String() string {
 func (*DpuExtensionServiceInventory) ProtoMessage() {}
 
 func (x *DpuExtensionServiceInventory) ProtoReflect() protoreflect.Message {
-	mi := &file_inventory_proto_msgTypes[1]
+	mi := &file_inventory_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -201,7 +316,7 @@ func (x *DpuExtensionServiceInventory) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DpuExtensionServiceInventory.ProtoReflect.Descriptor instead.
 func (*DpuExtensionServiceInventory) Descriptor() ([]byte, []int) {
-	return file_inventory_proto_rawDescGZIP(), []int{1}
+	return file_inventory_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *DpuExtensionServiceInventory) GetInventoryStatus() InventoryStatus {
@@ -260,7 +375,7 @@ type ExpectedMachineInventory struct {
 
 func (x *ExpectedMachineInventory) Reset() {
 	*x = ExpectedMachineInventory{}
-	mi := &file_inventory_proto_msgTypes[2]
+	mi := &file_inventory_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -272,7 +387,7 @@ func (x *ExpectedMachineInventory) String() string {
 func (*ExpectedMachineInventory) ProtoMessage() {}
 
 func (x *ExpectedMachineInventory) ProtoReflect() protoreflect.Message {
-	mi := &file_inventory_proto_msgTypes[2]
+	mi := &file_inventory_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -285,7 +400,7 @@ func (x *ExpectedMachineInventory) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExpectedMachineInventory.ProtoReflect.Descriptor instead.
 func (*ExpectedMachineInventory) Descriptor() ([]byte, []int) {
-	return file_inventory_proto_rawDescGZIP(), []int{2}
+	return file_inventory_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ExpectedMachineInventory) GetInventoryStatus() InventoryStatus {
@@ -349,7 +464,7 @@ type ExpectedRackInventory struct {
 
 func (x *ExpectedRackInventory) Reset() {
 	*x = ExpectedRackInventory{}
-	mi := &file_inventory_proto_msgTypes[3]
+	mi := &file_inventory_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -361,7 +476,7 @@ func (x *ExpectedRackInventory) String() string {
 func (*ExpectedRackInventory) ProtoMessage() {}
 
 func (x *ExpectedRackInventory) ProtoReflect() protoreflect.Message {
-	mi := &file_inventory_proto_msgTypes[3]
+	mi := &file_inventory_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -374,7 +489,7 @@ func (x *ExpectedRackInventory) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExpectedRackInventory.ProtoReflect.Descriptor instead.
 func (*ExpectedRackInventory) Descriptor() ([]byte, []int) {
-	return file_inventory_proto_rawDescGZIP(), []int{3}
+	return file_inventory_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ExpectedRackInventory) GetInventoryStatus() InventoryStatus {
@@ -433,7 +548,7 @@ type ExpectedPowerShelfInventory struct {
 
 func (x *ExpectedPowerShelfInventory) Reset() {
 	*x = ExpectedPowerShelfInventory{}
-	mi := &file_inventory_proto_msgTypes[4]
+	mi := &file_inventory_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -445,7 +560,7 @@ func (x *ExpectedPowerShelfInventory) String() string {
 func (*ExpectedPowerShelfInventory) ProtoMessage() {}
 
 func (x *ExpectedPowerShelfInventory) ProtoReflect() protoreflect.Message {
-	mi := &file_inventory_proto_msgTypes[4]
+	mi := &file_inventory_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -458,7 +573,7 @@ func (x *ExpectedPowerShelfInventory) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExpectedPowerShelfInventory.ProtoReflect.Descriptor instead.
 func (*ExpectedPowerShelfInventory) Descriptor() ([]byte, []int) {
-	return file_inventory_proto_rawDescGZIP(), []int{4}
+	return file_inventory_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ExpectedPowerShelfInventory) GetInventoryStatus() InventoryStatus {
@@ -524,7 +639,7 @@ type ExpectedSwitchInventory struct {
 
 func (x *ExpectedSwitchInventory) Reset() {
 	*x = ExpectedSwitchInventory{}
-	mi := &file_inventory_proto_msgTypes[5]
+	mi := &file_inventory_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -536,7 +651,7 @@ func (x *ExpectedSwitchInventory) String() string {
 func (*ExpectedSwitchInventory) ProtoMessage() {}
 
 func (x *ExpectedSwitchInventory) ProtoReflect() protoreflect.Message {
-	mi := &file_inventory_proto_msgTypes[5]
+	mi := &file_inventory_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -549,7 +664,7 @@ func (x *ExpectedSwitchInventory) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExpectedSwitchInventory.ProtoReflect.Descriptor instead.
 func (*ExpectedSwitchInventory) Descriptor() ([]byte, []int) {
-	return file_inventory_proto_rawDescGZIP(), []int{5}
+	return file_inventory_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ExpectedSwitchInventory) GetInventoryStatus() InventoryStatus {
@@ -613,7 +728,7 @@ type InfiniBandPartitionInventory struct {
 
 func (x *InfiniBandPartitionInventory) Reset() {
 	*x = InfiniBandPartitionInventory{}
-	mi := &file_inventory_proto_msgTypes[6]
+	mi := &file_inventory_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -625,7 +740,7 @@ func (x *InfiniBandPartitionInventory) String() string {
 func (*InfiniBandPartitionInventory) ProtoMessage() {}
 
 func (x *InfiniBandPartitionInventory) ProtoReflect() protoreflect.Message {
-	mi := &file_inventory_proto_msgTypes[6]
+	mi := &file_inventory_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -638,7 +753,7 @@ func (x *InfiniBandPartitionInventory) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InfiniBandPartitionInventory.ProtoReflect.Descriptor instead.
 func (*InfiniBandPartitionInventory) Descriptor() ([]byte, []int) {
-	return file_inventory_proto_rawDescGZIP(), []int{6}
+	return file_inventory_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *InfiniBandPartitionInventory) GetInventoryStatus() InventoryStatus {
@@ -697,7 +812,7 @@ type InstanceInventory struct {
 
 func (x *InstanceInventory) Reset() {
 	*x = InstanceInventory{}
-	mi := &file_inventory_proto_msgTypes[7]
+	mi := &file_inventory_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -709,7 +824,7 @@ func (x *InstanceInventory) String() string {
 func (*InstanceInventory) ProtoMessage() {}
 
 func (x *InstanceInventory) ProtoReflect() protoreflect.Message {
-	mi := &file_inventory_proto_msgTypes[7]
+	mi := &file_inventory_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -722,7 +837,7 @@ func (x *InstanceInventory) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InstanceInventory.ProtoReflect.Descriptor instead.
 func (*InstanceInventory) Descriptor() ([]byte, []int) {
-	return file_inventory_proto_rawDescGZIP(), []int{7}
+	return file_inventory_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *InstanceInventory) GetInstances() []*Instance {
@@ -786,7 +901,7 @@ type InstanceTypeInventory struct {
 
 func (x *InstanceTypeInventory) Reset() {
 	*x = InstanceTypeInventory{}
-	mi := &file_inventory_proto_msgTypes[8]
+	mi := &file_inventory_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -798,7 +913,7 @@ func (x *InstanceTypeInventory) String() string {
 func (*InstanceTypeInventory) ProtoMessage() {}
 
 func (x *InstanceTypeInventory) ProtoReflect() protoreflect.Message {
-	mi := &file_inventory_proto_msgTypes[8]
+	mi := &file_inventory_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -811,7 +926,7 @@ func (x *InstanceTypeInventory) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InstanceTypeInventory.ProtoReflect.Descriptor instead.
 func (*InstanceTypeInventory) Descriptor() ([]byte, []int) {
-	return file_inventory_proto_rawDescGZIP(), []int{8}
+	return file_inventory_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *InstanceTypeInventory) GetInstanceTypes() []*InstanceType {
@@ -860,7 +975,7 @@ type MachineInfo struct {
 
 func (x *MachineInfo) Reset() {
 	*x = MachineInfo{}
-	mi := &file_inventory_proto_msgTypes[9]
+	mi := &file_inventory_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -872,7 +987,7 @@ func (x *MachineInfo) String() string {
 func (*MachineInfo) ProtoMessage() {}
 
 func (x *MachineInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_inventory_proto_msgTypes[9]
+	mi := &file_inventory_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -885,7 +1000,7 @@ func (x *MachineInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MachineInfo.ProtoReflect.Descriptor instead.
 func (*MachineInfo) Descriptor() ([]byte, []int) {
-	return file_inventory_proto_rawDescGZIP(), []int{9}
+	return file_inventory_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *MachineInfo) GetMachine() *Machine {
@@ -921,7 +1036,7 @@ type MachineInventory struct {
 
 func (x *MachineInventory) Reset() {
 	*x = MachineInventory{}
-	mi := &file_inventory_proto_msgTypes[10]
+	mi := &file_inventory_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -933,7 +1048,7 @@ func (x *MachineInventory) String() string {
 func (*MachineInventory) ProtoMessage() {}
 
 func (x *MachineInventory) ProtoReflect() protoreflect.Message {
-	mi := &file_inventory_proto_msgTypes[10]
+	mi := &file_inventory_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -946,7 +1061,7 @@ func (x *MachineInventory) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MachineInventory.ProtoReflect.Descriptor instead.
 func (*MachineInventory) Descriptor() ([]byte, []int) {
-	return file_inventory_proto_rawDescGZIP(), []int{10}
+	return file_inventory_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *MachineInventory) GetMachines() []*MachineInfo {
@@ -1003,7 +1118,7 @@ type NetworkSecurityGroupInventory struct {
 
 func (x *NetworkSecurityGroupInventory) Reset() {
 	*x = NetworkSecurityGroupInventory{}
-	mi := &file_inventory_proto_msgTypes[11]
+	mi := &file_inventory_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1015,7 +1130,7 @@ func (x *NetworkSecurityGroupInventory) String() string {
 func (*NetworkSecurityGroupInventory) ProtoMessage() {}
 
 func (x *NetworkSecurityGroupInventory) ProtoReflect() protoreflect.Message {
-	mi := &file_inventory_proto_msgTypes[11]
+	mi := &file_inventory_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1028,7 +1143,7 @@ func (x *NetworkSecurityGroupInventory) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NetworkSecurityGroupInventory.ProtoReflect.Descriptor instead.
 func (*NetworkSecurityGroupInventory) Descriptor() ([]byte, []int) {
-	return file_inventory_proto_rawDescGZIP(), []int{11}
+	return file_inventory_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *NetworkSecurityGroupInventory) GetNetworkSecurityGroups() []*NetworkSecurityGroup {
@@ -1085,7 +1200,7 @@ type NVLinkLogicalPartitionInventory struct {
 
 func (x *NVLinkLogicalPartitionInventory) Reset() {
 	*x = NVLinkLogicalPartitionInventory{}
-	mi := &file_inventory_proto_msgTypes[12]
+	mi := &file_inventory_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1097,7 +1212,7 @@ func (x *NVLinkLogicalPartitionInventory) String() string {
 func (*NVLinkLogicalPartitionInventory) ProtoMessage() {}
 
 func (x *NVLinkLogicalPartitionInventory) ProtoReflect() protoreflect.Message {
-	mi := &file_inventory_proto_msgTypes[12]
+	mi := &file_inventory_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1110,7 +1225,7 @@ func (x *NVLinkLogicalPartitionInventory) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NVLinkLogicalPartitionInventory.ProtoReflect.Descriptor instead.
 func (*NVLinkLogicalPartitionInventory) Descriptor() ([]byte, []int) {
-	return file_inventory_proto_rawDescGZIP(), []int{12}
+	return file_inventory_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *NVLinkLogicalPartitionInventory) GetInventoryStatus() InventoryStatus {
@@ -1167,7 +1282,7 @@ type OsImageInventory struct {
 
 func (x *OsImageInventory) Reset() {
 	*x = OsImageInventory{}
-	mi := &file_inventory_proto_msgTypes[13]
+	mi := &file_inventory_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1179,7 +1294,7 @@ func (x *OsImageInventory) String() string {
 func (*OsImageInventory) ProtoMessage() {}
 
 func (x *OsImageInventory) ProtoReflect() protoreflect.Message {
-	mi := &file_inventory_proto_msgTypes[13]
+	mi := &file_inventory_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1192,7 +1307,7 @@ func (x *OsImageInventory) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OsImageInventory.ProtoReflect.Descriptor instead.
 func (*OsImageInventory) Descriptor() ([]byte, []int) {
-	return file_inventory_proto_rawDescGZIP(), []int{13}
+	return file_inventory_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *OsImageInventory) GetOsImages() []*OsImage {
@@ -1249,7 +1364,7 @@ type OperatingSystemInventory struct {
 
 func (x *OperatingSystemInventory) Reset() {
 	*x = OperatingSystemInventory{}
-	mi := &file_inventory_proto_msgTypes[14]
+	mi := &file_inventory_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1261,7 +1376,7 @@ func (x *OperatingSystemInventory) String() string {
 func (*OperatingSystemInventory) ProtoMessage() {}
 
 func (x *OperatingSystemInventory) ProtoReflect() protoreflect.Message {
-	mi := &file_inventory_proto_msgTypes[14]
+	mi := &file_inventory_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1274,7 +1389,7 @@ func (x *OperatingSystemInventory) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OperatingSystemInventory.ProtoReflect.Descriptor instead.
 func (*OperatingSystemInventory) Descriptor() ([]byte, []int) {
-	return file_inventory_proto_rawDescGZIP(), []int{14}
+	return file_inventory_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *OperatingSystemInventory) GetOperatingSystems() []*OperatingSystem {
@@ -1331,7 +1446,7 @@ type IpxeTemplateInventory struct {
 
 func (x *IpxeTemplateInventory) Reset() {
 	*x = IpxeTemplateInventory{}
-	mi := &file_inventory_proto_msgTypes[15]
+	mi := &file_inventory_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1343,7 +1458,7 @@ func (x *IpxeTemplateInventory) String() string {
 func (*IpxeTemplateInventory) ProtoMessage() {}
 
 func (x *IpxeTemplateInventory) ProtoReflect() protoreflect.Message {
-	mi := &file_inventory_proto_msgTypes[15]
+	mi := &file_inventory_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1356,7 +1471,7 @@ func (x *IpxeTemplateInventory) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IpxeTemplateInventory.ProtoReflect.Descriptor instead.
 func (*IpxeTemplateInventory) Descriptor() ([]byte, []int) {
-	return file_inventory_proto_rawDescGZIP(), []int{15}
+	return file_inventory_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *IpxeTemplateInventory) GetTemplates() []*IpxeTemplate {
@@ -1413,7 +1528,7 @@ type SkuInventory struct {
 
 func (x *SkuInventory) Reset() {
 	*x = SkuInventory{}
-	mi := &file_inventory_proto_msgTypes[16]
+	mi := &file_inventory_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1425,7 +1540,7 @@ func (x *SkuInventory) String() string {
 func (*SkuInventory) ProtoMessage() {}
 
 func (x *SkuInventory) ProtoReflect() protoreflect.Message {
-	mi := &file_inventory_proto_msgTypes[16]
+	mi := &file_inventory_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1438,7 +1553,7 @@ func (x *SkuInventory) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SkuInventory.ProtoReflect.Descriptor instead.
 func (*SkuInventory) Descriptor() ([]byte, []int) {
-	return file_inventory_proto_rawDescGZIP(), []int{16}
+	return file_inventory_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *SkuInventory) GetInventoryStatus() InventoryStatus {
@@ -1495,7 +1610,7 @@ type SSHKeyGroupInventory struct {
 
 func (x *SSHKeyGroupInventory) Reset() {
 	*x = SSHKeyGroupInventory{}
-	mi := &file_inventory_proto_msgTypes[17]
+	mi := &file_inventory_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1507,7 +1622,7 @@ func (x *SSHKeyGroupInventory) String() string {
 func (*SSHKeyGroupInventory) ProtoMessage() {}
 
 func (x *SSHKeyGroupInventory) ProtoReflect() protoreflect.Message {
-	mi := &file_inventory_proto_msgTypes[17]
+	mi := &file_inventory_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1520,7 +1635,7 @@ func (x *SSHKeyGroupInventory) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SSHKeyGroupInventory.ProtoReflect.Descriptor instead.
 func (*SSHKeyGroupInventory) Descriptor() ([]byte, []int) {
-	return file_inventory_proto_rawDescGZIP(), []int{17}
+	return file_inventory_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *SSHKeyGroupInventory) GetTenantKeysets() []*TenantKeyset {
@@ -1577,7 +1692,7 @@ type SubnetInventory struct {
 
 func (x *SubnetInventory) Reset() {
 	*x = SubnetInventory{}
-	mi := &file_inventory_proto_msgTypes[18]
+	mi := &file_inventory_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1589,7 +1704,7 @@ func (x *SubnetInventory) String() string {
 func (*SubnetInventory) ProtoMessage() {}
 
 func (x *SubnetInventory) ProtoReflect() protoreflect.Message {
-	mi := &file_inventory_proto_msgTypes[18]
+	mi := &file_inventory_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1602,7 +1717,7 @@ func (x *SubnetInventory) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubnetInventory.ProtoReflect.Descriptor instead.
 func (*SubnetInventory) Descriptor() ([]byte, []int) {
-	return file_inventory_proto_rawDescGZIP(), []int{18}
+	return file_inventory_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *SubnetInventory) GetSegments() []*NetworkSegment {
@@ -1659,7 +1774,7 @@ type TenantInventory struct {
 
 func (x *TenantInventory) Reset() {
 	*x = TenantInventory{}
-	mi := &file_inventory_proto_msgTypes[19]
+	mi := &file_inventory_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1671,7 +1786,7 @@ func (x *TenantInventory) String() string {
 func (*TenantInventory) ProtoMessage() {}
 
 func (x *TenantInventory) ProtoReflect() protoreflect.Message {
-	mi := &file_inventory_proto_msgTypes[19]
+	mi := &file_inventory_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1684,7 +1799,7 @@ func (x *TenantInventory) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TenantInventory.ProtoReflect.Descriptor instead.
 func (*TenantInventory) Descriptor() ([]byte, []int) {
-	return file_inventory_proto_rawDescGZIP(), []int{19}
+	return file_inventory_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *TenantInventory) GetTenants() []*Tenant {
@@ -1743,7 +1858,7 @@ type VPCInventory struct {
 
 func (x *VPCInventory) Reset() {
 	*x = VPCInventory{}
-	mi := &file_inventory_proto_msgTypes[20]
+	mi := &file_inventory_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1755,7 +1870,7 @@ func (x *VPCInventory) String() string {
 func (*VPCInventory) ProtoMessage() {}
 
 func (x *VPCInventory) ProtoReflect() protoreflect.Message {
-	mi := &file_inventory_proto_msgTypes[20]
+	mi := &file_inventory_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1768,7 +1883,7 @@ func (x *VPCInventory) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VPCInventory.ProtoReflect.Descriptor instead.
 func (*VPCInventory) Descriptor() ([]byte, []int) {
-	return file_inventory_proto_rawDescGZIP(), []int{20}
+	return file_inventory_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *VPCInventory) GetVpcs() []*Vpc {
@@ -1832,7 +1947,7 @@ type VPCPeeringInventory struct {
 
 func (x *VPCPeeringInventory) Reset() {
 	*x = VPCPeeringInventory{}
-	mi := &file_inventory_proto_msgTypes[21]
+	mi := &file_inventory_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1844,7 +1959,7 @@ func (x *VPCPeeringInventory) String() string {
 func (*VPCPeeringInventory) ProtoMessage() {}
 
 func (x *VPCPeeringInventory) ProtoReflect() protoreflect.Message {
-	mi := &file_inventory_proto_msgTypes[21]
+	mi := &file_inventory_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1857,7 +1972,7 @@ func (x *VPCPeeringInventory) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VPCPeeringInventory.ProtoReflect.Descriptor instead.
 func (*VPCPeeringInventory) Descriptor() ([]byte, []int) {
-	return file_inventory_proto_rawDescGZIP(), []int{21}
+	return file_inventory_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *VPCPeeringInventory) GetVpcPeerings() []*VpcPeering {
@@ -1914,7 +2029,7 @@ type VpcPrefixInventory struct {
 
 func (x *VpcPrefixInventory) Reset() {
 	*x = VpcPrefixInventory{}
-	mi := &file_inventory_proto_msgTypes[22]
+	mi := &file_inventory_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1926,7 +2041,7 @@ func (x *VpcPrefixInventory) String() string {
 func (*VpcPrefixInventory) ProtoMessage() {}
 
 func (x *VpcPrefixInventory) ProtoReflect() protoreflect.Message {
-	mi := &file_inventory_proto_msgTypes[22]
+	mi := &file_inventory_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1939,7 +2054,7 @@ func (x *VpcPrefixInventory) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VpcPrefixInventory.ProtoReflect.Descriptor instead.
 func (*VpcPrefixInventory) Descriptor() ([]byte, []int) {
-	return file_inventory_proto_rawDescGZIP(), []int{22}
+	return file_inventory_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *VpcPrefixInventory) GetVpcPrefixes() []*VpcPrefix {
@@ -1981,7 +2096,7 @@ var File_inventory_proto protoreflect.FileDescriptor
 
 const file_inventory_proto_rawDesc = "" +
 	"\n" +
-	"\x0finventory.proto\x12\tinventory\x1a\x11common_nico.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cmachine_discovery_nico.proto\x1a\x0fnico_nico.proto\"\xac\x01\n" +
+	"\x0finventory.proto\x12\tinventory\x1a\x11common_nico.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cmachine_discovery_nico.proto\x1a\x0fnico_nico.proto\"\xac\x01\n" +
 	"\rInventoryPage\x12\x1f\n" +
 	"\vtotal_pages\x18\x01 \x01(\x05R\n" +
 	"totalPages\x12!\n" +
@@ -1989,7 +2104,13 @@ const file_inventory_proto_rawDesc = "" +
 	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\x12\x1f\n" +
 	"\vtotal_items\x18\x04 \x01(\x05R\n" +
 	"totalItems\x12\x19\n" +
-	"\bitem_ids\x18\x05 \x03(\tR\aitemIds\"\xd1\x02\n" +
+	"\bitem_ids\x18\x05 \x03(\tR\aitemIds\"x\n" +
+	"\x12SiteAgentBuildInfo\x12\x18\n" +
+	"\aversion\x18\x01 \x01(\tR\aversion\x12H\n" +
+	"\x12inventory_interval\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x11inventoryInterval\"\xa1\x01\n" +
+	"\x13SiteConfigInventory\x128\n" +
+	"\x0fcore_build_info\x18\x01 \x01(\v2\x10.forge.BuildInfoR\rcoreBuildInfo\x12P\n" +
+	"\x15site_agent_build_info\x18\x02 \x01(\v2\x1d.inventory.SiteAgentBuildInfoR\x12siteAgentBuildInfo\"\xd1\x02\n" +
 	"\x1cDpuExtensionServiceInventory\x12E\n" +
 	"\x10inventory_status\x18\x01 \x01(\x0e2\x1a.inventory.InventoryStatusR\x0finventoryStatus\x12\x1d\n" +
 	"\n" +
@@ -2167,157 +2288,164 @@ func file_inventory_proto_rawDescGZIP() []byte {
 }
 
 var file_inventory_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_inventory_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
+var file_inventory_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
 var file_inventory_proto_goTypes = []any{
 	(InventoryStatus)(0),                                // 0: inventory.InventoryStatus
 	(*InventoryPage)(nil),                               // 1: inventory.InventoryPage
-	(*DpuExtensionServiceInventory)(nil),                // 2: inventory.DpuExtensionServiceInventory
-	(*ExpectedMachineInventory)(nil),                    // 3: inventory.ExpectedMachineInventory
-	(*ExpectedRackInventory)(nil),                       // 4: inventory.ExpectedRackInventory
-	(*ExpectedPowerShelfInventory)(nil),                 // 5: inventory.ExpectedPowerShelfInventory
-	(*ExpectedSwitchInventory)(nil),                     // 6: inventory.ExpectedSwitchInventory
-	(*InfiniBandPartitionInventory)(nil),                // 7: inventory.InfiniBandPartitionInventory
-	(*InstanceInventory)(nil),                           // 8: inventory.InstanceInventory
-	(*InstanceTypeInventory)(nil),                       // 9: inventory.InstanceTypeInventory
-	(*MachineInfo)(nil),                                 // 10: inventory.MachineInfo
-	(*MachineInventory)(nil),                            // 11: inventory.MachineInventory
-	(*NetworkSecurityGroupInventory)(nil),               // 12: inventory.NetworkSecurityGroupInventory
-	(*NVLinkLogicalPartitionInventory)(nil),             // 13: inventory.NVLinkLogicalPartitionInventory
-	(*OsImageInventory)(nil),                            // 14: inventory.OsImageInventory
-	(*OperatingSystemInventory)(nil),                    // 15: inventory.OperatingSystemInventory
-	(*IpxeTemplateInventory)(nil),                       // 16: inventory.IpxeTemplateInventory
-	(*SkuInventory)(nil),                                // 17: inventory.SkuInventory
-	(*SSHKeyGroupInventory)(nil),                        // 18: inventory.SSHKeyGroupInventory
-	(*SubnetInventory)(nil),                             // 19: inventory.SubnetInventory
-	(*TenantInventory)(nil),                             // 20: inventory.TenantInventory
-	(*VPCInventory)(nil),                                // 21: inventory.VPCInventory
-	(*VPCPeeringInventory)(nil),                         // 22: inventory.VPCPeeringInventory
-	(*VpcPrefixInventory)(nil),                          // 23: inventory.VpcPrefixInventory
-	(*timestamppb.Timestamp)(nil),                       // 24: google.protobuf.Timestamp
-	(*DpuExtensionService)(nil),                         // 25: forge.DpuExtensionService
-	(*ExpectedMachine)(nil),                             // 26: forge.ExpectedMachine
-	(*LinkedExpectedMachine)(nil),                       // 27: forge.LinkedExpectedMachine
-	(*ExpectedRack)(nil),                                // 28: forge.ExpectedRack
-	(*ExpectedPowerShelf)(nil),                          // 29: forge.ExpectedPowerShelf
-	(*LinkedExpectedPowerShelf)(nil),                    // 30: forge.LinkedExpectedPowerShelf
-	(*ExpectedSwitch)(nil),                              // 31: forge.ExpectedSwitch
-	(*LinkedExpectedSwitch)(nil),                        // 32: forge.LinkedExpectedSwitch
-	(*IBPartition)(nil),                                 // 33: forge.IBPartition
-	(*Instance)(nil),                                    // 34: forge.Instance
-	(*NetworkSecurityGroupPropagationObjectStatus)(nil), // 35: forge.NetworkSecurityGroupPropagationObjectStatus
-	(*InstanceType)(nil),                                // 36: forge.InstanceType
-	(*Machine)(nil),                                     // 37: forge.Machine
-	(*DiscoveryInfo)(nil),                               // 38: machine_discovery.DiscoveryInfo
-	(*NetworkSecurityGroup)(nil),                        // 39: forge.NetworkSecurityGroup
-	(*NVLinkLogicalPartition)(nil),                      // 40: forge.NVLinkLogicalPartition
-	(*OsImage)(nil),                                     // 41: forge.OsImage
-	(*OperatingSystem)(nil),                             // 42: forge.OperatingSystem
-	(*IpxeTemplate)(nil),                                // 43: forge.IpxeTemplate
-	(*Sku)(nil),                                         // 44: forge.Sku
-	(*TenantKeyset)(nil),                                // 45: forge.TenantKeyset
-	(*NetworkSegment)(nil),                              // 46: forge.NetworkSegment
-	(*Tenant)(nil),                                      // 47: forge.Tenant
-	(*Vpc)(nil),                                         // 48: forge.Vpc
-	(*VpcPeering)(nil),                                  // 49: forge.VpcPeering
-	(*VpcPrefix)(nil),                                   // 50: forge.VpcPrefix
+	(*SiteAgentBuildInfo)(nil),                          // 2: inventory.SiteAgentBuildInfo
+	(*SiteConfigInventory)(nil),                         // 3: inventory.SiteConfigInventory
+	(*DpuExtensionServiceInventory)(nil),                // 4: inventory.DpuExtensionServiceInventory
+	(*ExpectedMachineInventory)(nil),                    // 5: inventory.ExpectedMachineInventory
+	(*ExpectedRackInventory)(nil),                       // 6: inventory.ExpectedRackInventory
+	(*ExpectedPowerShelfInventory)(nil),                 // 7: inventory.ExpectedPowerShelfInventory
+	(*ExpectedSwitchInventory)(nil),                     // 8: inventory.ExpectedSwitchInventory
+	(*InfiniBandPartitionInventory)(nil),                // 9: inventory.InfiniBandPartitionInventory
+	(*InstanceInventory)(nil),                           // 10: inventory.InstanceInventory
+	(*InstanceTypeInventory)(nil),                       // 11: inventory.InstanceTypeInventory
+	(*MachineInfo)(nil),                                 // 12: inventory.MachineInfo
+	(*MachineInventory)(nil),                            // 13: inventory.MachineInventory
+	(*NetworkSecurityGroupInventory)(nil),               // 14: inventory.NetworkSecurityGroupInventory
+	(*NVLinkLogicalPartitionInventory)(nil),             // 15: inventory.NVLinkLogicalPartitionInventory
+	(*OsImageInventory)(nil),                            // 16: inventory.OsImageInventory
+	(*OperatingSystemInventory)(nil),                    // 17: inventory.OperatingSystemInventory
+	(*IpxeTemplateInventory)(nil),                       // 18: inventory.IpxeTemplateInventory
+	(*SkuInventory)(nil),                                // 19: inventory.SkuInventory
+	(*SSHKeyGroupInventory)(nil),                        // 20: inventory.SSHKeyGroupInventory
+	(*SubnetInventory)(nil),                             // 21: inventory.SubnetInventory
+	(*TenantInventory)(nil),                             // 22: inventory.TenantInventory
+	(*VPCInventory)(nil),                                // 23: inventory.VPCInventory
+	(*VPCPeeringInventory)(nil),                         // 24: inventory.VPCPeeringInventory
+	(*VpcPrefixInventory)(nil),                          // 25: inventory.VpcPrefixInventory
+	(*durationpb.Duration)(nil),                         // 26: google.protobuf.Duration
+	(*BuildInfo)(nil),                                   // 27: forge.BuildInfo
+	(*timestamppb.Timestamp)(nil),                       // 28: google.protobuf.Timestamp
+	(*DpuExtensionService)(nil),                         // 29: forge.DpuExtensionService
+	(*ExpectedMachine)(nil),                             // 30: forge.ExpectedMachine
+	(*LinkedExpectedMachine)(nil),                       // 31: forge.LinkedExpectedMachine
+	(*ExpectedRack)(nil),                                // 32: forge.ExpectedRack
+	(*ExpectedPowerShelf)(nil),                          // 33: forge.ExpectedPowerShelf
+	(*LinkedExpectedPowerShelf)(nil),                    // 34: forge.LinkedExpectedPowerShelf
+	(*ExpectedSwitch)(nil),                              // 35: forge.ExpectedSwitch
+	(*LinkedExpectedSwitch)(nil),                        // 36: forge.LinkedExpectedSwitch
+	(*IBPartition)(nil),                                 // 37: forge.IBPartition
+	(*Instance)(nil),                                    // 38: forge.Instance
+	(*NetworkSecurityGroupPropagationObjectStatus)(nil), // 39: forge.NetworkSecurityGroupPropagationObjectStatus
+	(*InstanceType)(nil),                                // 40: forge.InstanceType
+	(*Machine)(nil),                                     // 41: forge.Machine
+	(*DiscoveryInfo)(nil),                               // 42: machine_discovery.DiscoveryInfo
+	(*NetworkSecurityGroup)(nil),                        // 43: forge.NetworkSecurityGroup
+	(*NVLinkLogicalPartition)(nil),                      // 44: forge.NVLinkLogicalPartition
+	(*OsImage)(nil),                                     // 45: forge.OsImage
+	(*OperatingSystem)(nil),                             // 46: forge.OperatingSystem
+	(*IpxeTemplate)(nil),                                // 47: forge.IpxeTemplate
+	(*Sku)(nil),                                         // 48: forge.Sku
+	(*TenantKeyset)(nil),                                // 49: forge.TenantKeyset
+	(*NetworkSegment)(nil),                              // 50: forge.NetworkSegment
+	(*Tenant)(nil),                                      // 51: forge.Tenant
+	(*Vpc)(nil),                                         // 52: forge.Vpc
+	(*VpcPeering)(nil),                                  // 53: forge.VpcPeering
+	(*VpcPrefix)(nil),                                   // 54: forge.VpcPrefix
 }
 var file_inventory_proto_depIdxs = []int32{
-	0,  // 0: inventory.DpuExtensionServiceInventory.inventory_status:type_name -> inventory.InventoryStatus
-	24, // 1: inventory.DpuExtensionServiceInventory.timestamp:type_name -> google.protobuf.Timestamp
-	25, // 2: inventory.DpuExtensionServiceInventory.dpu_extension_services:type_name -> forge.DpuExtensionService
-	1,  // 3: inventory.DpuExtensionServiceInventory.inventory_page:type_name -> inventory.InventoryPage
-	0,  // 4: inventory.ExpectedMachineInventory.inventory_status:type_name -> inventory.InventoryStatus
-	24, // 5: inventory.ExpectedMachineInventory.timestamp:type_name -> google.protobuf.Timestamp
-	26, // 6: inventory.ExpectedMachineInventory.expected_machines:type_name -> forge.ExpectedMachine
-	1,  // 7: inventory.ExpectedMachineInventory.inventory_page:type_name -> inventory.InventoryPage
-	27, // 8: inventory.ExpectedMachineInventory.linked_machines:type_name -> forge.LinkedExpectedMachine
-	0,  // 9: inventory.ExpectedRackInventory.inventory_status:type_name -> inventory.InventoryStatus
-	24, // 10: inventory.ExpectedRackInventory.timestamp:type_name -> google.protobuf.Timestamp
-	28, // 11: inventory.ExpectedRackInventory.expected_racks:type_name -> forge.ExpectedRack
-	1,  // 12: inventory.ExpectedRackInventory.inventory_page:type_name -> inventory.InventoryPage
-	0,  // 13: inventory.ExpectedPowerShelfInventory.inventory_status:type_name -> inventory.InventoryStatus
-	24, // 14: inventory.ExpectedPowerShelfInventory.timestamp:type_name -> google.protobuf.Timestamp
-	29, // 15: inventory.ExpectedPowerShelfInventory.expected_power_shelves:type_name -> forge.ExpectedPowerShelf
-	1,  // 16: inventory.ExpectedPowerShelfInventory.inventory_page:type_name -> inventory.InventoryPage
-	30, // 17: inventory.ExpectedPowerShelfInventory.linked_power_shelves:type_name -> forge.LinkedExpectedPowerShelf
-	0,  // 18: inventory.ExpectedSwitchInventory.inventory_status:type_name -> inventory.InventoryStatus
-	24, // 19: inventory.ExpectedSwitchInventory.timestamp:type_name -> google.protobuf.Timestamp
-	31, // 20: inventory.ExpectedSwitchInventory.expected_switches:type_name -> forge.ExpectedSwitch
-	1,  // 21: inventory.ExpectedSwitchInventory.inventory_page:type_name -> inventory.InventoryPage
-	32, // 22: inventory.ExpectedSwitchInventory.linked_switches:type_name -> forge.LinkedExpectedSwitch
-	0,  // 23: inventory.InfiniBandPartitionInventory.inventory_status:type_name -> inventory.InventoryStatus
-	24, // 24: inventory.InfiniBandPartitionInventory.timestamp:type_name -> google.protobuf.Timestamp
-	33, // 25: inventory.InfiniBandPartitionInventory.ib_partitions:type_name -> forge.IBPartition
-	1,  // 26: inventory.InfiniBandPartitionInventory.inventory_page:type_name -> inventory.InventoryPage
-	34, // 27: inventory.InstanceInventory.instances:type_name -> forge.Instance
-	35, // 28: inventory.InstanceInventory.network_security_group_propagations:type_name -> forge.NetworkSecurityGroupPropagationObjectStatus
-	24, // 29: inventory.InstanceInventory.timestamp:type_name -> google.protobuf.Timestamp
-	0,  // 30: inventory.InstanceInventory.inventory_status:type_name -> inventory.InventoryStatus
-	1,  // 31: inventory.InstanceInventory.inventory_page:type_name -> inventory.InventoryPage
-	36, // 32: inventory.InstanceTypeInventory.instance_types:type_name -> forge.InstanceType
-	24, // 33: inventory.InstanceTypeInventory.timestamp:type_name -> google.protobuf.Timestamp
-	0,  // 34: inventory.InstanceTypeInventory.inventory_status:type_name -> inventory.InventoryStatus
-	1,  // 35: inventory.InstanceTypeInventory.inventory_page:type_name -> inventory.InventoryPage
-	37, // 36: inventory.MachineInfo.machine:type_name -> forge.Machine
-	38, // 37: inventory.MachineInfo.discovery_info:type_name -> machine_discovery.DiscoveryInfo
-	10, // 38: inventory.MachineInventory.machines:type_name -> inventory.MachineInfo
-	24, // 39: inventory.MachineInventory.timestamp:type_name -> google.protobuf.Timestamp
-	0,  // 40: inventory.MachineInventory.inventory_status:type_name -> inventory.InventoryStatus
-	1,  // 41: inventory.MachineInventory.inventory_page:type_name -> inventory.InventoryPage
-	39, // 42: inventory.NetworkSecurityGroupInventory.network_security_groups:type_name -> forge.NetworkSecurityGroup
-	24, // 43: inventory.NetworkSecurityGroupInventory.timestamp:type_name -> google.protobuf.Timestamp
-	0,  // 44: inventory.NetworkSecurityGroupInventory.inventory_status:type_name -> inventory.InventoryStatus
-	1,  // 45: inventory.NetworkSecurityGroupInventory.inventory_page:type_name -> inventory.InventoryPage
-	0,  // 46: inventory.NVLinkLogicalPartitionInventory.inventory_status:type_name -> inventory.InventoryStatus
-	24, // 47: inventory.NVLinkLogicalPartitionInventory.timestamp:type_name -> google.protobuf.Timestamp
-	40, // 48: inventory.NVLinkLogicalPartitionInventory.partitions:type_name -> forge.NVLinkLogicalPartition
-	1,  // 49: inventory.NVLinkLogicalPartitionInventory.inventory_page:type_name -> inventory.InventoryPage
-	41, // 50: inventory.OsImageInventory.os_images:type_name -> forge.OsImage
-	24, // 51: inventory.OsImageInventory.timestamp:type_name -> google.protobuf.Timestamp
-	0,  // 52: inventory.OsImageInventory.inventory_status:type_name -> inventory.InventoryStatus
-	1,  // 53: inventory.OsImageInventory.inventory_page:type_name -> inventory.InventoryPage
-	42, // 54: inventory.OperatingSystemInventory.operating_systems:type_name -> forge.OperatingSystem
-	24, // 55: inventory.OperatingSystemInventory.timestamp:type_name -> google.protobuf.Timestamp
-	0,  // 56: inventory.OperatingSystemInventory.inventory_status:type_name -> inventory.InventoryStatus
-	1,  // 57: inventory.OperatingSystemInventory.inventory_page:type_name -> inventory.InventoryPage
-	43, // 58: inventory.IpxeTemplateInventory.templates:type_name -> forge.IpxeTemplate
-	24, // 59: inventory.IpxeTemplateInventory.timestamp:type_name -> google.protobuf.Timestamp
-	0,  // 60: inventory.IpxeTemplateInventory.inventory_status:type_name -> inventory.InventoryStatus
-	1,  // 61: inventory.IpxeTemplateInventory.inventory_page:type_name -> inventory.InventoryPage
-	0,  // 62: inventory.SkuInventory.inventory_status:type_name -> inventory.InventoryStatus
-	24, // 63: inventory.SkuInventory.timestamp:type_name -> google.protobuf.Timestamp
-	44, // 64: inventory.SkuInventory.skus:type_name -> forge.Sku
-	1,  // 65: inventory.SkuInventory.inventory_page:type_name -> inventory.InventoryPage
-	45, // 66: inventory.SSHKeyGroupInventory.tenant_keysets:type_name -> forge.TenantKeyset
-	24, // 67: inventory.SSHKeyGroupInventory.timestamp:type_name -> google.protobuf.Timestamp
-	0,  // 68: inventory.SSHKeyGroupInventory.inventory_status:type_name -> inventory.InventoryStatus
-	1,  // 69: inventory.SSHKeyGroupInventory.inventory_page:type_name -> inventory.InventoryPage
-	46, // 70: inventory.SubnetInventory.segments:type_name -> forge.NetworkSegment
-	24, // 71: inventory.SubnetInventory.timestamp:type_name -> google.protobuf.Timestamp
-	0,  // 72: inventory.SubnetInventory.inventory_status:type_name -> inventory.InventoryStatus
-	1,  // 73: inventory.SubnetInventory.inventory_page:type_name -> inventory.InventoryPage
-	47, // 74: inventory.TenantInventory.tenants:type_name -> forge.Tenant
-	24, // 75: inventory.TenantInventory.timestamp:type_name -> google.protobuf.Timestamp
-	0,  // 76: inventory.TenantInventory.inventory_status:type_name -> inventory.InventoryStatus
-	1,  // 77: inventory.TenantInventory.inventory_page:type_name -> inventory.InventoryPage
-	48, // 78: inventory.VPCInventory.vpcs:type_name -> forge.Vpc
-	35, // 79: inventory.VPCInventory.network_security_group_propagations:type_name -> forge.NetworkSecurityGroupPropagationObjectStatus
-	24, // 80: inventory.VPCInventory.timestamp:type_name -> google.protobuf.Timestamp
-	0,  // 81: inventory.VPCInventory.inventory_status:type_name -> inventory.InventoryStatus
-	1,  // 82: inventory.VPCInventory.inventory_page:type_name -> inventory.InventoryPage
-	49, // 83: inventory.VPCPeeringInventory.vpc_peerings:type_name -> forge.VpcPeering
-	24, // 84: inventory.VPCPeeringInventory.timestamp:type_name -> google.protobuf.Timestamp
-	0,  // 85: inventory.VPCPeeringInventory.inventory_status:type_name -> inventory.InventoryStatus
-	1,  // 86: inventory.VPCPeeringInventory.inventory_page:type_name -> inventory.InventoryPage
-	50, // 87: inventory.VpcPrefixInventory.vpc_prefixes:type_name -> forge.VpcPrefix
-	24, // 88: inventory.VpcPrefixInventory.timestamp:type_name -> google.protobuf.Timestamp
-	0,  // 89: inventory.VpcPrefixInventory.inventory_status:type_name -> inventory.InventoryStatus
-	1,  // 90: inventory.VpcPrefixInventory.inventory_page:type_name -> inventory.InventoryPage
-	91, // [91:91] is the sub-list for method output_type
-	91, // [91:91] is the sub-list for method input_type
-	91, // [91:91] is the sub-list for extension type_name
-	91, // [91:91] is the sub-list for extension extendee
-	0,  // [0:91] is the sub-list for field type_name
+	26, // 0: inventory.SiteAgentBuildInfo.inventory_interval:type_name -> google.protobuf.Duration
+	27, // 1: inventory.SiteConfigInventory.core_build_info:type_name -> forge.BuildInfo
+	2,  // 2: inventory.SiteConfigInventory.site_agent_build_info:type_name -> inventory.SiteAgentBuildInfo
+	0,  // 3: inventory.DpuExtensionServiceInventory.inventory_status:type_name -> inventory.InventoryStatus
+	28, // 4: inventory.DpuExtensionServiceInventory.timestamp:type_name -> google.protobuf.Timestamp
+	29, // 5: inventory.DpuExtensionServiceInventory.dpu_extension_services:type_name -> forge.DpuExtensionService
+	1,  // 6: inventory.DpuExtensionServiceInventory.inventory_page:type_name -> inventory.InventoryPage
+	0,  // 7: inventory.ExpectedMachineInventory.inventory_status:type_name -> inventory.InventoryStatus
+	28, // 8: inventory.ExpectedMachineInventory.timestamp:type_name -> google.protobuf.Timestamp
+	30, // 9: inventory.ExpectedMachineInventory.expected_machines:type_name -> forge.ExpectedMachine
+	1,  // 10: inventory.ExpectedMachineInventory.inventory_page:type_name -> inventory.InventoryPage
+	31, // 11: inventory.ExpectedMachineInventory.linked_machines:type_name -> forge.LinkedExpectedMachine
+	0,  // 12: inventory.ExpectedRackInventory.inventory_status:type_name -> inventory.InventoryStatus
+	28, // 13: inventory.ExpectedRackInventory.timestamp:type_name -> google.protobuf.Timestamp
+	32, // 14: inventory.ExpectedRackInventory.expected_racks:type_name -> forge.ExpectedRack
+	1,  // 15: inventory.ExpectedRackInventory.inventory_page:type_name -> inventory.InventoryPage
+	0,  // 16: inventory.ExpectedPowerShelfInventory.inventory_status:type_name -> inventory.InventoryStatus
+	28, // 17: inventory.ExpectedPowerShelfInventory.timestamp:type_name -> google.protobuf.Timestamp
+	33, // 18: inventory.ExpectedPowerShelfInventory.expected_power_shelves:type_name -> forge.ExpectedPowerShelf
+	1,  // 19: inventory.ExpectedPowerShelfInventory.inventory_page:type_name -> inventory.InventoryPage
+	34, // 20: inventory.ExpectedPowerShelfInventory.linked_power_shelves:type_name -> forge.LinkedExpectedPowerShelf
+	0,  // 21: inventory.ExpectedSwitchInventory.inventory_status:type_name -> inventory.InventoryStatus
+	28, // 22: inventory.ExpectedSwitchInventory.timestamp:type_name -> google.protobuf.Timestamp
+	35, // 23: inventory.ExpectedSwitchInventory.expected_switches:type_name -> forge.ExpectedSwitch
+	1,  // 24: inventory.ExpectedSwitchInventory.inventory_page:type_name -> inventory.InventoryPage
+	36, // 25: inventory.ExpectedSwitchInventory.linked_switches:type_name -> forge.LinkedExpectedSwitch
+	0,  // 26: inventory.InfiniBandPartitionInventory.inventory_status:type_name -> inventory.InventoryStatus
+	28, // 27: inventory.InfiniBandPartitionInventory.timestamp:type_name -> google.protobuf.Timestamp
+	37, // 28: inventory.InfiniBandPartitionInventory.ib_partitions:type_name -> forge.IBPartition
+	1,  // 29: inventory.InfiniBandPartitionInventory.inventory_page:type_name -> inventory.InventoryPage
+	38, // 30: inventory.InstanceInventory.instances:type_name -> forge.Instance
+	39, // 31: inventory.InstanceInventory.network_security_group_propagations:type_name -> forge.NetworkSecurityGroupPropagationObjectStatus
+	28, // 32: inventory.InstanceInventory.timestamp:type_name -> google.protobuf.Timestamp
+	0,  // 33: inventory.InstanceInventory.inventory_status:type_name -> inventory.InventoryStatus
+	1,  // 34: inventory.InstanceInventory.inventory_page:type_name -> inventory.InventoryPage
+	40, // 35: inventory.InstanceTypeInventory.instance_types:type_name -> forge.InstanceType
+	28, // 36: inventory.InstanceTypeInventory.timestamp:type_name -> google.protobuf.Timestamp
+	0,  // 37: inventory.InstanceTypeInventory.inventory_status:type_name -> inventory.InventoryStatus
+	1,  // 38: inventory.InstanceTypeInventory.inventory_page:type_name -> inventory.InventoryPage
+	41, // 39: inventory.MachineInfo.machine:type_name -> forge.Machine
+	42, // 40: inventory.MachineInfo.discovery_info:type_name -> machine_discovery.DiscoveryInfo
+	12, // 41: inventory.MachineInventory.machines:type_name -> inventory.MachineInfo
+	28, // 42: inventory.MachineInventory.timestamp:type_name -> google.protobuf.Timestamp
+	0,  // 43: inventory.MachineInventory.inventory_status:type_name -> inventory.InventoryStatus
+	1,  // 44: inventory.MachineInventory.inventory_page:type_name -> inventory.InventoryPage
+	43, // 45: inventory.NetworkSecurityGroupInventory.network_security_groups:type_name -> forge.NetworkSecurityGroup
+	28, // 46: inventory.NetworkSecurityGroupInventory.timestamp:type_name -> google.protobuf.Timestamp
+	0,  // 47: inventory.NetworkSecurityGroupInventory.inventory_status:type_name -> inventory.InventoryStatus
+	1,  // 48: inventory.NetworkSecurityGroupInventory.inventory_page:type_name -> inventory.InventoryPage
+	0,  // 49: inventory.NVLinkLogicalPartitionInventory.inventory_status:type_name -> inventory.InventoryStatus
+	28, // 50: inventory.NVLinkLogicalPartitionInventory.timestamp:type_name -> google.protobuf.Timestamp
+	44, // 51: inventory.NVLinkLogicalPartitionInventory.partitions:type_name -> forge.NVLinkLogicalPartition
+	1,  // 52: inventory.NVLinkLogicalPartitionInventory.inventory_page:type_name -> inventory.InventoryPage
+	45, // 53: inventory.OsImageInventory.os_images:type_name -> forge.OsImage
+	28, // 54: inventory.OsImageInventory.timestamp:type_name -> google.protobuf.Timestamp
+	0,  // 55: inventory.OsImageInventory.inventory_status:type_name -> inventory.InventoryStatus
+	1,  // 56: inventory.OsImageInventory.inventory_page:type_name -> inventory.InventoryPage
+	46, // 57: inventory.OperatingSystemInventory.operating_systems:type_name -> forge.OperatingSystem
+	28, // 58: inventory.OperatingSystemInventory.timestamp:type_name -> google.protobuf.Timestamp
+	0,  // 59: inventory.OperatingSystemInventory.inventory_status:type_name -> inventory.InventoryStatus
+	1,  // 60: inventory.OperatingSystemInventory.inventory_page:type_name -> inventory.InventoryPage
+	47, // 61: inventory.IpxeTemplateInventory.templates:type_name -> forge.IpxeTemplate
+	28, // 62: inventory.IpxeTemplateInventory.timestamp:type_name -> google.protobuf.Timestamp
+	0,  // 63: inventory.IpxeTemplateInventory.inventory_status:type_name -> inventory.InventoryStatus
+	1,  // 64: inventory.IpxeTemplateInventory.inventory_page:type_name -> inventory.InventoryPage
+	0,  // 65: inventory.SkuInventory.inventory_status:type_name -> inventory.InventoryStatus
+	28, // 66: inventory.SkuInventory.timestamp:type_name -> google.protobuf.Timestamp
+	48, // 67: inventory.SkuInventory.skus:type_name -> forge.Sku
+	1,  // 68: inventory.SkuInventory.inventory_page:type_name -> inventory.InventoryPage
+	49, // 69: inventory.SSHKeyGroupInventory.tenant_keysets:type_name -> forge.TenantKeyset
+	28, // 70: inventory.SSHKeyGroupInventory.timestamp:type_name -> google.protobuf.Timestamp
+	0,  // 71: inventory.SSHKeyGroupInventory.inventory_status:type_name -> inventory.InventoryStatus
+	1,  // 72: inventory.SSHKeyGroupInventory.inventory_page:type_name -> inventory.InventoryPage
+	50, // 73: inventory.SubnetInventory.segments:type_name -> forge.NetworkSegment
+	28, // 74: inventory.SubnetInventory.timestamp:type_name -> google.protobuf.Timestamp
+	0,  // 75: inventory.SubnetInventory.inventory_status:type_name -> inventory.InventoryStatus
+	1,  // 76: inventory.SubnetInventory.inventory_page:type_name -> inventory.InventoryPage
+	51, // 77: inventory.TenantInventory.tenants:type_name -> forge.Tenant
+	28, // 78: inventory.TenantInventory.timestamp:type_name -> google.protobuf.Timestamp
+	0,  // 79: inventory.TenantInventory.inventory_status:type_name -> inventory.InventoryStatus
+	1,  // 80: inventory.TenantInventory.inventory_page:type_name -> inventory.InventoryPage
+	52, // 81: inventory.VPCInventory.vpcs:type_name -> forge.Vpc
+	39, // 82: inventory.VPCInventory.network_security_group_propagations:type_name -> forge.NetworkSecurityGroupPropagationObjectStatus
+	28, // 83: inventory.VPCInventory.timestamp:type_name -> google.protobuf.Timestamp
+	0,  // 84: inventory.VPCInventory.inventory_status:type_name -> inventory.InventoryStatus
+	1,  // 85: inventory.VPCInventory.inventory_page:type_name -> inventory.InventoryPage
+	53, // 86: inventory.VPCPeeringInventory.vpc_peerings:type_name -> forge.VpcPeering
+	28, // 87: inventory.VPCPeeringInventory.timestamp:type_name -> google.protobuf.Timestamp
+	0,  // 88: inventory.VPCPeeringInventory.inventory_status:type_name -> inventory.InventoryStatus
+	1,  // 89: inventory.VPCPeeringInventory.inventory_page:type_name -> inventory.InventoryPage
+	54, // 90: inventory.VpcPrefixInventory.vpc_prefixes:type_name -> forge.VpcPrefix
+	28, // 91: inventory.VpcPrefixInventory.timestamp:type_name -> google.protobuf.Timestamp
+	0,  // 92: inventory.VpcPrefixInventory.inventory_status:type_name -> inventory.InventoryStatus
+	1,  // 93: inventory.VpcPrefixInventory.inventory_page:type_name -> inventory.InventoryPage
+	94, // [94:94] is the sub-list for method output_type
+	94, // [94:94] is the sub-list for method input_type
+	94, // [94:94] is the sub-list for extension type_name
+	94, // [94:94] is the sub-list for extension extendee
+	0,  // [0:94] is the sub-list for field type_name
 }
 
 func init() { file_inventory_proto_init() }
@@ -2334,7 +2462,7 @@ func file_inventory_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_inventory_proto_rawDesc), len(file_inventory_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   23,
+			NumMessages:   25,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

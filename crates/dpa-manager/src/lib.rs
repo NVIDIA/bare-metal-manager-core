@@ -29,14 +29,16 @@ use db::{self, TransactionVending};
 use metrics::{DpaMonitorIterationFinished, DpaMonitorMetrics};
 use model::dpa_interface::{DpaInterface, DpaInterfaceControllerState, DpaSearchConfig};
 use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot};
+use model::machine::{
+    HostHealthConfig, LoadSnapshotOptions, ManagedHostState, ManagedHostStateSnapshot,
+};
 use mqttea::client::MqtteaClient;
 use sqlx::{PgConnection, PgPool, PgTransaction};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
-use crate::config::DpaConfig;
+use crate::config::EwEthersConfig;
 use crate::errors::{DpaManagerError, DpaManagerResult};
 
 mod card_handler;
@@ -50,7 +52,7 @@ pub(crate) use carbide_macros::sqlx_test;
 pub struct DpaMonitor {
     pub(crate) db_services: DbServices,
     pub(crate) dpa_info: Arc<DpaInfo>,
-    pub(crate) config: DpaConfig,
+    pub(crate) config: EwEthersConfig,
     host_health: HostHealthConfig,
     metric_holder: Arc<metrics::MetricHolder>,
     work_lock_manager_handle: WorkLockManagerHandle,
@@ -76,7 +78,7 @@ impl DpaMonitor {
         _db_reader: PgPoolReader,
         dpa_info: Arc<DpaInfo>,
         _meter: opentelemetry::metrics::Meter,
-        config: DpaConfig,
+        config: EwEthersConfig,
         host_health: HostHealthConfig,
         work_lock_manager_handle: WorkLockManagerHandle,
     ) -> Self {
@@ -275,6 +277,13 @@ impl DpaMonitor {
         metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult> {
         use card_handler::handler_for;
+
+        if matches!(mh.managed_state, ManagedHostState::Decommissioning { .. }) {
+            return Ok(HandlerResult {
+                new_state: None,
+                txn: None,
+            });
+        }
 
         let interface_type = mh.dpa_interface_snapshots[idx].interface_type;
         let handler = handler_for(interface_type);

@@ -58,7 +58,7 @@ func TestNewAPIRoutes(t *testing.T) {
 		"expected-rack":             7,
 		"expected-switch":           5,
 		"instance-type":             5,
-		"machine":                   15,
+		"machine":                   16,
 		"allocation":                6,
 		"subnet":                    5,
 		"machine-instance-type":     3,
@@ -73,9 +73,10 @@ func TestNewAPIRoutes(t *testing.T) {
 		"machine-validation":        11,
 		"dpu-extension-service":     7,
 		"sku":                       5,
-		"task":                      2,
+		"task":                      3,
 		"rule":                      5,
 		"run":                       8,
+		"domain":                    4,
 		"rack":                      13,
 		"tray":                      9,
 		"stats":                     4,
@@ -132,6 +133,9 @@ func TestNewAPIRoutes(t *testing.T) {
 			credentialRotationPath := "/org/:orgName/" + cfg.GetAPIName() + "/credential/rotation"
 			assertRouteExists(t, got, http.MethodPost, credentialRotationPath)
 			assertRouteExists(t, got, http.MethodGet, credentialRotationPath)
+			taskPath := "/org/:orgName/" + cfg.GetAPIName() + "/task"
+			assertRouteExists(t, got, http.MethodGet, taskPath)
+			assertRouteBefore(t, got, http.MethodGet, taskPath, http.MethodGet, taskPath+"/:id")
 
 			machineAdminPath := "/org/:orgName/" + cfg.GetAPIName() + "/machine/:id"
 			assertRouteExists(t, got, http.MethodPatch, machineAdminPath+"/bmc/reset")
@@ -140,6 +144,7 @@ func TestNewAPIRoutes(t *testing.T) {
 			assertRouteExists(t, got, http.MethodPut, machineAdminPath+"/health-report")
 			assertRouteExists(t, got, http.MethodDelete, machineAdminPath+"/health-report/:source")
 			assertRouteExists(t, got, http.MethodPatch, machineAdminPath+"/power")
+			assertRouteExists(t, got, http.MethodPost, machineAdminPath+"/decommission")
 			assertRouteExists(t, got, http.MethodPost, machineAdminPath+"/validation/run")
 			assertRouteExists(t, got, http.MethodGet, machineAdminPath+"/validation/run")
 			assertRouteExists(t, got, http.MethodGet, machineAdminPath+"/validation/result")
@@ -156,6 +161,12 @@ func TestNewAPIRoutes(t *testing.T) {
 			ipxeTemplatePath := "/org/:orgName/" + cfg.GetAPIName() + "/ipxe-template"
 			assertRouteExists(t, got, http.MethodGet, ipxeTemplatePath)
 			assertRouteExists(t, got, http.MethodGet, ipxeTemplatePath+"/:id")
+
+			domainPath := "/org/:orgName/" + cfg.GetAPIName() + "/domain/nvlink"
+			assertRouteExists(t, got, http.MethodPatch, domainPath+"/power")
+			assertRouteExists(t, got, http.MethodPatch, domainPath+"/firmware")
+			assertRouteExists(t, got, http.MethodPatch, domainPath+"/:id/power")
+			assertRouteExists(t, got, http.MethodPatch, domainPath+"/:id/firmware")
 
 			skuPath := "/org/:orgName/" + cfg.GetAPIName() + "/sku"
 			assertRouteExists(t, got, http.MethodPost, skuPath)

@@ -36,6 +36,8 @@ For complete step-by-step deployment instructions, see the **[Quick Start Guide]
 
 For manual phase-by-phase installation (re-running individual phases, debugging failures), see the **[Reference Installation](https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/reference-installation)** guide.
 
+To upgrade an existing NICo installation to a new release using `setup.sh`, refer to the **[Upgrading NICo](https://docs.nvidia.com/infra-controller/documentation/operations-day-2/upgrading-nico)** guide. `setup.sh` is idempotent and handles upgrades in place — the same script and values files used for initial installation are the upgrade mechanism.
+
 For the optional site-local monitoring stack (metrics + logs + traces: Prometheus, Grafana, Loki, Tempo, OTEL), see **[observability/README.md](observability/README.md)**.
 
 ## Directory structure

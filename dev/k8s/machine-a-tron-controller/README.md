@@ -8,8 +8,8 @@ Services for mock BMC endpoints.
 - Auto-discovers machine-a-tron pods via `nvidia-infra-controller/mat-service=true`
   label
 - Creates ClusterIP Services with BMC IP for each mock BMC
-- Supports Redfish (TCP 443) and IPMI (UDP 623) ports
-- IPMI ports are dynamically added when machine-a-tron reports `bmc.ipmi` in status
+- Supports Redfish (TCP 443), IPMI (UDP 623), and per-machine SSH ports
+- IPMI and SSH ports are dynamically added when machine-a-tron reports their endpoints in status
 - Multi-pod deployments with pod-specific routing
 - Automatic cleanup of stale Services
 
@@ -83,11 +83,13 @@ Created Services have:
 - `nvidia-infra-controller/mat-power-state`
 - `nvidia-infra-controller/mat-hardware-type`
 - `nvidia-infra-controller/mat-ipmi-listen-port` (when `bmc.ipmi` reported in status)
+- `nvidia-infra-controller/mat-ssh-listen-port` (when `bmc.ssh` reported in status)
 
 **Ports:**
 
 - `redfish` (TCP) - Always present for Redfish API access
 - `ipmi` (UDP) - Present only when machine-a-tron reports `bmc.ipmi` in status
+- `ssh` (TCP) - Present only when machine-a-tron reports `bmc.ssh` in status
 
 ## Development
 

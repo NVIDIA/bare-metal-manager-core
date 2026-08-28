@@ -16,11 +16,11 @@ import (
 	"logur.dev/logur"
 
 	"go.temporal.io/sdk/client"
-	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/interceptor"
 	"go.temporal.io/sdk/worker"
 
 	computils "github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/utils"
+	swu "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/util"
 )
 
 // Orchestrator - Workflow Orchestrator
@@ -142,17 +142,9 @@ func workflowOrchestrator() error {
 		HostPort:          fmt.Sprintf("%s:%s", ManagerAccess.Conf.EB.Temporal.Host, ManagerAccess.Conf.EB.Temporal.Port),
 		Namespace:         ManagerAccess.Conf.EB.Temporal.TemporalPublishNamespace,
 		ConnectionOptions: publishClientConnOptions,
-		DataConverter: converter.NewCompositeDataConverter(
-			converter.NewNilPayloadConverter(),
-			converter.NewByteSlicePayloadConverter(),
-			converter.NewProtoJSONPayloadConverterWithOptions(converter.ProtoJSONPayloadConverterOptions{
-				AllowUnknownFields: true,
-			}),
-			converter.NewProtoPayloadConverter(),
-			converter.NewJSONPayloadConverter(),
-		),
-		Interceptors: clientInterceptors,
-		Logger:       tLogger,
+		DataConverter:     swu.NewTemporalDataConverter(),
+		Interceptors:      clientInterceptors,
+		Logger:            tLogger,
 	}
 
 	if ManagerAccess.Data.EB.Conf.UtMode {
@@ -171,17 +163,9 @@ func workflowOrchestrator() error {
 		HostPort:          fmt.Sprintf("%s:%s", ManagerAccess.Conf.EB.Temporal.Host, ManagerAccess.Conf.EB.Temporal.Port),
 		Namespace:         ManagerAccess.Conf.EB.Temporal.TemporalSubscribeNamespace,
 		ConnectionOptions: subscribeClientConnOptions,
-		DataConverter: converter.NewCompositeDataConverter(
-			converter.NewNilPayloadConverter(),
-			converter.NewByteSlicePayloadConverter(),
-			converter.NewProtoJSONPayloadConverterWithOptions(converter.ProtoJSONPayloadConverterOptions{
-				AllowUnknownFields: true,
-			}),
-			converter.NewProtoPayloadConverter(),
-			converter.NewJSONPayloadConverter(),
-		),
-		Interceptors: clientInterceptors,
-		Logger:       tLogger,
+		DataConverter:     swu.NewTemporalDataConverter(),
+		Interceptors:      clientInterceptors,
+		Logger:            tLogger,
 	}
 
 	if ManagerAccess.Data.EB.Conf.UtMode {
