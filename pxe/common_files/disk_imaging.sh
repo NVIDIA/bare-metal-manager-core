@@ -357,14 +357,14 @@ function get_root_dev() {
 	elif [ ! -z "$rootfs_label" ]; then
 		root_dev=$(resolve_device_on_disk LABEL "$rootfs_label" "$image_disk") || return 1
 	else
-		echo "rootfs_uuid not specified and rootfs_label not determined" | tee $log_output
-		echo "skipping root device changes" | tee $log_output
+		echo "rootfs_uuid not specified and rootfs_label not determined" | tee "$log_output"
+		echo "skipping root device changes" | tee "$log_output"
 	fi
 	if [ ! -z "$efi_label" ]; then
 		efi_dev=$(resolve_device_on_disk LABEL "$efi_label" "$image_disk") || efi_dev=
 	fi
 	if [ -z "$efi_dev" ] && [ ! -z "$image_disk" ]; then
-		echo "EFI partition not found by label [$efi_label]; falling back to GPT partition type EF00 (EFI System Partition) on $image_disk" | tee $log_output
+		echo "EFI partition not found by label [$efi_label]; falling back to GPT partition type EF00 (EFI System Partition) on $image_disk" | tee "$log_output"
 		efi_dev=$(resolve_esp_partition "$image_disk")
 	fi
 	return 0
@@ -438,6 +438,7 @@ function get_serial_port() {
 }
 
 function modify_grub_cfg() {
+	local efi_status
 	local grub_cfg_status
 
 	efi_mounted=
@@ -462,7 +463,12 @@ function modify_grub_cfg() {
 			mount "$boot_part" /mnt/boot
 		fi
 		# we want to mount efi now as it can contain uefi grub.cfg
-		mount_efi || return 1
+		if ! mount_efi; then
+			if [[ $(grep '\/mnt\/boot' /proc/mounts) ]]; then
+				umount /mnt/boot
+			fi
+			return 1
+		fi
 		efi_mounted=true
 		grub_cfg=
 		if [ -f "/mnt/boot/grub/grub.cfg" ]; then
@@ -486,7 +492,15 @@ function modify_grub_cfg() {
 	echo "Updating grub configuration" | tee $log_output
 	# if we skipped grub mount before we want to mount efi now
 	if [ -z "$efi_mounted" ]; then
-		mount_efi || return 1
+		if ! mount_efi; then
+			umount /mnt/sys
+			umount /mnt/proc
+			umount /mnt/dev
+			if [[ $(grep '\/mnt\/boot' /proc/mounts) ]]; then
+				umount /mnt/boot
+			fi
+			return 1
+		fi
 	fi
 	# Check if grub2-mkconfig exists, means we are in rhel distro, falback to update-grub if not found
 	if [ -f "/mnt/usr/sbin/grub2-mkconfig" ]; then
@@ -502,7 +516,11 @@ function modify_grub_cfg() {
 		grub_cfg_status=${PIPESTATUS[0]}
 	fi
 	create_efi_boot_entry
-	set_boot_order
+	efi_status=$?
+	if [ "$efi_status" -eq 0 ]; then
+		set_boot_order
+		efi_status=$?
+	fi
 	umount /mnt/boot/efi 2>&1 | tee $log_output
 	umount /mnt/sys
 	umount /mnt/proc
@@ -510,7 +528,10 @@ function modify_grub_cfg() {
 	if [[ $(grep '\/mnt\/boot' /proc/mounts) ]]; then
 		umount /mnt/boot
 	fi
-	return "$grub_cfg_status"
+	if [ "$grub_cfg_status" -ne 0 ]; then
+		return "$grub_cfg_status"
+	fi
+	return "$efi_status"
 }
 
 function get_part_num() {
@@ -555,6 +576,9 @@ function efi_entry_label() {
 }
 
 function create_efi_boot_entry() {
+	local efi_create_status
+	local efi_list_status
+
 	if ! command -v efibootmgr >/dev/null 2>&1; then
 		echo "efibootmgr not available, skipping EFI boot entry creation" | tee $log_output
 		return 0
@@ -714,7 +738,11 @@ function create_efi_boot_entry() {
 	fi
 
 	echo "Creating EFI boot entry for $label ($loader_path on $image_disk part $esp_part_num)" | tee $log_output
-	efibootmgr --create --disk "$image_disk" --part "$esp_part_num" --label "$label" --loader "$loader_path" 2>&1 | tee $log_output
+	efibootmgr --create --disk "$image_disk" --part "$esp_part_num" --label "$label" --loader "$loader_path" 2>&1 | tee "$log_output"
+	efi_create_status=${PIPESTATUS[0]}
+	if [ "$efi_create_status" -ne 0 ]; then
+		return "$efi_create_status"
+	fi
 
 	# Resolve the number efibootmgr assigned, so set_boot_order() can rank
 	# this specific entry. It is not echoed in a parseable form, so find it by
@@ -727,7 +755,12 @@ function create_efi_boot_entry() {
 	# delete-by-label is unavailable (efibootmgr <= 17) or fails for any other
 	# reason, and picking a leftover then reintroduces exactly the bug this is
 	# meant to fix. Ordering holds either way.
-	efi_list=$(efibootmgr -v)
+	efi_list=$(efibootmgr -v 2>&1)
+	efi_list_status=$?
+	if [ "$efi_list_status" -ne 0 ]; then
+		echo "Failed to read EFI boot entries after creating $label: $efi_list" | tee "$log_output"
+		return "$efi_list_status"
+	fi
 	installed_os_bootnum=
 	label_matches=0
 	IFS=',' read -r -a created_order <<< "$(echo "$efi_list" | grep '^BootOrder:' | sed -E 's/^BootOrder:[[:space:]]*//')"
@@ -753,11 +786,19 @@ function create_efi_boot_entry() {
 }
 
 function set_boot_order() {
+	local boot_order_status
+	local efi_list_status
+
 	if ! command -v efibootmgr >/dev/null 2>&1; then
 		return 0
 	fi
 
-	efi_list=$(efibootmgr -v)
+	efi_list=$(efibootmgr -v 2>&1)
+	efi_list_status=$?
+	if [ "$efi_list_status" -ne 0 ]; then
+		echo "Could not read current EFI boot entries" | tee "$log_output"
+		return "$efi_list_status"
+	fi
 	current_order_line=$(echo "$efi_list" | grep '^BootOrder:')
 	if [ -z "$current_order_line" ]; then
 		echo "Could not read current BootOrder, skipping reorder" | tee $log_output
@@ -805,7 +846,9 @@ function set_boot_order() {
 	fi
 
 	echo "Setting boot order to: $new_order_csv" | tee $log_output
-	efibootmgr -o "$new_order_csv" 2>&1 | tee $log_output
+	efibootmgr -o "$new_order_csv" 2>&1 | tee "$log_output"
+	boot_order_status=${PIPESTATUS[0]}
+	return "$boot_order_status"
 }
 
 function mount_efi() {
@@ -1076,7 +1119,10 @@ function main() {
 			fi
 			if [ "${update_grub_cfg}" == "yes" ]; then
 				echo "Updating grub cfg" | tee $log_output
-				modify_grub_cfg || return 1
+				if ! modify_grub_cfg; then
+					umount /mnt 2>&1 | tee "$log_output"
+					return 1
+				fi
 			fi
 			if [ ! -z "$cloud_init_url" ]; then
 				add_cloud_init
@@ -1088,6 +1134,8 @@ function main() {
 	fi
 }
 
-main
-echo "Rebooting" | tee $log_output
-systemctl reboot | tee $log_output
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+	main
+	echo "Rebooting" | tee $log_output
+	systemctl reboot | tee $log_output
+fi
