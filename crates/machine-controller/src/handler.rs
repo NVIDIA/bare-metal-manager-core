@@ -2281,7 +2281,7 @@ impl MachineStateHandler {
         ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     ) -> Result<bool, StateHandlerError> {
         // Skip Astra enablement entirely when the site has not opted in.
-        if !ctx.services.site_config.astra_enabled {
+        if !ctx.services.site_config.astra_enabled || !ctx.services.site_config.ewethers_enabled {
             tracing::debug!(
                 machine_id = %mh_snapshot.host_snapshot.id,
                 "Astra not enabled for this site, skipping NIC enablement"
@@ -2367,7 +2367,7 @@ impl MachineStateHandler {
 
         tracing::info!(
             machine_id = %mh_snapshot.host_snapshot.id,
-            "Enabled Astra on {enabled_any_cx9} CX9 NICs"
+            "Enabled Astra on CX9 NICs: {enabled_any_cx9}"
         );
 
         Ok(enabled_any_cx9)

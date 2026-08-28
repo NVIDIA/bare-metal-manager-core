@@ -28,7 +28,7 @@ pub(crate) async fn create(
 ) -> Result<Response<::rpc::forge::DpaInterface>, Status> {
     if !api.runtime_config.is_ewethers_enabled() {
         return Err(CarbideError::InvalidArgument(
-            "CreateDpaInterface cannot be done as dpa_enabled is false".to_string(),
+            "CreateDpaInterface cannot be done as ewethers_enabled is false".to_string(),
         )
         .into());
     }
@@ -55,7 +55,7 @@ pub(crate) async fn ensure(
 ) -> Result<Response<::rpc::forge::DpaInterface>, Status> {
     if !api.runtime_config.is_ewethers_enabled() {
         return Err(CarbideError::InvalidArgument(
-            "EnsureDpaInterface cannot be done as dpa_enabled is false".to_string(),
+            "EnsureDpaInterface cannot be done as ewethers_enabled is false".to_string(),
         )
         .into());
     }
@@ -85,7 +85,7 @@ pub(crate) async fn delete(
 ) -> Result<Response<::rpc::forge::DpaInterfaceDeletionResult>, Status> {
     if !api.runtime_config.is_ewethers_enabled() {
         return Err(CarbideError::InvalidArgument(
-            "DeleteDpaInterface cannot be done as dpa_enabled is false".to_string(),
+            "DeleteDpaInterface cannot be done as ewethers_enabled is false".to_string(),
         )
         .into());
     }

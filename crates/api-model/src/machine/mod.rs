@@ -1289,7 +1289,7 @@ pub enum ManagedHostState {
     /// created.
     Created,
 
-    // Enable Astra if necessary
+    /// Enable Astra on CX9 NICs if necessary
     ConfigureAstra {
         #[serde(default)]
         configure_astra_state: ConfigureAstraState,
