@@ -1,5 +1,9 @@
 # NICo — NVIDIA Infra Controller Documentation
 
+<Note title="Repository move notice">
+On September 4, 2026, the NICo repository will move from the NVIDIA GitHub organization to `dsx-ai-factory`. Existing repository URLs and standard Git operations are expected to continue working through GitHub redirects. No action is needed for most users. If you maintain automation or integrations that reference `NVIDIA/infra-controller`, such as GitHub Actions, webhooks, or pinned repository URLs, please update them to `dsx-ai-factory/infra-controller` after the move.
+</Note>
+
 NICo is an open source suite of microservices for site-local, zero-trust bare-metal lifecycle management. It automates hardware discovery, firmware validation, DPU provisioning, network isolation, and tenant sanitization — enabling NVIDIA Cloud Partners (NCPs) and infrastructure operators to stand up and operate AI factory-scale infrastructure.
 
 NICo is open source under the Apache 2.0 license.
