@@ -21,7 +21,7 @@ check:
 
 navbar-links:
   - type: github
-    value: https://github.com/NVIDIA/infra-controller
+    value: https://github.com/dsx-ai-factory/infra-controller
 
 products:
   - display-name: NVIDIA Infra Controller
