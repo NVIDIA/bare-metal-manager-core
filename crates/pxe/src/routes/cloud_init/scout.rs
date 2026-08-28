@@ -34,6 +34,7 @@ use axum::routing::get;
 use carbide_instrument::emit;
 use serde::Serialize;
 
+use crate::STATIC_URL_PREFIX;
 use crate::common::{AppState, Machine};
 use crate::metrics::{
     BootEndpoint, CloudInitConsumer, OutcomeReason, PxeBootOutcome, PxeSnippetDirectoryUnreadable,
@@ -44,9 +45,6 @@ const ENDPOINT: BootEndpoint = BootEndpoint::CloudInit(CloudInitConsumer::Scout)
 /// Relative to the static-file directory, so the feature needs no mount point of
 /// its own and follows whatever the deployment configures.
 const SNIPPET_SUBDIR: &str = "blobs/internal/cloud-init.d/scout";
-
-/// The URL path the existing static handler serves that same directory under.
-const SNIPPET_URL_PATH: &str = "/public/blobs/internal/cloud-init.d/scout";
 
 /// NoCloud needs an `instance-id` to bring the datasource up, so a machine the
 /// API can identify by neither machine nor interface still gets a valid one.
@@ -226,7 +224,7 @@ async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoRespons
             });
             names
                 .iter()
-                .map(|name| format!("{base_url}{SNIPPET_URL_PATH}/{name}"))
+                .map(|name| format!("{base_url}{STATIC_URL_PREFIX}/{SNIPPET_SUBDIR}/{name}"))
                 .collect()
         }
         SnippetScan::NotConfigured => {
@@ -567,9 +565,7 @@ mod tests {
         std::fs::write(dir.join("20-second.yaml"), "#cloud-config\n").unwrap();
         std::fs::write(dir.join("10-first.yaml"), "#cloud-config\n").unwrap();
 
-        let template_glob = concat!(env!("CARGO_MANIFEST_DIR"), "/../../pxe/templates/**/*");
-        let mut state = test_app_state();
-        state.engine = axum_template::engine::Engine::from(tera::Tera::new(template_glob).unwrap());
+        let mut state = test_app_state_with_templates();
         state.static_dir = root.path().to_str().unwrap().to_string();
 
         let response = user_data(machine_with_interface(None), State(state))
@@ -585,8 +581,10 @@ mod tests {
             "a configured site must get an #include document, got:\n{body}"
         );
 
-        let first = format!("http://carbide-pxe.forge{SNIPPET_URL_PATH}/10-first.yaml");
-        let second = format!("http://carbide-pxe.forge{SNIPPET_URL_PATH}/20-second.yaml");
+        let first =
+            format!("http://carbide-pxe.forge{STATIC_URL_PREFIX}/{SNIPPET_SUBDIR}/10-first.yaml");
+        let second =
+            format!("http://carbide-pxe.forge{STATIC_URL_PREFIX}/{SNIPPET_SUBDIR}/20-second.yaml");
         assert!(body.contains(&first), "missing {first} in:\n{body}");
         assert!(body.contains(&second), "missing {second} in:\n{body}");
         assert!(

@@ -240,20 +240,20 @@ async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoRespons
                             (Err(error), _) | (_, Err(error)) => log_and_generate_generic_error(
                                 error,
                                 OutcomeReason::InstructionsInvalid,
-                                CloudInitConsumer::Dpu,
+                                ENDPOINT,
                             ),
                         }
                     }
                     None => log_and_generate_generic_error(
                         format!("The interface ID should not be null: {interface:?}"),
                         OutcomeReason::InterfaceNotFound,
-                        CloudInitConsumer::Dpu,
+                        ENDPOINT,
                     ),
                 },
                 (interface, domain) => log_and_generate_generic_error(
                     format!("The interface and domain were not found: {interface:?}, {domain:?}"),
                     OutcomeReason::InterfaceNotFound,
-                    CloudInitConsumer::Dpu,
+                    ENDPOINT,
                 ),
             }
         }
@@ -263,7 +263,7 @@ async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoRespons
         (None, None) => log_and_generate_generic_error(
             "No discovery instructions were found for this DPU".to_string(),
             OutcomeReason::InstructionsEmpty,
-            CloudInitConsumer::Dpu,
+            ENDPOINT,
         ),
     };
 

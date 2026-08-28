@@ -33,7 +33,7 @@ use axum::Router;
 use carbide_instrument::emit;
 
 use crate::common::AppState;
-use crate::metrics::{BootEndpoint, CloudInitConsumer, OutcomeReason, PxeCloudInitRequestFailed};
+use crate::metrics::{BootEndpoint, OutcomeReason, PxeCloudInitRequestFailed};
 
 pub(crate) mod dpu;
 pub(crate) mod scout;
@@ -48,10 +48,10 @@ pub(crate) mod tenant;
 fn log_and_generate_generic_error(
     error: String,
     reason: OutcomeReason,
-    kind: CloudInitConsumer,
+    endpoint: BootEndpoint,
 ) -> (String, HashMap<String, String>) {
     emit(PxeCloudInitRequestFailed {
-        endpoint: BootEndpoint::CloudInit(kind),
+        endpoint,
         reason,
         error,
     });

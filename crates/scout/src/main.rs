@@ -72,8 +72,6 @@ const REBOOT_COMPLETED_PATH: &str = "/tmp/reboot_completed";
 const MAX_FIRMWARE_UPGRADE_STATUS_FIELD_SIZE: usize = 1500;
 const CLOUD_INIT_OUTPUT_LOG: &str = "/var/log/cloud-init-output.log";
 
-const CLOUD_INIT_STATUS_CLEAN: &str = "done";
-
 /// Listed explicitly so that a value we do not recognize is treated as unknown
 /// rather than as a failure; cloud-init offers no stability guarantee here.
 const CLOUD_INIT_STATUS_NOT_CLEAN: &[&str] =
@@ -819,7 +817,7 @@ fn classify_cloud_init_status(exit_code: Option<i32>, status_output: &str) -> Cl
         .map(str::trim);
 
     match (exit_code, status) {
-        (Some(0), Some(CLOUD_INIT_STATUS_CLEAN)) => CloudInitOutcome::Clean,
+        (Some(0), Some("done")) => CloudInitOutcome::Clean,
         (Some(0), Some(status)) if CLOUD_INIT_STATUS_NOT_CLEAN.contains(&status) => {
             CloudInitOutcome::NotClean
         }

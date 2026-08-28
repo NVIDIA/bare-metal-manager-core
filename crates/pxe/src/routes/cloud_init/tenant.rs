@@ -68,7 +68,7 @@ async fn meta_data(machine: Machine, state: State<AppState>) -> impl IntoRespons
         None => log_and_generate_generic_error(
             format!("No metadata was found for machine {machine:?}"),
             OutcomeReason::MetadataNotFound,
-            CloudInitConsumer::Tenant,
+            ENDPOINT,
         ),
         Some(metadata) => {
             let mut template_data = HashMap::from([
