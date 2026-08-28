@@ -420,6 +420,8 @@ func TestGeneratedCommandInfos_ContainsConciseAliases(t *testing.T) {
 	}
 
 	assert.Equal(t, "machine-power-control-machine", operations["machine power"])
+	assert.Equal(t, "get-all-dpu-machines", operations["dpu-machine list"])
+	assert.Equal(t, "get-dpu-machine", operations["dpu-machine get"])
 	assert.Equal(t,
 		"machine-power-control-machine",
 		operations["machine power-control-machine machine-power-control-machine"],

@@ -604,6 +604,16 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 		},
 		// Machine endpoints
 		{
+			Path:    apiPathPrefix + "/dpu",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetAllDpuMachinesHandler(dbSession, scp),
+		},
+		{
+			Path:    apiPathPrefix + "/dpu/:id",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetDpuMachineHandler(dbSession, scp),
+		},
+		{
 			Path:    apiPathPrefix + "/machine",
 			Method:  http.MethodGet,
 			Handler: apiHandler.NewGetAllMachineHandler(dbSession, tc, cfg),
