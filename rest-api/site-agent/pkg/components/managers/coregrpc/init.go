@@ -23,7 +23,7 @@ func (coregrpc *API) Init() {
 
 	prometheus.MustRegister(
 		prometheus.NewGaugeFunc(prometheus.GaugeOpts{
-			Namespace: computils.MetricsNamespace,
+			Namespace: ManagerAccess.Conf.EB.MetricsNamespace,
 			Name:      MetricCoreGrpcStatus,
 			Help:      "Core gRPC health status",
 		},

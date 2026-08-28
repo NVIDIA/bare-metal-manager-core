@@ -21,6 +21,13 @@ type SiteHealthReport struct {
 
 // SiteHealthMetrics publishes per-Site health signals gathered by the Site
 // health monitor cron.
+//
+// Only the Cloud worker replica that ran a given cron cycle updates its own
+// gauges, so with cloudWorker.replicaCount above 1 the replicas that did not win
+// the cycle keep serving whatever they last published, and Prometheus scrapes
+// all of them. A replica that stops winning would otherwise age into a false
+// overdue alert, so an alert on these gauges has to collapse the replicas first,
+// as in max by (site_id) (...).
 type SiteHealthMetrics struct {
 	lastInventoryReceipt *prometheus.GaugeVec
 	agentCertExpiry      *prometheus.GaugeVec
@@ -61,21 +68,21 @@ func (shm *SiteHealthMetrics) SetSiteHealth(reports []SiteHealthReport) {
 }
 
 // NewSiteHealthMetrics initializes per-Site health metrics
-func NewSiteHealthMetrics(reg prometheus.Registerer) *SiteHealthMetrics {
+func NewSiteHealthMetrics(reg prometheus.Registerer, namespace string) *SiteHealthMetrics {
 	siteHealthMetrics := &SiteHealthMetrics{
 		lastInventoryReceipt: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
-				Namespace: MetricsNamespace,
+				Namespace: namespace,
 				Name:      "site_last_inventory_receipt_timestamp_seconds",
-				Help:      "Unix timestamp of the last Machine inventory received from a Registered Site, or 0 if none has been received",
+				Help:      "Unix timestamp of the last Machine inventory received from a Registered Site, or 0 if none has been received. Published by one worker replica per cycle, so aggregate with max by (site_id)",
 			},
 			[]string{"site", "site_id"}),
 
 		agentCertExpiry: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
-				Namespace: MetricsNamespace,
+				Namespace: namespace,
 				Name:      "site_agent_cert_expiry_timestamp_seconds",
-				Help:      "Unix timestamp at which a Registered Site's Site Agent Temporal certificate expires, or 0 if the Site has never reported one",
+				Help:      "Unix timestamp at which a Registered Site's Site Agent Temporal certificate expires, or 0 if the Site has never reported one. Published by one worker replica per cycle, so aggregate with max by (site_id)",
 			},
 			[]string{"site", "site_id"}),
 	}

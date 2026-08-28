@@ -704,7 +704,7 @@ func NewManageVpc(dbSession *cdb.Session, siteClientPool *sc.ClientPool, tc clie
 type ManageVpcLifecycleMetrics struct {
 	dbSession            *cdb.Session
 	statusTransitionTime *prometheus.GaugeVec
-	siteIDNameMap        map[uuid.UUID]string
+	siteNames            *cwm.SiteNameCache
 }
 
 // RecordVpcStatusTransitionMetrics is a Temporal activity that records duration of important status transitions for VPCs
@@ -713,17 +713,10 @@ func (mvlm ManageVpcLifecycleMetrics) RecordVpcStatusTransitionMetrics(ctx conte
 
 	logger.Info().Msg("starting activity")
 
-	// Cache site name to avoid repeated DB call
-	siteName, ok := mvlm.siteIDNameMap[siteID]
-	if !ok {
-		siteDAO := cdbm.NewSiteDAO(mvlm.dbSession)
-		site, err := siteDAO.GetByID(context.Background(), nil, siteID, nil, false)
-		if err != nil {
-			logger.Error().Err(err).Str("Site ID", siteID.String()).Msg("failed to retrieve Site from DB")
-			return err
-		}
-		siteName = site.Name
-		mvlm.siteIDNameMap[siteID] = siteName
+	siteName, err := mvlm.siteNames.Get(ctx, mvlm.dbSession, siteID)
+	if err != nil {
+		logger.Error().Err(err).Str("Site ID", siteID.String()).Msg("failed to retrieve Site from DB")
+		return err
 	}
 
 	logger.Info().Int("EventCount", len(vpcLifecycleEvents)).Str("Site Name", siteName).Msg("processing vpc lifecycle events")
@@ -758,7 +751,7 @@ func (mvlm ManageVpcLifecycleMetrics) RecordVpcStatusTransitionMetrics(ctx conte
 				// Calculate duration from Deleting status to deletion time
 				duration := event.Deleted.Sub(deletingStatusDetail.Created)
 				// Note: VPC doesn't have VpcStatusDeleted constant, so we use string "Deleted"
-				mvlm.statusTransitionTime.WithLabelValues(siteName, cwm.InventoryOperationTypeDelete, cdbm.VpcStatusDeleting, "Deleted").Set(duration.Seconds())
+				mvlm.statusTransitionTime.WithLabelValues(siteName, siteID.String(), cwm.InventoryOperationTypeDelete, cdbm.VpcStatusDeleting, "Deleted").Set(duration.Seconds())
 				metricsRecorded++
 				logger.Info().
 					Str("VPC ID", event.ObjectID.String()).
@@ -779,18 +772,18 @@ func (mvlm ManageVpcLifecycleMetrics) RecordVpcStatusTransitionMetrics(ctx conte
 }
 
 // NewManageVpcLifecycleMetrics returns a new ManageVpcLifecycleMetrics activity
-func NewManageVpcLifecycleMetrics(reg prometheus.Registerer, dbSession *cdb.Session) ManageVpcLifecycleMetrics {
+func NewManageVpcLifecycleMetrics(reg prometheus.Registerer, dbSession *cdb.Session, namespace string) ManageVpcLifecycleMetrics {
 	lifecycleMetrics := ManageVpcLifecycleMetrics{
 		dbSession: dbSession,
 		statusTransitionTime: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
-				Namespace: cwm.MetricsNamespace,
+				Namespace: namespace,
 				Name:      "vpc_operation_latency_seconds",
 				Help:      "Current latency of vpc operations",
 			},
-			[]string{"site", "operation_type", "from_status", "to_status"}),
+			[]string{"site", "site_id", "operation_type", "from_status", "to_status"}),
 
-		siteIDNameMap: map[uuid.UUID]string{},
+		siteNames: cwm.NewSiteNameCache(),
 	}
 	reg.MustRegister(lifecycleMetrics.statusTransitionTime)
 

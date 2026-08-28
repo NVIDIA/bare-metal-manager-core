@@ -726,7 +726,7 @@ func Test_SubnetMetrics_Create_PendingToReady(t *testing.T) {
 
 	site := util.TestSetupSite(t, dbSession)
 	reg := prometheus.NewRegistry()
-	lifecycleMetrics := NewManageSubnetLifecycleMetrics(reg, dbSession)
+	lifecycleMetrics := NewManageSubnetLifecycleMetrics(reg, dbSession, "nico_rest_workflow")
 	testSubnetID := uuid.New()
 
 	// Set precise timestamps
@@ -765,7 +765,7 @@ func Test_SubnetMetrics_Create_PendingErrorReady(t *testing.T) {
 
 	site := util.TestSetupSite(t, dbSession)
 	reg := prometheus.NewRegistry()
-	lifecycleMetrics := NewManageSubnetLifecycleMetrics(reg, dbSession)
+	lifecycleMetrics := NewManageSubnetLifecycleMetrics(reg, dbSession, "nico_rest_workflow")
 	testSubnetID := uuid.New()
 
 	// Set precise timestamps
@@ -808,7 +808,7 @@ func Test_SubnetMetrics_Create_ReadyErrorReady(t *testing.T) {
 
 	site := util.TestSetupSite(t, dbSession)
 	reg := prometheus.NewRegistry()
-	lifecycleMetrics := NewManageSubnetLifecycleMetrics(reg, dbSession)
+	lifecycleMetrics := NewManageSubnetLifecycleMetrics(reg, dbSession, "nico_rest_workflow")
 	testSubnetID := uuid.New()
 
 	// Set precise timestamps
@@ -847,7 +847,7 @@ func Test_SubnetMetrics_Delete_DeletingOnly(t *testing.T) {
 
 	site := util.TestSetupSite(t, dbSession)
 	reg := prometheus.NewRegistry()
-	lifecycleMetrics := NewManageSubnetLifecycleMetrics(reg, dbSession)
+	lifecycleMetrics := NewManageSubnetLifecycleMetrics(reg, dbSession, "nico_rest_workflow")
 	testSubnetID := uuid.New()
 
 	// Set precise timestamps
@@ -882,7 +882,7 @@ func Test_SubnetMetrics_Delete_MultipleDeletingTerminating(t *testing.T) {
 
 	site := util.TestSetupSite(t, dbSession)
 	reg := prometheus.NewRegistry()
-	lifecycleMetrics := NewManageSubnetLifecycleMetrics(reg, dbSession)
+	lifecycleMetrics := NewManageSubnetLifecycleMetrics(reg, dbSession, "nico_rest_workflow")
 	testSubnetID := uuid.New()
 
 	// Set precise timestamps
@@ -925,7 +925,7 @@ func Test_SubnetMetrics_Delete_NoDeleting(t *testing.T) {
 
 	site := util.TestSetupSite(t, dbSession)
 	reg := prometheus.NewRegistry()
-	lifecycleMetrics := NewManageSubnetLifecycleMetrics(reg, dbSession)
+	lifecycleMetrics := NewManageSubnetLifecycleMetrics(reg, dbSession, "nico_rest_workflow")
 	testSubnetID := uuid.New()
 
 	// Set precise timestamps

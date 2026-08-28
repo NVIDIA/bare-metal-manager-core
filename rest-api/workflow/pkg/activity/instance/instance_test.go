@@ -2854,7 +2854,7 @@ func Test_InstanceMetrics_Create_PendingToReady(t *testing.T) {
 
 	site := util.TestSetupSite(t, dbSession)
 	reg := prometheus.NewRegistry()
-	lifecycleMetrics := NewManageInstanceLifecycleMetrics(reg, dbSession)
+	lifecycleMetrics := NewManageInstanceLifecycleMetrics(reg, dbSession, "nico_rest_workflow")
 	testInstanceID := uuid.New()
 
 	// Set precise timestamps
@@ -2892,7 +2892,7 @@ func Test_InstanceMetrics_Create_PendingErrorReady(t *testing.T) {
 
 	site := util.TestSetupSite(t, dbSession)
 	reg := prometheus.NewRegistry()
-	lifecycleMetrics := NewManageInstanceLifecycleMetrics(reg, dbSession)
+	lifecycleMetrics := NewManageInstanceLifecycleMetrics(reg, dbSession, "nico_rest_workflow")
 	testInstanceID := uuid.New()
 
 	// Set precise timestamps
@@ -2934,7 +2934,7 @@ func Test_InstanceMetrics_Create_ReadyErrorReady(t *testing.T) {
 
 	site := util.TestSetupSite(t, dbSession)
 	reg := prometheus.NewRegistry()
-	lifecycleMetrics := NewManageInstanceLifecycleMetrics(reg, dbSession)
+	lifecycleMetrics := NewManageInstanceLifecycleMetrics(reg, dbSession, "nico_rest_workflow")
 	testInstanceID := uuid.New()
 
 	// Set precise timestamps
@@ -2976,7 +2976,7 @@ func Test_InstanceMetrics_Delete_TerminatingOnly(t *testing.T) {
 
 	site := util.TestSetupSite(t, dbSession)
 	reg := prometheus.NewRegistry()
-	lifecycleMetrics := NewManageInstanceLifecycleMetrics(reg, dbSession)
+	lifecycleMetrics := NewManageInstanceLifecycleMetrics(reg, dbSession, "nico_rest_workflow")
 	testInstanceID := uuid.New()
 
 	// Set precise timestamps
@@ -3011,7 +3011,7 @@ func Test_InstanceMetrics_Delete_MultipleTerminating(t *testing.T) {
 
 	site := util.TestSetupSite(t, dbSession)
 	reg := prometheus.NewRegistry()
-	lifecycleMetrics := NewManageInstanceLifecycleMetrics(reg, dbSession)
+	lifecycleMetrics := NewManageInstanceLifecycleMetrics(reg, dbSession, "nico_rest_workflow")
 	testInstanceID := uuid.New()
 
 	// Set precise timestamps
@@ -3054,7 +3054,7 @@ func Test_InstanceMetrics_Delete_NoTerminating(t *testing.T) {
 
 	site := util.TestSetupSite(t, dbSession)
 	reg := prometheus.NewRegistry()
-	lifecycleMetrics := NewManageInstanceLifecycleMetrics(reg, dbSession)
+	lifecycleMetrics := NewManageInstanceLifecycleMetrics(reg, dbSession, "nico_rest_workflow")
 	testInstanceID := uuid.New()
 
 	// Set precise timestamps

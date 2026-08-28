@@ -36,7 +36,7 @@ func TestManageInventoryMetrics_RecordLatency(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	reg.MustRegister(collectors.NewGoCollector())
 
-	inventoryMetricsManager := NewManageInventoryMetrics(reg, dbSession)
+	inventoryMetricsManager := NewManageInventoryMetrics(reg, dbSession, "nico_rest_workflow")
 
 	t.Run("records an observation and caches the Site name", func(t *testing.T) {
 		err := inventoryMetricsManager.RecordLatency(context.Background(), site.ID, "test-workflow", false, time.Second)
@@ -45,10 +45,11 @@ func TestManageInventoryMetrics_RecordLatency(t *testing.T) {
 		util.TestAssertMetricExistsTimes(t, reg, "nico_rest_workflow_inventory_latency_seconds", 1, map[string]string{
 			"activity": "test-workflow",
 			"site":     site.Name,
+			"site_id":  site.ID.String(),
 			"status":   InventoryStatusSuccess,
 		}, 0)
 
-		assert.Equal(t, 1, len(inventoryMetricsManager.siteIDNameMap))
+		assert.Equal(t, 1, inventoryMetricsManager.siteNames.Len())
 	})
 
 	// The worker dispatches this activity concurrently against one registered
@@ -58,7 +59,7 @@ func TestManageInventoryMetrics_RecordLatency(t *testing.T) {
 		const callers = 16
 
 		concurrentReg := prometheus.NewRegistry()
-		concurrentManager := NewManageInventoryMetrics(concurrentReg, dbSession)
+		concurrentManager := NewManageInventoryMetrics(concurrentReg, dbSession, "nico_rest_workflow")
 
 		var wg sync.WaitGroup
 		for range callers {

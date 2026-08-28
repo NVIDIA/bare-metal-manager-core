@@ -392,7 +392,7 @@ func TestNewManageSite(t *testing.T) {
 
 	tc := &tmocks.Client{}
 	scp := sc.NewClientPool(tcfg)
-	shm := cwm.NewSiteHealthMetrics(prometheus.NewRegistry())
+	shm := cwm.NewSiteHealthMetrics(prometheus.NewRegistry(), "nico_rest_workflow")
 
 	tests := []struct {
 		name string
@@ -476,7 +476,7 @@ func TestManageSite_MonitorInventoryReceiptForAllSites(t *testing.T) {
 	// One registry across every case, so a later run sees what the earlier ones
 	// published and can prove a Site keeps or loses its series.
 	reg := prometheus.NewRegistry()
-	siteHealthMetrics := cwm.NewSiteHealthMetrics(reg)
+	siteHealthMetrics := cwm.NewSiteHealthMetrics(reg, "nico_rest_workflow")
 
 	type fields struct {
 		dbSession      *cdb.Session

@@ -300,16 +300,14 @@ func InitAPIServer(cfg *config.Config, dbSession *cdb.Session, tc tsdkClient.Cli
 	return e
 }
 
-func InitMetricsServer(e *echo.Echo) *echo.Echo {
+func InitMetricsServer(e *echo.Echo, namespace string) *echo.Echo {
 	ep := echo.New()
 	ep.HideBanner = true
 
 	conf := echoPrometheus.MiddlewareConfig{
-		// Matches the nico-rest-api Helm service name. Deliberately fixed rather
-		// than derived from api.name, which is the URL path segment callers route
-		// on and has no bearing on how these series are named. The prefix has to
-		// go in Subsystem, since echoprometheus substitutes "echo" for an empty one.
-		Subsystem: "nico_rest_api",
+		// The prefix has to go in Subsystem, since echoprometheus substitutes
+		// its own "echo" for an empty one.
+		Subsystem: namespace,
 		Skipper:   api.MetricsURLSkipper,
 	}
 

@@ -27,7 +27,7 @@ func (wflow *API) Init() {
 
 	prometheus.MustRegister(
 		prometheus.NewCounterFunc(prometheus.CounterOpts{
-			Namespace: computils.MetricsNamespace,
+			Namespace: ManagerAccess.Conf.EB.MetricsNamespace,
 			Name:      MetricTemporalConnStatus,
 			Help:      "Temporal health status of the Site Agent",
 		},
@@ -38,7 +38,7 @@ func (wflow *API) Init() {
 
 	prometheus.MustRegister(
 		prometheus.NewCounterFunc(prometheus.CounterOpts{
-			Namespace: computils.MetricsNamespace,
+			Namespace: ManagerAccess.Conf.EB.MetricsNamespace,
 			Name:      MetricTemporalConnAttempted,
 			Help:      "Temporal connections attempted by the Site Agent",
 		},
@@ -48,7 +48,7 @@ func (wflow *API) Init() {
 
 	prometheus.MustRegister(
 		prometheus.NewCounterFunc(prometheus.CounterOpts{
-			Namespace: computils.MetricsNamespace,
+			Namespace: ManagerAccess.Conf.EB.MetricsNamespace,
 			Name:      MetricTemporalConnSucc,
 			Help:      "Temporal connections succeeded by the Site Agent",
 		},

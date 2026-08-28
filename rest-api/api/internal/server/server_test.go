@@ -145,7 +145,7 @@ func Test_InitMetricsServer(t *testing.T) {
 				return c.NoContent(http.StatusOK)
 			})
 
-			InitMetricsServer(tt.args.e)
+			InitMetricsServer(tt.args.e, config.DefaultMetricsNamespace)
 
 			tt.args.e.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/v2/probe", nil))
 

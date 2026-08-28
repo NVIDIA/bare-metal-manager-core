@@ -1422,7 +1422,7 @@ func NewManageInstance(dbSession *cdb.Session, siteClientPool *sc.ClientPool, tc
 type ManageInstanceLifecycleMetrics struct {
 	dbSession            *cdb.Session
 	statusTransitionTime *prometheus.GaugeVec
-	siteIDNameMap        map[uuid.UUID]string
+	siteNames            *cwm.SiteNameCache
 }
 
 // RecordInstanceStatusTransitionMetrics is a Temporal activity that records duration of important status transitions for Instances
@@ -1431,16 +1431,10 @@ func (milm ManageInstanceLifecycleMetrics) RecordInstanceStatusTransitionMetrics
 
 	logger.Info().Msg("starting activity")
 
-	siteName, ok := milm.siteIDNameMap[siteID]
-	if !ok {
-		siteDAO := cdbm.NewSiteDAO(milm.dbSession)
-		site, err := siteDAO.GetByID(context.Background(), nil, siteID, nil, false)
-		if err != nil {
-			logger.Error().Err(err).Str("Site ID", siteID.String()).Msg("failed to retrieve Site from DB")
-			return err
-		}
-		siteName = site.Name
-		milm.siteIDNameMap[siteID] = siteName
+	siteName, err := milm.siteNames.Get(ctx, milm.dbSession, siteID)
+	if err != nil {
+		logger.Error().Err(err).Str("Site ID", siteID.String()).Msg("failed to retrieve Site from DB")
+		return err
 	}
 
 	logger.Info().Int("EventCount", len(instanceLifecycleEvents)).Str("Site Name", siteName).Msg("processing instance lifecycle events")
@@ -1481,7 +1475,7 @@ func (milm ManageInstanceLifecycleMetrics) RecordInstanceStatusTransitionMetrics
 			// Only emit metric if we have exactly 1 Ready and at least 1 Pending
 			if readySD != nil && pendingSD != nil && readyStatusCount == 1 {
 				dur := readySD.Created.Sub(pendingSD.Created)
-				milm.statusTransitionTime.WithLabelValues(siteName, cwm.InventoryOperationTypeCreate, cdbm.InstanceStatusPending, cdbm.InstanceStatusReady).Set(dur.Seconds())
+				milm.statusTransitionTime.WithLabelValues(siteName, siteID.String(), cwm.InventoryOperationTypeCreate, cdbm.InstanceStatusPending, cdbm.InstanceStatusReady).Set(dur.Seconds())
 				metricsRecorded++
 				logger.Info().
 					Str("Instance ID", event.ObjectID.String()).
@@ -1507,7 +1501,7 @@ func (milm ManageInstanceLifecycleMetrics) RecordInstanceStatusTransitionMetrics
 			if terminatingSD != nil {
 				// Calculate duration from Terminating status to deletion time
 				dur := event.Deleted.Sub(terminatingSD.Created)
-				milm.statusTransitionTime.WithLabelValues(siteName, cwm.InventoryOperationTypeDelete, cdbm.InstanceStatusTerminating, cdbm.InstanceStatusTerminated).Set(dur.Seconds())
+				milm.statusTransitionTime.WithLabelValues(siteName, siteID.String(), cwm.InventoryOperationTypeDelete, cdbm.InstanceStatusTerminating, cdbm.InstanceStatusTerminated).Set(dur.Seconds())
 				metricsRecorded++
 				logger.Info().
 					Str("Instance ID", event.ObjectID.String()).
@@ -1527,17 +1521,17 @@ func (milm ManageInstanceLifecycleMetrics) RecordInstanceStatusTransitionMetrics
 }
 
 // NewManageInstanceLifecycleMetrics returns a new ManageInstanceLifecycleMetrics activity
-func NewManageInstanceLifecycleMetrics(reg prometheus.Registerer, dbSession *cdb.Session) ManageInstanceLifecycleMetrics {
+func NewManageInstanceLifecycleMetrics(reg prometheus.Registerer, dbSession *cdb.Session, namespace string) ManageInstanceLifecycleMetrics {
 	inventoryMetrics := ManageInstanceLifecycleMetrics{
 		dbSession: dbSession,
 		statusTransitionTime: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
-				Namespace: cwm.MetricsNamespace,
+				Namespace: namespace,
 				Name:      "instance_operation_latency_seconds",
 				Help:      "Current latency of instance operations",
 			},
-			[]string{"site", "operation_type", "from_status", "to_status"}),
-		siteIDNameMap: map[uuid.UUID]string{},
+			[]string{"site", "site_id", "operation_type", "from_status", "to_status"}),
+		siteNames: cwm.NewSiteNameCache(),
 	}
 	reg.MustRegister(inventoryMetrics.statusTransitionTime)
 	return inventoryMetrics

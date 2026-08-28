@@ -1331,7 +1331,7 @@ func Test_VpcMetrics_Delete_DeletingOnly(t *testing.T) {
 
 	site := util.TestSetupSite(t, dbSession)
 	reg := prometheus.NewRegistry()
-	lifecycleMetrics := NewManageVpcLifecycleMetrics(reg, dbSession)
+	lifecycleMetrics := NewManageVpcLifecycleMetrics(reg, dbSession, "nico_rest_workflow")
 	testVpcID := uuid.New()
 
 	// Set precise timestamps
@@ -1366,7 +1366,7 @@ func Test_VpcMetrics_Delete_MultipleDeleting(t *testing.T) {
 
 	site := util.TestSetupSite(t, dbSession)
 	reg := prometheus.NewRegistry()
-	lifecycleMetrics := NewManageVpcLifecycleMetrics(reg, dbSession)
+	lifecycleMetrics := NewManageVpcLifecycleMetrics(reg, dbSession, "nico_rest_workflow")
 	testVpcID := uuid.New()
 
 	// Set precise timestamps
@@ -1409,7 +1409,7 @@ func Test_VpcMetrics_Delete_NoDeleting(t *testing.T) {
 
 	site := util.TestSetupSite(t, dbSession)
 	reg := prometheus.NewRegistry()
-	lifecycleMetrics := NewManageVpcLifecycleMetrics(reg, dbSession)
+	lifecycleMetrics := NewManageVpcLifecycleMetrics(reg, dbSession, "nico_rest_workflow")
 	testVpcID := uuid.New()
 
 	// Set precise timestamps

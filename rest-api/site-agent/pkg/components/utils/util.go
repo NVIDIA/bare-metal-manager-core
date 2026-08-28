@@ -41,12 +41,6 @@ const (
 	SSHKeyGroupStatus = "/status-sshkeygroup"
 	// ParamName in URI
 	ParamName = "name"
-
-	// MetricsNamespace prefixes every metric the Site Agent exposes and matches
-	// its nico-rest-site-agent Helm service name. It lives here because the
-	// metrics are declared across six manager packages, and a prefix that only
-	// some of them share is worse than one they all get wrong together.
-	MetricsNamespace = "nico_rest_site_agent"
 )
 
 // CompStatus Component Status is used in prometheus metrics

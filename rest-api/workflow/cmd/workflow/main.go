@@ -347,28 +347,28 @@ func main() {
 		reg.MustRegister(collectors.NewGoCollector())
 
 		// Register core metrics
-		cm := cwm.NewCoreMetrics(reg)
+		cm := cwm.NewCoreMetrics(reg, mconfig.Namespace)
 		// TODO: Set version here when available
 		cm.Info.With(prometheus.Labels{"version": "unknown", "namespace": tcfg.Namespace}).Set(1)
 
 		// Published by the Site health monitor cron, which runs on the Cloud queue.
-		siteHealthMetrics = cwm.NewSiteHealthMetrics(reg)
+		siteHealthMetrics = cwm.NewSiteHealthMetrics(reg, mconfig.Namespace)
 
 		if tcfg.Namespace == cwfn.SiteNamespace {
 			// The inventory workflows that report these metrics only run here.
 
 			// Register common inventory metrics activity
-			inventoryMetricsManager := cwm.NewManageInventoryMetrics(reg, dbSession)
+			inventoryMetricsManager := cwm.NewManageInventoryMetrics(reg, dbSession, mconfig.Namespace)
 			w.RegisterActivity(inventoryMetricsManager)
 
 			// Register inventory operation metrics activity
-			vpcLifecycleMetricsManager := vpcActivity.NewManageVpcLifecycleMetrics(reg, dbSession)
+			vpcLifecycleMetricsManager := vpcActivity.NewManageVpcLifecycleMetrics(reg, dbSession, mconfig.Namespace)
 			w.RegisterActivity(&vpcLifecycleMetricsManager)
 
-			subnetLifecycleMetricsManager := subnetActivity.NewManageSubnetLifecycleMetrics(reg, dbSession)
+			subnetLifecycleMetricsManager := subnetActivity.NewManageSubnetLifecycleMetrics(reg, dbSession, mconfig.Namespace)
 			w.RegisterActivity(&subnetLifecycleMetricsManager)
 
-			instanceLifecycleMetricsManager := instanceActivity.NewManageInstanceLifecycleMetrics(reg, dbSession)
+			instanceLifecycleMetricsManager := instanceActivity.NewManageInstanceLifecycleMetrics(reg, dbSession, mconfig.Namespace)
 			w.RegisterActivity(&instanceLifecycleMetricsManager)
 		}
 	}
