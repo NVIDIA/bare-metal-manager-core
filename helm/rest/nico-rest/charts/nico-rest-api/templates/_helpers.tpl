@@ -35,6 +35,15 @@ app.kubernetes.io/component: api
 {{- if and .Values.config.keycloak.enabled .Values.config.issuers -}}
 {{- fail "keycloak and issuers are mutually exclusive — enable only one" -}}
 {{- end -}}
+{{- $hasDirectKas := false -}}
+{{- range .Values.config.issuers -}}
+{{- if eq (lower (default "custom" .origin)) "kas" -}}
+{{- $hasDirectKas = true -}}
+{{- end -}}
+{{- end -}}
+{{- if and $hasDirectKas (not .Values.config.rateLimiter.enabled) -}}
+{{- fail "config.issuers origin: kas requires config.rateLimiter.enabled: true" -}}
+{{- end -}}
 {{- end -}}
 
 {{- define "nico-rest-api.validatePowerProvisioning" -}}

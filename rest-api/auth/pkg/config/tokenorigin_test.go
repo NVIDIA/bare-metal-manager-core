@@ -26,7 +26,7 @@ var (
 	ssaJwks       = `{"keys":[{"kty":"EC","use":"sig","crv":"P-256","kid":"2c58e180-149a-4818-9bfc-5f2a6b6dbd8a","x":"d4Sa5NYfomfkYkSdQEUrTKHXEET2dNhyQVnEViA97L0","y":"dQTndo4VhAy1G3i0Z9V6tEq7Ii2ey59pAM-GFoaI5M8","alg":"ES256"}]}`
 )
 
-func TestNewJWTOriginConfig(t *testing.T) {
+func TestNewTokenOriginConfig(t *testing.T) {
 	// Generate a test server so we can capture and inspect the request
 	testServer := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
 		if strings.Contains(req.URL.Path, "/kas") {
@@ -60,7 +60,7 @@ func TestNewJWTOriginConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := NewJWTOriginConfig()
+			got := NewTokenOriginConfig()
 			if got == nil {
 				t.Errorf("Unable to initialize JWT Origin")
 			}
