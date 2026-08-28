@@ -68,11 +68,22 @@ use model::vpc::VpcConfig;
 pub use model::vpc::{PrefixFilterPolicyEntry, RouteTargetConfig};
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::CarbideError;
 
 pub(crate) const DEFAULT_DPU_NUM_OF_VFS: u32 = 16;
 pub(crate) const MAX_DPU_NUM_OF_VFS: u32 = 126;
+
+const DPF_DEPLOYMENT_NAME_MAX_LENGTH: usize = 20;
+const DPF_DERIVED_NAME_HASH_BYTES: usize = 16;
+const DPF_FLAVOR_HASH_SUFFIX_LENGTH: usize = 17;
+const KUBERNETES_DNS_LABEL_MAX_LENGTH: usize = 63;
+const KUBERNETES_LABEL_NAME_MAX_LENGTH: usize = 63;
+const GB200_RESOURCE_SUFFIX: &str = "-gb200";
+// The DPUDeployment CRD allows only 20 characters. The default BF3 name already
+// uses 18, so `-g` is the longest suffix that preserves it without truncation.
+const GB200_DEPLOYMENT_SUFFIX: &str = "-g";
 
 /// Parses an optional duration ("30d", "12h", ...; absent = `None`) into
 /// `Option<chrono::Duration>`. Hand-rolled because `duration_str` deprecated
@@ -944,6 +955,7 @@ impl CarbideConfig {
             firmware_global: self.firmware_global.clone(),
             machine_state_controller: self.machine_state_controller.clone(),
             host_health: self.host_health,
+            rack_profiles: self.rack_profiles.clone(),
 
             selected_profile: self.selected_profile,
             bios_profiles: self.bios_profiles.clone(),
@@ -1341,9 +1353,10 @@ fn is_valid_kubernetes_object_name(value: &str) -> bool {
         && value.len() <= KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH
         && value.split('.').all(|label| {
             let bytes = label.as_bytes();
-            bytes
-                .first()
-                .is_some_and(|byte| is_dns_1123_alphanumeric(*byte))
+            label.len() <= KUBERNETES_DNS_LABEL_MAX_LENGTH
+                && bytes
+                    .first()
+                    .is_some_and(|byte| is_dns_1123_alphanumeric(*byte))
                 && bytes
                     .last()
                     .is_some_and(|byte| is_dns_1123_alphanumeric(*byte))
@@ -1366,6 +1379,19 @@ fn is_valid_kubernetes_data_key(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+}
+
+fn is_valid_kubernetes_label_key(value: &str) -> bool {
+    let (prefix, name) = value
+        .split_once('/')
+        .map_or((None, value), |(prefix, name)| (Some(prefix), name));
+    let bytes = name.as_bytes();
+
+    prefix.is_none_or(is_valid_kubernetes_object_name)
+        && name.len() <= KUBERNETES_LABEL_NAME_MAX_LENGTH
+        && bytes.first().is_some_and(u8::is_ascii_alphanumeric)
+        && bytes.last().is_some_and(u8::is_ascii_alphanumeric)
+        && is_valid_kubernetes_data_key(name)
 }
 
 /// Kubernetes object kinds supported as DPF DPU-agent trust-anchor sources.
@@ -1552,7 +1578,7 @@ const BF4_ASTRA_EXTRA_SERVICES: &[DpfExtraService] = &[
 
 fn extra_service_types(deployment_type: DpuDeploymentType) -> &'static [DpfExtraService] {
     match deployment_type {
-        DpuDeploymentType::Bf3 | DpuDeploymentType::Bf4Generic => &[],
+        DpuDeploymentType::Bf3 | DpuDeploymentType::Bf3Gb200 | DpuDeploymentType::Bf4Generic => &[],
         DpuDeploymentType::Bf4Astra => BF4_ASTRA_EXTRA_SERVICES,
     }
 }
@@ -1664,6 +1690,117 @@ impl Default for DpfDeploymentConfig {
     }
 }
 
+impl DpfDeploymentConfig {
+    /// Derives the GB200 BF3 deployment from the configured BF3 source and services.
+    pub(crate) fn bf3_gb200(&self) -> Self {
+        Self {
+            flavor_name: append_bounded_dns_subdomain_suffix(
+                &self.flavor_name,
+                GB200_RESOURCE_SUFFIX,
+                KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH - DPF_FLAVOR_HASH_SUFFIX_LENGTH,
+                KUBERNETES_DNS_LABEL_MAX_LENGTH - DPF_FLAVOR_HASH_SUFFIX_LENGTH,
+            ),
+            deployment_name: append_bounded_identifier_suffix(
+                &self.deployment_name,
+                GB200_DEPLOYMENT_SUFFIX,
+                DPF_DEPLOYMENT_NAME_MAX_LENGTH,
+            ),
+            node_label_key: append_gb200_label_suffix(&self.node_label_key),
+            ..self.clone()
+        }
+    }
+}
+
+/// Appends `suffix` while reserving its bytes inside `max_len`.
+///
+/// Kubernetes identifiers are ASCII. If truncation lands on a separator,
+/// remove it so the suffix still ends a valid segment. Startup validation
+/// checks both the configured and derived identifiers after this step.
+fn append_bounded_identifier_suffix(value: &str, suffix: &str, max_len: usize) -> String {
+    let max_prefix_len = max_len.saturating_sub(suffix.len());
+    let prefix = value
+        .char_indices()
+        .take_while(|(index, ch)| index + ch.len_utf8() <= max_prefix_len)
+        .map(|(_, ch)| ch)
+        .collect::<String>();
+    let prefix = prefix.trim_end_matches(['-', '.', '_']);
+
+    format!("{prefix}{suffix}")
+}
+
+/// Appends `suffix` to the final DNS label while reserving room for both the
+/// complete subdomain and the final label's later hash suffix. If preserving
+/// the dotted prefix leaves too little room, a hash of the complete source name
+/// keeps the derived identifier bounded and distinct.
+fn append_bounded_dns_subdomain_suffix(
+    value: &str,
+    suffix: &str,
+    max_len: usize,
+    max_label_len: usize,
+) -> String {
+    let (prefix, final_label) = value
+        .rsplit_once('.')
+        .map_or((None, value), |(prefix, label)| (Some(prefix), label));
+    let prefix_len = prefix.map_or(0, |prefix| prefix.len() + 1);
+    let available_label_len = max_label_len.min(max_len.saturating_sub(prefix_len));
+    let final_label = append_bounded_identifier_suffix(final_label, suffix, available_label_len);
+    let candidate = match prefix {
+        Some(prefix) => format!("{prefix}.{final_label}"),
+        None => final_label,
+    };
+    if candidate.len() <= max_len
+        && candidate
+            .rsplit('.')
+            .next()
+            .is_some_and(|label| label.len() <= max_label_len)
+        && is_valid_kubernetes_object_name(&candidate)
+    {
+        return candidate;
+    }
+
+    let short_hash = hex::encode(&Sha256::digest(value.as_bytes())[..DPF_DERIVED_NAME_HASH_BYTES]);
+    let hash_and_suffix = format!("-{short_hash}{suffix}");
+    let readable_len = max_label_len.saturating_sub(hash_and_suffix.len());
+    let readable = value
+        .rsplit('.')
+        .next()
+        .unwrap_or(value)
+        .char_indices()
+        .take_while(|(index, ch)| index + ch.len_utf8() <= readable_len)
+        .map(|(_, ch)| ch)
+        .collect::<String>();
+    let readable = readable.trim_end_matches('-');
+    let readable = if is_valid_kubernetes_object_name(readable) {
+        readable
+    } else {
+        "f"
+    };
+    let fallback = format!("{readable}{hash_and_suffix}");
+
+    debug_assert!(fallback.len() <= max_len);
+    debug_assert!(fallback.len() <= max_label_len);
+    debug_assert!(is_valid_kubernetes_object_name(&fallback));
+    fallback
+}
+
+/// Adds the GB200 suffix to the name segment of a Kubernetes label key.
+fn append_gb200_label_suffix(label_key: &str) -> String {
+    let Some((prefix, name)) = label_key.rsplit_once('/') else {
+        return append_bounded_identifier_suffix(
+            label_key,
+            GB200_RESOURCE_SUFFIX,
+            KUBERNETES_LABEL_NAME_MAX_LENGTH,
+        );
+    };
+    let name = append_bounded_identifier_suffix(
+        name,
+        GB200_RESOURCE_SUFFIX,
+        KUBERNETES_LABEL_NAME_MAX_LENGTH,
+    );
+
+    format!("{prefix}/{name}")
+}
+
 /// BlueFieldSoftware spec for BF4-class DPU provisioning. Mirrors the `spec` of
 /// the `provisioning.dpu.nvidia.com/v1alpha1` `BlueFieldSoftware` CR.
 ///
@@ -1763,11 +1900,12 @@ impl DpfDeploymentsConfig {
         v
     }
 
-    /// Validates that no two active deployments share a `deployment_name`,
-    /// `flavor_name`, or `node_label_key`. Returns an error listing every
-    /// conflict so the operator can fix them all in one pass.
+    /// Validates the final Kubernetes identifiers and their uniqueness.
+    /// Returns every error so the operator can fix them all in one pass.
     pub fn validate_unique_identifiers(&self) -> eyre::Result<()> {
-        let deployments = self.all();
+        let bf3_gb200 = self.bf3.bf3_gb200();
+        let mut deployments = self.all();
+        deployments.push(("bf3_gb200", &bf3_gb200));
         let mut errors: Vec<String> = Vec::new();
 
         let name_vals: Vec<(&str, &str)> = deployments
@@ -1798,11 +1936,40 @@ impl DpfDeploymentsConfig {
             }
         }
 
+        for (deployment, name) in &name_vals {
+            if name.len() > DPF_DEPLOYMENT_NAME_MAX_LENGTH || !is_valid_kubernetes_object_name(name)
+            {
+                errors.push(format!(
+                    "deployment_name {name:?} for deployment {deployment:?} is not a valid DPUDeployment name"
+                ));
+            }
+        }
+
+        for (deployment, name) in &flavor_vals {
+            if name.len() + DPF_FLAVOR_HASH_SUFFIX_LENGTH > KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH
+                || name.rsplit('.').next().is_none_or(|label| {
+                    label.len() + DPF_FLAVOR_HASH_SUFFIX_LENGTH > KUBERNETES_DNS_LABEL_MAX_LENGTH
+                })
+                || !is_valid_kubernetes_object_name(name)
+            {
+                errors.push(format!(
+                    "flavor_name {name:?} for deployment {deployment:?} cannot form a valid hash-suffixed DPUFlavor name"
+                ));
+            }
+        }
+
+        for (deployment, label_key) in &label_vals {
+            if !is_valid_kubernetes_label_key(label_key) {
+                errors.push(format!(
+                    "node_label_key {label_key:?} for deployment {deployment:?} is not a valid Kubernetes label key"
+                ));
+            }
+        }
         if errors.is_empty() {
             Ok(())
         } else {
             Err(eyre::eyre!(
-                "DPF deployment configuration has conflicting identifiers:\n  - {}",
+                "DPF deployment configuration has invalid identifiers:\n  - {}",
                 errors.join("\n  - ")
             ))
         }
@@ -6151,6 +6318,21 @@ node_label_key = "carbide.nvidia.com/astra"
                     expect: true,
                 },
                 Check {
+                    scenario: "object name with a DNS label longer than the Kubernetes limit",
+                    input: ValidationInput {
+                        policy: DpfDpuAgentBootstrapCa::Mounted {
+                            object_kind: DpfBootstrapCaObjectKind::ConfigMap,
+                            name: format!(
+                                "{}.valid",
+                                "a".repeat(KUBERNETES_DNS_LABEL_MAX_LENGTH + 1)
+                            ),
+                            key: "ca.crt".to_string(),
+                        },
+                        expected_error: "name must be a valid Kubernetes DNS subdomain",
+                    },
+                    expect: true,
+                },
+                Check {
                     scenario: "object name longer than the Kubernetes limit",
                     input: ValidationInput {
                         policy: DpfDpuAgentBootstrapCa::Mounted {
@@ -6234,7 +6416,13 @@ node_label_key = "carbide.nvidia.com/astra"
                 Check {
                     scenario: "maximum-length object name and key",
                     input: (
-                        "a".repeat(KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH),
+                        [
+                            "a".repeat(KUBERNETES_DNS_LABEL_MAX_LENGTH),
+                            "b".repeat(KUBERNETES_DNS_LABEL_MAX_LENGTH),
+                            "c".repeat(KUBERNETES_DNS_LABEL_MAX_LENGTH),
+                            "d".repeat(KUBERNETES_DNS_LABEL_MAX_LENGTH - 2),
+                        ]
+                        .join("."),
                         "A".repeat(KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH),
                     ),
                     expect: Ok(()),
@@ -6591,6 +6779,130 @@ node_label_key = "carbide.nvidia.com/astra"
             services: None,
             extra_services: BTreeMap::new(),
         }
+    }
+
+    #[test]
+    fn gb200_bf3_deployment_derives_distinct_identifiers_and_reuses_bf3_inputs() {
+        let bf3 = DpfDeploymentConfig {
+            bfb_url: Some("https://example.com/custom.bfb".to_string()),
+            flavor_name: "site-bf3-flavor".to_string(),
+            deployment_name: "site-bf3-deploy".to_string(),
+            node_label_key: "carbide.nvidia.com/site-bf3".to_string(),
+            ..Default::default()
+        };
+
+        let gb200 = bf3.bf3_gb200();
+        assert_eq!(gb200.bfb_url, bf3.bfb_url);
+        assert_eq!(gb200.flavor_name, "site-bf3-flavor-gb200");
+        assert_eq!(gb200.deployment_name, "site-bf3-deploy-g");
+        assert_eq!(gb200.node_label_key, "carbide.nvidia.com/site-bf3-gb200");
+    }
+
+    #[test]
+    fn gb200_bf3_derived_identifiers_stay_within_kubernetes_limits() {
+        let max_flavor_name = [
+            "a".repeat(KUBERNETES_DNS_LABEL_MAX_LENGTH),
+            "b".repeat(KUBERNETES_DNS_LABEL_MAX_LENGTH),
+            "c".repeat(KUBERNETES_DNS_LABEL_MAX_LENGTH),
+            "f".repeat(44),
+        ]
+        .join(".");
+        assert_eq!(
+            max_flavor_name.len() + DPF_FLAVOR_HASH_SUFFIX_LENGTH,
+            KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH
+        );
+        let bf3 = DpfDeploymentConfig {
+            flavor_name: max_flavor_name,
+            deployment_name: "d".repeat(DPF_DEPLOYMENT_NAME_MAX_LENGTH),
+            node_label_key: format!(
+                "carbide.nvidia.com/{}",
+                "n".repeat(KUBERNETES_LABEL_NAME_MAX_LENGTH)
+            ),
+            ..Default::default()
+        };
+
+        let gb200 = bf3.bf3_gb200();
+        let label_name = gb200.node_label_key.rsplit_once('/').unwrap().1;
+
+        assert_eq!(gb200.deployment_name.len(), DPF_DEPLOYMENT_NAME_MAX_LENGTH);
+        assert_eq!(
+            gb200.flavor_name.len() + DPF_FLAVOR_HASH_SUFFIX_LENGTH,
+            KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH
+        );
+        assert!(
+            gb200.flavor_name.rsplit('.').next().unwrap().len() + DPF_FLAVOR_HASH_SUFFIX_LENGTH
+                <= KUBERNETES_DNS_LABEL_MAX_LENGTH
+        );
+        assert!(is_valid_kubernetes_object_name(&gb200.flavor_name));
+        assert_eq!(label_name.len(), KUBERNETES_LABEL_NAME_MAX_LENGTH);
+        assert!(is_valid_kubernetes_label_key(&gb200.node_label_key));
+
+        let deployments = DpfDeploymentsConfig {
+            bf3,
+            bf4_generic: None,
+            bf4_astra: None,
+        };
+        assert!(deployments.validate_unique_identifiers().is_ok());
+    }
+
+    #[test]
+    fn gb200_bf3_flavor_derivation_handles_a_full_prefix_and_short_final_label() {
+        let flavor_name = [
+            "a".repeat(KUBERNETES_DNS_LABEL_MAX_LENGTH),
+            "b".repeat(KUBERNETES_DNS_LABEL_MAX_LENGTH),
+            "c".repeat(KUBERNETES_DNS_LABEL_MAX_LENGTH),
+            "d".repeat(42),
+            "f".to_string(),
+        ]
+        .join(".");
+        assert_eq!(
+            flavor_name.len() + DPF_FLAVOR_HASH_SUFFIX_LENGTH,
+            KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH
+        );
+
+        let deployments = DpfDeploymentsConfig {
+            bf3: DpfDeploymentConfig {
+                flavor_name,
+                ..Default::default()
+            },
+            bf4_generic: None,
+            bf4_astra: None,
+        };
+        let gb200 = deployments.bf3.bf3_gb200();
+
+        assert!(is_valid_kubernetes_object_name(&gb200.flavor_name));
+        assert!(
+            gb200.flavor_name.len() + DPF_FLAVOR_HASH_SUFFIX_LENGTH
+                <= KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH
+        );
+        assert!(
+            gb200.flavor_name.rsplit('.').next().unwrap().len() + DPF_FLAVOR_HASH_SUFFIX_LENGTH
+                <= KUBERNETES_DNS_LABEL_MAX_LENGTH
+        );
+        assert!(deployments.validate_unique_identifiers().is_ok());
+    }
+
+    #[test]
+    fn dpf_flavor_name_validation_reserves_final_label_for_hash() {
+        let deployments = DpfDeploymentsConfig {
+            bf3: DpfDeploymentConfig {
+                flavor_name: "f"
+                    .repeat(KUBERNETES_DNS_LABEL_MAX_LENGTH - DPF_FLAVOR_HASH_SUFFIX_LENGTH + 1),
+                ..Default::default()
+            },
+            bf4_generic: None,
+            bf4_astra: None,
+        };
+
+        assert!(
+            deployments
+                .validate_unique_identifiers()
+                .is_err_and(|error| {
+                    error
+                        .to_string()
+                        .contains("cannot form a valid hash-suffixed DPUFlavor name")
+                })
+        );
     }
 
     #[test]

@@ -41,6 +41,7 @@ use crate::repository::{
     DpuServiceInterfaceRepository, DpuServiceNADRepository, DpuServiceTemplateRepository,
     K8sConfigRepository,
 };
+use crate::sdk::ResourceLabeler;
 use crate::types::*;
 
 const TEST_NS: &str = "sdk-init-ns";
@@ -70,6 +71,27 @@ struct InitializationMock {
     service_interfaces: Arc<DashMap<String, DPUServiceInterface>>,
     configs: Arc<DashMap<String, BTreeMap<String, String>>>,
     secrets: Arc<DashMap<String, BTreeMap<String, Vec<u8>>>>,
+}
+
+#[derive(Clone, Copy)]
+struct InitializationLabeler;
+
+impl ResourceLabeler for InitializationLabeler {
+    fn node_labels_for_deployment_type(
+        &self,
+        deployment_type: DpuDeploymentType,
+    ) -> Result<BTreeMap<String, String>, DpfError> {
+        let deployment_type = match deployment_type {
+            DpuDeploymentType::Bf3 => "bf3",
+            DpuDeploymentType::Bf3Gb200 => "bf3gb200",
+            DpuDeploymentType::Bf4Generic => "bf4generic",
+            DpuDeploymentType::Bf4Astra => "bf4astra",
+        };
+        Ok(BTreeMap::from([(
+            "test.nvidia.com/deployment-type".to_string(),
+            deployment_type.to_string(),
+        )]))
+    }
 }
 
 #[async_trait]
@@ -395,6 +417,139 @@ async fn test_create_initialization_objects() {
     assert!(secret.is_some());
 
     drop(sdk);
+}
+
+/// Verifies BF3 and GB200 initialization persist separate flavor, service,
+/// and selector wiring in a shared namespace.
+#[tokio::test]
+async fn bf3_and_gb200_initialization_persists_distinct_resources() {
+    let mock = InitializationMock::default();
+    let sdk = crate::sdk::DpfSdkBuilder::new(mock.clone(), TEST_NS, "test-password".to_string())
+        .with_labeler(InitializationLabeler)
+        .build_without_resources()
+        .await
+        .unwrap();
+
+    let service_name = "test-service";
+    let services = vec![ServiceDefinition::new(
+        service_name,
+        "repo",
+        "chart",
+        "1.0.0",
+    )];
+    for (deployment_name, deployment_type) in [
+        ("bf3-deployment", DpuDeploymentType::Bf3),
+        ("gb200-deployment", DpuDeploymentType::Bf3Gb200),
+    ] {
+        sdk.create_initialization_objects(&InitDpfResourcesConfig {
+            bfb_url: "http://example.com/bf3.bfb".to_string(),
+            deployment_name: deployment_name.to_string(),
+            flavor_name: "bf3-flavor".to_string(),
+            services: services.clone(),
+            deployment_type,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    }
+
+    let bf3_deployment = DpuDeploymentRepository::get(&mock, "bf3-deployment", TEST_NS)
+        .await
+        .unwrap()
+        .expect("BF3 deployment must be persisted");
+    let gb200_deployment = DpuDeploymentRepository::get(&mock, "gb200-deployment", TEST_NS)
+        .await
+        .unwrap()
+        .expect("GB200 deployment must be persisted");
+    assert_eq!(mock.deployments.len(), 2);
+
+    let bf3_flavor_name = bf3_deployment
+        .spec
+        .dpus
+        .flavor
+        .as_deref()
+        .expect("BF3 deployment must reference a flavor");
+    let gb200_flavor_name = gb200_deployment
+        .spec
+        .dpus
+        .flavor
+        .as_deref()
+        .expect("GB200 deployment must reference a flavor");
+    assert_ne!(bf3_flavor_name, gb200_flavor_name);
+    assert_eq!(mock.flavors.len(), 2);
+
+    let bf3_flavor = DpuFlavorRepository::get(&mock, bf3_flavor_name, TEST_NS)
+        .await
+        .unwrap()
+        .expect("BF3 deployment flavor must be persisted");
+    let gb200_flavor = DpuFlavorRepository::get(&mock, gb200_flavor_name, TEST_NS)
+        .await
+        .unwrap()
+        .expect("GB200 deployment flavor must be persisted");
+    let bf3_nvconfig = bf3_flavor.spec.nvconfig.as_ref().unwrap()[0]
+        .parameters
+        .as_ref()
+        .unwrap();
+    let gb200_nvconfig = gb200_flavor.spec.nvconfig.as_ref().unwrap()[0]
+        .parameters
+        .as_ref()
+        .unwrap();
+    assert!(
+        !bf3_nvconfig
+            .iter()
+            .any(|parameter| parameter == "OFF_BOARD_SERIALIZER=1")
+    );
+    assert!(
+        gb200_nvconfig
+            .iter()
+            .any(|parameter| parameter == "OFF_BOARD_SERIALIZER=1")
+    );
+
+    let bf3_service = bf3_deployment
+        .spec
+        .services
+        .get(service_name)
+        .expect("BF3 deployment must reference the test service");
+    assert_eq!(bf3_service.service_template.as_deref(), Some(service_name));
+    assert_eq!(
+        bf3_service.service_configuration.as_deref(),
+        Some(service_name)
+    );
+    let gb200_service = gb200_deployment
+        .spec
+        .services
+        .get(service_name)
+        .expect("GB200 deployment must reference the test service");
+    assert_eq!(
+        gb200_service.service_template.as_deref(),
+        Some("test-service-bf3gb200")
+    );
+    assert_eq!(
+        gb200_service.service_configuration.as_deref(),
+        Some("test-service-bf3gb200")
+    );
+
+    let selector_label = "test.nvidia.com/deployment-type";
+    let bf3_selector_labels = bf3_deployment.spec.dpus.dpu_sets.as_ref().unwrap()[0]
+        .dpu_node_selector
+        .as_ref()
+        .and_then(|selector| selector.match_labels.as_ref())
+        .expect("BF3 deployment must have DPUNode selector labels");
+    let gb200_selector_labels = gb200_deployment.spec.dpus.dpu_sets.as_ref().unwrap()[0]
+        .dpu_node_selector
+        .as_ref()
+        .and_then(|selector| selector.match_labels.as_ref())
+        .expect("GB200 deployment must have DPUNode selector labels");
+    assert_eq!(
+        bf3_selector_labels.get(selector_label).map(String::as_str),
+        Some("bf3")
+    );
+    assert_eq!(
+        gb200_selector_labels
+            .get(selector_label)
+            .map(String::as_str),
+        Some("bf3gb200")
+    );
 }
 
 #[tokio::test]
