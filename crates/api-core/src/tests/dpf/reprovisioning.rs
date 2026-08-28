@@ -77,7 +77,7 @@ fn provisioning_mock_with_dpu_count(
     dpu_count: usize,
 ) -> MockDpfOperations {
     let mut mock = MockDpfOperations::new();
-    mock.expect_register_dpu_device().returning(|_| Ok(()));
+    mock.expect_register_dpu_device().returning(|_, _| Ok(()));
     mock.expect_register_dpu_node().returning(|_| Ok(()));
     mock.expect_release_maintenance_hold().returning(|_| Ok(()));
     mock.expect_is_reboot_required().returning(|_| Ok(false));
@@ -356,7 +356,7 @@ fn capturing_mock(
 ) -> MockDpfOperations {
     let mut mock = MockDpfOperations::new();
 
-    mock.expect_register_dpu_device().returning(move |info| {
+    mock.expect_register_dpu_device().returning(move |info, _| {
         registered_devices.lock().unwrap().push(info.device_id);
         Ok(())
     });
@@ -461,7 +461,7 @@ async fn test_gb200_b3240_pair_uses_specialized_deployment(pool: sqlx::PgPool) {
     let registered_deployments = Arc::new(Mutex::new(Vec::new()));
 
     let mut mock = MockDpfOperations::new();
-    mock.expect_register_dpu_device().returning(|_| Ok(()));
+    mock.expect_register_dpu_device().returning(|_, _| Ok(()));
     let registered_deployments_for_mock = registered_deployments.clone();
     mock.expect_register_dpu_node().returning(move |info| {
         registered_deployments_for_mock
@@ -579,7 +579,7 @@ async fn test_mixed_dpu_deployment_types_fail_without_registration(pool: sqlx::P
 
     let mut mock = MockDpfOperations::new();
     let registered_devices_for_mock = registered_devices.clone();
-    mock.expect_register_dpu_device().returning(move |_| {
+    mock.expect_register_dpu_device().returning(move |_, _| {
         registered_devices_for_mock.fetch_add(1, Ordering::SeqCst);
         Ok(())
     });

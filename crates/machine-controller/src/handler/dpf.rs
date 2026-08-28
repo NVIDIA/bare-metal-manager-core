@@ -275,6 +275,19 @@ async fn create_and_register_dpudevices_and_dpunode(
             object_id: state.host_snapshot.id.to_string(),
             missing: "primary_dpu",
         })?;
+
+    // Currently, we don't have dual DPU systems with Astra NICs
+    // attached to them.
+    let astra_nics = state.astra_nics();
+    if state.dpu_snapshots.len() > 1 && !astra_nics.is_empty() {
+        return Err(StateHandlerError::InvalidState(format!(
+            "dual DPU systems with Astra NICs are not supported (host {})",
+            state.host_snapshot.id
+        )));
+    }
+
+    tracing::info!(host = %state.host_snapshot.id, num_astra_nics = %astra_nics.len(), "Astra NICs");
+
     if !state
         .dpu_snapshots
         .iter()
@@ -310,7 +323,7 @@ async fn create_and_register_dpudevices_and_dpunode(
             is_primary: dpu.id == primary_dpu_id,
         };
         dpf_sdk
-            .register_dpu_device(device_info)
+            .register_dpu_device(device_info, Some(astra_nics.clone()))
             .await
             .map_err(dpf_error)?;
     }
