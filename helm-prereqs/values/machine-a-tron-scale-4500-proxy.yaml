@@ -40,7 +40,6 @@ machineATron:
   # templates/service.yaml: "<chart name>-<pod key>-bmc-mock".
   configureBmcProxyHost: "nico-machine-a-tron-default-bmc-mock.nico-mat.svc.cluster.local"
   registerExpectedMachines: true
-  useSingleBmcMock: true
 macAddressPool:
   enabled: true
   basePrefix: "02:00"

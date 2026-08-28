@@ -27,7 +27,6 @@ use bmc_mock::{
     MockPowerState, POWER_CYCLE_DELAY, SetSystemPowerError, SetSystemPowerResult,
     SystemPowerControl,
 };
-use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
@@ -39,7 +38,6 @@ use crate::machine_state_machine::{MachineStateError, OsImage};
 use crate::power_shelf_fsm::{Action, Event, PowerShelfFsm, Timer};
 use crate::saturating_add_duration_to_instant;
 use crate::status::{BmcStatus, DeviceKind, DeviceStatus, DeviceStatusConfig, EndpointStatus};
-use crate::tui::UiUpdate;
 
 #[derive(Debug)]
 struct PowerShelfLiveState {
@@ -497,13 +495,6 @@ pub(crate) struct PowerShelfHandle(Arc<PowerShelfActorHandle>);
 impl PowerShelfHandle {
     pub(crate) fn mat_id(&self) -> Uuid {
         self.0.mat_id
-    }
-
-    pub(crate) fn attach_to_tui(
-        &self,
-        _tui_event_tx: Option<mpsc::Sender<UiUpdate>>,
-    ) -> eyre::Result<()> {
-        Ok(())
     }
 
     pub(crate) fn pause(&self) -> eyre::Result<()> {

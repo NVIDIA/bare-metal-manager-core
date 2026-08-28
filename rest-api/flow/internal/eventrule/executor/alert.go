@@ -36,13 +36,13 @@ func (e *AlertExecutor) Execute(ctx context.Context, request ExecutionRequest) e
 		return terminalError(fmt.Errorf("alert sender is required"))
 	}
 
-	plan, err := alertPlan(request.Execution.Plan)
+	plan, err := alertPlan(request.Plan)
 	if err != nil {
 		return terminalError(err)
 	}
 
 	req := AlertRequest{
-		IdempotencyKey: alertIdempotencyKey(request.Execution.ID),
+		IdempotencyKey: alertIdempotencyKey(request.ExecutionID),
 		Severity:       plan.Severity,
 		Message:        plan.Message,
 	}

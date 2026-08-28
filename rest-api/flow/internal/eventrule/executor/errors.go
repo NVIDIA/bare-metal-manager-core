@@ -34,13 +34,19 @@ func retryableError(operation string, err error) error {
 	return Retryable(fmt.Errorf("%s: %w", operation, err))
 }
 
+// IsInterrupted reports whether err represents context cancellation or a
+// context deadline.
+func IsInterrupted(err error) bool {
+	return errors.Is(err, context.Canceled) ||
+		errors.Is(err, context.DeadlineExceeded)
+}
+
 // Retryable classifies err as an operational failure that may succeed on a
 // later attempt. Context cancellation and deadline errors remain interruption
 // errors rather than retryable failures.
 func Retryable(err error) error {
 	if err == nil ||
-		errors.Is(err, context.Canceled) ||
-		errors.Is(err, context.DeadlineExceeded) ||
+		IsInterrupted(err) ||
 		errors.Is(err, ErrRetryable) ||
 		errors.Is(err, ErrTerminal) {
 		return err

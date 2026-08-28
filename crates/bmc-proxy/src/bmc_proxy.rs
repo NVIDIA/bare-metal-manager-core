@@ -61,6 +61,9 @@ use crate::metrics::{
 };
 
 const TLS_REFRESH_INTERVAL: Duration = Duration::from_secs(5 * 60);
+/// Redfish's session token header, per DMTF. Applied on egress and stripped
+/// on ingress by [`copy_request_headers`].
+const REDFISH_AUTH_TOKEN_HEADER: &str = "X-Auth-Token";
 /// Bodies up to this size are buffered and forwarded with the exact framing
 /// BMCs have always seen. Anything larger -- Redfish multipart firmware
 /// pushes, mainly -- is streamed through instead of being rejected, which the
@@ -927,6 +930,7 @@ fn copy_request_headers(source: &HeaderMap, dest: &mut HeaderMap) {
             || is_propagated_header(name.as_str())
             || *name == axum::http::header::HOST
             || *name == axum::http::header::AUTHORIZATION
+            || name.as_str().eq_ignore_ascii_case(REDFISH_AUTH_TOKEN_HEADER)
             || name.as_str().eq_ignore_ascii_case("forwarded")
             || *name == axum::http::header::CONTENT_LENGTH
         {
@@ -1095,9 +1099,10 @@ impl BmcCredentials {
             Self::UsernamePassword { username, password } => {
                 Ok(request.basic_auth(username, Some(password)))
             }
-            Self::SessionToken { token } => {
-                Ok(request.header("X-Auth-Token", http::HeaderValue::from_str(&token)?))
-            }
+            Self::SessionToken { token } => Ok(request.header(
+                REDFISH_AUTH_TOKEN_HEADER,
+                http::HeaderValue::from_str(&token)?,
+            )),
         }
     }
 }
@@ -1347,6 +1352,7 @@ mod tests {
         Custom,
         Host,
         Authorization,
+        AuthToken,
         Forwarded,
         ContentLength,
         Connection,
@@ -1566,6 +1572,13 @@ mod tests {
             HeaderCopyCase::Authorization => (
                 axum::http::header::AUTHORIZATION,
                 HeaderValue::from_static("Bearer secret"),
+            ),
+            // One spelling suffices: `HeaderName` lowercases on construction,
+            // so a caller's "X-Auth-Token" and "x-auth-token" are the same
+            // key by the time the filter sees them.
+            HeaderCopyCase::AuthToken => (
+                HeaderName::from_static("x-auth-token"),
+                HeaderValue::from_static("caller-session"),
             ),
             HeaderCopyCase::Forwarded => (
                 HeaderName::from_static("forwarded"),
@@ -1877,6 +1890,12 @@ mod tests {
 
             "authorization filtered" {
                 HeaderCopyCase::Authorization => vec![],
+            }
+
+            // The proxy authenticates upstream itself; forwarding a caller's
+            // own session token would reach the BMC alongside ours.
+            "redfish auth token filtered" {
+                HeaderCopyCase::AuthToken => vec![],
             }
 
             "forwarded filtered" {

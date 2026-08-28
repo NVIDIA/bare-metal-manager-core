@@ -90,6 +90,7 @@ impl ResourceLabeler for InitializationLabeler {
         // on a particular production deployment-label spelling.
         let deployment_label = match deployment_type {
             DpuDeploymentType::Bf3 => "test.nvidia.com/bf3",
+            DpuDeploymentType::Bf3Gb200 => "test.nvidia.com/bf3gb200",
             DpuDeploymentType::Bf4Generic => "test.nvidia.com/bf4",
             DpuDeploymentType::Bf4Astra => "test.nvidia.com/astra",
         };
@@ -663,11 +664,11 @@ async fn test_create_initialization_objects_bluefield_software() {
     drop(sdk);
 }
 
-/// Verifies configured BF3 and generic BF4 coexist with scoped Astra while flavors, Patch
-/// interfaces, service chains, and selectors retain one deployment-specific inventory view.
+/// Verifies ordinary and GB200 BF3, generic BF4, and Astra coexist while each
+/// deployment retains its own flavor, interfaces, service chains, and selectors.
 #[tokio::test]
-async fn scoped_bf3_bf4_and_astra_initialization_coexists() {
-    // Build one SDK so all three deployment classes share the production namespace.
+async fn scoped_bf3_gb200_bf4_and_astra_initialization_coexists() {
+    // Build one SDK so all four deployment classes share the production namespace.
     let mock = InitializationMock::default();
     let sdk = crate::sdk::DpfSdkBuilder::new(mock.clone(), TEST_NS, "test-password".to_string())
         .with_labeler(InitializationLabeler)
@@ -698,6 +699,17 @@ async fn scoped_bf3_bf4_and_astra_initialization_coexists() {
             deployment_scoped_service_interfaces: true,
             intercept_bridging: Some(topology.clone()),
             deployment_type: DpuDeploymentType::Bf3,
+            ..Default::default()
+        },
+        // GB200 BF3 reuses the BF3 source and services but owns a distinct flavor and selector.
+        InitDpfResourcesConfig {
+            bfb_url: "http://example.com/bf3.bfb".to_string(),
+            deployment_name: "bf3-gb200-deployment".to_string(),
+            flavor_name: "bf3-gb200-flavor".to_string(),
+            services: services.clone(),
+            deployment_scoped_service_interfaces: true,
+            intercept_bridging: Some(topology.clone()),
+            deployment_type: DpuDeploymentType::Bf3Gb200,
             ..Default::default()
         },
         // Generic BF4 proves the same topology through its BlueFieldSoftware path.
@@ -748,9 +760,9 @@ async fn scoped_bf3_bf4_and_astra_initialization_coexists() {
             .await
             .unwrap()
             .len(),
-        3
+        4
     );
-    assert_eq!(mock.flavors.len(), 2);
+    assert_eq!(mock.flavors.len(), 3);
     assert_eq!(mock.flavor_templates.len(), 1);
 
     // The effective inventories must produce exact, non-overlapping scoped resource names.
@@ -762,7 +774,7 @@ async fn scoped_bf3_bf4_and_astra_initialization_coexists() {
         .map(|interface| interface.metadata.name.clone().unwrap())
         .collect::<BTreeSet<_>>();
     let mut expected_interface_names = BTreeSet::new();
-    for suffix in ["bf3", "bf4"] {
+    for suffix in ["bf3", "bf3gb200", "bf4"] {
         for logical_name in ["p0", "p1", "c2pf3", "c2pf3vf4"] {
             expected_interface_names.insert(format!("{logical_name}-{suffix}"));
         }
@@ -795,6 +807,7 @@ async fn scoped_bf3_bf4_and_astra_initialization_coexists() {
     // management-plane class labels used by DPUNode selectors do not exist in the DPU cluster.
     for (suffix, deployment_name) in [
         ("bf3", "bf3-deployment"),
+        ("bf3gb200", "bf3-gb200-deployment"),
         ("bf4", "bf4-deployment"),
         ("astra", "astra-deployment"),
     ] {
@@ -824,8 +837,8 @@ async fn scoped_bf3_bf4_and_astra_initialization_coexists() {
         }
     }
 
-    // Both configured classes must serialize the same exact DPF-owned Patch pairs.
-    for suffix in ["bf3", "bf4"] {
+    // All three configured classes must serialize the same exact DPF-owned Patch pairs.
+    for suffix in ["bf3", "bf3gb200", "bf4"] {
         for (logical_name, peer_bridge, peer_patch_name) in [
             ("c2pf3", "br-pf3", "p-pf3"),
             ("c2pf3vf4", "br-vf4", "p-vf4"),
@@ -908,17 +921,28 @@ async fn scoped_bf3_bf4_and_astra_initialization_coexists() {
             "bf3-deployment",
             DpuDeploymentType::Bf3,
             "host_representor='pf3hpf'",
+            false,
+        ),
+        // GB200 BF3 shares BF3 networking while carrying the specialized NVConfig profile.
+        (
+            "bf3-gb200-deployment",
+            DpuDeploymentType::Bf3Gb200,
+            "host_representor='pf3hpf'",
+            true,
         ),
         // Generic BF4 must resolve the selected PF by its exact semantic identity.
         (
             "bf4-deployment",
             DpuDeploymentType::Bf4Generic,
             "resolve_dpf_pf 'c2pf3'",
+            false,
         ),
     ];
     // Each tuple identifies the deployment to inspect, the class-label source, and one
     // platform-specific OVS fragment proving that deployment received the correct flavor.
-    for (deployment_name, deployment_type, expected_ovs_marker) in configured_deployments {
+    for (deployment_name, deployment_type, expected_ovs_marker, expects_gb200_profile) in
+        configured_deployments
+    {
         // The deployment-referenced flavor must contain the configured topology and SF total.
         let deployment = DpuDeploymentRepository::get(&mock, deployment_name, TEST_NS)
             .await
@@ -937,6 +961,12 @@ async fn scoped_bf3_bf4_and_astra_initialization_coexists() {
             nvconfig
                 .iter()
                 .any(|parameter| parameter == "PF_TOTAL_SF=37")
+        );
+        assert_eq!(
+            nvconfig
+                .iter()
+                .any(|parameter| parameter == "OFF_BOARD_SERIALIZER=1"),
+            expects_gb200_profile
         );
         let ovs_script = flavor
             .spec
@@ -1076,9 +1106,14 @@ async fn scoped_bf3_bf4_and_astra_initialization_coexists() {
     .await
     .unwrap()
     .expect("Astra deployment-referenced flavor template must exist");
+    assert!(astra_template.spec.template.starts_with("spec:\n"));
     let astra_flavor = DPUFlavor {
         metadata: Default::default(),
-        spec: serde_json::from_str(&astra_template.spec.template).unwrap(),
+        spec: {
+            let body: serde_yaml::Value =
+                serde_yaml::from_str(&astra_template.spec.template).unwrap();
+            serde_yaml::from_value(body["spec"].clone()).unwrap()
+        },
     };
     let astra_interfaces = crate::sdk::build_astra_dpu_interfaces_vec();
     let expected_astra_pf_total_sf =

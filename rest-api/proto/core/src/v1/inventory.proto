@@ -6,6 +6,7 @@ syntax = "proto3";
 package inventory;
 
 import "common_nico.proto";
+import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 import "machine_discovery_nico.proto";
 import "nico_nico.proto";
@@ -31,6 +32,26 @@ message InventoryPage {
   int32 total_items = 4;
   // IDs of all items
   repeated string item_ids = 5;
+}
+
+// SiteAgentBuildInfo - build metadata and configuration the Site Agent reports about itself,
+// as opposed to the Core configuration it relays
+message SiteAgentBuildInfo {
+  // Site Agent build version
+  string version = 1;
+  // How often the Site Agent collects inventory, derived from its configured schedule.
+  // Cloud compares object timestamps against this to decide whether an inventory is stale.
+  google.protobuf.Duration inventory_interval = 2;
+}
+
+// SiteConfigInventory - Site configuration reported periodically. Site-level reporting is
+// added to this message rather than as another workflow argument, so extending it does not
+// require a new workflow.
+message SiteConfigInventory {
+  // Core build metadata, advertised capabilities, and runtime configuration
+  forge.BuildInfo core_build_info = 1;
+  // Build metadata and configuration owned by the Site Agent itself
+  SiteAgentBuildInfo site_agent_build_info = 2;
 }
 
 // DpuExtensionServiceInventory - inventory of all DPU Extension Services on Site, collected periodically

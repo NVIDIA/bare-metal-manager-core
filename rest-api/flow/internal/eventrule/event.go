@@ -26,6 +26,7 @@ func (k EventKey) Validate() error {
 	if err := validateIdentifier("event source name", k.SourceName); err != nil {
 		return err
 	}
+
 	return validateRequiredString("event source key", k.SourceKey)
 }
 
@@ -106,6 +107,7 @@ type Envelope struct {
 func (e Envelope) Clone() Envelope {
 	cloned := e
 	cloned.Payload = append(json.RawMessage(nil), e.Payload...)
+
 	return cloned
 }
 
@@ -114,6 +116,7 @@ func (e *Envelope) Validate() error {
 	if e == nil {
 		return fmt.Errorf("event envelope is nil")
 	}
+
 	if err := e.Key.Validate(); err != nil {
 		return err
 	}
@@ -129,6 +132,7 @@ func (e *Envelope) Validate() error {
 	if len(e.Payload) > 0 && !json.Valid(e.Payload) {
 		return fmt.Errorf("event payload must be valid JSON")
 	}
+
 	return nil
 }
 
@@ -173,8 +177,8 @@ type ResolvedResource struct {
 }
 
 // ResourceIdentity is the durable canonical identity of the resource an event
-// concerns. Topology attributes are deliberately reconstructed while planning
-// missing executions rather than stored on the event.
+// concerns. Planning captures required topology attributes in immutable
+// execution plans rather than storing them on the event.
 type ResourceIdentity struct {
 	Kind ResourceKind
 	ID   uuid.UUID
@@ -188,14 +192,14 @@ func (r ResourceIdentity) Validate() error {
 	if r.ID == uuid.Nil {
 		return fmt.Errorf("event resource id is required")
 	}
+
 	return nil
 }
 
 const maxEventSummaryRunes = 1024
 
 // Event is one deduplicated, enriched, rule-matched observation. It owns the
-// immutable information shared by all action executions and the durable
-// planning checkpoint.
+// immutable information shared by all action executions.
 type Event struct {
 	ID              uuid.UUID
 	Key             EventKey
@@ -207,17 +211,13 @@ type Event struct {
 	Observations    int
 	CreatedAt       time.Time
 	LastObservedAt  time.Time
-	PlannedAt       *time.Time
 }
 
 // Clone returns an independent event snapshot.
 func (e Event) Clone() Event {
 	cloned := e
 	cloned.EffectivePolicy = e.EffectivePolicy.Clone()
-	if e.PlannedAt != nil {
-		plannedAt := *e.PlannedAt
-		cloned.PlannedAt = &plannedAt
-	}
+
 	return cloned
 }
 
@@ -246,6 +246,7 @@ func (e Event) ValidateDefinition() error {
 	if utf8.RuneCountInString(e.Summary) > maxEventSummaryRunes {
 		return fmt.Errorf("event summary exceeds %d characters", maxEventSummaryRunes)
 	}
+
 	return nil
 }
 
@@ -254,6 +255,7 @@ func (e *Event) Validate() error {
 	if e == nil {
 		return fmt.Errorf("event is nil")
 	}
+
 	if e.ID == uuid.Nil {
 		return fmt.Errorf("event id is required")
 	}
@@ -272,9 +274,7 @@ func (e *Event) Validate() error {
 	if e.LastObservedAt.Before(e.CreatedAt) {
 		return fmt.Errorf("event last-observed time cannot precede creation time")
 	}
-	if e.PlannedAt != nil && e.PlannedAt.Before(e.CreatedAt) {
-		return fmt.Errorf("event planned time cannot precede creation time")
-	}
+
 	return nil
 }
 
@@ -292,7 +292,7 @@ func NewEvent(definition Event, now time.Time) (*Event, error) {
 	event.Observations = 1
 	event.CreatedAt = now
 	event.LastObservedAt = now
-	event.PlannedAt = nil
+
 	return &event, nil
 }
 
@@ -308,6 +308,7 @@ func (r ResolvedResource) Validate() error {
 	if r.RackID == uuid.Nil {
 		return fmt.Errorf("resolved resource rack id is required")
 	}
+
 	if r.Kind == ResourceKindComponent {
 		if err := r.ComponentType.Validate(); err != nil {
 			return fmt.Errorf("resolved resource component type: %w", err)
@@ -317,5 +318,6 @@ func (r ResolvedResource) Validate() error {
 			return fmt.Errorf("resolved rack resource id must equal rack id")
 		}
 	}
+
 	return nil
 }

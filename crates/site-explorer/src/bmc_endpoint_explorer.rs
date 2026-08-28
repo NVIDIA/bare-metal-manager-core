@@ -129,8 +129,9 @@ impl BmcEndpointExplorer {
         &self,
         create_if_missing: bool,
     ) -> Result<String, EndpointExplorationError> {
+        let version = self.current_sitewide_dpu_bmc_service_version().await?;
         self.credential_client
-            .get_sitewide_dpu_bmc_service_password(create_if_missing)
+            .get_sitewide_dpu_bmc_service_password(version, create_if_missing)
             .await
     }
 
@@ -182,6 +183,48 @@ impl BmcEndpointExplorer {
             read_err(format!(
                 "site-wide BMC rotation target version {target_version} is negative; the column \
                  is constrained non-negative, so this indicates a corrupt database"
+            ))
+        })
+    }
+
+    /// Resolve which site-wide DPU BMC `service` version is currently live from
+    /// `sitewide_credential_rotation.target_version` for the `dpu_bmc_service`
+    /// family, mirroring [`Self::current_sitewide_bmc_version`]. A newly ingested
+    /// BF4 DPU lands on this version and is recorded there by
+    /// [`Self::rotate_dpu_service_password_from_factory_defaults`]. The seed
+    /// migration creates a row at version 0, so a missing row is a broken or
+    /// unmigrated database and is surfaced rather than assumed 0; the only 0
+    /// fallback is the no-database `bmc-explorer-cli` debug tool.
+    async fn current_sitewide_dpu_bmc_service_version(
+        &self,
+    ) -> Result<u32, EndpointExplorationError> {
+        let Some(database_connection) = &self.database_connection else {
+            return Ok(0);
+        };
+        let read_err = |cause: String| EndpointExplorationError::Other {
+            details: format!("failed to read site-wide DPU BMC service rotation target: {cause}"),
+        };
+        let mut conn = database_connection
+            .acquire()
+            .await
+            .map_err(|e| read_err(e.to_string()))?;
+        let target_version = db::credential_rotation::current_target_version(
+            &mut conn,
+            db::credential_rotation::CredentialRotationType::DpuBmcService,
+        )
+        .await
+        .map_err(|e| read_err(e.to_string()))?
+        .ok_or_else(|| {
+            read_err(
+                "no site-wide DPU BMC service rotation target row exists; the seed migration \
+                 creates one, so a missing row indicates a broken or unmigrated database"
+                    .to_string(),
+            )
+        })?;
+        u32::try_from(target_version).map_err(|_| {
+            read_err(format!(
+                "site-wide DPU BMC service rotation target version {target_version} is negative; \
+                 the column is constrained non-negative, so this indicates a corrupt database"
             ))
         })
     }
@@ -277,12 +320,41 @@ impl BmcEndpointExplorer {
     async fn rotate_dpu_service_password_from_factory_defaults(
         &self,
         bmc_ip_address: SocketAddr,
+        bmc_mac_address: MacAddress,
         root_credentials: &Credentials,
     ) -> Result<(), EndpointExplorationError> {
         let new_password = self.get_sitewide_dpu_bmc_service_password(true).await?;
         self.redfish_client
             .set_bf4_dpu_service_password(bmc_ip_address, root_credentials.clone(), new_password)
+            .await?;
+
+        // The BF4 DPU now carries the site-wide `service` password at the current
+        // target version (the version `get_sitewide_dpu_bmc_service_password` just
+        // read and applied). Record convergence for the `dpu_bmc_service` family
+        // so the rotation engine tracks this DPU from the moment NICo owns the
+        // account -- the "ever-after" enrollment for new BF4 DPUs (already-ingested
+        // ones are enrolled by the seed migration's backfill). Idempotent, so
+        // reexploration is a no-op. Skipped only by the no-database
+        // `bmc-explorer-cli` debug tool.
+        if let Some(database_connection) = &self.database_connection {
+            let record_err = |cause: String| EndpointExplorationError::SetCredentials {
+                key: format!("device_credential_rotation/dpu_bmc_service/{bmc_mac_address}"),
+                cause,
+            };
+            let mut txn = db::Transaction::begin(database_connection)
+                .await
+                .map_err(|e| record_err(e.to_string()))?;
+            db::credential_rotation::record_device_converged(
+                &mut txn,
+                bmc_mac_address,
+                db::credential_rotation::CredentialRotationType::DpuBmcService,
+            )
             .await
+            .map_err(|e| record_err(e.to_string()))?;
+            txn.commit().await.map_err(|e| record_err(e.to_string()))?;
+        }
+
+        Ok(())
     }
 
     pub async fn generate_exploration_report(
@@ -920,6 +992,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
                 if is_bf4_dpu {
                     self.rotate_dpu_service_password_from_factory_defaults(
                         bmc_ip_address,
+                        bmc_mac_address,
                         &bmc_credentials,
                     )
                     .await?;

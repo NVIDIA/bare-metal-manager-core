@@ -42,9 +42,6 @@ mod simulator_registry;
 mod status;
 mod switch_fsm;
 mod switch_simulator;
-mod tabs;
-mod tui;
-mod tui_host_logs;
 
 use std::time::{Duration, Instant};
 
@@ -71,8 +68,6 @@ pub use simulator_registry::SimulatorRegistry;
 pub use status::{
     DeviceKind, DeviceStatus, DeviceStatusConfig, DevicesStatusResponse, InfinibandPortStatus,
 };
-pub use tui::{Tui, UiUpdate};
-pub use tui_host_logs::TuiHostLogs;
 pub use ufm_mock::{Guid, InfinibandPortState};
 
 /// Add a Duration to an Instant, defaulting to a time in the far future if there is an overflow.

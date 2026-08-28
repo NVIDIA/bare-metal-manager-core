@@ -139,6 +139,10 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 			vpc = existingVpcIDMap[controllerVpcIDStr]
 		}
 
+		// A VPC this run creates or undeletes carries the write time of that write, which the
+		// staleness gate below would read as a concurrent edit and defer to.
+		createdOrRestoredFromSite := false
+
 		// No active REST row for this inventory VPC: create one or undelete a soft-deleted match,
 		// then fall through so the main inventory loop applies Site-reported field updates.
 		if vpc == nil {
@@ -146,6 +150,7 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 			if vpc == nil {
 				continue
 			}
+			createdOrRestoredFromSite = true
 
 			// Keep in-memory maps in sync so later inventory entries and missing-on-Site detection see this VPC.
 			existingVpcIDMap[vpc.ID.String()] = vpc
@@ -215,6 +220,15 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 			// We should assume status _could start_ as null and then update to the active VPC VNI.
 			// Status should never go back to nil - that would be a bug.
 			(controllerActiveVni != nil && !util.PtrsEqual(vpc.ActiveVni, controllerActiveVni))
+
+		// A row written since the Site collected this inventory holds changes the snapshot cannot
+		// know about, including any made through the API, so the clears and the write below would
+		// lose those edits. The Site-owned fields they carry are reported again next run.
+		if needsUpdate && !createdOrRestoredFromSite && site.IsTimeWithinStaleInventoryThreshold(vpc.Updated) {
+			slogger.Info().Msg("not updating VPC yet because it changed more recently than the inventory interval")
+
+			continue
+		}
 
 		if needsUpdate {
 			if vpc.PowerResourceGroup != nil && reportedPowerResourceGroup == nil {
@@ -402,7 +416,7 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 			}
 		} else if vpc.ControllerVpcID != nil {
 			// Was this created within inventory receipt interval? If so, we may be processing an older inventory
-			if time.Since(vpc.Created) < cwutil.InventoryReceiptInterval {
+			if site.IsTimeWithinStaleInventoryThreshold(vpc.Created) {
 				continue
 			}
 

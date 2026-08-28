@@ -14,7 +14,7 @@ import (
 
 func TestAlertExecutor_Execute(t *testing.T) {
 	request := newValidExecutionRequest(t)
-	request.Execution.Plan = &eventrule.SendAlertPlan{
+	request.Plan = &eventrule.SendAlertPlan{
 		Severity: eventrule.SeverityCritical,
 		Message:  "leak detected",
 	}
@@ -60,7 +60,7 @@ func TestAlertExecutor_Execute(t *testing.T) {
 
 			require.NoError(t, err)
 			require.Equal(t, []AlertRequest{{
-				IdempotencyKey: alertIdempotencyKey(request.Execution.ID),
+				IdempotencyKey: alertIdempotencyKey(request.ExecutionID),
 				Severity:       eventrule.SeverityCritical,
 				Message:        "leak detected",
 			}}, test.sender.requests)
@@ -70,7 +70,7 @@ func TestAlertExecutor_Execute(t *testing.T) {
 
 func TestAlertExecutor_ReusesIdempotencyKey(t *testing.T) {
 	request := newValidExecutionRequest(t)
-	request.Execution.Plan = &eventrule.SendAlertPlan{Severity: eventrule.SeverityWarning}
+	request.Plan = &eventrule.SendAlertPlan{Severity: eventrule.SeverityWarning}
 	sender := &recordingAlertSender{alertID: "stable-alert"}
 	actionExecutor := &AlertExecutor{sender: sender}
 

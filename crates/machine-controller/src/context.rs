@@ -68,6 +68,13 @@ pub struct MachineStateHandlerServices {
     /// so DPU UEFI gets its own gate separate from `host_uefi_rotation_gate`: a
     /// DPU sweep queries only `dpu_uefi` counts, keyed by each DPU's BMC MAC.
     pub dpu_uefi_rotation_gate: RotationGate,
+    /// Short-TTL cache of the site-wide DPU BMC `service` rotation aggregate,
+    /// shared across this replica's per-object ticks. Single-family like the
+    /// others, keyed by each DPU's BMC MAC; only BF4 DPUs are ever enrolled, so
+    /// it reads zero on fleets without them. Convergence rides the same
+    /// `RotatingBmc` state as BMC root (a single root-authenticated Redfish call
+    /// with no host-power impact), so this gate only decides *entry*.
+    pub dpu_bmc_service_rotation_gate: RotationGate,
     /// Shared registry backing the generic per-object health metrics.
     pub per_object_metrics_registry: Arc<PerObjectMetricsRegistry>,
     /// Trait/association info gauges for the per-object metrics endpoint,

@@ -619,6 +619,44 @@ mod tests {
     }
 
     #[test]
+    fn ordinary_log_occurrences_queue_separately_and_replays_replace() {
+        let occurrence = |entry_id: &str| {
+            let CollectorEvent::Log(mut record) = log_event(
+                "ResourceEvent.1.0.ResourceErrorsDetected",
+                r#"["resource-1","detail"]"#,
+            ) else {
+                unreachable!("log_event always returns a log event");
+            };
+
+            record
+                .attributes
+                .push((Cow::Borrowed("service_id"), "EventLog".to_string()));
+
+            record
+                .attributes
+                .push((Cow::Borrowed("entry_id"), entry_id.to_string()));
+
+            CollectorEvent::Log(record)
+        };
+
+        let first = occurrence("41");
+        let second = occurrence("42");
+        let sink = test_sink();
+        let context = test_context();
+
+        sink.handle_event(&context, &first);
+        sink.handle_event(&context, &second);
+
+        assert_eq!(sink.queue.len(), 2);
+        assert_eq!(sink.replaced_total.get() as u64, 0);
+
+        sink.handle_event(&context, &second);
+
+        assert_eq!(sink.queue.len(), 2);
+        assert_eq!(sink.replaced_total.get() as u64, 1);
+    }
+
+    #[test]
     fn bounded_signal_queues_drop_oldest_and_report_depth() {
         let metrics = MetricsCapture::start();
         let sink = bounded_test_sink(1);

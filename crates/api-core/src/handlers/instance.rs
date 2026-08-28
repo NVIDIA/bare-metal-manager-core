@@ -1960,12 +1960,29 @@ pub(super) async fn force_delete_instance(
     api: &Api,
     response: &mut AdminForceDeleteMachineResponse,
 ) -> CarbideResult<()> {
-    let instance = db::instance::find_by_id(&api.database_connection, instance_id)
+    // The caller has already committed the Machine ForceDeletion state. Lock
+    // and reread the Instance in a separate transaction so this path never
+    // holds Machine and Instance locks together; IB updates lock the Instance
+    // before the Machine. Once the deletion marker commits, the captured
+    // snapshot is the last configuration a tenant update can commit before
+    // external cleanup.
+    let mut txn = api.txn_begin().await?;
+    let Some(locked_instance) =
+        db::instance::find_by_id_for_update(txn.as_mut(), instance_id).await?
+    else {
+        txn.commit().await?;
+        return Ok(());
+    };
+
+    if locked_instance.deleted.is_none() {
+        db::instance::mark_as_deleted(instance_id, txn.as_mut()).await?;
+    }
+    let instance = db::instance::find_by_id(&mut txn, instance_id)
         .await?
         .ok_or_else(|| {
             CarbideError::internal(format!("could not find an instance for {instance_id}"))
-        })?
-        .to_owned();
+        })?;
+    txn.commit().await?;
 
     response.ufm_unregistrations += unbind_all_instance_ib_ports(api, &instance).await?;
 

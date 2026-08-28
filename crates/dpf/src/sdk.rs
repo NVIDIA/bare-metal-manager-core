@@ -511,7 +511,7 @@ const BF4_ASTRA_RA2_2_RUNTIME_CONFIGMAP_KEY: &str = "RA2.2-runtime.yaml";
 /// which inlines its scripts instead of using `contentFrom`.
 fn extra_script_configmap_names(deployment_type: DpuDeploymentType) -> &'static [&'static str] {
     match deployment_type {
-        DpuDeploymentType::Bf3 => &[],
+        DpuDeploymentType::Bf3 | DpuDeploymentType::Bf3Gb200 => &[],
         DpuDeploymentType::Bf4Generic => &[
             "extra-script-pre-ovs-bf4-generic",
             "extra-script-post-ovs-bf4-generic",
@@ -757,7 +757,10 @@ async fn create_dpu_flavor_template<R: DpuFlavorTemplateRepository>(
     template.metadata.name = Some(name.clone());
 
     match DpuFlavorTemplateRepository::create(repo, &template).await {
-        Ok(_) => Ok(name),
+        Ok(_) => {
+            tracing::info!(flavor_template = %name, "DPU flavor template created");
+            Ok(name)
+        }
         Err(DpfError::KubeError(kube::Error::Api(ref err)))
             if err.is_already_exists() || err.is_conflict() =>
         {
@@ -774,7 +777,7 @@ async fn create_dpu_flavor_template<R: DpuFlavorTemplateRepository>(
                     )))
                 }
                 Some(_) => {
-                    tracing::debug!(flavor_template = %name, "DPU flavor template already exists");
+                    tracing::info!(flavor_template = %name, "DPU flavor template already exists");
                     Ok(name)
                 }
             }
@@ -791,10 +794,11 @@ async fn create_dpu_flavor_template<R: DpuFlavorTemplateRepository>(
 ///
 /// BF3 intentionally uses an empty suffix so its CR names are unchanged — this
 /// keeps existing BF3 clusters untouched (no CR rename / orphaning on upgrade).
-/// Only additional deployments (BF4) are suffixed to avoid colliding with BF3.
+/// Additional deployment classes are suffixed to avoid colliding with BF3.
 pub fn deployment_cr_suffix(deployment_type: DpuDeploymentType) -> &'static str {
     match deployment_type {
         DpuDeploymentType::Bf3 => "",
+        DpuDeploymentType::Bf3Gb200 => "bf3gb200",
         DpuDeploymentType::Bf4Generic => "bf4generic",
         DpuDeploymentType::Bf4Astra => "bf4astra",
     }
@@ -808,6 +812,7 @@ pub fn deployment_cr_suffix(deployment_type: DpuDeploymentType) -> &'static str 
 fn service_interface_cr_suffix(deployment_type: DpuDeploymentType) -> &'static str {
     match deployment_type {
         DpuDeploymentType::Bf3 => "bf3",
+        DpuDeploymentType::Bf3Gb200 => "bf3gb200",
         DpuDeploymentType::Bf4Generic => "bf4",
         DpuDeploymentType::Bf4Astra => "astra",
     }
@@ -1672,7 +1677,9 @@ fn resolve_initialization_inventory<'a>(
         // Astra retains its established static inventory and ignores site topology policy.
         Cow::Owned(match config.deployment_type {
             DpuDeploymentType::Bf4Astra => build_astra_dpu_interfaces_vec(),
-            DpuDeploymentType::Bf3 | DpuDeploymentType::Bf4Generic => {
+            DpuDeploymentType::Bf3
+            | DpuDeploymentType::Bf3Gb200
+            | DpuDeploymentType::Bf4Generic => {
                 build_effective_dpu_interfaces(config.num_of_vfs, None)
             }
         })
@@ -1684,11 +1691,13 @@ fn resolve_initialization_inventory<'a>(
 
     let pf_total_sf = match config.deployment_type {
         DpuDeploymentType::Bf4Astra => calculate_astra_pf_total_sf(interfaces.as_ref())?,
-        DpuDeploymentType::Bf3 | DpuDeploymentType::Bf4Generic => calculate_pf_total_sf(
-            interfaces.as_ref(),
-            config.intercept_bridging.as_ref(),
-            config.pf_total_sf_reserved,
-        )?,
+        DpuDeploymentType::Bf3 | DpuDeploymentType::Bf3Gb200 | DpuDeploymentType::Bf4Generic => {
+            calculate_pf_total_sf(
+                interfaces.as_ref(),
+                config.intercept_bridging.as_ref(),
+                config.pf_total_sf_reserved,
+            )?
+        }
     };
 
     Ok(ResolvedInitialization {
@@ -1886,7 +1895,7 @@ async fn create_flavor_services_and_deployment<
         DpuDeploymentType::Bf4Astra => {
             create_dpu_flavor_template(repo, namespace, config, resolved).await?
         }
-        DpuDeploymentType::Bf3 | DpuDeploymentType::Bf4Generic => {
+        DpuDeploymentType::Bf3 | DpuDeploymentType::Bf3Gb200 | DpuDeploymentType::Bf4Generic => {
             create_dpu_flavor(repo, namespace, config, resolved).await?
         }
     };
@@ -1904,7 +1913,7 @@ async fn create_flavor_services_and_deployment<
     //
     // The disabled path must retain the legacy resource names and empty selectors so installing a
     // new NICo release does not trigger a scoping migration for existing BF3/BF4 interfaces. The
-    // enabled path intentionally creates `-bf3`, `-bf4`, and `-astra` resources.
+    // enabled path intentionally creates `-bf3`, `-bf3gb200`, `-bf4`, and `-astra` resources.
     //
     // LABEL-PLANE SAFETY: A DPUServiceInterface node selector is evaluated against Nodes in the
     // remote DPU cluster, not management-cluster DPUNode CRs. DPF propagates its canonical
@@ -3279,6 +3288,11 @@ mod tests {
                 DpuDeploymentType::Bf3 => "bf3",
             }
 
+            "GB200 BF3" {
+                // The specialized flavor needs its own selector and interface resources.
+                DpuDeploymentType::Bf3Gb200 => "bf3gb200",
+            }
+
             "generic BF4" {
                 // Generic BF4 must not share interface resources with BF3 or Astra.
                 DpuDeploymentType::Bf4Generic => "bf4",
@@ -3882,12 +3896,24 @@ mod tests {
         let svc = ServiceDefinition::new(DOCA_HBN_SERVICE_NAME, "repo", "chart", "1.0.5");
 
         let bf3_suffix = deployment_cr_suffix(DpuDeploymentType::Bf3);
+        let bf3_gb200_suffix = deployment_cr_suffix(DpuDeploymentType::Bf3Gb200);
         let bf4_suffix = deployment_cr_suffix(DpuDeploymentType::Bf4Generic);
 
         // BF3: CR name unchanged.
         let bf3 = build_service_template(&svc, TEST_NAMESPACE, bf3_suffix);
         assert_eq!(bf3.metadata.name.as_deref(), Some(DOCA_HBN_SERVICE_NAME));
         assert_eq!(bf3.spec.deployment_service_name, DOCA_HBN_SERVICE_NAME);
+
+        // GB200 BF3: separate CR name while retaining the same logical service name.
+        let bf3_gb200 = build_service_template(&svc, TEST_NAMESPACE, bf3_gb200_suffix);
+        assert_eq!(
+            bf3_gb200.metadata.name.as_deref(),
+            Some("doca-hbn-bf3gb200")
+        );
+        assert_eq!(
+            bf3_gb200.spec.deployment_service_name,
+            DOCA_HBN_SERVICE_NAME
+        );
 
         // BF4: CR name suffixed, logical name unchanged.
         let bf4 = build_service_template(&svc, TEST_NAMESPACE, bf4_suffix);
@@ -3947,6 +3973,10 @@ mod tests {
             };
             "BF3 preserves unsuffixed resource names" {
                 DpuDeploymentType::Bf3 => ("", None),
+            }
+
+            "GB200 BF3 uses its deployment suffix" {
+                DpuDeploymentType::Bf3Gb200 => ("bf3gb200", None),
             }
 
             "generic BF4 uses its deployment suffix" {

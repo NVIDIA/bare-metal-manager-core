@@ -52,7 +52,7 @@ func NewWithClock(now func() time.Time) *Store {
 var (
 	_ eventrule.RuleStore          = (*Store)(nil)
 	_ eventrule.BindingStore       = (*Store)(nil)
-	_ eventrule.EventStore         = (*Store)(nil)
+	_ eventrule.EventPlanStore     = (*Store)(nil)
 	_ eventrule.ExecutionStore     = (*Store)(nil)
 	_ eventrule.ExecutionTaskStore = (*Store)(nil)
 )

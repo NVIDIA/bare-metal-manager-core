@@ -14,24 +14,29 @@ type ExecutionStatus string
 
 const (
 	ExecutionStatusPending   ExecutionStatus = "pending"
+	ExecutionStatusRunning   ExecutionStatus = "running"
 	ExecutionStatusSkipped   ExecutionStatus = "skipped"
 	ExecutionStatusDeferred  ExecutionStatus = "deferred"
 	ExecutionStatusCompleted ExecutionStatus = "completed"
 	ExecutionStatusFailed    ExecutionStatus = "failed"
 )
 
-// CanTransitionTo reports whether an execution with this status may accept an
-// attempt result. Pending is used by the creator's first attempt; deferred is
-// used by scheduler-owned retries.
+// CanTransitionTo reports whether a running execution may accept an attempt
+// result.
 func (s ExecutionStatus) CanTransitionTo(target ExecutionStatus) bool {
-	if s != ExecutionStatusPending && s != ExecutionStatusDeferred {
+	if s != ExecutionStatusRunning {
 		return false
 	}
 
 	return target == ExecutionStatusCompleted ||
-		target == ExecutionStatusSkipped ||
 		target == ExecutionStatusDeferred ||
 		target == ExecutionStatusFailed
+}
+
+// CanBeClaimed reports whether the scheduler may allocate an attempt for the
+// execution after applying lane-specific eligibility checks.
+func (s ExecutionStatus) CanBeClaimed() bool {
+	return s == ExecutionStatusPending || s == ExecutionStatusDeferred
 }
 
 // RequiresRetryScheduling reports whether the status requires the store to
@@ -119,6 +124,7 @@ func (s ExecutionState) RetryDue(now time.Time) bool {
 
 var executionStatusReasons = map[ExecutionStatus][]ExecutionReason{
 	ExecutionStatusPending: nil,
+	ExecutionStatusRunning: nil,
 	ExecutionStatusSkipped: {
 		ExecutionReasonNoTargets,
 	},
@@ -143,16 +149,6 @@ func CompletedExecutionResult() ExecutionResult {
 	return ExecutionResult{
 		ExecutionStatusDetails: ExecutionStatusDetails{
 			Status: ExecutionStatusCompleted,
-		},
-	}
-}
-
-// SkippedExecutionResult creates a skipped dispatch result.
-func SkippedExecutionResult(reason ExecutionReason) ExecutionResult {
-	return ExecutionResult{
-		ExecutionStatusDetails: ExecutionStatusDetails{
-			Status: ExecutionStatusSkipped,
-			Reason: reason,
 		},
 	}
 }
@@ -185,8 +181,10 @@ func FailedExecutionResult(statusMessage string) ExecutionResult {
 
 // Validate checks that the dispatch result is internally consistent.
 func (r ExecutionResult) Validate() error {
-	if r.Status == ExecutionStatusPending {
-		return fmt.Errorf("pending is not an execution result")
+	if r.Status == ExecutionStatusPending ||
+		r.Status == ExecutionStatusRunning ||
+		r.Status == ExecutionStatusSkipped {
+		return fmt.Errorf("%s is not an execution result", r.Status)
 	}
 
 	if err := r.ExecutionStatusDetails.Validate(); err != nil {

@@ -55,7 +55,7 @@ func (mei ManageExpectedMachine) UpdateExpectedMachinesInDB(ctx context.Context,
 
 	// Ensure Site exists
 	stDAO := cdbm.NewSiteDAO(mei.dbSession)
-	_, err := stDAO.GetByID(ctx, nil, siteID, nil, false)
+	site, err := stDAO.GetByID(ctx, nil, siteID, nil, false)
 	if err != nil {
 		if errors.Is(err, cdb.ErrDoesNotExist) {
 			logger.Warn().Err(err).Msg("received inventory for unknown or deleted Site")
@@ -194,6 +194,15 @@ func (mei ManageExpectedMachine) UpdateExpectedMachinesInDB(ctx context.Context,
 			continue
 		}
 
+		// A row written since the Site collected this inventory holds changes the snapshot
+		// cannot know about, including any made through the API, so writing the reported values
+		// over them would lose those edits.
+		if site.IsTimeWithinStaleInventoryThreshold(cur.Updated) {
+			logger.Info().Str("ExpectedMachineID", cur.ID.String()).Msg("not updating ExpectedMachine yet because it changed more recently than the inventory interval")
+
+			continue
+		}
+
 		// update if any field differs
 		if cur.BmcMacAddress != reported.BmcMacAddress ||
 			cur.ChassisSerialNumber != reported.ChassisSerialNumber ||
@@ -253,7 +262,7 @@ func (mei ManageExpectedMachine) UpdateExpectedMachinesInDB(ctx context.Context,
 				continue
 			}
 			// Avoid destructive actions inside race-condition window
-			if util.IsTimeWithinStaleInventoryThreshold(em.Updated) {
+			if site.IsTimeWithinStaleInventoryThreshold(em.Updated) {
 				continue
 			}
 			logger.Info().Str("ExpectedMachineID", em.ID.String()).Msg("deleting ExpectedMachine from DB since it was no longer reported in inventory from Site")

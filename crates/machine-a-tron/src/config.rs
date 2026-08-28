@@ -487,8 +487,6 @@ pub struct MachineATronConfig {
     /// How machine-a-tron obtains DHCP leases for BMCs and directly attached hosts.
     #[serde(default)]
     pub dhcp: DhcpType,
-    #[serde(default = "default_true")]
-    pub tui_enabled: bool,
 
     #[serde(default = "default_bmc_mock_port")]
     pub bmc_mock_port: u16,
@@ -1020,8 +1018,6 @@ mod tests {
             r#"
 carbide_api_url = "https://carbide-api.forge:443"
 log_file = "mat.log"
-interface = "br-77cbb29de011"
-tui_enabled = true
 pxe_server_host = "192.168.176.7"
 pxe_server_port = "8080"
 bmc_mock_port = 1266
