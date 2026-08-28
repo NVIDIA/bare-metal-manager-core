@@ -473,7 +473,7 @@ This chart includes unit tests using the [helm-unittest](https://github.com/helm
 helm plugin install https://github.com/helm-unittest/helm-unittest.git
 
 # Run all tests
-helm unittest helm
+helm unittest helm --with-subchart
 
 # Disabled-by-default subcharts must be tested separately
 helm unittest helm/charts/nico-flow

@@ -30,6 +30,7 @@ same pod.
 */}}
 {{- define "nico-flow.selectorLabels" -}}
 app: flow
+app.kubernetes.io/name: flow
 {{- end -}}
 
 {{/*

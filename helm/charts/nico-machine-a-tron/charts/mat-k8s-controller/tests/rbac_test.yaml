@@ -76,8 +76,6 @@ tests:
       namespace: release-ns
     set:
       enabled: true
-      global:
-        imagePullSecrets: []
     asserts:
       - equal:
           path: metadata.namespace
@@ -90,7 +88,6 @@ tests:
       enabled: true
       global:
         namespaceOverride: nico-system
-        imagePullSecrets: []
     asserts:
       - equal:
           path: metadata.namespace
