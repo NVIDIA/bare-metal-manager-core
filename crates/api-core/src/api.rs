@@ -412,6 +412,13 @@ impl Forge for Api {
         crate::handlers::power_shelf::find_by_ids(self, request).await
     }
 
+    async fn decommission_power_shelf(
+        &self,
+        request: Request<rpc::DecommissionPowerShelfRequest>,
+    ) -> Result<Response<rpc::DecommissionPowerShelfResponse>, Status> {
+        crate::handlers::power_shelf::decommission_power_shelf(self, request).await
+    }
+
     async fn delete_power_shelf(
         &self,
         request: Request<rpc::PowerShelfDeletionRequest>,
@@ -941,11 +948,25 @@ impl Forge for Api {
         crate::handlers::power_shelf::find_power_shelf_state_histories(self, request).await
     }
 
+    async fn find_power_shelf_health_histories(
+        &self,
+        request: Request<rpc::PowerShelfHealthHistoriesRequest>,
+    ) -> Result<Response<rpc::HealthHistories>, Status> {
+        crate::handlers::power_shelf::find_power_shelf_health_histories(self, request).await
+    }
+
     async fn find_rack_state_histories(
         &self,
         request: tonic::Request<rpc::RackStateHistoriesRequest>,
     ) -> Result<Response<rpc::StateHistories>, Status> {
         crate::handlers::rack::find_rack_state_histories(self, request).await
+    }
+
+    async fn find_rack_health_histories(
+        &self,
+        request: Request<rpc::RackHealthHistoriesRequest>,
+    ) -> Result<Response<rpc::HealthHistories>, Status> {
+        crate::handlers::rack::find_rack_health_histories(self, request).await
     }
 
     async fn find_switch_state_histories(

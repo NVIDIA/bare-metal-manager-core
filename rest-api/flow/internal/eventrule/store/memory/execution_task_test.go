@@ -55,6 +55,7 @@ func TestStore_CreateExecutionTask(t *testing.T) {
 		require.Equal(t, requested, *created)
 
 		created.TaskID = uuid.New()
+
 		loaded, err := store.GetExecutionTask(
 			context.Background(),
 			requested.ExecutionID,
@@ -65,6 +66,7 @@ func TestStore_CreateExecutionTask(t *testing.T) {
 
 		duplicate := requested
 		duplicate.TaskID = uuid.New()
+
 		existing, err := store.CreateExecutionTask(context.Background(), duplicate)
 		require.NoError(t, err)
 		require.Equal(t, requested, *existing)
@@ -98,6 +100,7 @@ func TestStore_GetExecutionTask(t *testing.T) {
 				test.executionID,
 				test.rackID,
 			)
+
 			if test.wantErr != "" {
 				require.ErrorContains(t, err, test.wantErr)
 				require.Nil(t, association)
@@ -113,7 +116,7 @@ func TestStore_GetExecutionTask(t *testing.T) {
 func createExecution(t *testing.T, store *Store) eventrule.Execution {
 	t.Helper()
 
-	event, err := store.CreateEvent(context.Background(), eventrule.Event{
+	definition := eventrule.Event{
 		Key: eventrule.EventKey{
 			SourceName: "test",
 			SourceKey:  uuid.NewString(),
@@ -128,12 +131,11 @@ func createExecution(t *testing.T, store *Store) eventrule.Execution {
 			{Name: "noop", Spec: &eventrule.Noop{}},
 		}},
 		Summary: "test event",
-	})
-	require.NoError(t, err)
+	}
 
-	executions, err := store.CommitEventPlan(
+	event, err := store.CommitEventPlan(
 		context.Background(),
-		event.ID,
+		definition,
 		[]eventrule.PlannedExecution{
 			{
 				ActionName:    "noop",
@@ -141,6 +143,10 @@ func createExecution(t *testing.T, store *Store) eventrule.Execution {
 			},
 		},
 	)
+	require.NoError(t, err)
+	require.NotNil(t, event)
+
+	executions, err := store.Executions()
 	require.NoError(t, err)
 	require.Len(t, executions, 1)
 

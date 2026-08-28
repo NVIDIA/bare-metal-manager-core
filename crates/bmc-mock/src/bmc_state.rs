@@ -66,6 +66,12 @@ impl BmcState {
         self.system_state.set_serial_console_ssh_port(port)
     }
 
+    /// Advertises an SSH console supplied by a simulator without changing the hardware profile.
+    pub fn set_simulated_serial_console_ssh_port(&self, port: Option<u16>) -> bool {
+        self.system_state
+            .set_simulated_serial_console_ssh_port(port)
+    }
+
     pub fn on_event(&self, event: &BmcEvent) {
         match event {
             BmcEvent::PowerOn => {

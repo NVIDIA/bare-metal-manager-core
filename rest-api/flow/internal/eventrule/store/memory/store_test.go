@@ -18,8 +18,10 @@ import (
 func TestStoreContract(t *testing.T) {
 	storetest.RunRuleBindingContract(t, func() (eventrule.RuleStore, eventrule.BindingStore) {
 		store := New()
+
 		return store, store
 	})
+
 	storetest.RunExecutionContract(t, func(now *time.Time) storetest.EventExecutionStore {
 		return NewWithClock(func() time.Time { return *now })
 	})
@@ -62,7 +64,7 @@ func TestBindingScansIgnoreUnrelatedInvalidRecords(t *testing.T) {
 	require.NoError(t, store.Delete(ctx, rule.ID))
 }
 
-func TestStore_CreateEventRejectsDanglingIndexes(t *testing.T) {
+func TestStore_CommitEventPlanRejectsDanglingIndexes(t *testing.T) {
 	now := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 	store := NewWithClock(func() time.Time { return now })
 	definition := eventrule.Event{
@@ -75,9 +77,14 @@ func TestStore_CreateEventRejectsDanglingIndexes(t *testing.T) {
 		}},
 		Summary: "Test event",
 	}
+
 	store.eventsByKey[definition.Key] = uuid.New()
 
-	event, err := store.CreateEvent(context.Background(), definition)
+	event, err := store.CommitEventPlan(context.Background(), definition, []eventrule.PlannedExecution{{
+		ActionName:    "action",
+		ExecutionPlan: &eventrule.NoopPlan{},
+	}})
+
 	require.ErrorIs(t, err, eventrule.ErrEventNotFound)
 	require.Nil(t, event)
 }

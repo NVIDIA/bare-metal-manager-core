@@ -759,6 +759,13 @@ func (osur *APIOperatingSystemUpdateRequest) ValidateAndSetUserData(phonehomeUrl
 		mergedUserData = existingOS.UserData
 	}
 
+	// If phone-home was enabled, it can be removed by key instead of by URL.
+	//
+	// Ownership is a property of the stored blob. A request that supplies its own
+	// user-data replaces that blob outright, so the flag says nothing about the
+	// document actually being edited and removal there stays URL-matched.
+	nicoAuthoredPhoneHome := existingOS.PhoneHomeEnabled && osur.UserData == nil
+
 	if mergedPhoneHomeEnabled == nil {
 		mergedPhoneHomeEnabled = &existingOS.PhoneHomeEnabled
 
@@ -824,7 +831,15 @@ func (osur *APIOperatingSystemUpdateRequest) ValidateAndSetUserData(phonehomeUrl
 		// but the UI will always send false if phone-home is unchecked,
 		// so we want to do this check silently and not alert people who
 		// are using non-YAML user-data.
-		if err := util.RemovePhoneHomeFromUserData(documentRoot, &phonehomeUrl); err != nil {
+
+		// Our own block is removed by key, because the URL frozen into it may
+		// predate a change to site.phoneHomeUrl.
+		var phoneHomeURLFilter *string = nil
+		if !nicoAuthoredPhoneHome {
+			phoneHomeURLFilter = &phonehomeUrl
+		}
+
+		if err := util.RemovePhoneHomeFromUserData(documentRoot, phoneHomeURLFilter); err != nil {
 			return validation.Errors{
 				"userData": errors.New("failed to remove phone home config from userData"),
 			}

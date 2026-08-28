@@ -171,6 +171,31 @@ impl StateControllerIO for PowerShelfStateControllerIO {
                 };
                 ("reprovisioning", sub)
             }
+            PowerShelfControllerState::Decommissioning {
+                decommissioning_state,
+            } => {
+                let sub = match decommissioning_state {
+                    model::power_shelf::PowerShelfDecommissioningState::SuppressingSiteExplorer => {
+                        "suppressingsiteexplorer"
+                    }
+                    model::power_shelf::PowerShelfDecommissioningState::SuppressingBmcDhcp => {
+                        "suppressingbmcdhcp"
+                    }
+                    model::power_shelf::PowerShelfDecommissioningState::FactoryResetBmc => {
+                        "factoryresetbmc"
+                    }
+                    model::power_shelf::PowerShelfDecommissioningState::WaitingForBmcDhcpAcknowledgement => {
+                        "waitingforbmcdhcpacknowledgement"
+                    }
+                    model::power_shelf::PowerShelfDecommissioningState::DeletingManagedCredentials => {
+                        "deletingmanagedcredentials"
+                    }
+                    model::power_shelf::PowerShelfDecommissioningState::Decommissioned => {
+                        "decommissioned"
+                    }
+                };
+                ("decommissioning", sub)
+            }
             PowerShelfControllerState::Error { .. } => ("error", ""),
             PowerShelfControllerState::Deleting => ("deleting", ""),
         }

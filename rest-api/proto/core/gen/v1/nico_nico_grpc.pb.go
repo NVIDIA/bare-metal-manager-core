@@ -71,6 +71,7 @@ const (
 	Forge_FindPowerShelves_FullMethodName                                   = "/forge.Forge/FindPowerShelves"
 	Forge_FindPowerShelfIds_FullMethodName                                  = "/forge.Forge/FindPowerShelfIds"
 	Forge_FindPowerShelvesByIds_FullMethodName                              = "/forge.Forge/FindPowerShelvesByIds"
+	Forge_DecommissionPowerShelf_FullMethodName                             = "/forge.Forge/DecommissionPowerShelf"
 	Forge_DeletePowerShelf_FullMethodName                                   = "/forge.Forge/DeletePowerShelf"
 	Forge_AdminForceDeletePowerShelf_FullMethodName                         = "/forge.Forge/AdminForceDeletePowerShelf"
 	Forge_SetPowerShelfMaintenance_FullMethodName                           = "/forge.Forge/SetPowerShelfMaintenance"
@@ -134,7 +135,9 @@ const (
 	Forge_FindMachineStateHistories_FullMethodName                          = "/forge.Forge/FindMachineStateHistories"
 	Forge_FindMachineHealthHistories_FullMethodName                         = "/forge.Forge/FindMachineHealthHistories"
 	Forge_FindPowerShelfStateHistories_FullMethodName                       = "/forge.Forge/FindPowerShelfStateHistories"
+	Forge_FindPowerShelfHealthHistories_FullMethodName                      = "/forge.Forge/FindPowerShelfHealthHistories"
 	Forge_FindRackStateHistories_FullMethodName                             = "/forge.Forge/FindRackStateHistories"
+	Forge_FindRackHealthHistories_FullMethodName                            = "/forge.Forge/FindRackHealthHistories"
 	Forge_FindSwitchStateHistories_FullMethodName                           = "/forge.Forge/FindSwitchStateHistories"
 	Forge_FindSwitchHealthHistories_FullMethodName                          = "/forge.Forge/FindSwitchHealthHistories"
 	Forge_FindNetworkSegmentStateHistories_FullMethodName                   = "/forge.Forge/FindNetworkSegmentStateHistories"
@@ -579,8 +582,11 @@ type ForgeClient interface {
 	FindPowerShelves(ctx context.Context, in *PowerShelfQuery, opts ...grpc.CallOption) (*PowerShelfList, error)
 	FindPowerShelfIds(ctx context.Context, in *PowerShelfSearchFilter, opts ...grpc.CallOption) (*PowerShelfIdList, error)
 	FindPowerShelvesByIds(ctx context.Context, in *PowerShelvesByIdsRequest, opts ...grpc.CallOption) (*PowerShelfList, error)
+	// Starts the decommissioning workflow for a Ready managed power shelf.
+	DecommissionPowerShelf(ctx context.Context, in *DecommissionPowerShelfRequest, opts ...grpc.CallOption) (*DecommissionPowerShelfResponse, error)
 	DeletePowerShelf(ctx context.Context, in *PowerShelfDeletionRequest, opts ...grpc.CallOption) (*PowerShelfDeletionResult, error)
-	// Force deletes a Power Shelf and optionally its associated interfaces from the database.
+	// Force deletes a Power Shelf and optionally its associated interfaces
+	// and BMC suppressions from the database.
 	AdminForceDeletePowerShelf(ctx context.Context, in *AdminForceDeletePowerShelfRequest, opts ...grpc.CallOption) (*AdminForceDeletePowerShelfResponse, error)
 	// Request a maintenance operation (PowerOn / PowerOff) for a Power Shelf.
 	// When the power shelf is in Ready state, the power shelf state controller
@@ -698,7 +704,9 @@ type ForgeClient interface {
 	FindMachineStateHistories(ctx context.Context, in *MachineStateHistoriesRequest, opts ...grpc.CallOption) (*MachineStateHistories, error)
 	FindMachineHealthHistories(ctx context.Context, in *MachineHealthHistoriesRequest, opts ...grpc.CallOption) (*HealthHistories, error)
 	FindPowerShelfStateHistories(ctx context.Context, in *PowerShelfStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error)
+	FindPowerShelfHealthHistories(ctx context.Context, in *PowerShelfHealthHistoriesRequest, opts ...grpc.CallOption) (*HealthHistories, error)
 	FindRackStateHistories(ctx context.Context, in *RackStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error)
+	FindRackHealthHistories(ctx context.Context, in *RackHealthHistoriesRequest, opts ...grpc.CallOption) (*HealthHistories, error)
 	FindSwitchStateHistories(ctx context.Context, in *SwitchStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error)
 	FindSwitchHealthHistories(ctx context.Context, in *SwitchHealthHistoriesRequest, opts ...grpc.CallOption) (*HealthHistories, error)
 	FindNetworkSegmentStateHistories(ctx context.Context, in *NetworkSegmentStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error)
@@ -1870,6 +1878,16 @@ func (c *forgeClient) FindPowerShelvesByIds(ctx context.Context, in *PowerShelve
 	return out, nil
 }
 
+func (c *forgeClient) DecommissionPowerShelf(ctx context.Context, in *DecommissionPowerShelfRequest, opts ...grpc.CallOption) (*DecommissionPowerShelfResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DecommissionPowerShelfResponse)
+	err := c.cc.Invoke(ctx, Forge_DecommissionPowerShelf_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *forgeClient) DeletePowerShelf(ctx context.Context, in *PowerShelfDeletionRequest, opts ...grpc.CallOption) (*PowerShelfDeletionResult, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(PowerShelfDeletionResult)
@@ -2503,10 +2521,30 @@ func (c *forgeClient) FindPowerShelfStateHistories(ctx context.Context, in *Powe
 	return out, nil
 }
 
+func (c *forgeClient) FindPowerShelfHealthHistories(ctx context.Context, in *PowerShelfHealthHistoriesRequest, opts ...grpc.CallOption) (*HealthHistories, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(HealthHistories)
+	err := c.cc.Invoke(ctx, Forge_FindPowerShelfHealthHistories_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *forgeClient) FindRackStateHistories(ctx context.Context, in *RackStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(StateHistories)
 	err := c.cc.Invoke(ctx, Forge_FindRackStateHistories_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) FindRackHealthHistories(ctx context.Context, in *RackHealthHistoriesRequest, opts ...grpc.CallOption) (*HealthHistories, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(HealthHistories)
+	err := c.cc.Invoke(ctx, Forge_FindRackHealthHistories_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -6297,8 +6335,11 @@ type ForgeServer interface {
 	FindPowerShelves(context.Context, *PowerShelfQuery) (*PowerShelfList, error)
 	FindPowerShelfIds(context.Context, *PowerShelfSearchFilter) (*PowerShelfIdList, error)
 	FindPowerShelvesByIds(context.Context, *PowerShelvesByIdsRequest) (*PowerShelfList, error)
+	// Starts the decommissioning workflow for a Ready managed power shelf.
+	DecommissionPowerShelf(context.Context, *DecommissionPowerShelfRequest) (*DecommissionPowerShelfResponse, error)
 	DeletePowerShelf(context.Context, *PowerShelfDeletionRequest) (*PowerShelfDeletionResult, error)
-	// Force deletes a Power Shelf and optionally its associated interfaces from the database.
+	// Force deletes a Power Shelf and optionally its associated interfaces
+	// and BMC suppressions from the database.
 	AdminForceDeletePowerShelf(context.Context, *AdminForceDeletePowerShelfRequest) (*AdminForceDeletePowerShelfResponse, error)
 	// Request a maintenance operation (PowerOn / PowerOff) for a Power Shelf.
 	// When the power shelf is in Ready state, the power shelf state controller
@@ -6416,7 +6457,9 @@ type ForgeServer interface {
 	FindMachineStateHistories(context.Context, *MachineStateHistoriesRequest) (*MachineStateHistories, error)
 	FindMachineHealthHistories(context.Context, *MachineHealthHistoriesRequest) (*HealthHistories, error)
 	FindPowerShelfStateHistories(context.Context, *PowerShelfStateHistoriesRequest) (*StateHistories, error)
+	FindPowerShelfHealthHistories(context.Context, *PowerShelfHealthHistoriesRequest) (*HealthHistories, error)
 	FindRackStateHistories(context.Context, *RackStateHistoriesRequest) (*StateHistories, error)
+	FindRackHealthHistories(context.Context, *RackHealthHistoriesRequest) (*HealthHistories, error)
 	FindSwitchStateHistories(context.Context, *SwitchStateHistoriesRequest) (*StateHistories, error)
 	FindSwitchHealthHistories(context.Context, *SwitchHealthHistoriesRequest) (*HealthHistories, error)
 	FindNetworkSegmentStateHistories(context.Context, *NetworkSegmentStateHistoriesRequest) (*StateHistories, error)
@@ -7247,6 +7290,9 @@ func (UnimplementedForgeServer) FindPowerShelfIds(context.Context, *PowerShelfSe
 func (UnimplementedForgeServer) FindPowerShelvesByIds(context.Context, *PowerShelvesByIdsRequest) (*PowerShelfList, error) {
 	return nil, status.Error(codes.Unimplemented, "method FindPowerShelvesByIds not implemented")
 }
+func (UnimplementedForgeServer) DecommissionPowerShelf(context.Context, *DecommissionPowerShelfRequest) (*DecommissionPowerShelfResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DecommissionPowerShelf not implemented")
+}
 func (UnimplementedForgeServer) DeletePowerShelf(context.Context, *PowerShelfDeletionRequest) (*PowerShelfDeletionResult, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeletePowerShelf not implemented")
 }
@@ -7436,8 +7482,14 @@ func (UnimplementedForgeServer) FindMachineHealthHistories(context.Context, *Mac
 func (UnimplementedForgeServer) FindPowerShelfStateHistories(context.Context, *PowerShelfStateHistoriesRequest) (*StateHistories, error) {
 	return nil, status.Error(codes.Unimplemented, "method FindPowerShelfStateHistories not implemented")
 }
+func (UnimplementedForgeServer) FindPowerShelfHealthHistories(context.Context, *PowerShelfHealthHistoriesRequest) (*HealthHistories, error) {
+	return nil, status.Error(codes.Unimplemented, "method FindPowerShelfHealthHistories not implemented")
+}
 func (UnimplementedForgeServer) FindRackStateHistories(context.Context, *RackStateHistoriesRequest) (*StateHistories, error) {
 	return nil, status.Error(codes.Unimplemented, "method FindRackStateHistories not implemented")
+}
+func (UnimplementedForgeServer) FindRackHealthHistories(context.Context, *RackHealthHistoriesRequest) (*HealthHistories, error) {
+	return nil, status.Error(codes.Unimplemented, "method FindRackHealthHistories not implemented")
 }
 func (UnimplementedForgeServer) FindSwitchStateHistories(context.Context, *SwitchStateHistoriesRequest) (*StateHistories, error) {
 	return nil, status.Error(codes.Unimplemented, "method FindSwitchStateHistories not implemented")
@@ -9436,6 +9488,24 @@ func _Forge_FindPowerShelvesByIds_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_DecommissionPowerShelf_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DecommissionPowerShelfRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).DecommissionPowerShelf(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_DecommissionPowerShelf_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).DecommissionPowerShelf(ctx, req.(*DecommissionPowerShelfRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Forge_DeletePowerShelf_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(PowerShelfDeletionRequest)
 	if err := dec(in); err != nil {
@@ -10570,6 +10640,24 @@ func _Forge_FindPowerShelfStateHistories_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_FindPowerShelfHealthHistories_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PowerShelfHealthHistoriesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).FindPowerShelfHealthHistories(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_FindPowerShelfHealthHistories_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).FindPowerShelfHealthHistories(ctx, req.(*PowerShelfHealthHistoriesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Forge_FindRackStateHistories_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(RackStateHistoriesRequest)
 	if err := dec(in); err != nil {
@@ -10584,6 +10672,24 @@ func _Forge_FindRackStateHistories_Handler(srv interface{}, ctx context.Context,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ForgeServer).FindRackStateHistories(ctx, req.(*RackStateHistoriesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_FindRackHealthHistories_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RackHealthHistoriesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).FindRackHealthHistories(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_FindRackHealthHistories_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).FindRackHealthHistories(ctx, req.(*RackHealthHistoriesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -17455,6 +17561,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Forge_FindPowerShelvesByIds_Handler,
 		},
 		{
+			MethodName: "DecommissionPowerShelf",
+			Handler:    _Forge_DecommissionPowerShelf_Handler,
+		},
+		{
 			MethodName: "DeletePowerShelf",
 			Handler:    _Forge_DeletePowerShelf_Handler,
 		},
@@ -17707,8 +17817,16 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Forge_FindPowerShelfStateHistories_Handler,
 		},
 		{
+			MethodName: "FindPowerShelfHealthHistories",
+			Handler:    _Forge_FindPowerShelfHealthHistories_Handler,
+		},
+		{
 			MethodName: "FindRackStateHistories",
 			Handler:    _Forge_FindRackStateHistories_Handler,
+		},
+		{
+			MethodName: "FindRackHealthHistories",
+			Handler:    _Forge_FindRackHealthHistories_Handler,
 		},
 		{
 			MethodName: "FindSwitchStateHistories",

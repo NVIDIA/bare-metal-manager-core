@@ -37,9 +37,10 @@
 //!   (`card_state.lockmode == Locked`) it promotes that exact value to
 //!   `current_version` via [`promote_rotating_to_current`]. A card with no staged
 //!   marker (locked before this flow shipped, already at v0 from the backfill)
-//!   falls back to [`record_device_converged`] at the site-wide target. Today the
-//!   locked-with version is `CURRENT_LOCKDOWN_IKM_VERSION` (0); the rotation
-//!   engine will own advancing the site-wide target, and the staged
+//!   falls back to [`record_device_converged`] at the site-wide target. The lock
+//!   command derives from the staged site-wide target when lockdown rotation is
+//!   enabled (otherwise from the card's current tracked version, so a staged
+//!   target does not migrate cards until the cutover flip); the staged
 //!   `rotating_to_version` is exactly the crash-safety marker that keeps a
 //!   mid-flight advance from mis-recording a card as converged to a version it
 //!   was never locked under.
@@ -110,6 +111,7 @@ pub enum CredentialRotationType {
     DpuUefi,
     Nvos,
     LockdownIkm,
+    DpuBmcService,
 }
 
 /// Records that `device_mac` now carries the current site-wide `credential_type`
@@ -1049,6 +1051,9 @@ async fn nvos_device_rotation_status(
 // than as a standalone top-level module.
 #[cfg(test)]
 mod test_backfill;
+
+#[cfg(test)]
+mod test_dpu_bmc_service_backfill;
 
 #[cfg(test)]
 mod tests {

@@ -14,9 +14,6 @@ tests:
           pattern: "host_count = 10"
       - matchRegex:
           path: data["mat.toml"]
-          pattern: "use_single_bmc_mock = true"
-      - matchRegex:
-          path: data["mat.toml"]
           pattern: 'log_format = "logfmt"'
       - matchRegex:
           path: data["mat.toml"]

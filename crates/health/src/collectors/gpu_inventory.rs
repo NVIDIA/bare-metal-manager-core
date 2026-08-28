@@ -178,6 +178,7 @@ impl<B: Bmc + 'static> GpuInventoryCollector<B> {
         tracing::warn!(
             bmc_mac_address = %self.endpoint.addr.mac,
             reason = %message,
+            rack_id = self.event_context.rack_id().map(tracing::field::display),
             "GPU inventory alert"
         );
         let report = HealthReport {
@@ -311,6 +312,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for GpuInventoryCollector<B> {
         let Some(actual) = self.count_gpus() else {
             tracing::debug!(
                 bmc_mac_address = %self.endpoint.addr.mac,
+                rack_id = self.event_context.rack_id().map(tracing::field::display),
                 "Entity inventory not ready yet; skipping GPU inventory iteration"
             );
             return Ok(IterationResult {
@@ -326,6 +328,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for GpuInventoryCollector<B> {
                 bmc_mac_address = %self.endpoint.addr.mac,
                 expected_gpu_count = expected_count,
                 actual_gpu_count = actual,
+                rack_id = self.event_context.rack_id().map(tracing::field::display),
                 "GPU count below SKU expectation"
             );
         }

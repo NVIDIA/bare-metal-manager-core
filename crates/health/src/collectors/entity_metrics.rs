@@ -802,6 +802,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for MetricsCollector<B> {
         let Some(inventory) = self.shared.load_full() else {
             tracing::debug!(
                 bmc_address = ?self.endpoint.addr,
+                rack_id = self.event_context.rack_id().map(tracing::field::display),
                 "No entity inventory available yet; skipping metrics iteration"
             );
             return Ok(IterationResult {
@@ -813,6 +814,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for MetricsCollector<B> {
 
         tracing::debug!(
             bmc_address = ?self.endpoint.addr,
+            rack_id = self.event_context.rack_id().map(tracing::field::display),
             generation = inventory.generation,
             inventory_age_seconds = inventory.discovered_at.elapsed().as_secs(),
             entity_count = inventory.entities.len(),
@@ -967,6 +969,7 @@ impl<B: Bmc + 'static> MetricsCollector<B> {
                     ?error,
                     context,
                     bmc_address = ?self.endpoint.addr,
+                    rack_id = self.event_context.rack_id().map(tracing::field::display),
                     "Failed to fetch metrics resource"
                 );
                 None

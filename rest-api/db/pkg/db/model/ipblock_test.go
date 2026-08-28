@@ -6,6 +6,7 @@ package model
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -92,6 +93,60 @@ func testIPBlockBuildTenant(t *testing.T, dbSession *db.Session, name string) *T
 	_, err := dbSession.DB.NewInsert().Model(tenant).Exec(context.Background())
 	assert.Nil(t, err)
 	return tenant
+}
+
+func TestIPBlock_ContainsPrefix(t *testing.T) {
+	tests := []struct {
+		name             string
+		ipBlock          *IPBlock
+		reportedPrefix   string
+		expectedContains bool
+	}{
+		{
+			name:             "contains a narrower IPv4 prefix",
+			ipBlock:          &IPBlock{Prefix: "10.20.0.0", PrefixLength: 16},
+			reportedPrefix:   "10.20.30.0/24",
+			expectedContains: true,
+		},
+		{
+			name:             "rejects an IPv4 prefix outside the block",
+			ipBlock:          &IPBlock{Prefix: "10.20.0.0", PrefixLength: 16},
+			reportedPrefix:   "10.21.30.0/24",
+			expectedContains: false,
+		},
+		{
+			name:             "rejects a reported prefix wider than the block",
+			ipBlock:          &IPBlock{Prefix: "10.20.16.0", PrefixLength: 20},
+			reportedPrefix:   "10.20.0.0/16",
+			expectedContains: false,
+		},
+		{
+			name:             "rejects a different address family",
+			ipBlock:          &IPBlock{Prefix: "10.20.0.0", PrefixLength: 16},
+			reportedPrefix:   "2001:db8::/64",
+			expectedContains: false,
+		},
+		{
+			name:             "rejects an invalid IPBlock prefix",
+			ipBlock:          &IPBlock{Prefix: "not-an-address", PrefixLength: 16},
+			reportedPrefix:   "10.20.30.0/24",
+			expectedContains: false,
+		},
+		{
+			name:             "rejects a nil IPBlock",
+			ipBlock:          nil,
+			reportedPrefix:   "10.20.30.0/24",
+			expectedContains: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			reportedPrefix, err := netip.ParsePrefix(test.reportedPrefix)
+			require.NoError(t, err)
+			assert.Equal(t, test.expectedContains, test.ipBlock.ContainsPrefix(reportedPrefix))
+		})
+	}
 }
 
 func TestIPBlockSQLDAO_Create(t *testing.T) {
@@ -644,6 +699,25 @@ func TestIPBlockSQLDAO_GetAll(t *testing.T) {
 		}
 	}
 
+	deletedIPBlock, err := ipbsd.Create(
+		ctx, nil, IPBlockCreateInput{
+			Name:                     "deleted-ip-block",
+			Description:              cutil.GetPtr("description"),
+			SiteID:                   site1.ID,
+			InfrastructureProviderID: ip.ID,
+			RoutingType:              IPBlockRoutingTypePublic,
+			Prefix:                   "203.0.113.0",
+			PrefixLength:             24,
+			ProtocolVersion:          "v4",
+			FullGrant:                false,
+			Status:                   IPBlockStatusReady,
+			CreatedBy:                &user.ID,
+		},
+	)
+	require.NoError(t, err)
+	err = ipbsd.Delete(ctx, nil, deletedIPBlock.ID)
+	require.NoError(t, err)
+
 	dummyUUID := uuid.New()
 
 	// OTEL Spanner configuration
@@ -672,6 +746,7 @@ func TestIPBlockSQLDAO_GetAll(t *testing.T) {
 		expectedError             bool
 		paramRelations            []string
 		verifyChildSpanner        bool
+		includeDeleted            bool
 	}{
 		{
 			desc:                      "GetAll with no filters returns objects",
@@ -971,6 +1046,22 @@ func TestIPBlockSQLDAO_GetAll(t *testing.T) {
 			expectedError:             false,
 		},
 		{
+			desc:          "GetAll excludes a soft-deleted IP Block by default",
+			ids:           []uuid.UUID{deletedIPBlock.ID},
+			expectedCount: 0,
+			expectedTotal: cutil.GetPtr(0),
+			expectedError: false,
+		},
+		{
+			desc:           "GetAll includes a soft-deleted IP Block when requested",
+			ids:            []uuid.UUID{deletedIPBlock.ID},
+			includeDeleted: true,
+			expectedCount:  1,
+			expectedTotal:  cutil.GetPtr(1),
+			expectedError:  false,
+			firstEntry:     deletedIPBlock,
+		},
+		{
 			desc:                      "GetAll with site, prefix and prefixLenth returns object",
 			siteIDs:                   []uuid.UUID{site2.ID},
 			infrastructureProviderIDs: []uuid.UUID{ip.ID},
@@ -1018,6 +1109,7 @@ func TestIPBlockSQLDAO_GetAll(t *testing.T) {
 					Statuses:                  tc.statuses,
 					SearchQuery:               tc.searchQuery,
 					IPBlockIDs:                tc.ids,
+					IncludeDeleted:            tc.includeDeleted,
 				},
 				paginator.PageInput{
 					Offset:  tc.offset,

@@ -27,5 +27,4 @@ type Event struct {
 	Observations    int             `bun:"observations,notnull"`
 	CreatedAt       time.Time       `bun:"created_at,notnull"`
 	LastObservedAt  time.Time       `bun:"last_observed_at,notnull"`
-	PlannedAt       *time.Time      `bun:"planned_at"`
 }

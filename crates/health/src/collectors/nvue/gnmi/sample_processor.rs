@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use carbide_utils::none_if_empty::NoneIfEmpty;
+use carbide_uuid::rack::RackId;
 
 use super::client::{typed_value_to_f64, typed_value_to_string};
 use super::proto::{self, PathElem};
@@ -50,6 +51,7 @@ impl GnmiSampleProcessor {
                 tracing::warn!(
                     grpc_status_code = e.code,
                     error = %e.message,
+                    rack_id = self.event_context.rack_id().map(tracing::field::display),
                     "nvue_gnmi SAMPLE: server error in stream"
                 );
                 return;
@@ -135,7 +137,9 @@ impl GnmiSampleProcessor {
         } else if let Some(metric_type) = numeric_interface_leaf(elems) {
             match typed_value_to_f64(val) {
                 Some(v) => self.emit_iface(metric_type.name, iface_name, v, metric_type.unit),
-                None => debug_unmapped_value(elems, val, metric_type.name),
+                None => {
+                    debug_unmapped_value(elems, val, metric_type.name, self.event_context.rack_id())
+                }
             }
         } else if leaf_matches(elems, &["infiniband", "state", "physical-port-state"]) {
             let current = physical_port_to_state(typed_value_to_string(val).as_deref());
@@ -158,17 +162,32 @@ impl GnmiSampleProcessor {
         } else if leaf_matches(elems, &["infiniband", "state", "speed"]) {
             match link_speed_to_gbps(typed_value_to_string(val).as_deref()) {
                 Some(v) => self.emit_iface("interface_link_speed_active", iface_name, v, "gbps"),
-                None => debug_unmapped_value(elems, val, "interface_link_speed_active"),
+                None => debug_unmapped_value(
+                    elems,
+                    val,
+                    "interface_link_speed_active",
+                    self.event_context.rack_id(),
+                ),
             }
         } else if leaf_matches(elems, &["infiniband", "state", "width"]) {
             match link_width_to_f64(typed_value_to_string(val).as_deref()) {
                 Some(v) => self.emit_iface("interface_link_width_active", iface_name, v, "lanes"),
-                None => debug_unmapped_value(elems, val, "interface_link_width_active"),
+                None => debug_unmapped_value(
+                    elems,
+                    val,
+                    "interface_link_width_active",
+                    self.event_context.rack_id(),
+                ),
             }
         } else if leaf_matches(elems, &["infiniband", "state", "supported-widths"]) {
             match link_width_to_f64(typed_value_to_string(val).as_deref()) {
                 Some(v) => self.emit_iface("interface_supported_width", iface_name, v, "lanes"),
-                None => debug_unmapped_value(elems, val, "interface_supported_width"),
+                None => debug_unmapped_value(
+                    elems,
+                    val,
+                    "interface_supported_width",
+                    self.event_context.rack_id(),
+                ),
             }
         } else if leaf_matches(elems, &["phy-diag", "state", "phy-manager-state"]) {
             let current = phy_manager_to_state(typed_value_to_string(val).as_deref());
@@ -390,7 +409,7 @@ impl GnmiSampleProcessor {
 
         match typed_value_to_f64(val) {
             Some(v) => self.emit_switch(metric_type, v, unit),
-            None => debug_unmapped_value(elems, val, metric_type),
+            None => debug_unmapped_value(elems, val, metric_type, self.event_context.rack_id()),
         }
     }
 
@@ -1011,11 +1030,17 @@ fn link_speed_to_gbps(speed: Option<&str>) -> Option<f64> {
 }
 
 /// Log when an interface leaf that matched a known mapping but value wasn't caught.
-fn debug_unmapped_value(elems: &[&PathElem], val: &proto::TypedValue, metric_type: &str) {
+fn debug_unmapped_value(
+    elems: &[&PathElem],
+    val: &proto::TypedValue,
+    metric_type: &str,
+    rack_id: Option<&RackId>,
+) {
     tracing::debug!(
         leaf = %leaf_path(elems),
         raw = ?typed_value_to_string(val),
         metric_type,
+        rack_id = rack_id.map(tracing::field::display),
         "nvue_gnmi SAMPLE: matched leaf but value coercion returned None; dropping"
     );
 }

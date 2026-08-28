@@ -187,7 +187,35 @@ async fn test_machine_validation_with_error(
         },
     )
     .await;
-    mh.machine_validation_completed().await;
+    let response = mh.host().forge_agent_control().await;
+    let Some(rpc::forge_agent_control_response::Action::MachineValidation(machine_validation)) =
+        response.action
+    else {
+        panic!("expected machine validation action");
+    };
+    let validation_id = machine_validation
+        .validation_id
+        .expect("machine validation action missing validation_id");
+
+    env.api
+        .machine_validation_completed(tonic::Request::new(
+            rpc::forge::MachineValidationCompletedRequest {
+                machine_id: Some(mh.host().id),
+                machine_validation_error: None,
+                validation_id: Some(validation_id),
+            },
+        ))
+        .await?;
+
+    // Regression for #4876: the host state has not advanced yet, so this
+    // reproduces a Scout poll after the run was completed. It must not
+    // re-dispatch the terminal run.
+    let response = mh.host().forge_agent_control().await;
+    assert!(matches!(
+        response.action,
+        Some(rpc::forge_agent_control_response::Action::Noop(_))
+    ));
+
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.host().id,
         1,
