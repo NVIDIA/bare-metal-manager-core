@@ -16,6 +16,11 @@
 #
 FROM arm64v8/rust:1.97.1-slim-bullseye
 
+# Bullseye does not package mold. Keep this image on Bullseye for artifact
+# compatibility and install the pinned upstream ARM64 binary instead.
+ARG MOLD_VERSION=2.30.0
+ARG MOLD_SHA256=258aaf2b7808ea22fca625480efdf7a13830e9ee311716db0ba9c62af1770c07
+
 # Set in gitlab-templates/scripts/build-push-container-image.sh
 ARG CI_COMMIT_SHORT_SHA
 ENV CI_COMMIT_SHORT_SHA $CI_COMMIT_SHORT_SHA
@@ -59,6 +64,17 @@ RUN CACHEKEY=${CI_COMMIT_SHORT_SHA} apt update && \
 		wget \
 		git \
 	&& rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL --retry 5 \
+		-o /tmp/mold.tar.gz \
+		"https://github.com/rui314/mold/releases/download/v${MOLD_VERSION}/mold-${MOLD_VERSION}-aarch64-linux.tar.gz" && \
+	echo "${MOLD_SHA256}  /tmp/mold.tar.gz" | sha256sum --check - && \
+	tar -C /usr/local --strip-components=1 -xzf /tmp/mold.tar.gz && \
+	rm /tmp/mold.tar.gz && \
+	mold --version
+
+# Use mold for builds that do not load the repository's Cargo configuration.
+RUN update-alternatives --install /usr/bin/ld ld /usr/local/bin/ld.mold 60
 
 RUN rustup component add rustfmt
 RUN cargo install cargo-cache cargo-make sccache && \

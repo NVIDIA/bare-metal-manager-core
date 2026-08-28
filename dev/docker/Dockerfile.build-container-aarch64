@@ -54,6 +54,7 @@ RUN CACHEKEY=${CI_COMMIT_SHORT_SHA} apt update &&  \
 		libssl-dev \
 		libtss2-dev \
 		libudev-dev \
+		mold \
 		pandoc \
 		pkg-config \
 		tpm2-tools \
@@ -66,8 +67,8 @@ RUN CACHEKEY=${CI_COMMIT_SHORT_SHA} apt update &&  \
 		git \
 	&& rm -rf /var/lib/apt/lists/*
 
-# make LLVM's linker lld the default, because ld crashes using too much memory
-RUN update-alternatives --install /usr/bin/ld ld /usr/bin/lld 50
+# Use mold for builds that do not load the repository's Cargo configuration.
+RUN update-alternatives --install /usr/bin/ld ld /usr/bin/ld.mold 60
 
 RUN rustup component add rustfmt
 RUN cargo install cargo-cache cargo-make sccache --locked && \
