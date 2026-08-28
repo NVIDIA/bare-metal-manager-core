@@ -203,6 +203,48 @@ have been merged:
 nico-admin-cli -a <core-api-url> firmware show
 ```
 
+### ConnectX-7 InfiniBand Firmware
+
+NICo v2.0 and later use Scout to update CX7 firmware on hosts reported with
+vendor `Nvidia`, model `DGXH100`, and firmware inventory entries named
+`CX7_<number>`.
+
+To prepare the update:
+
+1. Publish the NVIDIA-signed CX7 firmware artifact at an HTTPS URL that Scout
+   can access from the discovery environment. Use the
+   [DGX H100/H200 firmware guide](https://docs.nvidia.com/dgx/dgxh100-fw-update-guide/network-card-fw-update.html)
+   to select an artifact compatible with every CX7 adapter in the host. Record
+   the artifact's SHA-256 digest. NICo does not require a particular repository
+   path or filename.
+
+1. Use the
+   [Host Firmware Config API](#configure-host-firmware-through-the-api) with
+   `vendor: Nvidia`, `model: DGXH100`, component `type: Cx7`, the desired
+   `version` such as `28.47.2682`, `default: true`, `powerDrainsNeeded: 1`,
+   and one artifact containing the HTTPS `url` and 64-character `sha256`.
+
+Use [Monitor and verify](host-firmware.md#monitor-and-verify). A host is updated
+only when every `CX7_<number>` entry reports the target version, the host has
+returned to `Ready` or `Assigned/Ready`, and its reprovisioning request is gone.
+
+> **Legacy NICo 0.10.x:** The firmware container must also carry the CX7
+> upgrade script. NICo 2.0 and later package the Scout script, so their firmware
+> package no longer needs to contain that script.
+
+Other host models require their own inventory mapping and Scout script. To add
+support for another model:
+
+- Follow the [contributing guide](../../../CONTRIBUTING.md).
+- Add the catalog component regex for `FirmwareComponentType::Cx7` to the
+  [host firmware inventory mappings](https://github.com/NVIDIA/infra-controller/blob/main/crates/api-core/src/handlers/firmware.rs)
+  for the model.
+- Add the model's script and metadata under the
+  [Scout firmware script assets](https://github.com/NVIDIA/infra-controller/tree/main/pxe/scout-firmware-scripts).
+
+The existing DGX H100 script may work on other servers, but it has not been
+tested on them; validate it on the new platform before reusing it.
+
 ## DPU firmware
 
 DPU firmware does not use the Host Firmware Config API. Its site configuration

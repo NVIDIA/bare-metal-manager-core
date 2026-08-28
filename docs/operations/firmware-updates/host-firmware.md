@@ -247,6 +247,9 @@ The route precedence is:
    shared `firmware_global.max_uploads` slot, uploads asynchronously, and polls
    the returned Redfish task.
 
+For the packaged CX7 Scout route on DGX H100, see
+[ConnectX-7 firmware configuration](configuration.md#connectx-7-infiniband-firmware-on-dgx-h100).
+
 All successful routes eventually return to component selection. Scout and
 Redfish updates first pass through NICo's activation and inventory-verification
 states; the legacy script path returns directly to inventory checking.
@@ -264,58 +267,6 @@ script exit only shows that the installation mechanism completed; NICo still
 needs fresh inventory to confirm the configured version. Refer to the
 [Redfish workflow](../../architecture/redfish_workflow.md) for the request and
 task ownership boundaries.
-
-### ConnectX-7 InfiniBand firmware on DGX H100
-
-NICo v2.0 and later support CX7 updates on hosts reported with vendor `Nvidia`,
-model `DGXH100`, and firmware inventory entries named `CX7_<number>`.
-
-To prepare the update:
-
-1. Publish the NVIDIA-signed CX7 firmware artifact at an HTTPS URL that Scout
-   can access from the discovery environment. Use the
-   [DGX H100/H200 firmware guide](https://docs.nvidia.com/dgx/dgxh100-fw-update-guide/network-card-fw-update.html)
-   to select an artifact compatible with every CX7 adapter in the host. Record
-   the artifact's SHA-256 digest. NICo does not require a particular
-   repository path or filename.
-
-1. Update the site-scoped
-   [Host Firmware Config API](configuration.md#configure-host-firmware-through-the-api):
-
-   ```text
-   PUT /v2/org/<org>/nico/firmware-config/host
-   ```
-
-   There is no operator-edited catalog file for this path. Configure
-   `vendor: Nvidia`, `model: DGXH100`, component `type: Cx7`, the desired
-   `version` such as `28.47.2682`, `default: true`, `powerDrainsNeeded: 1`,
-   and one artifact containing the HTTPS `url` and 64-character `sha256`.
-   Preserve the full component `ordering` when updating an existing entry.
-   Confirm the effective result with:
-
-   ```bash
-   nico-admin-cli -a <core-api-url> firmware show
-   ```
-
-Use [Monitor and verify](#monitor-and-verify). A host is updated only when every
-`CX7_<number>` entry reports the target version, the host has returned to
-`Ready` or `Assigned/Ready`, and its reprovisioning request is gone.
-
-> **Legacy NICo 0.10.x:** The firmware container must also carry the CX7
-> upgrade script. NICo 2.0 and later package the Scout script, so their firmware
-> package no longer needs to contain that script.
-
-Other host models require their own inventory mapping and Scout script. To add
-support for another model:
-
-- Follow the [contributing guide](../../../CONTRIBUTING.md).
-- Add the catalog component regex for `FirmwareComponentType::Cx7` to the
-  [host firmware inventory mappings](https://github.com/NVIDIA/infra-controller/blob/main/crates/api-core/src/handlers/firmware.rs) for the model.
-- Add the model's script and metadata under the
-  [Scout firmware script assets](https://github.com/NVIDIA/infra-controller/tree/main/pxe/scout-firmware-scripts).
-
-The existing DGX H100 script may work on other servers, but it has not been
-tested on them; validate it on the new platform before reusing it.
 
 ### Manual platform gate
 
