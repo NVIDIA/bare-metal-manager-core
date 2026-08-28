@@ -10,6 +10,7 @@ import (
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -67,6 +68,38 @@ func TestNewAPITenant(t *testing.T) {
 			assert.Equal(t, time.Date(2026, time.October, 1, 0, 0, 0, 0, time.UTC), got.Deprecations[0].TakeActionBy)
 		})
 	}
+}
+
+func TestAPITenantRoutingProfilesFromProto(t *testing.T) {
+	coreResponse := &corev1.FindTenantResponse{
+		Tenant:                          &corev1.Tenant{RoutingProfileType: cutil.GetPtr("INTERNAL")},
+		PermittedVpcRoutingProfileTypes: []string{"EXTERNAL", "INTERNAL"},
+	}
+
+	t.Run("allows site-scoped alternatives", func(t *testing.T) {
+		response := &APITenantRoutingProfiles{}
+		response.FromProto(coreResponse, true)
+
+		assert.Equal(t, "internal", response.TenantDefaultRoutingProfile)
+		assert.Equal(t, []string{"external", "internal"}, response.PermittedRoutingProfiles)
+	})
+
+	t.Run("limits selection to tenant default without privilege", func(t *testing.T) {
+		response := &APITenantRoutingProfiles{}
+		response.FromProto(coreResponse, false)
+
+		assert.Equal(t, "internal", response.TenantDefaultRoutingProfile)
+		assert.Equal(t, []string{"internal"}, response.PermittedRoutingProfiles)
+	})
+
+	t.Run("keeps response keys stable for missing tenant", func(t *testing.T) {
+		response := &APITenantRoutingProfiles{}
+		response.FromProto(&corev1.FindTenantResponse{}, true)
+
+		body, err := json.Marshal(response)
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"tenantDefaultRoutingProfile":"","permittedRoutingProfiles":[]}`, string(body))
+	})
 }
 
 func TestNewAPITenantSummary(t *testing.T) {

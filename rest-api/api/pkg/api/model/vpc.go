@@ -56,7 +56,9 @@ func NormalizeAPIVpcRoutingProfileForSite(routingProfile string) string {
 	return routingProfile
 }
 
-func normalizeAPIVpcRoutingProfileFromSite(routingProfile string) string {
+// NormalizeAPIVpcRoutingProfileFromSite converts known site-controller routing
+// profile values to the REST API spelling.
+func NormalizeAPIVpcRoutingProfileFromSite(routingProfile string) string {
 	if mapped, ok := apiVpcRoutingProfileFromSiteMap[routingProfile]; ok {
 		return mapped
 	}
@@ -600,7 +602,7 @@ func NewAPIVpc(dbVpc cdbm.Vpc, dbsds []cdbm.StatusDetail, includeEffectiveRoutin
 	}
 
 	if dbVpc.RoutingProfile != nil {
-		routingProfile := normalizeAPIVpcRoutingProfileFromSite(*dbVpc.RoutingProfile)
+		routingProfile := NormalizeAPIVpcRoutingProfileFromSite(*dbVpc.RoutingProfile)
 		apivpc.RoutingProfile = &routingProfile
 	}
 

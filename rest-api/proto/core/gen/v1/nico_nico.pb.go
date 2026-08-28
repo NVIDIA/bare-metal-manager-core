@@ -32640,10 +32640,13 @@ func (x *FindTenantRequest) GetTenantOrganizationId() string {
 }
 
 type FindTenantResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Tenant        *Tenant                `protobuf:"bytes,1,opt,name=tenant,proto3" json:"tenant,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Tenant *Tenant                `protobuf:"bytes,1,opt,name=tenant,proto3" json:"tenant,omitempty"`
+	// Named VPC routing profiles whose access tier is permitted for this Tenant.
+	// Empty when FNN or the Tenant routing profile is not configured.
+	PermittedVpcRoutingProfileTypes []string `protobuf:"bytes,2,rep,name=permitted_vpc_routing_profile_types,json=permittedVpcRoutingProfileTypes,proto3" json:"permitted_vpc_routing_profile_types,omitempty"`
+	unknownFields                   protoimpl.UnknownFields
+	sizeCache                       protoimpl.SizeCache
 }
 
 func (x *FindTenantResponse) Reset() {
@@ -32679,6 +32682,13 @@ func (*FindTenantResponse) Descriptor() ([]byte, []int) {
 func (x *FindTenantResponse) GetTenant() *Tenant {
 	if x != nil {
 		return x.Tenant
+	}
+	return nil
+}
+
+func (x *FindTenantResponse) GetPermittedVpcRoutingProfileTypes() []string {
+	if x != nil {
+		return x.PermittedVpcRoutingProfileTypes
 	}
 	return nil
 }
@@ -67567,9 +67577,10 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x14UpdateTenantResponse\x12%\n" +
 	"\x06tenant\x18\x01 \x01(\v2\r.forge.TenantR\x06tenant\"I\n" +
 	"\x11FindTenantRequest\x124\n" +
-	"\x16tenant_organization_id\x18\x01 \x01(\tR\x14tenantOrganizationId\";\n" +
+	"\x16tenant_organization_id\x18\x01 \x01(\tR\x14tenantOrganizationId\"\x89\x01\n" +
 	"\x12FindTenantResponse\x12%\n" +
-	"\x06tenant\x18\x01 \x01(\v2\r.forge.TenantR\x06tenant\"^\n" +
+	"\x06tenant\x18\x01 \x01(\v2\r.forge.TenantR\x06tenant\x12L\n" +
+	"#permitted_vpc_routing_profile_types\x18\x02 \x03(\tR\x1fpermittedVpcRoutingProfileTypes\"^\n" +
 	"\x16TenantKeysetIdentifier\x12'\n" +
 	"\x0forganization_id\x18\x01 \x01(\tR\x0eorganizationId\x12\x1b\n" +
 	"\tkeyset_id\x18\x02 \x01(\tR\bkeysetId\"[\n" +

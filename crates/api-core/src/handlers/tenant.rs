@@ -133,8 +133,44 @@ pub(crate) async fn find(
         .map(Response::new)?
         .into_inner()
     {
-        None => rpc::FindTenantResponse { tenant: None },
-        Some(t) => t.try_into().map_err(CarbideError::from)?,
+        None => rpc::FindTenantResponse {
+            tenant: None,
+            permitted_vpc_routing_profile_types: vec![],
+        },
+        Some(t) => {
+            let permitted_vpc_routing_profile_types = match (
+                t.routing_profile_type.as_deref(),
+                api.runtime_config.fnn.as_ref(),
+            ) {
+                (Some(tenant_profile_type), Some(fnn)) => {
+                    let tenant_access_tier = fnn
+                        .routing_profiles
+                        .get(tenant_profile_type)
+                        .ok_or_else(|| CarbideError::NotFoundError {
+                            kind: "RoutingProfile",
+                            id: tenant_profile_type.to_string(),
+                        })?
+                        .access_tier
+                        .unwrap_or_default();
+                    let mut permitted = fnn
+                        .routing_profiles
+                        .iter()
+                        .filter(|(_, profile)| {
+                            profile.access_tier.unwrap_or_default() >= tenant_access_tier
+                        })
+                        .map(|(name, _)| name.clone())
+                        .collect::<Vec<_>>();
+                    permitted.sort();
+                    permitted
+                }
+                _ => vec![],
+            };
+            let mut response: rpc::FindTenantResponse =
+                t.try_into().map_err(CarbideError::from)?;
+            response.permitted_vpc_routing_profile_types =
+                permitted_vpc_routing_profile_types;
+            response
+        }
     };
 
     txn.commit().await?;

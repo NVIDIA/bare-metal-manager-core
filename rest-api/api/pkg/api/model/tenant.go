@@ -8,6 +8,7 @@ import (
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 var (
@@ -48,6 +49,37 @@ type APITenant struct {
 	Capabilities *APITenantCapabilities `json:"capabilities"`
 	// Deprecations is the list of deprecations for the Tenant
 	Deprecations []APIDeprecation `json:"deprecations"`
+}
+
+// APITenantRoutingProfiles describes the routing profiles a Tenant may select
+// for VPC creation at one Site.
+type APITenantRoutingProfiles struct {
+	// TenantDefaultRoutingProfile is the profile Core applies when a VPC omits routingProfile.
+	TenantDefaultRoutingProfile string `json:"tenantDefaultRoutingProfile"`
+	// PermittedRoutingProfiles contains the profiles this Tenant may select explicitly.
+	PermittedRoutingProfiles []string `json:"permittedRoutingProfiles"`
+}
+
+// FromProto populates the REST response from Core's Tenant lookup. When the
+// Tenant lacks the site-scoped write privilege, only its default is exposed as
+// selectable.
+func (atrp *APITenantRoutingProfiles) FromProto(response *corev1.FindTenantResponse, allowAlternatives bool) {
+	*atrp = APITenantRoutingProfiles{PermittedRoutingProfiles: []string{}}
+	if response == nil || response.GetTenant() == nil {
+		return
+	}
+
+	atrp.TenantDefaultRoutingProfile = NormalizeAPIVpcRoutingProfileFromSite(response.GetTenant().GetRoutingProfileType())
+	if !allowAlternatives {
+		if atrp.TenantDefaultRoutingProfile != "" {
+			atrp.PermittedRoutingProfiles = append(atrp.PermittedRoutingProfiles, atrp.TenantDefaultRoutingProfile)
+		}
+		return
+	}
+
+	for _, profile := range response.GetPermittedVpcRoutingProfileTypes() {
+		atrp.PermittedRoutingProfiles = append(atrp.PermittedRoutingProfiles, NormalizeAPIVpcRoutingProfileFromSite(profile))
+	}
 }
 
 // NewAPITenant accepts a DB layer Tenant object and the deprecated tenant-wide
