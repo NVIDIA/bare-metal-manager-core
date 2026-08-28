@@ -46,6 +46,8 @@ func InitElektra() {
 func main() {
 	// First: interceptors and handlers below capture the global propagator.
 	tracing.InstallPropagator()
+	// No-op unless OTEL_EXPORTER_OTLP_ENDPOINT is set.
+	defer tracing.InstallExporter("site-agent")()
 	InitElektra()
 	// sleep
 	// Wait forever

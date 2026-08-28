@@ -118,6 +118,8 @@ const (
 func main() {
 	// First: interceptors and handlers below capture the global propagator.
 	tracing.InstallPropagator()
+	// No-op unless OTEL_EXPORTER_OTLP_ENDPOINT is set.
+	defer tracing.InstallExporter("nico-rest-workflow")()
 	// Initialize context
 	ctx := context.Background()
 

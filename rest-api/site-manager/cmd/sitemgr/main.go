@@ -18,6 +18,8 @@ import (
 func main() {
 	// First: interceptors and handlers below capture the global propagator.
 	tracing.InstallPropagator()
+	// No-op unless OTEL_EXPORTER_OTLP_ENDPOINT is set.
+	defer tracing.InstallExporter("site-manager")()
 	cmd := sitemgr.NewCommand()
 	app := &cli.App{
 		Name:    cmd.Name,

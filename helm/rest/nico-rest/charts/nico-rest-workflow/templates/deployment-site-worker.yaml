@@ -44,6 +44,10 @@ spec:
               value: /app/config.yaml
             - name: TEMPORAL_NAMESPACE
               value: site
+            {{- range $k, $v := .Values.extraEnv }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
             - name: TEMPORAL_QUEUE
               value: site
           volumeMounts:

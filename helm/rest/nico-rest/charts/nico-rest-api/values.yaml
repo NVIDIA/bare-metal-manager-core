@@ -101,3 +101,6 @@ config:
     rate: 10.0
     burst: 30
     expiresIn: 180
+
+# -- Extra container environment, name->value. Mainly for OTEL_* variables.
+extraEnv: {}
