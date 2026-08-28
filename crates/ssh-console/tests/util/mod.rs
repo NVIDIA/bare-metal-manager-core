@@ -16,7 +16,6 @@
  */
 use std::borrow::Cow;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -107,7 +106,6 @@ pub(crate) async fn run_baseline_test_environment(
                     | ssh_type @ MockBmcType::DpuSsh => {
                         Ok::<MockBmcHandle, eyre::Error>(MockBmcHandle::Ssh(
                             machine_a_tron::spawn_mock_ssh_server(
-                                IpAddr::from_str("127.0.0.1").unwrap(),
                                 None,
                                 Arc::new(KnownHostname(machine_id.to_string())),
                                 Some(machine_a_tron::MockSshCredentials {
@@ -152,13 +150,13 @@ pub(crate) async fn run_baseline_test_environment(
                     MockBmcHandle::Ipmi(_) => "Supermicro",
                 },
                 bmc_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
-                bmc_ssh_port: match &bmc_handle {
+                serial_console_ssh_port: match &bmc_handle {
                     MockBmcHandle::Ssh(s) => Some(s.port),
                     MockBmcHandle::Ipmi(_) => None,
                 },
                 ipmi_port: match &bmc_handle {
                     MockBmcHandle::Ssh(_) => None,
-                    MockBmcHandle::Ipmi(i) => Some(i.endpoint.listen_port),
+                    MockBmcHandle::Ipmi(i) => Some(i.port),
                 },
                 bmc_user: "root".to_string(),
                 bmc_password: "password".to_string(),

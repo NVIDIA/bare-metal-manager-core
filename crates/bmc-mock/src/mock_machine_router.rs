@@ -31,6 +31,14 @@ use crate::{
 #[derive(Debug, Default)]
 pub struct MachineRouterOptions {
     pub virtual_media_devices: Option<Vec<VirtualMediaDeviceConfig>>,
+    /// Enables the BMC self-reset simulation: after `Manager.Reset` the
+    /// mock answers 503 to everything for this duration (per-platform,
+    /// from the machine's resolved `LifecycleTimings::bmc_reset`).
+    /// `None` — and, deliberately, `Some(Duration::ZERO)` — keep resets
+    /// as no-ops (previous behavior, byte-for-byte: no offline window,
+    /// no state, no logging), so profiles/overrides with a zero timing
+    /// cannot perturb existing tests.
+    pub bmc_reset_duration: Option<std::time::Duration>,
 }
 
 #[derive(Debug)]
@@ -90,6 +98,7 @@ pub fn machine_router_with_injection_store(
     mat_host_id: String,
     redfish_auth: bool,
     injection: Arc<InjectionStore>,
+    options: MachineRouterOptions,
 ) -> (Router, BmcState) {
     machine_router_inner(
         machine_info,
@@ -97,7 +106,7 @@ pub fn machine_router_with_injection_store(
         mat_host_id,
         redfish_auth,
         injection,
-        MachineRouterOptions::default(),
+        options,
     )
 }
 
@@ -156,6 +165,10 @@ fn machine_router_inner(
     );
     let session_service_state =
         Arc::new(crate::redfish::session_service::SessionServiceState::new());
+    let availability = options
+        .bmc_reset_duration
+        .filter(|d| !d.is_zero())
+        .map(|d| Arc::new(crate::availability::BmcAvailabilityState::new(d)));
     let state = BmcState {
         bmc_vendor,
         bmc_product,
@@ -168,6 +181,7 @@ fn machine_router_inner(
         account_service_state,
         session_service_state,
         injection: injection.clone(),
+        availability: availability.clone(),
         callbacks: Some(callbacks.clone()),
         exposes_computer_systems: machine_info.exposes_computer_systems(),
     };
@@ -199,7 +213,7 @@ fn machine_router_inner(
             }
         }),
         Box::new(move |router| {
-            middleware_router::append(mat_host_id, router, injection, callbacks)
+            middleware_router::append(mat_host_id, router, injection, availability, callbacks)
         }),
     ] as [Box<dyn FnOnce(axum::Router) -> axum::Router>; _])
         .into_iter()

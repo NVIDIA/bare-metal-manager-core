@@ -52,6 +52,8 @@ const (
 	AnnotationRedfishListenPort = "nvidia-infra-controller/mat-redfish-listen-port"
 	// AnnotationIPMIListenPort is the IPMI listen port annotation.
 	AnnotationIPMIListenPort = "nvidia-infra-controller/mat-ipmi-listen-port"
+	// AnnotationSSHListenPort is the SSH listen port annotation.
+	AnnotationSSHListenPort = "nvidia-infra-controller/mat-ssh-listen-port"
 
 	// MachineTypeHost is the machine type for hosts.
 	MachineTypeHost = "host"
@@ -62,6 +64,8 @@ const (
 	PortNameRedfish = "redfish"
 	// PortNameIPMI is the name of the IPMI port.
 	PortNameIPMI = "ipmi"
+	// PortNameSSH is the name of the SSH port.
+	PortNameSSH = "ssh"
 
 	// DefaultConcurrency is the default number of concurrent workers for K8s API calls.
 	DefaultConcurrency = 50
@@ -138,6 +142,17 @@ func (b *ServiceBuilder) BuildService(machine *matclient.MachineStatus, machineT
 			TargetPort: intstr.FromInt32(int32(machine.BMC.IPMI.ListenPort)),
 		})
 		annotations[AnnotationIPMIListenPort] = strconv.Itoa(int(machine.BMC.IPMI.ListenPort))
+	}
+
+	// Add SSH port if available
+	if machine.BMC.SSH != nil {
+		ports = append(ports, corev1.ServicePort{
+			Name:       PortNameSSH,
+			Protocol:   corev1.ProtocolTCP,
+			Port:       int32(machine.BMC.SSH.ReachablePort),
+			TargetPort: intstr.FromInt32(int32(machine.BMC.SSH.ListenPort)),
+		})
+		annotations[AnnotationSSHListenPort] = strconv.Itoa(int(machine.BMC.SSH.ListenPort))
 	}
 
 	// Build selector - include pod name for multi-pod deployments
@@ -374,7 +389,7 @@ func isControllerLabel(k string) bool {
 
 func isControllerAnnotation(k string) bool {
 	switch k {
-	case AnnotationBMCIP, AnnotationAPIState, AnnotationPowerState, AnnotationHardwareType, AnnotationRedfishListenPort, AnnotationIPMIListenPort:
+	case AnnotationBMCIP, AnnotationAPIState, AnnotationPowerState, AnnotationHardwareType, AnnotationRedfishListenPort, AnnotationIPMIListenPort, AnnotationSSHListenPort:
 		return true
 	default:
 		return false

@@ -48,8 +48,10 @@ pub struct RackStateHandlerServices {
     pub credential_manager: Arc<dyn CredentialManager>,
     /// Component manager used for switch operations during rack maintenance.
     pub component_manager: Option<Arc<ComponentManager>>,
-    /// Switch mTLS services passed to RMS during NMX cluster certificate
-    /// configuration. Sourced from `[rack_state_controller].nmx_cluster_switch_mtls_services`.
+
+    /// Switch mTLS services sourced from
+    /// `[rack_state_controller].nmx_cluster_switch_mtls_services`. Unread:
+    /// rack maintenance does not configure switch certificates.
     pub nmx_cluster_switch_mtls_services: Vec<i32>,
 
     /// Fetches SOT firmware-object documents selected by rack profiles.

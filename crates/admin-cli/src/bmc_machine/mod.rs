@@ -17,7 +17,7 @@
 
 mod admin_power_control;
 mod bmc_reset;
-mod common;
+pub(crate) mod common;
 mod create_bmc_user;
 mod delete_bmc_user;
 mod enable_infinite_boot;

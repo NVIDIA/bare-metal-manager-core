@@ -47,3 +47,13 @@ metrics-address = "0.0.0.0:8888"
 [hbn]
 root-dir = "/var/lib/hbn"
 skip-reload = false
+
+# Optional [network]: agent-local network configuration knobs.
+# supplemental-config-path points at an RFC 7386 JSON Merge Patch document
+# (e.g. a mounted ConfigMap file) that the agent merges into the `set` section
+# of its generated NVUE config before every apply. Top-level keys must be NVUE
+# sections the agent models (bridge, evpn, interface, nve, router, system,
+# vrf, acl). The file's contents participate in change detection, so in-place
+# edits re-apply without an agent restart. If set, the file must be readable.
+# [network]
+# supplemental-config-path = "/etc/forge/supplemental-network-config/supplemental.json"

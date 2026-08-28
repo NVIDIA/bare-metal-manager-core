@@ -21,7 +21,9 @@ use std::sync::Arc;
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
+use carbide_network::ip::IpAddressFamily;
 use carbide_network::virtualization::VpcVirtualizationType;
+use carbide_uuid::extension_service::ExtensionServiceId;
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::instance_type::InstanceTypeId;
@@ -39,9 +41,15 @@ use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use model::ConfigValidationError;
 use model::dpa_interface::{DpaInterface, DpaSearchConfig};
+use model::extension_service::{
+    ExtensionService, ExtensionServiceLifecycleState, ExtensionServiceType,
+};
 use model::hardware_info::InfinibandInterface;
+use model::ib::{DEFAULT_IB_FABRIC_NAME, IbMembership};
+use model::ib_partition::PartitionKey;
 use model::instance::NewInstance;
 use model::instance::config::InstanceConfig;
+use model::instance::config::extension_services::InstanceExtensionServicesConfig;
 use model::instance::config::infiniband::InstanceInfinibandConfig;
 use model::instance::config::network::{
     InstanceInterfaceIpFamilyMode, InstanceNetworkConfig, InterfaceFunctionId, Ipv6InterfaceConfig,
@@ -56,7 +64,10 @@ use model::metadata::Metadata;
 use model::network_segment::NetworkSegmentType;
 use model::os::OperatingSystemVariant;
 use model::tenant::TenantOrganizationId;
-use model::vpc::{FabricInterfaceType, VpcVirtualizationTypeCapabilities};
+use model::vpc::{
+    FabricInterfaceType, VpcVirtualizationTypeCapabilities, instance_prefix_len,
+    vpc_prefix_can_allocate_interface_prefix,
+};
 use model::vpc_prefix::VpcPrefix;
 use sqlx::PgConnection;
 
@@ -334,11 +345,11 @@ impl AllocationAddressFamily {
         }
     }
 
-    /// Returns the point-to-point linknet length used for this family.
-    fn linknet_prefix(self) -> u8 {
+    /// Returns the representation used by the shared network model.
+    fn ip_address_family(self) -> IpAddressFamily {
         match self {
-            Self::Ipv4 => 31,
-            Self::Ipv6 => 127,
+            Self::Ipv4 => IpAddressFamily::Ipv4,
+            Self::Ipv6 => IpAddressFamily::Ipv6,
         }
     }
 
@@ -349,6 +360,26 @@ impl AllocationAddressFamily {
             Self::Ipv6 => "IPv6",
         }
     }
+}
+
+/// Validates that an explicitly selected parent can contain one interface prefix.
+fn validate_vpc_prefix_allocation_capacity(
+    vpc_prefix: &VpcPrefix,
+    family: AllocationAddressFamily,
+    allocation_prefix_len: u8,
+) -> CarbideResult<()> {
+    if vpc_prefix_can_allocate_interface_prefix(
+        family.ip_address_family(),
+        vpc_prefix.config.prefix.prefix(),
+        allocation_prefix_len,
+    ) {
+        return Ok(());
+    }
+
+    Err(CarbideError::InvalidArgument(format!(
+        "VPC prefix `{}` ({}) cannot contain a /{} interface prefix",
+        vpc_prefix.id, vpc_prefix.config.prefix, allocation_prefix_len,
+    )))
 }
 
 /// Selects the database operation and interface fields for a family allocation.
@@ -380,13 +411,15 @@ struct PrefixAllocationWork {
     // Canonical execution-group and candidate-revalidation identity.
     vpc_id: VpcId,
     family: AllocationAddressFamily,
+    // Frozen from the owning VPC's immutable SLAAC policy during planning.
+    allocation_prefix_len: u8,
 
     // Frozen ascending candidate IDs and their monotonically advancing cursor.
     // Candidate row state is re-read under lock during execution.
     candidates: Arc<[VpcPrefixId]>,
     candidate_index: usize,
 
-    // Selects create-versus-attach; explicit work may pin the exact /31 or /127.
+    // Selects create-versus-attach; explicit work may pin the selected interface prefix.
     slot: PrefixAllocationSlot,
     requested_prefix: Option<IpNetwork>,
 
@@ -488,6 +521,7 @@ async fn allocate_prefix_candidate_once(
     txn: &mut PgConnection,
     vpc_id: VpcId,
     family: AllocationAddressFamily,
+    allocation_prefix_len: u8,
     vpc_prefix_id: VpcPrefixId,
     operation: PrefixAllocationOperation,
     requested_prefix: Option<IpNetwork>,
@@ -512,7 +546,7 @@ async fn allocate_prefix_candidate_once(
         vpc_prefix.id,
         vpc_prefix.config.prefix,
         vpc_prefix.status.last_used_prefix,
-        family.linknet_prefix(),
+        allocation_prefix_len,
     )?;
     let allocated_prefix = if let Some(requested_prefix) = requested_prefix {
         allocator
@@ -564,6 +598,7 @@ async fn attempt_prefix_candidate(
     txn: &mut PgConnection,
     vpc_id: VpcId,
     family: AllocationAddressFamily,
+    allocation_prefix_len: u8,
     vpc_prefix_id: VpcPrefixId,
     operation: PrefixAllocationOperation,
     requested_prefix: Option<IpNetwork>,
@@ -574,6 +609,7 @@ async fn attempt_prefix_candidate(
             savepoint.as_pgconn(),
             vpc_id,
             family,
+            allocation_prefix_len,
             vpc_prefix_id,
             operation,
             requested_prefix,
@@ -780,28 +816,14 @@ async fn load_prefix_allocation_context(
         }
     }
 
-    // Freeze active automatic candidates for the lifetime of this request.
+    // Load active automatic candidates. Their eligibility depends on the
+    // owning VPC's SLAAC policy, which is loaded below.
     let automatic_candidate_vpc_ids = automatic_candidate_vpc_ids.into_iter().collect_vec();
     let automatic_prefixes = if automatic_candidate_vpc_ids.is_empty() {
         Vec::new()
     } else {
         db::vpc_prefix::find_allocation_candidates(txn, &automatic_candidate_vpc_ids).await?
     };
-    let mut automatic_candidates: BTreeMap<(VpcId, AllocationAddressFamily), Vec<VpcPrefixId>> =
-        BTreeMap::new();
-    for prefix in automatic_prefixes {
-        automatic_candidates
-            .entry((
-                prefix.vpc_id,
-                AllocationAddressFamily::from_network(prefix.config.prefix),
-            ))
-            .or_default()
-            .push(prefix.id);
-    }
-    let automatic_candidates: BTreeMap<_, Arc<[VpcPrefixId]>> = automatic_candidates
-        .into_iter()
-        .map(|(group, candidates)| (group, Arc::from(candidates)))
-        .collect();
 
     // Load every referenced VPC once for ownership and capability validation.
     let mut referenced_vpc_ids = automatic_vpc_ids.clone();
@@ -831,6 +853,33 @@ async fn load_prefix_allocation_context(
             )));
         }
     }
+
+    // Freeze only candidates that can contain an instance allocation under
+    // the owning VPC's policy.
+    let mut automatic_candidates: BTreeMap<(VpcId, AllocationAddressFamily), Vec<VpcPrefixId>> =
+        BTreeMap::new();
+    for prefix in automatic_prefixes {
+        let Some(vpc) = vpcs.get(&prefix.vpc_id) else {
+            continue;
+        };
+        let family = AllocationAddressFamily::from_network(prefix.config.prefix);
+        let allocation_prefix_len =
+            instance_prefix_len(family.ip_address_family(), vpc.config.slaac_enabled);
+        if vpc_prefix_can_allocate_interface_prefix(
+            family.ip_address_family(),
+            prefix.config.prefix.prefix(),
+            allocation_prefix_len,
+        ) {
+            automatic_candidates
+                .entry((prefix.vpc_id, family))
+                .or_default()
+                .push(prefix.id);
+        }
+    }
+    let automatic_candidates: BTreeMap<_, Arc<[VpcPrefixId]>> = automatic_candidates
+        .into_iter()
+        .map(|(group, candidates)| (group, Arc::from(candidates)))
+        .collect();
 
     Ok(Some(PrefixAllocationContext {
         explicit_prefixes,
@@ -918,6 +967,8 @@ fn plan_prefix_allocations(
                 }
 
                 for family in families {
+                    let allocation_prefix_len =
+                        instance_prefix_len(family.ip_address_family(), vpc.config.slaac_enabled);
                     let candidates = automatic_candidates
                         .get(&(selection.vpc_id, *family))
                         .cloned()
@@ -934,6 +985,7 @@ fn plan_prefix_allocations(
                         interface_index,
                         vpc_id: selection.vpc_id,
                         family: *family,
+                        allocation_prefix_len,
                         candidates,
                         candidate_index: 0,
                         // IPv4 creates a dual-stack segment before IPv6 attaches.
@@ -980,6 +1032,10 @@ fn plan_prefix_allocations(
 
             let primary_family =
                 AllocationAddressFamily::from_network(primary_prefix.config.prefix);
+            let primary_allocation_prefix_len = instance_prefix_len(
+                primary_family.ip_address_family(),
+                primary_vpc.config.slaac_enabled,
+            );
             if let Some(requested_ip_addr) = interface.requested_ip_addr
                 && AllocationAddressFamily::from_address(requested_ip_addr) != primary_family
             {
@@ -996,7 +1052,6 @@ fn plan_prefix_allocations(
                     primary_vpc.id,
                 )));
             }
-
             let secondary_prefix = if let Some(ipv6) = &interface.ipv6_interface_config {
                 if primary_family != AllocationAddressFamily::Ipv4 {
                     return Err(CarbideError::InvalidConfiguration(
@@ -1043,24 +1098,38 @@ fn plan_prefix_allocations(
                 continue;
             }
 
+            validate_vpc_prefix_allocation_capacity(
+                primary_prefix,
+                primary_family,
+                primary_allocation_prefix_len,
+            )?;
+
             works.push(PrefixAllocationWork {
                 target_index,
                 interface_index,
                 vpc_id: primary_prefix.vpc_id,
                 family: primary_family,
+                allocation_prefix_len: primary_allocation_prefix_len,
                 candidates: Arc::from(vec![*primary_prefix_id]),
                 candidate_index: 0,
                 slot: PrefixAllocationSlot::Primary,
                 requested_prefix: interface
                     .requested_ip_addr
                     .map(|address| {
-                        build_requested_linknet_prefix(address, primary_family.linknet_prefix())
+                        build_requested_linknet_prefix(address, primary_allocation_prefix_len)
                     })
                     .transpose()?,
                 automatic: false,
             });
 
             if let Some(secondary_prefix) = secondary_prefix {
+                let secondary_allocation_prefix_len =
+                    instance_prefix_len(IpAddressFamily::Ipv6, primary_vpc.config.slaac_enabled);
+                validate_vpc_prefix_allocation_capacity(
+                    secondary_prefix,
+                    AllocationAddressFamily::Ipv6,
+                    secondary_allocation_prefix_len,
+                )?;
                 let ipv6 = interface.ipv6_interface_config.as_ref().ok_or_else(|| {
                     CarbideError::internal(
                         "validated IPv6 allocation lost its interface configuration".to_string(),
@@ -1071,6 +1140,7 @@ fn plan_prefix_allocations(
                     interface_index,
                     vpc_id: secondary_prefix.vpc_id,
                     family: AllocationAddressFamily::Ipv6,
+                    allocation_prefix_len: secondary_allocation_prefix_len,
                     candidates: Arc::from(vec![secondary_prefix.id]),
                     candidate_index: 0,
                     slot: PrefixAllocationSlot::SecondaryIpv6,
@@ -1079,7 +1149,7 @@ fn plan_prefix_allocations(
                         .map(|address| {
                             build_requested_linknet_prefix(
                                 std::net::IpAddr::V6(address),
-                                AllocationAddressFamily::Ipv6.linknet_prefix(),
+                                secondary_allocation_prefix_len,
                             )
                         })
                         .transpose()?,
@@ -1223,6 +1293,7 @@ async fn execute_prefix_allocations(
                     txn,
                     work.vpc_id,
                     work.family,
+                    work.allocation_prefix_len,
                     candidate,
                     operation,
                     work.requested_prefix,
@@ -1375,6 +1446,69 @@ pub(crate) fn allocate_ib_port_guid(
     Ok(updated_ib_config)
 }
 
+/// Loads the stored PKeys needed to resolve exact memberships for `configs`.
+///
+/// A referenced partition without a stored PKey is omitted because it cannot
+/// identify an exact membership tuple.
+pub(crate) async fn load_ib_partition_pkeys(
+    txn: &mut PgConnection,
+    configs: &[&InstanceInfinibandConfig],
+) -> CarbideResult<HashMap<IBPartitionId, PartitionKey>> {
+    let partition_ids = configs
+        .iter()
+        .flat_map(|config| {
+            config
+                .ib_interfaces
+                .iter()
+                .map(|interface| interface.ib_partition_id)
+        })
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+
+    if partition_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    Ok(db::ib_partition::find_by(
+        &mut *txn,
+        ObjectColumnFilter::List(ib_partition::IdColumn, &partition_ids),
+    )
+    .await?
+    .into_iter()
+    .filter_map(|partition| {
+        partition
+            .status
+            .and_then(|status| status.pkey)
+            .map(|pkey| (partition.id, pkey))
+    })
+    .collect())
+}
+
+/// Resolves every exact membership available from one IB config on the
+/// supported default fabric.
+///
+/// Each membership uses the allocated interface GUID and the referenced
+/// partition's stored PKey. Memberships are returned in stable database-lock
+/// acquisition order. Interfaces missing either value cannot identify a tuple,
+/// so they are omitted while other valid memberships are retained.
+pub(crate) fn ib_memberships_from_config(
+    config: &InstanceInfinibandConfig,
+    pkeys: &HashMap<IBPartitionId, PartitionKey>,
+) -> BTreeSet<IbMembership> {
+    config
+        .ib_interfaces
+        .iter()
+        .filter_map(|interface| {
+            Some(IbMembership {
+                fabric: DEFAULT_IB_FABRIC_NAME.to_string(),
+                pkey: pkeys.get(&interface.ib_partition_id).copied()?,
+                guid: interface.guid.clone()?,
+            })
+        })
+        .collect()
+}
+
 /// sort ib device by slot and add devices with the same name are added to hashmap
 pub(crate) fn sort_ib_by_slot(
     ib_hw_info_vec: &[InfinibandInterface],
@@ -1412,6 +1546,135 @@ pub(crate) async fn allocate_instance(
     results
         .pop()
         .ok_or_else(|| CarbideError::internal("instance allocation returned no result".to_string()))
+}
+
+/// Loads and locks the extension-service rows and their live versions for
+/// `service_ids`, keyed by service ID. Soft-deleted services and versions are
+/// left out, so a missing entry reads as "does not exist" to callers.
+#[allow(clippy::type_complexity)]
+pub(crate) async fn load_extension_services(
+    txn: &mut db::Transaction<'_>,
+    service_ids: &[ExtensionServiceId],
+) -> Result<
+    (
+        HashMap<ExtensionServiceId, ExtensionService>,
+        HashMap<ExtensionServiceId, Vec<ConfigVersion>>,
+    ),
+    CarbideError,
+> {
+    let services = extension_service::find_by_ids(txn, service_ids, false, true)
+        .await?
+        .into_iter()
+        .map(|service| (service.id, service))
+        .collect();
+    let versions = extension_service::find_versions_by_service_ids(txn, service_ids, true).await?;
+
+    Ok((services, versions))
+}
+
+/// Validates the durable extension-service configuration an instance is moving to.
+///
+/// `extension_services` should include both new active and terminating service
+/// configs.
+///
+/// The mixed-path rule is the exception and spans every entry: a terminating
+/// attachment still occupies the DPU-agent or the DPF delivery path until its
+/// cleanup finishes, so an instance may never straddle both.
+pub(crate) fn validate_instance_extension_services(
+    machine_id: MachineId,
+    is_dpf_managed_host: bool,
+    extension_services: &InstanceExtensionServicesConfig,
+    services: &HashMap<ExtensionServiceId, ExtensionService>,
+    versions: &HashMap<ExtensionServiceId, Vec<ConfigVersion>>,
+    existing_active_service_ids: &HashSet<ExtensionServiceId>,
+) -> Result<(), CarbideError> {
+    let active_services = extension_services.active_services();
+
+    let unique_service_ids: HashSet<_> = active_services
+        .iter()
+        .map(|config| config.service_id)
+        .collect();
+    if unique_service_ids.len() != active_services.len() {
+        return Err(CarbideError::InvalidArgument(format!(
+            "duplicate extension services in configuration. only one version of each service is allowed. (machine {machine_id})"
+        )));
+    }
+
+    for config in &active_services {
+        let service = services.get(&config.service_id).ok_or_else(|| {
+            CarbideError::FailedPrecondition(format!(
+                "extension service {} does not exist",
+                config.service_id,
+            ))
+        })?;
+
+        // A service type can only be attached to the host model able to
+        // reconcile it. DPF Helm services use DPUDevice labels and never reach
+        // the DPU agent; Kubernetes Pod services are agent-only. The host flag
+        // is authoritative here: the site-wide DPF switch is enforced when a
+        // service is created, and no host can be DPF-managed without it.
+        match (is_dpf_managed_host, &service.service_type) {
+            (true, ExtensionServiceType::KubernetesPod) => {
+                return Err(CarbideError::FailedPrecondition(format!(
+                    "DPU extension services are not supported on DPF-managed host {machine_id}"
+                )));
+            }
+            (false, ExtensionServiceType::DpfHelmChart) => {
+                return Err(CarbideError::FailedPrecondition(format!(
+                    "DPF helm chart extension services require a DPF-managed host {machine_id}"
+                )));
+            }
+            _ => {}
+        }
+
+        // A DPF Helm chart service is only reconcilable while its DPUService
+        // exists. Attachments made before it left Ready stay valid so that a
+        // detach is not blocked by the state it is being detached for.
+        if service.service_type == ExtensionServiceType::DpfHelmChart
+            && !existing_active_service_ids.contains(&config.service_id)
+            && service.status.controller_state.value != ExtensionServiceLifecycleState::Ready
+        {
+            return Err(CarbideError::FailedPrecondition(format!(
+                "DPF helm chart extension service {} can only be attached while ready; current state is {:?}",
+                config.service_id, service.status.controller_state.value,
+            )));
+        }
+
+        if !versions
+            .get(&config.service_id)
+            .is_some_and(|service_versions| service_versions.contains(&config.version))
+        {
+            return Err(CarbideError::FailedPrecondition(format!(
+                "extension service {} version {} does not exist or is deleted",
+                config.service_id, config.version,
+            )));
+        }
+    }
+
+    let mut has_dpf_helm_chart = false;
+    let mut has_kubernetes_pod = false;
+    for config in &extension_services.service_configs {
+        // Every referenced service is expected to resolve: deleting one is
+        // refused while any live instance still lists it, terminating entries
+        // included. An unresolvable entry has no delivery path to account for
+        // rather than being worth panicking over.
+        match services
+            .get(&config.service_id)
+            .map(|service| &service.service_type)
+        {
+            Some(ExtensionServiceType::KubernetesPod) => has_kubernetes_pod = true,
+            Some(ExtensionServiceType::DpfHelmChart) => has_dpf_helm_chart = true,
+            None => {}
+        }
+    }
+    if has_dpf_helm_chart && has_kubernetes_pod {
+        return Err(CarbideError::FailedPrecondition(
+            "DPF helm chart and kubernetes pod extension services cannot be attached to the same instance"
+                .to_string(),
+        ));
+    }
+
+    Ok(())
 }
 
 fn not_allocatable_error(machine_id: MachineId, reason: NotAllocatableReason) -> CarbideError {
@@ -1643,14 +1906,6 @@ pub(crate) async fn batch_allocate_instances(
             }
             return Err(not_allocatable_error(machine_id, e));
         }
-
-        if mh_snapshot.host_snapshot.config.dpf.used_for_ingestion
-            && !request.config.extension_services.service_configs.is_empty()
-        {
-            return Err(CarbideError::FailedPrecondition(format!(
-                "DPU extension services are not supported on DPF-managed host {machine_id}"
-            )));
-        }
     }
 
     // ==== Phase 5: Validate shared resources ====
@@ -1685,62 +1940,30 @@ pub(crate) async fn batch_allocate_instances(
         }
     }
 
-    // Collect all unique extension service configs for validation
-    let all_service_configs: Vec<_> = requests
+    // Collect every requested service ID before resolving them while their
+    // service and version rows are locked.
+    let service_ids = requests
         .iter()
-        .flat_map(|r| r.config.extension_services.service_configs.iter())
-        .collect();
+        .flat_map(|request| request.config.extension_services.service_configs.iter())
+        .map(|service| service.service_id)
+        .unique()
+        .collect_vec();
 
-    if !all_service_configs.is_empty() {
-        // Validate no duplicate service IDs within each request
+    if !service_ids.is_empty() {
+        let (services, versions) = load_extension_services(&mut txn, &service_ids).await?;
+
         for request in &requests {
-            let service_ids: Vec<_> = request
-                .config
-                .extension_services
-                .service_configs
-                .iter()
-                .map(|s| s.service_id)
-                .collect();
-            let unique_service_ids: HashSet<_> = service_ids.iter().collect();
-            if service_ids.len() != unique_service_ids.len() {
-                return Err(CarbideError::InvalidArgument(format!(
-                    "duplicate extension services in configuration. only one version of each service is allowed. (machine {})",
-                    request.machine_id
-                )));
-            }
-        }
-
-        // Collect all unique service IDs across all requests
-        let unique_service_ids: Vec<_> = all_service_configs
-            .iter()
-            .map(|s| s.service_id)
-            .collect::<HashSet<_>>()
-            .into_iter()
-            .collect();
-
-        // Batch query all extension services
-        let services =
-            extension_service::find_versions_by_service_ids(&mut txn, &unique_service_ids, true)
-                .await?;
-
-        // Validate each service config
-        for service in all_service_configs {
-            if !services.contains_key(&service.service_id) {
-                return Err(CarbideError::FailedPrecondition(format!(
-                    "extension service {} does not exist",
-                    service.service_id,
-                )));
-            }
-            if !services
-                .get(&service.service_id)
-                .unwrap()
-                .contains(&service.version)
-            {
-                return Err(CarbideError::FailedPrecondition(format!(
-                    "extension service {} version {} does not exist or is deleted",
-                    service.service_id, service.version,
-                )));
-            }
+            let mh_snapshot = snapshot_map
+                .get(&request.machine_id)
+                .expect("requested managed-host snapshot was validated above");
+            validate_instance_extension_services(
+                request.machine_id,
+                mh_snapshot.host_snapshot.config.dpf.used_for_ingestion,
+                &request.config.extension_services,
+                &services,
+                &versions,
+                &HashSet::new(),
+            )?;
         }
     }
 
@@ -2120,7 +2343,21 @@ pub(crate) async fn batch_allocate_instances(
         .iter()
         .map(|(id, ver, cfg)| (*id, *ver, cfg))
         .collect();
+    let ib_configs = ib_config_updates
+        .iter()
+        .map(|(_, _, config)| config)
+        .collect::<Vec<_>>();
+    let ib_partition_pkeys = load_ib_partition_pkeys(txn.as_mut(), &ib_configs).await?;
+    let assigned_ib_memberships = ib_configs
+        .into_iter()
+        .flat_map(|config| ib_memberships_from_config(config, &ib_partition_pkeys))
+        .collect::<BTreeSet<_>>();
     db::instance::batch_update_ib_config(&mut txn, &ib_refs, false).await?;
+    // The Machine records are still locked here. Remove an exact retired record
+    // only after its live config write succeeds in this same transaction.
+    for membership in assigned_ib_memberships {
+        db::retired_ib_membership::remove_for_reuse(txn.as_mut(), &membership).await?;
+    }
 
     let nvlink_refs: Vec<_> = nvlink_config_updates
         .iter()
@@ -2407,8 +2644,55 @@ pub(crate) fn allocate_spx_port_mac(
 mod tests {
     use carbide_test_support::Outcome::*;
     use carbide_test_support::{Case, Check, check_cases, check_values, value_scenarios};
+    use model::instance::config::infiniband::InstanceIbInterfaceConfig;
 
     use super::*;
+
+    /// Test-specific helper that builds one allocated physical IB interface.
+    fn ib_interface(partition_id: IBPartitionId, guid: Option<&str>) -> InstanceIbInterfaceConfig {
+        InstanceIbInterfaceConfig {
+            function_id: InterfaceFunctionId::Physical {},
+            ib_partition_id: partition_id,
+            pf_guid: guid.map(str::to_string),
+            guid: guid.map(str::to_string),
+            device: "test-device".to_string(),
+            vendor: None,
+            device_instance: 0,
+        }
+    }
+
+    #[test]
+    fn ib_memberships_preserve_every_resolvable_tuple() {
+        let valid_partition = IBPartitionId::new();
+        let missing_pkey_partition = IBPartitionId::new();
+        let missing_guid_partition = IBPartitionId::new();
+        let valid_pkey = PartitionKey::try_from(0x101).unwrap();
+        let missing_guid_pkey = PartitionKey::try_from(0x102).unwrap();
+        let config = InstanceInfinibandConfig {
+            ib_interfaces: vec![
+                ib_interface(valid_partition, Some("valid-guid")),
+                ib_interface(missing_pkey_partition, Some("unknown-pkey-guid")),
+                ib_interface(missing_guid_partition, None),
+            ],
+        };
+
+        // Retirement bookkeeping can act only on exact tuples. Incomplete
+        // interfaces are skipped without discarding another valid membership.
+        assert_eq!(
+            ib_memberships_from_config(
+                &config,
+                &HashMap::from([
+                    (valid_partition, valid_pkey),
+                    (missing_guid_partition, missing_guid_pkey),
+                ]),
+            ),
+            BTreeSet::from([IbMembership {
+                fabric: DEFAULT_IB_FABRIC_NAME.to_string(),
+                pkey: valid_pkey,
+                guid: "valid-guid".to_string(),
+            }])
+        );
+    }
 
     #[test]
     fn interface_needs_prefix_allocation_only_without_durable_results() {

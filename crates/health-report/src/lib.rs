@@ -608,6 +608,11 @@ impl HealthProbeId {
     pub fn ib_port_down() -> Self {
         HealthProbeId("IbPortDown".to_string())
     }
+
+    /// The ID used when an expected DPU-to-ToR BGP session is unavailable.
+    pub fn bgp_peering_tor() -> Self {
+        HealthProbeId("BgpPeeringTor".to_string())
+    }
 }
 
 impl std::fmt::Debug for HealthProbeId {
@@ -746,6 +751,11 @@ mod tests {
             format!("{classification:?} {classification}").as_str(),
             "\"Network\" Network"
         );
+    }
+
+    #[test]
+    fn bgp_peering_tor_probe_id_string() {
+        assert_eq!(HealthProbeId::bgp_peering_tor().as_str(), "BgpPeeringTor");
     }
 
     #[test]

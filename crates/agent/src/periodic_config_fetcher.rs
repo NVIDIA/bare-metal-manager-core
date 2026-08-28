@@ -306,7 +306,7 @@ fn normalize_network_config_addresses(
     Ok(())
 }
 
-/// Preserves a legacy payload, or makes a populated `addresses` list authoritative.
+/// Preserves a legacy payload, or projects a populated `addresses` list into legacy fields.
 #[allow(deprecated)]
 fn normalize_interface_addresses(
     interface: &mut rpc::FlatInterfaceConfig,
@@ -315,6 +315,11 @@ fn normalize_interface_addresses(
         return Ok(());
     }
 
+    let legacy_tenant_vrf_loopback_ip = interface.tenant_vrf_loopback_ip.clone();
+    let prefixless_legacy_ipv6 = interface
+        .ipv6_interface_config
+        .clone()
+        .filter(|config| config.interface_prefix.is_empty());
     let mut ipv4 = None;
     let mut ipv6 = None;
     for address in &interface.addresses {
@@ -333,34 +338,55 @@ fn normalize_interface_addresses(
         }
     }
 
+    let ipv4_loopback = ipv4
+        .as_ref()
+        .and_then(|address| address.tenant_vrf_loopback_ip.as_ref());
+    let ipv6_loopback = ipv6
+        .as_ref()
+        .and_then(|address| address.tenant_vrf_loopback_ip.as_ref());
+    // The deprecated compatibility scalar is IPv4-only. Writers without
+    // InterfaceAddressConfig.tenant_vrf_loopback_ip populate only that scalar,
+    // so preserve it when neither family entry mirrors the loopback. Keep an
+    // authoritative IPv6 loopback only in the address list.
+    interface.tenant_vrf_loopback_ip = match (ipv4_loopback, ipv6_loopback) {
+        (Some(ipv4_loopback), None) => Some(ipv4_loopback.clone()),
+        (None, Some(_)) => None,
+        (None, None) => legacy_tenant_vrf_loopback_ip,
+        (Some(_), Some(_)) => {
+            return Err(eyre::eyre!(
+                "tenant VRF loopback must be set on at most one address family"
+            ));
+        }
+    };
+
     if let Some(ipv4) = ipv4 {
         interface.gateway.clone_from(&ipv4.gateway);
-        interface.ip.clone_from(&ipv4.ip);
-        interface
-            .interface_prefix
-            .clone_from(&ipv4.interface_prefix);
-        interface.prefix.clone_from(&ipv4.prefix);
+        interface.ip = (!ipv4.ip.is_empty()).then_some(ipv4.ip);
+        interface.interface_prefix =
+            (!ipv4.interface_prefix.is_empty()).then_some(ipv4.interface_prefix);
+        interface.prefix = (!ipv4.prefix.is_empty()).then_some(ipv4.prefix);
         interface.svi_ip.clone_from(&ipv4.svi_ip);
     } else {
-        interface.gateway.clear();
-        interface.ip.clear();
-        interface.interface_prefix.clear();
-        interface.prefix.clear();
+        interface.gateway = None;
+        interface.ip = None;
+        interface.interface_prefix = None;
+        interface.prefix = None;
         interface.svi_ip = None;
     }
-    let prefixless_legacy_ipv6 = interface
-        .ipv6_interface_config
-        .clone()
-        .filter(|config| config.interface_prefix.is_empty());
     interface.ipv6_interface_config = ipv6
         .as_ref()
+        .filter(|address| {
+            !address.ip.is_empty()
+                || !address.interface_prefix.is_empty()
+                || address.svi_ip.is_some()
+        })
         .map(|address| rpc::FlatInterfaceIpv6Config {
             ip: address.ip.clone(),
             interface_prefix: address.interface_prefix.clone(),
             svi_ip: address.svi_ip.clone(),
         })
-        // Core omits an incomplete legacy IPv6 entry from `addresses`. Preserve that sidecar
-        // until every persisted interface has an IPv6 interface prefix.
+        // A writer that requires an IPv6 interface prefix can omit a prefixless
+        // sidecar from its populated list, so preserve that compatibility value.
         .or(prefixless_legacy_ipv6);
 
     Ok(())
@@ -535,10 +561,10 @@ mod tests {
     fn legacy_interface(addresses: Vec<rpc::InterfaceAddressConfig>) -> rpc::FlatInterfaceConfig {
         rpc::FlatInterfaceConfig {
             vlan_id: 100,
-            gateway: "198.51.100.1/24".to_string(),
-            ip: "198.51.100.10".to_string(),
-            interface_prefix: "198.51.100.10/32".to_string(),
-            prefix: "198.51.100.0/24".to_string(),
+            gateway: Some("198.51.100.1/24".to_string()),
+            ip: Some("198.51.100.10".to_string()),
+            interface_prefix: Some("198.51.100.10/32".to_string()),
+            prefix: Some("198.51.100.0/24".to_string()),
             svi_ip: Some("198.51.100.2/24".to_string()),
             ipv6_interface_config: Some(rpc::FlatInterfaceIpv6Config {
                 ip: "2001:db8:ffff::10".to_string(),
@@ -553,22 +579,24 @@ mod tests {
     fn ipv4_address() -> rpc::InterfaceAddressConfig {
         rpc::InterfaceAddressConfig {
             address_family: rpc::AddressFamily::V4.into(),
-            gateway: "192.0.2.1/24".to_string(),
             ip: "192.0.2.10".to_string(),
             interface_prefix: "192.0.2.10/32".to_string(),
             prefix: "192.0.2.0/24".to_string(),
+            gateway: Some("192.0.2.1/24".to_string()),
             svi_ip: Some("192.0.2.2/24".to_string()),
+            tenant_vrf_loopback_ip: None,
         }
     }
 
     fn ipv6_address() -> rpc::InterfaceAddressConfig {
         rpc::InterfaceAddressConfig {
             address_family: rpc::AddressFamily::V6.into(),
-            gateway: "2001:db8::/127".to_string(),
             ip: "2001:db8::1".to_string(),
             interface_prefix: "2001:db8::/127".to_string(),
             prefix: "2001:db8::/64".to_string(),
+            gateway: None,
             svi_ip: Some("2001:db8::2/64".to_string()),
+            tenant_vrf_loopback_ip: None,
         }
     }
 
@@ -585,10 +613,10 @@ mod tests {
     fn expected_ipv4_interface() -> rpc::FlatInterfaceConfig {
         rpc::FlatInterfaceConfig {
             vlan_id: 100,
-            gateway: "192.0.2.1/24".to_string(),
-            ip: "192.0.2.10".to_string(),
-            interface_prefix: "192.0.2.10/32".to_string(),
-            prefix: "192.0.2.0/24".to_string(),
+            gateway: Some("192.0.2.1/24".to_string()),
+            ip: Some("192.0.2.10".to_string()),
+            interface_prefix: Some("192.0.2.10/32".to_string()),
+            prefix: Some("192.0.2.0/24".to_string()),
             svi_ip: Some("192.0.2.2/24".to_string()),
             ipv6_interface_config: None,
             addresses: vec![ipv4_address()],
@@ -640,15 +668,47 @@ mod tests {
         });
         dual_stack_without_ipv6_svi.addresses = vec![ipv4_address(), ipv6_without_svi.clone()];
 
-        let prefixless_ipv6 = rpc::FlatInterfaceIpv6Config {
+        let mut prefixless_ipv6 = ipv6_address();
+        prefixless_ipv6.interface_prefix.clear();
+        let mut expected_with_prefixless_ipv6 = expected_ipv4_interface();
+        expected_with_prefixless_ipv6.ipv6_interface_config = Some(rpc::FlatInterfaceIpv6Config {
             ip: "2001:db8::1".to_string(),
             interface_prefix: String::new(),
             svi_ip: Some("2001:db8::2/64".to_string()),
+        });
+        expected_with_prefixless_ipv6.addresses = vec![ipv4_address(), prefixless_ipv6.clone()];
+
+        let ipv4_loopback = rpc::InterfaceAddressConfig {
+            address_family: rpc::AddressFamily::V4.into(),
+            tenant_vrf_loopback_ip: Some("192.0.2.3".to_string()),
+            ..Default::default()
         };
-        let mut legacy_with_prefixless_ipv6 = legacy_interface(vec![ipv4_address()]);
-        legacy_with_prefixless_ipv6.ipv6_interface_config = Some(prefixless_ipv6.clone());
-        let mut expected_with_prefixless_ipv6 = expected_ipv4_interface();
-        expected_with_prefixless_ipv6.ipv6_interface_config = Some(prefixless_ipv6);
+        let mut expected_ipv6_with_ipv4_loopback = expected_ipv6_interface();
+        expected_ipv6_with_ipv4_loopback.tenant_vrf_loopback_ip = Some("192.0.2.3".to_string());
+        expected_ipv6_with_ipv4_loopback.addresses = vec![ipv4_loopback.clone(), ipv6_address()];
+
+        let ipv6_loopback = rpc::InterfaceAddressConfig {
+            address_family: rpc::AddressFamily::V6.into(),
+            tenant_vrf_loopback_ip: Some("2001:db8::3".to_string()),
+            ..Default::default()
+        };
+        let mut ipv4_with_ipv6_loopback =
+            legacy_interface(vec![ipv4_address(), ipv6_loopback.clone()]);
+        ipv4_with_ipv6_loopback.tenant_vrf_loopback_ip = Some("192.0.2.3".to_string());
+        let mut expected_ipv4_with_ipv6_loopback = expected_ipv4_interface();
+        expected_ipv4_with_ipv6_loopback.addresses = vec![ipv4_address(), ipv6_loopback];
+
+        let mut partially_mirrored_legacy = legacy_interface(vec![ipv4_address()]);
+        partially_mirrored_legacy.tenant_vrf_loopback_ip = Some("192.0.2.3".to_string());
+        partially_mirrored_legacy.ipv6_interface_config = Some(rpc::FlatInterfaceIpv6Config {
+            ip: "2001:db8::1".to_string(),
+            interface_prefix: String::new(),
+            svi_ip: Some("2001:db8::2/64".to_string()),
+        });
+        let mut expected_partially_mirrored_legacy = expected_ipv4_interface();
+        expected_partially_mirrored_legacy.tenant_vrf_loopback_ip = Some("192.0.2.3".to_string());
+        expected_partially_mirrored_legacy.ipv6_interface_config =
+            partially_mirrored_legacy.ipv6_interface_config.clone();
 
         scenarios!(run = normalized_interface;
             "empty list falls back to legacy fields" {
@@ -669,8 +729,17 @@ mod tests {
             "absent V6 SVI clears the legacy sidecar value" {
                 legacy_interface(vec![ipv4_address(), ipv6_without_svi]) => Yields(dual_stack_without_ipv6_svi),
             }
-            "prefixless legacy V6 sidecar survives its omitted address entry" {
-                legacy_with_prefixless_ipv6 => Yields(expected_with_prefixless_ipv6),
+            "prefixless V6 address reconstructs the legacy sidecar" {
+                legacy_interface(vec![ipv4_address(), prefixless_ipv6]) => Yields(expected_with_prefixless_ipv6),
+            }
+            "IPv4 loopback-only and IPv6 interface entries project by family" {
+                legacy_interface(vec![ipv4_loopback, ipv6_address()]) => Yields(expected_ipv6_with_ipv4_loopback),
+            }
+            "IPv6 loopback stays in the list and clears the IPv4-only legacy scalar" {
+                ipv4_with_ipv6_loopback => Yields(expected_ipv4_with_ipv6_loopback),
+            }
+            "partially mirrored legacy values survive a populated list" {
+                partially_mirrored_legacy => Yields(expected_partially_mirrored_legacy),
             }
         );
     }
@@ -681,6 +750,10 @@ mod tests {
         unspecified.address_family = rpc::AddressFamily::Unspecified.into();
         let mut unknown = ipv4_address();
         unknown.address_family = 99;
+        let mut ipv4_loopback = ipv4_address();
+        ipv4_loopback.tenant_vrf_loopback_ip = Some("192.0.2.3".to_string());
+        let mut ipv6_loopback = ipv6_address();
+        ipv6_loopback.tenant_vrf_loopback_ip = Some("2001:db8::3".to_string());
 
         scenarios!(run = normalized_interface;
             "explicit family is required" {
@@ -695,10 +768,14 @@ mod tests {
             "duplicate V6 is rejected" {
                 legacy_interface(vec![ipv4_address(), ipv6_address(), ipv6_address()]) => Fails,
             }
+            "loopback on both families is rejected" {
+                legacy_interface(vec![ipv4_loopback, ipv6_loopback]) => Fails,
+            }
         );
     }
 
     #[test]
+    #[allow(deprecated)]
     fn network_config_normalizes_admin_and_every_tenant_interface() {
         let mut response = rpc::ManagedHostNetworkConfigResponse {
             admin_interface: Some(legacy_interface(vec![ipv4_address()])),

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	dbquery "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/query"
@@ -229,6 +230,7 @@ func ComponentFrom(c *pb.Component) *component.Component {
 		FirmwareVersion: c.GetFirmwareVersion(),
 		Position:        RackPositionFrom(c.GetPosition()),
 		BmcsByType:      bmcsByType,
+		NVLDomainID:     UUIDFrom(c.GetNvlDomainId()),
 		PowerState:      c.GetPowerState(),
 	}
 }
@@ -239,16 +241,33 @@ func RackFrom(r *pb.Rack) *rack.Rack {
 		return nil
 	}
 
-	components := make([]component.Component, 0, len(r.GetComponents()))
-	for _, c := range r.GetComponents() {
-		components = append(components, *ComponentFrom(c))
+	domainIDs := UUIDsFrom(r.GetNvlDomainIds())
+	var domainID uuid.UUID
+	if len(domainIDs) > 0 {
+		domainID = domainIDs[0]
+	}
+	if len(domainIDs) > 1 {
+		log.Warn().
+			Int("domain_id_count", len(domainIDs)).
+			Str("rack_id", UUIDFrom(r.GetInfo().GetId()).String()).
+			Msg("Rack has multiple NVLink domain IDs; using the first")
 	}
 
-	return &rack.Rack{
+	components := make([]component.Component, 0, len(r.GetComponents()))
+	for _, c := range r.GetComponents() {
+		converted := ComponentFrom(c)
+		if converted.NVLDomainID == uuid.Nil {
+			converted.NVLDomainID = domainID
+		}
+		components = append(components, *converted)
+	}
+	result := &rack.Rack{
 		Info:       DeviceInfoFrom(r.GetInfo()),
 		Loc:        LocationFrom(r.GetLocation()),
 		Components: components,
 	}
+	result.NVLDomainID = domainID
+	return result
 }
 
 // PaginationFrom converts a protobuf Pagination to an internal Pagination.
@@ -619,6 +638,7 @@ func ComponentTo(c *component.Component) *pb.Component {
 		Bmcs:            bmcInfos,
 		ComponentId:     c.ComponentID,
 		RackId:          UUIDTo(c.RackID),
+		NvlDomainId:     UUIDTo(c.NVLDomainID),
 		PowerState:      c.PowerState,
 		Status:          ComponentOperationStatusTo(c.Status),
 		LeakStatus:      LeakStatusTo(c.LeakStatus),
@@ -699,14 +719,22 @@ func RackTo(r *rack.Rack) *pb.Rack {
 
 	components := make([]*pb.Component, 0, len(r.Components))
 	for _, c := range r.Components {
+		if c.NVLDomainID == uuid.Nil {
+			c.NVLDomainID = r.NVLDomainID
+		}
 		components = append(components, ComponentTo(&c))
 	}
 
-	return &pb.Rack{
+	result := &pb.Rack{
 		Info:       DeviceInfoTo(&r.Info),
 		Location:   LocationTo(&r.Loc),
 		Components: components,
 	}
+	if r.NVLDomainID != uuid.Nil {
+		result.NvlDomainIds = UUIDsTo([]uuid.UUID{r.NVLDomainID})
+	}
+
+	return result
 }
 
 // PaginationTo converts an internal Pagination to a protobuf Pagination.

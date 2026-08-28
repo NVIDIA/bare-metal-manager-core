@@ -460,6 +460,8 @@ type APIInstanceCreateRequest struct {
 	MachineID *string `json:"machineId"`
 	// AllowUnhealthyMachine is a flag that can be used to target Machines are in maintenance or have health alerts preventing regular provision flow.
 	AllowUnhealthyMachine *bool `json:"allowUnhealthyMachine"`
+	// PowerProfile is the external power provisioning profile for the Instance.
+	PowerProfile *string `json:"powerProfile"`
 }
 
 // APIBatchInstanceCreateRequest is the data structure to capture request to create multiple instances in a single request
@@ -494,6 +496,8 @@ type APIBatchInstanceCreateRequest struct {
 	PhoneHomeEnabled *bool `json:"phoneHomeEnabled"`
 	// UserData is the user data for the instances
 	UserData *string `json:"userData"`
+	// PowerProfile is the external power provisioning profile for every Instance in the batch.
+	PowerProfile *string `json:"powerProfile"`
 	// Interfaces is the list of Interfaces to create for each instance (shared across all instances).
 	// Mutually exclusive with `AutoNetwork`: when `AutoNetwork` is true this MUST be empty.
 	Interfaces []APIInterfaceCreateOrUpdateRequest `json:"interfaces"`
@@ -539,6 +543,8 @@ func (icr APIInstanceCreateRequest) Validate() error {
 			validationis.UUID.Error(validationErrorInvalidUUID)),
 		validation.Field(&icr.OperatingSystemID,
 			validationis.UUID.Error(validationErrorInvalidUUID)),
+		validation.Field(&icr.PowerProfile,
+			validation.When(icr.PowerProfile != nil, validation.Required.Error("`powerProfile` must not be empty"))),
 		validation.Field(&icr.Interfaces,
 			// When AutoNetwork is true, the Instance has NICo auto-resolve interfaces
 			// from the host's HostInband segments, so the explicit list MUST
@@ -656,6 +662,13 @@ func (icr *APIInstanceCreateRequest) ValidateAndSetOperatingSystemData(cfg *conf
 	mergedPhoneHomeEnabled := icr.PhoneHomeEnabled
 	mergedIpxeScript := icr.IpxeScript
 	mergedAlwaysBootWithCustomIpxe := icr.AlwaysBootWithCustomIpxe
+
+	// If the request supplies no user-data of its own, the document being
+	// edited is the base OS's blob, whose phone-home block NICo authored
+	// whenever the OS was stored with phone-home enabled. That block is
+	// removed by key, because the URL frozen into it may predate a change
+	// to site.phoneHomeUrl. Caller-supplied user-data stays URL-matched.
+	nicoAuthoredPhoneHome := icr.UserData == nil && os != nil && os.PhoneHomeEnabled
 
 	if os == nil {
 		// If no OS is being chosen...
@@ -815,7 +828,14 @@ func (icr *APIInstanceCreateRequest) ValidateAndSetOperatingSystemData(cfg *conf
 				// so we want to do this check silently and not alert people who
 				// are using non-YAML user-data.
 
-				if err := util.RemovePhoneHomeFromUserData(documentRoot, cutil.GetPtr(cfg.GetSitePhoneHomeUrl())); err != nil {
+				// NICo's own block is removed by key, because the URL frozen
+				// into it may predate a change to site.phoneHomeUrl.
+				var phoneHomeURLFilter *string
+				if !nicoAuthoredPhoneHome {
+					phoneHomeURLFilter = cutil.GetPtr(cfg.GetSitePhoneHomeUrl())
+				}
+
+				if err := util.RemovePhoneHomeFromUserData(documentRoot, phoneHomeURLFilter); err != nil {
 					return validation.Errors{
 						"userData": errors.New("failed to disable phone-home in userData after processing phone home config"),
 					}
@@ -896,6 +916,8 @@ func (bicr APIBatchInstanceCreateRequest) Validate() error {
 			validationis.UUID.Error(validationErrorInvalidUUID)),
 		validation.Field(&bicr.OperatingSystemID,
 			validationis.UUID.Error(validationErrorInvalidUUID)),
+		validation.Field(&bicr.PowerProfile,
+			validation.When(bicr.PowerProfile != nil, validation.Required.Error("`powerProfile` must not be empty"))),
 		validation.Field(&bicr.Interfaces,
 			// When AutoNetwork is true, the batch has NICo auto-resolve interfaces
 			// from the host's HostInband segments, so the explicit list MUST
@@ -1010,6 +1032,13 @@ func (bicr *APIBatchInstanceCreateRequest) ValidateAndSetOperatingSystemData(cfg
 	mergedPhoneHomeEnabled := bicr.PhoneHomeEnabled
 	mergedIpxeScript := bicr.IpxeScript
 	mergedAlwaysBootWithCustomIpxe := bicr.AlwaysBootWithCustomIpxe
+
+	// If the request supplies no user-data of its own, the document being
+	// edited is the base OS's blob, whose phone-home block NICo authored
+	// whenever the OS was stored with phone-home enabled. That block is
+	// removed by key, because the URL frozen into it may predate a change
+	// to site.phoneHomeUrl. Caller-supplied user-data stays URL-matched.
+	nicoAuthoredPhoneHome := bicr.UserData == nil && os != nil && os.PhoneHomeEnabled
 
 	if os == nil {
 		// If no OS is being chosen...
@@ -1135,7 +1164,14 @@ func (bicr *APIBatchInstanceCreateRequest) ValidateAndSetOperatingSystemData(cfg
 				}
 
 			} else if isUserDataValidYAML {
-				if err := util.RemovePhoneHomeFromUserData(documentRoot, cutil.GetPtr(cfg.GetSitePhoneHomeUrl())); err != nil {
+				// NICo's own block is removed by key, because the URL frozen
+				// into it may predate a change to site.phoneHomeUrl.
+				var phoneHomeURLFilter *string
+				if !nicoAuthoredPhoneHome {
+					phoneHomeURLFilter = cutil.GetPtr(cfg.GetSitePhoneHomeUrl())
+				}
+
+				if err := util.RemovePhoneHomeFromUserData(documentRoot, phoneHomeURLFilter); err != nil {
 					return validation.Errors{
 						"userData": errors.New("failed to disable phone-home in userData after processing phone home config"),
 					}
@@ -1220,6 +1256,8 @@ type APIInstanceUpdateRequest struct {
 	SSHKeyGroupIDs []string `json:"sshKeyGroupIds"`
 	// NetworkSecurityGroupID is the ID of Network Security Group to attach to the Instance
 	NetworkSecurityGroupID *string `json:"networkSecurityGroupId"`
+	// PowerProfile updates the external power provisioning profile. An empty string clears it.
+	PowerProfile *string `json:"powerProfile"`
 }
 
 // Validate the OS against any additional option combinations specified.
@@ -1239,6 +1277,22 @@ func (iur *APIInstanceUpdateRequest) ValidateAndSetOperatingSystemData(cfg *conf
 	mergedPhoneHomeEnabled := iur.PhoneHomeEnabled
 	mergedIpxeScript := iur.IpxeScript
 	mergedAlwaysBootWithCustomIpxe := iur.AlwaysBootWithCustomIpxe
+
+	// If the request supplies no user-data of its own, the document being
+	// edited is a stored blob — the new base OS's when the request changes
+	// the OS, otherwise the instance's — and any phone-home block in it was
+	// authored by NICo whenever that blob was stored with phone-home
+	// enabled. Such a block is removed by key, because the URL frozen into
+	// it may predate a change to site.phoneHomeUrl. Caller-supplied
+	// user-data stays URL-matched.
+	nicoAuthoredPhoneHome := false
+	if iur.UserData == nil {
+		if iur.OperatingSystemID != nil {
+			nicoAuthoredPhoneHome = os != nil && os.PhoneHomeEnabled
+		} else {
+			nicoAuthoredPhoneHome = instance.PhoneHomeEnabled
+		}
+	}
 
 	if os == nil {
 		// If the OS is being cleared...
@@ -1427,7 +1481,14 @@ func (iur *APIInstanceUpdateRequest) ValidateAndSetOperatingSystemData(cfg *conf
 				// so we want to do this check silently and not alert people who
 				// are using non-YAML user-data.
 
-				if err := util.RemovePhoneHomeFromUserData(documentRoot, cutil.GetPtr(cfg.GetSitePhoneHomeUrl())); err != nil {
+				// NICo's own block is removed by key, because the URL frozen
+				// into it may predate a change to site.phoneHomeUrl.
+				var phoneHomeURLFilter *string
+				if !nicoAuthoredPhoneHome {
+					phoneHomeURLFilter = cutil.GetPtr(cfg.GetSitePhoneHomeUrl())
+				}
+
+				if err := util.RemovePhoneHomeFromUserData(documentRoot, phoneHomeURLFilter); err != nil {
 					return validation.Errors{
 						"userData": errors.New("failed to disable phone-home in userData after processing phone home config"),
 					}
@@ -1502,7 +1563,8 @@ func (iur *APIInstanceUpdateRequest) IsUpdateRequest() bool {
 		iur.InfiniBandInterfaces != nil ||
 		iur.NVLinkInterfaces != nil ||
 		iur.SSHKeyGroupIDs != nil ||
-		iur.NetworkSecurityGroupID != nil
+		iur.NetworkSecurityGroupID != nil ||
+		iur.PowerProfile != nil
 }
 
 // IsInterfaceUpdateRequest checks if the request is an instance interface update request
@@ -1812,6 +1874,8 @@ type APIInstance struct {
 	TpmEkCertificate *string `json:"tpmEkCertificate"`
 	// Status is the status of the Instance
 	Status string `json:"status"`
+	// PowerProfile is the external power provisioning profile associated with the Instance.
+	PowerProfile *string `json:"powerProfile"`
 	// AutoNetwork is true when this Instance had its network interfaces
 	// auto-resolved by NICo from the host's HostInband segments. When
 	// true, `Interfaces` reflects the resolved set; the caller's request
@@ -1892,6 +1956,7 @@ func NewAPIInstance(dbinst *cdbm.Instance, dbSite *cdbm.Site, dbiss []cdbm.Inter
 		AutoNetwork:                            dbinst.AutoNetwork,
 		Labels:                                 dbinst.Labels,
 		IsUpdatePending:                        dbinst.IsUpdatePending,
+		PowerProfile:                           dbinst.PowerProfile,
 		Created:                                dbinst.Created,
 		Updated:                                dbinst.Updated,
 	}

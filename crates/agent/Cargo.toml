@@ -107,6 +107,7 @@ rtnetlink = { workspace = true }
 rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
 serde = { features = ["derive"], workspace = true }
+json-patch = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 sha2 = { workspace = true }
@@ -139,7 +140,6 @@ tonic-prost-build = { workspace = true }
 [dev-dependencies]
 carbide-instrument = { path = "../instrument", features = ["test-support"] }
 carbide-test-support = { path = "../test-support" }
-ctor = { workspace = true }
 rcgen = { workspace = true }
 prost = { workspace = true }
 rustls-pki-types = { workspace = true }

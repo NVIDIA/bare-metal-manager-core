@@ -115,6 +115,7 @@ impl From<DpuConfig> for EndpointExplorationReport {
                 power_state: PowerState::On,
                 sku: None,
                 boot_order: None,
+                serial_console_ssh_port: None,
             }],
             chassis: vec![Chassis {
                 id: "Card1".to_string(),

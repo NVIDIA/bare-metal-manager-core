@@ -22,6 +22,11 @@ var defaultTaskPagination = dbquery.Pagination{
 	Total:  0,
 }
 
+var defaultTaskOrderBy = []dbquery.OrderBy{
+	{Column: "created_at", Direction: dbquery.OrderDescending},
+	{Column: "id", Direction: dbquery.OrderDescending},
+}
+
 // Task models the persisted task metadata managed by Flow.
 type Task struct {
 	bun.BaseModel `bun:"table:task,alias:t"`
@@ -238,11 +243,7 @@ func taskListOptionsToFilterable(
 		filters = append(filters, dbquery.Filter{
 			Column:   "status",
 			Operator: dbquery.OperatorIn,
-			Value: []taskcommon.TaskStatus{
-				taskcommon.TaskStatusWaiting,
-				taskcommon.TaskStatusPending,
-				taskcommon.TaskStatusRunning,
-			},
+			Value:    taskcommon.NonTerminalTaskStatuses(),
 		})
 	}
 
@@ -332,6 +333,37 @@ func ListTasksForRackByStatus(
 	return tasks, err
 }
 
+// ListTasksForRacksByStatus returns tasks for the requested racks matching any
+// of the given statuses.
+func ListTasksForRacksByStatus(
+	ctx context.Context,
+	idb bun.IDB,
+	rackIDs []uuid.UUID,
+	statuses []taskcommon.TaskStatus,
+) ([]Task, error) {
+	if len(rackIDs) == 0 || len(statuses) == 0 {
+		return []Task{}, nil
+	}
+
+	var tasks []Task
+	err := listTasksForRacksByStatusQuery(idb, &tasks, rackIDs, statuses).
+		Scan(ctx)
+	return tasks, err
+}
+
+func listTasksForRacksByStatusQuery(
+	idb bun.IDB,
+	tasks *[]Task,
+	rackIDs []uuid.UUID,
+	statuses []taskcommon.TaskStatus,
+) *bun.SelectQuery {
+	return idb.NewSelect().
+		Model(tasks).
+		Column("id", "rack_id", "attributes", "status").
+		Where("rack_id IN (?)", bun.In(rackIDs)).
+		Where("status IN (?)", bun.In(statuses))
+}
+
 // ListRacksWithWaitingTasks returns the distinct rack IDs that have at least
 // one task in the waiting state.
 func ListRacksWithWaitingTasks(
@@ -369,8 +401,9 @@ func ListTasks(
 ) ([]Task, int32, error) {
 	var tasks []Task
 	conf := &dbquery.Config{
-		IDB:   idb,
-		Model: &tasks,
+		IDB:            idb,
+		Model:          &tasks,
+		DefaultOrderBy: defaultTaskOrderBy,
 	}
 
 	if pagination != nil {

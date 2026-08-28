@@ -47,7 +47,7 @@ fn logs_state_file_path(template: &str, endpoint_id: &str) -> PathBuf {
 /// Returns whether an endpoint is eligible for direct NMX-C Subscribe collection.
 pub(super) fn switch_supports_nmxc_subscription(endpoint: &BmcEndpoint) -> bool {
     endpoint.switch_data().is_some_and(|switch| {
-        // Carbide API exposes switch host targets through Switch.nvos_info, but
+        // The NICo API exposes switch host targets through Switch.nvos_info, but
         // NMX-C Subscribe is only valid on the primary switch when desired NMX-C
         // config is enabled. FabricManager readiness is still discovered by
         // attempting Subscribe and retrying with backoff, because API status can
@@ -1552,8 +1552,7 @@ mod tests {
         config.collectors.leak_detector = Configurable::Disabled;
         config.collectors.nmxt = Configurable::Disabled;
         config.collectors.nvue = Configurable::Disabled;
-        // GPU inventory needs the API client (SKU lookup), which the context builds
-        // from the carbide_api source.
+        // GPU inventory uses the NICo API client to resolve the machine SKU.
         config.endpoint_sources.carbide_api =
             Configurable::Enabled(CarbideApiConnectionConfig::default());
         config.collectors.gpu_inventory = Configurable::Enabled(Default::default());

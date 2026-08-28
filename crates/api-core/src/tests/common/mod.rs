@@ -31,5 +31,6 @@ pub(in crate::tests) mod health_crud;
 pub(in crate::tests) mod metadata;
 pub(in crate::tests) mod network_segment;
 pub(in crate::tests) mod overlay_address;
+pub(in crate::tests) mod postgres;
 pub(in crate::tests) mod rpc_builder;
 pub(in crate::tests) mod sqlx_fixtures;

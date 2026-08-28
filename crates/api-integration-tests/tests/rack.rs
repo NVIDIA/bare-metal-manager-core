@@ -19,6 +19,7 @@ use std::collections::BTreeMap;
 use std::net::{Ipv4Addr, TcpListener};
 use std::time::Duration;
 
+use api_test_helper::api_server::{TEST_BMC_DHCP_RELAY_ADDRESS, TEST_BMC_NETWORK_PREFIX};
 use api_test_helper::utils::TestApiServerArgs;
 use api_test_helper::{IntegrationTestEnvironment, utils};
 use bmc_mock::ListenerOrAddress;
@@ -27,11 +28,14 @@ use carbide_utils::HostPortPair;
 use carbide_uuid::rack::{RackId, RackProfileId};
 use eyre::ContextCompat;
 use futures::future::join_all;
+use machine_a_tron::lifecycle_timings::{LifecycleTimingOverrides, PartialLifecycleTimings};
 use machine_a_tron::{
     BmcMockRegistry, DhcpType, LenovoGb300RackConfig, LogFormat, MachineATronConfig, RackConfig,
     RackModelConfig, WiwynnGb200RackConfig,
 };
 use tokio_util::sync::CancellationToken;
+
+const UNDERLAY_DHCP_RELAY_ADDRESS: Ipv4Addr = Ipv4Addr::new(172, 20, 1, 1);
 
 #[ctor::ctor(unsafe)]
 fn setup() {
@@ -81,8 +85,8 @@ async fn test_machine_a_tron_racks_integration() -> eyre::Result<()> {
     run_machine_a_tron_racks_test(
         &test_env,
         &bmc_address_registry,
-        // MAT currently uses admin_dhcp_relay_address for DPU OS DHCP.
-        Ipv4Addr::new(172, 20, 1, 1),
+        // DPU OOB boot and switch NVOS DHCP use the shared Underlay network.
+        UNDERLAY_DHCP_RELAY_ADDRESS,
     )
     .await?;
 
@@ -96,7 +100,7 @@ async fn test_machine_a_tron_racks_integration() -> eyre::Result<()> {
 async fn run_machine_a_tron_racks_test(
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
-    admin_dhcp_relay_address: Ipv4Addr,
+    underlay_dhcp_relay_address: Ipv4Addr,
 ) -> eyre::Result<()> {
     let gb200_rack_id = RackId::new("machine-a-tron-gb200-nvl72");
     let gb300_rack_id = RackId::new("machine-a-tron-gb300-nvl72");
@@ -120,15 +124,31 @@ async fn run_machine_a_tron_racks_test(
                         simulation: WiwynnGb200RackConfig {
                             dpu_reboot_delay: 1,
                             host_reboot_delay: 1,
+                            timing_overrides: Some(LifecycleTimingOverrides {
+                                host: PartialLifecycleTimings {
+                                    reboot: Some(Duration::from_secs(1)),
+                                    // ZERO disables the BMC self-reset offline window entirely,
+                                    // keeping ingestion at its pre-feature pace
+                                    bmc_reset: Some(Duration::ZERO),
+                                    ..Default::default()
+                                },
+                                dpu: PartialLifecycleTimings {
+                                    reboot: Some(Duration::from_secs(1)),
+                                    // ZERO disables the BMC self-reset offline window entirely,
+                                    // keeping ingestion at its pre-feature pace
+                                    bmc_reset: Some(Duration::ZERO),
+                                    ..Default::default()
+                                },
+                            }),
+                            acceleration_factor: 1.0,
                             scout_run_interval: Duration::from_secs(1),
                             discovery_retry_interval: Duration::from_millis(100),
-                            oob_dhcp_relay_address: Ipv4Addr::new(172, 20, 1, 1),
-                            admin_dhcp_relay_address,
+                            bmc_dhcp_relay_address: TEST_BMC_DHCP_RELAY_ADDRESS,
+                            underlay_dhcp_relay_address,
                             host_inband_dhcp_relay_address: Some(Ipv4Addr::new(10, 10, 11, 2)),
                             run_interval_working: Duration::from_millis(100),
                             run_interval_idle: Duration::from_secs(1),
                             network_status_run_interval: Duration::from_secs(1),
-                            network_virtualization_type: None,
                             dpus_in_nic_mode: false,
                             dpu_firmware_versions: None,
                             dpu_agent_version: None,
@@ -145,15 +165,31 @@ async fn run_machine_a_tron_racks_test(
                         simulation: LenovoGb300RackConfig {
                             dpu_reboot_delay: 1,
                             host_reboot_delay: 1,
+                            timing_overrides: Some(LifecycleTimingOverrides {
+                                host: PartialLifecycleTimings {
+                                    reboot: Some(Duration::from_secs(1)),
+                                    // ZERO disables the BMC self-reset offline window entirely,
+                                    // keeping ingestion at its pre-feature pace
+                                    bmc_reset: Some(Duration::ZERO),
+                                    ..Default::default()
+                                },
+                                dpu: PartialLifecycleTimings {
+                                    reboot: Some(Duration::from_secs(1)),
+                                    // ZERO disables the BMC self-reset offline window entirely,
+                                    // keeping ingestion at its pre-feature pace
+                                    bmc_reset: Some(Duration::ZERO),
+                                    ..Default::default()
+                                },
+                            }),
+                            acceleration_factor: 1.0,
                             scout_run_interval: Duration::from_secs(1),
                             discovery_retry_interval: Duration::from_millis(100),
-                            oob_dhcp_relay_address: Ipv4Addr::new(172, 20, 1, 1),
-                            admin_dhcp_relay_address,
+                            bmc_dhcp_relay_address: TEST_BMC_DHCP_RELAY_ADDRESS,
+                            underlay_dhcp_relay_address,
                             host_inband_dhcp_relay_address: Some(Ipv4Addr::new(10, 10, 11, 2)),
                             run_interval_working: Duration::from_millis(100),
                             run_interval_idle: Duration::from_secs(1),
                             network_status_run_interval: Duration::from_secs(1),
-                            network_virtualization_type: None,
                             dpus_in_nic_mode: false,
                             dpu_firmware_versions: None,
                             dpu_agent_version: None,
@@ -169,9 +205,6 @@ async fn run_machine_a_tron_racks_test(
         log_format: LogFormat::Compact,
         bmc_mock_port: 0,
         bmc_mock_certs_dir: None,
-        interface: String::from("UNUSED"),
-        tui_enabled: false,
-        use_single_bmc_mock: false,
         configure_carbide_bmc_proxy_host: None,
         persist_dir: None,
         cleanup_on_quit: false,
@@ -180,9 +213,7 @@ async fn run_machine_a_tron_racks_test(
         dpu_bmc_password: None,
         api_refresh_interval: Duration::from_millis(500),
         mock_bmc_ssh_server: false,
-        mock_bmc_ssh_port: None,
         enable_ipmi_simulation: false,
-        ipmi_reachable_port: None,
         hw_mac_address_ranges: None,
         mac_address_pool: None,
         ufm_mock: Default::default(),
@@ -192,7 +223,7 @@ async fn run_machine_a_tron_racks_test(
         mat_config,
         additional_api_urls,
         &test_env.root_dir,
-        Some(bmc_mock_registry.clone()),
+        bmc_mock_registry.clone(),
         TEST_MAC_POOL.clone(),
     )
     .await?;
@@ -243,6 +274,50 @@ async fn run_machine_a_tron_racks_test(
                     .fetch_one(&test_env.db_pool)
                     .await?;
             assert_eq!(expected_switch_count, 9, "rack {rack_id}");
+
+            let switch_bmc_ips: Vec<String> = sqlx::query_scalar(
+                "SELECT host(mia.address) \
+                 FROM expected_switches es \
+                 JOIN machine_interfaces mi ON mi.mac_address = es.bmc_mac_address \
+                 JOIN machine_interface_addresses mia ON mia.interface_id = mi.id \
+                 WHERE es.rack_id = $1",
+            )
+            .bind(rack_id.as_str())
+            .fetch_all(&test_env.db_pool)
+            .await?;
+            let switch_bmc_ips: Vec<Ipv4Addr> = switch_bmc_ips
+                .into_iter()
+                .map(|address| address.parse())
+                .collect::<Result<_, _>>()?;
+            assert_eq!(switch_bmc_ips.len(), 9, "rack {rack_id}");
+            assert!(
+                switch_bmc_ips
+                    .iter()
+                    .all(|address| TEST_BMC_NETWORK_PREFIX.contains(address)),
+                "rack {rack_id} switch BMC DHCP used the Underlay relay: {switch_bmc_ips:?}"
+            );
+
+            let switch_nvos_ips: Vec<String> = sqlx::query_scalar(
+                "SELECT host(mia.address) \
+                 FROM expected_switches es \
+                 JOIN machine_interfaces mi ON mi.mac_address = ANY(es.nvos_mac_addresses) \
+                 JOIN machine_interface_addresses mia ON mia.interface_id = mi.id \
+                 WHERE es.rack_id = $1",
+            )
+            .bind(rack_id.as_str())
+            .fetch_all(&test_env.db_pool)
+            .await?;
+            let switch_nvos_ips: Vec<Ipv4Addr> = switch_nvos_ips
+                .into_iter()
+                .map(|address| address.parse())
+                .collect::<Result<_, _>>()?;
+            assert_eq!(switch_nvos_ips.len(), 9, "rack {rack_id}");
+            assert!(
+                switch_nvos_ips.iter().all(|address| {
+                    address.octets()[..3] == UNDERLAY_DHCP_RELAY_ADDRESS.octets()[..3]
+                }),
+                "rack {rack_id} switch NVOS DHCP used the BMC relay: {switch_nvos_ips:?}"
+            );
 
             let actual_power_shelf_count: i64 = sqlx::query_scalar(
                 "SELECT COUNT(*) FROM expected_power_shelves WHERE rack_id = $1",

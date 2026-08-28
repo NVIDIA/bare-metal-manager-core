@@ -499,12 +499,26 @@ struct CurrentNetworkVersion {
     managed_host_config_version: Option<String>,
     instance_network_config_version: Option<String>,
     rendered_inputs_hash: Option<u64>,
+    /// Hash of the supplemental network config file's contents at the last
+    /// successful reconciliation. The file path never changes between
+    /// iterations, so only a content hash can detect an in-place edit.
+    supplemental_config_hash: Option<u64>,
 }
 
 impl CurrentNetworkVersion {
-    /// Returns whether the explicit versions and HBN inputs from the response
-    /// match the last successful network reconciliation.
-    fn matches_versions_from(&self, conf: &ManagedHostNetworkConfigResponse) -> bool {
+    /// Returns whether the explicit versions and HBN inputs from the response,
+    /// plus the supplemental network config contents, match the last
+    /// successful network reconciliation.
+    fn matches_versions_from(
+        &self,
+        conf: &ManagedHostNetworkConfigResponse,
+        supplemental_config: Option<&str>,
+    ) -> bool {
+        if self.supplemental_config_hash != supplemental_config.map(Self::hash_supplemental_config)
+        {
+            tracing::info!("Supplemental network config changed");
+            return false;
+        }
         let managed_host_config_version = get_non_empty_str(&conf.managed_host_config_version);
         let instance_network_config_version =
             get_non_empty_str(&conf.instance_network_config_version);
@@ -526,15 +540,29 @@ impl CurrentNetworkVersion {
         }
     }
 
-    /// Records the versions and HBN inputs from the response after network
-    /// reconciliation succeeds.
-    fn update_from(&mut self, conf: &ManagedHostNetworkConfigResponse) {
+    /// Records the versions and HBN inputs from the response, plus the
+    /// supplemental network config contents, after network reconciliation
+    /// succeeds.
+    fn update_from(
+        &mut self,
+        conf: &ManagedHostNetworkConfigResponse,
+        supplemental_config: Option<&str>,
+    ) {
         self.managed_host_config_version =
             get_non_empty_str(&conf.managed_host_config_version).map(String::from);
         self.instance_network_config_version =
             get_non_empty_str(&conf.instance_network_config_version).map(String::from);
         self.rendered_inputs_hash
             .replace(Self::hash_rendered_inputs(conf));
+        self.supplemental_config_hash = supplemental_config.map(Self::hash_supplemental_config);
+    }
+
+    /// Hashes the supplemental network config file's contents for change
+    /// detection. Hashing the path alone would make in-place edits invisible.
+    fn hash_supplemental_config(contents: &str) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        contents.hash(&mut hasher);
+        hasher.finish()
     }
 
     /// Builds the one local fingerprint used to decide whether HBN rendering
@@ -597,6 +625,16 @@ impl CurrentNetworkVersion {
         // DHCP is always enabled; this deprecated flag no longer controls
         // rendering.
         config.enable_dhcp = false;
+
+        // HBN rendering does not consume the family-neutral address list. Exclude
+        // it from the fingerprint so changes to that staged field do not trigger
+        // an apply that cannot render them.
+        if let Some(admin_interface) = &mut config.admin_interface {
+            admin_interface.addresses.clear();
+        }
+        for interface in &mut config.tenant_interfaces {
+            interface.addresses.clear();
+        }
     }
 
     /// `normalize_set_like_inputs` sorts inputs that HBN treats as sets, but
@@ -851,6 +889,7 @@ impl MainLoop {
         let mut current_config_error = None;
         let mut is_healthy = false;
         let mut has_changed_configs = false;
+        let mut has_changed_hbn_config = false;
         let mut current_host_network_config_version = None;
         let mut current_instance_network_config_version = None;
         let mut current_instance_config_version = None;
@@ -903,7 +942,8 @@ impl MainLoop {
                 let proposed_routes: Vec<_> = conf
                     .tenant_interfaces
                     .iter()
-                    .filter_map(|x| IpNetwork::from_str(x.prefix.as_str()).ok())
+                    .filter_map(|interface| interface.prefix.as_deref())
+                    .filter_map(|prefix| IpNetwork::from_str(prefix).ok())
                     .collect();
 
                 let tenant_peers = ethernet_virtualization::tenant_peers(&conf);
@@ -978,7 +1018,32 @@ impl MainLoop {
                     )
                     .await;
 
-                    let update_result = if self.current_network_version.matches_versions_from(&conf)
+                    // Read the supplemental network config (if configured) on
+                    // every iteration so in-place edits to the mounted file are
+                    // picked up. A configured-but-unreadable file fails the
+                    // update loudly instead of silently applying an unmerged
+                    // config.
+                    let mut supplemental_config_error = None;
+                    let supplemental_config =
+                        match &self.agent_config.network.supplemental_config_path {
+                            None => None,
+                            Some(path) => match std::fs::read_to_string(path) {
+                                Ok(contents) => Some(contents),
+                                Err(err) => {
+                                    supplemental_config_error = Some(eyre::eyre!(
+                                        "couldn't read supplemental network config {}: {err}",
+                                        path.display()
+                                    ));
+                                    None
+                                }
+                            },
+                        };
+
+                    let update_result = if let Some(err) = supplemental_config_error {
+                        Err(err)
+                    } else if self
+                        .current_network_version
+                        .matches_versions_from(&conf, supplemental_config.as_deref())
                     {
                         tracing::debug!(
                             current_network_version = ?self.current_network_version,
@@ -1027,6 +1092,7 @@ impl MainLoop {
                             update_flavor,
                             &conf,
                             self.hbn_device_names.clone(),
+                            supplemental_config.as_deref(),
                         )
                         .await
                     };
@@ -1036,7 +1102,9 @@ impl MainLoop {
                             .await;
 
                     let joined_result = match (update_result, dhcp_result, astra_config_status) {
-                        (Ok(a), Ok(b), Ok(spx_net_status)) => Ok((a | b, spx_net_status)),
+                        (Ok(hbn_changed), Ok(dhcp_changed), Ok(spx_net_status)) => {
+                            Ok((hbn_changed, dhcp_changed, spx_net_status))
+                        }
                         (update_result, dhcp_result, astra_config_status) => {
                             let mut errors = Vec::new();
 
@@ -1054,9 +1122,11 @@ impl MainLoop {
                         }
                     };
                     match joined_result {
-                        Ok((has_changed, astra_config_status)) => {
-                            self.current_network_version.update_from(&conf);
-                            has_changed_configs = has_changed;
+                        Ok((hbn_changed, dhcp_changed, astra_config_status)) => {
+                            self.current_network_version
+                                .update_from(&conf, supplemental_config.as_deref());
+                            has_changed_hbn_config = hbn_changed;
+                            has_changed_configs = hbn_changed || dhcp_changed;
                             if conf.astra_config.is_some() {
                                 status_out.astra_config_status = Some(astra_config_status);
                             }
@@ -1130,13 +1200,16 @@ impl MainLoop {
                 current_instance_config_version = status_out.instance_config_version.clone();
                 current_instance_id = status_out.instance_id.as_ref().map(|id| id.to_string());
 
+                let min_healthy_links = conf.min_dpu_functioning_links.unwrap_or(2) as usize;
                 let health_report = match self.nvue_context.as_ref() {
                     None => {
+                        // In `ContainerExec` mode, the DHCP flag represents a real local
+                        // reload, so keep the existing wait while that service restarts.
                         health::health_check(HealthCheckParams {
                             hbn_root: &self.agent_config.hbn.root_dir,
                             host_routes: &tenant_peers,
                             has_changed_configs,
-                            min_healthy_links: conf.min_dpu_functioning_links.unwrap_or(2),
+                            min_healthy_links,
                             route_servers: &conf.route_servers,
                             should_check_ipv6_unicast,
                             hbn_device_names: self.hbn_device_names.clone(),
@@ -1146,10 +1219,13 @@ impl MainLoop {
                         .await
                     }
                     Some(nvue_context) => {
+                        // DHCP gRPC reports every accepted request as changed, so only an
+                        // actual HBN update may trigger the NVUE wait after a config update.
                         health::nvue::NvueHealthCheck {
                             nvue_client: &nvue_context.nvue_client,
-                            min_healthy_links: conf.min_dpu_functioning_links.unwrap_or(2) as usize,
+                            min_healthy_links,
                             hbn_device_names: &self.hbn_device_names,
+                            has_changed_hbn_config,
                         }
                         .health_check()
                         .await

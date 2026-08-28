@@ -31,6 +31,7 @@ async fn explore_liteon_power_shelf() {
     assert_eq!(report.endpoint_type, EndpointType::Bmc);
     assert_eq!(report.vendor, Some(bmc_vendor::BMCVendor::Liteon));
     assert!(!report.systems.is_empty(), "systems must be present");
+    assert_eq!(report.systems[0].serial_console_ssh_port, Some(2200));
     assert!(!report.chassis.is_empty(), "chassis must be present");
     assert!(
         report
@@ -63,6 +64,7 @@ async fn explore_delta_power_shelf() {
 
     assert_eq!(report.endpoint_type, EndpointType::Bmc);
     assert_eq!(report.vendor, Some(bmc_vendor::BMCVendor::Delta));
+    assert_eq!(report.systems[0].serial_console_ssh_port, None);
     assert!(
         !report.systems.is_empty(),
         "a system must be synthesized from the Delta chassis despite no Systems collection"

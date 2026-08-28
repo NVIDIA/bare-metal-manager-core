@@ -24,7 +24,7 @@ use std::str::FromStr;
 
 use carbide_uuid::dpa_interface::DpaInterfaceId;
 use carbide_uuid::instance_type::InstanceTypeId;
-use carbide_uuid::machine::{MachineId, MachineType};
+use carbide_uuid::machine::{HostMachineId, MachineId, MachineType};
 use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::rack::{RackId, RackProfileId};
 use chrono::{DateTime, Utc};
@@ -35,9 +35,11 @@ use lazy_static::lazy_static;
 use mac_address::MacAddress;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::expected_machine::ExpectedMachineData;
+use model::extension_service::ExtensionServiceType;
 use model::hardware_info::{
     MachineInventory, MachineNvLinkInfo, mnnvl_gpu_name_sql_like_conditions,
 };
+use model::instance::status::extension_service::InstanceExtensionServiceStatusObservation;
 use model::machine::infiniband::MachineInfinibandStatusObservation;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::network::{
@@ -694,11 +696,17 @@ pub async fn update_restart_verification_status(
     Ok(())
 }
 
+/// Records the database statement execution time as the machine's cleanup timestamp.
+///
+/// This ensures cleanup completed after a concurrent state transition is recorded as newer than
+/// that transition, even when the cleanup transaction began first.
 pub async fn update_cleanup_time(
     machine: &Machine,
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
-    let query = "UPDATE machines SET last_cleanup_time=NOW() WHERE id=$1 RETURNING id";
+    // A cleanup transaction can begin before a concurrent state transition commits. Record the
+    // update time, not the transaction start time, so completed cleanup is newer than that state.
+    let query = "UPDATE machines SET last_cleanup_time=clock_timestamp() WHERE id=$1 RETURNING id";
     let _id = sqlx::query_as::<_, MachineId>(query)
         .bind(machine.id.to_string())
         .fetch_one(txn)
@@ -750,6 +758,19 @@ pub async fn update_bios_password_set_time(
         .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(())
+}
+
+pub async fn clear_bios_password_set_time(
+    machine_id: &MachineId,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE machines SET bios_password_set_time=NULL WHERE id=$1 RETURNING id";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map(|_| ())
+        .map_err(|e| DatabaseError::query(query, e))
 }
 
 pub async fn update_discovery_time(
@@ -819,14 +840,14 @@ pub async fn find_host_by_dpu_machine_id(
 pub async fn lookup_host_machine_ids_by_dpu_ids(
     conn: impl DbReader<'_>,
     dpu_machine_ids: &[MachineId],
-) -> Result<HashMap<MachineId, MachineId>, DatabaseError> {
+) -> Result<HashMap<MachineId, HostMachineId>, DatabaseError> {
     let query = r#"SELECT mi.attached_dpu_machine_id, mi.machine_id
         FROM machine_interfaces mi
         WHERE mi.attached_dpu_machine_id != mi.machine_id
         AND mi.interface_type != 'Bmc'
         AND mi.attached_dpu_machine_id = ANY($1)"#;
 
-    let dpu_id_host_id_pairs: Vec<(MachineId, MachineId)> = sqlx::query_as(query)
+    let dpu_id_host_id_pairs: Vec<(MachineId, HostMachineId)> = sqlx::query_as(query)
         .bind(
             dpu_machine_ids
                 .iter()
@@ -973,6 +994,79 @@ pub async fn update_network_status_observation(
     };
 
     Ok(())
+}
+
+/// Updates the current extension-service observation for one service type.
+///
+/// Writers own their type key, so the DPU agent's KubernetesPod observation
+/// and NICo's DPF Helm observation cannot replace one another. The operation
+/// is a single JSONB update: PostgreSQL serializes concurrent row updates and
+/// `jsonb_set` retains every other service-type entry.
+///
+/// Returns `false` when the machine exists but a newer observation for this
+/// same service type is already present, and [`DatabaseError::NotFoundError`]
+/// when the machine row is absent, so a superseded report is distinguishable
+/// from a machine that went away.
+pub async fn update_extension_service_status_observation(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    service_type: ExtensionServiceType,
+    observation: &InstanceExtensionServiceStatusObservation,
+) -> Result<bool, DatabaseError> {
+    let query = r#"
+        UPDATE machines
+        SET extension_service_status_observations = jsonb_set(
+            COALESCE(extension_service_status_observations, '{}'::jsonb),
+            ARRAY[$2]::text[],
+            $3::jsonb,
+            true
+        )
+        WHERE id = $1
+          AND (
+              extension_service_status_observations -> $2 IS NULL
+              OR (extension_service_status_observations -> $2 ->> 'observed_at')::timestamptz
+                    <= $4::timestamptz
+          )
+        RETURNING id
+    "#;
+    let updated: Option<(MachineId,)> = sqlx::query_as(query)
+        .bind(machine_id)
+        .bind(service_type.to_string())
+        .bind(sqlx::types::Json(observation))
+        .bind(observation.observed_at)
+        .fetch_optional(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    if updated.is_some() {
+        return Ok(true);
+    }
+
+    // The update above matches on machine identity and observation freshness
+    // together, so re-check identity alone to attribute the miss to one or the
+    // other.
+    let identity_query = "SELECT id FROM machines WHERE id = $1";
+    let machine_exists: Option<(MachineId,)> = sqlx::query_as(identity_query)
+        .bind(machine_id)
+        .fetch_optional(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::query(identity_query, e))?;
+    if machine_exists.is_some() {
+        return Ok(false);
+    }
+
+    // Captures why the update failed in unit tests even though all prerequisite
+    // data appears present. Compiles to a no-op in production environments.
+    debug_failed_machine_status_update(
+        txn,
+        machine_id,
+        "extension_service_status_observations",
+        observation,
+    )
+    .await;
+    Err(DatabaseError::NotFoundError {
+        kind: "machine",
+        id: machine_id.to_string(),
+    })
 }
 
 /// Only does the update if the passed observation is newer than any existing one
@@ -2581,6 +2675,32 @@ pub async fn set_machine_maintenance_requested(
     Ok(())
 }
 
+pub async fn set_decommission_requested(
+    txn: &mut PgConnection,
+    machine_id: MachineId,
+) -> DatabaseResult<()> {
+    let query = "UPDATE machines SET decommission_requested = TRUE WHERE id = $1 RETURNING id";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map(|_| ())
+        .map_err(|error| DatabaseError::new("set_decommission_requested", error))
+}
+
+pub async fn clear_decommission_requested(
+    txn: &mut PgConnection,
+    machine_id: MachineId,
+) -> DatabaseResult<()> {
+    let query = "UPDATE machines SET decommission_requested = FALSE WHERE id = $1 RETURNING id";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map(|_| ())
+        .map_err(|error| DatabaseError::new("clear_decommission_requested", error))
+}
+
 pub async fn clear_machine_maintenance_requested(
     txn: &mut PgConnection,
     machine_id: MachineId,
@@ -3166,6 +3286,40 @@ pub async fn find_rms_identities_by_bmc_ips(
     Ok(rows)
 }
 
+/// Persist the backend firmware-object job ID for a machine that was updated via
+/// --bypass-state-controller. This survives nico-api restarts so that
+/// get_firmware_status can keep querying the backend even after the in-memory map is
+/// cleared.
+pub async fn save_backend_firmware_object_job_id(
+    db: &sqlx::PgPool,
+    machine_id: &str,
+    job_id: &str,
+) -> DatabaseResult<()> {
+    let sql =
+        "UPDATE machines SET backend_firmware_object_job_id = $1 WHERE id::text = $2 RETURNING id";
+    sqlx::query(sql)
+        .bind(job_id)
+        .bind(machine_id)
+        .execute(db)
+        .await
+        .map_err(|e| DatabaseError::new(sql, e))?;
+    Ok(())
+}
+
+/// Fetch the persisted backend firmware-object job ID for a machine, if any.
+pub async fn get_backend_firmware_object_job_id(
+    db: &sqlx::PgPool,
+    machine_id: &str,
+) -> DatabaseResult<Option<String>> {
+    let sql = "SELECT backend_firmware_object_job_id FROM machines WHERE id::text = $1";
+    let row: Option<(Option<String>,)> = sqlx::query_as(sql)
+        .bind(machine_id)
+        .fetch_optional(db)
+        .await
+        .map_err(|e| DatabaseError::new(sql, e))?;
+    Ok(row.and_then(|(job_id,)| job_id))
+}
+
 pub fn count_healthy_unhealthy_host_machines(
     all_machines: &HashMap<MachineId, model::machine::ManagedHostStateSnapshot>,
 ) -> (i32, i32) {
@@ -3239,6 +3393,82 @@ mod test {
             pool_stats: Arc::new(Mutex::new(HashMap::new())),
             _stop_sender: stop_sender,
         }
+    }
+
+    #[crate::sqlx_test]
+    async fn cleanup_time_follows_state_committed_after_transaction_start(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let machine_id =
+            MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")?;
+        let mut setup_txn = pool.begin().await?;
+        super::create(
+            setup_txn.as_mut(),
+            None,
+            &machine_id,
+            ManagedHostState::Ready,
+            None,
+            2,
+        )
+        .await?;
+        setup_txn.commit().await?;
+
+        let mut cleanup_txn = pool.begin().await?;
+        let cleanup_transaction_started_at: chrono::DateTime<chrono::Utc> =
+            sqlx::query_scalar("SELECT transaction_timestamp()")
+                .fetch_one(cleanup_txn.as_mut())
+                .await?;
+        let machine = super::find_one(
+            cleanup_txn.as_mut(),
+            &machine_id,
+            MachineSearchConfig::default(),
+        )
+        .await?
+        .expect("machine should exist before recording cleanup");
+
+        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        let mut state_txn = pool.begin().await?;
+        let machine_for_state_update = super::find_one(
+            state_txn.as_mut(),
+            &machine_id,
+            MachineSearchConfig::default(),
+        )
+        .await?
+        .expect("machine should exist before advancing its state version");
+        super::advance(
+            &machine_for_state_update,
+            state_txn.as_mut(),
+            &ManagedHostState::Ready,
+            None,
+        )
+        .await?;
+        state_txn.commit().await?;
+
+        super::update_cleanup_time(&machine, cleanup_txn.as_mut()).await?;
+        cleanup_txn.commit().await?;
+
+        let mut verify_txn = pool.begin().await?;
+        let machine = super::find_one(
+            verify_txn.as_mut(),
+            &machine_id,
+            MachineSearchConfig::default(),
+        )
+        .await?
+        .expect("machine should exist after recording cleanup");
+        let cleanup_time = machine
+            .status
+            .last_cleanup_time
+            .expect("cleanup time should be recorded");
+        assert!(
+            cleanup_transaction_started_at < machine.state.version.timestamp(),
+            "the test must start the cleanup transaction before advancing the state version"
+        );
+        assert!(
+            cleanup_time > machine.state.version.timestamp(),
+            "cleanup recorded after a state transition must be newer than that state version"
+        );
+
+        Ok(())
     }
 
     #[crate::sqlx_test]

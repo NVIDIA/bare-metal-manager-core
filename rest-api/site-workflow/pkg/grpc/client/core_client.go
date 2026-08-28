@@ -57,6 +57,13 @@ const (
 	// gRPC client default dial timeout
 	defaultCoreGrpcDialTimeoutSeconds = 5 // 5 seconds
 
+	// coreGrpcMaxRecvMsgSize raises the Go gRPC 4 MiB default. Instance inventory already
+	// returns ~7.8 MB for a page of 100, and a ceiling near that size leaves the inventory
+	// pager's site page ladder in permanent use, where every rejected response still costs Core
+	// a full query and serialization. This is a limit rather than a reservation, so the headroom
+	// only consumes memory once a response arrives to fill it.
+	coreGrpcMaxRecvMsgSize = 32 * 1024 * 1024
+
 	// CoreGrpcConnectionRetryTimeout is the maximum time to retry establishing a Core gRPC connection.
 	CoreGrpcConnectionRetryTimeout = 15 * time.Minute
 	// CoreGrpcConnectionBackoffInitial is the initial delay between connection retries.
@@ -171,6 +178,8 @@ func NewCoreGrpcClient(config *CoreGrpcClientConfig) (client *CoreGrpcClient, er
 		log.Error().Err(ErrCoreGrpcClientInvalidSecureOpts).Msg("CoreGrpcClient: Invalid dial options")
 		return nil, ErrCoreGrpcClientInvalidSecureOpts
 	}
+
+	client.dialOpts = append(client.dialOpts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(coreGrpcMaxRecvMsgSize)))
 
 	// configure interceptors
 	var unaryInterceptors []grpc.UnaryClientInterceptor

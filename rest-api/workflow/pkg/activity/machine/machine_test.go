@@ -804,7 +804,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 	}
 
 	// Set updated for all machines earlier than the inventory receipt interval
-	_, err = dbSession.DB.Exec("UPDATE machine SET updated = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2))
+	_, err = dbSession.DB.Exec("UPDATE machine SET updated = ?", time.Now().Add(-time.Duration(cutil.DefaultInventoryReceiptInterval)*2))
 	assert.NoError(t, err)
 
 	type fields struct {
@@ -993,7 +993,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 
 			if tt.args.resetMachineUpdatedTimeBeforeInventoryTime {
 				// Set updated for all machines earlier than the inventory receipt interval
-				_, err := dbSession.DB.Exec("UPDATE machine SET updated = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2))
+				_, err := dbSession.DB.Exec("UPDATE machine SET updated = ?", time.Now().Add(-time.Duration(cutil.DefaultInventoryReceiptInterval)*2))
 				assert.NoError(t, err)
 			}
 
@@ -1714,13 +1714,47 @@ func TestGetNICoMachineStatus(t *testing.T) {
 			wantMachineAllocatable: false,
 		},
 		{
-			name: "test tenant not usable - Decommissioned",
+			name: "test tenant not usable - ForceDeletion maps to Initializing",
 			args: args{
 				controllerMachine: &corev1.Machine{
 					State: controllerMachineStatePrefixForceDeletion,
 				},
 			},
+			wantStatus:             cdbm.MachineStatusInitializing,
+			wantMessage:            "Machine is being force deleted",
+			wantMachineAllocatable: true,
+		},
+		{
+			name: "test tenant not usable - WaitingForCleanup maps to Initializing",
+			args: args{
+				controllerMachine: &corev1.Machine{
+					State: controllerMachineStatePrefixWaitingForCleanup,
+				},
+			},
+			wantStatus:             cdbm.MachineStatusInitializing,
+			wantMessage:            "Machine is waiting for cleanup",
+			wantMachineAllocatable: true,
+		},
+		{
+			name: "test tenant not usable - Decommissioning in progress",
+			args: args{
+				controllerMachine: &corev1.Machine{
+					State: controllerMachineStatePrefixDecommissioning + "/SuppressingOobDhcp",
+				},
+			},
+			wantStatus:             cdbm.MachineStatusDecommissioning,
+			wantMessage:            "Machine is being decommissioned: SuppressingOobDhcp",
+			wantMachineAllocatable: false,
+		},
+		{
+			name: "test tenant not usable - Decommissioned terminal state",
+			args: args{
+				controllerMachine: &corev1.Machine{
+					State: controllerMachineStatePrefixDecommissioning + "/" + controllerMachineDecommissioningSubstateDecommissioned,
+				},
+			},
 			wantStatus:             cdbm.MachineStatusDecommissioned,
+			wantMessage:            "Machine was decommissioned",
 			wantMachineAllocatable: false,
 		},
 		{

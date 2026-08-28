@@ -31,6 +31,7 @@ async fn explore_bluefield3_baseline() {
     assert_eq!(report.endpoint_type, EndpointType::Bmc);
     assert_eq!(report.vendor, Some(bmc_vendor::BMCVendor::Nvidia));
     assert!(!report.systems.is_empty(), "systems must be present");
+    assert_eq!(report.systems[0].serial_console_ssh_port, Some(2200));
     assert!(!report.chassis.is_empty(), "chassis must be present");
     assert!(
         report
@@ -46,6 +47,33 @@ async fn explore_bluefield3_baseline() {
             .is_some_and(|status| !status.diffs.is_empty() || status.is_done),
         "machine setup status must be present and structurally valid"
     );
+}
+
+#[test]
+async fn explore_bluefield3_uses_dynamic_system_console_port_not_manager_ssh() {
+    let h = test_support::dell_poweredge_r750_bluefield3_bmc(DpuSettings::default()).await;
+    assert!(h.state.has_enabled_ssh_serial_console());
+    assert!(h.state.set_serial_console_ssh_port(Some(3222)));
+    h.state.injection.put(vec![bmc_mock::injection::Rule {
+        id: "manager_ssh_port".into(),
+        selector: bmc_mock::injection::Selector::Path {
+            method: Some("GET".into()),
+            glob: "/redfish/v1/Managers/Bluefield_BMC/NetworkProtocol".into(),
+        },
+        action: bmc_mock::injection::Action::JsonMerge(serde_json::json!({
+            "SSH": {
+                "ProtocolEnabled": true,
+                "Port": 22,
+            },
+        })),
+        remaining: None,
+    }]);
+
+    let report = nv_generate_exploration_report(h.service_root, &common::explorer_config())
+        .await
+        .unwrap();
+
+    assert_eq!(report.systems[0].serial_console_ssh_port, Some(3222));
 }
 
 #[test]

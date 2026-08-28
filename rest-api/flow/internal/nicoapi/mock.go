@@ -31,6 +31,8 @@ type mockClient struct {
 	switchNvosIPs              map[string]string // switch ID → resolved NVOS host IP
 	nvLinkDomainMemberships    []NVLinkDomainMembership
 	powerShelfControllerStates map[string]string // shelf ID → raw core controller_state
+	observedSwitches           []ObservedControllerDevice
+	observedPowerShelves       []ObservedControllerDevice
 	hostMachinesByRackID       map[string][]string
 	// Detail tables for the GetAllExpected*Details RPCs (Flow's mirror sync).
 	// Keyed by the natural identifier the test cares about so test helpers can
@@ -404,6 +406,22 @@ func (c *mockClient) GetAllExpectedSwitchesLinked(_ context.Context) ([]LinkedEx
 
 func (c *mockClient) GetAllExpectedPowerShelvesLinked(_ context.Context) ([]LinkedExpectedPowerShelf, error) {
 	return nil, nil
+}
+
+func (c *mockClient) GetSwitches(_ context.Context) ([]ObservedControllerDevice, error) {
+	return append([]ObservedControllerDevice(nil), c.observedSwitches...), nil
+}
+
+func (c *mockClient) GetPowerShelves(_ context.Context) ([]ObservedControllerDevice, error) {
+	return append([]ObservedControllerDevice(nil), c.observedPowerShelves...), nil
+}
+
+func (c *mockClient) SetObservedSwitches(devices []ObservedControllerDevice) {
+	c.observedSwitches = append([]ObservedControllerDevice(nil), devices...)
+}
+
+func (c *mockClient) SetObservedPowerShelves(devices []ObservedControllerDevice) {
+	c.observedPowerShelves = append([]ObservedControllerDevice(nil), devices...)
 }
 
 func (c *mockClient) GetDesiredFirmwareVersions(_ context.Context) ([]*corev1.DesiredFirmwareVersionEntry, error) {

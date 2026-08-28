@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::net::{IpAddr, Ipv4Addr};
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::time::Duration;
 
@@ -184,8 +183,6 @@ pub(super) async fn run(prompt: String) -> eyre::Result<IpmiSimHandle> {
     bmc_mock::ipmi_sim::start(
         &bmc.state,
         bmc_mock::ipmi_sim::IpmiSimConfig {
-            bind_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
-            reachable_port: None,
             stable_id: prompt.clone(),
             console_prompt: prompt,
         },

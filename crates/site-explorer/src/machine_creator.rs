@@ -22,7 +22,7 @@ use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, Credentials,
 };
 use carbide_utils::none_if_empty::NoneIfEmpty;
-use carbide_uuid::machine::{MachineId, MachineType};
+use carbide_uuid::machine::{HostMachineId, MachineId, MachineIdSubtype, PredictedHostMachineId};
 use db::Transaction;
 use itertools::Itertools;
 use librms::RmsApi;
@@ -344,7 +344,7 @@ impl MachineCreator {
                 self.configure_dpu_interface(&mut txn, dpu_report).await?;
             }
 
-            self.reconcile_host_admin_addresses(&mut txn, &host_machine_id)
+            self.reconcile_host_admin_addresses(&mut txn, host_machine_id.as_machine_id())
                 .await?;
             // The primary on an existing host may predate source
             // tracking. Do not infer its historical selector from today's
@@ -432,9 +432,12 @@ impl MachineCreator {
         // interfaces have been attached and primary flags are final.
         self.reconcile_host_admin_addresses(&mut txn, &host_machine_id)
             .await?;
+
         reconcile_desired_boot_interface(
             &mut txn,
-            &host_machine_id,
+            // TODO: ManagedHost will eventually have a HostMachineId as its machine_id and
+            // conversion will become unnecessary.
+            &HostMachineId::try_from(host_machine_id)?,
             primary_interface_selection,
             machine_data.and_then(ExpectedMachineData::declared_primary_mac),
         )
@@ -551,18 +554,26 @@ impl MachineCreator {
         let endpoint_machine_id =
             db::machine_topology::find_machine_id_by_bmc_mac(&mut *txn, bmc_mac_address).await?;
 
-        let mut existing_predicted_host_machine_id = None;
+        let mut existing_predicted_host_machine_id: Option<PredictedHostMachineId> = None;
         for mac_address in &mac_addresses {
             if let Some(machine) = db::machine::find_by_mac_address(txn, mac_address).await? {
-                match machine.id.machine_type() {
-                    MachineType::Host => {
+                match machine.id.machine_id_subtype() {
+                    MachineIdSubtype::StableHost(stable_machine_id) => {
                         // ExpectedMachine is ingestion policy, not a way to
                         // rewrite interfaces on an already managed host.
-                        reconcile_desired_boot_interface(txn, &machine.id, None, None).await?;
+                        reconcile_desired_boot_interface(
+                            txn,
+                            stable_machine_id.as_ref(),
+                            None,
+                            None,
+                        )
+                        .await?;
                         return Ok(None);
                     }
-                    MachineType::PredictedHost => {
-                        if endpoint_machine_id != Some(machine.id) {
+                    MachineIdSubtype::PredictedHost(predicted_machine_id) => {
+                        if endpoint_machine_id.as_ref()
+                            != Some(predicted_machine_id.as_machine_id())
+                        {
                             tracing::warn!(
                                 %mac_address,
                                 predicted_machine_id = %machine.id,
@@ -572,9 +583,9 @@ impl MachineCreator {
                             );
                             return Ok(None);
                         }
-                        existing_predicted_host_machine_id = Some(machine.id);
+                        existing_predicted_host_machine_id = Some(predicted_machine_id);
                     }
-                    _ => {
+                    MachineIdSubtype::Dpu(_) => {
                         // Preserve the existing collision behavior for a MAC
                         // already owned by a non-host machine.
                         return Ok(None);
@@ -590,14 +601,21 @@ impl MachineCreator {
                 db::predicted_machine_interface::find_by_mac_address(&mut *txn, *mac_address)
                     .await?
             {
-                match prediction.machine_id.machine_type() {
-                    MachineType::Host => {
-                        reconcile_desired_boot_interface(txn, &prediction.machine_id, None, None)
-                            .await?;
+                match prediction.machine_id.machine_id_subtype() {
+                    MachineIdSubtype::StableHost(stable_machine_id) => {
+                        reconcile_desired_boot_interface(
+                            txn,
+                            stable_machine_id.as_host_machine_id(),
+                            None,
+                            None,
+                        )
+                        .await?;
                         return Ok(None);
                     }
-                    MachineType::PredictedHost => {
-                        if endpoint_machine_id != Some(prediction.machine_id) {
+                    MachineIdSubtype::PredictedHost(predicted_machine_id) => {
+                        if endpoint_machine_id.as_ref()
+                            != Some(predicted_machine_id.as_machine_id())
+                        {
                             tracing::warn!(
                                 %mac_address,
                                 predicted_machine_id = %prediction.machine_id,
@@ -607,7 +625,7 @@ impl MachineCreator {
                             );
                             return Ok(None);
                         }
-                        existing_predicted_host_machine_id = Some(prediction.machine_id);
+                        existing_predicted_host_machine_id = Some(predicted_machine_id);
                     }
                     _ => return Ok(None),
                 }
@@ -623,11 +641,18 @@ impl MachineCreator {
         let has_existing_primary = if declared_primary.is_none()
             && let Some(machine_id) = existing_predicted_host_machine_id
         {
-            db::machine_interface::machine_has_primary_interface(&machine_id, &mut *txn).await?
-                || db::predicted_machine_interface::find_by_machine_id(&mut *txn, &machine_id)
-                    .await?
-                    .iter()
-                    .any(|prediction| prediction.primary_interface)
+            db::machine_interface::machine_has_primary_interface(
+                machine_id.as_machine_id(),
+                &mut *txn,
+            )
+            .await?
+                || db::predicted_machine_interface::find_by_machine_id(
+                    &mut *txn,
+                    machine_id.as_machine_id(),
+                )
+                .await?
+                .iter()
+                .any(|prediction| prediction.primary_interface)
         } else {
             false
         };
@@ -656,13 +681,19 @@ impl MachineCreator {
         if let Some(machine_id) = existing_predicted_host_machine_id {
             Self::reconcile_zero_dpu_host_interfaces(
                 txn,
-                &machine_id,
+                machine_id.as_machine_id(),
                 &mac_addresses,
                 &report_boot_interface_ids,
                 primary_mac,
             )
             .await?;
-            reconcile_desired_boot_interface(txn, &machine_id, None, declared_primary).await?;
+            reconcile_desired_boot_interface(
+                txn,
+                machine_id.as_host_machine_id(),
+                None,
+                declared_primary,
+            )
+            .await?;
             return Ok(None);
         }
 
@@ -702,7 +733,8 @@ impl MachineCreator {
                 predicted_host_mac_addresses = ?mac_addresses,
                 "Predicted host already exists, with different mac addresses from this one. Potentially multiple machines with same serial number?"
             );
-            reconcile_desired_boot_interface(txn, &existing_machine.id, None, None).await?;
+            reconcile_desired_boot_interface(txn, &existing_machine.id.try_into()?, None, None)
+                .await?;
             return Ok(None);
         }
 
@@ -1443,15 +1475,10 @@ impl MachineCreator {
 /// `MacOnly` target to a `Pair` for the same MAC.
 async fn reconcile_desired_boot_interface(
     txn: &mut PgConnection,
-    machine_id: &MachineId,
+    machine_id: &HostMachineId,
     primary_interface_selection: Option<HostPrimaryInterfaceSelection>,
     declared_primary: Option<MacAddress>,
 ) -> SiteExplorerResult<()> {
-    let machine_type = machine_id.machine_type();
-    if !machine_type.is_host() && !machine_type.is_predicted_host() {
-        return Ok(());
-    }
-
     let desired = db::machine_desired_boot_interface::get(&mut *txn, machine_id).await?;
 
     if matches!(
@@ -1464,9 +1491,13 @@ async fn reconcile_desired_boot_interface(
     // `find_by_machine_ids` removes BMC rows. Keeping that boundary in the
     // database query also lets `pick_boot_interface` borrow this list directly.
     let mut interfaces_by_machine =
-        db::machine_interface::find_by_machine_ids(txn, &[*machine_id]).await?;
-    let interfaces = interfaces_by_machine.remove(machine_id).unwrap_or_default();
-    let predictions = db::predicted_machine_interface::find_by_machine_id(txn, machine_id).await?;
+        db::machine_interface::find_by_machine_ids(txn, &[*machine_id.as_machine_id()]).await?;
+    let interfaces = interfaces_by_machine
+        .remove(machine_id.as_machine_id())
+        .unwrap_or_default();
+    let predictions =
+        db::predicted_machine_interface::find_by_machine_id(txn, machine_id.as_machine_id())
+            .await?;
     let update = desired_boot_interface_update(
         desired.as_ref().map(|desired| &desired.value),
         &interfaces,

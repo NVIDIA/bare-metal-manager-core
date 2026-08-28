@@ -6,6 +6,7 @@ package util
 import (
 	"context"
 	"os"
+	"reflect"
 	"testing"
 	"time"
 
@@ -284,6 +285,32 @@ func TestBuildSubnet(t *testing.T, dbSession *cdb.Session, tenant *cdbm.Tenant, 
 	_, err := dbSession.DB.NewInsert().Model(subnet).Exec(context.Background())
 	assert.Nil(t, err)
 	return subnet
+}
+
+// TestInventoryAgeUpdatedTimestamp backdates every row of a table past the inventory staleness
+// threshold. The inventory activities skip updating a row written more recently than that, so a
+// fixture that seeds rows and then feeds them a competing inventory has to age them first. Each
+// test builds its own schema, so ageing the whole table keeps the fixture setup to one call.
+// Pass a typed nil model, for example (*cdbm.Vpc)(nil).
+func TestInventoryAgeUpdatedTimestamp(ctx context.Context, t *testing.T, dbSession *cdb.Session, models ...any) {
+	t.Helper()
+
+	for _, model := range models {
+		query := dbSession.DB.NewUpdate().
+			Model(model).
+			Set("updated = ?", time.Now().Add(-2*cutil.DefaultInventoryReceiptInterval)).
+			Where("1 = 1")
+
+		// Bun restricts an update on a soft-delete model to live rows, and a test that reconciles
+		// a deleted row still needs that row aged. Asking for deleted rows on a model without the
+		// field is an error, so only widen the scope where the field exists.
+		if dbSession.DB.Table(reflect.TypeOf(model).Elem()).SoftDeleteField != nil {
+			query = query.WhereAllWithDeleted()
+		}
+
+		_, err := query.Exec(ctx)
+		assert.NoError(t, err)
+	}
 }
 
 // TestBuildInfiniBandPartition builds and returns an InfiniBandPartition

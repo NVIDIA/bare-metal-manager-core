@@ -86,19 +86,33 @@ pub(crate) const FMDS_SERVICE_MTU: i64 = 1500;
 pub(crate) const OTEL_COLLECTOR_SERVICE_HELM_NAME: &str = "nico-otelcol";
 pub(crate) const OTEL_COLLECTOR_SERVICE_IMAGE_NAME: &str = "otelcol-contrib";
 
-/// Weave DHCP agent service definitions.
+/// Built-in defaults for the Weave DHCP agent extra service.
+///
+/// Sites can override these fields under `[dpf.extra_services.doca_weave_dhcp_agent]`;
+/// deployment-local overrides under
+/// `[dpf.deployments.<name>.extra_services.doca_weave_dhcp_agent]` take precedence. Keep
+/// defaults here so enabling Astra does not require every site to restate the chart and image.
 pub(crate) const DOCA_WEAVE_DHCP_AGENT_SERVICE_HELM_NAME: &str = "dpf-weave";
-pub(crate) const DOCA_WEAVE_DHCP_AGENT_SERVICE_HELM_VERSION: &str = "v26.8.0-a02ded2e-nightly";
+pub(crate) const DOCA_WEAVE_DHCP_AGENT_SERVICE_HELM_VERSION: &str = "v26.8.0-d464e7bf-nightly";
 pub(crate) const DOCA_WEAVE_DHCP_AGENT_SERVICE_IMAGE_NAME: &str = "weave-system";
-pub(crate) const DOCA_WEAVE_DHCP_AGENT_SERVICE_IMAGE_TAG: &str = "v26.8.0-a02ded2e-nightly";
+pub(crate) const DOCA_WEAVE_DHCP_AGENT_SERVICE_IMAGE_TAG: &str = "v26.8.0-d464e7bf-nightly";
 
-/// Weave flow (ovs) controller service definitions.
+/// Built-in defaults for the Weave flow-controller extra service.
+///
+/// Sites can override these fields under `[dpf.extra_services.doca_weave_flow_controller]`;
+/// deployment-local overrides under
+/// `[dpf.deployments.<name>.extra_services.doca_weave_flow_controller]` take precedence.
 pub(crate) const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_HELM_NAME: &str = "dpf-weave";
-pub(crate) const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_HELM_VERSION: &str = "v26.8.0-a02ded2e-nightly";
+pub(crate) const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_HELM_VERSION: &str = "v26.8.0-d464e7bf-nightly";
 pub(crate) const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_NAME: &str = "weave-system";
-pub(crate) const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_TAG: &str = "v26.8.0-a02ded2e-nightly";
+pub(crate) const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_TAG: &str = "v26.8.0-d464e7bf-nightly";
 
-/// Xplane service definitions.
+/// Built-in defaults for the Xplane extra service.
+///
+/// Sites can override these fields under `[dpf.extra_services.doca_xplane]`;
+/// deployment-local overrides under `[dpf.deployments.<name>.extra_services.doca_xplane]`
+/// take precedence. Keep defaults here so enabling Astra does not require every site to restate
+/// the chart and image.
 const DOCA_XPLANE_SERVICE_HELM_NAME: &str = "xplane";
 const DOCA_XPLANE_SERVICE_HELM_VERSION: &str = "3.5.0020";
 const DOCA_XPLANE_SERVICE_IMAGE_NAME: &str = "xplane";
@@ -795,6 +809,9 @@ pub(crate) fn doca_weave_flow_controller_service(cfg: &DpfServiceConfig) -> Serv
                 "enabled": true,
                 "underlayConfigMapData": {
                     "nicIDType": "mac",
+                    "overlayNetworkPrefixLength": 11,
+                    "softwarePlaneIDBitLength": 8,
+                    "railIDBitLength": 4,
                     "interfaces": weave_flow_controller_underlay_interfaces(),
                 }
             }
@@ -1284,6 +1301,18 @@ mod tests {
         assert_eq!(
             config["weaveFlowController"]["underlayConfigMapData"]["nicIDType"],
             "mac"
+        );
+        assert_eq!(
+            config["weaveFlowController"]["underlayConfigMapData"]["overlayNetworkPrefixLength"],
+            11
+        );
+        assert_eq!(
+            config["weaveFlowController"]["underlayConfigMapData"]["softwarePlaneIDBitLength"],
+            8
+        );
+        assert_eq!(
+            config["weaveFlowController"]["underlayConfigMapData"]["railIDBitLength"],
+            4
         );
 
         let interfaces = config["weaveFlowController"]["underlayConfigMapData"]["interfaces"]

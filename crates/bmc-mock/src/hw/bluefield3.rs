@@ -186,7 +186,7 @@ impl Bluefield3<'_> {
                 storage: None,
                 processors: None,
                 memory: None,
-                serial_console: None,
+                serial_console: Some(hw::openbmc::enabled_serial_console()),
                 secure_boot_available: true,
             }],
         }

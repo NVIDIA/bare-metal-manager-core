@@ -34,7 +34,7 @@ use health_report::HealthReport;
 use crate::bmc_info::BmcInfo;
 use crate::hardware_info::{
     BlockDevice, CpuInfo, DmiData, Gpu, HardwareInfo, InfinibandInterface, MachineInventory,
-    MachineInventorySoftwareComponent, MemoryDevice, NetworkInterface, NvmeDevice,
+    MachineInventorySoftwareComponent, MemoryDeviceGroup, NetworkInterface, NvmeDevice,
     PciDeviceProperties, TpmEkCertificate,
 };
 use crate::health::HealthReportSources;
@@ -202,12 +202,11 @@ pub fn host_hardware_info() -> HardwareInfo {
                 platform_info: None,
             })
             .collect(),
-        memory_devices: (0..8)
-            .map(|_| MemoryDevice {
-                size_mb: Some(65536),
-                mem_type: Some("DDR5".to_string()),
-            })
-            .collect(),
+        memory_devices: vec![MemoryDeviceGroup {
+            size_mb: Some(65536),
+            mem_type: Some("DDR5".to_string()),
+            count: 8,
+        }],
         tpm_description: None,
     }
 }
@@ -362,6 +361,7 @@ pub fn machine_snapshot_pg_json(machine_id: MachineId) -> MachineSnapshotPgJson 
 
     MachineSnapshotPgJson {
         machine_maintenance_requested: None,
+        decommission_requested: false,
         bmc_credential_rotation_requested: false,
         uefi_credential_rotation_requested: false,
         id: machine_id,
@@ -399,7 +399,6 @@ pub fn machine_snapshot_pg_json(machine_id: MachineId) -> MachineSnapshotPgJson 
             client_certificate_expiry: Some(1_781_536_000),
             agent_version_superseded_at: None,
             instance_network_observation: None,
-            extension_service_observation: None,
             fabric_interfaces: vec![],
         }),
         infiniband_status_observation: Some(MachineInfinibandStatusObservation {
@@ -416,6 +415,7 @@ pub fn machine_snapshot_pg_json(machine_id: MachineId) -> MachineSnapshotPgJson 
         }),
         nvlink_status_observation: None,
         spx_status_observation: None,
+        extension_service_status_observations: Default::default(),
         controller_state_version: config_version(5).version_string(),
         controller_state: ManagedHostState::Ready,
         last_discovery_time: Some(fixture_time(200)),
@@ -494,6 +494,7 @@ pub fn machine_snapshot_pg_json(machine_id: MachineId) -> MachineSnapshotPgJson 
         power_options: None,
         hw_sku_device_type: Some("compute".to_string()),
         update_complete: true,
+        backend_firmware_object_job_id: None,
         nvlink_info: None,
         dpf: Dpf {
             enabled: false,
@@ -533,5 +534,108 @@ pub fn managed_host_state_snapshot() -> ManagedHostStateSnapshot {
         managed_state,
         aggregate_health: health_report_with_source("aggregate-health"),
         rack_health_overrides: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::{Check, check_values};
+    use serde_json::json;
+
+    use super::*;
+
+    fn memory_devices(memory_devices_json: serde_json::Value) -> Vec<MemoryDeviceGroup> {
+        let json = json!({
+            "machine_type": "x86_64",
+            "memory_devices": memory_devices_json,
+        });
+        let info: HardwareInfo = serde_json::from_value(json).unwrap();
+        info.memory_devices
+    }
+
+    /// `HardwareInfo.memory_devices` accepts both the condensed `{size_mb, mem_type, count}`
+    /// shape and the legacy flat shape (`{size_mb, mem_type}`, one object per DIMM, implicit
+    /// `count: 1`). Consecutive entries with the same `(size_mb, mem_type)` merge regardless of
+    /// which shape produced them.
+    #[test]
+    fn hardware_info_normalizes_mixed_legacy_and_counted_memory_devices() {
+        check_values(
+            [
+                Check {
+                    scenario: "legacy entries without count merge like a single counted group",
+                    input: json!([
+                        {"size_mb": 16384, "mem_type": "DDR5"},
+                        {"size_mb": 16384, "mem_type": "DDR5"},
+                        {"size_mb": 16384, "mem_type": "DDR5"}
+                    ]),
+                    expect: vec![MemoryDeviceGroup {
+                        size_mb: Some(16384),
+                        mem_type: Some("DDR5".into()),
+                        count: 3,
+                    }],
+                },
+                Check {
+                    scenario: "a legacy entry directly followed by a counted entry of the same key merges",
+                    input: json!([
+                        {"size_mb": 16384, "mem_type": "DDR5"},
+                        {"size_mb": 16384, "mem_type": "DDR5", "count": 4}
+                    ]),
+                    expect: vec![MemoryDeviceGroup {
+                        size_mb: Some(16384),
+                        mem_type: Some("DDR5".into()),
+                        count: 5,
+                    }],
+                },
+                Check {
+                    scenario: "a counted entry directly followed by a legacy entry of the same key merges",
+                    input: json!([
+                        {"size_mb": 16384, "mem_type": "DDR5", "count": 4},
+                        {"size_mb": 16384, "mem_type": "DDR5"}
+                    ]),
+                    expect: vec![MemoryDeviceGroup {
+                        size_mb: Some(16384),
+                        mem_type: Some("DDR5".into()),
+                        count: 5,
+                    }],
+                },
+                Check {
+                    scenario: "legacy and counted entries with different keys stay separate",
+                    input: json!([
+                        {"size_mb": 8192, "mem_type": "DDR4"},
+                        {"size_mb": 16384, "mem_type": "DDR5", "count": 4},
+                        {"size_mb": 8192, "mem_type": "DDR4"}
+                    ]),
+                    expect: vec![
+                        MemoryDeviceGroup {
+                            size_mb: Some(8192),
+                            mem_type: Some("DDR4".into()),
+                            count: 1,
+                        },
+                        MemoryDeviceGroup {
+                            size_mb: Some(16384),
+                            mem_type: Some("DDR5".into()),
+                            count: 4,
+                        },
+                        MemoryDeviceGroup {
+                            size_mb: Some(8192),
+                            mem_type: Some("DDR4".into()),
+                            count: 1,
+                        },
+                    ],
+                },
+                Check {
+                    // Ties the legacy wire shape back to the fixture host's own memory
+                    // layout: 8 flat DIMM entries should normalize to exactly what
+                    // `host_hardware_info()` already carries as a single counted group.
+                    scenario: "a full host's worth of legacy DIMMs matches the fixture's counted group",
+                    input: json!(
+                        std::iter::repeat_n(json!({"size_mb": 65536, "mem_type": "DDR5"}), 8)
+                            .collect::<Vec<_>>()
+                    ),
+                    expect: host_hardware_info().memory_devices,
+                },
+            ],
+            memory_devices,
+        );
     }
 }

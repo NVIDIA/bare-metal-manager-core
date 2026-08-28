@@ -18,9 +18,11 @@ import (
 func TestStoreContract(t *testing.T) {
 	storetest.RunRuleBindingContract(t, func() (eventrule.RuleStore, eventrule.BindingStore) {
 		store := New()
+
 		return store, store
 	})
-	storetest.RunExecutionContract(t, func(now *time.Time) eventrule.ExecutionStore {
+
+	storetest.RunExecutionContract(t, func(now *time.Time) storetest.EventExecutionStore {
 		return NewWithClock(func() time.Time { return *now })
 	})
 }
@@ -62,36 +64,27 @@ func TestBindingScansIgnoreUnrelatedInvalidRecords(t *testing.T) {
 	require.NoError(t, store.Delete(ctx, rule.ID))
 }
 
-func TestStore_CreateExecutionRejectsDanglingIndexes(t *testing.T) {
+func TestStore_CommitEventPlanRejectsDanglingIndexes(t *testing.T) {
 	now := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
-	tests := map[string]func(*Store, eventrule.ExecutionIdentity){
-		"delivery": func(store *Store, identity eventrule.ExecutionIdentity) {
-			store.executionsByDelivery[identity.DeliveryKey()] = uuid.New()
-		},
-		"semantic": func(store *Store, identity eventrule.ExecutionIdentity) {
-			store.executionsBySemantic[identity.SemanticKey()] = []uuid.UUID{uuid.New()}
-		},
+	store := NewWithClock(func() time.Time { return now })
+	definition := eventrule.Event{
+		Key:           eventrule.EventKey{SourceName: "test", SourceKey: "event-1"},
+		Type:          "test.event",
+		Resource:      eventrule.ResourceIdentity{Kind: eventrule.ResourceKindRack, ID: uuid.New()},
+		AppliedRuleID: uuid.New(),
+		EffectivePolicy: eventrule.Policy{Actions: []eventrule.Action{
+			{Name: "action", Spec: &eventrule.Noop{}},
+		}},
+		Summary: "Test event",
 	}
 
-	for name, corrupt := range tests {
-		t.Run(name, func(t *testing.T) {
-			store := NewWithClock(func() time.Time { return now })
-			identity := eventrule.ExecutionIdentity{
-				EventID:        uuid.New(),
-				RuleID:         uuid.New(),
-				ActionName:     "action",
-				CorrelationKey: "incident-1",
-			}
-			dedupe := &eventrule.Dedupe{Window: time.Minute}
-			corrupt(store, identity)
+	store.eventsByKey[definition.Key] = uuid.New()
 
-			execution, err := store.CreateExecution(
-				context.Background(),
-				identity,
-				dedupe,
-			)
-			require.ErrorIs(t, err, eventrule.ErrExecutionNotFound)
-			require.Nil(t, execution)
-		})
-	}
+	event, err := store.CommitEventPlan(context.Background(), definition, []eventrule.PlannedExecution{{
+		ActionName:    "action",
+		ExecutionPlan: &eventrule.NoopPlan{},
+	}})
+
+	require.ErrorIs(t, err, eventrule.ErrEventNotFound)
+	require.Nil(t, event)
 }

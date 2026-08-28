@@ -29,6 +29,12 @@ Force delete a machine and its interfaces (redeploy kea afterward):
     $ nico-admin-cli machine force-delete --machine 12345678-1234-5678-90ab-cdef01234567 \
     --delete-interfaces
 
+Force delete with a full rediscovery wipe (interfaces, BMC interfaces, \
+suppressions, and retained boot targets):
+    $ nico-admin-cli machine force-delete --machine 12345678-1234-5678-90ab-cdef01234567 \
+    --delete-interfaces --delete-bmc-interfaces --delete-bmc-suppressions \
+    --delete-retained-boot-interfaces
+
 ")]
 pub(crate) struct Args {
     #[clap(
@@ -54,6 +60,20 @@ pub(crate) struct Args {
     #[clap(
         long,
         action,
+        help = "Delete Site Explorer and DHCP BMC suppressions for the host/DPU BMC MACs and underlay (OOB) MACs so rediscovery is not skipped."
+    )]
+    delete_bmc_suppressions: bool,
+
+    #[clap(
+        long,
+        action,
+        help = "Delete retained boot-interface pairs for the host/DPU BMC and interface MACs. Without this, deleted interfaces keep their boot targets for re-ingestion."
+    )]
+    delete_retained_boot_interfaces: bool,
+
+    #[clap(
+        long,
+        action,
         help = "Delete machine with allocated instance. This flag acknowledges destroying the user instance as well."
     )]
     pub(super) allow_delete_with_instance: bool,
@@ -74,6 +94,8 @@ impl From<&Args> for AdminForceDeleteMachineRequest {
             delete_bmc_interfaces: args.delete_bmc_interfaces,
             delete_bmc_credentials: args.delete_bmc_credentials,
             allow_delete_with_orphaned_dpf_crds: args.allow_delete_with_orphaned_dpf_crds,
+            delete_bmc_suppressions: args.delete_bmc_suppressions,
+            delete_retained_boot_interfaces: args.delete_retained_boot_interfaces,
         }
     }
 }

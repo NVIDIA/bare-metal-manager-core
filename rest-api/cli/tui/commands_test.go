@@ -233,6 +233,11 @@ func TestCmdInstanceListRendersIPAddresses(t *testing.T) {
 	assert.Equal(t, "-", strings.TrimSpace(empty[ipAddressesColumn:statusColumn]))
 }
 
+func TestShellQuoteCLIArg(t *testing.T) {
+	assert.Equal(t, `'simple'`, shellQuoteCLIArg("simple"))
+	assert.Equal(t, `'tenant'\''s instance'`, shellQuoteCLIArg("tenant's instance"))
+}
+
 func TestFirstMachineIPAddress(t *testing.T) {
 	tests := []struct {
 		name string
