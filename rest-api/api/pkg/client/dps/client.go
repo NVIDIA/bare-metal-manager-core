@@ -48,7 +48,7 @@ type PolicyProvider interface {
 
 // ResourceGroupProvisioner is the DPS behavior required by VPC and instance
 // lifecycle handlers. machineID is both the NICo/Core Machine ID and the DPS
-// topology resource name, matching LaunchLayer's integration contract.
+// topology resource name.
 type ResourceGroupProvisioner interface {
 	ValidateAllocation(ctx context.Context, machineIDs []string, powerProfile string) error
 	CreateResourceGroup(ctx context.Context, resourceGroup string, externalID int64) error

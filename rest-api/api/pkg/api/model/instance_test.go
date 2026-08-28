@@ -49,9 +49,9 @@ func TestValidatePowerProfile(t *testing.T) {
 	}{
 		{
 			name:        "disabled DPS trusts profile without calling DPS",
-			profile:     cutil.GetPtr("launchlayer-profile"),
+			profile:     cutil.GetPtr("trusted-profile"),
 			provider:    &policyProviderStub{err: providerFailure},
-			wantProfile: cutil.GetPtr("launchlayer-profile"),
+			wantProfile: cutil.GetPtr("trusted-profile"),
 		},
 		{
 			name:       "enabled DPS preserves omitted profile",

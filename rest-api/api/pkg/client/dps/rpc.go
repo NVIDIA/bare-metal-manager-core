@@ -183,7 +183,7 @@ func (c *Client) ValidateAllocation(ctx context.Context, machineIDs []string, po
 }
 
 // CreateResourceGroup creates an empty, inactive DPS resource group with the
-// Max-Q options used by LaunchLayer for DPS 0.8.
+// required Max-Q options for DPS 0.8.
 func (c *Client) CreateResourceGroup(ctx context.Context, resourceGroup string, externalID int64) error {
 	resourceGroup, err := requiredName("resource group", resourceGroup)
 	if err != nil {

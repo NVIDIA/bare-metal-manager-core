@@ -11,8 +11,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// ExternalIDFromVPCID derives the stable positive int64 DPS external_id used by
-// LaunchLayer from a VPC UUID.
+// ExternalIDFromVPCID derives a stable positive int64 DPS external_id from a
+// VPC UUID.
 func ExternalIDFromVPCID(vpcID string) (int64, error) {
 	id, err := uuid.Parse(strings.TrimSpace(vpcID))
 	if err != nil {

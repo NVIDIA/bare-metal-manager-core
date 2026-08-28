@@ -25,7 +25,7 @@ var (
 type PolicyCatalog map[string]struct{}
 
 // NewPolicyCatalog trims names, drops empty values, and deduplicates the DPS
-// response using the same set semantics as LaunchLayer.
+// response.
 func NewPolicyCatalog(names []string) PolicyCatalog {
 	catalog := make(PolicyCatalog, len(names))
 	for _, name := range names {
