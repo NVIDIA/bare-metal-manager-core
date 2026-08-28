@@ -43,10 +43,12 @@ const GB200_B3240_V1_PARAMETERS: [&str; 18] = [
     "PCI_SWITCH0_UPSTREAM_PORT_PEX=0",
 ];
 
-const GB200_B3240_PART_NUMBERS: [&str; 3] = [
+const GB200_B3240_PART_NUMBERS: [&str; 5] = [
     "900-9D3B6-00CN-AB0",
     "900-9D3B6-00CN-PA0",
     "900-9D3B6-00SN-AB0",
+    "900-9D3B6-00CN-PN0",
+    "900-9D3B6-00CN-P_Ax",
 ];
 
 /// `DpuNvConfigProfile` identifies a fixed version of platform mlxconfig values.
@@ -59,9 +61,10 @@ pub enum DpuNvConfigProfile {
 impl DpuNvConfigProfile {
     /// Returns the GB200 profile for an exact supported B3240 part number.
     ///
-    /// Accepted part numbers are `900-9D3B6-00CN-AB0`, `900-9D3B6-00SN-AB0`,
-    /// and `900-9D3B6-00CN-PA0`. Surrounding whitespace and ASCII letter case
-    /// are ignored. The caller must separately verify that the DPU belongs to a
+    /// Accepted identities are `900-9D3B6-00CN-AB0`, `900-9D3B6-00SN-AB0`,
+    /// `900-9D3B6-00CN-PA0`, `900-9D3B6-00CN-PN0`, and
+    /// `900-9D3B6-00CN-P_Ax`. Surrounding whitespace and ASCII letter case are
+    /// ignored. The caller must separately verify that the DPU belongs to a
     /// GB200 rack. Broader B3240 product prefixes are not accepted.
     pub fn for_gb200_b3240_part_number(part_number: &str) -> Option<Self> {
         let part_number = part_number.trim();
@@ -90,10 +93,12 @@ mod tests {
     fn gb200_b3240_profile_requires_an_exact_supported_part_number() {
         value_scenarios!(
             run = DpuNvConfigProfile::for_gb200_b3240_part_number;
-            "supported part numbers" {
+            "supported identities" {
                 "900-9D3B6-00CN-AB0" => Some(DpuNvConfigProfile::Gb200B3240V1),
                 "900-9D3B6-00SN-AB0" => Some(DpuNvConfigProfile::Gb200B3240V1),
                 "900-9D3B6-00CN-PA0" => Some(DpuNvConfigProfile::Gb200B3240V1),
+                "900-9D3B6-00CN-PN0" => Some(DpuNvConfigProfile::Gb200B3240V1),
+                "900-9D3B6-00CN-P_Ax" => Some(DpuNvConfigProfile::Gb200B3240V1),
                 " 900-9d3b6-00cn-pa0\n" => Some(DpuNvConfigProfile::Gb200B3240V1),
             }
 
