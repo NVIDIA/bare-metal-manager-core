@@ -19,9 +19,11 @@ use std::collections::HashSet;
 use std::net::IpAddr;
 
 use ::rpc::forge as rpc;
-use db;
+use db::{self, ObjectColumnFilter};
 use model::instance::snapshot::InstanceSnapshot;
+use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{InstanceState, MachineInterfaceSnapshot, ManagedHostState};
+use model::rack_type::select_dpu_nvconfig_profile;
 use sqlx::PgConnection;
 
 use crate::CarbideError;
@@ -135,6 +137,60 @@ pub(crate) async fn resolve_machine_interface(
                 })
         }
     }
+}
+
+/// Selects a DPU profile from the attached host's rack and the DPU's hardware
+/// identity. Missing relationships mean no platform profile applies; database
+/// failures still propagate to the caller.
+async fn resolve_dpu_nvconfig_profile(
+    api: &Api,
+    conn: &mut PgConnection,
+    machine_interface: &MachineInterfaceSnapshot,
+) -> Result<Option<rpc::DpuNvConfigProfile>, CarbideError> {
+    let Some(dpu_machine_id) = machine_interface.machine_id.as_ref() else {
+        return Ok(None);
+    };
+    if !dpu_machine_id.machine_type().is_dpu() {
+        return Ok(None);
+    }
+
+    let Some(host) = db::machine::find_host_by_dpu_machine_id(&mut *conn, dpu_machine_id).await?
+    else {
+        return Ok(None);
+    };
+    let Some(rack_id) = host.rack_id.as_ref() else {
+        return Ok(None);
+    };
+    let Some(rack) = db::rack::find_by(
+        &mut *conn,
+        ObjectColumnFilter::One(db::rack::IdColumn, rack_id),
+    )
+    .await?
+    .pop() else {
+        return Ok(None);
+    };
+    let Some(rack_profile_id) = rack.rack_profile_id.as_ref() else {
+        return Ok(None);
+    };
+    let Some(rack_profile) = api
+        .runtime_config
+        .rack_profiles
+        .get(rack_profile_id.as_str())
+    else {
+        return Ok(None);
+    };
+
+    let Some(dpu) =
+        db::machine::find_one(&mut *conn, dpu_machine_id, MachineSearchConfig::default()).await?
+    else {
+        return Ok(None);
+    };
+
+    Ok(select_dpu_nvconfig_profile(
+        rack_profile.product_family.as_ref(),
+        dpu.status.hardware_info.as_ref(),
+    )
+    .map(rpc::DpuNvConfigProfile::from))
 }
 
 /// Resolve a client IP to its `CloudInitInstructions` response. The
@@ -252,6 +308,10 @@ pub(crate) async fn resolve_cloud_init_instructions(
             // Resolve VMaaS config once so the cloud-init fields are derived consistently.
             let vmaas_config = api.runtime_config.vmaas_config.as_ref();
             let traffic_intercept_bridging = vmaas_config.and_then(|vc| vc.bridging.as_ref());
+            let dpu_nvconfig_profile = resolve_dpu_nvconfig_profile(api, conn, &machine_interface)
+                .await?
+                .unwrap_or(rpc::DpuNvConfigProfile::Unspecified)
+                as i32;
 
             Ok(rpc::CloudInitInstructions {
                 custom_cloud_init,
@@ -275,6 +335,7 @@ pub(crate) async fn resolve_cloud_init_instructions(
                     bootstrap_ca_source: rpc::BootstrapCaSource::from(
                         api.runtime_config.dpu_config.bootstrap_ca_source,
                     ) as i32,
+                    dpu_nvconfig_profile,
                 }),
                 metadata,
                 api_url_override,
