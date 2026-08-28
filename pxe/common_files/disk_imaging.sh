@@ -438,6 +438,8 @@ function get_serial_port() {
 }
 
 function modify_grub_cfg() {
+	local grub_cfg_status
+
 	efi_mounted=
 	if [ ! -d "/mnt/boot/grub" ]; then
 		boot_part=
@@ -494,8 +496,10 @@ function modify_grub_cfg() {
 			grub_bls_cmd="--update-bls-cmdline"
 		fi
 		chroot /mnt /bin/sh -c "grub2-mkconfig $grub_bls_cmd -o ${grub_cfg#'/mnt'}" 2>&1 | tee $log_output
+		grub_cfg_status=${PIPESTATUS[0]}
 	else
 		chroot /mnt /bin/sh -c update-grub 2>&1 | tee $log_output
+		grub_cfg_status=${PIPESTATUS[0]}
 	fi
 	create_efi_boot_entry
 	set_boot_order
@@ -506,6 +510,7 @@ function modify_grub_cfg() {
 	if [[ $(grep '\/mnt\/boot' /proc/mounts) ]]; then
 		umount /mnt/boot
 	fi
+	return "$grub_cfg_status"
 }
 
 function get_part_num() {
