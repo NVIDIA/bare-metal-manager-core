@@ -59,19 +59,42 @@ func TestTokenCredentials_GetRequestMetadata(t *testing.T) {
 }
 
 func TestTokenCredentials_RequireTransportSecurity(t *testing.T) {
-	assert.True(t, NewTokenCredentials("unused").RequireTransportSecurity())
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "requires TLS", path: "unused"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.True(t, NewTokenCredentials(test.path).RequireTransportSecurity())
+		})
+	}
 }
 
-func TestNewConnectionRejectsInvalidCA(t *testing.T) {
-	caPath := filepath.Join(t.TempDir(), "ca.crt")
-	require.NoError(t, os.WriteFile(caPath, []byte("not a certificate"), 0o600))
+func TestNewConnection(t *testing.T) {
+	tests := []struct {
+		name      string
+		ca        string
+		wantError string
+	}{
+		{name: "rejects invalid CA", ca: "not a certificate", wantError: "contains no valid certificates"},
+	}
 
-	connection, err := NewConnection(Config{
-		Endpoint:  "dps.example.com:443",
-		TokenPath: filepath.Join(t.TempDir(), "token"),
-		CAPath:    caPath,
-	})
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			caPath := filepath.Join(t.TempDir(), "ca.crt")
+			require.NoError(t, os.WriteFile(caPath, []byte(test.ca), 0o600))
 
-	require.ErrorContains(t, err, "contains no valid certificates")
-	assert.Nil(t, connection)
+			connection, err := NewConnection(Config{
+				Endpoint:  "dps.example.com:443",
+				TokenPath: filepath.Join(t.TempDir(), "token"),
+				CAPath:    caPath,
+			})
+
+			require.ErrorContains(t, err, test.wantError)
+			assert.Nil(t, connection)
+		})
+	}
 }

@@ -4138,9 +4138,8 @@ func TestNewCreateVPCHandler(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewCreateVPCHandler(tt.args.dbSession, tt.args.tc, scp, tt.args.cfg, nil); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("NewCreateVPCHandler() = %v, want %v", got, tt.want)
-			}
+			got := NewCreateVPCHandler(tt.args.dbSession, tt.args.tc, scp, tt.args.cfg, nil)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -4185,9 +4184,8 @@ func TestNewUpdateVPCHandler(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewUpdateVPCHandler(tt.args.dbSession, tt.args.tc, scp, tt.args.cfg, nil); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("NewUpdateVPCHandler() = %v, want %v", got, tt.want)
-			}
+			got := NewUpdateVPCHandler(tt.args.dbSession, tt.args.tc, scp, tt.args.cfg, nil)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -4314,9 +4312,8 @@ func TestNewDeleteVPCHandler(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewDeleteVPCHandler(tt.args.dbSession, tt.args.tc, scp, tt.args.cfg, nil); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("NewDeleteVPCHandler() = %v, want %v", got, tt.want)
-			}
+			got := NewDeleteVPCHandler(tt.args.dbSession, tt.args.tc, scp, tt.args.cfg, nil)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }

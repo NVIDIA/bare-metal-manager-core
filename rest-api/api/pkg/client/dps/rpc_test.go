@@ -178,28 +178,92 @@ func TestClient_ListPowerProfiles(t *testing.T) {
 	}
 }
 
-func TestClient_ResourceGroupLifecycleRequests(t *testing.T) {
-	server := &testDPSServer{}
-	client := newTestClient(t, server)
-	ctx := context.Background()
+func TestClient_CreateResourceGroup(t *testing.T) {
+	tests := []struct {
+		name          string
+		server        *testDPSServer
+		expectedError string
+	}{
+		{name: "creates resource group", server: &testDPSServer{}},
+		{
+			name:          "reports response status failure",
+			server:        &testDPSServer{responseStatus: &dpsv1.Status{DiagMsg: "topology is inactive"}},
+			expectedError: "topology is inactive",
+		},
+	}
 
-	require.NoError(t, client.CreateResourceGroup(ctx, " group-a ", 42))
-	require.NoError(t, client.ActivateResourceGroup(ctx, "group-a"))
-	require.NoError(t, client.DeleteResourceGroup(ctx, "group-a"))
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client := newTestClient(t, test.server)
+			err := client.CreateResourceGroup(context.Background(), " group-a ", 42)
+			if test.expectedError != "" {
+				require.ErrorContains(t, err, test.expectedError)
+			} else {
+				require.NoError(t, err)
+			}
 
-	require.NotNil(t, server.createRequest)
-	assert.Equal(t, "group-a", server.createRequest.GetGroupName())
-	assert.EqualValues(t, 42, server.createRequest.GetExternalId())
-	assert.True(t, server.createRequest.GetDpmEnable())
-	assert.True(t, server.createRequest.GetPrsEnabled())
-	assert.True(t, server.createRequest.GetSharedGpuEnable())
+			require.NotNil(t, test.server.createRequest)
+			assert.Equal(t, "group-a", test.server.createRequest.GetGroupName())
+			assert.EqualValues(t, 42, test.server.createRequest.GetExternalId())
+			assert.True(t, test.server.createRequest.GetDpmEnable())
+			assert.True(t, test.server.createRequest.GetPrsEnabled())
+			assert.True(t, test.server.createRequest.GetSharedGpuEnable())
+		})
+	}
+}
 
-	assert.Equal(t, "group-a", server.activateGroup)
-	assert.True(t, server.activateRequest.GetStrict())
-	assert.False(t, server.activateRequest.GetAllowReprovision())
-	assert.Nil(t, server.activateRequest.GetAsync())
-	assert.Equal(t, "group-a", server.deleteGroup)
-	assert.True(t, server.deleteRequest.GetWppsDisableAsyncVerification())
+func TestClient_ActivateResourceGroup(t *testing.T) {
+	tests := []struct {
+		name   string
+		server *testDPSServer
+	}{
+		{name: "activates resource group", server: &testDPSServer{}},
+		{
+			name:   "accepts already active transport status",
+			server: &testDPSServer{activateError: status.Error(codes.FailedPrecondition, "already active")},
+		},
+		{
+			name:   "accepts already active response status",
+			server: &testDPSServer{responseStatus: &dpsv1.Status{DiagMsg: "resource group already active"}},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client := newTestClient(t, test.server)
+			require.NoError(t, client.ActivateResourceGroup(context.Background(), "group-a"))
+
+			assert.Equal(t, "group-a", test.server.activateGroup)
+			require.NotNil(t, test.server.activateRequest)
+			assert.True(t, test.server.activateRequest.GetStrict())
+			assert.False(t, test.server.activateRequest.GetAllowReprovision())
+			assert.Nil(t, test.server.activateRequest.GetAsync())
+		})
+	}
+}
+
+func TestClient_DeleteResourceGroup(t *testing.T) {
+	tests := []struct {
+		name   string
+		server *testDPSServer
+	}{
+		{name: "deletes resource group", server: &testDPSServer{}},
+		{
+			name:   "accepts missing resource group",
+			server: &testDPSServer{deleteError: status.Error(codes.NotFound, "missing")},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client := newTestClient(t, test.server)
+			require.NoError(t, client.DeleteResourceGroup(context.Background(), "group-a"))
+
+			assert.Equal(t, "group-a", test.server.deleteGroup)
+			require.NotNil(t, test.server.deleteRequest)
+			assert.True(t, test.server.deleteRequest.GetWppsDisableAsyncVerification())
+		})
+	}
 }
 
 func TestClient_AddMachines(t *testing.T) {
@@ -347,53 +411,6 @@ func TestClient_ValidateAllocation(t *testing.T) {
 			assert.True(t, test.server.validateRequest.GetStrict())
 		})
 	}
-}
-
-func TestClient_IdempotentLifecycleResponses(t *testing.T) {
-	tests := []struct {
-		name   string
-		server *testDPSServer
-		call   func(context.Context, *Client) error
-	}{
-		{
-			name:   "delete missing group",
-			server: &testDPSServer{deleteError: status.Error(codes.NotFound, "missing")},
-			call: func(ctx context.Context, client *Client) error {
-				return client.DeleteResourceGroup(ctx, "group-a")
-			},
-		},
-		{
-			name:   "activate active group",
-			server: &testDPSServer{activateError: status.Error(codes.FailedPrecondition, "already active")},
-			call: func(ctx context.Context, client *Client) error {
-				return client.ActivateResourceGroup(ctx, "group-a")
-			},
-		},
-		{
-			name:   "activate active response status",
-			server: &testDPSServer{responseStatus: &dpsv1.Status{DiagMsg: "resource group already active"}},
-			call: func(ctx context.Context, client *Client) error {
-				return client.ActivateResourceGroup(ctx, "group-a")
-			},
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			client := newTestClient(t, test.server)
-			require.NoError(t, test.call(context.Background(), client))
-		})
-	}
-}
-
-func TestClient_ResponseStatusFailure(t *testing.T) {
-	client := newTestClient(t, &testDPSServer{
-		responseStatus: &dpsv1.Status{DiagMsg: "topology is inactive"},
-	})
-
-	err := client.CreateResourceGroup(context.Background(), "group-a", 42)
-
-	require.ErrorContains(t, err, "topology is inactive")
 }
 
 func TestClient_ResponseStatusMissingFailsClosed(t *testing.T) {
