@@ -757,7 +757,10 @@ async fn create_dpu_flavor_template<R: DpuFlavorTemplateRepository>(
     template.metadata.name = Some(name.clone());
 
     match DpuFlavorTemplateRepository::create(repo, &template).await {
-        Ok(_) => Ok(name),
+        Ok(_) => {
+            tracing::info!(flavor_template = %name, "DPU flavor template created");
+            Ok(name)
+        }
         Err(DpfError::KubeError(kube::Error::Api(ref err)))
             if err.is_already_exists() || err.is_conflict() =>
         {
@@ -774,7 +777,7 @@ async fn create_dpu_flavor_template<R: DpuFlavorTemplateRepository>(
                     )))
                 }
                 Some(_) => {
-                    tracing::debug!(flavor_template = %name, "DPU flavor template already exists");
+                    tracing::info!(flavor_template = %name, "DPU flavor template already exists");
                     Ok(name)
                 }
             }
