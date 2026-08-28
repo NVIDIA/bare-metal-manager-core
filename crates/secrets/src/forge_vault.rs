@@ -75,7 +75,7 @@ struct ForgeVaultClientConfig {
     pub kv_mount_location: String,
     pub pki_mount_location: String,
     pub pki_role_name: String,
-    pub namespace: Option<String>,
+    namespace: Option<String>,
     spiffe_trust_domain: String,
     spiffe_machine_base_path: String,
     vault_root_ca_path: String,
