@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-package handler
+package util
 
 import (
 	"context"
@@ -67,7 +67,7 @@ func TestProvisionMachinePower(t *testing.T) {
 	tests := []struct {
 		name          string
 		stub          *powerProvisionerStub
-		assignment    machinePowerAssignment
+		assignment    MachinePowerAssignment
 		expectedError string
 		rollback      bool
 		expectedCalls []string
@@ -75,7 +75,7 @@ func TestProvisionMachinePower(t *testing.T) {
 		{
 			name:       "authorizes before mutation and compensates",
 			stub:       &powerProvisionerStub{},
-			assignment: machinePowerAssignment{machineID: "machine-a", powerProfile: "performance"},
+			assignment: MachinePowerAssignment{MachineID: "machine-a", PowerProfile: "performance"},
 			rollback:   true,
 			expectedCalls: []string{
 				"validate:performance:machine-a", "add:group-a:machine-a:performance",
@@ -85,7 +85,7 @@ func TestProvisionMachinePower(t *testing.T) {
 		{
 			name:          "cleans up failed activation",
 			stub:          &powerProvisionerStub{failAt: map[string]error{"activate:group-a": errors.New("denied")}},
-			assignment:    machinePowerAssignment{machineID: "machine-a"},
+			assignment:    MachinePowerAssignment{MachineID: "machine-a"},
 			expectedError: "activate DPS resource group",
 			expectedCalls: []string{"add:group-a:machine-a:", "activate:group-a", "remove:group-a:machine-a"},
 		},
@@ -93,7 +93,7 @@ func TestProvisionMachinePower(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			rollback, err := provisionMachinePower(context.Background(), test.stub, "group-a", test.assignment)
+			rollback, err := ProvisionMachinePower(context.Background(), test.stub, "group-a", test.assignment)
 			if test.expectedError != "" {
 				require.ErrorContains(t, err, test.expectedError)
 				assert.Nil(t, rollback)
@@ -110,9 +110,9 @@ func TestProvisionMachinePower(t *testing.T) {
 }
 
 func TestProvisionMachineBatchPower(t *testing.T) {
-	assignments := []machinePowerAssignment{
-		{machineID: "machine-a", powerProfile: "performance"},
-		{machineID: "machine-b", powerProfile: "performance"},
+	assignments := []MachinePowerAssignment{
+		{MachineID: "machine-a", PowerProfile: "performance"},
+		{MachineID: "machine-b", PowerProfile: "performance"},
 	}
 	tests := []struct {
 		name          string
@@ -149,7 +149,7 @@ func TestProvisionMachineBatchPower(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			rollback, err := provisionMachineBatchPower(context.Background(), test.stub, "group-a", assignments)
+			rollback, err := ProvisionMachineBatchPower(context.Background(), test.stub, "group-a", assignments)
 			if test.expectedError != "" {
 				require.ErrorContains(t, err, test.expectedError)
 				assert.Nil(t, rollback)
@@ -187,7 +187,7 @@ func TestUpdateMachinePower(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			stub := &powerProvisionerStub{}
-			rollback, err := updateMachinePower(context.Background(), stub, "group-a", machinePowerAssignment{machineID: "machine-a", powerProfile: test.powerProfile}, test.previous)
+			rollback, err := UpdateMachinePower(context.Background(), stub, "group-a", MachinePowerAssignment{MachineID: "machine-a", PowerProfile: test.powerProfile}, test.previous)
 			require.NoError(t, err)
 			require.NoError(t, rollback())
 			assert.Equal(t, test.expectedCalls, stub.calls)
@@ -198,12 +198,12 @@ func TestUpdateMachinePower(t *testing.T) {
 func TestPreparePowerResourceGroupChange(t *testing.T) {
 	t.Run("migrates and completes", func(t *testing.T) {
 		stub := &powerProvisionerStub{}
-		change, err := preparePowerResourceGroupChange(context.Background(), stub, 42, "group-a", "group-b", []machinePowerAssignment{
-			{machineID: "machine-a", powerProfile: "performance"},
-			{machineID: "machine-b"},
+		change, err := PreparePowerResourceGroupChange(context.Background(), stub, 42, "group-a", "group-b", []MachinePowerAssignment{
+			{MachineID: "machine-a", PowerProfile: "performance"},
+			{MachineID: "machine-b"},
 		})
 		require.NoError(t, err)
-		require.NoError(t, change.complete())
+		require.NoError(t, change.Complete())
 		assert.Equal(t, []string{
 			"validate:performance:machine-a",
 			"create:group-b",
@@ -218,9 +218,9 @@ func TestPreparePowerResourceGroupChange(t *testing.T) {
 
 	t.Run("rolls back prepared migration", func(t *testing.T) {
 		stub := &powerProvisionerStub{}
-		change, err := preparePowerResourceGroupChange(context.Background(), stub, 42, "group-a", "group-b", []machinePowerAssignment{{machineID: "machine-a", powerProfile: "performance"}})
+		change, err := PreparePowerResourceGroupChange(context.Background(), stub, 42, "group-a", "group-b", []MachinePowerAssignment{{MachineID: "machine-a", PowerProfile: "performance"}})
 		require.NoError(t, err)
-		require.NoError(t, change.rollback())
+		require.NoError(t, change.Rollback())
 		assert.Equal(t, []string{
 			"validate:performance:machine-a",
 			"create:group-b",
@@ -238,9 +238,9 @@ func TestPreparePowerResourceGroupChange(t *testing.T) {
 		stub := &powerProvisionerStub{failAt: map[string]error{
 			"validate:balanced:machine-b": errors.New("denied"),
 		}}
-		change, err := preparePowerResourceGroupChange(context.Background(), stub, 42, "group-a", "group-b", []machinePowerAssignment{
-			{machineID: "machine-a", powerProfile: "performance"},
-			{machineID: "machine-b", powerProfile: "balanced"},
+		change, err := PreparePowerResourceGroupChange(context.Background(), stub, 42, "group-a", "group-b", []MachinePowerAssignment{
+			{MachineID: "machine-a", PowerProfile: "performance"},
+			{MachineID: "machine-b", PowerProfile: "balanced"},
 		})
 		require.ErrorContains(t, err, "validate DPS resource-group migration")
 		assert.Nil(t, change)
@@ -249,7 +249,7 @@ func TestPreparePowerResourceGroupChange(t *testing.T) {
 
 	t.Run("reactivates old group after restoring first failed move", func(t *testing.T) {
 		stub := &powerProvisionerStub{failAt: map[string]error{"add:group-b:machine-a:performance": errors.New("denied")}}
-		change, err := preparePowerResourceGroupChange(context.Background(), stub, 42, "group-a", "group-b", []machinePowerAssignment{{machineID: "machine-a", powerProfile: "performance"}})
+		change, err := PreparePowerResourceGroupChange(context.Background(), stub, 42, "group-a", "group-b", []MachinePowerAssignment{{MachineID: "machine-a", PowerProfile: "performance"}})
 		require.ErrorContains(t, err, "add machine to replacement DPS resource group")
 		assert.Nil(t, change)
 		assert.Equal(t, []string{
@@ -265,11 +265,11 @@ func TestPreparePowerResourceGroupChange(t *testing.T) {
 
 	t.Run("clears before commit and can roll back", func(t *testing.T) {
 		stub := &powerProvisionerStub{}
-		change, err := preparePowerResourceGroupChange(context.Background(), stub, 42, "group-a", "", []machinePowerAssignment{
-			{machineID: "machine-a", powerProfile: "performance"},
+		change, err := PreparePowerResourceGroupChange(context.Background(), stub, 42, "group-a", "", []MachinePowerAssignment{
+			{MachineID: "machine-a", PowerProfile: "performance"},
 		})
 		require.NoError(t, err)
-		require.NoError(t, change.rollback())
+		require.NoError(t, change.Rollback())
 		assert.Equal(t, []string{
 			"remove:group-a:machine-a",
 			"add:group-a:machine-a:performance",
@@ -277,11 +277,11 @@ func TestPreparePowerResourceGroupChange(t *testing.T) {
 		}, stub.calls)
 
 		stub.calls = nil
-		change, err = preparePowerResourceGroupChange(context.Background(), stub, 42, "group-a", "", []machinePowerAssignment{
-			{machineID: "machine-a", powerProfile: "performance"},
+		change, err = PreparePowerResourceGroupChange(context.Background(), stub, 42, "group-a", "", []MachinePowerAssignment{
+			{MachineID: "machine-a", PowerProfile: "performance"},
 		})
 		require.NoError(t, err)
-		require.NoError(t, change.complete())
+		require.NoError(t, change.Complete())
 		assert.Equal(t, []string{
 			"remove:group-a:machine-a",
 			"delete:group-a",

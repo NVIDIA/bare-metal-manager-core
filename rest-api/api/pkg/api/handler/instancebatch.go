@@ -22,6 +22,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	powerutil "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util"
 	common "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
@@ -423,10 +424,6 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 		logger.Warn().Msg("VPC specified in request data is not ready")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "VPC specified in request data is not ready", nil)
 	}
-	if bcih.cfg.GetDPSEnabled() && apiRequest.PowerProfile != nil && vpc.PowerResourceGroup == nil {
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "A power profile requires the VPC to have a power resource group", nil)
-	}
-
 	// Validate request fields that depend on the resolved VPC (e.g.
 	// `autoNetwork` requires a Flat VPC).
 	verr = apiRequest.ValidateForVpc(vpc)
@@ -485,7 +482,10 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 	if apiErr := util.ValidateSitePowerManagement(site.Config, apiRequest.PowerProfile); apiErr != nil {
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 	}
-	apiErr := validatePowerProfile(ctx, bcih.cfg.GetDPSEnabled(), bcih.dps, apiRequest.PowerProfile)
+	if bcih.cfg.GetDPSEnabled() && apiRequest.PowerProfile != nil && vpc.PowerResourceGroup == nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Power profile cannot be specified when creating Instances if VPC doesn't have power resource group populated.", nil)
+	}
+	apiErr := model.ValidatePowerProfile(ctx, bcih.cfg.GetDPSEnabled(), bcih.dps, apiRequest.PowerProfile)
 	if apiErr != nil {
 		logger.Warn().Err(apiErr.Diagnosis()).Msg("failed to validate batch Instance power profile")
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
@@ -1287,7 +1287,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 
 	err = cdb.WithTx(ctx, bcih.dbSession, func(tx *cdb.Tx) error {
 		if bcih.cfg.GetDPSEnabled() {
-			lockErr := acquireVPCPowerLock(ctx, tx, vpc.ID)
+			lockErr := powerutil.AcquireVPCPowerLock(ctx, tx, vpc.ID)
 			if lockErr != nil {
 				logger.Error().Err(lockErr).Str("vpcID", vpc.ID.String()).Msg("failed to serialize DPS operations for VPC")
 				return cutil.NewAPIError(http.StatusConflict, "Another power operation is already in progress for the VPC", nil)
@@ -1298,8 +1298,17 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to reload VPC power configuration", nil)
 			}
 			vpc = lockedVPC
+			lockedSite, lockErr := siteDAO.GetByID(ctx, tx, vpc.SiteID, nil, false)
+			if lockErr != nil {
+				logger.Error().Err(lockErr).Str("siteID", vpc.SiteID.String()).Msg("failed to reload Site after acquiring the VPC power lock")
+				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to reload Site power configuration", nil)
+			}
+			apiErr := util.ValidateSitePowerManagement(lockedSite.Config, apiRequest.PowerProfile)
+			if apiErr != nil {
+				return apiErr
+			}
 			if apiRequest.PowerProfile != nil && vpc.PowerResourceGroup == nil {
-				return cutil.NewAPIError(http.StatusBadRequest, "A power profile requires the VPC to have a power resource group", nil)
+				return cutil.NewAPIError(http.StatusBadRequest, "Power profile cannot be specified when creating Instances if VPC doesn't have power resource group populated.", nil)
 			}
 		}
 
@@ -1369,15 +1378,15 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 			return apiErr
 		}
 		if bcih.cfg.GetDPSEnabled() && vpc.PowerResourceGroup != nil {
-			assignments := make([]machinePowerAssignment, 0, len(machines))
+			assignments := make([]powerutil.MachinePowerAssignment, 0, len(machines))
 			for _, machine := range machines {
-				assignment := machinePowerAssignment{machineID: machine.ID}
+				assignment := powerutil.MachinePowerAssignment{MachineID: machine.ID}
 				if apiRequest.PowerProfile != nil {
-					assignment.powerProfile = *apiRequest.PowerProfile
+					assignment.PowerProfile = *apiRequest.PowerProfile
 				}
 				assignments = append(assignments, assignment)
 			}
-			dpsRollback, serr = provisionMachineBatchPower(ctx, bcih.dps, *vpc.PowerResourceGroup, assignments)
+			dpsRollback, serr = powerutil.ProvisionMachineBatchPower(ctx, bcih.dps, *vpc.PowerResourceGroup, assignments)
 			if serr != nil {
 				logger.Error().Err(serr).Str("powerResourceGroup", *vpc.PowerResourceGroup).Msg("DPS rejected batch Instance allocation")
 				return cutil.NewAPIError(http.StatusServiceUnavailable, "DPS rejected batch Instance power allocation", nil)

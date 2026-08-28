@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-package handler
+package util
 
 import (
 	"context"
@@ -16,21 +16,42 @@ import (
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 )
 
-type machinePowerAssignment struct {
-	machineID    string
-	powerProfile string
+// MachinePowerAssignment describes one machine's DPS policy assignment.
+type MachinePowerAssignment struct {
+	MachineID    string
+	PowerProfile string
 }
 
-type powerChange struct {
+// PowerChange contains the compensation and completion actions for a prepared
+// DPS resource-group change.
+type PowerChange struct {
 	rollback func() error
 	complete func() error
 }
 
-func acquireVPCPowerLock(ctx context.Context, tx *cdb.Tx, vpcID uuid.UUID) error {
+// Rollback compensates a prepared DPS resource-group change.
+func (change *PowerChange) Rollback() error {
+	if change == nil || change.rollback == nil {
+		return nil
+	}
+	return change.rollback()
+}
+
+// Complete performs cleanup after a prepared DPS resource-group change commits.
+func (change *PowerChange) Complete() error {
+	if change == nil || change.complete == nil {
+		return nil
+	}
+	return change.complete()
+}
+
+// AcquireVPCPowerLock serializes DPS operations for one VPC transaction.
+func AcquireVPCPowerLock(ctx context.Context, tx *cdb.Tx, vpcID uuid.UUID) error {
 	return tx.TryAcquireAdvisoryLock(ctx, cdb.GetAdvisoryLockIDFromString("dps-vpc:"+vpcID.String()), nil)
 }
 
-func provisionMachinePower(ctx context.Context, provisioner dpsclient.PowerProvisioner, resourceGroup string, assignment machinePowerAssignment) (func() error, error) {
+// ProvisionMachinePower authorizes and assigns one machine to a DPS resource group.
+func ProvisionMachinePower(ctx context.Context, provisioner dpsclient.PowerProvisioner, resourceGroup string, assignment MachinePowerAssignment) (func() error, error) {
 	if provisioner == nil {
 		return nil, fmt.Errorf("DPS power provisioner is unavailable")
 	}
@@ -38,31 +59,32 @@ func provisionMachinePower(ctx context.Context, provisioner dpsclient.PowerProvi
 	if resourceGroup == "" {
 		return nil, fmt.Errorf("VPC power resource group is required")
 	}
-	assignment.machineID = strings.TrimSpace(assignment.machineID)
-	assignment.powerProfile = strings.TrimSpace(assignment.powerProfile)
+	assignment.MachineID = strings.TrimSpace(assignment.MachineID)
+	assignment.PowerProfile = strings.TrimSpace(assignment.PowerProfile)
 
-	if assignment.powerProfile != "" {
-		err := provisioner.ValidateAllocation(ctx, []string{assignment.machineID}, assignment.powerProfile)
+	if assignment.PowerProfile != "" {
+		err := provisioner.ValidateAllocation(ctx, []string{assignment.MachineID}, assignment.PowerProfile)
 		if err != nil {
 			return nil, fmt.Errorf("validate DPS allocation: %w", err)
 		}
 	}
-	err := provisioner.AddMachine(ctx, resourceGroup, assignment.machineID, assignment.powerProfile)
+	err := provisioner.AddMachine(ctx, resourceGroup, assignment.MachineID, assignment.PowerProfile)
 	if err != nil {
 		return nil, fmt.Errorf("add machine to DPS resource group: %w", err)
 	}
 	err = provisioner.ActivateResourceGroup(ctx, resourceGroup)
 	if err != nil {
-		cleanupErr := provisioner.RemoveMachine(context.WithoutCancel(ctx), resourceGroup, assignment.machineID)
+		cleanupErr := provisioner.RemoveMachine(context.WithoutCancel(ctx), resourceGroup, assignment.MachineID)
 		return nil, errors.Join(fmt.Errorf("activate DPS resource group: %w", err), cleanupErr)
 	}
 
 	return func() error {
-		return provisioner.RemoveMachine(context.WithoutCancel(ctx), resourceGroup, assignment.machineID)
+		return provisioner.RemoveMachine(context.WithoutCancel(ctx), resourceGroup, assignment.MachineID)
 	}, nil
 }
 
-func provisionMachineBatchPower(ctx context.Context, provisioner dpsclient.PowerProvisioner, resourceGroup string, assignments []machinePowerAssignment) (func() error, error) {
+// ProvisionMachineBatchPower authorizes and assigns machines to a DPS resource group.
+func ProvisionMachineBatchPower(ctx context.Context, provisioner dpsclient.PowerProvisioner, resourceGroup string, assignments []MachinePowerAssignment) (func() error, error) {
 	if provisioner == nil {
 		return nil, fmt.Errorf("DPS power provisioner is unavailable")
 	}
@@ -75,14 +97,14 @@ func provisionMachineBatchPower(ctx context.Context, provisioner dpsclient.Power
 	}
 
 	machineIDs := make([]string, 0, len(assignments))
-	powerProfile := strings.TrimSpace(assignments[0].powerProfile)
+	powerProfile := strings.TrimSpace(assignments[0].PowerProfile)
 	for i := range assignments {
-		assignments[i].machineID = strings.TrimSpace(assignments[i].machineID)
-		assignments[i].powerProfile = strings.TrimSpace(assignments[i].powerProfile)
-		if assignments[i].powerProfile != powerProfile {
+		assignments[i].MachineID = strings.TrimSpace(assignments[i].MachineID)
+		assignments[i].PowerProfile = strings.TrimSpace(assignments[i].PowerProfile)
+		if assignments[i].PowerProfile != powerProfile {
 			return nil, fmt.Errorf("DPS batch assignments must use one power profile")
 		}
-		machineIDs = append(machineIDs, assignments[i].machineID)
+		machineIDs = append(machineIDs, assignments[i].MachineID)
 	}
 	if powerProfile != "" {
 		err := provisioner.ValidateAllocation(ctx, machineIDs, powerProfile)
@@ -111,7 +133,8 @@ func provisionMachineBatchPower(ctx context.Context, provisioner dpsclient.Power
 	return rollback, nil
 }
 
-func updateMachinePower(ctx context.Context, provisioner dpsclient.PowerProvisioner, resourceGroup string, assignment machinePowerAssignment, previousProfile string) (func() error, error) {
+// UpdateMachinePower authorizes and updates one machine's DPS power profile.
+func UpdateMachinePower(ctx context.Context, provisioner dpsclient.PowerProvisioner, resourceGroup string, assignment MachinePowerAssignment, previousProfile string) (func() error, error) {
 	if provisioner == nil {
 		return nil, fmt.Errorf("DPS power provisioner is unavailable")
 	}
@@ -119,42 +142,43 @@ func updateMachinePower(ctx context.Context, provisioner dpsclient.PowerProvisio
 	if resourceGroup == "" {
 		return nil, fmt.Errorf("VPC power resource group is required")
 	}
-	assignment.machineID = strings.TrimSpace(assignment.machineID)
-	assignment.powerProfile = strings.TrimSpace(assignment.powerProfile)
+	assignment.MachineID = strings.TrimSpace(assignment.MachineID)
+	assignment.PowerProfile = strings.TrimSpace(assignment.PowerProfile)
 	previousProfile = strings.TrimSpace(previousProfile)
 
-	if assignment.powerProfile != "" {
-		err := provisioner.ValidateAllocation(ctx, []string{assignment.machineID}, assignment.powerProfile)
+	if assignment.PowerProfile != "" {
+		err := provisioner.ValidateAllocation(ctx, []string{assignment.MachineID}, assignment.PowerProfile)
 		if err != nil {
 			return nil, fmt.Errorf("validate DPS allocation: %w", err)
 		}
 	}
-	err := provisioner.UpdateMachineProfile(ctx, resourceGroup, assignment.machineID, assignment.powerProfile)
+	err := provisioner.UpdateMachineProfile(ctx, resourceGroup, assignment.MachineID, assignment.PowerProfile)
 	if err != nil {
 		return nil, fmt.Errorf("update DPS machine profile: %w", err)
 	}
 
 	return func() error {
-		return provisioner.UpdateMachineProfile(context.WithoutCancel(ctx), resourceGroup, assignment.machineID, previousProfile)
+		return provisioner.UpdateMachineProfile(context.WithoutCancel(ctx), resourceGroup, assignment.MachineID, previousProfile)
 	}, nil
 }
 
-func preparePowerResourceGroupChange(ctx context.Context, provisioner dpsclient.PowerProvisioner, externalID int64, oldGroup, newGroup string, assignments []machinePowerAssignment) (*powerChange, error) {
+// PreparePowerResourceGroupChange prepares a VPC's DPS resource-group migration.
+func PreparePowerResourceGroupChange(ctx context.Context, provisioner dpsclient.PowerProvisioner, externalID int64, oldGroup, newGroup string, assignments []MachinePowerAssignment) (*PowerChange, error) {
 	if provisioner == nil {
 		return nil, fmt.Errorf("DPS power provisioner is unavailable")
 	}
 	oldGroup = strings.TrimSpace(oldGroup)
 	newGroup = strings.TrimSpace(newGroup)
 	if oldGroup == newGroup {
-		return &powerChange{}, nil
+		return &PowerChange{}, nil
 	}
 
 	profiles := make(map[string][]string)
 	for i := range assignments {
-		assignments[i].machineID = strings.TrimSpace(assignments[i].machineID)
-		assignments[i].powerProfile = strings.TrimSpace(assignments[i].powerProfile)
-		if newGroup != "" && assignments[i].powerProfile != "" {
-			profiles[assignments[i].powerProfile] = append(profiles[assignments[i].powerProfile], assignments[i].machineID)
+		assignments[i].MachineID = strings.TrimSpace(assignments[i].MachineID)
+		assignments[i].PowerProfile = strings.TrimSpace(assignments[i].PowerProfile)
+		if newGroup != "" && assignments[i].PowerProfile != "" {
+			profiles[assignments[i].PowerProfile] = append(profiles[assignments[i].PowerProfile], assignments[i].MachineID)
 		}
 	}
 	profileNames := make([]string, 0, len(profiles))
@@ -179,17 +203,17 @@ func preparePowerResourceGroupChange(ctx context.Context, provisioner dpsclient.
 		createdNewGroup = true
 	}
 
-	moved := make([]machinePowerAssignment, 0, len(assignments))
+	moved := make([]MachinePowerAssignment, 0, len(assignments))
 	restoredToOldGroup := false
 	rollback := func() error {
 		var rollbackErr error
 		rollbackCtx := context.WithoutCancel(ctx)
 		for _, assignment := range slices.Backward(moved) {
 			if newGroup != "" {
-				rollbackErr = errors.Join(rollbackErr, provisioner.RemoveMachine(rollbackCtx, newGroup, assignment.machineID))
+				rollbackErr = errors.Join(rollbackErr, provisioner.RemoveMachine(rollbackCtx, newGroup, assignment.MachineID))
 			}
 			if oldGroup != "" {
-				rollbackErr = errors.Join(rollbackErr, provisioner.AddMachine(rollbackCtx, oldGroup, assignment.machineID, assignment.powerProfile))
+				rollbackErr = errors.Join(rollbackErr, provisioner.AddMachine(rollbackCtx, oldGroup, assignment.MachineID, assignment.PowerProfile))
 			}
 		}
 		if oldGroup != "" && (len(moved) > 0 || restoredToOldGroup) {
@@ -203,17 +227,17 @@ func preparePowerResourceGroupChange(ctx context.Context, provisioner dpsclient.
 
 	for _, assignment := range assignments {
 		if oldGroup != "" {
-			err := provisioner.RemoveMachine(ctx, oldGroup, assignment.machineID)
+			err := provisioner.RemoveMachine(ctx, oldGroup, assignment.MachineID)
 			if err != nil {
 				return nil, errors.Join(fmt.Errorf("remove machine from previous DPS resource group: %w", err), rollback())
 			}
 		}
 		if newGroup != "" {
-			err := provisioner.AddMachine(ctx, newGroup, assignment.machineID, assignment.powerProfile)
+			err := provisioner.AddMachine(ctx, newGroup, assignment.MachineID, assignment.PowerProfile)
 			if err != nil {
 				var restoreErr error
 				if oldGroup != "" {
-					restoreErr = provisioner.AddMachine(context.WithoutCancel(ctx), oldGroup, assignment.machineID, assignment.powerProfile)
+					restoreErr = provisioner.AddMachine(context.WithoutCancel(ctx), oldGroup, assignment.MachineID, assignment.PowerProfile)
 					restoredToOldGroup = restoreErr == nil
 				}
 				return nil, errors.Join(fmt.Errorf("add machine to replacement DPS resource group: %w", err), restoreErr, rollback())
@@ -235,5 +259,5 @@ func preparePowerResourceGroupChange(ctx context.Context, provisioner dpsclient.
 		}
 		return provisioner.DeleteResourceGroup(context.WithoutCancel(ctx), oldGroup)
 	}
-	return &powerChange{rollback: rollback, complete: complete}, nil
+	return &PowerChange{rollback: rollback, complete: complete}, nil
 }

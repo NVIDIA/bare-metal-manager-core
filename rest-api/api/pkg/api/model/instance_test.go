@@ -4,14 +4,18 @@
 package model
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"testing"
 	"time"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
+	dpsclient "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/dps"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
@@ -20,6 +24,107 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type policyProviderStub struct {
+	profiles []string
+	err      error
+	calls    int
+}
+
+func (s *policyProviderStub) ListPowerProfiles(context.Context) ([]string, error) {
+	s.calls++
+	return s.profiles, s.err
+}
+
+func TestValidatePowerProfile(t *testing.T) {
+	providerFailure := errors.New("DPS unavailable")
+	tests := []struct {
+		name        string
+		dpsEnabled  bool
+		profile     *string
+		provider    dpsclient.PolicyProvider
+		wantProfile *string
+		wantCode    int
+		wantCalls   int
+	}{
+		{
+			name:        "disabled DPS trusts profile without calling DPS",
+			profile:     cutil.GetPtr("launchlayer-profile"),
+			provider:    &policyProviderStub{err: providerFailure},
+			wantProfile: cutil.GetPtr("launchlayer-profile"),
+		},
+		{
+			name:       "enabled DPS preserves omitted profile",
+			dpsEnabled: true,
+			provider:   &policyProviderStub{err: providerFailure},
+		},
+		{
+			name:        "enabled DPS preserves explicit clear",
+			dpsEnabled:  true,
+			profile:     cutil.GetPtr(""),
+			provider:    &policyProviderStub{err: providerFailure},
+			wantProfile: cutil.GetPtr(""),
+		},
+		{
+			name:        "enabled DPS validates and normalizes set profile",
+			dpsEnabled:  true,
+			profile:     cutil.GetPtr("  efficient  "),
+			provider:    &policyProviderStub{profiles: []string{"efficient"}},
+			wantProfile: cutil.GetPtr("efficient"),
+			wantCalls:   1,
+		},
+		{
+			name:        "enabled DPS rejects unknown profile",
+			dpsEnabled:  true,
+			profile:     cutil.GetPtr("unknown"),
+			provider:    &policyProviderStub{profiles: []string{"efficient"}},
+			wantProfile: cutil.GetPtr("unknown"),
+			wantCode:    http.StatusBadRequest,
+			wantCalls:   1,
+		},
+		{
+			name:        "enabled DPS rejects whitespace-only set profile",
+			dpsEnabled:  true,
+			profile:     cutil.GetPtr("   "),
+			provider:    &policyProviderStub{profiles: []string{"efficient"}},
+			wantProfile: cutil.GetPtr("   "),
+			wantCode:    http.StatusBadRequest,
+		},
+		{
+			name:        "enabled DPS reports discovery failure",
+			dpsEnabled:  true,
+			profile:     cutil.GetPtr("efficient"),
+			provider:    &policyProviderStub{err: providerFailure},
+			wantProfile: cutil.GetPtr("efficient"),
+			wantCode:    http.StatusServiceUnavailable,
+			wantCalls:   1,
+		},
+		{
+			name:        "enabled DPS reports missing client",
+			dpsEnabled:  true,
+			profile:     cutil.GetPtr("efficient"),
+			wantProfile: cutil.GetPtr("efficient"),
+			wantCode:    http.StatusServiceUnavailable,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			apiErr := ValidatePowerProfile(context.Background(), tt.dpsEnabled, tt.provider, tt.profile)
+			if tt.wantCode == 0 {
+				require.Nil(t, apiErr)
+			} else {
+				require.Error(t, apiErr)
+				assert.Equal(t, tt.wantCode, apiErr.Code)
+			}
+			assert.Equal(t, tt.wantProfile, tt.profile)
+			provider, ok := tt.provider.(*policyProviderStub)
+			if ok {
+				assert.Equal(t, tt.wantCalls, provider.calls)
+			}
+		})
+	}
+}
 
 func TestNewAPIInstance(t *testing.T) {
 	dbs := &cdbm.Site{

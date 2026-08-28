@@ -4,15 +4,18 @@
 package model
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
+	dpsclient "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/dps"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	goset "github.com/deckarep/golang-set/v2"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -22,6 +25,32 @@ import (
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
+
+// ValidatePowerProfile validates and normalizes set operations when direct DPS
+// integration is enabled. Omitted values and explicit clears do not require
+// policy discovery.
+func ValidatePowerProfile(ctx context.Context, dpsEnabled bool, provider dpsclient.PolicyProvider, powerProfile *string) *cutil.APIError {
+	if !dpsEnabled || powerProfile == nil || *powerProfile == "" {
+		return nil
+	}
+	if provider == nil {
+		return cutil.NewAPIError(http.StatusServiceUnavailable, "DPS power-profile validation is unavailable", nil)
+	}
+
+	normalized, err := dpsclient.ValidatePowerProfile(ctx, provider, *powerProfile)
+	if err == nil {
+		*powerProfile = normalized
+		return nil
+	}
+	if errors.Is(err, dpsclient.ErrPowerProfileRequired) {
+		return cutil.NewAPIError(http.StatusBadRequest, "Power profile must not be empty", nil)
+	}
+	if errors.Is(err, dpsclient.ErrPowerProfileNotFound) {
+		return cutil.NewAPIError(http.StatusBadRequest, "Power profile does not exist in DPS", nil)
+	}
+
+	return cutil.NewAPIError(http.StatusServiceUnavailable, "Failed to validate power profile with DPS", nil)
+}
 
 const (
 	// MaxInterfaceCount is the maximum number of Interfaces allowed per Instance

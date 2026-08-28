@@ -25,6 +25,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	powerutil "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util"
 	common "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
@@ -522,10 +523,6 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 		logger.Warn().Msg("VPC specified in request data is not ready")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "VPC specified in request data is not ready", nil)
 	}
-	if cih.cfg.GetDPSEnabled() && apiRequest.PowerProfile != nil && vpc.PowerResourceGroup == nil {
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "A power profile requires the VPC to have a power resource group", nil)
-	}
-
 	// Validate request fields that depend on the resolved VPC (e.g.
 	// `autoNetwork` requires a Flat VPC).
 	verr = apiRequest.ValidateForVpc(vpc)
@@ -558,7 +555,10 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 	if apiErr := util.ValidateSitePowerManagement(site.Config, apiRequest.PowerProfile); apiErr != nil {
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 	}
-	apiErr := validatePowerProfile(ctx, cih.cfg.GetDPSEnabled(), cih.dps, apiRequest.PowerProfile)
+	if cih.cfg.GetDPSEnabled() && apiRequest.PowerProfile != nil && vpc.PowerResourceGroup == nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Power profile cannot be specified when creating Instances if VPC doesn't have power resource group populated.", nil)
+	}
+	apiErr := model.ValidatePowerProfile(ctx, cih.cfg.GetDPSEnabled(), cih.dps, apiRequest.PowerProfile)
 	if apiErr != nil {
 		logger.Warn().Err(apiErr.Diagnosis()).Msg("failed to validate Instance power profile")
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
@@ -1139,7 +1139,7 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 
 	err = cdb.WithTx(ctx, cih.dbSession, func(tx *cdb.Tx) error {
 		if cih.cfg.GetDPSEnabled() {
-			lockErr := acquireVPCPowerLock(ctx, tx, vpc.ID)
+			lockErr := powerutil.AcquireVPCPowerLock(ctx, tx, vpc.ID)
 			if lockErr != nil {
 				logger.Error().Err(lockErr).Str("vpcID", vpc.ID.String()).Msg("failed to serialize DPS operations for VPC")
 				return cutil.NewAPIError(http.StatusConflict, "Another power operation is already in progress for the VPC", nil)
@@ -1150,8 +1150,17 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to reload VPC power configuration", nil)
 			}
 			vpc = lockedVPC
+			lockedSite, lockErr := stDAO.GetByID(ctx, tx, vpc.SiteID, nil, false)
+			if lockErr != nil {
+				logger.Error().Err(lockErr).Str("siteID", vpc.SiteID.String()).Msg("failed to reload Site after acquiring the VPC power lock")
+				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to reload Site power configuration", nil)
+			}
+			apiErr := util.ValidateSitePowerManagement(lockedSite.Config, apiRequest.PowerProfile)
+			if apiErr != nil {
+				return apiErr
+			}
 			if apiRequest.PowerProfile != nil && vpc.PowerResourceGroup == nil {
-				return cutil.NewAPIError(http.StatusBadRequest, "A power profile requires the VPC to have a power resource group", nil)
+				return cutil.NewAPIError(http.StatusBadRequest, "Power profile cannot be specified when creating Instances if VPC doesn't have power resource group populated.", nil)
 			}
 		}
 
@@ -1598,11 +1607,11 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 		}
 
 		if cih.cfg.GetDPSEnabled() && vpc.PowerResourceGroup != nil {
-			assignment := machinePowerAssignment{machineID: machine.ID}
+			assignment := powerutil.MachinePowerAssignment{MachineID: machine.ID}
 			if apiRequest.PowerProfile != nil {
-				assignment.powerProfile = *apiRequest.PowerProfile
+				assignment.PowerProfile = *apiRequest.PowerProfile
 			}
-			dpsRollback, err = provisionMachinePower(ctx, cih.dps, *vpc.PowerResourceGroup, assignment)
+			dpsRollback, err = powerutil.ProvisionMachinePower(ctx, cih.dps, *vpc.PowerResourceGroup, assignment)
 			if err != nil {
 				logger.Error().Err(err).Str("machineID", machine.ID).Str("powerResourceGroup", *vpc.PowerResourceGroup).Msg("DPS rejected Instance allocation")
 				return cutil.NewAPIError(http.StatusServiceUnavailable, "DPS rejected Instance power allocation", nil)
@@ -2569,7 +2578,7 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 	if apiErr := util.ValidateSitePowerManagement(site.Config, apiRequest.PowerProfile); apiErr != nil {
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 	}
-	apiErr := validatePowerProfile(ctx, uih.cfg.GetDPSEnabled(), uih.dps, apiRequest.PowerProfile)
+	apiErr := model.ValidatePowerProfile(ctx, uih.cfg.GetDPSEnabled(), uih.dps, apiRequest.PowerProfile)
 	if apiErr != nil {
 		logger.Warn().Err(apiErr.Diagnosis()).Msg("failed to validate Instance power profile")
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
@@ -3335,7 +3344,7 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 
 	err = cdb.WithTx(ctx, uih.dbSession, func(tx *cdb.Tx) error {
 		if uih.cfg.GetDPSEnabled() && apiRequest.PowerProfile != nil {
-			lockErr := acquireVPCPowerLock(ctx, tx, vpc.ID)
+			lockErr := powerutil.AcquireVPCPowerLock(ctx, tx, vpc.ID)
 			if lockErr != nil {
 				logger.Error().Err(lockErr).Str("vpcID", vpc.ID.String()).Msg("failed to serialize DPS operations for VPC")
 				return cutil.NewAPIError(http.StatusConflict, "Another power operation is already in progress for the VPC", nil)
@@ -3377,9 +3386,9 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 			}
 			if strings.TrimSpace(previousProfile) != strings.TrimSpace(*apiRequest.PowerProfile) {
 				var dpsErr error
-				dpsProfileRollback, dpsErr = updateMachinePower(ctx, uih.dps, *vpc.PowerResourceGroup, machinePowerAssignment{
-					machineID:    machine.ID,
-					powerProfile: *apiRequest.PowerProfile,
+				dpsProfileRollback, dpsErr = powerutil.UpdateMachinePower(ctx, uih.dps, *vpc.PowerResourceGroup, powerutil.MachinePowerAssignment{
+					MachineID:    machine.ID,
+					PowerProfile: *apiRequest.PowerProfile,
 				}, previousProfile)
 				if dpsErr != nil {
 					logger.Error().Err(dpsErr).Str("machineID", machine.ID).Str("powerResourceGroup", *vpc.PowerResourceGroup).Msg("DPS rejected Instance power-profile update")
@@ -5431,7 +5440,7 @@ func (dih DeleteInstanceHandler) Handle(c echo.Context) error {
 
 	err = cdb.WithTx(ctx, dih.dbSession, func(tx *cdb.Tx) error {
 		if dih.cfg.GetDPSEnabled() && instance.Vpc != nil {
-			lockErr := acquireVPCPowerLock(ctx, tx, instance.Vpc.ID)
+			lockErr := powerutil.AcquireVPCPowerLock(ctx, tx, instance.Vpc.ID)
 			if lockErr != nil {
 				logger.Error().Err(lockErr).Str("vpcID", instance.Vpc.ID.String()).Msg("failed to serialize DPS operations for VPC")
 				return cutil.NewAPIError(http.StatusConflict, "Another power operation is already in progress for the VPC", nil)

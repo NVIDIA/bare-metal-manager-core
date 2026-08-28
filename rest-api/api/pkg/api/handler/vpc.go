@@ -27,6 +27,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	powerutil "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util"
 	common "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
@@ -838,7 +839,7 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 	sdDAO := cdbm.NewStatusDetailDAO(uvh.dbSession)
 	var ssds []cdbm.StatusDetail
 
-	var dpsChange *powerChange
+	var dpsChange *powerutil.PowerChange
 	var dpsOldGroup, dpsNewGroup string
 
 	// timeoutResp lets the closure signal a post-rollback handler — the
@@ -849,7 +850,7 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 
 	err = cdb.WithTx(ctx, uvh.dbSession, func(tx *cdb.Tx) error {
 		if uvh.cfg.GetDPSEnabled() && apiRequest.PowerResourceGroup != nil {
-			lockErr := acquireVPCPowerLock(ctx, tx, vpc.ID)
+			lockErr := powerutil.AcquireVPCPowerLock(ctx, tx, vpc.ID)
 			if lockErr != nil {
 				logger.Error().Err(lockErr).Str("vpcID", vpc.ID.String()).Msg("failed to serialize DPS operations for VPC")
 				return cutil.NewAPIError(http.StatusConflict, "Another power operation is already in progress for the VPC", nil)
@@ -871,14 +872,14 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 					logger.Error().Err(derr).Str("vpcID", vpc.ID.String()).Msg("failed to retrieve VPC instances for DPS migration")
 					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve VPC instances for DPS migration", nil)
 				}
-				assignments := make([]machinePowerAssignment, 0, len(instances))
+				assignments := make([]powerutil.MachinePowerAssignment, 0, len(instances))
 				for _, instance := range instances {
 					if instance.MachineID == nil {
 						return cutil.NewAPIError(http.StatusConflict, "Cannot change the power resource group while a VPC instance has no machine", nil)
 					}
-					assignment := machinePowerAssignment{machineID: *instance.MachineID}
+					assignment := powerutil.MachinePowerAssignment{MachineID: *instance.MachineID}
 					if instance.PowerProfile != nil {
-						assignment.powerProfile = *instance.PowerProfile
+						assignment.PowerProfile = *instance.PowerProfile
 					}
 					assignments = append(assignments, assignment)
 				}
@@ -887,7 +888,7 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 					logger.Error().Err(derr).Str("vpcID", vpc.ID.String()).Msg("failed to derive DPS resource group ID")
 					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to derive DPS resource group ID", nil)
 				}
-				dpsChange, derr = preparePowerResourceGroupChange(ctx, uvh.dps, externalID, dpsOldGroup, dpsNewGroup, assignments)
+				dpsChange, derr = powerutil.PreparePowerResourceGroupChange(ctx, uvh.dps, externalID, dpsOldGroup, dpsNewGroup, assignments)
 				if derr != nil {
 					logger.Error().Err(derr).Str("oldPowerResourceGroup", dpsOldGroup).Str("newPowerResourceGroup", dpsNewGroup).Msg("failed to prepare DPS resource group migration")
 					return cutil.NewAPIError(http.StatusServiceUnavailable, "Failed to change DPS resource group", nil)
@@ -1026,8 +1027,8 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 	if err != nil {
 		var apiErr *cutil.APIError
 		if !errors.As(err, &apiErr) || timeoutResp == nil {
-			if dpsChange != nil && dpsChange.rollback != nil {
-				rollbackErr := dpsChange.rollback()
+			if dpsChange != nil {
+				rollbackErr := dpsChange.Rollback()
 				if rollbackErr != nil {
 					logger.Error().Err(rollbackErr).Str("oldPowerResourceGroup", dpsOldGroup).Str("newPowerResourceGroup", dpsNewGroup).Msg("failed to compensate DPS resource group migration")
 				}
@@ -1037,16 +1038,16 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 	}
 	if timeoutResp != nil {
 		responseErr := timeoutResp()
-		if dpsChange != nil && dpsChange.rollback != nil {
-			rollbackErr := dpsChange.rollback()
+		if dpsChange != nil {
+			rollbackErr := dpsChange.Rollback()
 			if rollbackErr != nil {
 				logger.Error().Err(rollbackErr).Str("oldPowerResourceGroup", dpsOldGroup).Str("newPowerResourceGroup", dpsNewGroup).Msg("failed to compensate DPS resource group migration")
 			}
 		}
 		return responseErr
 	}
-	if dpsChange != nil && dpsChange.complete != nil {
-		cleanupErr := dpsChange.complete()
+	if dpsChange != nil {
+		cleanupErr := dpsChange.Complete()
 		if cleanupErr != nil {
 			logger.Error().Err(cleanupErr).Msg("failed to delete previous DPS resource group; external reconciliation is required")
 		}
@@ -1920,7 +1921,7 @@ func (dvh DeleteVPCHandler) Handle(c echo.Context) error {
 
 	err = cdb.WithTx(ctx, dvh.dbSession, func(tx *cdb.Tx) error {
 		if dvh.cfg.GetDPSEnabled() {
-			lockErr := acquireVPCPowerLock(ctx, tx, vpc.ID)
+			lockErr := powerutil.AcquireVPCPowerLock(ctx, tx, vpc.ID)
 			if lockErr != nil {
 				logger.Error().Err(lockErr).Str("vpcID", vpc.ID.String()).Msg("failed to serialize DPS operations for VPC")
 				return cutil.NewAPIError(http.StatusConflict, "Another power operation is already in progress for the VPC", nil)
