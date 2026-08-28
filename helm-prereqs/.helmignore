@@ -3,6 +3,8 @@
 # setup.sh --install-dpf caches at .dpf-src/ and whose large .git pack files
 # otherwise exceed helm's per-file size limit.
 .dpf-src/
+# Same for the nv-rms source clone cached by setup.sh --install-rms.
+.rms-src/
 .git/
 .gitignore
 *.bak
