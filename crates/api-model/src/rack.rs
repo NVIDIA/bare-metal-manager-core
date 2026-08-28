@@ -1263,7 +1263,10 @@ mod tests {
             (FirmwareProgressState::InProgress, "\"in_progress\""),
             (FirmwareProgressState::Completed, "\"completed\""),
             (FirmwareProgressState::Failed, "\"failed\""),
-            (FirmwareProgressState::Unknown("verifying".into()), "\"verifying\""),
+            (
+                FirmwareProgressState::Unknown("verifying".into()),
+                "\"verifying\"",
+            ),
         ];
 
         for (state, wire) in cases {

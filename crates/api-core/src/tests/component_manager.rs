@@ -174,7 +174,8 @@ async fn switch_firmware_status_uses_only_current_cycle_persistence(
 
     for switch_id in &switch_ids {
         assert_eq!(
-            status_by_id[&switch_id.to_string()].target_version, "firmware-object-json",
+            status_by_id[&switch_id.to_string()].target_version,
+            "firmware-object-json",
             "the active request supplies the target version the backend never persists"
         );
     }

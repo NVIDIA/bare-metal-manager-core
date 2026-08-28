@@ -189,7 +189,10 @@ pub async fn request_rack_maintenance_via_state_controller(
                         .map_err(|error| ComponentManagerError::Internal(error.to_string()))?;
                 }
 
-                Ok((RackMaintenanceRequestOutcome::Scheduled, Some(accepted_scope)))
+                Ok((
+                    RackMaintenanceRequestOutcome::Scheduled,
+                    Some(accepted_scope),
+                ))
             })
         })
         .await;

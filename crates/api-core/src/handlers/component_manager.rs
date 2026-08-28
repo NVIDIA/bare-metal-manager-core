@@ -4687,7 +4687,9 @@ mod tests {
     #[test]
     fn firmware_job_state_unknown_device_status_is_unknown() {
         let job = FirmwareUpgradeJob {
-            machines: vec![firmware_device(FirmwareProgressState::Unknown("mystery".into()))],
+            machines: vec![firmware_device(FirmwareProgressState::Unknown(
+                "mystery".into(),
+            ))],
             ..Default::default()
         };
 
@@ -5140,7 +5142,8 @@ mod tests {
             let actual = select_persisted_switch_firmware_status(switch_id, persisted, request)
                 .expect("a request or a persisted status yields a status");
             assert_eq!(
-                actual.state, expected as i32,
+                actual.state,
+                expected as i32,
                 "persisted: {persisted:?}, requested_at: {:?}",
                 request.map(|request| request.requested_at)
             );
@@ -5177,7 +5180,10 @@ mod tests {
         let request = switch_firmware_request(&switch, Some(&rack))
             .expect("the accepted rack request gates status before device dispatch");
         assert_eq!(request.requested_at, rack_requested_at);
-        assert_eq!(request.target_version.as_deref(), Some("firmware-object-json"));
+        assert_eq!(
+            request.target_version.as_deref(),
+            Some("firmware-object-json")
+        );
 
         switch.switch_reprovisioning_requested = Some(model::switch::SwitchReprovisionRequest {
             requested_at: switch_requested_at,
