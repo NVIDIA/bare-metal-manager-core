@@ -106,7 +106,7 @@ pub(crate) async fn resolve_machine_interface_for_test(
     client_resolution::resolve_machine_interface(conn, client_ip).await
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) async fn process_scout_req_for_test(
     api: &crate::Api,
     machine_id: carbide_uuid::machine::MachineId,

@@ -15,27 +15,36 @@
  * limitations under the License.
  */
 
-use rpc::forge::forge_server::Forge;
+use carbide_test_harness::prelude::*;
 use rpc::forge::{DpaInterfaceCreationRequest, DpaInterfaceType, DpaInterfacesByIdsRequest};
 use rpc::forge_agent_control_response::{self as fac, Action};
 
-use crate::handlers::process_scout_req_for_test;
-use crate::tests::common::api_fixtures::{create_managed_host, create_test_env};
+async fn init(pool: PgPool) -> (TestHarness, TestManagedHost) {
+    let env = TestHarness::builder(pool).build().await;
+    let domain = env.test_domain().await;
+    let network_controller = env.network_controller();
+    let underlay_segment = network_controller.create_underlay_segment(&domain).await;
+    network_controller.create_admin_segment(&domain).await;
+    let site_explorer = env.default_test_site_explorer();
+    let (managed_host, _) = env
+        .managed_host_builder(&site_explorer, underlay_segment)
+        .build()
+        .await;
+    (env, managed_host)
+}
 
-#[crate::sqlx_test]
-async fn dpa_api_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+#[sqlx_test]
+async fn dpa_api_test_cases(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     // Create a managed host
     // Create an DPA interface with MAC addr "00:11:22:33:44:55" in that managed host
     // Call API routine get_all_dpa_interface_ids and make sure it returns the one and only interface
     // Call API routine find_dpa_interfaces_by_ids and make sure it reurns the one and only interface
 
-    let env = create_test_env(pool).await;
-
-    let mh = create_managed_host(&env).await;
+    let (env, managed_host) = init(pool).await;
 
     let cr_request = tonic::Request::new(DpaInterfaceCreationRequest {
         mac_addr: "00:11:22:33:44:55".to_string(),
-        machine_id: Some(mh.id),
+        machine_id: Some(managed_host.host.id),
         device_type: "BlueField3".to_string(),
         pci_name: "0000:cc:00.0".to_string(),
         device_description: Some("NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC; 400GbE / NDR IB (default mode); Single-port QSFP112
@@ -44,7 +53,7 @@ async fn dpa_api_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     });
 
     let cr_resp = env
-        .api
+        .api()
         .create_dpa_interface(cr_request)
         .await
         .unwrap()
@@ -55,7 +64,7 @@ async fn dpa_api_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     let get_ids_req = tonic::Request::new(());
 
     let get_all_resp = env
-        .api
+        .api()
         .get_all_dpa_interface_ids(get_ids_req)
         .await
         .unwrap()
@@ -70,7 +79,7 @@ async fn dpa_api_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     });
 
     let find_by_id_resp = env
-        .api
+        .api()
         .find_dpa_interfaces_by_ids(find_by_id_req)
         .await
         .unwrap()
@@ -86,18 +95,17 @@ async fn dpa_api_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn dpa_scout_request_returns_typed_mlx_action(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-    let mh = create_managed_host(&env).await;
+    let (env, managed_host) = init(pool).await;
 
     let cr_resp = env
-        .api
+        .api()
         .create_dpa_interface(tonic::Request::new(DpaInterfaceCreationRequest {
             mac_addr: "00:11:22:33:44:55".to_string(),
-            machine_id: Some(mh.id),
+            machine_id: Some(managed_host.host.id),
             device_type: "BlueField3".to_string(),
             pci_name: "0000:cc:00.0".to_string(),
             device_description: Some("NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC; 400GbE / NDR IB (default mode); Single-port QSFP112".to_string()),
@@ -108,11 +116,11 @@ async fn dpa_scout_request_returns_typed_mlx_action(
         .into_inner();
 
     let dpa_id = cr_resp.id.unwrap();
-    let dpa = db::dpa_interface::find_by_ids(&env.pool, &[dpa_id], false)
+    let dpa = db::dpa_interface::find_by_ids(&env.api().database_connection, &[dpa_id], false)
         .await?
         .pop()
         .expect("created dpa interface");
-    let mut txn = env.pool.begin().await.unwrap();
+    let mut txn = env.db_txn().await;
     db::dpa_interface::try_update_controller_state(
         &mut txn,
         dpa.id,
@@ -123,7 +131,10 @@ async fn dpa_scout_request_returns_typed_mlx_action(
     .await?;
     txn.commit().await.unwrap();
 
-    let action = process_scout_req_for_test(&env.api, mh.id).await?;
+    let action = env
+        .api()
+        .process_scout_req_for_test(managed_host.host.id)
+        .await?;
     let Action::MlxAction(mlx_action) = action else {
         panic!("expected typed mlx action");
     };
