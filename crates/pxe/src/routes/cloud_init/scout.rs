@@ -23,8 +23,7 @@
 //!
 //! Unlike its sibling prefixes, nothing here answers with the generic error
 //! template. A document that fails to parse stops NoCloud bringing the
-//! datasource up at all, so every failure short of the process dying still
-//! serves something valid.
+//! datasource up at all.
 
 use std::path::Path;
 
