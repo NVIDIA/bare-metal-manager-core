@@ -266,6 +266,33 @@ env:
   RUST_BACKTRACE: "full"
   RUST_LIB_BACKTRACE: "0"
 
+## Optional operator-managed static credential file. The chart mounts one key
+## from an existing Secret and configures nico-api to watch it; no credential
+## content is rendered into this chart's ConfigMaps or values. The selected key
+## must contain JSON or YAML. UFM entries have this shape (both fields are
+## required; an empty password selects the default SPIFFE client certificate):
+##
+## ufm_auth_by_fabric:
+##   default:
+##     username: ignored-for-token-or-certificate-auth
+##     password: bearer-token-or-empty
+##
+## In the default local_first mode, these entries override matching persistent
+## backend credentials. Set ufmSource to local to require local entries for
+## every configured fabric and disable persistent-backend UFM access.
+credentials:
+  # local_first preserves environment/file overrides with persistent-backend
+  # fallback. backend ignores local UFM entries. local requires every configured
+  # fabric in the environment/file sources and rejects backend mutations.
+  ufmSource: local_first
+  file:
+    existingSecret:
+      name: ""
+      key: credentials.yaml
+    mountPath: /var/run/secrets/nico/credentials
+    # Must be greater than zero.
+    pollInterval: "60s"
+
 ## Optional Figment dictionary for CARBIDE_API_DSX_EXCHANGE_EVENT_BUS.
 dsxExchangeEventBusConfig: ""
 
@@ -450,6 +477,7 @@ hostname: "nico.local"
 
 vaultClusterInfo: {}
 #  VAULT_SERVICE: "https://vault.example.com"
+#  VAULT_NAMESPACE: "admin/team-a"
 #  NICO_VAULT_MOUNT: "secrets"
 #  NICO_VAULT_PKI_MOUNT: "nicoca"
 

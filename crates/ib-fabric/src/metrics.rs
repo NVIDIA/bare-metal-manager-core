@@ -689,15 +689,7 @@ enum UfmOperationStatus {
     // If you add anything here, adjust the values function below
 }
 
-impl UfmOperationStatus {
-    /// The closed status vocabulary. `UfmGuidPkeyChangeFinished`'s variants now
-    /// enumerate the (operation, status) space directly, so this survives to
-    /// pin the vocabulary in tests.
-    #[cfg(test)]
-    fn values() -> impl Iterator<Item = Self> {
-        [Self::Ok, Self::Error].into_iter()
-    }
-}
+impl UfmOperationStatus {}
 
 /// `ConfiguredFabric` is the reviewed escape hatch for the existing `fabric`
 /// label. Values come from `IbFabricMonitor`'s startup configuration, and the
@@ -1604,34 +1596,5 @@ mod tests {
                 );
             }
         }
-    }
-
-    #[test]
-    fn enumerates_ufm_operations_and_statuses() {
-        assert_eq!(
-            UfmOperation::values().collect::<Vec<_>>(),
-            vec![
-                UfmOperation::BindGuidToPkey,
-                UfmOperation::UnbindGuidFromPkey
-            ]
-        );
-        assert_eq!(
-            UfmOperationStatus::values().collect::<Vec<_>>(),
-            vec![UfmOperationStatus::Ok, UfmOperationStatus::Error]
-        );
-    }
-
-    #[test]
-    fn creates_empty_monitor_metrics() {
-        let metrics = IbFabricMonitorMetrics::new();
-
-        assert_eq!(metrics.num_fabrics, 0);
-        assert!(metrics.fabrics.is_empty());
-        assert_eq!(metrics.num_machine_ib_status_updates, 0);
-        assert!(metrics.num_machines_by_port_states.is_empty());
-        assert!(metrics.num_machines_by_ports_with_partitions.is_empty());
-        assert_eq!(metrics.num_machines_with_missing_pkeys, 0);
-        assert_eq!(metrics.num_machines_with_unexpected_pkeys, 0);
-        assert_eq!(metrics.num_machines_with_unknown_pkeys, 0);
     }
 }

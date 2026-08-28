@@ -16,6 +16,7 @@ import (
 	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
+	cwu "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -212,17 +213,17 @@ func TestManageInstanceType_UpdateInstanceTypesInDB(t *testing.T) {
 
 	instanceType5 := testInstanceTypeBuildInstanceType(t, dbSession, "test-instanceType-5", ip, st, tnu, cdbm.InstanceTypeStatusError)
 
-	_, err := dbSession.DB.Exec("UPDATE instance_type SET deleted = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval*2)), instanceType5.ID.String())
+	_, err := dbSession.DB.Exec("UPDATE instance_type SET deleted = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.DefaultInventoryReceiptInterval*2)), instanceType5.ID.String())
 	assert.NoError(t, err)
 
 	instanceType6 := testInstanceTypeBuildInstanceType(t, dbSession, "test-instanceType-6", ip, st, tnu, cdbm.InstanceTypeStatusError)
 
-	_, err = dbSession.DB.Exec("UPDATE instance_type SET deleted = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval*2)), instanceType6.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE instance_type SET deleted = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.DefaultInventoryReceiptInterval*2)), instanceType6.ID.String())
 	assert.NoError(t, err)
 
 	instanceType7 := testInstanceTypeBuildInstanceType(t, dbSession, "test-instanceType-7", ip, st, tnu, cdbm.InstanceTypeStatusReady)
 	// Set created earlier than the inventory receipt interval
-	_, err = dbSession.DB.Exec("UPDATE instance_type SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)), instanceType7.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE instance_type SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.DefaultInventoryReceiptInterval)*2), instanceType7.ID.String())
 	assert.NoError(t, err)
 
 	instanceType8 := testInstanceTypeBuildInstanceType(t, dbSession, "test-instanceType-8", ip, st, tnu, cdbm.InstanceTypeStatusReady)
@@ -233,7 +234,7 @@ func TestManageInstanceType_UpdateInstanceTypesInDB(t *testing.T) {
 
 	instanceType11 := testInstanceTypeBuildInstanceType(t, dbSession, "test-instanceType-11", ip, st, tnu, cdbm.InstanceTypeStatusReady)
 	// Set created earlier than the inventory receipt interval
-	_, err = dbSession.DB.Exec("UPDATE instance_type SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)), instanceType11.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE instance_type SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.DefaultInventoryReceiptInterval)*2), instanceType11.ID.String())
 	assert.NoError(t, err)
 
 	instanceType8, err = instanceTypeDAO.Update(ctx, nil, cdbm.InstanceTypeUpdateInput{ID: instanceType8.ID, Status: cutil.GetPtr(cdbm.InstanceTypeStatusError)})
@@ -249,7 +250,7 @@ func TestManageInstanceType_UpdateInstanceTypesInDB(t *testing.T) {
 	for i := range 38 {
 		instanceType := testInstanceTypeBuildInstanceType(t, dbSession, fmt.Sprintf("test-instanceType-paged-%d", i), ip, st3, tnu, cdbm.InstanceTypeStatusReady)
 		// Update creation timestamp to be earlier than inventory processing interval
-		_, err = dbSession.DB.Exec("UPDATE instance_type SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval*2)), instanceType.ID.String())
+		_, err = dbSession.DB.Exec("UPDATE instance_type SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.DefaultInventoryReceiptInterval*2)), instanceType.ID.String())
 		assert.NoError(t, err)
 		pagedInstanceTypes = append(pagedInstanceTypes, instanceType)
 	}
@@ -517,6 +518,8 @@ func TestManageInstanceType_UpdateInstanceTypesInDB(t *testing.T) {
 			}
 
 			mv.siteClientPool.IDClientMap[tt.args.siteID.String()] = tt.fields.clientPoolClient
+
+			cwu.TestInventoryAgeUpdatedTimestamp(tt.args.ctx, t, dbSession, (*cdbm.InstanceType)(nil))
 
 			err := mv.UpdateInstanceTypesInDB(tt.args.ctx, tt.args.siteID, tt.args.instanceTypeInventory)
 			assert.Equal(t, tt.wantErr, err != nil)

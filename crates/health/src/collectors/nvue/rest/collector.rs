@@ -283,6 +283,7 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
             tracing::warn!(
                 ?error,
                 switch_id = %self.switch_id,
+                rack_id = self.event_context.rack_id().map(tracing::field::display),
                 "nvue_rest: skipping iteration — credential fetch failed"
             );
             return Ok(IterationResult {
@@ -310,6 +311,7 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
                 tracing::warn!(
                 error = ?e,
                 switch_id = %self.switch_id,
+                rack_id = self.event_context.rack_id().map(tracing::field::display),
                 "nvue_rest: failed to collect system health"
                 );
             }
@@ -328,6 +330,7 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
                 tracing::warn!(
                 error = ?e,
                 switch_id = %self.switch_id,
+                rack_id = self.event_context.rack_id().map(tracing::field::display),
                 "nvue_rest: failed to collect system reboot reason"
                 );
             }
@@ -354,6 +357,7 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
                 tracing::warn!(
                 error = ?e,
                 switch_id = %self.switch_id,
+                rack_id = self.event_context.rack_id().map(tracing::field::display),
                 "nvue_rest: failed to collect cluster apps"
                 );
             }
@@ -394,6 +398,7 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
                 tracing::warn!(
                 error = ?e,
                 switch_id = %self.switch_id,
+                rack_id = self.event_context.rack_id().map(tracing::field::display),
                 "nvue_rest: failed to collect SDN partitions"
                 );
             }
@@ -423,6 +428,7 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
                 tracing::warn!(
                 error = ?e,
                 switch_id = %self.switch_id,
+                rack_id = self.event_context.rack_id().map(tracing::field::display),
                 "nvue_rest: failed to collect link diagnostics"
                 );
             }
@@ -456,6 +462,7 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
                 tracing::warn!(
                 error = ?e,
                 switch_id = %self.switch_id,
+                rack_id = self.event_context.rack_id().map(tracing::field::display),
                 "nvue_rest: failed to collect platform environment fan"
                 );
             }
@@ -517,6 +524,7 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
                 tracing::warn!(
                 error = ?e,
                 switch_id = %self.switch_id,
+                rack_id = self.event_context.rack_id().map(tracing::field::display),
                 "nvue_rest: failed to collect platform environment temperature"
                 );
             }
@@ -536,6 +544,7 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
                 tracing::warn!(
                 error = ?e,
                 switch_id = %self.switch_id,
+                rack_id = self.event_context.rack_id().map(tracing::field::display),
                 "nvue_rest: failed to collect platform environment leakage"
                 );
             }
@@ -559,6 +568,7 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
                 tracing::warn!(
                 error = ?e,
                 switch_id = %self.switch_id,
+                rack_id = self.event_context.rack_id().map(tracing::field::display),
                 "nvue_rest: failed to collect platform environment status"
                 );
             }
@@ -567,6 +577,7 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
         if saw_auth_failure {
             tracing::warn!(
                 switch_id = %self.switch_id,
+                rack_id = self.event_context.rack_id().map(tracing::field::display),
                 "nvue_rest: auth failure observed, clearing cached credentials"
             );
             self.client.clear_credentials();
@@ -576,6 +587,7 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
 
         tracing::debug!(
             switch_id = %self.switch_id,
+            rack_id = self.event_context.rack_id().map(tracing::field::display),
             entity_count,
             "nvue_rest: collection iteration complete"
         );

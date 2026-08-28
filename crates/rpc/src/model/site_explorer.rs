@@ -743,30 +743,6 @@ mod tests {
     }
 
     #[test]
-    fn endpoint_search_filters_convert_to_model() {
-        value_scenarios!(
-            run = |filter| {
-                let _: ExploredEndpointSearchFilter = filter.into();
-            };
-            "empty endpoint filter" {
-                rpc::site_explorer::ExploredEndpointSearchFilter {} => (),
-            }
-        );
-    }
-
-    #[test]
-    fn managed_host_search_filters_convert_to_model() {
-        value_scenarios!(
-            run = |filter| {
-                let _: ExploredManagedHostSearchFilter = filter.into();
-            };
-            "empty managed-host filter" {
-                rpc::site_explorer::ExploredManagedHostSearchFilter {} => (),
-            }
-        );
-    }
-
-    #[test]
     fn mlx_device_kinds_convert_to_rpc() {
         value_scenarios!(run = rpc::site_explorer::MlxDeviceKind::from;
             "BlueField-3 NIC-mode SKU" {

@@ -19,6 +19,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	dpsclient "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/dps"
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
@@ -52,6 +53,39 @@ func testVPCInitDB(t *testing.T) *cdb.Session {
 		bundebug.FromEnv(""),
 	))
 	return dbSession
+}
+
+func TestPowerResourceGroupAPIError(t *testing.T) {
+	tests := []struct {
+		name        string
+		err         error
+		fallback    string
+		wantCode    int
+		wantMessage string
+	}{
+		{
+			name:        "maps DPS name collision to conflict",
+			err:         fmt.Errorf("create replacement group: %w", dpsclient.ErrResourceGroupAlreadyExists),
+			fallback:    "Failed to change DPS resource group",
+			wantCode:    http.StatusConflict,
+			wantMessage: "Power resource group already exists",
+		},
+		{
+			name:        "preserves generic DPS failure mapping",
+			err:         errors.New("DPS unavailable"),
+			fallback:    "Failed to create DPS resource group",
+			wantCode:    http.StatusServiceUnavailable,
+			wantMessage: "Failed to create DPS resource group",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			apiErr := powerResourceGroupAPIError(test.err, test.fallback)
+			assert.Equal(t, test.wantCode, apiErr.Code)
+			assert.Equal(t, test.wantMessage, apiErr.Message)
+		})
+	}
 }
 
 // testVPCSetupSchema resets the tables required by VPC handler and
@@ -537,6 +571,27 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 		expectNoMutation   bool
 		expectRolledBack   bool
 	}{
+		{
+			name: "test VPC create API endpoint rejects power resource group when DPS power management is disabled",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: &model.APIVpcCreateRequest{
+					Name:               "Test VPC rejected power resource group",
+					SiteID:             st1.ID.String(),
+					PowerResourceGroup: cutil.GetPtr("resource-group"),
+				},
+				reqOrg:      tnOrg,
+				reqUser:     tnu,
+				respCode:    http.StatusPreconditionFailed,
+				respMessage: "Site does not have DPS power management enabled",
+			},
+			wantErr:          false,
+			expectNoMutation: true,
+		},
 		{
 			name: "test VPC create API endpoint success",
 			fields: fields{
@@ -1709,6 +1764,25 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 		expectedRoutingProfileOverrides   *model.APIVpcRoutingProfileOverrides
 		expectNoRoutingProfileMutation    bool
 	}{
+		{
+			name: "test VPC update rejects power resource group when DPS power management is disabled",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: &model.APIVpcUpdateRequest{
+					PowerResourceGroup: cutil.GetPtr("resource-group"),
+				},
+				reqVPCID:    vpc.ID.String(),
+				reqVPC:      vpc,
+				reqOrg:      tnOrg,
+				reqUser:     tnu,
+				respCode:    http.StatusPreconditionFailed,
+				respMessage: "Site does not have DPS power management enabled",
+			},
+		},
 		// A present object replaces the FNN VPC's full inline definition.
 		{
 			name: "test VPC update replaces routing profile overrides",
@@ -4098,9 +4172,8 @@ func TestNewCreateVPCHandler(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewCreateVPCHandler(tt.args.dbSession, tt.args.tc, scp, tt.args.cfg); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("NewCreateVPCHandler() = %v, want %v", got, tt.want)
-			}
+			got := NewCreateVPCHandler(tt.args.dbSession, tt.args.tc, scp, tt.args.cfg, nil)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -4145,9 +4218,8 @@ func TestNewUpdateVPCHandler(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewUpdateVPCHandler(tt.args.dbSession, tt.args.tc, scp, tt.args.cfg); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("NewUpdateVPCHandler() = %v, want %v", got, tt.want)
-			}
+			got := NewUpdateVPCHandler(tt.args.dbSession, tt.args.tc, scp, tt.args.cfg, nil)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -4274,9 +4346,8 @@ func TestNewDeleteVPCHandler(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewDeleteVPCHandler(tt.args.dbSession, tt.args.tc, scp, tt.args.cfg); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("NewDeleteVPCHandler() = %v, want %v", got, tt.want)
-			}
+			got := NewDeleteVPCHandler(tt.args.dbSession, tt.args.tc, scp, tt.args.cfg, nil)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }

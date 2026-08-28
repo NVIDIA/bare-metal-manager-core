@@ -76,6 +76,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for EntityDiscoveryCollector<B> {
 
         tracing::info!(
             bmc = %self.endpoint.addr.mac,
+            rack_id = self.endpoint.rack_id.as_ref().map(tracing::field::display),
             entity_count,
             generation = self.generation,
             "Published entity inventory snapshot"
@@ -113,6 +114,7 @@ impl<B: Bmc + 'static> EntityDiscoveryCollector<B> {
                     ?error,
                     context,
                     bmc_address = ?self.endpoint.addr,
+                    rack_id = self.endpoint.rack_id.as_ref().map(tracing::field::display),
                     "Discovery fetch failed"
                 );
                 None
@@ -349,6 +351,7 @@ impl<B: Bmc + 'static> EntityDiscoveryCollector<B> {
                 tracing::warn!(
                     ?error,
                     bmc_address = ?self.endpoint.addr,
+                    rack_id = self.endpoint.rack_id.as_ref().map(tracing::field::display),
                     "Failed to get chassis sensors"
                 );
                 Vec::new()

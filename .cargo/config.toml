@@ -38,7 +38,7 @@ rustflags = [
 #rustflags = ["-C", "linker=clang", "-C", "link-arg=-fuse-ld=lld"]
 
 [env]
-RUST_TEST_THREADS = "8"
+RUST_TEST_THREADS = "40"
 
 [alias]
 xtask = "run --package xtask --"

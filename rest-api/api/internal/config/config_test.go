@@ -85,6 +85,81 @@ issuers:
 	assert.Equal(t, []string{"org-audience"}, issuers[0].ClaimMappings[0].Audiences)
 }
 
+func TestConfig_ValidatePowerProvisioningConfig(t *testing.T) {
+	tests := []struct {
+		name      string
+		values    map[string]any
+		wantError string
+	}{
+		{
+			name: "accepts disabled DPS without connection settings",
+		},
+		{
+			name: "rejects non-boolean DPS enablement",
+			values: map[string]any{
+				ConfigDPSEnabled: "external",
+			},
+			wantError: "enabled must be a boolean",
+		},
+		{
+			name: "requires endpoint when DPS is enabled",
+			values: map[string]any{
+				ConfigDPSEnabled:        true,
+				ConfigDPSRequestTimeout: "15s",
+			},
+			wantError: "endpoint is required",
+		},
+		{
+			name: "rejects whitespace endpoint when DPS is enabled",
+			values: map[string]any{
+				ConfigDPSEnabled:        true,
+				ConfigDPSEndpoint:       "   ",
+				ConfigDPSRequestTimeout: "15s",
+			},
+			wantError: "endpoint is required",
+		},
+		{
+			name: "requires positive timeout when DPS is enabled",
+			values: map[string]any{
+				ConfigDPSEnabled:        true,
+				ConfigDPSEndpoint:       "dps.example.com:443",
+				ConfigDPSRequestTimeout: "0s",
+				ConfigDPSTokenPath:      "/var/run/secrets/dps/token",
+				ConfigDPSCAPath:         "/var/run/secrets/dps/ca.crt",
+			},
+			wantError: "must be greater than zero",
+		},
+		{
+			name: "accepts complete enabled DPS configuration",
+			values: map[string]any{
+				ConfigDPSEnabled:        true,
+				ConfigDPSEndpoint:       "dps.example.com:443",
+				ConfigDPSRequestTimeout: "15s",
+				ConfigDPSTokenPath:      "/var/run/secrets/dps/token",
+				ConfigDPSCAPath:         "/var/run/secrets/dps/ca.crt",
+				ConfigDPSServerName:     "dps.example.com",
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			v := viper.New()
+			for key, value := range test.values {
+				v.Set(key, value)
+			}
+			c := &Config{v: v}
+
+			err := c.ValidatePowerProvisioningConfig()
+			if test.wantError != "" {
+				require.ErrorContains(t, err, test.wantError)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestConfig_WatchConfigFile(t *testing.T) {
 	const initialSitePhoneHomeURL = "http://initial.example/phone_home"
 

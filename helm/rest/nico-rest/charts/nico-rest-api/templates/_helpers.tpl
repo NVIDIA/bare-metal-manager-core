@@ -36,3 +36,20 @@ app.kubernetes.io/component: api
 {{- fail "keycloak and issuers are mutually exclusive — enable only one" -}}
 {{- end -}}
 {{- end -}}
+
+{{- define "nico-rest-api.validatePowerProvisioning" -}}
+{{- if not (kindIs "bool" .Values.config.powerProvisioning.dps.enabled) -}}
+{{- fail "config.powerProvisioning.dps.enabled must be a boolean" -}}
+{{- end -}}
+{{- if .Values.config.powerProvisioning.dps.enabled -}}
+{{- if not .Values.config.powerProvisioning.dps.endpoint -}}
+{{- fail "config.powerProvisioning.dps.endpoint is required when direct DPS integration is enabled" -}}
+{{- end -}}
+{{- if not (kindIs "string" .Values.secrets.dpsCreds) -}}
+{{- fail "secrets.dpsCreds must be a string" -}}
+{{- end -}}
+{{- if not .Values.secrets.dpsCreds -}}
+{{- fail "secrets.dpsCreds is required when direct DPS integration is enabled" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}

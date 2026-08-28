@@ -22,10 +22,9 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use bmc_mock::injection::InjectionStore;
-use bmc_mock::ipmi_sim::IpmiEndpoint;
 use bmc_mock::{
-    BmcCommand, BmcEvent, BmcState, BootOptionKind, Callbacks, HostnameQuerying, MachineInfo,
-    MockPowerState, SetSystemPowerError, SetSystemPowerResult, SystemPowerControl,
+    BmcCommand, BmcEvent, BmcState, Callbacks, HostnameQuerying, MachineInfo, MockPowerState,
+    SetSystemPowerError, SetSystemPowerResult, SystemPowerControl,
 };
 use carbide_network::virtualization::build_dual_stack_list;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
@@ -209,10 +208,9 @@ pub(super) struct LiveState {
     pub(super) observed_machine_id: Option<MachineId>,
     pub(super) machine_ip: Option<Ipv4Addr>,
     pub(super) bmc_ip: Option<Ipv4Addr>,
-    pub(super) ipmi_endpoint: Option<IpmiEndpoint>,
+    pub(super) ipmi_port: Option<u16>,
     pub(super) ssh_endpoint_port: Option<u16>,
     pub(super) booted_os: MaybeOsImage,
-    pub(super) next_boot_kind: Option<BootOptionKind>,
     pub(super) installed_os: OsImage,
     pub(super) state_string: Option<&'static str>,
     pub(super) api_state: String,
@@ -238,10 +236,9 @@ impl Default for LiveState {
             observed_machine_id: None,
             machine_ip: None,
             bmc_ip: None,
-            ipmi_endpoint: None,
+            ipmi_port: None,
             ssh_endpoint_port: None,
             booted_os: Default::default(),
-            next_boot_kind: None,
             installed_os: Default::default(),
             state_string: None,
             api_state: "Unknown".to_string(),
@@ -276,14 +273,6 @@ impl LiveState {
             tpm_ek_certificate,
             infiniband_port_states,
             ..Default::default()
-        }
-    }
-
-    pub(super) fn ui_next_boot_kind(&self) -> &'static str {
-        match self.next_boot_kind {
-            Some(BootOptionKind::Disk) => "Disk",
-            Some(BootOptionKind::Network) => "Network",
-            None => "Unknown",
         }
     }
 }
@@ -986,10 +975,10 @@ impl MachineStateMachine {
         live_state.is_up = self.fsm.is_up();
         live_state.machine_ip = self.machine_ip();
         live_state.bmc_ip = self.bmc_ip();
-        live_state.ipmi_endpoint = self
+        live_state.ipmi_port = self
             .bmc_mock
             .as_ref()
-            .and_then(|bmc_mock| bmc_mock.ipmi_endpoint());
+            .and_then(|bmc_mock| bmc_mock.ipmi_port());
         live_state.ssh_endpoint_port = self
             .bmc_mock
             .as_ref()
@@ -1003,10 +992,6 @@ impl MachineStateMachine {
         live_state.state_string = Some(self.fsm.state_string());
         live_state.power_state = self.fsm.power_state();
         live_state.booted_os = self.booted_os();
-        live_state.next_boot_kind = self
-            .bmc_state
-            .as_ref()
-            .and_then(|state| state.system_state.resolve_current_boot_selection());
         live_state.dpu_flipped_to_nic_mode = matches!(&self.machine_info, MachineInfo::Dpu(_))
             && self
                 .bmc_state
@@ -1259,6 +1244,8 @@ impl MachineStateMachine {
             Arc::new(LiveStateHostnameQuery(self.live_state.clone())),
             self.mat_host_id,
             self.bmc_injection.clone(),
+            // wires LifecycleTimings::bmc_reset (epic #3796 issue 4)
+            Some(self.resolved_timings.bmc_reset),
         );
 
         let pw_override = match &self.machine_info {

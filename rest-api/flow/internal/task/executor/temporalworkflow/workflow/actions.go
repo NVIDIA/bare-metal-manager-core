@@ -5,6 +5,7 @@ package workflow
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -647,10 +648,24 @@ func executeDecommissionControlAction(actx actionExecutionContext) error {
 	).Get(ctx, nil)
 }
 
+// maxConsecutiveFailureDuration is the time span over which consecutive
+// GetDecommissionStatus errors must occur before the wait loop aborts.
+// A time-based budget scales with the configured poll interval rather than
+// being coupled to a fixed attempt count: a Core outage that outlasts this
+// window is treated as unrecoverable and the workflow returns an error.
+const maxConsecutiveFailureDuration = 5 * time.Minute
+
 // executeWaitDecommissionedAction polls GetDecommissionStatus until all
-// components reach the "Decommissioned" terminal state. States that begin
-// with "Decommissioning/" are in-progress; any other non-terminal state is
-// treated as an error. Uses config.Timeout and config.PollInterval.
+// components reach terminal state. The terminal value is "Decommissioning/Decommissioned".
+// Ready and the managed-host maintenance
+// states are pending because Core records the request before its controller
+// transitions the host; states beginning with "Decommissioning/" are also in
+// progress. Any other non-terminal state is a hard failure.
+//
+// Consecutive GetDecommissionStatus errors are tracked by elapsed time; after
+// maxConsecutiveFailureDuration the loop aborts rather than spinning until the
+// deadline. The initial status call uses the same failure budget as subsequent
+// polls. Uses config.Timeout and config.PollInterval.
 func executeWaitDecommissionedAction(actx actionExecutionContext) error {
 	ctx := actx.workflowContext
 	target := actx.target
@@ -664,13 +679,35 @@ func executeWaitDecommissionedAction(actx actionExecutionContext) error {
 		pollInterval = 30 * time.Second
 	}
 
+	// Establish the deadline before any activity so initial status time is charged
+	// against config.Timeout and cannot extend the total action duration.
+	deadline := workflow.Now(ctx).Add(timeout)
+
 	log.Debug().
 		Dur("timeout", timeout).
 		Dur("poll_interval", pollInterval).
 		Str("target", target.String()).
 		Msg("Waiting for decommission to complete")
 
-	deadline := workflow.Now(ctx).Add(timeout)
+	// activityOpts returns options bounded by the remaining action time so no
+	// single activity can run past the configured deadline.
+	activityOpts := func() workflow.ActivityOptions {
+		remaining := deadline.Sub(workflow.Now(ctx))
+		bound := 30 * time.Second
+		if remaining < bound {
+			bound = remaining
+		}
+		return workflow.ActivityOptions{
+			ScheduleToCloseTimeout: bound,
+			StartToCloseTimeout:    bound,
+			RetryPolicy: &temporal.RetryPolicy{
+				MaximumAttempts: 1,
+			},
+		}
+	}
+
+	var firstFailureAt time.Time
+	firstPoll := true
 
 	for {
 		if workflow.Now(ctx).After(deadline) {
@@ -679,46 +716,117 @@ func executeWaitDecommissionedAction(actx actionExecutionContext) error {
 			)
 		}
 
-		if err := workflow.Sleep(ctx, pollInterval); err != nil {
-			return fmt.Errorf("workflow sleep interrupted: %w", err)
+		if firstPoll {
+			firstPoll = false
+		} else {
+			// Cap the sleep to the remaining deadline so a large PollInterval
+			// cannot push the actual timeout past the configured bound.
+			sleep := pollInterval
+			if remaining := deadline.Sub(workflow.Now(ctx)); sleep > remaining {
+				sleep = remaining
+			}
+			if err := workflow.Sleep(ctx, sleep); err != nil {
+				return fmt.Errorf("workflow sleep interrupted: %w", err)
+			}
+
+			// Recheck after sleep using >= so that a capped sleep that lands exactly
+			// on the deadline also terminates rather than firing one more activity.
+			if !workflow.Now(ctx).Before(deadline) {
+				return fmt.Errorf(
+					"timed out waiting for decommission to complete (timeout %v)", timeout,
+				)
+			}
 		}
 
+		// Use a short fire-once policy so a hung status call fails quickly
+		// and the poll loop's time-based failure budget controls retries.
+		statusCtx := workflow.WithActivityOptions(ctx, activityOpts())
 		var result activity.GetDecommissionStatusResult
 		err := workflow.ExecuteActivity(
-			ctx, activity.NameGetDecommissionStatus, target,
-		).Get(ctx, &result)
+			statusCtx, activity.NameGetDecommissionStatus, target,
+		).Get(statusCtx, &result)
 		if err != nil {
-			log.Warn().Err(err).Msg("Failed to get decommission status, will retry")
+			now := workflow.Now(ctx)
+			if firstFailureAt.IsZero() {
+				firstFailureAt = now
+			}
+			elapsed := now.Sub(firstFailureAt)
+			log.Warn().
+				Err(err).
+				Dur("consecutive_failure_duration", elapsed).
+				Dur("limit", maxConsecutiveFailureDuration).
+				Msg("Failed to get decommission status")
+			if elapsed >= maxConsecutiveFailureDuration {
+				return fmt.Errorf(
+					"aborting: GetDecommissionStatus has been failing for %v: %w",
+					elapsed, err,
+				)
+			}
 			continue
 		}
+		firstFailureAt = time.Time{} // reset on success
 
-		allDecommissioned := true
-		for componentID, state := range result.States {
-			if state == "Decommissioned" {
-				continue
-			}
-			if strings.HasPrefix(state, "Decommissioning/") {
-				allDecommissioned = false
-				log.Debug().
-					Str("component_id", componentID).
-					Str("state", state).
-					Msg("Component still decommissioning")
-				continue
-			}
-			// Any other state is unexpected/terminal-error
-			return fmt.Errorf(
-				"decommission failed for component %s: unexpected state %q",
-				componentID, state,
-			)
+		done, err := evaluateDecommissionResult(&result)
+		if err != nil {
+			return err
 		}
-
-		if allDecommissioned {
+		if done {
 			log.Info().
-				Int("count", len(result.States)).
+				Int("states_count", len(result.States)).
 				Msg("All components decommissioned")
 			return nil
 		}
 	}
+}
+
+// evaluateDecommissionResult inspects a GetDecommissionStatusResult and
+// returns (true, nil) when every component is terminal, (false, nil) when
+// polling should continue, and (false, err) on a hard failure state.
+// NotFound entries are ambiguous and fail closed rather than being inferred as
+// terminal success.
+//
+// All entries are inspected before returning so that a hard-failure state is
+// never masked by an in-progress state that happened to be iterated first
+// (Go map iteration is unordered).
+func evaluateDecommissionResult(result *activity.GetDecommissionStatusResult) (bool, error) {
+	if len(result.States) == 0 && len(result.NotFound) == 0 {
+		return false, errors.New("decommission status result is empty")
+	}
+	if len(result.NotFound) > 0 {
+		return false, fmt.Errorf(
+			"decommission status unavailable for component IDs: %v",
+			result.NotFound,
+		)
+	}
+
+	inProgress := false
+	for componentID, state := range result.States {
+		switch {
+		case state == "Decommissioned", state == "Decommissioning/Decommissioned":
+			// Terminal success — keep scanning.
+		case state == "Ready", strings.HasPrefix(state, "Maintenance("):
+			// Core commits decommission_requested before its asynchronous
+			// controller transitions the managed host out of Ready. A pending
+			// maintenance request takes precedence without clearing that flag.
+			log.Debug().
+				Str("component_id", componentID).
+				Str("state", state).
+				Msg("Component has an accepted decommission request that is pending")
+			inProgress = true
+		case strings.HasPrefix(state, "Decommissioning/"):
+			log.Debug().
+				Str("component_id", componentID).
+				Str("state", state).
+				Msg("Component still decommissioning")
+			inProgress = true
+		default:
+			return false, fmt.Errorf(
+				"decommission failed for component %s: reached unexpected state %q",
+				componentID, state,
+			)
+		}
+	}
+	return !inProgress, nil
 }
 
 // extractOverrideReadinessCheck reads the OverrideReadinessCheck flag from

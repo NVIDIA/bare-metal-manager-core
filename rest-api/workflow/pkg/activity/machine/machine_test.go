@@ -804,7 +804,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 	}
 
 	// Set updated for all machines earlier than the inventory receipt interval
-	_, err = dbSession.DB.Exec("UPDATE machine SET updated = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2))
+	_, err = dbSession.DB.Exec("UPDATE machine SET updated = ?", time.Now().Add(-time.Duration(cutil.DefaultInventoryReceiptInterval)*2))
 	assert.NoError(t, err)
 
 	type fields struct {
@@ -993,7 +993,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 
 			if tt.args.resetMachineUpdatedTimeBeforeInventoryTime {
 				// Set updated for all machines earlier than the inventory receipt interval
-				_, err := dbSession.DB.Exec("UPDATE machine SET updated = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2))
+				_, err := dbSession.DB.Exec("UPDATE machine SET updated = ?", time.Now().Add(-time.Duration(cutil.DefaultInventoryReceiptInterval)*2))
 				assert.NoError(t, err)
 			}
 

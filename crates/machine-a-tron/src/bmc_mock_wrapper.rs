@@ -19,9 +19,8 @@ use std::sync::Arc;
 
 use axum::Router;
 use bmc_mock::injection::InjectionStore;
-use bmc_mock::ipmi_sim::{IpmiEndpoint, IpmiSimConfig, IpmiSimHandle};
-use bmc_mock::{BmcState, Callbacks, CombinedServer, HostnameQuerying, MachineInfo};
-use carbide_ipmi::DEFAULT_IPMI_PORT;
+use bmc_mock::ipmi_sim::{IpmiSimConfig, IpmiSimHandle};
+use bmc_mock::{BmcState, Callbacks, CombinedServer, HardwareType, HostnameQuerying, MachineInfo};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -39,6 +38,7 @@ pub(super) struct BmcMockWrapper {
     bmc_mock_state: BmcState,
     hostname: Arc<dyn HostnameQuerying>,
     needs_ipmi_console: bool,
+    requires_ssh_console: bool,
     stable_id: String,
     ssh_prompt_behavior: PromptBehavior,
 }
@@ -51,6 +51,7 @@ impl BmcMockWrapper {
         hostname: Arc<dyn HostnameQuerying>,
         host_id: Uuid,
         injection: Arc<InjectionStore>,
+        bmc_reset: Option<std::time::Duration>,
     ) -> Self {
         let (bmc_mock_router, bmc_mock_state) = bmc_mock::machine_router_with_injection_store(
             machine_info,
@@ -58,7 +59,23 @@ impl BmcMockWrapper {
             host_id.to_string(),
             true,
             injection,
+            bmc_mock::MachineRouterOptions {
+                bmc_reset_duration: bmc_reset,
+                ..Default::default()
+            },
         );
+
+        let (ssh_prompt_behavior, requires_ssh_console) = match machine_info {
+            MachineInfo::Dpu(_) => (PromptBehavior::Dpu, true),
+            MachineInfo::Host(host) => match host.hw_type {
+                HardwareType::DellPowerEdgeR750 | HardwareType::DellPowerEdgeR760Bf4 => {
+                    (PromptBehavior::Dell, true)
+                }
+                HardwareType::LenovoGB300Nvl => (PromptBehavior::LenovoAmi, true),
+                HardwareType::HpeProliantDl380aGen11 => (PromptBehavior::Hpe, true),
+                _ => (PromptBehavior::Dell, false),
+            },
+        };
 
         BmcMockWrapper {
             app_context,
@@ -66,11 +83,9 @@ impl BmcMockWrapper {
             bmc_mock_state,
             hostname,
             needs_ipmi_console: machine_info.needs_ipmi_console(),
+            requires_ssh_console,
             stable_id: host_id.to_string(),
-            ssh_prompt_behavior: match machine_info {
-                MachineInfo::Dpu(_) => PromptBehavior::Dpu,
-                MachineInfo::Host(_) => PromptBehavior::Dell,
-            },
+            ssh_prompt_behavior,
         }
     }
 
@@ -78,7 +93,7 @@ impl BmcMockWrapper {
     /// Returns `None` when no simulator is enabled for the hardware profile.
     pub(super) async fn start(&self) -> Result<Option<BmcMockWrapperHandle>, MachineStateError> {
         let ssh_handle = if self.app_context.app_config.mock_bmc_ssh_server
-            && self.bmc_mock_state.has_enabled_ssh_serial_console()
+            && (self.requires_ssh_console || self.bmc_mock_state.has_enabled_ssh_serial_console())
         {
             Some(
                 mock_ssh_server::spawn(None, self.hostname.clone(), None, self.ssh_prompt_behavior)
@@ -94,8 +109,12 @@ impl BmcMockWrapper {
             None
         };
         let ssh_endpoint_port = ssh_handle.as_ref().map(|handle| handle.port);
-        self.bmc_mock_state
-            .set_serial_console_ssh_port(ssh_endpoint_port);
+        if let Some(port) = ssh_endpoint_port
+            && !self.bmc_mock_state.set_serial_console_ssh_port(Some(port))
+        {
+            self.bmc_mock_state
+                .set_simulated_serial_console_ssh_port(Some(port));
+        }
 
         Ok(
             (ipmi_sim_handle.is_some() || ssh_handle.is_some()).then_some(BmcMockWrapperHandle {
@@ -108,21 +127,10 @@ impl BmcMockWrapper {
     }
 
     async fn start_ipmi_sim(&self) -> Result<IpmiSimHandle, MachineStateError> {
-        // Determine the reachable port advertised through Redfish:
-        // - None (unset): Use default port
-        // - Some(0): Use dynamic port (same as listen port)
-        // - Some(n): Use the specified port
-        let reachable_port = match self.app_context.app_config.ipmi_reachable_port {
-            None => Some(DEFAULT_IPMI_PORT),
-            Some(0) => None,
-            Some(port) => Some(port),
-        };
-
         let console_prompt = format!("root@{} # ", self.hostname.get_hostname());
         bmc_mock::ipmi_sim::start(
             &self.bmc_mock_state,
             IpmiSimConfig {
-                reachable_port,
                 stable_id: self.stable_id.clone(),
                 console_prompt,
             },
@@ -153,8 +161,8 @@ pub(super) struct BmcMockWrapperHandle {
 }
 
 impl BmcMockWrapperHandle {
-    pub(super) fn ipmi_endpoint(&self) -> Option<IpmiEndpoint> {
-        self._ipmi_sim_handle.as_ref().map(|handle| handle.endpoint)
+    pub(super) fn ipmi_port(&self) -> Option<u16> {
+        self._ipmi_sim_handle.as_ref().map(|handle| handle.port)
     }
 
     pub(super) fn ssh_endpoint_port(&self) -> Option<u16> {

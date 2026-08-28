@@ -276,7 +276,10 @@ func main() {
 
 		// Site workflows
 		w.RegisterWorkflow(siteWorkflow.UpdateAgentCertExpiry)
+		// V1 stays registered for the rollout window, where Cloud upgrades ahead of the Site
+		// Agents still publishing it.
 		w.RegisterWorkflow(siteWorkflow.UpdateSiteConfigInventory)
+		w.RegisterWorkflow(siteWorkflow.UpdateSiteConfigInventoryV2)
 
 		// SSHKeyGroup workflows
 		w.RegisterWorkflow(sshKeyGroupWorkflow.UpdateSSHKeyGroupInventory)

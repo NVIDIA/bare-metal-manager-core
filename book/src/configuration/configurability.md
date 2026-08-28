@@ -236,6 +236,16 @@ For product families other than `gb200` and `gb300`, the `GetRackProfile`
 `product_family` enum is `UNSPECIFIED`. The configured string remains available
 to descriptor-based RMS operations.
 
+Each `rack_capabilities.<role>` section also requires a `count` field. This
+field is independent of RMS: it tells the rack state machine how many devices
+with that role the rack must have before it can progress. A rack stays in
+`Created` until all three roles have at least `count` devices registered; it
+stays in `Discovering` until all three roles have at least `count` devices in
+`Ready` state. All three roles — `compute`, `switch`, and `power_shelf` —
+require a `count` regardless of which backends are set to `rms`. The third
+example below shows `count` on `compute` and `switch` even though those roles
+use non-RMS backends.
+
 The examples below only show the component-manager and rack-profile fields.
 Configure `[rms]` separately when NICo needs to call RMS.
 
@@ -253,12 +263,15 @@ rack_hardware_topology = "gb200_nvl72r1_c2g4_topology"
 
 [rack_profiles.NVL72.rack_capabilities.compute]
 vendor = "NVIDIA"
+count = 18
 
 [rack_profiles.NVL72.rack_capabilities.switch]
 vendor = "NVIDIA"
+count = 9
 
 [rack_profiles.NVL72.rack_capabilities.power_shelf]
 vendor = "LiteOn"
+count = 8
 ```
 
 Example: GB300 rack with Lenovo compute trays and Delta power shelves:
@@ -275,12 +288,15 @@ rack_hardware_topology = "gb300_nvl72r1_c2g4_topology"
 
 [rack_profiles.NVL72_GB300.rack_capabilities.compute]
 vendor = "Lenovo"
+count = 18
 
 [rack_profiles.NVL72_GB300.rack_capabilities.switch]
 vendor = "nvidia"
+count = 9
 
 [rack_profiles.NVL72_GB300.rack_capabilities.power_shelf]
 vendor = "delta"
+count = 6
 ```
 
 Example: only the component-manager power shelf backend uses RMS. The compute
@@ -301,8 +317,15 @@ url = "http://nsm.example.internal:50052"
 product_family = "gb200"
 rack_hardware_topology = "gb200_nvl72r1_c2g4_topology"
 
+[rack_profiles.NVL72_POWER.rack_capabilities.compute]
+count = 18
+
+[rack_profiles.NVL72_POWER.rack_capabilities.switch]
+count = 9
+
 [rack_profiles.NVL72_POWER.rack_capabilities.power_shelf]
 vendor = "Lite-On"
+count = 8
 ```
 
 Each rack that uses an RMS-backed operation must have a `rack_profile_id`
@@ -689,7 +712,8 @@ These don't fit any sub-section but show up in production tuning:
 | `max_find_by_ids` | `100` | Increase if scripts paginate batch lookups; raise the API-side limit to match the client. |
 | `compute_allocation_enforcement` | `WarnOnly` | Switch to `Enforce` once tenant compute pools are sized correctly — flips over-allocation from a warning to a refusal. |
 | `bmc_session_lockout_threshold` | `3` | Number of consecutive 401/403s from a BMC before NICo stops session-token logins for that BMC. Raise on environments with flaky BMC firmware. |
-| `min_dpu_functioning_links` | unset | Minimum healthy DPU links for a machine to report `Healthy`. Unset = all links required. |
+| `bmc_max_sessions_per_caller` | `4` | Cap on outstanding Redfish sessions per calling service identity per BMC; a `GetBmcCredentials` mint past the cap revokes that caller's oldest sessions. Size to the caller's replica count plus headroom; values below 1 are treated as 1. |
+| `min_dpu_functioning_links` | unset (effective value `2`) | Controls DPU ToR BGP health checks. Refer to [DPU ToR Uplink Health](../../../docs/dpu-management/dpu_configuration.md#dpu-tor-uplink-health) for values and lifecycle effects. |
 | `set_http_boot_uri_for_vendors` | `[]` | Vendors for which the state controller pins UEFI HTTP Boot URL on the BMC via Redfish. Empty = rely on DHCP option 67. |
 | `x86_pxe_boot_url_override` / `arm_pxe_boot_url_override` | unset | Override the default `nico-pxe` boot URL by architecture. Useful when chaining through an external HTTP boot artifact server. |
 | `anycast_site_prefixes` | `[]` | **Deprecated** — use `[fnn.routing_profiles.<name>].allowed_anycast_prefixes` instead. |
@@ -775,7 +799,7 @@ advertised. Both are documented field-by-field in
 defines a specific UFM-managed fabric. Currently exactly one fabric is
 supported. Required fields: UFM endpoint, credentials (username + password,
 or token), MGMT IB subnet, GUID prefix. See
-[`crates/api-core/src/cfg/README.md` → IbFabricDefinition](../../../crates/api-core/src/cfg/README.md#ibfabricdefinition).
+[`crates/api-core/src/cfg/README.md` → NicoConfig](../../../crates/api-core/src/cfg/README.md#nicoconfig-top-level).
 
 ### Operator dev / debug knobs
 
@@ -1016,7 +1040,7 @@ for the full field list.
 Maps a host model identifier to a Firmware definition (BMC, UEFI, NIC
 images plus version constraints). The state controller picks the right
 images when a machine in the model joins. See
-[`crates/api-core/src/cfg/README.md` → host_models](../../../crates/api-core/src/cfg/README.md#hostmodelsfirmware).
+[`crates/api-core/src/cfg/README.md` → NicoConfig](../../../crates/api-core/src/cfg/README.md#nicoconfig-top-level).
 
 ### Rack profile firmware object: `[rack_profiles.<name>]`
 

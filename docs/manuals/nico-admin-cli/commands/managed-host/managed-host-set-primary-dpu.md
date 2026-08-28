@@ -4,23 +4,41 @@ _[Hardware commands](../../hardware.md) â€º [managed-host](./managed-host.md) â€
 
 ## NAME
 
-nico-admin-cli-managed-host-set-primary-dpu - Set the primary DPU for
-the managed host
+nico-admin-cli-managed-host-set-primary-dpu - Deprecated: use
+set-primary-interface with a machine-interface ID, not a DPU machine ID
 
 ## SYNOPSIS
 
-**nico-admin-cli managed-host set-primary-dpu** \[**--reboot**\]
-\[**--extended**\] \[**--sort-by**\] \[**-h**\|**--help**\]
-\<*HOST_MACHINE_ID*\> \<*DPU_MACHINE_ID*\>
+**nico-admin-cli managed-host set-primary-dpu**
+\[**--force-reconcile**\] \[**--reboot**\] \[**--extended**\]
+\[**--sort-by**\] \[**-h**\|**--help**\] \<*HOST_MACHINE_ID*\>
+\<*DPU_MACHINE_ID*\>
 
 ## DESCRIPTION
 
-Set the primary DPU for the managed host
+Deprecated compatibility form for managed hosts. This command accepts a
+DPU_MACHINE_ID, chooses the host-facing interface row owned by that DPU,
+and atomically updates the primary interface, Admin network identity,
+and persisted desired boot target. The selected interface must be on the
+Admin segment when the host has a DPU-backed Admin interface. The
+machine-controller converges the BMC to the desired target when the host
+is eligible. Use set-primary-interface with an INTERFACE_ID
+(machine-interface ID):
+[set-primary-interface reference](https://github.com/NVIDIA/infra-controller/blob/main/docs/manuals/nico-admin-cli/commands/managed-host/managed-host-set-primary-interface.md)
 
 ## OPTIONS
 
+**--force-reconcile**\
+Request a fresh machine-controller reconciliation even when this DPU is
+already selected. Sends only force_reconcile=true; servers without
+force_reconcile support ignore it, while supporting servers leave any
+required restart to machine-controller
+
 **--reboot**  
-Reboot the host after the update
+Deprecated compatibility option for servers without force_reconcile
+support. Sends reboot=true and force_reconcile=true; supporting servers
+treat it as reconciliation, while older servers force-restart the host
+after changing the target
 
 **--extended**  
 Extended result output.
@@ -52,7 +70,7 @@ ID of the DPU machine to make primary
 
 ```sh
 nico-admin-cli managed-host set-primary-dpu 12345678-1234-5678-90ab-cdef01234567 abcdef01-2345-6789-abcd-ef0123456789
-nico-admin-cli managed-host set-primary-dpu 12345678-1234-5678-90ab-cdef01234567 abcdef01-2345-6789-abcd-ef0123456789 --reboot
+nico-admin-cli managed-host set-primary-dpu 12345678-1234-5678-90ab-cdef01234567 abcdef01-2345-6789-abcd-ef0123456789 --force-reconcile
 ```
 
 ---

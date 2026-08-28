@@ -16,7 +16,7 @@
  */
 use std::panic::Location;
 
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine::{InvalidMachineType, MachineId};
 use db::DatabaseError;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::machine::ManagedHostState;
@@ -357,6 +357,26 @@ pub enum StateHandlerError {
 
     #[error("spdm error: {0}")]
     SpdmError(#[source] Box<model::attestation::spdm::SpdmHandlerError>),
+
+    // This error is temporary while parts of the codebase migrate to using HostMachineId for places
+    // where only predicted and stable host ID's are acceptable. Any time it is raised is a bug in
+    // the code, so report the caller
+    #[error("bug: invalid machine ID at {location}: {error}")]
+    InvalidHostMachineId {
+        location: &'static std::panic::Location<'static>,
+        error: InvalidMachineType,
+    },
+}
+
+impl From<InvalidMachineType> for StateHandlerError {
+    #[track_caller]
+    fn from(value: InvalidMachineType) -> Self {
+        let location = std::panic::Location::caller();
+        Self::InvalidHostMachineId {
+            location,
+            error: value,
+        }
+    }
 }
 
 impl StateHandlerError {
@@ -385,6 +405,7 @@ impl StateHandlerError {
                 _ => "resource_cleanup_failed",
             },
             StateHandlerError::SpdmError(_) => "spdm_attestation_error",
+            StateHandlerError::InvalidHostMachineId { .. } => "invalid_host_machine_id",
         }
     }
 }

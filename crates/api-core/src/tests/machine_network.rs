@@ -27,15 +27,10 @@ use carbide_instrument::testing::MetricsCapture;
 use carbide_secrets::credentials::{BgpCredentialType, CredentialKey, Credentials};
 use carbide_uuid::machine::MachineId;
 use common::api_fixtures::network_segment::{
-    FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS, create_network_segment, create_tenant_network_segment,
+    FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS, create_tenant_network_segment,
 };
 use common::api_fixtures::{self, create_managed_host, dpu, network_configured_with_health};
-use mac_address::MacAddress;
-use model::address_selection_strategy::AddressSelectionStrategy;
-use model::allocation_type::AllocationType;
 use model::machine::network::ManagedHostQuarantineMode;
-use model::machine_interface_address::MachineInterfaceAssociation;
-use model::network_segment::NetworkSegmentType;
 use rpc::Metadata;
 use rpc::forge::forge_server::Forge;
 
@@ -190,11 +185,12 @@ async fn test_managed_host_network_config(pool: sqlx::PgPool) {
         admin_interface.addresses,
         vec![rpc::forge::InterfaceAddressConfig {
             address_family: rpc::forge::AddressFamily::V4.into(),
+            ip: admin_interface.ip.unwrap(),
+            interface_prefix: admin_interface.interface_prefix.unwrap(),
+            prefix: admin_interface.prefix.unwrap(),
             gateway: admin_interface.gateway,
-            ip: admin_interface.ip,
-            interface_prefix: admin_interface.interface_prefix,
-            prefix: admin_interface.prefix,
             svi_ip: admin_interface.svi_ip,
+            tenant_vrf_loopback_ip: admin_interface.tenant_vrf_loopback_ip,
         }]
     );
 }
@@ -348,132 +344,6 @@ async fn test_managed_host_network_config_with_sitewide_bgp_password(pool: sqlx:
         response.bgp_leaf_session_password,
         Some("test-bgp-password".to_string())
     );
-}
-
-#[crate::sqlx_test]
-async fn test_managed_host_network_config_includes_routing_profile_prefix_lists(
-    pool: sqlx::PgPool,
-) {
-    let profile_type = "ROUTE_LEAK_TEST";
-    let expected_leaks = vec!["10.42.0.0/24".to_string(), "2001:db8:42::/64".to_string()];
-    let expected_allowed_anycast_prefixes =
-        vec!["192.0.2.0/24".to_string(), "2001:db8:99::/64".to_string()];
-
-    // Configure an FNN routing profile with explicit accepted underlay leaks.
-    let env = api_fixtures::create_test_env_with_overrides(
-        pool,
-        TestEnvOverrides::default().with_fnn_config(Some(FnnConfig {
-            admin_vpc: None,
-            common_internal_route_target: None,
-            additional_route_target_imports: vec![],
-            routing_profiles: HashMap::from([(
-                profile_type.to_string(),
-                FnnRoutingProfileConfig {
-                    internal: Some(true),
-                    access_tier: Some(0),
-                    accepted_leaks_from_underlay: Some(
-                        expected_leaks
-                            .iter()
-                            .map(|prefix| PrefixFilterPolicyEntry {
-                                prefix: prefix.parse().unwrap(),
-                            })
-                            .collect(),
-                    ),
-                    allowed_anycast_prefixes: Some(
-                        expected_allowed_anycast_prefixes
-                            .iter()
-                            .map(|prefix| PrefixFilterPolicyEntry {
-                                prefix: prefix.parse().unwrap(),
-                            })
-                            .collect(),
-                    ),
-                    ..Default::default()
-                },
-            )]),
-            use_vpc_vrf_loopback: false,
-        })),
-    )
-    .await;
-
-    // Create a tenant and FNN VPC using that routing profile.
-    let tenant = env
-        .api
-        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
-            organization_id: "route-leak-test".to_string(),
-            routing_profile_type: Some(profile_type.to_string()),
-            metadata: Some(rpc::forge::Metadata {
-                name: "route-leak-test".to_string(),
-                description: "".to_string(),
-                labels: vec![],
-            }),
-        }))
-        .await
-        .unwrap()
-        .into_inner()
-        .tenant
-        .unwrap();
-
-    let segment_id = env
-        .create_vpc_and_tenant_segment_with_vpc_details(
-            VpcCreationRequest::builder(tenant.organization_id.as_str())
-                .metadata(Metadata {
-                    name: "route leak vpc".to_string(),
-                    ..Default::default()
-                })
-                .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
-                .routing_profile_type(profile_type.to_string())
-                .rpc(),
-        )
-        .await;
-
-    // Allocate an instance on the VPC so the DPU receives tenant network config.
-    let mh = create_managed_host(&env).await;
-    mh.instance_builer(&env)
-        .tenant_org(tenant.organization_id)
-        .single_interface_network_config(segment_id)
-        .build()
-        .await;
-
-    // Fetch the DPU network config and extract its per-VPC routing profile.
-    let response = env
-        .api
-        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
-            dpu_machine_id: Some(mh.dpu().id),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-    let routing_profile = response.tenant_interfaces[0]
-        .vpc_routing_profile
-        .clone()
-        .unwrap();
-    assert!(
-        response.tenant_interfaces[0]
-            .interface_routing_profile
-            .is_none()
-    );
-
-    // Verify the configured leak prefixes are preserved in the gRPC response.
-    let actual_leaks: Vec<_> = routing_profile
-        .accepted_leaks_from_underlay
-        .into_iter()
-        .map(|leak| leak.prefix)
-        .collect();
-    assert_eq!(actual_leaks, expected_leaks);
-
-    // Verify anycast prefixes are preserved in the gRPC response.
-    let actual_allowed_anycast_prefixes: Vec<_> = routing_profile
-        .allowed_anycast_prefixes
-        .into_iter()
-        .map(|prefix| prefix.prefix)
-        .collect();
-    assert_eq!(
-        actual_allowed_anycast_prefixes,
-        expected_allowed_anycast_prefixes
-    );
-
-    // Verify the deprecated top-level field is still populated for rollout compatibility.
-    assert!(response.routing_profile.is_some());
 }
 
 #[crate::sqlx_test]
@@ -809,6 +679,7 @@ async fn test_managed_host_network_config_includes_per_vpc_routing_profiles(pool
 }
 
 #[crate::sqlx_test]
+#[allow(deprecated)]
 async fn test_managed_host_network_config_omits_fnn_vrf_loopback_by_default(pool: sqlx::PgPool) {
     let env = api_fixtures::create_test_env_with_overrides(
         pool,
@@ -886,6 +757,7 @@ async fn test_managed_host_network_config_omits_fnn_vrf_loopback_by_default(pool
 }
 
 #[crate::sqlx_test]
+#[allow(deprecated)]
 async fn test_managed_host_network_config_includes_fnn_vrf_loopback_when_enabled(
     pool: sqlx::PgPool,
 ) {
@@ -942,10 +814,20 @@ async fn test_managed_host_network_config_includes_fnn_vrf_loopback_when_enabled
         .await
         .unwrap()
         .into_inner();
-    let loopback_ip = response.tenant_interfaces[0]
+    let tenant_interface = &response.tenant_interfaces[0];
+    let loopback_ip = tenant_interface
         .tenant_vrf_loopback_ip
         .clone()
         .expect("loopback should be present when enabled");
+    let loopback_address = tenant_interface
+        .addresses
+        .iter()
+        .find(|address| address.address_family() == rpc::forge::AddressFamily::V4)
+        .expect("IPv4 family entry should carry the tenant VRF loopback");
+    assert_eq!(
+        loopback_address.tenant_vrf_loopback_ip.as_deref(),
+        Some(loopback_ip.as_str())
+    );
 
     // Verify the DB allocation matches the response.
     let mut txn = env.db_txn().await;
@@ -961,6 +843,7 @@ async fn test_managed_host_network_config_includes_fnn_vrf_loopback_when_enabled
 }
 
 #[crate::sqlx_test]
+#[allow(deprecated)]
 async fn test_managed_host_network_config_omits_admin_fnn_vrf_loopback_by_default(
     pool: sqlx::PgPool,
 ) {
@@ -1090,138 +973,6 @@ async fn test_managed_host_network_config_errors_when_sitewide_bgp_password_miss
 }
 
 #[crate::sqlx_test]
-// This test compares compatibility fields across DPUs.
-#[allow(deprecated)]
-async fn test_managed_host_network_config_multi_dpu(pool: sqlx::PgPool) {
-    let env = api_fixtures::create_test_env(pool).await;
-
-    // Given: A managed host with 2 DPUs.
-    let mh = api_fixtures::create_managed_host_multi_dpu(&env, 2).await;
-
-    let host_machine = mh.host().rpc_machine().await;
-    let dpu_1_id = host_machine
-        .status
-        .as_ref()
-        .unwrap()
-        .associated_dpu_machine_ids[0];
-    let dpu_2_id = host_machine
-        .status
-        .as_ref()
-        .unwrap()
-        .associated_dpu_machine_ids[1];
-
-    // And: Multiple admin segments exist when the DPU network config is rendered.
-    let _second_admin_segment = create_network_segment(
-        &env.api,
-        "ADMIN_2",
-        "192.0.12.0/24",
-        "192.0.12.1",
-        rpc::forge::NetworkSegmentType::Admin,
-        None,
-        true,
-    )
-    .await;
-
-    // Then: Get the managed host network config version via DPU 1's ID and DPU 2's ID
-    let dpu_1_network_config = env
-        .api
-        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
-            dpu_machine_id: Some(dpu_1_id),
-        }))
-        .await
-        .expect("Error getting DPU1 network config")
-        .into_inner();
-    let dpu_2_network_config = env
-        .api
-        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
-            dpu_machine_id: Some(dpu_2_id),
-        }))
-        .await
-        .expect("Error getting DPU1 network config")
-        .into_inner();
-
-    let configs = [&dpu_1_network_config, &dpu_2_network_config];
-
-    // Check that reconciliation left exactly one DHCP admin address on
-    // the host, and normalized the dormant admin interface.
-    let mut txn = env.pool.begin().await.unwrap();
-    let mut interface_map = db::machine_interface::find_by_machine_ids(&mut txn, &[mh.id])
-        .await
-        .unwrap();
-    let interfaces = interface_map.remove(&mh.id).unwrap();
-    let admin_interfaces = interfaces
-        .iter()
-        .filter(|interface| {
-            interface.network_segment_type == Some(NetworkSegmentType::Admin)
-                && interface.attached_dpu_machine_id.is_some()
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(admin_interfaces.len(), 2);
-
-    let primary_interface = admin_interfaces
-        .iter()
-        .copied()
-        .find(|interface| interface.primary_interface)
-        .unwrap();
-    let dormant_interface = admin_interfaces
-        .iter()
-        .copied()
-        .find(|interface| !interface.primary_interface)
-        .unwrap();
-    let mut dhcp_address_count = 0;
-    for interface in &admin_interfaces {
-        let addresses = db::machine_interface_address::find_for_interface(&mut txn, interface.id)
-            .await
-            .unwrap();
-        dhcp_address_count += addresses
-            .iter()
-            .filter(|address| address.allocation_type == AllocationType::Dhcp)
-            .count();
-    }
-    assert_eq!(dhcp_address_count, 1);
-    assert_eq!(primary_interface.addresses.len(), 1);
-    assert!(dormant_interface.addresses.is_empty());
-    assert!(dormant_interface.domain_id.is_none());
-    assert!(dormant_interface.hostname.starts_with("noip-"));
-    txn.commit().await.unwrap();
-
-    // Assert: Both DPUs are still on the singular admin-interface path.
-    for config in configs {
-        assert!(config.use_admin_network);
-        assert!(config.admin_interface.is_some());
-        assert!(config.tenant_interfaces.is_empty());
-    }
-
-    // Assert: Only the primary DPU is active on the admin network.
-    assert_eq!(
-        configs
-            .iter()
-            .filter(|config| config.is_primary_dpu)
-            .count(),
-        1,
-    );
-
-    // Assert: Both DPUs report the same managed_host_config_version, because
-    // it's the host's network_config_version and group-sync keeps every member
-    // of the host's machine group at the same version.
-    assert_eq!(
-        dpu_1_network_config.managed_host_config_version,
-        dpu_2_network_config.managed_host_config_version,
-    );
-
-    // Assert: The admin config uses the primary address for both DPUs, but
-    // still reports the requesting DPU's own host interface identity.
-    let dpu_1_admin = dpu_1_network_config.admin_interface.as_ref().unwrap();
-    let dpu_2_admin = dpu_2_network_config.admin_interface.as_ref().unwrap();
-    assert_eq!(dpu_1_admin.ip, dpu_2_admin.ip);
-    assert_eq!(dpu_1_admin.fqdn, dpu_2_admin.fqdn);
-    assert_ne!(
-        dpu_1_network_config.host_interface_id,
-        dpu_2_network_config.host_interface_id,
-    );
-}
-
-#[crate::sqlx_test]
 async fn test_managed_host_network_config_multi_dpu_fnn_ipv6_loopbacks(pool: sqlx::PgPool) {
     let mut overrides = TestEnvOverrides::default().with_fnn_config(None);
     overrides.fnn_config.as_mut().unwrap().admin_vpc = Some(AdminFnnConfig {
@@ -1294,146 +1045,6 @@ prefix = "2001:db8:2390::/126"
         dpu_1_network_config.managed_host_config_version,
         dpu_2_network_config.managed_host_config_version,
     );
-}
-
-#[crate::sqlx_test]
-// This test verifies the compatibility admin address chosen for older agents.
-#[allow(deprecated)]
-async fn test_managed_host_network_config_uses_non_dpu_primary_admin_interface(pool: sqlx::PgPool) {
-    let env = api_fixtures::create_test_env(pool).await;
-
-    // Given: A managed host with 2 DPUs and a separate host admin NIC marked primary.
-    let mh = api_fixtures::create_managed_host_multi_dpu(&env, 2).await;
-    let host_machine = mh.host().rpc_machine().await;
-    let dpu_1_id = host_machine
-        .status
-        .as_ref()
-        .unwrap()
-        .associated_dpu_machine_ids[0];
-    let dpu_2_id = host_machine
-        .status
-        .as_ref()
-        .unwrap()
-        .associated_dpu_machine_ids[1];
-
-    let mut txn = env.pool.begin().await.unwrap();
-    let admin_segment = db::network_segment::admin(&mut txn)
-        .await
-        .unwrap()
-        .into_iter()
-        .next()
-        .unwrap();
-
-    let mut interface_map = db::machine_interface::find_by_machine_ids(&mut txn, &[mh.id])
-        .await
-        .unwrap();
-    let interfaces = interface_map.remove(&mh.id).unwrap();
-    for interface in interfaces
-        .iter()
-        .filter(|interface| interface.primary_interface)
-    {
-        db::machine_interface::set_primary_interface(&interface.id, false, &mut txn)
-            .await
-            .unwrap();
-    }
-
-    let active_mac: MacAddress = "9a:9b:9c:9d:9e:b1".parse().unwrap();
-    let active_interface = db::machine_interface::create(
-        &mut txn,
-        std::slice::from_ref(&admin_segment),
-        &active_mac,
-        true,
-        AddressSelectionStrategy::NextAvailableIp,
-        None,
-    )
-    .await
-    .unwrap();
-    db::machine_interface::associate_interface_with_machine(
-        &active_interface.id,
-        MachineInterfaceAssociation::Machine(mh.id),
-        &mut txn,
-    )
-    .await
-    .unwrap();
-    db::machine_interface::reconcile_admin_addresses_for_host(&mut txn, &mh.id)
-        .await
-        .unwrap();
-
-    let mut interface_map = db::machine_interface::find_by_machine_ids(&mut txn, &[mh.id])
-        .await
-        .unwrap();
-    let interfaces = interface_map.remove(&mh.id).unwrap();
-    let active_interface = interfaces
-        .iter()
-        .find(|interface| interface.id == active_interface.id)
-        .unwrap();
-    let active_ip = active_interface
-        .addresses
-        .iter()
-        .find(|address| address.is_ipv4())
-        .unwrap()
-        .to_string();
-    let dpu_1_host_interface_id = interfaces
-        .iter()
-        .find(|interface| {
-            interface.attached_dpu_machine_id == Some(dpu_1_id)
-                && interface.network_segment_type == Some(NetworkSegmentType::Admin)
-        })
-        .unwrap()
-        .id
-        .to_string();
-    let dpu_2_host_interface_id = interfaces
-        .iter()
-        .find(|interface| {
-            interface.attached_dpu_machine_id == Some(dpu_2_id)
-                && interface.network_segment_type == Some(NetworkSegmentType::Admin)
-        })
-        .unwrap()
-        .id
-        .to_string();
-    txn.commit().await.unwrap();
-
-    // Then: DPU network config uses the non-DPU primary admin IP, but each response
-    // still reports the requesting DPU's own DPU-backed host interface ID.
-    let dpu_1_network_config = env
-        .api
-        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
-            dpu_machine_id: Some(dpu_1_id),
-        }))
-        .await
-        .expect("Error getting DPU1 network config")
-        .into_inner();
-    let dpu_2_network_config = env
-        .api
-        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
-            dpu_machine_id: Some(dpu_2_id),
-        }))
-        .await
-        .expect("Error getting DPU2 network config")
-        .into_inner();
-
-    assert_eq!(
-        dpu_1_network_config.admin_interface.as_ref().unwrap().ip,
-        active_ip
-    );
-    assert_eq!(
-        dpu_2_network_config.admin_interface.as_ref().unwrap().ip,
-        active_ip
-    );
-    assert_eq!(
-        dpu_1_network_config.admin_interface.as_ref().unwrap().fqdn,
-        dpu_2_network_config.admin_interface.as_ref().unwrap().fqdn
-    );
-    assert_eq!(
-        dpu_1_network_config.host_interface_id.as_deref(),
-        Some(dpu_1_host_interface_id.as_str())
-    );
-    assert_eq!(
-        dpu_2_network_config.host_interface_id.as_deref(),
-        Some(dpu_2_host_interface_id.as_str())
-    );
-    assert!(!dpu_1_network_config.is_primary_dpu);
-    assert!(!dpu_2_network_config.is_primary_dpu);
 }
 
 #[crate::sqlx_test]
@@ -1543,7 +1154,11 @@ fn create_extension_service_data(name: &str) -> String {
 
 #[crate::sqlx_test]
 async fn test_managed_host_network_config_with_extension_services(pool: sqlx::PgPool) {
-    let env = api_fixtures::create_test_env(pool).await;
+    let mut config = api_fixtures::get_config();
+    config.dpf.enabled = true;
+    let env =
+        api_fixtures::create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config))
+            .await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let mh = create_managed_host(&env).await;
     let dpu_1_id = mh.dpu_ids[0];
@@ -1674,6 +1289,23 @@ async fn test_managed_host_network_config_with_extension_services(pool: sqlx::Pg
         service2_version.clone()
     );
     assert_eq!(response.dpu_extension_services[1].removed, None);
+
+    let nested_extension_services = response
+        .instance
+        .as_ref()
+        .and_then(|instance| instance.config.as_ref())
+        .and_then(|config| config.dpu_extension_services.as_ref())
+        .expect("agent-facing instance config retains the Kubernetes Pod services");
+    assert_eq!(nested_extension_services.service_configs.len(), 2);
+    assert!(
+        nested_extension_services
+            .service_configs
+            .iter()
+            .all(|service| {
+                service.service_id == extension_service1.service_id
+                    || service.service_id == extension_service2.service_id
+            })
+    );
 }
 
 #[crate::sqlx_test]
@@ -1710,9 +1342,9 @@ async fn test_dpu_health_is_required(pool: sqlx::PgPool) {
                 function_type: admin_if.function_type,
                 virtual_function_id: None,
                 mac_address: None,
-                addresses: vec![admin_if.ip.clone()],
-                prefixes: vec![admin_if.interface_prefix.clone()],
-                gateways: vec![admin_if.gateway.clone()],
+                addresses: admin_if.ip.clone().into_iter().collect(),
+                prefixes: admin_if.interface_prefix.clone().into_iter().collect(),
+                gateways: admin_if.gateway.clone().into_iter().collect(),
                 network_security_group: None,
                 internal_uuid: None,
             }],

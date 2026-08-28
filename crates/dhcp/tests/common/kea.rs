@@ -297,47 +297,7 @@ impl Kea {
     }
 
     fn config(api_server_url: &str, lease_file: &Path) -> String {
-        // Locate libdhcp.so. Cargo may put it under either `target/debug/`
-        // (default) or `target/...something.../debug/` (when CARGO_BUILD_TARGET
-        // is set in the env). Check release before debug so a `--release`
-        // test build wins.
-        let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        let candidates: Vec<String> = {
-            let target_triple = std::env::var("CARGO_BUILD_TARGET").ok();
-            let triple_subdir = target_triple
-                .as_deref()
-                .map(|t| format!("{t}/"))
-                .unwrap_or_default();
-            // NOTE: cargo only updates the non-deps `libdhcp.so` on the first
-            // build after a clean; subsequent rebuilds touch `deps/libdhcp.so`
-            // only. Prefer the deps copy so we always pick up fresh rebuilds.
-            vec![
-                format!("{manifest_dir}/../../target/{triple_subdir}release/deps/libdhcp.so"),
-                format!("{manifest_dir}/../../target/release/deps/libdhcp.so"),
-                format!("{manifest_dir}/../../target/{triple_subdir}debug/deps/libdhcp.so"),
-                format!("{manifest_dir}/../../target/debug/deps/libdhcp.so"),
-                format!("{manifest_dir}/../../target/{triple_subdir}release/libdhcp.so"),
-                format!("{manifest_dir}/../../target/release/libdhcp.so"),
-                format!("{manifest_dir}/../../target/{triple_subdir}debug/libdhcp.so"),
-                format!("{manifest_dir}/../../target/debug/libdhcp.so"),
-            ]
-        };
-        let hook_lib = match candidates.iter().find(|p| Path::new(p).exists()) {
-            Some(p) => p.clone(),
-            None => {
-                // If `cargo build` has not been run yet (after a `cargo clean`),
-                // the `build.rs` script won't have generated libdhcp.so, so lets
-                // do it ourselves.
-                println!(
-                    "Could not find Kea hooks dynamic library in any of {candidates:?}. Building."
-                );
-                test_cdylib::build_current_project();
-                candidates
-                    .into_iter()
-                    .find(|p| Path::new(p).exists())
-                    .expect("test_cdylib build did not produce libdhcp.so at any expected path")
-            }
-        };
+        let hook_lib = super::hook_library_path();
 
         let conf = json!({
         "Dhcp4": {

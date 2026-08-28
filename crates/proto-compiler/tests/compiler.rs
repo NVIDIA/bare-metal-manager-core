@@ -385,3 +385,103 @@ fn invalid_rust_derive_is_reported_with_its_protobuf_type() {
             && derive == "serde::Serialize +"
     ));
 }
+
+#[test]
+fn applies_owned_enum_and_imported_external_type_mappings() {
+    let schema =
+        compile_codegen_fixtures(&["extern_paths.proto"]).expect("external path fixture compiles");
+    let codegen = schema.collect_codegen().expect("external paths are valid");
+    let extern_paths = codegen.extern_paths();
+
+    for (protobuf_type, expected_rust_type) in [
+        (
+            ".carbide.proto.compiler.fixture.extern_paths.ExternalMessage",
+            ":: fixture_types :: ExternalMessage",
+        ),
+        (
+            ".carbide.proto.compiler.fixture.extern_paths.ExternalEnum",
+            ":: fixture_types :: ExternalEnum",
+        ),
+        (".google.protobuf.Timestamp", "crate :: Timestamp"),
+    ] {
+        let rust_type = extern_paths
+            .get(protobuf_type)
+            .unwrap_or_else(|| panic!("mapping for `{protobuf_type}` exists"));
+        assert_eq!(quote::quote!(#rust_type).to_string(), expected_rust_type);
+    }
+
+    let output = generate_with_codegen(schema);
+    let generated = std::fs::read_to_string(
+        output
+            .path()
+            .join("carbide.proto.compiler.fixture.extern_paths.rs"),
+    )
+    .expect("generated package exists");
+    for rust_type in ["::fixture_types::ExternalMessage", "crate::Timestamp"] {
+        assert!(
+            generated.contains(rust_type),
+            "generated field uses external type `{rust_type}`"
+        );
+    }
+    assert!(!generated.contains("pub struct ExternalMessage"));
+    assert!(!generated.contains("pub enum ExternalEnum"));
+}
+
+#[test]
+fn invalid_rust_extern_path_is_reported_with_its_protobuf_type() {
+    let schema = compile_codegen_fixtures(&["invalid_extern_path.proto"])
+        .expect("invalid Rust path is valid protobuf");
+    assert!(matches!(
+        schema.collect_codegen(),
+        Err(Error::InvalidRustExternPath {
+            protobuf_type,
+            rust_type,
+            ..
+        }) if protobuf_type
+            == ".carbide.proto.compiler.fixture.invalid_extern_path.InvalidMessage"
+            && rust_type == "::invalid::Type +"
+    ));
+}
+
+#[test]
+fn unknown_external_mapping_target_is_reported() {
+    let schema = compile_codegen_fixtures(&["unknown_extern_path.proto"])
+        .expect("unknown mapping target is valid protobuf");
+    assert!(matches!(
+        schema.collect_codegen(),
+        Err(Error::UnknownExternPathTarget { protobuf_type })
+            if protobuf_type == ".unknown.Missing"
+    ));
+}
+
+#[test]
+fn redeclared_external_mapping_is_reported() {
+    for (fixture, protobuf_type) in [
+        (
+            "duplicate_extern_path.proto",
+            ".carbide.proto.compiler.fixture.duplicate_extern_path.ExternalMessage",
+        ),
+        (
+            "conflicting_extern_path.proto",
+            ".carbide.proto.compiler.fixture.conflicting_extern_path.ExternalMessage",
+        ),
+    ] {
+        let schema =
+            compile_codegen_fixtures(&[fixture]).expect("redeclared mapping is valid protobuf");
+        assert!(matches!(
+            schema.collect_codegen(),
+            Err(Error::RedeclaredExternPath { protobuf_type: actual }) if actual == protobuf_type
+        ));
+    }
+}
+
+#[test]
+fn invalid_external_mapping_extension_shape_is_reported() {
+    let schema = compile_codegen_fixtures(&["invalid_extern_path_extension.proto"])
+        .expect("invalid extension shape is valid protobuf");
+    assert!(matches!(
+        schema.collect_codegen(),
+        Err(Error::InvalidCodegenExtension(name))
+            if name == "carbide.codegen.v1.imported_extern_path"
+    ));
+}

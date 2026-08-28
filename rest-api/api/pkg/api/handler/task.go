@@ -323,6 +323,164 @@ func (cth CancelTaskHandler) Handle(c echo.Context) error {
 
 // ~~~~~ List Tasks Handlers ~~~~~ //
 
+// GetAllTaskHandler is the API Handler for listing all Tasks in a Site.
+type GetAllTaskHandler struct {
+	dbSession  *cdb.Session
+	scp        *sc.ClientPool
+	tracerSpan *cutil.TracerSpan
+}
+
+// NewGetAllTaskHandler initializes a new GetAllTaskHandler.
+func NewGetAllTaskHandler(dbSession *cdb.Session, scp *sc.ClientPool) GetAllTaskHandler {
+	return GetAllTaskHandler{
+		dbSession:  dbSession,
+		scp:        scp,
+		tracerSpan: cutil.NewTracerSpan(),
+	}
+}
+
+// Handle godoc
+// @Summary Retrieve all Tasks
+// @Description List all Tasks in the requested Site, with optional active-only and pagination filters.
+// @Tags task
+// @Accept json
+// @Produce json
+// @Security ApiKeyAuth
+// @Param org path string true "Name of NGC organization"
+// @Param siteId query string true "UUID of the Site"
+// @Param activeOnly query boolean false "Restrict to non-terminal Tasks"
+// @Param includeReport query boolean false "Include the per-task execution report in each response (default false)"
+// @Param pageNumber query integer false "Page number of results returned"
+// @Param pageSize query integer false "Number of results per page"
+// @Success 200 {array} model.APITask
+// @Router /v2/org/{org}/nico/task [get]
+func (h GetAllTaskHandler) Handle(c echo.Context) error {
+	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Task", "GetAll", c, h.tracerSpan)
+	if handlerSpan != nil {
+		defer handlerSpan.End()
+	}
+
+	if dbUser == nil {
+		logger.Error().Msg("invalid User object found in request context")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
+	}
+
+	ok, err := auth.ValidateOrgMembership(dbUser, org)
+	if !ok {
+		if err != nil {
+			logger.Error().Err(err).Msg("error validating org membership for User in request")
+		} else {
+			logger.Warn().Msg("could not validate org membership for user, access denied")
+		}
+		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, fmt.Sprintf("Failed to validate membership for org: %s", org), nil)
+	}
+
+	if !auth.ValidateUserRoles(dbUser, org, nil, auth.ProviderAdminRole) {
+		logger.Warn().Msg("user does not have Provider Admin role, access denied")
+		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have Provider Admin role with org", nil)
+	}
+
+	var apiRequest model.APIGetTasksRequest
+	if err := common.ValidateKnownQueryParams(c.QueryParams(), apiRequest, pagination.PageRequest{}); err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
+	}
+	if err := c.Bind(&apiRequest); err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request data", nil)
+	}
+	if err := apiRequest.Validate(); err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
+	}
+	h.tracerSpan.SetAttribute(handlerSpan, attribute.String("site_id", apiRequest.SiteID), logger)
+
+	infrastructureProvider, err := common.GetInfrastructureProviderForOrg(ctx, nil, h.dbSession, org)
+	if err != nil {
+		logger.Warn().Err(err).Msg("error getting infrastructure provider for org")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to retrieve Infrastructure Provider for org", nil)
+	}
+
+	site, err := common.GetSiteFromIDString(ctx, nil, apiRequest.SiteID, h.dbSession)
+	if err != nil {
+		if errors.Is(err, common.ErrInvalidID) {
+			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to validate Site specified in request: invalid ID", nil)
+		}
+		if errors.Is(err, cdb.ErrDoesNotExist) {
+			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Site specified in request does not exist", nil)
+		}
+		logger.Error().Err(err).Msg("error retrieving Site from DB")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site specified in request due to DB error", nil)
+	}
+
+	if site.InfrastructureProviderID != infrastructureProvider.ID {
+		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Site specified in request doesn't belong to current org's Provider", nil)
+	}
+
+	siteConfig := &cdbm.SiteConfig{}
+	if site.Config != nil {
+		siteConfig = site.Config
+	}
+	if !siteConfig.Flow {
+		logger.Warn().Msg("site does not have NICo Flow enabled")
+		return cutil.NewAPIErrorResponse(c, http.StatusPreconditionFailed, "Site does not have NICo Flow enabled", nil)
+	}
+
+	pageRequest := pagination.PageRequest{}
+	if err := c.Bind(&pageRequest); err != nil {
+		logger.Warn().Err(err).Msg("error binding pagination request data into API model")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request pagination data", nil)
+	}
+	if err := pageRequest.Validate(nil); err != nil {
+		logger.Warn().Err(err).Msg("error validating pagination request data")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to validate pagination request data", err)
+	}
+
+	stc, err := h.scp.GetClientByID(site.ID)
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to retrieve Temporal client for Site")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
+	}
+
+	flowRequest := &flowv1.ListTasksRequest{
+		ActiveOnly: apiRequest.ActiveOnly,
+		WithReport: apiRequest.IncludeReport,
+	}
+	if pageRequest.Offset != nil && pageRequest.Limit != nil {
+		flowRequest.Pagination = &flowv1.Pagination{
+			Offset: int32(*pageRequest.Offset),
+			Limit:  int32(*pageRequest.Limit),
+		}
+	}
+
+	workflowID := fmt.Sprintf("task-get-all-%s", common.QueryParamHash(apiRequest.QueryValues(pageRequest)))
+	var flowResponse flowv1.ListTasksResponse
+	proxyErr := common.ProxyFlowGRPC(
+		ctx, c, logger, stc,
+		flowv1.Flow_ListTasks_FullMethodName,
+		flowRequest, &flowResponse,
+		common.FlowWorkflowID(workflowID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+	)
+	if proxyErr != nil {
+		return proxyErr
+	}
+
+	taskOpts := apiRequest.TaskOptions()
+	apiTasks := make([]*model.APITask, 0, len(flowResponse.GetTasks()))
+	for _, task := range flowResponse.GetTasks() {
+		apiTasks = append(apiTasks, model.NewAPITask(task, taskOpts...))
+	}
+
+	total := int(flowResponse.GetTotal())
+	pageResponse := pagination.NewPageResponse(*pageRequest.PageNumber, *pageRequest.PageSize, total, pageRequest.OrderByStr)
+	pageHeader, err := json.Marshal(pageResponse)
+	if err != nil {
+		logger.Error().Err(err).Msg("error marshaling pagination response")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to create pagination response", nil)
+	}
+	c.Response().Header().Set(pagination.ResponseHeaderName, string(pageHeader))
+
+	logger.Info().Int("Count", len(apiTasks)).Int("Total", total).Msg("finishing API handler")
+	return c.JSON(http.StatusOK, apiTasks)
+}
+
 // GetRackTasksHandler is the API Handler for listing Tasks targeting a Rack.
 type GetRackTasksHandler struct {
 	dbSession  *cdb.Session
@@ -372,7 +530,7 @@ func (h GetRackTasksHandler) Handle(c echo.Context) error {
 	}
 
 	var apiRequest model.APIGetTasksRequest
-	if err := common.ValidateKnownQueryParams(c.QueryParams(), apiRequest); err != nil {
+	if err := common.ValidateKnownQueryParams(c.QueryParams(), apiRequest, pagination.PageRequest{}); err != nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
 	}
 	if err := c.Bind(&apiRequest); err != nil {
@@ -541,7 +699,7 @@ func (h GetTrayTasksHandler) Handle(c echo.Context) error {
 	}
 
 	var apiRequest model.APIGetTasksRequest
-	if err := common.ValidateKnownQueryParams(c.QueryParams(), apiRequest); err != nil {
+	if err := common.ValidateKnownQueryParams(c.QueryParams(), apiRequest, pagination.PageRequest{}); err != nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
 	}
 	if err := c.Bind(&apiRequest); err != nil {

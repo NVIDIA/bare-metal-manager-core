@@ -19,7 +19,7 @@ use std::borrow::Cow;
 use std::net::{IpAddr, SocketAddr};
 
 use carbide_utils::HostPortPair;
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine::{HostMachineId, MachineId};
 use tokio::net::lookup_host;
 
 use crate::CarbideError;
@@ -141,7 +141,7 @@ pub(super) struct StateHandlerWakeupFailed {
 /// without failing an otherwise successful API request.
 pub(super) async fn enqueue_boot_interface_reconciliation(
     api: &Api,
-    machine_id: MachineId,
+    machine_id: HostMachineId,
     eligible: bool,
 ) {
     if !eligible {
@@ -150,12 +150,12 @@ pub(super) async fn enqueue_boot_interface_reconciliation(
 
     if let Err(err) = api
         .machine_state_handler_enqueuer
-        .enqueue_object(&machine_id)
+        .enqueue_object(machine_id.as_machine_id())
         .await
     {
         carbide_instrument::emit(StateHandlerWakeupFailed {
             trigger: WakeupTrigger::BootInterfaceIntent,
-            machine_id,
+            machine_id: machine_id.into(),
             err: err.to_string(),
         });
     }

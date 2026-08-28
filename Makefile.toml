@@ -674,10 +674,39 @@ fi
 '''
 
 [tasks.build-release]
+workspace = false
+description = "Build the production artifacts copied into the release container"
+command = "cargo"
+# Keep this package set aligned with the artifacts copied by the
+# Dockerfile.release-container-* files and checked below.
 args = [
   "build",
   "--locked",
   "--release",
+  "-p",
+  "carbide-api",
+  "-p",
+  "carbide-pxe",
+  "-p",
+  "carbide-dns",
+  "-p",
+  "nico-admin-cli",
+  "-p",
+  "carbide-dsx-exchange-consumer",
+  "-p",
+  "carbide-agent",
+  "-p",
+  "carbide-dhcp-server",
+  "-p",
+  "carbide-health",
+  "-p",
+  "carbide-log-parser",
+  "-p",
+  "carbide-ssh-console",
+  "-p",
+  "carbide-bmc-proxy",
+  "-p",
+  "carbide-dhcp",
   "@@split(CARGO_MAKE_CARGO_BUILD_TEST_FLAGS, )",
 ]
 

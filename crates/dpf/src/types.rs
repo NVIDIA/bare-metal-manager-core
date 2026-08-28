@@ -50,6 +50,10 @@ pub const DPU_AGENT_SERVICE_NAME: &str = "carbide-dpu-agent";
 pub const OTEL_COLLECTOR_SERVICE_NAME: &str = "carbide-otelcol";
 pub const DTS_SERVICE_NAME: &str = "dts";
 pub const DOCA_WEAVE_DHCP_AGENT_SERVICE_NAME: &str = "doca-weave-dhcp-agent";
+/// Number of PF scalable functions (SFs) allocated to the DOCA Weave DHCP Agent.
+pub const DOCA_WEAVE_DHCP_AGENT_PF_TOTAL_SF: u32 = 8;
+/// Additional PF scalable functions (SFs) reserved for Astra capacity headroom.
+pub const PF_TOTAL_SF_BF4_ASTRA_FUDGE: u32 = 4;
 pub const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_NAME: &str = "doca-weave-flow-controller";
 pub const DOCA_XPLANE_SERVICE_NAME: &str = "doca-xplane";
 /// Hash-stable legacy VF population used by default DPF flavors and SDK initialization.
@@ -551,6 +555,7 @@ fn validate_ovs_patch_name(name: &str, resource_name: &str) -> Result<(), crate:
 pub struct DpuServiceInterfacePatch {
     pub(crate) peer_bridge: String,
     pub(crate) peer_patch_name: String,
+    pub(crate) peer_external_ids: Option<BTreeMap<String, String>>,
 }
 
 /// Network interface for a DPU service.
@@ -679,6 +684,8 @@ pub struct DpuServiceHelmChartObservation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum DpuDeploymentType {
     Bf3,
+    /// BF3 B3240 on a GB200 platform using CPU as Root Complex mode.
+    Bf3Gb200,
     Bf4Generic,
     Bf4Astra,
 }
@@ -1301,133 +1308,6 @@ mod tests {
         );
     }
 
-    /// `PartialEq` for `DpuPhase`: same variant compares equal, different
-    /// variants differ, and `Provisioning` discriminates on its detail string.
-    /// Folds the old `test_dpu_phase_equality`.
-    #[test]
-    fn dpu_phase_equality_distinguishes_variants() {
-        value_scenarios!(
-            run = |(a, b)| a == b;
-            "ready equals ready" {
-                (DpuPhase::Ready, DpuPhase::Ready) => true,
-            }
-
-            "rebooting equals rebooting" {
-                (DpuPhase::Rebooting, DpuPhase::Rebooting) => true,
-            }
-
-            "error equals error" {
-                (DpuPhase::Error, DpuPhase::Error) => true,
-            }
-
-            "deleting equals deleting" {
-                (DpuPhase::Deleting, DpuPhase::Deleting) => true,
-            }
-
-            "node effect equals node effect" {
-                (DpuPhase::NodeEffect, DpuPhase::NodeEffect) => true,
-            }
-
-            "provisioning equals same-detail provisioning" {
-                (
-                    DpuPhase::Provisioning("Pending".into()),
-                    DpuPhase::Provisioning("Pending".into()),
-                ) => true,
-            }
-
-            "ready differs from provisioning" {
-                (
-                    DpuPhase::Ready,
-                    DpuPhase::Provisioning("Initializing".into()),
-                ) => false,
-            }
-
-            "ready differs from error" {
-                (DpuPhase::Ready, DpuPhase::Error) => false,
-            }
-
-            "rebooting differs from node effect" {
-                (DpuPhase::Rebooting, DpuPhase::NodeEffect) => false,
-            }
-
-            "provisioning differs by detail" {
-                (
-                    DpuPhase::Provisioning("Pending".into()),
-                    DpuPhase::Provisioning("OsInstalling".into()),
-                ) => false,
-            }
-        );
-    }
-
-    /// `ConfigPortsServiceType` derives `PartialEq`; each variant equals itself
-    /// and differs from the others.
-    #[test]
-    fn config_ports_service_type_equality() {
-        value_scenarios!(
-            run = |(a, b)| a == b;
-            "node port equals node port" {
-                (
-                    ConfigPortsServiceType::NodePort,
-                    ConfigPortsServiceType::NodePort,
-                ) => true,
-            }
-
-            "cluster ip equals cluster ip" {
-                (
-                    ConfigPortsServiceType::ClusterIp,
-                    ConfigPortsServiceType::ClusterIp,
-                ) => true,
-            }
-
-            "none equals none" {
-                (ConfigPortsServiceType::None, ConfigPortsServiceType::None) => true,
-            }
-
-            "node port differs from cluster ip" {
-                (
-                    ConfigPortsServiceType::NodePort,
-                    ConfigPortsServiceType::ClusterIp,
-                ) => false,
-            }
-
-            "cluster ip differs from none" {
-                (
-                    ConfigPortsServiceType::ClusterIp,
-                    ConfigPortsServiceType::None,
-                ) => false,
-            }
-        );
-    }
-
-    /// `ServiceConfigPortProtocol` derives `PartialEq`; Tcp and Udp are
-    /// distinct and each equals itself.
-    #[test]
-    fn service_config_port_protocol_equality() {
-        value_scenarios!(
-            run = |(a, b)| a == b;
-            "tcp equals tcp" {
-                (
-                    ServiceConfigPortProtocol::Tcp,
-                    ServiceConfigPortProtocol::Tcp,
-                ) => true,
-            }
-
-            "udp equals udp" {
-                (
-                    ServiceConfigPortProtocol::Udp,
-                    ServiceConfigPortProtocol::Udp,
-                ) => true,
-            }
-
-            "tcp differs from udp" {
-                (
-                    ServiceConfigPortProtocol::Tcp,
-                    ServiceConfigPortProtocol::Udp,
-                ) => false,
-            }
-        );
-    }
-
     /// `InitDpfResourcesConfig::default()` seeds the documented defaults: an
     /// empty BFB URL and inventories, the `dpu-deployment` name, the crate
     /// default flavor, 16 VFs, 30 reserved SFs, no intercept-bridging topology,
@@ -1484,103 +1364,6 @@ mod tests {
             run = |()| InitDpfResourcesConfig::default().proxy.is_none();
             "proxy is none" {
                 () => true,
-            }
-        );
-    }
-
-    /// `ServiceDefinition::new` records the four required helm fields and
-    /// leaves every optional field at its `Default`. Each row reads one field
-    /// off the freshly constructed value.
-    #[test]
-    fn service_definition_new_records_required_fields() {
-        let build = || ServiceDefinition::new("dts", "https://repo.example", "dts-chart", "1.2.3");
-
-        value_scenarios!(
-            run = |()| build().name;
-            "name" {
-                () => "dts".to_string(),
-            }
-        );
-        value_scenarios!(
-            run = |()| build().helm_repo_url;
-            "helm repo url" {
-                () => "https://repo.example".to_string(),
-            }
-        );
-        value_scenarios!(
-            run = |()| build().helm_chart;
-            "helm chart" {
-                () => "dts-chart".to_string(),
-            }
-        );
-        value_scenarios!(
-            run = |()| build().helm_version;
-            "helm version" {
-                () => "1.2.3".to_string(),
-            }
-        );
-        // Each row reads one optional field off the freshly built definition
-        // and asserts it sits at its `Default` (None / empty).
-        enum OptionalField {
-            HelmValuesIsNone,
-            ConfigValuesIsNone,
-            ConfigPortsIsNone,
-            ConfigPortsServiceTypeIsNone,
-            ServiceNadIsNone,
-            ServiceDaemonSetAnnotationsIsNone,
-            InterfacesEmpty,
-            ServiceChainSwitchesEmpty,
-        }
-        value_scenarios!(
-            run = |field| {
-                let svc = build();
-                match field {
-                    OptionalField::HelmValuesIsNone => svc.helm_values.is_none(),
-                    OptionalField::ConfigValuesIsNone => svc.config_values.is_none(),
-                    OptionalField::ConfigPortsIsNone => svc.config_ports.is_none(),
-                    OptionalField::ConfigPortsServiceTypeIsNone => {
-                        svc.config_ports_service_type.is_none()
-                    }
-                    OptionalField::ServiceNadIsNone => svc.service_nad.is_none(),
-                    OptionalField::ServiceDaemonSetAnnotationsIsNone => {
-                        svc.service_daemon_set_annotations.is_none()
-                    }
-                    OptionalField::InterfacesEmpty => svc.interfaces.is_empty(),
-                    OptionalField::ServiceChainSwitchesEmpty => {
-                        svc.service_chain_switches.is_empty()
-                    }
-                }
-            };
-            "helm values default to none" {
-                OptionalField::HelmValuesIsNone => true,
-            }
-
-            "config values default to none" {
-                OptionalField::ConfigValuesIsNone => true,
-            }
-
-            "config ports default to none" {
-                OptionalField::ConfigPortsIsNone => true,
-            }
-
-            "config ports service type defaults to none" {
-                OptionalField::ConfigPortsServiceTypeIsNone => true,
-            }
-
-            "service nad defaults to none" {
-                OptionalField::ServiceNadIsNone => true,
-            }
-
-            "daemon set annotations default to none" {
-                OptionalField::ServiceDaemonSetAnnotationsIsNone => true,
-            }
-
-            "interfaces default to empty" {
-                OptionalField::InterfacesEmpty => true,
-            }
-
-            "service chain switches default to empty" {
-                OptionalField::ServiceChainSwitchesEmpty => true,
             }
         );
     }

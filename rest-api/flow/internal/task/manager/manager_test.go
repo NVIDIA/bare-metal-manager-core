@@ -217,6 +217,13 @@ func (s *managerTaskStore) ListTasks(
 	panic("managerTaskStore.ListTasks: not implemented")
 }
 
+func (s *managerTaskStore) ListNonTerminalTasksForRacks(
+	_ context.Context,
+	_ []uuid.UUID,
+) ([]*taskdef.Task, error) {
+	panic("managerTaskStore.ListNonTerminalTasksForRacks: not implemented")
+}
+
 func (s *managerTaskStore) UpdateScheduledTask(_ context.Context, task *taskdef.Task) error {
 	s.updateScheduledCalls++
 	s.updatedScheduledTask = task

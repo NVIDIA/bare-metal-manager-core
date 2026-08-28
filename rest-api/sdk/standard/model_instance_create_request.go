@@ -34,6 +34,8 @@ type InstanceCreateRequest struct {
 	InstanceTypeId NullableString `json:"instanceTypeId,omitempty"`
 	// ID of of specific Machine to use for Instance. Requires Targeted Instance Creation capability enabled for Tenant
 	MachineId NullableString `json:"machineId,omitempty"`
+	// Optional exact-match selector applied to Machine labels during placement. Property names are arbitrary Machine label keys rather than predefined selector fields. Every supplied key/value pair must match (AND semantics). An omitted or empty object does not restrict placement.  A non-empty object requires the Tenant to have effective `targetedInstanceCreation` capability for the selected Site; otherwise the request is rejected with 403. When `instanceTypeId` is supplied, NICo selects from Ready, unassigned Machines of that Instance Type that match the selector. When `machineId` is supplied, the specified Machine must match the selector or the request is rejected with 400. The selector constrains placement only; it is not persisted on the created Instance.
+	MachineLabelSelector map[string]string `json:"machineLabelSelector,omitempty"`
 	// ID of the VPC the Instance should belong to
 	VpcId string `json:"vpcId"`
 	// IDs of additional VPCs the Instance should attach to through non-primary interfaces. This field may only be specified when every entry in `interfaces` uses `vpcPrefixId` or `vpcId`. IDs must be unique, must be valid UUIDs, and must not include the primary `vpcId`.
@@ -42,6 +44,8 @@ type InstanceCreateRequest struct {
 	UserData NullableString `json:"userData,omitempty"`
 	// Must be specified if iPXE Script field is empty
 	OperatingSystemId NullableString `json:"operatingSystemId,omitempty"`
+	// Power profile to apply to the Instance. A non-empty value requires the Site's `dpsPowerManagement` capability to be `true`.
+	PowerProfile NullableString `json:"powerProfile,omitempty"`
 	// ID of the desired Network Security Group to attach to the Instance
 	NetworkSecurityGroupId NullableString `json:"networkSecurityGroupId,omitempty"`
 	// Override iPXE script specified in OS, must be specified if Operating System is not specified
@@ -267,6 +271,38 @@ func (o *InstanceCreateRequest) UnsetMachineId() {
 	o.MachineId.Unset()
 }
 
+// GetMachineLabelSelector returns the MachineLabelSelector field value if set, zero value otherwise.
+func (o *InstanceCreateRequest) GetMachineLabelSelector() map[string]string {
+	if o == nil || IsNil(o.MachineLabelSelector) {
+		var ret map[string]string
+		return ret
+	}
+	return o.MachineLabelSelector
+}
+
+// GetMachineLabelSelectorOk returns a tuple with the MachineLabelSelector field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *InstanceCreateRequest) GetMachineLabelSelectorOk() (map[string]string, bool) {
+	if o == nil || IsNil(o.MachineLabelSelector) {
+		return map[string]string{}, false
+	}
+	return o.MachineLabelSelector, true
+}
+
+// HasMachineLabelSelector returns a boolean if a field has been set.
+func (o *InstanceCreateRequest) HasMachineLabelSelector() bool {
+	if o != nil && !IsNil(o.MachineLabelSelector) {
+		return true
+	}
+
+	return false
+}
+
+// SetMachineLabelSelector gets a reference to the given map[string]string and assigns it to the MachineLabelSelector field.
+func (o *InstanceCreateRequest) SetMachineLabelSelector(v map[string]string) {
+	o.MachineLabelSelector = v
+}
+
 // GetVpcId returns the VpcId field value
 func (o *InstanceCreateRequest) GetVpcId() string {
 	if o == nil {
@@ -407,6 +443,49 @@ func (o *InstanceCreateRequest) SetOperatingSystemIdNil() {
 // UnsetOperatingSystemId ensures that no value is present for OperatingSystemId, not even an explicit nil
 func (o *InstanceCreateRequest) UnsetOperatingSystemId() {
 	o.OperatingSystemId.Unset()
+}
+
+// GetPowerProfile returns the PowerProfile field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *InstanceCreateRequest) GetPowerProfile() string {
+	if o == nil || IsNil(o.PowerProfile.Get()) {
+		var ret string
+		return ret
+	}
+	return *o.PowerProfile.Get()
+}
+
+// GetPowerProfileOk returns a tuple with the PowerProfile field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+func (o *InstanceCreateRequest) GetPowerProfileOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.PowerProfile.Get(), o.PowerProfile.IsSet()
+}
+
+// HasPowerProfile returns a boolean if a field has been set.
+func (o *InstanceCreateRequest) HasPowerProfile() bool {
+	if o != nil && o.PowerProfile.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetPowerProfile gets a reference to the given NullableString and assigns it to the PowerProfile field.
+func (o *InstanceCreateRequest) SetPowerProfile(v string) {
+	o.PowerProfile.Set(&v)
+}
+
+// SetPowerProfileNil sets the value for PowerProfile to be an explicit nil
+func (o *InstanceCreateRequest) SetPowerProfileNil() {
+	o.PowerProfile.Set(nil)
+}
+
+// UnsetPowerProfile ensures that no value is present for PowerProfile, not even an explicit nil
+func (o *InstanceCreateRequest) UnsetPowerProfile() {
+	o.PowerProfile.Unset()
 }
 
 // GetNetworkSecurityGroupId returns the NetworkSecurityGroupId field value if set, zero value otherwise (both if not set or set to explicit null).
@@ -836,6 +915,9 @@ func (o InstanceCreateRequest) ToMap() (map[string]interface{}, error) {
 	if o.MachineId.IsSet() {
 		toSerialize["machineId"] = o.MachineId.Get()
 	}
+	if !IsNil(o.MachineLabelSelector) {
+		toSerialize["machineLabelSelector"] = o.MachineLabelSelector
+	}
 	toSerialize["vpcId"] = o.VpcId
 	if !IsNil(o.SecondaryVpcIds) {
 		toSerialize["secondaryVpcIds"] = o.SecondaryVpcIds
@@ -845,6 +927,9 @@ func (o InstanceCreateRequest) ToMap() (map[string]interface{}, error) {
 	}
 	if o.OperatingSystemId.IsSet() {
 		toSerialize["operatingSystemId"] = o.OperatingSystemId.Get()
+	}
+	if o.PowerProfile.IsSet() {
+		toSerialize["powerProfile"] = o.PowerProfile.Get()
 	}
 	if o.NetworkSecurityGroupId.IsSet() {
 		toSerialize["networkSecurityGroupId"] = o.NetworkSecurityGroupId.Get()

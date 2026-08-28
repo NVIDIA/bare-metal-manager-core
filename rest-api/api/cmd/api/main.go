@@ -15,6 +15,7 @@ import (
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
 	capis "github.com/NVIDIA/infra-controller/rest-api/api/internal/server"
+	dpsclient "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/dps"
 
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 
@@ -85,8 +86,18 @@ func main() {
 
 	scp := sc.NewClientPool(tcfg)
 
+	var powerProvisioner dpsclient.PowerProvisioner
+	if cfg.GetDPSEnabled() {
+		dps, err := dpsclient.NewClient(cfg.GetDPSConfig())
+		if err != nil {
+			log.Panic().Err(err).Msg("failed to initialize DPS client")
+		}
+		defer dps.Close()
+		powerProvisioner = dps
+	}
+
 	// Initialize API Echo instance
-	e := capis.InitAPIServer(cfg, dbSession, tc, tnc, scp)
+	e := capis.InitAPIServer(cfg, dbSession, tc, tnc, scp, powerProvisioner)
 
 	mconfig := cfg.GetMetricsConfig()
 	if mconfig.Enabled {

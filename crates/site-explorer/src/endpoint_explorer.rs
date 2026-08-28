@@ -55,6 +55,7 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         &self,
         address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
+        reset_type: Option<libredfish::ManagerResetType>,
     ) -> Result<(), EndpointExplorationError>;
 
     // ipmitool_reset_bmc issues a cold BMC reset through ipmitool.

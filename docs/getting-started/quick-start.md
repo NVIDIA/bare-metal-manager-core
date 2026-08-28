@@ -36,21 +36,18 @@ The cluster must have:
 
 DPUs are generally preferred in nodes hosting the NICo control plane components, but not strictly required. DPUs in these nodes are, however, the configuration that NICo QA regularly tests. NICo does not provision the site controller nodes' own DPUs — it only manages DPUs on downstream bare-metal hosts after ingestion.
 
-If your site controller nodes are equipped with Bluefield-3 DPUs, they must be fully provisioned **before** the Kubernetes cluster is set up. Specifically, complete the following before proceeding:
+If your site controller nodes are equipped with BlueField-3 DPUs, they must be fully provisioned **before** the Kubernetes cluster is set up. Specifically, complete the following before proceeding:
 
-- Flash the DPU firmware to the latest tested version using the BlueField Firmware Bundle. Latest tested firmware versions:
-
-  | DOCA  | HBN   |
-  | ----- | ----- |
-  | 3.2.2 | 3.2.2 |
+- Flash the DPU firmware using the BlueField Firmware Bundle for the
+  [tested BlueField-3 software versions](../hcl.md#dpus).
 
 - Configure the Bluefield-3 device in DPU mode (operating mode).
 - Ensure the DPU ARM OS is booted and reachable via its management interface.
 - Verify that the DPU can connect to the outside world with `curl -I https://www.google.com`
 
-Refer to the NVIDIA DOCA documentation and the BlueField Firmware Bundle download archive for firmware flashing instructions and supported firmware versions:
-
-[https://developer.nvidia.com/doca-2-9-3-download-archive?deployment_platform=BlueField&deployment_package=BF-FW-Bundle](https://developer.nvidia.com/doca-2-9-3-download-archive?deployment_platform=BlueField&deployment_package=BF-FW-Bundle)
+Refer to the
+[NVIDIA DOCA 3.2.2 download archive](https://developer.nvidia.com/doca-3-2-2-download-archive?deployment_platform=BlueField&deployment_package=BF-FW-Bundle)
+for firmware flashing instructions and the BlueField Firmware Bundle.
 
 ### Required tools (local machine)
 
@@ -659,6 +656,12 @@ NICo will now discover the host via Redfish, pair it with its DPU(s), provision 
 kubectl logs -n nico-system -l app.kubernetes.io/name=nico-api --tail=50 \
     | grep -i "site explorer\|bmc\|discovery"
 ```
+
+## Upgrading
+
+To upgrade an existing NICo installation to a new release, check out the target release, and re-run `setup.sh` with the new image tags. `setup.sh` is idempotent: each phase upgrades its component in-place while preserving Vault state, PostgreSQL data, MetalLB site config, and the site UUID.
+
+Refer to the [Upgrading NICo](../manuals/upgrade.md) guide for the pre-upgrade checklist, version-specific notes (including the 2.0-to-2.1 MetalLB CRD ownership migration), and rollback considerations.
 
 ## Teardown
 

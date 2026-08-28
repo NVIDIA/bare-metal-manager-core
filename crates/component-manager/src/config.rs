@@ -108,7 +108,7 @@ pub fn effective_switch_mtls_services(services: &[SwitchMtlsService]) -> Vec<Swi
     }
 }
 
-/// Default ScaleUpFabric services configured during rack NMX cluster maintenance.
+/// Default services for the deprecated, ignored rack mTLS service setting.
 pub fn default_nmx_cluster_switch_mtls_services() -> Vec<SwitchMtlsService> {
     vec![
         SwitchMtlsService::ScaleUpFabricManager,

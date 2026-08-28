@@ -26,6 +26,7 @@ pub mod libvirt;
 pub mod simulated;
 
 mod auth_router;
+pub mod availability;
 mod bmc_state;
 mod combined_server;
 mod http;

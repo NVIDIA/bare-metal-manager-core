@@ -34,7 +34,6 @@ use common::api_fixtures::{
 };
 use db::{self, ObjectColumnFilter, dhcp_entry};
 use ipnetwork::IpNetwork;
-use itertools::Itertools;
 use mac_address::MacAddress;
 use model::allocation_type::AllocationType;
 use model::expected_machine::{
@@ -960,40 +959,34 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
     assert!(
         tenant_data
             .iter()
-            .map(|x| x.ip.clone())
-            .contains("192.0.4.3")
+            .any(|interface| interface.ip.as_deref() == Some("192.0.4.3"))
     );
     assert!(
         tenant_data
             .iter()
-            .map(|x| x.ip.clone())
-            .contains("192.1.4.3")
+            .any(|interface| interface.ip.as_deref() == Some("192.1.4.3"))
     );
 
     assert!(
         tenant_data
             .iter()
-            .map(|x| x.prefix.clone())
-            .contains("192.0.4.0/24")
+            .any(|interface| interface.prefix.as_deref() == Some("192.0.4.0/24"))
     );
     assert!(
         tenant_data
             .iter()
-            .map(|x| x.prefix.clone())
-            .contains("192.1.4.0/24")
+            .any(|interface| interface.prefix.as_deref() == Some("192.1.4.0/24"))
     );
 
     assert!(
         tenant_data
             .iter()
-            .map(|x| x.gateway.clone())
-            .contains("192.0.4.1/24")
+            .any(|interface| interface.gateway.as_deref() == Some("192.0.4.1/24"))
     );
     assert!(
         tenant_data
             .iter()
-            .map(|x| x.gateway.clone())
-            .contains("192.1.4.1/24")
+            .any(|interface| interface.gateway.as_deref() == Some("192.1.4.1/24"))
     );
 
     Ok(())

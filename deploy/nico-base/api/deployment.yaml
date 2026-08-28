@@ -74,6 +74,12 @@ spec:
                 configMapKeyRef:
                   name: vault-cluster-info
                   key: VAULT_SERVICE
+            - name: VAULT_NAMESPACE
+              valueFrom:
+                configMapKeyRef:
+                  name: vault-cluster-info
+                  key: VAULT_NAMESPACE
+                  optional: true
             - name: VAULT_KV_MOUNT_LOCATION
               valueFrom:
                 configMapKeyRef:

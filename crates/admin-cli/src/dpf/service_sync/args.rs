@@ -98,7 +98,7 @@ pub(crate) struct Release {
         num_args = 1..,
         value_name = "MACHINE_ID",
         group = "target",
-        help = "One or more host machine ids to release"
+        help = "One or more host machine IDs to release"
     )]
     pub(super) machine_ids: Vec<MachineId>,
 

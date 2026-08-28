@@ -54,7 +54,8 @@ spec:
             {{- toYaml .Values.readinessProbe | nindent 12 }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
-          resources: {}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
             # Mount config at both paths so the binary finds it regardless of nico/carbide image variant.
             - name: {{ include "nico-ssh-console-rs.name" . }}-config-files

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
@@ -21,6 +22,9 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/common/grpclog"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/common/grpcrecovery"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/migrations"
+	eventingestion "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/ingestion"
+	eventrulemanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/manager"
+	eventrulescheduler "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/scheduler"
 	inventorymanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/manager"
 	inventorystore "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/store"
 	operationrunmanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun/manager"
@@ -35,12 +39,20 @@ import (
 	taskmanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/manager"
 	taskstore "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/store"
 	pb "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/proto/v1"
+	"github.com/google/uuid"
 )
 
-// ignoreMigrationSignatureChangesEnvVar enables the temporary migration
-// recovery workaround during service startup. When set to "true", changed
-// signatures are stored without re-running installed migration SQL.
-const ignoreMigrationSignatureChangesEnvVar = "FLOW_DB_MIGRATION_IGNORE_SIGNATURE_CHANGES"
+const (
+	// ignoreMigrationSignatureChangesEnvVar enables the temporary migration
+	// recovery workaround during service startup. When set to "true", changed
+	// signatures are stored without re-running installed migration SQL.
+	ignoreMigrationSignatureChangesEnvVar = "FLOW_DB_MIGRATION_IGNORE_SIGNATURE_CHANGES"
+
+	// eventRuleLeakDetectionEnabledEnvVar selects event-rule leakage detection
+	// at scheduler startup. It defaults to disabled, accepts the boolean values
+	// supported by strconv.ParseBool, and requires a restart to change paths.
+	eventRuleLeakDetectionEnabledEnvVar = "FLOW_EVENT_RULE_LEAK_DETECTION_ENABLED"
+)
 
 func migrationOptionsFromEnv() migrations.MigrateOptions {
 	return migrations.MigrateOptions{
@@ -48,8 +60,37 @@ func migrationOptionsFromEnv() migrations.MigrateOptions {
 	}
 }
 
+func leakDetectionPipelineFromEnv(
+	pipeline *eventingestion.Pipeline,
+) (*eventingestion.Pipeline, error) {
+	raw := os.Getenv(eventRuleLeakDetectionEnabledEnvVar)
+	if raw == "" {
+		return nil, nil
+	}
+
+	enabled, err := strconv.ParseBool(raw)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"%s must be a boolean: %w",
+			eventRuleLeakDetectionEnabledEnvVar,
+			err,
+		)
+	}
+
+	if !enabled {
+		return nil, nil
+	}
+
+	if pipeline == nil {
+		return nil, fmt.Errorf("event ingestion pipeline is not initialized")
+	}
+
+	return pipeline, nil
+}
+
 // Service is the top-level Flow service. It owns the gRPC server, database
-// session, inventory manager, and task manager and coordinates their lifecycles.
+// session, managers, and event collection runtime and coordinates their
+// lifecycles.
 type Service struct {
 	conf                   Config
 	grpcServer             *grpc.Server
@@ -60,7 +101,10 @@ type Service struct {
 	taskManager            taskmanager.Manager
 	operationRunManager    operationrunmanager.Manager
 	operationRunDispatcher *operationrundispatcher.Dispatcher
+	eventRuleManager       *eventrulemanager.Manager
+	eventIngestionPipeline *eventingestion.Pipeline
 	sched                  *scheduler.Scheduler
+	leakDetectionJob       *leakdetection.Job
 	taskScheduleStore      taskschedule.Store
 	taskScheduleDispatcher *taskschedule.Dispatcher
 }
@@ -115,7 +159,37 @@ func New(ctx context.Context, c Config) (*Service, error) {
 		return nil, fmt.Errorf("failed to create task manager: %w", err)
 	}
 
-	// 5. Create OperationRunManager (Business Logic Layer)
+	// 5. Create EventRuleManager (Business Logic Layer)
+	eventRuleManager, err := eventrulemanager.New(eventrulemanager.Config{
+		Store: eventrulemanager.StoreConfig{
+			Backend: eventrulemanager.StoreBackendMemory,
+		},
+		Scheduler: eventrulemanager.SchedulerConfig{
+			InstanceID: "flow-" + uuid.NewString(),
+			Runtime:    eventrulescheduler.DefaultRuntimeConfig(),
+			Policy:     eventrulescheduler.DefaultPolicyConfig(),
+		},
+		Inventory:   invManager,
+		TaskManager: taskManager,
+	})
+	if err != nil {
+		session.Close()
+
+		return nil, fmt.Errorf("failed to create event-rule manager: %w", err)
+	}
+
+	// 6. Create the event collection runtime used by scheduled collection jobs.
+	eventIngestionPipeline, err := eventingestion.New(
+		eventRuleManager,
+		eventingestion.DefaultConfig(),
+	)
+	if err != nil {
+		session.Close()
+
+		return nil, fmt.Errorf("failed to create event ingestion pipeline: %w", err)
+	}
+
+	// 7. Create OperationRunManager (Business Logic Layer)
 	operationRunLookup := operationrunplanner.NewInventoryTargetLookup(
 		invManager,
 		operationRunStore,
@@ -135,19 +209,21 @@ func New(ctx context.Context, c Config) (*Service, error) {
 	}
 
 	return &Service{
-		conf:                c,
-		session:             session,
-		inventoryManager:    invManager,
-		taskStore:           tskStore,
-		operationRunStore:   operationRunStore,
-		taskManager:         taskManager,
-		operationRunManager: operationRunManager,
-		taskScheduleStore:   schedStore,
+		conf:                   c,
+		session:                session,
+		inventoryManager:       invManager,
+		taskStore:              tskStore,
+		operationRunStore:      operationRunStore,
+		taskManager:            taskManager,
+		operationRunManager:    operationRunManager,
+		eventRuleManager:       eventRuleManager,
+		eventIngestionPipeline: eventIngestionPipeline,
+		taskScheduleStore:      schedStore,
 	}, nil
 }
 
-// Start starts the inventory manager, task manager, and inventory sync
-// goroutine, then begins serving gRPC requests on the configured port.
+// Start starts the inventory, task, and event-rule managers and the system
+// scheduler, then begins serving gRPC requests on the configured port.
 // It blocks until the gRPC server stops.
 func (s *Service) Start(ctx context.Context) (retErr error) {
 	log.Logger = log.With().Caller().Logger()
@@ -157,9 +233,10 @@ func (s *Service) Start(ctx context.Context) (retErr error) {
 	// because inventoryManager and taskManager are always non-nil (set in New)
 	// so a nil check cannot distinguish "created" from "started".
 	var (
-		invStarted  bool
-		taskStarted bool
-		lis         net.Listener
+		invStarted       bool
+		taskStarted      bool
+		eventRuleStarted bool
+		lis              net.Listener
 	)
 
 	defer func() {
@@ -176,6 +253,11 @@ func (s *Service) Start(ctx context.Context) (retErr error) {
 		}
 		if s.sched != nil {
 			s.sched.Stop(false) //nolint
+		}
+		if eventRuleStarted {
+			if err := s.eventRuleManager.Stop(); err != nil {
+				log.Error().Err(err).Msg("Failed to stop event-rule manager")
+			}
 		}
 		if lis != nil {
 			lis.Close()
@@ -211,6 +293,12 @@ func (s *Service) Start(ctx context.Context) (retErr error) {
 		taskStarted = true
 		log.Info().Msg("Task manager started")
 	}
+
+	if err := s.eventRuleManager.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start event-rule manager: %w", err)
+	}
+	eventRuleStarted = true
+	log.Info().Msg("Event-rule manager started")
 
 	// Pre-create the dispatcher without starting it. The listener and server
 	// implementation are constructed next so that a failure there does not
@@ -321,9 +409,9 @@ func streamServerInterceptors(authorizer *authz.Authorizer) []grpc.StreamServerI
 }
 
 // Stop gracefully shuts down the service in dependency order:
-//  1. Background producers (dispatcher, system scheduler) — stop submitting new work.
-//  2. gRPC server — drain in-flight RPCs; no new requests accepted after this.
-//  3. Task and inventory managers — safe to stop once no new submissions can arrive.
+//  1. Background producers (dispatchers and system scheduler).
+//  2. Event-rule scheduler after its leakage-event producer has stopped.
+//  3. gRPC server, task manager, and inventory manager.
 //  4. Database session.
 func (s *Service) Stop(ctx context.Context) {
 	log.Info().Msg("Starting graceful shutdown now...")
@@ -343,6 +431,14 @@ func (s *Service) Stop(ctx context.Context) {
 	if s.sched != nil {
 		s.sched.Stop(false) //nolint
 		log.Info().Msg("System job scheduler stopped")
+	}
+
+	if s.eventRuleManager != nil {
+		if err := s.eventRuleManager.Stop(); err != nil {
+			log.Error().Err(err).Msg("Failed to stop event-rule manager")
+		} else {
+			log.Info().Msg("Event-rule manager stopped")
+		}
 	}
 
 	if s.grpcServer != nil {
@@ -435,11 +531,20 @@ func (s *Service) startScheduler(ctx context.Context) error {
 	}
 
 	// Create and register the leak detection job
+	var leakDetectionPipeline *eventingestion.Pipeline
+	if !s.conf.FlowConfig.DisableLeakDetection {
+		leakDetectionPipeline, err = leakDetectionPipelineFromEnv(s.eventIngestionPipeline)
+		if err != nil {
+			return fmt.Errorf("configure leak detection implementation: %w", err)
+		}
+	}
+
 	leakJob, err := leakdetection.New(
 		ctx,
 		&s.conf.DBConf,
 		s.taskManager,
 		s.conf.ProviderRegistry,
+		leakDetectionPipeline,
 		s.conf.FlowConfig,
 	)
 	if err != nil {
@@ -447,6 +552,7 @@ func (s *Service) startScheduler(ctx context.Context) error {
 	}
 
 	if leakJob != nil {
+		s.leakDetectionJob = leakJob
 		leakTrigger, err := schedtypes.NewIntervalTrigger(s.conf.FlowConfig.LeakDetectionInterval)
 		if err != nil {
 			return fmt.Errorf("invalid leak detection interval: %w", err)

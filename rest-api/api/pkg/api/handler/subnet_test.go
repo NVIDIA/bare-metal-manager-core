@@ -209,6 +209,9 @@ func TestSubnetHandler_Create(t *testing.T) {
 	parentPrefFG, err := ipam.CreateIpamEntryForIPBlock(ctx, ipamStorage, ipbFG.Prefix, ipbFG.PrefixLength, ipbFG.RoutingType, ipbFG.InfrastructureProviderID.String(), ipbFG.SiteID.String())
 	assert.Nil(t, err)
 	assert.NotNil(t, parentPrefFG)
+	// This record belongs to the same tenant as the valid block. SitePrefixID is
+	// what makes it a SitePrefix rather than an Allocation IPBlock.
+	tenantSitePrefix := testIPBlockBuildTenantSitePrefix(t, dbSession, "private-site-prefix", site, ip, tenant1, "192.171.0.0", 16, cdbm.IPBlockStatusReady, ipu)
 	prefixLen := 24
 	okBody, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cutil.GetPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
@@ -237,6 +240,8 @@ func TestSubnetHandler_Create(t *testing.T) {
 	errBodyBadVpctype, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cutil.GetPtr(""), VpcID: vpc8.ID.String(), IPv4BlockID: cutil.GetPtr(ipb1.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
 	errBodyBadIPv4BlockID, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cutil.GetPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cutil.GetPtr(uuid.New().String()), PrefixLength: prefixLen})
+	assert.Nil(t, err)
+	errBodyTenantSitePrefixID, err := json.Marshal(model.APISubnetCreateRequest{Name: "private-prefix", Description: cutil.GetPtr(""), VpcID: vpc1.ID.String(), IPv4BlockID: cutil.GetPtr(tenantSitePrefix.ID.String()), PrefixLength: prefixLen})
 	assert.Nil(t, err)
 	errBodyNoIPv4, err := json.Marshal(model.APISubnetCreateRequest{Name: "ok1", Description: cutil.GetPtr(""), VpcID: vpc1.ID.String(), PrefixLength: prefixLen})
 	assert.Nil(t, err)
@@ -269,7 +274,7 @@ func TestSubnetHandler_Create(t *testing.T) {
 		expectedErr        bool
 		expectedStatus     int
 		expectedIpam       bool
-		expectedIpamErrMsg string
+		expectedErrMsg     string
 		expectedGateway    string
 		expectedPrefix     string
 		verifyChildSpanner bool
@@ -371,6 +376,15 @@ func TestSubnetHandler_Create(t *testing.T) {
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
+			name:           "Tenant SitePrefix cannot be the source IP Block for a Subnet",
+			reqOrgName:     tnOrg1,
+			reqBody:        string(errBodyTenantSitePrefixID),
+			user:           tnu,
+			expectedErr:    true,
+			expectedStatus: http.StatusBadRequest,
+			expectedErrMsg: "Error retrieving ipv4 IPBlock from request",
+		},
+		{
 			name:           "error when ipv4 block in request is not derived for tenant",
 			reqOrgName:     tnOrg1,
 			reqBody:        string(errBodyBadIPv4BlockIDTenantMismatch),
@@ -387,13 +401,13 @@ func TestSubnetHandler_Create(t *testing.T) {
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
-			name:               "error when ipam creation for subnet fails",
-			reqOrgName:         tnOrg1,
-			reqBody:            string(errBodyIpamFail),
-			user:               tnu,
-			expectedErr:        true,
-			expectedIpamErrMsg: "Could not create IPAM entry for Subnet. Details: given length:15 must be greater than prefix length:16",
-			expectedStatus:     http.StatusBadRequest,
+			name:           "error when ipam creation for subnet fails",
+			reqOrgName:     tnOrg1,
+			reqBody:        string(errBodyIpamFail),
+			user:           tnu,
+			expectedErr:    true,
+			expectedErrMsg: "Could not create IPAM entry for Subnet. Details: given length:15 must be greater than prefix length:16",
+			expectedStatus: http.StatusBadRequest,
 		},
 		{
 			name:            "success case",
@@ -540,8 +554,8 @@ func TestSubnetHandler_Create(t *testing.T) {
 					assert.NotNil(t, pref)
 				}
 			} else {
-				if tc.expectedIpamErrMsg != "" {
-					assert.Contains(t, rec.Body.String(), tc.expectedIpamErrMsg)
+				if tc.expectedErrMsg != "" {
+					assert.Contains(t, rec.Body.String(), tc.expectedErrMsg)
 				}
 			}
 
