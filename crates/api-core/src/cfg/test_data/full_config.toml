@@ -77,6 +77,13 @@ pkeys = [{ start = "1", end = "10" }]
 [ib_config]
 fabric_monitor_run_interval = "101s"
 
+[credentials]
+ufm_source = "backend"
+
+[credentials.file]
+path = "/var/run/secrets/nico/ufm/credentials.yaml"
+poll_interval = "17s"
+
 [site_explorer]
 enabled = true
 run_interval = "100s"
