@@ -41,9 +41,7 @@ use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_machine_id, log_request_data, log_request_data_redacted};
-use crate::handlers::utils::{
-    convert_and_log_machine_id, enqueue_boot_interface_reconciliation, resolve_bmc_address,
-};
+use crate::handlers::utils::{enqueue_boot_interface_reconciliation, resolve_bmc_address};
 
 /// Converts the admin request into the authority used by boot reconciliation.
 ///
@@ -1047,66 +1045,6 @@ async fn redfish_power_control(
     Ok(Response::new(()))
 }
 
-fn map_gpu_reset_action(action: i32) -> Result<libredfish::SystemPowerControl, Status> {
-    use rpc::admin_power_control_request::SystemPowerControl as Spc;
-    let action = Spc::try_from(action).map_err(|_| Status::invalid_argument("unknown action"))?;
-    Ok(match action {
-        Spc::GracefulRestart => libredfish::SystemPowerControl::GracefulRestart,
-        Spc::AcPowercycle => libredfish::SystemPowerControl::ACPowercycle,
-        Spc::On | Spc::ForceRestart => libredfish::SystemPowerControl::ForceRestart,
-        Spc::GracefulShutdown | Spc::ForceOff => {
-            return Err(Status::invalid_argument(
-                "action must be a reset type (ForceRestart, GracefulRestart, or ACPowercycle)",
-            ));
-        }
-    })
-}
-
-/// Handle an administrative out-of-band GPU baseboard reset and return the reset response.
-pub(crate) async fn admin_gpu_reset(
-    api: &Api,
-    request: Request<rpc::AdminGpuResetRequest>,
-) -> Result<Response<rpc::AdminGpuResetResponse>, Status> {
-    log_request_data(&request);
-    let req = request.into_inner();
-    let machine_id = convert_and_log_machine_id(req.machine_id.as_ref())?;
-    let chassis_id = req
-        .chassis_id
-        .none_if_empty()
-        // xtask:allow-error-case: HGX_Chassis_0 is a case-sensitive Redfish chassis id
-        .ok_or_else(|| Status::invalid_argument("chassis_id is required (e.g. HGX_Chassis_0)"))?;
-
-    // Require maintenance mode so the caller has claimed the host and the reset
-    // cannot race a concurrent NICo power op (v1 guard; full serialization TODO).
-    let (host_machine, txn) = api
-        .load_machine(&machine_id, MachineSearchConfig::default())
-        .await?;
-    if host_machine.health_reports.maintenance_override().is_none() {
-        return Err(Status::failed_precondition(
-            "host must be in maintenance mode before a GPU reset \
-             (nico-admin-cli managed-host maintenance on <machine-id>)",
-        ));
-    }
-    drop(txn);
-
-    let mut txn = api.txn_begin().await?;
-    let (bmc_endpoint_request, _) =
-        validate_and_complete_bmc_endpoint_request(&mut txn, None, Some(machine_id)).await?;
-    txn.commit().await?;
-
-    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &bmc_endpoint_request).await?;
-    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
-
-    let action = map_gpu_reset_action(req.action)?;
-
-    api.endpoint_explorer
-        .redfish_chassis_reset(bmc_addr, &machine_interface, &chassis_id, action)
-        .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
-
-    Ok(Response::new(rpc::AdminGpuResetResponse {}))
-}
-
 pub(crate) async fn bmc_credential_status(
     api: &Api,
     request: tonic::Request<rpc::BmcEndpointRequest>,
@@ -1251,7 +1189,7 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
     Ok(Response::new(()))
 }
 
-async fn resolve_bmc_interface(
+pub(super) async fn resolve_bmc_interface(
     api: &Api,
     request: &rpc::BmcEndpointRequest,
 ) -> Result<(SocketAddr, MacAddress), Status> {
@@ -1616,25 +1554,6 @@ mod tests {
 
             "force maps to ForceRestart" {
                 ResetType::ForceRestart => Some(libredfish::ManagerResetType::ForceRestart),
-            }
-        );
-    }
-
-    #[test]
-    fn gpu_reset_action_maps_resets_and_rejects_power_off() {
-        use libredfish::SystemPowerControl as L;
-
-        use super::rpc::admin_power_control_request::SystemPowerControl as Spc;
-        value_scenarios!(run = |a: i32| { map_gpu_reset_action(a).map_err(|_| ()) };
-            "gpu reset action mapping" {
-                Spc::GracefulRestart as i32 => Ok(L::GracefulRestart),
-                Spc::AcPowercycle as i32 => Ok(L::ACPowercycle),
-                Spc::ForceRestart as i32 => Ok(L::ForceRestart),
-                Spc::On as i32 => Ok(L::ForceRestart),
-                0 => Ok(L::ForceRestart), // omitted action (proto3 default) -> ForceRestart
-                Spc::GracefulShutdown as i32 => Err(()),
-                Spc::ForceOff as i32 => Err(()),
-                9999 => Err(()),
             }
         );
     }
