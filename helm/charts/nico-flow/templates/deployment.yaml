@@ -16,7 +16,7 @@ spec:
     metadata:
       labels:
         {{- include "nico-flow.labels" . | nindent 8 }}
-        app: flow
+        {{- include "nico-flow.selectorLabels" . | nindent 8 }}
       annotations:
         kubectl.kubernetes.io/default-container: flow
     spec:
@@ -137,10 +137,6 @@ spec:
                   key: token
             - name: VAULT_ADDR
               value: {{ .Values.vault.address | quote }}
-            {{- with .Values.vault.namespace }}
-            - name: VAULT_NAMESPACE
-              value: {{ . | quote }}
-            {{- end }}
             {{- with .Values.extraEnv.psm }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -189,10 +185,6 @@ spec:
                   key: token
             - name: VAULT_ADDR
               value: {{ .Values.vault.address | quote }}
-            {{- with .Values.vault.namespace }}
-            - name: VAULT_NAMESPACE
-              value: {{ . | quote }}
-            {{- end }}
             - name: FW_FIRMWARE_DIR
               value: {{ printf "%s/firmware" .Values.firmware.nsm.mountPath | quote }}
             - name: FW_BUNDLES_DIR

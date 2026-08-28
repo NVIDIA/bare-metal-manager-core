@@ -1774,10 +1774,6 @@ else
         --set "global.image.tag=${NICO_REST_IMAGE_TAG}"
     )
 
-    if [[ -n "${VAULT_NAMESPACE:-}" ]]; then
-        NICO_FLOW_ARGS+=(--set "vault.namespace=${VAULT_NAMESPACE}")
-    fi
-
     # Render the dockerconfigjson for the chart-managed image-pull-secret. Same
     # pattern as the NICo REST common chart — keep the registry credential on
     # the helm command line so the chart template can install it as a
