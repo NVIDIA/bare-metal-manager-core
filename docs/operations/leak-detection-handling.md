@@ -97,7 +97,7 @@ To see the handling operation task status
 
 ## Next phase: API-manageable, customizable, whole-life leak detection and handling
 
-The overall focus for the next phase of NICo leak detection and handling is to make the feature manageable from API and supporting customized policy.
+The overall focus for the next phase of NICo leak detection and handling is to make the feature manageable from API, supporting customized polices, and cover the whole lifespan of liquid-cooled hardware.
 
 ### Dedicated leak status and leak handling status API
 
@@ -133,7 +133,7 @@ Currently, NICo only detects from in-tray BMC sensors of ingested machines and s
 
 For trays with BMC powered on and visible from NICo but have not yet been fully ingested, [issue #5391](https://github.com/NVIDIA/infra-controller/issues/5391) aims to expand the collection, detection, reporting, and handling of leakage to those trays, which not only expands the leak detection and handling coverage, but is also a dependency for the enhancement below.
 
-For hosts that were known to be leaking before previously turned off, and for hosts that belong to a previously known-leaking rack, [issue #5510](https://github.com/NVIDIA/infra-controller/issues/5510) aims to prevent them from being automatically turned on, until their BMC or the whole rack's BMCs can give a definitive clearance of leakage. This is 
+For hosts that were known to be leaking before previously turned off, and for hosts that belong to a previously known-leaking rack, [issue #5510](https://github.com/NVIDIA/infra-controller/issues/5510) aims to prevent them from being automatically turned on, until their BMC or the whole rack's BMCs can give a definitive clearance of leakage. This will complete the coverage of the full lifespan of liquid-cooled hardware.
 
 ## Related documentation and implementation
 
