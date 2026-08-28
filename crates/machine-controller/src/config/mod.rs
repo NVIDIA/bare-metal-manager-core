@@ -45,7 +45,10 @@ pub struct MachineStateHandlerSiteConfig {
     pub bios_profiles: libredfish::BiosProfileVendor,
     pub oem_manager_profiles: libredfish::BiosProfileVendor,
 
-    pub dpa_enabled: bool,
+    pub ewethers_enabled: bool,
+    /// Site-wide enable for the Astra (East-West CX NIC) path. When `false`,
+    /// host ingestion skips enabling Astra on declared CX9 NICs.
+    pub astra_enabled: bool,
     pub dpf_enabled: bool,
     /// Site-wide enable for releasing the DPF maintenance hold so a changed
     /// DPUService rolls out. When `false`, a host that DPF has parked in the
@@ -86,7 +89,8 @@ impl MachineStateHandlerSiteConfig {
             selected_profile: libredfish::BiosProfileType::Performance,
             bios_profiles: HashMap::new(),
             oem_manager_profiles: HashMap::new(),
-            dpa_enabled: true,
+            ewethers_enabled: true,
+            astra_enabled: false,
             dpf_enabled: false,
             dpu_service_sync_enabled: true,
             spdm_enabled: false,

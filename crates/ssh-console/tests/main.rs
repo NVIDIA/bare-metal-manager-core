@@ -54,6 +54,7 @@ async fn test_ssh_console() -> eyre::Result<()> {
     let Some(env) = run_baseline_test_environment(vec![
         MockBmcType::Ipmi,
         MockBmcType::Ssh,
+        MockBmcType::LenovoAmiSsh,
         MockBmcType::DpuSsh,
     ])
     .await?

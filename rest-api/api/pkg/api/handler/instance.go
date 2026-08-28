@@ -471,6 +471,8 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 		logger.Warn().Err(verr).Msg("error validating Instance creation request data")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Error validating Instance creation request data", verr)
 	}
+	logger.Info().Interface("MachineLabelSelector", apiRequest.MachineLabelSelector).
+		Msg("validated Instance creation placement selector")
 
 	// Validate the tenant for which this Instance is being created
 	tenant, err := common.GetTenantForOrg(ctx, nil, cih.dbSession, org)
@@ -1098,15 +1100,22 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 
 	// Validate the targeted instance creation capability before opening the
 	// transaction so no writes or locks happen for an unauthorized request.
-	if apiRequest.MachineID != nil {
+	// A non-empty label selector can narrow placement to a single Machine, so it
+	// require the same privilege as an explicit Machine ID.
+	if apiRequest.MachineID != nil || len(apiRequest.MachineLabelSelector) > 0 {
 		privilegedAccess, derr := common.TenantHasTargetedInstanceCreation(ctx, nil, cih.dbSession, tenant, &common.TenantPrivilegeScope{SiteID: &site.ID})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error checking effective targeted instance creation for Site")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to verify capability for Site", nil)
 		}
 		if !privilegedAccess {
-			logger.Warn().Msg("tenant does not have capability to create instances from specific machine")
-			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Tenant does not have capability to create Instances using specific Machine ID", nil)
+			if apiRequest.MachineID != nil {
+				logger.Warn().Msg("tenant does not have capability to create instances from specific machine")
+				return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Tenant does not have capability to create Instances using specific Machine ID", nil)
+			}
+
+			logger.Warn().Msg("tenant does not have capability to create instances using Machine label selector")
+			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Tenant does not have capability to create Instances using Machine label selector", nil)
 		}
 	}
 
@@ -1131,7 +1140,7 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 			}
 
 			// Retrieve Machine by ID
-			machine, err = mDAO.GetByID(ctx, nil, *apiRequest.MachineID, nil, false)
+			machine, err = mDAO.GetByID(ctx, tx, *apiRequest.MachineID, nil, true)
 			if err != nil {
 				if err == cdb.ErrDoesNotExist {
 					return cutil.NewAPIError(http.StatusBadRequest, "Could not find Machine with ID specified in request data", nil)
@@ -1144,6 +1153,14 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 			if machine.SiteID != site.ID {
 				logger.Warn().Msg("Machine specified in request is not part of the site")
 				return cutil.NewAPIError(http.StatusBadRequest, fmt.Sprintf("Machine specified in request does not belong to Site: %s", site.Name), nil)
+			}
+
+			if !machine.MatchesLabelSelector(apiRequest.MachineLabelSelector) {
+				logger.Warn().Str("MachineID", machine.ID).
+					Interface("MachineLabelSelector", apiRequest.MachineLabelSelector).
+					Msg("Machine specified in request does not match Machine label selector")
+				return cutil.NewAPIError(http.StatusBadRequest,
+					"Machine specified in request does not match machineLabelSelector", nil)
 			}
 
 			// Validate Machine availability. Note: allowUnhealthyMachine also bypasses
@@ -1319,6 +1336,9 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 		} // if apiRequest.InstanceTypeID != nil
 
 		// NOTE: At this stage, we have a Machine ID whether it was provided in request or selected through Instance Type
+		logger.Info().Str("MachineID", machine.ID).
+			Interface("MachineLabelSelector", apiRequest.MachineLabelSelector).
+			Msg("selected Machine for Instance creation")
 
 		mcDAO := cdbm.NewMachineCapabilityDAO(cih.dbSession)
 

@@ -39,14 +39,14 @@ use model::resource_pool::{self};
 use regex::Regex;
 
 use crate::cfg::file::{
-    AuthConfig, CarbideConfig, DpaConfig, DpaInterfaceStateControllerConfig,
-    DpuConfig as InitialDpuConfig, DsxExchangeEventBusConfig,
-    ExtensionServiceStateControllerConfig, FnnConfig, IbPartitionStateControllerConfig, KmsConfig,
-    ListenMode, MachineUpdater, MeasuredBootMetricsCollectorConfig, MqttAuthConfig,
-    NetworkSecurityGroupConfig, NetworkSegmentStateControllerConfig, NodeAuthConfig,
-    PowerShelfStateControllerConfig, RackStateControllerConfig, SecretsConfig, SpdmConfig,
-    SpdmStateControllerConfig, SwitchStateControllerConfig, TracingConfig, VmaasConfig,
-    VpcPeeringPolicy, VpcPrefixStateControllerConfig, default_bmc_session_lockout_threshold,
+    AuthConfig, CarbideConfig, DpaInterfaceStateControllerConfig, DpuConfig as InitialDpuConfig,
+    DsxExchangeEventBusConfig, EwEthersConfig, ExtensionServiceStateControllerConfig, FnnConfig,
+    IbPartitionStateControllerConfig, KmsConfig, ListenMode, MachineUpdater,
+    MeasuredBootMetricsCollectorConfig, MqttAuthConfig, NetworkSecurityGroupConfig,
+    NetworkSegmentStateControllerConfig, NodeAuthConfig, PowerShelfStateControllerConfig,
+    RackStateControllerConfig, SecretsConfig, SpdmConfig, SpdmStateControllerConfig, SvpcConfig,
+    SwitchStateControllerConfig, TracingConfig, VmaasConfig, VpcPeeringPolicy,
+    VpcPrefixStateControllerConfig, default_bmc_session_lockout_threshold,
     default_database_pool_acquire_timeout, default_database_pool_idle_timeout,
     default_database_pool_max_lifetime, default_max_find_by_ids,
     default_max_site_prefixes_per_tenant, default_pxe_public_base_url,
@@ -310,15 +310,19 @@ pub fn get() -> CarbideConfig {
         listen_mode: ListenMode::Tls,
         listen_only: false,
         nvlink_config: Some(NvLinkConfig::default()),
-        dpa_config: Some(DpaConfig {
+        ewethers_config: Some(EwEthersConfig {
             enabled: true,
-            mqtt_endpoint: "mqtt.forge".to_string(),
-            mqtt_broker_port: 1884_u16,
-            hb_interval: Duration::minutes(2),
+            svpc_enabled: true,
+            astra_enabled: false,
             subnet_ip: Ipv4Addr::UNSPECIFIED,
             subnet_mask: 0_i32,
-            auth: MqttAuthConfig::default(),
             monitor_run_interval: std::time::Duration::from_secs(10),
+            svpc: SvpcConfig {
+                mqtt_endpoint: "mqtt.forge".to_string(),
+                mqtt_broker_port: 1884_u16,
+                hb_interval: Duration::minutes(2),
+                auth: MqttAuthConfig::default(),
+            },
         }),
         power_manager_options: PowerManagerOptions {
             enabled: false,

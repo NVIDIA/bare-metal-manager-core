@@ -167,7 +167,7 @@ impl SvpcInterfaceHandler {
             ReconcileAction::Heartbeat => {
                 let vni =
                     Self::get_partition_vni(monitor, configured_partition_id.unwrap()).await?;
-                let hb_interval = monitor.config.hb_interval;
+                let hb_interval = monitor.config.svpc.hb_interval;
                 let txn = monitor
                     .do_heartbeat(dpa_interface, client, dpa_info, hb_interval, vni, metrics)
                     .await?;
@@ -334,7 +334,7 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
         }
 
         let dpa_info = monitor.dpa_info.clone();
-        let hb_interval = monitor.config.hb_interval;
+        let hb_interval = monitor.config.svpc.hb_interval;
         let client = dpa_info
             .mqtt_client
             .clone()

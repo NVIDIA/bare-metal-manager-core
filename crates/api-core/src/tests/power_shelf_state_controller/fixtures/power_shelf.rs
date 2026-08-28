@@ -33,16 +33,3 @@ pub(in crate::tests) async fn set_power_shelf_controller_state(
 
     Ok(())
 }
-
-/// Helper function to mark power shelf as deleted
-pub(in crate::tests) async fn mark_power_shelf_as_deleted(
-    txn: &mut PgConnection,
-    power_shelf_id: &PowerShelfId,
-) -> Result<(), sqlx::Error> {
-    sqlx::query("UPDATE power_shelves SET deleted = NOW() WHERE id = $1")
-        .bind(power_shelf_id)
-        .execute(txn)
-        .await?;
-
-    Ok(())
-}

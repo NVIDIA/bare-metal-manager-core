@@ -101,7 +101,7 @@ Use `site_explorer.dpu_policy` instead.
 | `bom_validation` | `BomValidationConfig` | *(see below)* | `machines` | BOM/SKU validation (see [BomValidationConfig](#bomvalidationconfig)). |
 | `bios_profiles` | `BiosProfileVendor` | *(default)* | `machines` | BIOS profiles by vendor/model for Redfish BIOS management. |
 | `selected_profile` | `BiosProfileType` | *(default)* | `machines` | Default BIOS profile type applied to machines. |
-| `dpa_config` | `Option<DpaConfig>` | — | `networking` | Cluster Interconnect (east-west Ethernet) config (see [DpaConfig](#dpaconfig)). |
+| `ewethers_config` | `Option<EwEthersConfig>` | — | `networking` | Cluster Interconnect (east-west Ethernet) config (see [EwEthersConfig](#ewethersconfig)). Accepts the legacy `dpa_config` section name; legacy inline `mqtt_endpoint`, `mqtt_broker_port`, `hb_interval`, and `auth` keys are migrated into `svpc` at load time with a deprecation warning. |
 | `dsx_exchange_event_bus` | `Option<DsxExchangeEventBusConfig>` | — | `integrations` | MQTT event bus for managed-host state publishing plus BMS metadata subscription and rack/isolation/heartbeat publishing (see [DsxExchangeEventBusConfig](#dsxexchangeeventbusconfig)). |
 | `datacenter_asn` | `u32` | `11414` | `networking` | Datacenter ASN used by FNN for DC-specific route targets. |
 | `nvlink_config` | `Option<NvLinkConfig>` | — | `hardware` | NvLink partitioning via NMX-C (see [NvLinkConfig](#nvlinkconfig)). |
@@ -732,18 +732,31 @@ override are combined, properties still unset use the effective defaults above.
 |-------|------|---------|-------------|
 | `prefix` | `IpNetwork` | **required** | IPv4 or IPv6 CIDR prefix accepted by a prefix-list policy. |
 
-### `DpaConfig`
+### `EwEthersConfig`
+
+Legacy site files may still name this section `[dpa_config]` (accepted as an
+alias) and may inline `mqtt_endpoint`, `mqtt_broker_port`, `hb_interval`, and
+`auth`; those keys are migrated into `svpc` at load time with a deprecation
+warning. Nest them under `[ewethers_config.svpc]` in new configurations.
 
 | Field | Type | Default | Description |
 | ------- | ------ | --------- | ------------- |
 | `enabled` | `bool` | `false` | Enable Cluster Interconnect Network. |
-| `mqtt_endpoint` | `String` | `"mqtt.nico"` | MQTT broker host for DPA. |
-| `mqtt_broker_port` | `u16` | `1884` | MQTT broker port. |
+| `svpc_enabled` | `bool` | `false` | Enable the SVPC path. Not mutually exclusive with `astra_enabled`. |
+| `astra_enabled` | `bool` | `false` | Enable the Astra path. Not mutually exclusive with `svpc_enabled`. |
 | `subnet_ip` | `Ipv4Addr` | `0.0.0.0` | Base IPv4 address of the DPA subnet. |
 | `subnet_mask` | `i32` | `0` | CIDR prefix length for the DPA subnet. |
+| `monitor_run_interval` | `Duration` | `60s` | The interval at which the DPA monitor runs. |
+| `svpc` | `SvpcConfig` | *(defaults)* | SVPC MQTT connection settings (see [SvpcConfig](#svpcconfig)). |
+
+### `SvpcConfig`
+
+| Field | Type | Default | Description |
+| ------- | ------ | --------- | ------------- |
+| `mqtt_endpoint` | `String` | `"mqtt.forge"` | MQTT broker host for the SVPC path. |
+| `mqtt_broker_port` | `u16` | `1884` | MQTT broker port. |
 | `hb_interval` | `Duration` | `2m` | Heartbeat interval for DPA health checks. |
 | `auth` | `MqttAuthConfig` | *(none)* | MQTT authentication settings. |
-| `monitor_run_interval` | `Duration` | `60s` | The interval at which the DPA monitor runs. |
 
 ### `DsxExchangeEventBusConfig`
 

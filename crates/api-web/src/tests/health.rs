@@ -16,8 +16,10 @@
  */
 
 use axum::body::Body;
+use carbide_uuid::rack::RackProfileId;
 use http_body_util::BodyExt;
 use hyper::http::{Method, StatusCode};
+use model::test_support::power_shelf_config;
 use rpc::forge::AdminForceDeleteMachineRequest;
 use rpc::forge::forge_server::Forge;
 use tower::ServiceExt;
@@ -331,7 +333,11 @@ async fn test_add_replace_remove_dpu_health_report_via_web_ui(pool: sqlx::PgPool
 async fn test_health_of_rack(pool: sqlx::PgPool) {
     let env = TestEnv::new(pool).await;
     let app = make_test_app(&env.test_harness);
-    let rack_id = env.test_harness.create_rack().await.id;
+    let rack_id = env
+        .test_harness
+        .create_rack(RackProfileId::new("rack"))
+        .await
+        .id;
 
     let response = app
         .clone()
@@ -565,7 +571,11 @@ async fn test_health_of_switch(pool: sqlx::PgPool) {
 async fn test_health_of_power_shelf(pool: sqlx::PgPool) {
     let env = TestEnv::new(pool).await;
     let app = make_test_app(&env.test_harness);
-    let power_shelf_id = env.test_harness.create_power_shelf().await.id;
+    let power_shelf_id = env
+        .test_harness
+        .create_power_shelf(power_shelf_config("Power Shelf Health Test"))
+        .await
+        .id;
 
     let response = app
         .clone()

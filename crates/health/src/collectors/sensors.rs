@@ -135,6 +135,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for SensorCollector<B> {
         let Some(inventory) = self.shared.load_full() else {
             tracing::debug!(
                 bmc_address = ?self.endpoint.addr,
+                rack_id = self.event_context.rack_id().map(tracing::field::display),
                 "No entity inventory available yet; skipping sensor iteration"
             );
             return Ok(IterationResult {
@@ -159,6 +160,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for SensorCollector<B> {
         else {
             tracing::debug!(
                 bmc_address = ?self.endpoint.addr,
+                rack_id = self.event_context.rack_id().map(tracing::field::display),
                 "BMC connection circuit is open; skipping sensor iteration"
             );
             return Ok(IterationResult {
@@ -171,6 +173,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for SensorCollector<B> {
 
         tracing::debug!(
             bmc_address = ?self.endpoint.addr,
+            rack_id = self.event_context.rack_id().map(tracing::field::display),
             generation = inventory.generation,
             inventory_age_seconds = inventory.discovered_at.elapsed().as_secs(),
             entity_count = inventory.entities.len(),
@@ -274,6 +277,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
                     sensor_id = %sensor_link.odata_id(),
                     entity_type = entity.entity_type(),
                     error = ?e,
+                    rack_id = self.event_context.rack_id().map(tracing::field::display),
                     "Failed to fetch sensor data"
                 );
                 return 0;
@@ -293,6 +297,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
                 tracing::debug!(
                     sensor_id = %sensor.base.id,
                     entity_type = entity.entity_type(),
+                    rack_id = self.event_context.rack_id().map(tracing::field::display),
                     "Sensor does not have health status field, skipping"
                 );
                 return 0;
@@ -301,6 +306,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
                 tracing::warn!(
                     sensor_id = %sensor.base.id,
                     entity_type = entity.entity_type(),
+                    rack_id = self.event_context.rack_id().map(tracing::field::display),
                     "Sensor missing required fields (reading, reading_type, or units)"
                 );
                 return 0;
