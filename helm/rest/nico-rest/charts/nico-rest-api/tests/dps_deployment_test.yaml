@@ -23,7 +23,7 @@ tests:
     set:
       config.powerProvisioning.dps.enabled: true
       config.powerProvisioning.dps.endpoint: dps.example.test:443
-      secrets.dps: nico-dps-client
+      secrets.dpsCreds: nico-dps-client
     asserts:
       - contains:
           path: spec.template.spec.containers[0].volumeMounts

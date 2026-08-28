@@ -124,7 +124,7 @@ spec:
         {{- if .Values.config.powerProvisioning.dps.enabled }}
         - name: dps
           secret:
-            secretName: {{ .Values.secrets.dps }}
+            secretName: {{ .Values.secrets.dpsCreds }}
             items:
               - key: token
                 path: token

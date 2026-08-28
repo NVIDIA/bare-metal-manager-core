@@ -35,9 +35,10 @@ secrets:
   # and the password is read from /var/secrets/db/password (supports live rotation).
   # Created by nico-prereqs ESO (nico-rest-db-eso) when rest.enabled=true.
   dbCreds: db-creds
-  # -- Existing Secret mounted when direct DPS integration is enabled. It must
-  # contain the keys "token" and "ca.crt". NICo does not create or renew the token.
-  dps: ""
+  # -- Name of the existing Kubernetes Secret mounted when direct DPS integration
+  # is enabled. The Secret must contain the keys "token" and "ca.crt". NICo does
+  # not create or renew the token.
+  dpsCreds: ""
 
 config:
   env:

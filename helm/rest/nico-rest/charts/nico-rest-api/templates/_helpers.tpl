@@ -45,8 +45,11 @@ app.kubernetes.io/component: api
 {{- if not .Values.config.powerProvisioning.dps.endpoint -}}
 {{- fail "config.powerProvisioning.dps.endpoint is required when direct DPS integration is enabled" -}}
 {{- end -}}
-{{- if not .Values.secrets.dps -}}
-{{- fail "secrets.dps is required when direct DPS integration is enabled" -}}
+{{- if not (kindIs "string" .Values.secrets.dpsCreds) -}}
+{{- fail "secrets.dpsCreds must be a string" -}}
+{{- end -}}
+{{- if not .Values.secrets.dpsCreds -}}
+{{- fail "secrets.dpsCreds is required when direct DPS integration is enabled" -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
