@@ -244,8 +244,10 @@ function find_devices_by_identifier() {
 	local identifier_type=$1
 	local identifier=$2
 	local -n devices_out=$3
+	local blkid_diagnostics
 	local blkid_output
 	local blkid_status
+	local blkid_stderr_file
 
 	case "$identifier_type" in
 		UUID|LABEL)
@@ -257,8 +259,11 @@ function find_devices_by_identifier() {
 	esac
 
 	devices_out=()
-	blkid_output=$(blkid -c /dev/null -t "$identifier_type=$identifier" -o device 2>&1)
+	blkid_stderr_file=$(mktemp) || return 1
+	blkid_output=$(blkid -c /dev/null -t "$identifier_type=$identifier" -o device 2>"$blkid_stderr_file")
 	blkid_status=$?
+	blkid_diagnostics=$(<"$blkid_stderr_file")
+	rm -f "$blkid_stderr_file"
 
 	case "$blkid_status" in
 		0)
@@ -266,18 +271,21 @@ function find_devices_by_identifier() {
 				echo "blkid returned success without a device for $identifier_type=$identifier" | tee "$log_output" >&2
 				return 1
 			fi
+			if [ ! -z "$blkid_diagnostics" ]; then
+				echo "blkid warning while looking up $identifier_type=$identifier: $blkid_diagnostics" | tee "$log_output" >&2
+			fi
 			mapfile -t devices_out <<< "$blkid_output"
 			;;
 		2)
 			# blkid uses status 2 for a token that was not found. Only accept
 			# the silent, empty form as an expected no-match result.
-			if [ ! -z "$blkid_output" ]; then
-				echo "blkid failed while looking up $identifier_type=$identifier: $blkid_output" | tee "$log_output" >&2
+			if [ ! -z "$blkid_output" ] || [ ! -z "$blkid_diagnostics" ]; then
+				echo "blkid failed while looking up $identifier_type=$identifier: stdout=${blkid_output:-<empty>}; stderr=${blkid_diagnostics:-<empty>}" | tee "$log_output" >&2
 				return 1
 			fi
 			;;
 		*)
-			echo "blkid failed while looking up $identifier_type=$identifier with status $blkid_status: ${blkid_output:-no diagnostic}" | tee "$log_output" >&2
+			echo "blkid failed while looking up $identifier_type=$identifier with status $blkid_status: stdout=${blkid_output:-<empty>}; stderr=${blkid_diagnostics:-<empty>}" | tee "$log_output" >&2
 			return 1
 			;;
 	esac
@@ -796,15 +804,20 @@ function set_boot_order() {
 }
 
 function mount_efi() {
+	local mount_status
+
 	if [ ! -z "$efifs_uuid" ]; then
 		efi_dev=$(resolve_device_on_disk UUID "$efifs_uuid" "$image_disk") || return 1
 	fi
 	if [ ! -z "$efi_dev" ]; then
 		mkdir -p /mnt/boot/efi
 		mount $efi_dev /mnt/boot/efi 2>&1 | tee $log_output
+		mount_status=${PIPESTATUS[0]}
 	else
 		chroot /mnt /bin/sh -c 'mount /boot/efi' 2>&1 | tee $log_output
+		mount_status=${PIPESTATUS[0]}
 	fi
+	return "$mount_status"
 }
 
 function add_testing_user() {
@@ -1020,7 +1033,12 @@ function main() {
 	fi
 	resolved_image_disk=$(readlink -e -- "$image_disk")
 	if [ -z "$resolved_image_disk" ] || [ ! -b "$resolved_image_disk" ]; then
-		echo "Image disk $image_disk does not exist or is not a block device" | tee $log_output
+		echo "Image disk $image_disk does not exist or is not a block device" | tee "$log_output"
+		return 1;
+	fi
+	image_disk_type=$(lsblk -dnro TYPE "$resolved_image_disk")
+	if [ "$image_disk_type" != "disk" ]; then
+		echo "Image disk $image_disk is not a whole-disk block device" | tee "$log_output"
 		return 1;
 	fi
 	image_disk=$resolved_image_disk
