@@ -1427,9 +1427,8 @@ impl VaultConfig {
     ///
     /// An unset namespace preserves Vault OSS and root-namespace behavior.
     pub fn namespace(&self) -> Option<String> {
-        self.namespace
-            .clone()
-            .or(env::var(VAULT_NAMESPACE_ENV_VAR).ok())
+        normalize_vault_namespace(self.namespace.clone())
+            .or_else(|| normalize_vault_namespace(env::var(VAULT_NAMESPACE_ENV_VAR).ok()))
     }
 
     pub fn spiffe_trust_domain(&self) -> String {
@@ -1445,6 +1444,14 @@ impl VaultConfig {
             .or_else(|| env::var(VAULT_SPIFFE_MACHINE_BASE_PATH_ENV_VAR).ok())
             .unwrap_or_else(|| DEFAULT_SPIFFE_MACHINE_BASE_PATH.to_string())
     }
+}
+
+/// Trims a Vault namespace and treats an empty value as unset.
+fn normalize_vault_namespace(namespace: Option<String>) -> Option<String> {
+    namespace.and_then(|namespace| {
+        let namespace = namespace.trim();
+        (!namespace.is_empty()).then(|| namespace.to_string())
+    })
 }
 
 pub fn create_vault_client(vault_config: &VaultConfig) -> eyre::Result<Arc<ForgeVaultClient>> {
@@ -1513,6 +1520,10 @@ pub struct DedicatedVaultConfig {
     /// Defaults to the standard site root (`/var/run/secrets/forge-roots/ca.crt`,
     /// or `VAULT_CACERT`) — this is TLS trust material, not a Vault selector.
     pub vault_cacert: Option<String>,
+    /// Optional Vault Enterprise or HCP Vault Dedicated namespace for this
+    /// certificate Vault. This remains explicit so a separate certificate
+    /// Vault is never silently selected by the credential Vault's environment.
+    pub namespace: Option<String>,
 }
 
 // Hand-rolled so the root `token` is never printed verbatim in logs or errors;
@@ -1525,6 +1536,7 @@ impl std::fmt::Debug for DedicatedVaultConfig {
             .field("pki_role_name", &self.pki_role_name)
             .field("token", &self.token.as_ref().map(|_| "<redacted>"))
             .field("vault_cacert", &self.vault_cacert)
+            .field("namespace", &self.namespace)
             .finish()
     }
 }
@@ -1582,7 +1594,7 @@ pub fn create_dedicated_vault_client(
         kv_mount_location: String::new(),
         pki_mount_location: config.pki_mount_location.clone(),
         pki_role_name: config.pki_role_name.clone(),
-        namespace: None,
+        namespace: normalize_vault_namespace(config.namespace.clone()),
         spiffe_trust_domain: spiffe.trust_domain,
         spiffe_machine_base_path: spiffe.machine_base_path,
         vault_root_ca_path,
@@ -1634,15 +1646,17 @@ mod tests {
 
     use base64::Engine;
     use serde_json::json;
+    use serial_test::serial;
     use vaultrs::client::VaultClient;
     use vaultrs::{kv2, pki};
 
     use super::{
-        DedicatedVaultConfig, ForgeVaultAuthenticationType, ForgeVaultClientConfig,
-        SpiffeIdentity, VaultConfig, VaultTokenRefreshWindowObserved, create_dedicated_vault_client,
+        DedicatedVaultConfig, ForgeVaultAuthenticationType, ForgeVaultClientConfig, SpiffeIdentity,
+        VaultConfig, VaultTokenRefreshWindowObserved, create_dedicated_vault_client,
         create_vault_client_settings, machine_spiffe_uri, service_account_role_name_from_jwt,
     };
 
+    /// Builds a minimal HTTP Vault client configuration for header tests.
     fn vault_client_config(address: String, namespace: Option<&str>) -> ForgeVaultClientConfig {
         ForgeVaultClientConfig {
             auth_type: ForgeVaultAuthenticationType::Root("test-token".to_string()),
@@ -1659,12 +1673,19 @@ mod tests {
         }
     }
 
-    fn vault_header_server() -> (String, mpsc::Receiver<Vec<String>>) {
+    /// Starts a three-request HTTP server and returns its address, requests, and thread.
+    fn vault_header_server() -> (
+        String,
+        mpsc::Receiver<Vec<String>>,
+        std::thread::JoinHandle<()>,
+    ) {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind Vault test server");
-        let address = listener.local_addr().expect("get Vault test server address");
+        let address = listener
+            .local_addr()
+            .expect("get Vault test server address");
         let (sender, receiver) = mpsc::channel();
 
-        std::thread::spawn(move || {
+        let server = std::thread::spawn(move || {
             let mut requests = Vec::new();
             for _ in 0..3 {
                 let (mut stream, _) = listener.accept().expect("accept Vault request");
@@ -1690,11 +1711,12 @@ mod tests {
             sender.send(requests).expect("send Vault requests");
         });
 
-        (format!("http://{address}"), receiver)
+        (format!("http://{address}"), receiver, server)
     }
 
+    /// Asserts that auth, KV, and PKI calls consistently carry the namespace header.
     async fn assert_vault_namespace_headers(namespace: Option<&str>) {
-        let (address, requests) = vault_header_server();
+        let (address, requests, server) = vault_header_server();
         let config = vault_client_config(address, namespace);
         let settings = create_vault_client_settings("test-token", &config)
             .expect("build Vault client settings");
@@ -1708,6 +1730,7 @@ mod tests {
         let requests = requests
             .recv_timeout(Duration::from_secs(5))
             .expect("receive Vault requests");
+        server.join().expect("Vault test server panicked");
         assert_eq!(requests.len(), 3);
         for request in requests {
             let request = request.to_ascii_lowercase();
@@ -1728,6 +1751,7 @@ mod tests {
             pki_role_name: "machine".to_string(),
             token: None,
             vault_cacert: None,
+            namespace: None,
         }
     }
 
@@ -1805,13 +1829,56 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn vault_namespace_from_config_has_precedence() {
+        // SAFETY: `#[serial]` prevents this test from racing other tests that
+        // participate in process-environment mutation.
+        unsafe {
+            std::env::set_var("VAULT_NAMESPACE", "from-environment");
+        }
         let config = VaultConfig {
             namespace: Some("admin/platform".to_string()),
             ..Default::default()
         };
 
         assert_eq!(config.namespace().as_deref(), Some("admin/platform"));
+
+        // SAFETY: paired with the setup above in this serialized test.
+        unsafe {
+            std::env::remove_var("VAULT_NAMESPACE");
+        }
+    }
+
+    #[test]
+    fn vault_namespace_trims_and_ignores_blank_values() {
+        let configured = VaultConfig {
+            namespace: Some("  admin/platform  ".to_string()),
+            ..Default::default()
+        };
+        let blank = VaultConfig {
+            namespace: Some(" \t ".to_string()),
+            ..Default::default()
+        };
+
+        assert_eq!(configured.namespace().as_deref(), Some("admin/platform"));
+        assert_eq!(blank.namespace(), None);
+    }
+
+    #[test]
+    #[serial]
+    fn vault_namespace_ignores_blank_environment_value() {
+        // SAFETY: `#[serial]` prevents this test from racing other tests that
+        // participate in process-environment mutation.
+        unsafe {
+            std::env::set_var("VAULT_NAMESPACE", " \t ");
+        }
+
+        assert_eq!(VaultConfig::default().namespace(), None);
+
+        // SAFETY: paired with the setup above in this serialized test.
+        unsafe {
+            std::env::remove_var("VAULT_NAMESPACE");
+        }
     }
 
     #[test]
@@ -1824,10 +1891,7 @@ mod tests {
         let settings = create_vault_client_settings("test-token", &config)
             .expect("build Vault client settings");
 
-        assert_eq!(
-            settings.namespace.as_deref(),
-            Some("admin/platform/nico")
-        );
+        assert_eq!(settings.namespace.as_deref(), Some("admin/platform/nico"));
     }
 
     #[tokio::test]

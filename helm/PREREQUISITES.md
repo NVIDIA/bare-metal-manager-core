@@ -178,12 +178,11 @@ Provides Vault connection information to NICo services.
 kubectl create configmap vault-cluster-info \
   --namespace forge-system \
   --from-literal=VAULT_SERVICE='https://vault.example.com' \
-  --from-literal=VAULT_NAMESPACE='admin/nico' \
   --from-literal=NICO_VAULT_MOUNT='secrets' \
   --from-literal=NICO_VAULT_PKI_MOUNT='forgeca'
 ```
 
-**Note:** Alternatively, populate `nico-api.vaultClusterInfo` in your `values.yaml` to have the chart create this ConfigMap for you.
+**Note:** Alternatively, set `vault.namespace` in the prerequisites chart values to have it add `VAULT_NAMESPACE` to this ConfigMap, or populate `nico-api.vaultClusterInfo` in your `values.yaml` to have the chart create it.
 
 ### `forge-system-nico-database-config`
 
