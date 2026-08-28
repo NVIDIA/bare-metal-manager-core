@@ -6,7 +6,7 @@ In rack-scale system, there are two sets of leak sensors, with NICo and BMS each
 
 NICo evaluates leak-related conditions from compute and NVSwitch tray sensors managed by it to detect leak events. NICo also listens via DSX Exchange (MQTT event bus) for BMS-issued leak events based on BMS-managed sensors such as CDU, rope, and dripping pan. A leak event results in tray and rack health warnings and alerts in NICo, which prevent the machines from being allocated. Depending on the leak type and severity, NICo takes automated handling actions based on configuration and policy.
 
-## Current capability: automated e2e leak detection, reporting, protection, and handling
+## Current capability: automated e2e leak detection, reporting, allocation protection, and handling
 
 ### Compute and NVSwitch tray sensor path
 
@@ -95,9 +95,9 @@ Currently, the default handling policy is to shut down all leaking trays. For a 
 To see the handling operation task status
 `GET /nico/tray/{id}/task`
 
-## Next phase: API-manageable, customizable, whole-life leak detection and handling
+## Next phase: API-manageable, customizable, full lifecycle leak detection and handling
 
-The overall focus for the next phase of NICo leak detection and handling is to make the feature manageable from API, supporting customized polices, and cover the whole lifespan of liquid-cooled hardware.
+The overall focus for the next phase of NICo leak detection and handling is to make the feature manageable from API, supporting customized polices, and cover the full lifecycle of liquid-cooled hardware.
 
 ### Dedicated leak status and leak handling status API
 
@@ -127,13 +127,13 @@ Examples of potential customized policies in the future:
 - Turn off a rack based on combination of BMS sensor metrics + NICo tray detection (more sensitive yet robust detection)
 - Turn off racks in a coolant loop with 2+ leaking racks (site topology)
 
-### Whole-life leak detection and handling
+### Full lifecycle leak detection and handling
 
-Currently, NICo only detects from in-tray BMC sensors of ingested machines and switches. This does not cover the entire lifespan of liquid-cooled hardware, which not only exposes risks but will eventually become blockers for the scaling of AI factory.
+Currently, NICo only detects from in-tray BMC sensors of ingested machines and switches. This does not cover the full lifecycle of liquid-cooled hardware, which not only exposes risks but will eventually become blockers for the scaling of AI factory.
 
 For trays with BMC powered on and visible from NICo but have not yet been fully ingested, [issue #5391](https://github.com/NVIDIA/infra-controller/issues/5391) aims to expand the collection, detection, reporting, and handling of leakage to those trays, which not only expands the leak detection and handling coverage, but is also a dependency for the enhancement below.
 
-For hosts that were known to be leaking before previously turned off, and for hosts that belong to a previously known-leaking rack, [issue #5510](https://github.com/NVIDIA/infra-controller/issues/5510) aims to prevent them from being automatically turned on, until their BMC or the whole rack's BMCs can give a definitive clearance of leakage. This will complete the coverage of the full lifespan of liquid-cooled hardware.
+For hosts that were known to be leaking before previously turned off, and for hosts that belong to a previously known-leaking rack, [issue #5510](https://github.com/NVIDIA/infra-controller/issues/5510) aims to prevent them from being automatically turned on, until their BMC or the whole rack's BMCs can give a definitive clearance of leakage. This will complete the coverage of the full lifecycle of liquid-cooled hardware.
 
 ## Related documentation and implementation
 
