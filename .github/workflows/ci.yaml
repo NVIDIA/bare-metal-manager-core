@@ -1708,18 +1708,30 @@ jobs:
           lint: 'true'
           template: 'true'
 
-      # Subcharts (nico-flow, nico-machine-a-tron, unbound, etc) disabled by default
-      # must be listed explicitly - umbrella chart tests skip them.
+      # Charts with tests must be listed explicitly.
       - name: Run Helm unit tests
-        uses: d3adb5/helm-unittest-action@850bc76597579183998069830d5fa8c3ef0ea34a  # v2
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/helm-unittest@b614cb1336136b723ac9b8d620d81072f404de68
         with:
-          unittest-version: ~1
+          plugin-oci-ref: oci://nvcr.io/0837451325059433/carbide-dev/unittest:1.1.2
+          registry-password: ${{ secrets.NVCR_TOKEN }}
           charts: >-
             helm
+            helm/charts/nico-api
+            helm/charts/nico-bmc-proxy
+            helm/charts/nico-dhcp
+            helm/charts/nico-dns
+            helm/charts/nico-dsx-exchange-consumer
             helm/charts/nico-flow
+            helm/charts/nico-hardware-health
             helm/charts/nico-machine-a-tron
             helm/charts/nico-machine-a-tron/charts/mat-k8s-controller
+            helm/charts/nico-pxe
+            helm/charts/nico-ssh-console-rs
             helm/charts/unbound
+            helm/rest/nico-mcp
+            helm/rest/nico-rest-site-agent
+            helm/rest/nico-rest/charts/nico-rest-common
+            helm/rest/nico-rest/charts/nico-rest-site-manager
 
   build-push-helm-chart:
     needs:
