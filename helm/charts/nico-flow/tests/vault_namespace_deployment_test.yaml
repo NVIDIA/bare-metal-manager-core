@@ -1,0 +1,32 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+suite: Flow Vault namespace propagation
+templates:
+  - deployment.yaml
+tests:
+  - it: configures PSM and NSM Vault namespace when set
+    set:
+      vault.namespace: admin/nico
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].env
+          content:
+            name: VAULT_NAMESPACE
+            value: admin/nico
+      - contains:
+          path: spec.template.spec.containers[2].env
+          content:
+            name: VAULT_NAMESPACE
+            value: admin/nico
+
+  - it: omits the optional namespace by default
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[1].env
+          content:
+            name: VAULT_NAMESPACE
+      - notContains:
+          path: spec.template.spec.containers[2].env
+          content:
+            name: VAULT_NAMESPACE

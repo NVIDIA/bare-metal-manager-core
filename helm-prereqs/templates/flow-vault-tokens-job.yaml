@@ -79,6 +79,10 @@ spec:
           env:
             - name: VAULT_ADDR
               value: {{ .Values.vault.address | quote }}
+            {{- with .Values.vault.namespace }}
+            - name: VAULT_NAMESPACE
+              value: {{ . | quote }}
+            {{- end }}
             - name: VAULT_SKIP_VERIFY
               value: "true"
           command:
@@ -104,6 +108,10 @@ spec:
           env:
             - name: VAULT_ADDR
               value: {{ .Values.vault.address | quote }}
+            {{- with .Values.vault.namespace }}
+            - name: VAULT_NAMESPACE
+              value: {{ . | quote }}
+            {{- end }}
             - name: VAULT_SKIP_VERIFY
               value: "true"
             - name: VAULT_TOKEN

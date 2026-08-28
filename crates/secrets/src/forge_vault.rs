@@ -1649,6 +1649,7 @@ pub fn create_raw_vault_client_settings(
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::ffi::OsString;
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::sync::mpsc;
@@ -1665,6 +1666,38 @@ mod tests {
         VaultConfig, VaultTokenRefreshWindowObserved, create_dedicated_vault_client,
         create_vault_client_settings, machine_spiffe_uri, service_account_role_name_from_jwt,
     };
+
+    /// Restores a process environment variable when a test finishes or panics.
+    struct EnvironmentVariableGuard {
+        name: &'static str,
+        previous: Option<OsString>,
+    }
+
+    impl EnvironmentVariableGuard {
+        /// Replaces an environment variable and records its prior value.
+        fn set(name: &'static str, value: &str) -> Self {
+            let previous = std::env::var_os(name);
+            // SAFETY: callers mark tests `#[serial]` to avoid concurrent reads
+            // or mutations of this process-wide state.
+            unsafe {
+                std::env::set_var(name, value);
+            }
+            Self { name, previous }
+        }
+    }
+
+    impl Drop for EnvironmentVariableGuard {
+        fn drop(&mut self) {
+            // SAFETY: this restores the prior state recorded by `set` in a
+            // `#[serial]` test, including while unwinding from a panic.
+            unsafe {
+                match &self.previous {
+                    Some(value) => std::env::set_var(self.name, value),
+                    None => std::env::remove_var(self.name),
+                }
+            }
+        }
+    }
 
     /// Builds a minimal HTTP Vault client configuration for header tests.
     fn vault_client_config(address: String, namespace: Option<&str>) -> ForgeVaultClientConfig {
@@ -1819,11 +1852,7 @@ mod tests {
     #[test]
     #[serial]
     fn dedicated_vault_namespace_inherits_environment_with_config_precedence() {
-        // SAFETY: `#[serial]` prevents this test from racing other tests that
-        // participate in process-environment mutation.
-        unsafe {
-            std::env::set_var("VAULT_NAMESPACE", "from-environment");
-        }
+        let _namespace = EnvironmentVariableGuard::set("VAULT_NAMESPACE", "from-environment");
 
         assert_eq!(
             dedicated_config().namespace().as_deref(),
@@ -1835,11 +1864,6 @@ mod tests {
             ..dedicated_config()
         };
         assert_eq!(configured.namespace().as_deref(), Some("from-config"));
-
-        // SAFETY: paired with the setup above in this serialized test.
-        unsafe {
-            std::env::remove_var("VAULT_NAMESPACE");
-        }
     }
 
     #[test]
@@ -1867,54 +1891,33 @@ mod tests {
     #[test]
     #[serial]
     fn vault_namespace_from_config_has_precedence() {
-        // SAFETY: `#[serial]` prevents this test from racing other tests that
-        // participate in process-environment mutation.
-        unsafe {
-            std::env::set_var("VAULT_NAMESPACE", "from-environment");
-        }
+        let _namespace = EnvironmentVariableGuard::set("VAULT_NAMESPACE", "from-environment");
         let config = VaultConfig {
             namespace: Some("admin/platform".to_string()),
             ..Default::default()
         };
 
         assert_eq!(config.namespace().as_deref(), Some("admin/platform"));
-
-        // SAFETY: paired with the setup above in this serialized test.
-        unsafe {
-            std::env::remove_var("VAULT_NAMESPACE");
-        }
     }
 
     #[test]
-    fn vault_namespace_trims_and_ignores_blank_values() {
-        let configured = VaultConfig {
-            namespace: Some("  admin/platform  ".to_string()),
-            ..Default::default()
-        };
-        let blank = VaultConfig {
-            namespace: Some(" \t ".to_string()),
-            ..Default::default()
-        };
-
-        assert_eq!(configured.namespace().as_deref(), Some("admin/platform"));
-        assert_eq!(blank.namespace(), None);
+    fn vault_namespace_normalization_trims_and_ignores_blank_values() {
+        assert_eq!(
+            super::normalize_vault_namespace(Some("  admin/platform  ".to_string())).as_deref(),
+            Some("admin/platform")
+        );
+        assert_eq!(
+            super::normalize_vault_namespace(Some(" \t ".to_string())),
+            None
+        );
     }
 
     #[test]
     #[serial]
     fn vault_namespace_ignores_blank_environment_value() {
-        // SAFETY: `#[serial]` prevents this test from racing other tests that
-        // participate in process-environment mutation.
-        unsafe {
-            std::env::set_var("VAULT_NAMESPACE", " \t ");
-        }
+        let _namespace = EnvironmentVariableGuard::set("VAULT_NAMESPACE", " \t ");
 
         assert_eq!(VaultConfig::default().namespace(), None);
-
-        // SAFETY: paired with the setup above in this serialized test.
-        unsafe {
-            std::env::remove_var("VAULT_NAMESPACE");
-        }
     }
 
     #[test]
