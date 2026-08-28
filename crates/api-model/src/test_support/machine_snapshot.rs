@@ -435,6 +435,7 @@ pub fn machine_snapshot_pg_json(machine_id: MachineId) -> MachineSnapshotPgJson 
             source: FailureSource::NoError,
         },
         reprovisioning_requested: None,
+        reset_requested: None,
         host_reprovisioning_requested: None,
         manual_firmware_upgrade_completed: Some(fixture_time(400)),
         bios_password_set_time: Some(fixture_time(350)),
