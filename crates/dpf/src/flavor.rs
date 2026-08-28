@@ -66,6 +66,34 @@ impl DPUFlavorTemplate {
     }
 }
 
+#[derive(serde::Serialize)]
+struct DpuFlavorTemplateBody<'a> {
+    spec: &'a DpuFlavorSpec,
+}
+
+/// Wraps a DPUFlavor spec in the body DPF expects in a DPUFlavorTemplate.
+pub(crate) fn flavor_template_from_flavor(
+    flavor: &DPUFlavor,
+) -> Result<DPUFlavorTemplate, crate::error::DpfError> {
+    Ok(DPUFlavorTemplate {
+        metadata: ObjectMeta {
+            name: None,
+            namespace: flavor.metadata.namespace.clone(),
+            ..Default::default()
+        },
+        spec: DpuFlavorTemplateSpec {
+            dpu_resources: None,
+            system_reserved_resources: None,
+            template: serde_yaml::to_string(&DpuFlavorTemplateBody { spec: &flavor.spec })
+                .map_err(|error| {
+                    crate::error::DpfError::ConfigError(format!(
+                        "failed to serialize DPUFlavorTemplate: {error}"
+                    ))
+                })?,
+        },
+    })
+}
+
 fn get_default_ovs_defaults_base() -> String {
     concat!(
         "_ovs-vsctl() {\n",
@@ -555,20 +583,15 @@ pub fn flavor_bf4_astra(
         scalable_functions: None,
     };
 
-    Ok(DPUFlavorTemplate {
+    let flavor = DPUFlavor {
         metadata: ObjectMeta {
             name: None,
             namespace: Some(namespace.to_string()),
             ..Default::default()
         },
-        spec: DpuFlavorTemplateSpec {
-            dpu_resources: None,
-            system_reserved_resources: None,
-            // The CRD accepts either YAML or JSON. JSON avoids a separate YAML serializer
-            // dependency while still producing the DPUFlavor body the operator renders.
-            template: serde_json::to_string_pretty(&flavor_spec)?,
-        },
-    })
+        spec: flavor_spec,
+    };
+    flavor_template_from_flavor(&flavor)
 }
 
 /// Default grub kernel parameters for the BF4 flavor.
@@ -1563,7 +1586,12 @@ mod tests {
         let interfaces = crate::sdk::build_astra_dpu_interfaces_vec();
         let pf_total_sf = crate::sdk::calculate_astra_pf_total_sf(interfaces.as_slice()).unwrap();
         let template = flavor_bf4_astra("astra-ns", proxy, pf_total_sf).unwrap();
-        serde_json::from_str(&template.spec.template).unwrap()
+        flavor_spec_from_template(&template)
+    }
+
+    fn flavor_spec_from_template(template: &DPUFlavorTemplate) -> DpuFlavorSpec {
+        let body: serde_yaml::Value = serde_yaml::from_str(&template.spec.template).unwrap();
+        serde_yaml::from_value(body["spec"].clone()).unwrap()
     }
 
     /// The `raw` body of the trailing (proxy) config file built by `default_flavor`.
@@ -2257,9 +2285,16 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
+        let template_body: serde_yaml::Value =
+            serde_yaml::from_str(&flavor_template.spec.template).unwrap();
+        let template_fields = template_body
+            .as_mapping()
+            .expect("DPUFlavorTemplate body must be a YAML mapping");
+        assert_eq!(template_fields.len(), 1);
+        assert!(template_fields.contains_key("spec"));
         let flavor = DPUFlavor {
             metadata: ObjectMeta::default(),
-            spec: serde_json::from_str(&flavor_template.spec.template).unwrap(),
+            spec: flavor_spec_from_template(&flavor_template),
         };
         let expected_pf_total_sf = expected_astra_pf_total_sf_parameter();
         let ew_nic = flavor

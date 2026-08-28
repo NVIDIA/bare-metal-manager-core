@@ -1106,9 +1106,14 @@ async fn scoped_bf3_gb200_bf4_and_astra_initialization_coexists() {
     .await
     .unwrap()
     .expect("Astra deployment-referenced flavor template must exist");
+    assert!(astra_template.spec.template.starts_with("spec:\n"));
     let astra_flavor = DPUFlavor {
         metadata: Default::default(),
-        spec: serde_json::from_str(&astra_template.spec.template).unwrap(),
+        spec: {
+            let body: serde_yaml::Value =
+                serde_yaml::from_str(&astra_template.spec.template).unwrap();
+            serde_yaml::from_value(body["spec"].clone()).unwrap()
+        },
     };
     let astra_interfaces = crate::sdk::build_astra_dpu_interfaces_vec();
     let expected_astra_pf_total_sf =
