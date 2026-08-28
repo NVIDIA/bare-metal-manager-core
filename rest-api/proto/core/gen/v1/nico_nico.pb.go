@@ -65109,7 +65109,7 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x0ebuild_hostname\x18\x06 \x01(\tR\rbuildHostname\x12:\n" +
 	"\fcapabilities\x18\a \x03(\x0e2\x16.forge.BuildCapabilityR\fcapabilities\x12@\n" +
 	"\x0eruntime_config\x182 \x01(\v2\x14.forge.RuntimeConfigH\x00R\rruntimeConfig\x88\x01\x01B\x11\n" +
-	"\x0f_runtime_config\"\xf9\x17\n" +
+	"\x0f_runtime_config\"\x86\x18\n" +
 	"\rRuntimeConfig\x12\x16\n" +
 	"\x06listen\x18\x01 \x01(\tR\x06listen\x12)\n" +
 	"\x10metrics_endpoint\x18\x02 \x01(\tR\x0fmetricsEndpoint\x12!\n" +
@@ -65170,7 +65170,7 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x16\n" +
 	"\x14_initial_domain_nameB\x1a\n" +
 	"\x18_dpu_network_pinger_typeB\v\n" +
-	"\t_sitenameJ\x04\b\x03\x10\x04J\x04\b\x06\x10\aJ\x04\b\x0e\x10\x0fJ\x04\b\x18\x10\x19J\x04\b&\x10'\"'\n" +
+	"\t_sitenameJ\x04\b\x03\x10\x04J\x04\b\x06\x10\aJ\x04\b\x0e\x10\x0fJ\x04\b\x18\x10\x19J\x04\b&\x10'R\vdpa_enabled\"'\n" +
 	"\vEchoRequest\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\"(\n" +
 	"\fEchoResponse\x12\x18\n" +
