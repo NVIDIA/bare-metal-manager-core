@@ -26,7 +26,7 @@ set scout-cloudinit-url {{ pxe_url }}/api/v0/cloud-init/scout/
 
 # DEPRECATED: use tenant-cloudinit-url. Kept working because tenant-authored
 # ipxeScript values in the wild still reference it; to be deleted once they have
-# moved over. See docs/provisioning/ipxe-script-variables.md.
+# moved over.
 set cloudinit-url ${tenant-cloudinit-url}
 
 {{ ipxe }}
