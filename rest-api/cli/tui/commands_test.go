@@ -199,6 +199,20 @@ func TestCmdInstanceListRendersIPAddresses(t *testing.T) {
 			Extra: map[string]string{"vpcId": "vpc-1", "siteId": "site-1"},
 			Raw:   map[string]interface{}{"interfaces": []interface{}{}},
 		},
+		{
+			Name: "auto-network", ID: "instance-3", Status: "Ready",
+			Extra: map[string]string{"vpcId": "vpc-1", "siteId": "site-1"},
+			Raw: map[string]interface{}{
+				"interfaces": []interface{}{},
+				"status": map[string]interface{}{
+					"network": map[string]interface{}{
+						"interfaces": []interface{}{
+							map[string]interface{}{"ipAddresses": []interface{}{"198.51.100.10"}},
+						},
+					},
+				},
+			},
+		},
 	})
 	session := &Session{Cache: cache}
 	session.Resolver = NewResolver(cache)
@@ -210,7 +224,7 @@ func TestCmdInstanceListRendersIPAddresses(t *testing.T) {
 	require.NoError(t, runErr)
 
 	lines := strings.Split(output, "\n")
-	var header, populated, empty string
+	var header, populated, empty, autoNetwork string
 	for _, line := range lines {
 		switch {
 		case strings.HasPrefix(line, "NAME"):
@@ -219,11 +233,14 @@ func TestCmdInstanceListRendersIPAddresses(t *testing.T) {
 			populated = line
 		case strings.HasPrefix(line, "without-addresses"):
 			empty = line
+		case strings.HasPrefix(line, "auto-network"):
+			autoNetwork = line
 		}
 	}
 	require.NotEmpty(t, header)
 	require.NotEmpty(t, populated)
 	require.NotEmpty(t, empty)
+	require.NotEmpty(t, autoNetwork)
 
 	ipAddressesColumn := strings.Index(header, "IP ADDRESSES")
 	statusColumn := strings.Index(header, "STATUS")
@@ -231,6 +248,7 @@ func TestCmdInstanceListRendersIPAddresses(t *testing.T) {
 	require.Greater(t, statusColumn, ipAddressesColumn)
 	assert.Equal(t, "192.0.2.10, 2001:db8::10", strings.TrimSpace(populated[ipAddressesColumn:statusColumn]))
 	assert.Equal(t, "-", strings.TrimSpace(empty[ipAddressesColumn:statusColumn]))
+	assert.Equal(t, "198.51.100.10", strings.TrimSpace(autoNetwork[ipAddressesColumn:statusColumn]))
 }
 
 func TestShellQuoteCLIArg(t *testing.T) {

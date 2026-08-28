@@ -983,10 +983,23 @@ func instanceIPAddresses(raw interface{}) []string {
 	if !ok {
 		return nil
 	}
-	interfaces, ok := instance["interfaces"].([]interface{})
+	addresses := interfaceIPAddresses(instance["interfaces"])
+	if len(addresses) > 0 {
+		return addresses
+	}
+	status, ok := instance["status"].(map[string]interface{})
 	if !ok {
 		return nil
 	}
+	network, ok := status["network"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	return interfaceIPAddresses(network["interfaces"])
+}
+
+func interfaceIPAddresses(raw interface{}) []string {
+	interfaces, _ := raw.([]interface{})
 	var addresses []string
 	for _, rawInterface := range interfaces {
 		instanceInterface, ok := rawInterface.(map[string]interface{})

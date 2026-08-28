@@ -859,8 +859,8 @@ All commits **must** meet the following signing requirement:
 - Before requesting review for a Go change, run `make lint-go` and inspect its
   complete analyzer output. Its `golangci-lint` command uses
   `--issues-exit-code 0`, so a successful command does not mean the output is
-  clean. Run `go tool golangci-lint run ./cli/tui/...` without that
-  override and fix every finding in the changed package.
+  clean. Run `go tool golangci-lint run` with the changed Go package patterns
+  as arguments, without that override, and fix every finding in those packages.
 - When CLI flags override configuration, copy the complete configured object
   first and overlay only explicitly set flags. Test no override, one override,
   and unset configured fields so unrelated options cannot be discarded.
