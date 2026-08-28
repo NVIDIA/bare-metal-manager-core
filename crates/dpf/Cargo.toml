@@ -46,8 +46,9 @@ tokio-stream = { workspace = true }
 rand = { workspace = true }
 sha2 = { workspace = true }
 
-carbide-uuid = { path = "../uuid", features = ["sqlx"] }
+carbide-libmlx-model = { path = "../libmlx-model" }
 carbide-utils = { path = "../utils" }
+carbide-uuid = { path = "../uuid", features = ["sqlx"] }
 
 # Optional dependencies for carbide-dpf-api-harness binary
 clap = { workspace = true, features = ["derive"], optional = true }

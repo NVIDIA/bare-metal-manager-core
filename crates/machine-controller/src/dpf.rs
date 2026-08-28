@@ -86,10 +86,10 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
     /// Mark DPU node as rebooted (clear the external reboot required annotation).
     async fn reboot_complete(&self, node_name: &str) -> Result<(), DpfError>;
 
-    /// Resolve the deployment type of a DPU based on its hardware (BF3 vs BF4).
-    /// Returns `Err` when the part number is absent or does not match any known
-    /// generation, so unrecognized hardware never silently routes to a wrong
-    /// deployment.
+    /// Resolve a DPU's base hardware deployment class (BF3 or BF4).
+    ///
+    /// The state handler separately refines BF3 from the host rack and DPU
+    /// profile. This returns `Err` when the DMI product name is absent.
     fn deployment_type_for_dpu(&self, dpu: &Machine) -> Result<DpuDeploymentType, DpfError>;
 
     /// Check that a DPUNode's labels match the current expected labels.
@@ -569,8 +569,10 @@ impl DpfOperations for DpfSdkOps {
         };
 
         tracing::info!(
-            "selected deployment type {deployment_type:?} for {product_name}, machine_id: {}",
-            dpu.id
+            machine_id = %dpu.id,
+            product_name,
+            ?deployment_type,
+            "selected base DPF deployment type for DPU"
         );
 
         Ok(deployment_type)

@@ -17,6 +17,7 @@
 
 //! DPF SDK - High-level interface for DPF operations.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
@@ -94,6 +95,9 @@ use crate::watcher::DpuWatcherBuilder;
 const SECRET_NAME: &str = "bmc-shared-password";
 const BFB_NAME_PREFIX: &str = "bf-bundle";
 const BLUEFIELD_SOFTWARE_NAME_PREFIX: &str = "bf-software";
+const KUBERNETES_DNS_LABEL_MAX_LENGTH: usize = 63;
+const KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH: usize = 253;
+const SERVICE_CR_NAME_HASH_BYTES: usize = 16;
 /// Label set by the DPF operator on each DPU CR pointing back to its owning
 /// DPUDeployment. Value format: `<namespace>_<deployment_name>`.
 const DPU_OWNED_BY_DEPLOYMENT_LABEL: &str = "svc.dpu.nvidia.com/owned-by-dpudeployment";
@@ -615,10 +619,11 @@ async fn create_dpu_flavor<R: DpuFlavorRepository>(
 ///
 /// BF3 intentionally uses an empty suffix so its CR names are unchanged — this
 /// keeps existing BF3 clusters untouched (no CR rename / orphaning on upgrade).
-/// Only additional deployments (BF4) are suffixed to avoid colliding with BF3.
+/// Additional deployment classes are suffixed to avoid colliding with BF3.
 pub fn deployment_cr_suffix(deployment_type: DpuDeploymentType) -> &'static str {
     match deployment_type {
         DpuDeploymentType::Bf3 => "",
+        DpuDeploymentType::Bf3Gb200 => "bf3gb200",
         DpuDeploymentType::Bf4Generic => "bf4generic",
         DpuDeploymentType::Bf4Astra => "bf4astra",
     }
@@ -626,16 +631,147 @@ pub fn deployment_cr_suffix(deployment_type: DpuDeploymentType) -> &'static str 
 
 /// Per-deployment CR name for a service or NAD: its logical name with the
 /// deployment suffix appended (or the logical name unchanged when the suffix is
-/// empty, as for BF3). The logical name (used as the DPUDeployment `services`
-/// map key, `deploymentServiceName`, `dependsOn`, and service-chain references)
-/// is left unchanged; only the CR `metadata.name` and the references pointing at
-/// it are suffixed.
+/// empty, as for BF3). Names that would cross Kubernetes' DNS-subdomain or
+/// DNS-label length limits use a readable prefix and a hash of the complete
+/// logical name before the deployment suffix. The hash keeps distinct long
+/// logical names from collapsing onto the same truncated CR name.
+///
+/// The logical name (used as the DPUDeployment `services` map key,
+/// `deploymentServiceName`, `dependsOn`, and service-chain references) is left
+/// unchanged; only the CR `metadata.name` and the references pointing at it are
+/// suffixed.
 fn service_cr_name(logical_name: &str, suffix: &str) -> String {
     if suffix.is_empty() {
-        logical_name.to_string()
-    } else {
-        format!("{logical_name}-{suffix}")
+        return logical_name.to_string();
     }
+
+    let suffixed = format!("{logical_name}-{suffix}");
+    if has_valid_kubernetes_dns_subdomain_lengths(&suffixed) {
+        return suffixed;
+    }
+
+    let short_hash =
+        hex::encode(&Sha256::digest(logical_name.as_bytes())[..SERVICE_CR_NAME_HASH_BYTES]);
+    let hash_and_suffix = format!("-{short_hash}-{suffix}");
+
+    // Deployment suffixes are fixed, short DNS-label components. Keep this
+    // fallback defensive for direct builder callers so an unexpectedly long
+    // suffix cannot make name generation panic or return an invalid name.
+    if hash_and_suffix.len() >= KUBERNETES_DNS_LABEL_MAX_LENGTH {
+        let mut hasher = Sha256::new();
+        hasher.update(logical_name.as_bytes());
+        hasher.update(b"\0");
+        hasher.update(suffix.as_bytes());
+        return format!("service-{}", hex::encode(&hasher.finalize()[..24]));
+    }
+
+    let readable_length = KUBERNETES_DNS_LABEL_MAX_LENGTH - hash_and_suffix.len();
+    let final_label = logical_name.rsplit('.').next().unwrap_or(logical_name);
+    let readable_prefix = final_label
+        .char_indices()
+        .take_while(|(index, ch)| index + ch.len_utf8() <= readable_length)
+        .map(|(_, ch)| ch)
+        .collect::<String>();
+    let readable_prefix = readable_prefix.trim_end_matches('-');
+    let bounded = format!("{readable_prefix}{hash_and_suffix}");
+    debug_assert!(has_valid_kubernetes_dns_subdomain_lengths(&bounded));
+    bounded
+}
+
+fn has_valid_kubernetes_dns_subdomain_lengths(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH
+        && value
+            .split('.')
+            .all(|label| !label.is_empty() && label.len() <= KUBERNETES_DNS_LABEL_MAX_LENGTH)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum InitializationServiceObjectKind {
+    Template,
+    Configuration,
+    Nad,
+}
+
+impl InitializationServiceObjectKind {
+    fn resource_name(self) -> &'static str {
+        match self {
+            Self::Template => "DPUServiceTemplate",
+            Self::Configuration => "DPUServiceConfiguration",
+            Self::Nad => "DPUServiceNAD",
+        }
+    }
+}
+
+fn initialization_services(config: &InitDpfResourcesConfig) -> Cow<'_, [ServiceDefinition]> {
+    if config.services.is_empty() {
+        Cow::Owned(crate::services::default_services(
+            &crate::services::ServiceRegistryConfig::default(),
+        ))
+    } else {
+        Cow::Borrowed(&config.services)
+    }
+}
+
+fn record_initialization_service_object_name(
+    names: &mut BTreeMap<(InitializationServiceObjectKind, String), String>,
+    kind: InitializationServiceObjectKind,
+    name: String,
+    owner: String,
+) -> Result<(), DpfError> {
+    let key = (kind, name.clone());
+    if let Some(existing_owner) = names.get(&key) {
+        return Err(DpfError::ConfigError(format!(
+            "{} metadata.name {name:?} collides between {existing_owner} and {owner}",
+            kind.resource_name(),
+        )));
+    }
+    names.insert(key, owner);
+    Ok(())
+}
+
+/// Reject duplicate service CR identities before any deployment in a batch is
+/// created. Kubernetes object names are unique within a kind and namespace, so
+/// templates/configurations and NADs are tracked independently by kind.
+fn validate_initialization_service_object_names(
+    configs: &[InitDpfResourcesConfig],
+) -> Result<(), DpfError> {
+    let mut names = BTreeMap::new();
+    for config in configs {
+        let suffix = deployment_cr_suffix(config.deployment_type);
+        for (service_index, service) in initialization_services(config).iter().enumerate() {
+            let cr_name = service_cr_name(&service.name, suffix);
+            let owner = format!(
+                "service {:?} at index {service_index} in {:?} deployment {:?}",
+                service.name, config.deployment_type, config.deployment_name,
+            );
+            record_initialization_service_object_name(
+                &mut names,
+                InitializationServiceObjectKind::Template,
+                cr_name.clone(),
+                owner.clone(),
+            )?;
+            record_initialization_service_object_name(
+                &mut names,
+                InitializationServiceObjectKind::Configuration,
+                cr_name,
+                owner,
+            )?;
+
+            if let Some(nad) = &service.service_nad {
+                record_initialization_service_object_name(
+                    &mut names,
+                    InitializationServiceObjectKind::Nad,
+                    service_cr_name(&nad.name, suffix),
+                    format!(
+                        "NAD {:?} for service {:?} at index {service_index} in {:?} deployment {:?}",
+                        nad.name, service.name, config.deployment_type, config.deployment_name,
+                    ),
+                )?;
+            }
+        }
+    }
+    Ok(())
 }
 
 pub fn build_service_template(
@@ -1323,6 +1459,33 @@ impl<
         &self,
         config: &InitDpfResourcesConfig,
     ) -> Result<(), DpfError> {
+        self.create_initialization_objects_for_deployments(std::slice::from_ref(config))
+            .await
+    }
+
+    /// Create initialization objects for every configured deployment as one
+    /// preflighted batch.
+    ///
+    /// All service template/configuration/NAD `metadata.name` values are
+    /// derived and checked for collisions before the first deployment creates
+    /// or applies a Kubernetes object. This prevents a later deployment from
+    /// silently overwriting an earlier deployment's service resources.
+    pub async fn create_initialization_objects_for_deployments(
+        &self,
+        configs: &[InitDpfResourcesConfig],
+    ) -> Result<(), DpfError> {
+        validate_initialization_service_object_names(configs)?;
+        for config in configs {
+            self.create_initialization_objects_after_preflight(config)
+                .await?;
+        }
+        Ok(())
+    }
+
+    async fn create_initialization_objects_after_preflight(
+        &self,
+        config: &InitDpfResourcesConfig,
+    ) -> Result<(), DpfError> {
         let source = match &config.bluefield_software {
             Some(params) => DpuProvisioningSource::BlueFieldSoftware(
                 create_bluefield_software(&*self.repo, &self.namespace, params).await?,
@@ -1331,16 +1494,12 @@ impl<
                 create_bfb(&*self.repo, &self.namespace, &config.bfb_url).await?,
             ),
         };
-        let services = if config.services.is_empty() {
-            crate::services::default_services(&crate::services::ServiceRegistryConfig::default())
-        } else {
-            config.services.clone()
-        };
+        let services = initialization_services(config);
         create_flavor_services_and_deployment(
             &*self.repo,
             &self.namespace,
             &self.labeler,
-            &services,
+            services.as_ref(),
             &config.deployment_name,
             &source,
             &config.flavor_name,
@@ -2205,7 +2364,7 @@ mod tests {
     use crate::repository::{
         DpuDeviceRepository, DpuFlavorRepository, DpuNodeRepository, DpuRepository,
     };
-    use crate::types::{DpuDeviceInfo, DpuNodeInfo};
+    use crate::types::{DpuDeviceInfo, DpuNodeInfo, ServiceNAD};
 
     fn already_exists_error(name: &str) -> DpfError {
         DpfError::KubeError(kube::Error::Api(Box::new(
@@ -2215,6 +2374,66 @@ mod tests {
     }
 
     const TEST_NAMESPACE: &str = "test-namespace";
+
+    fn assert_valid_kubernetes_dns_subdomain(name: &str) {
+        assert!(!name.is_empty());
+        assert!(
+            name.len() <= KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH,
+            "DNS subdomain exceeds {KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH} bytes: {name}"
+        );
+        for label in name.split('.') {
+            assert!(
+                !label.is_empty(),
+                "DNS subdomain contains an empty label: {name}"
+            );
+            assert!(
+                label.len() <= KUBERNETES_DNS_LABEL_MAX_LENGTH,
+                "DNS label exceeds {KUBERNETES_DNS_LABEL_MAX_LENGTH} bytes: {label}"
+            );
+            assert!(
+                label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'),
+                "DNS label contains an invalid character: {label}"
+            );
+            assert!(
+                label
+                    .as_bytes()
+                    .first()
+                    .is_some_and(u8::is_ascii_alphanumeric)
+                    && label
+                        .as_bytes()
+                        .last()
+                        .is_some_and(u8::is_ascii_alphanumeric),
+                "DNS label must begin and end with an alphanumeric character: {label}"
+            );
+        }
+    }
+
+    fn initialization_test_service(name: &str, nad_name: Option<&str>) -> ServiceDefinition {
+        let mut service = ServiceDefinition::new(name, "repo", "chart", "1.0.0");
+        service.service_nad = nad_name.map(|name| ServiceNAD {
+            name: name.to_string(),
+            bridge: None,
+            ipam: None,
+            resource_type: ServiceNADResourceType::Sf,
+            mtu: None,
+        });
+        service
+    }
+
+    fn initialization_test_config(
+        deployment_type: DpuDeploymentType,
+        deployment_name: &str,
+        services: Vec<ServiceDefinition>,
+    ) -> InitDpfResourcesConfig {
+        InitDpfResourcesConfig {
+            deployment_name: deployment_name.to_string(),
+            deployment_type,
+            services,
+            ..Default::default()
+        }
+    }
 
     #[test]
     fn otelcol_depends_on_includes_dts() {
@@ -2273,12 +2492,24 @@ mod tests {
         let svc = ServiceDefinition::new(DOCA_HBN_SERVICE_NAME, "repo", "chart", "1.0.5");
 
         let bf3_suffix = deployment_cr_suffix(DpuDeploymentType::Bf3);
+        let bf3_gb200_suffix = deployment_cr_suffix(DpuDeploymentType::Bf3Gb200);
         let bf4_suffix = deployment_cr_suffix(DpuDeploymentType::Bf4Generic);
 
         // BF3: CR name unchanged.
         let bf3 = build_service_template(&svc, TEST_NAMESPACE, bf3_suffix);
         assert_eq!(bf3.metadata.name.as_deref(), Some(DOCA_HBN_SERVICE_NAME));
         assert_eq!(bf3.spec.deployment_service_name, DOCA_HBN_SERVICE_NAME);
+
+        // GB200 BF3 uses separate resources but keeps the same logical service name.
+        let bf3_gb200 = build_service_template(&svc, TEST_NAMESPACE, bf3_gb200_suffix);
+        assert_eq!(
+            bf3_gb200.metadata.name.as_deref(),
+            Some("doca-hbn-bf3gb200")
+        );
+        assert_eq!(
+            bf3_gb200.spec.deployment_service_name,
+            DOCA_HBN_SERVICE_NAME
+        );
 
         // BF4: CR name suffixed, logical name unchanged.
         let bf4 = build_service_template(&svc, TEST_NAMESPACE, bf4_suffix);
@@ -2318,6 +2549,152 @@ mod tests {
     }
 
     #[test]
+    fn service_cr_name_bounds_suffixed_dns_subdomains() {
+        let suffix = deployment_cr_suffix(DpuDeploymentType::Bf3Gb200);
+        let label_boundary = "a".repeat(KUBERNETES_DNS_LABEL_MAX_LENGTH);
+        let total_boundary = format!(
+            "{}.{}.{}.{}",
+            "a".repeat(KUBERNETES_DNS_LABEL_MAX_LENGTH),
+            "b".repeat(KUBERNETES_DNS_LABEL_MAX_LENGTH),
+            "c".repeat(KUBERNETES_DNS_LABEL_MAX_LENGTH),
+            "d".repeat(61),
+        );
+        assert_eq!(total_boundary.len(), KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH);
+
+        let cases = [
+            (
+                "ordinary name",
+                DOCA_HBN_SERVICE_NAME.to_string(),
+                Some("doca-hbn-bf3gb200"),
+            ),
+            ("63-byte final label", label_boundary.clone(), None),
+            ("253-byte multi-label name", total_boundary, None),
+        ];
+
+        for (description, logical_name, expected) in cases {
+            let actual = service_cr_name(&logical_name, suffix);
+            assert_valid_kubernetes_dns_subdomain(&actual);
+            if let Some(expected) = expected {
+                assert_eq!(actual, expected, "{description}");
+            } else {
+                assert_ne!(actual, format!("{logical_name}-{suffix}"), "{description}");
+            }
+        }
+
+        // The empty BF3 suffix remains a compatibility exception: even a name
+        // at the label boundary is returned byte-for-byte without hashing.
+        assert_eq!(service_cr_name(&label_boundary, ""), label_boundary);
+    }
+
+    #[test]
+    fn service_cr_name_hash_distinguishes_long_logical_names() {
+        let suffix = deployment_cr_suffix(DpuDeploymentType::Bf3Gb200);
+        let common_prefix = "a".repeat(KUBERNETES_DNS_LABEL_MAX_LENGTH - 1);
+        let first_logical_name = format!("{common_prefix}b");
+        let second_logical_name = format!("{common_prefix}c");
+
+        let first = service_cr_name(&first_logical_name, suffix);
+        let second = service_cr_name(&second_logical_name, suffix);
+
+        assert_eq!(first, service_cr_name(&first_logical_name, suffix));
+        assert_ne!(first, second);
+        assert_valid_kubernetes_dns_subdomain(&first);
+        assert_valid_kubernetes_dns_subdomain(&second);
+    }
+
+    #[test]
+    fn initialization_name_preflight_rejects_within_and_cross_deployment_collisions() {
+        let cases = vec![
+            (
+                "suffix-shaped service name across deployments",
+                vec![
+                    initialization_test_config(
+                        DpuDeploymentType::Bf3,
+                        "bf3-deployment",
+                        vec![initialization_test_service("foo-bf3gb200", None)],
+                    ),
+                    initialization_test_config(
+                        DpuDeploymentType::Bf3Gb200,
+                        "gb200-deployment",
+                        vec![initialization_test_service("foo", None)],
+                    ),
+                ],
+                "DPUServiceTemplate metadata.name \"foo-bf3gb200\"",
+            ),
+            (
+                "suffix-shaped NAD name across deployments",
+                vec![
+                    initialization_test_config(
+                        DpuDeploymentType::Bf3,
+                        "bf3-deployment",
+                        vec![initialization_test_service(
+                            "first-service",
+                            Some("service-net-bf3gb200"),
+                        )],
+                    ),
+                    initialization_test_config(
+                        DpuDeploymentType::Bf3Gb200,
+                        "gb200-deployment",
+                        vec![initialization_test_service(
+                            "second-service",
+                            Some("service-net"),
+                        )],
+                    ),
+                ],
+                "DPUServiceNAD metadata.name \"service-net-bf3gb200\"",
+            ),
+            (
+                "duplicate service name within one deployment",
+                vec![initialization_test_config(
+                    DpuDeploymentType::Bf3,
+                    "bf3-deployment",
+                    vec![
+                        initialization_test_service("duplicate", None),
+                        initialization_test_service("duplicate", None),
+                    ],
+                )],
+                "DPUServiceTemplate metadata.name \"duplicate\"",
+            ),
+        ];
+
+        for (description, configs, expected_error) in cases {
+            let error = validate_initialization_service_object_names(&configs)
+                .expect_err("colliding initialization object names must be rejected");
+            let DpfError::ConfigError(message) = error else {
+                panic!("{description}: expected configuration error, got {error}");
+            };
+            assert!(
+                message.contains(expected_error),
+                "{description}: unexpected error: {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn initialization_name_preflight_accepts_distinct_derived_names() {
+        let configs = vec![
+            initialization_test_config(
+                DpuDeploymentType::Bf3,
+                "bf3-deployment",
+                vec![initialization_test_service("foo", Some("service-net"))],
+            ),
+            initialization_test_config(
+                DpuDeploymentType::Bf3Gb200,
+                "gb200-deployment",
+                vec![initialization_test_service("foo", Some("service-net"))],
+            ),
+            initialization_test_config(
+                DpuDeploymentType::Bf4Generic,
+                "bf4-deployment",
+                vec![initialization_test_service("foo", Some("service-net"))],
+            ),
+        ];
+
+        validate_initialization_service_object_names(&configs)
+            .expect("deployment suffixes should keep ordinary service resources distinct");
+    }
+
+    #[test]
     fn deployment_type_controls_cr_suffix_and_astra_enablement() {
         value_scenarios!(
             run = |deployment_type| {
@@ -2338,6 +2715,10 @@ mod tests {
             };
             "BF3 preserves unsuffixed resource names" {
                 DpuDeploymentType::Bf3 => ("", None),
+            }
+
+            "GB200 BF3 uses its deployment suffix" {
+                DpuDeploymentType::Bf3Gb200 => ("bf3gb200", None),
             }
 
             "generic BF4 uses its deployment suffix" {

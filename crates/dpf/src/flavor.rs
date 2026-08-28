@@ -17,6 +17,7 @@
 
 //! DPUFlavor configuration for HBN.
 
+use carbide_libmlx_model::nvconfig::DpuNvConfigProfile;
 use kube::core::ObjectMeta;
 use sha2::{Digest, Sha256};
 
@@ -181,7 +182,9 @@ pub fn default_flavor_for(
     match deployment_type {
         DpuDeploymentType::Bf4Generic => flavor_bf4(namespace, proxy),
         DpuDeploymentType::Bf4Astra => flavor_bf4_astra(namespace, proxy),
-        DpuDeploymentType::Bf3 => default_flavor(namespace, proxy),
+        DpuDeploymentType::Bf3 | DpuDeploymentType::Bf3Gb200 => {
+            default_flavor_with_deployment_type(namespace, proxy, deployment_type)
+        }
     }
 }
 
@@ -429,6 +432,14 @@ pub fn default_flavor(
     namespace: &str,
     proxy: &Option<DpfProxyDetails>,
 ) -> Result<DPUFlavor, crate::error::DpfError> {
+    default_flavor_with_deployment_type(namespace, proxy, DpuDeploymentType::Bf3)
+}
+
+fn default_flavor_with_deployment_type(
+    namespace: &str,
+    proxy: &Option<DpfProxyDetails>,
+    deployment_type: DpuDeploymentType,
+) -> Result<DPUFlavor, crate::error::DpfError> {
     let bfcfg_parameters = vec![
         "UPDATE_ATF_UEFI=yes".to_string(),
         "UPDATE_DPU_OS=yes".to_string(),
@@ -448,7 +459,7 @@ pub fn default_flavor(
             containerd_config: None,
             grub: Some(get_default_grub()),
             host_network_interface_configs: None,
-            nvconfig: Some(vec![get_default_nvconfig()]),
+            nvconfig: Some(vec![get_default_nvconfig(deployment_type)]),
             ovs: Some(crate::crds::dpuflavors_generated::DpuFlavorOvs {
                 raw_config_script: Some(get_default_ovs_defaults()),
             }),
@@ -1182,8 +1193,8 @@ fn get_bf4_astra_config_files(
     Ok(config_files)
 }
 
-fn get_default_nvconfig() -> DpuFlavorNvconfig {
-    let parameters = vec![
+fn get_default_nvconfig(deployment_type: DpuDeploymentType) -> DpuFlavorNvconfig {
+    let mut parameters = vec![
         "PF_BAR2_ENABLE=0".to_string(),
         "PER_PF_NUM_SF=1".to_string(),
         "PF_TOTAL_SF=30".to_string(),
@@ -1201,6 +1212,27 @@ fn get_default_nvconfig() -> DpuFlavorNvconfig {
         "LINK_TYPE_P1=ETH".to_string(),
         "LINK_TYPE_P2=ETH".to_string(),
     ];
+
+    if deployment_type == DpuDeploymentType::Bf3Gb200 {
+        // DPF v26.4 accepts at most 32 parameters. These two assignments set
+        // values that DPF already restores to their firmware default of 0, so
+        // omitting them preserves the required platform state.
+        // TODO(chet): Add PCI_SWITCH0_UPSTREAM_PORT_BUS=0 and
+        // PCI_SWITCH0_UPSTREAM_PORT_PEX=0 after DPF accepts more than 32
+        // NVConfig parameters.
+        parameters.extend(
+            DpuNvConfigProfile::Gb200B3240V1
+                .parameters()
+                .iter()
+                .filter(|parameter| {
+                    !matches!(
+                        **parameter,
+                        "PCI_SWITCH0_UPSTREAM_PORT_BUS=0" | "PCI_SWITCH0_UPSTREAM_PORT_PEX=0"
+                    )
+                })
+                .map(|parameter| (*parameter).to_string()),
+        );
+    }
 
     DpuFlavorNvconfig {
         // DPF does not allow anyother wild card. It takes only '*'
@@ -2080,8 +2112,43 @@ mod tests {
     // ── get_default_nvconfig (pure constructor) ────────────────────────────
 
     #[test]
+    fn gb200_bf3_nvconfig_appends_the_bounded_profile_in_order() {
+        let parameters =
+            |deployment_type| get_default_nvconfig(deployment_type).parameters.unwrap();
+        let bf3 = parameters(DpuDeploymentType::Bf3);
+        let gb200 = parameters(DpuDeploymentType::Bf3Gb200);
+
+        assert_eq!(bf3.len(), 16);
+        assert_eq!(gb200.len(), 32);
+        assert_eq!(&gb200[..bf3.len()], bf3.as_slice());
+        assert_eq!(
+            &gb200[bf3.len()..],
+            [
+                "OFF_BOARD_SERIALIZER=1",
+                "PCI_BUS00_HIERARCHY_TYPE=1",
+                "PCI_BUS00_SPEED=5",
+                "PCI_BUS00_WIDTH=5",
+                "PCI_BUS10_HIERARCHY_TYPE=1",
+                "PCI_BUS10_SPEED=4",
+                "PCI_BUS10_WIDTH=3",
+                "PCI_BUS12_HIERARCHY_TYPE=1",
+                "PCI_BUS12_SPEED=4",
+                "PCI_BUS12_WIDTH=3",
+                "PCI_BUS14_HIERARCHY_TYPE=1",
+                "PCI_BUS14_SPEED=4",
+                "PCI_BUS14_WIDTH=3",
+                "PCI_BUS16_HIERARCHY_TYPE=1",
+                "PCI_BUS16_SPEED=4",
+                "PCI_BUS16_WIDTH=3",
+            ]
+        );
+        assert!(!gb200.contains(&"PCI_SWITCH0_UPSTREAM_PORT_BUS=0".to_string()));
+        assert!(!gb200.contains(&"PCI_SWITCH0_UPSTREAM_PORT_PEX=0".to_string()));
+    }
+
+    #[test]
     fn default_nvconfig_shape() {
-        let nv = get_default_nvconfig();
+        let nv = get_default_nvconfig(DpuDeploymentType::Bf3);
         value_scenarios!(
             run = |v| v;
             "device is the only allowed wildcard variant" {
