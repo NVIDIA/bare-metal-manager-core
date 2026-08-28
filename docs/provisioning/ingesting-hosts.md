@@ -214,14 +214,36 @@ For optional REST fields and batch JSON examples, use [Ingesting Hosts (REST API
 
 ### Per-Host Fields With the Admin CLI
 
-Some per-host settings are not exposed through the REST API or `nicocli`. To set them, use the admin CLI's `expected-machine` command (`em`), which reads a snake_case `expected_machines.json` file and applies the whole table at once:
+The admin CLI's `expected-machine` command (`em`) provides the complete set of
+per-host fields and compatibility controls. It reads a snake_case
+`expected_machines.json` file and applies the whole table at once:
 
 - **`dpu_policy`** (`"manage"` | `"nic"` | `"ignore"`): Per-host policy for managing DPU hardware. `nic` and `ignore` override the site policy; `manage` or an omitted field inherits the site-wide policy, which defaults to `manage`. The previous `"use_as_nic"` value is still accepted, as are manifests using the `dpu_mode` key with `"dpu_mode"`, `"nic_mode"`, or `"no_dpu"` values.
-- **`dpf_enabled`** (bool): Enable or disable DPF for this host.
+- **`dpf_enabled`** (bool, default `true`): Enable or disable DPF provisioning for this host. When omitted or `true`, DPF is the provisioning path (requires `[dpf].enabled = true` in the site config — see [DPF setup](../manuals/dpf.md)). Set to `false` to keep a host on the deprecated iPXE path.
 - **`bmc_retain_credentials`** (bool): Skip BMC password rotation.
 - **`default_pause_ingestion_and_poweron`** (bool): Pause ingestion and power-on for this host.
-- **`bmc_ip_address`** (string): Static BMC IP, which pre-allocates a machine interface.
+- **`interfaces`** (array): Configure Host, DPU OS, DPU BMC, and Host BMC
+  interface roles and their Dynamic, Fixed, or Retained IP allocation policies.
+  See [Configure Expected Machine Interfaces](expected-machine-interfaces.md).
+- **`bmc_ip_address`** (string, optional): Compatibility top-level Host BMC
+  address. With the top-level `Auto` policy, its presence infers Fixed
+  allocation.
+- **`bmc_ip_allocation`** (`"Unspecified"` | `"Auto"` | `"Dynamic"` |
+  `"Fixed"` | `"Retained"`, default `"Auto"`): Compatibility Host BMC policy
+  in the whole-table JSON consumed by `em replace-all`. For the top-level
+  compatibility form, `Auto` resolves to `Fixed` when `bmc_ip_address` is
+  present and `Retained` otherwise; `Unspecified` resets to `Auto`. Explicit
+  top-level address and policy values override the nested `host_bmc` values.
+  `Dynamic` and `Retained` cannot be combined with
+  `bmc_ip_address`; use `Fixed` or `Auto` with an address. The
+  corresponding `em add` and `em patch` flag values are lowercase. See
+  [Host BMC compatibility fields](ip-and-network-configuration.md#host-bmc-compatibility-fields)
+  for field interactions and the supported shared HostInband topology.
 - **`host_lifecycle_profile.disable_lockdown`** (bool, default `false`): When `true`, the state machine does not lock down the host during lifecycle management, which suits automation workflows that keep lockdown disabled.
+
+The previous `host_nics` manifest key and `--host_nics` CLI option remain
+aliases for `interfaces` and `--interfaces`. Existing manifests do not need
+conversion. Do not set both names within the same Expected Machine entry.
 
 Each manifest entry combines the required BMC credentials with any of these fields:
 
@@ -231,7 +253,7 @@ Each manifest entry combines the required BMC credentials with any of these fiel
     {
       "bmc_mac_address": "C4:5A:B1:C8:38:0D",
       "bmc_username": "root",
-      "bmc_password": "default-password1",
+      "bmc_password": "<bmc-password>",
       "chassis_serial_number": "SERIAL-1",
       "dpu_policy": "nic"
     }

@@ -27,13 +27,17 @@ use crate::collectors::{
     EntityDiscoveryCollector, EntityDiscoveryCollectorConfig, FailureKind, FirmwareCollector,
     FirmwareCollectorConfig, GpuInventoryCollector, GpuInventoryCollectorConfig,
     LeakDetectorCollector, LeakDetectorCollectorConfig, LogsCollector, LogsCollectorConfig,
-    MetricsCollector, MetricsCollectorConfig, NmxcCollector, NmxcCollectorConfig, NmxtCollector,
+    MetricsCollector, MetricsCollectorConfig, NmxcCollector, NmxcCollectorConfig,
+    NmxcSchemaOverrideCollector, NmxcSchemaOverrideCollectorConfig, NmxtCollector,
     NmxtCollectorConfig, NvueRestCollector, NvueRestCollectorConfig, SensorCollector,
     SensorCollectorConfig, SseLogCollector, SseLogCollectorConfig, StreamingCollectorStartContext,
     TelemetryCollector, TelemetryCollectorConfig, spawn_gnmi_collector,
 };
-use crate::config::{Configurable, LogCollectionMode, PeriodicLogConfig};
+use crate::config::{
+    Configurable, LogCollectionMode, NmxcCollectorConfig as NmxcCollectorOptions, PeriodicLogConfig,
+};
 use crate::endpoint::{BmcEndpoint, EndpointMetadata, SwitchEndpointRole};
+use crate::metrics::CollectorRegistry;
 use crate::sink::DataSink;
 
 fn logs_state_file_path(template: &str, endpoint_id: &str) -> PathBuf {
@@ -43,7 +47,7 @@ fn logs_state_file_path(template: &str, endpoint_id: &str) -> PathBuf {
 /// Returns whether an endpoint is eligible for direct NMX-C Subscribe collection.
 pub(super) fn switch_supports_nmxc_subscription(endpoint: &BmcEndpoint) -> bool {
     endpoint.switch_data().is_some_and(|switch| {
-        // Carbide API exposes switch host targets through Switch.nvos_info, but
+        // The NICo API exposes switch host targets through Switch.nvos_info, but
         // NMX-C Subscribe is only valid on the primary switch when desired NMX-C
         // config is enabled. FabricManager readiness is still discovered by
         // attempting Subscribe and retrying with backoff, because API status can
@@ -615,6 +619,50 @@ fn spawn_generic_redfish_collectors(
     Ok(())
 }
 
+fn start_nmxc_collector(
+    ctx: &DiscoveryLoopContext,
+    endpoint: &Arc<BmcEndpoint>,
+    bmc: &Arc<BmcClient>,
+    config: &NmxcCollectorOptions,
+    data_sink: Arc<dyn DataSink>,
+    collector_registry: Arc<CollectorRegistry>,
+) -> Result<Collector, HealthError> {
+    let start_context = StreamingCollectorStartContext {
+        backoff_config: BackoffConfig {
+            initial: config.initial_backoff,
+            max: config.max_backoff,
+        },
+        collector_registry,
+    };
+
+    if let Some(schema_override) = &ctx.nmxc_schema_override {
+        Collector::start_streaming::<NmxcSchemaOverrideCollector, _>(
+            endpoint.clone(),
+            bmc.clone(),
+            NmxcSchemaOverrideCollectorConfig {
+                nmxc_config: config.clone(),
+                tls_config: ctx.tls_config.clone(),
+                schema_override: schema_override.clone(),
+            },
+            data_sink,
+            start_context,
+            |_| true,
+        )
+    } else {
+        Collector::start_streaming::<NmxcCollector, _>(
+            endpoint.clone(),
+            bmc.clone(),
+            NmxcCollectorConfig {
+                nmxc_config: config.clone(),
+                tls_config: ctx.tls_config.clone(),
+            },
+            data_sink,
+            start_context,
+            |_| true,
+        )
+    }
+}
+
 fn spawn_switch_host_collectors(
     ctx: &mut DiscoveryLoopContext,
     endpoint: &Arc<BmcEndpoint>,
@@ -683,22 +731,13 @@ fn spawn_switch_host_collectors(
                     .create_collector_registry(format!("nmxc_collector_{key}"), metrics_prefix)?,
             );
 
-            match Collector::start_streaming::<NmxcCollector, _>(
-                endpoint_arc.clone(),
-                bmc.clone(),
-                NmxcCollectorConfig {
-                    nmxc_config: nmxc_cfg.clone(),
-                    tls_config: ctx.tls_config.clone(),
-                },
+            match start_nmxc_collector(
+                ctx,
+                &endpoint_arc,
+                &bmc,
+                nmxc_cfg,
                 data_sink,
-                StreamingCollectorStartContext {
-                    backoff_config: BackoffConfig {
-                        initial: nmxc_cfg.initial_backoff,
-                        max: nmxc_cfg.max_backoff,
-                    },
-                    collector_registry,
-                },
-                |_| true,
+                collector_registry,
             ) {
                 Ok(handle) => {
                     ctx.collectors
@@ -1513,8 +1552,7 @@ mod tests {
         config.collectors.leak_detector = Configurable::Disabled;
         config.collectors.nmxt = Configurable::Disabled;
         config.collectors.nvue = Configurable::Disabled;
-        // GPU inventory needs the API client (SKU lookup), which the context builds
-        // from the carbide_api source.
+        // GPU inventory uses the NICo API client to resolve the machine SKU.
         config.endpoint_sources.carbide_api =
             Configurable::Enabled(CarbideApiConnectionConfig::default());
         config.collectors.gpu_inventory = Configurable::Enabled(Default::default());

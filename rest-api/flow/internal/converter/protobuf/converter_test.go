@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	dbquery "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/query"
@@ -524,6 +525,7 @@ func TestBMCFrom(t *testing.T) {
 }
 
 func TestComponentConverter(t *testing.T) {
+	domainID := uuid.New()
 	shared := component.Component{
 		Type:            devicetypes.ComponentTypeCompute,
 		Info:            deviceinfo.NewRandom("TestComponent", 6),
@@ -533,7 +535,8 @@ func TestComponentConverter(t *testing.T) {
 			TrayIndex: 12,
 			HostID:    0,
 		},
-		BmcsByType: make(map[devicetypes.BMCType][]bmc.BMC),
+		BmcsByType:  make(map[devicetypes.BMCType][]bmc.BMC),
+		NVLDomainID: domainID,
 	}
 
 	sharedP := pb.Component{
@@ -552,7 +555,8 @@ func TestComponentConverter(t *testing.T) {
 			TrayIdx: int32(shared.Position.TrayIndex),
 			HostId:  int32(shared.Position.HostID),
 		},
-		Bmcs: make([]*pb.BMCInfo, 0),
+		Bmcs:        make([]*pb.BMCInfo, 0),
+		NvlDomainId: &pb.UUID{Id: domainID.String()},
 	}
 
 	testCases := map[string]struct {
@@ -584,6 +588,7 @@ func TestComponentConverter(t *testing.T) {
 }
 
 func TestRackConverter(t *testing.T) {
+	domainID := uuid.New()
 	shared := rack.Rack{
 		Info: deviceinfo.NewRandom("TestRack", 12),
 		Loc: location.Location{
@@ -592,7 +597,8 @@ func TestRackConverter(t *testing.T) {
 			Room:       "Mars",
 			Position:   "Row 12",
 		},
-		Components: make([]component.Component, 0),
+		Components:  make([]component.Component, 0),
+		NVLDomainID: domainID,
 	}
 
 	sharedP := pb.Rack{
@@ -610,9 +616,9 @@ func TestRackConverter(t *testing.T) {
 			Room:       shared.Loc.Room,
 			Position:   shared.Loc.Position,
 		},
-		Components: make([]*pb.Component, 0),
+		Components:   make([]*pb.Component, 0),
+		NvlDomainIds: []*pb.UUID{{Id: domainID.String()}},
 	}
-
 	testCases := map[string]struct {
 		source     *rack.Rack
 		sourceP    *pb.Rack
@@ -639,6 +645,39 @@ func TestRackConverter(t *testing.T) {
 			assert.Equal(t, testCase.convertedP, RackTo(testCase.source))
 		})
 	}
+}
+
+func TestRackConverterPropagatesDomainToNestedComponents(t *testing.T) {
+	domainID := uuid.New()
+	explicitComponentDomainID := uuid.New()
+	componentID := uuid.New()
+
+	fromProto := RackFrom(&pb.Rack{
+		Info:         &pb.DeviceInfo{Id: UUIDTo(uuid.New())},
+		NvlDomainIds: UUIDsTo([]uuid.UUID{domainID, uuid.New()}),
+		Components: []*pb.Component{
+			{Info: &pb.DeviceInfo{Id: UUIDTo(componentID)}},
+			{
+				Info:        &pb.DeviceInfo{Id: UUIDTo(uuid.New())},
+				NvlDomainId: UUIDTo(explicitComponentDomainID),
+			},
+		},
+	})
+	require.Len(t, fromProto.Components, 2)
+	assert.Equal(t, domainID, fromProto.NVLDomainID)
+	assert.Equal(t, domainID, fromProto.Components[0].NVLDomainID)
+	assert.Equal(t, explicitComponentDomainID, fromProto.Components[1].NVLDomainID)
+
+	toProto := RackTo(&rack.Rack{
+		NVLDomainID: domainID,
+		Components: []component.Component{
+			{Info: deviceinfo.DeviceInfo{ID: componentID}},
+			{NVLDomainID: explicitComponentDomainID},
+		},
+	})
+	require.Len(t, toProto.GetComponents(), 2)
+	assert.Equal(t, domainID.String(), toProto.GetComponents()[0].GetNvlDomainId().GetId())
+	assert.Equal(t, explicitComponentDomainID.String(), toProto.GetComponents()[1].GetNvlDomainId().GetId())
 }
 
 func TestOrderByConverter(t *testing.T) {
@@ -917,6 +956,72 @@ func TestComponentTargetFrom(t *testing.T) {
 	}
 }
 
+func TestNVLDomainTargetFrom(t *testing.T) {
+	domainID := uuid.New()
+	testCases := map[string]struct {
+		input   *pb.NVLDomainTarget
+		want    operation.NVLDomainTarget
+		wantErr string
+	}{
+		"nil input": {
+			wantErr: "NVLink domain target is nil",
+		},
+		"no identifier": {
+			input:   &pb.NVLDomainTarget{},
+			wantErr: "must have either id or name set",
+		},
+		"ID with filter": {
+			input: &pb.NVLDomainTarget{
+				Identifier: &pb.NVLDomainTarget_Id{Id: &pb.UUID{Id: domainID.String()}},
+				ComponentTypes: []pb.ComponentType{
+					pb.ComponentType_COMPONENT_TYPE_COMPUTE,
+				},
+			},
+			want: operation.NVLDomainTarget{
+				Identifier: identifier.Identifier{ID: domainID},
+				ComponentTypes: []devicetypes.ComponentType{
+					devicetypes.ComponentTypeCompute,
+				},
+			},
+		},
+		"name": {
+			input: &pb.NVLDomainTarget{
+				Identifier: &pb.NVLDomainTarget_Name{Name: "domain-1"},
+			},
+			want: operation.NVLDomainTarget{
+				Identifier: identifier.Identifier{Name: "domain-1"},
+			},
+		},
+		"invalid ID": {
+			input: &pb.NVLDomainTarget{
+				Identifier: &pb.NVLDomainTarget_Id{Id: &pb.UUID{Id: "invalid"}},
+			},
+			wantErr: "invalid NVLink domain id",
+		},
+		"unknown component type": {
+			input: &pb.NVLDomainTarget{
+				Identifier: &pb.NVLDomainTarget_Name{Name: "domain-1"},
+				ComponentTypes: []pb.ComponentType{
+					pb.ComponentType_COMPONENT_TYPE_UNKNOWN,
+				},
+			},
+			wantErr: "unknown component type",
+		},
+	}
+
+	for name, testCase := range testCases {
+		t.Run(name, func(t *testing.T) {
+			got, err := NVLDomainTargetFrom(testCase.input)
+			if testCase.wantErr != "" {
+				assert.ErrorContains(t, err, testCase.wantErr)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, testCase.want, got)
+		})
+	}
+}
+
 func TestTargetSpecTo(t *testing.T) {
 	rackID := uuid.New()
 	compID := uuid.New()
@@ -925,16 +1030,16 @@ func TestTargetSpecTo(t *testing.T) {
 		input   operation.TargetSpec
 		wantErr string
 	}{
-		"both racks and components set": {
+		"multiple target kinds set": {
 			input: operation.TargetSpec{
 				Racks:      []operation.RackTarget{{Identifier: identifier.Identifier{Name: "rack-1"}}},
 				Components: []operation.ComponentTarget{{UUID: compID}},
 			},
-			wantErr: "cannot have both racks and components",
+			wantErr: "must have exactly one of racks, nvl_domains, or components",
 		},
-		"neither racks nor components set": {
+		"no target kind set": {
 			input:   operation.TargetSpec{},
-			wantErr: "must have either racks or components",
+			wantErr: "must have exactly one of racks, nvl_domains, or components",
 		},
 		"rack target by name": {
 			input: operation.TargetSpec{
@@ -954,6 +1059,31 @@ func TestTargetSpecTo(t *testing.T) {
 			input: operation.TargetSpec{
 				Components: []operation.ComponentTarget{{UUID: compID}},
 			},
+		},
+		"NVLink domain target by UUID": {
+			input: operation.TargetSpec{
+				NVLDomains: []operation.NVLDomainTarget{
+					{
+						Identifier: identifier.Identifier{ID: rackID},
+						ComponentTypes: []devicetypes.ComponentType{
+							devicetypes.ComponentTypeCompute,
+						},
+					},
+				},
+			},
+		},
+		"NVLink domain target with unmapped component type": {
+			input: operation.TargetSpec{
+				NVLDomains: []operation.NVLDomainTarget{
+					{
+						Identifier: identifier.Identifier{ID: rackID},
+						ComponentTypes: []devicetypes.ComponentType{
+							devicetypes.ComponentType(999),
+						},
+					},
+				},
+			},
+			wantErr: "unknown component type filter",
 		},
 		"component target with no UUID and no external": {
 			input: operation.TargetSpec{
@@ -981,6 +1111,60 @@ func TestTargetSpecTo(t *testing.T) {
 			}
 			assert.NoError(t, err)
 			assert.NotNil(t, got)
+		})
+	}
+}
+
+func TestTargetSpecFromNVLDomains(t *testing.T) {
+	domainID := uuid.New()
+	testCases := map[string]struct {
+		input   *pb.OperationTargetSpec
+		want    operation.TargetSpec
+		wantErr string
+	}{
+		"empty targets": {
+			input: &pb.OperationTargetSpec{
+				Targets: &pb.OperationTargetSpec_NvlDomains{
+					NvlDomains: &pb.NVLDomainTargets{},
+				},
+			},
+			wantErr: "nvl_domains.targets must have at least one entry",
+		},
+		"ID and name targets": {
+			input: &pb.OperationTargetSpec{
+				Targets: &pb.OperationTargetSpec_NvlDomains{
+					NvlDomains: &pb.NVLDomainTargets{
+						Targets: []*pb.NVLDomainTarget{
+							{
+								Identifier: &pb.NVLDomainTarget_Id{
+									Id: &pb.UUID{Id: domainID.String()},
+								},
+							},
+							{
+								Identifier: &pb.NVLDomainTarget_Name{Name: "domain-2"},
+							},
+						},
+					},
+				},
+			},
+			want: operation.TargetSpec{
+				NVLDomains: []operation.NVLDomainTarget{
+					{Identifier: identifier.Identifier{ID: domainID}},
+					{Identifier: identifier.Identifier{Name: "domain-2"}},
+				},
+			},
+		},
+	}
+
+	for name, testCase := range testCases {
+		t.Run(name, func(t *testing.T) {
+			got, err := TargetSpecFrom(testCase.input)
+			if testCase.wantErr != "" {
+				assert.ErrorContains(t, err, testCase.wantErr)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, testCase.want, got)
 		})
 	}
 }

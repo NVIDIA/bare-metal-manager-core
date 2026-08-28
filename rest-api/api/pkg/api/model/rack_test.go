@@ -4,15 +4,44 @@
 package model
 
 import (
+	"encoding/json"
 	"testing"
 
 	flowv1 "github.com/NVIDIA/infra-controller/rest-api/proto/flow/gen/v1"
 	"github.com/stretchr/testify/assert"
 )
 
+func TestAPIRackJSONContract(t *testing.T) {
+	description := "Core rack description"
+	modelName := "NICO-QA-RACK"
+	apiRack := NewAPIRack(&flowv1.Rack{
+		Info: &flowv1.DeviceInfo{
+			Model:       &modelName,
+			Description: &description,
+		},
+		Location: &flowv1.Location{Datacenter: "DC1"},
+	}, false)
+
+	got, err := json.Marshal(apiRack)
+	assert.NoError(t, err)
+	assert.JSONEq(t, `{
+		"id":"",
+		"name":"",
+		"manufacturer":"",
+		"model":"NICO-QA-RACK",
+		"serialNumber":"",
+		"description":"Core rack description",
+		"nvLinkDomainIds":[],
+		"location":{"region":"","datacenter":"DC1","room":"","position":""},
+		"taskStats":{"pendingTaskCount":0,"activeTaskCount":0}
+	}`, string(got))
+}
+
 func TestNewAPIRack(t *testing.T) {
 	description := "Test rack description"
 	model := "NVL72"
+	domainID := "59202b81-65fb-45ec-b3b8-91ab0ad3f34a"
+	domainID2 := "cfa95885-186f-49b7-993f-dccd417a67cb"
 
 	tests := []struct {
 		name           string
@@ -59,6 +88,20 @@ func TestNewAPIRack(t *testing.T) {
 					Position:   "Row-1-Pos-5",
 				},
 				Components: nil,
+			},
+		},
+		{
+			name: "rack with NVLink domain memberships",
+			rack: &flowv1.Rack{
+				Info: &flowv1.DeviceInfo{Id: &flowv1.UUID{Id: "rack-in-domain"}},
+				NvlDomainIds: []*flowv1.UUID{
+					{Id: domainID},
+					{Id: domainID2},
+				},
+			},
+			want: &APIRack{
+				ID:              "rack-in-domain",
+				NVLinkDomainIDs: []string{domainID, domainID2},
 			},
 		},
 		{
@@ -167,6 +210,7 @@ func TestNewAPIRack(t *testing.T) {
 			assert.Equal(t, tt.want.Model, got.Model)
 			assert.Equal(t, tt.want.SerialNumber, got.SerialNumber)
 			assert.Equal(t, tt.want.Description, got.Description)
+			assert.ElementsMatch(t, tt.want.NVLinkDomainIDs, got.NVLinkDomainIDs)
 
 			if tt.want.Location != nil {
 				assert.NotNil(t, got.Location)

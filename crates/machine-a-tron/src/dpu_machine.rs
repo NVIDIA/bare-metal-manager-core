@@ -484,7 +484,8 @@ impl DpuMachineHandle {
             bmc: BmcStatus {
                 ip: live_state.bmc_ip.map(|ip| ip.to_string()),
                 redfish: EndpointStatus::redfish(config),
-                ipmi: live_state.ipmi_endpoint.map(Into::into),
+                ipmi: live_state.ipmi_port.map(EndpointStatus::same_port),
+                ssh: live_state.ssh_endpoint_port.map(EndpointStatus::same_port),
             },
             dpus: Vec::new(),
         }

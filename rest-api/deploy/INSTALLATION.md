@@ -256,7 +256,7 @@ kubectl apply -k deploy/kustomize/base/keycloak -n nico-rest
 |---|---|
 | `base/cert-manager/deployment.yaml` | Deployment `nico-rest-cert-manager` — mounts `ca-signing-secret` |
 | `base/cert-manager/service.yaml` | ClusterIP Service — ports 8000 (https) and 8001 (http) |
-| `base/cert-manager/rbac.yaml` | ServiceAccount + Role/RoleBinding — needs read/write access to Secrets and ConfigMaps |
+| `base/cert-manager/rbac.yaml` | ServiceAccount only — `credsmgr` never calls the Kubernetes API, so it carries no Role and disables token automount |
 
 ### CLI flags (set in `deployment.yaml`)
 
@@ -868,7 +868,7 @@ kubectl kustomize --load-restrictor LoadRestrictionsNone \
 
 | Overlay | What it deploys |
 |---|---|
-| `overlays/cert-manager` | `nico-rest-cert-manager` Deployment + Service + RBAC |
+| `overlays/cert-manager` | `nico-rest-cert-manager` Deployment + Service + ServiceAccount |
 | `overlays/api` | `nico-rest-api` Deployment + Services + ConfigMap |
 | `overlays/workflow` | `nico-rest-cloud-worker` + `nico-rest-site-worker` Deployments + ConfigMap |
 | `overlays/site-manager` | `nico-rest-site-manager` Deployment + Service + Certificate + RBAC |

@@ -28,12 +28,35 @@ import (
 // contain only a subset of components (e.g., those selected for an operation).
 // Always verify the context in which a Rack object is used.
 type Rack struct {
-	Info       deviceinfo.DeviceInfo `json:"info"`
-	Loc        location.Location     `json:"loc"`
-	Components []component.Component `json:"components"`
+	Info        deviceinfo.DeviceInfo `json:"info"`
+	Loc         location.Location     `json:"loc"`
+	Components  []component.Component `json:"components"`
+	NVLDomainID uuid.UUID             `json:"nvl_domain_id"`
 
 	serialToCompIndex map[deviceinfo.SerialInfo]int
 	sealed            bool
+}
+
+// ValidateComponentIDs checks that every component has a unique, non-nil ID.
+// An empty component list is valid.
+func (r *Rack) ValidateComponentIDs() error {
+	if r == nil {
+		return fmt.Errorf("rack is nil")
+	}
+
+	seen := make(map[uuid.UUID]struct{}, len(r.Components))
+	for i, c := range r.Components {
+		id := c.Info.ID
+		if id == uuid.Nil {
+			return fmt.Errorf("component %d id is required", i)
+		}
+		if _, exists := seen[id]; exists {
+			return fmt.Errorf("component %d duplicates id %s", i, id)
+		}
+		seen[id] = struct{}{}
+	}
+
+	return nil
 }
 
 // ComponentsOrderBySlotID is a slice of components that can be sorted by slot ID.

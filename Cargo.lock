@@ -1082,6 +1082,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "ipnetwork",
+ "json-patch",
  "lazy_static",
  "libc",
  "mac_address",
@@ -1371,6 +1372,7 @@ dependencies = [
  "bmc-vendor",
  "carbide-api-core",
  "carbide-api-db",
+ "carbide-api-model",
  "carbide-api-test-helper",
  "carbide-kms-provider",
  "carbide-machine-a-tron",
@@ -1465,6 +1467,7 @@ dependencies = [
  "ctor",
  "eyre",
  "futures",
+ "ipnet",
  "itertools 0.14.0",
  "lazy_static",
  "librms",
@@ -1706,7 +1709,6 @@ dependencies = [
  "prost",
  "serde_json",
  "tempfile",
- "test-cdylib",
  "tokio",
  "tokio-util",
  "tonic",
@@ -2103,6 +2105,7 @@ dependencies = [
  "opentelemetry-proto",
  "prometheus",
  "prost",
+ "prost-reflect",
  "prost-types",
  "rand 0.10.1",
  "rcgen",
@@ -2450,6 +2453,7 @@ dependencies = [
  "figment",
  "futures",
  "lazy_static",
+ "logfmt",
  "mac_address",
  "metrics-endpoint",
  "rand 0.10.1",
@@ -2713,6 +2717,7 @@ dependencies = [
  "carbide-api-model",
  "carbide-credential-rotation",
  "carbide-health-metrics",
+ "carbide-health-report",
  "carbide-rack",
  "carbide-redfish",
  "carbide-secrets",
@@ -2796,6 +2801,7 @@ dependencies = [
  "bytes",
  "carbide-host-support",
  "carbide-instrument",
+ "carbide-libmlx-model",
  "carbide-rpc",
  "carbide-test-support",
  "carbide-tls",
@@ -2867,6 +2873,7 @@ dependencies = [
  "carbide-api-db",
  "carbide-api-model",
  "carbide-health-metrics",
+ "carbide-health-report",
  "carbide-instrument",
  "carbide-rack",
  "carbide-secrets",
@@ -3318,6 +3325,7 @@ dependencies = [
  "carbide-api-model",
  "carbide-credential-rotation",
  "carbide-health-metrics",
+ "carbide-health-report",
  "carbide-instrument",
  "carbide-redfish",
  "carbide-secrets",
@@ -3352,6 +3360,7 @@ dependencies = [
  "carbide-api-db",
  "carbide-api-model",
  "carbide-macros",
+ "carbide-network",
  "carbide-network-segment-controller",
  "carbide-site-explorer",
  "carbide-sqlx-testing",
@@ -6923,7 +6932,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.46.7#97be4e1722e94a77d4278522d7664be5ba381d92"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.47.1#6cff6843cd09dfee5b066ea6f16c2b9c69ca5953"
 dependencies = [
  "chrono",
  "clap",
@@ -6953,7 +6962,7 @@ dependencies = [
 [[package]]
 name = "librms"
 version = "0.0.14"
-source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.10.1#4bbd502d3d9822fb1dcb8d205b7edaecabb497a6"
+source = "git+https://github.com/dsx-ai-factory/nv-rms-client.git?tag=v0.10.1#4bbd502d3d9822fb1dcb8d205b7edaecabb497a6"
 dependencies = [
  "async-trait",
  "chrono",
@@ -7979,6 +7988,7 @@ dependencies = [
  "serde_yaml",
  "thiserror 2.0.18",
  "tokio",
+ "urlencoding",
 ]
 
 [[package]]
@@ -9057,8 +9067,11 @@ version = "0.16.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "01b80ea363c31af2de2b92e3c07ed1156628f7838c4afb4df75ee78a37fedbd1"
 dependencies = [
+ "base64",
  "prost",
  "prost-types",
+ "serde",
+ "serde-value",
 ]
 
 [[package]]
@@ -11579,18 +11592,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "test-cdylib"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8f41b1f729f5ff5177beab62e5a9251e318df8386e260ab3c944cff502ee78d"
-dependencies = [
- "cargo_metadata",
- "serde",
- "serde_json",
- "toml 0.5.11",
-]
-
-[[package]]
 name = "thin-vec"
 version = "0.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11816,15 +11817,6 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "0.5.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4f7f0dd8d50a853a531c426359045b1998f04219d88799810762cd4ad314234"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "toml"
 version = "0.8.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc1beb996b9d83529a9e75c17a1686767d148d70663143c7854d8b4a09ced362"
@@ -12005,7 +11997,7 @@ dependencies = [
 [[package]]
 name = "tonic-client-wrapper"
 version = "1.0.0"
-source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.10.1#4bbd502d3d9822fb1dcb8d205b7edaecabb497a6"
+source = "git+https://github.com/dsx-ai-factory/nv-rms-client.git?tag=v0.10.1#4bbd502d3d9822fb1dcb8d205b7edaecabb497a6"
 dependencies = [
  "async-trait",
  "heck",

@@ -82,6 +82,40 @@ func TestInjectExpectation(t *testing.T) {
 	}
 }
 
+func TestNormalizeDecommissionState(t *testing.T) {
+	testCases := map[string]struct {
+		raw  string
+		want string
+	}{
+		"terminal state": {
+			raw:  `{"state":"decommissioning","decommissioning_state":{"state":"decommissioned"}}`,
+			want: "Decommissioned",
+		},
+		"in-progress state": {
+			raw:  `{"state":"decommissioning","decommissioning_state":{"state":"factoryresetbmc"}}`,
+			want: "Decommissioning/factoryresetbmc",
+		},
+		"unrelated state remains unchanged": {
+			raw:  `{"state":"ready"}`,
+			want: `{"state":"ready"}`,
+		},
+		"malformed state remains unchanged": {
+			raw:  "Ready",
+			want: "Ready",
+		},
+		"decommissioning state without substate remains unchanged": {
+			raw:  `{"state":"decommissioning"}`,
+			want: `{"state":"decommissioning"}`,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tc.want, normalizeDecommissionState(tc.raw))
+		})
+	}
+}
+
 func TestPowerControl(t *testing.T) {
 	m := New(nicoapi.NewMockClient(), nil)
 
@@ -97,7 +131,8 @@ func TestPowerControl(t *testing.T) {
 }
 
 func TestFirmwareControl(t *testing.T) {
-	m := New(nicoapi.NewMockClient(), nil)
+	client := nicoapi.NewMockClient()
+	m := New(client, nil)
 
 	target := common.Target{
 		Type:         devicetypes.ComponentTypeNVSwitch,
@@ -106,8 +141,14 @@ func TestFirmwareControl(t *testing.T) {
 
 	err := m.FirmwareControl(context.Background(), target, operations.FirmwareControlTaskInfo{
 		TargetVersion: "2.0.0",
+		AccessToken:   "switch-token",
 	})
 	assert.NoError(t, err)
+	assert.Equal(
+		t,
+		"switch-token",
+		client.LastUpdateComponentFirmwareRequest().GetAccessToken(),
+	)
 }
 
 func TestGetFirmwareStatus(t *testing.T) {

@@ -21,13 +21,13 @@ use std::path::Path;
 use std::str::FromStr;
 use std::time::Duration;
 
-use health_report::{HealthProbeId, HealthReport};
-use nvue_client::NvueClient;
+use health_report::HealthProbeId;
 use tokio::process::Command as TokioCommand;
 use tokio::time::timeout;
 
 use crate::{HBNDeviceNames, hbn};
 mod bgp;
+pub(crate) mod nvue;
 mod probe_ids;
 
 const HBN_DAEMONS_FILE: &str = "etc/frr/daemons";
@@ -63,20 +63,29 @@ fn make_alert(
     message: String,
     is_critical: bool,
 ) -> health_report::HealthProbeAlert {
-    let classifications = match is_critical {
+    let health_classifications = match is_critical {
         true => vec![
             health_report::HealthAlertClassification::prevent_allocations(),
             health_report::HealthAlertClassification::prevent_host_state_changes(),
         ],
         false => vec![],
     };
+    make_classified_alert(probe_id, probe_target, message, health_classifications)
+}
+
+fn make_classified_alert(
+    probe_id: impl Into<HealthProbeId>,
+    probe_target: Option<String>,
+    message: String,
+    health_classifications: Vec<health_report::HealthAlertClassification>,
+) -> health_report::HealthProbeAlert {
     health_report::HealthProbeAlert {
         id: probe_id.into(),
         target: probe_target,
         in_alert_since: None,
         message,
         tenant_message: None,
-        classifications,
+        classifications: health_classifications,
     }
 }
 
@@ -91,6 +100,25 @@ fn passed(
             id: probe_id.into(),
             target: probe_target,
         })
+}
+
+/// Makes the controller wait for one more health sample after a network update.
+///
+/// The config version and health report are published together. This critical
+/// alert makes the controller wait for the next health sample instead of acting
+/// on neighbor state collected before HBN applied the update.
+fn add_post_config_wait_alert(
+    health_report: &mut health_report::HealthReport,
+    should_wait_for_post_config_check: bool,
+) {
+    if should_wait_for_post_config_check {
+        failed(
+            health_report,
+            probe_ids::PostConfigCheckWait.clone(),
+            None,
+            "Post-config waiting period".to_string(),
+        );
+    }
 }
 
 /// Is enough of HBN ready so that we can configure it?
@@ -119,7 +147,7 @@ pub(super) struct HealthCheckParams<'a> {
     pub(super) hbn_root: &'a Path,
     pub(super) host_routes: &'a [&'a str],
     pub(super) has_changed_configs: bool,
-    pub(super) min_healthy_links: u32,
+    pub(super) min_healthy_links: usize,
     pub(super) route_servers: &'a [String],
     /// Whether this check should require the FNN IPv6-unicast underlay.
     pub(super) should_check_ipv6_unicast: bool,
@@ -180,16 +208,7 @@ pub(super) async fn health_check(params: HealthCheckParams<'_>) -> health_report
     .await;
     check_files(&mut hr, params.hbn_root, &EXPECTED_FILES);
 
-    // If we just applied a new network config report network as unhealthy.
-    // This gives HBN / BGP time to act on the config.
-    if params.has_changed_configs {
-        failed(
-            &mut hr,
-            probe_ids::PostConfigCheckWait.clone(),
-            None,
-            "Post-config waiting period".to_string(),
-        );
-    }
+    add_post_config_wait_alert(&mut hr, params.has_changed_configs);
 
     hr
 }
@@ -727,22 +746,6 @@ enum SctlState {
     Fatal,
 }
 
-pub(super) async fn nvue_api_health(nvue_client: &NvueClient) -> HealthReport {
-    // All we can really do here is check that the API is alive. The HBN flavor of NVUE
-    // doesn't seem to expose much of anything that we can look at for node health.
-    let mut report = HealthReport::empty("forge-dpu-agent".into());
-    match nvue_client.system_info().await {
-        Ok(_) => passed(&mut report, probe_ids::NvueApiRunning.clone(), None),
-        Err(e) => failed(
-            &mut report,
-            probe_ids::NvueApiRunning.clone(),
-            None,
-            format!("Error communicating with NVUE API: {e}"),
-        ),
-    }
-    report
-}
-
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
@@ -792,6 +795,39 @@ shm              68M  8.2k   68M   1% /run/containerd/io.containerd.grpc.v1.cri/
 overlay          41G   12G   27G  31% /run/containerd/io.containerd.runtime.v2.task/k8s.io/5e38cefc8507fcf3b872fa12f21bdbcc09244832c24a34871ef9d8d519fa37b9/rootfs
 tmpfs           3.4G     0  3.4G   0% /run/user/1002
 "#;
+
+    #[test]
+    fn post_config_wait_alert_tracks_wait_signal() {
+        check_values(
+            [
+                Check {
+                    scenario: "wait signal is clear",
+                    input: false,
+                    expect: vec![],
+                },
+                Check {
+                    scenario: "wait signal adds one critical alert",
+                    input: true,
+                    expect: vec![health_report::HealthProbeAlert {
+                        id: probe_ids::PostConfigCheckWait.clone(),
+                        target: None,
+                        in_alert_since: None,
+                        message: "Post-config waiting period".to_string(),
+                        tenant_message: None,
+                        classifications: vec![
+                            health_report::HealthAlertClassification::prevent_allocations(),
+                            health_report::HealthAlertClassification::prevent_host_state_changes(),
+                        ],
+                    }],
+                },
+            ],
+            |should_wait_for_post_config_check| {
+                let mut report = health_report::HealthReport::empty("forge-dpu-agent".to_string());
+                add_post_config_wait_alert(&mut report, should_wait_for_post_config_check);
+                report.alerts
+            },
+        );
+    }
 
     /// Builds the expected `DiskUtilization` for one `df -HP` row, in the column
     /// order the output lists them: device, size, used, available, then the

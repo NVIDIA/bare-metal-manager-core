@@ -314,8 +314,7 @@ mod tests {
     use axum::body::{Body, to_bytes};
     use axum::http::{Method, Request, StatusCode};
     use axum::routing::get;
-    use bmc_mock::ipmi_sim::IpmiEndpoint;
-    use bmc_mock::{HardwareType, RackType};
+    use bmc_mock::{HardwareType, RackInfo, RackType};
     use carbide_uuid::rack::{RackId, RackProfileId};
     use tower::ServiceExt;
     use uuid::Uuid;
@@ -347,7 +346,10 @@ mod tests {
             rack_type: RackType::WiwynnGb200Nvl72,
             version: 1,
             members: vec![RackMemberRegistration {
-                position: 11,
+                placement: RackInfo {
+                    rack_type: RackType::WiwynnGb200Nvl72,
+                }
+                .placement(11),
                 hardware_type: HardwareType::WiwynnGB200Nvl,
                 machine_config_section: machine_config_section.to_string(),
             }],
@@ -419,21 +421,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn machines_status_reports_each_bmc_ipmi_endpoint() {
-        let first = DeviceHandle::for_control_test(
-            Vec::new(),
-            Some(IpmiEndpoint {
-                reachable_port: 623,
-                listen_port: 16_020,
-            }),
-        );
-        let second = DeviceHandle::for_control_test(
-            Vec::new(),
-            Some(IpmiEndpoint {
-                reachable_port: 623,
-                listen_port: 16_021,
-            }),
-        );
+    async fn machines_status_reports_each_bmc_console_endpoint() {
+        let first = DeviceHandle::for_control_test(Vec::new(), Some(16_020))
+            .with_control_test_ssh_endpoint(22_020);
+        let second = DeviceHandle::for_control_test(Vec::new(), Some(16_021));
         let without_ipmi = DeviceHandle::for_control_test(Vec::new(), None);
         let router = append(None, control_state(vec![first, second, without_ipmi]));
 
@@ -450,11 +441,15 @@ mod tests {
         let status: serde_json::Value = serde_json::from_slice(&body).unwrap();
         let machines = status["machines"].as_array().unwrap();
 
-        assert_eq!(machines[0]["bmc"]["ipmi"]["reachable_port"], 623);
+        assert_eq!(machines[0]["bmc"]["ipmi"]["reachable_port"], 16_020);
         assert_eq!(machines[0]["bmc"]["ipmi"]["listen_port"], 16_020);
-        assert_eq!(machines[1]["bmc"]["ipmi"]["reachable_port"], 623);
+        assert_eq!(machines[0]["bmc"]["ssh"]["reachable_port"], 22_020);
+        assert_eq!(machines[0]["bmc"]["ssh"]["listen_port"], 22_020);
+        assert_eq!(machines[1]["bmc"]["ipmi"]["reachable_port"], 16_021);
         assert_eq!(machines[1]["bmc"]["ipmi"]["listen_port"], 16_021);
+        assert!(machines[1]["bmc"].get("ssh").is_none());
         assert!(machines[2]["bmc"].get("ipmi").is_none());
+        assert!(machines[2]["bmc"].get("ssh").is_none());
     }
 
     #[tokio::test]

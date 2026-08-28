@@ -22,43 +22,6 @@ use mac_address::MacAddress;
 use model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
 
 #[sqlx_test]
-async fn test_find_explored_managed_host_ids(
-    pool: PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = TestHarness::builder(pool).build().await;
-
-    let mut txn = env.db_txn().await;
-    let mut managed_hosts: Vec<ExploredManagedHost> = Vec::new();
-    for i in 1..6 {
-        let host_bmc_ip = IpAddr::from_str(format!("141.219.24.{i}").as_str())?;
-        let bmc_ip = IpAddr::from_str(format!("10.231.11.{i}").as_str())?;
-        let mac_address = MacAddress::from_str(format!("94:6D:AE:5F:09:C{i}").as_str())?;
-        managed_hosts.push(ExploredManagedHost {
-            host_bmc_ip,
-            dpus: vec![ExploredDpu {
-                bmc_ip,
-                host_pf_mac_address: Some(mac_address),
-                report: EndpointExplorationReport::default().into(),
-            }],
-        });
-    }
-    db::explored_managed_host::update(&mut txn, &managed_hosts.iter().collect::<Vec<_>>()).await?;
-    txn.commit().await?;
-
-    let id_list = env
-        .api()
-        .find_explored_managed_host_ids(tonic::Request::new(
-            ::rpc::site_explorer::ExploredManagedHostSearchFilter {},
-        ))
-        .await
-        .map(|response| response.into_inner())
-        .unwrap();
-    assert_eq!(id_list.host_ids.len(), 5);
-
-    Ok(())
-}
-
-#[sqlx_test]
 async fn test_find_explored_managed_hosts_by_ids(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -75,6 +38,7 @@ async fn test_find_explored_managed_hosts_by_ids(
             dpus: vec![ExploredDpu {
                 bmc_ip,
                 host_pf_mac_address: Some(mac_address),
+                host_chassis_id: None,
                 report: EndpointExplorationReport::default().into(),
             }],
         });

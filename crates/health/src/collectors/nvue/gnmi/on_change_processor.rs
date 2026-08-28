@@ -315,8 +315,8 @@ fn delete_target_from_path(elems: &[&PathElem]) -> Option<DeleteTarget> {
 fn severity_to_f64(severity: Option<&str>) -> f64 {
     match severity {
         Some(s) if s.eq_ignore_ascii_case("informational") => 1.0,
-        Some(s) if s.eq_ignore_ascii_case("warning") => 2.0,
-        Some(s) if s.eq_ignore_ascii_case("error") => 3.0,
+        Some(s) if s.eq_ignore_ascii_case("warning") || s.eq_ignore_ascii_case("minor") => 2.0,
+        Some(s) if s.eq_ignore_ascii_case("error") || s.eq_ignore_ascii_case("major") => 3.0,
         Some(s) if s.eq_ignore_ascii_case("critical") => 4.0,
         _ => 0.0,
     }
@@ -477,7 +477,9 @@ mod tests {
     fn test_severity_to_f64() {
         assert_eq!(severity_to_f64(Some("informational")), 1.0);
         assert_eq!(severity_to_f64(Some("warning")), 2.0);
+        assert_eq!(severity_to_f64(Some("MINOR")), 2.0);
         assert_eq!(severity_to_f64(Some("error")), 3.0);
+        assert_eq!(severity_to_f64(Some("MAJOR")), 3.0);
         assert_eq!(severity_to_f64(Some("critical")), 4.0);
         assert_eq!(severity_to_f64(Some("CRITICAL")), 4.0);
         assert_eq!(severity_to_f64(Some("other")), 0.0);

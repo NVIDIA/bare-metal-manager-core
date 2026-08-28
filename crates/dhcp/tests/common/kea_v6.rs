@@ -457,6 +457,8 @@ impl Kea6 {
         if let Some(process) = &mut self.process {
             // Prefer Kea's shutdown path so hook-library cleanup runs; kill is
             // only a fallback for a child that ignores SIGTERM.
+            // SAFETY: The unreaped Child retains its valid, unreused PID and
+            // SIGTERM is a valid signal; no borrowed memory crosses the syscall.
             unsafe {
                 libc::kill(process.id() as i32, libc::SIGTERM);
             }
@@ -483,7 +485,7 @@ impl Kea6 {
         metrics_endpoint: SocketAddr,
         config: Kea6Config,
     ) -> String {
-        let hook_lib = hook_library_path();
+        let hook_lib = super::hook_library_path();
         let metrics_endpoint = metrics_endpoint.to_string();
         let mut dhcp6 = json!({
             "interfaces-config": {
@@ -584,12 +586,4 @@ impl Drop for Kea6 {
     fn drop(&mut self) {
         self.stop_process();
     }
-}
-
-fn hook_library_path() -> String {
-    // Build the current hook before Kea starts; accepting an existing release
-    // artifact can make debug test runs exercise stale hook code.
-    test_cdylib::build_current_project()
-        .to_string_lossy()
-        .into_owned()
 }

@@ -8,11 +8,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"sort"
 	"strings"
 	"testing"
 
+	appcli "github.com/NVIDIA/infra-controller/rest-api/cli/pkg"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -126,6 +129,113 @@ func TestLogCmd_NoScope(t *testing.T) {
 	if strings.Contains(output, "--site-id") {
 		t.Errorf("LogCmd output should not contain --site-id when no scope set: %q", output)
 	}
+}
+
+func TestShellQuoteCLIArg(t *testing.T) {
+	assert.Equal(t, `'simple'`, shellQuoteCLIArg("simple"))
+	assert.Equal(t, `'tenant'\''s instance'`, shellQuoteCLIArg("tenant's instance"))
+}
+
+func TestFirstMachineIPAddress(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  interface{}
+		want string
+	}{
+		{
+			name: "first available address",
+			raw: map[string]interface{}{
+				"machineInterfaces": []interface{}{
+					map[string]interface{}{"ipAddresses": []interface{}{"192.0.2.10", "192.0.2.11"}},
+					map[string]interface{}{"ipAddresses": []interface{}{"192.0.2.12"}},
+				},
+			},
+			want: "192.0.2.10",
+		},
+		{
+			name: "later interface address",
+			raw: map[string]interface{}{
+				"machineInterfaces": []interface{}{
+					map[string]interface{}{"ipAddresses": []interface{}{}},
+					map[string]interface{}{"ipAddresses": []interface{}{"198.51.100.20"}},
+				},
+			},
+			want: "198.51.100.20",
+		},
+		{
+			name: "skips malformed entries",
+			raw: map[string]interface{}{
+				"machineInterfaces": []interface{}{
+					"not an interface",
+					map[string]interface{}{"ipAddresses": []interface{}{123, "   "}},
+					map[string]interface{}{"ipAddresses": []interface{}{"203.0.113.7"}},
+				},
+			},
+			want: "203.0.113.7",
+		},
+		{
+			name: "no address",
+			raw: map[string]interface{}{
+				"machineInterfaces": []interface{}{
+					map[string]interface{}{"ipAddresses": []interface{}{}},
+				},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.want, firstMachineIPAddress(test.raw))
+		})
+	}
+}
+
+func TestCmdMachineListRendersIPAddresses(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v2/org/acme/nico/machine":
+			_, _ = io.WriteString(w, `[
+				{"id":"machine-with-ip","name":"with-ip","status":"Ready","siteId":"site-1","machineInterfaces":[{"ipAddresses":["192.0.2.10"]}]},
+				{"id":"machine-without-ip","name":"without-ip","status":"Ready","siteId":"site-1","machineInterfaces":[]}
+			]`)
+		case "/v2/org/acme/nico/vpc", "/v2/org/acme/nico/instance":
+			_, _ = io.WriteString(w, `[]`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	session := NewSession(appcli.NewClient(server.URL, "acme", "token", nil, false), "acme", "")
+	var runErr error
+	output := captureStdout(func() {
+		runErr = cmdMachineList(session, nil)
+	})
+	require.NoError(t, runErr)
+
+	lines := strings.Split(output, "\n")
+	var header, populated, blank string
+	for _, line := range lines {
+		switch {
+		case strings.HasPrefix(line, "NAME"):
+			header = line
+		case strings.HasPrefix(line, "machine-with-ip"):
+			populated = line
+		case strings.HasPrefix(line, "machine-without-ip"):
+			blank = line
+		}
+	}
+	require.NotEmpty(t, header)
+	require.NotEmpty(t, populated)
+	require.NotEmpty(t, blank)
+
+	ipAddressColumn := strings.Index(header, "IP ADDRESS")
+	statusColumn := strings.Index(header, "STATUS")
+	require.Greater(t, ipAddressColumn, 0)
+	require.Greater(t, statusColumn, ipAddressColumn)
+	assert.Equal(t, "192.0.2.10", strings.TrimSpace(populated[ipAddressColumn:statusColumn]))
+	assert.Empty(t, strings.TrimSpace(blank[ipAddressColumn:statusColumn]))
 }
 
 // --- VPC scope coverage tests ---
@@ -403,20 +513,20 @@ func TestMachineSelectLabel(t *testing.T) {
 	}
 }
 
-func TestInstanceUpdateInputs_ToBody(t *testing.T) {
+func TestInstanceAttributeUpdateInputs_AttributeBody(t *testing.T) {
 	cases := []struct {
 		name   string
-		inputs instanceUpdateInputs
+		inputs instanceAttributeUpdateInputs
 		want   map[string]interface{}
 	}{
 		{
 			name:   "empty inputs produce empty body",
-			inputs: instanceUpdateInputs{},
+			inputs: instanceAttributeUpdateInputs{},
 			want:   map[string]interface{}{},
 		},
 		{
 			name:   "name and description trimmed",
-			inputs: instanceUpdateInputs{name: "  new-name  ", description: " new description "},
+			inputs: instanceAttributeUpdateInputs{name: "  new-name  ", description: " new description "},
 			want: map[string]interface{}{
 				"name":        "new-name",
 				"description": "new description",
@@ -424,65 +534,33 @@ func TestInstanceUpdateInputs_ToBody(t *testing.T) {
 		},
 		{
 			name:   "blank name and description omitted",
-			inputs: instanceUpdateInputs{name: "   ", description: ""},
+			inputs: instanceAttributeUpdateInputs{name: "   ", description: ""},
 			want:   map[string]interface{}{},
 		},
 		{
 			name:   "ssh key group ids included only when non-empty",
-			inputs: instanceUpdateInputs{sshKeyGroupIDs: []string{"g1", "g2"}},
+			inputs: instanceAttributeUpdateInputs{sshKeyGroupIDs: []string{"g1", "g2"}},
 			want:   map[string]interface{}{"sshKeyGroupIds": []string{"g1", "g2"}},
 		},
 		{
-			name:   "trigger reboot alone",
-			inputs: instanceUpdateInputs{triggerReboot: true},
-			want:   map[string]interface{}{"triggerReboot": true},
-		},
-		{
-			name: "trigger reboot with custom ipxe and apply updates",
-			inputs: instanceUpdateInputs{
-				triggerReboot:        true,
-				rebootWithCustomIpxe: true,
-				applyUpdatesOnReboot: true,
+			name: "all attribute fields included without reboot fields",
+			inputs: instanceAttributeUpdateInputs{
+				name:           "new-name",
+				description:    "new desc",
+				osID:           "os-1",
+				sshKeyGroupIDs: []string{"g1"},
 			},
 			want: map[string]interface{}{
-				"triggerReboot":        true,
-				"rebootWithCustomIpxe": true,
-				"applyUpdatesOnReboot": true,
-			},
-		},
-		{
-			name: "reboot modifiers ignored when triggerReboot is false (server would reject them anyway)",
-			inputs: instanceUpdateInputs{
-				rebootWithCustomIpxe: true,
-				applyUpdatesOnReboot: true,
-			},
-			want: map[string]interface{}{},
-		},
-		{
-			name: "everything together marshals to a clean JSON body",
-			inputs: instanceUpdateInputs{
-				name:                 "new-name",
-				description:          "new desc",
-				osID:                 "os-1",
-				sshKeyGroupIDs:       []string{"g1"},
-				triggerReboot:        true,
-				rebootWithCustomIpxe: true,
-				applyUpdatesOnReboot: true,
-			},
-			want: map[string]interface{}{
-				"name":                 "new-name",
-				"description":          "new desc",
-				"operatingSystemId":    "os-1",
-				"sshKeyGroupIds":       []string{"g1"},
-				"triggerReboot":        true,
-				"rebootWithCustomIpxe": true,
-				"applyUpdatesOnReboot": true,
+				"name":              "new-name",
+				"description":       "new desc",
+				"operatingSystemId": "os-1",
+				"sshKeyGroupIds":    []string{"g1"},
 			},
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := tc.inputs.toBody()
+			got := tc.inputs.attributeBody()
 			// Compare via JSON round-trip so []string and []interface{} are
 			// treated as equal when their contents match -- keeps the table
 			// readable without forcing every test row to use interface{} slices.
@@ -495,28 +573,67 @@ func TestInstanceUpdateInputs_ToBody(t *testing.T) {
 	}
 }
 
-func TestInstanceReboot_Body_AlwaysSetsTriggerReboot(t *testing.T) {
-	// Documents the cmdInstanceReboot contract: the body MUST include
-	// triggerReboot=true even when the user declines both modifiers, so a
-	// future refactor that switches to a different body builder cannot
-	// silently produce a no-op PATCH.
-	body := instanceUpdateInputs{triggerReboot: true}.toBody()
-	assert.Equal(t, true, body["triggerReboot"])
-	assert.NotContains(t, body, "rebootWithCustomIpxe")
-	assert.NotContains(t, body, "applyUpdatesOnReboot")
+func TestInstanceRebootInputs_RebootBody(t *testing.T) {
+	cases := []struct {
+		name   string
+		inputs instanceRebootInputs
+		want   map[string]interface{}
+	}{
+		{
+			// A zero-value instanceRebootInputs means a plain reboot. Its body
+			// must still contain triggerReboot=true so the PATCH is not a no-op.
+			name:   "plain reboot",
+			inputs: instanceRebootInputs{},
+			want:   map[string]interface{}{"triggerReboot": true},
+		},
+		{
+			name:   "custom ipxe only",
+			inputs: instanceRebootInputs{rebootWithCustomIpxe: true},
+			want: map[string]interface{}{
+				"triggerReboot":        true,
+				"rebootWithCustomIpxe": true,
+			},
+		},
+		{
+			name:   "apply updates only",
+			inputs: instanceRebootInputs{applyUpdatesOnReboot: true},
+			want: map[string]interface{}{
+				"triggerReboot":        true,
+				"applyUpdatesOnReboot": true,
+			},
+		},
+		{
+			name: "custom ipxe and apply updates",
+			inputs: instanceRebootInputs{
+				rebootWithCustomIpxe: true,
+				applyUpdatesOnReboot: true,
+			},
+			want: map[string]interface{}{
+				"triggerReboot":        true,
+				"rebootWithCustomIpxe": true,
+				"applyUpdatesOnReboot": true,
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, tc.inputs.rebootBody())
+		})
+	}
 }
 
 func TestAllCommands_HasInstanceUpdateAndReboot(t *testing.T) {
 	// Regression guard: the TUI command registry must expose
 	// `instance update` (so users can rename, swap OS, rotate ssh key
-	// groups, or trigger a reboot) and `instance reboot` (the dedicated
-	// reboot abstraction).
-	names := make(map[string]bool)
+	// groups) and `instance reboot` as a distinct operation.
+	commands := make(map[string]Command)
 	for _, c := range AllCommands() {
-		names[c.Name] = true
+		commands[c.Name] = c
 	}
-	assert.True(t, names["instance update"], "TUI must expose `instance update`")
-	assert.True(t, names["instance reboot"], "TUI must expose `instance reboot`")
+	assert.Contains(t, commands, "instance update", "TUI must expose `instance update`")
+	assert.Contains(t, commands, "instance reboot", "TUI must expose `instance reboot`")
+	assert.NotContains(t, commands["instance update"].Description, "reboot")
+	assert.Contains(t, commands["instance reboot"].Description, "Reboot")
 }
 
 func TestSetSiteScopeFromID_UpdatesScopeAndInvalidatesFiltered(t *testing.T) {
@@ -1256,7 +1373,9 @@ func captureStdout(f func()) string {
 	w.Close()
 	os.Stdout = old
 	var buf bytes.Buffer
-	io.Copy(&buf, r)
+	if _, err := io.Copy(&buf, r); err != nil {
+		panic(err)
+	}
 	return buf.String()
 }
 
@@ -1578,11 +1697,11 @@ func TestAllocationConstraintValueHint(t *testing.T) {
 
 func TestBuildIPBlockSelectItems_MapsBlocksAndAppendsManualSentinel(t *testing.T) {
 	blocks := []NamedItem{
-		{Name: "block-a", ID: "id-a", Status: "Ready"},
-		{Name: "block-b", ID: "id-b"},
+		{Name: "block-a", ID: "id-a", Status: "Ready", Extra: map[string]string{"tenantId": "tenant-a"}},
+		{Name: "block-b", ID: "id-b", Status: "ready", Extra: map[string]string{"tenantId": "tenant-a"}},
 	}
 
-	items := buildIPBlockSelectItems(blocks)
+	items := buildIPBlockSelectItems(blocks, "tenant-a")
 
 	require.Len(t, items, 3, "two IP blocks plus the manual-entry sentinel")
 	assert.Equal(t, "id-a", items[0].ID, "select ID must be the IP block UUID")
@@ -1592,8 +1711,23 @@ func TestBuildIPBlockSelectItems_MapsBlocksAndAppendsManualSentinel(t *testing.T
 	assert.Equal(t, ipBlockManualEntrySentinel, items[2].ID)
 }
 
+func TestBuildIPBlockSelectItems_ExcludesProviderAndNonReadyBlocks(t *testing.T) {
+	blocks := []NamedItem{
+		{Name: "provider-block", ID: "provider-id", Status: "Ready"},
+		{Name: "pending-tenant-block", ID: "pending-id", Status: "Pending", Extra: map[string]string{"tenantId": "tenant-a"}},
+		{Name: "ready-tenant-block", ID: "ready-id", Status: "Ready", Extra: map[string]string{"tenantId": "tenant-a"}},
+		{Name: "other-tenant-block", ID: "other-tenant-id", Status: "Ready", Extra: map[string]string{"tenantId": "tenant-b"}},
+	}
+
+	items := buildIPBlockSelectItems(blocks, "tenant-a")
+
+	require.Len(t, items, 2, "one Ready tenant block plus the manual-entry sentinel")
+	assert.Equal(t, "ready-id", items[0].ID)
+	assert.Equal(t, ipBlockManualEntrySentinel, items[1].ID)
+}
+
 func TestBuildIPBlockSelectItems_EmptyListReturnsOnlySentinel(t *testing.T) {
-	items := buildIPBlockSelectItems(nil)
+	items := buildIPBlockSelectItems(nil, "tenant-a")
 	require.Len(t, items, 1, "an empty list still offers manual entry")
 	assert.Equal(t, ipBlockManualEntrySentinel, items[0].ID)
 }
@@ -1601,13 +1735,13 @@ func TestBuildIPBlockSelectItems_EmptyListReturnsOnlySentinel(t *testing.T) {
 func TestBuildIPBlockSelectItems_SkipsBlocksWithoutIDAndFallsBackLabelToID(t *testing.T) {
 	blocks := []NamedItem{
 		{Name: "no-id", ID: "  "},
-		{Name: "  ", ID: "id-x"},
+		{Name: "  ", ID: "id-x", Status: "Ready", Extra: map[string]string{"tenantId": "tenant-x"}},
 	}
 
-	items := buildIPBlockSelectItems(blocks)
+	items := buildIPBlockSelectItems(blocks, "tenant-x")
 
 	require.Len(t, items, 2, "one usable block (id-x) plus the manual-entry sentinel")
 	assert.Equal(t, "id-x", items[0].ID)
-	assert.Equal(t, "id-x", items[0].Label, "blank name must fall back to the ID")
+	assert.Contains(t, items[0].Label, "id-x", "blank name must fall back to the ID")
 	assert.Equal(t, ipBlockManualEntrySentinel, items[1].ID)
 }

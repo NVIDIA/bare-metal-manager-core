@@ -22,9 +22,11 @@ use std::sync::Arc;
 use std::time::{self, Duration};
 
 use ::carbide_utils::HostPortPair;
+use ::machine_a_tron::lifecycle_timings::{LifecycleTimingOverrides, PartialLifecycleTimings};
 use ::machine_a_tron::{
-    BmcMockRegistry, DeviceHandle, DhcpType, MachineATronConfig, MachineConfig,
+    BmcMockRegistry, DeviceHandle, DhcpType, LogFormat, MachineATronConfig, MachineConfig,
 };
+use api_test_helper::api_server::{TEST_BMC_DHCP_RELAY_ADDRESS, TEST_BMC_NETWORK_PREFIX};
 use api_test_helper::utils::TestApiServerArgs;
 use api_test_helper::{
     IntegrationTestEnvironment, domain, instance, machine, metrics, subnet, tenant, utils, vpc,
@@ -36,9 +38,12 @@ use eyre::ContextCompat;
 use futures::FutureExt;
 use futures::future::join_all;
 use itertools::Itertools;
-use sqlx::{Postgres, Row};
+use mac_address::MacAddress;
+use model::machine_boot_interface::BootInterfaceSelectionSource;
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
+
+const UNDERLAY_DHCP_RELAY_ADDRESS: Ipv4Addr = Ipv4Addr::new(172, 20, 1, 1);
 
 #[ctor::ctor(unsafe)]
 fn setup() {
@@ -149,8 +154,7 @@ async fn test_integration() -> eyre::Result<()> {
             &test_env,
             &bmc_address_registry,
             &managed_segment_id,
-            // Relay IP in admin net
-            Ipv4Addr::new(172, 20, 0, 2),
+            UNDERLAY_DHCP_RELAY_ADDRESS,
         )
         .boxed(),
         test_machine_a_tron_multidpu(
@@ -158,8 +162,7 @@ async fn test_integration() -> eyre::Result<()> {
             &test_env,
             &bmc_address_registry,
             &managed_segment_id,
-            // Relay IP in admin net
-            Ipv4Addr::new(172, 20, 0, 2),
+            UNDERLAY_DHCP_RELAY_ADDRESS,
         )
         .boxed(),
         test_machine_a_tron_multidpu(
@@ -167,8 +170,7 @@ async fn test_integration() -> eyre::Result<()> {
             &test_env,
             &bmc_address_registry,
             &managed_segment_id,
-            // Relay IP in admin net
-            Ipv4Addr::new(172, 20, 0, 2),
+            UNDERLAY_DHCP_RELAY_ADDRESS,
         )
         .boxed(),
         test_machine_a_tron_multidpu(
@@ -176,8 +178,7 @@ async fn test_integration() -> eyre::Result<()> {
             &test_env,
             &bmc_address_registry,
             &managed_segment_id,
-            // Relay IP in admin net
-            Ipv4Addr::new(172, 20, 0, 2),
+            UNDERLAY_DHCP_RELAY_ADDRESS,
         )
         .boxed(),
         test_machine_a_tron_multidpu(
@@ -185,8 +186,7 @@ async fn test_integration() -> eyre::Result<()> {
             &test_env,
             &bmc_address_registry,
             &managed_segment_id,
-            // Relay IP in admin net
-            Ipv4Addr::new(172, 20, 0, 2),
+            UNDERLAY_DHCP_RELAY_ADDRESS,
         )
         .boxed(),
         test_machine_a_tron_multidpu(
@@ -194,8 +194,7 @@ async fn test_integration() -> eyre::Result<()> {
             &test_env,
             &bmc_address_registry,
             &managed_segment_id,
-            // Relay IP in admin net
-            Ipv4Addr::new(172, 20, 0, 2),
+            UNDERLAY_DHCP_RELAY_ADDRESS,
         )
         .boxed(),
         test_machine_a_tron_zerodpu(
@@ -249,8 +248,7 @@ async fn test_integration() -> eyre::Result<()> {
             tenant_org_id,
             &v4_vpc_prefix_id,
             &v6_vpc_prefix_id,
-            // Relay IP in admin net
-            Ipv4Addr::new(172, 20, 0, 2),
+            UNDERLAY_DHCP_RELAY_ADDRESS,
         )
         .boxed(),
         test_machine_a_tron_dual_stack_l2(
@@ -258,8 +256,7 @@ async fn test_integration() -> eyre::Result<()> {
             &test_env,
             &bmc_address_registry,
             &dual_stack_l2_segment_id,
-            // Relay IP in admin net
-            Ipv4Addr::new(172, 20, 0, 2),
+            UNDERLAY_DHCP_RELAY_ADDRESS,
         )
         .boxed(),
     ]);
@@ -271,6 +268,37 @@ async fn test_integration() -> eyre::Result<()> {
         }
     }
 
+    metrics::wait_for_metric_line(
+        &test_env.carbide_metrics_addrs,
+        r#"carbide_site_explorer_boot_interface_selections_total{mechanism="redfish_chassis_id"}"#,
+    )
+    .await?;
+    metrics::wait_for_metric_line(
+        &test_env.carbide_metrics_addrs,
+        r#"carbide_site_explorer_boot_interface_selections_total{mechanism="redfish_serial_number"}"#,
+    )
+    .await?;
+    // MaT exercises a host with multiple DPUs whose lowest Scout PCI slot
+    // matches its stored boot interface.
+    metrics::wait_for_metric_line(
+        &test_env.carbide_metrics_addrs,
+        r#"carbide_scout_pci_evaluations_total{result="agreement"}"#,
+    )
+    .await?;
+
+    let metric_infos = metrics::collect_metric_infos(&test_env.carbide_metrics_addrs)?;
+    assert!(
+        metric_infos.iter().any(|metric| {
+            metric.name == "carbide_site_explorer_boot_interface_selections_total"
+        }),
+        "the multi-DPU integration paths must exercise boot-interface selection observability",
+    );
+    assert!(
+        metric_infos
+            .iter()
+            .any(|metric| metric.name == "carbide_scout_pci_evaluations_total"),
+        "the MaT Scout path must exercise PCI evaluation observability",
+    );
     generate_core_metric_docs(&test_env.carbide_metrics_addrs);
 
     cancel_token.cancel();
@@ -464,7 +492,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
 
     // Before the initial host bootstrap, the dns_records view
     // should contain 0 entries.
-    assert_eq!(0i64, get_dns_record_count(&db_pool).await);
+    assert_eq!(0i64, db::test_support::dns::record_count(&db_pool).await);
 
     run_machine_a_tron_machine_test(
         HardwareType::DellPowerEdgeR750,
@@ -473,7 +501,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
         false,
         &test_env,
         &bmc_address_registry,
-        Ipv4Addr::new(172, 20, 0, 1),
+        UNDERLAY_DHCP_RELAY_ADDRESS,
         |machine_handle| {
             let db_pool = db_pool.clone();
             let carbide_api_addrs = carbide_api_addrs.to_vec();
@@ -487,7 +515,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
                 // - 2x "human friendly" (ADM) for Host + DPU.
                 // - 2x Machine ID (BMC) for Host + DPU.
                 // - 2x Machine ID (ADM) for Host + DPU.
-                assert_eq!(8i64, get_dns_record_count(&db_pool).await);
+                assert_eq!(8i64, db::test_support::dns::record_count(&db_pool).await);
 
                 // Metrics are only updated after the machine state controller run one more
                 // time since the emitted metrics are for states at the start of the iteration.
@@ -611,7 +639,7 @@ async fn test_machine_a_tron_multidpu(
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
     segment_id: &str,
-    admin_dhcp_relay_address: Ipv4Addr,
+    underlay_dhcp_relay_address: Ipv4Addr,
 ) -> eyre::Result<()> {
     run_machine_a_tron_machine_test(
         hw_type,
@@ -620,10 +648,22 @@ async fn test_machine_a_tron_multidpu(
         false,
         test_env,
         bmc_mock_registry,
-        admin_dhcp_relay_address,
+        underlay_dhcp_relay_address,
         |machine_handle| {
             let segment_id = segment_id.to_string();
             let carbide_api_addrs = &test_env.carbide_api_addrs;
+            let db_pool = test_env.db_pool.clone();
+            let expected_selection = (hw_type == HardwareType::WiwynnGB200Nvl).then(|| {
+                let dpu = machine_handle
+                    .host_info()
+                    .dpus
+                    .first()
+                    .expect("Wiwynn GB200 host should contain its Slot1 DPU");
+                (
+                    dpu.host_mac_address,
+                    BootInterfaceSelectionSource::RedfishChassisId,
+                )
+            });
             async move {
                 machine_handle
                     .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
@@ -631,6 +671,20 @@ async fn test_machine_a_tron_multidpu(
                 let machine_id = machine_handle
                     .observed_machine_id()
                     .expect("Machine ID should be set if host is ready");
+                if let Some(expected_selection) = expected_selection {
+                    let selection: (MacAddress, BootInterfaceSelectionSource) = sqlx::query_as(
+                        "SELECT desired_mac_address, selection_source
+                         FROM machine_boot_interfaces
+                         WHERE machine_id = $1",
+                    )
+                    .bind(machine_id)
+                    .fetch_one(&db_pool)
+                    .await?;
+                    assert_eq!(
+                        selection, expected_selection,
+                        "GB200's Slot1 chassis selection must survive the full ingestion handoff",
+                    );
+                }
                 tracing::info!(
                     machine_id = %machine_id,
                     "Machine has made it to Ready, allocating instance",
@@ -709,7 +763,7 @@ async fn test_machine_a_tron_zerodpu(
         false,
         test_env,
         bmc_mock_registry,
-        Ipv4Addr::new(172, 20, 0, 2),
+        UNDERLAY_DHCP_RELAY_ADDRESS,
         |machine_handle| {
             let carbide_api_addrs = &test_env.carbide_api_addrs;
             let flat_vpc_id = flat_vpc_id.to_string();
@@ -771,7 +825,7 @@ async fn test_machine_a_tron_nic_mode(
         true,
         test_env,
         bmc_mock_registry,
-        Ipv4Addr::new(172, 20, 0, 2),
+        UNDERLAY_DHCP_RELAY_ADDRESS,
         |machine_handle| {
             let carbide_api_addrs = &test_env.carbide_api_addrs;
             let flat_vpc_id = flat_vpc_id.to_string();
@@ -926,244 +980,6 @@ async fn assert_auto_instance_network(
     Ok(())
 }
 
-/// DPU-mode -> NIC-mode flip + zero-DPU re-ingestion (machine-a-tron harness,
-/// #2661 / #2632). A host boots as a managed-DPU machine, an operator declares
-/// NIC mode and force-deletes it with `--delete-interfaces`, and the host
-/// re-ingests with no managed DPUs -- exercising the simulated BlueField flip
-/// (`Mode.Set` staged, applied on power-cycle), the host converging off its DPU
-/// DHCP relay and dropping the DPU from its inventory, and site-explorer
-/// re-registering the host with zero managed DPUs.
-///
-/// Asserts the re-ingest milestone directly against the database -- the host's
-/// (stable, TPM-derived) machine row returns with its data-plane NIC and no
-/// managed DPU -- then drives the re-ingested NIC-mode host all the way to Ready.
-#[expect(dead_code, reason = "temporarily disabled due to a CI race")]
-async fn test_machine_a_tron_dpu_to_nic_mode_reregistration(
-    hw_type: HardwareType,
-    test_env: &IntegrationTestEnvironment,
-    bmc_mock_registry: &BmcMockRegistry,
-    admin_dhcp_relay_address: Ipv4Addr,
-) -> eyre::Result<()> {
-    run_machine_a_tron_machine_test(
-        hw_type,
-        1,
-        1,
-        // Start in DPU mode: the host comes up as a managed-DPU machine, and we
-        // flip it to NIC mode below.
-        false,
-        test_env,
-        bmc_mock_registry,
-        admin_dhcp_relay_address,
-        |machine_handle| {
-            let carbide_api_addrs = &test_env.carbide_api_addrs;
-            async move {
-                // 1. Host reaches Ready as a managed-DPU machine.
-                machine_handle
-                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
-                    .await?;
-                let bmc_mac = machine_handle.host_info().bmc_mac_address.to_string();
-                let initial_machine_id = machine_handle
-                    .observed_machine_id()
-                    .expect("Machine ID should be set if host is ready");
-                tracing::info!(
-                    initial_machine_id = %initial_machine_id,
-                    bmc_mac_address = %bmc_mac,
-                    "Machine is Ready in DPU mode; flipping to NIC mode",
-                );
-
-                // 2. Flip the ExpectedMachine to NIC mode. Get the current record,
-                //    set the stable Forge `dpu_mode` field (translated to
-                //    HostDpuPolicy internally), and round-trip the full message
-                //    back through UpdateExpectedMachine. This is the same
-                //    get-mutate-update flow the admin CLI uses.
-                let get_req = serde_json::json!({ "bmc_mac_address": bmc_mac });
-                let expected_machine_json =
-                    api_test_helper::grpcurl::grpcurl(carbide_api_addrs, "GetExpectedMachine", Some(&get_req))
-                        .await?;
-                let mut expected_machine: serde_json::Value =
-                    serde_json::from_str(&expected_machine_json)?;
-                expected_machine["dpu_mode"] = serde_json::json!("NIC_MODE");
-                api_test_helper::grpcurl::grpcurl(
-                    carbide_api_addrs,
-                    "UpdateExpectedMachine",
-                    Some(&expected_machine),
-                )
-                .await?;
-                tracing::info!(
-                    bmc_mac_address = %bmc_mac,
-                    "ExpectedMachine for now declares NIC mode",
-                );
-
-                // 3. Force-delete the managed-DPU machine so site-explorer
-                //    re-ingests the host under the new declared mode. This is the
-                //    issue's `force-delete --delete-interfaces`: it removes the host
-                //    + DPU machine rows, their interfaces, and their explored-endpoint
-                //    records, so site-explorer rediscovers and re-ingests from scratch.
-                //
-                //    Query by the host's MachineId: `host_query` resolves a
-                //    data-plane MAC or a machine id, but not a BMC MAC
-                //    (`find_by_mac_address` excludes BMC interfaces), so the BMC MAC
-                //    used for the ExpectedMachine lookups above would not match here.
-                let force_delete_req = serde_json::json!({
-                    "host_query": initial_machine_id,
-                    "delete_interfaces": true,
-                });
-                api_test_helper::grpcurl::grpcurl(
-                    carbide_api_addrs,
-                    "AdminForceDeleteMachine",
-                    Some(&force_delete_req),
-                )
-                .await?;
-                tracing::info!(
-                    initial_machine_id = %initial_machine_id,
-                    "Force-deleted machine; awaiting re-ingestion as NicMode",
-                );
-
-                // 4. Wait for the physical host to re-ingest as a zero-managed-DPU
-                //    machine, asserted directly against the database. Zero-DPU
-                //    ingestion initially mints an `fm100ps...` predicted host ID
-                //    from the host serial. Later host discovery supplies the TPM
-                //    identity and atomically promotes that row back to its stable
-                //    `fm100ht...` ID. Follow the BMC MAC across that rename instead
-                //    of requiring promotion to have happened before declaring the
-                //    re-ingestion milestone complete.
-                let host_id = initial_machine_id.to_string();
-                let pool = &test_env.db_pool;
-                let reingest_deadline = time::Instant::now() + Duration::from_secs(180);
-                loop {
-                    // The machine ID may still be predicted here. The BMC MAC is
-                    // the stable physical identity throughout re-ingestion.
-                    let current_host_id: Option<String> = sqlx::query_scalar(
-                        "SELECT machine_id FROM machine_interfaces \
-                         WHERE interface_type = 'Bmc' \
-                         AND machine_id IS NOT NULL \
-                         AND mac_address = $1::macaddr",
-                    )
-                    .bind(&bmc_mac)
-                    .fetch_optional(pool)
-                    .await?;
-                    // It re-ingested with at least one data-plane (non-BMC) NIC.
-                    let nic_count: i64 = if let Some(current_host_id) = &current_host_id {
-                        sqlx::query_scalar(
-                            "SELECT COUNT(*) FROM machine_interfaces \
-                             WHERE machine_id = $1 AND interface_type != 'Bmc'",
-                        )
-                        .bind(current_host_id)
-                        .fetch_one(pool)
-                        .await?
-                    } else {
-                        0
-                    };
-                    // Zero managed DPUs: no data-plane interface still points at a
-                    // DPU (any non-null `attached_dpu_machine_id`), so the BlueField
-                    // flipped to NIC mode and is no longer managed. Count attachments
-                    // directly instead of joining `machines`, so a stale attachment
-                    // pointing at an already-deleted DPU row still counts.
-                    let managed_dpu_count: i64 = if let Some(current_host_id) = &current_host_id {
-                        sqlx::query_scalar(
-                            "SELECT COUNT(*) FROM machine_interfaces \
-                             WHERE machine_id = $1 \
-                             AND interface_type != 'Bmc' \
-                             AND attached_dpu_machine_id IS NOT NULL",
-                        )
-                        .bind(current_host_id)
-                        .fetch_one(pool)
-                        .await?
-                    } else {
-                        0
-                    };
-
-                    if let Some(current_host_id) = &current_host_id
-                        && nic_count >= 1
-                        && managed_dpu_count == 0
-                    {
-                        tracing::info!(
-                            host_machine_id = %current_host_id,
-                            stable_host_machine_id = %host_id,
-                            nic_interface_count = nic_count,
-                            "Host re-ingested as a zero-managed-DPU machine; DPU-to-NIC flip applied",
-                        );
-                        break;
-                    }
-                    if time::Instant::now() >= reingest_deadline {
-                        panic!(
-                            "host with BMC MAC {bmc_mac} did not re-ingest as a zero-managed-DPU \
-                             NicMode machine within the timeout (stable_host_id={host_id}, \
-                             current_host_id={current_host_id:?}, nic_count={nic_count}, \
-                             managed_dpu_count={managed_dpu_count})"
-                        );
-                    }
-                    sleep(Duration::from_secs(2)).await;
-                }
-
-                // 5. Drive the re-ingested NicMode host all the way to Ready and
-                //    verify that discovery promoted its predicted ID back to the
-                //    original stable TPM-derived ID. The host BMC now serves an
-                //    event log so the controller's
-                //    restart verification can confirm reboots, and the zero-DPU
-                //    lockdown short-circuit lets it skip the DPU-down wait.
-                tracing::info!(
-                    host_machine_id = %host_id,
-                    "Waiting for re-ingested NicMode host to reach Ready",
-                );
-                let ready_deadline = time::Instant::now() + Duration::from_secs(240);
-                loop {
-                    let current_host_id: Option<String> = sqlx::query_scalar(
-                        "SELECT machine_id FROM machine_interfaces \
-                         WHERE interface_type = 'Bmc' \
-                         AND machine_id IS NOT NULL \
-                         AND mac_address = $1::macaddr",
-                    )
-                    .bind(&bmc_mac)
-                    .fetch_optional(pool)
-                    .await?;
-                    let Some(current_host_id) = current_host_id else {
-                        if time::Instant::now() >= ready_deadline {
-                            panic!(
-                                "re-ingested NicMode host with BMC MAC {bmc_mac} disappeared \
-                                 before reaching Ready"
-                            );
-                        }
-                        sleep(Duration::from_secs(2)).await;
-                        continue;
-                    };
-                    let resp = api_test_helper::grpcurl::grpcurl(
-                        carbide_api_addrs,
-                        "FindMachinesByIds",
-                        Some(&serde_json::json!({ "machine_ids": [{"id": current_host_id}] })),
-                    )
-                    .await?;
-                    let resp: serde_json::Value = serde_json::from_str(&resp)?;
-                    let state = resp["machines"][0]["state"].as_str().unwrap_or("");
-                    if state == "Ready" {
-                        eyre::ensure!(
-                            current_host_id == host_id,
-                            "re-ingested NicMode host reached ready without promotion to its \
-                             original stable ID (current={current_host_id}, expected={host_id})"
-                        );
-                        tracing::info!(
-                            host_machine_id = %current_host_id,
-                            machine_state = state,
-                            "Re-ingested NicMode host reached Ready",
-                        );
-                        break;
-                    }
-                    if time::Instant::now() >= ready_deadline {
-                        panic!(
-                            "Re-ingested NicMode host with BMC MAC {bmc_mac} did not reach Ready \
-                             within the timeout (current_host_id={current_host_id}, \
-                             stable_host_id={host_id}, last_state={state})"
-                        );
-                    }
-                    sleep(Duration::from_secs(2)).await;
-                }
-                Ok::<(), eyre::Report>(())
-            }
-        },
-    )
-    .await
-}
-
 async fn test_machine_a_tron_dual_stack(
     hw_type: HardwareType,
     test_env: &IntegrationTestEnvironment,
@@ -1171,7 +987,7 @@ async fn test_machine_a_tron_dual_stack(
     tenant_organization_id: &str,
     v4_vpc_prefix_id: &str,
     v6_vpc_prefix_id: &str,
-    admin_dhcp_relay_address: Ipv4Addr,
+    underlay_dhcp_relay_address: Ipv4Addr,
 ) -> eyre::Result<()> {
     run_machine_a_tron_machine_test(
         hw_type,
@@ -1180,7 +996,7 @@ async fn test_machine_a_tron_dual_stack(
         false,
         test_env,
         bmc_mock_registry,
-        admin_dhcp_relay_address,
+        underlay_dhcp_relay_address,
         |machine_handle| {
             let v4_prefix_id = v4_vpc_prefix_id.to_string();
             let v6_prefix_id = v6_vpc_prefix_id.to_string();
@@ -1284,7 +1100,7 @@ async fn test_machine_a_tron_dual_stack_l2(
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
     dual_stack_segment_id: &str,
-    admin_dhcp_relay_address: Ipv4Addr,
+    underlay_dhcp_relay_address: Ipv4Addr,
 ) -> eyre::Result<()> {
     run_machine_a_tron_machine_test(
         hw_type,
@@ -1293,7 +1109,7 @@ async fn test_machine_a_tron_dual_stack_l2(
         false,
         test_env,
         bmc_mock_registry,
-        admin_dhcp_relay_address,
+        underlay_dhcp_relay_address,
         |machine_handle| {
             let segment_id = dual_stack_segment_id.to_string();
             let carbide_api_addrs = &test_env.carbide_api_addrs;
@@ -1355,7 +1171,7 @@ async fn run_machine_a_tron_machine_test<F, O>(
     dpus_in_nic_mode: bool,
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
-    admin_dhcp_relay_address: Ipv4Addr,
+    underlay_dhcp_relay_address: Ipv4Addr,
     run_assertions: F,
 ) -> eyre::Result<()>
 where
@@ -1377,23 +1193,39 @@ where
             "config".to_string(),
             Arc::new(MachineConfig {
                 rack_id: None,
+                rack_placement: None,
                 hw_type,
                 host_count,
                 dpu_per_host_count,
                 dpu_reboot_delay: 1,
                 host_reboot_delay: 1,
-                admin_dhcp_relay_address,
-                // Keep this distinct from the Admin relay so NIC-mode tests
-                // fail if machine-a-tron sends host DHCP through Admin.
+                timing_overrides: Some(LifecycleTimingOverrides {
+                    host: PartialLifecycleTimings {
+                        reboot: Some(Duration::from_secs(1)),
+                        // ZERO disables the BMC self-reset offline window entirely,
+                        // keeping ingestion at its pre-feature pace
+                        bmc_reset: Some(Duration::ZERO),
+                        ..Default::default()
+                    },
+                    dpu: PartialLifecycleTimings {
+                        reboot: Some(Duration::from_secs(1)),
+                        // ZERO disables the BMC self-reset offline window entirely,
+                        // keeping ingestion at its pre-feature pace
+                        bmc_reset: Some(Duration::ZERO),
+                        ..Default::default()
+                    },
+                }),
+                acceleration_factor: 1.0,
+                underlay_dhcp_relay_address,
+                // Keep this distinct from the DPU Underlay relay so NIC-mode tests fail if
+                // machine-a-tron sends direct host DHCP through the DPU network.
                 host_inband_dhcp_relay_address: Some(Ipv4Addr::new(10, 10, 11, 2)),
-                oob_dhcp_relay_address: Ipv4Addr::new(172, 20, 1, 1),
-                vpc_count: 0,
-                subnets_per_vpc: 0,
+                bmc_dhcp_relay_address: TEST_BMC_DHCP_RELAY_ADDRESS,
                 run_interval_idle: Duration::from_secs(1),
                 run_interval_working: Duration::from_millis(100),
                 network_status_run_interval: Duration::from_secs(1),
                 scout_run_interval: Duration::from_secs(1),
-                network_virtualization_type: None,
+                discovery_retry_interval: Duration::from_millis(100),
                 dpus_in_nic_mode,
                 dpu_firmware_versions: None,
                 host_firmware_versions: None,
@@ -1403,11 +1235,10 @@ where
         carbide_api_url: format!("https://{}:{}", api_addr.ip(), api_addr.port()),
         dhcp: DhcpType::Api {},
         log_file: None,
+        log_format: LogFormat::Compact,
         bmc_mock_port: 0, // unused, we're using dynamic ports on localhost
         bmc_mock_certs_dir: None,
-        interface: String::from("UNUSED"), // unused, we're using dynamic ports on localhost
         tui_enabled: false,
-        use_single_bmc_mock: false, // unused, we're constructing machines ourselves
         configure_carbide_bmc_proxy_host: None,
         persist_dir: None,
         cleanup_on_quit: false,
@@ -1416,9 +1247,7 @@ where
         dpu_bmc_password: None,
         api_refresh_interval: Duration::from_millis(500),
         mock_bmc_ssh_server: false,
-        mock_bmc_ssh_port: None,
         enable_ipmi_simulation: false,
-        ipmi_reachable_port: None,
         hw_mac_address_ranges: None,
         mac_address_pool: None,
         ufm_mock: Default::default(),
@@ -1428,13 +1257,25 @@ where
         mat_config,
         additional_api_urls,
         &test_env.root_dir,
-        Some(bmc_mock_registry.clone()),
+        bmc_mock_registry.clone(),
         TEST_MAC_POOL.clone(),
     )
     .await
     .unwrap();
 
-    let results = join_all(provisionable_handles.into_iter().map(run_assertions)).await;
+    let results = join_all(provisionable_handles.into_iter().map(|machine_handle| {
+        let relay_assertion_handle = machine_handle.clone();
+        let assertions = run_assertions(machine_handle);
+        async move {
+            assertions.await?;
+            assert_relay_selection(
+                &relay_assertion_handle,
+                dpus_in_nic_mode,
+                underlay_dhcp_relay_address,
+            )
+        }
+    }))
+    .await;
     let result_count = results.len();
     let assertion_result: eyre::Result<()> = results.into_iter().try_collect();
     let shutdown_result = mat_handle.shutdown().await;
@@ -1444,17 +1285,35 @@ where
     shutdown_result
 }
 
-// Get the current number of rows in the dns_records view,
-// which is expected to start at 0, and then progress, as
-// the test continues.
-//
-// TODO(chet): Find a common place for this and the same exact
-// function in api/tests/dns.rs to exist, instead of it being
-// in two places.
-pub async fn get_dns_record_count(pool: &sqlx::Pool<Postgres>) -> i64 {
-    let mut txn = pool.begin().await.unwrap();
-    let query = "SELECT COUNT(*) as row_cnt FROM dns_records";
-    let rows = sqlx::query::<_>(query).fetch_one(&mut *txn).await.unwrap();
-    txn.commit().await.unwrap();
-    rows.try_get("row_cnt").unwrap()
+fn assert_relay_selection(
+    machine_handle: &DeviceHandle,
+    dpus_in_nic_mode: bool,
+    underlay_dhcp_relay_address: Ipv4Addr,
+) -> eyre::Result<()> {
+    let host_bmc_ip = machine_handle
+        .bmc_ip()
+        .context("host BMC DHCP did not return an address")?;
+    eyre::ensure!(
+        TEST_BMC_NETWORK_PREFIX.contains(&host_bmc_ip),
+        "host BMC DHCP used the underlay relay: {host_bmc_ip}"
+    );
+
+    for dpu in machine_handle.dpus() {
+        let details = dpu.host_details();
+        let dpu_bmc_ip: Ipv4Addr = details.oob_ip.parse()?;
+        eyre::ensure!(
+            TEST_BMC_NETWORK_PREFIX.contains(&dpu_bmc_ip),
+            "DPU BMC DHCP used the underlay relay: {dpu_bmc_ip}"
+        );
+
+        if !dpus_in_nic_mode {
+            let dpu_underlay_ip: Ipv4Addr = details.machine_ip.parse()?;
+            eyre::ensure!(
+                dpu_underlay_ip.octets()[..3] == underlay_dhcp_relay_address.octets()[..3],
+                "DPU OOB boot DHCP used the BMC relay: {dpu_underlay_ip}"
+            );
+        }
+    }
+
+    Ok(())
 }

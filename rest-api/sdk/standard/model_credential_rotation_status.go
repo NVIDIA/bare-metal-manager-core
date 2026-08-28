@@ -26,13 +26,13 @@ var _ MappedNullable = &CredentialRotationStatus{}
 // CredentialRotationStatus Convergence status of an in-flight or completed site-wide credential rotation.
 type CredentialRotationStatus struct {
 	// Current site-wide target version for this family.
-	TargetVersion int64 `json:"targetVersion"`
+	TargetVersion uint32 `json:"targetVersion"`
 	// Number of devices at or beyond the target version.
-	Converged int64 `json:"converged"`
+	Converged uint64 `json:"converged"`
 	// Number of devices not yet converged and eligible to rotate.
-	Pending int64 `json:"pending"`
+	Pending uint64 `json:"pending"`
 	// Number of devices currently in a rotation backoff window.
-	Quarantined int64 `json:"quarantined"`
+	Quarantined uint64 `json:"quarantined"`
 	// MAC addresses of the quarantined devices.
 	QuarantinedDeviceMacs []string `json:"quarantinedDeviceMacs,omitempty"`
 	// When the current target version was staged.
@@ -48,7 +48,7 @@ type _CredentialRotationStatus CredentialRotationStatus
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewCredentialRotationStatus(targetVersion int64, converged int64, pending int64, quarantined int64, complete bool) *CredentialRotationStatus {
+func NewCredentialRotationStatus(targetVersion uint32, converged uint64, pending uint64, quarantined uint64, complete bool) *CredentialRotationStatus {
 	this := CredentialRotationStatus{}
 	this.TargetVersion = targetVersion
 	this.Converged = converged
@@ -67,9 +67,9 @@ func NewCredentialRotationStatusWithDefaults() *CredentialRotationStatus {
 }
 
 // GetTargetVersion returns the TargetVersion field value
-func (o *CredentialRotationStatus) GetTargetVersion() int64 {
+func (o *CredentialRotationStatus) GetTargetVersion() uint32 {
 	if o == nil {
-		var ret int64
+		var ret uint32
 		return ret
 	}
 
@@ -78,7 +78,7 @@ func (o *CredentialRotationStatus) GetTargetVersion() int64 {
 
 // GetTargetVersionOk returns a tuple with the TargetVersion field value
 // and a boolean to check if the value has been set.
-func (o *CredentialRotationStatus) GetTargetVersionOk() (*int64, bool) {
+func (o *CredentialRotationStatus) GetTargetVersionOk() (*uint32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -86,14 +86,14 @@ func (o *CredentialRotationStatus) GetTargetVersionOk() (*int64, bool) {
 }
 
 // SetTargetVersion sets field value
-func (o *CredentialRotationStatus) SetTargetVersion(v int64) {
+func (o *CredentialRotationStatus) SetTargetVersion(v uint32) {
 	o.TargetVersion = v
 }
 
 // GetConverged returns the Converged field value
-func (o *CredentialRotationStatus) GetConverged() int64 {
+func (o *CredentialRotationStatus) GetConverged() uint64 {
 	if o == nil {
-		var ret int64
+		var ret uint64
 		return ret
 	}
 
@@ -102,7 +102,7 @@ func (o *CredentialRotationStatus) GetConverged() int64 {
 
 // GetConvergedOk returns a tuple with the Converged field value
 // and a boolean to check if the value has been set.
-func (o *CredentialRotationStatus) GetConvergedOk() (*int64, bool) {
+func (o *CredentialRotationStatus) GetConvergedOk() (*uint64, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -110,14 +110,14 @@ func (o *CredentialRotationStatus) GetConvergedOk() (*int64, bool) {
 }
 
 // SetConverged sets field value
-func (o *CredentialRotationStatus) SetConverged(v int64) {
+func (o *CredentialRotationStatus) SetConverged(v uint64) {
 	o.Converged = v
 }
 
 // GetPending returns the Pending field value
-func (o *CredentialRotationStatus) GetPending() int64 {
+func (o *CredentialRotationStatus) GetPending() uint64 {
 	if o == nil {
-		var ret int64
+		var ret uint64
 		return ret
 	}
 
@@ -126,7 +126,7 @@ func (o *CredentialRotationStatus) GetPending() int64 {
 
 // GetPendingOk returns a tuple with the Pending field value
 // and a boolean to check if the value has been set.
-func (o *CredentialRotationStatus) GetPendingOk() (*int64, bool) {
+func (o *CredentialRotationStatus) GetPendingOk() (*uint64, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -134,14 +134,14 @@ func (o *CredentialRotationStatus) GetPendingOk() (*int64, bool) {
 }
 
 // SetPending sets field value
-func (o *CredentialRotationStatus) SetPending(v int64) {
+func (o *CredentialRotationStatus) SetPending(v uint64) {
 	o.Pending = v
 }
 
 // GetQuarantined returns the Quarantined field value
-func (o *CredentialRotationStatus) GetQuarantined() int64 {
+func (o *CredentialRotationStatus) GetQuarantined() uint64 {
 	if o == nil {
-		var ret int64
+		var ret uint64
 		return ret
 	}
 
@@ -150,7 +150,7 @@ func (o *CredentialRotationStatus) GetQuarantined() int64 {
 
 // GetQuarantinedOk returns a tuple with the Quarantined field value
 // and a boolean to check if the value has been set.
-func (o *CredentialRotationStatus) GetQuarantinedOk() (*int64, bool) {
+func (o *CredentialRotationStatus) GetQuarantinedOk() (*uint64, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -158,7 +158,7 @@ func (o *CredentialRotationStatus) GetQuarantinedOk() (*int64, bool) {
 }
 
 // SetQuarantined sets field value
-func (o *CredentialRotationStatus) SetQuarantined(v int64) {
+func (o *CredentialRotationStatus) SetQuarantined(v uint64) {
 	o.Quarantined = v
 }
 
@@ -350,7 +350,6 @@ func (o *CredentialRotationStatus) UnmarshalJSON(data []byte) (err error) {
 	varCredentialRotationStatus := _CredentialRotationStatus{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varCredentialRotationStatus)
 
 	if err != nil {

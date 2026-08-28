@@ -71,6 +71,7 @@ const (
 	Forge_FindPowerShelves_FullMethodName                                   = "/forge.Forge/FindPowerShelves"
 	Forge_FindPowerShelfIds_FullMethodName                                  = "/forge.Forge/FindPowerShelfIds"
 	Forge_FindPowerShelvesByIds_FullMethodName                              = "/forge.Forge/FindPowerShelvesByIds"
+	Forge_DecommissionPowerShelf_FullMethodName                             = "/forge.Forge/DecommissionPowerShelf"
 	Forge_DeletePowerShelf_FullMethodName                                   = "/forge.Forge/DeletePowerShelf"
 	Forge_AdminForceDeletePowerShelf_FullMethodName                         = "/forge.Forge/AdminForceDeletePowerShelf"
 	Forge_SetPowerShelfMaintenance_FullMethodName                           = "/forge.Forge/SetPowerShelfMaintenance"
@@ -78,6 +79,7 @@ const (
 	Forge_FindSwitchIds_FullMethodName                                      = "/forge.Forge/FindSwitchIds"
 	Forge_FindSwitchesByIds_FullMethodName                                  = "/forge.Forge/FindSwitchesByIds"
 	Forge_DeleteSwitch_FullMethodName                                       = "/forge.Forge/DeleteSwitch"
+	Forge_DecommissionSwitch_FullMethodName                                 = "/forge.Forge/DecommissionSwitch"
 	Forge_AdminForceDeleteSwitch_FullMethodName                             = "/forge.Forge/AdminForceDeleteSwitch"
 	Forge_FindIBFabricIds_FullMethodName                                    = "/forge.Forge/FindIBFabricIds"
 	Forge_AllocateInstance_FullMethodName                                   = "/forge.Forge/AllocateInstance"
@@ -135,6 +137,7 @@ const (
 	Forge_FindPowerShelfStateHistories_FullMethodName                       = "/forge.Forge/FindPowerShelfStateHistories"
 	Forge_FindRackStateHistories_FullMethodName                             = "/forge.Forge/FindRackStateHistories"
 	Forge_FindSwitchStateHistories_FullMethodName                           = "/forge.Forge/FindSwitchStateHistories"
+	Forge_FindSwitchHealthHistories_FullMethodName                          = "/forge.Forge/FindSwitchHealthHistories"
 	Forge_FindNetworkSegmentStateHistories_FullMethodName                   = "/forge.Forge/FindNetworkSegmentStateHistories"
 	Forge_FindVpcPrefixStateHistories_FullMethodName                        = "/forge.Forge/FindVpcPrefixStateHistories"
 	Forge_FindSitePrefixStateHistories_FullMethodName                       = "/forge.Forge/FindSitePrefixStateHistories"
@@ -182,6 +185,7 @@ const (
 	Forge_FindExploredMlxDevicesByIds_FullMethodName                        = "/forge.Forge/FindExploredMlxDevicesByIds"
 	Forge_UpdateMachineHardwareInfo_FullMethodName                          = "/forge.Forge/UpdateMachineHardwareInfo"
 	Forge_AdminForceDeleteMachine_FullMethodName                            = "/forge.Forge/AdminForceDeleteMachine"
+	Forge_DecommissionManagedHost_FullMethodName                            = "/forge.Forge/DecommissionManagedHost"
 	Forge_AdminListResourcePools_FullMethodName                             = "/forge.Forge/AdminListResourcePools"
 	Forge_AdminGrowResourcePool_FullMethodName                              = "/forge.Forge/AdminGrowResourcePool"
 	Forge_UpdateMachineMetadata_FullMethodName                              = "/forge.Forge/UpdateMachineMetadata"
@@ -356,6 +360,7 @@ const (
 	Forge_IsInfiniteBootEnabled_FullMethodName                              = "/forge.Forge/IsInfiniteBootEnabled"
 	Forge_OnDemandMachineValidation_FullMethodName                          = "/forge.Forge/OnDemandMachineValidation"
 	Forge_OnDemandRackMaintenance_FullMethodName                            = "/forge.Forge/OnDemandRackMaintenance"
+	Forge_TerminateRackMaintenance_FullMethodName                           = "/forge.Forge/TerminateRackMaintenance"
 	Forge_TpmAddCaCert_FullMethodName                                       = "/forge.Forge/TpmAddCaCert"
 	Forge_TpmShowCaCerts_FullMethodName                                     = "/forge.Forge/TpmShowCaCerts"
 	Forge_TpmShowUnmatchedEkCerts_FullMethodName                            = "/forge.Forge/TpmShowUnmatchedEkCerts"
@@ -483,6 +488,10 @@ const (
 	Forge_GetDPFState_FullMethodName                                        = "/forge.Forge/GetDPFState"
 	Forge_GetDPFHostSnapshot_FullMethodName                                 = "/forge.Forge/GetDPFHostSnapshot"
 	Forge_GetDPFServiceVersions_FullMethodName                              = "/forge.Forge/GetDPFServiceVersions"
+	Forge_FindPendingDPUServiceSyncIds_FullMethodName                       = "/forge.Forge/FindPendingDPUServiceSyncIds"
+	Forge_FindPendingDPUServiceSyncsByIds_FullMethodName                    = "/forge.Forge/FindPendingDPUServiceSyncsByIds"
+	Forge_ListDPUServiceSyncHistory_FullMethodName                          = "/forge.Forge/ListDPUServiceSyncHistory"
+	Forge_ReleaseDPUServiceSyncHold_FullMethodName                          = "/forge.Forge/ReleaseDPUServiceSyncHold"
 	Forge_ComponentPowerControl_FullMethodName                              = "/forge.Forge/ComponentPowerControl"
 	Forge_ComponentConfigureSwitchCertificate_FullMethodName                = "/forge.Forge/ComponentConfigureSwitchCertificate"
 	Forge_GetComponentInventory_FullMethodName                              = "/forge.Forge/GetComponentInventory"
@@ -571,8 +580,11 @@ type ForgeClient interface {
 	FindPowerShelves(ctx context.Context, in *PowerShelfQuery, opts ...grpc.CallOption) (*PowerShelfList, error)
 	FindPowerShelfIds(ctx context.Context, in *PowerShelfSearchFilter, opts ...grpc.CallOption) (*PowerShelfIdList, error)
 	FindPowerShelvesByIds(ctx context.Context, in *PowerShelvesByIdsRequest, opts ...grpc.CallOption) (*PowerShelfList, error)
+	// Starts the decommissioning workflow for a Ready managed power shelf.
+	DecommissionPowerShelf(ctx context.Context, in *DecommissionPowerShelfRequest, opts ...grpc.CallOption) (*DecommissionPowerShelfResponse, error)
 	DeletePowerShelf(ctx context.Context, in *PowerShelfDeletionRequest, opts ...grpc.CallOption) (*PowerShelfDeletionResult, error)
-	// Force deletes a Power Shelf and optionally its associated interfaces from the database.
+	// Force deletes a Power Shelf and optionally its associated interfaces
+	// and BMC suppressions from the database.
 	AdminForceDeletePowerShelf(ctx context.Context, in *AdminForceDeletePowerShelfRequest, opts ...grpc.CallOption) (*AdminForceDeletePowerShelfResponse, error)
 	// Request a maintenance operation (PowerOn / PowerOff) for a Power Shelf.
 	// When the power shelf is in Ready state, the power shelf state controller
@@ -583,6 +595,9 @@ type ForgeClient interface {
 	FindSwitchIds(ctx context.Context, in *SwitchSearchFilter, opts ...grpc.CallOption) (*SwitchIdList, error)
 	FindSwitchesByIds(ctx context.Context, in *SwitchesByIdsRequest, opts ...grpc.CallOption) (*SwitchList, error)
 	DeleteSwitch(ctx context.Context, in *SwitchDeletionRequest, opts ...grpc.CallOption) (*SwitchDeletionResult, error)
+	// Starts managed-switch decommissioning. The switch must be Ready and the
+	// Component Manager switch backend must be RMS.
+	DecommissionSwitch(ctx context.Context, in *DecommissionSwitchRequest, opts ...grpc.CallOption) (*DecommissionSwitchResponse, error)
 	// Force deletes a Switch and optionally its associated interfaces from the database.
 	AdminForceDeleteSwitch(ctx context.Context, in *AdminForceDeleteSwitchRequest, opts ...grpc.CallOption) (*AdminForceDeleteSwitchResponse, error)
 	// InfiniBand Fabrics
@@ -689,6 +704,7 @@ type ForgeClient interface {
 	FindPowerShelfStateHistories(ctx context.Context, in *PowerShelfStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error)
 	FindRackStateHistories(ctx context.Context, in *RackStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error)
 	FindSwitchStateHistories(ctx context.Context, in *SwitchStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error)
+	FindSwitchHealthHistories(ctx context.Context, in *SwitchHealthHistoriesRequest, opts ...grpc.CallOption) (*HealthHistories, error)
 	FindNetworkSegmentStateHistories(ctx context.Context, in *NetworkSegmentStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error)
 	FindVpcPrefixStateHistories(ctx context.Context, in *VpcPrefixStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error)
 	FindSitePrefixStateHistories(ctx context.Context, in *SitePrefixStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error)
@@ -776,6 +792,8 @@ type ForgeClient interface {
 	// AdminForceDeleteMachine is a lower level admin tool for cases where there is no
 	// appropriate customer-facing workflow available or where those workflows fail.
 	AdminForceDeleteMachine(ctx context.Context, in *AdminForceDeleteMachineRequest, opts ...grpc.CallOption) (*AdminForceDeleteMachineResponse, error)
+	// Starts the managed host decommissioning workflow. The host must be Ready.
+	DecommissionManagedHost(ctx context.Context, in *DecommissionManagedHostRequest, opts ...grpc.CallOption) (*DecommissionManagedHostResponse, error)
 	// List existing resource pools and their stats
 	AdminListResourcePools(ctx context.Context, in *ListResourcePoolsRequest, opts ...grpc.CallOption) (*ResourcePools, error)
 	// Add capacity to a resource pool
@@ -1087,6 +1105,8 @@ type ForgeClient interface {
 	OnDemandMachineValidation(ctx context.Context, in *MachineValidationOnDemandRequest, opts ...grpc.CallOption) (*MachineValidationOnDemandResponse, error)
 	// On-demand rack maintenance (full rack or partial)
 	OnDemandRackMaintenance(ctx context.Context, in *RackMaintenanceOnDemandRequest, opts ...grpc.CallOption) (*RackMaintenanceOnDemandResponse, error)
+	// Terminate active rack maintenance and transition the rack to Error.
+	TerminateRackMaintenance(ctx context.Context, in *RackMaintenanceTerminateRequest, opts ...grpc.CallOption) (*RackMaintenanceTerminateResponse, error)
 	// TPM CA certs Management
 	// rpc TpmDeleteCaCert(TpmCaCertDetails) returns (google.protobuf.Empty);
 	TpmAddCaCert(ctx context.Context, in *TpmCaCert, opts ...grpc.CallOption) (*TpmCaAddedCaStatus, error)
@@ -1319,6 +1339,26 @@ type ForgeClient interface {
 	// Helm/docker versions for the nico DPF mandatory services, from both
 	// the nico config and the live DPUServiceTemplate CRs.
 	GetDPFServiceVersions(ctx context.Context, in *GetDPFServiceVersionsRequest, opts ...grpc.CallOption) (*DPFServiceVersionsResponse, error)
+	// Machines DPF is waiting on before a changed DPUService can roll out.
+	//
+	// Required rather than convenient: the release RPC has no fleet-wide form, so
+	// this is the only way to discover which machines to name. Split ids-then-
+	// details because a fleet-wide rollout can leave every host waiting at once,
+	// and the worklist must not become one unbounded response.
+	FindPendingDPUServiceSyncIds(ctx context.Context, in *FindPendingDPUServiceSyncIdsRequest, opts ...grpc.CallOption) (*MachineIdList, error)
+	FindPendingDPUServiceSyncsByIds(ctx context.Context, in *FindPendingDPUServiceSyncsByIdsRequest, opts ...grpc.CallOption) (*ListPendingDPUServiceSyncsResponse, error)
+	// One machine's recorded sync history, newest first. Needs no paging: the
+	// database caps retained history per machine.
+	ListDPUServiceSyncHistory(ctx context.Context, in *ListDPUServiceSyncHistoryRequest, opts ...grpc.CallOption) (*ListPendingDPUServiceSyncsResponse, error)
+	// Release the DPF maintenance hold for named machines and complete their
+	// pending DPU service sync.
+	//
+	// Bypasses the host-state requirement nico applies to itself -- that is
+	// what strands a host which can never reach Ready, and a site that has turned
+	// the automatic rollout off. It does not bypass the DPU currency check: new
+	// services must never land on a DPU whose OS is about to be replaced, and that
+	// holds however the release was asked for.
+	ReleaseDPUServiceSyncHold(ctx context.Context, in *ReleaseDPUServiceSyncHoldRequest, opts ...grpc.CallOption) (*ReleaseDPUServiceSyncHoldResponse, error)
 	// --- Component management (unified switch + power shelf operations) ---
 	ComponentPowerControl(ctx context.Context, in *ComponentPowerControlRequest, opts ...grpc.CallOption) (*ComponentPowerControlResponse, error)
 	ComponentConfigureSwitchCertificate(ctx context.Context, in *ComponentConfigureSwitchCertificateRequest, opts ...grpc.CallOption) (*ComponentConfigureSwitchCertificateResponse, error)
@@ -1834,6 +1874,16 @@ func (c *forgeClient) FindPowerShelvesByIds(ctx context.Context, in *PowerShelve
 	return out, nil
 }
 
+func (c *forgeClient) DecommissionPowerShelf(ctx context.Context, in *DecommissionPowerShelfRequest, opts ...grpc.CallOption) (*DecommissionPowerShelfResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DecommissionPowerShelfResponse)
+	err := c.cc.Invoke(ctx, Forge_DecommissionPowerShelf_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *forgeClient) DeletePowerShelf(ctx context.Context, in *PowerShelfDeletionRequest, opts ...grpc.CallOption) (*PowerShelfDeletionResult, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(PowerShelfDeletionResult)
@@ -1898,6 +1948,16 @@ func (c *forgeClient) DeleteSwitch(ctx context.Context, in *SwitchDeletionReques
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SwitchDeletionResult)
 	err := c.cc.Invoke(ctx, Forge_DeleteSwitch_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) DecommissionSwitch(ctx context.Context, in *DecommissionSwitchRequest, opts ...grpc.CallOption) (*DecommissionSwitchResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DecommissionSwitchResponse)
+	err := c.cc.Invoke(ctx, Forge_DecommissionSwitch_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -2477,6 +2537,16 @@ func (c *forgeClient) FindSwitchStateHistories(ctx context.Context, in *SwitchSt
 	return out, nil
 }
 
+func (c *forgeClient) FindSwitchHealthHistories(ctx context.Context, in *SwitchHealthHistoriesRequest, opts ...grpc.CallOption) (*HealthHistories, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(HealthHistories)
+	err := c.cc.Invoke(ctx, Forge_FindSwitchHealthHistories_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *forgeClient) FindNetworkSegmentStateHistories(ctx context.Context, in *NetworkSegmentStateHistoriesRequest, opts ...grpc.CallOption) (*StateHistories, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(StateHistories)
@@ -2941,6 +3011,16 @@ func (c *forgeClient) AdminForceDeleteMachine(ctx context.Context, in *AdminForc
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(AdminForceDeleteMachineResponse)
 	err := c.cc.Invoke(ctx, Forge_AdminForceDeleteMachine_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) DecommissionManagedHost(ctx context.Context, in *DecommissionManagedHostRequest, opts ...grpc.CallOption) (*DecommissionManagedHostResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DecommissionManagedHostResponse)
+	err := c.cc.Invoke(ctx, Forge_DecommissionManagedHost_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -4687,6 +4767,16 @@ func (c *forgeClient) OnDemandRackMaintenance(ctx context.Context, in *RackMaint
 	return out, nil
 }
 
+func (c *forgeClient) TerminateRackMaintenance(ctx context.Context, in *RackMaintenanceTerminateRequest, opts ...grpc.CallOption) (*RackMaintenanceTerminateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RackMaintenanceTerminateResponse)
+	err := c.cc.Invoke(ctx, Forge_TerminateRackMaintenance_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *forgeClient) TpmAddCaCert(ctx context.Context, in *TpmCaCert, opts ...grpc.CallOption) (*TpmCaAddedCaStatus, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(TpmCaAddedCaStatus)
@@ -5960,6 +6050,46 @@ func (c *forgeClient) GetDPFServiceVersions(ctx context.Context, in *GetDPFServi
 	return out, nil
 }
 
+func (c *forgeClient) FindPendingDPUServiceSyncIds(ctx context.Context, in *FindPendingDPUServiceSyncIdsRequest, opts ...grpc.CallOption) (*MachineIdList, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MachineIdList)
+	err := c.cc.Invoke(ctx, Forge_FindPendingDPUServiceSyncIds_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) FindPendingDPUServiceSyncsByIds(ctx context.Context, in *FindPendingDPUServiceSyncsByIdsRequest, opts ...grpc.CallOption) (*ListPendingDPUServiceSyncsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListPendingDPUServiceSyncsResponse)
+	err := c.cc.Invoke(ctx, Forge_FindPendingDPUServiceSyncsByIds_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) ListDPUServiceSyncHistory(ctx context.Context, in *ListDPUServiceSyncHistoryRequest, opts ...grpc.CallOption) (*ListPendingDPUServiceSyncsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListPendingDPUServiceSyncsResponse)
+	err := c.cc.Invoke(ctx, Forge_ListDPUServiceSyncHistory_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) ReleaseDPUServiceSyncHold(ctx context.Context, in *ReleaseDPUServiceSyncHoldRequest, opts ...grpc.CallOption) (*ReleaseDPUServiceSyncHoldResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReleaseDPUServiceSyncHoldResponse)
+	err := c.cc.Invoke(ctx, Forge_ReleaseDPUServiceSyncHold_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *forgeClient) ComponentPowerControl(ctx context.Context, in *ComponentPowerControlRequest, opts ...grpc.CallOption) (*ComponentPowerControlResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ComponentPowerControlResponse)
@@ -6181,8 +6311,11 @@ type ForgeServer interface {
 	FindPowerShelves(context.Context, *PowerShelfQuery) (*PowerShelfList, error)
 	FindPowerShelfIds(context.Context, *PowerShelfSearchFilter) (*PowerShelfIdList, error)
 	FindPowerShelvesByIds(context.Context, *PowerShelvesByIdsRequest) (*PowerShelfList, error)
+	// Starts the decommissioning workflow for a Ready managed power shelf.
+	DecommissionPowerShelf(context.Context, *DecommissionPowerShelfRequest) (*DecommissionPowerShelfResponse, error)
 	DeletePowerShelf(context.Context, *PowerShelfDeletionRequest) (*PowerShelfDeletionResult, error)
-	// Force deletes a Power Shelf and optionally its associated interfaces from the database.
+	// Force deletes a Power Shelf and optionally its associated interfaces
+	// and BMC suppressions from the database.
 	AdminForceDeletePowerShelf(context.Context, *AdminForceDeletePowerShelfRequest) (*AdminForceDeletePowerShelfResponse, error)
 	// Request a maintenance operation (PowerOn / PowerOff) for a Power Shelf.
 	// When the power shelf is in Ready state, the power shelf state controller
@@ -6193,6 +6326,9 @@ type ForgeServer interface {
 	FindSwitchIds(context.Context, *SwitchSearchFilter) (*SwitchIdList, error)
 	FindSwitchesByIds(context.Context, *SwitchesByIdsRequest) (*SwitchList, error)
 	DeleteSwitch(context.Context, *SwitchDeletionRequest) (*SwitchDeletionResult, error)
+	// Starts managed-switch decommissioning. The switch must be Ready and the
+	// Component Manager switch backend must be RMS.
+	DecommissionSwitch(context.Context, *DecommissionSwitchRequest) (*DecommissionSwitchResponse, error)
 	// Force deletes a Switch and optionally its associated interfaces from the database.
 	AdminForceDeleteSwitch(context.Context, *AdminForceDeleteSwitchRequest) (*AdminForceDeleteSwitchResponse, error)
 	// InfiniBand Fabrics
@@ -6299,6 +6435,7 @@ type ForgeServer interface {
 	FindPowerShelfStateHistories(context.Context, *PowerShelfStateHistoriesRequest) (*StateHistories, error)
 	FindRackStateHistories(context.Context, *RackStateHistoriesRequest) (*StateHistories, error)
 	FindSwitchStateHistories(context.Context, *SwitchStateHistoriesRequest) (*StateHistories, error)
+	FindSwitchHealthHistories(context.Context, *SwitchHealthHistoriesRequest) (*HealthHistories, error)
 	FindNetworkSegmentStateHistories(context.Context, *NetworkSegmentStateHistoriesRequest) (*StateHistories, error)
 	FindVpcPrefixStateHistories(context.Context, *VpcPrefixStateHistoriesRequest) (*StateHistories, error)
 	FindSitePrefixStateHistories(context.Context, *SitePrefixStateHistoriesRequest) (*StateHistories, error)
@@ -6386,6 +6523,8 @@ type ForgeServer interface {
 	// AdminForceDeleteMachine is a lower level admin tool for cases where there is no
 	// appropriate customer-facing workflow available or where those workflows fail.
 	AdminForceDeleteMachine(context.Context, *AdminForceDeleteMachineRequest) (*AdminForceDeleteMachineResponse, error)
+	// Starts the managed host decommissioning workflow. The host must be Ready.
+	DecommissionManagedHost(context.Context, *DecommissionManagedHostRequest) (*DecommissionManagedHostResponse, error)
 	// List existing resource pools and their stats
 	AdminListResourcePools(context.Context, *ListResourcePoolsRequest) (*ResourcePools, error)
 	// Add capacity to a resource pool
@@ -6697,6 +6836,8 @@ type ForgeServer interface {
 	OnDemandMachineValidation(context.Context, *MachineValidationOnDemandRequest) (*MachineValidationOnDemandResponse, error)
 	// On-demand rack maintenance (full rack or partial)
 	OnDemandRackMaintenance(context.Context, *RackMaintenanceOnDemandRequest) (*RackMaintenanceOnDemandResponse, error)
+	// Terminate active rack maintenance and transition the rack to Error.
+	TerminateRackMaintenance(context.Context, *RackMaintenanceTerminateRequest) (*RackMaintenanceTerminateResponse, error)
 	// TPM CA certs Management
 	// rpc TpmDeleteCaCert(TpmCaCertDetails) returns (google.protobuf.Empty);
 	TpmAddCaCert(context.Context, *TpmCaCert) (*TpmCaAddedCaStatus, error)
@@ -6929,6 +7070,26 @@ type ForgeServer interface {
 	// Helm/docker versions for the nico DPF mandatory services, from both
 	// the nico config and the live DPUServiceTemplate CRs.
 	GetDPFServiceVersions(context.Context, *GetDPFServiceVersionsRequest) (*DPFServiceVersionsResponse, error)
+	// Machines DPF is waiting on before a changed DPUService can roll out.
+	//
+	// Required rather than convenient: the release RPC has no fleet-wide form, so
+	// this is the only way to discover which machines to name. Split ids-then-
+	// details because a fleet-wide rollout can leave every host waiting at once,
+	// and the worklist must not become one unbounded response.
+	FindPendingDPUServiceSyncIds(context.Context, *FindPendingDPUServiceSyncIdsRequest) (*MachineIdList, error)
+	FindPendingDPUServiceSyncsByIds(context.Context, *FindPendingDPUServiceSyncsByIdsRequest) (*ListPendingDPUServiceSyncsResponse, error)
+	// One machine's recorded sync history, newest first. Needs no paging: the
+	// database caps retained history per machine.
+	ListDPUServiceSyncHistory(context.Context, *ListDPUServiceSyncHistoryRequest) (*ListPendingDPUServiceSyncsResponse, error)
+	// Release the DPF maintenance hold for named machines and complete their
+	// pending DPU service sync.
+	//
+	// Bypasses the host-state requirement nico applies to itself -- that is
+	// what strands a host which can never reach Ready, and a site that has turned
+	// the automatic rollout off. It does not bypass the DPU currency check: new
+	// services must never land on a DPU whose OS is about to be replaced, and that
+	// holds however the release was asked for.
+	ReleaseDPUServiceSyncHold(context.Context, *ReleaseDPUServiceSyncHoldRequest) (*ReleaseDPUServiceSyncHoldResponse, error)
 	// --- Component management (unified switch + power shelf operations) ---
 	ComponentPowerControl(context.Context, *ComponentPowerControlRequest) (*ComponentPowerControlResponse, error)
 	ComponentConfigureSwitchCertificate(context.Context, *ComponentConfigureSwitchCertificateRequest) (*ComponentConfigureSwitchCertificateResponse, error)
@@ -7103,6 +7264,9 @@ func (UnimplementedForgeServer) FindPowerShelfIds(context.Context, *PowerShelfSe
 func (UnimplementedForgeServer) FindPowerShelvesByIds(context.Context, *PowerShelvesByIdsRequest) (*PowerShelfList, error) {
 	return nil, status.Error(codes.Unimplemented, "method FindPowerShelvesByIds not implemented")
 }
+func (UnimplementedForgeServer) DecommissionPowerShelf(context.Context, *DecommissionPowerShelfRequest) (*DecommissionPowerShelfResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DecommissionPowerShelf not implemented")
+}
 func (UnimplementedForgeServer) DeletePowerShelf(context.Context, *PowerShelfDeletionRequest) (*PowerShelfDeletionResult, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeletePowerShelf not implemented")
 }
@@ -7123,6 +7287,9 @@ func (UnimplementedForgeServer) FindSwitchesByIds(context.Context, *SwitchesById
 }
 func (UnimplementedForgeServer) DeleteSwitch(context.Context, *SwitchDeletionRequest) (*SwitchDeletionResult, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteSwitch not implemented")
+}
+func (UnimplementedForgeServer) DecommissionSwitch(context.Context, *DecommissionSwitchRequest) (*DecommissionSwitchResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DecommissionSwitch not implemented")
 }
 func (UnimplementedForgeServer) AdminForceDeleteSwitch(context.Context, *AdminForceDeleteSwitchRequest) (*AdminForceDeleteSwitchResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method AdminForceDeleteSwitch not implemented")
@@ -7295,6 +7462,9 @@ func (UnimplementedForgeServer) FindRackStateHistories(context.Context, *RackSta
 func (UnimplementedForgeServer) FindSwitchStateHistories(context.Context, *SwitchStateHistoriesRequest) (*StateHistories, error) {
 	return nil, status.Error(codes.Unimplemented, "method FindSwitchStateHistories not implemented")
 }
+func (UnimplementedForgeServer) FindSwitchHealthHistories(context.Context, *SwitchHealthHistoriesRequest) (*HealthHistories, error) {
+	return nil, status.Error(codes.Unimplemented, "method FindSwitchHealthHistories not implemented")
+}
 func (UnimplementedForgeServer) FindNetworkSegmentStateHistories(context.Context, *NetworkSegmentStateHistoriesRequest) (*StateHistories, error) {
 	return nil, status.Error(codes.Unimplemented, "method FindNetworkSegmentStateHistories not implemented")
 }
@@ -7435,6 +7605,9 @@ func (UnimplementedForgeServer) UpdateMachineHardwareInfo(context.Context, *Upda
 }
 func (UnimplementedForgeServer) AdminForceDeleteMachine(context.Context, *AdminForceDeleteMachineRequest) (*AdminForceDeleteMachineResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method AdminForceDeleteMachine not implemented")
+}
+func (UnimplementedForgeServer) DecommissionManagedHost(context.Context, *DecommissionManagedHostRequest) (*DecommissionManagedHostResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DecommissionManagedHost not implemented")
 }
 func (UnimplementedForgeServer) AdminListResourcePools(context.Context, *ListResourcePoolsRequest) (*ResourcePools, error) {
 	return nil, status.Error(codes.Unimplemented, "method AdminListResourcePools not implemented")
@@ -7958,6 +8131,9 @@ func (UnimplementedForgeServer) OnDemandMachineValidation(context.Context, *Mach
 func (UnimplementedForgeServer) OnDemandRackMaintenance(context.Context, *RackMaintenanceOnDemandRequest) (*RackMaintenanceOnDemandResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method OnDemandRackMaintenance not implemented")
 }
+func (UnimplementedForgeServer) TerminateRackMaintenance(context.Context, *RackMaintenanceTerminateRequest) (*RackMaintenanceTerminateResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method TerminateRackMaintenance not implemented")
+}
 func (UnimplementedForgeServer) TpmAddCaCert(context.Context, *TpmCaCert) (*TpmCaAddedCaStatus, error) {
 	return nil, status.Error(codes.Unimplemented, "method TpmAddCaCert not implemented")
 }
@@ -8338,6 +8514,18 @@ func (UnimplementedForgeServer) GetDPFHostSnapshot(context.Context, *GetDPFHostS
 }
 func (UnimplementedForgeServer) GetDPFServiceVersions(context.Context, *GetDPFServiceVersionsRequest) (*DPFServiceVersionsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetDPFServiceVersions not implemented")
+}
+func (UnimplementedForgeServer) FindPendingDPUServiceSyncIds(context.Context, *FindPendingDPUServiceSyncIdsRequest) (*MachineIdList, error) {
+	return nil, status.Error(codes.Unimplemented, "method FindPendingDPUServiceSyncIds not implemented")
+}
+func (UnimplementedForgeServer) FindPendingDPUServiceSyncsByIds(context.Context, *FindPendingDPUServiceSyncsByIdsRequest) (*ListPendingDPUServiceSyncsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method FindPendingDPUServiceSyncsByIds not implemented")
+}
+func (UnimplementedForgeServer) ListDPUServiceSyncHistory(context.Context, *ListDPUServiceSyncHistoryRequest) (*ListPendingDPUServiceSyncsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListDPUServiceSyncHistory not implemented")
+}
+func (UnimplementedForgeServer) ReleaseDPUServiceSyncHold(context.Context, *ReleaseDPUServiceSyncHoldRequest) (*ReleaseDPUServiceSyncHoldResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReleaseDPUServiceSyncHold not implemented")
 }
 func (UnimplementedForgeServer) ComponentPowerControl(context.Context, *ComponentPowerControlRequest) (*ComponentPowerControlResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ComponentPowerControl not implemented")
@@ -9268,6 +9456,24 @@ func _Forge_FindPowerShelvesByIds_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_DecommissionPowerShelf_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DecommissionPowerShelfRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).DecommissionPowerShelf(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_DecommissionPowerShelf_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).DecommissionPowerShelf(ctx, req.(*DecommissionPowerShelfRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Forge_DeletePowerShelf_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(PowerShelfDeletionRequest)
 	if err := dec(in); err != nil {
@@ -9390,6 +9596,24 @@ func _Forge_DeleteSwitch_Handler(srv interface{}, ctx context.Context, dec func(
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ForgeServer).DeleteSwitch(ctx, req.(*SwitchDeletionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_DecommissionSwitch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DecommissionSwitchRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).DecommissionSwitch(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_DecommissionSwitch_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).DecommissionSwitch(ctx, req.(*DecommissionSwitchRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -10420,6 +10644,24 @@ func _Forge_FindSwitchStateHistories_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_FindSwitchHealthHistories_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SwitchHealthHistoriesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).FindSwitchHealthHistories(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_FindSwitchHealthHistories_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).FindSwitchHealthHistories(ctx, req.(*SwitchHealthHistoriesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Forge_FindNetworkSegmentStateHistories_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(NetworkSegmentStateHistoriesRequest)
 	if err := dec(in); err != nil {
@@ -11262,6 +11504,24 @@ func _Forge_AdminForceDeleteMachine_Handler(srv interface{}, ctx context.Context
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ForgeServer).AdminForceDeleteMachine(ctx, req.(*AdminForceDeleteMachineRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_DecommissionManagedHost_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DecommissionManagedHostRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).DecommissionManagedHost(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_DecommissionManagedHost_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).DecommissionManagedHost(ctx, req.(*DecommissionManagedHostRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -14398,6 +14658,24 @@ func _Forge_OnDemandRackMaintenance_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_TerminateRackMaintenance_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RackMaintenanceTerminateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).TerminateRackMaintenance(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_TerminateRackMaintenance_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).TerminateRackMaintenance(ctx, req.(*RackMaintenanceTerminateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Forge_TpmAddCaCert_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(TpmCaCert)
 	if err := dec(in); err != nil {
@@ -16673,6 +16951,78 @@ func _Forge_GetDPFServiceVersions_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_FindPendingDPUServiceSyncIds_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FindPendingDPUServiceSyncIdsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).FindPendingDPUServiceSyncIds(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_FindPendingDPUServiceSyncIds_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).FindPendingDPUServiceSyncIds(ctx, req.(*FindPendingDPUServiceSyncIdsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_FindPendingDPUServiceSyncsByIds_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FindPendingDPUServiceSyncsByIdsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).FindPendingDPUServiceSyncsByIds(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_FindPendingDPUServiceSyncsByIds_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).FindPendingDPUServiceSyncsByIds(ctx, req.(*FindPendingDPUServiceSyncsByIdsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_ListDPUServiceSyncHistory_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListDPUServiceSyncHistoryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).ListDPUServiceSyncHistory(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_ListDPUServiceSyncHistory_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).ListDPUServiceSyncHistory(ctx, req.(*ListDPUServiceSyncHistoryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_ReleaseDPUServiceSyncHold_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReleaseDPUServiceSyncHoldRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).ReleaseDPUServiceSyncHold(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_ReleaseDPUServiceSyncHold_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).ReleaseDPUServiceSyncHold(ctx, req.(*ReleaseDPUServiceSyncHoldRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Forge_ComponentPowerControl_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ComponentPowerControlRequest)
 	if err := dec(in); err != nil {
@@ -17143,6 +17493,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Forge_FindPowerShelvesByIds_Handler,
 		},
 		{
+			MethodName: "DecommissionPowerShelf",
+			Handler:    _Forge_DecommissionPowerShelf_Handler,
+		},
+		{
 			MethodName: "DeletePowerShelf",
 			Handler:    _Forge_DeletePowerShelf_Handler,
 		},
@@ -17169,6 +17523,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteSwitch",
 			Handler:    _Forge_DeleteSwitch_Handler,
+		},
+		{
+			MethodName: "DecommissionSwitch",
+			Handler:    _Forge_DecommissionSwitch_Handler,
 		},
 		{
 			MethodName: "AdminForceDeleteSwitch",
@@ -17399,6 +17757,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Forge_FindSwitchStateHistories_Handler,
 		},
 		{
+			MethodName: "FindSwitchHealthHistories",
+			Handler:    _Forge_FindSwitchHealthHistories_Handler,
+		},
+		{
 			MethodName: "FindNetworkSegmentStateHistories",
 			Handler:    _Forge_FindNetworkSegmentStateHistories_Handler,
 		},
@@ -17585,6 +17947,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AdminForceDeleteMachine",
 			Handler:    _Forge_AdminForceDeleteMachine_Handler,
+		},
+		{
+			MethodName: "DecommissionManagedHost",
+			Handler:    _Forge_DecommissionManagedHost_Handler,
 		},
 		{
 			MethodName: "AdminListResourcePools",
@@ -18283,6 +18649,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Forge_OnDemandRackMaintenance_Handler,
 		},
 		{
+			MethodName: "TerminateRackMaintenance",
+			Handler:    _Forge_TerminateRackMaintenance_Handler,
+		},
+		{
 			MethodName: "TpmAddCaCert",
 			Handler:    _Forge_TpmAddCaCert_Handler,
 		},
@@ -18785,6 +19155,22 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetDPFServiceVersions",
 			Handler:    _Forge_GetDPFServiceVersions_Handler,
+		},
+		{
+			MethodName: "FindPendingDPUServiceSyncIds",
+			Handler:    _Forge_FindPendingDPUServiceSyncIds_Handler,
+		},
+		{
+			MethodName: "FindPendingDPUServiceSyncsByIds",
+			Handler:    _Forge_FindPendingDPUServiceSyncsByIds_Handler,
+		},
+		{
+			MethodName: "ListDPUServiceSyncHistory",
+			Handler:    _Forge_ListDPUServiceSyncHistory_Handler,
+		},
+		{
+			MethodName: "ReleaseDPUServiceSyncHold",
+			Handler:    _Forge_ReleaseDPUServiceSyncHold_Handler,
 		},
 		{
 			MethodName: "ComponentPowerControl",

@@ -5,522 +5,493 @@ package processor
 
 import (
 	"context"
-	"errors"
-	"sync"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
 	eventexecutor "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/executor"
 	memorystore "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/store/memory"
+	eventtarget "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/target"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/deviceinfo"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/location"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/component"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/rack"
-	flowtypes "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/require"
 )
 
-const (
-	runtimeMaxExecutionAttempts = 3
-	runtimeInitialRetryDelay    = time.Second
-)
-
-func TestProcessor_Process(t *testing.T) {
-	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
-	rackID := uuid.New()
-	tests := map[string]struct {
-		rule             *eventrule.Rule
-		targets          []eventexecutor.Target
-		targetErr        error
-		executorErr      error
-		wantErr          error
-		wantStatus       eventrule.ExecutionStatus
-		wantReason       eventrule.ExecutionReason
-		wantExecutions   int
-		wantExecutorRuns int
-	}{
-		"no effective rule is accepted": {},
-		"condition skip creates no execution": {
-			rule: processorRuntimeRule(eventrule.NewAction(
-				"skip",
-				eventrule.ActionCondition{
-					ComponentTypes: []flowtypes.ComponentType{flowtypes.ComponentTypeNVSwitch},
-				},
-				eventrule.Noop{},
-			)),
-		},
-		"noop completes": {
-			rule:             processorRuntimeRule(noopAction("noop")),
-			wantStatus:       eventrule.ExecutionStatusCompleted,
-			wantExecutions:   1,
-			wantExecutorRuns: 1,
-		},
-		"no targets skips submit": {
-			rule:           processorRuntimeRule(submitAction("submit")),
-			wantStatus:     eventrule.ExecutionStatusSkipped,
-			wantReason:     eventrule.ExecutionReasonNoTargets,
-			wantExecutions: 1,
-		},
-		"terminal target error produces failed outcome": {
-			rule:           processorRuntimeRule(submitAction("submit")),
-			targetErr:      terminalError(errors.New("invalid topology")),
-			wantStatus:     eventrule.ExecutionStatusFailed,
-			wantExecutions: 1,
-		},
-		"retryable executor error schedules retry": {
-			rule:             processorRuntimeRule(noopAction("noop")),
-			executorErr:      errors.New("alert service unavailable"),
-			wantStatus:       eventrule.ExecutionStatusDeferred,
-			wantReason:       eventrule.ExecutionReasonAttemptFailed,
-			wantExecutions:   1,
-			wantExecutorRuns: 1,
-		},
-	}
-
-	for name, test := range tests {
-		t.Run(name, func(t *testing.T) {
-			store := memorystore.New()
-			var executorRuns int
-			processor := runtimeProcessor(
-				t,
-				rackID,
-				test.rule,
-				store,
-				targetResolverFunc(func(
-					context.Context,
-					eventexecutor.TargetRequest,
-				) ([]eventexecutor.Target, error) {
-					return test.targets, test.targetErr
-				}),
-				actionExecutorFunc(func(
-					context.Context,
-					eventexecutor.ExecutionRequest,
-				) (string, error) {
-					executorRuns++
-					return "result-1", test.executorErr
-				}),
-				&now,
-			)
-
-			err := processor.Process(context.Background(), runtimeEnvelope(rackID))
-			if test.wantErr == nil {
-				require.NoError(t, err)
-			} else {
-				require.ErrorContains(t, err, test.wantErr.Error())
-				if errors.Is(test.wantErr, ErrTerminal) {
-					require.ErrorIs(t, err, ErrTerminal)
-				}
-			}
-			require.Equal(t, test.wantExecutorRuns, executorRuns)
-			executions, err := store.Executions()
-			require.NoError(t, err)
-			require.Len(t, executions, test.wantExecutions)
-			if test.wantExecutions > 0 {
-				require.Equal(t, test.wantStatus, executions[0].Status)
-				require.Equal(t, test.wantReason, executions[0].Reason)
-			}
-		})
-	}
-
-	t.Run("deduplication", testProcessDeduplication)
-	t.Run("retries and exhausts", testProcessRetriesAndExhausts)
-	t.Run("processes actions independently", testProcessProcessesActionsIndependently)
-	t.Run("concurrent duplicate executes once", testProcessConcurrentDuplicateExecutesOnce)
-}
-
-func testProcessDeduplication(t *testing.T) {
-	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
-	rackID := uuid.New()
-	tests := map[string]struct {
-		dedupe        *eventrule.Dedupe
-		secondEventID uuid.UUID
-	}{
-		"delivery duplicate without semantic dedupe": {},
-		"semantic duplicate across event IDs": {
-			dedupe:        &eventrule.Dedupe{Window: time.Minute},
-			secondEventID: uuid.New(),
-		},
-	}
-
-	for name, test := range tests {
-		t.Run(name, func(t *testing.T) {
-			store := memorystore.New()
-			rule := processorRuntimeRule(noopAction("noop"))
-			rule.Dedupe = test.dedupe
-			var runs int
-			processor := runtimeProcessor(
-				t, rackID, rule, store, nil,
-				actionExecutorFunc(func(context.Context, eventexecutor.ExecutionRequest) (string, error) {
-					runs++
-					return "", nil
-				}),
-				&now,
-			)
-			first := runtimeEnvelope(rackID)
-			first.CorrelationKey = "incident-1"
-			second := first
-			if test.secondEventID != uuid.Nil {
-				second.ID = test.secondEventID
-			}
-
-			require.NoError(t, processor.Process(context.Background(), first))
-			require.NoError(t, processor.Process(context.Background(), second))
-			require.Equal(t, 1, runs)
-			executions, err := store.Executions()
-			require.NoError(t, err)
-			require.Len(t, executions, 1)
-			require.Equal(t, 2, executions[0].Observations)
-		})
-	}
-}
-
-func testProcessRetriesAndExhausts(t *testing.T) {
-	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
+func TestProcessorProcessPersistsEventBeforeDispatch(t *testing.T) {
 	rackID := uuid.New()
 	store := memorystore.New()
-	executorErr := errors.New("downstream unavailable")
-	processor := runtimeProcessor(
-		t, rackID, processorRuntimeRule(noopAction("noop")), store, nil,
-		actionExecutorFunc(func(context.Context, eventexecutor.ExecutionRequest) (string, error) {
-			return "", executorErr
-		}),
-		&now,
+	rule := processorRuntimeRule(
+		noopAction("always"),
+		conditionalNoopAction("critical", eventrule.SeverityCritical),
 	)
-	envelope := runtimeEnvelope(rackID)
-
-	for attempt := 1; attempt <= runtimeMaxExecutionAttempts; attempt++ {
-		err := processor.Process(context.Background(), envelope)
-		require.NoError(t, err)
-		executions, snapshotsErr := store.Executions()
-		require.NoError(t, snapshotsErr)
-		execution := executions[0]
-		require.Equal(t, attempt, execution.Attempts)
-		if attempt < runtimeMaxExecutionAttempts {
-			require.Equal(t, eventrule.ExecutionStatusDeferred, execution.Status)
-			require.Equal(
-				t,
-				now.Add(runtimeRetryDelay(attempt)),
-				execution.NextAttemptAt,
-			)
-			earlyErr := processor.Process(context.Background(), envelope)
-			require.ErrorIs(t, earlyErr, eventrule.ErrRetryScheduled)
-			executions, snapshotsErr = store.Executions()
-			require.NoError(t, snapshotsErr)
-			require.Equal(t, attempt, executions[0].Attempts)
-			now = execution.NextAttemptAt
-		} else {
-			require.Equal(t, eventrule.ExecutionStatusFailed, execution.Status)
-		}
-	}
-}
-
-func testProcessProcessesActionsIndependently(t *testing.T) {
-	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
-	rackID := uuid.New()
-	store := memorystore.New()
-	firstErr := errors.New("first action unavailable")
-	var executed []string
+	var received []eventrule.Execution
 	processor := runtimeProcessor(
 		t,
-		rackID,
-		processorRuntimeRule(noopAction("first"), noopAction("second")),
+		processorInventoryWithRack(rackID),
+		rule,
 		store,
-		nil,
-		actionExecutorFunc(func(
-			_ context.Context,
-			request eventexecutor.ExecutionRequest,
-		) (string, error) {
-			executed = append(executed, request.Action.ID)
-			if request.Action.ID == "first" {
-				return "", firstErr
-			}
-			return "", nil
+		defaultTargetResolver(rackID),
+		executorFunc(func(_ context.Context, request eventexecutor.ExecutionRequest) error {
+			received = append(received, request.Execution.Clone())
+			events, err := store.Events()
+			require.NoError(t, err)
+			require.NotNil(t, events[0].PlannedAt)
+			return nil
 		}),
-		&now,
 	)
 
-	err := processor.Process(context.Background(), runtimeEnvelope(rackID))
-	require.NoError(t, err)
-	require.Equal(t, []string{"first", "second"}, executed)
-	executions, snapshotsErr := store.Executions()
-	require.NoError(t, snapshotsErr)
-	require.Len(t, executions, 2)
-	statuses := make(map[string]eventrule.ExecutionStatus, len(executions))
-	for _, execution := range executions {
-		statuses[execution.ActionID] = execution.Status
-	}
-	require.Equal(t, eventrule.ExecutionStatusDeferred, statuses["first"])
-	require.Equal(t, eventrule.ExecutionStatusCompleted, statuses["second"])
-}
-
-func testProcessConcurrentDuplicateExecutesOnce(t *testing.T) {
-	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
-	rackID := uuid.New()
-	store := memorystore.New()
-	entered := make(chan struct{})
-	release := make(chan struct{})
-	var runs atomic.Int32
-	processor := runtimeProcessor(
-		t, rackID, processorRuntimeRule(noopAction("noop")), store, nil,
-		actionExecutorFunc(func(context.Context, eventexecutor.ExecutionRequest) (string, error) {
-			if runs.Add(1) == 1 {
-				close(entered)
-			}
-			<-release
-			return "", nil
-		}),
-		&now,
-	)
 	envelope := runtimeEnvelope(rackID)
+	envelope.Severity = eventrule.SeverityInfo
+	envelope.Payload = []byte(`{"secret":"must-not-be-persisted"}`)
+	require.NoError(t, processor.Process(context.Background(), envelope))
 
-	const deliveries = 20
-	start := make(chan struct{})
-	errs := make(chan error, deliveries)
-	var wg sync.WaitGroup
-	for range deliveries {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			<-start
-			errs <- processor.Process(context.Background(), envelope)
-		}()
-	}
-	close(start)
-	<-entered
-	close(release)
-	wg.Wait()
-	close(errs)
-	for err := range errs {
-		require.NoError(t, err)
-	}
-	require.Equal(t, int32(1), runs.Load())
+	events, err := store.Events()
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	require.Equal(t, envelope.Key, events[0].Key)
+	require.Equal(t, eventrule.ResourceIdentity{Kind: eventrule.ResourceKindRack, ID: rackID}, events[0].Resource)
+	require.Equal(t, rule.ID, events[0].AppliedRuleID)
+	require.Len(t, events[0].EffectivePolicy.Actions, 1)
+	require.NotNil(t, events[0].PlannedAt)
+	require.NotContains(t, events[0].Summary, string(envelope.Payload))
+
 	executions, err := store.Executions()
 	require.NoError(t, err)
 	require.Len(t, executions, 1)
+	require.Equal(t, "always", executions[0].ActionName)
+	require.IsType(t, &eventrule.NoopPlan{}, executions[0].Plan)
+	require.Equal(t, eventrule.ExecutionStatusCompleted, executions[0].Status)
+	require.Len(t, received, 1)
+}
+
+func TestProcessorProcessDeduplicatesAtEventBoundary(t *testing.T) {
+	t.Run("planned duplicate records observation and stops", func(t *testing.T) {
+		rackID := uuid.New()
+		store := memorystore.New()
+		ruleCalls := 0
+		executorCalls := 0
+		rules := ruleResolverFunc(func(context.Context, eventrule.Type, uuid.UUID) (*eventrule.Rule, error) {
+			ruleCalls++
+			return processorRuntimeRule(noopAction("once")), nil
+		})
+		processor := runtimeProcessorWithRules(
+			t,
+			processorInventoryWithRack(rackID),
+			rules,
+			store,
+			defaultTargetResolver(rackID),
+			executorFunc(func(context.Context, eventexecutor.ExecutionRequest) error {
+				executorCalls++
+				return nil
+			}),
+		)
+		envelope := runtimeEnvelope(rackID)
+		require.NoError(t, processor.Process(context.Background(), envelope))
+		require.NoError(t, processor.Process(context.Background(), envelope))
+
+		require.Equal(t, 1, ruleCalls)
+		require.Equal(t, 1, executorCalls)
+		events, err := store.Events()
+		require.NoError(t, err)
+		require.Equal(t, 2, events[0].Observations)
+	})
+
+	t.Run("duplicate does not take over active creator planning", func(t *testing.T) {
+		rackID := uuid.New()
+		store := memorystore.New()
+		enteredPlanning := make(chan struct{})
+		releasePlanning := make(chan struct{})
+		executions := &blockingExecutionStore{
+			ExecutionStore: store,
+			entered:        enteredPlanning,
+			release:        releasePlanning,
+		}
+		executorCalls := 0
+		processor, err := New(Config{
+			Inventory: processorInventoryWithRack(rackID),
+			Rules: ruleResolverFunc(func(context.Context, eventrule.Type, uuid.UUID) (*eventrule.Rule, error) {
+				return processorRuntimeRule(noopAction("once")), nil
+			}),
+			Events:     store,
+			Executions: executions,
+			Targets:    targetRegistry(t, defaultTargetResolver(rackID)),
+			Executors: executorRegistry(t, executorFunc(func(context.Context, eventexecutor.ExecutionRequest) error {
+				executorCalls++
+				return nil
+			})),
+		})
+		require.NoError(t, err)
+
+		envelope := runtimeEnvelope(rackID)
+		creatorResult := make(chan error, 1)
+		go func() {
+			creatorResult <- processor.Process(context.Background(), envelope)
+		}()
+
+		select {
+		case <-enteredPlanning:
+		case <-time.After(5 * time.Second):
+			close(releasePlanning)
+			t.Fatal("creator did not reach execution planning")
+		}
+
+		duplicateErr := processor.Process(context.Background(), envelope)
+		eventsBeforeRelease, eventsErr := store.Events()
+		executionsBeforeRelease, executionsErr := store.Executions()
+		executorCallsBeforeRelease := executorCalls
+		close(releasePlanning)
+
+		var creatorErr error
+		select {
+		case creatorErr = <-creatorResult:
+		case <-time.After(5 * time.Second):
+			t.Fatal("creator did not finish execution planning")
+		}
+
+		require.NoError(t, duplicateErr)
+		require.NoError(t, creatorErr)
+		require.NoError(t, eventsErr)
+		require.Len(t, eventsBeforeRelease, 1)
+		require.Nil(t, eventsBeforeRelease[0].PlannedAt)
+		require.Equal(t, 2, eventsBeforeRelease[0].Observations)
+		require.NoError(t, executionsErr)
+		require.Empty(t, executionsBeforeRelease)
+		require.Zero(t, executorCallsBeforeRelease)
+
+		storedExecutions, err := store.Executions()
+		require.NoError(t, err)
+		require.Len(t, storedExecutions, 1)
+		require.Equal(t, 1, executorCalls)
+	})
+
+	t.Run("concurrent event creation loser stops", func(t *testing.T) {
+		rackID := uuid.New()
+		store := memorystore.New()
+		events := &concurrentWinnerEventStore{EventStore: store}
+		executorCalls := 0
+		processor, err := New(Config{
+			Inventory: processorInventoryWithRack(rackID),
+			Rules: ruleResolverFunc(func(context.Context, eventrule.Type, uuid.UUID) (*eventrule.Rule, error) {
+				return processorRuntimeRule(noopAction("once")), nil
+			}),
+			Events:     events,
+			Executions: store,
+			Targets:    targetRegistry(t, defaultTargetResolver(rackID)),
+			Executors: executorRegistry(t, executorFunc(func(context.Context, eventexecutor.ExecutionRequest) error {
+				executorCalls++
+				return nil
+			})),
+		})
+		require.NoError(t, err)
+
+		require.NoError(t, processor.Process(context.Background(), runtimeEnvelope(rackID)))
+
+		storedEvents, err := store.Events()
+		require.NoError(t, err)
+		require.Len(t, storedEvents, 1)
+		require.Equal(t, 2, storedEvents[0].Observations)
+		require.Nil(t, storedEvents[0].PlannedAt)
+		storedExecutions, err := store.Executions()
+		require.NoError(t, err)
+		require.Empty(t, storedExecutions)
+		require.Zero(t, executorCalls)
+	})
+}
+
+func TestProcessorProcessPersistsEmptyEffectivePolicy(t *testing.T) {
+	rackID := uuid.New()
+	store := memorystore.New()
+	processor := runtimeProcessor(
+		t,
+		processorInventoryWithRack(rackID),
+		processorRuntimeRule(conditionalNoopAction("critical", eventrule.SeverityCritical)),
+		store,
+		defaultTargetResolver(rackID),
+		executorFunc(func(context.Context, eventexecutor.ExecutionRequest) error {
+			t.Fatal("empty effective policy must not dispatch")
+			return nil
+		}),
+	)
+	envelope := runtimeEnvelope(rackID)
+	envelope.Severity = eventrule.SeverityInfo
+	require.NoError(t, processor.Process(context.Background(), envelope))
+
+	events, err := store.Events()
+	require.NoError(t, err)
+	require.Empty(t, events[0].EffectivePolicy.Actions)
+	require.NotNil(t, events[0].PlannedAt)
+	executions, err := store.Executions()
+	require.NoError(t, err)
+	require.Empty(t, executions)
+}
+
+func TestProcessorPlansConcreteSubmitTaskTargets(t *testing.T) {
+	rackID := uuid.New()
+	computeID := uuid.New()
+	nvSwitchID := uuid.New()
+	resolvedRack := rack.New(deviceinfo.DeviceInfo{ID: rackID}, location.Location{})
+	resolvedRack.Components = []component.Component{
+		component.New(devicetypes.ComponentTypeNVSwitch, &deviceinfo.DeviceInfo{ID: nvSwitchID}, "", nil),
+		component.New(devicetypes.ComponentTypeCompute, &deviceinfo.DeviceInfo{ID: computeID}, "", nil),
+	}
+	store := memorystore.New()
+	processor := runtimeProcessor(
+		t,
+		&processorInventory{rack: resolvedRack},
+		processorRuntimeRule(submitAction("power_off")),
+		store,
+		defaultTargetResolver(rackID),
+		executorFunc(func(context.Context, eventexecutor.ExecutionRequest) error { return nil }),
+	)
+	require.NoError(t, processor.Process(context.Background(), runtimeEnvelope(rackID)))
+
+	executions, err := store.Executions()
+	require.NoError(t, err)
+	plan := executions[0].Plan.(*eventrule.SubmitTaskPlan)
+	require.Equal(t, operations.PowerOperationForcePowerOff.CodeString(), plan.Operation.Code)
+	require.Equal(t, "ForcePowerOff, forced false", plan.Description)
+	require.Len(t, plan.Targets, 1)
+	require.Equal(t, rackID, plan.Targets[0].RackID)
+	require.Equal(t, []uuid.UUID{computeID}, plan.Targets[0].ComponentsByType[devicetypes.ComponentTypeCompute])
+	require.Equal(t, []uuid.UUID{nvSwitchID}, plan.Targets[0].ComponentsByType[devicetypes.ComponentTypeNVSwitch])
+}
+
+func TestProcessorPersistsNoTargetExecutionAsSkipped(t *testing.T) {
+	rackID := uuid.New()
+	store := memorystore.New()
+	processor := runtimeProcessor(
+		t,
+		processorInventoryWithRack(rackID),
+		processorRuntimeRule(submitAction("power_off")),
+		store,
+		&testTargetResolver{},
+		executorFunc(func(context.Context, eventexecutor.ExecutionRequest) error {
+			t.Fatal("no-target execution must not reach executor")
+			return nil
+		}),
+	)
+	require.NoError(t, processor.Process(context.Background(), runtimeEnvelope(rackID)))
+	executions, err := store.Executions()
+	require.NoError(t, err)
+	require.Equal(t, eventrule.ExecutionStatusSkipped, executions[0].Status)
+	require.Equal(t, eventrule.ExecutionReasonNoTargets, executions[0].Reason)
 }
 
 func runtimeProcessor(
 	t *testing.T,
-	rackID uuid.UUID,
+	inventory *processorInventory,
 	rule *eventrule.Rule,
-	store eventrule.ExecutionStore,
-	targets eventexecutor.TargetResolver,
-	execute actionExecutorFunc,
-	now *time.Time,
+	store *memorystore.Store,
+	targets eventtarget.Resolver,
+	execute eventexecutor.Executor,
 ) *Processor {
 	t.Helper()
-	if targets == nil {
-		targets = targetResolverFunc(func(
-			context.Context,
-			eventexecutor.TargetRequest,
-		) ([]eventexecutor.Target, error) {
-			return nil, nil
-		})
-	}
-	resolver := ruleResolverFunc(func(
+	return runtimeProcessorWithRules(t, inventory, ruleResolverFunc(func(
 		context.Context,
 		eventrule.Type,
 		uuid.UUID,
 	) (*eventrule.Rule, error) {
 		return rule, nil
-	})
-	processor, err := New(Config{
-		Inventory: &processorInventory{
-			rack: rack.New(deviceinfo.DeviceInfo{ID: rackID}, location.Location{}),
-		},
-		Rules:      resolver,
-		Executions: store,
-		Executor: runtimeExecutor{
-			targets: targets,
-			execute: execute,
-			now:     now,
-		},
-		Clock: func() time.Time { return *now },
-	})
-	require.NoError(t, err)
-	return processor
+	}), store, targets, execute)
 }
 
-func newTestProcessor(
+func runtimeProcessorWithRules(
 	t *testing.T,
 	inventory *processorInventory,
 	rules RuleResolver,
+	store *memorystore.Store,
+	targets eventtarget.Resolver,
+	execute eventexecutor.Executor,
 ) *Processor {
 	t.Helper()
-	if rules == nil {
-		rules = ruleResolverFunc(func(
-			context.Context,
-			eventrule.Type,
-			uuid.UUID,
-		) (*eventrule.Rule, error) {
-			return nil, nil
-		})
-	}
 	processor, err := New(Config{
 		Inventory:  inventory,
 		Rules:      rules,
-		Executions: memorystore.New(),
-		Executor: runtimeExecutor{
-			targets: targetResolverFunc(func(
-				context.Context,
-				eventexecutor.TargetRequest,
-			) ([]eventexecutor.Target, error) {
-				return nil, nil
-			}),
-			execute: func(context.Context, eventexecutor.ExecutionRequest) (string, error) {
-				return "", nil
-			},
-		},
+		Events:     store,
+		Executions: store,
+		Targets:    targetRegistry(t, targets),
+		Executors:  executorRegistry(t, execute),
 	})
 	require.NoError(t, err)
 	return processor
 }
 
-func processorRuntimeRule(actions ...eventrule.Action) *eventrule.Rule {
-	return &eventrule.Rule{
-		ID:        uuid.New(),
-		EventType: "test.event",
-		Policy:    eventrule.Policy{Actions: actions},
+func newTestProcessor(t *testing.T, inventory *processorInventory, rules RuleResolver) *Processor {
+	t.Helper()
+	if rules == nil {
+		rules = ruleResolverFunc(func(context.Context, eventrule.Type, uuid.UUID) (*eventrule.Rule, error) {
+			return nil, nil
+		})
 	}
+	store := memorystore.New()
+	return runtimeProcessorWithRules(
+		t,
+		inventory,
+		rules,
+		store,
+		defaultTargetResolver(uuid.New()),
+		executorFunc(func(context.Context, eventexecutor.ExecutionRequest) error { return nil }),
+	)
+}
+
+func processorRuntimeRule(actions ...eventrule.Action) *eventrule.Rule {
+	return &eventrule.Rule{ID: uuid.New(), EventType: "test.event", Policy: eventrule.Policy{Actions: actions}}
 }
 
 func runtimeEnvelope(rackID uuid.UUID) eventrule.Envelope {
 	return eventrule.Envelope{
-		ID:       uuid.New(),
+		Key:      eventrule.EventKey{SourceName: "test", SourceKey: uuid.NewString()},
 		Type:     "test.event",
 		Resource: eventrule.Resource{Kind: eventrule.ResourceKindRack, ID: rackID},
 	}
 }
 
-func noopAction(id string) eventrule.Action {
-	return eventrule.NewAction(id, eventrule.ActionCondition{}, eventrule.Noop{})
+func noopAction(name string) eventrule.Action {
+	return eventrule.Action{Name: name, Spec: &eventrule.Noop{}}
 }
 
-func submitAction(id string) eventrule.Action {
-	return eventrule.NewAction(id, eventrule.ActionCondition{}, eventrule.SubmitTask{})
+func conditionalNoopAction(name string, severity eventrule.Severity) eventrule.Action {
+	return eventrule.Action{
+		Name:      name,
+		Condition: eventrule.ActionCondition{Severities: []eventrule.Severity{severity}},
+		Spec:      &eventrule.Noop{},
+	}
 }
 
-type targetResolverFunc func(
-	context.Context,
-	eventexecutor.TargetRequest,
-) ([]eventexecutor.Target, error)
+func submitAction(name string) eventrule.Action {
+	return eventrule.Action{Name: name, Spec: &eventrule.SubmitTask{
+		Operation:        &operations.PowerControlTaskInfo{Operation: operations.PowerOperationForcePowerOff},
+		TargetStrategy:   eventrule.TargetStrategyRack,
+		ConflictStrategy: eventrule.ConflictStrategyQueue,
+	}}
+}
 
-func (f targetResolverFunc) ResolveTargets(
-	ctx context.Context,
-	request eventexecutor.TargetRequest,
-) ([]eventexecutor.Target, error) {
+func targetRegistry(t *testing.T, resolver eventtarget.Resolver) *eventtarget.Registry {
+	t.Helper()
+	registry := eventtarget.New()
+	require.NoError(t, registry.Register("test.event", eventrule.TargetStrategyRack, resolver))
+	return registry
+}
+
+func defaultTargetResolver(rackID uuid.UUID) eventtarget.Resolver {
+	return &testTargetResolver{targets: []eventtarget.Target{{
+		Kind:   eventrule.ResourceKindRack,
+		ID:     rackID,
+		RackID: rackID,
+	}}}
+}
+
+type testTargetResolver struct {
+	targets []eventtarget.Target
+	err     error
+}
+
+func (r *testTargetResolver) Resolve(context.Context, eventtarget.ResolveRequest) ([]eventtarget.Target, error) {
+	return r.targets, r.err
+}
+
+type executorFunc func(context.Context, eventexecutor.ExecutionRequest) error
+
+func (f executorFunc) Execute(ctx context.Context, request eventexecutor.ExecutionRequest) error {
 	return f(ctx, request)
 }
 
-type actionExecutorFunc func(context.Context, eventexecutor.ExecutionRequest) (string, error)
-
-type runtimeExecutor struct {
-	targets eventexecutor.TargetResolver
-	execute actionExecutorFunc
-	now     *time.Time
+type blockingExecutionStore struct {
+	eventrule.ExecutionStore
+	blocked atomic.Bool
+	entered chan struct{}
+	release chan struct{}
 }
 
-func (e runtimeExecutor) Prepare(
+func (s *blockingExecutionStore) CommitEventPlan(
 	ctx context.Context,
-	request eventexecutor.PrepareRequest,
-) (eventexecutor.PreparationResult, error) {
-	var targets []eventexecutor.Target
-	if request.Action.Spec.Type() == eventrule.ActionTypeSubmitTask {
-		task := request.Action.Spec.(eventrule.SubmitTask)
-		var err error
-		targets, err = e.targets.ResolveTargets(ctx, eventexecutor.TargetRequest{
-			EventType: request.Envelope.Type,
-			Payload:   request.Envelope.Payload,
-			Resource:  request.Resource,
-			Task:      task,
-		})
-		if err != nil {
-			outcome := e.failureOutcome(request.Execution, err)
-			return eventexecutor.PreparationResult{Outcome: &outcome}, nil
-		}
-		if len(targets) == 0 {
-			outcome := eventrule.ExecutionState{
-				Status: eventrule.ExecutionStatusSkipped,
-				Reason: eventrule.ExecutionReasonNoTargets,
-			}
-			return eventexecutor.PreparationResult{Outcome: &outcome}, nil
+	eventID uuid.UUID,
+	planned []eventrule.PlannedExecution,
+) ([]eventrule.Execution, error) {
+	if s.blocked.CompareAndSwap(false, true) {
+		close(s.entered)
+		select {
+		case <-s.release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		}
 	}
-
-	return eventexecutor.PreparationResult{Request: &eventexecutor.ExecutionRequest{
-		Execution: request.Execution,
-		Action:    request.Action,
-		Targets:   targets,
-	}}, nil
+	return s.ExecutionStore.CommitEventPlan(ctx, eventID, planned)
 }
 
-func (e runtimeExecutor) Execute(
+type concurrentWinnerEventStore struct {
+	eventrule.EventStore
+}
+
+func (*concurrentWinnerEventStore) ObserveEvent(
+	context.Context,
+	eventrule.EventKey,
+) (*eventrule.Event, error) {
+	return nil, nil
+}
+
+func (s *concurrentWinnerEventStore) CreateEvent(
 	ctx context.Context,
-	request eventexecutor.ExecutionRequest,
-) (eventrule.ExecutionState, error) {
-	_, err := e.execute(ctx, request)
-	if err != nil {
-		return e.failureOutcome(request.Execution, err), nil
+	definition eventrule.Event,
+) (*eventrule.Event, error) {
+	winner, err := s.EventStore.CreateEvent(ctx, definition)
+	if err != nil || winner == nil {
+		return nil, err
 	}
-
-	status := eventrule.ExecutionStatusCompleted
-	if request.Action.Spec.Type() == eventrule.ActionTypeSubmitTask {
-		status = eventrule.ExecutionStatusSubmitted
-	}
-	return eventrule.ExecutionState{Status: status}, nil
+	return s.EventStore.CreateEvent(ctx, definition)
 }
 
-func (e runtimeExecutor) failureOutcome(
-	execution eventrule.Execution,
-	cause error,
-) eventrule.ExecutionState {
-	if errors.Is(cause, ErrTerminal) ||
-		execution.Attempts >= runtimeMaxExecutionAttempts {
-		return eventrule.ExecutionState{
-			Status:        eventrule.ExecutionStatusFailed,
-			StatusMessage: cause.Error(),
-		}
+type executorLookup map[eventrule.ActionType]eventexecutor.Executor
+
+func (r executorLookup) Executor(
+	actionType eventrule.ActionType,
+) (eventexecutor.Executor, error) {
+	actionExecutor, ok := r[actionType]
+	if !ok {
+		return nil, fmt.Errorf("no executor registered for action type %q", actionType)
 	}
 
-	now := time.Now()
-	if e.now != nil {
-		now = *e.now
-	}
-	return eventrule.ExecutionState{
-		Status:        eventrule.ExecutionStatusDeferred,
-		Reason:        eventrule.ExecutionReasonAttemptFailed,
-		StatusMessage: cause.Error(),
-		NextAttemptAt: now.Add(runtimeRetryDelay(execution.Attempts)),
-	}
+	return actionExecutor, nil
 }
 
-func runtimeRetryDelay(attempt int) time.Duration {
-	return runtimeInitialRetryDelay * time.Duration(1<<max(attempt-1, 0))
+func executorRegistry(t *testing.T, actionExecutor eventexecutor.Executor) ExecutorRegistry {
+	t.Helper()
+	registry := executorLookup{}
+	for _, actionType := range []eventrule.ActionType{
+		eventrule.ActionTypeSubmitTask,
+		eventrule.ActionTypeSendAlert,
+		eventrule.ActionTypeNoop,
+	} {
+		registry[actionType] = actionExecutor
+	}
+	return registry
 }
 
-func validProcessorConfig() Config {
+func validProcessorConfig(t *testing.T) Config {
+	t.Helper()
+	store := memorystore.New()
 	return Config{
 		Inventory: &processorInventory{},
-		Rules: ruleResolverFunc(func(
-			context.Context,
-			eventrule.Type,
-			uuid.UUID,
-		) (*eventrule.Rule, error) {
+		Rules: ruleResolverFunc(func(context.Context, eventrule.Type, uuid.UUID) (*eventrule.Rule, error) {
 			return nil, nil
 		}),
-		Executions: memorystore.New(),
-		Executor: runtimeExecutor{
-			targets: targetResolverFunc(func(
-				context.Context,
-				eventexecutor.TargetRequest,
-			) ([]eventexecutor.Target, error) {
-				return nil, nil
-			}),
-			execute: func(context.Context, eventexecutor.ExecutionRequest) (string, error) {
-				return "", nil
-			},
-		},
+		Events:     store,
+		Executions: store,
+		Targets:    targetRegistry(t, defaultTargetResolver(uuid.New())),
+		Executors: executorRegistry(t, executorFunc(func(context.Context, eventexecutor.ExecutionRequest) error {
+			return nil
+		})),
 	}
+}
+
+func processorInventoryWithRack(rackID uuid.UUID) *processorInventory {
+	return &processorInventory{rack: rack.New(deviceinfo.DeviceInfo{ID: rackID}, location.Location{})}
 }

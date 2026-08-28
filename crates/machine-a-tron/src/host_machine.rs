@@ -153,6 +153,7 @@ impl HostMachine {
             .collect::<Vec<_>>();
         let mut host_info = HostMachineInfo {
             hw_type: persisted_device.hw_type,
+            rack_placement: config.rack_placement,
             bmc_mac_address: persisted_device.bmc_mac_address,
             serial: persisted_device.serial.clone(),
             dpus: persisted_device
@@ -259,6 +260,7 @@ impl HostMachine {
             mac_pool,
             hw_pool_config,
         );
+        host_info.rack_placement = config.rack_placement;
         host_info.initial_host_firmware = config.host_firmware_versions.clone();
         host_info.desired_host_firmware = desired_host_firmware(config.hw_type, &app_context);
         let dpus = dpu_machines
@@ -617,23 +619,20 @@ pub(crate) struct MachineHandle(Arc<HostMachineActor>);
 
 impl MachineHandle {
     #[cfg(test)]
-    pub(crate) fn for_control_test(
-        dpus: Vec<DpuMachineHandle>,
-        ipmi_endpoint: Option<bmc_mock::ipmi_sim::IpmiEndpoint>,
-    ) -> Self {
-        Self::for_control_test_in_section(dpus, ipmi_endpoint, "test")
+    pub(crate) fn for_control_test(dpus: Vec<DpuMachineHandle>, ipmi_port: Option<u16>) -> Self {
+        Self::for_control_test_in_section(dpus, ipmi_port, "test")
     }
 
     #[cfg(test)]
     pub(crate) fn for_control_test_in_section(
         dpus: Vec<DpuMachineHandle>,
-        ipmi_endpoint: Option<bmc_mock::ipmi_sim::IpmiEndpoint>,
+        ipmi_port: Option<u16>,
         machine_config_section: &str,
     ) -> Self {
         let (message_tx, _message_rx) = mpsc::unbounded_channel();
         let mac = mac_address::MacAddress::new([2, 0, 0, 0, 0, 2]);
         let live_state = LiveState {
-            ipmi_endpoint,
+            ipmi_port,
             ..LiveState::default()
         };
         Self(Arc::new(HostMachineActor {
@@ -643,6 +642,7 @@ impl MachineHandle {
             mat_id: Uuid::new_v4(),
             host_info: HostMachineInfo {
                 hw_type: Default::default(),
+                rack_placement: None,
                 bmc_mac_address: mac,
                 serial: "test-host".to_string(),
                 dpus: Vec::new(),
@@ -658,6 +658,12 @@ impl MachineHandle {
             machine_config_section: machine_config_section.to_string(),
             bmc_injection: Arc::new(InjectionStore::new()),
         }))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_control_test_ssh_endpoint(self, port: u16) -> Self {
+        self.0.live_state.write().unwrap().ssh_endpoint_port = Some(port);
+        self
     }
 
     pub(super) fn mat_id(&self) -> Uuid {
@@ -781,7 +787,8 @@ impl MachineHandle {
             bmc: BmcStatus {
                 ip: live_state.bmc_ip.map(|ip| ip.to_string()),
                 redfish: EndpointStatus::redfish(config),
-                ipmi: live_state.ipmi_endpoint.map(Into::into),
+                ipmi: live_state.ipmi_port.map(EndpointStatus::same_port),
+                ssh: live_state.ssh_endpoint_port.map(EndpointStatus::same_port),
             },
             dpus: self.0.dpus.iter().map(|dpu| dpu.status(config)).collect(),
         }

@@ -25,6 +25,19 @@ func isMachineComponentType(t string) bool {
 	return t == devicetypes.ComponentTypeToString(devicetypes.ComponentTypeCompute)
 }
 
+// filterHostMachineDetails returns the Core machine records that represent
+// hosts. A Flow compute component can own both Host and DPU BMC rows, but only
+// the HOST MachineDetail represents that expected compute in actual inventory.
+func filterHostMachineDetails(machineDetails []nicoapi.MachineDetail) []nicoapi.MachineDetail {
+	hostMachineDetails := make([]nicoapi.MachineDetail, 0, len(machineDetails))
+	for _, detail := range machineDetails {
+		if detail.MachineType == corev1.MachineType_HOST.String() {
+			hostMachineDetails = append(hostMachineDetails, detail)
+		}
+	}
+	return hostMachineDetails
+}
+
 // ---------------------------------------------------------------------------
 // syncMachines: sync machine components against NICo
 // ---------------------------------------------------------------------------
@@ -38,11 +51,13 @@ func isMachineComponentType(t string) bool {
 //
 // Flow:
 //  1. DB: get all compute components (with BMCs)
-//  2. NICo GetMachines: fetch all machine details (linking, firmware, state, missing_in_expected)
+//  2. NICo GetMachines: fetch runtime inventory and keep the HOST details used
+//     for linking, direct writes, and missing_in_expected detection
 //  3. Link by BMC MAC (from step 2 data) → direct-write external_id
-//  4. NICo GetPowerStates: direct-write power_state
-//  5. Direct-write firmware_version (from step 2 data)
-//  6. NICo GetMachinePositionInfo: compare validation fields, return drifts
+//  4. Reconcile associated DPU BMC children by MAC from the same snapshot
+//  5. NICo GetPowerStates: direct-write power_state
+//  6. Direct-write firmware_version (from step 2 data)
+//  7. NICo GetMachinePositionInfo: compare validation fields, return drifts
 //
 // Correlation/identity key: BMC MAC address (serial number is not used).
 // Validation fields (compared for drift): slot_id, tray_index, host_id
@@ -61,28 +76,29 @@ func syncMachines(
 		return 0, nil, false
 	}
 
-	if len(components) == 0 {
-		return 0, nil, true
-	}
-
-	// Step 2: Fetch all machine details from NICo. This is the single source
-	// for BMC-MAC linking, firmware_version, controller_state, and
-	// missing_in_expected detection — a failure here means we can't trust this
-	// cycle, so preserve prior state rather than writing a partial view.
+	// Step 2: Fetch all machine details from NICo, even when Flow has no expected
+	// compute components. The empty expected set still needs an authoritative
+	// Core query so discovered hosts become missing_in_expected drift, while an
+	// RPC failure remains distinguishable from a successful empty inventory.
+	// This is also the single source for BMC-MAC linking, firmware_version,
+	// controller_state, and missing_in_expected detection — a failure here means
+	// we can't trust this cycle, so preserve prior state rather than writing a
+	// partial view.
 	allMachineDetails, err := nicoClient.GetMachines(ctx)
 	if err != nil {
 		log.Error().Msgf("Unable to retrieve machine details from NICo: %v", err)
 		return 0, nil, false
 	}
-	received = len(allMachineDetails)
+	hostMachineDetails := filterHostMachineDetails(allMachineDetails)
+	received = len(hostMachineDetails)
 
 	detailByID := make(map[string]nicoapi.MachineDetail)
-	for _, d := range allMachineDetails {
+	for _, d := range hostMachineDetails {
 		detailByID[d.MachineID] = d
 	}
 
 	// Step 3: Direct-write external_id by BMC MAC matching
-	syncMachineIDs(ctx, pool, allMachineDetails, components)
+	syncMachineIDs(ctx, pool, hostMachineDetails, components)
 
 	// Re-read components to pick up any external_id updates
 	allComponents, err := model.GetAllComponents(ctx, pool.DB)
@@ -97,6 +113,17 @@ func syncMachines(
 		}
 	}
 
+	// Project the DPU children from the same complete Core machine snapshot.
+	// DPU machine IDs resolve host associations only for this pass; Flow keeps
+	// the DPU BMC MAC as the durable identity. Validation and all DB mutations
+	// happen transactionally, so an incomplete association cannot apply a
+	// partial DPU inventory snapshot.
+	dpuSyncOK := true
+	if err := reconcileDpuBMCs(ctx, pool, allMachineDetails, components); err != nil {
+		log.Error().Err(err).Msg("Unable to reconcile Core DPU inventory")
+		dpuSyncOK = false
+	}
+
 	// Build lookup maps for matched components
 	var machineIDs []string
 	componentsByExternalID := make(map[string]*model.Component)
@@ -109,19 +136,19 @@ func syncMachines(
 	}
 
 	if len(machineIDs) == 0 {
-		return received, buildDriftsForUnmatchedComponents(components, allMachineDetails), true
+		return received, buildDriftsForUnmatchedComponents(components, hostMachineDetails), dpuSyncOK
 	}
 
-	// Step 4: Direct-write power_state (requires separate NICo API)
+	// Step 5: Direct-write power_state (requires separate NICo API)
 	syncPowerStates(ctx, pool, nicoClient, machineIDs, componentsByExternalID)
 
-	// Step 5: Direct-write firmware_version (from pre-fetched details, no extra API call)
+	// Step 6: Direct-write firmware_version (from pre-fetched details, no extra API call)
 	syncFirmwareVersions(ctx, pool, detailByID, componentsByExternalID)
 
-	// Step 5b: Direct-write derived ComponentOperationStatus (from pre-fetched detail.State).
+	// Step 6b: Direct-write derived ComponentOperationStatus (from pre-fetched detail.State).
 	syncMachineStatuses(ctx, pool, detailByID, componentsByExternalID)
 
-	// Step 6: Fetch positions and build drift records (requires separate NICo API)
+	// Step 7: Fetch positions and build drift records (requires separate NICo API)
 	machinePositions, err := nicoClient.GetMachinePositionInfo(ctx, machineIDs)
 	if err != nil {
 		log.Error().Msgf("Unable to retrieve machine positions from NICo: %v", err)
@@ -184,7 +211,7 @@ func syncMachines(
 	}
 
 	// Detect missing_in_expected: machines in NICo but not in local DB
-	for _, detail := range allMachineDetails {
+	for _, detail := range hostMachineDetails {
 		if _, found := componentsByExternalID[detail.MachineID]; !found {
 			extID := detail.MachineID
 			drifts = append(drifts, model.ComponentDrift{
@@ -198,16 +225,16 @@ func syncMachines(
 	}
 
 	log.Info().Msgf("Machine sync: %d drift(s) out of %d component(s)", len(drifts), len(components))
-	return received, drifts, true
+	return received, drifts, dpuSyncOK
 }
 
 // buildDriftsForUnmatchedComponents returns missing_in_actual drifts for all
 // components that have no external_id, plus missing_in_expected drifts for
-// every NICo machine (since no DB component has an external_id, none can
+// every NICo host machine (since no DB component has an external_id, none can
 // match).
 func buildDriftsForUnmatchedComponents(
 	components []model.Component,
-	allMachineDetails []nicoapi.MachineDetail,
+	hostMachineDetails []nicoapi.MachineDetail,
 ) []model.ComponentDrift {
 	now := time.Now()
 	var drifts []model.ComponentDrift
@@ -222,7 +249,7 @@ func buildDriftsForUnmatchedComponents(
 			})
 		}
 	}
-	for _, detail := range allMachineDetails {
+	for _, detail := range hostMachineDetails {
 		extID := detail.MachineID
 		drifts = append(drifts, model.ComponentDrift{
 			ComponentID: nil,
@@ -236,26 +263,22 @@ func buildDriftsForUnmatchedComponents(
 }
 
 // syncMachineIDs matches components by BMC MAC address against pre-fetched NICo
-// machine details and direct-writes the external_id. BMC MAC is the stable
-// identity Core populates on the discovered machine (Machine.bmc_info.mac,
-// surfaced as MachineDetail.BmcMac), so linking no longer depends on serial
-// number.
+// host machine details and direct-writes the external_id. Callers must filter
+// the Core response to HOST records first. BMC MAC is the stable identity Core
+// populates on the discovered machine (Machine.bmc_info.mac, surfaced as
+// MachineDetail.BmcMac), so linking no longer depends on serial number.
 func syncMachineIDs(
 	ctx context.Context,
 	pool *cdb.Session,
-	allDetails []nicoapi.MachineDetail,
+	hostMachineDetails []nicoapi.MachineDetail,
 	components []model.Component,
 ) {
-	// Index discovered machines by normalized BMC MAC → Core MachineId.
-	// Restrict to HOST machines: a compute component owns both a host BMC and
-	// a DPU BMC, and Core exposes the DPU as its own MachineDetail whose BmcMac
-	// is that DPU BMC. Including DPUs here would let a compute component's DPU
-	// BMC resolve to the DPU's machine id instead of the host's.
+	// Index discovered host machines by normalized BMC MAC → Core MachineId.
+	// A compute component can also own an auxiliary DPU BMC. Keeping DPU machine
+	// details out of this index prevents that BMC from replacing the component's
+	// external_id with the DPU machine ID.
 	machineIDByBmcMac := make(map[string]string)
-	for _, cur := range allDetails {
-		if cur.MachineType != corev1.MachineType_HOST.String() {
-			continue
-		}
+	for _, cur := range hostMachineDetails {
 		if cur.BmcMac != "" && cur.MachineID != "" {
 			machineIDByBmcMac[utils.NormalizeMAC(cur.BmcMac)] = cur.MachineID
 		}

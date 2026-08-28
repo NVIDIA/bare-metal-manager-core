@@ -21,6 +21,7 @@ use std::sync::Arc;
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
+use carbide_network::ip::IpAddressFamily;
 use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
@@ -40,6 +41,8 @@ use itertools::Itertools;
 use model::ConfigValidationError;
 use model::dpa_interface::{DpaInterface, DpaSearchConfig};
 use model::hardware_info::InfinibandInterface;
+use model::ib::{DEFAULT_IB_FABRIC_NAME, IbMembership};
+use model::ib_partition::PartitionKey;
 use model::instance::NewInstance;
 use model::instance::config::InstanceConfig;
 use model::instance::config::infiniband::InstanceInfinibandConfig;
@@ -56,7 +59,10 @@ use model::metadata::Metadata;
 use model::network_segment::NetworkSegmentType;
 use model::os::OperatingSystemVariant;
 use model::tenant::TenantOrganizationId;
-use model::vpc::{FabricInterfaceType, VpcVirtualizationTypeCapabilities};
+use model::vpc::{
+    FabricInterfaceType, VpcVirtualizationTypeCapabilities, instance_prefix_len,
+    vpc_prefix_can_allocate_interface_prefix,
+};
 use model::vpc_prefix::VpcPrefix;
 use sqlx::PgConnection;
 
@@ -334,11 +340,11 @@ impl AllocationAddressFamily {
         }
     }
 
-    /// Returns the point-to-point linknet length used for this family.
-    fn linknet_prefix(self) -> u8 {
+    /// Returns the representation used by the shared network model.
+    fn ip_address_family(self) -> IpAddressFamily {
         match self {
-            Self::Ipv4 => 31,
-            Self::Ipv6 => 127,
+            Self::Ipv4 => IpAddressFamily::Ipv4,
+            Self::Ipv6 => IpAddressFamily::Ipv6,
         }
     }
 
@@ -349,6 +355,26 @@ impl AllocationAddressFamily {
             Self::Ipv6 => "IPv6",
         }
     }
+}
+
+/// Validates that an explicitly selected parent can contain one interface prefix.
+fn validate_vpc_prefix_allocation_capacity(
+    vpc_prefix: &VpcPrefix,
+    family: AllocationAddressFamily,
+    allocation_prefix_len: u8,
+) -> CarbideResult<()> {
+    if vpc_prefix_can_allocate_interface_prefix(
+        family.ip_address_family(),
+        vpc_prefix.config.prefix.prefix(),
+        allocation_prefix_len,
+    ) {
+        return Ok(());
+    }
+
+    Err(CarbideError::InvalidArgument(format!(
+        "VPC prefix `{}` ({}) cannot contain a /{} interface prefix",
+        vpc_prefix.id, vpc_prefix.config.prefix, allocation_prefix_len,
+    )))
 }
 
 /// Selects the database operation and interface fields for a family allocation.
@@ -380,13 +406,15 @@ struct PrefixAllocationWork {
     // Canonical execution-group and candidate-revalidation identity.
     vpc_id: VpcId,
     family: AllocationAddressFamily,
+    // Frozen from the owning VPC's immutable SLAAC policy during planning.
+    allocation_prefix_len: u8,
 
     // Frozen ascending candidate IDs and their monotonically advancing cursor.
     // Candidate row state is re-read under lock during execution.
     candidates: Arc<[VpcPrefixId]>,
     candidate_index: usize,
 
-    // Selects create-versus-attach; explicit work may pin the exact /31 or /127.
+    // Selects create-versus-attach; explicit work may pin the selected interface prefix.
     slot: PrefixAllocationSlot,
     requested_prefix: Option<IpNetwork>,
 
@@ -403,9 +431,9 @@ struct NetworkAllocationTarget<'a> {
 
 /// Owned discovery results used by synchronous allocation planning.
 ///
-/// Candidate IDs are frozen before planning. Planning uses discovery-time VPC
-/// and explicit-prefix values; execution re-reads each selected prefix under
-/// lock before allocating from it.
+/// Candidate IDs are frozen before planning. Planning uses the VPCs and
+/// explicitly selected prefixes found during discovery; execution reads each
+/// selected prefix again under lock before allocating from it.
 struct PrefixAllocationContext {
     // Explicit selections verified to exist and be active at discovery time.
     explicit_prefixes: HashMap<VpcPrefixId, VpcPrefix>,
@@ -448,14 +476,17 @@ fn requested_families(mode: &InstanceInterfaceIpFamilyMode) -> &'static [Allocat
     }
 }
 
-/// Returns whether an interface still needs generated prefix-backed resources.
+/// Returns whether an interface still needs resources generated from a network
+/// prefix.
 fn interface_needs_prefix_allocation(
     interface: &model::instance::config::network::InstanceInterfaceConfig,
 ) -> bool {
-    // Preserve the existing update contract: allocated addresses identify a
-    // reused interface, while an unallocated prefix-backed interface must be
-    // resolved even if a caller supplied a stale network_segment_id value.
-    interface.ip_addrs.is_empty()
+    // Preserve the existing update contract: durable allocation results identify
+    // a reused interface, while an interface whose prefix is unresolved must
+    // be allocated even if a caller supplied a stale network_segment_id value.
+    // SLAAC intentionally has no IPv6 address, so its retained interface prefix
+    // is the durable resolution marker.
+    interface.ip_addrs.is_empty() && interface.interface_prefixes.is_empty()
 }
 
 /// Checks the owning VPC's declared support for an address family.
@@ -485,6 +516,7 @@ async fn allocate_prefix_candidate_once(
     txn: &mut PgConnection,
     vpc_id: VpcId,
     family: AllocationAddressFamily,
+    allocation_prefix_len: u8,
     vpc_prefix_id: VpcPrefixId,
     operation: PrefixAllocationOperation,
     requested_prefix: Option<IpNetwork>,
@@ -509,7 +541,7 @@ async fn allocate_prefix_candidate_once(
         vpc_prefix.id,
         vpc_prefix.config.prefix,
         vpc_prefix.status.last_used_prefix,
-        family.linknet_prefix(),
+        allocation_prefix_len,
     )?;
     let allocated_prefix = if let Some(requested_prefix) = requested_prefix {
         allocator
@@ -561,6 +593,7 @@ async fn attempt_prefix_candidate(
     txn: &mut PgConnection,
     vpc_id: VpcId,
     family: AllocationAddressFamily,
+    allocation_prefix_len: u8,
     vpc_prefix_id: VpcPrefixId,
     operation: PrefixAllocationOperation,
     requested_prefix: Option<IpNetwork>,
@@ -571,6 +604,7 @@ async fn attempt_prefix_candidate(
             savepoint.as_pgconn(),
             vpc_id,
             family,
+            allocation_prefix_len,
             vpc_prefix_id,
             operation,
             requested_prefix,
@@ -777,28 +811,14 @@ async fn load_prefix_allocation_context(
         }
     }
 
-    // Freeze active automatic candidates for the lifetime of this request.
+    // Load active automatic candidates. Their eligibility depends on the
+    // owning VPC's SLAAC policy, which is loaded below.
     let automatic_candidate_vpc_ids = automatic_candidate_vpc_ids.into_iter().collect_vec();
     let automatic_prefixes = if automatic_candidate_vpc_ids.is_empty() {
         Vec::new()
     } else {
         db::vpc_prefix::find_allocation_candidates(txn, &automatic_candidate_vpc_ids).await?
     };
-    let mut automatic_candidates: BTreeMap<(VpcId, AllocationAddressFamily), Vec<VpcPrefixId>> =
-        BTreeMap::new();
-    for prefix in automatic_prefixes {
-        automatic_candidates
-            .entry((
-                prefix.vpc_id,
-                AllocationAddressFamily::from_network(prefix.config.prefix),
-            ))
-            .or_default()
-            .push(prefix.id);
-    }
-    let automatic_candidates: BTreeMap<_, Arc<[VpcPrefixId]>> = automatic_candidates
-        .into_iter()
-        .map(|(group, candidates)| (group, Arc::from(candidates)))
-        .collect();
 
     // Load every referenced VPC once for ownership and capability validation.
     let mut referenced_vpc_ids = automatic_vpc_ids.clone();
@@ -828,6 +848,33 @@ async fn load_prefix_allocation_context(
             )));
         }
     }
+
+    // Freeze only candidates that can contain an instance allocation under
+    // the owning VPC's policy.
+    let mut automatic_candidates: BTreeMap<(VpcId, AllocationAddressFamily), Vec<VpcPrefixId>> =
+        BTreeMap::new();
+    for prefix in automatic_prefixes {
+        let Some(vpc) = vpcs.get(&prefix.vpc_id) else {
+            continue;
+        };
+        let family = AllocationAddressFamily::from_network(prefix.config.prefix);
+        let allocation_prefix_len =
+            instance_prefix_len(family.ip_address_family(), vpc.config.slaac_enabled);
+        if vpc_prefix_can_allocate_interface_prefix(
+            family.ip_address_family(),
+            prefix.config.prefix.prefix(),
+            allocation_prefix_len,
+        ) {
+            automatic_candidates
+                .entry((prefix.vpc_id, family))
+                .or_default()
+                .push(prefix.id);
+        }
+    }
+    let automatic_candidates: BTreeMap<_, Arc<[VpcPrefixId]>> = automatic_candidates
+        .into_iter()
+        .map(|(group, candidates)| (group, Arc::from(candidates)))
+        .collect();
 
     Ok(Some(PrefixAllocationContext {
         explicit_prefixes,
@@ -915,6 +962,8 @@ fn plan_prefix_allocations(
                 }
 
                 for family in families {
+                    let allocation_prefix_len =
+                        instance_prefix_len(family.ip_address_family(), vpc.config.slaac_enabled);
                     let candidates = automatic_candidates
                         .get(&(selection.vpc_id, *family))
                         .cloned()
@@ -931,6 +980,7 @@ fn plan_prefix_allocations(
                         interface_index,
                         vpc_id: selection.vpc_id,
                         family: *family,
+                        allocation_prefix_len,
                         candidates,
                         candidate_index: 0,
                         // IPv4 creates a dual-stack segment before IPv6 attaches.
@@ -977,6 +1027,10 @@ fn plan_prefix_allocations(
 
             let primary_family =
                 AllocationAddressFamily::from_network(primary_prefix.config.prefix);
+            let primary_allocation_prefix_len = instance_prefix_len(
+                primary_family.ip_address_family(),
+                primary_vpc.config.slaac_enabled,
+            );
             if let Some(requested_ip_addr) = interface.requested_ip_addr
                 && AllocationAddressFamily::from_address(requested_ip_addr) != primary_family
             {
@@ -984,7 +1038,15 @@ fn plan_prefix_allocations(
                     "requested IP address `{requested_ip_addr}` does not match VPC prefix `{primary_prefix_id}`",
                 )));
             }
-
+            if primary_vpc.config.slaac_enabled
+                && primary_family == AllocationAddressFamily::Ipv6
+                && let Some(requested_ip_addr) = interface.requested_ip_addr
+            {
+                return Err(CarbideError::InvalidArgument(format!(
+                    "requested IPv6 address `{requested_ip_addr}` is invalid because VPC `{}` has SLAAC enabled",
+                    primary_vpc.id,
+                )));
+            }
             let secondary_prefix = if let Some(ipv6) = &interface.ipv6_interface_config {
                 if primary_family != AllocationAddressFamily::Ipv4 {
                     return Err(CarbideError::InvalidConfiguration(
@@ -1014,6 +1076,14 @@ fn plan_prefix_allocations(
                         )),
                     ));
                 }
+                if primary_vpc.config.slaac_enabled
+                    && let Some(requested_ip_addr) = ipv6.requested_ip_addr
+                {
+                    return Err(CarbideError::InvalidArgument(format!(
+                        "requested IPv6 address `{requested_ip_addr}` is invalid because VPC `{}` has SLAAC enabled",
+                        primary_vpc.id,
+                    )));
+                }
                 Some(prefix)
             } else {
                 None
@@ -1023,24 +1093,38 @@ fn plan_prefix_allocations(
                 continue;
             }
 
+            validate_vpc_prefix_allocation_capacity(
+                primary_prefix,
+                primary_family,
+                primary_allocation_prefix_len,
+            )?;
+
             works.push(PrefixAllocationWork {
                 target_index,
                 interface_index,
                 vpc_id: primary_prefix.vpc_id,
                 family: primary_family,
+                allocation_prefix_len: primary_allocation_prefix_len,
                 candidates: Arc::from(vec![*primary_prefix_id]),
                 candidate_index: 0,
                 slot: PrefixAllocationSlot::Primary,
                 requested_prefix: interface
                     .requested_ip_addr
                     .map(|address| {
-                        build_requested_linknet_prefix(address, primary_family.linknet_prefix())
+                        build_requested_linknet_prefix(address, primary_allocation_prefix_len)
                     })
                     .transpose()?,
                 automatic: false,
             });
 
             if let Some(secondary_prefix) = secondary_prefix {
+                let secondary_allocation_prefix_len =
+                    instance_prefix_len(IpAddressFamily::Ipv6, primary_vpc.config.slaac_enabled);
+                validate_vpc_prefix_allocation_capacity(
+                    secondary_prefix,
+                    AllocationAddressFamily::Ipv6,
+                    secondary_allocation_prefix_len,
+                )?;
                 let ipv6 = interface.ipv6_interface_config.as_ref().ok_or_else(|| {
                     CarbideError::internal(
                         "validated IPv6 allocation lost its interface configuration".to_string(),
@@ -1051,6 +1135,7 @@ fn plan_prefix_allocations(
                     interface_index,
                     vpc_id: secondary_prefix.vpc_id,
                     family: AllocationAddressFamily::Ipv6,
+                    allocation_prefix_len: secondary_allocation_prefix_len,
                     candidates: Arc::from(vec![secondary_prefix.id]),
                     candidate_index: 0,
                     slot: PrefixAllocationSlot::SecondaryIpv6,
@@ -1059,7 +1144,7 @@ fn plan_prefix_allocations(
                         .map(|address| {
                             build_requested_linknet_prefix(
                                 std::net::IpAddr::V6(address),
-                                AllocationAddressFamily::Ipv6.linknet_prefix(),
+                                secondary_allocation_prefix_len,
                             )
                         })
                         .transpose()?,
@@ -1079,7 +1164,7 @@ fn plan_prefix_allocations(
         {
             return Err(CarbideError::InvalidConfiguration(
                 ConfigValidationError::InvalidValue(format!(
-                    "interface config contains prefix-backed interfaces from multiple VPCs, which is only supported when all VPCs use FNN: {:?}",
+                    "interface config selects prefixes from multiple VPCs, which is only supported when all VPCs use FNN: {:?}",
                     target_vpc_ids
                         .iter()
                         .filter_map(|vpc_id| {
@@ -1203,6 +1288,7 @@ async fn execute_prefix_allocations(
                     txn,
                     work.vpc_id,
                     work.family,
+                    work.allocation_prefix_len,
                     candidate,
                     operation,
                     work.requested_prefix,
@@ -1240,7 +1326,8 @@ async fn execute_prefix_allocations(
     Ok(())
 }
 
-/// Validates and allocates every prefix-backed target in one canonical lock order.
+/// Validates and allocates every target that uses a network prefix in one
+/// canonical lock order.
 ///
 /// The function flattens batch work before any generated resource is created so
 /// caller order cannot influence the order in which prefix rows are locked.
@@ -1352,6 +1439,69 @@ pub(crate) fn allocate_ib_port_guid(
     }
 
     Ok(updated_ib_config)
+}
+
+/// Loads the stored PKeys needed to resolve exact memberships for `configs`.
+///
+/// A referenced partition without a stored PKey is omitted because it cannot
+/// identify an exact membership tuple.
+pub(crate) async fn load_ib_partition_pkeys(
+    txn: &mut PgConnection,
+    configs: &[&InstanceInfinibandConfig],
+) -> CarbideResult<HashMap<IBPartitionId, PartitionKey>> {
+    let partition_ids = configs
+        .iter()
+        .flat_map(|config| {
+            config
+                .ib_interfaces
+                .iter()
+                .map(|interface| interface.ib_partition_id)
+        })
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+
+    if partition_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    Ok(db::ib_partition::find_by(
+        &mut *txn,
+        ObjectColumnFilter::List(ib_partition::IdColumn, &partition_ids),
+    )
+    .await?
+    .into_iter()
+    .filter_map(|partition| {
+        partition
+            .status
+            .and_then(|status| status.pkey)
+            .map(|pkey| (partition.id, pkey))
+    })
+    .collect())
+}
+
+/// Resolves every exact membership available from one IB config on the
+/// supported default fabric.
+///
+/// Each membership uses the allocated interface GUID and the referenced
+/// partition's stored PKey. Memberships are returned in stable database-lock
+/// acquisition order. Interfaces missing either value cannot identify a tuple,
+/// so they are omitted while other valid memberships are retained.
+pub(crate) fn ib_memberships_from_config(
+    config: &InstanceInfinibandConfig,
+    pkeys: &HashMap<IBPartitionId, PartitionKey>,
+) -> BTreeSet<IbMembership> {
+    config
+        .ib_interfaces
+        .iter()
+        .filter_map(|interface| {
+            Some(IbMembership {
+                fabric: DEFAULT_IB_FABRIC_NAME.to_string(),
+                pkey: pkeys.get(&interface.ib_partition_id).copied()?,
+                guid: interface.guid.clone()?,
+            })
+        })
+        .collect()
 }
 
 /// sort ib device by slot and add devices with the same name are added to hashmap
@@ -1797,8 +1947,9 @@ pub(crate) async fn batch_allocate_instances(
         )
         .await?;
 
-    // Resolve every prefix-backed interface in canonical prefix-lock order while
-    // preserving caller order for the remaining per-instance processing.
+    // Resolve every interface that uses a network prefix in canonical prefix
+    // lock order while preserving caller order for the remaining processing
+    // for each instance.
     {
         let mut network_allocation_targets = requests
             .iter_mut()
@@ -2098,7 +2249,21 @@ pub(crate) async fn batch_allocate_instances(
         .iter()
         .map(|(id, ver, cfg)| (*id, *ver, cfg))
         .collect();
+    let ib_configs = ib_config_updates
+        .iter()
+        .map(|(_, _, config)| config)
+        .collect::<Vec<_>>();
+    let ib_partition_pkeys = load_ib_partition_pkeys(txn.as_mut(), &ib_configs).await?;
+    let assigned_ib_memberships = ib_configs
+        .into_iter()
+        .flat_map(|config| ib_memberships_from_config(config, &ib_partition_pkeys))
+        .collect::<BTreeSet<_>>();
     db::instance::batch_update_ib_config(&mut txn, &ib_refs, false).await?;
+    // The Machine records are still locked here. Remove an exact retired record
+    // only after its live config write succeeds in this same transaction.
+    for membership in assigned_ib_memberships {
+        db::retired_ib_membership::remove_for_reuse(txn.as_mut(), &membership).await?;
+    }
 
     let nvlink_refs: Vec<_> = nvlink_config_updates
         .iter()
@@ -2384,9 +2549,131 @@ pub(crate) fn allocate_spx_port_mac(
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases, value_scenarios};
+    use carbide_test_support::{Case, Check, check_cases, check_values, value_scenarios};
+    use model::instance::config::infiniband::InstanceIbInterfaceConfig;
 
     use super::*;
+
+    /// Test-specific helper that builds one allocated physical IB interface.
+    fn ib_interface(partition_id: IBPartitionId, guid: Option<&str>) -> InstanceIbInterfaceConfig {
+        InstanceIbInterfaceConfig {
+            function_id: InterfaceFunctionId::Physical {},
+            ib_partition_id: partition_id,
+            pf_guid: guid.map(str::to_string),
+            guid: guid.map(str::to_string),
+            device: "test-device".to_string(),
+            vendor: None,
+            device_instance: 0,
+        }
+    }
+
+    #[test]
+    fn ib_memberships_preserve_every_resolvable_tuple() {
+        let valid_partition = IBPartitionId::new();
+        let missing_pkey_partition = IBPartitionId::new();
+        let missing_guid_partition = IBPartitionId::new();
+        let valid_pkey = PartitionKey::try_from(0x101).unwrap();
+        let missing_guid_pkey = PartitionKey::try_from(0x102).unwrap();
+        let config = InstanceInfinibandConfig {
+            ib_interfaces: vec![
+                ib_interface(valid_partition, Some("valid-guid")),
+                ib_interface(missing_pkey_partition, Some("unknown-pkey-guid")),
+                ib_interface(missing_guid_partition, None),
+            ],
+        };
+
+        // Retirement bookkeeping can act only on exact tuples. Incomplete
+        // interfaces are skipped without discarding another valid membership.
+        assert_eq!(
+            ib_memberships_from_config(
+                &config,
+                &HashMap::from([
+                    (valid_partition, valid_pkey),
+                    (missing_guid_partition, missing_guid_pkey),
+                ]),
+            ),
+            BTreeSet::from([IbMembership {
+                fabric: DEFAULT_IB_FABRIC_NAME.to_string(),
+                pkey: valid_pkey,
+                guid: "valid-guid".to_string(),
+            }])
+        );
+    }
+
+    #[test]
+    fn interface_needs_prefix_allocation_only_without_durable_results() {
+        struct AllocationState {
+            has_ip_address: bool,
+            has_interface_prefix: bool,
+        }
+
+        check_values(
+            [
+                Check {
+                    scenario: "no address or interface prefix needs allocation",
+                    input: AllocationState {
+                        has_ip_address: false,
+                        has_interface_prefix: false,
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "an allocated address is durable",
+                    input: AllocationState {
+                        has_ip_address: true,
+                        has_interface_prefix: false,
+                    },
+                    expect: false,
+                },
+                Check {
+                    scenario: "an allocated interface prefix is durable",
+                    input: AllocationState {
+                        has_ip_address: false,
+                        has_interface_prefix: true,
+                    },
+                    expect: false,
+                },
+                Check {
+                    scenario: "an allocated address and interface prefix are durable",
+                    input: AllocationState {
+                        has_ip_address: true,
+                        has_interface_prefix: true,
+                    },
+                    expect: false,
+                },
+            ],
+            |AllocationState {
+                 has_ip_address,
+                 has_interface_prefix,
+             }| {
+                let mut interface =
+                    InstanceNetworkConfig::for_vpc_prefix_id(VpcPrefixId::new(), None)
+                        .interfaces
+                        .into_iter()
+                        .next()
+                        .unwrap();
+                let network_prefix_id = carbide_uuid::network::NetworkPrefixId::new();
+
+                if has_ip_address {
+                    interface
+                        .ip_addrs
+                        .insert(network_prefix_id, "192.0.2.10".parse().unwrap());
+                }
+                if has_interface_prefix {
+                    let interface_prefix = if has_ip_address {
+                        "192.0.2.10/32"
+                    } else {
+                        "2001:db8::/127"
+                    };
+                    interface
+                        .interface_prefixes
+                        .insert(network_prefix_id, interface_prefix.parse().unwrap());
+                }
+
+                interface_needs_prefix_allocation(&interface)
+            },
+        );
+    }
 
     #[test]
     fn instance_creation_power_profile_semantics() {

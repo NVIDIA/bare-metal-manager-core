@@ -150,6 +150,8 @@ type OperationRun struct {
 	StatusReason      OperationRunStatusReason
 	StatusMessage     string
 	CurrentPhaseIndex int32
+	// TotalPhases is the number of phases materialized by the planner.
+	TotalPhases       int32
 	Selector          json.RawMessage
 	Options           json.RawMessage
 	OperationTemplate json.RawMessage

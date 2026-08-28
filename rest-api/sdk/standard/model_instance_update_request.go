@@ -40,6 +40,8 @@ type InstanceUpdateRequest struct {
 	SshKeyGroupIds []string `json:"sshKeyGroupIds,omitempty"`
 	// ID of the Network Security Group to attach to the Instance
 	NetworkSecurityGroupId NullableString `json:"networkSecurityGroupId,omitempty"`
+	// Power profile to apply to the Instance. A non-empty value requires the Site's `dpsPowerManagement` capability to be `true`. Omission or `null` preserves the current profile; an empty string clears it when DPS power management is disabled.
+	PowerProfile NullableString `json:"powerProfile,omitempty"`
 	// Any user-data to be sent to the booting OS.  For example, cloud-init data.
 	UserData NullableString `json:"userData,omitempty"`
 	// Whether the custom iPXE data should be used for every boot.
@@ -455,6 +457,49 @@ func (o *InstanceUpdateRequest) UnsetNetworkSecurityGroupId() {
 	o.NetworkSecurityGroupId.Unset()
 }
 
+// GetPowerProfile returns the PowerProfile field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *InstanceUpdateRequest) GetPowerProfile() string {
+	if o == nil || IsNil(o.PowerProfile.Get()) {
+		var ret string
+		return ret
+	}
+	return *o.PowerProfile.Get()
+}
+
+// GetPowerProfileOk returns a tuple with the PowerProfile field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+func (o *InstanceUpdateRequest) GetPowerProfileOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.PowerProfile.Get(), o.PowerProfile.IsSet()
+}
+
+// HasPowerProfile returns a boolean if a field has been set.
+func (o *InstanceUpdateRequest) HasPowerProfile() bool {
+	if o != nil && o.PowerProfile.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetPowerProfile gets a reference to the given NullableString and assigns it to the PowerProfile field.
+func (o *InstanceUpdateRequest) SetPowerProfile(v string) {
+	o.PowerProfile.Set(&v)
+}
+
+// SetPowerProfileNil sets the value for PowerProfile to be an explicit nil
+func (o *InstanceUpdateRequest) SetPowerProfileNil() {
+	o.PowerProfile.Set(nil)
+}
+
+// UnsetPowerProfile ensures that no value is present for PowerProfile, not even an explicit nil
+func (o *InstanceUpdateRequest) UnsetPowerProfile() {
+	o.PowerProfile.Unset()
+}
+
 // GetUserData returns the UserData field value if set, zero value otherwise (both if not set or set to explicit null).
 func (o *InstanceUpdateRequest) GetUserData() string {
 	if o == nil || IsNil(o.UserData.Get()) {
@@ -855,6 +900,9 @@ func (o InstanceUpdateRequest) ToMap() (map[string]interface{}, error) {
 	}
 	if o.NetworkSecurityGroupId.IsSet() {
 		toSerialize["networkSecurityGroupId"] = o.NetworkSecurityGroupId.Get()
+	}
+	if o.PowerProfile.IsSet() {
+		toSerialize["powerProfile"] = o.PowerProfile.Get()
 	}
 	if o.UserData.IsSet() {
 		toSerialize["userData"] = o.UserData.Get()

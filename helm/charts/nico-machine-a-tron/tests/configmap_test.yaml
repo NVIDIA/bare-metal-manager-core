@@ -15,6 +15,21 @@ tests:
       - matchRegex:
           path: data["mat.toml"]
           pattern: "use_single_bmc_mock = true"
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: 'log_format = "logfmt"'
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: 'discovery_retry_interval = "60s"'
+
+  - it: should allow compact log output
+    set:
+      machineATron:
+        logFormat: compact
+    asserts:
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: 'log_format = "compact"'
 
   - it: should configure custom host count via pods structure
     set:
@@ -80,6 +95,7 @@ tests:
                 - rack-001
               dpu_reboot_delay: 20
               host_reboot_delay: 10
+              acceleration_factor: 0.03
               oob_dhcp_relay_address: 10.96.64.1
               admin_dhcp_relay_address: 192.168.176.1
     asserts:
@@ -89,6 +105,9 @@ tests:
       - matchRegex:
           path: data["mat.toml"]
           pattern: 'rack_profile_id = "NVL72"'
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: 'acceleration_factor = 0\.03'
       - matchRegex:
           path: data["mat.toml"]
           pattern: '\[machines\]'
@@ -123,6 +142,8 @@ tests:
       machineDefaults:
         runIntervalIdle: "30s"
         scoutRunInterval: "120s"
+        discoveryRetryInterval: "7s"
+        accelerationFactor: 0.02
       pods:
         mat-0:
           machines:
@@ -136,6 +157,12 @@ tests:
       - matchRegex:
           path: data["mat.toml"]
           pattern: 'scout_run_interval = "120s"'
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: 'discovery_retry_interval = "7s"'
+      - matchRegex:
+          path: data["mat.toml"]
+          pattern: 'acceleration_factor = 0\.02'
 
   - it: should not include enable_ipmi_simulation by default
     asserts:
@@ -151,29 +178,3 @@ tests:
       - matchRegex:
           path: data["mat.toml"]
           pattern: "enable_ipmi_simulation = true"
-
-  - it: should not include ipmi_reachable_port by default
-    asserts:
-      - notMatchRegex:
-          path: data["mat.toml"]
-          pattern: "ipmi_reachable_port"
-
-  - it: should include ipmi_reachable_port when set to 0 for dynamic
-    set:
-      machineATron:
-        enableIpmiSimulation: true
-        ipmiReachablePort: 0
-    asserts:
-      - matchRegex:
-          path: data["mat.toml"]
-          pattern: "ipmi_reachable_port = 0"
-
-  - it: should include ipmi_reachable_port when set to custom value
-    set:
-      machineATron:
-        enableIpmiSimulation: true
-        ipmiReachablePort: 12345
-    asserts:
-      - matchRegex:
-          path: data["mat.toml"]
-          pattern: "ipmi_reachable_port = 12345"

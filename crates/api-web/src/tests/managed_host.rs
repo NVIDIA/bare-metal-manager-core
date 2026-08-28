@@ -29,6 +29,7 @@ use http_body_util::BodyExt;
 use hyper::http::header::CONTENT_TYPE;
 use hyper::http::{Method, StatusCode};
 use model::machine::{InstanceState, ManagedHostState, RetryInfo};
+use model::machine_boot_interface::BootInterfaceSelectionSource;
 use tower::ServiceExt;
 
 use crate::tests::env::TestEnv;
@@ -154,6 +155,16 @@ async fn machine_detail_manages_the_desired_boot_interface(pool: sqlx::PgPool) {
         .expect("two-DPU host should have another selectable DPU interface")
         .clone();
 
+    sqlx::query(
+        "UPDATE machine_boot_interfaces
+         SET selection_source = 'legacy_unknown', selection_updated_at = NULL
+         WHERE machine_id = $1",
+    )
+    .bind(machine_id)
+    .execute(&env.api().database_connection)
+    .await
+    .expect("the legacy selection fixture should be persisted");
+
     // The page combines persisted reconciliation state with every exact
     // managed row an operator can select.
     let response = app
@@ -180,6 +191,12 @@ async fn machine_detail_manages_the_desired_boot_interface(pool: sqlx::PgPool) {
     assert!(boot_interface_section.contains("Desired Boot Interface"));
     assert!(boot_interface_section.contains("Converged"));
     assert!(boot_interface_section.contains("Redfish verified"));
+    assert!(boot_interface_section.contains("<th>Selection Source</th>"));
+    assert!(boot_interface_section.contains("<th>Selection Updated At</th>"));
+    assert!(
+        boot_interface_section.contains("<tr><th>Selection Source</th><td>LegacyUnknown</td></tr>")
+    );
+    assert!(boot_interface_section.contains("<tr><th>Selection Updated At</th><td>-</td></tr>"));
     assert!(boot_interface_section.contains(&host.host.primary_mac().to_string()));
     assert!(boot_interface_section.contains("<strong>Current</strong>"));
     assert!(boot_interface_section.contains("Matches system default"));
@@ -214,11 +231,13 @@ async fn machine_detail_manages_the_desired_boot_interface(pool: sqlx::PgPool) {
         "the web request should leave Redfish work to machine-controller",
     );
 
-    let selected_desired =
-        db::machine_desired_boot_interface::get(&env.api().database_connection, &machine_id)
-            .await
-            .unwrap()
-            .expect("selecting an interface should persist a desired target");
+    let selected_desired = db::machine_desired_boot_interface::get(
+        &env.api().database_connection,
+        &machine_id.try_into().unwrap(),
+    )
+    .await
+    .unwrap()
+    .expect("selecting an interface should persist a desired target");
     assert_eq!(
         selected_desired.value.mac_address(),
         selected_interface.mac_address
@@ -236,6 +255,43 @@ async fn machine_detail_manages_the_desired_boot_interface(pool: sqlx::PgPool) {
         "the selected row should become primary",
     );
 
+    let selection = host
+        .host
+        .machine()
+        .await
+        .config
+        .boot_interface_selection
+        .expect("the operator selection should retain its source");
+    assert_eq!(selection.source, BootInterfaceSelectionSource::Operator);
+    let selection_updated_at = selection
+        .updated_at
+        .expect("the operator selection should retain its decision time")
+        .to_string();
+
+    let response = app
+        .clone()
+        .oneshot(
+            web_request_builder()
+                .uri(format!("/admin/machine/{machine_id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("machine detail body should be readable")
+        .to_bytes();
+    let body = std::str::from_utf8(&body).expect("machine detail should be UTF-8");
+    let boot_interface_section = desired_boot_interface_section(body);
+    assert!(boot_interface_section.contains("<tr><th>Selection Source</th><td>Operator</td></tr>"));
+    assert!(boot_interface_section.contains(&format!(
+        "<tr><th>Selection Updated At</th><td>{selection_updated_at}</td></tr>"
+    )));
+
     // `Use system default` is the same exact-row write with the server's
     // current default mapped back to its managed UUID.
     let redfish_timepoint = env.redfish_sim.timepoint();
@@ -249,11 +305,13 @@ async fn machine_detail_manages_the_desired_boot_interface(pool: sqlx::PgPool) {
         "restoring the default should leave Redfish work to machine-controller",
     );
 
-    let default_desired =
-        db::machine_desired_boot_interface::get(&env.api().database_connection, &machine_id)
-            .await
-            .unwrap()
-            .expect("restoring the system default should retain a desired target");
+    let default_desired = db::machine_desired_boot_interface::get(
+        &env.api().database_connection,
+        &machine_id.try_into().unwrap(),
+    )
+    .await
+    .unwrap()
+    .expect("restoring the system default should retain a desired target");
     assert_eq!(
         default_desired.value.mac_address(),
         default_interface.mac_address
@@ -287,11 +345,13 @@ async fn machine_detail_manages_the_desired_boot_interface(pool: sqlx::PgPool) {
         "requesting reconciliation should leave Redfish work to machine-controller",
     );
 
-    let reconciled_desired =
-        db::machine_desired_boot_interface::get(&env.api().database_connection, &machine_id)
-            .await
-            .unwrap()
-            .expect("requesting reconciliation should retain the desired target");
+    let reconciled_desired = db::machine_desired_boot_interface::get(
+        &env.api().database_connection,
+        &machine_id.try_into().unwrap(),
+    )
+    .await
+    .unwrap()
+    .expect("requesting reconciliation should retain the desired target");
     assert_eq!(reconciled_desired.value, default_desired.value);
     assert_ne!(reconciled_desired.version, default_desired.version);
 }
@@ -357,10 +417,13 @@ async fn machine_detail_shows_an_uninitialized_desired_boot_interface(pool: sqlx
         "an uninitialized request should not touch Redfish",
     );
     assert!(
-        db::machine_desired_boot_interface::get(&env.api().database_connection, &machine_id)
-            .await
-            .unwrap()
-            .is_none(),
+        db::machine_desired_boot_interface::get(
+            &env.api().database_connection,
+            &machine_id.try_into().unwrap()
+        )
+        .await
+        .unwrap()
+        .is_none(),
         "reconciliation without a desired target should not initialize one",
     );
 }
@@ -481,6 +544,8 @@ async fn test_managed_host_html_includes_health_alert_details(
             "IntrusionSensorTriggered [Target: HostBMC]: Physical Chassis Intrusion Alert"
         )
     );
+    assert!(body_str.contains("will be removed in a future release"));
+    assert!(!body_str.contains("v2.1"));
 
     Ok(())
 }
@@ -672,4 +737,43 @@ async fn test_managed_host_empty_health_alert_filter_is_unfiltered(pool: sqlx::P
     );
     assert!(body_str.contains("All Managed Hosts (1)"));
     assert!(body_str.contains(&mh.host.id.to_string()));
+}
+
+#[crate::sqlx_test]
+async fn test_managed_host_group_drilldown_preserves_other_filters(pool: sqlx::PgPool) {
+    let env = TestEnv::new(pool).await;
+    _ = env.create_ready_managed_host(1).await;
+
+    let app = make_test_app(&env.test_harness);
+    let response = app
+        .oneshot(
+            web_request_builder()
+                .uri(
+                    "/admin/managed-host?health-alerts-filter=healthy&state-filter=ready&time-in-state-above-sla-filter=false&group-by=state&current_page=7&limit=25",
+                )
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("Empty response body?")
+        .to_bytes();
+    let body_str = std::str::from_utf8(&body_bytes).expect("Invalid UTF-8 in body");
+
+    let drilldown_link = r#"href="/admin/managed-host?health-alerts-filter=healthy&#38;time-in-state-above-sla-filter=false&#38;state-filter=ready""#;
+    assert!(
+        body_str.contains(drilldown_link),
+        "expected grouped-host drilldown link to preserve active filters: {body_str}"
+    );
+    assert_eq!(
+        body_str.matches("state-filter=ready").count(),
+        1,
+        "group filter must replace, not duplicate, the active state filter"
+    );
 }

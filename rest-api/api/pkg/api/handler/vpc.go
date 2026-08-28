@@ -28,6 +28,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
 	common "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
@@ -128,7 +129,6 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 		logger.Warn().Msg(fmt.Sprintf("Site: %v specified in request data must be in Registered state in order to proceed", site.ID))
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Site specified in request data must be in Registered state in order to proceed", nil)
 	}
-
 	// Get Tenant for this org
 	tenant, err := common.GetTenantForOrg(ctx, nil, cvh.dbSession, org)
 	if err != nil {
@@ -213,6 +213,9 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 	if site.Config != nil {
 		siteConfig = site.Config
 	}
+	if apiErr := util.ValidateSitePowerManagement(siteConfig, apiRequest.PowerResourceGroup); apiErr != nil {
+		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
+	}
 
 	// Network Virtualization type support
 	networkVirtualizationType := apiRequest.NetworkVirtualizationType
@@ -226,12 +229,20 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 		}
 	}
 
+	slaacEnabled := apiRequest.SlaacEnabled != nil && *apiRequest.SlaacEnabled
 	// Verify if site has been enabled for FNN type
 	if *networkVirtualizationType == cdbm.VpcFNN {
 		if !siteConfig.NativeNetworking {
 			logger.Warn().Msg(fmt.Sprintf("Site: %v specified in request data must have native networking enabled in order to create FNN VPCs", site.ID))
 			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Site specified in request data must have native networking enabled in order to create FNN VPCs", nil)
 		}
+	}
+	if slaacEnabled && *networkVirtualizationType != cdbm.VpcFNN {
+		logger.Warn().Str("networkVirtualizationType", *networkVirtualizationType).Msg("SLAAC is not supported for network virtualization type")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "`slaacEnabled` is only supported when network virtualization type is `FNN`", nil)
+	}
+	if slaacEnabled && !siteConfig.VpcSlaac {
+		return cutil.NewAPIErrorResponse(c, http.StatusPreconditionFailed, "Site does not advertise support for SLAAC-enabled VPCs", nil)
 	}
 
 	// TargetedInstanceCreation supplies both policies, but keep write authorization
@@ -349,7 +360,9 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 			TenantID:                  tenant.ID,
 			SiteID:                    site.ID,
 			NetworkVirtualizationType: networkVirtualizationType,
+			SlaacEnabled:              slaacEnabled,
 			RoutingProfile:            routingProfile,
+			PowerResourceGroup:        apiRequest.PowerResourceGroup,
 			RoutingProfileOverrides:   apiRequest.RoutingProfileOverrides.ToDB(),
 			NVLinkLogicalPartitionID:  defaultNvllPartitionId,
 			Labels:                    labels,
@@ -390,10 +403,9 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 		}
 		ssd = createdSsd
 
-		// Get the temporal client for the site we are working with.
-		stc, derr := cvh.scp.GetClientByID(vpc.SiteID)
-		if derr != nil {
-			logger.Error().Err(derr).Msg("failed to retrieve Temporal client for Site")
+		stc, clientErr := cvh.scp.GetClientByID(vpc.SiteID)
+		if clientErr != nil {
+			logger.Error().Err(clientErr).Msg("failed to retrieve Temporal client for Site")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 		}
 
@@ -598,7 +610,6 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 		logger.Error().Err(err).Msg("error retrieving VPC DB entity")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve VPC", nil)
 	}
-
 	// Get Tenant for this org
 	tenant, err := common.GetTenantForOrg(ctx, nil, uvh.dbSession, org)
 	if err != nil {
@@ -710,6 +721,9 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 	if vpc.Site != nil && vpc.Site.Config != nil {
 		siteConfig = vpc.Site.Config
 	}
+	if apiErr := util.ValidateSitePowerManagement(siteConfig, apiRequest.PowerResourceGroup); apiErr != nil {
+		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
+	}
 
 	var defaultNvllPartitionId *uuid.UUID
 	if apiRequest.NVLinkLogicalPartitionID != nil {
@@ -799,6 +813,7 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 			Labels:                  labels,
 			NetworkSecurityGroupID:  nsgID,
 			RoutingProfileOverrides: apiRequest.RoutingProfileOverrides.ToDB(),
+			PowerResourceGroup:      apiRequest.PowerResourceGroup,
 		}
 
 		if defaultNvllPartitionId != nil {
@@ -837,6 +852,11 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 		// A changed desired definition invalidates the last controller-resolved value.
 		if apiRequest.RoutingProfileOverrides != nil {
 			clearInput.EffectiveRoutingProfile = true
+			shouldClear = true
+		}
+
+		if apiRequest.PowerResourceGroup != nil && *apiRequest.PowerResourceGroup == "" {
+			clearInput.PowerResourceGroup = true
 			shouldClear = true
 		}
 

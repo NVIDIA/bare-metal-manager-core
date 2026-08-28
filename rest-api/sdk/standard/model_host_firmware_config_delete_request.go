@@ -169,7 +169,6 @@ func (o *HostFirmwareConfigDeleteRequest) UnmarshalJSON(data []byte) (err error)
 	varHostFirmwareConfigDeleteRequest := _HostFirmwareConfigDeleteRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varHostFirmwareConfigDeleteRequest)
 
 	if err != nil {

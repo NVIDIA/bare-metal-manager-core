@@ -188,7 +188,6 @@ func (o *OperatorErrorSchema) UnmarshalJSON(data []byte) (err error) {
 	varOperatorErrorSchema := _OperatorErrorSchema{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varOperatorErrorSchema)
 
 	if err != nil {

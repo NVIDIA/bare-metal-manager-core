@@ -660,6 +660,33 @@ Stores task execution records.
 | `TEMPORAL_PORT` | Temporal server port | 7233 |
 | `TEMPORAL_NAMESPACE` | Workflow namespace | flow |
 
+#### Data Encryption
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `FLOW_DATA_ENCRYPTION_KEY_PATH` | Path to the base64-encoded 32-byte key used to protect persisted sensitive Flow data | Unset; the Helm chart mounts a key automatically |
+
+Flow encrypts firmware authentication data before task, schedule, operation-run,
+or Temporal persistence. Ciphertext envelope version 1 records the encryption
+key's non-secret SHA-256 fingerprint so a mismatched key fails explicitly. The
+AES-GCM additional authenticated data provides firmware-authentication domain
+separation and authenticates the envelope version and key ID. It does not bind
+an entire envelope to a particular database row or Temporal execution; database
+authorization and integrity controls must prevent replay or relocation of a
+complete envelope. The scope of
+[issue #4392](https://github.com/NVIDIA/infra-controller/issues/4392) uses one
+preserved key and does not provide a key-rotation operation.
+
+When `FLOW_DATA_ENCRYPTION_KEY_PATH` is unset, Flow starts with a warning and
+continues to serve operations that do not contain firmware authentication data.
+Requests with non-empty `authentication_data` fail with `FailedPrecondition`
+before Flow persists or submits the operation. If the variable is set but its
+file is unreadable, empty, or does not contain a valid key, Flow fails at
+startup. Existing encrypted operations also require the original key when their
+final firmware-control activity executes. Operators can enable encryption later
+by configuring a persistent key and restarting Flow before submitting firmware
+authentication data.
+
 ### Component Manager Configuration
 
 **File**: `configs/componentmanager.prod.yaml` (or set via `COMPONENT_MANAGER_CONFIG`)
@@ -691,7 +718,7 @@ Flags:
 
 ## Directory Structure
 
-```
+```text
 flow/
 ├── cmd/                          # CLI commands
 │   ├── root.go                   # Root command

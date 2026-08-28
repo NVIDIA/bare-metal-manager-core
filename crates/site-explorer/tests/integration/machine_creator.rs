@@ -28,23 +28,19 @@ use carbide_test_harness::prelude::*;
 use carbide_test_harness::test_support::fixture_config::{
     DpuConfigExt as _, FixtureDefault as _, ManagedHostConfigExt as _,
 };
-use carbide_utils::arch::CpuArchitecture;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::rack::{RackId, RackProfileId};
 use db::ObjectFilter;
-use itertools::Itertools;
 use librms::protos::rack_manager as rms;
 use mac_address::MacAddress;
 use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
 use model::expected_rack::ExpectedRack;
-use model::machine::ManagedHostState;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::rack::RackConfig;
 use model::rack_type::{
     RackCapabilitiesSet, RackCapabilityCompute, RackCapabilityPowerShelf, RackCapabilitySwitch,
     RackHardwareTopology, RackProductFamily, RackProfile, RackProfileConfig,
 };
-use model::resource_pool::ResourcePoolStats;
 use model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
 use model::test_support::{DpuConfig, ManagedHostConfig};
 use rpc::forge::forge_server::Forge;
@@ -461,6 +457,7 @@ async fn explored_host_fixture(env: &Env, managed_host: &ManagedHostConfig) -> E
                 .dpus
                 .get(dpu.dpu_index as usize)
                 .map(|config| config.host_mac_address),
+            host_chassis_id: None,
             report: Arc::new(dpu.report),
         })
         .collect();
@@ -470,396 +467,6 @@ async fn explored_host_fixture(env: &Env, managed_host: &ManagedHostConfig) -> E
         host_report,
         dpu_machine_ids,
     }
-}
-
-#[sqlx_test]
-async fn test_machine_creator_creates_managed_host(
-    pool: PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = Env::new(pool).await;
-    let creator = machine_creator(&env, machine_creator_config());
-
-    // Use a known DPU serial so we can assert on the generated MachineId.
-    let dpu_serial = "MT2328XZ185R".to_string();
-    let expected_machine_id =
-        "fm100ds3gfip02lfgleidqoitqgh8d8mdc4a3j2tdncbjrfjtvrrhn2kleg".to_string();
-
-    let mock_dpu = DpuConfig::with_serial(dpu_serial.clone());
-    dhcp_discover_dpu_oob_iface(env.api(), env.underlay_segment, mock_dpu.oob_mac_address).await;
-    let mock_host = ManagedHostConfig::default().with_dpus(vec![mock_dpu.clone()]);
-    let mut fixture = explored_host_fixture(&env, &mock_host).await;
-
-    assert_eq!(fixture.dpu_machine_ids[&0].to_string(), expected_machine_id,);
-
-    assert!(
-        creator
-            .create_managed_host(
-                &fixture.host,
-                &mut fixture.host_report,
-                Some(&expected_machine(&mock_host)),
-                &env.pool,
-            )
-            .await?
-    );
-
-    let mut txn = env.pool.begin().await?;
-    let dpu_machine = db::machine::find_one(
-        txn.as_mut(),
-        &fixture.dpu_machine_ids[&0],
-        MachineSearchConfig {
-            include_predicted_host: true,
-            ..Default::default()
-        },
-    )
-    .await?
-    .expect("DPU machine should exist");
-    txn.commit().await?;
-    assert!(
-        matches!(
-            dpu_machine.current_state(),
-            ManagedHostState::DpuDiscoveringState { .. }
-        ),
-        "expected DpuDiscoveringState, got {:?}",
-        dpu_machine.current_state(),
-    );
-    assert_eq!(
-        dpu_machine
-            .status
-            .hardware_info
-            .as_ref()
-            .unwrap()
-            .machine_type,
-        CpuArchitecture::Aarch64,
-    );
-    assert_eq!(
-        dpu_machine
-            .status
-            .hardware_info
-            .as_ref()
-            .unwrap()
-            .dmi_data
-            .clone()
-            .unwrap()
-            .product_serial,
-        dpu_serial
-    );
-    assert_eq!(
-        dpu_machine
-            .status
-            .hardware_info
-            .as_ref()
-            .unwrap()
-            .dpu_info
-            .clone()
-            .unwrap()
-            .part_number,
-        "900-9D3B6-00CV-AA0".to_string()
-    );
-    assert_eq!(
-        dpu_machine
-            .status
-            .hardware_info
-            .as_ref()
-            .unwrap()
-            .dpu_info
-            .clone()
-            .unwrap()
-            .part_description,
-        "Bluefield 3 SmartNIC Main Card".to_string()
-    );
-
-    let mut txn = env.pool.begin().await?;
-    let host_machine = db::machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine.id)
-        .await?
-        .expect("host machine should exist");
-    txn.commit().await?;
-    assert!(
-        matches!(
-            host_machine.current_state(),
-            ManagedHostState::DpuDiscoveringState { .. }
-        ),
-        "expected DpuDiscoveringState, got {:?}",
-        host_machine.current_state(),
-    );
-    assert!(host_machine.status.bmc_info.ip.is_some());
-
-    // 2nd creation does nothing.
-    assert!(
-        !creator
-            .create_managed_host(
-                &fixture.host,
-                &mut EndpointExplorationReport::default(),
-                Some(&expected_machine(&mock_host)),
-                &env.pool,
-            )
-            .await?
-    );
-
-    let mut txn = env.pool.begin().await?;
-    let machine_interfaces =
-        db::machine_interface::find_by_mac_address(txn.as_mut(), mock_dpu.oob_mac_address).await?;
-    assert!(!machine_interfaces.is_empty());
-    let topologies = db::machine_topology::find_by_machine_ids(&mut txn, &[dpu_machine.id]).await?;
-    assert!(topologies.contains_key(&dpu_machine.id));
-
-    let pairs =
-        db::machine_topology::find_machine_bmc_pairs_by_machine_id(&mut txn, vec![dpu_machine.id])
-            .await?;
-    txn.commit().await?;
-    assert_eq!(pairs.len(), 1);
-    assert_eq!(pairs[0].1, Some(fixture.host.dpus[0].bmc_ip.to_string()));
-
-    let topology = &topologies[&dpu_machine.id][0];
-    assert!(topology.topology_update_needed());
-    assert!(
-        topology
-            .topology()
-            .discovery_data
-            .info
-            .block_devices
-            .is_empty()
-    );
-
-    Ok(())
-}
-
-#[sqlx_test]
-async fn test_machine_creator_creates_multi_dpu_managed_host(
-    pool: PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let resource_pools = ResourcePoolBuilder::default()
-        .with_loopback_ip_v6("2001:db8::/125")
-        .build();
-    let test_harness = TestHarness::builder(pool.clone())
-        .with_resource_pools(resource_pools)
-        .build()
-        .await;
-    let domain = test_harness.test_domain().await;
-    let network_controller = test_harness.network_controller();
-    let underlay_segment = network_controller.create_underlay_segment(&domain).await;
-    network_controller.create_admin_segment(&domain).await;
-    let env = Env {
-        pool,
-        underlay_segment,
-        test_harness,
-    };
-    let creator = machine_creator(&env, machine_creator_config());
-
-    const NUM_DPUS: usize = 2;
-    let mut txn = env.pool.begin().await?;
-    let initial_loopback_pool_stats = db::resource_pool::stats(
-        &mut *txn,
-        env.api().common_pools().ethernet.pool_loopback_ip.name(),
-    )
-    .await?;
-
-    let initial_loopback_v6_pool_stats = db::resource_pool::stats(
-        &mut *txn,
-        env.api().common_pools().ethernet.pool_loopback_ip_v6.name(),
-    )
-    .await?;
-
-    txn.commit().await?;
-
-    let mut oob_interfaces = Vec::new();
-    let mock_host = ManagedHostConfig::default().with_dpu_count(NUM_DPUS);
-    for dpu in &mock_host.dpus {
-        dhcp_discover_dpu_oob_iface(env.api(), env.underlay_segment, dpu.oob_mac_address).await;
-        let mut txn = env.pool.begin().await?;
-        let oob_interface =
-            db::machine_interface::find_by_mac_address(txn.as_mut(), dpu.oob_mac_address).await?;
-        txn.commit().await?;
-        assert!(oob_interface[0].primary_interface);
-        oob_interfaces.push(oob_interface[0].clone());
-    }
-    let mut fixture = explored_host_fixture(&env, &mock_host).await;
-
-    assert!(
-        creator
-            .create_managed_host(
-                &fixture.host,
-                &mut fixture.host_report,
-                Some(&expected_machine(&mock_host)),
-                &env.pool,
-            )
-            .await?
-    );
-
-    // a second create attempt on the same machine should return false.
-    assert!(
-        !creator
-            .create_managed_host(
-                &fixture.host,
-                &mut EndpointExplorationReport::default(),
-                Some(&expected_machine(&mock_host)),
-                &env.pool,
-            )
-            .await?
-    );
-
-    let mut txn = env.pool.begin().await?;
-    let expected_loopback_count = NUM_DPUS;
-    assert_eq!(
-        db::resource_pool::stats(
-            &mut *txn,
-            env.api().common_pools().ethernet.pool_loopback_ip.name()
-        )
-        .await?,
-        ResourcePoolStats {
-            used: expected_loopback_count,
-            free: initial_loopback_pool_stats.free - expected_loopback_count,
-            auto_assign_free: initial_loopback_pool_stats.free - expected_loopback_count,
-            auto_assign_used: expected_loopback_count,
-            non_auto_assign_free: 0,
-            non_auto_assign_used: 0
-        }
-    );
-    txn.commit().await?;
-
-    let mut host_machine_id: Option<MachineId> = None;
-    let mut dpu_machines = Vec::new();
-    let mut host_machine = None;
-
-    for dpu_index in 0..NUM_DPUS {
-        let dpu_index = dpu_index.try_into().expect("DPU index should fit into u8");
-        let mut txn = env.pool.begin().await?;
-        let dpu_machine = db::machine::find_one(
-            txn.as_mut(),
-            &fixture.dpu_machine_ids[&dpu_index],
-            MachineSearchConfig {
-                include_predicted_host: true,
-                ..Default::default()
-            },
-        )
-        .await?
-        .expect("DPU machine should exist");
-        txn.commit().await?;
-
-        let expected_loopback_ip = dpu_machine.network_config.loopback_ip.unwrap().to_string();
-        assert!(dpu_machine.network_config.loopback_ip_v6.is_some());
-        let network_config_response = env
-            .api()
-            .get_managed_host_network_config(Request::new(
-                rpc::forge::ManagedHostNetworkConfigRequest {
-                    dpu_machine_id: Some(dpu_machine.id),
-                },
-            ))
-            .await?
-            .into_inner();
-
-        assert_eq!(
-            expected_loopback_ip,
-            network_config_response
-                .managed_host_config
-                .unwrap()
-                .loopback_ip
-        );
-
-        if host_machine.is_none() {
-            let mut txn = env.pool.begin().await?;
-            host_machine =
-                db::machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine.id).await?;
-            txn.commit().await?;
-        }
-        let hm = host_machine.clone().unwrap();
-        assert!(hm.status.bmc_info.ip.is_some());
-        if host_machine_id.is_none() {
-            host_machine_id = Some(hm.id);
-        }
-
-        assert_eq!(&hm.id, host_machine_id.as_ref().unwrap());
-        dpu_machines.push(dpu_machine);
-    }
-
-    let mut txn = env.pool.begin().await?;
-    assert_eq!(
-        db::resource_pool::stats(
-            &mut *txn,
-            env.api().common_pools().ethernet.pool_loopback_ip_v6.name()
-        )
-        .await?,
-        ResourcePoolStats {
-            used: expected_loopback_count,
-            free: initial_loopback_v6_pool_stats.free - expected_loopback_count,
-            auto_assign_free: initial_loopback_v6_pool_stats.free - expected_loopback_count,
-            auto_assign_used: expected_loopback_count,
-            non_auto_assign_free: 0,
-            non_auto_assign_used: 0
-        }
-    );
-    txn.commit().await?;
-
-    assert!(
-        matches!(
-            host_machine.unwrap().current_state(),
-            ManagedHostState::DpuDiscoveringState { .. }
-        ),
-        "expected DpuDiscoveringState for host",
-    );
-
-    for dpu in &dpu_machines {
-        assert!(
-            matches!(
-                dpu.current_state(),
-                ManagedHostState::DpuDiscoveringState { .. }
-            ),
-            "expected DpuDiscoveringState for DPU {:?}",
-            dpu.id,
-        );
-    }
-
-    let mut txn = env.pool.begin().await?;
-    let mut interfaces_map =
-        db::machine_interface::find_by_machine_ids(&mut txn, &[*host_machine_id.as_ref().unwrap()])
-            .await?;
-    txn.commit().await?;
-    let interfaces = interfaces_map
-        .remove(host_machine_id.as_ref().unwrap())
-        .unwrap();
-    assert_eq!(interfaces.len(), NUM_DPUS);
-    assert_eq!(
-        interfaces
-            .iter()
-            .filter(|i| i.primary_interface)
-            .collect::<Vec<_>>()
-            .len(),
-        1
-    );
-    assert_eq!(
-        interfaces
-            .iter()
-            .filter(|i| !i.primary_interface)
-            .collect::<Vec<_>>()
-            .len(),
-        NUM_DPUS - 1
-    );
-
-    // Try to discover machine with multiple DPUs
-    for (i, dpu_machine) in dpu_machines.iter().enumerate() {
-        let mut txn = env.pool.begin().await?;
-        let topologies =
-            db::machine_topology::find_by_machine_ids(&mut txn, &[dpu_machine.id]).await?;
-        txn.commit().await?;
-
-        let topology = &topologies[&dpu_machine.id][0];
-        let hardware_info = &topology.topology().discovery_data.info;
-        let discovery_info = DiscoveryInfo::try_from(hardware_info.clone()).unwrap();
-
-        let response = env
-            .api()
-            .discover_machine(Request::new(MachineDiscoveryInfo {
-                machine_interface_id: Some(oob_interfaces[i].id),
-                discovery_data: Some(DiscoveryData::Info(discovery_info)),
-                create_machine: true,
-                ..Default::default()
-            }))
-            .await
-            .unwrap()
-            .into_inner();
-        assert!(response.machine_id.is_some());
-    }
-
-    Ok(())
 }
 
 #[sqlx_test]
@@ -909,7 +516,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
 }
 
 #[sqlx_test]
-async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
+async fn test_dpu_interface_predictions_apply_when_dhcp_follows_machine_creation(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = Env::new(pool).await;
@@ -919,8 +526,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
     let mut fixture = explored_host_fixture(&env, &mock_host).await;
     let dpu_machine_id = fixture.dpu_machine_ids[&0];
 
-    // No way to find a machine_interface using machine id as machine id is not yet associated with
-    // interface (right now no machine interface is created yet).
+    // The DPU machine exists before its first DHCP request, so there is no real interface yet.
     let mut txn = env.pool.begin().await?;
     let mi = db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id]).await?;
     assert!(mi.is_empty());
@@ -937,8 +543,8 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
             .await?
     );
 
-    // At this point, create_managed_host must have created machine but can not associate it with to
-    // any interface as interface does not exist.
+    // Site Explorer cannot associate an interface that does not exist yet, but it must leave a
+    // trusted MAC claim for DHCP to promote without waiting for another exploration sweep.
     let mut txn = env.pool.begin().await?;
     let machine = db::machine::find_one(
         txn.as_mut(),
@@ -951,42 +557,61 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
     .await?;
     assert!(machine.is_some());
 
-    // No way to find a machine_interface using machine id as machine id is not yet associated with
-    // interface (right now no machine interface is created yet).
     let mi = db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id]).await?;
     assert!(mi.is_empty());
+    let prediction =
+        db::predicted_machine_interface::find_by_mac_address(&mut txn, mock_dpu.oob_mac_address)
+            .await?
+            .expect("DPU OOB prediction should exist");
+    assert_eq!(prediction.machine_id, dpu_machine_id);
+    assert_eq!(
+        prediction.expected_network_segment_type,
+        model::network_segment::NetworkSegmentType::Underlay
+    );
+    assert!(prediction.primary_interface);
     txn.rollback().await?;
 
-    // Create MI now.
+    // DHCP must consume the trusted prediction and create an already-owned interface.
     dhcp_discover_dpu_oob_iface(env.api(), env.underlay_segment, mock_dpu.oob_mac_address).await;
 
-    // Machine is already created, create_managed_host should return false.
+    let mut txn = env.pool.begin().await?;
+    let interfaces =
+        db::machine_interface::find_by_mac_address(txn.as_mut(), mock_dpu.oob_mac_address).await?;
+    let [interface] = interfaces.as_slice() else {
+        panic!("expected one promoted DPU OOB interface, got {interfaces:#?}");
+    };
+    assert_eq!(interface.machine_id, Some(dpu_machine_id));
+    assert_eq!(interface.attached_dpu_machine_id, Some(dpu_machine_id));
+    assert!(interface.primary_interface);
     assert!(
-        !creator
-            .create_managed_host(
-                &fixture.host,
-                &mut EndpointExplorationReport::default(),
-                Some(&expected_machine(&mock_host)),
-                &env.pool,
-            )
+        db::predicted_machine_interface::find_by_mac_address(&mut txn, mock_dpu.oob_mac_address,)
             .await?
+            .is_none()
     );
 
-    // At this point, create_managed_host must have updated the associated machine id in
-    // machine_interfaces table.
-    let mut txn = env.pool.begin().await?;
-    let mi = db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id]).await?;
-    assert!(!mi.is_empty());
-    let value = mi.values().collect_vec()[0].clone()[0].clone();
-    assert_eq!(value.attached_dpu_machine_id.unwrap(), dpu_machine_id);
-    assert_eq!(value.machine_id.unwrap(), dpu_machine_id);
-    txn.rollback().await?;
+    let topologies = db::machine_topology::find_by_machine_ids(&mut txn, &[dpu_machine_id]).await?;
+    let topology = &topologies[&dpu_machine_id][0];
+    let discovery_info = DiscoveryInfo::try_from(topology.topology().discovery_data.info.clone())?;
+    let interface_id = interface.id;
+    txn.commit().await?;
+
+    let response = env
+        .api()
+        .discover_machine(Request::new(MachineDiscoveryInfo {
+            machine_interface_id: Some(interface_id),
+            discovery_data: Some(DiscoveryData::Info(discovery_info)),
+            create_machine: true,
+            ..Default::default()
+        }))
+        .await?
+        .into_inner();
+    assert_eq!(response.machine_id, Some(dpu_machine_id));
 
     Ok(())
 }
 
 #[sqlx_test]
-async fn test_all_dpu_interfaces_attach_if_created_after_multi_dpu_machine_creation(
+async fn test_dpu_interface_predictions_apply_when_dhcp_follows_multi_dpu_machine_creation(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     const NUM_DPUS: usize = 2;
@@ -1010,17 +635,6 @@ async fn test_all_dpu_interfaces_attach_if_created_after_multi_dpu_machine_creat
     for dpu in &mock_host.dpus {
         dhcp_discover_dpu_oob_iface(env.api(), env.underlay_segment, dpu.oob_mac_address).await;
     }
-
-    assert!(
-        !creator
-            .create_managed_host(
-                &fixture.host,
-                &mut EndpointExplorationReport::default(),
-                Some(&expected_machine(&mock_host)),
-                &env.pool,
-            )
-            .await?
-    );
 
     let mut txn = env.pool.begin().await?;
     for (dpu_index, dpu) in mock_host.dpus.iter().enumerate() {

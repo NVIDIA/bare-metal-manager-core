@@ -285,6 +285,8 @@ pub struct LogRecord {
 }
 
 impl LogRecord {
+    pub(crate) const DECODED_PROTOBUF_PAYLOAD_ATTRIBUTE: &'static str = "protobuf.decoded_payload";
+
     /// Converts the collector-internal log record into the record a sink emits.
     ///
     /// Diagnostic payloads stay in a separate carrier until this boundary so
@@ -342,6 +344,29 @@ impl LogRecord {
             severity: self.severity,
             attributes,
             diagnostic_record: None,
+        })
+    }
+
+    /// Removes decoded protobuf JSON while preserving all other log content.
+    pub(crate) fn without_decoded_protobuf_payload(&self) -> Cow<'_, Self> {
+        if !self
+            .attributes
+            .iter()
+            .any(|(key, _)| key.as_ref() == Self::DECODED_PROTOBUF_PAYLOAD_ATTRIBUTE)
+        {
+            return Cow::Borrowed(self);
+        }
+
+        Cow::Owned(Self {
+            body: self.body.clone(),
+            severity: self.severity,
+            attributes: self
+                .attributes
+                .iter()
+                .filter(|(key, _)| key.as_ref() != Self::DECODED_PROTOBUF_PAYLOAD_ATTRIBUTE)
+                .cloned()
+                .collect(),
+            diagnostic_record: self.diagnostic_record.clone(),
         })
     }
 }

@@ -5,25 +5,29 @@ package processor
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/executor"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/target"
 	inventoryresolver "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/resolver"
 )
 
-// Config contains the dependencies and runtime settings for a Processor.
+// ExecutorRegistry resolves the executor for an action type.
+type ExecutorRegistry interface {
+	Executor(eventrule.ActionType) (executor.Executor, error)
+}
+
+// Config contains the dependencies for a Processor.
 type Config struct {
 	Inventory  inventoryresolver.InventoryReader
 	Rules      RuleResolver
+	Events     eventrule.EventStore
 	Executions eventrule.ExecutionStore
-	Executor   executor.Executor
-
-	Clock func() time.Time
+	Targets    *target.Registry
+	Executors  ExecutorRegistry
 }
 
-// Validate checks that all required processor dependencies and runtime
-// settings are valid.
+// Validate checks that all required processor dependencies are present.
 func (c Config) Validate() error {
 	if c.Inventory == nil {
 		return fmt.Errorf("inventory reader is required")
@@ -34,16 +38,14 @@ func (c Config) Validate() error {
 	if c.Executions == nil {
 		return fmt.Errorf("execution store is required")
 	}
-	if c.Executor == nil {
-		return fmt.Errorf("action executor is required")
+	if c.Events == nil {
+		return fmt.Errorf("event store is required")
 	}
-
+	if c.Targets == nil {
+		return fmt.Errorf("target resolver registry is required")
+	}
+	if c.Executors == nil {
+		return fmt.Errorf("executor registry is required")
+	}
 	return nil
-}
-
-func (c Config) clock() func() time.Time {
-	if c.Clock != nil {
-		return c.Clock
-	}
-	return time.Now
 }

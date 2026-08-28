@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// Package manager unifies immutable built-in and persisted event rules.
+// Package manager owns event-rule management and event processing.
 package manager
 
 import (
@@ -11,39 +11,147 @@ import (
 	"slices"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
+	eventexecutor "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/executor"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/leakage"
+	eventprocessor "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/processor"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/target"
+	inventoryresolver "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/resolver"
 	"github.com/google/uuid"
 )
 
-// Manager routes reads and mutations to stores with the appropriate capability.
+// Manager is the event-rule subsystem facade. It owns rule management and the
+// internally assembled event-processing runtime.
 type Manager struct {
-	builtIns  eventrule.BuiltInRuleReader
-	persisted eventrule.RuleStore
-	bindings  eventrule.BindingStore
+	builtIns  *builtInRegistry
+	store     eventRuleStore
+	targets   *target.Registry
+	executors *eventexecutor.Registry
+	processor *eventprocessor.Processor
 }
 
-// New constructs an event-rule manager.
-func New(
-	builtIns eventrule.BuiltInRuleReader,
-	persisted eventrule.RuleStore,
-	bindings eventrule.BindingStore,
-) (*Manager, error) {
-	if builtIns == nil {
-		return nil, fmt.Errorf("built-in event rule store is required")
+// New constructs a fully assembled event-rule manager.
+// TODO(flow-service-integration): Connect the manager to the Flow service root
+// after the durable event-rule store is implemented.
+func New(config Config) (*Manager, error) {
+	if err := config.Validate(); err != nil {
+		return nil, err
 	}
 
-	if persisted == nil {
-		return nil, fmt.Errorf("persisted event rule store is required")
+	store, err := newStore(config.Store)
+	if err != nil {
+		return nil, err
 	}
 
-	if bindings == nil {
-		return nil, fmt.Errorf("event rule binding store is required")
+	executors, err := newExecutorRegistry(config, store)
+	if err != nil {
+		return nil, err
+	}
+
+	targets, err := newTargetRegistry(config)
+	if err != nil {
+		return nil, err
+	}
+
+	builtIns, err := newBuiltInRulesRegistry(executors, targets)
+	if err != nil {
+		return nil, err
+	}
+
+	processor, err := newProcessor(config, store, builtIns, targets, executors)
+	if err != nil {
+		return nil, err
 	}
 
 	return &Manager{
 		builtIns:  builtIns,
-		persisted: persisted,
-		bindings:  bindings,
+		store:     store,
+		targets:   targets,
+		executors: executors,
+		processor: processor,
 	}, nil
+}
+
+func newTargetRegistry(config Config) (*target.Registry, error) {
+	targets := target.New()
+
+	err := leakage.RegisterTargetResolvers(
+		targets,
+		inventoryresolver.New(config.Inventory),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return targets, nil
+}
+
+func newBuiltInRulesRegistry(
+	executors *eventexecutor.Registry,
+	targets *target.Registry,
+) (*builtInRegistry, error) {
+	// Register the built-in rule for each supported event type here.
+	rules := []*eventrule.Rule{
+		leakage.DefaultRule(),
+	}
+
+	builtIns := &builtInRegistry{
+		byID:        make(map[uuid.UUID]eventrule.Rule, len(rules)),
+		byEventType: make(map[eventrule.Type]uuid.UUID, len(rules)),
+	}
+	for _, rule := range rules {
+		if err := builtIns.addRule(rule); err != nil {
+			return nil, err
+		}
+	}
+
+	for _, rule := range rules {
+		if err := executors.ValidateActions(rule.Actions); err != nil {
+			return nil, fmt.Errorf("validate built-in event rule executors: %w", err)
+		}
+
+		if err := targets.ValidateRule(rule); err != nil {
+			return nil, fmt.Errorf("validate built-in event rule targets: %w", err)
+		}
+	}
+
+	return builtIns, nil
+}
+
+func newProcessor(
+	config Config,
+	store eventRuleStore,
+	builtIns *builtInRegistry,
+	targets *target.Registry,
+	executors *eventexecutor.Registry,
+) (*eventprocessor.Processor, error) {
+	cfg := eventprocessor.Config{
+		Inventory:  config.Inventory,
+		Rules:      &ruleResolver{builtIns: builtIns, store: store},
+		Events:     store,
+		Executions: store,
+		Targets:    targets,
+		Executors:  executors,
+	}
+
+	return eventprocessor.New(cfg)
+}
+
+func newExecutorRegistry(
+	config Config,
+	executionTasks eventrule.ExecutionTaskStore,
+) (*eventexecutor.Registry, error) {
+	cfg := eventexecutor.Config{
+		TaskManager:    config.TaskManager,
+		ExecutionTasks: executionTasks,
+		AlertSender:    config.AlertSender,
+	}
+
+	return eventexecutor.New(cfg)
+}
+
+// Process delegates one collected event to the internally assembled processor.
+func (m *Manager) Process(ctx context.Context, envelope eventrule.Envelope) error {
+	return m.processor.Process(ctx, envelope)
 }
 
 // GetByID looks in persisted rules and then built-ins.
@@ -52,7 +160,7 @@ func (m *Manager) GetByID(ctx context.Context, id uuid.UUID) (*eventrule.Rule, e
 		return nil, err
 	}
 
-	rule, err := m.persisted.GetByID(ctx, id)
+	rule, err := m.store.GetByID(ctx, id)
 	if err == nil {
 		return rule, nil
 	}
@@ -66,7 +174,7 @@ func (m *Manager) GetByID(ctx context.Context, id uuid.UUID) (*eventrule.Rule, e
 
 // List returns persisted and built-in rules through one read API.
 func (m *Manager) List(ctx context.Context, filter eventrule.RuleFilter) ([]*eventrule.Rule, error) {
-	persisted, err := m.persisted.List(ctx, filter)
+	persisted, err := m.store.List(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -98,12 +206,15 @@ func (m *Manager) Create(
 		EventType:   input.EventType,
 		Policy:      input.Policy.Clone(),
 	}
+	if err := m.validateRuntimeRule(&rule); err != nil {
+		return nil, err
+	}
 
 	if err := m.rejectBuiltInID(ctx, rule.ID); err != nil {
 		return nil, err
 	}
 
-	return m.persisted.Create(ctx, &rule)
+	return m.store.Create(ctx, &rule)
 }
 
 // UpdateMetadata updates a persisted rule's descriptive fields.
@@ -124,35 +235,7 @@ func (m *Manager) UpdateMetadata(
 		return err
 	}
 
-	return m.persisted.UpdateMetadata(ctx, id, metadata)
-}
-
-// SetDedupe replaces or clears a persisted rule's deduplication policy.
-func (m *Manager) SetDedupe(
-	ctx context.Context,
-	id uuid.UUID,
-	dedupe *eventrule.Dedupe,
-) error {
-	if err := validateRuleID(id); err != nil {
-		return err
-	}
-
-	if dedupe != nil {
-		if err := dedupe.Validate(); err != nil {
-			return fmt.Errorf("dedupe: %w", err)
-		}
-	}
-
-	if err := m.rejectBuiltInID(ctx, id); err != nil {
-		return err
-	}
-
-	if dedupe == nil {
-		return m.persisted.SetDedupe(ctx, id, nil)
-	}
-
-	cloned := *dedupe
-	return m.persisted.SetDedupe(ctx, id, &cloned)
+	return m.store.UpdateMetadata(ctx, id, metadata)
 }
 
 // ReplaceActions replaces all actions belonging to a persisted rule.
@@ -165,15 +248,22 @@ func (m *Manager) ReplaceActions(
 		return err
 	}
 
-	if err := eventrule.ValidateActions(actions); err != nil {
-		return err
-	}
-
 	if err := m.rejectBuiltInID(ctx, id); err != nil {
 		return err
 	}
 
-	return m.persisted.ReplaceActions(ctx, id, eventrule.CloneActions(actions))
+	rule, err := m.store.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	candidate := rule.Clone()
+	candidate.Actions = eventrule.CloneActions(actions)
+	if err := m.validateRuntimeRule(&candidate); err != nil {
+		return err
+	}
+
+	return m.store.ReplaceActions(ctx, id, candidate.Actions)
 }
 
 // Delete delegates deletion to the persisted store, which atomically deletes
@@ -187,7 +277,7 @@ func (m *Manager) Delete(ctx context.Context, id uuid.UUID) error {
 		return err
 	}
 
-	return m.persisted.Delete(ctx, id)
+	return m.store.Delete(ctx, id)
 }
 
 // SetEnabled changes whether a persisted rule is enabled.
@@ -200,7 +290,18 @@ func (m *Manager) SetEnabled(ctx context.Context, id uuid.UUID, enabled bool) er
 		return err
 	}
 
-	return m.persisted.SetEnabled(ctx, id, enabled)
+	if enabled {
+		rule, err := m.store.GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+
+		if err := m.validateRuntimeRule(rule); err != nil {
+			return err
+		}
+	}
+
+	return m.store.SetEnabled(ctx, id, enabled)
 }
 
 // Bind associates a persisted rule with a scope and returns the new binding.
@@ -221,7 +322,7 @@ func (m *Manager) Bind(
 		return nil, err
 	}
 
-	rule, err := m.persisted.GetByID(ctx, ruleID)
+	rule, err := m.store.GetByID(ctx, ruleID)
 	if err != nil {
 		return nil, err
 	}
@@ -237,7 +338,7 @@ func (m *Manager) Bind(
 		return nil, err
 	}
 
-	if err := m.bindings.Bind(ctx, binding); err != nil {
+	if err := m.store.Bind(ctx, binding); err != nil {
 		return nil, err
 	}
 
@@ -250,77 +351,7 @@ func (m *Manager) Unbind(ctx context.Context, bindingID uuid.UUID) error {
 		return fmt.Errorf("event rule binding id is required")
 	}
 
-	return m.bindings.Unbind(ctx, bindingID)
-}
-
-// GetEffective resolves rack, site, then built-in precedence. It returns
-// (nil, nil) when no effective rule exists.
-func (m *Manager) GetEffective(
-	ctx context.Context,
-	eventType eventrule.Type,
-	rackID uuid.UUID,
-) (*eventrule.Rule, error) {
-	// Prefer an enabled persisted rule bound to the event's rack.
-	if rackID != uuid.Nil {
-		scope := eventrule.Scope{
-			Type: eventrule.ScopeTypeRack,
-			ID:   rackID,
-		}
-
-		rule, err := m.getForScope(ctx, eventType, scope)
-		if err != nil {
-			return nil, err
-		}
-
-		if rule != nil {
-			return rule, nil
-		}
-	}
-
-	// Fall back to an enabled persisted rule bound to the site.
-	scope := eventrule.Scope{
-		Type: eventrule.ScopeTypeSite,
-		ID:   uuid.Nil,
-	}
-
-	rule, err := m.getForScope(ctx, eventType, scope)
-	if err != nil {
-		return nil, err
-	}
-
-	if rule != nil {
-		return rule, nil
-	}
-
-	// Use the immutable built-in when no persisted scope supplies a rule.
-	rule, err = m.builtIns.GetByEventType(ctx, eventType)
-	if errors.Is(err, eventrule.ErrRuleNotFound) {
-		return nil, nil
-	}
-
-	return rule, err
-}
-
-func (m *Manager) getForScope(
-	ctx context.Context,
-	eventType eventrule.Type,
-	scope eventrule.Scope,
-) (*eventrule.Rule, error) {
-	binding, err := m.bindings.GetForScope(ctx, eventType, scope)
-	if err != nil || binding == nil {
-		return nil, err
-	}
-
-	rule, err := m.persisted.GetByID(ctx, binding.RuleID)
-	if err != nil {
-		return nil, err
-	}
-
-	if !rule.Enabled {
-		return nil, nil
-	}
-
-	return rule, nil
+	return m.store.Unbind(ctx, bindingID)
 }
 
 func (m *Manager) rejectBuiltInID(ctx context.Context, id uuid.UUID) error {
@@ -334,6 +365,14 @@ func (m *Manager) rejectBuiltInID(ctx context.Context, id uuid.UUID) error {
 	}
 
 	return nil
+}
+
+func (m *Manager) validateRuntimeRule(rule *eventrule.Rule) error {
+	if err := m.executors.ValidateActions(rule.Actions); err != nil {
+		return err
+	}
+
+	return m.targets.ValidateRule(rule)
 }
 
 func validateRuleID(id uuid.UUID) error {

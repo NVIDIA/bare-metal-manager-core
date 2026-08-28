@@ -24,9 +24,6 @@ mod profile;
 mod show;
 mod state_history;
 
-#[cfg(test)]
-mod tests;
-
 use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;

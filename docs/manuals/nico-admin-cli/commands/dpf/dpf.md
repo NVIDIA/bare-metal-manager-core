@@ -38,7 +38,7 @@ Sort output by specified field\
 \
 *Possible values:*
 
-- primary-id: Sort by the primary id
+- primary-id: Sort by the primary ID
 
 - state: Sort by state
 
@@ -54,6 +54,7 @@ Print help (see a summary with -h)
 | [`show`](./dpf-show.md) | Check Status of DPF |
 | [`snapshot`](./dpf-snapshot.md) | Snapshot DPF CRs (DPUNode, DPUDevices, DPUs) for a host |
 | [`service-version`](./dpf-service-version.md) | Compare configured vs deployed DPF service versions |
+| [`service-sync`](./dpf-service-sync.md) | Release DPF maintenance holds blocking a DPUService rollout |
 
 ---
 

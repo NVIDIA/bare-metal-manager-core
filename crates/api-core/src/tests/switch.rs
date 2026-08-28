@@ -644,6 +644,7 @@ async fn test_force_delete_switch_success(
         .admin_force_delete_switch(tonic::Request::new(AdminForceDeleteSwitchRequest {
             switch_id: Some(switch_id),
             delete_interfaces: false,
+            delete_bmc_suppressions: false,
         }))
         .await?
         .into_inner();
@@ -695,6 +696,7 @@ async fn test_force_delete_switch_not_found(
         .admin_force_delete_switch(tonic::Request::new(AdminForceDeleteSwitchRequest {
             switch_id: Some(non_existent_id),
             delete_interfaces: false,
+            delete_bmc_suppressions: false,
         }))
         .await;
 
@@ -725,6 +727,7 @@ async fn test_force_delete_switch_already_soft_deleted(
         .admin_force_delete_switch(tonic::Request::new(AdminForceDeleteSwitchRequest {
             switch_id: Some(switch_id),
             delete_interfaces: false,
+            delete_bmc_suppressions: false,
         }))
         .await?
         .into_inner();

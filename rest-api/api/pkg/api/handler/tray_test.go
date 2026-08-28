@@ -1569,15 +1569,17 @@ func TestUpdateTrayFirmwareHandler_Handle(t *testing.T) {
 		trayID         string
 		body           string
 		mockTaskIDs    []*flowv1.UUID
+		expectedAuth   string
 		expectedStatus int
 	}{
 		{
-			name:           "success - firmware update with version",
+			name:           "success - firmware update with authentication data",
 			reqOrg:         org,
 			user:           providerUser,
 			trayID:         trayID,
-			body:           fmt.Sprintf(`{"siteId":"%s","version":"24.11.0"}`, site.ID.String()),
+			body:           fmt.Sprintf(`{"siteId":"%s","version":"24.11.0","authenticationData":{"shared":"tray-token"}}`, site.ID.String()),
 			mockTaskIDs:    []*flowv1.UUID{{Id: uuid.NewString()}},
+			expectedAuth:   "tray-token",
 			expectedStatus: http.StatusOK,
 		},
 		{
@@ -1621,7 +1623,16 @@ func TestUpdateTrayFirmwareHandler_Handle(t *testing.T) {
 			mockWorkflowRun := &tmocks.WorkflowRun{}
 			mockWorkflowRun.On("GetID").Return("test-workflow-id")
 			testFlowProxyReply(t, mockWorkflowRun, &flowv1.SubmitTaskResponse{TaskIds: tt.mockTaskIDs})
-			mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockWorkflowRun, nil)
+			mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				Run(func(args mock.Arguments) {
+					if tt.expectedAuth == "" {
+						return
+					}
+					flowReq := &flowv1.UpgradeFirmwareRequest{}
+					testFlowProxyRequestWithSecrets(t, args, site.ID.String(), tt.expectedAuth, flowReq)
+					assert.Equal(t, tt.expectedAuth, flowReq.GetAuthenticationData().GetShared())
+				}).
+				Return(mockWorkflowRun, nil)
 			scp.IDClientMap[site.ID.String()] = mockTemporalClient
 
 			path := fmt.Sprintf("/v2/org/%s/nico/tray/%s/firmware", tt.reqOrg, tt.trayID)
@@ -1685,14 +1696,16 @@ func TestBatchUpdateTrayFirmwareHandler_Handle(t *testing.T) {
 		user           *cdbm.User
 		body           string
 		mockTaskIDs    []*flowv1.UUID
+		expectedAuth   string
 		expectedStatus int
 	}{
 		{
-			name:           "success - firmware update all trays (no filter)",
+			name:           "success - firmware update all trays with authentication data",
 			reqOrg:         org,
 			user:           providerUser,
-			body:           fmt.Sprintf(`{"siteId":"%s"}`, site.ID.String()),
+			body:           fmt.Sprintf(`{"siteId":"%s","authenticationData":{"shared":"batch-tray-token"}}`, site.ID.String()),
 			mockTaskIDs:    []*flowv1.UUID{{Id: uuid.NewString()}, {Id: uuid.NewString()}},
+			expectedAuth:   "batch-tray-token",
 			expectedStatus: http.StatusOK,
 		},
 		{
@@ -1725,7 +1738,16 @@ func TestBatchUpdateTrayFirmwareHandler_Handle(t *testing.T) {
 			mockWorkflowRun := &tmocks.WorkflowRun{}
 			mockWorkflowRun.On("GetID").Return("test-workflow-id")
 			testFlowProxyReply(t, mockWorkflowRun, &flowv1.SubmitTaskResponse{TaskIds: tt.mockTaskIDs})
-			mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockWorkflowRun, nil)
+			mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				Run(func(args mock.Arguments) {
+					if tt.expectedAuth == "" {
+						return
+					}
+					flowReq := &flowv1.UpgradeFirmwareRequest{}
+					testFlowProxyRequestWithSecrets(t, args, site.ID.String(), tt.expectedAuth, flowReq)
+					assert.Equal(t, tt.expectedAuth, flowReq.GetAuthenticationData().GetShared())
+				}).
+				Return(mockWorkflowRun, nil)
 			scp.IDClientMap[site.ID.String()] = mockTemporalClient
 
 			path := fmt.Sprintf("/v2/org/%s/nico/tray/firmware", tt.reqOrg)

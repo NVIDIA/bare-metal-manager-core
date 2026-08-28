@@ -117,13 +117,14 @@ test_selection_mode = "EnableAll"
 
 # Per-site [component_manager] configures switch and power shelf backends.
 
-# Per-site [switch_state_controller] can configure switch_mtls_services, the
-# RMS SwitchService list passed by the switch state machine during certificate
-# configuration. When omitted, all supported services are used: nvue_api,
-# scale_up_fabric_telemetry, scale_up_fabric_manager,
-# scale_up_fabric_telemetry_interface.
-
-# Per-site [rack_state_controller] can configure nmx_cluster_switch_mtls_services,
-# the RMS SwitchService list passed during NMX cluster certificate configuration.
-# When omitted, scale_up_fabric_manager and scale_up_fabric_telemetry_interface
-# are used.
+# Optional per-site mTLS certificate bindings:
+# - [switch_state_controller].switch_mtls_services applies to switch state
+#   controller operations and direct ComponentConfigureSwitchCertificate RPC
+#   calls. It defaults to all four SwitchMtlsService values.
+# - [rack_state_controller].nmx_cluster_switch_mtls_services is accepted and
+#   ignored. Rack maintenance does not configure switch certificates.
+# A non-empty switch_mtls_services list replaces its default. An omitted or
+# empty list uses the default.
+# Service selection does not enable the underlying service. See
+# docs/architecture/state_machines/switch_configure_certificate.md for service
+# values and workflow scope.

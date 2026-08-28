@@ -51,6 +51,21 @@ hwMacAddressRanges:
 # Controller mode - dynamically creates Services with BMC IP as ClusterIP
 mat-k8s-controller:
   enabled: true
+  # The subchart defaults to a bare local image name with no registry or pull
+  # secret, so the controller ImagePullBackOffs on any cluster needing auth —
+  # and with no controller there are no per-BMC Services, so exploration finds
+  # nothing and the whole run silently reports zeros.
+  image:
+    # Set to your registry's mat-k8s-controller image. The subchart default is a
+    # bare local name with no registry, which ImagePullBackOffs on any real
+    # cluster -- and with no controller there are no per-BMC Services, so
+    # exploration finds nothing and the run reports zeros with no obvious cause.
+    #   MAT_K8S_CONTROLLER_IMAGE=<registry>/mat-k8s-controller
+    #   MAT_K8S_CONTROLLER_TAG=<tag>
+    repository: ""
+    tag: ""
+  imagePullSecrets:
+    - name: machine-a-tron-pull
   config:
     insecureSkipVerify: true  # For self-signed certs
 
@@ -108,8 +123,6 @@ pods:
         hwType: dell_poweredge_r750
         hostCount: 100
         dpuPerHostCount: 2
-        vpcCount: 0
-        subnetsPerVpc: 0
         dpuRebootDelay: 1
         hostRebootDelay: 1
         scoutRunInterval: "300s"
@@ -118,7 +131,6 @@ pods:
         networkStatusRunInterval: "120s"
         oobDhcpRelayAddress: "10.96.64.1"  # Must be within K8s ServiceCIDR
         adminDhcpRelayAddress: "192.168.176.1"
-        networkVirtualizationType: ""
         dpusInNicMode: false
 
 extraEnv:

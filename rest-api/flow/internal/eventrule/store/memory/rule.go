@@ -90,22 +90,6 @@ func (s *Store) UpdateMetadata(
 	})
 }
 
-// SetDedupe replaces or clears one persisted rule's deduplication policy.
-func (s *Store) SetDedupe(
-	_ context.Context,
-	id uuid.UUID,
-	dedupe *eventrule.Dedupe,
-) error {
-	return s.updateRule(id, func(rule *eventrule.Rule) {
-		if dedupe == nil {
-			rule.Dedupe = nil
-			return
-		}
-		cloned := *dedupe
-		rule.Dedupe = &cloned
-	})
-}
-
 // ReplaceActions replaces all actions belonging to one persisted rule.
 func (s *Store) ReplaceActions(
 	_ context.Context,

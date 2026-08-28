@@ -25,7 +25,7 @@ type Rack struct {
 	bun.BaseModel `bun:"table:rack,alias:r"`
 
 	ID   uuid.UUID `bun:"id,pk,type:uuid,default:gen_random_uuid()"`
-	Name string    `bun:"name,notnull,unique:rack_name_idx"`
+	Name string    `bun:"name,notnull"`
 	// Manufacturer and SerialNumber are descriptive chassis labels, not
 	// identity: a mirrored rack is identified by ExternalID. nullzero maps the
 	// empty string to SQL NULL, so a rack missing either half occupies no slot

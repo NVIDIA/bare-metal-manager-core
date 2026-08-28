@@ -22,11 +22,14 @@ mod config;
 mod control_router;
 mod device_handle;
 mod device_simulator;
+mod dhcp_retry_fsm;
+mod dhcp_retry_runtime;
 mod dhcp_wrapper;
 mod dhcp_wrapper_udp;
 mod discovery_info;
 mod dpu_machine;
 mod host_machine;
+pub mod lifecycle_timings;
 mod machine_a_tron;
 mod machine_fsm;
 mod machine_state_machine;
@@ -37,21 +40,19 @@ mod power_shelf_simulator;
 mod rack;
 mod simulator_registry;
 mod status;
-mod subnet;
 mod switch_fsm;
 mod switch_simulator;
 mod tabs;
 mod tui;
 mod tui_host_logs;
-mod vpc;
 
 use std::time::{Duration, Instant};
 
 pub use bmc_mock_wrapper::BmcMockRegistry;
 pub use config::{
-    DhcpType, LenovoGb300RackConfig, MachineATronArgs, MachineATronConfig, MachineATronContext,
-    MachineConfig, PersistedDevice, PersistedDpuMachine, RackConfig, RackModelConfig,
-    WiwynnGb200RackConfig,
+    DhcpType, LenovoGb300RackConfig, LogFormat, MachineATronArgs, MachineATronConfig,
+    MachineATronContext, MachineConfig, PersistedDevice, PersistedDpuMachine, RackConfig,
+    RackModelConfig, WiwynnGb200RackConfig,
 };
 pub use control_router::{ControlState, append as append_control_routes};
 pub use device_handle::DeviceHandle;
@@ -60,8 +61,7 @@ pub use device_simulator::{
 };
 pub use dhcp_wrapper::{DhcpClient, UdpDhcpService};
 pub use dpu_machine::DpuMachineHandle;
-pub use machine_a_tron::{AppEvent, MachineATron};
-pub use machine_state_machine::BmcRegistrationMode;
+pub use machine_a_tron::MachineATron;
 pub use mock_ssh_server::{
     Credentials as MockSshCredentials, MockSshServerHandle, PromptBehavior,
     spawn as spawn_mock_ssh_server,

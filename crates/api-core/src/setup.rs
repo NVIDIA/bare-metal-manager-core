@@ -392,6 +392,7 @@ pub(crate) async fn start_runtime(
         bmc_session_store,
         carbide_config.bmc_session_lockout_threshold,
         carbide_config.allow_bmc_basic_auth_fallback,
+        carbide_config.bmc_max_sessions_per_caller,
     ));
 
     let bmc_explorer = carbide_site_explorer::new_bmc_explorer(
@@ -639,7 +640,6 @@ async fn initialize_dpf_sdk(
 
     if !carbide_config.dpf.enabled {
         tracing::warn!(
-            removed_in = "v2.1",
             docs = "https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup",
             "iPXE provisioning strategy (internally) is deprecated; enable DPF management for DPUs to migrate"
         );
@@ -722,7 +722,9 @@ async fn initialize_dpf_sdk(
         |deployment: &crate::cfg::file::DpfDeploymentConfig,
          deployment_type: DpuDeploymentType,
          bluefield_software: Option<carbide_dpf::BlueFieldSoftwareParams>| {
-            let services = carbide_config.dpf.resolved_services_for(deployment);
+            let services = carbide_config
+                .dpf
+                .resolved_services_for(deployment, deployment_type);
             let interfaces = match deployment_type {
                 DpuDeploymentType::Bf4Astra => &astra_interfaces,
                 DpuDeploymentType::Bf3 | DpuDeploymentType::Bf4Generic => &effective_interfaces,

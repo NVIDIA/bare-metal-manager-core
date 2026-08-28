@@ -26,8 +26,15 @@ global:
 namespaceOverride: ""
 
 replicas: 1
+
+## Container resource requests and limits. Empty by default.
+resources: {}
+
 annotations:
   configmap.reloader.stakater.com/reload: '{{ include "nico-ssh-console-rs.name" . }}-config-files'
+
+## Soft open-file limit applied before startup. Must not exceed the runtime hard limit.
+fileDescriptorLimit: 65536
 
 imagePullSecrets: []
 

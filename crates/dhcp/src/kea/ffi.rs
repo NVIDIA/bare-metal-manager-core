@@ -25,6 +25,8 @@ unsafe extern "C" {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn version() -> libc::c_int {
+    // SAFETY: Initial lint enablement: this C++ boundary needs owner review.
+    // The linked no-argument shim has the matching C ABI and must not unwind.
     unsafe { shim_version() }
 }
 
@@ -38,15 +40,22 @@ pub unsafe extern "C" fn load(a: *mut libc::c_void) -> libc::c_int {
         }
     };
 
+    // SAFETY: Initial lint enablement: this C++ boundary needs owner review.
+    // Kea keeps `a` as a live `LibraryHandle` for the synchronous matching-ABI
+    // shim call, whose C++ implementation must not unwind into Rust.
     unsafe { shim_load(a) }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn unload() -> libc::c_int {
+    // SAFETY: Initial lint enablement: this C++ boundary needs owner review.
+    // The linked no-argument shim has the matching C ABI and must not unwind.
     unsafe { shim_unload() }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn multi_threading_compatible() -> libc::c_int {
+    // SAFETY: Initial lint enablement: this C++ boundary needs owner review.
+    // The linked no-argument shim has the matching C ABI and must not unwind.
     unsafe { shim_multi_threading_compatible() }
 }

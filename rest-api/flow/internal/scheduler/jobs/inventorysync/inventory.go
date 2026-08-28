@@ -3,7 +3,8 @@
 
 // Package inventorysync reconciles Flow's rack / component / BMC / drift
 // tables against Core every cycle: syncExpectedFromCore mirrors Core's
-// expected inventory, runActualSync detects drift against Core's runtime view.
+// expected inventory, while runActualSync detects drift and projects observed
+// topology.
 //
 // TODO: this job writes the DB directly via bun model.* and pool.RunInTx,
 // bypassing the service -> inventorymanager -> store layering the rest of Flow
@@ -36,15 +37,16 @@ import (
 //     expected_mirror*.go). Gated by expectedSyncEnabled; when false the
 //     step is skipped entirely and Flow's existing ingestion path is the
 //     sole writer to rack / component.
-//  2. runActualSync reconciles each component type against Core's runtime
-//     view and returns one combined drift set (the "actual" half — see
-//     actual_sync*.go).
+//  2. runActualSync reconciles actual component state, projects valid NVLink
+//     domain observations, and returns one combined drift set (the "actual"
+//     half — see actual_sync*.go).
 //  3. The drift set replaces the whole component_drift table atomically so
 //     stale rows from previous runs can't linger. The replace is skipped
-//     when any actual-sync RPC failed: component_drift is a full-table
-//     replace with no per-type discriminator, so writing a partial view
-//     would wipe the drifts of the types whose RPC failed. The existing
-//     table is left intact until a fully successful cycle refreshes it.
+//     when any actual-sync snapshot or reconciliation failed:
+//     component_drift is a full-table replace with no per-type discriminator,
+//     so writing a partial view would wipe the drifts of the failed types. The
+//     existing table is left intact until a fully successful cycle refreshes
+//     it.
 //
 // Errors are handled inside each step: any per-type RPC failure is logged
 // and that type's drifts are skipped, but the rest of the cycle continues.
@@ -62,10 +64,10 @@ func runInventoryOne(
 		log.Debug().Msgf("Expected-inventory mirror: skipped this cycle (gate %s is off)", envExpectedSyncEnabled)
 	}
 
-	drifts, allRPCOK := runActualSync(ctx, pool, nicoClient)
-	if !allRPCOK {
+	drifts, allSyncOK := runActualSync(ctx, pool, nicoClient)
+	if !allSyncOK {
 		log.Warn().Int("drifts_this_cycle", len(drifts)).
-			Msg("Drift detection: one or more actual-sync RPCs failed; preserving existing component_drift table this cycle instead of overwriting it with a partial view")
+			Msg("Drift detection: one or more actual-sync snapshots or reconciliations failed; preserving existing component_drift table this cycle instead of overwriting it with a partial view")
 		return
 	}
 

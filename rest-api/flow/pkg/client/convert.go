@@ -20,8 +20,9 @@ func rackFromProto(r *pb.Rack) *types.Rack {
 	}
 
 	rack := &types.Rack{
-		Info:     deviceInfoFromProto(r.GetInfo()),
-		Location: locationFromProto(r.GetLocation()),
+		Info:         deviceInfoFromProto(r.GetInfo()),
+		Location:     locationFromProto(r.GetLocation()),
+		NVLDomainIDs: uuidsFromProto(r.GetNvlDomainIds()),
 	}
 
 	if len(r.GetComponents()) > 0 {
@@ -46,6 +47,7 @@ func componentFromProto(c *pb.Component) *types.Component {
 		Position:        positionFromProto(c.GetPosition()),
 		ComponentID:     c.GetComponentId(),
 		RackID:          uuidFromProto(c.GetRackId()),
+		NVLDomainID:     uuidFromProto(c.GetNvlDomainId()),
 		PowerState:      c.GetPowerState(),
 	}
 
@@ -277,6 +279,7 @@ func rackToProto(r *types.Rack) *pb.Rack {
 		Info:     deviceInfoToProto(&r.Info),
 		Location: locationToProto(&r.Location),
 	}
+	rack.NvlDomainIds = uuidsToProto(r.NVLDomainIDs)
 
 	if len(r.Components) > 0 {
 		rack.Components = make([]*pb.Component, 0, len(r.Components))
@@ -300,6 +303,7 @@ func componentToProto(c *types.Component) *pb.Component {
 		Position:        positionToProto(&c.Position),
 		ComponentId:     c.ComponentID,
 		RackId:          uuidToProto(c.RackID),
+		NvlDomainId:     uuidToProto(c.NVLDomainID),
 	}
 
 	if len(c.BMCs) > 0 {
@@ -379,6 +383,14 @@ func uuidToProto(id uuid.UUID) *pb.UUID {
 		return nil
 	}
 	return &pb.UUID{Id: id.String()}
+}
+
+func uuidsToProto(ids []uuid.UUID) []*pb.UUID {
+	result := make([]*pb.UUID, 0, len(ids))
+	for _, id := range ids {
+		result = append(result, uuidToProto(id))
+	}
+	return result
 }
 
 func nvlDomainToProto(d *types.NVLDomain) *pb.NVLDomain {

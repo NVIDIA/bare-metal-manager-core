@@ -4,6 +4,7 @@
 package operation
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -20,6 +21,14 @@ type Wrapper struct {
 	Info json.RawMessage // Serialized operation details
 }
 
+// Clone returns an independent copy of the operation wrapper and its serialized
+// information.
+func (w Wrapper) Clone() Wrapper {
+	cloned := w
+	cloned.Info = bytes.Clone(w.Info)
+	return cloned
+}
+
 // ConflictStrategy controls how a task behaves when a conflict is detected.
 type ConflictStrategy int
 
@@ -30,12 +39,39 @@ const (
 	ConflictStrategyQueue
 )
 
+// String returns the stable name of the conflict strategy.
+func (s ConflictStrategy) String() string {
+	switch s {
+	case ConflictStrategyReject:
+		return "reject"
+	case ConflictStrategyQueue:
+		return "queue"
+	default:
+		return fmt.Sprintf("ConflictStrategy(%d)", s)
+	}
+}
+
+// ParseConflictStrategy parses a conflict strategy's stable name.
+func ParseConflictStrategy(value string) (ConflictStrategy, error) {
+	switch value {
+	case "reject":
+		return ConflictStrategyReject, nil
+	case "queue":
+		return ConflictStrategyQueue, nil
+	default:
+		return ConflictStrategyReject, fmt.Errorf(
+			"unknown conflict strategy %q",
+			value,
+		)
+	}
+}
+
 // Request represents the specification of an operation submitted by the user.
 // The Task Manager resolves the TargetSpec, splits by rack, and creates one
 // Task per rack.
 type Request struct {
 	Operation   Wrapper
-	TargetSpec  TargetSpec // Either racks or components, not both
+	TargetSpec  TargetSpec // Exactly one of racks, NVLink domains, or components
 	Description string
 
 	// ConflictStrategy controls how the task behaves when a conflict is

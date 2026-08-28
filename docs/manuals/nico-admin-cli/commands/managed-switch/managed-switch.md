@@ -30,7 +30,7 @@ Sort output by specified field\
 \
 *Possible values:*
 
-- primary-id: Sort by the primary id
+- primary-id: Sort by the primary ID
 
 - state: Sort by state
 
@@ -44,6 +44,7 @@ Print help (see a summary with -h)
 | [`show`](./managed-switch-show.md) | Display managed switch information |
 | [`list`](./managed-switch-list.md) | List all managed switches |
 | [`delete`](./managed-switch-delete.md) | Delete a managed switch |
+| [`decommission`](./managed-switch-decommission.md) | Start decommissioning a managed switch |
 
 ---
 

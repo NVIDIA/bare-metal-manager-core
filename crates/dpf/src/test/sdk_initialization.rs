@@ -399,6 +399,23 @@ impl DpuServiceInterfaceRepository for InitializationMock {
 
 #[async_trait]
 impl K8sConfigRepository for InitializationMock {
+    /// Create-only, like the real repository: an existing ConfigMap is reported
+    /// back rather than overwritten.
+    async fn create_configmap(
+        &self,
+        name: &str,
+        ns: &str,
+        data: BTreeMap<String, String>,
+    ) -> Result<bool, DpfError> {
+        match self.configs.entry(ns_key(ns, name)) {
+            dashmap::mapref::entry::Entry::Occupied(_) => Ok(false),
+            dashmap::mapref::entry::Entry::Vacant(slot) => {
+                slot.insert(data);
+                Ok(true)
+            }
+        }
+    }
+
     async fn get_configmap(
         &self,
         name: &str,
@@ -435,6 +452,15 @@ impl K8sConfigRepository for InitializationMock {
 
 #[async_trait]
 impl DpfOperatorConfigRepository for InitializationMock {
+    async fn get(
+        &self,
+        _name: &str,
+        _ns: &str,
+    ) -> Result<Option<crate::crds::dpfoperatorconfigs_generated::DPFOperatorConfig>, DpfError>
+    {
+        Ok(None)
+    }
+
     async fn patch(&self, _: &str, _: &str, _: serde_json::Value) -> Result<(), DpfError> {
         Ok(())
     }
@@ -715,13 +741,23 @@ async fn scoped_bf3_bf4_and_astra_initialization_coexists() {
             expected_interface_names.insert(format!("{logical_name}-{suffix}"));
         }
     }
-    // Astra ignores configured intercept topology and retains its static physical, PF, and VF
-    // logical inventory.
-    let mut astra_logical_names = ["p0", "p1", "pf0hpf", "pf1hpf"]
+    // Astra ignores configured intercept topology and retains its static BF4+CX logical inventory.
+    let mut astra_chainable_logical_names = ["p0", "p1", "pf0hpf", "pf1hpf"]
         .into_iter()
         .map(|name| name.to_string())
         .collect::<BTreeSet<_>>();
-    astra_logical_names.extend((0..14).map(|vf_id| format!("pf0vf{vf_id}")));
+    astra_chainable_logical_names.extend((0..14).map(|vf_id| format!("pf0vf{vf_id}")));
+    let mut astra_logical_names = astra_chainable_logical_names.clone();
+    let astra_xplane_group_ids = [
+        "r0swpln0", "r1swpln0", "r0swpln1", "r1swpln1", "r2swpln0", "r3swpln0", "r2swpln1",
+        "r3swpln1",
+    ];
+    astra_logical_names.extend(astra_xplane_group_ids.into_iter().flat_map(|group_id| {
+        [
+            format!("p-brcx-{group_id}-to-br-sfc"),
+            format!("p-br-xplane-{group_id}-to-br-sfc"),
+        ]
+    }));
     expected_interface_names.extend(
         astra_logical_names
             .iter()
@@ -798,6 +834,47 @@ async fn scoped_bf3_bf4_and_astra_initialization_coexists() {
             assert_eq!(patch.peer_patch_name.as_deref(), Some(peer_patch_name));
         }
     }
+
+    // Astra's CX patch resources must serialize the xplane peer metadata while staying scoped to
+    // only the Astra deployment.
+    let astra_interface = |logical_name: &str| {
+        let resource_name = format!("{logical_name}-astra");
+        interfaces
+            .iter()
+            .find(|interface| interface.metadata.name.as_deref() == Some(resource_name.as_str()))
+            .unwrap_or_else(|| panic!("Astra scoped interface {resource_name} must exist"))
+    };
+    let cx_patch = astra_interface("p-brcx-r0swpln0-to-br-sfc")
+        .spec
+        .template
+        .spec
+        .template
+        .spec
+        .patch
+        .as_ref()
+        .expect("Astra CX bridge interface must be Patch-backed");
+    assert_eq!(cx_patch.peer_bridge, "brcx-r0swpln0");
+    assert!(cx_patch.peer_patch_name.is_none());
+    assert!(cx_patch.peer_external_i_ds.is_none());
+    let xplane_patch = astra_interface("p-br-xplane-r3swpln1-to-br-sfc")
+        .spec
+        .template
+        .spec
+        .template
+        .spec
+        .patch
+        .as_ref()
+        .expect("Astra xplane interface must be Patch-backed");
+    assert_eq!(xplane_patch.peer_bridge, "br-xplane");
+    assert!(xplane_patch.peer_patch_name.is_none());
+    assert_eq!(
+        xplane_patch.peer_external_i_ds.as_ref(),
+        Some(&BTreeMap::from([
+            ("xplane".to_string(), "true".to_string()),
+            ("xplane-group-id".to_string(), "r3swpln1".to_string()),
+            ("xplane-downlink".to_string(), "patch".to_string()),
+        ]))
+    );
 
     let configured_deployments = [
         // BF3 must render the selected raw PF while consuming the shared topology inventory.
@@ -922,15 +999,12 @@ async fn scoped_bf3_bf4_and_astra_initialization_coexists() {
             .and_then(|selector| selector.match_labels.as_ref()),
         Some(&expected_astra_labels)
     );
-    // Astra service chains must select the static logical names constructed above, not the
-    // configured BF3/BF4 `c2pf3` topology.
-    let astra_chain_interfaces = astra
-        .spec
-        .service_chains
-        .as_ref()
-        .unwrap()
-        .switches
+    let astra_switches = &astra.spec.service_chains.as_ref().unwrap().switches;
+    // Astra service-to-service chains must select the static logical names constructed above, not
+    // the configured BF3/BF4 `c2pf3` topology.
+    let astra_chain_interfaces = astra_switches
         .iter()
+        .filter(|switch| switch.ports.iter().any(|port| port.service.is_some()))
         .map(|switch| {
             switch.ports[0]
                 .service_interface
@@ -940,8 +1014,33 @@ async fn scoped_bf3_bf4_and_astra_initialization_coexists() {
                 .clone()
         })
         .collect::<BTreeSet<_>>();
-    assert_eq!(astra_chain_interfaces, astra_logical_names);
-    // Astra's fixed flavor retains PF_TOTAL_SF=30 and must not render configured peer bridges.
+    assert_eq!(astra_chain_interfaces, astra_chainable_logical_names);
+    let astra_patch_chain_pairs = astra_switches
+        .iter()
+        .filter_map(|switch| {
+            let ports = switch
+                .ports
+                .iter()
+                .filter_map(|port| port.service_interface.as_ref())
+                .map(|service_interface| service_interface.match_labels["interface"].clone())
+                .collect::<Vec<_>>();
+            (ports.len() == 2).then(|| (ports[0].clone(), ports[1].clone()))
+        })
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        astra_patch_chain_pairs,
+        astra_xplane_group_ids
+            .into_iter()
+            .map(|group_id| {
+                (
+                    format!("p-brcx-{group_id}-to-br-sfc"),
+                    format!("p-br-xplane-{group_id}-to-br-sfc"),
+                )
+            })
+            .collect::<BTreeSet<_>>()
+    );
+    // Astra's flavor derives PF_TOTAL_SF from static service endpoints and the DOCA Weave DHCP
+    // Agent PF allocation, and must not render configured peer bridges.
     let astra_flavor =
         DpuFlavorRepository::get(&mock, astra.spec.dpus.flavor.as_deref().unwrap(), TEST_NS)
             .await
@@ -953,7 +1052,7 @@ async fn scoped_bf3_bf4_and_astra_initialization_coexists() {
             .as_ref()
             .unwrap()
             .iter()
-            .any(|parameter| parameter == "PF_TOTAL_SF=30")
+            .any(|parameter| parameter == "PF_TOTAL_SF=36")
     );
     assert!(
         !astra_flavor
@@ -964,18 +1063,6 @@ async fn scoped_bf3_bf4_and_astra_initialization_coexists() {
             .unwrap()
             .contains("br-pf3")
     );
-    // Static Astra interfaces are Physical/PF/VF definitions, never topology-backed Patch pairs.
-    assert!(
-        interfaces
-            .iter()
-            .filter(|interface| interface
-                .metadata
-                .name
-                .as_deref()
-                .is_some_and(|name| name.ends_with("-astra")))
-            .all(|interface| interface.spec.template.spec.template.spec.patch.is_none())
-    );
-
     drop(sdk);
 }
 
@@ -1111,4 +1198,64 @@ async fn service_versions_fail_when_referenced_template_is_missing() {
     assert!(message.contains(
         "DPUServiceTemplate z-missing not found for service z-missing in DPUDeployment deployment"
     ));
+}
+
+/// Re-initialization must not overwrite an operator's extra-script content.
+///
+/// carbide-api seeds these ConfigMaps on every startup, so the create-only path
+/// is the only thing standing between a restart and a clobbered site script.
+#[tokio::test]
+async fn reinitialization_preserves_operator_extra_scripts() {
+    let mock = InitializationMock::default();
+    let sdk = crate::sdk::DpfSdkBuilder::new(mock.clone(), TEST_NS, "test-password".to_string())
+        .with_labeler(InitializationLabeler)
+        .build_without_resources()
+        .await
+        .unwrap();
+
+    let services = [
+        DTS_SERVICE_NAME,
+        DOCA_HBN_SERVICE_NAME,
+        DPU_AGENT_SERVICE_NAME,
+        DHCP_SERVER_SERVICE_NAME,
+        FMDS_SERVICE_NAME,
+        OTEL_COLLECTOR_SERVICE_NAME,
+    ]
+    .into_iter()
+    .map(|name| ServiceDefinition::new(name, "repo", "chart", "1.0.0"))
+    .collect::<Vec<_>>();
+    let config = InitDpfResourcesConfig {
+        bluefield_software: Some(BlueFieldSoftwareParams {
+            os_iso: "http://example.com/bf4.iso".to_string(),
+            pldm_fw_bundle: Some("http://example.com/bf4.pldm".to_string()),
+        }),
+        deployment_name: "bf4-deployment".to_string(),
+        flavor_name: "bf4-flavor".to_string(),
+        services,
+        deployment_type: DpuDeploymentType::Bf4Generic,
+        ..Default::default()
+    };
+
+    sdk.create_initialization_objects(&config).await.unwrap();
+
+    let key = ns_key(TEST_NS, "extra-script-pre-ovs-bf4-generic");
+    assert!(
+        mock.configs.contains_key(&key),
+        "first initialization seeds the hook ConfigMap"
+    );
+
+    // Stand in for an operator replacing the placeholder with a site script.
+    let operator_script = "#!/usr/bin/env bash\necho site-specific\n";
+    mock.configs.insert(
+        key.clone(),
+        BTreeMap::from([("script".to_string(), operator_script.to_string())]),
+    );
+
+    sdk.create_initialization_objects(&config).await.unwrap();
+
+    assert_eq!(
+        mock.configs.get(&key).unwrap().get("script").unwrap(),
+        operator_script,
+        "a restart must leave the operator's script alone"
+    );
 }

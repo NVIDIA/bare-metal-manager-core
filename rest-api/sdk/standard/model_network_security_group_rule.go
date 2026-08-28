@@ -408,7 +408,6 @@ func (o *NetworkSecurityGroupRule) UnmarshalJSON(data []byte) (err error) {
 	varNetworkSecurityGroupRule := _NetworkSecurityGroupRule{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varNetworkSecurityGroupRule)
 
 	if err != nil {

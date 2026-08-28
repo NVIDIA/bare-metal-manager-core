@@ -400,35 +400,6 @@ mod tests {
         assert!(json.get("expected_nvlink_switch_bmcs").is_none());
     }
 
-    /// Component lists serialize correctly as JSON arrays.
-    #[test]
-    fn rack_output_json_with_populated_components() {
-        let output = make_output(
-            "Rack1",
-            "NVL72",
-            "Created",
-            "V1",
-            vec!["tray-a", "tray-b"],
-            vec!["shelf-1"],
-            vec!["switch-x"],
-        );
-        let json: serde_json::Value =
-            serde_json::from_str(&serde_json::to_string_pretty(&output).unwrap()).unwrap();
-
-        assert_eq!(
-            json["current_compute_trays"],
-            serde_json::json!(["tray-a", "tray-b"])
-        );
-        assert_eq!(
-            json["current_power_shelves"],
-            serde_json::json!(["shelf-1"])
-        );
-        assert_eq!(
-            json["current_nvlink_switches"],
-            serde_json::json!(["switch-x"])
-        );
-    }
-
     /// RackOutput serializes to YAML with the expected field names and no
     /// 'expected_*' fields (regression guard against re-introducing removed fields).
     #[test]

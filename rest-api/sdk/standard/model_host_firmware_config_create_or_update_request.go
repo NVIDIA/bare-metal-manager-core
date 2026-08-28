@@ -272,7 +272,6 @@ func (o *HostFirmwareConfigCreateOrUpdateRequest) UnmarshalJSON(data []byte) (er
 	varHostFirmwareConfigCreateOrUpdateRequest := _HostFirmwareConfigCreateOrUpdateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varHostFirmwareConfigCreateOrUpdateRequest)
 
 	if err != nil {

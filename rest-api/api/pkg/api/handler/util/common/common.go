@@ -135,13 +135,14 @@ func GetTenantForOrg(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, or
 	return &ts[0], nil
 }
 
-// GetIPBlockFromIDString gets the ip block from the ip block id string
-func GetIPBlockFromIDString(ctx context.Context, tx *cdb.Tx, idStr string, dbSession *cdb.Session) (*cdbm.IPBlock, error) {
+// GetIPBlockFromIDString gets the IPBlock matching both the ID and the caller's
+// visibility filter.
+func GetIPBlockFromIDString(ctx context.Context, tx *cdb.Tx, idStr string, filter cdbm.IPBlockFilterInput, dbSession *cdb.Session) (*cdbm.IPBlock, error) {
 	id, err := uuid.Parse(idStr)
 	if err != nil {
 		return nil, ErrInvalidID
 	}
-	return cdbm.NewIPBlockDAO(dbSession).GetByID(ctx, tx, id, nil)
+	return cdbm.NewIPBlockDAO(dbSession).GetOne(ctx, tx, id, filter, nil)
 }
 
 // GetInstanceTypeFromIDString gets the instance type from the instance type id string
@@ -2216,6 +2217,8 @@ func ExecuteFirmwareUpdateWorkflow(
 	targetSpec *flowv1.OperationTargetSpec,
 	version *string,
 	targets []string,
+	authenticationData *flowv1.FirmwareAuthenticationData,
+	siteID string,
 	ruleID *string,
 	overrideReadinessCheck bool,
 	workflowID string,
@@ -2228,14 +2231,26 @@ func ExecuteFirmwareUpdateWorkflow(
 		Description:            fmt.Sprintf("API firmware update %s", entityName),
 		RuleId:                 GetFlowUUIDPtr(ruleID),
 		OverrideReadinessCheck: overrideReadinessCheck,
+		AuthenticationData:     authenticationData,
+	}
+
+	conflictPolicy := temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING
+	if authenticationData != nil {
+		// A deterministic ID could attach a request carrying different
+		// credentials to an in-flight execution for the same target. A random,
+		// non-secret suffix prevents credential substitution without exposing a
+		// credential digest in Temporal metadata.
+		workflowID += "-" + uuid.NewString()
+		conflictPolicy = temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_UNSPECIFIED
 	}
 
 	var flowResponse flowv1.SubmitTaskResponse
-	proxyErr := ProxyFlowGRPC(
+	proxyErr := ProxyFlowGRPCWithSecrets(
 		ctx, c, logger, stc,
 		flowv1.Flow_UpgradeFirmware_FullMethodName,
 		flowRequest, &flowResponse,
-		FlowWorkflowID(workflowID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		FlowWorkflowID(workflowID), conflictPolicy,
+		siteID, "authenticationData",
 	)
 	if proxyErr != nil {
 		return nil, proxyErr

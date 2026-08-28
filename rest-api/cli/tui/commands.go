@@ -53,7 +53,7 @@ func AllCommands() []Command {
 		{Name: "instance list", Description: "List all instances", Run: cmdInstanceList},
 		{Name: "instance get", Description: "Get instance details", Run: cmdInstanceGet},
 		{Name: "instance create", Description: "Create an instance on a machine", Run: cmdInstanceCreate},
-		{Name: "instance update", Description: "Update an instance (rename, change OS, rotate ssh key groups, trigger reboot)", Run: cmdInstanceUpdate},
+		{Name: "instance update", Description: "Update an instance (rename, change OS, rotate ssh key groups)", Run: cmdInstanceUpdate},
 		{Name: "instance reboot", Description: "Reboot an instance, optionally with custom iPXE / pending updates", Run: cmdInstanceReboot},
 		{Name: "instance delete", Description: "Delete an instance", Run: cmdInstanceDelete},
 
@@ -187,6 +187,10 @@ func LogCmd(s *Session, parts ...string) {
 	fmt.Printf("%s %s\n", Dim("INFO:"), strings.Join(cmdParts, " "))
 }
 
+func shellQuoteCLIArg(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
 func appendScopeFlags(s *Session, parts []string) []string {
 	out := append([]string(nil), parts...)
 	if s == nil || len(parts) < 2 {
@@ -295,6 +299,31 @@ func readyMachineItemsForSite(machines []NamedItem, siteID string) []SelectItem 
 	return readyItems
 }
 
+func promptInstanceMachine(s *Session, ctx context.Context, siteID string) (*SelectItem, error) {
+	canTargetMachine, err := s.tenantHasTargetedInstanceCreationAtSite(ctx, siteID)
+	if err != nil {
+		return nil, fmt.Errorf("checking targeted instance creation capability: %w", err)
+	}
+	if !canTargetMachine {
+		return nil, fmt.Errorf("current tenant does not have effective targeted instance creation permission for the selected site")
+	}
+
+	// Temporarily clear VPC scope so fetchMachines returns all Site Machines
+	// rather than Machines already assigned to the scoped VPC.
+	savedVpcID, savedVpcName := s.Scope.VpcID, s.Scope.VpcName
+	s.Scope.VpcID, s.Scope.VpcName = "", ""
+	machines, fetchErr := fetchMachinesWithSiteFallback(s, "Machine listing requires a site filter. Select a site.")
+	s.Scope.VpcID, s.Scope.VpcName = savedVpcID, savedVpcName
+	if fetchErr != nil {
+		return nil, fmt.Errorf("fetching machines: %w", fetchErr)
+	}
+	readyItems := readyMachineItemsForSite(machines, siteID)
+	if len(readyItems) == 0 {
+		return nil, fmt.Errorf("no machines in Ready state available for selected VPC site")
+	}
+	return Select("Machine", readyItems)
+}
+
 // machineSelectLabel formats a machine for the interactive select list. It
 // always includes the resolved display name (which may be a serial number when
 // no friendly labels are set) plus the full machine ID, so reviewers and
@@ -388,7 +417,9 @@ func cmdSiteCreate(s *Session, _ []string) error {
 	s.Cache.Invalidate("site")
 	s.Cache.InvalidateFiltered()
 	var created map[string]interface{}
-	json.Unmarshal(resp, &created)
+	if err := json.Unmarshal(resp, &created); err != nil {
+		return fmt.Errorf("parsing created site: %w", err)
+	}
 	fmt.Printf("%s Site created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
 }
@@ -501,7 +532,9 @@ func cmdSiteUpdate(s *Session, args []string) error {
 	s.Cache.Invalidate("site")
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
-	json.Unmarshal(resp, &updated)
+	if err := json.Unmarshal(resp, &updated); err != nil {
+		return fmt.Errorf("parsing updated site: %w", err)
+	}
 	fmt.Printf("%s Site updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
 }
@@ -598,7 +631,9 @@ func cmdVPCCreate(s *Session, _ []string) error {
 	}
 	s.Cache.Invalidate("vpc")
 	var created map[string]interface{}
-	json.Unmarshal(resp, &created)
+	if err := json.Unmarshal(resp, &created); err != nil {
+		return fmt.Errorf("parsing created VPC: %w", err)
+	}
 	fmt.Printf("%s VPC created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
 }
@@ -635,7 +670,9 @@ func cmdVPCUpdate(s *Session, args []string) error {
 	s.Cache.Invalidate("vpc")
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
-	json.Unmarshal(resp, &updated)
+	if err := json.Unmarshal(resp, &updated); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
 	fmt.Printf("%s VPC updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
 }
@@ -678,7 +715,9 @@ func cmdVPCVirtualizationUpdate(s *Session, args []string) error {
 	s.Cache.Invalidate("vpc")
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
-	json.Unmarshal(resp, &updated)
+	if err := json.Unmarshal(resp, &updated); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
 	fmt.Printf("%s VPC virtualization update submitted: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
 }
@@ -738,8 +777,10 @@ func cmdSubnetCreate(s *Session, _ []string) error {
 	if err != nil {
 		return err
 	}
-	var prefixLen int
-	fmt.Sscanf(prefixLenText, "%d", &prefixLen)
+	prefixLen, err := strconv.Atoi(prefixLenText)
+	if err != nil {
+		return fmt.Errorf("prefix length must be an integer: %w", err)
+	}
 	if prefixLen < 1 || prefixLen > 32 {
 		return fmt.Errorf("prefix length must be between 1 and 32")
 	}
@@ -784,7 +825,9 @@ func cmdSubnetCreate(s *Session, _ []string) error {
 	s.Cache.Invalidate("subnet")
 	s.Cache.InvalidateFiltered()
 	var created map[string]interface{}
-	json.Unmarshal(resp, &created)
+	if err := json.Unmarshal(resp, &created); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
 	fmt.Printf("%s Subnet created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
 }
@@ -821,7 +864,9 @@ func cmdSubnetUpdate(s *Session, args []string) error {
 	s.Cache.Invalidate("subnet")
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
-	json.Unmarshal(resp, &updated)
+	if err := json.Unmarshal(resp, &updated); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
 	fmt.Printf("%s Subnet updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
 }
@@ -951,8 +996,9 @@ func cmdMachineList(s *Session, args []string) error {
 	fmt.Fprintf(os.Stderr, "%d items\n", len(items))
 	defer printLabelHint(os.Stderr, items, merged)
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tSTATUS\tBLOCKED BY\tSITE\tVPC\tLABELS\tID")
+	fmt.Fprintln(tw, "NAME\tIP ADDRESS\tSTATUS\tBLOCKED BY\tSITE\tVPC\tLABELS\tID")
 	for _, item := range items {
+		ipAddress := firstMachineIPAddress(item.Raw)
 		siteName := s.Resolver.ResolveID("site", item.Extra["siteId"])
 		vpcNames := strings.TrimSpace(vpcNamesByMachineID[item.ID])
 		if vpcNames == "" {
@@ -962,9 +1008,37 @@ func cmdMachineList(s *Session, args []string) error {
 		if blockedBy == "" {
 			blockedBy = "-"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", item.Name, item.Status, blockedBy, siteName, vpcNames, formatLabels(item.Labels, 60), item.ID)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", item.Name, ipAddress, item.Status, blockedBy, siteName, vpcNames, formatLabels(item.Labels, 60), item.ID)
 	}
 	return tw.Flush()
+}
+
+func firstMachineIPAddress(raw interface{}) string {
+	machine, ok := raw.(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	interfaces, ok := machine["machineInterfaces"].([]interface{})
+	if !ok {
+		return ""
+	}
+	for _, rawInterface := range interfaces {
+		machineInterface, ok := rawInterface.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		ipAddresses, ok := machineInterface["ipAddresses"].([]interface{})
+		if !ok {
+			continue
+		}
+		for _, rawIPAddress := range ipAddresses {
+			ipAddress, ok := rawIPAddress.(string)
+			if ok && strings.TrimSpace(ipAddress) != "" {
+				return ipAddress
+			}
+		}
+	}
+	return ""
 }
 
 // blockingHealthAlert captures the fields from MachineHealthProbeAlert that we
@@ -1128,7 +1202,9 @@ func cmdOSCreate(s *Session, _ []string) error {
 	s.Cache.Invalidate("operating-system")
 	s.Cache.InvalidateFiltered()
 	var created map[string]interface{}
-	json.Unmarshal(resp, &created)
+	if err := json.Unmarshal(resp, &created); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
 	fmt.Printf("%s Operating system created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
 }
@@ -1210,7 +1286,9 @@ func cmdOSUpdate(s *Session, args []string) error {
 	s.Cache.Invalidate("operating-system")
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
-	json.Unmarshal(resp, &updated)
+	if err := json.Unmarshal(resp, &updated); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
 	fmt.Printf("%s Operating system updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
 }
@@ -1284,7 +1362,9 @@ func cmdSSHKeyGroupCreate(s *Session, _ []string) error {
 	s.Cache.Invalidate("ssh-key-group")
 	s.Cache.InvalidateFiltered()
 	var created map[string]interface{}
-	json.Unmarshal(resp, &created)
+	if err := json.Unmarshal(resp, &created); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
 	fmt.Printf("%s SSH key group created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
 }
@@ -1343,7 +1423,9 @@ func cmdSSHKeyGroupUpdate(s *Session, args []string) error {
 	s.Cache.Invalidate("ssh-key-group")
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
-	json.Unmarshal(resp, &updated)
+	if err := json.Unmarshal(resp, &updated); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
 	fmt.Printf("%s SSH key group updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
 }
@@ -1413,7 +1495,9 @@ func cmdSSHKeyCreate(s *Session, _ []string) error {
 	s.Cache.Invalidate("ssh-key-group")
 	s.Cache.InvalidateFiltered()
 	var created map[string]interface{}
-	json.Unmarshal(resp, &created)
+	if err := json.Unmarshal(resp, &created); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
 	fmt.Printf("%s SSH key created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
 }
@@ -1440,7 +1524,9 @@ func cmdSSHKeyUpdate(s *Session, args []string) error {
 	s.Cache.Invalidate("ssh-key-group")
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
-	json.Unmarshal(resp, &updated)
+	if err := json.Unmarshal(resp, &updated); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
 	fmt.Printf("%s SSH key updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
 }
@@ -1534,7 +1620,9 @@ func cmdAllocationCreate(s *Session, _ []string) error {
 	s.Cache.Invalidate("allocation")
 	s.Cache.InvalidateFiltered()
 	var created map[string]interface{}
-	json.Unmarshal(resp, &created)
+	if err := json.Unmarshal(resp, &created); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
 	fmt.Printf("%s Allocation created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
 }
@@ -1836,7 +1924,9 @@ func cmdAllocationUpdate(s *Session, args []string) error {
 	s.Cache.Invalidate("allocation")
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
-	json.Unmarshal(resp, &updated)
+	if err := json.Unmarshal(resp, &updated); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
 	fmt.Printf("%s Allocation updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
 }
@@ -1948,7 +2038,9 @@ func cmdIPBlockCreate(s *Session, _ []string) error {
 	}
 	s.Cache.Invalidate("ip-block")
 	var created map[string]interface{}
-	json.Unmarshal(resp, &created)
+	if err := json.Unmarshal(resp, &created); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
 	fmt.Printf("%s IP block created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
 }
@@ -1985,7 +2077,9 @@ func cmdIPBlockUpdate(s *Session, args []string) error {
 	s.Cache.Invalidate("ip-block")
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
-	json.Unmarshal(resp, &updated)
+	if err := json.Unmarshal(resp, &updated); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
 	fmt.Printf("%s IP block updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
 }
@@ -2063,7 +2157,9 @@ func cmdNSGCreate(s *Session, _ []string) error {
 	s.Cache.Invalidate("network-security-group")
 	s.Cache.InvalidateFiltered()
 	var created map[string]interface{}
-	json.Unmarshal(resp, &created)
+	if err := json.Unmarshal(resp, &created); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
 	fmt.Printf("%s Network security group created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
 }
@@ -2100,7 +2196,9 @@ func cmdNSGUpdate(s *Session, args []string) error {
 	s.Cache.Invalidate("network-security-group")
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
-	json.Unmarshal(resp, &updated)
+	if err := json.Unmarshal(resp, &updated); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
 	fmt.Printf("%s Network security group updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
 }
@@ -2210,8 +2308,10 @@ func cmdVPCPrefixCreate(s *Session, _ []string) error {
 	if err != nil {
 		return err
 	}
-	var prefixLen int
-	fmt.Sscanf(prefixLenText, "%d", &prefixLen)
+	prefixLen, err := strconv.Atoi(prefixLenText)
+	if err != nil {
+		return fmt.Errorf("prefix length must be an integer: %w", err)
+	}
 	if prefixLen < 8 || prefixLen > 31 {
 		return fmt.Errorf("prefix length must be between 8 and 31")
 	}
@@ -2237,7 +2337,9 @@ func cmdVPCPrefixCreate(s *Session, _ []string) error {
 	s.Cache.Invalidate("vpc-prefix")
 	s.Cache.InvalidateFiltered()
 	var created map[string]interface{}
-	json.Unmarshal(resp, &created)
+	if err := json.Unmarshal(resp, &created); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
 	fmt.Printf("%s VPC prefix created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
 }
@@ -2253,15 +2355,15 @@ const ipBlockManualEntrySentinel = "__manual__"
 // blocks are visible, when listing fails, or when the operator opts out via
 // the trailing sentinel (NVBug 6105076).
 func promptVPCPrefixIPBlockID(s *Session, ctx context.Context) (string, error) {
-	blocks, err := s.Resolver.Fetch(ctx, "ip-block")
+	blocks, tenantID, err := s.fetchVPCPrefixIPBlocks(ctx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s could not list IP blocks (%v); falling back to manual entry\n", Dim("note:"), err)
+		fmt.Fprintf(os.Stderr, "%s could not list current tenant IP blocks (%v); falling back to manual entry\n", Dim("note:"), err)
 		return promptIPBlockIDRaw()
 	}
-	items := buildIPBlockSelectItems(blocks)
+	items := buildIPBlockSelectItems(blocks, tenantID)
 	if len(items) == 1 {
-		// Only the manual-entry sentinel: no IP blocks for this site.
-		fmt.Fprintf(os.Stderr, "%s no IP blocks found for this site; enter an IP block ID manually\n", Dim("note:"))
+		// Only the manual-entry sentinel: no usable tenant IP blocks for this site.
+		fmt.Fprintf(os.Stderr, "%s no Ready tenant IP blocks found for this site; create an allocation or enter an IP block ID manually\n", Dim("note:"))
 		return promptIPBlockIDRaw()
 	}
 	selected, err := Select("IP block:", items)
@@ -2282,15 +2384,19 @@ func promptIPBlockIDRaw() (string, error) {
 	return strings.TrimSpace(raw), nil
 }
 
-// buildIPBlockSelectItems turns the resolver's IP block list into picker
-// options whose ID is the IP block UUID and whose label surfaces the block
-// name (falling back to the UUID when unnamed) plus status. A trailing
-// manual-entry sentinel is always appended -- even for an empty list -- so the
-// operator can still type a raw UUID for a block that isn't listed in the
-// current scope. Blocks without an ID are skipped.
-func buildIPBlockSelectItems(blocks []NamedItem) []SelectItem {
+// buildIPBlockSelectItems turns the resolver's Ready tenant IP blocks into
+// picker options whose ID is the IP block UUID and whose label surfaces the
+// block name (falling back to the UUID when unnamed) plus status. Provider IP
+// blocks and tenant IP blocks that are not Ready cannot back a VPC prefix and
+// are skipped. A trailing manual-entry sentinel is always appended so the
+// operator can still type a raw UUID for a block that isn't listed.
+func buildIPBlockSelectItems(blocks []NamedItem, tenantID string) []SelectItem {
+	tenantID = strings.TrimSpace(tenantID)
 	items := make([]SelectItem, 0, len(blocks)+1)
 	for _, b := range blocks {
+		if strings.TrimSpace(b.Extra["tenantId"]) != tenantID || !strings.EqualFold(strings.TrimSpace(b.Status), "Ready") {
+			continue
+		}
 		id := strings.TrimSpace(b.ID)
 		if id == "" {
 			continue
@@ -2329,7 +2435,9 @@ func cmdVPCPrefixUpdate(s *Session, args []string) error {
 	s.Cache.Invalidate("vpc-prefix")
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
-	json.Unmarshal(resp, &updated)
+	if err := json.Unmarshal(resp, &updated); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
 	fmt.Printf("%s VPC prefix updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
 }
@@ -2397,7 +2505,9 @@ func cmdTenantAccountCreate(s *Session, _ []string) error {
 	}
 	s.Cache.Invalidate("tenant-account")
 	var created map[string]interface{}
-	json.Unmarshal(resp, &created)
+	if err := json.Unmarshal(resp, &created); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
 	fmt.Printf("%s Tenant account created: %s (%s)\n", Green("OK"), str(created, "tenantOrg"), str(created, "id"))
 	return nil
 }
@@ -2419,7 +2529,9 @@ func cmdTenantAccountUpdate(s *Session, args []string) error {
 	}
 	s.Cache.Invalidate("tenant-account")
 	var updated map[string]interface{}
-	json.Unmarshal(resp, &updated)
+	if err := json.Unmarshal(resp, &updated); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
 	fmt.Printf("%s Tenant account accepted: %s (%s)\n", Green("OK"), str(updated, "tenantOrg"), str(updated, "id"))
 	return nil
 }
@@ -2675,28 +2787,23 @@ func cmdInstanceCreate(s *Session, _ []string) error {
 	if err != nil {
 		return err
 	}
-	vpcSiteID := strings.TrimSpace(vpc.Extra["siteId"])
-	setSiteScopeFromID(s, vpcSiteID)
-
-	// Temporarily clear VPC scope so fetchMachines returns all site machines
-	// rather than filtering to machines already assigned to a prior VPC.
-	savedVpcID, savedVpcName := s.Scope.VpcID, s.Scope.VpcName
-	s.Scope.VpcID, s.Scope.VpcName = "", ""
-	machines, err := fetchMachinesWithSiteFallback(s, "Machine listing requires a site filter. Select a site.")
-	s.Scope.VpcID, s.Scope.VpcName = savedVpcID, savedVpcName
-	if err != nil {
-		return fmt.Errorf("fetching machines: %w", err)
-	}
-	readyItems := readyMachineItemsForSite(machines, vpcSiteID)
-	if len(readyItems) == 0 {
-		if vpcSiteID != "" {
-			return fmt.Errorf("no machines in Ready state available for selected VPC site")
-		}
-		return fmt.Errorf("no machines in Ready state available")
-	}
-	machine, err := Select("Machine", readyItems)
+	networkConfig, err := instanceNetworkConfigForVPC(vpc)
 	if err != nil {
 		return err
+	}
+	vpcSiteID := vpc.Extra["siteId"]
+	setSiteScopeFromID(s, vpcSiteID)
+
+	machine, err := promptInstanceMachine(s, ctx, vpcSiteID)
+	if err != nil {
+		return err
+	}
+	if networkConfig.detectMultiDPU {
+		dpuCapability, capabilityErr := fetchInstanceMultiDPUCapability(s, machine.ID)
+		if capabilityErr != nil {
+			return capabilityErr
+		}
+		networkConfig.dpuCapability = dpuCapability
 	}
 	name, err := PromptText("Instance name", true)
 	if err != nil {
@@ -2719,8 +2826,8 @@ func cmdInstanceCreate(s *Session, _ []string) error {
 		}
 	}
 
-	// Scope vpc-prefix lookups to the selected VPC so the picker only offers
-	// prefixes that are actually attachable to this instance.
+	// Scope network-resource lookups to the selected VPC so the picker only
+	// offers subnets or VPC prefixes that are attachable to this instance.
 	savedVpcID2, savedVpcName2 := s.Scope.VpcID, s.Scope.VpcName
 	s.Scope.VpcID, s.Scope.VpcName = vpc.ID, vpc.Name
 	s.Cache.InvalidateFiltered()
@@ -2729,7 +2836,7 @@ func cmdInstanceCreate(s *Session, _ []string) error {
 		s.Cache.InvalidateFiltered()
 	}()
 
-	interfaces, err := promptInstanceInterfaces(s, ctx)
+	interfaces, err := promptInstanceInterfaces(s, networkConfig)
 	if err != nil {
 		return err
 	}
@@ -2750,11 +2857,17 @@ func cmdInstanceCreate(s *Session, _ []string) error {
 	if len(interfaces) > 0 {
 		body["interfaces"] = interfaces
 	}
+	if networkConfig.autoNetwork {
+		body["autoNetwork"] = true
+	}
 	if len(sshKeyGroupIDs) > 0 {
 		body["sshKeyGroupIds"] = sshKeyGroupIDs
 	}
-	LogCmd(s, "instance", "create", "--name", name, "--machine-id", machine.ID, "--vpc-id", vpc.ID)
-	bodyJSON, _ := json.Marshal(body)
+	bodyJSON, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("encoding instance create request: %w", err)
+	}
+	LogCmd(s, "instance", "create", "--data", shellQuoteCLIArg(string(bodyJSON)))
 	resp, _, err := s.Client.Do("POST", apiPath(s, "instance"), nil, nil, bodyJSON)
 	if err != nil {
 		return fmt.Errorf("creating instance: %w", err)
@@ -2762,33 +2875,143 @@ func cmdInstanceCreate(s *Session, _ []string) error {
 	s.Cache.Invalidate("instance")
 	s.Cache.InvalidateFiltered()
 	var created map[string]interface{}
-	json.Unmarshal(resp, &created)
+	if err := json.Unmarshal(resp, &created); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
 	fmt.Printf("%s Instance created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
 }
 
-// promptInstanceInterfaces builds the interfaces[] array for an instance
-// create request by walking the operator through one VPC-prefix-backed
-// interface at a time. The OpenAPI schema requires at least one entry, so
-// the first interface is always prompted; subsequent interfaces are opt-in.
-// Returns nil (not error) if no vpc-prefixes exist for the current VPC scope
-// so cmdInstanceCreate can still attempt the API call and surface the
-// server-side validation error instead of silently sending an empty array.
-func promptInstanceInterfaces(s *Session, ctx context.Context) ([]map[string]interface{}, error) {
-	prefixes, err := s.Resolver.Fetch(ctx, "vpc-prefix")
+type instanceNetworkConfig struct {
+	autoNetwork    bool
+	detectMultiDPU bool
+	dpuCapability  *instanceDPUDeviceNetworkCapability
+	resourceType   string
+	reuseResources bool
+	singular       string
+	plural         string
+	selectorKey    string
+}
+
+func instanceNetworkConfigForVPC(vpc *NamedItem) (instanceNetworkConfig, error) {
+	if vpc == nil {
+		return instanceNetworkConfig{}, fmt.Errorf("selected VPC is missing")
+	}
+
+	virtualizationType := vpc.Extra["networkVirtualizationType"]
+	switch virtualizationType {
+	case "ETHERNET_VIRTUALIZER":
+		return instanceNetworkConfig{
+			resourceType: "subnet",
+			singular:     "Subnet",
+			plural:       "subnets",
+			selectorKey:  "subnetId",
+		}, nil
+	case "FNN":
+		return instanceNetworkConfig{
+			detectMultiDPU: true,
+			resourceType:   "vpc-prefix",
+			reuseResources: true,
+			singular:       "VPC prefix",
+			plural:         "VPC prefixes",
+			selectorKey:    "vpcPrefixId",
+		}, nil
+	case "FLAT":
+		return instanceNetworkConfig{
+			autoNetwork: true,
+		}, nil
+	case "":
+		return instanceNetworkConfig{}, fmt.Errorf("selected VPC has no network virtualization type")
+	default:
+		return instanceNetworkConfig{}, fmt.Errorf(
+			"instance creation does not support VPC network virtualization type %q",
+			virtualizationType,
+		)
+	}
+}
+
+type instanceDPUDeviceNetworkCapability struct {
+	name  string
+	count int
+}
+
+func fetchInstanceMultiDPUCapability(s *Session, machineID string) (*instanceDPUDeviceNetworkCapability, error) {
+	body, _, err := s.Client.Do(
+		"GET",
+		apiPath(s, "machine/{id}"),
+		map[string]string{
+			"id": machineID,
+		},
+		nil,
+		nil,
+	)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s could not list vpc-prefixes (%v); the API may reject this create if interfaces are required\n", Dim("note:"), err)
+		return nil, fmt.Errorf("fetching capabilities for machine %s: %w", machineID, err)
+	}
+
+	var machine struct {
+		MachineCapabilities []struct {
+			Type       string `json:"type"`
+			Name       string `json:"name"`
+			Count      *int   `json:"count"`
+			DeviceType string `json:"deviceType"`
+		} `json:"machineCapabilities"`
+	}
+	err = json.Unmarshal(body, &machine)
+	if err != nil {
+		return nil, fmt.Errorf("parsing capabilities for machine %s: %w", machineID, err)
+	}
+
+	for _, capability := range machine.MachineCapabilities {
+		if !strings.EqualFold(capability.Type, "Network") {
+			continue
+		}
+		if !strings.EqualFold(capability.DeviceType, "DPU") {
+			continue
+		}
+		if capability.Count == nil || *capability.Count <= 1 {
+			continue
+		}
+		name := capability.Name
+		if name == "" {
+			continue
+		}
+		return &instanceDPUDeviceNetworkCapability{
+			name:  name,
+			count: *capability.Count,
+		}, nil
+	}
+	return nil, nil
+}
+
+// promptInstanceInterfaces builds the interfaces[] array for an instance
+// create request using the selected VPC's network configuration. Ethernet
+// virtualizer VPCs use subnets, FNN VPCs use VPC prefixes, and Flat VPCs use
+// autoNetwork without explicit interfaces. For interface-backed VPCs, the
+// first interface is always prompted; subsequent interfaces are opt-in.
+func promptInstanceInterfaces(s *Session, networkConfig instanceNetworkConfig) ([]map[string]interface{}, error) {
+	if networkConfig.autoNetwork {
 		return nil, nil
 	}
-	if len(prefixes) == 0 {
-		fmt.Fprintf(os.Stderr, "%s no vpc-prefixes available for the selected VPC; the API may reject this create if interfaces are required\n", Dim("note:"))
-		return nil, nil
+	readyItems, err := fetchReadyInstanceNetworkResources(s, networkConfig)
+	if err != nil {
+		return nil, fmt.Errorf("listing %s for selected VPC: %w", networkConfig.plural, err)
+	}
+	if len(readyItems) == 0 {
+		return nil, fmt.Errorf("no Ready %s available for selected VPC", networkConfig.plural)
+	}
+	if networkConfig.dpuCapability != nil {
+		return promptMultiDPUInstanceInterfaces(s, networkConfig, readyItems)
 	}
 	var ifaces []map[string]interface{}
-	usedPrefixes := make(map[string]bool)
+	usedResourceIDs := make(map[string]bool)
+	usedVirtualFunctionIDs := make(map[int]bool)
 	for {
-		label := "VPC prefix for interface"
+		label := networkConfig.singular + " for interface"
 		if len(ifaces) > 0 {
+			if len(usedVirtualFunctionIDs) == virtualFunctionIDCount {
+				return ifaces, nil
+			}
 			confirmLabel := fmt.Sprintf("Add another interface (have %d)?", len(ifaces))
 			more, confirmErr := PromptConfirm(confirmLabel)
 			if confirmErr != nil {
@@ -2798,25 +3021,204 @@ func promptInstanceInterfaces(s *Session, ctx context.Context) ([]map[string]int
 				return ifaces, nil
 			}
 		}
-		available := make([]NamedItem, 0, len(prefixes))
-		for _, p := range prefixes {
-			if !usedPrefixes[p.ID] {
-				available = append(available, p)
+		available := readyItems
+		if !networkConfig.reuseResources {
+			available = make([]NamedItem, 0, len(readyItems))
+			for _, item := range readyItems {
+				if !usedResourceIDs[item.ID] {
+					available = append(available, item)
+				}
 			}
 		}
 		if len(available) == 0 {
-			fmt.Fprintf(os.Stderr, "%s no more vpc-prefixes to attach\n", Dim("note:"))
+			fmt.Fprintf(os.Stderr, "%s no more %s to attach\n", Dim("note:"), networkConfig.plural)
 			return ifaces, nil
 		}
 		picked, err := s.Resolver.SelectFromItems(label, available)
 		if err != nil {
 			return ifaces, err
 		}
-		usedPrefixes[picked.ID] = true
+		if !networkConfig.reuseResources {
+			usedResourceIDs[picked.ID] = true
+		}
+		isPhysical := len(ifaces) == 0
+		iface := map[string]interface{}{
+			networkConfig.selectorKey: picked.ID,
+			"isPhysical":              isPhysical,
+		}
+		if !isPhysical {
+			virtualFunctionID, promptErr := promptVirtualFunctionID(
+				"Virtual function ID (0-15)",
+				usedVirtualFunctionIDs,
+			)
+			if promptErr != nil {
+				return ifaces, promptErr
+			}
+			iface["virtualFunctionId"] = virtualFunctionID
+		}
+		ifaces = append(ifaces, iface)
+	}
+}
+
+func fetchReadyInstanceNetworkResources(s *Session, networkConfig instanceNetworkConfig) ([]NamedItem, error) {
+	query := map[string]string{
+		"orderBy": "NAME_ASC",
+		"status":  "Ready",
+	}
+	if s.Scope.SiteID != "" {
+		query["siteId"] = s.Scope.SiteID
+	}
+	if s.Scope.VpcID != "" {
+		query["vpcId"] = s.Scope.VpcID
+	}
+
+	resources, err := s.fetchAll(apiPath(s, networkConfig.resourceType), query)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]NamedItem, len(resources))
+	for i, resource := range resources {
+		items[i] = NamedItem{
+			Name: str(resource, "name"),
+			ID:   str(resource, "id"),
+			Raw:  resource,
+		}
+	}
+	return items, nil
+}
+
+const (
+	virtualFunctionIDMinimum = 0
+	virtualFunctionIDMaximum = 15
+	virtualFunctionIDCount   = virtualFunctionIDMaximum - virtualFunctionIDMinimum + 1
+)
+
+type deviceVirtualFunctionIDs struct {
+	used map[int]bool
+}
+
+func (vfIDs deviceVirtualFunctionIDs) exhausted() bool {
+	return len(vfIDs.used) == virtualFunctionIDCount
+}
+
+func promptMultiDPUInstanceInterfaces(s *Session, networkConfig instanceNetworkConfig, readyItems []NamedItem) ([]map[string]interface{}, error) {
+	capability := networkConfig.dpuCapability
+	if capability == nil {
+		return nil, fmt.Errorf("multi-DPU interface prompting requires a DPU capability")
+	}
+	ifaces := make([]map[string]interface{}, 0, capability.count)
+	for deviceInstance := range capability.count {
+		if deviceInstance > 0 {
+			configureDevice, confirmErr := PromptConfirm(fmt.Sprintf("Configure DPU %d?", deviceInstance))
+			if confirmErr != nil {
+				return ifaces, confirmErr
+			}
+			if !configureDevice {
+				return ifaces, nil
+			}
+		}
+
+		physical, err := selectDPUInterfaceResource(
+			s,
+			readyItems,
+			fmt.Sprintf("%s for DPU %d physical interface", networkConfig.singular, deviceInstance),
+		)
+		if err != nil {
+			return ifaces, err
+		}
 		ifaces = append(ifaces, map[string]interface{}{
-			"vpcPrefixId": picked.ID,
-			"isPhysical":  true,
+			networkConfig.selectorKey: physical.ID,
+			"device":                  capability.name,
+			"deviceInstance":          deviceInstance,
+			"isPhysical":              true,
 		})
+
+		vfIDs := deviceVirtualFunctionIDs{
+			used: make(map[int]bool),
+		}
+		for {
+			if vfIDs.exhausted() {
+				break
+			}
+			more, confirmErr := PromptConfirm(fmt.Sprintf(
+				"Add a virtual function for DPU %d (configured functions: %d)?",
+				deviceInstance,
+				countInterfacesForDevice(ifaces, deviceInstance),
+			))
+			if confirmErr != nil {
+				return ifaces, confirmErr
+			}
+			if !more {
+				break
+			}
+
+			virtual, selectErr := selectDPUInterfaceResource(
+				s,
+				readyItems,
+				fmt.Sprintf("%s for DPU %d virtual interface", networkConfig.singular, deviceInstance),
+			)
+			if selectErr != nil {
+				return ifaces, selectErr
+			}
+			virtualFunctionID, promptErr := promptVirtualFunctionID(
+				fmt.Sprintf("Virtual function ID for DPU %d (0-15)", deviceInstance),
+				vfIDs.used,
+			)
+			if promptErr != nil {
+				return ifaces, promptErr
+			}
+			iface := map[string]interface{}{
+				networkConfig.selectorKey: virtual.ID,
+				"device":                  capability.name,
+				"deviceInstance":          deviceInstance,
+				"isPhysical":              false,
+				"virtualFunctionId":       virtualFunctionID,
+			}
+			ifaces = append(ifaces, iface)
+		}
+	}
+	return ifaces, nil
+}
+
+func selectDPUInterfaceResource(
+	s *Session,
+	readyItems []NamedItem,
+	label string,
+) (*NamedItem, error) {
+	picked, err := s.Resolver.SelectFromItems(label, readyItems)
+	if err != nil {
+		return nil, err
+	}
+	return picked, nil
+}
+
+func countInterfacesForDevice(ifaces []map[string]interface{}, deviceInstance int) int {
+	count := 0
+	for _, iface := range ifaces {
+		if iface["deviceInstance"] == deviceInstance {
+			count++
+		}
+	}
+	return count
+}
+
+func promptVirtualFunctionID(label string, used map[int]bool) (int, error) {
+	for {
+		valueText, err := PromptText(label, true)
+		if err != nil {
+			return 0, err
+		}
+		value, err := strconv.Atoi(valueText)
+		if err != nil || value < virtualFunctionIDMinimum || value > virtualFunctionIDMaximum {
+			fmt.Println(Red("  (required; must be an integer from 0 to 15)"))
+			continue
+		}
+		if used[value] {
+			fmt.Println(Red("  (must be unique among virtual interfaces on this device)"))
+			continue
+		}
+		used[value] = true
+		return value, nil
 	}
 }
 
@@ -2866,20 +3268,14 @@ func promptOptionalResourceIDs(s *Session, ctx context.Context, resourceType, si
 	}
 }
 
-// instanceUpdateInputs collects the optional fields exposed by the TUI
-// instance update form. Extracted so cmdInstanceUpdate stays linear and
-// cmdInstanceReboot can drive a stripped-down version of the same flow.
-type instanceUpdateInputs struct {
-	name                 string
-	description          string
-	osID                 string
-	sshKeyGroupIDs       []string
-	triggerReboot        bool
-	rebootWithCustomIpxe bool
-	applyUpdatesOnReboot bool
+type instanceAttributeUpdateInputs struct {
+	name           string
+	description    string
+	osID           string
+	sshKeyGroupIDs []string
 }
 
-func (u instanceUpdateInputs) toBody() map[string]interface{} {
+func (u instanceAttributeUpdateInputs) attributeBody() map[string]interface{} {
 	body := map[string]interface{}{}
 	if strings.TrimSpace(u.name) != "" {
 		body["name"] = strings.TrimSpace(u.name)
@@ -2893,14 +3289,21 @@ func (u instanceUpdateInputs) toBody() map[string]interface{} {
 	if len(u.sshKeyGroupIDs) > 0 {
 		body["sshKeyGroupIds"] = u.sshKeyGroupIDs
 	}
-	if u.triggerReboot {
-		body["triggerReboot"] = true
-		if u.rebootWithCustomIpxe {
-			body["rebootWithCustomIpxe"] = true
-		}
-		if u.applyUpdatesOnReboot {
-			body["applyUpdatesOnReboot"] = true
-		}
+	return body
+}
+
+type instanceRebootInputs struct {
+	rebootWithCustomIpxe bool
+	applyUpdatesOnReboot bool
+}
+
+func (u instanceRebootInputs) rebootBody() map[string]interface{} {
+	body := map[string]interface{}{"triggerReboot": true}
+	if u.rebootWithCustomIpxe {
+		body["rebootWithCustomIpxe"] = true
+	}
+	if u.applyUpdatesOnReboot {
+		body["applyUpdatesOnReboot"] = true
 	}
 	return body
 }
@@ -2911,7 +3314,7 @@ func cmdInstanceUpdate(s *Session, args []string) error {
 	if err != nil {
 		return err
 	}
-	inputs := instanceUpdateInputs{}
+	inputs := instanceAttributeUpdateInputs{}
 	inputs.name, err = PromptText("New name (optional)", false)
 	if err != nil {
 		return err
@@ -2946,22 +3349,7 @@ func cmdInstanceUpdate(s *Session, args []string) error {
 		}
 	}
 
-	inputs.triggerReboot, err = PromptConfirm("Trigger reboot now?")
-	if err != nil {
-		return err
-	}
-	if inputs.triggerReboot {
-		inputs.rebootWithCustomIpxe, err = PromptConfirm("Reboot with custom iPXE (one-time)?")
-		if err != nil {
-			return err
-		}
-		inputs.applyUpdatesOnReboot, err = PromptConfirm("Apply pending updates on reboot?")
-		if err != nil {
-			return err
-		}
-	}
-
-	body := inputs.toBody()
+	body := inputs.attributeBody()
 	if len(body) == 0 {
 		return fmt.Errorf("no updates provided")
 	}
@@ -2975,8 +3363,11 @@ func cmdInstanceUpdate(s *Session, args []string) error {
 	s.Cache.Invalidate("instance")
 	s.Cache.InvalidateFiltered()
 	var updated map[string]interface{}
-	json.Unmarshal(resp, &updated)
+	if err := json.Unmarshal(resp, &updated); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
 	fmt.Printf("%s Instance updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
+	fmt.Fprintf(os.Stderr, "%s run `instance reboot` when ready\n", Dim("note:"))
 	return nil
 }
 
@@ -2999,11 +3390,10 @@ func cmdInstanceReboot(s *Session, args []string) error {
 		return err
 	}
 
-	body := instanceUpdateInputs{
-		triggerReboot:        true,
+	body := instanceRebootInputs{
 		rebootWithCustomIpxe: rebootWithCustomIpxe,
 		applyUpdatesOnReboot: applyUpdatesOnReboot,
-	}.toBody()
+	}.rebootBody()
 
 	LogCmd(s, "instance", "update", item.ID, "--trigger-reboot=true")
 	bodyJSON, _ := json.Marshal(body)
@@ -4256,7 +4646,8 @@ func sortByLabelKey(items []NamedItem, key string) []NamedItem {
 func parseLabelArgs(args []string) (remaining []string, labels map[string]string, sortKey string, err error) {
 	labels = map[string]string{}
 	for i := 0; i < len(args); i++ {
-		if args[i] == "--label" {
+		switch args[i] {
+		case "--label":
 			if i+1 >= len(args) {
 				return nil, nil, "", fmt.Errorf("--label requires a key=value argument")
 			}
@@ -4269,13 +4660,13 @@ func parseLabelArgs(args []string) (remaining []string, labels map[string]string
 			} else {
 				return nil, nil, "", fmt.Errorf("--label value %q must contain '='", args[i])
 			}
-		} else if args[i] == "--sort-label" {
+		case "--sort-label":
 			if i+1 >= len(args) {
 				return nil, nil, "", fmt.Errorf("--sort-label requires a key argument")
 			}
 			i++
 			sortKey = args[i]
-		} else {
+		default:
 			remaining = append(remaining, args[i])
 		}
 	}

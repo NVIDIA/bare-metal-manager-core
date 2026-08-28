@@ -125,6 +125,7 @@ pub async fn create(
         deleted: None,
         bmc_mac_address: new_power_shelf.bmc_mac_address,
         bmc_credential_rotation_requested: false,
+        decommission_requested: false,
         bmc_info: None,
         controller_state: Versioned {
             value: state,
@@ -339,6 +340,37 @@ pub async fn set_power_shelf_maintenance_requested(
     Ok(())
 }
 
+/// Records a request to start decommissioning when the power shelf is Ready.
+pub async fn set_decommission_requested(
+    txn: &mut PgConnection,
+    power_shelf_id: PowerShelfId,
+) -> DatabaseResult<()> {
+    const QUERY: &str =
+        "UPDATE power_shelves SET decommission_requested = TRUE WHERE id = $1 RETURNING id";
+    sqlx::query_as::<_, PowerShelfId>(QUERY)
+        .bind(power_shelf_id)
+        .fetch_one(txn)
+        .await
+        .map(|_| ())
+        .map_err(|error| DatabaseError::new("set_decommission_requested", error))
+}
+
+pub async fn clear_decommission_requested(
+    txn: &mut PgConnection,
+    power_shelf_id: PowerShelfId,
+) -> DatabaseResult<()> {
+    const QUERY: &str = "UPDATE power_shelves
+        SET decommission_requested = FALSE
+        WHERE id = $1
+        RETURNING id";
+    sqlx::query_as::<_, PowerShelfId>(QUERY)
+        .bind(power_shelf_id)
+        .fetch_one(txn)
+        .await
+        .map(|_| ())
+        .map_err(|error| DatabaseError::new("clear_decommission_requested", error))
+}
+
 pub async fn clear_power_shelf_maintenance_requested(
     txn: &mut PgConnection,
     power_shelf_id: PowerShelfId,
@@ -437,6 +469,32 @@ pub async fn clear_power_shelf_reprovisioning_requested(
         .await
         .map_err(|e| DatabaseError::new("clear_power_shelf_reprovisioning_requested", e))?;
     Ok(())
+}
+
+/// Clears a rack-owned reprovisioning request before the power shelf leaves
+/// `Ready`.
+///
+/// Returns whether the request was cleared. Once the power-shelf controller
+/// has started reprovisioning, it owns the request and unwinds it after
+/// observing the parent rack in `Error`.
+pub async fn clear_ready_power_shelf_reprovisioning_requested(
+    txn: &mut PgConnection,
+    power_shelf_id: PowerShelfId,
+    initiator: &str,
+) -> DatabaseResult<bool> {
+    let query = r#"UPDATE power_shelves
+        SET power_shelf_reprovisioning_requested = NULL
+        WHERE id = $1
+          AND controller_state->>'state' = 'ready'
+          AND power_shelf_reprovisioning_requested->>'initiator' = $2
+        RETURNING id"#;
+    let cleared = sqlx::query_as::<_, PowerShelfId>(query)
+        .bind(power_shelf_id)
+        .bind(initiator)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::new("clear_ready_power_shelf_reprovisioning_requested", e))?;
+    Ok(cleared.is_some())
 }
 
 /// Sets `firmware_upgrade_status` on the power shelf. Call from rack maintenance
@@ -1194,6 +1252,22 @@ mod tests {
         clear_power_shelf_maintenance_requested(&mut txn, shelf.id).await?;
         let reloaded = find_by_id(&mut txn, &shelf.id).await?.unwrap();
         assert!(reloaded.power_shelf_maintenance_requested.is_none());
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn test_set_decommission_requested(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        let shelf = create_seeded(&mut txn, 6, "Decommission request shelf").await?;
+
+        set_decommission_requested(&mut txn, shelf.id).await?;
+        let reloaded = find_by_id(&mut txn, &shelf.id)
+            .await?
+            .expect("power shelf should still exist");
+        assert!(reloaded.decommission_requested);
 
         Ok(())
     }

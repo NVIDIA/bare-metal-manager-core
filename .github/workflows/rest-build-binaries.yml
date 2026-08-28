@@ -126,7 +126,7 @@ jobs:
       ${{ !cancelled() &&
           (needs.resolve-manual-identity.result == 'success' ||
            needs.resolve-manual-identity.result == 'skipped') }}
-    runs-on: ${{ inputs.runner || 'linux-amd64-cpu4' }}
+    runs-on: ${{ inputs.runner || 'linux-amd64-cpu8' }}
     timeout-minutes: 30
     env:
       TARGET: ${{ matrix.target }}

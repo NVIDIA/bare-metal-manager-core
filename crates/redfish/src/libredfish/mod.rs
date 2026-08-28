@@ -451,6 +451,8 @@ pub trait RedfishClientPool: Send + Sync + 'static {
                     .map_err(|err| redact_password(err, curr_password.as_str()))
                     .map_err(RedfishClientCreationError::RedfishError)?;
             }
+            // Sushy is a development emulator without an AccountService.
+            RedfishVendor::Sushy => {}
             RedfishVendor::Unknown => {
                 // Defensive guard: callers resolve the vendor via
                 // `probe_bmc_vendor` (or site-explorer's `get_redfish_vendor`),
@@ -1179,7 +1181,7 @@ mod tests {
             let sim = RedfishSim::default();
             // Force the anonymous service-root probe to yield an unrecognized
             // vendor so probing falls through to the Chassis Manufacturer.
-            sim.set_service_root_vendor(Some("Contoso".to_string()));
+            sim.set_service_root_vendor(Some("Unrecognized Vendor".to_string()));
             sim.set_chassis_manufacturer(Some(manufacturer.to_string()));
 
             let vendor = sim
@@ -1196,7 +1198,7 @@ mod tests {
     #[tokio::test]
     async fn probe_bmc_vendor_errors_when_vendor_unresolvable() {
         let sim = RedfishSim::default();
-        sim.set_service_root_vendor(Some("Contoso".to_string()));
+        sim.set_service_root_vendor(Some("Unrecognized Vendor".to_string()));
         sim.set_chassis_manufacturer(Some("Acme".to_string()));
 
         let err = sim

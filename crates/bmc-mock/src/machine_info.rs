@@ -23,7 +23,9 @@ use serde::{Deserialize, Serialize};
 use crate::infiniband::Guid;
 use crate::mac_address_pool::{MacAddressPool, PoolConfig as MacAddressPoolConfig};
 use crate::redfish::update_service::UpdateServiceConfig;
-use crate::{DUMMY_FACTORY_PASSWORD, DUMMY_FACTORY_USERNAME, HardwareType, hw, redfish};
+use crate::{
+    DUMMY_FACTORY_PASSWORD, DUMMY_FACTORY_USERNAME, HardwareType, RackPlacement, hw, redfish,
+};
 
 /// Represents static information we know ahead of time about a host or DPU (independent of any
 /// state we get from carbide like IP addresses or machine ID's.) Intended to be immutable and
@@ -37,6 +39,7 @@ pub enum MachineInfo {
 #[derive(Debug, Clone)]
 pub struct HostMachineInfo {
     pub hw_type: HardwareType,
+    pub rack_placement: Option<RackPlacement>,
     pub bmc_mac_address: MacAddress,
     pub serial: String,
     pub dpus: Vec<DpuMachineInfo>,
@@ -330,6 +333,7 @@ impl HostMachineInfo {
             .map(|mac| format!("MT{}", mac.to_string().replace(':', "")));
         Self {
             hw_type,
+            rack_placement: None,
             bmc_mac_address,
             serial: bmc_mac_address.to_string().replace(':', ""),
             non_dpu_mac_address: if dpus.is_empty()
@@ -702,12 +706,9 @@ impl HostMachineInfo {
                     serial_number: "MT0000000002".into(),
                 },
             ],
-            topology: hw::nvidia_gbx00::Topology {
-                chassis_physical_slot_number: 24,
-                compute_tray_index: 14,
-                revision_id: 2,
-                topology_id: 128,
-            },
+            topology: self
+                .rack_placement
+                .and_then(hw::nvidia_gbx00::Topology::from_rack_placement),
         }
     }
 
@@ -744,12 +745,9 @@ impl HostMachineInfo {
             bmc_mac_address_usb0: next_mac(),
             hgx_bmc_mac_address_usb0: next_mac(),
             hgx_serial_number: superchip_a_sn.into(),
-            topology: hw::nvidia_gbx00::Topology {
-                chassis_physical_slot_number: 25,
-                compute_tray_index: 15,
-                revision_id: 2,
-                topology_id: 128,
-            },
+            topology: self
+                .rack_placement
+                .and_then(hw::nvidia_gbx00::Topology::from_rack_placement),
             cpu: boards.cpu,
             gpu: boards.gpu,
             io_board: boards.io_board,
@@ -787,12 +785,9 @@ impl HostMachineInfo {
             bmc_mac_address_usb0: next_mac(),
             hgx_bmc_mac_address_usb0: next_mac(),
             hgx_serial_number: superchip_a_sn.into(),
-            topology: hw::nvidia_gbx00::Topology {
-                chassis_physical_slot_number: 25,
-                compute_tray_index: 15,
-                revision_id: 2,
-                topology_id: 128,
-            },
+            topology: self
+                .rack_placement
+                .and_then(hw::nvidia_gbx00::Topology::from_rack_placement),
             cpu: boards.cpu,
             gpu: boards.gpu,
             io_board: boards.io_board,
@@ -830,12 +825,9 @@ impl HostMachineInfo {
             bmc_mac_address_usb0: next_mac(),
             hgx_bmc_mac_address_usb0: next_mac(),
             hgx_serial_number: "012345678901234567890123".into(),
-            topology: hw::nvidia_gbx00::Topology {
-                chassis_physical_slot_number: 25,
-                compute_tray_index: 15,
-                revision_id: 2,
-                topology_id: 128,
-            },
+            topology: self
+                .rack_placement
+                .and_then(hw::nvidia_gbx00::Topology::from_rack_placement),
             cpu: [
                 hw::nvidia_gb300::NvidiaGB300Cpu {
                     serial_number: cpu0_sn.into(),
@@ -1026,16 +1018,28 @@ impl HostMachineInfo {
 }
 
 impl MachineInfo {
-    pub fn supports_ipmi_console(&self) -> bool {
-        matches!(
-            self,
-            MachineInfo::Host(host)
-                if matches!(
-                    host.bmc_vendor(),
-                    redfish::oem::BmcVendor::Supermicro
-                        | redfish::oem::BmcVendor::Nvidia(_)
-                )
-        )
+    /// Returns whether machine-a-tron should start an IPMI console simulator for this profile.
+    pub fn needs_ipmi_console(&self) -> bool {
+        match self {
+            MachineInfo::Host(host) => match host.hw_type {
+                HardwareType::WiwynnGB200Nvl
+                | HardwareType::NvidiaDgxGb300
+                | HardwareType::SupermicroGb300Nvl
+                | HardwareType::NvidiaDgxVr
+                | HardwareType::NvidiaSwitchNd5200Ld
+                | HardwareType::NvidiaSwitchN5700Ld
+                | HardwareType::GenericSupermicro => true,
+                HardwareType::DellPowerEdgeR750
+                | HardwareType::DellPowerEdgeR760Bf4
+                | HardwareType::LenovoGB300Nvl
+                | HardwareType::LiteOnPowerShelf
+                | HardwareType::DeltaPowerShelf
+                | HardwareType::NvidiaDgxH100
+                | HardwareType::GenericAmi
+                | HardwareType::HpeProliantDl380aGen11 => false,
+            },
+            MachineInfo::Dpu(_) => false,
+        }
     }
 
     pub(super) fn oem_state(&self) -> redfish::oem::State {

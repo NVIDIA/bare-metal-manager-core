@@ -28,7 +28,7 @@ pub(crate) struct WiwynnGB200Nvl<'a> {
     pub(crate) compute_board: [hw::nvidia_gb200::BiancaBoard<'a>; 2],
     pub(crate) dpu1: hw::bluefield3::Bluefield3<'a>,
     pub(crate) dpu2: hw::bluefield3::Bluefield3<'a>,
-    pub(crate) topology: hw::nvidia_gbx00::Topology,
+    pub(crate) topology: Option<hw::nvidia_gbx00::Topology>,
     pub(crate) io_board: [hw::nvidia_gb200::IoBoard<'a>; 2],
 }
 
@@ -217,7 +217,7 @@ impl WiwynnGB200Nvl<'_> {
                 ..redfish::chassis::SingleChassisConfig::defaults()
             }))
             .chain((0..4).map(|index| {
-                hw::nvidia_gbx00::cbc_chassis(format!("CBC_{index}").into(), &self.topology)
+                hw::nvidia_gbx00::cbc_chassis(format!("CBC_{index}").into(), self.topology.as_ref())
             }))
             .chain(
                 [(0, "HGX_CPU_0"), (1, "HGX_CPU_1")]

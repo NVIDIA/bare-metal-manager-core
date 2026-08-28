@@ -39,7 +39,7 @@ pub(crate) struct SupermicroGB300Nvl<'a> {
     pub(crate) bmc_mac_address_usb0: MacAddress,
     pub(crate) hgx_bmc_mac_address_usb0: MacAddress,
     pub(crate) hgx_serial_number: Cow<'a, str>,
-    pub(crate) topology: hw::nvidia_gbx00::Topology,
+    pub(crate) topology: Option<hw::nvidia_gbx00::Topology>,
     pub(crate) cpu: [hw::nvidia_gb300::NvidiaGB300Cpu<'a>; 2],
     pub(crate) gpu: [hw::nvidia_gb300::NvidiaGB300Gpu<'a>; 4],
     pub(crate) io_board: [hw::nvidia_gb300::NvidiaGB300IoBoard<'a>; 2],
@@ -198,29 +198,7 @@ impl SupermicroGB300Nvl<'_> {
                     // This firmware exposes the SecureBoot resource but omits
                     // SecureBootEnable, so there is no usable status to report.
                     secure_boot_available: false,
-                    serial_console: Some(
-                        redfish::serial_console::builder()
-                            .max_concurrent_sessions(1)
-                            .ssh(
-                                &redfish::serial_console::protocol_builder()
-                                    .service_enabled(true)
-                                    .port(22)
-                                    .shared_with_manager_cli(true)
-                                    .console_entry_command("cd system1/sol1; start")
-                                    .hot_key_sequence_display(
-                                        "press <Enter>, <Esc>, and then <T> to terminate session",
-                                    )
-                                    .build(),
-                            )
-                            .ipmi(
-                                &redfish::serial_console::protocol_builder()
-                                    .service_enabled(true)
-                                    .port(623)
-                                    .hot_key_sequence_display("Press ~.  - terminate connection")
-                                    .build(),
-                            )
-                            .build(),
-                    ),
+                    serial_console: Some(hw::openbmc::enabled_serial_console()),
                     serial_number: Some(self.system_0_serial_number.to_string().into()),
                     storage: None,
                     processors: None,
@@ -252,7 +230,9 @@ impl SupermicroGB300Nvl<'_> {
         };
         redfish::chassis::ChassisConfig {
             chassis: (0..=3)
-                .map(|n| hw::nvidia_gbx00::cbc_chassis(format!("CBC_{n}").into(), &self.topology))
+                .map(|n| {
+                    hw::nvidia_gbx00::cbc_chassis(format!("CBC_{n}").into(), self.topology.as_ref())
+                })
                 .chain(std::iter::once(redfish::chassis::SingleChassisConfig {
                     id: "Chassis_0".into(),
                     // SMC GB300 scrape: Chassis_0 is a Shelf with PDB part number AOM-PDB-B3.

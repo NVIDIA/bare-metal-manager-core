@@ -289,7 +289,6 @@ func (o *MachineHealthReportEntry) UnmarshalJSON(data []byte) (err error) {
 	varMachineHealthReportEntry := _MachineHealthReportEntry{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varMachineHealthReportEntry)
 
 	if err != nil {

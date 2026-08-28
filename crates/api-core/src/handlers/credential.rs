@@ -46,10 +46,7 @@ const DEFAULT_FORGE_ADMIN_BMC_USERNAME: &str = "root";
 /// on the DPU.  This was directly verified by checking the maximum accepted
 /// by FRR on the DPU.  NVUE will silently accept seemingly any length,
 /// but FRR reloads fail above this length.
-const MAX_BGP_PASSWORD_LENGTH: usize = 80;
-
-#[cfg(test)]
-pub(crate) const TEST_MAX_BGP_PASSWORD_LENGTH: usize = MAX_BGP_PASSWORD_LENGTH;
+pub(crate) const MAX_BGP_PASSWORD_LENGTH: usize = 80;
 
 pub(crate) async fn create_credential(
     api: &Api,
@@ -125,7 +122,14 @@ pub(crate) async fn create_credential(
                     credential_type: CredentialType::SiteDefault,
                 })
                 .await)
-                .is_ok_and(|result| result.is_some())
+                .is_ok_and(|result| {
+                    result.is_some_and(|creds| {
+                        // An empty password is seeded by nico-prereqs at deploy time —
+                        // treat it as absent so the operator can set the real password.
+                        let Credentials::UsernamePassword { ref password, .. } = creds;
+                        !password.is_empty()
+                    })
+                })
             {
                 // TODO: support reset credential
                 return Err(tonic::Status::already_exists(
@@ -154,7 +158,14 @@ pub(crate) async fn create_credential(
                     credential_type: CredentialType::SiteDefault,
                 })
                 .await
-                .is_ok_and(|result| result.is_some())
+                .is_ok_and(|result| {
+                    result.is_some_and(|creds| {
+                        // An empty password is seeded by nico-prereqs at deploy time —
+                        // treat it as absent so the operator can set the real password.
+                        let Credentials::UsernamePassword { ref password, .. } = creds;
+                        !password.is_empty()
+                    })
+                })
             {
                 // TODO: support reset credential
                 return Err(tonic::Status::already_exists(

@@ -104,12 +104,12 @@ impl SimulatorRegistry {
                             eyre::eyre!(
                                 "rack {} unit {} ({}) has no simulator",
                                 registration.rack_id,
-                                member.position,
+                                member.placement.position(),
                                 member.hardware_type
                             )
                         })?;
                     Ok(RackMemberRef {
-                        position: member.position,
+                        placement: member.placement,
                         device_index,
                     })
                 })
@@ -191,7 +191,7 @@ impl SimulatorRegistry {
                 .members
                 .iter()
                 .map(|member| RackMemberStatus {
-                    position: member.position,
+                    position: member.placement.position(),
                     device: self.inner.devices[member.device_index].status(status_config),
                 })
                 .collect(),

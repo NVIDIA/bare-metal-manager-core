@@ -37,6 +37,7 @@ const (
 	labelComponentSlotID       = "slot_id"
 	labelComponentTrayIdx      = "tray_idx"
 	labelComponentHostID       = "host_id"
+	expectedDescriptionKey     = "expected_description"
 )
 
 // expectedComponentSpec is the normalised view of one Core expected_* row.
@@ -54,6 +55,7 @@ type expectedComponentSpec struct {
 	SerialNumber   string
 	Model          string
 	Name           string
+	Description    string
 	SlotID         int
 	TrayIndex      int
 	HostID         int
@@ -98,6 +100,7 @@ func machineDetailToSpec(d nicoapi.ExpectedMachineDetail) expectedComponentSpec 
 		Type:           devicetypes.ComponentTypeToString(devicetypes.ComponentTypeCompute),
 		SerialNumber:   d.ChassisSerialNumber,
 		Name:           d.Name,
+		Description:    d.Description,
 		RackExternalID: d.RackID,
 		BMC: expectedBMCSpec{
 			MACAddress: d.BMCMACAddress,
@@ -113,6 +116,7 @@ func switchDetailToSpec(d nicoapi.ExpectedSwitchDetail) expectedComponentSpec {
 		Type:           devicetypes.ComponentTypeToString(devicetypes.ComponentTypeNVSwitch),
 		SerialNumber:   d.SwitchSerialNumber,
 		Name:           d.Name,
+		Description:    d.Description,
 		RackExternalID: d.RackID,
 		BMC: expectedBMCSpec{
 			MACAddress: d.BMCMACAddress,
@@ -128,6 +132,7 @@ func powerShelfDetailToSpec(d nicoapi.ExpectedPowerShelfDetail) expectedComponen
 		Type:           devicetypes.ComponentTypeToString(devicetypes.ComponentTypePowerShelf),
 		SerialNumber:   d.ShelfSerialNumber,
 		Name:           d.Name,
+		Description:    d.Description,
 		RackExternalID: d.RackID,
 		BMC: expectedBMCSpec{
 			MACAddress: d.BMCMACAddress,
@@ -437,15 +442,12 @@ func mirrorExpectedComponents(
 		macs := hostBMCMACs(c)
 		key := naturalKeyOrEmpty(c.Manufacturer, c.SerialNumber)
 		if len(macs) == 0 && key == "" {
-			// Nothing on this row can be compared with what Core reported, so
-			// "Core dropped it" is indistinguishable from "Flow cannot
-			// recognise it". Left in place, with a warn so the operator can
-			// repair the row.
-			result.legacyExempt++
-			log.Warn().
-				Str("type", componentType).
-				Str("component_id", c.ID.String()).
-				Msg("Expected-inventory mirror: Flow component has neither a host BMC nor a manufacturer/serial pair; it cannot be matched against Core and is left in place")
+			// With the expected mirror enabled, a successful Core response is the
+			// authoritative snapshot for this component type. This row has no host
+			// BMC or complete fallback identity with which to join that snapshot;
+			// keeping it live would leave stale inventory visible to list/count and
+			// actual-drift paths. Remove it with the other absent expected rows.
+			p.toDelete = append(p.toDelete, *c)
 			continue
 		}
 		if stillReportedByCore(macs, key, seenMACs, seenNaturalKeys) {
@@ -464,6 +466,7 @@ func mirrorExpectedComponents(
 	}
 
 	now := time.Now()
+	softDeleted := 0
 	if err := pool.RunInTx(ctx, func(ctx context.Context, tx bun.Tx) error {
 		for i := range p.toInsert {
 			if _, err := tx.NewInsert().Model(&p.toInsert[i]).Exec(ctx); err != nil {
@@ -490,13 +493,8 @@ func mirrorExpectedComponents(
 			// tombstone row — bun otherwise appends "deleted_at IS NULL" to
 			// the UPDATE and the resurrect would silently match zero rows.
 			p.toUpdate[i].UpdatedAt = now
-			if _, err := tx.NewUpdate().
-				Model(&p.toUpdate[i]).
-				Column("name", "model", "manufacturer", "serial_number", "slot_id",
-					"tray_index", "host_id", "rack_id", "deleted_at", "updated_at").
-				WhereAllWithDeleted().
-				Where("id = ?", p.toUpdate[i].ID).
-				Exec(ctx); err != nil {
+			expectedDescription, _ := p.toUpdate[i].Description[expectedDescriptionKey].(string)
+			if err := updateMirroredComponent(ctx, tx, &p.toUpdate[i], expectedDescription); err != nil {
 				return fmt.Errorf("update component %q: %w", p.toUpdate[i].SerialNumber, err)
 			}
 			ops := p.toUpdateBMCs[i]
@@ -524,9 +522,18 @@ func mirrorExpectedComponents(
 			}
 		}
 		for i := range p.toDelete {
-			if _, err := tx.NewDelete().Model(&p.toDelete[i]).Where("id = ?", p.toDelete[i].ID).Exec(ctx); err != nil {
+			deleteResult, err := tx.NewDelete().Model(&p.toDelete[i]).Where("id = ?", p.toDelete[i].ID).Exec(ctx)
+			if err != nil {
 				return fmt.Errorf("soft-delete component %q: %w", p.toDelete[i].SerialNumber, err)
 			}
+			rowsAffected, err := deleteResult.RowsAffected()
+			if err != nil {
+				return fmt.Errorf("count soft-deleted component %q: %w", p.toDelete[i].SerialNumber, err)
+			}
+			if rowsAffected != 1 {
+				return fmt.Errorf("soft-delete component %q affected %d rows, expected 1", p.toDelete[i].SerialNumber, rowsAffected)
+			}
+			softDeleted += int(rowsAffected)
 		}
 		return nil
 	}); err != nil {
@@ -543,8 +550,44 @@ func mirrorExpectedComponents(
 
 	result.inserted = len(p.toInsert)
 	result.updated = len(p.toUpdate)
-	result.softDeleted = len(p.toDelete)
+	result.softDeleted = softDeleted
 	return result
+}
+
+// updateMirroredComponent persists mirror-owned scalar fields and changes only
+// Core's reserved description key against the current database value. Keeping
+// the JSONB mutation in SQL prevents a stale reconciliation snapshot from
+// replacing runtime or operator entries written after the snapshot was read.
+func updateMirroredComponent(ctx context.Context, idb bun.IDB, component *model.Component, expectedDescription string) error {
+	var rackID any
+	if component.RackID != uuid.Nil {
+		rackID = component.RackID
+	}
+	query := idb.NewUpdate().
+		Model((*model.Component)(nil)).
+		Set("name = ?", component.Name).
+		Set("model = ?", component.Model).
+		Set("manufacturer = ?", component.Manufacturer).
+		Set("serial_number = ?", component.SerialNumber).
+		Set("slot_id = ?", component.SlotID).
+		Set("tray_index = ?", component.TrayIndex).
+		Set("host_id = ?", component.HostID).
+		Set("rack_id = ?", rackID).
+		Set("deleted_at = ?", component.DeletedAt).
+		Set("updated_at = ?", component.UpdatedAt).
+		WhereAllWithDeleted().
+		Where("id = ?", component.ID)
+	if expectedDescription == "" {
+		query.Set("description = NULLIF((CASE WHEN jsonb_typeof(description) = 'object' THEN description ELSE '{}'::jsonb END) - ?::text, '{}'::jsonb)", expectedDescriptionKey)
+	} else {
+		query.Set(
+			"description = jsonb_set(CASE WHEN jsonb_typeof(description) = 'object' THEN description ELSE '{}'::jsonb END, ARRAY[?::text], to_jsonb(?::text), true)",
+			expectedDescriptionKey,
+			expectedDescription,
+		)
+	}
+	_, err := query.Exec(ctx)
+	return err
 }
 
 // specValid rejects a Core row carrying no BMC MAC address. The MAC is the
@@ -655,11 +698,31 @@ func componentFromSpec(s expectedComponentSpec, rackID uuid.UUID) model.Componen
 		Manufacturer: s.Manufacturer,
 		SerialNumber: s.SerialNumber,
 		Model:        s.Model,
+		Description:  componentDescriptionWithExpected(nil, s.Description),
 		SlotID:       s.SlotID,
 		TrayIndex:    s.TrayIndex,
 		HostID:       s.HostID,
 		RackID:       rackID,
 	}
+}
+
+// componentDescriptionWithExpected returns a copy with only Core's reserved
+// description key changed. An empty expected description removes that key,
+// while values owned by runtime sync or operators remain untouched.
+func componentDescriptionWithExpected(existing map[string]any, expected string) map[string]any {
+	description := make(map[string]any, len(existing)+1)
+	for key, value := range existing {
+		description[key] = value
+	}
+	if expected == "" {
+		delete(description, expectedDescriptionKey)
+	} else {
+		description[expectedDescriptionKey] = expected
+	}
+	if len(description) == 0 {
+		return nil
+	}
+	return description
 }
 
 // applyComponentChanges copies mirror-managed fields from desired into
@@ -675,6 +738,7 @@ func componentFromSpec(s expectedComponentSpec, rackID uuid.UUID) model.Componen
 func applyComponentChanges(existing, desired *model.Component, spec expectedComponentSpec) {
 	existing.Name = desired.Name
 	existing.Model = desired.Model
+	existing.Description = componentDescriptionWithExpected(existing.Description, spec.Description)
 	existing.RackID = desired.RackID
 	if existing.Manufacturer == "" {
 		existing.Manufacturer = desired.Manufacturer
@@ -714,6 +778,14 @@ func diffComponentFields(existing, desired *model.Component, spec expectedCompon
 	}
 	if existing.SerialNumber == "" && desired.SerialNumber != "" {
 		diffs = append(diffs, fieldChange{"serial_number", existing.SerialNumber, desired.SerialNumber})
+	}
+	existingDescription, hasExpectedDescription := existing.Description[expectedDescriptionKey]
+	if spec.Description == "" {
+		if hasExpectedDescription {
+			diffs = append(diffs, fieldChange{expectedDescriptionKey, fmt.Sprint(existingDescription), ""})
+		}
+	} else if current, ok := existingDescription.(string); !ok || current != spec.Description {
+		diffs = append(diffs, fieldChange{expectedDescriptionKey, fmt.Sprint(existingDescription), spec.Description})
 	}
 	if !spec.preserveFields["slot_id"] && existing.SlotID != desired.SlotID {
 		diffs = append(diffs, fieldChange{"slot_id", strconv.Itoa(existing.SlotID), strconv.Itoa(desired.SlotID)})

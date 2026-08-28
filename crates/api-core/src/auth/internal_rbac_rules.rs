@@ -303,8 +303,16 @@ impl InternalRBACRules {
         x.perm("FindExploredMlxDeviceHostIds", vec![ForgeAdminCLI]);
         x.perm("FindExploredMlxDevicesByIds", vec![ForgeAdminCLI]);
         x.perm("AdminForceDeleteMachine", vec![ForgeAdminCLI, Machineatron]);
+        x.perm(
+            "DecommissionManagedHost",
+            vec![ForgeAdminCLI, Machineatron, Flow],
+        );
         x.perm("AdminForceDeleteRack", vec![ForgeAdminCLI, Machineatron]);
         x.perm("AdminForceDeleteSwitch", vec![ForgeAdminCLI, Machineatron]);
+        x.perm(
+            "DecommissionSwitch",
+            vec![ForgeAdminCLI, Machineatron, Flow],
+        );
         x.perm(
             "AdminForceDeletePowerShelf",
             vec![ForgeAdminCLI, Machineatron],
@@ -536,6 +544,7 @@ impl InternalRBACRules {
         x.perm("SetDpuFirstBootOrder", vec![ForgeAdminCLI]);
         x.perm("OnDemandMachineValidation", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("OnDemandRackMaintenance", vec![ForgeAdminCLI]);
+        x.perm("TerminateRackMaintenance", vec![ForgeAdminCLI]);
         x.perm("TpmAddCaCert", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("TpmShowCaCerts", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("TpmShowUnmatchedEkCerts", vec![ForgeAdminCLI, SiteAgent]);
@@ -727,6 +736,10 @@ impl InternalRBACRules {
             vec![ForgeAdminCLI, Machineatron, Flow],
         );
         x.perm("CreatePowerShelf", vec![ForgeAdminCLI, Machineatron]);
+        x.perm(
+            "DecommissionPowerShelf",
+            vec![ForgeAdminCLI, Machineatron, Flow],
+        );
         x.perm("DeletePowerShelf", vec![ForgeAdminCLI, Machineatron]);
         x.perm(
             "AddExpectedPowerShelf",
@@ -843,6 +856,10 @@ impl InternalRBACRules {
             "FindSwitchStateHistories",
             vec![ForgeAdminCLI, Machineatron, Flow],
         );
+        x.perm(
+            "FindSwitchHealthHistories",
+            vec![ForgeAdminCLI, Machineatron, Flow],
+        );
         x.perm("FindRackIds", vec![ForgeAdminCLI, SiteAgent, Flow]);
         x.perm("FindRacksByIds", vec![ForgeAdminCLI, SiteAgent, Flow]);
         x.perm("GetRack", vec![ForgeAdminCLI, Flow]);
@@ -926,6 +943,13 @@ impl InternalRBACRules {
         x.perm("ListComponentFirmwareVersions", vec![ForgeAdminCLI, Flow]);
         x.perm("GetDPFHostSnapshot", vec![ForgeAdminCLI]);
         x.perm("GetDPFServiceVersions", vec![ForgeAdminCLI]);
+        x.perm("FindPendingDPUServiceSyncIds", vec![ForgeAdminCLI]);
+        x.perm("FindPendingDPUServiceSyncsByIds", vec![ForgeAdminCLI]);
+        x.perm("ListDPUServiceSyncHistory", vec![ForgeAdminCLI]);
+        // Operator-only: releasing a hold restarts DPU services, and for an
+        // assigned host it disrupts a tenant. No service identity should be able
+        // to ask for that on its own.
+        x.perm("ReleaseDPUServiceSyncHold", vec![ForgeAdminCLI]);
         x
     }
     fn perm(&mut self, msg: &str, principals: Vec<RulePrincipal>) {
@@ -943,8 +967,8 @@ impl InternalRBACRules {
     pub(super) fn allowed(&self, msg: &str, user_principals: &[crate::auth::Principal]) -> bool {
         if let Some(perm_info) = self.perms.get(msg) {
             if user_principals.is_empty() {
-                // No proper cert presented, but we will allow stuff that allows just Anonymous
-                return perm_info.principals.as_slice() == [Principal::Anonymous];
+                // No proper cert presented, but we allow any rule that lists Anonymous.
+                return perm_info.principals.contains(&Principal::Anonymous);
             }
             user_principals.iter().any(|user_principal| {
                 perm_info
@@ -1099,6 +1123,17 @@ mod rbac_rule_tests {
                 None,
             ))],
         ));
+    }
+
+    #[test]
+    fn anonymous_rules_allow_certless_callers() {
+        // Certless callers must be allowed when a rule lists Anonymous among other principals.
+        for method in ["GetJWKS", "GetOpenIDConfiguration"] {
+            assert!(
+                InternalRBACRules::allowed_from_static(method, &[]),
+                "{method}"
+            );
+        }
     }
 
     #[test]

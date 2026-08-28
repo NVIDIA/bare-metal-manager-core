@@ -43,6 +43,28 @@ type ManageInstance struct {
 	cfg            *config.Config
 }
 
+// resolvedVpcPrefixIDs preserves the REST cache contract: IPv4 is primary for
+// dual-stack selections, while IPv6 is primary for IPv6-only selections.
+func resolvedVpcPrefixIDs(prefixes *corev1.InstanceInterfaceResolvedVpcPrefixes) (primary, secondary *corev1.VpcPrefixId) {
+	if prefixes == nil {
+		return nil, nil
+	}
+	if prefixes.Ipv4VpcPrefixId != nil {
+		return prefixes.Ipv4VpcPrefixId, prefixes.Ipv6VpcPrefixId
+	}
+	return prefixes.Ipv6VpcPrefixId, nil
+}
+
+func getDevicelessInterfaceKey(networkResourceID string, isPhysical bool, virtualFunctionID *int) string {
+	if isPhysical {
+		return networkResourceID + "-physical"
+	}
+	if virtualFunctionID == nil {
+		return networkResourceID + "-virtual"
+	}
+	return fmt.Sprintf("%s-virtual-%d", networkResourceID, *virtualFunctionID)
+}
+
 // Activity functions
 
 // UpdateInstancesInDB is a Temporal activity that takes a collection of Instance data pushed by Site Agent and updates the DB
@@ -170,6 +192,11 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 			continue
 		}
 
+		if controllerInstance.Config == nil {
+			slogger.Warn().Msg("instance config missing from Site inventory, skipping processing")
+			continue
+		}
+
 		// Reset missing flag if necessary.
 		// If we're here, then it means we saw the instance in the
 		// inventory returned from the site.  If the instance in cloud-db
@@ -221,6 +248,11 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 			tpmEkCertificateUpdated = cwutil.GetPtr(true)
 		}
 
+		var reportedPowerProfile *string
+		if controllerInstance.Config != nil {
+			reportedPowerProfile = controllerInstance.Config.PowerProfile
+		}
+
 		// NOTE:  When adding new properties, make sure to explicitly check for changes between
 		// the DB instance and the site-reported instance here.
 		//
@@ -229,9 +261,21 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 			controllerInstanceID != nil ||
 			isUpdatePending != nil ||
 			tpmEkCertificateUpdated != nil ||
+			!util.PtrsEqual(instance.PowerProfile, reportedPowerProfile) ||
 			!instance.NetworkSecurityGroupPropagationDetails.Equal(sitePropagationStatus)
 
 		if needsUpdate {
+			if instance.PowerProfile != nil && reportedPowerProfile == nil {
+				instance, err = instanceDAO.Clear(ctx, nil, cdbm.InstanceClearInput{
+					InstanceID:   instance.ID,
+					PowerProfile: true,
+				})
+				if err != nil {
+					slogger.Error().Err(err).Msg("failed to clear PowerProfile for Instance in DB")
+					continue
+				}
+			}
+
 			// If the Instance in the DB has propagation details but the site reported no propagation details
 			// then we should clear it in the DB.  Passing along the nil to the Update call would
 			// just ignore the field.
@@ -259,6 +303,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 					IsUpdatePending:                        isUpdatePending,
 					IsMissingOnSite:                        isMissingOnSite,
 					TpmEkCertificate:                       controllerInstance.TpmEkCertificate,
+					PowerProfile:                           reportedPowerProfile,
 				},
 			})
 			if serr != nil {
@@ -369,8 +414,10 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 						}
 						interfaceMap[deviceInstanceId] = &curIfc
 					} else if ifc.VpcID == nil && ifc.VpcPrefixID != nil {
-						// FNN interface
-						interfaceMap[ifc.VpcPrefixID.String()] = &curIfc
+						// Device-less FNN interfaces may share a VPC Prefix, so include
+						// the function identity in the reconciliation key.
+						key := getDevicelessInterfaceKey(ifc.VpcPrefixID.String(), ifc.IsPhysical, ifc.VirtualFunctionID)
+						interfaceMap[key] = &curIfc
 					}
 
 					if ifc.SubnetID != nil && ifc.Status != cdbm.InterfaceStatusDeleting {
@@ -411,8 +458,15 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 							// Multi DPU interface
 							ifc, ok = interfaceMap[deviceInstanceId]
 						} else {
-							// FNN interface
-							ifc, ok = interfaceMap[networkDetails.VpcPrefixId.Value]
+							// Device-less FNN interface
+							var virtualFunctionID *int
+							if interfaceConfig.VirtualFunctionId != nil {
+								value := int(*interfaceConfig.VirtualFunctionId)
+								virtualFunctionID = &value
+							}
+							isPhysical := interfaceConfig.FunctionType == corev1.InterfaceFunctionType_PHYSICAL_FUNCTION
+							key := getDevicelessInterfaceKey(networkDetails.VpcPrefixId.Value, isPhysical, virtualFunctionID)
+							ifc, ok = interfaceMap[key]
 						}
 					case *corev1.InstanceInterfaceConfig_SegmentId:
 						ifc, ok = interfaceMap[networkDetails.SegmentId.Value]
@@ -469,33 +523,50 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 					}
 
 					// A VPC selector remains the desired intent; synchronize Core's
-					// resolved IPv4 prefix from the aligned status.
+					// resolved prefix IDs from the aligned status.
 					var vpcPrefixID *uuid.UUID
+					var secondaryVpcPrefixID *uuid.UUID
 					clearResolvedVpcPrefix := false
+					clearSecondaryVpcPrefix := false
 					if usesVpcSelection {
-						if interfaceStatus.ResolvedVpcPrefixes == nil ||
-							interfaceStatus.ResolvedVpcPrefixes.Ipv4VpcPrefixId == nil {
-							clearResolvedVpcPrefix = controllerInstance.Status.Network.ConfigsSynced == corev1.SyncState_SYNCED &&
-								ifc.VpcPrefixID != nil
+						resolvedPrefix, secondaryResolvedPrefix := resolvedVpcPrefixIDs(interfaceStatus.ResolvedVpcPrefixes)
+						if resolvedPrefix == nil {
+							if controllerInstance.Status.Network.ConfigsSynced == corev1.SyncState_SYNCED {
+								clearResolvedVpcPrefix = ifc.VpcPrefixID != nil
+								clearSecondaryVpcPrefix = ifc.SecondaryVpcPrefixID != nil
+							}
 						} else {
-							resolvedPrefixID, prefixErr := uuid.Parse(interfaceStatus.ResolvedVpcPrefixes.Ipv4VpcPrefixId.Value)
+							resolvedPrefixID, prefixErr := uuid.Parse(resolvedPrefix.Value)
 							if prefixErr != nil {
-								slogger.Error().Err(prefixErr).Str("Interface ID", ifc.ID.String()).Msg("failed to parse resolved IPv4 VPC Prefix ID")
+								slogger.Error().Err(prefixErr).Str("Interface ID", ifc.ID.String()).Msg("failed to parse resolved VPC Prefix ID")
 							} else {
 								vpcPrefixID = &resolvedPrefixID
+
+								if secondaryResolvedPrefix == nil {
+									clearSecondaryVpcPrefix = controllerInstance.Status.Network.ConfigsSynced == corev1.SyncState_SYNCED &&
+										ifc.SecondaryVpcPrefixID != nil
+								} else {
+									resolvedPrefixID, prefixErr := uuid.Parse(secondaryResolvedPrefix.Value)
+									if prefixErr != nil {
+										slogger.Error().Err(prefixErr).Str("Interface ID", ifc.ID.String()).Msg("failed to parse secondary resolved VPC Prefix ID")
+									} else {
+										secondaryVpcPrefixID = &resolvedPrefixID
+									}
+								}
 							}
 						}
 					}
 
 					clearInput := cdbm.InterfaceClearInput{InterfaceID: ifc.ID}
 					clearInput.VpcPrefixID = clearResolvedVpcPrefix
+					clearInput.SecondaryVpcPrefixID = clearSecondaryVpcPrefix
 					if ifc.RequestedIpAddress != nil && interfaceConfig.IpAddress == nil {
 						clearInput.RequestedIpAddress = true
 					}
 					if ifc.InlineRoutingProfile != nil && interfaceConfig.RoutingProfile == nil {
 						clearInput.InlineRoutingProfile = true
 					}
-					if clearInput.VpcPrefixID || clearInput.RequestedIpAddress || clearInput.InlineRoutingProfile {
+					if clearInput.VpcPrefixID || clearInput.SecondaryVpcPrefixID || clearInput.RequestedIpAddress || clearInput.InlineRoutingProfile {
 						_, serr := interfaceDAO.Clear(ctx, nil, clearInput)
 						if serr != nil {
 							slogger.Error().Err(serr).Str("Interface ID", ifc.ID.String()).Msg("failed to update Interface in DB")
@@ -511,6 +582,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 					_, updateErr := interfaceDAO.Update(ctx, nil, cdbm.InterfaceUpdateInput{
 						InterfaceID:          ifc.ID,
 						VpcPrefixID:          vpcPrefixID,
+						SecondaryVpcPrefixID: secondaryVpcPrefixID,
 						Device:               device,
 						DeviceInstance:       deviceInstance,
 						VirtualFunctionID:    vfID,

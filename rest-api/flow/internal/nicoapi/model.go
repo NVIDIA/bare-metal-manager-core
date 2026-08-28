@@ -23,17 +23,18 @@ func stringsToMachineIds(machineIds []string) (ret []*corev1.MachineId) {
 
 // MachineDetail represents detailed machine information from NICo
 type MachineDetail struct {
-	MachineID           string
-	ChassisSerial       *string
-	State               string
-	MachineType         string
-	BmcIP               string
-	BmcMac              string
-	FirmwareVersion     string
-	UpdateComplete      bool
-	HealthStatus        string
-	LastObservationTime *time.Time
-	FirmwareAutoupdate  *bool
+	MachineID               string
+	ChassisSerial           *string
+	State                   string
+	MachineType             string
+	BmcIP                   string
+	BmcMac                  string
+	FirmwareVersion         string
+	AssociatedDpuMachineIDs []string
+	UpdateComplete          bool
+	HealthStatus            string
+	LastObservationTime     *time.Time
+	FirmwareAutoupdate      *bool
 }
 
 // MachinePosition represents machine position information from NICo
@@ -44,17 +45,32 @@ type MachinePosition struct {
 	TopologyID       *int32
 }
 
+// ObservedControllerDevice is the actual-inventory identity shared by Core
+// switches and power shelves. The resource-specific runtime ID is matched to a
+// Flow component through its normalized BMC controller MAC.
+type ObservedControllerDevice struct {
+	ID     string
+	BmcMac string
+}
+
 func machineDetailFromPb(machine *corev1.Machine) MachineDetail {
+	config := machine.GetConfig()
+	status := machine.GetStatus()
 	detail := MachineDetail{
 		MachineID:      machine.Id.Id,
 		State:          machine.State,
 		MachineType:    machine.MachineType.String(),
-		UpdateComplete: machine.UpdateComplete,
+		UpdateComplete: status.GetUpdateComplete(),
+	}
+	for _, dpuID := range status.GetAssociatedDpuMachineIds() {
+		if id := dpuID.GetId(); id != "" {
+			detail.AssociatedDpuMachineIDs = append(detail.AssociatedDpuMachineIDs, id)
+		}
 	}
 
 	// Chassis serial
-	if machine.DiscoveryInfo != nil && machine.DiscoveryInfo.DmiData != nil {
-		serial := machine.DiscoveryInfo.DmiData.ChassisSerial
+	if status.GetDiscoveryInfo() != nil && status.GetDiscoveryInfo().DmiData != nil {
+		serial := status.GetDiscoveryInfo().DmiData.ChassisSerial
 		detail.ChassisSerial = &serial
 	}
 
@@ -72,8 +88,8 @@ func machineDetailFromPb(machine *corev1.Machine) MachineDetail {
 	}
 
 	// Health status - derived from alerts
-	if machine.Health != nil {
-		if len(machine.Health.Alerts) > 0 {
+	if status.GetHealth() != nil {
+		if len(status.GetHealth().Alerts) > 0 {
 			detail.HealthStatus = "unhealthy"
 		} else {
 			detail.HealthStatus = "healthy"
@@ -81,13 +97,13 @@ func machineDetailFromPb(machine *corev1.Machine) MachineDetail {
 	}
 
 	// Last observation time
-	if machine.LastObservationTime != nil {
-		t := machine.LastObservationTime.AsTime()
+	if status.GetLastObservationTime() != nil {
+		t := status.GetLastObservationTime().AsTime()
 		detail.LastObservationTime = &t
 	}
 
-	if machine.FirmwareAutoupdate != nil {
-		v := machine.GetFirmwareAutoupdate()
+	if config != nil && config.FirmwareAutoupdate != nil {
+		v := config.GetFirmwareAutoupdate()
 		detail.FirmwareAutoupdate = &v
 	}
 
@@ -384,6 +400,15 @@ type ExpectedRackDetail struct {
 	Name          string
 	Description   string
 	Labels        map[string]string
+}
+
+// NVLinkDomainMembership is one valid rack-scoped NVLink domain observation
+// from Core's actual switch inventory. Core stores the last valid observation
+// on every active switch in a rack, so a snapshot may contain duplicate rows
+// for the same domain and rack.
+type NVLinkDomainMembership struct {
+	DomainID string
+	RackID   string
 }
 
 // ExpectedMachineDetail is the canonical expected-machine representation

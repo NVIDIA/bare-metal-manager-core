@@ -368,10 +368,20 @@ func (m *Manager) FirmwareControl(
 	// UpdateComponentFirmware with an empty Components list means
 	// "update everything in the bundle", which is NOT what the caller
 	// asked for in a DPU-only request.
-	dpuOnly := hasDpu && len(info.SubTargets) > 0 && len(computeTraySubs) == 0
+	dpuOnly := firmwarecomponents.IsNICoDPUOnlySubTargets(info.SubTargets)
+	if dpuOnly && info.AccessToken != "" {
+		return fmt.Errorf(
+			"dpu-only firmware updates do not support authentication data",
+		)
+	}
 	if !dpuOnly {
 		if err := m.firmwareControlComputeTrays(
-			ctx, target, info.TargetVersion, computeTraySubs, info.OverrideReadinessCheck,
+			ctx,
+			target,
+			info.TargetVersion,
+			computeTraySubs,
+			info.AccessToken,
+			info.OverrideReadinessCheck,
 		); err != nil {
 			return err
 		}
@@ -400,6 +410,7 @@ func (m *Manager) firmwareControlComputeTrays(
 	target common.Target,
 	targetVersion string,
 	computeTraySubs []string,
+	accessToken string,
 	bypassStateController bool,
 ) error {
 	subComponents, err := firmwarecomponents.ParseNICoComputeTray(computeTraySubs)
@@ -416,6 +427,9 @@ func (m *Manager) firmwareControlComputeTrays(
 		},
 		TargetVersion:         targetVersion,
 		BypassStateController: bypassStateController,
+	}
+	if accessToken != "" {
+		req.AccessToken = &accessToken
 	}
 
 	resp, err := m.nicoClient.UpdateComponentFirmware(ctx, req)
@@ -671,10 +685,30 @@ func (m *Manager) GetDecommissionStatus(
 	result := make(map[string]string, len(target.ComponentIDs))
 	for _, id := range target.ComponentIDs {
 		if s, ok := states[id]; ok {
-			result[id] = s
+			result[id] = normalizeDecommissionState(s)
 		} else {
 			result[id] = ""
 		}
 	}
 	return result, nil
+}
+
+// normalizeDecommissionState converts Core's persisted managed-host JSON
+// into the status vocabulary used by the Flow decommission waiter.
+func normalizeDecommissionState(raw string) string {
+	var state struct {
+		State                string `json:"state"`
+		DecommissioningState struct {
+			State string `json:"state"`
+		} `json:"decommissioning_state"`
+	}
+	if err := json.Unmarshal([]byte(raw), &state); err != nil ||
+		state.State != "decommissioning" ||
+		state.DecommissioningState.State == "" {
+		return raw
+	}
+	if state.DecommissioningState.State == "decommissioned" {
+		return "Decommissioned"
+	}
+	return "Decommissioning/" + state.DecommissioningState.State
 }

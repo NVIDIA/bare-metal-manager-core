@@ -40,12 +40,12 @@ pub(crate) struct Args {
     interface_id: MachineInterfaceId,
     #[clap(
         long,
-        help = "Request a fresh machine-controller reconciliation even when this interface is already selected"
+        help = "Request a fresh machine-controller reconciliation even when this interface is already selected. Sends only force_reconcile=true; servers without force_reconcile support ignore it, while supporting servers leave any required restart to machine-controller"
     )]
     force_reconcile: bool,
     #[clap(
         long,
-        help = "Deprecated compatibility alias; use --force-reconcile with current servers"
+        help = "Deprecated compatibility option for servers without force_reconcile support. Sends reboot=true and force_reconcile=true; supporting servers treat it as reconciliation, while older servers force-restart the host after changing the target"
     )]
     reboot: bool,
 }

@@ -341,6 +341,7 @@ pub(super) async fn update_nvue(
     update_flavor: NvueUpdateFlavor<'_>,
     nc: &rpc::ManagedHostNetworkConfigResponse,
     hbn_device_names: HBNDeviceNames,
+    supplemental_config: Option<&str>,
 ) -> eyre::Result<bool> {
     let hbn_version = match update_flavor {
         NvueUpdateFlavor::StartupFile { .. } => hbn::read_version().await?,
@@ -365,8 +366,8 @@ pub(super) async fn update_nvue(
             .ok_or_else(|| eyre::eyre!("missing admin_interface"))?;
         vec![nvue::VlanConfig {
             vlan_id: admin_interface.vlan_id,
-            network: admin_interface.interface_prefix.clone(),
-            ip: admin_interface.ip.clone(),
+            network: admin_interface.interface_prefix.clone().unwrap_or_default(),
+            ip: admin_interface.ip.clone().unwrap_or_default(),
             ipv6_vlan_config: admin_interface.ipv6_interface_config.as_ref().map(|v6| {
                 nvue::Ipv6VlanConfig {
                     network: v6.interface_prefix.clone(),
@@ -379,8 +380,8 @@ pub(super) async fn update_nvue(
         for net in &nc.tenant_interfaces {
             access_vlans.push(nvue::VlanConfig {
                 vlan_id: net.vlan_id,
-                network: net.interface_prefix.clone(),
-                ip: net.ip.clone(),
+                network: net.interface_prefix.clone().unwrap_or_default(),
+                ip: net.ip.clone().unwrap_or_default(),
                 ipv6_vlan_config: net.ipv6_interface_config.as_ref().map(|v6| {
                     nvue::Ipv6VlanConfig {
                         network: v6.interface_prefix.clone(),
@@ -409,8 +410,8 @@ pub(super) async fn update_nvue(
             vec![nvue::PortConfig {
                 interface_name: physical_name,
                 is_phy: true,
-                host_ip: admin_interface.ip.clone(),
-                host_route: admin_interface.interface_prefix.clone(),
+                host_ip: admin_interface.ip.clone().unwrap_or_default(),
+                host_route: admin_interface.interface_prefix.clone().unwrap_or_default(),
                 host_ipv6: admin_interface
                     .ipv6_interface_config
                     .as_ref()
@@ -433,7 +434,7 @@ pub(super) async fn update_nvue(
                 } else {
                     None
                 },
-                gateway_cidr: admin_interface.gateway.clone(),
+                gateway_cidr: admin_interface.gateway.clone().unwrap_or_default(),
                 ipv6_port_config: admin_interface.ipv6_interface_config.as_ref().map(|v6| {
                     nvue::Ipv6PortConfig {
                         gateway_cidr: v6.interface_prefix.clone(),
@@ -480,14 +481,16 @@ pub(super) async fn update_nvue(
                 }
             };
 
-            // For dual-stack FNN, the DPU-side IPv6 address is the network address
-            // of the /127 linknet (the ::0 end). The ::1 end is the host.
+            // For stateful FNN interfaces with IPv6, the address configured on
+            // the DPU is the network address of the /127 linknet (the ::0 end).
+            // The ::1 end is the host. SLAAC instead carries the selected /64
+            // without a concrete host address.
             ifs.push(nvue::PortConfig {
                 interface_name: name,
                 is_phy: net.function_type == rpc::InterfaceFunctionType::Physical as i32,
                 vlan: net.vlan_id as u16,
-                host_ip: net.ip.clone(),
-                host_route: net.interface_prefix.clone(),
+                host_ip: net.ip.clone().unwrap_or_default(),
+                host_route: net.interface_prefix.clone().unwrap_or_default(),
                 host_ipv6: net.ipv6_interface_config.as_ref().map(|v6| v6.ip.clone()),
                 host_ipv6_route: net
                     .ipv6_interface_config
@@ -495,7 +498,7 @@ pub(super) async fn update_nvue(
                     .map(|v6| v6.interface_prefix.clone()),
                 vni: Some(net.vni), // TODO should this be nc.vni_device?
                 l3_vni: Some(net.vpc_vni),
-                gateway_cidr: net.gateway.clone(),
+                gateway_cidr: net.gateway.clone().unwrap_or_default(),
                 ipv6_port_config: net.ipv6_interface_config.as_ref().map(|v6| {
                     nvue::Ipv6PortConfig {
                         gateway_cidr: v6.interface_prefix.clone(),
@@ -652,6 +655,19 @@ pub(super) async fn update_nvue(
 
     // next_contents is a YAML-serialized NVUE config.
     let next_contents = nvue::build(conf)?;
+
+    // Merging before the write/push keeps the supplemental content part of the
+    // same atomic NVUE revision on both apply flavors. A blank file (empty or
+    // whitespace-only, hence the trim: a pre-created ConfigMap or a stray
+    // trailing newline) means "no patch" rather than failing reconciliation;
+    // a malformed one fails loudly instead of being silently dropped.
+    let next_contents = match supplemental_config.map(str::trim) {
+        Some(patch) if !patch.is_empty() => {
+            crate::supplemental_config::merge_into_nvue_yaml(&next_contents, patch)
+                .wrap_err("merging supplemental network config")?
+        }
+        _ => next_contents,
+    };
 
     match update_flavor {
         NvueUpdateFlavor::StartupFile {
@@ -1137,7 +1153,7 @@ pub(super) async fn interfaces(
             mac_address: Some(factory_mac_address.to_string()),
             addresses,
             prefixes,
-            gateways: vec![iface.gateway.clone()],
+            gateways: build_dual_stack_list(iface.gateway.clone(), None),
             network_security_group: None,
             internal_uuid: iface.internal_uuid.clone(),
         });
@@ -1224,7 +1240,7 @@ pub(super) async fn interfaces(
                 mac_address: mac,
                 addresses,
                 prefixes,
-                gateways: vec![iface.gateway.clone()],
+                gateways: build_dual_stack_list(iface.gateway.clone(), None),
                 network_security_group,
                 internal_uuid: iface.internal_uuid.clone(),
             });
@@ -1239,7 +1255,7 @@ pub(super) fn tenant_peers(network_config: &rpc::ManagedHostNetworkConfigRespons
     network_config
         .tenant_interfaces
         .iter()
-        .map(|iface| iface.ip.as_str())
+        .filter_map(|iface| iface.ip.as_deref())
         .collect()
 }
 
@@ -1676,6 +1692,8 @@ fn read_limited<P: AsRef<Path>>(path: P) -> io::Result<String> {
 // two-word randomly generated name.
 fn hostname() -> eyre::Result<Hostname> {
     let mut buf = vec![0u8; 64 + 1]; // Linux HOST_NAME_MAX is 64
+    // SAFETY: `buf` is live and exclusively writable for all `buf.len()` bytes. `u8` and
+    // `c_char` have the same size and alignment, and `gethostname` writes at most that length.
     let res = unsafe { libc::gethostname(buf.as_mut_ptr() as *mut libc::c_char, buf.len()) };
     if res != 0 {
         return Err(io::Error::last_os_error().into());
@@ -1838,7 +1856,6 @@ mod tests {
     use ::rpc::{common as rpc_common, forge as rpc};
     use carbide_network::virtualization::{VpcVirtualizationType, get_svi_ip};
     use carbide_rpc_utils::dhcp::{DhcpConfig, HostConfig};
-    use carbide_utils::none_if_empty::NoneIfEmpty;
     use eyre::WrapErr;
     use ipnetwork::IpNetwork;
 
@@ -1993,6 +2010,7 @@ mod tests {
             update_flavor,
             &network_config,
             HBNDeviceNames::hbn_23(),
+            None,
         )
         .await?;
         assert!(
@@ -2043,6 +2061,7 @@ mod tests {
             update_flavor,
             &network_config,
             HBNDeviceNames::hbn_23(),
+            None,
         )
         .await?;
         assert!(
@@ -2093,6 +2112,7 @@ mod tests {
             update_flavor,
             &network_config,
             HBNDeviceNames::hbn_23(),
+            None,
         )
         .await?;
         assert!(
@@ -2152,6 +2172,7 @@ mod tests {
             update_flavor,
             &network_config,
             HBNDeviceNames::hbn_23(),
+            None,
         )
         .await?;
         assert!(
@@ -2191,6 +2212,7 @@ mod tests {
                 update_flavor,
                 &network_config,
                 HBNDeviceNames::hbn_23(),
+                None,
             )
             .await
             .unwrap_err()
@@ -2230,6 +2252,7 @@ mod tests {
             update_flavor,
             &network_config,
             HBNDeviceNames::hbn_23(),
+            None,
         )
         .await?;
         assert!(
@@ -2284,6 +2307,7 @@ mod tests {
             update_flavor,
             &network_config,
             HBNDeviceNames::hbn_23(),
+            None,
         )
         .await?;
         assert!(
@@ -2341,6 +2365,7 @@ mod tests {
             update_flavor,
             &network_config,
             HBNDeviceNames::hbn_23(),
+            None,
         )
         .await?;
         assert!(
@@ -2407,6 +2432,7 @@ mod tests {
             update_flavor,
             &network_config,
             HBNDeviceNames::hbn_23(),
+            None,
         )
         .await?;
         assert!(
@@ -2463,6 +2489,7 @@ mod tests {
             update_flavor,
             &network_config,
             HBNDeviceNames::hbn_23(),
+            None,
         )
         .await?;
         assert!(
@@ -2509,13 +2536,13 @@ mod tests {
             vlan_id: 1,
             vni: 1001,
             vpc_vni: 1002,
-            gateway: "10.217.5.123/28".to_string(),
-            ip: "10.217.5.123".to_string(),
-            interface_prefix: admin_interface_prefix.to_string(),
+            gateway: Some("10.217.5.123/28".to_string()),
+            ip: Some("10.217.5.123".to_string()),
+            interface_prefix: Some(admin_interface_prefix.to_string()),
             vpc_prefixes: vec![],
             vpc_peer_prefixes: vec![],
             vpc_peer_vnis: vec![],
-            prefix: "10.217.5.123/28".to_string(),
+            prefix: Some("10.217.5.123/28".to_string()),
             fqdn: "myhost.forge".to_string(),
             booturl: Some("test".to_string()),
             svi_ip: None,
@@ -2556,13 +2583,13 @@ mod tests {
                 vlan_id: 196,
                 vni: 1025196,
                 vpc_vni: 1025197,
-                gateway: "10.217.5.169/29".to_string(),
-                ip: "10.217.5.170".to_string(),
-                interface_prefix: interface_prefix_1.to_string(),
+                gateway: Some("10.217.5.169/29".to_string()),
+                ip: Some("10.217.5.170".to_string()),
+                interface_prefix: Some(interface_prefix_1.to_string()),
                 vpc_prefixes: vec!["10.217.5.160/30".to_string(), "10.217.5.168/29".to_string()],
                 vpc_peer_prefixes: vec!["10.217.6.176/29".to_string()],
                 vpc_peer_vnis,
-                prefix: "10.217.5.169/29".to_string(),
+                prefix: Some("10.217.5.169/29".to_string()),
                 fqdn: "myhost.forge.1".to_string(),
                 booturl: None,
                 svi_ip: get_svi_ip(
@@ -2615,13 +2642,13 @@ mod tests {
                 vlan_id: 185,
                 vni: 1025185,
                 vpc_vni: 1025186,
-                gateway: "10.217.5.161/30".to_string(),
-                ip: "10.217.5.162".to_string(),
-                interface_prefix: interface_prefix_2.to_string(),
+                gateway: Some("10.217.5.161/30".to_string()),
+                ip: Some("10.217.5.162".to_string()),
+                interface_prefix: Some(interface_prefix_2.to_string()),
                 vpc_prefixes: vec!["10.217.5.160/30".to_string(), "10.217.5.168/29".to_string()],
                 vpc_peer_prefixes: vec!["10.217.6.176/29".to_string()],
                 vpc_peer_vnis: vec![],
-                prefix: "10.217.5.162/30".to_string(),
+                prefix: Some("10.217.5.162/30".to_string()),
                 fqdn: "myhost.forge.2".to_string(),
                 booturl: None,
                 svi_ip: get_svi_ip(
@@ -3246,13 +3273,13 @@ mod tests {
             vlan_id: 1,
             vni: 1001,
             vpc_vni: 1002,
-            gateway: "10.217.5.123".to_string(),
-            ip: "10.217.5.123".to_string(),
-            interface_prefix: admin_interface_prefix.to_string(),
+            gateway: Some("10.217.5.123".to_string()),
+            ip: Some("10.217.5.123".to_string()),
+            interface_prefix: Some(admin_interface_prefix.to_string()),
             vpc_prefixes: vec![],
             vpc_peer_prefixes: vec![],
             vpc_peer_vnis: vec![],
-            prefix: "10.217.5.123".to_string(),
+            prefix: Some("10.217.5.123".to_string()),
             fqdn: "myhost.forge".to_string(),
             booturl: Some("test".to_string()),
             svi_ip: None,
@@ -3283,13 +3310,13 @@ mod tests {
                 vlan_id: 196,
                 vni: 1025196,
                 vpc_vni: 1025197,
-                gateway: "10.217.5.169".to_string(),
-                ip: "10.217.5.170".to_string(),
-                interface_prefix: interface_prefix_1.to_string(),
+                gateway: Some("10.217.5.169".to_string()),
+                ip: Some("10.217.5.170".to_string()),
+                interface_prefix: Some(interface_prefix_1.to_string()),
                 vpc_prefixes: vec!["10.217.5.160/30".to_string(), "10.217.5.168/29".to_string()],
                 vpc_peer_prefixes: vec!["10.217.6.176/29".to_string()],
                 vpc_peer_vnis: vec![],
-                prefix: "10.217.5.169/29".to_string(),
+                prefix: Some("10.217.5.169/29".to_string()),
                 fqdn: "myhost.forge.1".to_string(),
                 booturl: None,
                 svi_ip: get_svi_ip(&Some(svi_ip), VpcVirtualizationType::Fnn, true, 24)
@@ -3311,13 +3338,13 @@ mod tests {
                 vlan_id: 185,
                 vni: 1025185,
                 vpc_vni: 1025186,
-                gateway: "10.217.5.161".to_string(),
-                ip: "10.217.5.162".to_string(),
-                interface_prefix: interface_prefix_2.to_string(),
+                gateway: Some("10.217.5.161".to_string()),
+                ip: Some("10.217.5.162".to_string()),
+                interface_prefix: Some(interface_prefix_2.to_string()),
                 vpc_prefixes: vec!["10.217.5.160/30".to_string(), "10.217.5.168/29".to_string()],
                 vpc_peer_prefixes: vec!["10.217.6.176/29".to_string()],
                 vpc_peer_vnis: vec![],
-                prefix: "10.217.5.162/30".to_string(),
+                prefix: Some("10.217.5.162/30".to_string()),
                 fqdn: "myhost.forge.2".to_string(),
                 booturl: None,
                 svi_ip: get_svi_ip(&Some(svi_ip), VpcVirtualizationType::Fnn, false, 24)
@@ -3716,36 +3743,72 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_dual_stack_addresses_building() {
-        // Verify the iterator-based pattern used to build dual-stack address/prefix vectors.
-        let ip = "10.0.0.1".to_string();
-        let ip6 = Some("2001:db8::1".to_string());
-        let interface_prefix = "10.0.0.0/31".to_string();
-        let interface_prefix_v6 = Some("2001:db8::/127".to_string());
+    #[tokio::test]
+    #[allow(deprecated)]
+    async fn ipv6_status_preserves_slaac_prefix_without_host_address() {
+        for (
+            scenario,
+            use_admin_network,
+            ip,
+            interface_prefix,
+            expected_addresses,
+            expected_prefixes,
+        ) in [
+            (
+                "tenant interface with a concrete IPv6 host address",
+                false,
+                "2001:db8::1",
+                "2001:db8::/127",
+                vec!["2001:db8::1"],
+                vec!["2001:db8::/127"],
+            ),
+            (
+                "tenant SLAAC prefix without a host address",
+                false,
+                "",
+                "2001:db8::/64",
+                vec![],
+                vec!["2001:db8::/64"],
+            ),
+            (
+                "admin SLAAC prefix without a host address",
+                true,
+                "",
+                "2001:db8::/64",
+                vec![],
+                vec!["2001:db8::/64"],
+            ),
+        ] {
+            let iface = rpc::FlatInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::Physical.into(),
+                vlan_id: 100,
+                ipv6_interface_config: Some(rpc::FlatInterfaceIpv6Config {
+                    ip: ip.to_string(),
+                    interface_prefix: interface_prefix.to_string(),
+                    svi_ip: None,
+                }),
+                ..Default::default()
+            };
+            let network_config = rpc::ManagedHostNetworkConfigResponse {
+                use_admin_network,
+                admin_interface: use_admin_network.then_some(iface.clone()),
+                tenant_interfaces: (!use_admin_network)
+                    .then_some(vec![iface])
+                    .unwrap_or_default(),
+                ..Default::default()
+            };
 
-        let addresses: Vec<String> = std::iter::once(ip.clone())
-            .chain(ip6.none_if_empty())
-            .collect();
-        assert_eq!(addresses, vec!["10.0.0.1", "2001:db8::1"]);
+            assert!(tenant_peers(&network_config).is_empty(), "{scenario}");
 
-        let prefixes: Vec<String> = std::iter::once(interface_prefix)
-            .chain(interface_prefix_v6.none_if_empty())
-            .collect();
-        assert_eq!(prefixes, vec!["10.0.0.0/31", "2001:db8::/127"]);
+            let observations =
+                interfaces(&network_config, "02:00:00:00:00:01".parse().unwrap(), None)
+                    .await
+                    .unwrap();
 
-        // Verify empty ip6 is not included.
-        let empty_ip6: Option<String> = Some("".to_string());
-        let addresses2: Vec<String> = std::iter::once(ip)
-            .chain(empty_ip6.none_if_empty())
-            .collect();
-        assert_eq!(addresses2, vec!["10.0.0.1"]);
-
-        // Verify None ip6 is not included.
-        let none_ip6: Option<String> = None;
-        let addresses3: Vec<String> = std::iter::once("10.0.0.1".to_string())
-            .chain(none_ip6.none_if_empty())
-            .collect();
-        assert_eq!(addresses3, vec!["10.0.0.1"]);
+            assert_eq!(observations.len(), 1, "{scenario}");
+            assert_eq!(observations[0].addresses, expected_addresses, "{scenario}");
+            assert_eq!(observations[0].prefixes, expected_prefixes, "{scenario}");
+            assert!(observations[0].gateways.is_empty(), "{scenario}");
+        }
     }
 }

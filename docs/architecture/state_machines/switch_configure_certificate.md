@@ -54,7 +54,9 @@ component manager while polling) transitions to `Error`.
 Job status values use `ConfigureSwitchCertificateState`: `Started`,
 `InProgress`, `Completed`, `Failed`.
 
-## Domain name (`domain_name`) and mTLS services
+## Domain name (`domain_name`) and mTLS service selection
+
+### Switch state controller
 
 The switch state handler passes:
 
@@ -63,7 +65,40 @@ The switch state handler passes:
   when deciding whether certificate configuration can run.
 - `services` from `SwitchStateHandlerServices.switch_mtls_services`, sourced
   from `[switch_state_controller].switch_mtls_services` in site config. When
-  omitted or empty, all supported switch mTLS services are used.
+  omitted or empty, all four service values are used.
+
+### Direct ComponentConfigureSwitchCertificate RPC
+
+`ComponentConfigureSwitchCertificate` uses the same
+`[switch_state_controller].switch_mtls_services` setting when the RPC runs
+directly because switch state-controller routing is disabled or
+`bypass_state_controller` is `true`. The direct path forwards the request's
+`domain_name` to Component Manager.
+
+When switch state-controller routing is enabled and
+`bypass_state_controller` is `false`, the RPC queues a
+`ReconfigureCertificate` maintenance operation. The switch state handler then
+uses the state-controller behavior described above.
+
+### Service list configuration
+
+`[switch_state_controller].switch_mtls_services` controls certificate bindings
+for both switch state-controller and direct RPC operations. A non-empty list
+replaces the default. Omission or an empty list uses all four values below.
+
+`[rack_state_controller].nmx_cluster_switch_mtls_services` is deprecated. The
+field is accepted and ignored because rack maintenance does not configure
+switch certificates.
+
+| Service value | RMS service description |
+|---------------|-------------------------|
+| `nvue_api` | NVUE REST API service |
+| `scale_up_fabric_telemetry` | Scale-up fabric telemetry service |
+| `scale_up_fabric_manager` | Scale-up fabric manager service |
+| `scale_up_fabric_telemetry_interface` | Scale-up fabric telemetry interface service |
+
+Service selection requests certificate bindings; it does not enable the
+underlying service. The target switch build must support each selected binding.
 
 | Condition | Behavior |
 |-----------|----------|
@@ -77,9 +112,7 @@ The switch state handler passes:
 | RMS job status is `Failed` | Transition to `Error` with the job error message. |
 | Component manager not configured while polling | Transition to `Error` (no job ID to resume). |
 
-Rack NMX cluster maintenance uses a separate service list:
-`[rack_state_controller].nmx_cluster_switch_mtls_services` (defaults to
-ScaleUpFabric manager and telemetry interface services). See
+Rack NMX cluster maintenance is documented in
 [Rack State Machine](rackstatemachine.md).
 
 ## Component Manager API
@@ -279,7 +312,6 @@ single-switch, single-job certificate operation.
 | Shared certificate logic | `crates/switch-controller/src/certificate.rs` |
 | Bring-up handler | `crates/switch-controller/src/configuring.rs` |
 | Maintenance handler | `crates/switch-controller/src/maintenance.rs` |
-| Rack NMX cluster certificates | `crates/rack-controller/src/nmx_certificate.rs` |
 | CM facade | `crates/component-manager/src/component_manager.rs` |
 | CM trait | `crates/component-manager/src/nv_switch_manager.rs` |
 | RMS backend | `crates/component-manager/src/rms.rs` |

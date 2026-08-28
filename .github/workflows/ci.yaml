@@ -41,10 +41,17 @@ env:
   GIT_SUBMODULE_STRATEGY: recursive
 
 
+# Runner sizes are chosen from measured job durations on a full main run:
+# `cpu4` under `2m`, `cpu8` `2m`-`10m`, `cpu16` `10m`-`20m`, `cpu32` over `20m`.
+#
+# One label per job on purpose. A label already schedules onto any free runner in
+# its scale set, and `runs-on` intersects several labels rather than unioning
+# them, so listing two sizes would demand a runner carrying both and match
+# nothing. Moving a job between sizes is a one-line edit here.
 jobs:
   changes:
     name: Detect Core CI Gate
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu4
     outputs:
       run_core_ci: ${{ steps.gate.outputs.run_core_ci }}
       non_rest_changed: ${{ steps.non-rest-changes.outputs.non_rest }}
@@ -743,7 +750,7 @@ jobs:
       image_tag: ${{ needs.prepare.outputs.version }}
       additional_tags: ${{ needs.prepare.outputs.image_registry }}/nvmetal-carbide:${{ needs.prepare.outputs.major_minor_version }}-latest
       platforms: linux/amd64
-      runner: linux-amd64-cpu16
+      runner: linux-amd64-cpu32
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: true
       scan: true
@@ -779,7 +786,7 @@ jobs:
       image_tag: ${{ needs.prepare.outputs.version }}
       additional_tags: ${{ needs.prepare.outputs.image_registry }}/nvmetal-carbide-aarch64:${{ needs.prepare.outputs.major_minor_version }}-latest
       platforms: linux/arm64
-      runner: linux-arm64-cpu16
+      runner: linux-arm64-cpu32
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: false
       tag_latest: false
@@ -909,7 +916,7 @@ jobs:
       - prepare
       - build-container-x86_64
       - build-runtime-container-x86_64
-    runs-on: linux-amd64-cpu16
+    runs-on: linux-amd64-cpu32
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -979,6 +986,9 @@ jobs:
               # when the tests fail.
               trap "chown -R ${HOST_OWNER} /sccache 2>/dev/null || true" EXIT
               git config --global --add safe.directory /carbide
+              # max_connections is startup-only; the default of 100 is too low
+              # when Cargo runs several SQLx-backed test binaries concurrently.
+              printf "max_connections = 1000\n" | tee -a /etc/postgresql/*/main/postgresql.conf
               /etc/init.d/postgresql start
               sudo -u postgres psql -c "ALTER USER root WITH SUPERUSER;"
               createdb root
@@ -1029,7 +1039,7 @@ jobs:
       additional_tags: ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-x86_64:${{ needs.prepare.outputs.major_minor_version }}-latest
       build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_BUILD":"${{ needs.prepare.outputs.build_artifacts_container_x86_64_ref }}"}'
       platforms: linux/amd64
-      runner: linux-amd64-cpu4
+      runner: linux-amd64-cpu8
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: true
       scan: true
@@ -1053,7 +1063,7 @@ jobs:
       additional_tags: ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-aarch64:${{ needs.prepare.outputs.major_minor_version }}-latest
       build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_BUILD":"${{ needs.prepare.outputs.build_artifacts_container_aarch64_ref }}"}'
       platforms: linux/arm64
-      runner: linux-arm64-cpu4
+      runner: linux-arm64-cpu8
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: true
     secrets: inherit
@@ -1119,7 +1129,7 @@ jobs:
       build_type: boot
       cargo_make_task: build-boot-artifacts-x86-host-ci
       build_container: ${{ needs.prepare.outputs.build_artifacts_container_x86_64_ref }}
-      runner: linux-amd64-cpu4
+      runner: linux-amd64-cpu8
       version: ${{ needs.prepare.outputs.version }}
       use_container: true
       inject_extras: true
@@ -1166,7 +1176,7 @@ jobs:
       build_type: package
       cargo_make_task: package-scout-aarch64-ci
       build_container: ${{ needs.prepare.outputs.build_artifacts_container_aarch64_ref }}
-      runner: linux-arm64-cpu16
+      runner: linux-arm64-cpu8
       version: ${{ needs.prepare.outputs.version }}
       use_container: true
       # Not for injection (`inject_extras` stays false, so the extras are
@@ -1197,7 +1207,7 @@ jobs:
       build_type: ephemeral
       cargo_make_task: create-ephemeral-image-x86-host-ci
       version: ${{ needs.prepare.outputs.version }}
-      runner: linux-amd64-cpu8
+      runner: linux-amd64-cpu16
       use_container: false
       sa_enablement: true
       inject_extras: true
@@ -1261,7 +1271,7 @@ jobs:
       # steps (FROM alpine + COPY only), so no QEMU is needed. Single-arch on PR
       # so the image can load to the daemon.
       platforms: ${{ needs.prepare.outputs.publish_images == 'true' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
-      runner: linux-amd64-cpu4
+      runner: linux-amd64-cpu8
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: true
       scan: true
@@ -1301,7 +1311,7 @@ jobs:
       # Dockerfile has no RUN steps (FROM alpine + COPY only), so no QEMU is
       # needed. Single-arch on PR so the image can load to the daemon.
       platforms: ${{ needs.prepare.outputs.publish_images == 'true' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
-      runner: linux-amd64-cpu4
+      runner: linux-amd64-cpu16
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: true
       scan: true
@@ -1529,7 +1539,7 @@ jobs:
     needs:
       - changes
     if: ${{ contains(github.ref, 'pull-request/') }}
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu4
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -1548,7 +1558,7 @@ jobs:
     needs:
       - changes
     if: ${{ needs.changes.outputs.run_core_ci == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu4
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -1605,55 +1615,31 @@ jobs:
           "make sync-protobuf (from the repository root)"
 
   lint-police:
-    # Merge validation uses the PR API to resolve `.base.ref`, then fetches
-    # that branch before creating the local merge result. It never edits the PR.
-    permissions:
-      contents: read
-      pull-requests: read
     needs:
       - prepare
       - build-container-x86_64
     if: ${{ !failure() && !cancelled() && needs.prepare.outputs.source_files_changed == 'true' && contains(github.ref, 'pull-request/') }}
-    runs-on: linux-amd64-cpu16
+    runs-on: linux-amd64-cpu32
     container:
       image: ${{ needs.prepare.outputs.lint_container_ref }}
       credentials:
         username: ${{ secrets.NICO_SOURCE_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
         password: ${{ secrets.NICO_SOURCE_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
     steps:
+      # The PR mirror's `github.sha` is the submitted head commit. Keep lint on
+      # the same revision as the other PR checks and builds. Validation of the
+      # exact queued revision is tracked at:
+      # https://github.com/NVIDIA/infra-controller/issues/4587
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          ref: ${{ github.sha }}
           persist-credentials: false
 
-      - name: Build pull request merge result
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          set -o pipefail
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          PR_NUMBER="${GITHUB_REF_NAME##pull-request/}"
-          if ! TARGET="$(
-            curl -sf \
-              -H "Authorization: Bearer $GITHUB_TOKEN" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
-              | jq -r '.base.ref'
-          )"; then
-            echo "Could not query the base ref for PR ${PR_NUMBER}." >&2
-            echo "Confirm the lint-police job still declares 'pull-requests: read'." >&2
-            exit 1
-          fi
-          if [[ -z "${TARGET}" || "${TARGET}" == "null" ]]; then
-            echo "Could not resolve the base ref for PR ${PR_NUMBER}." >&2
-            exit 1
-          fi
-          git fetch --no-tags origin "${TARGET}:refs/remotes/origin/${TARGET}"
-          git -c user.name="CI merge validation" \
-            -c user.email=ci@example.invalid \
-            merge --no-commit --no-ff "origin/${TARGET}"
+      # Checkout scopes its safe-directory entry to a temporary HOME. The
+      # remaining steps run as root against the runner-owned bind mount.
+      - name: Trust the workspace in this container
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Validate Cargo metadata
         run: cargo metadata --locked --no-deps --format-version 1 >/dev/null
@@ -2250,7 +2236,7 @@ jobs:
   # Branch protection should require only this gate and `rest-ci-pass`.
   core-ci-pass:
     name: core-ci-pass
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu4
     if: always()
     needs:
       # Detection and preparation

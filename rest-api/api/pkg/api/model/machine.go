@@ -631,7 +631,7 @@ func NewAPIMachine(dbm *cdbm.Machine, dbmcs []cdbm.MachineCapability, dbmis []cd
 				apim.ScoutVersion = machine.LastScoutObservedVersion
 			}
 		}
-		for _, dpuID := range dbm.Metadata.GetAssociatedDpuMachineIds() {
+		for _, dpuID := range dbm.Metadata.GetStatus().GetAssociatedDpuMachineIds() {
 			if id := dpuID.GetId(); id != "" {
 				apim.AssociatedDpuMachineIds = append(apim.AssociatedDpuMachineIds, id)
 			}
@@ -651,23 +651,24 @@ func NewAPIMachine(dbm *cdbm.Machine, dbmcs []cdbm.MachineCapability, dbmis []cd
 
 		// Get the Machine json body
 		machine := dbm.Metadata
+		discoveryInfo := machine.GetStatus().GetDiscoveryInfo()
 		// BMCInfo
 		if machine.BmcInfo != nil {
 			apim.Metadata.BMCInfo = &APIBMCInfo{}
 			apim.Metadata.BMCInfo.FromProto(machine.BmcInfo)
 		}
 
-		if machine.DiscoveryInfo != nil {
+		if discoveryInfo != nil {
 			// DMIData
-			if machine.DiscoveryInfo.DmiData != nil {
+			if discoveryInfo.DmiData != nil {
 				apim.Metadata.DMIData = &APIDMIData{}
-				apim.Metadata.DMIData.FromProto(machine.DiscoveryInfo.DmiData)
+				apim.Metadata.DMIData.FromProto(discoveryInfo.DmiData)
 			}
 
 			// GPUInfo
-			if len(machine.DiscoveryInfo.Gpus) > 0 {
+			if len(discoveryInfo.Gpus) > 0 {
 				apim.Metadata.GPUs = []APIMachineGPUInfo{}
-				for _, gpuInfo := range machine.DiscoveryInfo.Gpus {
+				for _, gpuInfo := range discoveryInfo.Gpus {
 					lgpuInfo := APIMachineGPUInfo{}
 					lgpuInfo.FromProto(gpuInfo)
 					apim.Metadata.GPUs = append(apim.Metadata.GPUs, lgpuInfo)
@@ -675,9 +676,9 @@ func NewAPIMachine(dbm *cdbm.Machine, dbmcs []cdbm.MachineCapability, dbmis []cd
 			}
 
 			// Machine Network Interface Info
-			if len(machine.DiscoveryInfo.NetworkInterfaces) > 0 {
+			if len(discoveryInfo.NetworkInterfaces) > 0 {
 				apim.Metadata.NetworkInterfaces = []APIMachineNetworkInterface{}
-				for _, nwiInfo := range machine.DiscoveryInfo.NetworkInterfaces {
+				for _, nwiInfo := range discoveryInfo.NetworkInterfaces {
 					lnwiInfo := APIMachineNetworkInterface{}
 					lnwiInfo.FromProto(nwiInfo)
 					apim.Metadata.NetworkInterfaces = append(apim.Metadata.NetworkInterfaces, lnwiInfo)
@@ -685,9 +686,9 @@ func NewAPIMachine(dbm *cdbm.Machine, dbmcs []cdbm.MachineCapability, dbmis []cd
 			}
 
 			// Machine InfiniBand Interface Info
-			if len(machine.DiscoveryInfo.InfinibandInterfaces) > 0 {
+			if len(discoveryInfo.InfinibandInterfaces) > 0 {
 				apim.Metadata.InfiniBandInterfaces = []APIMachineInfiniBandInterface{}
-				for _, ibiInfo := range machine.DiscoveryInfo.InfinibandInterfaces {
+				for _, ibiInfo := range discoveryInfo.InfinibandInterfaces {
 					libiInfo := APIMachineInfiniBandInterface{}
 					libiInfo.FromProto(ibiInfo)
 					apim.Metadata.InfiniBandInterfaces = append(apim.Metadata.InfiniBandInterfaces, libiInfo)
@@ -785,8 +786,10 @@ type APIMachineStats struct {
 	InUse int `json:"inUse"`
 	// Error is the total number of error machine object in NICo Cloud
 	Error int `json:"error"`
-	// Decommissioned is the total number of error decommissioned object in NICo Cloud
+	// Decommissioned is the total number of decommissioned machine objects in NICo Cloud
 	Decommissioned int `json:"decommissioned"`
+	// Decommissioning is the total number of machines currently being decommissioned
+	Decommissioning int `json:"decommissioning"`
 	// Maintenance is the total number of machines in Maintenance
 	Maintenance int `json:"maintenance"`
 	// Unknown is the total number of unknown machine object in NICo Cloud

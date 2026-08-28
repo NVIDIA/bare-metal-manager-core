@@ -14,6 +14,7 @@ import (
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/converter/protobuf"
 	dbquery "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/query"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/firmwareauth"
 	operationrun "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun"
 	operationrunmanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun/manager"
 	pb "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/proto/v1"
@@ -23,7 +24,20 @@ func (rs *FlowServerImpl) CreateOperationRun(
 	ctx context.Context,
 	req *pb.CreateOperationRunRequest,
 ) (*pb.CreateOperationRunResponse, error) {
-	run, err := protobuf.OperationRunFrom(req)
+	upgrade := req.GetConfiguration().GetOperation().GetUpgradeFirmware()
+	authenticationData, err := firmwareauth.Encrypt(
+		rs.dataCipher,
+		upgrade.GetAuthenticationData(),
+		upgrade.GetSubTargets(),
+	)
+	if err != nil {
+		return nil, firmwareAuthenticationStatusError(err)
+	}
+
+	run, err := protobuf.OperationRunFromWithFirmwareAuthentication(
+		req,
+		authenticationData,
+	)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -65,6 +79,8 @@ func operationRunStatusError(
 	} else if errors.Is(err, operationrunmanager.ErrOperationRunNotFound) {
 		c = codes.NotFound
 	} else if errors.Is(err, operationrunmanager.ErrNoPlannedTargets) {
+		c = codes.InvalidArgument
+	} else if errors.Is(err, operationrunmanager.ErrOperationRunInvalidPlan) {
 		c = codes.InvalidArgument
 	} else if errors.Is(err, operationrunmanager.ErrOperationRunInvalidState) ||
 		errors.Is(err, operationrunmanager.ErrOperationRunSafetyGateTripped) {

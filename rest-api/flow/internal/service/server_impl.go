@@ -23,11 +23,13 @@ import (
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/converter/protobuf"
 	dbquery "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/query"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/firmwareauth"
 	inventorymanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/manager"
-
+	inventoryresolver "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/resolver"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
 	operationrunmanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun/manager"
 	taskschedule "github.com/NVIDIA/infra-controller/rest-api/flow/internal/scheduler/taskschedule"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/secret"
 	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/conflict"
 	taskmanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/manager"
@@ -53,7 +55,8 @@ type FlowServerImpl struct {
 	taskScheduleDispatcher     *taskschedule.Dispatcher    // Background poller that fires due task schedules
 	operationRunManager        operationrunmanager.Manager // Operation-run manager for run planning and persistence
 	conflictResolver           *conflict.Resolver          // Reused for inter-schedule conflict detection
-	pb.UnimplementedFlowServer                             // Embedded protobuf server interface for forward compatibility
+	dataCipher                 *secret.Cipher
+	pb.UnimplementedFlowServer // Embedded protobuf server interface for forward compatibility
 }
 
 // newServerImplementation creates a new Flow gRPC server implementation.
@@ -75,6 +78,7 @@ func newServerImplementation(
 	taskScheduleStore taskschedule.Store,
 	taskScheduleDispatcher *taskschedule.Dispatcher,
 	operationRunManager operationrunmanager.Manager,
+	dataCipher *secret.Cipher,
 ) (*FlowServerImpl, error) {
 	return &FlowServerImpl{
 		inventoryManager:       inventoryManager,
@@ -83,6 +87,7 @@ func newServerImplementation(
 		taskScheduleStore:      taskScheduleStore,
 		taskScheduleDispatcher: taskScheduleDispatcher,
 		operationRunManager:    operationRunManager,
+		dataCipher:             dataCipher,
 		conflictResolver:       conflict.NewResolver(taskStore),
 	}, nil
 }
@@ -140,8 +145,15 @@ func (rs *FlowServerImpl) GetRackInfoByID(
 		protobuf.UUIDFrom(req.GetId()),
 		req.GetWithComponents(),
 	)
+	if err != nil {
+		return nil, err
+	}
 
-	return &pb.GetRackInfoResponse{Rack: protobuf.RackTo(r)}, err
+	result := protobuf.RackTo(r)
+	if err := rs.populateTaskStats(ctx, []*pb.Rack{result}, nil); err != nil {
+		return nil, err
+	}
+	return &pb.GetRackInfoResponse{Rack: result}, nil
 }
 
 // GetRackInfoBySerial retrieves rack information by its manufacturer and serial number.
@@ -165,8 +177,15 @@ func (rs *FlowServerImpl) GetRackInfoBySerial(
 		req.GetSerialInfo().GetSerialNumber(),
 		req.GetWithComponents(),
 	)
+	if err != nil {
+		return nil, err
+	}
 
-	return &pb.GetRackInfoResponse{Rack: protobuf.RackTo(r)}, err
+	result := protobuf.RackTo(r)
+	if err := rs.populateTaskStats(ctx, []*pb.Rack{result}, nil); err != nil {
+		return nil, err
+	}
+	return &pb.GetRackInfoResponse{Rack: result}, nil
 }
 
 // PatchRack updates an existing rack configuration with new information.
@@ -410,8 +429,12 @@ func (rs *FlowServerImpl) GetComponentInfoByID(
 		}
 	}
 
+	result := protobuf.ComponentTo(c)
+	if err := rs.populateTaskStats(ctx, nil, []*pb.Component{result}); err != nil {
+		return nil, err
+	}
 	return &pb.GetComponentInfoResponse{
-		Component: protobuf.ComponentTo(c),
+		Component: result,
 		Rack:      protobuf.RackTo(r),
 	}, nil
 }
@@ -454,8 +477,12 @@ func (rs *FlowServerImpl) GetComponentInfoBySerial(
 		}
 	}
 
+	result := protobuf.ComponentTo(c)
+	if err := rs.populateTaskStats(ctx, nil, []*pb.Component{result}); err != nil {
+		return nil, err
+	}
 	return &pb.GetComponentInfoResponse{
-		Component: protobuf.ComponentTo(c),
+		Component: result,
 		Rack:      protobuf.RackTo(r),
 	}, nil
 }
@@ -522,16 +549,22 @@ func (rs *FlowServerImpl) GetListOfRacks(
 		orderBy,
 		req.GetWithComponents(),
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	results := make([]*pb.Rack, 0, len(racks))
 	for _, r := range racks {
 		results = append(results, protobuf.RackTo(r))
 	}
+	if err := rs.populateTaskStats(ctx, results, nil); err != nil {
+		return nil, err
+	}
 
 	return &pb.GetListOfRacksResponse{
 		Racks: results,
 		Total: total,
-	}, err
+	}, nil
 }
 
 func (rs *FlowServerImpl) CreateNVLDomain(
@@ -833,6 +866,12 @@ func (rs *FlowServerImpl) decommissionRackImpl(
 	if targetSpec == nil {
 		return nil, errors.New(
 			"target_spec is required",
+		)
+	}
+	if targetSpec.GetComponents() != nil {
+		return nil, status.Error(
+			codes.InvalidArgument,
+			"decommission requires rack targets; component targets are not supported",
 		)
 	}
 
@@ -1332,6 +1371,10 @@ func (rs *FlowServerImpl) UpgradeFirmware(
 		SubTargets:             req.GetSubTargets(),
 		OverrideReadinessCheck: req.GetOverrideReadinessCheck(),
 	}
+	err := rs.encryptFirmwareAuthenticationData(info, req.GetAuthenticationData())
+	if err != nil {
+		return nil, firmwareAuthenticationStatusError(err)
+	}
 
 	// Parse optional time parameters for scheduled upgrade
 	if req.GetStartTime() != nil {
@@ -1365,8 +1408,36 @@ func (rs *FlowServerImpl) UpgradeFirmware(
 	return &pb.SubmitTaskResponse{TaskIds: protobuf.UUIDsTo(taskIDs)}, nil
 }
 
+func (rs *FlowServerImpl) encryptFirmwareAuthenticationData(
+	info *operations.FirmwareControlTaskInfo,
+	authenticationData *pb.FirmwareAuthenticationData,
+) error {
+	encrypted, err := firmwareauth.Encrypt(
+		rs.dataCipher,
+		authenticationData,
+		info.SubTargets,
+	)
+	if err != nil {
+		return err
+	}
+
+	info.AuthenticationData = encrypted
+	return nil
+}
+
+func firmwareAuthenticationStatusError(err error) error {
+	if firmwareauth.IsInvalidData(err) {
+		return status.Error(codes.InvalidArgument, err.Error())
+	}
+	if errors.Is(err, firmwareauth.ErrDataCipherNotConfigured) {
+		return status.Error(codes.FailedPrecondition, err.Error())
+	}
+
+	return status.Error(codes.Internal, err.Error())
+}
+
 // GetComponents retrieves components from local database with filtering, pagination, and ordering support.
-// If target_spec is provided, it extracts components from the specified racks or components first,
+// If target_spec is provided, it extracts components from the specified racks, NVLink domains, or components first,
 // then applies additional filters (name, manufacturer, model, component_types), pagination, and ordering.
 // If target_spec is not provided, it queries all components matching the filters.
 func (rs *FlowServerImpl) GetComponents(
@@ -1443,7 +1514,7 @@ func (rs *FlowServerImpl) GetComponents(
 
 	// If target_spec is provided, extract components from it first, then apply filters
 	if req.GetTargetSpec() != nil {
-		// Extract components from target_spec (racks or components)
+		// Extract components from target_spec.
 		targetComponents, err := rs.extractComponentsFromTargetSpec(ctx, req.GetTargetSpec())
 		if err != nil {
 			return nil, fmt.Errorf("failed to extract components from target_spec: %w", err)
@@ -1496,6 +1567,9 @@ func (rs *FlowServerImpl) GetComponents(
 	results := make([]*pb.Component, 0, len(components))
 	for _, c := range components {
 		results = append(results, protobuf.ComponentTo(c))
+	}
+	if err := rs.populateTaskStats(ctx, nil, results); err != nil {
+		return nil, err
 	}
 
 	return &pb.GetComponentsResponse{
@@ -1899,7 +1973,7 @@ func extractComponentsByTypes(r *rack.Rack, compTypes []devicetypes.ComponentTyp
 
 // extractComponentsFromTargetSpec parses and validates targetSpec via
 // protobuf.TargetSpecFrom (the same converter used by the submission path),
-// then resolves each rack or component target against the inventory.
+// then resolves each rack, NVLink domain, or component target against the inventory.
 // Validation errors (malformed UUIDs, empty names, unknown types) are
 // surfaced identically to the submission path rather than deferring to an
 // inventory-lookup failure.
@@ -1922,6 +1996,22 @@ func (rs *FlowServerImpl) extractComponentsFromTargetSpec(
 		components = append(components, resolved...)
 	}
 
+	domainRackTargets, err := inventoryresolver.ResolveNVLDomainRackTargets(
+		ctx,
+		rs.inventoryManager,
+		spec.NVLDomains,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve NVLink domain targets: %w", err)
+	}
+	for _, rackTarget := range domainRackTargets {
+		resolved, err := rs.resolveRackTarget(ctx, rackTarget)
+		if err != nil {
+			return nil, err
+		}
+		components = append(components, resolved...)
+	}
+
 	for _, ct := range spec.Components {
 		resolved, err := rs.fetchComponentTarget(ctx, ct)
 		if err != nil {
@@ -1930,7 +2020,18 @@ func (rs *FlowServerImpl) extractComponentsFromTargetSpec(
 		components = append(components, resolved...)
 	}
 
-	return components, nil
+	uniqueComponents := make([]*component.Component, 0, len(components))
+	seenComponentIDs := make(map[uuid.UUID]struct{}, len(components))
+	for _, comp := range components {
+		_, exists := seenComponentIDs[comp.Info.ID]
+		if exists {
+			continue
+		}
+		seenComponentIDs[comp.Info.ID] = struct{}{}
+		uniqueComponents = append(uniqueComponents, comp)
+	}
+
+	return uniqueComponents, nil
 }
 
 // resolveRackTarget fetches the rack from inventory and returns its components,

@@ -30,6 +30,8 @@ type FirmwareUpdateRequest struct {
 	Version NullableString `json:"version,omitempty"`
 	// Optional subset of firmware targets to update within the targeted tray. Names are lowercase and select sub-parts of the tray (BMC, BIOS, etc.). The accepted set per tray type comes from the Flow service's NICo proto bindings (which mirror Core's per-tray-type enums in `NICo-core/crates/rpc/proto/forge.proto`), so the supported values track Core as new sub-parts are added:   - switch trays (NvSwitchComponent): currently bmc, cpld, bios, nvos   - powershelf trays (PowerShelfComponent): currently pmc, psu   - compute trays (ComputeTrayComponent): currently bmc, bios     (currently NOT honored end-to-end: the NICo compute-firmware     path goes through SetFirmwareUpdateTimeWindow + auto-update,     which has no per-target selection; the request is logged     and the whole bundle is applied. Will be honored once     compute moves to UpdateComponentFirmware.) Omitted or empty means \"update everything in the bundle\" (the historical default) for compute-tray-internal targets. Unknown names are rejected. Requires `version` to be set. The special target `dpu`, valid only on compute trays, requests DPU reprovisioning on the matched host. Unlike the other targets, `dpu` is NOT covered by the \"omitted/empty means everything\" default — it must be listed explicitly. `version` is ignored on the `dpu` branch; the target firmware version comes from site configuration.
 	Targets []string `json:"targets,omitempty"`
+	// Optional, write-only authentication data for firmware downloads. Not supported for DPU-only updates or by the legacy NICo compute firmware controller.
+	AuthenticationData NullableFirmwareAuthenticationData `json:"authenticationData,omitempty"`
 	// Optional Operation Rule UUID. When set, pins this firmware update to the named rule and overrides Flow's default rule resolution.
 	RuleId *string `json:"ruleId,omitempty"`
 	// When true, proceed even if one or more target components (or hosts on the owning rack for rack-scoped components) are reported as not ready by their persisted status. Intended for operator-supervised maintenance.
@@ -159,6 +161,49 @@ func (o *FirmwareUpdateRequest) SetTargets(v []string) {
 	o.Targets = v
 }
 
+// GetAuthenticationData returns the AuthenticationData field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *FirmwareUpdateRequest) GetAuthenticationData() FirmwareAuthenticationData {
+	if o == nil || IsNil(o.AuthenticationData.Get()) {
+		var ret FirmwareAuthenticationData
+		return ret
+	}
+	return *o.AuthenticationData.Get()
+}
+
+// GetAuthenticationDataOk returns a tuple with the AuthenticationData field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+func (o *FirmwareUpdateRequest) GetAuthenticationDataOk() (*FirmwareAuthenticationData, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.AuthenticationData.Get(), o.AuthenticationData.IsSet()
+}
+
+// HasAuthenticationData returns a boolean if a field has been set.
+func (o *FirmwareUpdateRequest) HasAuthenticationData() bool {
+	if o != nil && o.AuthenticationData.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetAuthenticationData gets a reference to the given NullableFirmwareAuthenticationData and assigns it to the AuthenticationData field.
+func (o *FirmwareUpdateRequest) SetAuthenticationData(v FirmwareAuthenticationData) {
+	o.AuthenticationData.Set(&v)
+}
+
+// SetAuthenticationDataNil sets the value for AuthenticationData to be an explicit nil
+func (o *FirmwareUpdateRequest) SetAuthenticationDataNil() {
+	o.AuthenticationData.Set(nil)
+}
+
+// UnsetAuthenticationData ensures that no value is present for AuthenticationData, not even an explicit nil
+func (o *FirmwareUpdateRequest) UnsetAuthenticationData() {
+	o.AuthenticationData.Unset()
+}
+
 // GetRuleId returns the RuleId field value if set, zero value otherwise.
 func (o *FirmwareUpdateRequest) GetRuleId() string {
 	if o == nil || IsNil(o.RuleId) {
@@ -240,6 +285,9 @@ func (o FirmwareUpdateRequest) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.Targets) {
 		toSerialize["targets"] = o.Targets
 	}
+	if o.AuthenticationData.IsSet() {
+		toSerialize["authenticationData"] = o.AuthenticationData.Get()
+	}
 	if !IsNil(o.RuleId) {
 		toSerialize["ruleId"] = o.RuleId
 	}
@@ -274,7 +322,6 @@ func (o *FirmwareUpdateRequest) UnmarshalJSON(data []byte) (err error) {
 	varFirmwareUpdateRequest := _FirmwareUpdateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varFirmwareUpdateRequest)
 
 	if err != nil {

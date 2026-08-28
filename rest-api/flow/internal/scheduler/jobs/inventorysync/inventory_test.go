@@ -172,9 +172,9 @@ func TestSyncFirmwareVersion(t *testing.T) {
 }
 
 // TestSyncMachineIDs_DpuBmcNotLinked verifies that a compute component owning
-// both a host BMC and a DPU BMC links to the HOST machine id, never the DPU's.
-// Core exposes the DPU as its own MachineDetail whose BmcMac is the DPU BMC, so
-// without the host-only filter the component could resolve to the DPU machine.
+// both a host BMC and a DPU BMC links to the HOST machine ID, never the DPU's.
+// Core exposes the DPU as its own `MachineDetail`, so matching the unfiltered
+// response could resolve the component to the DPU machine.
 func TestSyncMachineIDs_DpuBmcNotLinked(t *testing.T) {
 	ctx := context.Background()
 
@@ -218,7 +218,7 @@ func TestSyncMachineIDs_DpuBmcNotLinked(t *testing.T) {
 	components, err := model.GetComponentsByType(ctx, pool.DB, devicetypes.ComponentTypeCompute)
 	assert.Nil(t, err)
 
-	syncMachineIDs(ctx, pool, allDetails, components)
+	syncMachineIDs(ctx, pool, filterHostMachineDetails(allDetails), components)
 
 	var updated model.Component
 	err = pool.DB.NewSelect().Model(&updated).Where("id = ?", comp.ID).Scan(ctx)

@@ -25,7 +25,75 @@ use reqwest::{Client, ClientBuilder, Method, Response, Url};
 pub use serde_json::Value as JsonValue;
 
 use crate::config::{NvueConfig, NvueConfigWithHeader, NvueRevision};
+use crate::types::bgp::{BgpNeighbors, BgpVrfInfo};
 use crate::types::revision::{RevisionApplyStatus, RevisionData, RevisionIssueSummary};
+
+/// Repeated NVUE field-selection query parameters.
+///
+/// Filter values are JSON Pointer-style paths that start with `/` and may
+/// use Unix shell-style wildcards to match dynamic object keys. For example,
+/// `/neighbor/*/state` matches the `state` field for every BGP neighbor. Values
+/// are passed to NVUE without local validation.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FieldFilter {
+    include: Vec<String>,
+    omit: Vec<String>,
+}
+
+impl FieldFilter {
+    /// Create an empty filter.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Create a filter from `include` field patterns.
+    pub fn with_includes<I, S>(fields: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self {
+            include: fields.into_iter().map(Into::into).collect(),
+            omit: Vec::new(),
+        }
+    }
+
+    /// Create a filter from `omit` field patterns.
+    pub fn with_omits<I, S>(fields: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self {
+            include: Vec::new(),
+            omit: fields.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    /// Add an `include` field pattern.
+    pub fn include(mut self, field: impl Into<String>) -> Self {
+        self.include.push(field.into());
+        self
+    }
+
+    /// Add an `omit` field pattern.
+    pub fn omit(mut self, field: impl Into<String>) -> Self {
+        self.omit.push(field.into());
+        self
+    }
+
+    fn is_empty(&self) -> bool {
+        self.include.is_empty() && self.omit.is_empty()
+    }
+
+    fn query_pairs(&self) -> Vec<(&str, &str)> {
+        self.include
+            .iter()
+            .map(|field| ("include", field.as_str()))
+            .chain(self.omit.iter().map(|field| ("omit", field.as_str())))
+            .collect()
+    }
+}
 
 #[derive(Debug)]
 pub struct NvueClient {
@@ -78,6 +146,8 @@ impl NvueClient {
     ) -> Result<reqwest::RequestBuilder, NvueClientError> {
         let url = self.construct_url_string(path);
         let builder = self.client.request(method, url);
+        // TODO: Make this timeout configurable.
+        let builder = builder.timeout(std::time::Duration::from_secs(60));
         let builder = match self.auth_creds() {
             Some(creds) => builder.basic_auth(&creds.username, Some(&creds.password)),
             None => builder,
@@ -127,6 +197,72 @@ impl NvueClient {
         let response = self.execute("get_applied_config", request).await?;
         let nvue_config = response.json().await?;
         Ok(nvue_config)
+    }
+
+    /// Return BGP data for a VRF.
+    ///
+    /// This calls `GET /nvue_v1/vrf/{vrf-id}/router/bgp` without field filters.
+    /// The `vrf_id` path segment is URL-encoded before the request is built.
+    pub async fn get_bgp_vrf_info(&self, vrf_id: &str) -> Result<BgpVrfInfo, NvueClientError> {
+        self.get_bgp_vrf_info_filtered(vrf_id, FieldFilter::new())
+            .await
+    }
+
+    /// Return BGP data for a VRF, applying NVUE field-selection filters.
+    ///
+    /// Non-empty filters are encoded as repeated `include` and `omit` query
+    /// parameters. Field patterns are passed through without local validation.
+    pub async fn get_bgp_vrf_info_filtered(
+        &self,
+        vrf_id: &str,
+        filter: FieldFilter,
+    ) -> Result<BgpVrfInfo, NvueClientError> {
+        let path = format!(
+            "/nvue_v1/vrf/{encoded_vrf_id}/router/bgp",
+            encoded_vrf_id = urlencoding::encode(vrf_id),
+        );
+        let mut request = self.request(Method::GET, &path)?.build()?;
+
+        append_filter_query_pairs(&mut request, &filter);
+
+        let response = self.execute("get_bgp_vrf_info", request).await?;
+        let bgp_vrf_info = response.json().await?;
+        Ok(bgp_vrf_info)
+    }
+
+    /// Return BGP neighbor data for a VRF.
+    ///
+    /// This calls `GET /nvue_v1/vrf/{vrf-id}/router/bgp/neighbor` without field filters.
+    /// The `vrf_id` path segment is URL-encoded before the request is built.
+    pub async fn get_bgp_neighbors(
+        &self,
+        vrf_id: &str,
+    ) -> Result<Option<BgpNeighbors>, NvueClientError> {
+        self.get_bgp_neighbors_filtered(vrf_id, FieldFilter::new())
+            .await
+    }
+
+    /// Return BGP neighbor data for a VRF, applying NVUE field-selection filters.
+    ///
+    /// This calls `GET /nvue_v1/vrf/{vrf-id}/router/bgp/neighbor`. Non-empty
+    /// filters are encoded as repeated `include` and `omit` query parameters.
+    /// The `vrf_id` path segment is URL-encoded before the request is built.
+    pub async fn get_bgp_neighbors_filtered(
+        &self,
+        vrf_id: &str,
+        filter: FieldFilter,
+    ) -> Result<Option<BgpNeighbors>, NvueClientError> {
+        let path = format!(
+            "/nvue_v1/vrf/{encoded_vrf_id}/router/bgp/neighbor",
+            encoded_vrf_id = urlencoding::encode(vrf_id),
+        );
+        let mut request = self.request(Method::GET, &path)?.build()?;
+
+        append_filter_query_pairs(&mut request, &filter);
+
+        let response = self.execute("get_bgp_neighbors_filtered", request).await?;
+        let bgp_neighbors = response.json().await?;
+        Ok(bgp_neighbors)
     }
 
     /// Create a new NVUE config revision, returning the revision ID.
@@ -287,6 +423,17 @@ impl NvueClient {
     }
 }
 
+fn append_filter_query_pairs(request: &mut reqwest::Request, filter: &FieldFilter) {
+    if filter.is_empty() {
+        return;
+    }
+
+    let mut query_pairs = request.url_mut().query_pairs_mut();
+    for (key, value) in filter.query_pairs() {
+        query_pairs.append_pair(key, value);
+    }
+}
+
 fn build_client(server_address: &NvueServerAddress) -> Result<Client, NvueClientError> {
     let builder = ClientBuilder::new().default_headers(default_nvue_headers());
     let builder = match server_address {
@@ -434,4 +581,86 @@ pub struct RequestFailed {
     pub body: Option<String>,
     #[source]
     pub source: reqwest::Error,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn field_filter_empty_has_no_query_pairs() {
+        let filter = FieldFilter::new();
+
+        assert!(filter.is_empty());
+        assert!(filter.query_pairs().is_empty());
+    }
+
+    #[test]
+    fn field_filter_preserves_include_pairs() {
+        let filter = FieldFilter::new()
+            .include("/neighbor/*/state")
+            .include("/neighbor/*/peer-group");
+
+        assert_eq!(
+            filter.query_pairs(),
+            vec![
+                ("include", "/neighbor/*/state"),
+                ("include", "/neighbor/*/peer-group"),
+            ]
+        );
+    }
+
+    #[test]
+    fn field_filter_with_includes_builds_include_pairs() {
+        let filter = FieldFilter::with_includes(["/neighbor/*/state", "/neighbor/*/peer-group"]);
+
+        assert_eq!(
+            filter.query_pairs(),
+            vec![
+                ("include", "/neighbor/*/state"),
+                ("include", "/neighbor/*/peer-group"),
+            ]
+        );
+    }
+
+    #[test]
+    fn field_filter_preserves_omit_pairs() {
+        let filter = FieldFilter::new()
+            .omit("/peer-group")
+            .omit("/address-family");
+
+        assert_eq!(
+            filter.query_pairs(),
+            vec![("omit", "/peer-group"), ("omit", "/address-family")]
+        );
+    }
+
+    #[test]
+    fn field_filter_with_omits_builds_omit_pairs() {
+        let filter = FieldFilter::with_omits(["/peer-group", "/address-family"]);
+
+        assert_eq!(
+            filter.query_pairs(),
+            vec![("omit", "/peer-group"), ("omit", "/address-family")]
+        );
+    }
+
+    #[test]
+    fn field_filter_combines_include_and_omit_pairs() {
+        let filter = FieldFilter::new()
+            .include("/neighbor/*/state")
+            .omit("/peer-group")
+            .include("/configured-neighbors")
+            .omit("/address-family");
+
+        assert_eq!(
+            filter.query_pairs(),
+            vec![
+                ("include", "/neighbor/*/state"),
+                ("include", "/configured-neighbors"),
+                ("omit", "/peer-group"),
+                ("omit", "/address-family"),
+            ]
+        );
+    }
 }

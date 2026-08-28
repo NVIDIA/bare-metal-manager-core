@@ -40,7 +40,7 @@ pub struct MockHost {
     pub tenant_public_key: String,
     pub sys_vendor: &'static str,
     pub bmc_ip: IpAddr,
-    pub bmc_ssh_port: Option<u16>,
+    pub serial_console_ssh_port: Option<u16>,
     pub ipmi_port: Option<u16>,
     pub bmc_user: String,
     pub bmc_password: String,

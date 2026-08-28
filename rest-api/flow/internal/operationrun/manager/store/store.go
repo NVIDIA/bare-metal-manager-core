@@ -97,10 +97,11 @@ func (s *PostgresStore) Get(
 ) (*operationrun.OperationRun, error) {
 	var row dbmodel.OperationRun
 
-	err := s.idb(ctx).NewSelect().
+	q := s.idb(ctx).NewSelect().
 		Model(&row).
-		Where("orun.id = ?", id).
-		Scan(ctx)
+		ColumnExpr("orun.*").
+		Where("orun.id = ?", id)
+	err := q.Scan(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("operation run %s not found: %w", id, sql.ErrNoRows)
@@ -119,11 +120,12 @@ func (s *PostgresStore) LockOperationRun(
 ) (*operationrun.OperationRun, error) {
 	var row dbmodel.OperationRun
 
-	err := s.idb(ctx).NewSelect().
+	q := s.idb(ctx).NewSelect().
 		Model(&row).
+		ColumnExpr("orun.*").
 		Where("orun.id = ?", id).
-		For("UPDATE").
-		Scan(ctx)
+		For("UPDATE")
+	err := q.Scan(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("operation run %s not found: %w", id, sql.ErrNoRows)
@@ -167,6 +169,7 @@ func (s *PostgresStore) List(
 		"status_reason",
 		"status_message",
 		"current_phase_index",
+		"total_phases",
 		"options",
 		"operation_type",
 		"operation_code",
@@ -174,7 +177,8 @@ func (s *PostgresStore) List(
 		"updated_at",
 		"started_at",
 		"finished_at",
-	).OrderExpr("orun.created_at DESC")
+	).
+		OrderExpr("orun.created_at DESC")
 	if opts.Pagination != nil {
 		q = q.Offset(opts.Pagination.Offset).Limit(opts.Pagination.Limit)
 	}

@@ -92,6 +92,7 @@ impl CapturedLog {
 /// events at every level. Internal diagnostics whose target starts with
 /// `opentelemetry` are excluded.
 pub fn capture_logs(f: impl FnOnce()) -> Vec<CapturedLog> {
+    keep_callsites_enabled();
     let captured = Arc::new(Mutex::new(Vec::new()));
     let layer = CaptureLayer {
         captured: captured.clone(),
@@ -114,6 +115,7 @@ pub async fn capture_logs_async<F>(future: F) -> (F::Output, Vec<CapturedLog>)
 where
     F: Future,
 {
+    keep_callsites_enabled();
     let captured = Arc::new(Mutex::new(Vec::new()));
     let layer = CaptureLayer {
         captured: captured.clone(),
@@ -122,6 +124,17 @@ where
     let output = future.with_subscriber(subscriber).await;
     let logs = captured.lock().unwrap_or_else(|p| p.into_inner());
     (output, logs.clone())
+}
+
+/// Keeps tracing's process-wide callsite cache interested at every level.
+///
+/// A test harness may run capture and non-capture tests concurrently. Without
+/// a persistent interested dispatch, registering or dropping their temporary
+/// dispatches can rebuild the global callsite cache while another capture is
+/// active and briefly disable records that its subscriber accepts.
+fn keep_callsites_enabled() {
+    static DISPATCH: OnceLock<tracing::Dispatch> = OnceLock::new();
+    DISPATCH.get_or_init(|| tracing::Dispatch::new(tracing_subscriber::registry()));
 }
 
 struct CaptureLayer {

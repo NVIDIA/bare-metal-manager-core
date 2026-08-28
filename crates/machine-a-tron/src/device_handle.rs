@@ -232,11 +232,20 @@ impl DeviceHandle {
     }
 
     #[cfg(test)]
-    pub(crate) fn for_control_test(
-        dpus: Vec<DpuMachineHandle>,
-        ipmi_endpoint: Option<bmc_mock::ipmi_sim::IpmiEndpoint>,
-    ) -> Self {
-        Self::machine(MachineHandle::for_control_test(dpus, ipmi_endpoint))
+    pub(crate) fn for_control_test(dpus: Vec<DpuMachineHandle>, ipmi_port: Option<u16>) -> Self {
+        Self::machine(MachineHandle::for_control_test(dpus, ipmi_port))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_control_test_ssh_endpoint(self, port: u16) -> Self {
+        match self.0 {
+            DeviceHandleInner::Machine(handle) => {
+                Self::machine(handle.with_control_test_ssh_endpoint(port))
+            }
+            DeviceHandleInner::Switch(_) | DeviceHandleInner::PowerShelf(_) => {
+                unreachable!("control-test SSH endpoint is only configured for machines")
+            }
+        }
     }
 
     #[cfg(test)]

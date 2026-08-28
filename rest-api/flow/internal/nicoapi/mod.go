@@ -62,9 +62,22 @@ type Client interface {
 	// endpoint are omitted from the result.
 	FindSwitchNvosIPs(ctx context.Context, switchIds []string) (map[string]string, error)
 
+	// GetObservedNVLinkDomainMemberships returns valid rack/domain observations
+	// from a complete snapshot of Core's active switch inventory. Switches without
+	// a valid observation are omitted, so callers may clear omitted rack
+	// memberships after a successful read.
+	GetObservedNVLinkDomainMemberships(ctx context.Context) ([]NVLinkDomainMembership, error)
+
 	// FindPowerShelfControllerStates is the power-shelf equivalent of
 	// FindSwitchControllerStates.
 	FindPowerShelfControllerStates(ctx context.Context, shelfIds []string) (map[string]string, error)
+
+	// GetSwitches returns a complete snapshot of active Core switches with the
+	// runtime ID and BMC MAC needed for actual-inventory reconciliation.
+	GetSwitches(ctx context.Context) ([]ObservedControllerDevice, error)
+
+	// GetPowerShelves is the power-shelf equivalent of GetSwitches.
+	GetPowerShelves(ctx context.Context) ([]ObservedControllerDevice, error)
 
 	// GetMachinePositionInfo returns position information for the given machine IDs
 	GetMachinePositionInfo(ctx context.Context, machineIds []string) ([]MachinePosition, error)
@@ -230,7 +243,6 @@ type Client interface {
 	FindMachineControllerStates(ctx context.Context, machineIDs []string) (map[string]string, error)
 
 	// DecommissionMachine initiates decommissioning of the given machine via Core.
-	// TODO: Core Decommission Machine RPC pending.
 	DecommissionMachine(ctx context.Context, machineID string) error
 
 	// DecommissionSwitch initiates decommissioning of the given switch via Core.
@@ -238,7 +250,6 @@ type Client interface {
 	DecommissionSwitch(ctx context.Context, switchID string) error
 
 	// DecommissionPowerShelf initiates decommissioning of the given power shelf via Core.
-	// TODO: Core Decommission PowerShelf RPC pending.
 	DecommissionPowerShelf(ctx context.Context, shelfID string) error
 
 	// The following are only valid in the mock environment and should only be called by unit tests
@@ -254,7 +265,10 @@ type Client interface {
 	SetPowerShelfRackID(shelfID, rackID string)
 	SetSwitchControllerState(switchID, state string)
 	SetSwitchNvosIP(switchID, ip string)
+	SetObservedNVLinkDomainMemberships(memberships []NVLinkDomainMembership)
 	SetPowerShelfControllerState(shelfID, state string)
+	SetObservedSwitches(devices []ObservedControllerDevice)
+	SetObservedPowerShelves(devices []ObservedControllerDevice)
 	SetRackHostMachineIDs(rackID string, machineIDs []string)
 	AddExpectedRackDetail(detail ExpectedRackDetail)
 	AddExpectedMachineDetail(detail ExpectedMachineDetail)

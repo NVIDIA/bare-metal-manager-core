@@ -28,9 +28,9 @@ type DeviceCredentialRotationStatus struct {
 	// The device this status describes.
 	DeviceMac string `json:"deviceMac"`
 	// Credential version live on the hardware. Null when not yet established.
-	CurrentVersion NullableInt64 `json:"currentVersion,omitempty"`
+	CurrentVersion NullableUint32 `json:"currentVersion,omitempty"`
 	// Set while a rotation is mid-flight on this device.
-	RotatingToVersion NullableInt64 `json:"rotatingToVersion,omitempty"`
+	RotatingToVersion NullableUint32 `json:"rotatingToVersion,omitempty"`
 	// True once the current version reaches the site-wide target.
 	Converged bool `json:"converged"`
 	// True while the device is in a rotation backoff window.
@@ -38,7 +38,7 @@ type DeviceCredentialRotationStatus struct {
 	// When the current backoff window expires; set only while quarantined.
 	QuarantinedUntil NullableTime `json:"quarantinedUntil,omitempty"`
 	// Number of rotation attempts recorded for this device.
-	RotateAttempts int64 `json:"rotateAttempts"`
+	RotateAttempts uint32 `json:"rotateAttempts"`
 	// When the last rotation attempt ran; null if none.
 	LastAttempted NullableTime `json:"lastAttempted,omitempty"`
 	// Redacted last-error string for observability; never a secret.
@@ -51,7 +51,7 @@ type _DeviceCredentialRotationStatus DeviceCredentialRotationStatus
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewDeviceCredentialRotationStatus(deviceMac string, converged bool, quarantined bool, rotateAttempts int64) *DeviceCredentialRotationStatus {
+func NewDeviceCredentialRotationStatus(deviceMac string, converged bool, quarantined bool, rotateAttempts uint32) *DeviceCredentialRotationStatus {
 	this := DeviceCredentialRotationStatus{}
 	this.DeviceMac = deviceMac
 	this.Converged = converged
@@ -93,9 +93,9 @@ func (o *DeviceCredentialRotationStatus) SetDeviceMac(v string) {
 }
 
 // GetCurrentVersion returns the CurrentVersion field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *DeviceCredentialRotationStatus) GetCurrentVersion() int64 {
+func (o *DeviceCredentialRotationStatus) GetCurrentVersion() uint32 {
 	if o == nil || IsNil(o.CurrentVersion.Get()) {
-		var ret int64
+		var ret uint32
 		return ret
 	}
 	return *o.CurrentVersion.Get()
@@ -104,7 +104,7 @@ func (o *DeviceCredentialRotationStatus) GetCurrentVersion() int64 {
 // GetCurrentVersionOk returns a tuple with the CurrentVersion field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *DeviceCredentialRotationStatus) GetCurrentVersionOk() (*int64, bool) {
+func (o *DeviceCredentialRotationStatus) GetCurrentVersionOk() (*uint32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -120,8 +120,8 @@ func (o *DeviceCredentialRotationStatus) HasCurrentVersion() bool {
 	return false
 }
 
-// SetCurrentVersion gets a reference to the given NullableInt64 and assigns it to the CurrentVersion field.
-func (o *DeviceCredentialRotationStatus) SetCurrentVersion(v int64) {
+// SetCurrentVersion gets a reference to the given NullableUint32 and assigns it to the CurrentVersion field.
+func (o *DeviceCredentialRotationStatus) SetCurrentVersion(v uint32) {
 	o.CurrentVersion.Set(&v)
 }
 
@@ -136,9 +136,9 @@ func (o *DeviceCredentialRotationStatus) UnsetCurrentVersion() {
 }
 
 // GetRotatingToVersion returns the RotatingToVersion field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *DeviceCredentialRotationStatus) GetRotatingToVersion() int64 {
+func (o *DeviceCredentialRotationStatus) GetRotatingToVersion() uint32 {
 	if o == nil || IsNil(o.RotatingToVersion.Get()) {
-		var ret int64
+		var ret uint32
 		return ret
 	}
 	return *o.RotatingToVersion.Get()
@@ -147,7 +147,7 @@ func (o *DeviceCredentialRotationStatus) GetRotatingToVersion() int64 {
 // GetRotatingToVersionOk returns a tuple with the RotatingToVersion field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *DeviceCredentialRotationStatus) GetRotatingToVersionOk() (*int64, bool) {
+func (o *DeviceCredentialRotationStatus) GetRotatingToVersionOk() (*uint32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -163,8 +163,8 @@ func (o *DeviceCredentialRotationStatus) HasRotatingToVersion() bool {
 	return false
 }
 
-// SetRotatingToVersion gets a reference to the given NullableInt64 and assigns it to the RotatingToVersion field.
-func (o *DeviceCredentialRotationStatus) SetRotatingToVersion(v int64) {
+// SetRotatingToVersion gets a reference to the given NullableUint32 and assigns it to the RotatingToVersion field.
+func (o *DeviceCredentialRotationStatus) SetRotatingToVersion(v uint32) {
 	o.RotatingToVersion.Set(&v)
 }
 
@@ -270,9 +270,9 @@ func (o *DeviceCredentialRotationStatus) UnsetQuarantinedUntil() {
 }
 
 // GetRotateAttempts returns the RotateAttempts field value
-func (o *DeviceCredentialRotationStatus) GetRotateAttempts() int64 {
+func (o *DeviceCredentialRotationStatus) GetRotateAttempts() uint32 {
 	if o == nil {
-		var ret int64
+		var ret uint32
 		return ret
 	}
 
@@ -281,7 +281,7 @@ func (o *DeviceCredentialRotationStatus) GetRotateAttempts() int64 {
 
 // GetRotateAttemptsOk returns a tuple with the RotateAttempts field value
 // and a boolean to check if the value has been set.
-func (o *DeviceCredentialRotationStatus) GetRotateAttemptsOk() (*int64, bool) {
+func (o *DeviceCredentialRotationStatus) GetRotateAttemptsOk() (*uint32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -289,7 +289,7 @@ func (o *DeviceCredentialRotationStatus) GetRotateAttemptsOk() (*int64, bool) {
 }
 
 // SetRotateAttempts sets field value
-func (o *DeviceCredentialRotationStatus) SetRotateAttempts(v int64) {
+func (o *DeviceCredentialRotationStatus) SetRotateAttempts(v uint32) {
 	o.RotateAttempts = v
 }
 
@@ -439,7 +439,6 @@ func (o *DeviceCredentialRotationStatus) UnmarshalJSON(data []byte) (err error) 
 	varDeviceCredentialRotationStatus := _DeviceCredentialRotationStatus{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varDeviceCredentialRotationStatus)
 
 	if err != nil {

@@ -35,7 +35,7 @@ use rpc::forge::{
     BmcInfo, ConnectedDevice, GetSiteExplorationRequest, MachineType, ManagedHostQuarantineState,
     NetworkDevice, NetworkDeviceIdList,
 };
-use rpc::machine_discovery::MemoryDevice;
+use rpc::machine_discovery::MemoryDeviceGroup;
 use rpc::site_explorer::{EndpointExplorationReport, ExploredEndpoint};
 use rpc::{DiscoveryInfo, DmiData, DynForge, Machine, Timestamp};
 use serde::{Deserialize, Serialize};
@@ -184,9 +184,29 @@ impl From<Machine> for ManagedHostOutput {
             .as_ref()
             .map(|di| di.infiniband_interfaces.len())
             .unwrap_or_default();
-        let host_memory = discovery_info
-            .as_ref()
-            .and_then(|di| get_memory_details(&di.memory_devices));
+        let host_memory = discovery_info.as_ref().and_then(|di| {
+            if di.memory_groups_are_authoritative() {
+                let valid: Vec<_> = di
+                    .memory_device_groups
+                    .iter()
+                    .cloned()
+                    .filter_map(|g| g.nonzero())
+                    .collect();
+                get_memory_details(&valid)
+            } else {
+                #[allow(deprecated)]
+                let groups: Vec<MemoryDeviceGroup> = di
+                    .memory_devices
+                    .iter()
+                    .map(|md| MemoryDeviceGroup {
+                        size_mb: md.size_mb,
+                        mem_type: md.mem_type.clone(),
+                        count: 1,
+                    })
+                    .collect();
+                get_memory_details(&groups)
+            }
+        });
 
         let DmiDataDisplay {
             product_serial: _,
@@ -532,22 +552,28 @@ impl From<ManagedHostMetadata> for IndexedManagedHostMetadata {
     }
 }
 
-pub fn get_memory_details(memory_devices: &Vec<MemoryDevice>) -> Option<String> {
+pub fn get_memory_details(memory_device_groups: &[MemoryDeviceGroup]) -> Option<String> {
     let mut breakdown = BTreeMap::default();
-    let mut total_size = 0;
-    for md in memory_devices {
+    let mut total_size = 0u64;
+    let mut total_count = 0u32;
+    for group in memory_device_groups {
+        if group.count == 0 {
+            continue;
+        }
         let size = byte_unit::Byte::from_f64_with_unit(
-            md.size_mb.unwrap_or(0) as f64,
+            group.size_mb.unwrap_or(0) as f64,
             byte_unit::Unit::MiB,
         )
         .unwrap_or_default();
-        total_size += size.as_u64();
-        *breakdown.entry(size).or_insert(0u32) += 1;
+        let group_size = size.as_u64().checked_mul(group.count as u64)?;
+        total_size = total_size.checked_add(group_size)?;
+        total_count = total_count.checked_add(group.count)?;
+        *breakdown.entry(size).or_insert(0u32) += group.count;
     }
 
     let total_size = byte_unit::Byte::from(total_size);
 
-    if memory_devices.len() == 1 {
+    if total_count == 1 {
         Some(
             total_size
                 .get_appropriate_unit(UnitType::Binary)
@@ -657,19 +683,20 @@ mod tests {
 
     use super::*;
 
-    fn memory(size_mb: Option<u32>) -> MemoryDevice {
-        MemoryDevice {
+    fn memory(size_mb: Option<u32>) -> MemoryDeviceGroup {
+        MemoryDeviceGroup {
             size_mb,
             mem_type: None,
+            count: 1,
         }
     }
 
     #[test]
     fn formats_memory_details() {
         value_scenarios!(
-            run = |devices| get_memory_details(&devices);
+            run = |devices: Vec<MemoryDeviceGroup>| get_memory_details(&devices);
             "missing memory" {
-                Vec::<MemoryDevice>::new() => None,
+                vec![] => None,
                 vec![memory(Some(0)), memory(None)] => None,
             }
 
@@ -679,10 +706,22 @@ mod tests {
 
             "device breakdown" {
                 vec![
-                    memory(Some(32768)),
-                    memory(Some(32768)),
+                    MemoryDeviceGroup { size_mb: Some(32768), mem_type: None, count: 2 },
                     memory(Some(65536)),
                 ] => Some("128 GiB (32 GiBx2, 64 GiBx1)".to_string()),
+            }
+
+            "overflowing total size" {
+                vec![
+                    MemoryDeviceGroup { size_mb: Some(u32::MAX), mem_type: None, count: u32::MAX },
+                ] => None,
+            }
+
+            "mixed zero and nonzero count groups" {
+                vec![
+                    MemoryDeviceGroup { size_mb: Some(65536), mem_type: None, count: 0 },
+                    MemoryDeviceGroup { size_mb: Some(32768), mem_type: None, count: 2 },
+                ] => Some("64 GiB (32 GiBx2)".to_string()),
             }
         );
     }
@@ -697,6 +736,37 @@ mod tests {
                 Some(Timestamp::from(UNIX_EPOCH + Duration::from_secs(1_700_000_000))) => Some("2023-11-14 22:13:20 UTC".to_string()),
             }
         );
+    }
+
+    // When every group in `memory_device_groups` has count == 0, the field is
+    // logically empty. Per the wire contract, display must fall back to the
+    // legacy `memory_devices` field.
+    #[test]
+    #[allow(deprecated)]
+    fn managed_host_output_falls_back_to_legacy_memory_when_all_groups_are_zero_count() {
+        let host_memory = ManagedHostOutput::from(Machine {
+            discovery_info: Some(DiscoveryInfo {
+                memory_device_groups: vec![MemoryDeviceGroup {
+                    size_mb: Some(8192),
+                    mem_type: Some("DDR4".to_string()),
+                    count: 0,
+                }],
+                memory_devices: vec![
+                    rpc::machine_discovery::MemoryDevice {
+                        size_mb: Some(16384),
+                        mem_type: Some("DDR5".to_string()),
+                    },
+                    rpc::machine_discovery::MemoryDevice {
+                        size_mb: Some(16384),
+                        mem_type: Some("DDR5".to_string()),
+                    },
+                ],
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .host_memory;
+        assert_eq!(host_memory, Some("32 GiB (16 GiBx2)".to_string()));
     }
 
     #[test]

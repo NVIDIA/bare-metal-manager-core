@@ -7,10 +7,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
-	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/executor"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/target"
 	inventoryresolver "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/resolver"
 )
 
@@ -18,9 +17,10 @@ import (
 type Processor struct {
 	inventory  *inventoryresolver.Resolver
 	rules      RuleResolver
+	events     eventrule.EventStore
 	executions eventrule.ExecutionStore
-	executor   executor.Executor
-	now        func() time.Time
+	targets    *target.Registry
+	executors  ExecutorRegistry
 }
 
 // New constructs an event processor.
@@ -32,25 +32,39 @@ func New(config Config) (*Processor, error) {
 	return &Processor{
 		inventory:  inventoryresolver.New(config.Inventory),
 		rules:      config.Rules,
+		events:     config.Events,
 		executions: config.Executions,
-		executor:   config.Executor,
-		now:        config.clock(),
+		targets:    config.Targets,
+		executors:  config.Executors,
 	}, nil
 }
 
-// Process validates, prepares, and processes every eligible action.
+// Process deduplicates an envelope into a durable event. Only the caller that
+// creates the event plans and dispatches it; duplicates record an observation
+// and stop.
 func (p *Processor) Process(ctx context.Context, envelope eventrule.Envelope) error {
 	prepared, err := p.prepare(ctx, envelope)
-	if err != nil || prepared.Rule == nil {
+	if err != nil || prepared == nil {
 		return err
 	}
 
-	var actionErrors []error
-	for _, action := range prepared.Rule.Actions {
-		if err := p.processAction(ctx, prepared, action); err != nil {
-			actionErrors = append(actionErrors, fmt.Errorf("action %q: %w", action.ID, err))
-		}
+	executions, err := p.plan(ctx, prepared)
+	if err != nil {
+		return err
 	}
 
-	return errors.Join(actionErrors...)
+	var executionErrors []error
+	for i := range executions {
+		if executions[i].Status != eventrule.ExecutionStatusPending {
+			continue
+		}
+
+		if err := p.dispatch(ctx, &executions[i]); err != nil {
+			executionErrors = append(
+				executionErrors,
+				fmt.Errorf("action %q: %w", executions[i].ActionName, err),
+			)
+		}
+	}
+	return errors.Join(executionErrors...)
 }

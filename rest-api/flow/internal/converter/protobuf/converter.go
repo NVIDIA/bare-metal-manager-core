@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	dbquery "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/query"
@@ -229,6 +230,7 @@ func ComponentFrom(c *pb.Component) *component.Component {
 		FirmwareVersion: c.GetFirmwareVersion(),
 		Position:        RackPositionFrom(c.GetPosition()),
 		BmcsByType:      bmcsByType,
+		NVLDomainID:     UUIDFrom(c.GetNvlDomainId()),
 		PowerState:      c.GetPowerState(),
 	}
 }
@@ -239,16 +241,33 @@ func RackFrom(r *pb.Rack) *rack.Rack {
 		return nil
 	}
 
-	components := make([]component.Component, 0, len(r.GetComponents()))
-	for _, c := range r.GetComponents() {
-		components = append(components, *ComponentFrom(c))
+	domainIDs := UUIDsFrom(r.GetNvlDomainIds())
+	var domainID uuid.UUID
+	if len(domainIDs) > 0 {
+		domainID = domainIDs[0]
+	}
+	if len(domainIDs) > 1 {
+		log.Warn().
+			Int("domain_id_count", len(domainIDs)).
+			Str("rack_id", UUIDFrom(r.GetInfo().GetId()).String()).
+			Msg("Rack has multiple NVLink domain IDs; using the first")
 	}
 
-	return &rack.Rack{
+	components := make([]component.Component, 0, len(r.GetComponents()))
+	for _, c := range r.GetComponents() {
+		converted := ComponentFrom(c)
+		if converted.NVLDomainID == uuid.Nil {
+			converted.NVLDomainID = domainID
+		}
+		components = append(components, *converted)
+	}
+	result := &rack.Rack{
 		Info:       DeviceInfoFrom(r.GetInfo()),
 		Loc:        LocationFrom(r.GetLocation()),
 		Components: components,
 	}
+	result.NVLDomainID = domainID
+	return result
 }
 
 // PaginationFrom converts a protobuf Pagination to an internal Pagination.
@@ -619,6 +638,7 @@ func ComponentTo(c *component.Component) *pb.Component {
 		Bmcs:            bmcInfos,
 		ComponentId:     c.ComponentID,
 		RackId:          UUIDTo(c.RackID),
+		NvlDomainId:     UUIDTo(c.NVLDomainID),
 		PowerState:      c.PowerState,
 		Status:          ComponentOperationStatusTo(c.Status),
 		LeakStatus:      LeakStatusTo(c.LeakStatus),
@@ -699,14 +719,22 @@ func RackTo(r *rack.Rack) *pb.Rack {
 
 	components := make([]*pb.Component, 0, len(r.Components))
 	for _, c := range r.Components {
+		if c.NVLDomainID == uuid.Nil {
+			c.NVLDomainID = r.NVLDomainID
+		}
 		components = append(components, ComponentTo(&c))
 	}
 
-	return &pb.Rack{
+	result := &pb.Rack{
 		Info:       DeviceInfoTo(&r.Info),
 		Location:   LocationTo(&r.Loc),
 		Components: components,
 	}
+	if r.NVLDomainID != uuid.Nil {
+		result.NvlDomainIds = UUIDsTo([]uuid.UUID{r.NVLDomainID})
+	}
+
+	return result
 }
 
 // PaginationTo converts an internal Pagination to a protobuf Pagination.
@@ -1046,9 +1074,24 @@ func TargetSpecFrom(ts *pb.OperationTargetSpec) (operation.TargetSpec, error) {
 			}
 			spec.Components = append(spec.Components, ct)
 		}
+	case *pb.OperationTargetSpec_NvlDomains:
+		if len(targets.NvlDomains.GetTargets()) == 0 {
+			return operation.TargetSpec{}, fmt.Errorf(
+				"nvl_domains.targets must have at least one entry",
+			)
+		}
+		for _, pbDomain := range targets.NvlDomains.GetTargets() {
+			dt, err := NVLDomainTargetFrom(pbDomain)
+			if err != nil {
+				return operation.TargetSpec{}, fmt.Errorf(
+					"convert NVLink domain target: %w", err,
+				)
+			}
+			spec.NVLDomains = append(spec.NVLDomains, dt)
+		}
 	default:
 		return operation.TargetSpec{}, fmt.Errorf(
-			"target_spec must have either racks or components set",
+			"target_spec must have one of racks, nvl_domains, or components set",
 		)
 	}
 
@@ -1056,17 +1099,21 @@ func TargetSpecFrom(ts *pb.OperationTargetSpec) (operation.TargetSpec, error) {
 }
 
 // TargetSpecTo converts an internal operation.TargetSpec to its proto form.
-// It returns an error when both or neither of Racks and Components are populated,
-// matching the mutual-exclusion rule enforced by TargetSpecFrom on the inbound path.
+// It returns an error unless exactly one target kind is populated, matching the
+// mutual-exclusion rule enforced by TargetSpecFrom on the inbound path.
 func TargetSpecTo(ts operation.TargetSpec) (*pb.OperationTargetSpec, error) {
 	hasRacks := len(ts.Racks) > 0
+	hasNVLDomains := len(ts.NVLDomains) > 0
 	hasComponents := len(ts.Components) > 0
 
-	if hasRacks && hasComponents {
-		return nil, fmt.Errorf("target_spec cannot have both racks and components set")
+	targetKinds := 0
+	for _, present := range []bool{hasRacks, hasNVLDomains, hasComponents} {
+		if present {
+			targetKinds++
+		}
 	}
-	if !hasRacks && !hasComponents {
-		return nil, fmt.Errorf("target_spec must have either racks or components set")
+	if targetKinds != 1 {
+		return nil, fmt.Errorf("target_spec must have exactly one of racks, nvl_domains, or components set")
 	}
 
 	// Rack targets, converted to proto RackTargets.
@@ -1087,12 +1134,13 @@ func TargetSpecTo(ts operation.TargetSpec) (*pb.OperationTargetSpec, error) {
 			}
 
 			for _, ct := range r.ComponentTypes {
-				if ct == devicetypes.ComponentTypeUnknown {
+				protoType := ComponentTypeTo(ct)
+				if protoType == pb.ComponentType_COMPONENT_TYPE_UNKNOWN {
 					return nil, fmt.Errorf(
 						"invalid rack target: unknown component type filter",
 					)
 				}
-				rt.ComponentTypes = append(rt.ComponentTypes, ComponentTypeTo(ct))
+				rt.ComponentTypes = append(rt.ComponentTypes, protoType)
 			}
 
 			racks = append(racks, rt)
@@ -1102,6 +1150,47 @@ func TargetSpecTo(ts operation.TargetSpec) (*pb.OperationTargetSpec, error) {
 			Targets: &pb.OperationTargetSpec_Racks{
 				Racks: &pb.RackTargets{
 					Targets: racks,
+				},
+			},
+		}, nil
+	}
+
+	if hasNVLDomains {
+		domains := make([]*pb.NVLDomainTarget, 0, len(ts.NVLDomains))
+		for _, domain := range ts.NVLDomains {
+			target := &pb.NVLDomainTarget{}
+			if domain.Identifier.ID != uuid.Nil {
+				target.Identifier = &pb.NVLDomainTarget_Id{
+					Id: UUIDTo(domain.Identifier.ID),
+				}
+			} else if domain.Identifier.Name != "" {
+				target.Identifier = &pb.NVLDomainTarget_Name{
+					Name: domain.Identifier.Name,
+				}
+			} else {
+				return nil, fmt.Errorf("invalid NVLink domain target: neither id nor name is set")
+			}
+
+			for _, componentType := range domain.ComponentTypes {
+				protoType := ComponentTypeTo(componentType)
+				if protoType == pb.ComponentType_COMPONENT_TYPE_UNKNOWN {
+					return nil, fmt.Errorf(
+						"invalid NVLink domain target: unknown component type filter",
+					)
+				}
+				target.ComponentTypes = append(
+					target.ComponentTypes,
+					protoType,
+				)
+			}
+
+			domains = append(domains, target)
+		}
+
+		return &pb.OperationTargetSpec{
+			Targets: &pb.OperationTargetSpec_NvlDomains{
+				NvlDomains: &pb.NVLDomainTargets{
+					Targets: domains,
 				},
 			},
 		}, nil
@@ -1136,6 +1225,46 @@ func TargetSpecTo(ts operation.TargetSpec) (*pb.OperationTargetSpec, error) {
 			},
 		},
 	}, nil
+}
+
+// NVLDomainTargetFrom converts a proto NVLink domain target to an internal target.
+func NVLDomainTargetFrom(dt *pb.NVLDomainTarget) (operation.NVLDomainTarget, error) {
+	if dt == nil {
+		return operation.NVLDomainTarget{}, fmt.Errorf("NVLink domain target is nil")
+	}
+
+	var target operation.NVLDomainTarget
+	switch id := dt.GetIdentifier().(type) {
+	case *pb.NVLDomainTarget_Id:
+		parsed, err := uuid.Parse(id.Id.GetId())
+		if err != nil {
+			return operation.NVLDomainTarget{}, fmt.Errorf(
+				"invalid NVLink domain id %q: %w", id.Id.GetId(), err,
+			)
+		}
+		target.Identifier.ID = parsed
+	case *pb.NVLDomainTarget_Name:
+		if id.Name == "" {
+			return operation.NVLDomainTarget{}, fmt.Errorf("NVLink domain target name must not be empty")
+		}
+		target.Identifier.Name = id.Name
+	default:
+		return operation.NVLDomainTarget{}, fmt.Errorf(
+			"NVLink domain target must have either id or name set",
+		)
+	}
+
+	for _, pbType := range dt.GetComponentTypes() {
+		componentType := ComponentTypeFrom(pbType)
+		if componentType == devicetypes.ComponentTypeUnknown {
+			return operation.NVLDomainTarget{}, fmt.Errorf(
+				"unknown component type %v in NVLink domain target filter", pbType,
+			)
+		}
+		target.ComponentTypes = append(target.ComponentTypes, componentType)
+	}
+
+	return target, nil
 }
 
 // RackTargetFrom converts a proto RackTarget to an internal operation.RackTarget.
@@ -1212,7 +1341,7 @@ func ComponentTargetFrom(ct *pb.ComponentTarget) (operation.ComponentTarget, err
 // ScheduledOperationFrom converts a proto ScheduledOperation oneof to the
 // internal Operation, TargetSpec, and request-level scheduling options. All
 // values are always valid together: the Operation carries the task-type and
-// parameters, the TargetSpec identifies the racks or components the task will
+// parameters, the TargetSpec identifies the racks, NVLink domains, or components the task will
 // run against, and the returned QueueOptions / rule UUID carry the caller's
 // conflict-handling and rule-override preferences for use at fire time.
 func ScheduledOperationFrom(

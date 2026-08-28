@@ -148,7 +148,6 @@ func (o *TaskRunPercentageSelector) UnmarshalJSON(data []byte) (err error) {
 	varTaskRunPercentageSelector := _TaskRunPercentageSelector{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varTaskRunPercentageSelector)
 
 	if err != nil {

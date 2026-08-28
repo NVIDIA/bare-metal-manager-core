@@ -214,7 +214,6 @@ func (o *MachineHealthReportEntryRequest) UnmarshalJSON(data []byte) (err error)
 	varMachineHealthReportEntryRequest := _MachineHealthReportEntryRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varMachineHealthReportEntryRequest)
 
 	if err != nil {

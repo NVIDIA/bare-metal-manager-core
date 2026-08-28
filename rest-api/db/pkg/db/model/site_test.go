@@ -274,6 +274,7 @@ func TestSiteSQLDAO_GetAll(t *testing.T) {
 
 		if i == 25 || i == 24 {
 			site.Config.NativeNetworking = true
+			site.Config.VpcSlaac = true
 			site.Config.NVLinkPartition = true
 			site.Config.Flow = true
 		}
@@ -402,6 +403,24 @@ func TestSiteSQLDAO_GetAll(t *testing.T) {
 			},
 			wantCount:      3,
 			wantTotalCount: 3,
+			wantErr:        false,
+		},
+		{
+			name: "get all Sites by VPC SLAAC flag",
+			fields: fields{
+				dbSession: dbSession,
+			},
+			args: args{
+				ctx: context.Background(),
+				filter: SiteFilterInput{
+					Org:                       nil,
+					InfrastructureProviderIDs: nil,
+					Config:                    &SiteConfigFilterInput{VpcSlaac: cutil.GetPtr(true)},
+				},
+				includeRelations: false,
+			},
+			wantCount:      2,
+			wantTotalCount: 2,
 			wantErr:        false,
 		},
 		{
@@ -1289,6 +1308,24 @@ func TestSiteSQLDAO_Update(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Legacy Sites can have a SQL NULL config because the migration from the
+	// legacy capabilities column copied NULL values. Config updates must
+	// initialize that row instead of letting NULL absorb the JSONB merge.
+	legacyNullConfigSite := &Site{
+		ID:                       uuid.New(),
+		Name:                     "test-null-config",
+		Org:                      "test",
+		InfrastructureProviderID: ip.ID,
+		IsInfinityEnabled:        true,
+		Status:                   SiteStatusPending,
+		CreatedBy:                uuid.New(),
+	}
+
+	_, err = dbSession.DB.NewInsert().Model(legacyNullConfigSite).Exec(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// Current time
 	curTime := db.GetCurTime()
 
@@ -1330,6 +1367,7 @@ func TestSiteSQLDAO_Update(t *testing.T) {
 		verifyChildSpanner bool
 		verifyAgentCert    bool
 		agentCertExpected  *time.Time
+		wantVpcSlaac       *bool
 	}{
 		{
 			name: "update only site config from params",
@@ -1409,6 +1447,22 @@ func TestSiteSQLDAO_Update(t *testing.T) {
 			verifyAgentCert:    true,
 			agentCertExpected:  &agentCertTime2,
 		},
+		{
+			name: "update VPC SLAAC config when stored config is SQL NULL",
+			fields: fields{
+				dbSession: dbSession,
+			},
+			ctx: ctx,
+			input: SiteUpdateInput{
+				SiteID: legacyNullConfigSite.ID,
+				Config: &SiteConfigUpdateInput{
+					VpcSlaac: cutil.GetPtr(true),
+				},
+			},
+			wantErr:            false,
+			verifyChildSpanner: true,
+			wantVpcSlaac:       cutil.GetPtr(true),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1424,6 +1478,9 @@ func TestSiteSQLDAO_Update(t *testing.T) {
 
 			assert.NoError(t, err)
 			assert.NotNil(t, got)
+			if tt.wantVpcSlaac != nil && assert.NotNil(t, got.Config) {
+				assert.Equal(t, *tt.wantVpcSlaac, got.Config.VpcSlaac)
+			}
 
 			if tt.want == ust {
 				assert.Equal(t, tt.want.Name, got.Name)

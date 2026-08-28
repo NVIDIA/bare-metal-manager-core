@@ -71,6 +71,44 @@ automountServiceAccountToken: true
 annotations:
   configmap.reloader.stakater.com/reload: '{{ include "nico-api.name" . }}-config-files,{{ include "nico-api.name" . }}-site-config-files'
 
+## Scheduling
+##
+## `affinity`, `nodeSelector` and `tolerations` are plain pass-throughs. Setting
+## `affinity` disables the `databaseAffinity` convenience below.
+affinity: {}
+nodeSelector: {}
+tolerations: []
+
+## Prefer -- never require -- scheduling nico-api onto the PostgreSQL primary's
+## node.
+##
+## nico-api holds the admin-segment advisory lock across application round trips
+## to the database, so a large share of that lock's hold time is network latency
+## rather than query time. The same 4,500-host ingestion measured a 1.32x
+## throughput difference between co-located and cross-node placement (local RTT
+## 0.073ms vs 0.473ms), with no other variable changed.
+##
+## Expressed as a soft preference on purpose:
+##   * `preferredDuringScheduling...` -- if the primary's node is full, cordoned
+##     or unreachable, nico-api still schedules normally. It never blocks a
+##     deployment or a node failover.
+##   * `...IgnoredDuringExecution` -- when Patroni promotes a new primary the
+##     `spilo-role=master` label moves, and nico-api is deliberately NOT evicted
+##     to follow it. Staying up beats chasing the 1.32x.
+##
+## The selector targets the Zalando/Spilo operator's convention. If your
+## PostgreSQL is deployed differently, point `matchLabels` at whatever marks
+## your primary, or set `enabled: false`. An unmatched preference is simply
+## ignored by the scheduler, so a wrong label costs nothing but the benefit.
+databaseAffinity:
+  enabled: true
+  weight: 100
+  topologyKey: kubernetes.io/hostname
+  namespaces:
+    - postgres
+  matchLabels:
+    spilo-role: master
+
 resources:
   limits:
     cpu: 3
@@ -146,6 +184,54 @@ certificate:
   extraDnsNames:
     - carbide-api.forge
   extraUris: []
+  # Dev/sim only: IP SANs for direct-IP TLS (e.g. API VIP). Leave empty in production.
+  ipAddresses: []
+
+## Optional NVSwitch control-plane certificates. Both leaves use the
+## same existing issuer, which defaults to the vault-nico-issuer deployed by
+## the standard NICo prerequisites. Both profiles are disabled by default.
+nvSwitchTls:
+  issuerRef:
+    kind: ClusterIssuer
+    name: vault-nico-issuer
+    group: cert-manager.io
+
+  ## Dedicated NICo client identity for direct mTLS connections to NMX-C.
+  ## When enabled, the generated Secret is mounted read-only at mountPath.
+  nicoClient:
+    enabled: false
+    name: nvswitch-nico-client-certificate
+    secretName: nvswitch-nico-client-certificate
+    mountPath: /var/run/secrets/nvswitch-client
+    duration: 720h0m0s
+    renewBefore: 360h0m0s
+    ## At least one URI SAN is required when enabled. Any cert-manager approver
+    ## policy must allow the exact identity.
+    uris: []
+    privateKey:
+      algorithm: ECDSA
+      size: 384
+      rotationPolicy: Always
+
+  ## Server identity installed on NVUE/NMX-C by the site's switch installer.
+  ## This chart only creates the Secret; it deliberately does not mount it into
+  ## nico-api. Enable it only when this release should own the server artifact.
+  switchServer:
+    enabled: false
+    name: nvswitch-server-certificate
+    secretName: nvswitch-server-certificate
+    duration: 720h0m0s
+    renewBefore: 360h0m0s
+    ## Configure the SAN type that matches nmx_c_tls_authority. At least one
+    ## DNS name or IP address is required when this certificate is enabled.
+    dnsNames: []
+    ipAddresses: []
+    ## Optional identity metadata, subject to the issuer/approver policy.
+    uris: []
+    privateKey:
+      algorithm: ECDSA
+      size: 384
+      rotationPolicy: Always
 
 migrationJob:
   sslMode: require

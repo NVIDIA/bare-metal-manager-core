@@ -66,6 +66,14 @@ func TestAPIUpdateFirmwareRequest_Validate(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "invalid - authentication data has no representation",
+			request: APIUpdateFirmwareRequest{
+				SiteID:             "site-1",
+				AuthenticationData: &APIFirmwareAuthenticationData{},
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -78,6 +86,49 @@ func TestAPIUpdateFirmwareRequest_Validate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAPIFirmwareAuthenticationDataValidate(t *testing.T) {
+	shared := "shared-token"
+	tests := []struct {
+		name    string
+		data    APIFirmwareAuthenticationData
+		wantErr bool
+	}{
+		{name: "shared", data: APIFirmwareAuthenticationData{Shared: &shared}},
+		{name: "per component", data: APIFirmwareAuthenticationData{PerComponent: &APIPerComponentFirmwareAuthenticationData{Compute: &shared}}},
+		{name: "empty per component is accepted as no authentication", data: APIFirmwareAuthenticationData{PerComponent: &APIPerComponentFirmwareAuthenticationData{}}},
+		{name: "neither", data: APIFirmwareAuthenticationData{}, wantErr: true},
+		{name: "both", data: APIFirmwareAuthenticationData{Shared: &shared, PerComponent: &APIPerComponentFirmwareAuthenticationData{}}, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.data.Validate()
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestAPIFirmwareAuthenticationDataToProto(t *testing.T) {
+	shared := "shared-token"
+	compute := "compute-token"
+	data := (&APIFirmwareAuthenticationData{Shared: &shared}).ToProto()
+	assert.Equal(t, shared, data.GetShared())
+
+	data = (&APIFirmwareAuthenticationData{
+		PerComponent: &APIPerComponentFirmwareAuthenticationData{Compute: &compute},
+	}).ToProto()
+	assert.Equal(t, compute, data.GetPerComponent().GetCompute())
+	assert.Nil(t, data.GetPerComponent().Nvswitch)
+	assert.Nil(t, data.GetPerComponent().Powershelf)
+
+	var absent *APIFirmwareAuthenticationData
+	assert.Nil(t, absent.ToProto())
 }
 
 func TestAPIBatchTrayFirmwareUpdateRequest_Validate(t *testing.T) {

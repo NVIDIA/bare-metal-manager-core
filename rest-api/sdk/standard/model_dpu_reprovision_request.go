@@ -193,7 +193,6 @@ func (o *DpuReprovisionRequest) UnmarshalJSON(data []byte) (err error) {
 	varDpuReprovisionRequest := _DpuReprovisionRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varDpuReprovisionRequest)
 
 	if err != nil {

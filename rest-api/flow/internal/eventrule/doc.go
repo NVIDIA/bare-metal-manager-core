@@ -9,11 +9,12 @@
 //
 // # Events
 //
-// Envelope is the normalized event accepted by processing. Its ID identifies
-// one event across delivery retries, while CorrelationKey groups distinct
-// observations of the same logical incident for optional semantic
-// deduplication. Resource is the caller-supplied reference to the Flow rack or
-// component concerned by the event and may contain only an ExternalID.
+// Envelope is the normalized event accepted by processing. Its EventKey
+// combines the registered source name with the source-provided or
+// collector-derived event identity. The resulting key identifies one event
+// across delivery retries and is the mandatory deduplication identity.
+// Resource is the caller-supplied reference to the Flow rack or component
+// concerned by the event and may contain only an ExternalID.
 // ResolvedResource separately contains the canonical ID, rack ID, and component
 // type established by processing so enrichment never mutates the envelope.
 //
@@ -31,8 +32,8 @@
 // Policy, so processing executes them identically.
 //
 // EventType belongs to Rule because it controls rule selection. Policy contains
-// only response behavior: optional deduplication and the actions considered for
-// an accepted event. A resolver is expected to select one effective rule before
+// only the actions considered for an accepted event. A resolver is expected to
+// select one effective rule before
 // its policy is evaluated, for example rack override, then site rule, then
 // built-in fallback.
 //
@@ -62,24 +63,25 @@
 // The store interfaces are divided by capability. RuleReader provides common
 // reads. BuiltInRuleReader adds unique built-in lookup by event type.
 // RuleStore adds persisted-rule lifecycle operations. Rule identity and event
-// type remain stable; metadata, deduplication, actions, and enabled state are
-// updated independently. BindingStore separately manages bindings and scope
+// type remain stable; metadata, actions, and enabled state are updated
+// independently. BindingStore separately manages bindings and scope
 // lookup. A resolver composes the rule and binding stores to select rack, site,
 // and built-in precedence. Implementations own persistence,
 // concurrency, and transaction semantics.
 //
 // # Actions
 //
-// Each Action has a stable ID within its policy, an optional Condition, and a
+// Each Action has a stable name within its policy, an optional Condition, and a
 // concrete ActionSpec. Conditions intentionally support only demonstrated event
 // properties: severity and component type. Values within one condition field
 // use OR semantics, while different fields use AND semantics. An empty
 // condition applies to every event.
 //
 // Task actions use a named TargetStrategy rather than an arbitrary inventory
-// query. Target resolution and side effects occur outside this package. If a
-// target strategy resolves no resources, the processor should record the
-// action as skipped and must not submit a task.
+// query; actions without targets use TargetStrategyNone. Target resolution and
+// side effects occur outside this package. If a target strategy resolves no
+// resources, the processor should record the action as skipped and must not
+// submit a task.
 //
 // # Validation boundaries
 //

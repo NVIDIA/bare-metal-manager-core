@@ -32,7 +32,8 @@ use crate::HealthError;
 use crate::config::{MtlsProfileConfig, NvueGnmiPaths};
 
 pub(super) fn nvue_subscribe_paths(paths_config: &NvueGnmiPaths) -> Vec<Path> {
-    let mut paths = Vec::with_capacity(4);
+    let mut paths = Vec::with_capacity(5);
+
     if paths_config.components_enabled {
         paths.push(Path {
             elem: vec![
@@ -63,9 +64,10 @@ pub(super) fn nvue_subscribe_paths(paths_config: &NvueGnmiPaths) -> Vec<Path> {
             ..Default::default()
         });
     }
+
     if paths_config.platform_general_enabled {
-        // `/platform-general/state` carries the memory and disk
-        // utilization leaves
+        // `/platform-general/state` carries memory, disk, and ambient
+        // temperature leaves.
         paths.push(Path {
             elem: vec![
                 PathElem {
@@ -95,6 +97,35 @@ pub(super) fn nvue_subscribe_paths(paths_config: &NvueGnmiPaths) -> Vec<Path> {
             ..Default::default()
         });
     }
+
+    if paths_config.leak_sensors_enabled {
+        paths.push(Path {
+            elem: vec![
+                PathElem {
+                    name: "platform-general".into(),
+                    key: Default::default(),
+                },
+                PathElem {
+                    name: "leak-sensors".into(),
+                    key: Default::default(),
+                },
+                PathElem {
+                    name: "leak-sensor".into(),
+                    key: Default::default(),
+                },
+                PathElem {
+                    name: "state".into(),
+                    key: Default::default(),
+                },
+                PathElem {
+                    name: "state".into(),
+                    key: Default::default(),
+                },
+            ],
+            ..Default::default()
+        });
+    }
+
     paths
 }
 
@@ -748,64 +779,73 @@ mod tests {
 
     #[test]
     fn nvue_subscribe_path_cases() {
-        check_values(
-            [
-                Check {
-                    scenario: "all path groups",
-                    input: NvueGnmiPaths::default(),
-                    expect: "components/component,interfaces/interface,platform-general/state,platform-general/versions".to_string(),
-                },
-                Check {
-                    scenario: "components only",
-                    input: NvueGnmiPaths {
-                        components_enabled: true,
-                        interfaces_enabled: false,
-                        platform_general_enabled: false,
-                    },
-                    expect: "components/component".to_string(),
-                },
-                Check {
-                    scenario: "interfaces only",
-                    input: NvueGnmiPaths {
-                        components_enabled: false,
-                        interfaces_enabled: true,
-                        platform_general_enabled: false,
-                    },
-                    expect: "interfaces/interface".to_string(),
-                },
-                Check {
-                    scenario: "platform general only",
-                    input: NvueGnmiPaths {
-                        components_enabled: false,
-                        interfaces_enabled: false,
-                        platform_general_enabled: true,
-                    },
-                    expect: "platform-general/state,platform-general/versions".to_string(),
-                },
-                Check {
-                    scenario: "no path groups",
-                    input: NvueGnmiPaths {
-                        components_enabled: false,
-                        interfaces_enabled: false,
-                        platform_general_enabled: false,
-                    },
-                    expect: String::new(),
-                },
-            ],
-            |config| {
-                nvue_subscribe_paths(&config)
-                    .into_iter()
-                    .map(|path| {
-                        path.elem
-                            .into_iter()
-                            .map(|elem| elem.name)
-                            .collect::<Vec<_>>()
-                            .join("/")
-                    })
-                    .collect::<Vec<_>>()
-                    .join(",")
-            },
-        );
+        #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+        enum Group {
+            Components,
+            Interfaces,
+            PlatformGeneral,
+            LeakSensors,
+        }
+
+        use Group::{Components, Interfaces, LeakSensors, PlatformGeneral};
+
+        const COMPONENTS: &str = "components/component";
+        const INTERFACES: &str = "interfaces/interface";
+        const PLATFORM_STATE: &str = "platform-general/state";
+        const PLATFORM_VERSIONS: &str = "platform-general/versions";
+        const LEAKS: &str = "platform-general/leak-sensors/leak-sensor/state/state";
+
+        let cases = [
+            &[][..],
+            &[Components][..],
+            &[Interfaces][..],
+            &[Components, Interfaces][..],
+            &[PlatformGeneral][..],
+            &[Components, PlatformGeneral][..],
+            &[Interfaces, PlatformGeneral][..],
+            &[Components, Interfaces, PlatformGeneral][..],
+            &[LeakSensors][..],
+            &[Components, LeakSensors][..],
+            &[Interfaces, LeakSensors][..],
+            &[Components, Interfaces, LeakSensors][..],
+            &[PlatformGeneral, LeakSensors][..],
+            &[Components, PlatformGeneral, LeakSensors][..],
+            &[Interfaces, PlatformGeneral, LeakSensors][..],
+            &[Components, Interfaces, PlatformGeneral, LeakSensors][..],
+        ];
+
+        for groups in cases {
+            let config = NvueGnmiPaths {
+                components_enabled: groups.contains(&Components),
+                interfaces_enabled: groups.contains(&Interfaces),
+                platform_general_enabled: groups.contains(&PlatformGeneral),
+                leak_sensors_enabled: groups.contains(&LeakSensors),
+            };
+
+            let actual = nvue_subscribe_paths(&config)
+                .into_iter()
+                .map(|path| {
+                    path.elem
+                        .into_iter()
+                        .map(|elem| elem.name)
+                        .collect::<Vec<_>>()
+                        .join("/")
+                })
+                .collect::<Vec<_>>();
+
+            let expected = groups
+                .iter()
+                .flat_map(|group| match group {
+                    Components => &[COMPONENTS][..],
+                    Interfaces => &[INTERFACES][..],
+                    PlatformGeneral => &[PLATFORM_STATE, PLATFORM_VERSIONS][..],
+                    LeakSensors => &[LEAKS][..],
+                })
+                .copied()
+                .collect::<Vec<_>>();
+
+            assert_eq!(actual, expected, "enabled groups: {groups:?}");
+        }
     }
 
     #[test]

@@ -44,6 +44,7 @@ service Flow {
     rpc UpgradeFirmware(UpgradeFirmwareRequest) returns (SubmitTaskResponse);
     rpc BringUpRack(BringUpRackRequest) returns (SubmitTaskResponse);
     rpc IngestRack(IngestRackRequest) returns (SubmitTaskResponse);
+    rpc DecommissionRack(DecommissionRackRequest) returns (SubmitTaskResponse);
     rpc PowerOnRack(PowerOnRackRequest) returns (SubmitTaskResponse);
     rpc PowerOffRack(PowerOffRackRequest) returns (SubmitTaskResponse);
     rpc PowerResetRack(PowerResetRackRequest) returns (SubmitTaskResponse);
@@ -249,6 +250,13 @@ message ComponentOperationStatus {
     repeated OperationType blocked_operations = 3;
 }
 
+// TaskStats counts non-terminal Tasks currently associated with an inventory resource.
+message TaskStats {
+    uint32 waiting_task_count = 1;
+    uint32 pending_task_count = 2;
+    uint32 running_task_count = 3;
+}
+
 message Component {
     ComponentType type = 1;
     DeviceInfo info = 2;
@@ -260,12 +268,16 @@ message Component {
     string power_state = 8;  // Current power state (synced from external system by inventory loop)
     ComponentOperationStatus status = 9;
     LeakStatus leak_status = 10;  // Coolant leak detection status (set by the leak-detection loop)
+    UUID nvl_domain_id = 11;  // NVLink Domain containing this component's rack; omitted when unassigned
+    TaskStats task_stats = 12;  // Active Tasks that explicitly target this component.
 }
 
 message Rack {
     DeviceInfo info = 1;
     Location location = 2;
     repeated Component components = 3;
+    repeated UUID nvl_domain_ids = 4;  // NVLink Domains containing this rack; empty when unassigned
+    TaskStats task_stats = 5;  // All active Tasks on this rack, including component-scoped Tasks.
 }
 
 message Identifier {
@@ -274,12 +286,14 @@ message Identifier {
 }
 
 // OperationTargetSpec contains targets for an operation.
-// Supports either rack-level targeting (with optional type filtering)
-// or component-level targeting (by UUID or external reference), but not both.
+// Supports rack-level or NVLink-domain targeting (with optional type filtering),
+// or component-level targeting (by UUID or external reference), but not more
+// than one target kind at a time.
 message OperationTargetSpec {
     oneof targets {
         RackTargets racks = 1;
         ComponentTargets components = 2;
+        NVLDomainTargets nvl_domains = 3;
     }
 }
 
@@ -520,11 +534,33 @@ message UpgradeFirmwareRequest {
     // that would otherwise block disruptive operations against tenanted
     // hardware. The bypass is recorded in the server log.
     bool override_readiness_check = 9;
+    // Optional, write-only authentication data for firmware downloads. It is
+    // not supported for DPU-only updates or by the legacy NICo compute
+    // firmware controller.
+    FirmwareAuthenticationData authentication_data = 10;
+}
+
+// FirmwareAuthenticationData selects either one value shared by every target
+// or values scoped to supported firmware tray types.
+message FirmwareAuthenticationData {
+    oneof value {
+        string shared = 1;
+        PerComponentFirmwareAuthenticationData per_component = 2;
+    }
+}
+
+// PerComponentFirmwareAuthenticationData carries independent authentication
+// data for each supported firmware tray type. An omitted field means that tray
+// type receives no authentication data.
+message PerComponentFirmwareAuthenticationData {
+    optional string compute = 1;
+    optional string nvswitch = 2;
+    optional string powershelf = 3;
 }
 
 // GetComponents - retrieves components from local database
 message GetComponentsRequest {
-    optional OperationTargetSpec target_spec = 1;   // Optional: Flexible targeting: rack(s) with optional type filter, or specific components. If not provided, queries all components.
+    optional OperationTargetSpec target_spec = 1;   // Optional: target racks or NVLink domains with an optional type filter, or specific components. If not provided, queries all components.
     repeated Filter filters = 2;  // Filter conditions for component queries
     optional Pagination pagination = 3;
     optional OrderBy order_by = 4;
@@ -536,7 +572,7 @@ message GetComponentsResponse {
 }
 
 message ValidateComponentsRequest {
-    optional OperationTargetSpec target_spec = 1;   // Optional: Flexible targeting: rack(s) with optional type filter, or specific components. If not provided, returns all diffs.
+    optional OperationTargetSpec target_spec = 1;   // Optional: target racks or NVLink domains with an optional type filter, or specific components. If not provided, returns all diffs.
     repeated Filter filters = 2;           // Filter conditions for component queries
     optional Pagination pagination = 3;
     optional OrderBy order_by = 4;
@@ -657,7 +693,7 @@ message QueueOptions {
 }
 
 message PowerOnRackRequest {
-    OperationTargetSpec target_spec = 1;  // Flexible targeting: rack(s) with optional type filter, or specific components
+    OperationTargetSpec target_spec = 1;  // Target racks or NVLink domains with an optional type filter, or specific components
     string description = 2;               // optional task description
     optional QueueOptions queue_options = 3;
     optional UUID rule_id = 4;            // optional: override rule resolution with a specific rule
@@ -671,7 +707,7 @@ message PowerOnRackRequest {
 }
 
 message PowerOffRackRequest {
-    OperationTargetSpec target_spec = 1;  // Flexible targeting: rack(s) with optional type filter, or specific components
+    OperationTargetSpec target_spec = 1;  // Target racks or NVLink domains with an optional type filter, or specific components
     bool forced = 2;
     string description = 3;               // optional task description
     optional QueueOptions queue_options = 4;
@@ -686,7 +722,7 @@ message PowerOffRackRequest {
 }
 
 message PowerResetRackRequest {
-    OperationTargetSpec target_spec = 1;  // Flexible targeting: rack(s) with optional type filter, or specific components
+    OperationTargetSpec target_spec = 1;  // Target racks or NVLink domains with an optional type filter, or specific components
     bool forced = 2;
     string description = 3;               // optional task description
     optional QueueOptions queue_options = 4;
@@ -701,7 +737,7 @@ message PowerResetRackRequest {
 }
 
 message BringUpRackRequest {
-    OperationTargetSpec target_spec = 1;  // Target racks for bring-up
+    OperationTargetSpec target_spec = 1;  // Target racks, NVLink domains, or components for bring-up
     string description = 2;               // optional task description
     optional UUID rule_id = 3;            // optional: override rule resolution with a specific rule
     // When true, allow the bring-up sequence (which may power-cycle hosts
@@ -714,9 +750,16 @@ message BringUpRackRequest {
 }
 
 message IngestRackRequest {
-    OperationTargetSpec target_spec = 1;  // Target racks for ingestion
+    OperationTargetSpec target_spec = 1;  // Target racks, NVLink domains, or components for ingestion
     repeated Filter filters = 2;          // Filter conditions for component queries (e.g. by type, name)
     string description = 3;               // optional task description
+    optional UUID rule_id = 4;            // optional: override rule resolution with a specific rule
+}
+
+message DecommissionRackRequest {
+    OperationTargetSpec target_spec = 1;  // Target racks for decommissioning
+    string description = 2;               // optional task description
+    optional QueueOptions queue_options = 3; // optional queue policy overrides
     optional UUID rule_id = 4;            // optional: override rule resolution with a specific rule
 }
 
@@ -954,7 +997,7 @@ message ScheduledOperation {
 
 // CreateTaskScheduleRequest creates a new TaskSchedule.
 // The target_spec on the operation message defines the initial scope; it follows
-// the same targeting rules as AddTaskScheduleScope (rack-level or component-level).
+// the same targeting rules as AddTaskScheduleScope.
 // Use AddTaskScheduleScope / RemoveTaskScheduleScope to modify the scope after creation.
 message CreateTaskScheduleRequest {
     ScheduleConfig     schedule  = 1;
@@ -1043,8 +1086,9 @@ message TaskScheduleScope {
 }
 
 // AddTaskScheduleScopeRequest adds one or more scope entries to a schedule.
-// Supports rack-level targeting (with optional component-type filter) and
-// component-level targeting (specific components by UUID or external reference).
+// Supports rack or NVLink domain targeting (with an optional component-type
+// filter) and component targeting (specific components by UUID or external reference).
+// NVLink domain membership is resolved to rack scopes when this request is handled.
 // For component-level targets the server resolves which rack each component
 // belongs to and groups them into per-rack scope entries automatically.
 // Racks already present in the scope have their component filter merged with the
@@ -1070,7 +1114,7 @@ message RemoveTaskScheduleScopeRequest {
 // desired target_spec: racks present in desired_scope but not in the current scope
 // are added; racks present in the current scope but absent from desired_scope are
 // removed; racks present in both have their component_filter updated if changed.
-// For component-level targets the server resolves rack membership automatically.
+// For NVLink domain and component targets the server resolves rack membership automatically.
 message UpdateTaskScheduleScopeRequest {
     UUID                schedule_id   = 1;
     OperationTargetSpec desired_scope = 2;
@@ -1513,4 +1557,20 @@ message OperationRunTarget {
     ComponentsByType components_by_type = 9;
     google.protobuf.Timestamp created_at = 10;
     google.protobuf.Timestamp updated_at = 11;
+}
+
+// NVLDomainTargets contains one or more NVLink domain targets.
+message NVLDomainTargets {
+    repeated NVLDomainTarget targets = 1;
+}
+
+// NVLDomainTarget identifies an NVLink domain and optionally filters the
+// components selected from every rack currently belonging to that domain.
+message NVLDomainTarget {
+    oneof identifier {
+        UUID id = 1;        // NVLink domain UUID
+        string name = 2;    // NVLink domain name
+    }
+    // Optional: filter by component type. Omit (or send an empty list) to include all component types in the domain.
+    repeated ComponentType component_types = 3;
 }

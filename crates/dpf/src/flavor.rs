@@ -24,8 +24,10 @@ use kube::core::ObjectMeta;
 use sha2::{Digest, Sha256};
 
 use crate::crds::dpuflavors_generated::{
-    DPUFlavor, DpuFlavorConfigFiles, DpuFlavorConfigFilesOperation, DpuFlavorContainerdConfig,
-    DpuFlavorDpuMode, DpuFlavorEwNicConfigurations, DpuFlavorEwNicConfigurationsNetworkBay,
+    DPUFlavor, DpuFlavorConfigFiles, DpuFlavorConfigFilesContentFrom,
+    DpuFlavorConfigFilesContentFromConfigMapKeyRef, DpuFlavorConfigFilesOperation,
+    DpuFlavorConfigFilesType, DpuFlavorContainerdConfig, DpuFlavorDpuMode,
+    DpuFlavorEwNicConfigurations, DpuFlavorEwNicConfigurationsNetworkBay,
     DpuFlavorEwNicConfigurationsRawNvConfig, DpuFlavorEwNicConfigurationsSpectrumXOptimized,
     DpuFlavorEwNicConfigurationsSpectrumXOptimizedMultiplaneMode,
     DpuFlavorEwNicConfigurationsSpectrumXOptimizedOverlay, DpuFlavorGrub, DpuFlavorNvconfig,
@@ -97,6 +99,8 @@ fn get_bf4_ovs_defaults_base() -> String {
         "_ovs-vsctl() {\n",
         "    ovs-vsctl --timeout 15 \"$@\"\n",
         "}\n",
+        // Exported so the post-OVS hook inherits the helper, as on Astra.
+        "export -f _ovs-vsctl\n",
 
         "# Remove default OVS configuration on the DPU and ensure no leftovers on the OVS kernel side\n",
         "for i in $(seq 1 99); do\n",
@@ -130,9 +134,12 @@ fn get_bf4_ovs_defaults_base() -> String {
         "_ovs-vsctl set Interface p0 mtu_request=9216\n",
         "_ovs-vsctl set Port p0 external_ids:dpf-type=physical\n",
 
+        // br-hbn is absent on a fresh DPU, so a bare del-br would fail the run.
+        "_ovs-vsctl --if-exists del-br br-hbn\n",
         "_ovs-vsctl --may-exist add-br br-hbn\n",
         "_ovs-vsctl set bridge br-hbn datapath_type=netdev\n",
         "_ovs-vsctl set bridge br-hbn fail_mode=secure\n",
+
         "mst start\n",
     )
     .to_string()
@@ -153,8 +160,11 @@ fn get_default_ovs_defaults_with_topology(topology: Option<&DpfInterceptBridging
 
 /// Builds the generic-BF4 OVS bootstrap after preflighting every configured PF.
 fn get_bf4_ovs_defaults_with_topology(topology: Option<&DpfInterceptBridging>) -> String {
+    // Explicit bash, as on Astra: the base uses `export -f`, which errors under dash.
+    let mut script = String::from("#!/bin/bash\n");
+    append_pre_ovs_hook(&mut script);
     // Preflight is prepended so no inherited or configured OVS operation can run first.
-    let mut script = topology.map_or_else(String::new, render_bf4_pf_preflight);
+    script.push_str(&topology.map_or_else(String::new, render_bf4_pf_preflight));
     script.push_str(&get_bf4_ovs_defaults_base());
     if let Some(topology) = topology {
         append_peer_bridge_bootstrap(&mut script, topology, |interface| {
@@ -167,7 +177,22 @@ fn get_bf4_ovs_defaults_with_topology(topology: Option<&DpfInterceptBridging>) -
         });
     }
     append_ovn_encap_ip_bootstrap(&mut script);
+    append_post_ovs_hook(&mut script);
     script
+}
+
+/// Appends the operator's pre-OVS hook, which runs before anything else.
+fn append_pre_ovs_hook(script: &mut String) {
+    script.push_str(
+        "if [ -x /opt/dpf/extra-script-pre-ovs.sh ]; then /opt/dpf/extra-script-pre-ovs.sh; fi\n",
+    );
+}
+
+/// Appends the operator's post-OVS hook, which runs last.
+fn append_post_ovs_hook(script: &mut String) {
+    script.push_str(
+        "if [ -x /opt/dpf/extra-script-post-ovs.sh ]; then /opt/dpf/extra-script-post-ovs.sh; fi\n",
+    );
 }
 
 /// Appends the per-DPU OVN address update to provisioning-time OVS configuration.
@@ -302,6 +327,7 @@ fn bf4_pf_variable(controller_id: u8, pf_id: u8) -> String {
 fn get_bf4_astra_ovs_defaults() -> String {
     concat!(
         "#!/bin/bash\n",
+        "if [ -x /opt/dpf/extra-script-pre-ovs.sh ]; then /opt/dpf/extra-script-pre-ovs.sh; fi\n",
         "# Shared helper used by the called scripts; exported so they inherit it\n",
         "\n",
         "# create an entry in /etc/hosts to allow self hostname resolution: (bug fix)\n",
@@ -317,6 +343,7 @@ fn get_bf4_astra_ovs_defaults() -> String {
         "\n",
         "# 2. Configure rail bridge addressing (netplan)\n",
         "/etc/mellanox/xplane-bridge.sh\n",
+        "if [ -x /opt/dpf/extra-script-post-ovs.sh ]; then /opt/dpf/extra-script-post-ovs.sh; fi\n",
     )
     .to_string()
 }
@@ -348,12 +375,20 @@ pub fn default_flavor_for(
     // Selects the DPUFlavor variant to build for the given deployment type.
     deployment_type: DpuDeploymentType,
 ) -> Result<DPUFlavor, crate::error::DpfError> {
+    let pf_total_sf = match deployment_type {
+        DpuDeploymentType::Bf4Astra => {
+            let interfaces = crate::sdk::build_astra_dpu_interfaces_vec();
+            crate::sdk::calculate_astra_pf_total_sf(interfaces.as_slice())?
+        }
+        DpuDeploymentType::Bf3 | DpuDeploymentType::Bf4Generic => DEFAULT_PF_TOTAL_SF_RESERVED,
+    };
+
     default_flavor_for_with_topology(
         namespace,
         proxy,
         deployment_type,
         DEFAULT_DPU_NUM_OF_VFS,
-        DEFAULT_PF_TOTAL_SF_RESERVED,
+        pf_total_sf,
         None,
         None,
     )
@@ -369,7 +404,7 @@ pub(crate) fn default_flavor_for_with_topology(
     intercept_bridging: Option<&DpfInterceptBridging>,
     dhcp_acl_interfaces: Option<&[DpuServiceInterfaceTemplateDefinition]>,
 ) -> Result<DPUFlavor, crate::error::DpfError> {
-    // Astra deliberately ignores both site-wide inputs.
+    // Astra ignores site topology and DHCP-ACL inputs, but uses its precomputed SF capacity.
     match deployment_type {
         DpuDeploymentType::Bf4Generic => flavor_bf4_with_topology(
             namespace,
@@ -379,7 +414,7 @@ pub(crate) fn default_flavor_for_with_topology(
             intercept_bridging,
             dhcp_acl_interfaces,
         ),
-        DpuDeploymentType::Bf4Astra => flavor_bf4_astra(namespace, proxy),
+        DpuDeploymentType::Bf4Astra => flavor_bf4_astra(namespace, proxy, pf_total_sf),
         DpuDeploymentType::Bf3 => default_flavor_with_topology(
             namespace,
             proxy,
@@ -463,20 +498,10 @@ fn flavor_bf4_with_topology(
     })
 }
 
-/// Build the BF4 Astra DPUFlavor spec, with BF4-astra grub and OVS
-/// configuration.
-/// If `proxy` is set, a containerd proxy drop-in config file is appended so the DPU can pull
-/// images through the proxy.
-///
-/// Returns `ConfigError` if any proxy string contains characters that would
-/// break the generated systemd `Environment="..."` lines (quotes, newlines,
-/// or other control characters).
-///
-/// `metadata.name` is left unset; callers must set it (typically via [`DPUFlavor::unique_name`])
-/// before creating the resource in the cluster.
-pub fn flavor_bf4_astra(
+fn flavor_bf4_astra(
     namespace: &str,
     proxy: &Option<DpfProxyDetails>,
+    pf_total_sf: u32,
 ) -> Result<DPUFlavor, crate::error::DpfError> {
     Ok(DPUFlavor {
         metadata: ObjectMeta {
@@ -495,7 +520,7 @@ pub fn flavor_bf4_astra(
             ew_nic_configurations: Some(bf4_astra_ew_nic_configurations()),
             grub: Some(bf4_astra_grub_params()),
             host_network_interface_configs: None,
-            nvconfig: Some(vec![get_bf4_astra_nvconfig()]),
+            nvconfig: Some(vec![get_bf4_astra_nvconfig(pf_total_sf)]),
             ovs: Some(DpuFlavorOvs {
                 raw_config_script: Some(get_bf4_astra_ovs_defaults()),
             }),
@@ -869,6 +894,40 @@ fn get_config_files(
         });
     }
 
+    // ROLLOUT SAFETY: these entries change the flavor hash, so adding them
+    // reprovisions every existing BF4 DPU once. ConfigMap edits do not.
+    if deployment_type == DpuDeploymentType::Bf4Generic {
+        config_files.push(DpuFlavorConfigFiles {
+            content_from: Some(DpuFlavorConfigFilesContentFrom {
+                config_map_key_ref: Some(DpuFlavorConfigFilesContentFromConfigMapKeyRef {
+                    name: Some("extra-script-pre-ovs-bf4-generic".to_string()),
+                    key: "script".to_string(),
+                    optional: None,
+                }),
+            }),
+            operation: Some(DpuFlavorConfigFilesOperation::Override),
+            path: "/opt/dpf/extra-script-pre-ovs.sh".to_string(),
+            permissions: Some("0755".to_string()),
+            raw: None,
+            r#type: Some(DpuFlavorConfigFilesType::AgentApplied),
+        });
+        config_files.push(DpuFlavorConfigFiles {
+            // CRD allows exactly one of `raw` and `contentFrom`.
+            content_from: Some(DpuFlavorConfigFilesContentFrom {
+                config_map_key_ref: Some(DpuFlavorConfigFilesContentFromConfigMapKeyRef {
+                    name: Some("extra-script-post-ovs-bf4-generic".to_string()),
+                    key: "script".to_string(),
+                    optional: None,
+                }),
+            }),
+            operation: Some(DpuFlavorConfigFilesOperation::Override),
+            path: "/opt/dpf/extra-script-post-ovs.sh".to_string(),
+            permissions: Some("0755".to_string()),
+            raw: None,
+            r#type: Some(DpuFlavorConfigFilesType::AgentApplied),
+        });
+    }
+
     Ok(config_files)
 }
 
@@ -978,6 +1037,7 @@ fn get_bf4_astra_config_files(
                     "ALLOW_SHARED_RQ=\"no\"\n",
                     "IPSEC_FULL_OFFLOAD=\"no\"\n",
                     "ENABLE_ESWITCH_MULTIPORT=\"yes\"\n",
+                    "SNAP_DMA_SF=\"no\"\n",
                 )
                 .to_string(),
             ),
@@ -1292,6 +1352,9 @@ fn get_bf4_astra_config_files(
                     "_ovs-vsctl --may-exist add-br br-sfc\n",
                     "_ovs-vsctl set bridge br-sfc datapath_type=netdev\n",
                     "_ovs-vsctl set bridge br-sfc fail_mode=secure\n",
+
+                    // br-hbn is absent on a fresh DPU, so a bare del-br would fail the run.
+                    "_ovs-vsctl --if-exists del-br br-hbn\n",
                     "_ovs-vsctl --may-exist add-br br-hbn\n",
                     "_ovs-vsctl set bridge br-hbn datapath_type=netdev\n",
                     "_ovs-vsctl set bridge br-hbn fail_mode=secure\n",
@@ -1342,17 +1405,15 @@ fn get_bf4_astra_config_files(
                     "CX9_MAP[\"3,1\"]=7\n",
                     "\n",
                     "# Map CX9 ID -> interface name (Ax)\n",
-                    "# A2 -> CX0, A3 -> CX1, A0 -> CX2, A1 -> CX3\n",
-                    "# A4 -> CX4, A5 -> CX5, A6 -> CX6, A7 -> CX7\n",
                     "declare -A IFACE_MAP\n",
-                    "IFACE_MAP[0]=\"A2\"\n",
-                    "IFACE_MAP[1]=\"A3\"\n",
-                    "IFACE_MAP[2]=\"A0\"\n",
-                    "IFACE_MAP[3]=\"A1\"\n",
-                    "IFACE_MAP[4]=\"A4\"\n",
-                    "IFACE_MAP[5]=\"A5\"\n",
-                    "IFACE_MAP[6]=\"A6\"\n",
-                    "IFACE_MAP[7]=\"A7\"\n",
+                    "IFACE_MAP[0]=\"A53\"\n",
+                    "IFACE_MAP[1]=\"A56\"\n",
+                    "IFACE_MAP[2]=\"A43\"\n",
+                    "IFACE_MAP[3]=\"A46\"\n",
+                    "IFACE_MAP[4]=\"A3\"\n",
+                    "IFACE_MAP[5]=\"A6\"\n",
+                    "IFACE_MAP[6]=\"A13\"\n",
+                    "IFACE_MAP[7]=\"A16\"\n",
                     "\n",
                     "for rail in \"${RAILS[@]}\"; do\n",
                     "    for sw_plane in \"${SW_PLANES[@]}\"; do\n",
@@ -1373,6 +1434,7 @@ fn get_bf4_astra_config_files(
                     "        done\n",
                     "    done\n",
                     "done\n",
+                    "mst start\n",
                 )
                 .to_string(),
             ),
@@ -1407,6 +1469,7 @@ fn get_bf4_astra_config_files(
                     "    \"MT26206064FY|242|243\"\n",
                     "    \"MT26206064MA|244|245\"\n",
                     "    \"MT26206064KK|246|247\"\n",
+                    "    \"MT2617601WT5|248|249\"\n",
                     ")\n",
                     "\n",
                     "# Define Subnet Prefixes as an associative array indexed by \"rail,sw_plane\"\n",
@@ -1480,6 +1543,35 @@ fn get_bf4_astra_config_files(
             ),
             r#type: None,
         },
+        DpuFlavorConfigFiles {
+            content_from: Some(DpuFlavorConfigFilesContentFrom {
+                config_map_key_ref: Some(DpuFlavorConfigFilesContentFromConfigMapKeyRef {
+                    name: Some("extra-script-pre-ovs-bf4-astra".to_string()),
+                    key: "script".to_string(),
+                    optional: None,
+                }),
+            }),
+            operation: Some(DpuFlavorConfigFilesOperation::Override),
+            path: "/opt/dpf/extra-script-pre-ovs.sh".to_string(),
+            permissions: Some("0755".to_string()),
+            raw: None,
+            r#type: Some(DpuFlavorConfigFilesType::AgentApplied),
+        },
+        DpuFlavorConfigFiles {
+            // CRD allows exactly one of `raw` and `contentFrom`.
+            content_from: Some(DpuFlavorConfigFilesContentFrom {
+                config_map_key_ref: Some(DpuFlavorConfigFilesContentFromConfigMapKeyRef {
+                    name: Some("extra-script-post-ovs-bf4-astra".to_string()),
+                    key: "script".to_string(),
+                    optional: None,
+                }),
+            }),
+            operation: Some(DpuFlavorConfigFilesOperation::Override),
+            path: "/opt/dpf/extra-script-post-ovs.sh".to_string(),
+            permissions: Some("0755".to_string()),
+            raw: None,
+            r#type: Some(DpuFlavorConfigFilesType::AgentApplied),
+        },
     ];
 
     if let Some(proxy) = proxy {
@@ -1548,11 +1640,11 @@ fn get_nvconfig(num_of_vfs: u32, pf_total_sf: u32) -> DpuFlavorNvconfig {
     }
 }
 
-fn get_bf4_astra_nvconfig() -> DpuFlavorNvconfig {
+fn get_bf4_astra_nvconfig(pf_total_sf: u32) -> DpuFlavorNvconfig {
     let parameters = vec![
         "PF_BAR2_ENABLE=0".to_string(),
         "PER_PF_NUM_SF=1".to_string(),
-        "PF_TOTAL_SF=30".to_string(),
+        format!("PF_TOTAL_SF={pf_total_sf}"),
         "PF_SF_BAR_SIZE=14".to_string(),
         "NUM_PF_MSIX_VALID=0".to_string(),
         "PF_NUM_PF_MSIX_VALID=1".to_string(),
@@ -1865,10 +1957,12 @@ mod tests {
         assert!(generic_bf4.contains(&"NUM_OF_VFS=5".to_string()));
         assert!(generic_bf4.contains(&"PF_TOTAL_SF=63".to_string()));
 
-        // Astra retains its established fixed hardware configuration.
-        let astra = parameters(flavor_bf4_astra("ns", &None).unwrap());
+        // Astra retains its established fixed VF configuration and derives SF capacity from its
+        // static service endpoints and DOCA Weave DHCP Agent PF allocation.
+        let astra =
+            parameters(default_flavor_for("ns", &None, DpuDeploymentType::Bf4Astra).unwrap());
         assert!(astra.contains(&"NUM_OF_VFS=46".to_string()));
-        assert!(astra.contains(&"PF_TOTAL_SF=30".to_string()));
+        assert!(astra.contains(&"PF_TOTAL_SF=36".to_string()));
     }
 
     /// Verifies normalized input order cannot change rendered flavor identity.
@@ -1941,10 +2035,92 @@ mod tests {
                 get_default_ovs_defaults_with_topology(None) => true,
             }
 
+            // BF4 runs the operator's post-OVS hook last, so the encap-IP block is
+            // the final NICo-authored step rather than the final line.
             "generic BF4 provisioning" {
-                get_bf4_ovs_defaults_with_topology(None) => true,
+                get_bf4_ovs_defaults_with_topology(None) => false,
             }
         );
+        assert!(get_bf4_ovs_defaults_with_topology(None).contains(&expected));
+    }
+
+    /// Every BF4 script must run the pre hook before any OVS work and the post
+    /// hook after all of it. The post hook is appended separately and is easy to
+    /// drop or misplace.
+    #[test]
+    fn bf4_scripts_run_pre_hook_first_and_post_hook_last() {
+        // Matched against a real OVS operation, not the substring "ovs", which
+        // also occurs inside the pre-hook's own filename.
+        for (script, first_ovs_operation) in [
+            (
+                get_bf4_ovs_defaults_with_topology(None),
+                "ovs-vsctl --if-exists del-br",
+            ),
+            (
+                get_bf4_ovs_defaults_with_topology(Some(&intercept_bridging())),
+                "ovs-vsctl --if-exists del-br",
+            ),
+            (get_bf4_astra_ovs_defaults(), "/etc/mellanox/ovs-script.sh"),
+        ] {
+            let guard = |hook: &str| {
+                let path = format!("/opt/dpf/extra-script-{hook}.sh");
+                let line = format!("if [ -x {path} ]; then {path}; fi");
+                let at = script
+                    .find(&line)
+                    .unwrap_or_else(|| panic!("missing guarded {hook} hook"));
+                (at, line)
+            };
+            let (pre, _) = guard("pre-ovs");
+            let (_, post_line) = guard("post-ovs");
+
+            let first_ovs = script
+                .find(first_ovs_operation)
+                .expect("script must contain an OVS operation");
+            assert!(pre < first_ovs, "pre-ovs hook must precede all OVS work");
+            assert_eq!(
+                script.trim_end().lines().last(),
+                Some(post_line.as_str()),
+                "post-ovs hook must be the final line"
+            );
+        }
+    }
+
+    /// The hook files must keep referencing the ConfigMaps the SDK seeds, under
+    /// the key it writes, and stay executable agent-applied files.
+    #[test]
+    fn bf4_hook_config_files_reference_their_configmaps() {
+        for (files, suffix) in [
+            (
+                get_config_files(&None, DpuDeploymentType::Bf4Generic, None).unwrap(),
+                "bf4-generic",
+            ),
+            (get_bf4_astra_config_files(&None).unwrap(), "bf4-astra"),
+        ] {
+            for hook in ["pre-ovs", "post-ovs"] {
+                let path = format!("/opt/dpf/extra-script-{hook}.sh");
+                let file = files
+                    .iter()
+                    .find(|f| f.path == path)
+                    .unwrap_or_else(|| panic!("{suffix}: no config file for {path}"));
+                let key_ref = file
+                    .content_from
+                    .as_ref()
+                    .and_then(|c| c.config_map_key_ref.as_ref())
+                    .unwrap_or_else(|| panic!("{suffix}: {path} must use configMapKeyRef"));
+
+                assert_eq!(
+                    key_ref.name.as_deref(),
+                    Some(&*format!("extra-script-{hook}-{suffix}"))
+                );
+                assert_eq!(key_ref.key, "script");
+                assert_eq!(file.permissions.as_deref(), Some("0755"));
+                assert!(matches!(
+                    file.r#type,
+                    Some(DpuFlavorConfigFilesType::AgentApplied)
+                ));
+                assert!(file.raw.is_none(), "{suffix}: raw and contentFrom conflict");
+            }
+        }
     }
 
     /// Verifies the retained OVN oneshot is installed after network readiness and either OVS unit.
@@ -2188,7 +2364,7 @@ mod tests {
 
     #[test]
     fn bf4_astra_flavor_spec_invariants() {
-        let flavor = flavor_bf4_astra("astra-ns", &None).unwrap();
+        let flavor = default_flavor_for("astra-ns", &None, DpuDeploymentType::Bf4Astra).unwrap();
         let ew_nic = flavor
             .spec
             .ew_nic_configurations
@@ -2214,6 +2390,17 @@ mod tests {
             .ovs
             .as_ref()
             .and_then(|ovs| ovs.raw_config_script.as_ref())
+            .unwrap();
+        let ovs_setup_script = flavor
+            .spec
+            .config_files
+            .as_ref()
+            .and_then(|files| {
+                files
+                    .iter()
+                    .find(|file| file.path == "/etc/mellanox/ovs-script.sh")
+            })
+            .and_then(|file| file.raw.as_ref())
             .unwrap();
 
         value_scenarios!(
@@ -2270,11 +2457,11 @@ mod tests {
                 ) => true,
             }
 
-            "Astra nvconfig requests 30 total SFs and 46 VFs" {
+            "Astra nvconfig requests endpoint-derived total SFs and 46 VFs" {
                 (
                     nvconfig_parameters
                         .iter()
-                        .any(|parameter| parameter == "PF_TOTAL_SF=30")
+                        .any(|parameter| parameter == "PF_TOTAL_SF=36")
                         && nvconfig_parameters
                             .iter()
                             .any(|parameter| parameter == "NUM_OF_VFS=46")
@@ -2286,6 +2473,13 @@ mod tests {
                     ovs_script.contains("/etc/mellanox/ovs-script.sh")
                         && ovs_script.contains("/etc/mellanox/xplane-bridge.sh")
                 ) => true,
+            }
+
+            "OVS bootstrap recreates the HBN bridge" {
+                ovs_setup_script
+                    .find("_ovs-vsctl --if-exists del-br br-hbn")
+                    .zip(ovs_setup_script.find("_ovs-vsctl --may-exist add-br br-hbn"))
+                    .is_some_and(|(delete_bridge, add_bridge)| delete_bridge < add_bridge) => true,
             }
 
             "Spectrum-X config has the Adaptive Routing Force setting" {
@@ -2387,7 +2581,7 @@ mod tests {
     fn bf4_astra_proxy_config_file_count() {
         value_scenarios!(
             run = |p| {
-                let files = flavor_bf4_astra("astra-ns", &p)
+                let files = default_flavor_for("astra-ns", &p, DpuDeploymentType::Bf4Astra)
                     .unwrap()
                     .spec
                     .config_files
@@ -2401,12 +2595,12 @@ mod tests {
                     .count();
                 (files.len(), proxy_file_count)
             };
-            "no proxy keeps only the six Astra base files" {
-                None => (6, 0),
+            "no proxy keeps only the eight Astra base files" {
+                None => (8, 0),
             }
 
             "configured proxy appends exactly one proxy file" {
-                proxy("http://proxy:3128", &["10.0.0.0/8", "localhost"]) => (7, 1),
+                proxy("http://proxy:3128", &["10.0.0.0/8", "localhost"]) => (9, 1),
             }
         );
     }

@@ -412,6 +412,13 @@ impl Forge for Api {
         crate::handlers::power_shelf::find_by_ids(self, request).await
     }
 
+    async fn decommission_power_shelf(
+        &self,
+        request: Request<rpc::DecommissionPowerShelfRequest>,
+    ) -> Result<Response<rpc::DecommissionPowerShelfResponse>, Status> {
+        crate::handlers::power_shelf::decommission_power_shelf(self, request).await
+    }
+
     async fn delete_power_shelf(
         &self,
         request: Request<rpc::PowerShelfDeletionRequest>,
@@ -459,6 +466,13 @@ impl Forge for Api {
         request: Request<rpc::SwitchDeletionRequest>,
     ) -> Result<Response<rpc::SwitchDeletionResult>, Status> {
         crate::handlers::switch::delete_switch(self, request).await
+    }
+
+    async fn decommission_switch(
+        &self,
+        request: Request<rpc::DecommissionSwitchRequest>,
+    ) -> Result<Response<rpc::DecommissionSwitchResponse>, Status> {
+        crate::handlers::switch::decommission_switch(self, request).await
     }
 
     async fn admin_force_delete_switch(
@@ -948,6 +962,13 @@ impl Forge for Api {
         crate::handlers::switch::find_switch_state_histories(self, request).await
     }
 
+    async fn find_switch_health_histories(
+        &self,
+        request: Request<rpc::SwitchHealthHistoriesRequest>,
+    ) -> Result<Response<rpc::HealthHistories>, Status> {
+        crate::handlers::switch::find_switch_health_histories(self, request).await
+    }
+
     async fn find_machine_health_histories(
         &self,
         request: Request<rpc::MachineHealthHistoriesRequest>,
@@ -1204,6 +1225,13 @@ impl Forge for Api {
         request: Request<rpc::AdminForceDeleteMachineRequest>,
     ) -> Result<Response<rpc::AdminForceDeleteMachineResponse>, Status> {
         crate::handlers::machine::admin_force_delete_machine(self, request).await
+    }
+
+    async fn decommission_managed_host(
+        &self,
+        request: Request<rpc::DecommissionManagedHostRequest>,
+    ) -> Result<Response<rpc::DecommissionManagedHostResponse>, Status> {
+        crate::handlers::managed_host::decommission_managed_host(self, request).await
     }
 
     /// Example TOML data in request.text:
@@ -2446,6 +2474,13 @@ impl Forge for Api {
         crate::handlers::rack::on_demand_rack_maintenance(self, request).await
     }
 
+    async fn terminate_rack_maintenance(
+        &self,
+        request: Request<rpc::RackMaintenanceTerminateRequest>,
+    ) -> Result<Response<rpc::RackMaintenanceTerminateResponse>, Status> {
+        crate::handlers::rack::terminate_rack_maintenance(self, request).await
+    }
+
     async fn tpm_add_ca_cert(
         &self,
         request: Request<rpc::TpmCaCert>,
@@ -3304,6 +3339,35 @@ impl Forge for Api {
         crate::handlers::dpf::get_dpf_service_versions(self, request).await
     }
 
+    async fn find_pending_dpu_service_sync_ids(
+        &self,
+        request: Request<rpc::FindPendingDpuServiceSyncIdsRequest>,
+    ) -> Result<Response<::rpc::common::MachineIdList>, Status> {
+        crate::handlers::dpu_service_sync::find_pending_dpu_service_sync_ids(self, request).await
+    }
+
+    async fn find_pending_dpu_service_syncs_by_ids(
+        &self,
+        request: Request<rpc::FindPendingDpuServiceSyncsByIdsRequest>,
+    ) -> Result<Response<rpc::ListPendingDpuServiceSyncsResponse>, Status> {
+        crate::handlers::dpu_service_sync::find_pending_dpu_service_syncs_by_ids(self, request)
+            .await
+    }
+
+    async fn list_dpu_service_sync_history(
+        &self,
+        request: Request<rpc::ListDpuServiceSyncHistoryRequest>,
+    ) -> Result<Response<rpc::ListPendingDpuServiceSyncsResponse>, Status> {
+        crate::handlers::dpu_service_sync::list_dpu_service_sync_history(self, request).await
+    }
+
+    async fn release_dpu_service_sync_hold(
+        &self,
+        request: Request<rpc::ReleaseDpuServiceSyncHoldRequest>,
+    ) -> Result<Response<rpc::ReleaseDpuServiceSyncHoldResponse>, Status> {
+        crate::handlers::dpu_service_sync::release_dpu_service_sync_hold(self, request).await
+    }
+
     // scout_stream handles the bidirectional streaming connection from scout agents.
     // scout agents call scout_stream and send an Init message, and then carbide-api
     // will send down "request" messages to connected agent(s) to either instruct them
@@ -3659,7 +3723,7 @@ pub struct DefaultCredential {
     _key: String,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl DefaultCredential {
     pub(crate) fn key(&self) -> &str {
         &self._key

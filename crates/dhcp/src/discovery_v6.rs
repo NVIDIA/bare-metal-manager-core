@@ -175,6 +175,8 @@ pub unsafe extern "C" fn carbide_mac_from_duid(
         return std::ptr::null_mut();
     }
 
+    // SAFETY: Kea keeps this non-null DUID buffer readable for `duid_len`
+    // initialized bytes until this synchronous call returns.
     let duid = unsafe { std::slice::from_raw_parts(duid_ptr, duid_len) };
     match extract_mac_from_duid(duid) {
         Ok(DuidMac::Mac(mac)) => CString::new(mac.to_string())
@@ -194,6 +196,8 @@ pub unsafe extern "C" fn carbide_free_mac_string(mac: *mut libc::c_char) {
         return;
     }
 
+    // SAFETY: `mac` is the unreclaimed `CString::into_raw` result returned by
+    // `carbide_mac_from_duid` and is returned to the Rust allocator once.
     unsafe {
         drop(CString::from_raw(mac));
     }

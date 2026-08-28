@@ -459,7 +459,9 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 			Msg("The Site where Instances are being created is not in Registered state")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "The Site where Instances are being created is not in Registered state", nil)
 	}
-
+	if apiErr := util.ValidateSitePowerManagement(site.Config, apiRequest.PowerProfile); apiErr != nil {
+		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
+	}
 	// Load and validate subnets and VPC prefixes (batch query for efficiency)
 	subnetDAO := cdbm.NewSubnetDAO(bcih.dbSession)
 	vpDAO := cdbm.NewVpcPrefixDAO(bcih.dbSession)
@@ -691,7 +693,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 			dbInterfaces = append(dbInterfaces, cdbm.Interface{
 				VpcID:                &interfaceVpcID,
 				Vpc:                  interfaceVpc,
-				VpcIPFamilyMode:      cutil.GetPtr(cdbm.InterfaceVpcIPFamilyModeIPv4Only),
+				VpcIPFamilyMode:      cutil.GetPtr(ifc.VpcIPFamilyMode()),
 				InlineRoutingProfile: ifc.InlineRoutingProfile.ToDB(),
 				Device:               ifc.Device,
 				DeviceInstance:       ifc.DeviceInstance,
@@ -1346,6 +1348,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 				IsUpdatePending:          false,
 				Status:                   cdbm.InstanceStatusPending,
 				PowerStatus:              cutil.GetPtr(cdbm.InstancePowerStatusRebooting),
+				PowerProfile:             apiRequest.PowerProfile,
 				CreatedBy:                dbUser.ID,
 			})
 		}
@@ -1732,6 +1735,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 				},
 				Config: &corev1.InstanceConfig{
 					NetworkSecurityGroupId: instance.NetworkSecurityGroupID,
+					PowerProfile:           instance.PowerProfile,
 					Tenant: &corev1.TenantConfig{
 						TenantOrganizationId: tenant.Org,
 						TenantKeysetIds:      instanceSshKeyGroupIds,
@@ -2017,7 +2021,7 @@ func allocateMachinesForBatch(
 // Returns empty string if the machine has no NVLink domain information.
 func getNVLinkDomainID(machine *cdbm.Machine) string {
 	if machine.Metadata != nil {
-		if nvlinkInfo := machine.Metadata.GetNvlinkInfo(); nvlinkInfo != nil {
+		if nvlinkInfo := machine.Metadata.GetStatus().GetNvlinkInfo(); nvlinkInfo != nil {
 			if domainUuid := nvlinkInfo.GetDomainUuid(); domainUuid != nil {
 				return domainUuid.GetValue()
 			}

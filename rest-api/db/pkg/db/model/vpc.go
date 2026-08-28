@@ -315,7 +315,9 @@ type Vpc struct {
 	NVLinkLogicalPartitionID               *uuid.UUID                              `bun:"nvlink_logical_partition_id,type:uuid"`
 	NVLinkLogicalPartition                 *NVLinkLogicalPartition                 `bun:"rel:belongs-to,join:nvlink_logical_partition_id=id"`
 	NetworkVirtualizationType              *string                                 `bun:"network_virtualization_type"`
+	SlaacEnabled                           bool                                    `bun:"slaac_enabled,notnull"`
 	RoutingProfile                         *string                                 `bun:"routing_profile"`
+	PowerResourceGroup                     *string                                 `bun:"power_resource_group"`
 	RoutingProfileOverrides                *VpcRoutingProfileOverrides             `bun:"routing_profile_overrides,type:jsonb"`
 	EffectiveRoutingProfile                *VpcEffectiveRoutingProfile             `bun:"effective_routing_profile,type:jsonb"`
 	ControllerVpcID                        *uuid.UUID                              `bun:"controller_vpc_id,type:uuid"`
@@ -388,7 +390,9 @@ func (vpc *Vpc) ToProto() *corev1.Vpc {
 		Vni:                             cutil.IntPtrToUint32Ptr(vpc.Vni),
 		RoutingProfileType:              vpc.RoutingProfile,
 		RoutingProfileOverrides:         vpc.RoutingProfileOverrides.ToProto(),
+		PowerResourceGroup:              vpc.PowerResourceGroup,
 		NetworkVirtualizationType:       networkVirtualizationType,
+		SlaacEnabled:                    cutil.GetPtr(vpc.SlaacEnabled),
 	}
 
 	proto := &corev1.Vpc{
@@ -429,6 +433,9 @@ func (vpc *Vpc) ToProto() *corev1.Vpc {
 //     OR when the proto value is invalid (e.g. an unparseable UUID).
 //     This makes `FromProto` a clean reset rather than a partial
 //     merge, matching the Expected* pattern.
+//   - SLAAC defaults to false when its wire value is absent. Inventory
+//     reconciliation checks wire presence before applying that value to an
+//     existing database row.
 func (vpc *Vpc) FromProto(proto *corev1.Vpc) {
 	if proto == nil {
 		return
@@ -448,8 +455,10 @@ func (vpc *Vpc) FromProto(proto *corev1.Vpc) {
 	}
 
 	vpc.Org = cfg.TenantOrganizationId
+	vpc.SlaacEnabled = cfg.GetSlaacEnabled()
 	vpc.NetworkSecurityGroupID = cfg.NetworkSecurityGroupId
 	vpc.RoutingProfile = cfg.RoutingProfileType
+	vpc.PowerResourceGroup = cfg.PowerResourceGroup
 	vpc.RoutingProfileOverrides = nil
 	if cfg.RoutingProfileOverrides != nil {
 		vpc.RoutingProfileOverrides = &VpcRoutingProfileOverrides{}
@@ -509,7 +518,9 @@ type VpcCreateInput struct {
 	SiteID                                 uuid.UUID
 	NVLinkLogicalPartitionID               *uuid.UUID
 	NetworkVirtualizationType              *string
+	SlaacEnabled                           bool
 	RoutingProfile                         *string
+	PowerResourceGroup                     *string
 	RoutingProfileOverrides                *VpcRoutingProfileOverrides
 	ControllerVpcID                        *uuid.UUID
 	ActiveVni                              *int
@@ -528,7 +539,9 @@ type VpcUpdateInput struct {
 	Name                                   *string
 	Description                            *string
 	NetworkVirtualizationType              *string
+	SlaacEnabled                           *bool
 	RoutingProfile                         *string
+	PowerResourceGroup                     *string
 	RoutingProfileOverrides                *VpcRoutingProfileOverrides
 	EffectiveRoutingProfile                *VpcEffectiveRoutingProfile
 	ControllerVpcID                        *uuid.UUID
@@ -548,6 +561,7 @@ type VpcClearInput struct {
 	Description                            bool
 	ControllerVpcID                        bool
 	RoutingProfile                         bool
+	PowerResourceGroup                     bool
 	RoutingProfileOverrides                bool
 	EffectiveRoutingProfile                bool
 	NVLinkLogicalPartitionID               bool
@@ -897,7 +911,9 @@ func (vsd VpcSQLDAO) Create(ctx context.Context, tx *db.Tx, input VpcCreateInput
 		SiteID:                                 input.SiteID,
 		NVLinkLogicalPartitionID:               input.NVLinkLogicalPartitionID,
 		NetworkVirtualizationType:              input.NetworkVirtualizationType,
+		SlaacEnabled:                           input.SlaacEnabled,
 		RoutingProfile:                         input.RoutingProfile,
+		PowerResourceGroup:                     input.PowerResourceGroup,
 		RoutingProfileOverrides:                input.RoutingProfileOverrides,
 		ControllerVpcID:                        input.ControllerVpcID,
 		ActiveVni:                              input.ActiveVni,
@@ -964,6 +980,12 @@ func (vsd VpcSQLDAO) Update(ctx context.Context, tx *db.Tx, input VpcUpdateInput
 		vsd.tracerSpan.SetAttribute(vpcDAOSpan, "network_virtualization_type", *input.NetworkVirtualizationType)
 	}
 
+	if input.SlaacEnabled != nil {
+		v.SlaacEnabled = *input.SlaacEnabled
+		updatedFields = append(updatedFields, "slaac_enabled")
+		vsd.tracerSpan.SetAttribute(vpcDAOSpan, "slaac_enabled", *input.SlaacEnabled)
+	}
+
 	if input.ControllerVpcID != nil {
 		v.ControllerVpcID = input.ControllerVpcID
 		updatedFields = append(updatedFields, "controller_vpc_id")
@@ -974,6 +996,12 @@ func (vsd VpcSQLDAO) Update(ctx context.Context, tx *db.Tx, input VpcUpdateInput
 		v.RoutingProfile = input.RoutingProfile
 		updatedFields = append(updatedFields, "routing_profile")
 		vsd.tracerSpan.SetAttribute(vpcDAOSpan, "routing_profile", *input.RoutingProfile)
+	}
+
+	if input.PowerResourceGroup != nil {
+		v.PowerResourceGroup = input.PowerResourceGroup
+		updatedFields = append(updatedFields, "power_resource_group")
+		vsd.tracerSpan.SetAttribute(vpcDAOSpan, "power_resource_group", *input.PowerResourceGroup)
 	}
 
 	if input.RoutingProfileOverrides != nil {
@@ -1079,6 +1107,11 @@ func (vsd VpcSQLDAO) Clear(ctx context.Context, tx *db.Tx, input VpcClearInput) 
 	if input.RoutingProfile {
 		v.RoutingProfile = nil
 		updatedFields = append(updatedFields, "routing_profile")
+	}
+
+	if input.PowerResourceGroup {
+		v.PowerResourceGroup = nil
+		updatedFields = append(updatedFields, "power_resource_group")
 	}
 
 	if input.RoutingProfileOverrides {

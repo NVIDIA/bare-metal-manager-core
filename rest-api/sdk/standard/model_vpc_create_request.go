@@ -34,10 +34,14 @@ type VpcCreateRequest struct {
 	SiteId string `json:"siteId"`
 	// Network virtualization type of the VPC. If no value is specified, then defaults to `FNN` if Site has native networking enabled, or `ETHERNET_VIRTUALIZER` if native networking is disabled. Flat VPCs hold instances on zero-DPU hosts (or hosts with their DPU in NIC mode) and are never auto-selected -- `FLAT` must be specified explicitly.
 	NetworkVirtualizationType NullableString `json:"networkVirtualizationType,omitempty"`
+	// When true, Core allocates a `/64` to each instance interface that includes IPv6 and retains the prefix without assigning a concrete IPv6 host address. It is supported only for FNN VPCs and fixed during creation. False or omission disables SLAAC. Before persistence, REST requires `vpcSlaac` in the latest successfully stored configuration inventory for the selected Site. Periodic Site inventory reports whether Core supports this feature, so the stored value can lag a Core rollout. False or missing `vpcSlaac` returns 412 before REST persistence or workflow dispatch. This flag does not verify DPU agent versions. When a new API server release is deployed, DPU agents roll forward, and instance network configuration may fail transiently until eligible agents converge. NICo does not yet configure router advertisements (RAs); that support is tracked by https://github.com/NVIDIA/infra-controller/issues/2398.
+	SlaacEnabled *bool `json:"slaacEnabled,omitempty"`
 	// Specify routing profile for the VPC. Only supported when `networkVirtualizationType` is set to `FNN`, or when `networkVirtualizationType` is omitted and Site has Native Networking enabled. Requires Tenant to have elevated privilege. Current accepted values are `privileged-internal`, `internal`, and `external`.
 	RoutingProfile NullableString `json:"routingProfile,omitempty"`
 	// Routing-profile properties to overlay on the resolved named profile. Only supported for FNN VPCs and requires `TargetedInstanceCreation` to be effective for the Tenant at the VPC's Site. `routingProfile` may be omitted when the Site and Tenant configuration select a named profile.
 	RoutingProfileOverrides NullableVpcRoutingProfileOverrides `json:"routingProfileOverrides,omitempty"`
+	// Power resource group to associate with the VPC. A non-empty value requires the Site's `dpsPowerManagement` capability to be `true`.
+	PowerResourceGroup NullableString `json:"powerResourceGroup,omitempty"`
 	// ID of the Network Security Group to attach to the VPC
 	NetworkSecurityGroupId NullableString `json:"networkSecurityGroupId,omitempty"`
 	// Explicitly requested VNI for the VPC
@@ -58,6 +62,8 @@ func NewVpcCreateRequest(name string, siteId string) *VpcCreateRequest {
 	this := VpcCreateRequest{}
 	this.Name = name
 	this.SiteId = siteId
+	var slaacEnabled bool = false
+	this.SlaacEnabled = &slaacEnabled
 	return &this
 }
 
@@ -66,6 +72,8 @@ func NewVpcCreateRequest(name string, siteId string) *VpcCreateRequest {
 // but it doesn't guarantee that properties required by API are set
 func NewVpcCreateRequestWithDefaults() *VpcCreateRequest {
 	this := VpcCreateRequest{}
+	var slaacEnabled bool = false
+	this.SlaacEnabled = &slaacEnabled
 	return &this
 }
 
@@ -235,6 +243,38 @@ func (o *VpcCreateRequest) UnsetNetworkVirtualizationType() {
 	o.NetworkVirtualizationType.Unset()
 }
 
+// GetSlaacEnabled returns the SlaacEnabled field value if set, zero value otherwise.
+func (o *VpcCreateRequest) GetSlaacEnabled() bool {
+	if o == nil || IsNil(o.SlaacEnabled) {
+		var ret bool
+		return ret
+	}
+	return *o.SlaacEnabled
+}
+
+// GetSlaacEnabledOk returns a tuple with the SlaacEnabled field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *VpcCreateRequest) GetSlaacEnabledOk() (*bool, bool) {
+	if o == nil || IsNil(o.SlaacEnabled) {
+		return nil, false
+	}
+	return o.SlaacEnabled, true
+}
+
+// HasSlaacEnabled returns a boolean if a field has been set.
+func (o *VpcCreateRequest) HasSlaacEnabled() bool {
+	if o != nil && !IsNil(o.SlaacEnabled) {
+		return true
+	}
+
+	return false
+}
+
+// SetSlaacEnabled gets a reference to the given bool and assigns it to the SlaacEnabled field.
+func (o *VpcCreateRequest) SetSlaacEnabled(v bool) {
+	o.SlaacEnabled = &v
+}
+
 // GetRoutingProfile returns the RoutingProfile field value if set, zero value otherwise (both if not set or set to explicit null).
 func (o *VpcCreateRequest) GetRoutingProfile() string {
 	if o == nil || IsNil(o.RoutingProfile.Get()) {
@@ -319,6 +359,49 @@ func (o *VpcCreateRequest) SetRoutingProfileOverridesNil() {
 // UnsetRoutingProfileOverrides ensures that no value is present for RoutingProfileOverrides, not even an explicit nil
 func (o *VpcCreateRequest) UnsetRoutingProfileOverrides() {
 	o.RoutingProfileOverrides.Unset()
+}
+
+// GetPowerResourceGroup returns the PowerResourceGroup field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *VpcCreateRequest) GetPowerResourceGroup() string {
+	if o == nil || IsNil(o.PowerResourceGroup.Get()) {
+		var ret string
+		return ret
+	}
+	return *o.PowerResourceGroup.Get()
+}
+
+// GetPowerResourceGroupOk returns a tuple with the PowerResourceGroup field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+func (o *VpcCreateRequest) GetPowerResourceGroupOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.PowerResourceGroup.Get(), o.PowerResourceGroup.IsSet()
+}
+
+// HasPowerResourceGroup returns a boolean if a field has been set.
+func (o *VpcCreateRequest) HasPowerResourceGroup() bool {
+	if o != nil && o.PowerResourceGroup.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetPowerResourceGroup gets a reference to the given NullableString and assigns it to the PowerResourceGroup field.
+func (o *VpcCreateRequest) SetPowerResourceGroup(v string) {
+	o.PowerResourceGroup.Set(&v)
+}
+
+// SetPowerResourceGroupNil sets the value for PowerResourceGroup to be an explicit nil
+func (o *VpcCreateRequest) SetPowerResourceGroupNil() {
+	o.PowerResourceGroup.Set(nil)
+}
+
+// UnsetPowerResourceGroup ensures that no value is present for PowerResourceGroup, not even an explicit nil
+func (o *VpcCreateRequest) UnsetPowerResourceGroup() {
+	o.PowerResourceGroup.Unset()
 }
 
 // GetNetworkSecurityGroupId returns the NetworkSecurityGroupId field value if set, zero value otherwise (both if not set or set to explicit null).
@@ -503,11 +586,17 @@ func (o VpcCreateRequest) ToMap() (map[string]interface{}, error) {
 	if o.NetworkVirtualizationType.IsSet() {
 		toSerialize["networkVirtualizationType"] = o.NetworkVirtualizationType.Get()
 	}
+	if !IsNil(o.SlaacEnabled) {
+		toSerialize["slaacEnabled"] = o.SlaacEnabled
+	}
 	if o.RoutingProfile.IsSet() {
 		toSerialize["routingProfile"] = o.RoutingProfile.Get()
 	}
 	if o.RoutingProfileOverrides.IsSet() {
 		toSerialize["routingProfileOverrides"] = o.RoutingProfileOverrides.Get()
+	}
+	if o.PowerResourceGroup.IsSet() {
+		toSerialize["powerResourceGroup"] = o.PowerResourceGroup.Get()
 	}
 	if o.NetworkSecurityGroupId.IsSet() {
 		toSerialize["networkSecurityGroupId"] = o.NetworkSecurityGroupId.Get()
@@ -550,7 +639,6 @@ func (o *VpcCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	varVpcCreateRequest := _VpcCreateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	err = decoder.Decode(&varVpcCreateRequest)
 
 	if err != nil {

@@ -15,6 +15,12 @@ nico-api:
       memory: "1Gi"
   webAuth:
     mode: "none"
+  # DevSpace does not deploy rack-manager. Do not render RMS-backed services
+  # into nico-api's configuration when their backend is absent.
+  componentManager:
+    enabled: false
+  rms:
+    enabled: false
   siteConfig:
     enabled: true
     nicoApiSiteConfig: |
@@ -158,6 +164,8 @@ nico-machine-a-tron:
   # No need to copy secrets or configure cross-namespace access
   machineATron:
     nicoApiUrl: "https://nico-api.nico-system.svc.cluster.local:1079"
+  machineDefaults:
+    accelerationFactor: 0.01
   # Preserve simulated machine identity and installed OS across pod restarts.
   # Without this, Core can remain in an Assigned state while a restarted
   # machine-a-tron has reset the corresponding host and DPUs to MachineDown.

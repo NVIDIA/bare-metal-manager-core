@@ -101,6 +101,22 @@ pub mod nmx_c_client;
 pub const REFLECTION_API_SERVICE_DESCRIPTOR: &[u8] = tonic::include_file_descriptor_set!("forge");
 pub const MAX_ERR_MSG_SIZE: i32 = 1500;
 
+impl forge::BootInterfaceSelectionSource {
+    /// Returns the concise name shown in views for operators.
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "Unspecified",
+            Self::ExpectedMachine => "ExpectedMachine",
+            Self::Operator => "Operator",
+            Self::RedfishUefiPci => "RedfishUefiPci",
+            Self::RedfishChassisId => "RedfishChassisId",
+            Self::RedfishSerialNumber => "RedfishSerialNumber",
+            Self::ScoutReportPci => "ScoutReportPci",
+            Self::LegacyUnknown => "LegacyUnknown",
+        }
+    }
+}
+
 // DynForge exists because, now that we have >= streaming interface,
 // simply passing around `dyn Forge` doesn't work anymore. As any additional
 // streaming interfaces are added, we just toss in type defs here, and
