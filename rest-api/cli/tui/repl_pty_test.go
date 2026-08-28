@@ -324,20 +324,36 @@ func TestCLIRegression_RealTerminalAndNonInteractive(t *testing.T) {
 		terminal.send(t, "n\r")
 		terminal.waitFor(t, "nico:acme")
 
-		// Guided request bodies preload site/VPC names, resolve two body IDs in
-		// order, and execute only after confirmation.
+		// Choosing exactly two VPCs preserves the original guided workflow.
 		terminal.send(t, "vpc-peering create\r")
-		terminal.waitFor(t, "Request body input")
-		terminal.send(t, "\r")
-		terminal.waitFor(t, "Site id:")
+		terminal.waitFor(t, "VPC peering creation requires a site")
+		terminal.waitFor(t, "Site:")
 		terminal.send(t, "site-one\r")
-		terminal.waitFor(t, "Vpc1id:")
+		terminal.waitFor(t, "VPC selection")
+		terminal.send(t, "Choose VPCs\r")
+		terminal.waitFor(t, "VPC:")
 		terminal.send(t, "vpc-one\r")
-		terminal.waitFor(t, "Vpc2id:")
+		terminal.waitFor(t, "VPC:")
 		terminal.send(t, "vpc-two\r")
-		terminal.waitFor(t, "Run vpc-peering create (POST)?")
+		terminal.waitFor(t, "Add another VPC (selected 2)?")
+		terminal.send(t, "n\r")
+		terminal.waitFor(t, "Selected VPCs (2)")
+		terminal.waitFor(t, "Peerings to create (1)")
+		terminal.waitFor(t, "Create 1 VPC peering(s)?")
 		terminal.send(t, "y\r")
-		terminal.waitFor(t, `"id": "peering-1"`)
+		terminal.waitFor(t, "Summary: created 1, skipped 0, failed 0")
+
+		// Selecting all same-site VPCs previews every unique pair and skips the
+		// peering created by the preceding two-VPC workflow.
+		terminal.send(t, "vpc-peering create\r")
+		terminal.waitFor(t, "VPC selection")
+		terminal.send(t, "Select all\r")
+		terminal.waitFor(t, "Selected VPCs (3)")
+		terminal.waitFor(t, "Peerings to create (2)")
+		terminal.waitFor(t, "Existing peerings to skip (1)")
+		terminal.waitFor(t, "Create 2 VPC peering(s)?")
+		terminal.send(t, "y\r")
+		terminal.waitFor(t, "Summary: created 2, skipped 1, failed 0")
 
 		// Generated enum and secret fields use the guided form. Optional
 		// free-form fields can be skipped, and terminal password input is not
@@ -422,12 +438,16 @@ func TestCLIRegression_RealTerminalAndNonInteractive(t *testing.T) {
 			http.MethodPost,
 			"/v2/org/acme/nico/vpc-peering",
 		)
-		require.Len(t, peeringRequests, 1, "cancelled mutation must not reach the API")
-		assert.JSONEq(
-			t,
+		require.Len(t, peeringRequests, 3, "cancelled and existing peerings must not reach the API")
+		peeringBodies := make([]string, len(peeringRequests))
+		for i, request := range peeringRequests {
+			peeringBodies[i] = request.Body
+		}
+		assert.ElementsMatch(t, []string{
 			`{"siteId":"site-1","vpc1Id":"vpc-1","vpc2Id":"vpc-2"}`,
-			peeringRequests[0].Body,
-		)
+			`{"siteId":"site-1","vpc1Id":"vpc-1","vpc2Id":"vpc-flat"}`,
+			`{"siteId":"site-1","vpc1Id":"vpc-2","vpc2Id":"vpc-flat"}`,
+		}, peeringBodies)
 
 		prefixRequests := recorder.matching(
 			http.MethodPost,
@@ -829,6 +849,28 @@ func newInteractiveRegressionHandler(recorder *cliRegressionRecorder) http.Handl
 			request.URL.Path == "/v2/org/acme/nico/vpc-peering":
 			w.WriteHeader(http.StatusCreated)
 			_, _ = io.WriteString(w, `{"id":"peering-1","status":"Ready"}`)
+		case request.Method == http.MethodGet &&
+			request.URL.Path == "/v2/org/acme/nico/vpc-peering":
+			peerings := make([]map[string]string, 0)
+			for i, peeringRequest := range recorder.matching(
+				http.MethodPost,
+				"/v2/org/acme/nico/vpc-peering",
+			) {
+				var peering map[string]string
+				if err := json.Unmarshal([]byte(peeringRequest.Body), &peering); err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				peerings = append(peerings, map[string]string{
+					"id":     fmt.Sprintf("peering-%d", i+1),
+					"siteId": peering["siteId"],
+					"vpc1Id": peering["vpc1Id"],
+					"vpc2Id": peering["vpc2Id"],
+				})
+			}
+			if err := json.NewEncoder(w).Encode(peerings); err != nil {
+				return
+			}
 		case request.Method == http.MethodPut &&
 			request.URL.Path == "/v2/org/acme/nico/credential/bmc":
 			w.WriteHeader(http.StatusAccepted)
