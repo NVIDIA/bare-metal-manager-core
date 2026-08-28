@@ -1076,11 +1076,8 @@ pub(crate) async fn admin_gpu_reset(
         // xtask:allow-error-case: HGX_Chassis_0 is a case-sensitive Redfish chassis id
         .ok_or_else(|| Status::invalid_argument("chassis_id is required (e.g. HGX_Chassis_0)"))?;
 
-    // Require the host to be in maintenance mode before an out-of-band GPU
-    // baseboard reset. This is the v1 coordination guard: an operator (or the
-    // break-fix automation) must claim the host first so the reset cannot race
-    // a concurrent NICo power op. Full serialization via ManagedHostState::
-    // Maintenance is tracked as follow-up work.
+    // Require maintenance mode so the caller has claimed the host and the reset
+    // cannot race a concurrent NICo power op (v1 guard; full serialization TODO).
     let (host_machine, txn) = api
         .load_machine(&machine_id, MachineSearchConfig::default())
         .await?;
