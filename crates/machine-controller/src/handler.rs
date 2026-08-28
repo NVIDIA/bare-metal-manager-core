@@ -2268,6 +2268,13 @@ impl MachineStateHandler {
         db::dpa_interface::update_ip(dpa_interface, true, &mut txn).await?;
 
         txn.commit().await?;
+
+        tracing::info!(
+            machine_id = %mh_snapshot.host_snapshot.id,
+            mac_address = %mac_address,
+            "Enabled Astra on NIC {nic_index} with MAC address {mac_address}"
+        );
+
         Ok(())
     }
 

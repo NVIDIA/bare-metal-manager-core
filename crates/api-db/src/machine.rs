@@ -1645,6 +1645,10 @@ pub async fn try_sync_stable_id_with_current_machine_id_for_host(
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 
+    tracing::info!(
+        "Synced stable id {stable_machine_id} with current machine id {current_machine_id}"
+    );
+
     Ok(machine_id)
 }
 
