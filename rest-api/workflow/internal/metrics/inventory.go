@@ -69,12 +69,10 @@ func NewManageInventoryMetrics(reg prometheus.Registerer, dbSession *cdb.Session
 				Namespace: namespace,
 				Name:      "inventory_latency_seconds",
 				Help:      "Latency of each inventory call, measured across the whole workflow including activity retries",
-				// Sized for the 30s activity timeout that 20 of the 23 inventory
-				// workflows use, which reaches roughly 65s once its single retry and
-				// backoff are included. The Machine and Site Config workflows use
-				// longer timeouts and a fully retried run of those exceeds the top
-				// bucket, landing in +Inf.
-				Buckets: []float64{0.0005, 0.001, 0.005, 0.010, 0.025, 0.050, 0.100, 0.250, 0.500, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0},
+				// Top bucket covers a fully retried run under the shared inventory
+				// budget, which is 2 x 60s plus 5s of backoff. Only SSH Key Group sets
+				// its own longer timeout, so its slowest runs fall in +Inf.
+				Buckets: []float64{0.0005, 0.001, 0.005, 0.010, 0.025, 0.050, 0.100, 0.250, 0.500, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 125.0},
 			},
 			[]string{"site", "site_id", "activity", "status"}),
 

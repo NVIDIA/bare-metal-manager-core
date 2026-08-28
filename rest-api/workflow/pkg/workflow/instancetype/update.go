@@ -5,14 +5,13 @@ package instancetype
 
 import (
 	"fmt"
-	"time"
 
+	cwi "github.com/NVIDIA/infra-controller/rest-api/workflow/internal/inventory"
 	cwm "github.com/NVIDIA/infra-controller/rest-api/workflow/internal/metrics"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
-	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
 	instanceTypeActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/instancetype"
@@ -34,19 +33,7 @@ func UpdateInstanceTypeInventory(ctx workflow.Context, siteID string, instanceTy
 		return err
 	}
 
-	// RetryPolicy specifies how to automatically handle retries if an Activity fails.
-	retrypolicy := &temporal.RetryPolicy{
-		InitialInterval:    5 * time.Second,
-		BackoffCoefficient: 2.0,
-		MaximumInterval:    30 * time.Second,
-		MaximumAttempts:    2,
-	}
-	options := workflow.ActivityOptions{
-		// Timeout options specify when to automatically timeout Activity functions.
-		StartToCloseTimeout: 30 * time.Second,
-		// Optionally provide a customized RetryPolicy.
-		RetryPolicy: retrypolicy,
-	}
+	options := cwi.ActivityOptions()
 
 	ctx = workflow.WithActivityOptions(ctx, options)
 

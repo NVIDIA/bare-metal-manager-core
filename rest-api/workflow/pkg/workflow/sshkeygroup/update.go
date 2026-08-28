@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	cwi "github.com/NVIDIA/infra-controller/rest-api/workflow/internal/inventory"
 	cwm "github.com/NVIDIA/infra-controller/rest-api/workflow/internal/metrics"
 
 	"github.com/google/uuid"
@@ -34,18 +35,27 @@ func UpdateSSHKeyGroupInventory(ctx workflow.Context, siteID string, sshKeyGroup
 		return err
 	}
 
-	// RetryPolicy specifies how to automatically handle retries if an Activity fails.
+	// Deliberately not cwi.ActivityOptions. UpdateSSHKeyGroupsInDB is the one
+	// inventory activity that waits on another service inside its per-object
+	// loop: it starts a Site workflow per keyset and blocks on it for up to
+	// cwutil.WorkflowContextTimeout. Under the shared 60s budget that inner
+	// deadline is unreachable, so the activity would be killed mid-wait and its
+	// termination path, which cleans up the orphaned Site workflow, would never
+	// run. This has to stay above that inner wait.
+	//
+	// It buys headroom rather than correctness. The wait is per object and the
+	// page holds up to 25, so a Site slow to apply keysets can still exhaust
+	// this. Making the sync asynchronous, as Tenant and VPC already do, is what
+	// would actually bound it.
 	retrypolicy := &temporal.RetryPolicy{
-		InitialInterval:    5 * time.Second,
-		BackoffCoefficient: 2.0,
-		MaximumInterval:    30 * time.Second,
-		MaximumAttempts:    2,
+		InitialInterval:    cwi.ActivityInitialInterval,
+		BackoffCoefficient: cwi.ActivityBackoffCoefficient,
+		MaximumInterval:    cwi.ActivityMaximumInterval,
+		MaximumAttempts:    cwi.ActivityMaximumAttempts,
 	}
 	options := workflow.ActivityOptions{
-		// Timeout options specify when to automatically timeout Activity functions.
-		StartToCloseTimeout: 30 * time.Second,
-		// Optionally provide a customized RetryPolicy.
-		RetryPolicy: retrypolicy,
+		StartToCloseTimeout: 5 * time.Minute,
+		RetryPolicy:         retrypolicy,
 	}
 
 	ctx = workflow.WithActivityOptions(ctx, options)
