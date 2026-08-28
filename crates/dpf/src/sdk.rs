@@ -91,7 +91,7 @@ use crate::crds::dpuservicetemplates_generated::{
 use crate::error::DpfError;
 use crate::repository::{
     BfbRepository, BlueFieldSoftwareRepository, DpfOperatorConfigRepository,
-    DpuDeploymentRepository, DpuDeviceRepository, DpuFlavorRepository,
+    DpuDeploymentRepository, DpuDeviceRepository, DpuFlavorRepository, DpuFlavorTemplateRepository,
     DpuNodeMaintenanceRepository, DpuNodeRepository, DpuRepository,
     DpuServiceConfigurationRepository, DpuServiceNADRepository, DpuServiceRepository,
     DpuServiceTemplateRepository, K8sConfigRepository,
@@ -106,8 +106,8 @@ use crate::types::{
     DpuPhase, DpuServiceHelmChartObservation, DpuServiceInterfacePatch,
     DpuServiceInterfaceTemplateDefinition, DpuServiceInterfaceTemplateType, DpuServiceObservation,
     DpuServiceVersion, DpuSummary, FMDS_SERVICE_NAME, HostDpfSnapshot, InitDpfResourcesConfig,
-    MAX_BLUEFIELD_VFS_PER_PF, OTEL_COLLECTOR_SERVICE_NAME, ServiceConfigPortProtocol,
-    ServiceDefinition, ServiceNADResourceType, ServiceTemplateVersion,
+    MAX_BLUEFIELD_VFS_PER_PF, OTEL_COLLECTOR_SERVICE_NAME, PF_TOTAL_SF_BF4_ASTRA_FUDGE,
+    ServiceConfigPortProtocol, ServiceDefinition, ServiceNADResourceType, ServiceTemplateVersion,
 };
 use crate::watcher::DpuWatcherBuilder;
 
@@ -335,6 +335,7 @@ where
     R: BfbRepository
         + BlueFieldSoftwareRepository
         + DpuFlavorRepository
+        + DpuFlavorTemplateRepository
         + DpuDeploymentRepository
         + DpuServiceTemplateRepository
         + DpuServiceConfigurationRepository
@@ -502,11 +503,15 @@ const EXTRA_SCRIPT_CONFIGMAP_KEY: &str = "script";
 const EXTRA_SCRIPT_PLACEHOLDER: &str =
     "#!/usr/bin/env bash\necho \"NICo extra script: nothing to run\"\n";
 
+/// Must match the Astra flavor's `configMapKeyRef` in `flavor.rs`.
+const BF4_ASTRA_RA2_2_RUNTIME_CONFIGMAP_NAME: &str = "ra2.2-runtime";
+const BF4_ASTRA_RA2_2_RUNTIME_CONFIGMAP_KEY: &str = "RA2.2-runtime.yaml";
+
 /// ConfigMaps the deployment's flavor references, in run order. Empty for BF3,
 /// which inlines its scripts instead of using `contentFrom`.
 fn extra_script_configmap_names(deployment_type: DpuDeploymentType) -> &'static [&'static str] {
     match deployment_type {
-        DpuDeploymentType::Bf3 => &[],
+        DpuDeploymentType::Bf3 | DpuDeploymentType::Bf3Gb200 => &[],
         DpuDeploymentType::Bf4Generic => &[
             "extra-script-pre-ovs-bf4-generic",
             "extra-script-post-ovs-bf4-generic",
@@ -546,6 +551,35 @@ async fn create_extra_script_configmaps<R: K8sConfigRepository>(
                 "Extra-script ConfigMap already exists; leaving it untouched"
             );
         }
+    }
+    Ok(())
+}
+
+/// Require the RA2.2 runtime ConfigMap referenced by the BF4 Astra flavor.
+async fn validate_bf4_astra_ra2_2_runtime_configmap<R: K8sConfigRepository>(
+    repo: &R,
+    namespace: &str,
+    deployment_type: DpuDeploymentType,
+) -> Result<(), DpfError> {
+    if deployment_type != DpuDeploymentType::Bf4Astra {
+        return Ok(());
+    }
+
+    let configmap = repo
+        .get_configmap(BF4_ASTRA_RA2_2_RUNTIME_CONFIGMAP_NAME, namespace)
+        .await?
+        .ok_or_else(|| {
+            DpfError::ConfigError(format!(
+                "BF4 Astra requires Spectrum-X runtime ConfigMap {namespace}/{} with key {}; create it before initializing Astra",
+                BF4_ASTRA_RA2_2_RUNTIME_CONFIGMAP_NAME,
+                BF4_ASTRA_RA2_2_RUNTIME_CONFIGMAP_KEY,
+            ))
+        })?;
+    if !configmap.contains_key(BF4_ASTRA_RA2_2_RUNTIME_CONFIGMAP_KEY) {
+        return Err(DpfError::ConfigError(format!(
+            "BF4 Astra Spectrum-X runtime ConfigMap {namespace}/{} must contain key {}",
+            BF4_ASTRA_RA2_2_RUNTIME_CONFIGMAP_NAME, BF4_ASTRA_RA2_2_RUNTIME_CONFIGMAP_KEY,
+        )));
     }
     Ok(())
 }
@@ -710,6 +744,45 @@ async fn create_dpu_flavor<R: DpuFlavorRepository>(
     }
 }
 
+/// Creates the Astra flavor template with a hash-derived name.
+async fn create_dpu_flavor_template<R: DpuFlavorTemplateRepository>(
+    repo: &R,
+    namespace: &str,
+    config: &InitDpfResourcesConfig,
+    resolved: &ResolvedInitialization<'_>,
+) -> Result<String, DpfError> {
+    let mut template =
+        crate::flavor::flavor_bf4_astra(namespace, &config.proxy, resolved.pf_total_sf)?;
+    let name = template.unique_name(&config.flavor_name)?;
+    template.metadata.name = Some(name.clone());
+
+    match DpuFlavorTemplateRepository::create(repo, &template).await {
+        Ok(_) => Ok(name),
+        Err(DpfError::KubeError(kube::Error::Api(ref err)))
+            if err.is_already_exists() || err.is_conflict() =>
+        {
+            let existing = DpuFlavorTemplateRepository::get(repo, &name, namespace).await?;
+            match existing {
+                None => Err(DpfError::InvalidState(format!(
+                    "DPUFlavorTemplate {name} disappeared after AlreadyExists conflict; \
+                     will retry on next reconcile",
+                ))),
+                Some(template) if template.metadata.deletion_timestamp.is_some() => {
+                    Err(DpfError::InvalidState(format!(
+                        "DPUFlavorTemplate {name} is being deleted (has deletionTimestamp); \
+                         cannot re-create until the old resource is fully removed",
+                    )))
+                }
+                Some(_) => {
+                    tracing::debug!(flavor_template = %name, "DPU flavor template already exists");
+                    Ok(name)
+                }
+            }
+        }
+        Err(e) => Err(e),
+    }
+}
+
 /// Short, per-deployment suffix appended to service CR names so that each
 /// DPUDeployment gets its own DPUServiceTemplate/Configuration/NAD CRs. Without
 /// this, two deployments in the same namespace (e.g. BF3 and BF4) would create
@@ -718,10 +791,11 @@ async fn create_dpu_flavor<R: DpuFlavorRepository>(
 ///
 /// BF3 intentionally uses an empty suffix so its CR names are unchanged — this
 /// keeps existing BF3 clusters untouched (no CR rename / orphaning on upgrade).
-/// Only additional deployments (BF4) are suffixed to avoid colliding with BF3.
+/// Additional deployment classes are suffixed to avoid colliding with BF3.
 pub fn deployment_cr_suffix(deployment_type: DpuDeploymentType) -> &'static str {
     match deployment_type {
         DpuDeploymentType::Bf3 => "",
+        DpuDeploymentType::Bf3Gb200 => "bf3gb200",
         DpuDeploymentType::Bf4Generic => "bf4generic",
         DpuDeploymentType::Bf4Astra => "bf4astra",
     }
@@ -735,6 +809,7 @@ pub fn deployment_cr_suffix(deployment_type: DpuDeploymentType) -> &'static str 
 fn service_interface_cr_suffix(deployment_type: DpuDeploymentType) -> &'static str {
     match deployment_type {
         DpuDeploymentType::Bf3 => "bf3",
+        DpuDeploymentType::Bf3Gb200 => "bf3gb200",
         DpuDeploymentType::Bf4Generic => "bf4",
         DpuDeploymentType::Bf4Astra => "astra",
     }
@@ -1065,7 +1140,8 @@ pub fn build_deployment(
                     dpu_device_selector: None,
                     node_selector: None,
                 }]),
-                flavor: Some(flavor_name.to_string()),
+                flavor: (!matches!(deployment_type, DpuDeploymentType::Bf4Astra))
+                    .then(|| flavor_name.to_string()),
                 node_effect: DpuDeploymentDpusNodeEffect {
                     custom_action: None,
                     custom_label: None,
@@ -1086,7 +1162,8 @@ pub fn build_deployment(
                     DpuProvisioningSource::Bfb(_) => None,
                     DpuProvisioningSource::BlueFieldSoftware(name) => Some(name.clone()),
                 },
-                flavor_template: None,
+                flavor_template: matches!(deployment_type, DpuDeploymentType::Bf4Astra)
+                    .then(|| flavor_name.to_string()),
             },
             revision_history_limit: None,
             service_chains,
@@ -1482,8 +1559,8 @@ pub fn calculate_pf_total_sf(
 pub(crate) fn calculate_astra_pf_total_sf(
     interfaces: &[DpuServiceInterfaceTemplateDefinition],
 ) -> Result<u32, DpfError> {
-    // Astra has a fixed Weave DHCP Agent allocation, but no site-configurable reserve. Its
-    // capacity follows the actual NICo-managed endpoints plus that agent's PF SF population.
+    // Astra has a fixed Weave DHCP Agent allocation and capacity headroom, but no
+    // site-configurable reserve. Its capacity follows the actual NICo-managed endpoints.
     let managed_endpoints = interfaces.iter().try_fold(0u32, |total, interface| {
         let interface_endpoints =
             u32::try_from(interface.chained_svc_if.as_ref().map_or(0, Vec::len)).map_err(|_| {
@@ -1493,11 +1570,18 @@ pub(crate) fn calculate_astra_pf_total_sf(
             DpfError::ConfigError("DPF service endpoint count exceeds u32".to_string())
         })
     })?;
-    managed_endpoints
+    let managed_and_dhcp_agent = managed_endpoints
         .checked_add(DOCA_WEAVE_DHCP_AGENT_PF_TOTAL_SF)
         .ok_or_else(|| {
             DpfError::ConfigError(format!(
                 "calculated Astra PF_TOTAL_SF plus DOCA Weave DHCP Agent PF SFs ({DOCA_WEAVE_DHCP_AGENT_PF_TOTAL_SF}) exceed u32"
+            ))
+        })?;
+    managed_and_dhcp_agent
+        .checked_add(PF_TOTAL_SF_BF4_ASTRA_FUDGE)
+        .ok_or_else(|| {
+            DpfError::ConfigError(format!(
+                "calculated Astra PF_TOTAL_SF plus PF_TOTAL_SF_FUDGE ({PF_TOTAL_SF_BF4_ASTRA_FUDGE}) exceed u32"
             ))
         })
 }
@@ -1590,7 +1674,9 @@ fn resolve_initialization_inventory<'a>(
         // Astra retains its established static inventory and ignores site topology policy.
         Cow::Owned(match config.deployment_type {
             DpuDeploymentType::Bf4Astra => build_astra_dpu_interfaces_vec(),
-            DpuDeploymentType::Bf3 | DpuDeploymentType::Bf4Generic => {
+            DpuDeploymentType::Bf3
+            | DpuDeploymentType::Bf3Gb200
+            | DpuDeploymentType::Bf4Generic => {
                 build_effective_dpu_interfaces(config.num_of_vfs, None)
             }
         })
@@ -1602,11 +1688,13 @@ fn resolve_initialization_inventory<'a>(
 
     let pf_total_sf = match config.deployment_type {
         DpuDeploymentType::Bf4Astra => calculate_astra_pf_total_sf(interfaces.as_ref())?,
-        DpuDeploymentType::Bf3 | DpuDeploymentType::Bf4Generic => calculate_pf_total_sf(
-            interfaces.as_ref(),
-            config.intercept_bridging.as_ref(),
-            config.pf_total_sf_reserved,
-        )?,
+        DpuDeploymentType::Bf3 | DpuDeploymentType::Bf3Gb200 | DpuDeploymentType::Bf4Generic => {
+            calculate_pf_total_sf(
+                interfaces.as_ref(),
+                config.intercept_bridging.as_ref(),
+                config.pf_total_sf_reserved,
+            )?
+        }
     };
 
     Ok(ResolvedInitialization {
@@ -1778,6 +1866,7 @@ async fn create_flavor_services_and_deployment<
         + DpuServiceConfigurationRepository
         + DpuDeploymentRepository
         + DpuFlavorRepository
+        + DpuFlavorTemplateRepository
         + DpuServiceNADRepository
         + crate::repository::DpuServiceInterfaceRepository,
     L: ResourceLabeler,
@@ -1799,7 +1888,14 @@ async fn create_flavor_services_and_deployment<
         )));
     }
 
-    let flavor_name = create_dpu_flavor(repo, namespace, config, resolved).await?;
+    let flavor_name = match deployment_type {
+        DpuDeploymentType::Bf4Astra => {
+            create_dpu_flavor_template(repo, namespace, config, resolved).await?
+        }
+        DpuDeploymentType::Bf3 | DpuDeploymentType::Bf3Gb200 | DpuDeploymentType::Bf4Generic => {
+            create_dpu_flavor(repo, namespace, config, resolved).await?
+        }
+    };
 
     let interface_suffix = if config.deployment_scoped_service_interfaces {
         service_interface_cr_suffix(deployment_type)
@@ -1814,7 +1910,7 @@ async fn create_flavor_services_and_deployment<
     //
     // The disabled path must retain the legacy resource names and empty selectors so installing a
     // new NICo release does not trigger a scoping migration for existing BF3/BF4 interfaces. The
-    // enabled path intentionally creates `-bf3`, `-bf4`, and `-astra` resources.
+    // enabled path intentionally creates `-bf3`, `-bf3gb200`, `-bf4`, and `-astra` resources.
     //
     // LABEL-PLANE SAFETY: A DPUServiceInterface node selector is evaluated against Nodes in the
     // remote DPU cluster, not management-cluster DPUNode CRs. DPF propagates its canonical
@@ -1878,6 +1974,7 @@ impl<
     R: BfbRepository
         + BlueFieldSoftwareRepository
         + DpuFlavorRepository
+        + DpuFlavorTemplateRepository
         + DpuDeploymentRepository
         + DpuServiceTemplateRepository
         + DpuServiceConfigurationRepository
@@ -1912,6 +2009,13 @@ impl<
         config: &InitDpfResourcesConfig,
         resolved: ResolvedInitialization<'_>,
     ) -> Result<(), DpfError> {
+        validate_bf4_astra_ra2_2_runtime_configmap(
+            &*self.repo,
+            &self.namespace,
+            config.deployment_type,
+        )
+        .await?;
+
         let source = match &config.bluefield_software {
             Some(params) => DpuProvisioningSource::BlueFieldSoftware(
                 create_bluefield_software(&*self.repo, &self.namespace, params).await?,
@@ -1929,7 +2033,6 @@ impl<
         // instantiated in between would point at a ConfigMap that does not exist.
         create_extra_script_configmaps(&*self.repo, &self.namespace, config.deployment_type)
             .await?;
-
         create_flavor_services_and_deployment(
             &*self.repo,
             &self.namespace,
@@ -2128,6 +2231,22 @@ impl<R: DpuDeviceRepository, L: ResourceLabeler> DpfSdk<R, L> {
             },
         });
         DpuDeviceRepository::patch(&*self.repo, &cr_name, &self.namespace, patch).await
+    }
+
+    /// Returns the DPU-cluster node labels on one DPUDevice CR.
+    pub async fn get_dpu_device_node_labels(
+        &self,
+        dpu_device_name: &str,
+    ) -> Result<BTreeMap<String, String>, DpfError> {
+        let cr_name = dpu_device_cr_name(dpu_device_name);
+        let device = DpuDeviceRepository::get(&*self.repo, &cr_name, &self.namespace)
+            .await?
+            .ok_or_else(|| DpfError::not_found("DPUDevice", &cr_name))?;
+        Ok(device
+            .spec
+            .cluster
+            .and_then(|cluster| cluster.node_labels)
+            .unwrap_or_default())
     }
 
     /// Register a new DPU device.
@@ -2575,8 +2694,15 @@ fn dpu_comparison(namespace: &str, dpu: &DPU, deployment: &DPUDeployment) -> Dpu
     let Some(cr_name) = dpu.metadata.name.clone() else {
         return DpuComparison::Inconclusive;
     };
-    let expected_flavor = deployment.spec.dpus.flavor.clone().unwrap_or_default();
-    let flavor_matches = dpu.spec.dpu_flavor == expected_flavor;
+    // DPUFlavorTemplate is rendered into a per-DPU DPUFlavor by DPF, so the
+    // template name cannot be compared with DPU.spec.dpuFlavor. Only ordinary
+    // DPUFlavor deployments provide a flavor name that is meaningful here.
+    let flavor_matches = deployment
+        .spec
+        .dpus
+        .flavor
+        .as_ref()
+        .is_none_or(|expected_flavor| dpu.spec.dpu_flavor == *expected_flavor);
 
     // A DPUDeployment provisions from either a BFB or a BlueFieldSoftware CR;
     // the DPU CRD enforces that exactly one is set. BFB staleness is read from
@@ -3137,11 +3263,12 @@ mod tests {
 
     use super::*;
     use crate::crds::dpuflavors_generated::DPUFlavor;
+    use crate::crds::dpuflavortemplates_generated::DPUFlavorTemplate;
     use crate::crds::dpus_generated::{DPU, DpuNodeEffect};
     use crate::crds::dpuservices_generated::DPUService;
     use crate::repository::{
-        DpuDeviceRepository, DpuFlavorRepository, DpuNodeRepository, DpuRepository,
-        DpuServiceRepository,
+        DpuDeviceRepository, DpuFlavorRepository, DpuFlavorTemplateRepository, DpuNodeRepository,
+        DpuRepository, DpuServiceRepository,
     };
     use crate::types::{
         DetachedHelmChart, DpfInterceptBridge, DpfInterceptBridging, DpfInterfaceIdentity,
@@ -3156,6 +3283,11 @@ mod tests {
             "BF3" {
                 // BF3 is suffixed too because scoped mode is an explicit namespace-wide migration.
                 DpuDeploymentType::Bf3 => "bf3",
+            }
+
+            "GB200 BF3" {
+                // The specialized flavor needs its own selector and interface resources.
+                DpuDeploymentType::Bf3Gb200 => "bf3gb200",
             }
 
             "generic BF4" {
@@ -3591,8 +3723,8 @@ mod tests {
         ));
     }
 
-    /// Astra capacity follows its managed endpoints and the Weave DHCP Agent allocation; the
-    /// BF3/generic reserve must not change the Astra flavor.
+    /// Astra capacity follows its managed endpoints, the Weave DHCP Agent allocation, and fixed
+    /// headroom; the BF3/generic reserve must not change the Astra flavor.
     #[test]
     fn astra_pf_total_sf_ignores_site_reserve() {
         let config = InitDpfResourcesConfig {
@@ -3606,7 +3738,15 @@ mod tests {
 
         let resolved = resolve_initialization_inventory(&config)
             .expect("Astra capacity must not consume the BF3/generic SF reserve");
-        assert_eq!(resolved.pf_total_sf, 36);
+        let astra_interfaces = build_astra_dpu_interfaces_vec();
+        let managed_endpoints = astra_interfaces
+            .iter()
+            .map(|interface| interface.chained_svc_if.as_ref().map_or(0, Vec::len) as u32)
+            .sum::<u32>();
+        assert_eq!(
+            resolved.pf_total_sf,
+            managed_endpoints + DOCA_WEAVE_DHCP_AGENT_PF_TOTAL_SF + PF_TOTAL_SF_BF4_ASTRA_FUDGE
+        );
     }
 
     /// Verifies the public initialization boundary rejects unsupported hardware VF populations.
@@ -3753,12 +3893,24 @@ mod tests {
         let svc = ServiceDefinition::new(DOCA_HBN_SERVICE_NAME, "repo", "chart", "1.0.5");
 
         let bf3_suffix = deployment_cr_suffix(DpuDeploymentType::Bf3);
+        let bf3_gb200_suffix = deployment_cr_suffix(DpuDeploymentType::Bf3Gb200);
         let bf4_suffix = deployment_cr_suffix(DpuDeploymentType::Bf4Generic);
 
         // BF3: CR name unchanged.
         let bf3 = build_service_template(&svc, TEST_NAMESPACE, bf3_suffix);
         assert_eq!(bf3.metadata.name.as_deref(), Some(DOCA_HBN_SERVICE_NAME));
         assert_eq!(bf3.spec.deployment_service_name, DOCA_HBN_SERVICE_NAME);
+
+        // GB200 BF3: separate CR name while retaining the same logical service name.
+        let bf3_gb200 = build_service_template(&svc, TEST_NAMESPACE, bf3_gb200_suffix);
+        assert_eq!(
+            bf3_gb200.metadata.name.as_deref(),
+            Some("doca-hbn-bf3gb200")
+        );
+        assert_eq!(
+            bf3_gb200.spec.deployment_service_name,
+            DOCA_HBN_SERVICE_NAME
+        );
 
         // BF4: CR name suffixed, logical name unchanged.
         let bf4 = build_service_template(&svc, TEST_NAMESPACE, bf4_suffix);
@@ -3820,6 +3972,10 @@ mod tests {
                 DpuDeploymentType::Bf3 => ("", None),
             }
 
+            "GB200 BF3 uses its deployment suffix" {
+                DpuDeploymentType::Bf3Gb200 => ("bf3gb200", None),
+            }
+
             "generic BF4 uses its deployment suffix" {
                 DpuDeploymentType::Bf4Generic => ("bf4generic", None),
             }
@@ -3836,6 +3992,7 @@ mod tests {
         nodes: Arc<RwLock<BTreeMap<String, DPUNode>>>,
         dpus: Arc<RwLock<BTreeMap<String, DPU>>>,
         flavors: Arc<RwLock<BTreeMap<String, DPUFlavor>>>,
+        flavor_templates: Arc<RwLock<BTreeMap<String, DPUFlavorTemplate>>>,
         services: Arc<RwLock<BTreeMap<String, DPUService>>>,
         service_patch: Arc<RwLock<Option<(String, String, serde_json::Value)>>>,
     }
@@ -4179,6 +4336,32 @@ mod tests {
             }
             flavors.insert(key, f.clone());
             Ok(f.clone())
+        }
+    }
+
+    #[async_trait]
+    impl DpuFlavorTemplateRepository for SdkMock {
+        async fn get(&self, name: &str, ns: &str) -> Result<Option<DPUFlavorTemplate>, DpfError> {
+            Ok(self
+                .flavor_templates
+                .read()
+                .unwrap()
+                .get(&Self::ns_key(ns, name))
+                .cloned())
+        }
+        async fn create(
+            &self,
+            template: &DPUFlavorTemplate,
+        ) -> Result<DPUFlavorTemplate, DpfError> {
+            let key = Self::key(template);
+            let mut templates = self.flavor_templates.write().unwrap();
+            if templates.contains_key(&key) {
+                return Err(already_exists_error(
+                    template.meta().name.as_deref().unwrap_or(""),
+                ));
+            }
+            templates.insert(key, template.clone());
+            Ok(template.clone())
         }
     }
 
@@ -4775,6 +4958,14 @@ mod tests {
         )
         .await
         .unwrap();
+
+        assert_eq!(
+            sdk.get_dpu_device_node_labels("dpu-001").await.unwrap(),
+            BTreeMap::from([
+                ("nico/extsvc-add".to_string(), "enabled".to_string()),
+                ("other-controller".to_string(), "preserve".to_string()),
+            ])
+        );
 
         let updated = DpuDeviceRepository::get(&mock, &device_name, TEST_NAMESPACE)
             .await
@@ -5852,7 +6043,7 @@ mod tests {
 }
 
 #[cfg(test)]
-mod extra_script_configmap_tests {
+mod configmap_seed_tests {
     use std::collections::BTreeMap;
     use std::sync::Mutex;
 
@@ -5939,14 +6130,74 @@ mod extra_script_configmap_tests {
         }
     }
 
-    /// BF3 inlines its scripts, so it must not create unreferenced ConfigMaps.
+    /// BF3 does not require the Astra Spectrum-X runtime ConfigMap.
     #[tokio::test]
-    async fn bf3_creates_no_configmaps() {
+    async fn bf3_does_not_require_the_astra_runtime_configmap() {
         let mock = ConfigMapMock::default();
         create_extra_script_configmaps(&mock, NS, DpuDeploymentType::Bf3)
             .await
             .expect("seeding succeeds");
+        validate_bf4_astra_ra2_2_runtime_configmap(&mock, NS, DpuDeploymentType::Bf3)
+            .await
+            .expect("BF3 does not require the Astra runtime ConfigMap");
         assert!(mock.applied_names().is_empty());
+    }
+
+    /// Astra initialization fails rather than creating a placeholder Spectrum-X configuration.
+    #[tokio::test]
+    async fn bf4_astra_requires_the_runtime_configmap() {
+        let mock = ConfigMapMock::default();
+        let error =
+            validate_bf4_astra_ra2_2_runtime_configmap(&mock, NS, DpuDeploymentType::Bf4Astra)
+                .await
+                .expect_err("Astra must require the site-owned runtime ConfigMap");
+
+        assert!(matches!(
+            error,
+            DpfError::ConfigError(message)
+                if message.contains("dpf-operator-system/ra2.2-runtime")
+                    && message.contains("RA2.2-runtime.yaml")
+        ));
+        assert!(mock.applied_names().is_empty());
+    }
+
+    /// A site-owned runtime configuration must be the one the flavor consumes.
+    #[tokio::test]
+    async fn existing_bf4_astra_runtime_configmap_is_left_alone() {
+        let site_config = "runtimeConfig:\n  roce: []\n";
+        let mock = ConfigMapMock::seeded(
+            BF4_ASTRA_RA2_2_RUNTIME_CONFIGMAP_NAME,
+            BTreeMap::from([(
+                BF4_ASTRA_RA2_2_RUNTIME_CONFIGMAP_KEY.to_string(),
+                site_config.to_string(),
+            )]),
+        );
+
+        validate_bf4_astra_ra2_2_runtime_configmap(&mock, NS, DpuDeploymentType::Bf4Astra)
+            .await
+            .expect("existing site configuration is valid");
+
+        assert!(mock.applied_names().is_empty());
+        assert_eq!(
+            mock.existing.lock().unwrap()[BF4_ASTRA_RA2_2_RUNTIME_CONFIGMAP_NAME]
+                [BF4_ASTRA_RA2_2_RUNTIME_CONFIGMAP_KEY],
+            site_config
+        );
+    }
+
+    #[tokio::test]
+    async fn bf4_astra_runtime_configmap_requires_the_referenced_key() {
+        let mock = ConfigMapMock::seeded(BF4_ASTRA_RA2_2_RUNTIME_CONFIGMAP_NAME, BTreeMap::new());
+
+        let error =
+            validate_bf4_astra_ra2_2_runtime_configmap(&mock, NS, DpuDeploymentType::Bf4Astra)
+                .await
+                .expect_err("Astra runtime ConfigMap must contain the referenced key");
+
+        assert!(matches!(
+            error,
+            DpfError::ConfigError(message) if message.contains(BF4_ASTRA_RA2_2_RUNTIME_CONFIGMAP_KEY)
+        ));
     }
 
     /// Names and key must stay in lockstep with the flavors' `configMapKeyRef`.

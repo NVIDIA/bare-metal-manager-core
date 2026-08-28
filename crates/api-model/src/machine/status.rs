@@ -18,6 +18,7 @@ use chrono::{DateTime, Utc};
 
 use crate::bmc_info::BmcInfo;
 use crate::hardware_info::{HardwareInfo, MachineInventory, MachineNvLinkInfo};
+use crate::instance::status::extension_service::InstanceExtensionServiceStatusObservationByType;
 use crate::machine::infiniband::MachineInfinibandStatusObservation;
 use crate::machine::nvlink::MachineNvLinkStatusObservation;
 use crate::machine::spx::MachineSpxStatusObservation;
@@ -51,6 +52,7 @@ pub struct MachineStatus {
     pub infiniband_status_observation: Option<MachineInfinibandStatusObservation>,
     pub nvlink_status_observation: Option<MachineNvLinkStatusObservation>,
     pub spx_status_observation: Option<MachineSpxStatusObservation>,
+    pub extension_service_status_observations: InstanceExtensionServiceStatusObservationByType,
     pub slot_number: Option<i32>,
     pub tray_index: Option<i32>,
     /// Power management state for this machine (hosts only; absent for DPUs).

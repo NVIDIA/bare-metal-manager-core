@@ -23,8 +23,8 @@ use std::time::Duration;
 
 use bmc_mock::injection::InjectionStore;
 use bmc_mock::{
-    BmcCommand, BmcEvent, BmcState, BootOptionKind, Callbacks, HostnameQuerying, MachineInfo,
-    MockPowerState, SetSystemPowerError, SetSystemPowerResult, SystemPowerControl,
+    BmcCommand, BmcEvent, BmcState, Callbacks, HostnameQuerying, MachineInfo, MockPowerState,
+    SetSystemPowerError, SetSystemPowerResult, SystemPowerControl,
 };
 use carbide_network::virtualization::build_dual_stack_list;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
@@ -211,7 +211,6 @@ pub(super) struct LiveState {
     pub(super) ipmi_port: Option<u16>,
     pub(super) ssh_endpoint_port: Option<u16>,
     pub(super) booted_os: MaybeOsImage,
-    pub(super) next_boot_kind: Option<BootOptionKind>,
     pub(super) installed_os: OsImage,
     pub(super) state_string: Option<&'static str>,
     pub(super) api_state: String,
@@ -240,7 +239,6 @@ impl Default for LiveState {
             ipmi_port: None,
             ssh_endpoint_port: None,
             booted_os: Default::default(),
-            next_boot_kind: None,
             installed_os: Default::default(),
             state_string: None,
             api_state: "Unknown".to_string(),
@@ -275,14 +273,6 @@ impl LiveState {
             tpm_ek_certificate,
             infiniband_port_states,
             ..Default::default()
-        }
-    }
-
-    pub(super) fn ui_next_boot_kind(&self) -> &'static str {
-        match self.next_boot_kind {
-            Some(BootOptionKind::Disk) => "Disk",
-            Some(BootOptionKind::Network) => "Network",
-            None => "Unknown",
         }
     }
 }
@@ -1002,10 +992,6 @@ impl MachineStateMachine {
         live_state.state_string = Some(self.fsm.state_string());
         live_state.power_state = self.fsm.power_state();
         live_state.booted_os = self.booted_os();
-        live_state.next_boot_kind = self
-            .bmc_state
-            .as_ref()
-            .and_then(|state| state.system_state.resolve_current_boot_selection());
         live_state.dpu_flipped_to_nic_mode = matches!(&self.machine_info, MachineInfo::Dpu(_))
             && self
                 .bmc_state

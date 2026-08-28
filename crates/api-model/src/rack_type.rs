@@ -19,10 +19,13 @@ use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
 
+use carbide_libmlx_model::nvconfig::DpuNvConfigProfile;
 use carbide_utils::config::as_std_duration;
 use duration_str::deserialize_duration;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+use crate::hardware_info::HardwareInfo;
 
 /// RackHardwareType identifies the hardware type of a rack.
 /// This is a flexible string-based type to allow new hardware types
@@ -88,6 +91,22 @@ pub enum RackProductFamily {
     ///
     /// The original spelling is preserved after outer whitespace is removed.
     Other(String),
+}
+
+/// Selects the fixed DPU NVConfig profile supported by a rack and DPU identity.
+///
+/// A profile is selected only for a GB200 rack and an exact supported DPU part
+/// number. Missing identity does not select a profile.
+pub fn select_dpu_nvconfig_profile(
+    product_family: Option<&RackProductFamily>,
+    hardware_info: Option<&HardwareInfo>,
+) -> Option<DpuNvConfigProfile> {
+    if product_family != Some(&RackProductFamily::Gb200) {
+        return None;
+    }
+
+    let part_number = &hardware_info?.dpu_info.as_ref()?.part_number;
+    DpuNvConfigProfile::for_gb200_b3240_part_number(part_number)
 }
 
 impl RackProductFamily {
@@ -471,9 +490,73 @@ impl RackProfileConfig {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{scenarios, value_scenarios};
+    use carbide_test_support::{Check, check_values, scenarios, value_scenarios};
 
     use super::*;
+    use crate::hardware_info::DpuData;
+
+    fn dpu_hardware_info(part_number: &str) -> HardwareInfo {
+        HardwareInfo {
+            dpu_info: Some(DpuData {
+                part_number: part_number.to_string(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn dpu_nvconfig_profile_requires_matching_rack_and_dpu_identity() {
+        check_values(
+            [
+                Check {
+                    scenario: "GB200 rack with supported B3240",
+                    input: (
+                        Some(RackProductFamily::Gb200),
+                        Some(dpu_hardware_info("900-9D3B6-00CN-PA0")),
+                    ),
+                    expect: Some(DpuNvConfigProfile::Gb200B3240V1),
+                },
+                Check {
+                    scenario: "other rack family with supported B3240",
+                    input: (
+                        Some(RackProductFamily::Gb300),
+                        Some(dpu_hardware_info("900-9D3B6-00CN-PA0")),
+                    ),
+                    expect: None,
+                },
+                Check {
+                    scenario: "GB200 rack with another BlueField 3 product",
+                    input: (
+                        Some(RackProductFamily::Gb200),
+                        Some(dpu_hardware_info("900-9D3B6-00CV-AA0")),
+                    ),
+                    expect: None,
+                },
+                Check {
+                    scenario: "GB200 rack without DPU hardware information",
+                    input: (Some(RackProductFamily::Gb200), None),
+                    expect: None,
+                },
+                Check {
+                    scenario: "GB200 rack without DPU identity",
+                    input: (
+                        Some(RackProductFamily::Gb200),
+                        Some(HardwareInfo::default()),
+                    ),
+                    expect: None,
+                },
+                Check {
+                    scenario: "missing rack family with supported B3240",
+                    input: (None, Some(dpu_hardware_info("900-9D3B6-00CN-PA0"))),
+                    expect: None,
+                },
+            ],
+            |(product_family, hardware_info)| {
+                select_dpu_nvconfig_profile(product_family.as_ref(), hardware_info.as_ref())
+            },
+        );
+    }
 
     #[test]
     fn test_rack_profile_config_lookup() {

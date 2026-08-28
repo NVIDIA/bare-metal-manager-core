@@ -19,7 +19,9 @@ use std::ops::DerefMut;
 use std::time::SystemTime;
 
 use ::rpc::forge::{
-    DpuNetworkStatus, ManagedHostNetworkConfigRequest, ManagedHostNetworkStatusRequest,
+    CreateDpuExtensionServiceRequest, DpuExtensionServiceType, DpuNetworkStatus,
+    InstanceDpuExtensionServiceConfig, InstanceDpuExtensionServicesConfig,
+    ManagedHostNetworkConfigRequest, ManagedHostNetworkStatusRequest,
 };
 use carbide_instrument::testing::MetricsCapture;
 use carbide_secrets::credentials::{BgpCredentialType, CredentialKey, Credentials};
@@ -1140,6 +1142,169 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
     assert_eq!(
         instance.status.as_ref().unwrap().configs_synced,
         rpc::SyncState::Synced as i32
+    );
+}
+
+fn create_extension_service_data(name: &str) -> String {
+    format!(
+        "apiVersion: v1\nkind: Pod\nmetadata:\n  name: {}\nspec:\n  containers:\n    - name: app\n      image: nginx:1.27",
+        name
+    )
+}
+
+#[crate::sqlx_test]
+async fn test_managed_host_network_config_with_extension_services(pool: sqlx::PgPool) {
+    let mut config = api_fixtures::get_config();
+    config.dpf.enabled = true;
+    let env =
+        api_fixtures::create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config))
+            .await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let mh = create_managed_host(&env).await;
+    let dpu_1_id = mh.dpu_ids[0];
+
+    // Add an instance
+    let instance_network = rpc::InstanceNetworkConfig {
+        interfaces: vec![rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::Physical as i32,
+            network_segment_id: Some(segment_id),
+            network_details: None,
+            device: None,
+            device_instance: 0u32,
+            virtual_function_id: None,
+            ip_address: None,
+            ipv6_interface_config: None,
+            routing_profile: None,
+        }],
+        #[allow(deprecated)]
+        auto: false,
+        auto_config: None,
+    };
+
+    let default_tenant_org = "best_org";
+    let _ = env
+        .api
+        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+            organization_id: default_tenant_org.to_string(),
+            routing_profile_type: None,
+            metadata: Some(rpc::forge::Metadata {
+                name: default_tenant_org.to_string(),
+                description: "".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .unwrap();
+
+    // Create extension services and add them to the instance
+    let extension_service1 = env
+        .api
+        .create_dpu_extension_service(tonic::Request::new(CreateDpuExtensionServiceRequest {
+            service_id: None,
+            service_name: "test1".to_string(),
+            service_type: DpuExtensionServiceType::KubernetesPod as i32,
+            tenant_organization_id: "best_org".to_string(),
+            description: None,
+            data: create_extension_service_data("test"),
+            credential: None,
+            observability: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let service1_version = extension_service1
+        .latest_version_info
+        .as_ref()
+        .unwrap()
+        .version
+        .clone();
+
+    let extension_service2 = env
+        .api
+        .create_dpu_extension_service(tonic::Request::new(CreateDpuExtensionServiceRequest {
+            service_id: None,
+            service_name: "test2".to_string(),
+            service_type: DpuExtensionServiceType::KubernetesPod as i32,
+            tenant_organization_id: "best_org".to_string(),
+            description: None,
+            data: create_extension_service_data("test2"),
+            credential: None,
+            observability: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let service2_version = extension_service2
+        .latest_version_info
+        .as_ref()
+        .unwrap()
+        .version
+        .clone();
+
+    let es_config = InstanceDpuExtensionServicesConfig {
+        service_configs: vec![
+            InstanceDpuExtensionServiceConfig {
+                service_id: extension_service1.service_id.clone(),
+                version: service1_version.clone(),
+            },
+            InstanceDpuExtensionServiceConfig {
+                service_id: extension_service2.service_id.clone(),
+                version: service2_version.clone(),
+            },
+        ],
+    };
+
+    let _ = mh
+        .instance_builer(&env)
+        .network(instance_network)
+        .extension_services(es_config)
+        .build()
+        .await;
+
+    let response = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
+            dpu_machine_id: Some(dpu_1_id),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(response.dpu_extension_services.len(), 2);
+    assert_eq!(
+        response.dpu_extension_services[0].service_id,
+        extension_service1.service_id
+    );
+    assert_eq!(
+        response.dpu_extension_services[0].version,
+        service1_version.clone()
+    );
+    assert_eq!(response.dpu_extension_services[0].removed, None);
+
+    assert_eq!(
+        response.dpu_extension_services[1].service_id,
+        extension_service2.service_id
+    );
+    assert_eq!(
+        response.dpu_extension_services[1].version,
+        service2_version.clone()
+    );
+    assert_eq!(response.dpu_extension_services[1].removed, None);
+
+    let nested_extension_services = response
+        .instance
+        .as_ref()
+        .and_then(|instance| instance.config.as_ref())
+        .and_then(|config| config.dpu_extension_services.as_ref())
+        .expect("agent-facing instance config retains the Kubernetes Pod services");
+    assert_eq!(nested_extension_services.service_configs.len(), 2);
+    assert!(
+        nested_extension_services
+            .service_configs
+            .iter()
+            .all(|service| {
+                service.service_id == extension_service1.service_id
+                    || service.service_id == extension_service2.service_id
+            })
     );
 }
 

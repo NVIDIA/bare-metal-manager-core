@@ -205,7 +205,6 @@ async fn run_machine_a_tron_racks_test(
         log_format: LogFormat::Compact,
         bmc_mock_port: 0,
         bmc_mock_certs_dir: None,
-        tui_enabled: false,
         configure_carbide_bmc_proxy_host: None,
         persist_dir: None,
         cleanup_on_quit: false,

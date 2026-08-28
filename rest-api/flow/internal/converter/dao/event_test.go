@@ -16,7 +16,6 @@ import (
 
 func TestEventRoundTrip(t *testing.T) {
 	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
-	plannedAt := now.Add(time.Second)
 	event := &eventrule.Event{
 		ID:            uuid.New(),
 		Key:           eventrule.EventKey{SourceName: "collector", SourceKey: "event-1"},
@@ -30,7 +29,6 @@ func TestEventRoundTrip(t *testing.T) {
 		Observations:   2,
 		CreatedAt:      now,
 		LastObservedAt: now.Add(time.Second),
-		PlannedAt:      &plannedAt,
 	}
 
 	persisted, err := EventTo(event)

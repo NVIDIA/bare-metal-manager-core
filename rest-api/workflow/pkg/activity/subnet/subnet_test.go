@@ -371,7 +371,7 @@ func TestManageSubnet_UpdateSubnetsInDB(t *testing.T) {
 	// Subnet 3 is missing from Site Controller inventory but was not requested by user to be deleted, hence gets missing flag set
 	subnet3 := testSubnetBuildSubnet(t, dbSession, "test-subnet-3", tn, vpc, nil, cutil.GetPtr(uuid.New()), &ipb.RoutingType, cutil.GetPtr("192.0.1.8"), cutil.GetPtr("192.0.1.8"), nil, 24, cdbm.SubnetStatusProvisioning, tnu)
 	// Set created earlier than the inventory receipt interval
-	_, err = dbSession.DB.Exec("UPDATE subnet SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)), subnet3.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE subnet SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.DefaultInventoryReceiptInterval)*2), subnet3.ID.String())
 	assert.NoError(t, err)
 
 	sbPrefix, err = ipam.CreateChildIpamEntryForIPBlock(ctx, nil, dbSession, ipamStorage, ipb, 26)
@@ -417,7 +417,7 @@ func TestManageSubnet_UpdateSubnetsInDB(t *testing.T) {
 	for i := 0; i < 38; i++ {
 		subnet := testSubnetBuildSubnet(t, dbSession, fmt.Sprintf("test-vpc-paged-%d", i), tn, vpc, nil, cutil.GetPtr(uuid.New()), &ipb.RoutingType, &ipv4Prefix, &ipv4Gateway, &ipb.ID, 26, cdbm.SubnetStatusProvisioning, tnu)
 		// Update creation timestamp to be earlier than inventory processing interval
-		_, err = dbSession.DB.Exec("UPDATE subnet SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)), subnet.ID.String())
+		_, err = dbSession.DB.Exec("UPDATE subnet SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.DefaultInventoryReceiptInterval)*2), subnet.ID.String())
 		assert.NoError(t, err)
 		pagedSubnets = append(pagedSubnets, subnet)
 		pagedInvIds = append(pagedInvIds, subnet.ControllerNetworkSegmentID.String())

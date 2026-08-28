@@ -50,7 +50,10 @@ pub const DPU_AGENT_SERVICE_NAME: &str = "carbide-dpu-agent";
 pub const OTEL_COLLECTOR_SERVICE_NAME: &str = "carbide-otelcol";
 pub const DTS_SERVICE_NAME: &str = "dts";
 pub const DOCA_WEAVE_DHCP_AGENT_SERVICE_NAME: &str = "doca-weave-dhcp-agent";
+/// Number of PF scalable functions (SFs) allocated to the DOCA Weave DHCP Agent.
 pub const DOCA_WEAVE_DHCP_AGENT_PF_TOTAL_SF: u32 = 8;
+/// Additional PF scalable functions (SFs) reserved for Astra capacity headroom.
+pub const PF_TOTAL_SF_BF4_ASTRA_FUDGE: u32 = 4;
 pub const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_NAME: &str = "doca-weave-flow-controller";
 pub const DOCA_XPLANE_SERVICE_NAME: &str = "doca-xplane";
 /// Hash-stable legacy VF population used by default DPF flavors and SDK initialization.
@@ -681,6 +684,8 @@ pub struct DpuServiceHelmChartObservation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum DpuDeploymentType {
     Bf3,
+    /// BF3 B3240 on a GB200 platform using CPU as Root Complex mode.
+    Bf3Gb200,
     Bf4Generic,
     Bf4Astra,
 }

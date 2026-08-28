@@ -30,6 +30,7 @@ use crate::crds::dpuclusters_generated::DPUCluster;
 use crate::crds::dpudeployments_generated::DPUDeployment;
 use crate::crds::dpudevices_generated::DPUDevice;
 use crate::crds::dpuflavors_generated::DPUFlavor;
+use crate::crds::dpuflavortemplates_generated::DPUFlavorTemplate;
 use crate::crds::dpunodemaintenances_generated::DPUNodeMaintenance;
 use crate::crds::dpunodes_generated::DPUNode;
 use crate::crds::dpus_generated::DPU;
@@ -152,6 +153,14 @@ pub trait DpuNodeMaintenanceRepository: Send + Sync {
 pub trait DpuFlavorRepository: Send + Sync {
     async fn get(&self, name: &str, namespace: &str) -> Result<Option<DPUFlavor>, DpfError>;
     async fn create(&self, flavor: &DPUFlavor) -> Result<DPUFlavor, DpfError>;
+}
+
+/// Repository for DPUFlavorTemplate resources.
+#[async_trait]
+pub trait DpuFlavorTemplateRepository: Send + Sync {
+    async fn get(&self, name: &str, namespace: &str)
+    -> Result<Option<DPUFlavorTemplate>, DpfError>;
+    async fn create(&self, template: &DPUFlavorTemplate) -> Result<DPUFlavorTemplate, DpfError>;
 }
 
 /// Repository for DPUSet resources.
@@ -320,6 +329,7 @@ pub trait DpfRepository:
     + DpuNodeRepository
     + DpuNodeMaintenanceRepository
     + DpuFlavorRepository
+    + DpuFlavorTemplateRepository
     + DpuSetRepository
     + DpuClusterRepository
     + DpuDeploymentRepository

@@ -75,6 +75,7 @@ Use `site_explorer.dpu_policy` instead.
 | `machine_state_controller` | `MachineStateControllerConfig` | *(see below)* | `machines` | Machine state controller timing (see [MachineStateControllerConfig](#machinestatecontrollerconfig)). |
 | `network_segment_state_controller` | `NetworkSegmentStateControllerConfig` | *(see below)* | `networking` | Network segment state controller timing. |
 | `vpc_prefix_state_controller` | `VpcPrefixStateControllerConfig` | *(see below)* | `networking` | VPC prefix state controller timing. |
+| `extension_service_state_controller` | `ExtensionServiceStateControllerConfig` | *(see below)* | `machines` | DPU extension service state controller timing. |
 | `ib_partition_state_controller` | `IbPartitionStateControllerConfig` | *(see below)* | `hardware` | IB partition state controller timing. |
 | `dpa_interface_state_controller` | `DpaInterfaceStateControllerConfig` | *(see below)* | `networking` | DPA interface state controller timing. |
 | `rack_state_controller` | `RackStateControllerConfig` | *(see below)* | `hardware` | Rack state controller timing, optional ingestion firmware update, and primary-switch mTLS service selection. |
@@ -186,6 +187,16 @@ For product families other than `gb200` and `gb300`, the `GetRackProfile`
 `product_family` enum is `UNSPECIFIED`. The configured string remains available
 to descriptor-based RMS operations.
 
+Each `rack_capabilities.<role>` section also requires a `count` field. This
+field is independent of RMS: it tells the rack state machine how many devices
+with that role the rack must have before it can progress. A rack stays in
+`Created` until all three roles have at least `count` devices registered; it
+stays in `Discovering` until all three roles have at least `count` devices in
+`Ready` state. All three roles — `compute`, `switch`, and `power_shelf` —
+require a `count` regardless of which backends are set to `rms`. The third
+example below shows `count` on `compute` and `switch` even though those roles
+use non-RMS backends.
+
 The examples below only show the component-manager and rack-profile fields.
 Configure `[rms]` separately when NICo needs to call RMS.
 
@@ -207,12 +218,15 @@ fetch_timeout = "30s"
 
 [rack_profiles.NVL72.rack_capabilities.compute]
 vendor = "NVIDIA"
+count = 18
 
 [rack_profiles.NVL72.rack_capabilities.switch]
 vendor = "NVIDIA"
+count = 9
 
 [rack_profiles.NVL72.rack_capabilities.power_shelf]
 vendor = "LiteOn"
+count = 8
 ```
 
 Example: GB300 rack with Lenovo compute trays and Delta power shelves:
@@ -229,12 +243,15 @@ rack_hardware_topology = "gb300_nvl72r1_c2g4_topology"
 
 [rack_profiles.NVL72_GB300.rack_capabilities.compute]
 vendor = "Lenovo"
+count = 18
 
 [rack_profiles.NVL72_GB300.rack_capabilities.switch]
 vendor = "nvidia"
+count = 9
 
 [rack_profiles.NVL72_GB300.rack_capabilities.power_shelf]
 vendor = "delta"
+count = 6
 ```
 
 Example: only the component-manager power shelf backend uses RMS. The compute
@@ -254,8 +271,15 @@ url = "http://nsm.example.internal:50052"
 product_family = "gb200"
 rack_hardware_topology = "gb200_nvl72r1_c2g4_topology"
 
+[rack_profiles.NVL72_POWER.rack_capabilities.compute]
+count = 18
+
+[rack_profiles.NVL72_POWER.rack_capabilities.switch]
+count = 9
+
 [rack_profiles.NVL72_POWER.rack_capabilities.power_shelf]
 vendor = "Lite-On"
+count = 8
 ```
 
 Each rack that uses an RMS-backed operation must have a `rack_profile_id`
@@ -429,8 +453,8 @@ shipped configuration selects a plaintext mode.
 
 ### `StateControllerConfig`
 
-Shared by all `*StateControllerConfig` structs (machine, network segment, VPC prefix, IB
-partition, DPA interface, rack, power shelf, switch, SPDM).
+Shared by all `*StateControllerConfig` structs (machine, network segment, VPC prefix, extension
+service, IB partition, DPA interface, rack, power shelf, switch, SPDM).
 
 | Field | Type | Default | Description |
 | ------- | ------ | --------- | ------------- |
@@ -538,6 +562,14 @@ Extends `StateControllerConfig` with:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `vpc_prefix_drain_time` | `Duration` | `5m` | Time a VPC prefix must have 0 referencing network prefixes before release. |
+| `controller` | `StateControllerConfig` | *(default)* | Common state controller timing (see [StateControllerConfig](#statecontrollerconfig)). |
+
+### `ExtensionServiceStateControllerConfig`
+
+TOML section: `[extension_service_state_controller]`.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
 | `controller` | `StateControllerConfig` | *(default)* | Common state controller timing (see [StateControllerConfig](#statecontrollerconfig)). |
 
 ### `FirmwareGlobal`

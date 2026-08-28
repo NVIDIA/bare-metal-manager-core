@@ -42,7 +42,6 @@ use crate::machine_state_machine::{LiveState, MachineStateMachine, PersistedMach
 use crate::status::{
     BmcStatus, DeviceKind, DeviceStatus, DeviceStatusConfig, EndpointStatus, InfinibandPortStatus,
 };
-use crate::tui::{HostDetails, UiUpdate};
 use crate::{Guid, InfinibandPortState, saturating_add_duration_to_instant};
 
 pub(super) struct HostMachine {
@@ -53,7 +52,6 @@ pub(super) struct HostMachine {
     live_state: Arc<RwLock<LiveState>>,
     state_machine: MachineStateMachine,
     api_state: String,
-    tui_event_tx: Option<mpsc::Sender<UiUpdate>>,
 
     dpus: Vec<DpuMachineHandle>,
 
@@ -209,7 +207,6 @@ impl HostMachine {
 
             bmc_control_rx,
             state_waiters: HashMap::new(),
-            tui_event_tx: None,
             paused: true,
             sleep_until: Instant::now(),
             api_refresh_interval: tokio::time::interval(
@@ -292,7 +289,6 @@ impl HostMachine {
 
             bmc_control_rx,
             state_waiters: HashMap::new(),
-            tui_event_tx: None,
             paused: true,
             sleep_until: Instant::now(),
             api_refresh_interval: tokio::time::interval(
@@ -350,8 +346,6 @@ impl HostMachine {
         actor_message_rx: &mut mpsc::UnboundedReceiver<HostMachineMessage>,
         actor_message_tx: &mpsc::UnboundedSender<HostMachineMessage>,
     ) -> bool {
-        self.maybe_update_tui().await;
-
         // If the host is up, and if anyone is waiting for the current state to be
         // reached, notify them.
         if self.live_state.read().unwrap().is_up
@@ -365,7 +359,7 @@ impl HostMachine {
         tokio::select! {
             _ = tokio::time::sleep_until(self.sleep_until.into()) => {}
             _ = self.api_refresh_interval.tick() => {
-                // Wake up to refresh the API state and UI
+                // Wake up to refresh the API state
                 if DeviceKind::from(self.host_info.hw_type) == DeviceKind::Machine
                     && let Some(machine_id) = self.live_state.read().unwrap().observed_machine_id
                 {
@@ -384,7 +378,7 @@ impl HostMachine {
                     tracing::info!("Command channel gone, stopping Host");
                     return false;
                 };
-                match self.handle_actor_message(cmd).await {
+                match self.handle_actor_message(cmd) {
                     HandleMessageResult::ContinuePolling => return true,
                     HandleMessageResult::ProcessStateNow => {},
                 }
@@ -445,7 +439,7 @@ impl HostMachine {
         }
     }
 
-    async fn handle_actor_message(&mut self, message: HostMachineMessage) -> HandleMessageResult {
+    fn handle_actor_message(&mut self, message: HostMachineMessage) -> HandleMessageResult {
         match message {
             HostMachineMessage::WaitUntilMachineUpWithApiState(state, reply) => {
                 if let Some(state_waiters) = self.state_waiters.get_mut(&state) {
@@ -453,11 +447,6 @@ impl HostMachine {
                 } else {
                     self.state_waiters.insert(state, vec![reply]);
                 }
-                HandleMessageResult::ContinuePolling
-            }
-            HostMachineMessage::AttachToUI(tui_event_tx) => {
-                self.tui_event_tx = tui_event_tx;
-                self.maybe_update_tui().await;
                 HandleMessageResult::ContinuePolling
             }
             HostMachineMessage::SetPaused(value) => {
@@ -511,52 +500,6 @@ impl HostMachine {
         self.state_machine.set_system_power(request)
     }
 
-    async fn maybe_update_tui(&self) {
-        let Some(tui_event_tx) = self.tui_event_tx.as_ref() else {
-            return;
-        };
-        _ = tui_event_tx
-            .send(UiUpdate::Machine(self.host_details()))
-            .await
-            .inspect_err(|e| tracing::warn!(error = %e, "Error sending TUI event"));
-    }
-
-    // Note: We can't implment From<HostMachine> for HostDetails, because we need this to be async
-    // in order to query DPU state.
-    fn host_details(&self) -> HostDetails {
-        let mut dpu_details = Vec::with_capacity(self.dpus.len());
-        for dpu in &self.dpus {
-            dpu_details.push(dpu.host_details());
-        }
-
-        let live_state = self.live_state.read().unwrap();
-
-        HostDetails {
-            mat_id: self.mat_id,
-            hw_type: Some(self.host_info.hw_type),
-            machine_id: live_state
-                .observed_machine_id
-                .as_ref()
-                .map(|m| m.to_string()),
-            mat_state: live_state.state_string,
-            api_state: self.api_state.clone(),
-            oob_ip: live_state
-                .bmc_ip
-                .as_ref()
-                .map(|ip| ip.to_string())
-                .unwrap_or_default(),
-            machine_ip: live_state
-                .machine_ip
-                .as_ref()
-                .map(|ip| ip.to_string())
-                .unwrap_or_default(),
-            dpus: dpu_details,
-            booted_os: live_state.booted_os.to_string(),
-            next_boot_kind: live_state.ui_next_boot_kind().into(),
-            power_state: live_state.power_state,
-        }
-    }
-
     fn pause(&mut self) {
         let was_paused = self.paused;
         self.paused = true;
@@ -597,7 +540,6 @@ pub(super) enum HandleMessageResult {
 enum HostMachineMessage {
     GetApiState(oneshot::Sender<String>),
     WaitUntilMachineUpWithApiState(String, oneshot::Sender<()>),
-    AttachToUI(Option<mpsc::Sender<UiUpdate>>),
     SetPaused(bool),
     SetApiState(String),
 }
@@ -709,16 +651,6 @@ impl MachineHandle {
             .wrap_err_with(|| format!("timed out waiting for machine up with state {state}"))?
             .wrap_err_with(|| format!("machine stopped while waiting for state {state}"))?;
         Ok(())
-    }
-
-    pub(super) fn attach_to_tui(
-        &self,
-        tui_event_tx: Option<mpsc::Sender<UiUpdate>>,
-    ) -> eyre::Result<()> {
-        Ok(self
-            .0
-            .message_tx
-            .send(HostMachineMessage::AttachToUI(tui_event_tx))?)
     }
 
     pub(super) fn pause(&self) -> eyre::Result<()> {
