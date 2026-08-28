@@ -227,7 +227,9 @@ tags:
       Machine is a physical server that contains CPUs, GPUs, memory, storage, and networking hardware. Machines are the physical building blocks of a Site.
   - name: DPU Machine
     description: |-
-      DPU Machine endpoints retrieve site-scoped DPU inventory independently of a host Machine.
+      A DPU (Data Processing Unit) is a programmable network device installed in a Machine that runs its own operating system, so NICo tracks each DPU as a Machine of its own alongside the host Machine it is attached to. NICo provisions the DPU and uses it to enforce network isolation and Machine trust for the host, including when that host moves between Tenants.
+
+      These endpoints are read-only and Site-scoped, reporting the DPU Machines that NICo Core discovered at the Site. A host Machine lists the DPUs attached to it in `associatedDpuMachineIds`, and `dpuNetworkConfig` is only populated when retrieving a single DPU Machine with `includeNetworkConfig` set to `true`. To re-provision a Machine's DPUs, see the DPU Reprovision tag.
   - name: Machine Validation
     description: |-
       Machine Validation is the mechanism through which a series of validation tests are executed against a Machine verify its integrity. The tests are run for each Machine on ingestion, they can also be run on-demand.
@@ -10561,11 +10563,11 @@ paths:
         description: Name of the Org
     get:
       operationId: get-all-dpu-machines
-      summary: Retrieve all DPU Machines for a Site
+      summary: Retrieve all DPU Machines
       description: |
         Retrieve all DPU Machines for a Site in deterministic DPU Machine ID order.
 
-        The bulk Core Machine response does not include DPU network configuration, so `dpuNetworkConfig` is `null` in this response.
+        DPU network configuration is not included when listing DPU Machines, please fetch the DPU Machine by ID to get the network configuration.
 
         User must have authorization role with `PROVIDER_ADMIN` suffix on the org that owns the Site.
       tags:
@@ -10637,9 +10639,9 @@ paths:
         description: ID of the DPU Machine
     get:
       operationId: get-dpu-machine
-      summary: Retrieve a DPU Machine for a Site
+      summary: Retrieve a DPU Machine
       description: |
-        Retrieve one DPU Machine for a Site. By default, `dpuNetworkConfig` is `null`. Set `includeNetworkConfig` to `true` to retrieve the network configuration fields exposed by the REST API. Internal-only and sensitive Core fields are omitted.
+        Retrieve a DPU Machine by ID. By default, DPU network configuration is not included. Set `includeNetworkConfig` query parameter to `true` to retrieve the network configuration fields.
 
         User must have authorization role with `PROVIDER_ADMIN` suffix on the org that owns the Site.
       tags:

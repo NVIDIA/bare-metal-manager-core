@@ -64,11 +64,11 @@ func (r ApiGetAllDpuMachinesRequest) Execute() ([]DpuMachineSummary, *http.Respo
 }
 
 /*
-GetAllDpuMachines Retrieve all DPU Machines for a Site
+GetAllDpuMachines Retrieve all DPU Machines
 
 Retrieve all DPU Machines for a Site in deterministic DPU Machine ID order.
 
-The bulk Core Machine response does not include DPU network configuration, so `dpuNetworkConfig` is `null` in this response.
+DPU network configuration is not included when listing DPU Machines, please fetch the DPU Machine by ID to get the network configuration.
 
 User must have authorization role with `PROVIDER_ADMIN` suffix on the org that owns the Site.
 
@@ -229,9 +229,9 @@ func (r ApiGetDpuMachineRequest) Execute() (*DpuMachineSummary, *http.Response, 
 }
 
 /*
-GetDpuMachine Retrieve a DPU Machine for a Site
+GetDpuMachine Retrieve a DPU Machine
 
-Retrieve one DPU Machine for a Site. By default, `dpuNetworkConfig` is `null`. Set `includeNetworkConfig` to `true` to retrieve the network configuration fields exposed by the REST API. Internal-only and sensitive Core fields are omitted.
+Retrieve a DPU Machine by ID. By default, DPU network configuration is not included. Set `includeNetworkConfig` query parameter to `true` to retrieve the network configuration fields.
 
 User must have authorization role with `PROVIDER_ADMIN` suffix on the org that owns the Site.
 
