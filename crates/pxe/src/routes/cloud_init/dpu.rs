@@ -290,7 +290,8 @@ mod tests {
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../pxe/test_data");
 
-    fn render_user_data(
+    /// Renders the `user-data` template from a hand-built context.
+    fn render_user_data_test_template(
         bootstrap_ca_source: BootstrapCaSource,
         dpu_nvconfig_profile: Option<DpuNvConfigProfile>,
     ) -> String {
@@ -410,7 +411,7 @@ mod tests {
                 },
             ],
             |source| {
-                let rendered = render_user_data(source, None);
+                let rendered = render_user_data_test_template(source, None);
                 (
                     rendered.matches("ip vrf exec mgmt curl --retry 5 --retry-all-errors -v -o /opt/forge/forge_root.pem http://carbide-pxe.forge/api/v0/tls/root_ca").count(),
                     rendered.contains("validate_bootstrap_ca()"),
@@ -425,7 +426,8 @@ mod tests {
     #[test]
     fn user_data_template_applies_selected_dpu_nvconfig_profile_after_bfcfg() {
         let profile = DpuNvConfigProfile::Gb200B3240V1;
-        let rendered = render_user_data(BootstrapCaSource::LegacyDownload, Some(profile));
+        let rendered =
+            render_user_data_test_template(BootstrapCaSource::LegacyDownload, Some(profile));
         let command = format!(
             "/usr/bin/mlxconfig -y -d \"${{mst_device}}\" set {}",
             profile.parameters().join(" "),
@@ -448,7 +450,8 @@ mod tests {
         assert!(bfcfg_position < profile_position);
         assert!(rendered.contains("No mst pciconf device found for the DPU NVConfig profile"));
 
-        let rendered_without_profile = render_user_data(BootstrapCaSource::LegacyDownload, None);
+        let rendered_without_profile =
+            render_user_data_test_template(BootstrapCaSource::LegacyDownload, None);
         assert!(!rendered_without_profile.contains(command.as_str()));
     }
 
