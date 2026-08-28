@@ -319,6 +319,17 @@ impl SystemState {
         self.systems.iter().for_each(|s| s.on_boot_completed())
     }
 
+    /// Returns whether any system advertises an enabled SSH serial console.
+    pub fn has_enabled_ssh_serial_console(&self) -> bool {
+        self.systems.iter().any(|system| {
+            system
+                .config
+                .serial_console
+                .as_ref()
+                .is_some_and(redfish::serial_console::SerialConsole::has_enabled_ssh)
+        })
+    }
+
     /// Overrides the advertised SSH serial-console port only for systems whose
     /// hardware profile already declares an enabled SSH serial console.
     pub fn set_serial_console_ssh_port(&self, port: Option<u16>) -> bool {
@@ -338,6 +349,18 @@ impl SystemState {
             }
         }
         updated
+    }
+
+    /// Advertises a simulated SSH console even when the captured hardware profile omits the
+    /// optional Redfish `SerialConsole` property.
+    pub(crate) fn set_simulated_serial_console_ssh_port(&self, port: Option<u16>) -> bool {
+        self.systems.iter().for_each(|system| {
+            *system
+                .serial_console_ssh_port_override
+                .lock()
+                .expect("mutex poisoned") = port;
+        });
+        !self.systems.is_empty()
     }
 }
 
@@ -615,15 +638,17 @@ async fn get_system(State(state): State<BmcState>, Path(system_id): Path<String>
         }
     };
 
-    if let Some(serial_console) = &config.serial_console {
-        let serial_console = system_state
-            .serial_console_ssh_port_override
-            .lock()
-            .expect("mutex poisoned")
-            .map_or_else(
-                || serial_console.clone(),
-                |port| serial_console.with_ssh_port(port),
-            );
+    let simulated_ssh_port = *system_state
+        .serial_console_ssh_port_override
+        .lock()
+        .expect("mutex poisoned");
+    let serial_console = match (&config.serial_console, simulated_ssh_port) {
+        (Some(serial_console), Some(port)) => Some(serial_console.with_ssh_port(port)),
+        (Some(serial_console), None) => Some(serial_console.clone()),
+        (None, Some(port)) => Some(redfish::serial_console::simulated_ssh(port)),
+        (None, None) => None,
+    };
+    if let Some(serial_console) = serial_console {
         b = b.serial_console(&serial_console);
     }
 
@@ -1412,5 +1437,27 @@ mod tests {
         assert_eq!(updated["PersistentBootConfigOrder"], updated_order);
         let system = get_json(&router, &resource("1").odata_id).await;
         assert_eq!(system["Boot"]["BootOrder"], json!(["Boot0000", "Boot0001"]));
+    }
+
+    #[tokio::test]
+    async fn simulated_ssh_port_can_be_added_without_profile_serial_console_data() {
+        let (router, state) = machine_router(
+            &host_info(HardwareType::LenovoGB300Nvl),
+            Arc::new(NoopCallbacks),
+            "test-host-id".to_string(),
+            false,
+            MachineRouterOptions::default(),
+        );
+        let router = router.layer(NormalizePathLayer::trim_trailing_slash());
+
+        assert!(!state.has_enabled_ssh_serial_console());
+        assert!(!state.set_serial_console_ssh_port(Some(3222)));
+        assert!(state.set_simulated_serial_console_ssh_port(Some(3222)));
+
+        for system_id in ["HGX_Baseboard_0", "System_0"] {
+            let system = get_json(&router, &resource(system_id).odata_id).await;
+            assert_eq!(system["SerialConsole"]["SSH"]["ServiceEnabled"], true);
+            assert_eq!(system["SerialConsole"]["SSH"]["Port"], 3222);
+        }
     }
 }

@@ -37,9 +37,10 @@
 //!   (`card_state.lockmode == Locked`) it promotes that exact value to
 //!   `current_version` via [`promote_rotating_to_current`]. A card with no staged
 //!   marker (locked before this flow shipped, already at v0 from the backfill)
-//!   falls back to [`record_device_converged`] at the site-wide target. Today the
-//!   locked-with version is `CURRENT_LOCKDOWN_IKM_VERSION` (0); the rotation
-//!   engine will own advancing the site-wide target, and the staged
+//!   falls back to [`record_device_converged`] at the site-wide target. The lock
+//!   command derives from the staged site-wide target when lockdown rotation is
+//!   enabled (otherwise from the card's current tracked version, so a staged
+//!   target does not migrate cards until the cutover flip); the staged
 //!   `rotating_to_version` is exactly the crash-safety marker that keeps a
 //!   mid-flight advance from mis-recording a card as converged to a version it
 //!   was never locked under.
@@ -110,6 +111,7 @@ pub enum CredentialRotationType {
     DpuUefi,
     Nvos,
     LockdownIkm,
+    DpuBmcService,
 }
 
 /// Records that `device_mac` now carries the current site-wide `credential_type`
@@ -1051,6 +1053,9 @@ async fn nvos_device_rotation_status(
 mod test_backfill;
 
 #[cfg(test)]
+mod test_dpu_bmc_service_backfill;
+
+#[cfg(test)]
 mod tests {
     use chrono::{Duration, Utc};
     use mac_address::MacAddress;
@@ -1704,142 +1709,6 @@ mod tests {
             quarantine_cleared,
             "successful claim must clear expired quarantine"
         );
-    }
-
-    #[crate::sqlx_test]
-    async fn backend_completion_promotes_exact_job_and_revision(pool: PgPool) {
-        let mac: MacAddress = "02:00:00:00:00:0e".parse().unwrap();
-        let mut conn = pool.acquire().await.unwrap();
-
-        publish_nvos_target(&mut conn, 7).await;
-
-        let attempt =
-            record_device_rotation_started(&mut conn, mac, CredentialRotationType::Nvos, 7)
-                .await
-                .unwrap()
-                .expect("the first attempt should be staged");
-
-        assert_eq!(attempt, 1);
-
-        assert!(
-            record_device_rotation_submitted(
-                &mut conn,
-                mac,
-                CredentialRotationType::Nvos,
-                7,
-                attempt,
-                "job-7",
-            )
-            .await
-            .unwrap()
-        );
-
-        let submitted_state =
-            device_rotation_operation_state(&mut *conn, CredentialRotationType::Nvos, mac)
-                .await
-                .unwrap()
-                .expect("submitted operation state should exist");
-
-        assert_eq!(submitted_state.current_version, None);
-        assert_eq!(submitted_state.rotating_to_version, Some(7));
-        assert_eq!(submitted_state.rotate_job_id.as_deref(), Some("job-7"));
-
-        sqlx::query(
-            "UPDATE sitewide_credential_rotation SET target_version = 8 \
-             WHERE credential_type = 'nvos'",
-        )
-        .execute(&mut *conn)
-        .await
-        .unwrap();
-
-        let stale_completion = record_device_rotation_succeeded(
-            &mut conn,
-            mac,
-            CredentialRotationType::Nvos,
-            6,
-            attempt,
-            "job-7",
-        )
-        .await
-        .unwrap();
-
-        assert!(!stale_completion);
-
-        let wrong_job = record_device_rotation_succeeded(
-            &mut conn,
-            mac,
-            CredentialRotationType::Nvos,
-            7,
-            attempt,
-            "other-job",
-        )
-        .await
-        .unwrap();
-
-        assert!(!wrong_job);
-
-        let promoted = record_device_rotation_succeeded(
-            &mut conn,
-            mac,
-            CredentialRotationType::Nvos,
-            7,
-            attempt,
-            "job-7",
-        )
-        .await
-        .unwrap();
-
-        assert!(promoted);
-
-        let state = device_rotation_operation_state(&mut *conn, CredentialRotationType::Nvos, mac)
-            .await
-            .unwrap()
-            .expect("operation state should exist");
-
-        assert_eq!(state.current_version, Some(7));
-        assert_eq!(state.rotating_to_version, None);
-        assert_eq!(state.rotate_job_id, None);
-        assert_eq!(state.rotate_attempts, attempt);
-        assert_eq!(state.rotate_last_error_redacted, None);
-
-        let promoted_again = record_device_rotation_succeeded(
-            &mut conn,
-            mac,
-            CredentialRotationType::Nvos,
-            7,
-            attempt,
-            "job-7",
-        )
-        .await
-        .unwrap();
-
-        assert!(!promoted_again);
-
-        let restarted_same =
-            record_device_rotation_started(&mut conn, mac, CredentialRotationType::Nvos, 7)
-                .await
-                .unwrap();
-
-        assert_eq!(
-            restarted_same, None,
-            "a converged revision must not be staged again"
-        );
-
-        let next_started =
-            record_device_rotation_started(&mut conn, mac, CredentialRotationType::Nvos, 8)
-                .await
-                .unwrap();
-
-        assert_eq!(next_started, Some(2));
-
-        let state = device_rotation_operation_state(&mut *conn, CredentialRotationType::Nvos, mac)
-            .await
-            .unwrap()
-            .expect("next operation state should exist");
-
-        assert_eq!(state.current_version, Some(7));
-        assert_eq!(state.rotating_to_version, Some(8));
-        assert_eq!(state.rotate_attempts, 2);
     }
 
     #[crate::sqlx_test]

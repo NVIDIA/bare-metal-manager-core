@@ -108,6 +108,7 @@ async fn test_force_delete_power_shelf_success(
         .admin_force_delete_power_shelf(tonic::Request::new(AdminForceDeletePowerShelfRequest {
             power_shelf_id: Some(power_shelf_id),
             delete_interfaces: false,
+            delete_bmc_suppressions: false,
         }))
         .await?
         .into_inner();
@@ -159,6 +160,7 @@ async fn test_force_delete_power_shelf_not_found(
         .admin_force_delete_power_shelf(tonic::Request::new(AdminForceDeletePowerShelfRequest {
             power_shelf_id: Some(non_existent_id),
             delete_interfaces: false,
+            delete_bmc_suppressions: false,
         }))
         .await;
 
@@ -187,6 +189,7 @@ async fn test_force_delete_power_shelf_already_soft_deleted(
         .admin_force_delete_power_shelf(tonic::Request::new(AdminForceDeletePowerShelfRequest {
             power_shelf_id: Some(power_shelf_id),
             delete_interfaces: false,
+            delete_bmc_suppressions: false,
         }))
         .await?
         .into_inner();

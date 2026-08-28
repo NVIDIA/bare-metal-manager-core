@@ -118,7 +118,50 @@ func ProxyFlowGRPC(
 	workflowID string,
 	conflictPolicy temporalEnums.WorkflowIdConflictPolicy,
 ) error {
-	apiErr := ExecuteFlowGRPC(ctx, stc, fullMethod, req, resp, workflowID, conflictPolicy, "")
+	return proxyFlowGRPC(
+		ctx, c, logger, stc, fullMethod, req, resp, workflowID, conflictPolicy, "",
+	)
+}
+
+// ProxyFlowGRPCWithSecrets behaves like ProxyFlowGRPC while redacting the named
+// top-level protojson fields from Temporal-visible request JSON and carrying
+// their original values encrypted with secretKey.
+func ProxyFlowGRPCWithSecrets(
+	ctx context.Context,
+	c echo.Context,
+	logger zerolog.Logger,
+	stc tclient.Client,
+	fullMethod string,
+	req proto.Message,
+	resp proto.Message,
+	workflowID string,
+	conflictPolicy temporalEnums.WorkflowIdConflictPolicy,
+	secretKey string,
+	secretFields ...string,
+) error {
+	return proxyFlowGRPC(
+		ctx, c, logger, stc, fullMethod, req, resp, workflowID, conflictPolicy,
+		secretKey, secretFields...,
+	)
+}
+
+func proxyFlowGRPC(
+	ctx context.Context,
+	c echo.Context,
+	logger zerolog.Logger,
+	stc tclient.Client,
+	fullMethod string,
+	req proto.Message,
+	resp proto.Message,
+	workflowID string,
+	conflictPolicy temporalEnums.WorkflowIdConflictPolicy,
+	secretKey string,
+	secretFields ...string,
+) error {
+	apiErr := ExecuteFlowGRPC(
+		ctx, stc, fullMethod, req, resp, workflowID, conflictPolicy,
+		secretKey, secretFields...,
+	)
 	if apiErr == nil {
 		return nil
 	}

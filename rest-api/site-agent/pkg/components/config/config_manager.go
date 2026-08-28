@@ -12,8 +12,10 @@ import (
 	"strings"
 	"time"
 
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/conftypes"
 	"github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
+	swu "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/util"
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	"github.com/rs/zerolog/log"
@@ -305,9 +307,36 @@ func NewElektraConfig(utMode bool) *conftypes.Config {
 		log.Fatal().Msg("error loading config, Temporal subscribe queue must be specified")
 	}
 
+	serr := validateInventorySchedule(conf.Temporal.TemporalInventorySchedule)
+	if serr != nil {
+		log.Fatal().Msgf("error loading config, %v", serr)
+	}
+
 	log.Info().Interface("config", conf).Msg("Config Manager: Config loaded")
 	flag.Parse()
 	return conf
+}
+
+// validateInventorySchedule rejects an inventory schedule the rest of the system cannot honor.
+// Cloud waits out the interval derived from this schedule before acting on an object, so a
+// schedule slower than MaxInventoryReceiptInterval would hold off deletions and status updates
+// long enough to destabilize it. This is the only place that bound is enforced. An empty
+// schedule falls back to the built-in default, which is well inside it.
+func validateInventorySchedule(schedule string) error {
+	if schedule == "" {
+		return nil
+	}
+
+	interval, err := swu.InventoryIntervalFromSchedule(schedule)
+	if err != nil {
+		return fmt.Errorf("Temporal inventory %w", err)
+	}
+	if interval > cutil.MaxInventoryReceiptInterval {
+		return fmt.Errorf("Temporal inventory schedule %q collects every %v, which is slower than the %v maximum",
+			schedule, interval, cutil.MaxInventoryReceiptInterval)
+	}
+
+	return nil
 }
 
 func determineEnvironment() conftypes.RunInEnvironment {

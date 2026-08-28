@@ -33,6 +33,14 @@ both to be non-empty. Case and internal punctuation are preserved after
 trimming. NICo does not map these values to a supported-hardware list. RMS
 validates each role/vendor/product-family combination when a request is made.
 
+Each `rack_capabilities.<role>` section also requires a `count` field. This
+field is independent of RMS: it tells the rack state machine how many devices
+with that role the rack must have before it can progress. A rack stays in
+`Created` until all three roles have at least `count` devices registered; it
+stays in `Discovering` until all three roles have at least `count` devices in
+`Ready` state. All three roles — `compute`, `switch`, and `power_shelf` —
+require a `count` regardless of which backends are set to `rms`.
+
 For product families other than `gb200` and `gb300`, the `GetRackProfile`
 `product_family` enum is `UNSPECIFIED`. The configured string remains available
 to descriptor-based RMS operations.
@@ -110,12 +118,15 @@ rack_hardware_topology = "gb200_nvl72r1_c2g4_topology"
 
 [rack_profiles.NVL72.rack_capabilities.compute]
 vendor = "NVIDIA"
+count = 18
 
 [rack_profiles.NVL72.rack_capabilities.switch]
 vendor = "NVIDIA"
+count = 9
 
 [rack_profiles.NVL72.rack_capabilities.power_shelf]
 vendor = "LiteOn"
+count = 8
 ```
 
 ### GB300 rack, Lenovo compute trays and Delta power shelves
@@ -132,12 +143,15 @@ rack_hardware_topology = "gb300_nvl72r1_c2g4_topology"
 
 [rack_profiles.NVL72_GB300.rack_capabilities.compute]
 vendor = "Lenovo"
+count = 18
 
 [rack_profiles.NVL72_GB300.rack_capabilities.switch]
 vendor = "nvidia"
+count = 9
 
 [rack_profiles.NVL72_GB300.rack_capabilities.power_shelf]
 vendor = "delta"
+count = 6
 ```
 
 ### Power shelf backend uses RMS; compute and switch do not
@@ -159,8 +173,15 @@ url = "http://nsm.example.internal:50052"
 product_family = "gb200"
 rack_hardware_topology = "gb200_nvl72r1_c2g4_topology"
 
+[rack_profiles.NVL72_POWER.rack_capabilities.compute]
+count = 18
+
+[rack_profiles.NVL72_POWER.rack_capabilities.switch]
+count = 9
+
 [rack_profiles.NVL72_POWER.rack_capabilities.power_shelf]
 vendor = "Lite-On"
+count = 8
 ```
 
 ---
@@ -174,6 +195,7 @@ vendor = "Lite-On"
 | Compute profile vendor, when `compute_tray_backend = "rms"` | Non-empty string; RMS validates support at request time |
 | Switch profile vendor, when `nv_switch_backend = "rms"` | Non-empty string; RMS validates support at request time |
 | Power shelf profile vendor, when `power_shelf_backend = "rms"` | Non-empty string; RMS validates support at request time |
+| `rack_capabilities.<role>.count` (all three roles, always required) | Non-negative integer. Minimum devices of that role that must be registered before the rack leaves `Created`, and in `Ready` state before it leaves `Discovering`. Independent of RMS backend selection. |
 
 ## Machine ingestion note
 

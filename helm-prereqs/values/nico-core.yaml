@@ -79,6 +79,7 @@ nico-api:
   #   nicoApiSiteConfig: |
   #     [rack_profiles.NVL72.rack_capabilities.compute]
   #     vendor = "Lenovo"   # override compute vendor only
+  #     count = 18          # required; override only if rack uses non-standard count
 
   ## MetalLB VIP for the nico-api LoadBalancer service.
   ## Must be an IP within your external IPAddressPool (values/metallb-config.yaml).

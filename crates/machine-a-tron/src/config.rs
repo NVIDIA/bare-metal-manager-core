@@ -17,7 +17,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bmc_mock::mac_address_pool::MacAddressPool;
@@ -39,9 +39,10 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use ufm_mock::UfmMockConfig;
 use uuid::Uuid;
 
-use crate::BmcRegistrationMode;
+use crate::BmcMockRegistry;
 use crate::api_client::ApiClient;
 use crate::api_throttler::ApiThrottler;
+use crate::lifecycle_timings::LifecycleTimingOverrides;
 use crate::machine_state_machine::OsImage;
 use crate::rack::{RackMemberRegistration, RackRegistration};
 
@@ -73,7 +74,7 @@ pub struct MachineATronArgs {
     pub config_file: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct MachineConfig {
     #[serde(default)]
     pub rack_id: Option<RackId>,
@@ -82,11 +83,23 @@ pub struct MachineConfig {
     #[serde(default = "default_hardware_type")]
     pub hw_type: HardwareType,
     pub host_count: u32,
-    pub vpc_count: u32,
-    pub subnets_per_vpc: u32,
     pub dpu_per_host_count: u32,
-    pub dpu_reboot_delay: u64,  // in units of seconds
-    pub host_reboot_delay: u64, // in units of seconds
+    /// Deprecated: superseded by platform-specific defaults in `PlatformTimingProfile`.
+    /// Still parsed so existing configs remain valid; no longer used by the lifecycle FSM.
+    #[serde(default = "default_dpu_reboot_delay")]
+    pub dpu_reboot_delay: u64,
+    /// Deprecated: superseded by platform-specific defaults in `PlatformTimingProfile`.
+    /// Still parsed so existing configs remain valid; no longer used by the lifecycle FSM.
+    #[serde(default = "default_host_reboot_delay")]
+    pub host_reboot_delay: u64,
+    /// Per-field timing overrides applied on top of the platform defaults before
+    /// `acceleration_factor` is applied.  Absent fields keep the platform default.
+    #[serde(default)]
+    pub timing_overrides: Option<LifecycleTimingOverrides>,
+    /// Multiplier applied to all resolved lifecycle durations after overrides.
+    /// Default `1.0` = real-time platform values.  Set to e.g. `0.05` for 20× faster CI.
+    #[serde(default = "default_acceleration_factor")]
+    pub acceleration_factor: f64,
     #[serde(
         default = "default_scout_run_interval",
         deserialize_with = "deserialize_duration",
@@ -130,14 +143,6 @@ pub struct MachineConfig {
         serialize_with = "as_std_duration"
     )]
     pub network_status_run_interval: Duration,
-    /// Network virtualization type for VPCs created by this config section. Accepted values:
-    /// "etv" (EthernetVirtualizer, default), "etv_nvue" (EthernetVirtualizer with NVUE), or
-    /// "fnn" (Forge Native Networking). When set to "fnn", network segments will include both
-    /// an IPv4 and an IPv6 prefix, enabling dual-stack IP allocation for machine interfaces.
-    /// TODO(chet): Technically etv_nvue is RIP, but I'm leaving it in here for now.. but will
-    /// clean it up soon in its own PR.
-    #[serde(default)]
-    pub network_virtualization_type: Option<String>,
     /// If true, DPUs will run in "nic mode" and will not PXE boot, and their BMC JSON will reflect as such
     #[serde(default)]
     pub dpus_in_nic_mode: bool,
@@ -165,10 +170,18 @@ impl MachineConfig {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct WiwynnGb200RackConfig {
+    /// Deprecated: see `MachineConfig::dpu_reboot_delay`.
+    #[serde(default = "default_dpu_reboot_delay")]
     pub dpu_reboot_delay: u64,
+    /// Deprecated: see `MachineConfig::host_reboot_delay`.
+    #[serde(default = "default_host_reboot_delay")]
     pub host_reboot_delay: u64,
+    #[serde(default)]
+    pub timing_overrides: Option<LifecycleTimingOverrides>,
+    #[serde(default = "default_acceleration_factor")]
+    pub acceleration_factor: f64,
     #[serde(
         default = "default_scout_run_interval",
         deserialize_with = "deserialize_duration",
@@ -209,8 +222,6 @@ pub struct WiwynnGb200RackConfig {
         serialize_with = "as_std_duration"
     )]
     pub network_status_run_interval: Duration,
-    #[serde(default)]
-    pub network_virtualization_type: Option<String>,
     #[serde(default)]
     pub dpus_in_nic_mode: bool,
     #[serde(default)]
@@ -232,11 +243,11 @@ impl WiwynnGb200RackConfig {
             rack_placement: Some(rack_placement),
             hw_type,
             host_count: 1,
-            vpc_count: 0,
-            subnets_per_vpc: 0,
             dpu_per_host_count,
             dpu_reboot_delay: self.dpu_reboot_delay,
             host_reboot_delay: self.host_reboot_delay,
+            timing_overrides: self.timing_overrides.clone(),
+            acceleration_factor: self.acceleration_factor,
             scout_run_interval: self.scout_run_interval,
             discovery_retry_interval: self.discovery_retry_interval,
             bmc_dhcp_relay_address: self.bmc_dhcp_relay_address,
@@ -245,7 +256,6 @@ impl WiwynnGb200RackConfig {
             run_interval_working: self.run_interval_working,
             run_interval_idle: self.run_interval_idle,
             network_status_run_interval: self.network_status_run_interval,
-            network_virtualization_type: self.network_virtualization_type.clone(),
             dpus_in_nic_mode: self.dpus_in_nic_mode,
             dpu_firmware_versions: self.dpu_firmware_versions.clone(),
             host_firmware_versions: None,
@@ -254,10 +264,18 @@ impl WiwynnGb200RackConfig {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct LenovoGb300RackConfig {
+    /// Deprecated: see `MachineConfig::dpu_reboot_delay`.
+    #[serde(default = "default_dpu_reboot_delay")]
     pub dpu_reboot_delay: u64,
+    /// Deprecated: see `MachineConfig::host_reboot_delay`.
+    #[serde(default = "default_host_reboot_delay")]
     pub host_reboot_delay: u64,
+    #[serde(default)]
+    pub timing_overrides: Option<LifecycleTimingOverrides>,
+    #[serde(default = "default_acceleration_factor")]
+    pub acceleration_factor: f64,
     #[serde(
         default = "default_scout_run_interval",
         deserialize_with = "deserialize_duration",
@@ -299,8 +317,6 @@ pub struct LenovoGb300RackConfig {
     )]
     pub network_status_run_interval: Duration,
     #[serde(default)]
-    pub network_virtualization_type: Option<String>,
-    #[serde(default)]
     pub dpus_in_nic_mode: bool,
     #[serde(default)]
     pub dpu_firmware_versions: Option<DpuFirmwareVersions>,
@@ -321,11 +337,11 @@ impl LenovoGb300RackConfig {
             rack_placement: Some(rack_placement),
             hw_type,
             host_count: 1,
-            vpc_count: 0,
-            subnets_per_vpc: 0,
             dpu_per_host_count,
             dpu_reboot_delay: self.dpu_reboot_delay,
             host_reboot_delay: self.host_reboot_delay,
+            timing_overrides: self.timing_overrides.clone(),
+            acceleration_factor: self.acceleration_factor,
             scout_run_interval: self.scout_run_interval,
             discovery_retry_interval: self.discovery_retry_interval,
             bmc_dhcp_relay_address: self.bmc_dhcp_relay_address,
@@ -334,7 +350,6 @@ impl LenovoGb300RackConfig {
             run_interval_working: self.run_interval_working,
             run_interval_idle: self.run_interval_idle,
             network_status_run_interval: self.network_status_run_interval,
-            network_virtualization_type: self.network_virtualization_type.clone(),
             dpus_in_nic_mode: self.dpus_in_nic_mode,
             dpu_firmware_versions: self.dpu_firmware_versions.clone(),
             host_firmware_versions: None,
@@ -343,7 +358,7 @@ impl LenovoGb300RackConfig {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct RackConfig {
     pub rack_profile_id: RackProfileId,
     pub ids: Vec<RackId>,
@@ -351,7 +366,7 @@ pub struct RackConfig {
     pub model: RackModelConfig,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RackModelConfig {
     WiwynnGb200Nvl72 {
@@ -454,7 +469,7 @@ pub enum LogFormat {
     Logfmt,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct MachineATronConfig {
     #[serde(default)]
     pub racks: BTreeMap<String, RackConfig>,
@@ -469,13 +484,9 @@ pub struct MachineATronConfig {
     /// Format used for logs written to stdout or `log_file`.
     #[serde(default)]
     pub log_format: LogFormat,
-    pub interface: String,
-
     /// How machine-a-tron obtains DHCP leases for BMCs and directly attached hosts.
     #[serde(default)]
     pub dhcp: DhcpType,
-    #[serde(default = "default_true")]
-    pub tui_enabled: bool,
 
     #[serde(default = "default_bmc_mock_port")]
     pub bmc_mock_port: u16,
@@ -491,26 +502,6 @@ pub struct MachineATronConfig {
     /// Opt in to an independent IPMI/SOL simulator for each IPMI-capable host BMC.
     #[serde(default = "default_false")]
     pub enable_ipmi_simulation: bool,
-
-    /// IPMI port advertised through Redfish for client connections.
-    /// - Unset/None: Use default port
-    /// - 0: Use dynamic port (same as listen port)
-    /// - 1-65535: Use this specific port
-    #[serde(default)]
-    pub ipmi_reachable_port: Option<u16>,
-
-    /// Set this to configure the port to use when mocking a BMC SSH server. If unset and
-    /// use_single_bmc_mock is true, it will pick a random port. If unset and use_single_bmc_mock
-    /// is false, it will use port 2222 for each IP alias. (Port 22 is problematic because it
-    /// collides with any system SSH server.)
-    #[serde(default)]
-    pub mock_bmc_ssh_port: Option<u16>,
-
-    /// Set this to true if all BMC-mocks should be behind a single address (using HTTP headers to
-    /// proxy to the real mock). This is the case for machine-a-tron running inside kubernetes
-    /// clusters where there is a single k8s Service and we can't dynamically assign IP's.
-    #[serde(default = "default_false")]
-    pub use_single_bmc_mock: bool,
 
     /// Set this to a hostname or IP If you want machine-a-tron to register its BMC-mock as the
     /// bmc_proxy host (this will be combined with bmc_mock_port.)
@@ -917,6 +908,18 @@ fn default_hardware_type() -> HardwareType {
     HardwareType::default()
 }
 
+fn default_host_reboot_delay() -> u64 {
+    300
+}
+
+fn default_dpu_reboot_delay() -> u64 {
+    120
+}
+
+fn default_acceleration_factor() -> f64 {
+    1.0
+}
+
 fn default_scout_run_interval() -> Duration {
     Duration::from_secs(60)
 }
@@ -948,7 +951,7 @@ pub struct MachineATronContext {
     pub app_config: MachineATronConfig,
     pub forge_client_config: ForgeClientConfig,
     pub bmc_mock_certs_dir: Option<PathBuf>,
-    pub bmc_registration_mode: BmcRegistrationMode,
+    pub bmc_registry: BmcMockRegistry,
     pub api_throttler: ApiThrottler,
     /// These are the firmware versions the server wants us to be on. If not configured for other
     /// firmware, DPU's can mock that they already have this installed.
@@ -956,8 +959,6 @@ pub struct MachineATronContext {
     pub forge_api_client: ForgeApiClient,
     pub dhcp_client: crate::dhcp_wrapper::DhcpClient,
     pub mac_address_pool: Arc<Mutex<MacAddressPool>>,
-    /// Client-reachable port of the shared host SSH listener in combined-BMC mode.
-    pub combined_bmc_ssh_port: OnceLock<u16>,
 }
 
 impl MachineATronContext {
@@ -1017,14 +1018,11 @@ mod tests {
             r#"
 carbide_api_url = "https://carbide-api.forge:443"
 log_file = "mat.log"
-interface = "br-77cbb29de011"
-tui_enabled = true
 pxe_server_host = "192.168.176.7"
 pxe_server_port = "8080"
 bmc_mock_port = 1266
 mat_api_server_enabled = true
 mat_api_server_listen_port = 2112
-use_single_bmc_mock = true
 configure_carbide_bmc_proxy_host = "192.168.1.20"
 
 [machines.config]
@@ -1033,11 +1031,9 @@ host_count = 10
 dpu_per_host_count = 2
 dpu_reboot_delay = 1 # in units of seconds
 host_reboot_delay = 1 # in units of seconds
-vpc_count = 0
 underlay_dhcp_relay_address = "192.168.176.1"
 host_inband_dhcp_relay_address = "192.168.177.1"
 bmc_dhcp_relay_address = "192.168.192.1"
-subnets_per_vpc = 0
 run_interval_working = "100ms"
 run_interval_idle = "1s"
 network_status_run_interval = "5s"
@@ -1051,6 +1047,8 @@ scout_run_interval = "5s"
         WiwynnGb200RackConfig {
             dpu_reboot_delay: machine.dpu_reboot_delay,
             host_reboot_delay: machine.host_reboot_delay,
+            timing_overrides: machine.timing_overrides.clone(),
+            acceleration_factor: machine.acceleration_factor,
             scout_run_interval: machine.scout_run_interval,
             discovery_retry_interval: machine.discovery_retry_interval,
             bmc_dhcp_relay_address: machine.bmc_dhcp_relay_address,
@@ -1059,7 +1057,6 @@ scout_run_interval = "5s"
             run_interval_working: machine.run_interval_working,
             run_interval_idle: machine.run_interval_idle,
             network_status_run_interval: machine.network_status_run_interval,
-            network_virtualization_type: machine.network_virtualization_type.clone(),
             dpus_in_nic_mode: machine.dpus_in_nic_mode,
             dpu_firmware_versions: machine.dpu_firmware_versions.clone(),
             dpu_agent_version: machine.dpu_agent_version.clone(),
@@ -1070,6 +1067,8 @@ scout_run_interval = "5s"
         LenovoGb300RackConfig {
             dpu_reboot_delay: machine.dpu_reboot_delay,
             host_reboot_delay: machine.host_reboot_delay,
+            timing_overrides: machine.timing_overrides.clone(),
+            acceleration_factor: machine.acceleration_factor,
             scout_run_interval: machine.scout_run_interval,
             discovery_retry_interval: machine.discovery_retry_interval,
             bmc_dhcp_relay_address: machine.bmc_dhcp_relay_address,
@@ -1078,7 +1077,6 @@ scout_run_interval = "5s"
             run_interval_working: machine.run_interval_working,
             run_interval_idle: machine.run_interval_idle,
             network_status_run_interval: machine.network_status_run_interval,
-            network_virtualization_type: machine.network_virtualization_type.clone(),
             dpus_in_nic_mode: machine.dpus_in_nic_mode,
             dpu_firmware_versions: machine.dpu_firmware_versions.clone(),
             dpu_agent_version: machine.dpu_agent_version.clone(),
@@ -1325,11 +1323,6 @@ scout_run_interval = "5s"
     #[test]
     fn ipmi_simulation_is_disabled_by_default() {
         assert!(!rack_config().enable_ipmi_simulation);
-    }
-
-    #[test]
-    fn ipmi_reachable_port_is_unset_by_default() {
-        assert!(rack_config().ipmi_reachable_port.is_none());
     }
 
     #[test]

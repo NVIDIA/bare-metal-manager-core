@@ -35,6 +35,7 @@ use model::instance::config::spx::InstanceSpxConfig;
 use model::instance::snapshot::{self, InstanceSnapshot, InstanceSnapshotPgJson};
 use model::metadata::Metadata;
 use model::os::{InlineIpxe, OperatingSystem, OperatingSystemVariant};
+use model::tenant::TenantOrganizationId;
 use sqlx::PgConnection;
 use sqlx::types::Json;
 
@@ -428,6 +429,45 @@ pub async fn find_by_id(
         return Ok(None);
     };
     Ok(Some(instance_and_os_row.try_into()?))
+}
+
+/// Instance data returned while its database record is locked for update.
+#[derive(sqlx::FromRow)]
+pub struct InstanceForUpdate {
+    /// Instance identifier.
+    pub id: InstanceId,
+    /// Machine that owns the Instance.
+    pub machine_id: MachineId,
+    /// Tenant that owns the Instance.
+    pub tenant_organization_id: TenantOrganizationId,
+    /// Desired InfiniBand configuration stored on the Instance.
+    #[sqlx(json)]
+    pub infiniband_config: InstanceInfinibandConfig,
+    /// Time at which deletion was requested, if any.
+    pub deleted: Option<DateTime<Utc>>,
+}
+
+/// Finds an `Instance` by ID and locks its database record for update.
+///
+/// This includes an `Instance` already marked for deletion. The record remains
+/// locked until `txn` ends.
+pub async fn find_by_id_for_update(
+    txn: &mut PgConnection,
+    id: InstanceId,
+) -> Result<Option<InstanceForUpdate>, DatabaseError> {
+    let query = "SELECT i.id,
+            i.machine_id,
+            i.tenant_org AS tenant_organization_id,
+            i.ib_config AS infiniband_config,
+            i.deleted
+        FROM instances i
+        WHERE i.id = $1
+        FOR UPDATE OF i";
+    sqlx::query_as(query)
+        .bind(id)
+        .fetch_optional(txn)
+        .await
+        .map_err(|error| DatabaseError::query(query, error))
 }
 
 pub async fn find_id_by_machine_id(

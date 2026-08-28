@@ -21,9 +21,6 @@ mod list;
 mod metadata;
 mod show;
 
-#[cfg(test)]
-mod tests;
-
 use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;

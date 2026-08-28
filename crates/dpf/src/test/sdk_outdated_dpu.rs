@@ -29,12 +29,14 @@ use async_trait::async_trait;
 use dashmap::DashMap;
 use kube::core::ObjectMeta;
 
+use crate::crds::dpfoperatorconfigs_generated::DPFOperatorConfig;
 use crate::crds::dpudeployments_generated::DPUDeployment;
 use crate::crds::dpus_generated::DPU;
 use crate::crds::dpuservicetemplates_generated::DPUServiceTemplate;
 use crate::error::DpfError;
 use crate::repository::{
-    DpuDeploymentRepository, DpuRepository, DpuServiceTemplateRepository, K8sConfigRepository,
+    DpfOperatorConfigRepository, DpuDeploymentRepository, DpuRepository,
+    DpuServiceTemplateRepository, K8sConfigRepository,
 };
 use crate::sdk::DpfSdkBuilder;
 
@@ -48,6 +50,7 @@ const OWNED_BY_LABEL: &str = "svc.dpu.nvidia.com/owned-by-dpudeployment";
 struct OutdatedDpuMock {
     dpus: Arc<DashMap<String, DPU>>,
     deployments: Arc<DashMap<String, DPUDeployment>>,
+    operator_config: Arc<DashMap<String, DPFOperatorConfig>>,
 }
 
 impl OutdatedDpuMock {
@@ -89,6 +92,16 @@ impl DpuRepository for OutdatedDpuMock {
         Fut: Future<Output = Result<(), DpfError>> + Send + 'static,
     {
         futures::future::pending()
+    }
+}
+
+#[async_trait]
+impl DpfOperatorConfigRepository for OutdatedDpuMock {
+    async fn get(&self, name: &str, _ns: &str) -> Result<Option<DPFOperatorConfig>, DpfError> {
+        Ok(self.operator_config.get(name).map(|c| c.clone()))
+    }
+    async fn patch(&self, _: &str, _: &str, _: serde_json::Value) -> Result<(), DpfError> {
+        Ok(())
     }
 }
 
@@ -249,6 +262,17 @@ fn deployment(bfb: Option<&str>, blue_field_software: Option<&str>, ready: bool)
     }
 }
 
+fn template_deployment(
+    bfb: Option<&str>,
+    blue_field_software: Option<&str>,
+    ready: bool,
+) -> DPUDeployment {
+    let mut deployment = deployment(bfb, blue_field_software, ready);
+    deployment.spec.dpus.flavor = None;
+    deployment.spec.dpus.flavor_template = Some("astra-flavor-template".to_string());
+    deployment
+}
+
 async fn is_outdated(mock: OutdatedDpuMock) -> Result<bool, DpfError> {
     DpfSdkBuilder::new(mock, TEST_NS, String::new())
         .build_without_resources()
@@ -322,6 +346,25 @@ async fn a_dpu_whose_flavor_drifted_is_outdated() {
     );
 
     assert!(is_outdated(mock).await.expect("evaluated"));
+}
+
+#[tokio::test]
+async fn a_template_deployment_does_not_compare_its_template_name_with_dpu_flavor() {
+    let dpu = dpu(
+        None,
+        Some("bf-software-abc"),
+        None,
+        "per-dpu-rendered-flavor",
+    );
+    let deployment = template_deployment(None, Some("bf-software-abc"), true);
+
+    // is_dpu_outdated and find_outdated_dpus_dpf share dpu_comparison: a
+    // DPUFlavorTemplate name is not comparable with its generated DPUFlavor.
+    assert!(
+        !is_outdated(OutdatedDpuMock::with(dpu, deployment))
+            .await
+            .expect("template deployment can be evaluated")
+    );
 }
 
 #[tokio::test]

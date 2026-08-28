@@ -42,6 +42,8 @@ type BatchInstanceCreateRequest struct {
 	UserData NullableString `json:"userData,omitempty"`
 	// Must be specified if iPXE Script field is empty
 	OperatingSystemId NullableString `json:"operatingSystemId,omitempty"`
+	// Power profile to apply to every Instance in the batch. A non-empty value requires the Site's `dpsPowerManagement` capability to be `true`.
+	PowerProfile NullableString `json:"powerProfile,omitempty"`
 	// ID of a Network Security Group to attach to all instances
 	NetworkSecurityGroupId NullableString `json:"networkSecurityGroupId,omitempty"`
 	// Override iPXE script specified in OS, must be specified if Operating System is not specified
@@ -375,6 +377,49 @@ func (o *BatchInstanceCreateRequest) SetOperatingSystemIdNil() {
 // UnsetOperatingSystemId ensures that no value is present for OperatingSystemId, not even an explicit nil
 func (o *BatchInstanceCreateRequest) UnsetOperatingSystemId() {
 	o.OperatingSystemId.Unset()
+}
+
+// GetPowerProfile returns the PowerProfile field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *BatchInstanceCreateRequest) GetPowerProfile() string {
+	if o == nil || IsNil(o.PowerProfile.Get()) {
+		var ret string
+		return ret
+	}
+	return *o.PowerProfile.Get()
+}
+
+// GetPowerProfileOk returns a tuple with the PowerProfile field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+func (o *BatchInstanceCreateRequest) GetPowerProfileOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.PowerProfile.Get(), o.PowerProfile.IsSet()
+}
+
+// HasPowerProfile returns a boolean if a field has been set.
+func (o *BatchInstanceCreateRequest) HasPowerProfile() bool {
+	if o != nil && o.PowerProfile.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetPowerProfile gets a reference to the given NullableString and assigns it to the PowerProfile field.
+func (o *BatchInstanceCreateRequest) SetPowerProfile(v string) {
+	o.PowerProfile.Set(&v)
+}
+
+// SetPowerProfileNil sets the value for PowerProfile to be an explicit nil
+func (o *BatchInstanceCreateRequest) SetPowerProfileNil() {
+	o.PowerProfile.Set(nil)
+}
+
+// UnsetPowerProfile ensures that no value is present for PowerProfile, not even an explicit nil
+func (o *BatchInstanceCreateRequest) UnsetPowerProfile() {
+	o.PowerProfile.Unset()
 }
 
 // GetNetworkSecurityGroupId returns the NetworkSecurityGroupId field value if set, zero value otherwise (both if not set or set to explicit null).
@@ -809,6 +854,9 @@ func (o BatchInstanceCreateRequest) ToMap() (map[string]interface{}, error) {
 	}
 	if o.OperatingSystemId.IsSet() {
 		toSerialize["operatingSystemId"] = o.OperatingSystemId.Get()
+	}
+	if o.PowerProfile.IsSet() {
+		toSerialize["powerProfile"] = o.PowerProfile.Get()
 	}
 	if o.NetworkSecurityGroupId.IsSet() {
 		toSerialize["networkSecurityGroupId"] = o.NetworkSecurityGroupId.Get()

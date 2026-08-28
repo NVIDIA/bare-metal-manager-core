@@ -1165,7 +1165,7 @@ for raw in text.splitlines():
     if not m:
         continue
     key, val = m.group(1), (m.group(2) or "").strip()
-    # Close the group only on a real dedent: sibling keys (vpcCount, etc.)
+    # Close the group only on a real dedent: sibling keys (dpuRebootDelay, etc.)
     # sit at the same indent as hostCount and must not end the group.
     if cur is not None and cur_indent is not None and indent < cur_indent:
         groups.append(cur); cur, cur_indent = None, None

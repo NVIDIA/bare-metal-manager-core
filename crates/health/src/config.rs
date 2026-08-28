@@ -15,15 +15,17 @@
  * limitations under the License.
  */
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Debug;
 use std::net::{IpAddr, SocketAddr};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use figment::Figment;
 use figment::providers::{Env, Format, Serialized, Toml};
+use figment::value::{Dict, Map, Value};
+use figment::{Error as FigmentError, Figment, Metadata, Profile, Provider};
+use mac_address::MacAddress;
 use rustls_pki_types::DnsName;
 use serde::{Deserialize, Deserializer, Serialize};
 use tokio::sync::Semaphore;
@@ -32,6 +34,9 @@ use url::Url;
 use crate::metrics::BmcLatencyAttribute;
 
 const DEFAULT_BMC_REQUEST_CONCURRENCY: NonZeroUsize = NonZeroUsize::MIN.saturating_add(3);
+const ENDPOINT_SOURCES_CONFIG_KEY: &str = "endpoint_sources";
+const NICO_API_CONFIG_KEY: &str = "nico_api";
+const CARBIDE_API_CONFIG_ALIAS: &str = "carbide_api";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -97,11 +102,16 @@ impl Default for Config {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct EndpointSourcesConfig {
-    /// Carbide API connection settings (if present, Carbide API discovery is enabled)
+    /// NICo API endpoint discovery settings.
+    #[serde(rename = "nico_api", alias = "carbide_api")]
     pub carbide_api: Configurable<CarbideApiConnectionConfig>,
 
-    /// Static BMC endpoints
+    /// Static BMC endpoints, including switch host endpoints.
     pub static_bmc_endpoints: Vec<StaticBmcEndpoint>,
+
+    /// Static switch host endpoints. Each entry requires `switch`
+    /// metadata. The endpoint role defaults to host and must be host when set.
+    pub static_switch_host_endpoints: Vec<StaticBmcEndpoint>,
 
     /// Cluster inventory file source (file or cluster manager JSON RPC)
     pub cluster: Configurable<ClusterEndpointSourceConfig>,
@@ -112,6 +122,7 @@ impl Default for EndpointSourcesConfig {
         Self {
             carbide_api: Configurable::Enabled(CarbideApiConnectionConfig::default()),
             static_bmc_endpoints: Vec::new(),
+            static_switch_host_endpoints: Vec::new(),
             cluster: Configurable::Disabled,
         }
     }
@@ -205,6 +216,8 @@ impl std::fmt::Debug for ClusterEndpointSourceConfig {
 #[serde(deny_unknown_fields)]
 pub struct StaticBmcEndpoint {
     pub ip: IpAddr,
+
+    /// Optional Redfish or NVUE REST HTTPS port, depending on endpoint role.
     #[serde(default)]
     pub port: Option<u16>,
     pub mac: String,
@@ -305,10 +318,10 @@ impl StaticBmcEndpoint {
             + usize::from(self.switch.is_some())
     }
 
-    fn validate(&self, index: usize) -> Result<(), String> {
+    fn validate(&self, config_path: &str, index: usize) -> Result<(), String> {
         if self.identity_count() > 1 {
             return Err(format!(
-                "endpoint_sources.static_bmc_endpoints[{index}] must specify at most one of machine, power_shelf, or switch"
+                "{config_path}[{index}] must specify at most one of machine, power_shelf, or switch"
             ));
         }
 
@@ -317,7 +330,7 @@ impl StaticBmcEndpoint {
             && power_shelf.serial.is_none()
         {
             return Err(format!(
-                "endpoint_sources.static_bmc_endpoints[{index}].power_shelf requires id or serial"
+                "{config_path}[{index}].power_shelf requires id or serial"
             ));
         }
 
@@ -326,7 +339,7 @@ impl StaticBmcEndpoint {
             && switch.serial.is_none()
         {
             return Err(format!(
-                "endpoint_sources.static_bmc_endpoints[{index}].switch requires id or serial"
+                "{config_path}[{index}].switch requires id or serial"
             ));
         }
 
@@ -349,7 +362,7 @@ impl StaticBmcEndpoint {
 
         if self.labels.len() > 32 {
             return Err(format!(
-                "endpoint_sources.static_bmc_endpoints[{index}].labels supports at most 32 labels"
+                "{config_path}[{index}].labels supports at most 32 labels"
             ));
         }
 
@@ -361,19 +374,74 @@ impl StaticBmcEndpoint {
             let valid_rest = chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_');
             if !valid_start || !valid_rest {
                 return Err(format!(
-                    "endpoint_sources.static_bmc_endpoints[{index}].labels key {name:?} must match [a-zA-Z_][a-zA-Z0-9_]*"
+                    "{config_path}[{index}].labels key {name:?} must match [a-zA-Z_][a-zA-Z0-9_]*"
                 ));
             }
             if RESERVED_LABELS.contains(&name.as_str()) {
                 return Err(format!(
-                    "endpoint_sources.static_bmc_endpoints[{index}].labels key {name:?} is reserved"
+                    "{config_path}[{index}].labels key {name:?} is reserved"
                 ));
             }
             if value.len() > 1024 {
                 return Err(format!(
-                    "endpoint_sources.static_bmc_endpoints[{index}].labels value for {name:?} exceeds 1024 bytes"
+                    "{config_path}[{index}].labels value for {name:?} exceeds 1024 bytes"
                 ));
             }
+        }
+
+        Ok(())
+    }
+}
+
+impl EndpointSourcesConfig {
+    fn validate(&self) -> Result<(), String> {
+        const BMC_ENDPOINTS_PATH: &str = "endpoint_sources.static_bmc_endpoints";
+        const SWITCH_HOST_ENDPOINTS_PATH: &str = "endpoint_sources.static_switch_host_endpoints";
+
+        let mut static_macs = HashMap::new();
+
+        for (index, endpoint) in self.static_bmc_endpoints.iter().enumerate() {
+            endpoint.validate(BMC_ENDPOINTS_PATH, index)?;
+
+            let mac = endpoint.mac.parse::<MacAddress>().map_err(|_| {
+                format!("{BMC_ENDPOINTS_PATH}[{index}].mac must be a valid MAC address")
+            })?;
+
+            static_macs
+                .entry(mac)
+                .or_insert((BMC_ENDPOINTS_PATH, index));
+        }
+
+        for (index, endpoint) in self.static_switch_host_endpoints.iter().enumerate() {
+            endpoint.validate(SWITCH_HOST_ENDPOINTS_PATH, index)?;
+
+            let Some(switch) = endpoint.switch.as_ref() else {
+                return Err(format!(
+                    "{SWITCH_HOST_ENDPOINTS_PATH}[{index}] requires switch metadata"
+                ));
+            };
+
+            if switch.endpoint_role != StaticSwitchEndpointRole::Host {
+                return Err(format!(
+                    "{SWITCH_HOST_ENDPOINTS_PATH}[{index}].switch.endpoint_role must be host"
+                ));
+            }
+
+            let mac = endpoint.mac.parse::<MacAddress>().map_err(|_| {
+                format!("{SWITCH_HOST_ENDPOINTS_PATH}[{index}].mac must be a valid MAC address")
+            })?;
+
+            if let Some((existing_path, existing_index)) = static_macs.get(&mac) {
+                return Err(format!(
+                    "{SWITCH_HOST_ENDPOINTS_PATH}[{index}].mac duplicates {existing_path}[{existing_index}].mac"
+                ));
+            }
+
+            static_macs.insert(mac, (SWITCH_HOST_ENDPOINTS_PATH, index));
+        }
+
+        if let Configurable::Enabled(cluster) = &self.cluster {
+            cluster.validate()?;
         }
 
         Ok(())
@@ -393,19 +461,19 @@ pub struct SinksConfig {
     /// Prometheus sink: stores metric events in Prometheus exporter format.
     pub prometheus: Configurable<PrometheusSinkConfig>,
 
-    /// Health report sink: sends health report events to Carbide API.
+    /// Health report sink: sends health report events to the NICo API.
     #[serde(alias = "carbide_override", alias = "health_override")]
     pub health_report: Configurable<HealthReportSinkConfig>,
 
-    /// Rack health report sink: sends rack-level health reports to Carbide API.
+    /// Rack health report sink: sends rack-level health reports to the NICo API.
     #[serde(alias = "rack_health_override")]
     pub rack_health_report: Configurable<RackHealthReportSinkConfig>,
 
-    /// Switch health report sink: sends switch-level health reports to Carbide API.
+    /// Switch health report sink: sends switch-level health reports to the NICo API.
     #[serde(alias = "switch_health_override")]
     pub switch_health_report: Configurable<SwitchHealthReportSinkConfig>,
 
-    /// Power shelf health report sink: sends power-shelf-level health reports to Carbide API.
+    /// Power shelf health report sink: sends power-shelf-level health reports to the NICo API.
     #[serde(alias = "power_shelf_health_override")]
     pub power_shelf_health_report: Configurable<PowerShelfHealthReportSinkConfig>,
 
@@ -713,20 +781,20 @@ impl OtlpTlsConfig {
     }
 }
 
-/// Shared Carbide API connection configuration.
+/// Shared NICo API connection settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CarbideApiConnectionConfig {
-    /// Path to the root CA certificate for Carbide API connections
+    /// Path to the root CA certificate for NICo API connections.
     pub root_ca: String,
 
-    /// Path to the client certificate for Carbide API connections
+    /// Path to the client certificate for NICo API connections.
     pub client_cert: String,
 
-    /// Path to the client key for Carbide API connections
+    /// Path to the client key for NICo API connections.
     pub client_key: String,
 
-    /// Carbide API server endpoint
+    /// NICo API server endpoint.
     pub api_url: Url,
 }
 
@@ -747,7 +815,7 @@ pub struct HealthReportSinkConfig {
     #[serde(flatten)]
     pub connection: CarbideApiConnectionConfig,
 
-    /// Number of concurrent workers submitting reports to Carbide API.
+    /// Number of concurrent workers submitting reports to the NICo API.
     pub workers: usize,
 
     /// Drop reports that contain no successes and no alerts before submitting them.
@@ -778,7 +846,7 @@ pub struct RackHealthReportSinkConfig {
     #[serde(flatten)]
     pub connection: CarbideApiConnectionConfig,
 
-    /// Number of concurrent workers submitting rack-level reports to Carbide API.
+    /// Number of concurrent workers submitting rack-level reports to the NICo API.
     pub workers: usize,
 
     /// Drop reports that contain no successes and no alerts before submitting them.
@@ -801,7 +869,7 @@ pub struct SwitchHealthReportSinkConfig {
     #[serde(flatten)]
     pub connection: CarbideApiConnectionConfig,
 
-    /// Number of concurrent workers submitting switch-level reports to Carbide API.
+    /// Number of concurrent workers submitting switch-level reports to the NICo API.
     pub workers: usize,
 
     /// Drop reports that contain no successes and no alerts before submitting them.
@@ -824,7 +892,7 @@ pub struct PowerShelfHealthReportSinkConfig {
     #[serde(flatten)]
     pub connection: CarbideApiConnectionConfig,
 
-    /// Number of concurrent workers submitting power-shelf-level reports to Carbide API.
+    /// Number of concurrent workers submitting power-shelf-level reports to the NICo API.
     pub workers: usize,
 
     /// Drop reports that contain no successes and no alerts before submitting them.
@@ -1006,11 +1074,11 @@ pub struct TlsConfig {
 /// mTLS profile for outbound client TLS connections.
 ///
 /// `[tls.switch]` uses this shape for direct switch collector connections.
-/// These paths are independent from the Carbide API certificate paths. The
+/// These paths are independent of the NICo API certificate paths. The
 /// files are read and validated when collectors build HTTP clients or gRPC
-/// channel TLS configs. The optional TLS server name is profile-wide because
-/// deployed switch certificates use the same DNS identity, and Carbide API
-/// discovery does not provide switch certificate identities.
+/// channel TLS configs. The optional TLS server name applies to every direct
+/// switch collector that uses this profile. NICo API discovery does not provide
+/// switch certificate identities.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct MtlsProfileConfig {
@@ -1965,16 +2033,55 @@ impl MetricsConfig {
     }
 }
 
+/// Normalizes the supported NICo API key alias within one configuration provider.
+///
+/// This preserves Figment's defaults, TOML, and environment precedence across
+/// either key. Within one provider, `nico_api` takes precedence when both keys
+/// are set.
+struct CanonicalNicoApiProvider<P>(P);
+
+impl<P: Provider> Provider for CanonicalNicoApiProvider<P> {
+    fn metadata(&self) -> Metadata {
+        self.0.metadata()
+    }
+
+    fn data(&self) -> Result<Map<Profile, Dict>, FigmentError> {
+        let mut data = self.0.data()?;
+
+        for config in data.values_mut() {
+            let Some(Value::Dict(_, endpoint_sources)) =
+                config.get_mut(ENDPOINT_SOURCES_CONFIG_KEY)
+            else {
+                continue;
+            };
+
+            if let Some(value) = endpoint_sources.remove(CARBIDE_API_CONFIG_ALIAS) {
+                endpoint_sources
+                    .entry(NICO_API_CONFIG_KEY.to_string())
+                    .or_insert(value);
+            }
+        }
+
+        Ok(data)
+    }
+
+    fn profile(&self) -> Option<Profile> {
+        self.0.profile()
+    }
+}
+
 impl Config {
     /// Load configuration from optional path
     pub fn load(config_path: Option<&Path>) -> Result<Self, String> {
         let mut figment = Figment::new().merge(Serialized::defaults(Config::default()));
 
         if let Some(path) = config_path {
-            figment = figment.merge(Toml::file(path));
+            figment = figment.merge(CanonicalNicoApiProvider(Toml::file(path)));
         }
 
-        figment = figment.merge(Env::prefixed("CARBIDE_HEALTH__").split("__"));
+        figment = figment.merge(CanonicalNicoApiProvider(
+            Env::prefixed("CARBIDE_HEALTH__").split("__"),
+        ));
 
         let config: Config = figment
             .extract()
@@ -2031,18 +2138,7 @@ impl Config {
             );
         }
 
-        for (index, endpoint) in self
-            .endpoint_sources
-            .static_bmc_endpoints
-            .iter()
-            .enumerate()
-        {
-            endpoint.validate(index)?;
-        }
-
-        if let Configurable::Enabled(ref cluster_cfg) = self.endpoint_sources.cluster {
-            cluster_cfg.validate()?;
-        }
+        self.endpoint_sources.validate()?;
 
         if let Configurable::Enabled(health_report) = &self.sinks.health_report
             && health_report.workers == 0
@@ -2115,8 +2211,8 @@ impl Config {
         if let Configurable::Enabled(gpu_inventory) = &self.collectors.gpu_inventory {
             if !self.endpoint_sources.carbide_api.is_enabled() {
                 return Err(
-                    "collectors.gpu_inventory requires endpoint_sources.carbide_api to be enabled \
-                     (expected GPU counts are resolved from the machine SKU via the Carbide API)"
+                    "collectors.gpu_inventory requires endpoint_sources.nico_api to be enabled \
+                     (expected GPU counts are resolved from the machine SKU via the NICo API)"
                         .to_string(),
                 );
             }
@@ -2501,7 +2597,7 @@ mac = "00:11:22:33:44:55"
 username = "root"
 password = "pass"
 
-[endpoint_sources.carbide_api]
+[endpoint_sources.nico_api]
 enabled = false
 
 [sinks.health_report]
@@ -2617,7 +2713,10 @@ username = "root"
 
     #[test]
     fn static_endpoint_validation() {
-        scenarios!(run = |IndexedStaticEndpoint { index, endpoint }| endpoint.validate(index);
+        scenarios!(run = |IndexedStaticEndpoint { index, endpoint }| endpoint.validate(
+            "endpoint_sources.static_bmc_endpoints",
+            index,
+        );
             "valid endpoint" {
                 IndexedStaticEndpoint {
                     index: 3,
@@ -2926,7 +3025,7 @@ username = "root"
                         Configurable::Enabled(GpuInventoryConfig::default());
                     config.endpoint_sources.carbide_api = Configurable::Disabled;
                 }) => FailsWith(
-                    "collectors.gpu_inventory requires endpoint_sources.carbide_api to be enabled (expected GPU counts are resolved from the machine SKU via the Carbide API)"
+                    "collectors.gpu_inventory requires endpoint_sources.nico_api to be enabled (expected GPU counts are resolved from the machine SKU via the NICo API)"
                         .to_string()
                 ),
 
@@ -3428,8 +3527,18 @@ reload_interval = "30s"
     }
 
     #[test]
+    #[allow(clippy::result_large_err)] // Figment controls the error representation.
     fn test_load_defaults() {
-        let config = Config::load(None).expect("should load defaults");
+        let mut config = None;
+        // Jail clears inherited configuration and serializes this load with tests that
+        // temporarily modify process-global environment variables.
+        figment::Jail::expect_with(|jail| {
+            jail.clear_env();
+            config = Some(Config::load(None).expect("should load defaults"));
+            Ok(())
+        });
+
+        let config = config.expect("default config should be loaded");
         assert_eq!(config.shard, 0);
         assert_eq!(config.shards_count, 1);
         assert_eq!(config.cache_size, 100);
@@ -3449,11 +3558,86 @@ reload_interval = "30s"
         assert!(config.collectors.leak_detector.is_enabled());
         assert!(!config.collectors.nmxc.is_enabled());
         assert!(!config.collectors.nvue.is_enabled());
+
+        let api = config
+            .endpoint_sources
+            .carbide_api
+            .as_option()
+            .expect("NICo API endpoint source should be enabled by default");
+
+        assert_eq!(
+            api.api_url.as_str(),
+            "https://nico-api.nico-system.svc.cluster.local:1079/"
+        );
+
         if let Configurable::Enabled(ref health_report) = config.sinks.health_report {
             assert!(health_report.skip_empty_reports);
         } else {
             panic!("health report sink should be enabled by default");
         }
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)] // Figment controls the error representation.
+    fn nico_api_config_names_and_precedence() {
+        value_scenarios!(run = |(file_names, environment_names): (&[&str], &[&str])| {
+            let file_config = file_names
+                .iter()
+                .map(|name| {
+                    let host = name.replace('_', "-");
+
+                    format!(
+                        "[endpoint_sources.{name}]\napi_url = \"https://{host}.example:1079\"\n"
+                    )
+                })
+                .collect::<String>();
+
+            let mut actual_url = None;
+
+            figment::Jail::expect_with(|jail| {
+                jail.clear_env();
+                jail.create_file("health.toml", &file_config)?;
+
+                for name in environment_names {
+                    let host = name.to_ascii_lowercase().replace('_', "-");
+
+                    jail.set_env(
+                        format!("CARBIDE_HEALTH__ENDPOINT_SOURCES__{name}__API_URL"),
+                        format!("https://{host}.example:1079"),
+                    );
+                }
+
+                let config = Config::load(Some(Path::new("health.toml")))
+                    .expect("NICo API configuration should load");
+
+                let api = config
+                    .endpoint_sources
+                    .carbide_api
+                    .as_option()
+                    .expect("NICo API configuration should remain enabled");
+
+                actual_url = Some(api.api_url.as_str().to_string());
+
+                Ok(())
+            });
+
+            actual_url.expect("NICo API precedence case should produce a URL")
+        };
+            "supported TOML names" {
+                (&["nico_api"][..], &[][..]) => "https://nico-api.example:1079/".to_string(),
+                (&["carbide_api"][..], &[][..]) => "https://carbide-api.example:1079/".to_string(),
+            }
+
+            "environment overrides TOML across names" {
+                (&["carbide_api"][..], &["NICO_API"][..]) => "https://nico-api.example:1079/".to_string(),
+                (&["nico_api"][..], &["CARBIDE_API"][..]) => "https://carbide-api.example:1079/".to_string(),
+            }
+
+            "canonical name wins within one provider" {
+                (&["carbide_api", "nico_api"][..], &[][..]) => "https://nico-api.example:1079/".to_string(),
+                (&[][..], &["CARBIDE_API", "NICO_API"][..]) => "https://nico-api.example:1079/".to_string(),
+            }
+        );
     }
 
     #[test]
@@ -3572,7 +3756,7 @@ skip_empty_reports = false
     #[test]
     fn test_nmxc_config_parsing() {
         let toml_content = r#"
-[endpoint_sources.carbide_api]
+[endpoint_sources.nico_api]
 enabled = false
 
 [sinks.health_report]
@@ -3802,7 +3986,7 @@ testOption = true
     #[test]
     fn test_nvue_config_parsing() {
         let toml_content = r#"
-[endpoint_sources.carbide_api]
+[endpoint_sources.nico_api]
 enabled = false
 
 [sinks.health_report]
@@ -3851,7 +4035,7 @@ request_timeout = "45s"
         // (test_nvue_config_rest_only), so this pins the half that can actually break:
         // an explicit `enabled = false` still wins over a populated sub-table.
         let toml_content = r#"
-[endpoint_sources.carbide_api]
+[endpoint_sources.nico_api]
 enabled = false
 
 [sinks.health_report]
@@ -3876,7 +4060,7 @@ poll_interval = "1m"
     #[test]
     fn test_nvue_config_rest_only() {
         let toml_content = r#"
-[endpoint_sources.carbide_api]
+[endpoint_sources.nico_api]
 enabled = false
 
 [sinks.health_report]
@@ -3901,7 +4085,7 @@ poll_interval = "1m"
     #[test]
     fn test_nvue_config_selective_endpoints() {
         let toml_content = r#"
-[endpoint_sources.carbide_api]
+[endpoint_sources.nico_api]
 enabled = false
 
 [sinks.health_report]
@@ -4085,7 +4269,7 @@ events_enabled = false
         assert!(!NmxtCollectorConfig::default().dangerously_skip_tls_verification);
 
         let omitted = r#"
-[endpoint_sources.carbide_api]
+[endpoint_sources.nico_api]
 enabled = false
 
 [sinks.health_report]
@@ -4094,7 +4278,7 @@ enabled = false
 [collectors.nmxt]
 "#;
         let enabled = r#"
-[endpoint_sources.carbide_api]
+[endpoint_sources.nico_api]
 enabled = false
 
 [sinks.health_report]
@@ -4140,7 +4324,7 @@ dangerously_skip_tls_verification = true
     #[test]
     fn test_tls_switch_profile_parses_independent_paths() {
         let toml = r#"
-[endpoint_sources.carbide_api]
+[endpoint_sources.nico_api]
 enabled = false
 
 [sinks.health_report]
@@ -4292,7 +4476,7 @@ root_ca = "/var/run/secrets/spiffe.io/ca.crt"
     #[test]
     fn test_static_endpoint_with_switch_serial() {
         let toml_content = r#"
-[endpoint_sources.carbide_api]
+[endpoint_sources.nico_api]
 enabled = false
 
 [sinks.health_report]
@@ -4387,6 +4571,13 @@ power_shelf = { id = "fps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1
             Some(3)
         );
         assert_eq!(
+            config.endpoint_sources.static_bmc_endpoints[2]
+                .switch
+                .as_ref()
+                .map(|switch| switch.endpoint_role),
+            Some(StaticSwitchEndpointRole::Host)
+        );
+        assert_eq!(
             config.endpoint_sources.static_bmc_endpoints[3]
                 .power_shelf
                 .as_ref()
@@ -4405,7 +4596,7 @@ power_shelf = { id = "fps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1
     #[test]
     fn test_static_machine_endpoint_without_id() {
         let toml_content = r#"
-[endpoint_sources.carbide_api]
+[endpoint_sources.nico_api]
 enabled = false
 
 [sinks.health_report]
@@ -4437,7 +4628,7 @@ machine = { serial = "MN-001" }
     #[test]
     fn test_static_switch_host_accepts_primary_without_nmxt_override() {
         let toml_content = r#"
-[endpoint_sources.carbide_api]
+[endpoint_sources.nico_api]
 enabled = false
 
 [[endpoint_sources.static_bmc_endpoints]]
@@ -4468,7 +4659,7 @@ switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", 
     #[test]
     fn test_static_switch_host_accepts_nmx_collector_overrides() {
         let toml_content = r#"
-[endpoint_sources.carbide_api]
+[endpoint_sources.nico_api]
 enabled = false
 
 [[endpoint_sources.static_bmc_endpoints]]
@@ -4502,9 +4693,130 @@ switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", 
     }
 
     #[test]
+    fn static_switch_host_endpoint_validation() {
+        scenarios!(run = |config: Box<Config>| config.validate();
+            "host" {
+                config_with(|config| {
+                    config.endpoint_sources.static_switch_host_endpoints =
+                        vec![StaticBmcEndpoint {
+                            switch: Some(static_switch()),
+                            ..static_endpoint()
+                        }];
+                }) => Yields(()),
+            }
+
+            "missing switch metadata" {
+                config_with(|config| {
+                    config.endpoint_sources.static_switch_host_endpoints =
+                        vec![static_endpoint()];
+                }) => FailsWith(
+                    "endpoint_sources.static_switch_host_endpoints[0] requires switch metadata"
+                        .to_string()
+                ),
+            }
+
+            "BMC role" {
+                config_with(|config| {
+                    config.endpoint_sources.static_switch_host_endpoints =
+                        vec![StaticBmcEndpoint {
+                            switch: Some(StaticSwitchEndpoint {
+                                endpoint_role: StaticSwitchEndpointRole::Bmc,
+                                ..static_switch()
+                            }),
+                            ..static_endpoint()
+                        }];
+                }) => FailsWith(
+                    "endpoint_sources.static_switch_host_endpoints[0].switch.endpoint_role must be host"
+                        .to_string()
+                ),
+            }
+
+            "malformed BMC endpoint MAC" {
+                config_with(|config| {
+                    config.endpoint_sources.static_bmc_endpoints =
+                        vec![StaticBmcEndpoint {
+                            mac: "not-a-mac".to_string(),
+                            ..static_endpoint()
+                        }];
+                }) => FailsWith(
+                    "endpoint_sources.static_bmc_endpoints[0].mac must be a valid MAC address"
+                        .to_string()
+                ),
+            }
+
+            "malformed switch host endpoint MAC" {
+                config_with(|config| {
+                    config.endpoint_sources.static_switch_host_endpoints =
+                        vec![StaticBmcEndpoint {
+                            mac: "not-a-mac".to_string(),
+                            switch: Some(static_switch()),
+                            ..static_endpoint()
+                        }];
+                }) => FailsWith(
+                    "endpoint_sources.static_switch_host_endpoints[0].mac must be a valid MAC address"
+                        .to_string()
+                ),
+            }
+
+            "duplicate within BMC endpoint list is accepted" {
+                config_with(|config| {
+                    let endpoint = StaticBmcEndpoint {
+                        mac: "aa:bb:cc:dd:ee:ff".to_string(),
+                        ..static_endpoint()
+                    };
+
+                    config.endpoint_sources.static_bmc_endpoints = vec![
+                        endpoint,
+                        StaticBmcEndpoint {
+                            mac: "AA:BB:CC:DD:EE:FF".to_string(),
+                            ..static_endpoint()
+                        },
+                    ];
+                }) => Yields(()),
+            }
+
+            "duplicate within host list" {
+                config_with(|config| {
+                    let endpoint = StaticBmcEndpoint {
+                        switch: Some(static_switch()),
+                        mac: "aa:bb:cc:dd:ee:ff".to_string(),
+                        ..static_endpoint()
+                    };
+
+                    config.endpoint_sources.static_switch_host_endpoints =
+                        vec![endpoint.clone(), endpoint];
+                }) => FailsWith(
+                    "endpoint_sources.static_switch_host_endpoints[1].mac duplicates endpoint_sources.static_switch_host_endpoints[0].mac"
+                        .to_string()
+                ),
+            }
+
+            "duplicate across endpoint lists" {
+                config_with(|config| {
+                    config.endpoint_sources.static_bmc_endpoints =
+                        vec![StaticBmcEndpoint {
+                            mac: "AA:BB:CC:DD:EE:FF".to_string(),
+                            ..static_endpoint()
+                        }];
+
+                    config.endpoint_sources.static_switch_host_endpoints =
+                        vec![StaticBmcEndpoint {
+                            mac: "aa:bb:cc:dd:ee:ff".to_string(),
+                            switch: Some(static_switch()),
+                            ..static_endpoint()
+                        }];
+                }) => FailsWith(
+                    "endpoint_sources.static_switch_host_endpoints[0].mac duplicates endpoint_sources.static_bmc_endpoints[0].mac"
+                        .to_string()
+                ),
+            }
+        );
+    }
+
+    #[test]
     fn test_static_machine_endpoint_accepts_placement_and_nvlink_metadata() {
         let toml_content = r#"
-[endpoint_sources.carbide_api]
+[endpoint_sources.nico_api]
 enabled = false
 
 [[endpoint_sources.static_bmc_endpoints]]
@@ -4550,7 +4862,7 @@ machine = { id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", 
         for (name, expected) in [("bad-label", "must match"), ("system_uuid", "is reserved")] {
             let toml_content = format!(
                 r#"
-[endpoint_sources.carbide_api]
+[endpoint_sources.nico_api]
 enabled = false
 
 [[endpoint_sources.static_bmc_endpoints]]
@@ -4576,7 +4888,7 @@ machine = {{ id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0" 
     #[test]
     fn test_static_endpoints_accept_position_field_aliases() {
         let toml_content = r#"
-[endpoint_sources.carbide_api]
+[endpoint_sources.nico_api]
 enabled = false
 
 [[endpoint_sources.static_bmc_endpoints]]
@@ -4623,7 +4935,13 @@ switch = { serial = "SN-SW-001", physical_slot_number = 7, compute_tray_index = 
             .extract()
             .expect("could not parse config toml file");
 
-        assert_eq!(config.endpoint_sources.static_bmc_endpoints.len(), 4);
+        config.validate().expect("example config should be valid");
+
+        assert_eq!(config.endpoint_sources.static_bmc_endpoints.len(), 3);
+        assert_eq!(
+            config.endpoint_sources.static_switch_host_endpoints.len(),
+            1
+        );
         assert!(
             config.endpoint_sources.static_bmc_endpoints[0]
                 .switch
@@ -4662,28 +4980,28 @@ switch = { serial = "SN-SW-001", physical_slot_number = 7, compute_tray_index = 
             Some(StaticSwitchEndpointRole::Bmc)
         );
         assert_eq!(
-            config.endpoint_sources.static_bmc_endpoints[2]
+            config.endpoint_sources.static_switch_host_endpoints[0]
                 .switch
                 .as_ref()
                 .and_then(|switch| switch.serial.as_deref()),
             Some("SN-SWITCH-HOST-001")
         );
         assert_eq!(
-            config.endpoint_sources.static_bmc_endpoints[2]
+            config.endpoint_sources.static_switch_host_endpoints[0]
                 .switch
                 .as_ref()
                 .map(|switch| switch.endpoint_role),
             Some(StaticSwitchEndpointRole::Host)
         );
         assert_eq!(
-            config.endpoint_sources.static_bmc_endpoints[3]
+            config.endpoint_sources.static_bmc_endpoints[2]
                 .power_shelf
                 .as_ref()
                 .and_then(|power_shelf| power_shelf.id.as_deref()),
             Some("fps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0")
         );
         assert_eq!(
-            config.endpoint_sources.static_bmc_endpoints[3]
+            config.endpoint_sources.static_bmc_endpoints[2]
                 .power_shelf
                 .as_ref()
                 .and_then(|power_shelf| power_shelf.serial.as_deref()),

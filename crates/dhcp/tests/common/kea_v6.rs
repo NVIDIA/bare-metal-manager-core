@@ -485,7 +485,7 @@ impl Kea6 {
         metrics_endpoint: SocketAddr,
         config: Kea6Config,
     ) -> String {
-        let hook_lib = hook_library_path();
+        let hook_lib = super::hook_library_path();
         let metrics_endpoint = metrics_endpoint.to_string();
         let mut dhcp6 = json!({
             "interfaces-config": {
@@ -586,12 +586,4 @@ impl Drop for Kea6 {
     fn drop(&mut self) {
         self.stop_process();
     }
-}
-
-fn hook_library_path() -> String {
-    // Build the current hook before Kea starts; accepting an existing release
-    // artifact can make debug test runs exercise stale hook code.
-    test_cdylib::build_current_project()
-        .to_string_lossy()
-        .into_owned()
 }

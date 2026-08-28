@@ -93,6 +93,7 @@ fn to_rotation_type(credential_type: i32) -> Result<RotationType, CarbideError> 
         rpc::RotationCredentialType::RotationDpuUefi => Ok(RotationType::DpuUefi),
         rpc::RotationCredentialType::RotationLockdownIkm => Ok(RotationType::LockdownIkm),
         rpc::RotationCredentialType::RotationNvos => Ok(RotationType::Nvos),
+        rpc::RotationCredentialType::RotationDpuBmcService => Ok(RotationType::DpuBmcService),
         // The proto3 zero value. Rejected rather than defaulted so a caller that
         // omits the family never silently rotates BMC (the most sensitive one).
         rpc::RotationCredentialType::Unspecified => Err(CarbideError::InvalidArgument(
@@ -118,6 +119,9 @@ fn versioned_rotation_key(rotation_type: RotationType, version: u32) -> Credenti
             credential_type: NicLockdownIkm::SiteWide { version },
         },
         RotationType::Nvos => CredentialKey::switch_nvos_site_admin(version),
+        RotationType::DpuBmcService => CredentialKey::BmcCredentials {
+            credential_type: BmcCredentialType::SiteWideDpuBmcServiceVersioned { version },
+        },
     }
 }
 

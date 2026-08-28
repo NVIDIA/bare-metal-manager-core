@@ -131,6 +131,11 @@ func TestLogCmd_NoScope(t *testing.T) {
 	}
 }
 
+func TestShellQuoteCLIArg(t *testing.T) {
+	assert.Equal(t, `'simple'`, shellQuoteCLIArg("simple"))
+	assert.Equal(t, `'tenant'\''s instance'`, shellQuoteCLIArg("tenant's instance"))
+}
+
 func TestFirstMachineIPAddress(t *testing.T) {
 	tests := []struct {
 		name string

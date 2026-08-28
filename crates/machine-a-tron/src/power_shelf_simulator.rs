@@ -16,19 +16,17 @@
  */
 use std::borrow::Cow;
 use std::collections::VecDeque;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use bmc_mock::injection::InjectionStore;
-use bmc_mock::ipmi_sim::IpmiEndpoint;
 use bmc_mock::mac_address_pool::{MacAddressPool, PoolConfig as MacAddressPoolConfig};
 use bmc_mock::{
     BmcCommand, Callbacks, HardwareType, HostMachineInfo, HostnameQuerying, MachineInfo,
     MockPowerState, POWER_CYCLE_DELAY, SetSystemPowerError, SetSystemPowerResult,
     SystemPowerControl,
 };
-use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
@@ -40,13 +38,12 @@ use crate::machine_state_machine::{MachineStateError, OsImage};
 use crate::power_shelf_fsm::{Action, Event, PowerShelfFsm, Timer};
 use crate::saturating_add_duration_to_instant;
 use crate::status::{BmcStatus, DeviceKind, DeviceStatus, DeviceStatusConfig, EndpointStatus};
-use crate::tui::UiUpdate;
 
 #[derive(Debug)]
 struct PowerShelfLiveState {
     power_state: MockPowerState,
     bmc_ip: Option<Ipv4Addr>,
-    ipmi_endpoint: Option<IpmiEndpoint>,
+    ipmi_port: Option<u16>,
     ssh_endpoint_port: Option<u16>,
     ssh_host_key: Option<String>,
     state: &'static str,
@@ -57,7 +54,7 @@ impl PowerShelfLiveState {
         Self {
             power_state: fsm.power_state(),
             bmc_ip: None,
-            ipmi_endpoint: None,
+            ipmi_port: None,
             ssh_endpoint_port: None,
             ssh_host_key: None,
             state: fsm.state_string(),
@@ -118,6 +115,7 @@ pub(crate) struct PowerShelfActor {
     actions: VecDeque<Action>,
     run_alarm: Option<AlarmId>,
     power_cycle_alarm: Option<AlarmId>,
+    dhcp_retry_alarm: Option<AlarmId>,
 }
 
 impl PowerShelfActor {
@@ -146,6 +144,7 @@ impl PowerShelfActor {
             actions: actions.into_iter().collect(),
             run_alarm: None,
             power_cycle_alarm: None,
+            dhcp_retry_alarm: None,
         }
     }
 
@@ -185,6 +184,7 @@ impl PowerShelfActor {
             actions: actions.into_iter().collect(),
             run_alarm: None,
             power_cycle_alarm: None,
+            dhcp_retry_alarm: None,
         }
     }
 
@@ -249,9 +249,32 @@ impl PowerShelfActor {
                             error = %error,
                             "Power-shelf BMC DHCP failed",
                         );
-                        return Some(self.config.run_interval_working);
+                        self.actions.pop_front();
+                        self.fsm_event(Event::dhcp_failed());
                     }
                 },
+                Action::ScheduleDhcpRetry { delay } => {
+                    tracing::debug!(
+                        retry_delay_milliseconds = delay.as_millis(),
+                        "scheduled power-shelf DHCP retry"
+                    );
+                    self.dhcp_retry_alarm = Some(
+                        mailbox
+                            .replace_alarm(
+                                self.dhcp_retry_alarm.take(),
+                                saturating_add_duration_to_instant(Instant::now(), delay),
+                                PowerShelfMessage::DhcpRetryExpired,
+                            )
+                            .expect("running actor mailbox must be open"),
+                    );
+                    self.actions.pop_front();
+                }
+                Action::CancelDhcpRetry => {
+                    if let Some(alarm_id) = self.dhcp_retry_alarm.take() {
+                        mailbox.cancel(alarm_id);
+                    }
+                    self.actions.pop_front();
+                }
                 Action::SetupBmc => match self.setup_bmc(mailbox).await {
                     Ok(()) => {
                         self.actions.pop_front();
@@ -322,7 +345,7 @@ impl PowerShelfActor {
             .as_ref()
             .ok_or(MachineStateError::NoBmcDhcpInfo)?;
         let machine_info = MachineInfo::Host(self.host_info.clone());
-        let mut bmc_mock = BmcMockWrapper::new(
+        let bmc_mock = BmcMockWrapper::new(
             &machine_info,
             self.app_context.clone(),
             Arc::new(PowerShelfCallbacks {
@@ -332,6 +355,8 @@ impl PowerShelfActor {
             Arc::new(PowerShelfHostname),
             self.mat_id,
             self.bmc_injection.clone(),
+            // no lifecycle timing profile for this device kind yet
+            None,
         );
         if self.host_info.hw_type != HardwareType::LiteOnPowerShelf
             && let Some(password) = self.app_context.app_config.host_bmc_password.as_deref()
@@ -342,32 +367,13 @@ impl PowerShelfActor {
                 .change_factory_default_password(password);
         }
 
-        let bmc_handle = match &self.app_context.bmc_registration_mode {
-            crate::BmcRegistrationMode::None(port) => {
-                let handle = Arc::new(
-                    bmc_mock
-                        .start(
-                            SocketAddr::new(IpAddr::V4(dhcp_info.ip_address), *port),
-                            true,
-                        )
-                        .await?,
-                );
-                self.live_state.write().unwrap().ssh_host_key = handle
-                    .ssh_handle
-                    .as_ref()
-                    .map(|handle| handle.host_pubkey.clone());
-                Some(handle)
-            }
-            crate::BmcRegistrationMode::BackingInstance(registry) => {
-                registry
-                    .write()
-                    .await
-                    .insert(dhcp_info.ip_address.to_string(), bmc_mock.router().clone());
-                bmc_mock
-                    .start_shared_mode_consoles(IpAddr::V4(Ipv4Addr::UNSPECIFIED))
-                    .await?
-                    .map(Arc::new)
-            }
+        let bmc_handle = {
+            self.app_context
+                .bmc_registry
+                .write()
+                .await
+                .insert(dhcp_info.ip_address.to_string(), bmc_mock.router().clone());
+            bmc_mock.start().await?.map(Arc::new)
         };
 
         if let Some(ssh_host_key) = bmc_handle
@@ -381,9 +387,7 @@ impl PowerShelfActor {
         {
             let mut state = self.live_state.write().unwrap();
             state.bmc_ip = Some(dhcp_info.ip_address);
-            state.ipmi_endpoint = bmc_handle
-                .as_ref()
-                .and_then(|handle| handle.ipmi_endpoint());
+            state.ipmi_port = bmc_handle.as_ref().and_then(|handle| handle.ipmi_port());
             state.ssh_endpoint_port = bmc_handle
                 .as_ref()
                 .and_then(|handle| handle.ssh_endpoint_port());
@@ -434,6 +438,7 @@ impl PowerShelfActor {
 enum PowerShelfMessage {
     Run,
     PowerCycleExpired,
+    DhcpRetryExpired,
     SetPaused(bool),
     Bmc(BmcCommand),
     Stop,
@@ -450,6 +455,10 @@ impl ActorCallbacks<PowerShelfMessage> for PowerShelfActor {
             PowerShelfMessage::PowerCycleExpired => {
                 self.power_cycle_alarm = None;
                 self.fsm_event(Event::TimerAlert(Timer::PowerCycle));
+            }
+            PowerShelfMessage::DhcpRetryExpired => {
+                self.dhcp_retry_alarm = None;
+                self.fsm_event(Event::DhcpRetryExpired);
             }
             PowerShelfMessage::Stop => return ActorResult::Stop,
             PowerShelfMessage::SetPaused(paused) => {
@@ -488,13 +497,6 @@ impl PowerShelfHandle {
         self.0.mat_id
     }
 
-    pub(crate) fn attach_to_tui(
-        &self,
-        _tui_event_tx: Option<mpsc::Sender<UiUpdate>>,
-    ) -> eyre::Result<()> {
-        Ok(())
-    }
-
     pub(crate) fn pause(&self) -> eyre::Result<()> {
         self.0.mailbox.send(PowerShelfMessage::SetPaused(true))?;
         Ok(())
@@ -530,8 +532,8 @@ impl PowerShelfHandle {
             bmc: BmcStatus {
                 ip: state.bmc_ip.map(|ip| ip.to_string()),
                 redfish: EndpointStatus::redfish(config),
-                ipmi: state.ipmi_endpoint.map(Into::into),
-                ssh: state.ssh_endpoint_port.map(EndpointStatus::ssh),
+                ipmi: state.ipmi_port.map(EndpointStatus::same_port),
+                ssh: state.ssh_endpoint_port.map(EndpointStatus::same_port),
             },
             dpus: Vec::new(),
         }

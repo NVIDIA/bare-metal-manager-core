@@ -16,7 +16,6 @@
  */
 use std::borrow::Cow;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -93,9 +92,10 @@ pub(crate) async fn run_baseline_test_environment(
                 MachineIdSource::Tpm,
                 rand::random(),
                 match bmc_type {
-                    MockBmcType::Ssh | MockBmcType::LenovoSr650Ssh | MockBmcType::Ipmi => {
-                        MachineType::Host
-                    }
+                    MockBmcType::Ssh
+                    | MockBmcType::LenovoSr650Ssh
+                    | MockBmcType::LenovoAmiSsh
+                    | MockBmcType::Ipmi => MachineType::Host,
                     MockBmcType::DpuSsh => MachineType::Dpu,
                 },
             );
@@ -104,10 +104,10 @@ pub(crate) async fn run_baseline_test_environment(
                 let bmc_handle = match bmc_type {
                     ssh_type @ MockBmcType::Ssh
                     | ssh_type @ MockBmcType::LenovoSr650Ssh
+                    | ssh_type @ MockBmcType::LenovoAmiSsh
                     | ssh_type @ MockBmcType::DpuSsh => {
                         Ok::<MockBmcHandle, eyre::Error>(MockBmcHandle::Ssh(
                             machine_a_tron::spawn_mock_ssh_server(
-                                IpAddr::from_str("127.0.0.1").unwrap(),
                                 None,
                                 Arc::new(KnownHostname(machine_id.to_string())),
                                 Some(machine_a_tron::MockSshCredentials {
@@ -117,6 +117,7 @@ pub(crate) async fn run_baseline_test_environment(
                                 match ssh_type {
                                     MockBmcType::Ssh => PromptBehavior::Dell,
                                     MockBmcType::LenovoSr650Ssh => PromptBehavior::LenovoSr650,
+                                    MockBmcType::LenovoAmiSsh => PromptBehavior::LenovoAmi,
                                     MockBmcType::DpuSsh => PromptBehavior::Dpu,
                                     MockBmcType::Ipmi => unreachable!(),
                                 },
@@ -147,6 +148,7 @@ pub(crate) async fn run_baseline_test_environment(
                 sys_vendor: match &bmc_handle {
                     MockBmcHandle::Ssh(_) => match bmc_type {
                         MockBmcType::LenovoSr650Ssh => "Lenovo",
+                        MockBmcType::LenovoAmiSsh => "LenovoAMI",
                         _ => "Dell",
                     },
                     MockBmcHandle::Ipmi(_) => "Supermicro",
@@ -158,7 +160,7 @@ pub(crate) async fn run_baseline_test_environment(
                 },
                 ipmi_port: match &bmc_handle {
                     MockBmcHandle::Ssh(_) => None,
-                    MockBmcHandle::Ipmi(i) => Some(i.endpoint.listen_port),
+                    MockBmcHandle::Ipmi(i) => Some(i.port),
                 },
                 bmc_user: "root".to_string(),
                 bmc_password: "password".to_string(),
@@ -192,6 +194,7 @@ pub(crate) async fn run_baseline_test_environment(
 pub(crate) enum MockBmcType {
     Ssh,
     LenovoSr650Ssh,
+    LenovoAmiSsh,
     DpuSsh,
     Ipmi,
 }

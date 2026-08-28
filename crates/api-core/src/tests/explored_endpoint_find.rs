@@ -109,6 +109,9 @@ async fn test_find_explored_endpoints_by_ids(
 // shared API-layer code, proven once across representative RPCs in
 // `tests::find_by_ids_guards`.
 
+// This test intentionally exercises the deprecated top-level `machine_id`
+// field to prove it is still accepted alongside the new `device_id` target.
+#[allow(deprecated)]
 #[crate::sqlx_test]
 async fn test_admin_bmc_reset(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // Setup
@@ -124,8 +127,8 @@ async fn test_admin_bmc_reset(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
             ip_address: bmc_ip.to_string(),
             mac_address: None,
         }),
-        machine_id: None,
         use_ipmitool: false,
+        ..Default::default()
     });
     let api_result = env.api.admin_bmc_reset(req).await;
     assert!(api_result.is_ok());
@@ -135,6 +138,7 @@ async fn test_admin_bmc_reset(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
         bmc_endpoint_request: None,
         machine_id: Some(host_machine_id.to_string()),
         use_ipmitool: false,
+        ..Default::default()
     });
     let api_result = env.api.admin_bmc_reset(req).await;
     assert!(api_result.is_ok());
@@ -145,8 +149,8 @@ async fn test_admin_bmc_reset(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
             ip_address: bmc_ip.to_string(),
             mac_address: Some("00:DE:AD:BE:EF:00".to_string()),
         }),
-        machine_id: None,
         use_ipmitool: false,
+        ..Default::default()
     });
     let api_result = env.api.admin_bmc_reset(req).await;
     let e = api_result.unwrap_err();
@@ -161,8 +165,8 @@ async fn test_admin_bmc_reset(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
             ip_address: "0.0.0.0".to_string(),
             mac_address: None,
         }),
-        machine_id: None,
         use_ipmitool: false,
+        ..Default::default()
     });
     let api_result = env.api.admin_bmc_reset(req).await;
     let e = api_result.unwrap_err();
@@ -190,6 +194,7 @@ async fn test_admin_bmc_reset(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
         bmc_endpoint_request: None,
         machine_id: Some(host_machine_id.to_string()),
         use_ipmitool: false,
+        ..Default::default()
     });
     let api_result = env.api.admin_bmc_reset(req).await;
     assert!(api_result.is_ok());
@@ -210,6 +215,7 @@ async fn test_admin_bmc_reset(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
         bmc_endpoint_request: None,
         machine_id: Some(host_machine_id.to_string()),
         use_ipmitool: false,
+        ..Default::default()
     });
     let api_result = env.api.admin_bmc_reset(req).await;
     assert!(api_result.is_ok());
@@ -283,8 +289,8 @@ async fn test_admin_bmc_reset_rejects_malformed_ip_address(
             ip_address: "not-an-ip".to_string(),
             mac_address: None,
         }),
-        machine_id: None,
         use_ipmitool: false,
+        ..Default::default()
     });
 
     let err = env

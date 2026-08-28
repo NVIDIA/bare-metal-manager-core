@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"net"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/gogo/status"
@@ -310,11 +311,36 @@ func (mcgsc *MockCoreGrpcServiceClient) FindInstancesByIds(ctx context.Context, 
 		return nil, status.Error(status.Code(err), "failed to retrieve instances")
 	}
 
+	// Stands in for a response that outgrows the gRPC client receive limit, which is what makes
+	// the inventory pager step its site page size down and ask for fewer Instances.
+	maxRequestIDs, ok := ctx.Value("maxRequestIDs").(int)
+	if ok && in != nil && len(in.InstanceIds) > maxRequestIDs {
+		return nil, status.Errorf(codes.ResourceExhausted,
+			"grpc: received message larger than max (%v IDs requested, mock accepts %v)", len(in.InstanceIds), maxRequestIDs)
+	}
+
+	// Inflates every Instance so a published inventory page can outgrow the Temporal blob budget.
+	var padding *string
+	padBytes, _ := ctx.Value("instancePadBytes").(int)
+	if padBytes > 0 {
+		pad := strings.Repeat("a", padBytes)
+		padding = &pad
+	}
+
+	// Stands in for Instances deleted between FindInstanceIds and FindInstancesByIds, which is
+	// how Core comes to return fewer Instances than the IDs asked for.
+	dropPerPage, _ := ctx.Value("dropInstancesPerPage").(int)
+
 	out := &corev1.InstanceList{}
 	if in != nil {
-		for _, id := range in.InstanceIds {
+		ids := in.InstanceIds
+		if dropPerPage > 0 && len(ids) >= dropPerPage {
+			ids = ids[:len(ids)-dropPerPage]
+		}
+		for _, id := range ids {
 			out.Instances = append(out.Instances, &corev1.Instance{
-				Id: id,
+				Id:               id,
+				TpmEkCertificate: padding,
 			})
 		}
 	}

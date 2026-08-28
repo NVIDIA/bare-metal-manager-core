@@ -71,6 +71,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_dpu_agent_report_total</td><td>counter</td><td>Number of DPU-agent report-loop iterations, by loop and outcome</td></tr>
 <tr><td>carbide_dpu_agent_service_restart_attempts_total</td><td>counter</td><td>Number of DPU-agent service restart attempts, by service and result.</td></tr>
 <tr><td>carbide_dpu_agent_version_count</td><td>gauge</td><td>Number of DPU agents which have reported a certain version.</td></tr>
+<tr><td>carbide_dpu_bmc_service_credential_rotation_results_total</td><td>counter</td><td>Number of persisted DPU BMC service credential rotation results, by result</td></tr>
 <tr><td>carbide_dpu_firmware_version_count</td><td>gauge</td><td>Number of DPUs which have reported a certain firmware version.</td></tr>
 <tr><td>carbide_dpu_remediation_executor_failures_total</td><td>counter</td><td>Number of DPU remediation executor failures, by failure stage.</td></tr>
 <tr><td>carbide_dpu_uefi_password_setup_skips_total</td><td>counter</td><td>Number of DPU UEFI password setup operations skipped, by reason.</td></tr>
@@ -95,6 +96,10 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_endpoint_explorations_count</td><td>gauge</td><td>Number of attempted endpoint explorations</td></tr>
 <tr><td>carbide_exhausted_reprovision_retry_count</td><td>gauge</td><td>Number of host machines in the system whose host firmware upgrade retry budget is exhausted.</td></tr>
 <tr><td>carbide_extension_service_credential_cleanup_failures_total</td><td>counter</td><td>Number of extension-service credential cleanup failures, by operation.</td></tr>
+<tr><td>carbide_extension_services_enqueuer_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to enqueue state handling tasks for all carbide_extension_services in the system</td></tr>
+<tr><td>carbide_extension_services_iteration_latency_milliseconds</td><td>histogram</td><td>The elapsed time in the last state processor iteration to handle objects of type carbide_extension_services</td></tr>
+<tr><td>carbide_extension_services_object_tasks_enqueued_total</td><td>counter</td><td>Number of object handling tasks freshly enqueued for objects of type carbide_extension_services</td></tr>
+<tr><td>carbide_extension_services_total</td><td>gauge</td><td>Number of carbide_extension_services in the system</td></tr>
 <tr><td>carbide_external_call_duration_milliseconds</td><td>histogram</td><td>Duration of outbound calls by backend, operation, and outcome; the _count series, split by outcome, gives the request and error rates.</td></tr>
 <tr><td>carbide_firmware_artifact_unavailable_total</td><td>counter</td><td>Number of firmware artifacts unavailable before download, by reason.</td></tr>
 <tr><td>carbide_firmware_download_duration_seconds</td><td>histogram</td><td>Duration of background firmware artifact downloads, by outcome; an ok attempt spans fetch, checksum verification, and publish, and the _count series, split by outcome, is the download and failure rate.</td></tr>
@@ -239,6 +244,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_scout_actions_total</td><td>counter</td><td>Number of scout control-loop actions handled, by action and outcome.</td></tr>
 <tr><td>carbide_scout_firmware_download_attempt_failures_total</td><td>counter</td><td>Number of failed Scout firmware download attempts, by download kind and next action.</td></tr>
 <tr><td>carbide_scout_mlx_failures_total</td><td>counter</td><td>Number of Scout MLX observation, read, mutation, and recovery failures, by operation and failure stage.</td></tr>
+<tr><td>carbide_scout_pci_evaluations_total</td><td>counter</td><td>Number of comparisons between PCI slots reported by Scout and the stored boot interface, by result.</td></tr>
 <tr><td>carbide_scout_storage_device_cleanup_duration_seconds</td><td>histogram</td><td>Duration of per-device scout storage cleanup operations, by device type and outcome.</td></tr>
 <tr><td>carbide_scout_stream_connections_total</td><td>counter</td><td>Number of scout stream connection attempts, by outcome.</td></tr>
 <tr><td>carbide_scout_stream_reconnects_total</td><td>counter</td><td>Number of scout stream reconnect cycles after a stream closed or errored.</td></tr>

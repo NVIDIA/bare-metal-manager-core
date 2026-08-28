@@ -310,6 +310,10 @@ impl InternalRBACRules {
         x.perm("AdminForceDeleteRack", vec![ForgeAdminCLI, Machineatron]);
         x.perm("AdminForceDeleteSwitch", vec![ForgeAdminCLI, Machineatron]);
         x.perm(
+            "DecommissionSwitch",
+            vec![ForgeAdminCLI, Machineatron, Flow],
+        );
+        x.perm(
             "AdminForceDeletePowerShelf",
             vec![ForgeAdminCLI, Machineatron],
         );
@@ -501,6 +505,7 @@ impl InternalRBACRules {
         x.perm("GetIpxeTemplate", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("ListIpxeTemplates", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindRackStateHistories", vec![ForgeAdminCLI, Machineatron]);
+        x.perm("FindRackHealthHistories", vec![ForgeAdminCLI, Machineatron]);
         x.perm("RebootCompleted", vec![Machineatron, Scout]);
         x.perm("PersistValidationResult", vec![Scout, SiteAgent]);
         x.perm(
@@ -732,6 +737,10 @@ impl InternalRBACRules {
             vec![ForgeAdminCLI, Machineatron, Flow],
         );
         x.perm("CreatePowerShelf", vec![ForgeAdminCLI, Machineatron]);
+        x.perm(
+            "DecommissionPowerShelf",
+            vec![ForgeAdminCLI, Machineatron, Flow],
+        );
         x.perm("DeletePowerShelf", vec![ForgeAdminCLI, Machineatron]);
         x.perm(
             "AddExpectedPowerShelf",
@@ -767,6 +776,10 @@ impl InternalRBACRules {
         );
         x.perm(
             "FindPowerShelfStateHistories",
+            vec![ForgeAdminCLI, Machineatron, Flow],
+        );
+        x.perm(
+            "FindPowerShelfHealthHistories",
             vec![ForgeAdminCLI, Machineatron, Flow],
         );
         x.perm(
@@ -846,6 +859,10 @@ impl InternalRBACRules {
         );
         x.perm(
             "FindSwitchStateHistories",
+            vec![ForgeAdminCLI, Machineatron, Flow],
+        );
+        x.perm(
+            "FindSwitchHealthHistories",
             vec![ForgeAdminCLI, Machineatron, Flow],
         );
         x.perm("FindRackIds", vec![ForgeAdminCLI, SiteAgent, Flow]);

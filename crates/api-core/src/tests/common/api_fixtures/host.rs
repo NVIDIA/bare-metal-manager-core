@@ -38,15 +38,18 @@ use crate::tests::common::rpc_builder::DhcpDiscovery;
 pub(in crate::tests) const GB200_COMPUTE_TRAY_1_INFO_JSON: &[u8] = include_bytes!(
     "../../../../../api-model/src/hardware_info/test_data/gb200_compute_tray_1_info.json"
 );
+#[allow(dead_code)]
 pub(in crate::tests) const GB200_COMPUTE_TRAY_2_INFO_JSON: &[u8] = include_bytes!(
     "../../../../../api-model/src/hardware_info/test_data/gb200_compute_tray_2_info.json"
 );
 pub(in crate::tests) const GB200_COMPUTE_TRAY_3_INFO_JSON: &[u8] = include_bytes!(
     "../../../../../api-model/src/hardware_info/test_data/gb200_compute_tray_3_info.json"
 );
+#[allow(dead_code)]
 pub(in crate::tests) const GB200_COMPUTE_TRAY_4_INFO_JSON: &[u8] = include_bytes!(
     "../../../../../api-model/src/hardware_info/test_data/gb200_compute_tray_4_info.json"
 );
+#[allow(dead_code)]
 pub(in crate::tests) const GB200_COMPUTE_TRAY_5_INFO_JSON: &[u8] = include_bytes!(
     "../../../../../api-model/src/hardware_info/test_data/gb200_compute_tray_5_info.json"
 );

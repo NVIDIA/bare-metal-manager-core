@@ -16,18 +16,16 @@
  */
 use std::borrow::Cow;
 use std::collections::VecDeque;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use bmc_mock::injection::InjectionStore;
-use bmc_mock::ipmi_sim::IpmiEndpoint;
 use bmc_mock::mac_address_pool::{MacAddressPool, PoolConfig as MacAddressPoolConfig};
 use bmc_mock::{
     BmcCommand, Callbacks, HostMachineInfo, HostnameQuerying, MachineInfo, MockPowerState,
     POWER_CYCLE_DELAY, SetSystemPowerError, SetSystemPowerResult, SystemPowerControl,
 };
-use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
@@ -39,14 +37,17 @@ use crate::machine_state_machine::{MachineStateError, OsImage};
 use crate::saturating_add_duration_to_instant;
 use crate::status::{BmcStatus, DeviceKind, DeviceStatus, DeviceStatusConfig, EndpointStatus};
 use crate::switch_fsm::{Action, DhcpEndpoint, Event, SwitchFsm, Timer};
-use crate::tui::UiUpdate;
+
+fn abandon_nvos_dhcp_on_power_change(actions: &mut VecDeque<Action>) {
+    actions.retain(|action| !matches!(action, Action::Dhcp(DhcpEndpoint::Nvos)));
+}
 
 #[derive(Debug)]
 struct SwitchLiveState {
     power_state: MockPowerState,
     bmc_ip: Option<Ipv4Addr>,
     nvos_ip: Option<Ipv4Addr>,
-    ipmi_endpoint: Option<IpmiEndpoint>,
+    ipmi_port: Option<u16>,
     ssh_endpoint_port: Option<u16>,
     ssh_host_key: Option<String>,
     state: &'static str,
@@ -58,7 +59,7 @@ impl SwitchLiveState {
             power_state: fsm.power_state(),
             bmc_ip: None,
             nvos_ip: None,
-            ipmi_endpoint: None,
+            ipmi_port: None,
             ssh_endpoint_port: None,
             ssh_host_key: None,
             state: fsm.state_string(),
@@ -119,6 +120,7 @@ pub(crate) struct SwitchActor {
     actions: VecDeque<Action>,
     run_alarm: Option<AlarmId>,
     power_cycle_alarm: Option<AlarmId>,
+    dhcp_retry_alarm: Option<AlarmId>,
 }
 
 impl SwitchActor {
@@ -148,6 +150,7 @@ impl SwitchActor {
             actions: actions.into_iter().collect(),
             run_alarm: None,
             power_cycle_alarm: None,
+            dhcp_retry_alarm: None,
         }
     }
 
@@ -187,6 +190,7 @@ impl SwitchActor {
             actions: actions.into_iter().collect(),
             run_alarm: None,
             power_cycle_alarm: None,
+            dhcp_retry_alarm: None,
         }
     }
 
@@ -240,7 +244,7 @@ impl SwitchActor {
                     Ok(dhcp_info) => {
                         self.bmc_dhcp_info = Some(dhcp_info);
                         self.actions.pop_front();
-                        self.fsm_event(Event::DhcpComplete(DhcpEndpoint::Bmc));
+                        self.fsm_event(Event::DhcpComplete);
                     }
                     Err(error) => {
                         tracing::warn!(
@@ -248,14 +252,15 @@ impl SwitchActor {
                             error = %error,
                             "Switch BMC DHCP failed",
                         );
-                        return Some(self.config.run_interval_working);
+                        self.actions.pop_front();
+                        self.fsm_event(Event::dhcp_failed());
                     }
                 },
                 Action::Dhcp(DhcpEndpoint::Nvos) => match self.nvos_dhcp_discovery().await {
                     Ok(dhcp_info) => {
                         self.live_state.write().unwrap().nvos_ip = Some(dhcp_info.ip_address);
                         self.actions.pop_front();
-                        self.fsm_event(Event::DhcpComplete(DhcpEndpoint::Nvos));
+                        self.fsm_event(Event::DhcpComplete);
                     }
                     Err(error) => {
                         tracing::warn!(
@@ -263,9 +268,33 @@ impl SwitchActor {
                             error = %error,
                             "Switch NVOS DHCP failed",
                         );
-                        return Some(self.config.run_interval_working);
+                        self.actions.pop_front();
+                        self.fsm_event(Event::dhcp_failed());
                     }
                 },
+                Action::ScheduleDhcpRetry { delay } => {
+                    tracing::debug!(
+                        device_id = %self.mat_id,
+                        retry_delay_milliseconds = delay.as_millis(),
+                        "scheduled switch DHCP retry"
+                    );
+                    self.dhcp_retry_alarm = Some(
+                        mailbox
+                            .replace_alarm(
+                                self.dhcp_retry_alarm.take(),
+                                saturating_add_duration_to_instant(Instant::now(), delay),
+                                SwitchMessage::DhcpRetryExpired,
+                            )
+                            .expect("running actor mailbox must be open"),
+                    );
+                    self.actions.pop_front();
+                }
+                Action::CancelDhcpRetry => {
+                    if let Some(alarm_id) = self.dhcp_retry_alarm.take() {
+                        mailbox.cancel(alarm_id);
+                    }
+                    self.actions.pop_front();
+                }
                 Action::SetupBmc => match self.setup_bmc(mailbox).await {
                     Ok(()) => {
                         self.actions.pop_front();
@@ -360,7 +389,7 @@ impl SwitchActor {
             .as_ref()
             .ok_or(MachineStateError::NoBmcDhcpInfo)?;
         let machine_info = MachineInfo::Host(self.host_info.clone());
-        let mut bmc_mock = BmcMockWrapper::new(
+        let bmc_mock = BmcMockWrapper::new(
             &machine_info,
             self.app_context.clone(),
             Arc::new(SwitchCallbacks {
@@ -370,6 +399,8 @@ impl SwitchActor {
             Arc::new(SwitchHostname),
             self.mat_id,
             self.bmc_injection.clone(),
+            // no lifecycle timing profile for this device kind yet
+            None,
         );
         if let Some(password) = self.app_context.app_config.host_bmc_password.as_deref() {
             bmc_mock
@@ -378,32 +409,13 @@ impl SwitchActor {
                 .change_factory_default_password(password);
         }
 
-        let bmc_handle = match &self.app_context.bmc_registration_mode {
-            crate::BmcRegistrationMode::None(port) => {
-                let handle = Arc::new(
-                    bmc_mock
-                        .start(
-                            SocketAddr::new(IpAddr::V4(dhcp_info.ip_address), *port),
-                            true,
-                        )
-                        .await?,
-                );
-                self.live_state.write().unwrap().ssh_host_key = handle
-                    .ssh_handle
-                    .as_ref()
-                    .map(|handle| handle.host_pubkey.clone());
-                Some(handle)
-            }
-            crate::BmcRegistrationMode::BackingInstance(registry) => {
-                registry
-                    .write()
-                    .await
-                    .insert(dhcp_info.ip_address.to_string(), bmc_mock.router().clone());
-                bmc_mock
-                    .start_shared_mode_consoles(IpAddr::V4(Ipv4Addr::UNSPECIFIED))
-                    .await?
-                    .map(Arc::new)
-            }
+        let bmc_handle = {
+            self.app_context
+                .bmc_registry
+                .write()
+                .await
+                .insert(dhcp_info.ip_address.to_string(), bmc_mock.router().clone());
+            bmc_mock.start().await?.map(Arc::new)
         };
 
         if let Some(ssh_host_key) = bmc_handle
@@ -417,9 +429,7 @@ impl SwitchActor {
         {
             let mut state = self.live_state.write().unwrap();
             state.bmc_ip = Some(dhcp_info.ip_address);
-            state.ipmi_endpoint = bmc_handle
-                .as_ref()
-                .and_then(|handle| handle.ipmi_endpoint());
+            state.ipmi_port = bmc_handle.as_ref().and_then(|handle| handle.ipmi_port());
             state.ssh_endpoint_port = bmc_handle
                 .as_ref()
                 .and_then(|handle| handle.ssh_endpoint_port());
@@ -446,6 +456,10 @@ impl SwitchActor {
     }
 
     fn fsm_event(&mut self, event: Event) {
+        if matches!(event, Event::PowerOff | Event::PowerCycle) {
+            abandon_nvos_dhcp_on_power_change(&mut self.actions);
+        }
+
         let previous_state = self.fsm;
         let (next_state, actions) = self.fsm.event(event);
         tracing::info!(
@@ -470,6 +484,7 @@ impl SwitchActor {
 enum SwitchMessage {
     Run,
     PowerCycleExpired,
+    DhcpRetryExpired,
     SetPaused(bool),
     Bmc(BmcCommand),
     Stop,
@@ -486,6 +501,10 @@ impl ActorCallbacks<SwitchMessage> for SwitchActor {
             SwitchMessage::PowerCycleExpired => {
                 self.power_cycle_alarm = None;
                 self.fsm_event(Event::TimerAlert(Timer::PowerCycle));
+            }
+            SwitchMessage::DhcpRetryExpired => {
+                self.dhcp_retry_alarm = None;
+                self.fsm_event(Event::DhcpRetryExpired);
             }
             SwitchMessage::Stop => return ActorResult::Stop,
             SwitchMessage::SetPaused(paused) => {
@@ -524,13 +543,6 @@ impl SwitchHandle {
         self.0.mat_id
     }
 
-    pub(crate) fn attach_to_tui(
-        &self,
-        _tui_event_tx: Option<mpsc::Sender<UiUpdate>>,
-    ) -> eyre::Result<()> {
-        Ok(())
-    }
-
     pub(crate) fn pause(&self) -> eyre::Result<()> {
         self.0.mailbox.send(SwitchMessage::SetPaused(true))?;
         Ok(())
@@ -566,8 +578,8 @@ impl SwitchHandle {
             bmc: BmcStatus {
                 ip: state.bmc_ip.map(|ip| ip.to_string()),
                 redfish: EndpointStatus::redfish(config),
-                ipmi: state.ipmi_endpoint.map(Into::into),
-                ssh: state.ssh_endpoint_port.map(EndpointStatus::ssh),
+                ipmi: state.ipmi_port.map(EndpointStatus::same_port),
+                ssh: state.ssh_endpoint_port.map(EndpointStatus::same_port),
             },
             dpus: Vec::new(),
         }
@@ -624,5 +636,35 @@ impl SwitchHandle {
 
     pub(crate) fn bmc_ip(&self) -> Option<Ipv4Addr> {
         self.0.live_state.read().unwrap().bmc_ip
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::{Check, check_values};
+
+    use super::*;
+
+    #[test]
+    fn power_change_abandons_queued_nvos_dhcp() {
+        check_values(
+            [
+                Check {
+                    scenario: "queued NVOS DHCP is abandoned",
+                    input: vec![Action::Dhcp(DhcpEndpoint::Nvos)],
+                    expect: vec![],
+                },
+                Check {
+                    scenario: "unrelated actions remain queued",
+                    input: vec![Action::Dhcp(DhcpEndpoint::Bmc), Action::SetupBmc],
+                    expect: vec![Action::Dhcp(DhcpEndpoint::Bmc), Action::SetupBmc],
+                },
+            ],
+            |actions| {
+                let mut actions = VecDeque::from(actions);
+                abandon_nvos_dhcp_on_power_change(&mut actions);
+                Vec::from(actions)
+            },
+        );
     }
 }

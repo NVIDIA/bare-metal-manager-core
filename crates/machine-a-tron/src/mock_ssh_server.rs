@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::result::Result as StdResult;
 use std::sync::Arc;
 
@@ -43,13 +43,19 @@ pub struct Credentials {
 
 #[derive(Copy, Clone)]
 pub enum PromptBehavior {
+    /// Dell iDRAC starts at its BMC prompt and enters the host console with `connect com2`.
     Dell,
+    /// A DPU SSH connection opens directly into its system console.
     Dpu,
+    /// Lenovo XClarity starts at its BMC prompt and enters the host console with `console start`.
     LenovoSr650,
+    /// A Lenovo AMI SSH connection opens directly into its system console.
+    LenovoAmi,
+    /// HPE iLO starts at its BMC prompt and enters the host console with `vsp`.
+    Hpe,
 }
 
 pub async fn spawn(
-    ip: IpAddr,
     port: Option<u16>,
     prompt_hostname: Arc<dyn HostnameQuerying>,
     require_credentials: Option<Credentials>,
@@ -65,7 +71,7 @@ pub async fn spawn(
         require_credentials,
     };
     let listener = if let Some(port) = port {
-        let socket_addr = SocketAddr::new(ip, port);
+        let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port);
         TcpListener::bind(socket_addr)
             .await
             .context(format!("error listening on {socket_addr}"))?
@@ -208,7 +214,9 @@ impl MockSshHandler {
             }
             ConsoleState::Bmc => match self.prompt_behavior {
                 PromptBehavior::LenovoSr650 => session.data(channel, "\nsystem>")?,
-                _ => session.data(channel, "\nracadm>>")?,
+                PromptBehavior::Hpe => session.data(channel, "\n</>hpiLO->")?,
+                PromptBehavior::Dell => session.data(channel, "\nracadm>>")?,
+                PromptBehavior::Dpu | PromptBehavior::LenovoAmi => {}
             },
             ConsoleState::NoShell => {
                 // Do nothing
@@ -263,10 +271,10 @@ impl server::Handler for MockSshHandler {
     ) -> StdResult<(), Self::Error> {
         tracing::debug!("shell_request");
         match self.prompt_behavior {
-            PromptBehavior::Dell | PromptBehavior::LenovoSr650 => {
+            PromptBehavior::Dell | PromptBehavior::LenovoSr650 | PromptBehavior::Hpe => {
                 self.console_state = ConsoleState::Bmc;
             }
-            PromptBehavior::Dpu => {
+            PromptBehavior::Dpu | PromptBehavior::LenovoAmi => {
                 self.console_state = ConsoleState::SystemConsole;
             }
         }
@@ -347,6 +355,10 @@ impl server::Handler for MockSshHandler {
                         }
                         PromptBehavior::LenovoSr650 if command.starts_with(b"console start") => {
                             tracing::info!("Got Lenovo `console start`, simulating system console");
+                            self.console_state = ConsoleState::SystemConsole;
+                        }
+                        PromptBehavior::Hpe if command.starts_with(b"vsp") => {
+                            tracing::info!("Got HPE `vsp`, simulating system console");
                             self.console_state = ConsoleState::SystemConsole;
                         }
                         _ => {}

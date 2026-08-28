@@ -449,7 +449,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 			// If the machine was updated at all since this inventory was received, we
 			// should consider the inventory details stale for this machine.
 			// We'll add a 5 second buffer to account for a little clock skew/drift.
-			if time.Since(existingCloudMachine.Updated) < cwutil.InventoryReceiptInterval+(time.Second*5) {
+			if site.IsTimeWithinStaleInventoryThreshold(existingCloudMachine.Updated) {
 				slogger.Warn().Msg("machine updated more recently than inventory received time, skipping processing")
 				txn.Rollback()
 				continue

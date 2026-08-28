@@ -145,8 +145,15 @@ func (rs *FlowServerImpl) GetRackInfoByID(
 		protobuf.UUIDFrom(req.GetId()),
 		req.GetWithComponents(),
 	)
+	if err != nil {
+		return nil, err
+	}
 
-	return &pb.GetRackInfoResponse{Rack: protobuf.RackTo(r)}, err
+	result := protobuf.RackTo(r)
+	if err := rs.populateTaskStats(ctx, []*pb.Rack{result}, nil); err != nil {
+		return nil, err
+	}
+	return &pb.GetRackInfoResponse{Rack: result}, nil
 }
 
 // GetRackInfoBySerial retrieves rack information by its manufacturer and serial number.
@@ -170,8 +177,15 @@ func (rs *FlowServerImpl) GetRackInfoBySerial(
 		req.GetSerialInfo().GetSerialNumber(),
 		req.GetWithComponents(),
 	)
+	if err != nil {
+		return nil, err
+	}
 
-	return &pb.GetRackInfoResponse{Rack: protobuf.RackTo(r)}, err
+	result := protobuf.RackTo(r)
+	if err := rs.populateTaskStats(ctx, []*pb.Rack{result}, nil); err != nil {
+		return nil, err
+	}
+	return &pb.GetRackInfoResponse{Rack: result}, nil
 }
 
 // PatchRack updates an existing rack configuration with new information.
@@ -415,8 +429,12 @@ func (rs *FlowServerImpl) GetComponentInfoByID(
 		}
 	}
 
+	result := protobuf.ComponentTo(c)
+	if err := rs.populateTaskStats(ctx, nil, []*pb.Component{result}); err != nil {
+		return nil, err
+	}
 	return &pb.GetComponentInfoResponse{
-		Component: protobuf.ComponentTo(c),
+		Component: result,
 		Rack:      protobuf.RackTo(r),
 	}, nil
 }
@@ -459,8 +477,12 @@ func (rs *FlowServerImpl) GetComponentInfoBySerial(
 		}
 	}
 
+	result := protobuf.ComponentTo(c)
+	if err := rs.populateTaskStats(ctx, nil, []*pb.Component{result}); err != nil {
+		return nil, err
+	}
 	return &pb.GetComponentInfoResponse{
-		Component: protobuf.ComponentTo(c),
+		Component: result,
 		Rack:      protobuf.RackTo(r),
 	}, nil
 }
@@ -527,16 +549,22 @@ func (rs *FlowServerImpl) GetListOfRacks(
 		orderBy,
 		req.GetWithComponents(),
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	results := make([]*pb.Rack, 0, len(racks))
 	for _, r := range racks {
 		results = append(results, protobuf.RackTo(r))
 	}
+	if err := rs.populateTaskStats(ctx, results, nil); err != nil {
+		return nil, err
+	}
 
 	return &pb.GetListOfRacksResponse{
 		Racks: results,
 		Total: total,
-	}, err
+	}, nil
 }
 
 func (rs *FlowServerImpl) CreateNVLDomain(
@@ -838,6 +866,12 @@ func (rs *FlowServerImpl) decommissionRackImpl(
 	if targetSpec == nil {
 		return nil, errors.New(
 			"target_spec is required",
+		)
+	}
+	if targetSpec.GetComponents() != nil {
+		return nil, status.Error(
+			codes.InvalidArgument,
+			"decommission requires rack targets; component targets are not supported",
 		)
 	}
 
@@ -1395,6 +1429,9 @@ func firmwareAuthenticationStatusError(err error) error {
 	if firmwareauth.IsInvalidData(err) {
 		return status.Error(codes.InvalidArgument, err.Error())
 	}
+	if errors.Is(err, firmwareauth.ErrDataCipherNotConfigured) {
+		return status.Error(codes.FailedPrecondition, err.Error())
+	}
 
 	return status.Error(codes.Internal, err.Error())
 }
@@ -1530,6 +1567,9 @@ func (rs *FlowServerImpl) GetComponents(
 	results := make([]*pb.Component, 0, len(components))
 	for _, c := range components {
 		results = append(results, protobuf.ComponentTo(c))
+	}
+	if err := rs.populateTaskStats(ctx, nil, results); err != nil {
+		return nil, err
 	}
 
 	return &pb.GetComponentsResponse{

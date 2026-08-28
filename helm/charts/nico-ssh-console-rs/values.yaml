@@ -26,6 +26,10 @@ global:
 namespaceOverride: ""
 
 replicas: 1
+
+## Container resource requests and limits. Empty by default.
+resources: {}
+
 annotations:
   configmap.reloader.stakater.com/reload: '{{ include "nico-ssh-console-rs.name" . }}-config-files'
 

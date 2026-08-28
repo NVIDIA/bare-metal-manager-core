@@ -28,6 +28,7 @@ use base64::Engine as _;
 use carbide_host_support::agent_config;
 use carbide_host_support::bootstrap_ca::BootstrapCaSource;
 use carbide_instrument::emit;
+use carbide_libmlx_model::nvconfig::DpuNvConfigProfile;
 use carbide_uuid::machine::MachineInterfaceId;
 use rpc::forge;
 use rpc::forge::PxeDomain;
@@ -42,6 +43,21 @@ fn parse_bootstrap_ca_source(value: i32) -> Result<BootstrapCaSource, String> {
     forge::BootstrapCaSource::try_from(value)
         .map(BootstrapCaSource::from)
         .map_err(|_| format!("unknown bootstrap CA source value {value}"))
+}
+
+fn parse_dpu_nvconfig_profile(value: i32) -> Result<Option<DpuNvConfigProfile>, String> {
+    let profile = forge::DpuNvConfigProfile::try_from(value)
+        .map_err(|_| format!("unknown DPU NVConfig profile value {value}"))?;
+    match profile {
+        forge::DpuNvConfigProfile::Unspecified => Ok(None),
+        forge::DpuNvConfigProfile::Gb200B3240V1 => Ok(Some(DpuNvConfigProfile::Gb200B3240V1)),
+    }
+}
+
+fn dpu_nvconfig_parameters(profile: Option<DpuNvConfigProfile>) -> String {
+    profile
+        .map(|profile| profile.parameters().join(" "))
+        .unwrap_or_default()
 }
 
 /// Generates the content of the /etc/forge/config.toml file.
@@ -99,6 +115,7 @@ fn user_data_handler(
     api_url_override: Option<String>,
     pxe_url_override: Option<String>,
     bootstrap_ca_source: BootstrapCaSource,
+    dpu_nvconfig_profile: Option<DpuNvConfigProfile>,
     state: State<AppState>,
 ) -> (String, HashMap<String, String>) {
     let config = state.runtime_config.clone();
@@ -134,6 +151,10 @@ fn user_data_handler(
     context.insert(
         "bootstrap_ca_source".to_string(),
         bootstrap_ca_source.to_string(),
+    );
+    context.insert(
+        "forge_dpu_nvconfig_parameters".to_string(),
+        dpu_nvconfig_parameters(dpu_nvconfig_profile),
     );
 
     let bmc_fw_update = state
@@ -178,6 +199,8 @@ async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoRespons
         machine.instructions.custom_cloud_init,
         machine.instructions.discovery_instructions,
     ) {
+        // Machine boot overrides replace the complete generated payload,
+        // including platform setup performed by the discovery template.
         (Some(custom_cloud_init), _) => {
             let mut template_data: HashMap<String, String> = HashMap::new();
             template_data.insert("user_data".to_string(), custom_cloud_init);
@@ -194,9 +217,13 @@ async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoRespons
             ) {
                 (Some(interface), Some(domain)) => match interface.id {
                     Some(machine_interface_id) => {
-                        match parse_bootstrap_ca_source(discovery_instructions.bootstrap_ca_source)
-                        {
-                            Ok(bootstrap_ca_source) => {
+                        let bootstrap_ca_source =
+                            parse_bootstrap_ca_source(discovery_instructions.bootstrap_ca_source);
+                        let dpu_nvconfig_profile =
+                            parse_dpu_nvconfig_profile(discovery_instructions.dpu_nvconfig_profile);
+
+                        match (bootstrap_ca_source, dpu_nvconfig_profile) {
+                            (Ok(bootstrap_ca_source), Ok(dpu_nvconfig_profile)) => {
                                 emit(PxeBootOutcome {
                                     endpoint: BootEndpoint::CloudInit,
                                     reason: OutcomeReason::Ok,
@@ -212,10 +239,11 @@ async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoRespons
                                     machine.instructions.api_url_override,
                                     machine.instructions.pxe_url_override,
                                     bootstrap_ca_source,
+                                    dpu_nvconfig_profile,
                                     state.clone(),
                                 )
                             }
-                            Err(error) => log_and_generate_generic_error(
+                            (Err(error), _) | (_, Err(error)) => log_and_generate_generic_error(
                                 error,
                                 OutcomeReason::InstructionsInvalid,
                             ),
@@ -253,11 +281,14 @@ async fn meta_data(machine: Machine, state: State<AppState>) -> impl IntoRespons
             OutcomeReason::MetadataNotFound,
         ),
         Some(metadata) => {
-            let template_data = HashMap::from([
+            let mut template_data = HashMap::from([
                 ("instance_id".to_string(), metadata.instance_id),
                 ("cloud_name".to_string(), metadata.cloud_name),
                 ("platform".to_string(), metadata.platform),
             ]);
+            if let Some(local_hostname) = metadata.local_hostname {
+                template_data.insert("local_hostname".to_string(), local_hostname);
+            }
 
             emit(PxeBootOutcome {
                 endpoint: BootEndpoint::CloudInit,
@@ -372,11 +403,17 @@ mod tests {
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../pxe/test_data");
 
-    fn render_user_data_for_bootstrap_ca(source: BootstrapCaSource) -> String {
+    fn render_user_data(
+        bootstrap_ca_source: BootstrapCaSource,
+        dpu_nvconfig_profile: Option<DpuNvConfigProfile>,
+    ) -> String {
         let template_glob = concat!(env!("CARGO_MANIFEST_DIR"), "/../../pxe/templates/**/*");
         let tera = tera::Tera::new(template_glob).unwrap();
         let context = HashMap::from([
-            ("bootstrap_ca_source".to_string(), source.to_string()),
+            (
+                "bootstrap_ca_source".to_string(),
+                bootstrap_ca_source.to_string(),
+            ),
             (
                 "api_url".to_string(),
                 "https://carbide-api.forge".to_string(),
@@ -386,6 +423,10 @@ mod tests {
                 "W21hY2hpbmVdCg==".to_string(),
             ),
             ("forge_bmc_fw_update".to_string(), String::new()),
+            (
+                "forge_dpu_nvconfig_parameters".to_string(),
+                dpu_nvconfig_parameters(dpu_nvconfig_profile),
+            ),
             ("forge_hbn_reps".to_string(), String::new()),
             ("forge_hbn_bridge".to_string(), "br-hbn".to_string()),
             ("hostname".to_string(), "test-host".to_string()),
@@ -438,6 +479,30 @@ mod tests {
     }
 
     #[test]
+    fn dpu_nvconfig_profile_protobuf_values_treat_unspecified_as_absent_and_reject_unknown() {
+        check_values(
+            [
+                Check {
+                    scenario: "unspecified",
+                    input: forge::DpuNvConfigProfile::Unspecified as i32,
+                    expect: Ok(None),
+                },
+                Check {
+                    scenario: "GB200 B3240 version 1",
+                    input: forge::DpuNvConfigProfile::Gb200B3240V1 as i32,
+                    expect: Ok(Some(DpuNvConfigProfile::Gb200B3240V1)),
+                },
+                Check {
+                    scenario: "unknown",
+                    input: 99,
+                    expect: Err("unknown DPU NVConfig profile value 99".to_string()),
+                },
+            ],
+            parse_dpu_nvconfig_profile,
+        );
+    }
+
+    #[test]
     fn user_data_template_applies_bootstrap_ca_policy() {
         check_values(
             [
@@ -458,7 +523,7 @@ mod tests {
                 },
             ],
             |source| {
-                let rendered = render_user_data_for_bootstrap_ca(source);
+                let rendered = render_user_data(source, None);
                 (
                     rendered.matches("ip vrf exec mgmt curl --retry 5 --retry-all-errors -v -o /opt/forge/forge_root.pem http://carbide-pxe.forge/api/v0/tls/root_ca").count(),
                     rendered.contains("validate_bootstrap_ca()"),
@@ -468,6 +533,36 @@ mod tests {
                 )
             },
         );
+    }
+
+    #[test]
+    fn user_data_template_applies_selected_dpu_nvconfig_profile_after_bfcfg() {
+        let profile = DpuNvConfigProfile::Gb200B3240V1;
+        let rendered = render_user_data(BootstrapCaSource::LegacyDownload, Some(profile));
+        let command = format!(
+            "/usr/bin/mlxconfig -y -d \"${{mst_device}}\" set {}",
+            profile.parameters().join(" "),
+        );
+
+        assert_eq!(
+            rendered
+                .lines()
+                .filter(|line| line.trim() == command.as_str())
+                .count(),
+            1,
+        );
+        let bfcfg_position = rendered
+            .find("/usr/bin/bfcfg")
+            .expect("rendered user data should run bfcfg");
+        let profile_position = rendered
+            .find(command.as_str())
+            .expect("rendered user data should apply the selected NVConfig profile");
+
+        assert!(bfcfg_position < profile_position);
+        assert!(rendered.contains("No mst pciconf device found for the DPU NVConfig profile"));
+
+        let rendered_without_profile = render_user_data(BootstrapCaSource::LegacyDownload, None);
+        assert!(!rendered_without_profile.contains(command.as_str()));
     }
 
     #[test]
@@ -551,6 +646,7 @@ mod tests {
                 "W21hY2hpbmVdCg==".to_string(),
             ),
             ("forge_bmc_fw_update".to_string(), String::new()),
+            ("forge_dpu_nvconfig_parameters".to_string(), String::new()),
             (
                 "forge_hbn_reps".to_string(),
                 "pf0hpf,pf0vf0,pf0vf2".to_string(),
@@ -617,6 +713,7 @@ mod tests {
                 "W21hY2hpbmVdCg==".to_string(),
             ),
             ("forge_bmc_fw_update".to_string(), String::new()),
+            ("forge_dpu_nvconfig_parameters".to_string(), String::new()),
             ("forge_hbn_reps".to_string(), String::new()),
             (
                 "forge_host_representor_intercept_bridging".to_string(),
@@ -694,6 +791,7 @@ mod tests {
             None,
             None,
             BootstrapCaSource::LegacyDownload,
+            None,
             state,
         );
 
@@ -737,6 +835,7 @@ mod tests {
             None,
             None,
             BootstrapCaSource::LegacyDownload,
+            None,
             state,
         );
 
@@ -862,6 +961,82 @@ mod tests {
                 );
             }
         }
+    }
+
+    fn test_app_state_with_templates() -> AppState {
+        use axum_template::engine::Engine;
+        use metrics_exporter_prometheus::PrometheusBuilder;
+        use tera::Tera;
+
+        let template_glob = concat!(env!("CARGO_MANIFEST_DIR"), "/../../pxe/templates/**/*");
+        let tera = Tera::new(template_glob).expect("failed to load pxe templates");
+        let mut state = test_app_state();
+        state.engine = Engine::from(tera);
+        state.prometheus_handle = PrometheusBuilder::new().build_recorder().handle();
+        state
+    }
+
+    /// When an instance has a name, meta-data includes local-hostname so
+    /// cloud-init sets the OS hostname via the NoCloud datasource.
+    #[tokio::test]
+    async fn meta_data_includes_local_hostname_when_instance_has_name() {
+        let response = meta_data(
+            Machine {
+                instructions: forge::CloudInitInstructions {
+                    metadata: Some(forge::CloudInitMetaData {
+                        instance_id: "test-instance-id".to_string(),
+                        cloud_name: "nvidia".to_string(),
+                        platform: "forge".to_string(),
+                        local_hostname: Some("my-node".to_string()),
+                    }),
+                    ..Default::default()
+                },
+            },
+            State(test_app_state_with_templates()),
+        )
+        .await
+        .into_response();
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let text = std::str::from_utf8(&body).unwrap();
+        assert!(
+            text.contains("local-hostname: \"my-node\""),
+            "meta-data should contain local-hostname, got: {text}"
+        );
+    }
+
+    /// When an instance has no name, meta-data must not include local-hostname
+    /// so cloud-init falls back to its default hostname derivation.
+    #[tokio::test]
+    async fn meta_data_omits_local_hostname_when_instance_has_no_name() {
+        let response = meta_data(
+            Machine {
+                instructions: forge::CloudInitInstructions {
+                    metadata: Some(forge::CloudInitMetaData {
+                        instance_id: "test-instance-id".to_string(),
+                        cloud_name: "nvidia".to_string(),
+                        platform: "forge".to_string(),
+                        local_hostname: None,
+                    }),
+                    ..Default::default()
+                },
+            },
+            State(test_app_state_with_templates()),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let text = std::str::from_utf8(&body).unwrap();
+        assert!(
+            !text.contains("local-hostname"),
+            "meta-data must not contain local-hostname when name is empty, got: {text}"
+        );
     }
 
     /// A meta-data request with no metadata lands in the generic-error

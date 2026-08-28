@@ -28,9 +28,10 @@ import (
 // contain only a subset of components (e.g., those selected for an operation).
 // Always verify the context in which a Rack object is used.
 type Rack struct {
-	Info       deviceinfo.DeviceInfo `json:"info"`
-	Loc        location.Location     `json:"loc"`
-	Components []component.Component `json:"components"`
+	Info        deviceinfo.DeviceInfo `json:"info"`
+	Loc         location.Location     `json:"loc"`
+	Components  []component.Component `json:"components"`
+	NVLDomainID uuid.UUID             `json:"nvl_domain_id"`
 
 	serialToCompIndex map[deviceinfo.SerialInfo]int
 	sealed            bool

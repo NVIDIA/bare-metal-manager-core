@@ -74,7 +74,13 @@ func TestUpgradeFirmwareAuthenticationDataStatusCodes(t *testing.T) {
 		authenticationData *pb.FirmwareAuthenticationData
 		subTargets         []string
 		wantCode           codes.Code
+		wantSubmitted      bool
 	}{
+		{
+			name:          "missing cipher without authentication",
+			wantCode:      codes.OK,
+			wantSubmitted: true,
+		},
 		{
 			name:               "invalid input",
 			cipher:             newServiceTestCipher(t),
@@ -84,7 +90,7 @@ func TestUpgradeFirmwareAuthenticationDataStatusCodes(t *testing.T) {
 		{
 			name:               "missing cipher",
 			authenticationData: sharedServiceAuthenticationData("token"),
-			wantCode:           codes.Internal,
+			wantCode:           codes.FailedPrecondition,
 		},
 		{
 			name:               "authentication with dpu-only subtargets",
@@ -97,8 +103,9 @@ func TestUpgradeFirmwareAuthenticationDataStatusCodes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			manager := &firmwareTaskManager{}
 			server := &FlowServerImpl{
-				taskManager: &firmwareTaskManager{},
+				taskManager: manager,
 				dataCipher:  tt.cipher,
 			}
 			_, err := server.UpgradeFirmware(
@@ -107,13 +114,22 @@ func TestUpgradeFirmwareAuthenticationDataStatusCodes(t *testing.T) {
 					SubTargets: tt.subTargets,
 					TargetSpec: &pb.OperationTargetSpec{
 						Targets: &pb.OperationTargetSpec_Components{
-							Components: &pb.ComponentTargets{},
+							Components: &pb.ComponentTargets{
+								Targets: []*pb.ComponentTarget{
+									{
+										Identifier: &pb.ComponentTarget_Id{
+											Id: &pb.UUID{Id: uuid.NewString()},
+										},
+									},
+								},
+							},
 						},
 					},
 					AuthenticationData: tt.authenticationData,
 				},
 			)
 			require.Equal(t, tt.wantCode, status.Code(err))
+			require.Equal(t, tt.wantSubmitted, manager.request != nil)
 		})
 	}
 }

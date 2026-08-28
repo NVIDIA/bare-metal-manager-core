@@ -40,7 +40,6 @@ pub mod handler;
 pub mod io;
 pub mod maintenance;
 pub mod metrics;
-pub mod nmx_certificate;
 pub mod ready;
 mod validating;
 pub mod write_ops;

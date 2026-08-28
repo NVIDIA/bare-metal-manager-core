@@ -638,11 +638,22 @@ async fn post_reset_manager(
     State(state): State<BmcState>,
     Path(manager_id): Path<String>,
 ) -> Response {
-    state
-        .manager
-        .find(&manager_id)
-        .map(|_| json!({}).into_ok_response())
-        .unwrap_or_else(http::not_found)
+    if state.manager.find(&manager_id).is_none() {
+        return http::not_found();
+    }
+    // BMC self-reset: acknowledge, then go dark for the platform's
+    // bmc_reset window (the middleware answers 503 until it expires).
+    // The SERVER's power state is deliberately untouched — a BMC reset
+    // interrupts management visibility, not the machine.
+    if let Some(availability) = state.availability.as_ref() {
+        let window = availability.begin_reset();
+        tracing::info!(
+            manager_id,
+            offline_for = ?window,
+            "BMC self-reset: going offline"
+        );
+    }
+    json!({}).into_ok_response()
 }
 
 async fn get_log_services() -> Response {

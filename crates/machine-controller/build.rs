@@ -19,6 +19,8 @@ use std::path::PathBuf;
 use carbide_proto_compiler::{CompilerConfig, TonicBuilderCodegenExt, compile};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("cargo:rerun-if-changed=../rpc/proto");
+
     let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
     let schema = compile(&CompilerConfig {
         proto_files: vec![PathBuf::from("../rpc/proto/scout_firmware_upgrade.proto")],
