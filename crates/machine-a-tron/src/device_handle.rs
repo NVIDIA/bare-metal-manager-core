@@ -21,7 +21,6 @@ use std::time::Duration;
 use bmc_mock::HostMachineInfo;
 use bmc_mock::injection::InjectionStore;
 use carbide_uuid::machine::MachineId;
-use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::api_client::ApiClient;
@@ -30,7 +29,6 @@ use crate::host_machine::MachineHandle;
 use crate::power_shelf_simulator::PowerShelfHandle;
 use crate::status::{DeviceKind, DeviceStatus, DeviceStatusConfig};
 use crate::switch_simulator::SwitchHandle;
-use crate::tui::UiUpdate;
 use crate::{Guid, InfinibandPortState, PersistedDevice};
 
 #[derive(Debug, Clone)]
@@ -103,14 +101,6 @@ impl DeviceHandle {
             DeviceHandleInner::Switch(_) | DeviceHandleInner::PowerShelf(_) => {
                 eyre::bail!("cannot wait for machine state on {}", self.kind())
             }
-        }
-    }
-
-    pub fn attach_to_tui(&self, tui_event_tx: Option<mpsc::Sender<UiUpdate>>) -> eyre::Result<()> {
-        match &self.0 {
-            DeviceHandleInner::Machine(handle) => handle.attach_to_tui(tui_event_tx),
-            DeviceHandleInner::Switch(handle) => handle.attach_to_tui(tui_event_tx),
-            DeviceHandleInner::PowerShelf(handle) => handle.attach_to_tui(tui_event_tx),
         }
     }
 

@@ -21,7 +21,7 @@
 //! transition correctly when the outer state is `DPUReprovision`.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -30,14 +30,16 @@ use carbide_dpf::{DpuDeploymentType, DpuPhase};
 use carbide_machine_controller::dpf::{DpfOperations, MockDpfOperations};
 use carbide_uuid::machine::MachineId;
 use model::machine::{
-    DpfState, DpuReprovisionStates, InstanceState, ManagedHostState, ReprovisionState,
+    DpfState, DpuReprovisionStates, FailureCause, InstanceState, ManagedHostState, ReprovisionState,
 };
 use tokio::time::timeout;
 
 use super::{dpf_config, get_host_state};
+use crate::tests::common::api_fixtures::site_explorer::TestRackDbBuilder;
 use crate::tests::common::api_fixtures::{
-    TestEnvOverrides, TestManagedHost, create_managed_host_with_dpf,
+    TEST_RMS_RACK_PROFILE_ID, TestEnvOverrides, TestManagedHost, create_managed_host_with_dpf,
     create_managed_host_with_dpf_multi, create_test_env_with_overrides, get_config,
+    get_config_with_rack_profiles,
 };
 
 const TEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -449,6 +451,212 @@ async fn test_multi_dpu_provisioning_registers_all_devices(pool: sqlx::PgPool) {
          Registered: {registered:?}\n\
          Expected:   {expected:?}"
     );
+}
+
+/// GB200 rack identity and every attached B3240 DPU must select one shared deployment.
+#[crate::sqlx_test]
+async fn test_gb200_b3240_pair_uses_specialized_deployment(pool: sqlx::PgPool) {
+    let classified_dpus = Arc::new(Mutex::new(Vec::new()));
+    let verified_deployments = Arc::new(Mutex::new(Vec::new()));
+    let registered_deployments = Arc::new(Mutex::new(Vec::new()));
+
+    let mut mock = MockDpfOperations::new();
+    mock.expect_register_dpu_device().returning(|_| Ok(()));
+    let registered_deployments_for_mock = registered_deployments.clone();
+    mock.expect_register_dpu_node().returning(move |info| {
+        registered_deployments_for_mock
+            .lock()
+            .unwrap()
+            .push(info.deployment_type);
+        Ok(())
+    });
+    mock.expect_release_maintenance_hold().returning(|_| Ok(()));
+    mock.expect_is_reboot_required().returning(|_| Ok(false));
+    let classified_dpus_for_mock = classified_dpus.clone();
+    mock.expect_deployment_type_for_dpu()
+        .returning(move |dpu, _| {
+            classified_dpus_for_mock.lock().unwrap().push(dpu.id);
+            Ok(DpuDeploymentType::Bf3)
+        });
+    let verified_deployments_for_mock = verified_deployments.clone();
+    mock.expect_verify_node_labels()
+        .returning(move |_, deployment_type| {
+            verified_deployments_for_mock
+                .lock()
+                .unwrap()
+                .push(deployment_type);
+            Ok(true)
+        });
+    mock.expect_snapshot_host()
+        .returning(|_| Ok(snapshot_with_crs_present(2)));
+    mock.expect_get_dpu_phase()
+        .returning(|_, _| Ok(DpuPhase::Ready));
+
+    let mut config = get_config_with_rack_profiles();
+    config.dpf = dpf_config();
+    let env = create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides::with_config(config).with_dpf_sdk(Arc::new(mock)),
+    )
+    .await;
+
+    let mut txn = pool.begin().await.unwrap();
+    let rack_id = TestRackDbBuilder::new()
+        .with_rack_profile_id(TEST_RMS_RACK_PROFILE_ID)
+        .persist(txn.as_mut())
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    let mh = timeout(TEST_TIMEOUT, create_managed_host_with_dpf_multi(&env, 2))
+        .await
+        .expect("timed out during initial provisioning");
+
+    // Give the host a GB200 rack and both DPUs the supported B3240 identity.
+    let mut txn = pool.begin().await.unwrap();
+    sqlx::query("UPDATE machines SET rack_id = $1 WHERE id = $2")
+        .bind(rack_id.as_str())
+        .bind(mh.id)
+        .execute(txn.as_mut())
+        .await
+        .unwrap();
+    for dpu_id in &mh.dpu_ids {
+        let dpu = db::machine::find_one(txn.as_mut(), dpu_id, Default::default())
+            .await
+            .unwrap()
+            .unwrap();
+        let mut hardware_info = dpu
+            .status
+            .hardware_info
+            .expect("fixture DPU should have hardware information");
+        hardware_info
+            .dpu_info
+            .as_mut()
+            .expect("fixture DPU should have DPU information")
+            .part_number = "900-9D3B6-00CN-PA0".to_string();
+        db::machine_topology::set_topology_update_needed(txn.as_mut(), dpu_id, true)
+            .await
+            .unwrap();
+        db::machine_topology::create_or_update(txn.as_mut(), dpu_id, &hardware_info)
+            .await
+            .unwrap();
+    }
+    txn.commit().await.unwrap();
+
+    // Ignore initial ingestion and observe one complete host deployment selection pass.
+    classified_dpus.lock().unwrap().clear();
+    verified_deployments.lock().unwrap().clear();
+    registered_deployments.lock().unwrap().clear();
+    set_reprovision_dpf_state(&pool, &mh.id, &mh.dpu_ids, DpfState::Provisioning).await;
+
+    timeout(TEST_TIMEOUT, env.run_machine_state_controller_iteration())
+        .await
+        .expect("timed out during state controller iteration");
+
+    let classified = classified_dpus.lock().unwrap().clone();
+    assert_eq!(classified.len(), mh.dpu_ids.len());
+    assert_eq!(
+        classified.into_iter().collect::<HashSet<_>>(),
+        mh.dpu_ids.iter().copied().collect()
+    );
+    assert_eq!(
+        *verified_deployments.lock().unwrap(),
+        vec![DpuDeploymentType::Bf3Gb200]
+    );
+    assert_eq!(
+        *registered_deployments.lock().unwrap(),
+        vec![DpuDeploymentType::Bf3Gb200]
+    );
+}
+
+/// A mixed DPU pair must enter a terminal failure without starting a DPF registration attempt.
+#[crate::sqlx_test]
+async fn test_mixed_dpu_deployment_types_fail_without_registration(pool: sqlx::PgPool) {
+    let mixed_pair = Arc::new(AtomicBool::new(false));
+    let deployment_type_calls = Arc::new(AtomicUsize::new(0));
+    let registered_devices = Arc::new(AtomicUsize::new(0));
+    let registered_nodes = Arc::new(AtomicUsize::new(0));
+
+    let mut mock = MockDpfOperations::new();
+    let registered_devices_for_mock = registered_devices.clone();
+    mock.expect_register_dpu_device().returning(move |_| {
+        registered_devices_for_mock.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    });
+    let registered_nodes_for_mock = registered_nodes.clone();
+    mock.expect_register_dpu_node().returning(move |_| {
+        registered_nodes_for_mock.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    });
+    mock.expect_release_maintenance_hold().returning(|_| Ok(()));
+    mock.expect_is_reboot_required().returning(|_| Ok(false));
+    let mixed_pair_for_mock = mixed_pair.clone();
+    let deployment_type_calls_for_mock = deployment_type_calls.clone();
+    mock.expect_deployment_type_for_dpu()
+        .returning(move |_, _| {
+            if !mixed_pair_for_mock.load(Ordering::SeqCst) {
+                return Ok(DpuDeploymentType::Bf3);
+            }
+            let index = deployment_type_calls_for_mock.fetch_add(1, Ordering::SeqCst);
+            Ok(if index.is_multiple_of(2) {
+                DpuDeploymentType::Bf3
+            } else {
+                DpuDeploymentType::Bf4Generic
+            })
+        });
+    mock.expect_verify_node_labels().returning(|_, _| Ok(true));
+    mock.expect_snapshot_host()
+        .returning(|_| Ok(snapshot_with_crs_present(2)));
+    mock.expect_get_dpu_phase()
+        .returning(|_, _| Ok(DpuPhase::Ready));
+
+    let mut config = get_config();
+    config.dpf = dpf_config();
+    let env = create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides::with_config(config).with_dpf_sdk(Arc::new(mock)),
+    )
+    .await;
+    let mh = timeout(TEST_TIMEOUT, create_managed_host_with_dpf_multi(&env, 2))
+        .await
+        .expect("timed out during initial provisioning");
+
+    mixed_pair.store(true, Ordering::SeqCst);
+
+    // A mixed selection must become a visible terminal failure both before and after DPF resource
+    // registration. In either phase, it must not make a partial registration attempt.
+    for (scenario, dpf_state) in [
+        ("during provisioning", DpfState::Provisioning),
+        (
+            "while waiting for DPF",
+            DpfState::WaitingForReady { phase_detail: None },
+        ),
+    ] {
+        registered_devices.store(0, Ordering::SeqCst);
+        registered_nodes.store(0, Ordering::SeqCst);
+        deployment_type_calls.store(0, Ordering::SeqCst);
+        set_reprovision_dpf_state(&pool, &mh.id, &mh.dpu_ids, dpf_state).await;
+
+        timeout(TEST_TIMEOUT, env.run_machine_state_controller_iteration())
+            .await
+            .expect("timed out during mixed-pair state controller iteration");
+
+        assert_eq!(registered_devices.load(Ordering::SeqCst), 0, "{scenario}");
+        assert_eq!(registered_nodes.load(Ordering::SeqCst), 0, "{scenario}");
+        assert!(
+            matches!(
+                get_host_state(&env, &mh).await,
+                ManagedHostState::Failed { details, .. }
+                    if matches!(
+                        &details.cause,
+                        FailureCause::DpfProvisioning { err }
+                            if err.starts_with("DPF deployment selection failed:")
+                                && err.contains("mixed DPF deployment types")
+                    )
+            ),
+            "{scenario}"
+        );
+    }
 }
 
 /// Reprovisioning with multiple DPUs: each DPU in Reprovisioning is

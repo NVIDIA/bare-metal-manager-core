@@ -65,6 +65,7 @@ pub enum StateHistoryTableId {
     Rack,
     SitePrefix,
     Switch,
+    ExtensionService,
 }
 
 impl StateHistoryTableId {
@@ -79,6 +80,7 @@ impl StateHistoryTableId {
             StateHistoryTableId::Rack => "rack_state_history",
             StateHistoryTableId::SitePrefix => "site_prefix_state_history",
             StateHistoryTableId::Switch => "switch_state_history",
+            StateHistoryTableId::ExtensionService => "extension_service_state_history",
         }
     }
 }
@@ -198,7 +200,7 @@ mod tests {
 
     use super::{StateHistoryTableId, persist};
 
-    const TABLES: [StateHistoryTableId; 9] = [
+    const TABLES: [StateHistoryTableId; 10] = [
         StateHistoryTableId::Machine,
         StateHistoryTableId::NetworkSegment,
         StateHistoryTableId::VpcPrefix,
@@ -208,6 +210,7 @@ mod tests {
         StateHistoryTableId::Rack,
         StateHistoryTableId::SitePrefix,
         StateHistoryTableId::Switch,
+        StateHistoryTableId::ExtensionService,
     ];
 
     // This test helper intentionally keeps the first transaction open while it verifies that the

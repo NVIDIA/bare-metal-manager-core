@@ -1864,11 +1864,6 @@ mod tests {
         InterfaceState, ServiceAddresses, needed_interface_state,
     };
     use crate::{HBNDeviceNames, dhcp, nvue};
-    #[ctor::ctor(unsafe)]
-    fn setup() {
-        carbide_host_support::init_logging("nico-dpu-agent").unwrap();
-    }
-
     #[test]
     fn test_parse_managed_host_loopback_ips() {
         use carbide_test_support::Outcome::*;

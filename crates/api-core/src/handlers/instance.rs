@@ -28,9 +28,7 @@ use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::{VpcId, VpcPrefixId};
-use db::{
-    DatabaseError, ObjectColumnFilter, WithTransaction, extension_service, network_security_group,
-};
+use db::{DatabaseError, ObjectColumnFilter, WithTransaction, network_security_group};
 use futures_util::FutureExt;
 use health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthReport, HealthReportApplyMode,
@@ -66,9 +64,10 @@ use crate::ethernet_virtualization::validate_instance_interface_routing_profiles
 use crate::handlers::utils::convert_and_log_machine_id;
 use crate::instance::{
     InstanceAllocationRequest, allocate_ib_port_guid, allocate_instance, allocate_network,
-    allocate_spx_port_mac, ib_memberships_from_config, load_ib_partition_pkeys,
-    validate_ib_partition_ownership, validate_instance_vfs_against_dpf_topology,
-    validate_os_definition_usable, validate_spx_partition_ownership,
+    allocate_spx_port_mac, ib_memberships_from_config, load_extension_services,
+    load_ib_partition_pkeys, validate_ib_partition_ownership, validate_instance_extension_services,
+    validate_instance_vfs_against_dpf_topology, validate_os_definition_usable,
+    validate_spx_partition_ownership,
 };
 use crate::{CarbideError, CarbideResult};
 
@@ -1376,56 +1375,13 @@ pub(crate) async fn update_instance_config(
         }
     }
 
-    // If extension services are configured, validate the extension service config versions to make
-    // sure the extension service versions all exist and are not deleted. Grabs the locks to make
-    // sure the extension service versions are not deleted by other concurrent requests.
-    if !config.extension_services.service_configs.is_empty() {
-        let service_configs = &config.extension_services.service_configs;
-
-        // Validate no duplicate service IDs (only one version per service allowed)
-        let service_ids: Vec<_> = service_configs.iter().map(|s| s.service_id).collect();
-        let unique_service_ids: std::collections::HashSet<_> = service_ids.iter().collect();
-
-        if service_ids.len() != unique_service_ids.len() {
-            return Err(CarbideError::InvalidArgument(
-                "duplicate extension services in configuration. only one version of each service is allowed".to_string()
-            )
-                .into());
-        }
-
-        // Row level locks on all required extension services
-        let services = extension_service::find_versions_by_service_ids(
-            &mut txn,
-            service_configs
-                .iter()
-                .map(|s| s.service_id)
-                .collect_vec()
-                .as_slice(),
-            true,
-        )
-        .await?;
-
-        for service in service_configs.iter() {
-            if !services.contains_key(&service.service_id) {
-                return Err(CarbideError::FailedPrecondition(format!(
-                    "extension service {} does not exist",
-                    service.service_id,
-                ))
-                .into());
-            }
-            if !services
-                .get(&service.service_id)
-                .unwrap()
-                .contains(&service.version)
-            {
-                return Err(CarbideError::FailedPrecondition(format!(
-                    "extension service {} version {} does not exist or is deleted",
-                    service.service_id, service.version,
-                ))
-                .into());
-            }
-        }
-    }
+    update_instance_extension_services_config(
+        &mh_snapshot,
+        initial_instance,
+        &config.extension_services,
+        &mut txn,
+    )
+    .await?;
 
     update_instance_network_config(
         &api.runtime_config,
@@ -1504,14 +1460,6 @@ pub(crate) async fn update_instance_config(
     // the database and increment the IB version number
     update_instance_infiniband_config(&mh_snapshot, instance, &mut config.infiniband, &mut txn)
         .await?;
-
-    update_instance_extension_services_config(
-        &mh_snapshot,
-        instance,
-        &mut config.extension_services,
-        &mut txn,
-    )
-    .await?;
 
     tracing::debug!(
         instance_id = %instance.id,
@@ -1894,17 +1842,21 @@ async fn update_instance_infiniband_config(
     Ok(())
 }
 
+/// Applies a requested extension-service attachment change.
+///
+/// `extension_services` is the caller-visible view: the services the instance
+/// should be running. It is merged with the durable config, which additionally
+/// carries attachments that are still terminating, and the merged result is
+/// what gets validated and persisted.
 async fn update_instance_extension_services_config(
     mh_snapshot: &ManagedHostStateSnapshot,
     instance: &InstanceSnapshot,
-    extension_services: &mut InstanceExtensionServicesConfig,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    extension_services: &InstanceExtensionServicesConfig,
+    txn: &mut db::Transaction<'_>,
 ) -> Result<(), CarbideError> {
-    if !instance
-        .config
-        .extension_services
-        .is_extension_services_config_update_requested(extension_services)
-    {
+    let current = &instance.config.extension_services;
+
+    if !current.is_extension_services_config_update_requested(extension_services) {
         return Ok(());
     }
 
@@ -1921,25 +1873,35 @@ async fn update_instance_extension_services_config(
         return Err(ConfigValidationError::InstanceDeletionIsRequested.into());
     }
 
-    if mh_snapshot.host_snapshot.config.dpf.used_for_ingestion
-        && instance
-            .config
-            .extension_services
-            .has_new_active_services(extension_services)
-    {
-        return Err(CarbideError::FailedPrecondition(format!(
-            "DPU extension services are not supported on DPF-managed host {}",
-            mh_snapshot.host_snapshot.id
-        )));
-    }
+    // A service being detached remains durably represented with `removed:
+    // true`, so the merged config references every service the instance is
+    // attached to before and after this update.
+    let new_extension_services_config =
+        current.calculate_new_extension_services_config(extension_services);
+    let service_ids = new_extension_services_config
+        .service_configs
+        .iter()
+        .map(|service| service.service_id)
+        .unique()
+        .collect_vec();
 
-    // Calculate the new extension services config.
-    let new_extension_services_config = instance
-        .config
-        .extension_services
-        .calculate_new_extension_services_config(extension_services);
+    // Resolve the services while holding the service and version row locks.
+    let (services, versions) = load_extension_services(txn, &service_ids).await?;
+    let existing_active_service_ids = current
+        .active_services()
+        .into_iter()
+        .map(|service| service.service_id)
+        .collect();
 
-    // Persist the extension services config.
+    validate_instance_extension_services(
+        mh_snapshot.host_snapshot.id,
+        mh_snapshot.host_snapshot.config.dpf.used_for_ingestion,
+        &new_extension_services_config,
+        &services,
+        &versions,
+        &existing_active_service_ids,
+    )?;
+
     db::instance::update_extension_services_config(
         txn,
         instance.id,
@@ -1998,12 +1960,29 @@ pub(super) async fn force_delete_instance(
     api: &Api,
     response: &mut AdminForceDeleteMachineResponse,
 ) -> CarbideResult<()> {
-    let instance = db::instance::find_by_id(&api.database_connection, instance_id)
+    // The caller has already committed the Machine ForceDeletion state. Lock
+    // and reread the Instance in a separate transaction so this path never
+    // holds Machine and Instance locks together; IB updates lock the Instance
+    // before the Machine. Once the deletion marker commits, the captured
+    // snapshot is the last configuration a tenant update can commit before
+    // external cleanup.
+    let mut txn = api.txn_begin().await?;
+    let Some(locked_instance) =
+        db::instance::find_by_id_for_update(txn.as_mut(), instance_id).await?
+    else {
+        txn.commit().await?;
+        return Ok(());
+    };
+
+    if locked_instance.deleted.is_none() {
+        db::instance::mark_as_deleted(instance_id, txn.as_mut()).await?;
+    }
+    let instance = db::instance::find_by_id(&mut txn, instance_id)
         .await?
         .ok_or_else(|| {
             CarbideError::internal(format!("could not find an instance for {instance_id}"))
-        })?
-        .to_owned();
+        })?;
+    txn.commit().await?;
 
     response.ufm_unregistrations += unbind_all_instance_ib_ports(api, &instance).await?;
 

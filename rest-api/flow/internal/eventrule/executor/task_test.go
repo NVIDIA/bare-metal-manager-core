@@ -34,7 +34,7 @@ func TestTaskExecutorExecute(t *testing.T) {
 	submitted := manager.requests[0]
 
 	require.Equal(t, rackID, submitted.RequiredRackID)
-	require.Equal(t, taskIdempotencyKey(request.Execution.ID, rackID), submitted.IdempotencyKey)
+	require.Equal(t, taskIdempotencyKey(request.ExecutionID, rackID), submitted.IdempotencyKey)
 	require.Equal(t, operation.TargetSpec{
 		Components: []operation.ComponentTarget{{UUID: componentID}},
 	}, submitted.TargetSpec)
@@ -69,7 +69,7 @@ func TestTaskExecutorClassifiesFailures(t *testing.T) {
 			manager:      &recordingTaskManager{},
 			associations: newExecutionTaskStore(),
 			mutate: func(request *ExecutionRequest) {
-				request.Execution.Plan = &eventrule.NoopPlan{}
+				request.Plan = &eventrule.NoopPlan{}
 			},
 			wantErr:        "received plan",
 			classification: ErrTerminal,
@@ -79,8 +79,7 @@ func TestTaskExecutorClassifiesFailures(t *testing.T) {
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			input := request
-			execution := request.Execution.Clone()
-			input.Execution = &execution
+			input.Plan = eventrule.CloneExecutionPlan(request.Plan)
 
 			if test.mutate != nil {
 				test.mutate(&input)
@@ -135,7 +134,10 @@ func submitTaskExecutionRequest(
 	)
 	require.NoError(t, err)
 
-	return ExecutionRequest{Execution: execution}
+	return ExecutionRequest{
+		ExecutionID: execution.ID,
+		Plan:        execution.Plan,
+	}
 }
 
 var testTime = mustTestTime()

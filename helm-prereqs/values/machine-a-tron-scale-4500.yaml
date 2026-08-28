@@ -36,7 +36,6 @@ machineATron:
   nicoApiUrl: "https://nico-api.nico-system.svc.cluster.local:1079"
   configureBmcProxyHost: ""
   registerExpectedMachines: true
-  useSingleBmcMock: true
 
 macAddressPool:
   enabled: true

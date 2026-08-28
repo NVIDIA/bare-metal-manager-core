@@ -14,6 +14,7 @@ import (
 	eventexecutor "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/executor"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/leakage"
 	eventprocessor "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/processor"
+	eventscheduler "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/scheduler"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/target"
 	inventoryresolver "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/resolver"
 	"github.com/google/uuid"
@@ -27,6 +28,7 @@ type Manager struct {
 	targets   *target.Registry
 	executors *eventexecutor.Registry
 	processor *eventprocessor.Processor
+	scheduler *eventscheduler.Scheduler
 }
 
 // New constructs a fully assembled event-rule manager.
@@ -57,7 +59,26 @@ func New(config Config) (*Manager, error) {
 		return nil, err
 	}
 
-	processor, err := newProcessor(config, store, builtIns, targets, executors)
+	executionScheduler, err := eventscheduler.New(eventscheduler.Config{
+		InstanceID: config.Scheduler.InstanceID,
+		Dependencies: eventscheduler.Dependencies{
+			Store:     store,
+			Executors: executors,
+		},
+		Runtime: config.Scheduler.Runtime,
+		Policy:  config.Scheduler.Policy,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	processor, err := newProcessor(
+		config,
+		store,
+		builtIns,
+		targets,
+		executionScheduler,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -68,6 +89,7 @@ func New(config Config) (*Manager, error) {
 		targets:   targets,
 		executors: executors,
 		processor: processor,
+		scheduler: executionScheduler,
 	}, nil
 }
 
@@ -98,6 +120,7 @@ func newBuiltInRulesRegistry(
 		byID:        make(map[uuid.UUID]eventrule.Rule, len(rules)),
 		byEventType: make(map[eventrule.Type]uuid.UUID, len(rules)),
 	}
+
 	for _, rule := range rules {
 		if err := builtIns.addRule(rule); err != nil {
 			return nil, err
@@ -122,15 +145,14 @@ func newProcessor(
 	store eventRuleStore,
 	builtIns *builtInRegistry,
 	targets *target.Registry,
-	executors *eventexecutor.Registry,
+	notifier eventprocessor.ExecutionNotifier,
 ) (*eventprocessor.Processor, error) {
 	cfg := eventprocessor.Config{
-		Inventory:  config.Inventory,
-		Rules:      &ruleResolver{builtIns: builtIns, store: store},
-		Events:     store,
-		Executions: store,
-		Targets:    targets,
-		Executors:  executors,
+		Inventory: config.Inventory,
+		Rules:     &ruleResolver{builtIns: builtIns, store: store},
+		Store:     store,
+		Targets:   targets,
+		Notifier:  notifier,
 	}
 
 	return eventprocessor.New(cfg)
@@ -147,6 +169,17 @@ func newExecutorRegistry(
 	}
 
 	return eventexecutor.New(cfg)
+}
+
+// Start launches the internally assembled execution scheduler in the
+// background.
+func (m *Manager) Start(ctx context.Context) error {
+	return m.scheduler.Start(ctx)
+}
+
+// Stop stops the execution scheduler and waits for its workers to exit.
+func (m *Manager) Stop() error {
+	return m.scheduler.Stop()
 }
 
 // Process delegates one collected event to the internally assembled processor.
@@ -206,6 +239,7 @@ func (m *Manager) Create(
 		EventType:   input.EventType,
 		Policy:      input.Policy.Clone(),
 	}
+
 	if err := m.validateRuntimeRule(&rule); err != nil {
 		return nil, err
 	}
@@ -259,6 +293,7 @@ func (m *Manager) ReplaceActions(
 
 	candidate := rule.Clone()
 	candidate.Actions = eventrule.CloneActions(actions)
+
 	if err := m.validateRuntimeRule(&candidate); err != nil {
 		return err
 	}

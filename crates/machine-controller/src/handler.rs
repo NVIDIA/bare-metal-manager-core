@@ -65,10 +65,7 @@ use model::instance::config::network::{
 };
 use model::instance::snapshot::InstanceSnapshot;
 use model::instance::status::SyncState;
-use model::instance::status::extension_service::{
-    self, ExtensionServiceDeploymentStatus, ExtensionServicesReadiness,
-    InstanceExtensionServicesStatus,
-};
+use model::instance::status::extension_service::{self, ExtensionServicesReadiness};
 use model::machine::LockdownMode::{self, Enable};
 use model::machine::infiniband::{IbConfigNotSyncedReason, ib_config_synced};
 use model::machine::nvlink::nvlink_config_synced;
@@ -126,6 +123,7 @@ mod decommissioning;
 mod dpf;
 mod dpu_action_handler;
 mod dpu_uefi_rotation;
+mod extension_services;
 mod factory_reset;
 mod firmware_artifact;
 mod helpers;
@@ -140,6 +138,7 @@ mod sku;
 mod test_machine_setup;
 
 use bios_config::handle_bios_setup_failed_recovery;
+use extension_services::{cleanup_terminated_extension_services, get_extension_services_status};
 use helpers::{
     DpuDiscoveringStateHelper, DpuInitStateHelper, ManagedHostStateHelper, NextState,
     ReprovisionStateHelper, all_equal,
@@ -8296,8 +8295,14 @@ impl StateHandler for InstanceStateHandler {
                         return Ok(StateHandlerOutcome::transition(next_state));
                     }
 
-                    let mut extension_services_status =
-                        get_extension_services_status(mh_snapshot, instance);
+                    let mut extension_services_status = get_extension_services_status(
+                        mh_snapshot,
+                        instance,
+                        &ctx.services.db_pool,
+                        self.dpf_sdk.as_deref(),
+                    )
+                    .await?;
+                    let extension_services_status = &mut extension_services_status;
                     let txn = if extension_services_status.configs_synced == SyncState::Synced
                         && !extension_services_status
                             .get_terminated_service_keys()
@@ -8306,7 +8311,7 @@ impl StateHandler for InstanceStateHandler {
                         let mut txn = ctx.services.db_pool.begin().await?;
                         cleanup_terminated_extension_services(
                             instance,
-                            &mut extension_services_status,
+                            extension_services_status,
                             txn.as_mut(),
                         )
                         .await?;
@@ -8315,7 +8320,7 @@ impl StateHandler for InstanceStateHandler {
                     } else {
                         None
                     };
-                    let outcome = match extension_service::compute_extension_services_readiness(&extension_services_status) {
+                    let outcome = match extension_service::compute_extension_services_readiness(extension_services_status) {
                                 ExtensionServicesReadiness::Ready => {
                                     let next_state = ManagedHostState::Assigned {
                                         instance_state: InstanceState::WaitingForRebootToReady,
@@ -8408,21 +8413,40 @@ impl StateHandler for InstanceStateHandler {
                         .service_configs
                         .is_empty()
                     {
-                        let mut extension_services_status =
-                            get_extension_services_status(mh_snapshot, instance);
-                        if extension_services_status.configs_synced == SyncState::Synced
-                            && !extension_services_status
-                                .get_terminated_service_keys()
-                                .is_empty()
+                        match get_extension_services_status(
+                            mh_snapshot,
+                            instance,
+                            &ctx.services.db_pool,
+                            self.dpf_sdk.as_deref(),
+                        )
+                        .await
                         {
-                            let mut txn = ctx.services.db_pool.begin().await?;
-                            cleanup_terminated_extension_services(
-                                instance,
-                                &mut extension_services_status,
-                                txn.as_mut(),
-                            )
-                            .await?;
-                            txn_opt = Some(txn);
+                            Ok(mut extension_services_status)
+                                if extension_services_status.configs_synced
+                                    == SyncState::Synced
+                                    && !extension_services_status
+                                        .get_terminated_service_keys()
+                                        .is_empty() =>
+                            {
+                                let mut txn = ctx.services.db_pool.begin().await?;
+                                cleanup_terminated_extension_services(
+                                    instance,
+                                    &mut extension_services_status,
+                                    txn.as_mut(),
+                                )
+                                .await?;
+                                txn_opt = Some(txn);
+                            }
+                            Ok(_) => {}
+                            Err(error) => {
+                                // The instance is already Ready, so placement drift must not
+                                // block unrelated Ready work. The next scan retries it.
+                                tracing::warn!(
+                                    machine_id = %host_machine_id,
+                                    error = %error,
+                                    "failed to reconcile DPF Helm chart extension-service placement; will retry"
+                                );
+                            }
                         }
                     }
 
@@ -8888,29 +8912,22 @@ impl StateHandler for InstanceStateHandler {
                                 ));
                     }
 
-                    // Check if all DPUs have terminated all extension services
-                    if let Some(instance) = mh_snapshot.instance.as_ref()
-                        && !instance
-                            .config
-                            .extension_services
-                            .service_configs
-                            .is_empty()
-                    {
-                        for extension_service_statuses in
-                            instance.observations.extension_services.values()
-                        {
-                            for status in
-                                extension_service_statuses.extension_service_statuses.iter()
-                            {
-                                if status.overall_state
-                                    != ExtensionServiceDeploymentStatus::Terminated
-                                {
-                                    return Ok(StateHandlerOutcome::wait(
-                                                "Waiting for extension services to be terminated on all DPUs."
-                                                    .to_string()
-                                            ));
-                                }
-                            }
+                    // Extension services should be terminated on all DPUs
+                    if mh_snapshot.has_managed_dpus() {
+                        let extension_services_status = get_extension_services_status(
+                            mh_snapshot,
+                            instance,
+                            &ctx.services.db_pool,
+                            self.dpf_sdk.as_deref(),
+                        )
+                        .await?;
+                        if !extension_service::are_all_extension_services_terminated(
+                            &extension_services_status,
+                        ) {
+                            return Ok(StateHandlerOutcome::wait(
+                                "Waiting for extension services to be terminated on all required DPUs."
+                                    .to_string(),
+                            ));
                         }
                     }
 
@@ -9289,75 +9306,6 @@ async fn process_dpu_use_admin_network_state_change(
         }
     }
 
-    Ok(())
-}
-
-// Gets extension services status from DB, checks if any removed services are fully terminated
-// across targeted DPUs, if so, remove them from the instance config in the DB(without updating the version).
-fn get_extension_services_status(
-    mh_snapshot: &ManagedHostStateSnapshot,
-    instance: &InstanceSnapshot,
-) -> InstanceExtensionServicesStatus {
-    let (_, device_to_id_map) = mh_snapshot
-        .host_snapshot
-        .get_dpu_device_and_id_mappings()
-        .unwrap_or_else(|_| (HashMap::default(), HashMap::default()));
-
-    let primary_dpu_machine_id = mh_snapshot.host_snapshot.primary_attached_dpu_machine_id();
-    let used_dpus = instance
-        .config
-        .network
-        .get_used_dpus(&device_to_id_map, primary_dpu_machine_id);
-
-    // Gather instance extension services status from targeted DPUs.
-    InstanceExtensionServicesStatus::from_config_and_observations(
-        &used_dpus,
-        Versioned::new(
-            &instance.config.extension_services,
-            instance.extension_services_config_version,
-        ),
-        &instance.observations.extension_services,
-    )
-}
-
-async fn cleanup_terminated_extension_services(
-    instance: &InstanceSnapshot,
-    extension_services_status: &mut InstanceExtensionServicesStatus,
-    txn: &mut PgConnection,
-) -> Result<(), StateHandlerError> {
-    if extension_services_status.configs_synced != SyncState::Synced {
-        return Ok(());
-    }
-
-    let terminated_service_keys = extension_services_status.get_terminated_service_keys();
-    if terminated_service_keys.is_empty() {
-        return Ok(());
-    }
-
-    tracing::info!(
-        instance_id = %instance.id,
-        terminated_extension_services = ?terminated_service_keys,
-        "Cleaning up fully terminated extension services from instance config"
-    );
-    let new_config = instance
-        .config
-        .extension_services
-        .remove_terminated_services(&terminated_service_keys);
-
-    db::instance::update_extension_services_config(
-        txn,
-        instance.id,
-        instance.extension_services_config_version,
-        &new_config,
-        false,
-    )
-    .await?;
-
-    extension_services_status.extension_services.retain(|svc| {
-        !terminated_service_keys
-            .iter()
-            .any(|&(id, ver)| id == svc.service_id && ver == svc.version)
-    });
     Ok(())
 }
 
@@ -14002,8 +13950,6 @@ async fn get_power_state(redfish_client: &dyn Redfish) -> Result<PowerState, Sta
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
     use carbide_instrument::testing::{MetricsCapture, capture_logs};
     use carbide_test_support::{Check, check_values};
     use model::firmware::FirmwareComponent;

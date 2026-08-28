@@ -1238,7 +1238,6 @@ where
         log_format: LogFormat::Compact,
         bmc_mock_port: 0, // unused, we're using dynamic ports on localhost
         bmc_mock_certs_dir: None,
-        tui_enabled: false,
         configure_carbide_bmc_proxy_host: None,
         persist_dir: None,
         cleanup_on_quit: false,
@@ -1299,15 +1298,16 @@ fn assert_relay_selection(
     );
 
     for dpu in machine_handle.dpus() {
-        let details = dpu.host_details();
-        let dpu_bmc_ip: Ipv4Addr = details.oob_ip.parse()?;
+        let dpu_bmc_ip = dpu.bmc_ip().context("DPU doesn't have BMC IP")?;
         eyre::ensure!(
             TEST_BMC_NETWORK_PREFIX.contains(&dpu_bmc_ip),
             "DPU BMC DHCP used the underlay relay: {dpu_bmc_ip}"
         );
 
         if !dpus_in_nic_mode {
-            let dpu_underlay_ip: Ipv4Addr = details.machine_ip.parse()?;
+            let dpu_underlay_ip = dpu
+                .machine_ip()
+                .context("DPU doesn't have machine IP address")?;
             eyre::ensure!(
                 dpu_underlay_ip.octets()[..3] == underlay_dhcp_relay_address.octets()[..3],
                 "DPU OOB boot DHCP used the BMC relay: {dpu_underlay_ip}"

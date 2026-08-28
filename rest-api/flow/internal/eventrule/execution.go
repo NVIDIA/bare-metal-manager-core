@@ -21,6 +21,7 @@ func (k ExecutionKey) Validate() error {
 	if k.EventID == uuid.Nil {
 		return fmt.Errorf("execution event id is required")
 	}
+
 	return validateIdentifier("event rule action name", k.ActionName)
 }
 
@@ -32,7 +33,12 @@ type Execution struct {
 	EventID    uuid.UUID
 	ActionName string
 	Plan       ExecutionPlan
+	// Attempts counts attempts that consume the retry budget. Claiming an
+	// execution allocates an attempt; an interrupted attempt is refunded when
+	// the execution is deferred.
 	Attempts   int
+	ClaimToken uuid.UUID
+	ClaimOwner string
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 }
@@ -41,15 +47,66 @@ type Execution struct {
 func (e Execution) Clone() Execution {
 	cloned := e
 	cloned.Plan = CloneExecutionPlan(e.Plan)
+
 	return cloned
 }
 
-// TransitionTo validates and applies a dispatch result at the given time. A
-// non-skipped result records the attempt that produced it.
-func (e *Execution) TransitionTo(result ExecutionResult, now time.Time) error {
+// Claim allocates the next attempt and moves an eligible execution to running.
+func (e *Execution) Claim(owner string, token uuid.UUID, now time.Time) error {
 	if e == nil {
 		return fmt.Errorf("execution is nil")
 	}
+
+	if !e.Status.CanBeClaimed() {
+		return fmt.Errorf("execution %s cannot be claimed from %q", e.ID, e.Status)
+	}
+
+	if err := ValidateExecutionClaimOwner(owner); err != nil {
+		return err
+	}
+	if token == uuid.Nil {
+		return fmt.Errorf("execution claim token is required")
+	}
+
+	if now.IsZero() {
+		return fmt.Errorf("execution claim time is required")
+	}
+	if now.Before(e.CreatedAt) {
+		return fmt.Errorf("execution claim time cannot precede creation time")
+	}
+	if now.Before(e.UpdatedAt) {
+		return fmt.Errorf("execution claim time cannot precede update time")
+	}
+
+	e.ExecutionState = ExecutionState{
+		ExecutionStatusDetails: ExecutionStatusDetails{Status: ExecutionStatusRunning},
+	}
+	e.Attempts++
+	e.ClaimToken = token
+	e.ClaimOwner = owner
+	e.UpdatedAt = now
+
+	return nil
+}
+
+// TransitionClaimedTo validates and applies the active attempt's result when
+// token still owns the execution.
+func (e *Execution) TransitionClaimedTo(
+	token uuid.UUID,
+	result ExecutionResult,
+	now time.Time,
+) error {
+	if e == nil {
+		return fmt.Errorf("execution is nil")
+	}
+
+	if token == uuid.Nil {
+		return fmt.Errorf("execution claim token is required")
+	}
+	if e.ClaimToken != token {
+		return fmt.Errorf("%w: execution %s", ErrExecutionClaimLost, e.ID)
+	}
+
 	if err := result.Validate(); err != nil {
 		return err
 	}
@@ -61,20 +118,27 @@ func (e *Execution) TransitionTo(result ExecutionResult, now time.Time) error {
 			result.Status,
 		)
 	}
+
 	if now.IsZero() {
 		return fmt.Errorf("execution transition time is required")
 	}
 	if now.Before(e.CreatedAt) {
 		return fmt.Errorf("execution transition time cannot precede creation time")
 	}
+	if now.Before(e.UpdatedAt) {
+		return fmt.Errorf("execution transition time cannot precede update time")
+	}
 
-	if result.Status != ExecutionStatusSkipped {
-		e.Attempts++
+	if result.Status == ExecutionStatusDeferred &&
+		result.Reason == ExecutionReasonAttemptInterrupted {
+		e.Attempts--
 	}
+
 	e.ExecutionState = result.stateAt(now)
-	if now.After(e.UpdatedAt) {
-		e.UpdatedAt = now
-	}
+	e.ClaimToken = uuid.Nil
+	e.ClaimOwner = ""
+	e.UpdatedAt = now
+
 	return nil
 }
 
@@ -83,6 +147,7 @@ func (e *Execution) Validate() error {
 	if e == nil {
 		return fmt.Errorf("execution is nil")
 	}
+
 	if e.ID == uuid.Nil {
 		return fmt.Errorf("execution id is required")
 	}
@@ -95,17 +160,38 @@ func (e *Execution) Validate() error {
 	if err := e.ExecutionState.Validate(); err != nil {
 		return err
 	}
+
 	if e.Attempts < 0 {
 		return fmt.Errorf("execution attempts cannot be negative")
 	}
-	if e.Status == ExecutionStatusPending && e.Attempts != 0 {
-		return fmt.Errorf("pending execution cannot have attempts")
+	if (e.Status == ExecutionStatusPending || e.Status == ExecutionStatusSkipped) &&
+		e.Attempts != 0 {
+		return fmt.Errorf("%s execution cannot have attempts", e.Status)
 	}
 	if e.Status != ExecutionStatusPending &&
 		e.Status != ExecutionStatusSkipped &&
-		e.Attempts == 0 {
+		e.Attempts == 0 &&
+		!(e.Status == ExecutionStatusDeferred &&
+			e.Reason == ExecutionReasonAttemptInterrupted) {
 		return fmt.Errorf("%s execution requires an attempt", e.Status)
 	}
+
+	if e.Status == ExecutionStatusRunning {
+		if e.ClaimToken == uuid.Nil {
+			return fmt.Errorf("running execution requires claim token")
+		}
+		if err := ValidateExecutionClaimOwner(e.ClaimOwner); err != nil {
+			return err
+		}
+	} else {
+		if e.ClaimToken != uuid.Nil {
+			return fmt.Errorf("%s execution cannot have claim token", e.Status)
+		}
+		if e.ClaimOwner != "" {
+			return fmt.Errorf("%s execution cannot have claim owner", e.Status)
+		}
+	}
+
 	if e.CreatedAt.IsZero() {
 		return fmt.Errorf("execution creation time is required")
 	}
@@ -131,6 +217,7 @@ func NewExecution(
 	if err := key.Validate(); err != nil {
 		return nil, err
 	}
+
 	if err := ValidateExecutionPlan(plan); err != nil {
 		return nil, err
 	}

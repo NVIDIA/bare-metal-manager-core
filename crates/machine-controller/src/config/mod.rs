@@ -38,6 +38,8 @@ pub struct MachineStateHandlerSiteConfig {
     pub firmware_global: FirmwareGlobal,
     pub machine_state_controller: MachineStateControllerConfig,
     pub host_health: HostHealthConfig,
+    /// Rack profiles used to refine DPF deployment selection from the host's rack identity.
+    pub rack_profiles: model::rack_type::RackProfileConfig,
 
     pub selected_profile: libredfish::BiosProfileType,
     pub bios_profiles: libredfish::BiosProfileVendor,
@@ -80,6 +82,7 @@ impl MachineStateHandlerSiteConfig {
             firmware_global: FirmwareGlobal::test_default(),
             machine_state_controller: MachineStateControllerConfig::test_default(),
             host_health: HostHealthConfig::default(),
+            rack_profiles: model::rack_type::RackProfileConfig::default(),
             selected_profile: libredfish::BiosProfileType::Performance,
             bios_profiles: HashMap::new(),
             oem_manager_profiles: HashMap::new(),

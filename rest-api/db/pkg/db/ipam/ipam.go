@@ -109,7 +109,7 @@ func GetIpamUsageForIPBlock(ctx context.Context, ipamDB cipam.Storage, ipBlock *
 	ipamPrefix := ipamer.PrefixFrom(ctx, cidr)
 
 	if ipamPrefix == nil {
-		return nil, errors.New(fmt.Sprintf("did not find prefix for IPBlock: %s", ipBlock.ID.String()))
+		return nil, fmt.Errorf("did not find prefix for IPBlock: %s", ipBlock.ID)
 	}
 
 	// Handle full grant scenario
@@ -144,7 +144,7 @@ func CreateChildIpamEntryForIPBlock(ctx context.Context, tx *cdb.Tx, dbSession *
 	// we can reason better wrt correctness.
 	// TODO: look into implementing full grant in cloud-ipam library.
 	if parentIPBlock.FullGrant {
-		return nil, errors.New(fmt.Sprintf("parent IPBlock : %s already has a full-grant", parentIPBlock.ID.String()))
+		return nil, fmt.Errorf("parent IPBlock %s already has a full grant", parentIPBlock.ID)
 	}
 	ipamer := cipam.NewWithStorage(ipamDB)
 	namespace := GetIpamNamespaceForIPBlock(ctx, parentIPBlock.RoutingType, parentIPBlock.InfrastructureProviderID.String(), parentIPBlock.SiteID.String())
@@ -154,7 +154,7 @@ func CreateChildIpamEntryForIPBlock(ctx context.Context, tx *cdb.Tx, dbSession *
 	if childBlockSize == parentIPBlock.PrefixLength {
 		parentPrefix := ipamer.PrefixFrom(ctx, parentCidr)
 		if parentPrefix == nil {
-			return nil, errors.New(fmt.Sprintf("did not find prefix for parentIPBlock: %s", parentIPBlock.ID.String()))
+			return nil, fmt.Errorf("did not find prefix for parentIPBlock: %s", parentIPBlock.ID)
 		}
 		parentUsage := parentPrefix.Usage()
 		if parentUsage.AcquiredPrefixes > 0 {
@@ -183,6 +183,34 @@ func CreateChildIpamEntryForIPBlock(ctx context.Context, tx *cdb.Tx, dbSession *
 	return childPrefix, err
 }
 
+// AcquireSpecificChildIpamEntryForIPBlock will create a child ipam entry in the ipam DB for the
+// given parent IP Block, using an exact child cidr instead of letting ipam choose one
+// Note: FullGrant is tracked only in the REST DB, so the ipam DB reports a fully granted parent as
+// empty. The caller must go through this helper (rather than the ipam library directly) so a
+// fully granted parent cannot hand out an overlapping child prefix
+func AcquireSpecificChildIpamEntryForIPBlock(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, ipamDB cipam.Storage, parentIPBlock *cdbm.IPBlock, childCidr string) (*cipam.Prefix, error) {
+	if parentIPBlock == nil {
+		return nil, ErrNilIPBlock
+	}
+	if parentIPBlock.FullGrant {
+		return nil, fmt.Errorf("parent IPBlock %s already has a full grant", parentIPBlock.ID)
+	}
+	ipamer := cipam.NewWithStorage(ipamDB)
+	namespace := GetIpamNamespaceForIPBlock(ctx, parentIPBlock.RoutingType, parentIPBlock.InfrastructureProviderID.String(), parentIPBlock.SiteID.String())
+	ipamer.SetNamespace(namespace)
+	parentCidr := GetCidrForIPBlock(ctx, parentIPBlock.Prefix, parentIPBlock.PrefixLength)
+	// A child equal to the parent is a full grant. That path must go through
+	// CreateChildIpamEntryForIPBlock so the REST DB FullGrant flag stays consistent.
+	if childCidr == parentCidr {
+		return nil, fmt.Errorf("child CIDR %s equals parent CIDR %s for IPBlock %s; use CreateChildIpamEntryForIPBlock", childCidr, parentCidr, parentIPBlock.ID)
+	}
+	childPrefix, err := ipamer.AcquireSpecificChildPrefix(ctx, parentCidr, childCidr)
+	if err != nil {
+		return nil, err
+	}
+	return childPrefix, nil
+}
+
 // DeleteChildIpamEntryFromCidr will delete a child ipam entry in the ipam DB
 // given the parent IPBlock, and child cidr
 // Note: FullGrant is a special case when the parentIPBlock has a full grant, and the child
@@ -198,7 +226,7 @@ func DeleteChildIpamEntryFromCidr(ctx context.Context, tx *cdb.Tx, dbSession *cd
 		// this is a consistency check
 		if parentCidr != childCidr {
 			// this should never happen, ie, in a full grant, parent cidr and child cidr should match
-			return errors.New(fmt.Sprintf("parent IPBlock has full-grant, but childCidr: %s does not match parentCidr: %s", childCidr, parentCidr))
+			return fmt.Errorf("parent IPBlock has full grant, but child CIDR %s does not match parent CIDR %s", childCidr, parentCidr)
 		}
 		ipbDAO := cdbm.NewIPBlockDAO(dbSession)
 		_, err := ipbDAO.Update(
@@ -211,7 +239,7 @@ func DeleteChildIpamEntryFromCidr(ctx context.Context, tx *cdb.Tx, dbSession *cd
 		)
 
 		if err != nil {
-			return errors.New(fmt.Sprintf("unable to update IPBlock's full-grant, ipblock id: %s ", parentIPBlock.ID.String()))
+			return fmt.Errorf("unable to update IPBlock full grant for IPBlock %s", parentIPBlock.ID)
 		}
 		parentIPBlock.FullGrant = false
 		return nil

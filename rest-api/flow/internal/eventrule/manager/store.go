@@ -38,7 +38,7 @@ func (c StoreConfig) Validate() error {
 type eventRuleStore interface {
 	eventrule.RuleStore
 	eventrule.BindingStore
-	eventrule.EventStore
+	eventrule.EventPlanStore
 	eventrule.ExecutionStore
 	eventrule.ExecutionTaskStore
 }

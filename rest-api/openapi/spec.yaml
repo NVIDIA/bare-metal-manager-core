@@ -245,6 +245,9 @@ tags:
   - name: Rack
     description: |-
       Rack is a physical enclosure that contains a number of Machines. Racks are the physical building blocks of a Site.
+  - name: NVLink Domain
+    description: |-
+      An NVLink Domain represents an NVLink fabric spanning one or more Racks. NVLink Domain operation endpoints submit asynchronous work for every Rack that belongs to the selected NVLink Domain.
   - name: Tray
     description: |-
       Tray represents a component within a Rack.
@@ -273,7 +276,7 @@ tags:
   - name: DPU Extension Service
     x-displayName: DPU Extension Service
     description: |-
-      DPU Extension Service allows users to run custom services in the DPUs of their Instances. Currently K8s pods are the only supported service type.
+      DPU Extension Service allows users to run custom services in the DPUs of their Instances. KubernetesPod is delivered through the DPU agent; DpfHelmChart is reconciled through DPF.
   - name: SSH Key Group
     x-displayName: SSH Key Group
     description: |-
@@ -12885,6 +12888,221 @@ paths:
           $ref: '#/components/responses/GatewayTimeoutError'
       tags:
         - Rack
+  '/v2/org/{org}/nico/domain/nvlink/power':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    patch:
+      summary: Power control NVLink Domains
+      operationId: power-control-nvlink-domains
+      description: |-
+        Power control one or more NVLink Domains identified by UUID. Flow resolves each NVLink Domain to its member Racks and creates one task per Rack.
+
+        Supported power states: `on`, `off`, `cycle`, `forceoff`, `forcecycle`.
+
+        Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchUpdateNVLinkDomainPowerStateRequest'
+            examples:
+              power-off-domains:
+                value:
+                  siteId: 550e8400-e29b-41d4-a716-446655440000
+                  domainIds:
+                    - 650e8400-e29b-41d4-a716-446655440001
+                    - 750e8400-e29b-41d4-a716-446655440002
+                  state: 'off'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdatePowerStateResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+        '503':
+          $ref: '#/components/responses/GenericHttpError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
+      tags:
+        - NVLink Domain
+  '/v2/org/{org}/nico/domain/nvlink/{id}/power':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: ID of the NVLink Domain
+    patch:
+      summary: Power control an NVLink Domain
+      operationId: power-control-nvlink-domain
+      description: |-
+        Power control an NVLink Domain identified by UUID. Flow resolves the NVLink Domain to its member Racks and creates one task per Rack.
+
+        Supported power states: `on`, `off`, `cycle`, `forceoff`, `forcecycle`.
+
+        Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePowerStateRequest'
+            examples:
+              power-cycle:
+                value:
+                  siteId: 550e8400-e29b-41d4-a716-446655440000
+                  state: cycle
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdatePowerStateResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+        '503':
+          $ref: '#/components/responses/GenericHttpError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
+      tags:
+        - NVLink Domain
+  '/v2/org/{org}/nico/domain/nvlink/firmware':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    patch:
+      summary: Firmware update NVLink Domains
+      operationId: firmware-update-nvlink-domains
+      description: |-
+        Update firmware for one or more NVLink Domains identified by UUID. Flow resolves each NVLink Domain to its member Racks and creates one task per Rack.
+
+        Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchNVLinkDomainFirmwareUpdateRequest'
+            examples:
+              update-domains:
+                value:
+                  siteId: 550e8400-e29b-41d4-a716-446655440000
+                  domainIds:
+                    - 650e8400-e29b-41d4-a716-446655440001
+                    - 750e8400-e29b-41d4-a716-446655440002
+                  version: '24.11.0'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FirmwareUpdateResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+        '503':
+          $ref: '#/components/responses/GenericHttpError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
+      tags:
+        - NVLink Domain
+  '/v2/org/{org}/nico/domain/nvlink/{id}/firmware':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: ID of the NVLink Domain
+    patch:
+      summary: Firmware update an NVLink Domain
+      operationId: firmware-update-nvlink-domain
+      description: |-
+        Update firmware for an NVLink Domain identified by UUID. Flow resolves the NVLink Domain to its member Racks and creates one task per Rack.
+
+        Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NVLinkDomainFirmwareUpdateRequest'
+            examples:
+              with-version:
+                value:
+                  siteId: 550e8400-e29b-41d4-a716-446655440000
+                  version: '24.11.0'
+              default-version:
+                value:
+                  siteId: 550e8400-e29b-41d4-a716-446655440000
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FirmwareUpdateResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+        '503':
+          $ref: '#/components/responses/GenericHttpError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
+      tags:
+        - NVLink Domain
   '/v2/org/{org}/nico/tray':
     parameters:
       - schema:
@@ -14097,8 +14315,18 @@ paths:
       summary: Delete DPU Extension Service
       operationId: delete-dpu-extension-service
       responses:
+        '202':
+          description: DPF Helm chart deletion accepted; reconciliation continues asynchronously
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Deletion request was accepted
         '204':
-          description: No Content
+          description: Kubernetes Pod service deleted synchronously
         '403':
           $ref: '#/components/responses/ForbiddenError'
       description: |-
@@ -14129,6 +14357,8 @@ paths:
         Update a specific DPU Extension Service.
 
         DPU Extension Service must be owned by current Tenant. A new version will be created if data or credentials are modified.
+
+        For a `DpfHelmChart` service, `credentials` and `observability` are unsupported, and `data` is accepted only while the service is `Ready` and only when it differs from the current definition.
 
         Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
       requestBody:
@@ -19877,7 +20107,7 @@ components:
                 - arches: [default]
                   uri: http://ports.ubuntu.com/ubuntu-ports
             phone_home:
-              url: http://169.254.169.254:7777/latest/meta-data/phone_home
+              url: http://169.254.169.254/latest/meta-data/phone_home
               post: all
           isCloudInit: true
           phoneHomeEnabled: true
@@ -19978,7 +20208,7 @@ components:
                 - arches: [default]
                   uri: http://ports.ubuntu.com/ubuntu-ports
             phone_home:
-              url: http://169.254.169.254:7777/latest/meta-data/phone_home
+              url: http://169.254.169.254/latest/meta-data/phone_home
               post: all
           isCloudInit: true
           phoneHomeEnabled: true
@@ -21326,7 +21556,7 @@ components:
                 - arches: [default]
                   uri: http://ports.ubuntu.com/ubuntu-ports
             phone_home:
-              url: http://169.254.169.254:7777/latest/meta-data/phone_home
+              url: http://169.254.169.254/latest/meta-data/phone_home
               post: all
           labels:
             region: portland
@@ -21379,7 +21609,7 @@ components:
                 - arches: [default]
                   uri: http://ports.ubuntu.com/ubuntu-ports
             phone_home:
-              url: http://169.254.169.254:7777/latest/meta-data/phone_home
+              url: http://169.254.169.254/latest/meta-data/phone_home
               post: all
           labels:
             region: portland
@@ -21721,7 +21951,7 @@ components:
                 - arches: [default]
                   uri: http://ports.ubuntu.com/ubuntu-ports
             phone_home:
-              url: http://169.254.169.254:7777/latest/meta-data/phone_home
+              url: http://169.254.169.254/latest/meta-data/phone_home
               post: all
           labels:
             region: portland
@@ -22899,6 +23129,138 @@ components:
           minimum: 0
           description: |-
             Restrict to trays at this rack slot (matches `position.slotId`). Requires `rackId` or `rackName`. Composes with the rest of the filter via AND.
+    BatchUpdateNVLinkDomainPowerStateRequest:
+      title: BatchUpdateNVLinkDomainPowerStateRequest
+      type: object
+      description: Request body for power control of explicitly selected NVLink Domains
+      required:
+        - siteId
+        - domainIds
+        - state
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site
+        domainIds:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+          description: UUIDs of the NVLink Domains to power control. IDs must be unique after UUID normalization (case-insensitive).
+        state:
+          type: string
+          enum:
+            - 'on'
+            - 'off'
+            - cycle
+            - forceoff
+            - forcecycle
+          description: Target power state
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins every task spawned by
+            this operation to the named rule and overrides Flow's default rule
+            resolution.
+        overrideReadinessCheck:
+          type: boolean
+          default: false
+          description: |-
+            When true, proceed even if one or more target components (or hosts
+            on the owning rack for rack-scoped components) are reported as not
+            ready by their persisted status. Intended for operator-supervised
+            maintenance.
+      examples:
+        - siteId: 550e8400-e29b-41d4-a716-446655440000
+          domainIds:
+            - 650e8400-e29b-41d4-a716-446655440001
+            - 750e8400-e29b-41d4-a716-446655440002
+          state: cycle
+    NVLinkDomainFirmwareUpdateRequest:
+      title: NVLinkDomainFirmwareUpdateRequest
+      type: object
+      description: Request body for an NVLink Domain firmware update
+      required:
+        - siteId
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site
+        version:
+          type:
+            - string
+            - 'null'
+          description: Target firmware version. When empty, null, or omitted, use the default firmware version for each targeted component.
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins every task spawned by
+            this operation to the named rule and overrides Flow's default rule
+            resolution.
+        overrideReadinessCheck:
+          type: boolean
+          default: false
+          description: |-
+            When true, proceed even if one or more target components (or hosts
+            on the owning rack for rack-scoped components) are reported as not
+            ready by their persisted status. Intended for operator-supervised
+            maintenance.
+      examples:
+        - siteId: 550e8400-e29b-41d4-a716-446655440000
+          version: '24.11.0'
+        - siteId: 550e8400-e29b-41d4-a716-446655440000
+    BatchNVLinkDomainFirmwareUpdateRequest:
+      title: BatchNVLinkDomainFirmwareUpdateRequest
+      type: object
+      description: Request body for firmware updates of explicitly selected NVLink Domains
+      required:
+        - siteId
+        - domainIds
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site
+        domainIds:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+          description: UUIDs of the NVLink Domains to update. IDs must be unique after UUID normalization (case-insensitive).
+        version:
+          type:
+            - string
+            - 'null'
+          description: Target firmware version. When empty, null, or omitted, use the default firmware version for each targeted component.
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins every task spawned by
+            this operation to the named rule and overrides Flow's default rule
+            resolution.
+        overrideReadinessCheck:
+          type: boolean
+          default: false
+          description: |-
+            When true, proceed even if one or more target components (or hosts
+            on the owning rack for rack-scoped components) are reported as not
+            ready by their persisted status. Intended for operator-supervised
+            maintenance.
+      examples:
+        - siteId: 550e8400-e29b-41d4-a716-446655440000
+          domainIds:
+            - 650e8400-e29b-41d4-a716-446655440001
+            - 750e8400-e29b-41d4-a716-446655440002
+          version: '24.11.0'
     BatchUpdateRackPowerStateRequest:
       title: BatchUpdateRackPowerStateRequest
       type: object
@@ -28133,6 +28495,7 @@ components:
           description: Type of the DPU Extension Service
           enum:
             - KubernetesPod
+            - DpfHelmChart
         siteId:
           type: string
           format: uuid
@@ -28180,6 +28543,7 @@ components:
         - Pending
         - Ready
         - Error
+        - Updating
         - Deleting
     DpuExtensionServiceSummary:
       title: DpuExtensionServiceSummary
@@ -28205,6 +28569,7 @@ components:
           description: Type of the DPU Extension Service
           enum:
             - KubernetesPod
+            - DpfHelmChart
         latestVersion:
           type:
             - string
@@ -28282,19 +28647,21 @@ components:
           description: Type of the DPU Extension Service
           enum:
             - KubernetesPod
+            - DpfHelmChart
         siteId:
           type: string
           format: uuid
           description: ID for the Site the DPU Extension Service belongs to
         data:
           type: string
-          description: Deployment spec for the DPU Extension Service
+          maxLength: 131072
+          description: Deployment spec, limited to 131072 bytes once UTF-8 encoded; characters outside ASCII count as more than one byte. KubernetesPod requires a parseable Pod manifest declaring at least one container, whose kind, when present, is Pod. DpfHelmChart requires a strict JSON object with repoURL, chartName, chartVersion, security.privileged, and optional values; repoURL must use https:// or oci://, and serviceDaemonSet.nodeSelector is unsupported.
         credentials:
           $ref: '#/components/schemas/DpuExtensionServiceCredentials'
-          description: Credentials to download resources specified in DPU Extension Service data
+          description: Credentials to download resources specified in DPU Extension Service data; unsupported for DpfHelmChart
         observability:
           $ref: '#/components/schemas/DpuExtensionServiceObservability'
-          description: Observability configuration for the DPU Extension Service version
+          description: Observability configuration for the DPU Extension Service version; unsupported for DpfHelmChart
       required:
         - name
         - serviceType
@@ -28331,13 +28698,14 @@ components:
           type:
             - string
             - 'null'
-          description: Deployment spec for the DPU Extension Service
+          maxLength: 131072
+          description: Deployment spec for the DPU Extension Service, limited to 131072 bytes once UTF-8 encoded; characters outside ASCII count as more than one byte. For KubernetesPod this is the same Pod manifest accepted on create. For DpfHelmChart this is the same strict JSON definition accepted on create and updates stable V1 in place.
         credentials:
           $ref: '#/components/schemas/DpuExtensionServiceCredentials'
-          description: Credentials to download resources specified in DPU Extension Service data
+          description: Credentials to download resources specified in DPU Extension Service data; unsupported for DpfHelmChart
         observability:
           $ref: '#/components/schemas/DpuExtensionServiceObservability'
-          description: Observability configuration for the DPU Extension Service version
+          description: Observability configuration for the DPU Extension Service version; unsupported for DpfHelmChart
     DpuExtensionServiceCredentials:
       title: DpuExtensionServiceCredentials
       type: object
@@ -28431,7 +28799,7 @@ components:
     DpuExtensionServiceDeployment:
       title: DpuExtensionServiceDeployment
       type: object
-      description: Describes a deployment of a DPU Extension Service on DPUs of an Instance
+      description: Describes placement of a DPU Extension Service on DPUs of an Instance. For DpfHelmChart, Running means the DPF placement label was applied; it does not report Helm release or workload health.
       examples:
         - id: 497f6eca-6276-4993-bfeb-53cbbbba6f08
           dpuExtensionService:

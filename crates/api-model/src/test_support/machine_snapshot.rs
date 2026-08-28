@@ -399,7 +399,6 @@ pub fn machine_snapshot_pg_json(machine_id: MachineId) -> MachineSnapshotPgJson 
             client_certificate_expiry: Some(1_781_536_000),
             agent_version_superseded_at: None,
             instance_network_observation: None,
-            extension_service_observation: None,
             fabric_interfaces: vec![],
         }),
         infiniband_status_observation: Some(MachineInfinibandStatusObservation {
@@ -416,6 +415,7 @@ pub fn machine_snapshot_pg_json(machine_id: MachineId) -> MachineSnapshotPgJson 
         }),
         nvlink_status_observation: None,
         spx_status_observation: None,
+        extension_service_status_observations: Default::default(),
         controller_state_version: config_version(5).version_string(),
         controller_state: ManagedHostState::Ready,
         last_discovery_time: Some(fixture_time(200)),

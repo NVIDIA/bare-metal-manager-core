@@ -31,7 +31,7 @@ var (
 	ProjectRoot = filepath.Join(filepath.Dir(cur), "../..")
 )
 
-const defaultSitePhoneHomeUrl = "http://169.254.169.254:7777/latest/meta-data/phone_home"
+const DefaultSitePhoneHomeUrl = "http://169.254.169.254/latest/meta-data/phone_home"
 
 const (
 	// ConfigFilePath specifies the path to the config file, this contains the default path
@@ -245,7 +245,7 @@ func NewConfig() *Config {
 	c.v.SetDefault(ConfigTracingEnabled, false)
 
 	// SiteConfig default phone home url
-	c.v.SetDefault(ConfigSitePhoneHomeUrl, defaultSitePhoneHomeUrl)
+	c.v.SetDefault(ConfigSitePhoneHomeUrl, DefaultSitePhoneHomeUrl)
 
 	// Keycloak needs to be explicitly enabled via config
 	c.v.SetDefault(ConfigKeycloakEnabled, false)

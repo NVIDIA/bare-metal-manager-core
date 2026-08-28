@@ -778,6 +778,10 @@ impl InternalRBACRules {
             vec![ForgeAdminCLI, Machineatron, Flow],
         );
         x.perm(
+            "FindPowerShelfHealthHistories",
+            vec![ForgeAdminCLI, Machineatron, Flow],
+        );
+        x.perm(
             "SetPowerShelfMaintenance",
             vec![ForgeAdminCLI, Machineatron, Flow],
         );
