@@ -23,6 +23,7 @@ const (
 	readOnlyAttempts        = 2
 	readOnlyRetryWait       = time.Second
 	alreadyActiveDiagnostic = "already active"
+	alreadyExistsDiagnostic = "already exists"
 )
 
 var errAllocationRejected = errors.New("DPS allocation would not succeed")
@@ -200,8 +201,14 @@ func (c *Client) CreateResourceGroup(ctx context.Context, resourceGroup string, 
 		DpmEnable:       true,
 		SharedGpuEnable: true,
 	})
+	if status.Code(err) == codes.AlreadyExists {
+		return fmt.Errorf("%w: %v", ErrResourceGroupAlreadyExists, err)
+	}
 	if err != nil {
 		return fmt.Errorf("DPS ResourceGroupCreate %q: %w", resourceGroup, err)
+	}
+	if response != nil && !response.GetStatus().GetOk() && strings.Contains(strings.ToLower(response.GetStatus().GetDiagMsg()), alreadyExistsDiagnostic) {
+		return fmt.Errorf("%w: %s", ErrResourceGroupAlreadyExists, response.GetStatus().GetDiagMsg())
 	}
 	return responseStatus("ResourceGroupCreate", response.GetStatus())
 }

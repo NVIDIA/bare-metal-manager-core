@@ -357,7 +357,8 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 		derr = cvh.dps.CreateResourceGroup(ctx, *apiRequest.PowerResourceGroup, externalID)
 		if derr != nil {
 			logger.Error().Err(derr).Str("powerResourceGroup", *apiRequest.PowerResourceGroup).Msg("failed to create DPS resource group")
-			return cutil.NewAPIErrorResponse(c, http.StatusServiceUnavailable, "Failed to create DPS resource group", nil)
+			apiErr := powerResourceGroupAPIError(derr, "Failed to create DPS resource group")
+			return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 		}
 		dpsGroupCreated = true
 	}
@@ -891,7 +892,7 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 				dpsChange, derr = powerutil.PreparePowerResourceGroupChange(ctx, uvh.dps, externalID, dpsOldGroup, dpsNewGroup, assignments)
 				if derr != nil {
 					logger.Error().Err(derr).Str("oldPowerResourceGroup", dpsOldGroup).Str("newPowerResourceGroup", dpsNewGroup).Msg("failed to prepare DPS resource group migration")
-					return cutil.NewAPIError(http.StatusServiceUnavailable, "Failed to change DPS resource group", nil)
+					return powerResourceGroupAPIError(derr, "Failed to change DPS resource group")
 				}
 			}
 		}
@@ -1058,6 +1059,13 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 
 	logger.Info().Msg("finishing API handler")
 	return c.JSON(http.StatusOK, apiVpc)
+}
+
+func powerResourceGroupAPIError(err error, fallbackMessage string) *cutil.APIError {
+	if errors.Is(err, dpsclient.ErrResourceGroupAlreadyExists) {
+		return cutil.NewAPIError(http.StatusConflict, "Power resource group already exists", nil)
+	}
+	return cutil.NewAPIError(http.StatusServiceUnavailable, fallbackMessage, nil)
 }
 
 // ~~~~~ Update Virtualization Handler ~~~~~ //

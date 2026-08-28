@@ -3028,7 +3028,7 @@ paths:
         '403':
           $ref: '#/components/responses/ForbiddenError'
         '409':
-          description: A VPC with the requested `id` or `name` already exists. This can also occur when inventory reconciliation completes before an ambiguous create is retried.
+          description: A VPC with the requested `id` or `name` already exists, or the requested DPS power resource-group name is already in use. This can also occur when inventory reconciliation completes before an ambiguous create is retried. Existing DPS groups are not reused, and their ownership is not disclosed.
           content:
             application/json:
               schema:
@@ -3040,6 +3040,11 @@ paths:
                     message: A Vpc with specified ID already exists
                     data:
                       id: 497f6eca-6276-4993-bfeb-53cbbbba6f08
+                power-resource-group-conflict:
+                  value:
+                    source: nico
+                    message: Power resource group already exists
+                    data: null
         '412':
           description: The latest successfully stored configuration inventory for the selected Site does not report Core support for SLAAC, the Site's `dpsPowerManagement` capability is `false` while the request specifies a non-empty power resource group, or Core rejects another create prerequisite. Site capability checks fail before REST persistence or workflow dispatch; a Core rejection occurs after dispatch and the REST transaction is rolled back.
           content:
@@ -3252,6 +3257,18 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '409':
+          description: The requested DPS power resource-group name is already in use. Existing DPS groups are not reused, and their ownership is not disclosed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+              examples:
+                power-resource-group-conflict:
+                  value:
+                    source: nico
+                    message: Power resource group already exists
+                    data: null
         '412':
           description: The Site's `dpsPowerManagement` capability is `false`, so a non-empty power resource group cannot be accepted.
           $ref: '#/components/responses/GenericHttpError'

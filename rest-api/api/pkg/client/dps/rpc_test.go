@@ -5,6 +5,7 @@ package dps
 
 import (
 	"context"
+	"errors"
 	"net"
 	"testing"
 	"time"
@@ -32,6 +33,7 @@ type testDPSServer struct {
 	validateRequest  *dpsv1.ValidateAllocationRequest
 	validationResult *dpsv1.ValidateAllocationResponse_AllocationValidationResult
 	createRequest    *dpsv1.ResourceGroupCreateRequest
+	createError      error
 	addRequest       *dpsv1.ResourceGroupAddResourcesRequest
 	updateRequest    *dpsv1.ResourceGroupUpdateResourcesRequest
 	removeRequest    *dpsv1.ResourceGroupRemoveResourcesRequest
@@ -76,6 +78,9 @@ func (s *testDPSServer) ValidateAllocation(request *dpsv1.ValidateAllocationRequ
 
 func (s *testDPSServer) ResourceGroupCreate(_ context.Context, request *dpsv1.ResourceGroupCreateRequest) (*dpsv1.ResourceGroupCreateResponse, error) {
 	s.createRequest = request
+	if s.createError != nil {
+		return nil, s.createError
+	}
 	return &dpsv1.ResourceGroupCreateResponse{Status: s.okStatus()}, nil
 }
 
@@ -180,15 +185,28 @@ func TestClient_ListPowerProfiles(t *testing.T) {
 
 func TestClient_CreateResourceGroup(t *testing.T) {
 	tests := []struct {
-		name          string
-		server        *testDPSServer
-		expectedError string
+		name           string
+		server         *testDPSServer
+		expectedError  string
+		expectedTarget error
 	}{
 		{name: "creates resource group", server: &testDPSServer{}},
 		{
 			name:          "reports response status failure",
 			server:        &testDPSServer{responseStatus: &dpsv1.Status{DiagMsg: "topology is inactive"}},
 			expectedError: "topology is inactive",
+		},
+		{
+			name:           "classifies gRPC name collision",
+			server:         &testDPSServer{createError: status.Error(codes.AlreadyExists, "resource group already exists")},
+			expectedError:  "resource group already exists",
+			expectedTarget: ErrResourceGroupAlreadyExists,
+		},
+		{
+			name:           "classifies response status name collision",
+			server:         &testDPSServer{responseStatus: &dpsv1.Status{DiagMsg: "resource group already exists"}},
+			expectedError:  "resource group already exists",
+			expectedTarget: ErrResourceGroupAlreadyExists,
 		},
 	}
 
@@ -200,6 +218,9 @@ func TestClient_CreateResourceGroup(t *testing.T) {
 				require.ErrorContains(t, err, test.expectedError)
 			} else {
 				require.NoError(t, err)
+			}
+			if test.expectedTarget != nil {
+				require.True(t, errors.Is(err, test.expectedTarget))
 			}
 
 			require.NotNil(t, test.server.createRequest)

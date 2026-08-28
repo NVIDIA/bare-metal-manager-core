@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -18,6 +19,10 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 )
+
+// ErrResourceGroupAlreadyExists reports that DPS rejected creation because the
+// requested resource-group name is already in use.
+var ErrResourceGroupAlreadyExists = errors.New("DPS resource group already exists")
 
 const (
 	authorizationHeader = "authorization"
