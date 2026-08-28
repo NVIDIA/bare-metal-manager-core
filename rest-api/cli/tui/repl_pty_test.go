@@ -138,6 +138,21 @@ func TestCLIRegression_RealTerminalAndNonInteractive(t *testing.T) {
 		terminal.send(t, "\r")
 		terminal.waitFor(t, "VPC prefix created: tenant-prefix")
 
+		// Subnet creation must carry the selected Ethernet virtualizer VPC,
+		// tenant IPv4 block, and prefix length through the real terminal flow.
+		terminal.send(t, "subnet create\r")
+		terminal.waitFor(t, "Ready Ethernet virtualizer VPC:")
+		terminal.send(t, "vpc-one\r")
+		terminal.waitFor(t, "Subnet name")
+		terminal.send(t, "tenant-subnet-created\r")
+		terminal.waitFor(t, "Description (optional)")
+		terminal.send(t, "\r")
+		terminal.waitFor(t, "IPv4 prefix length (8-30)")
+		terminal.send(t, "24\r")
+		terminal.waitFor(t, "Tenant IPv4 Block:")
+		terminal.send(t, "tenant-ready\r")
+		terminal.waitFor(t, "IPv4 Subnet created: tenant-subnet-created")
+
 		// Instance creation must stop before the API request when the selected
 		// VPC has no prefixes to attach as an interface.
 		terminal.send(t, "instance create\r")
@@ -469,6 +484,17 @@ func TestCLIRegression_RealTerminalAndNonInteractive(t *testing.T) {
 			prefixRequests[0].Body,
 		)
 
+		subnetCreateRequests := recorder.matching(
+			http.MethodPost,
+			"/v2/org/acme/nico/subnet",
+		)
+		require.Len(t, subnetCreateRequests, 1)
+		assert.JSONEq(
+			t,
+			`{"name":"tenant-subnet-created","vpcId":"vpc-1","ipv4BlockId":"tenant-ready-id","prefixLength":24}`,
+			subnetCreateRequests[0].Body,
+		)
+
 		instanceRequests := recorder.matching(
 			http.MethodPost,
 			"/v2/org/acme/nico/instance",
@@ -777,10 +803,14 @@ func newInteractiveRegressionHandler(recorder *cliRegressionRecorder) http.Handl
 		case request.Method == http.MethodGet &&
 			request.URL.Path == "/v2/org/acme/nico/ipblock":
 			_, _ = io.WriteString(w, `[
-				{"id":"provider-ready-id","name":"provider-ready","siteId":"site-1","status":"Ready","tenantId":null},
-				{"id":"tenant-pending-id","name":"tenant-pending","siteId":"site-1","status":"Pending","tenantId":"tenant-1"},
-				{"id":"tenant-ready-id","name":"tenant-ready","siteId":"site-1","status":"Ready","tenantId":"tenant-1"}
+				{"id":"provider-ready-id","name":"provider-ready","siteId":"site-1","status":"Ready","tenantId":null,"protocolVersion":"IPv4"},
+				{"id":"tenant-pending-id","name":"tenant-pending","siteId":"site-1","status":"Pending","tenantId":"tenant-1","protocolVersion":"IPv4"},
+				{"id":"tenant-ready-id","name":"tenant-ready","siteId":"site-1","status":"Ready","tenantId":"tenant-1","protocolVersion":"IPv4"}
 			]`)
+		case request.Method == http.MethodPost &&
+			request.URL.Path == "/v2/org/acme/nico/subnet":
+			w.WriteHeader(http.StatusCreated)
+			_, _ = io.WriteString(w, `{"id":"subnet-created","name":"tenant-subnet-created","status":"Pending"}`)
 		case request.Method == http.MethodPost &&
 			request.URL.Path == "/v2/org/acme/nico/vpc-prefix":
 			w.WriteHeader(http.StatusCreated)
