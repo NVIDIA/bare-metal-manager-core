@@ -371,11 +371,11 @@ func TestManageSite_DeleteSiteComponentsFromDB(t *testing.T) {
 
 func TestNewManageSite(t *testing.T) {
 	type args struct {
-		dbSession            *cdb.Session
-		siteClientPool       *sc.ClientPool
-		tc                   client.Client
-		cfg                  *config.Config
-		siteInventoryMetrics *cwm.SiteInventoryMetrics
+		dbSession         *cdb.Session
+		siteClientPool    *sc.ClientPool
+		tc                client.Client
+		cfg               *config.Config
+		siteHealthMetrics *cwm.SiteHealthMetrics
 	}
 
 	dbSession := &cdb.Session{}
@@ -393,7 +393,7 @@ func TestNewManageSite(t *testing.T) {
 
 	tc := &tmocks.Client{}
 	scp := sc.NewClientPool(tcfg)
-	sim := cwm.NewSiteInventoryMetrics(prometheus.NewRegistry())
+	shm := cwm.NewSiteHealthMetrics(prometheus.NewRegistry())
 
 	tests := []struct {
 		name string
@@ -403,24 +403,24 @@ func TestNewManageSite(t *testing.T) {
 		{
 			name: "test new ManageSite instantiation",
 			args: args{
-				dbSession:            dbSession,
-				siteClientPool:       scp,
-				tc:                   tc,
-				cfg:                  cfg,
-				siteInventoryMetrics: sim,
+				dbSession:         dbSession,
+				siteClientPool:    scp,
+				tc:                tc,
+				cfg:               cfg,
+				siteHealthMetrics: shm,
 			},
 			want: ManageSite{
-				dbSession:            dbSession,
-				siteClientPool:       scp,
-				tc:                   tc,
-				cfg:                  cfg,
-				siteInventoryMetrics: sim,
+				dbSession:         dbSession,
+				siteClientPool:    scp,
+				tc:                tc,
+				cfg:               cfg,
+				siteHealthMetrics: shm,
 			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewManageSite(tt.args.dbSession, tt.args.siteClientPool, tt.args.tc, tt.args.cfg, tt.args.siteInventoryMetrics); !reflect.DeepEqual(got, tt.want) {
+			if got := NewManageSite(tt.args.dbSession, tt.args.siteClientPool, tt.args.tc, tt.args.cfg, tt.args.siteHealthMetrics); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("NewManageSite() = %v, want %v", got, tt.want)
 			}
 		})
@@ -447,6 +447,15 @@ func TestManageSite_MonitorInventoryReceiptForAllSites(t *testing.T) {
 	site4 := util.TestBuildSite(t, dbSession, ip, "test-site-4", cdbm.SiteStatusRegistered, cutil.GetPtr(time.Now().Add(-1*time.Hour)), ipu)
 	site5 := util.TestBuildSite(t, dbSession, ip, "test-site-5", cdbm.SiteStatusRegistered, nil, ipu)
 
+	// Only site3 has ever reported a cert expiry, so the rest exercise the
+	// never-reported case the gauge publishes as 0.
+	site3CertExpiry := time.Now().Add(30 * 24 * time.Hour)
+	_, err := cdbm.NewSiteDAO(dbSession).Update(ctx, nil, cdbm.SiteUpdateInput{
+		SiteID:          site3.ID,
+		AgentCertExpiry: &site3CertExpiry,
+	})
+	assert.NoError(t, err)
+
 	tSiteClientPool := testTemporalSiteClientPool(t)
 	assert.NotNil(t, tSiteClientPool)
 
@@ -464,10 +473,10 @@ func TestManageSite_MonitorInventoryReceiptForAllSites(t *testing.T) {
 	cfg2 := config.NewConfig()
 	cfg2.SetNotificationsSlackWebhookURL("")
 
-	// One registry across both cases, so the second run proves the gauge drops
+	// One registry across both cases, so the second run proves the gauges drop
 	// the Sites the first run moved out of Registered.
 	reg := prometheus.NewRegistry()
-	siteInventoryMetrics := cwm.NewSiteInventoryMetrics(reg)
+	siteHealthMetrics := cwm.NewSiteHealthMetrics(reg)
 
 	type fields struct {
 		dbSession      *cdb.Session
@@ -478,11 +487,12 @@ func TestManageSite_MonitorInventoryReceiptForAllSites(t *testing.T) {
 		ctx context.Context
 	}
 	tests := []struct {
-		name       string
-		fields     fields
-		args       args
-		wantStatus map[uuid.UUID]string
-		wantGauge  map[string]float64
+		name          string
+		fields        fields
+		args          args
+		wantStatus    map[uuid.UUID]string
+		wantGauge     map[string]float64
+		wantCertGauge map[string]float64
 	}{
 		{
 			name: "test monitor inventory receipt for all sites with Slack notification",
@@ -507,6 +517,12 @@ func TestManageSite_MonitorInventoryReceiptForAllSites(t *testing.T) {
 				site4.Name: float64(site4.InventoryReceived.Unix()),
 				site5.Name: 0,
 			},
+			wantCertGauge: map[string]float64{
+				site2.Name: 0,
+				site3.Name: float64(site3CertExpiry.Unix()),
+				site4.Name: 0,
+				site5.Name: 0,
+			},
 		},
 		{
 			name: "test monitor inventory receipt for all sites without Slack notification",
@@ -526,15 +542,19 @@ func TestManageSite_MonitorInventoryReceiptForAllSites(t *testing.T) {
 				site3.Name: float64(site3.InventoryReceived.Unix()),
 				site5.Name: 0,
 			},
+			wantCertGauge: map[string]float64{
+				site3.Name: float64(site3CertExpiry.Unix()),
+				site5.Name: 0,
+			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mst := ManageSite{
-				dbSession:            tt.fields.dbSession,
-				siteClientPool:       tt.fields.siteClientPool,
-				cfg:                  tt.fields.cfg,
-				siteInventoryMetrics: siteInventoryMetrics,
+				dbSession:         tt.fields.dbSession,
+				siteClientPool:    tt.fields.siteClientPool,
+				cfg:               tt.fields.cfg,
+				siteHealthMetrics: siteHealthMetrics,
 			}
 			err := mst.MonitorInventoryReceiptForAllSites(tt.args.ctx)
 			assert.NoError(t, err)
@@ -546,20 +566,20 @@ func TestManageSite_MonitorInventoryReceiptForAllSites(t *testing.T) {
 				assert.Equal(t, wantStatus, site.Status)
 			}
 
-			assert.Equal(t, tt.wantGauge, testSiteInventoryGauge(t, reg))
+			assert.Equal(t, tt.wantGauge, testSiteGauge(t, reg, "nico_rest_workflow_site_last_inventory_receipt_timestamp_seconds"))
+			assert.Equal(t, tt.wantCertGauge, testSiteGauge(t, reg, "nico_rest_workflow_site_agent_cert_expiry_timestamp_seconds"))
 		})
 	}
 }
 
-// testSiteInventoryGauge reads the Site inventory freshness gauge back as
-// Site name to published timestamp.
-func testSiteInventoryGauge(t *testing.T, reg *prometheus.Registry) map[string]float64 {
+// testSiteGauge reads a per-Site gauge back as Site name to published value.
+func testSiteGauge(t *testing.T, reg *prometheus.Registry, name string) map[string]float64 {
 	families, err := reg.Gather()
 	require.NoError(t, err)
 
 	values := map[string]float64{}
 	for _, family := range families {
-		if family.GetName() != "nico_rest_workflow_site_last_inventory_receipt_timestamp_seconds" {
+		if family.GetName() != name {
 			continue
 		}
 		for _, metric := range family.GetMetric() {

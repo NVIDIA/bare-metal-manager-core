@@ -68,11 +68,11 @@ func getSiteFabricIPBlockLockID(dbSite *cdbm.Site) uint64 {
 // ManageSite is an activity wrapper for managing Site lifecycle that allows
 // injecting DB access
 type ManageSite struct {
-	dbSession            *cdb.Session
-	siteClientPool       *sc.ClientPool
-	tc                   client.Client
-	cfg                  *config.Config
-	siteInventoryMetrics *cwm.SiteInventoryMetrics
+	dbSession         *cdb.Session
+	siteClientPool    *sc.ClientPool
+	tc                client.Client
+	cfg               *config.Config
+	siteHealthMetrics *cwm.SiteHealthMetrics
 }
 
 // Activity functions
@@ -621,17 +621,18 @@ func (mst ManageSite) MonitorInventoryReceiptForAllSites(ctx context.Context) er
 		return err
 	}
 
-	// Publish inventory freshness before the checks below, so the gauge reflects
-	// every Registered Site even when a later status update fails.
-	receipts := make([]cwm.SiteInventoryReceipt, 0, len(sites))
+	// Publish health before the checks below, so the gauges reflect every
+	// Registered Site even when a later status update fails.
+	reports := make([]cwm.SiteHealthReport, 0, len(sites))
 	for _, site := range sites {
-		receipts = append(receipts, cwm.SiteInventoryReceipt{
-			SiteID:   site.ID,
-			SiteName: site.Name,
-			Received: site.InventoryReceived,
+		reports = append(reports, cwm.SiteHealthReport{
+			SiteID:            site.ID,
+			SiteName:          site.Name,
+			InventoryReceived: site.InventoryReceived,
+			AgentCertExpiry:   site.AgentCertExpiry,
 		})
 	}
-	mst.siteInventoryMetrics.SetLastInventoryReceipts(receipts)
+	mst.siteHealthMetrics.SetSiteHealth(reports)
 
 	// Loop through Sites
 	for _, site := range sites {
@@ -1067,12 +1068,12 @@ func (mst ManageSite) UpdateIPBlocksInDBFromFabricPrefixes(ctx context.Context, 
 }
 
 // NewManageSite returns a new ManageSite activity
-func NewManageSite(dbSession *cdb.Session, siteClientPool *sc.ClientPool, tc client.Client, cfg *config.Config, siteInventoryMetrics *cwm.SiteInventoryMetrics) ManageSite {
+func NewManageSite(dbSession *cdb.Session, siteClientPool *sc.ClientPool, tc client.Client, cfg *config.Config, siteHealthMetrics *cwm.SiteHealthMetrics) ManageSite {
 	return ManageSite{
-		dbSession:            dbSession,
-		siteClientPool:       siteClientPool,
-		tc:                   tc,
-		cfg:                  cfg,
-		siteInventoryMetrics: siteInventoryMetrics,
+		dbSession:         dbSession,
+		siteClientPool:    siteClientPool,
+		tc:                tc,
+		cfg:               cfg,
+		siteHealthMetrics: siteHealthMetrics,
 	}
 }

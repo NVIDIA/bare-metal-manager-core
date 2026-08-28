@@ -340,7 +340,7 @@ func main() {
 	mconfig := cfg.GetMetricsConfig()
 
 	var reg *prometheus.Registry
-	var siteInventoryMetrics *cwm.SiteInventoryMetrics
+	var siteHealthMetrics *cwm.SiteHealthMetrics
 
 	if mconfig.Enabled {
 		reg = prometheus.NewRegistry()
@@ -352,7 +352,7 @@ func main() {
 		cm.Info.With(prometheus.Labels{"version": "unknown", "namespace": tcfg.Namespace}).Set(1)
 
 		// Published by the Site health monitor cron, which runs on the Cloud queue.
-		siteInventoryMetrics = cwm.NewSiteInventoryMetrics(reg)
+		siteHealthMetrics = cwm.NewSiteHealthMetrics(reg)
 
 		if tcfg.Namespace == cwfn.SiteNamespace {
 			// The inventory workflows that report these metrics only run here.
@@ -387,7 +387,7 @@ func main() {
 	instanceManager := instanceActivity.NewManageInstance(dbSession, siteClientPool, tc, cfg)
 	w.RegisterActivity(&instanceManager)
 
-	siteManager := siteActivity.NewManageSite(dbSession, siteClientPool, tc, cfg, siteInventoryMetrics)
+	siteManager := siteActivity.NewManageSite(dbSession, siteClientPool, tc, cfg, siteHealthMetrics)
 	w.RegisterActivity(&siteManager)
 
 	sshKeyGroupManager := sshKeyGroupActivity.NewManageSSHKeyGroup(dbSession, siteClientPool)
