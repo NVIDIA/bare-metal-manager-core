@@ -25,10 +25,12 @@ import (
 	cipam "github.com/NVIDIA/infra-controller/rest-api/ipam"
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/internal/config"
+	cwm "github.com/NVIDIA/infra-controller/rest-api/workflow/internal/metrics"
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 	"github.com/golang/mock/gomock"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/uptrace/bun/extra/bundebug"
@@ -369,10 +371,11 @@ func TestManageSite_DeleteSiteComponentsFromDB(t *testing.T) {
 
 func TestNewManageSite(t *testing.T) {
 	type args struct {
-		dbSession      *cdb.Session
-		siteClientPool *sc.ClientPool
-		tc             client.Client
-		cfg            *config.Config
+		dbSession            *cdb.Session
+		siteClientPool       *sc.ClientPool
+		tc                   client.Client
+		cfg                  *config.Config
+		siteInventoryMetrics *cwm.SiteInventoryMetrics
 	}
 
 	dbSession := &cdb.Session{}
@@ -390,6 +393,7 @@ func TestNewManageSite(t *testing.T) {
 
 	tc := &tmocks.Client{}
 	scp := sc.NewClientPool(tcfg)
+	sim := cwm.NewSiteInventoryMetrics(prometheus.NewRegistry())
 
 	tests := []struct {
 		name string
@@ -399,22 +403,24 @@ func TestNewManageSite(t *testing.T) {
 		{
 			name: "test new ManageSite instantiation",
 			args: args{
-				dbSession:      dbSession,
-				siteClientPool: scp,
-				tc:             tc,
-				cfg:            cfg,
+				dbSession:            dbSession,
+				siteClientPool:       scp,
+				tc:                   tc,
+				cfg:                  cfg,
+				siteInventoryMetrics: sim,
 			},
 			want: ManageSite{
-				dbSession:      dbSession,
-				siteClientPool: scp,
-				tc:             tc,
-				cfg:            cfg,
+				dbSession:            dbSession,
+				siteClientPool:       scp,
+				tc:                   tc,
+				cfg:                  cfg,
+				siteInventoryMetrics: sim,
 			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewManageSite(tt.args.dbSession, tt.args.siteClientPool, tc, cfg); !reflect.DeepEqual(got, tt.want) {
+			if got := NewManageSite(tt.args.dbSession, tt.args.siteClientPool, tt.args.tc, tt.args.cfg, tt.args.siteInventoryMetrics); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("NewManageSite() = %v, want %v", got, tt.want)
 			}
 		})
@@ -439,6 +445,7 @@ func TestManageSite_MonitorInventoryReceiptForAllSites(t *testing.T) {
 	site2 := util.TestBuildSite(t, dbSession, ip, "test-site-2", cdbm.SiteStatusRegistered, cutil.GetPtr(time.Now().Add(-1*time.Hour)), ipu)
 	site3 := util.TestBuildSite(t, dbSession, ip, "test-site-3", cdbm.SiteStatusRegistered, cutil.GetPtr(time.Now()), ipu)
 	site4 := util.TestBuildSite(t, dbSession, ip, "test-site-4", cdbm.SiteStatusRegistered, cutil.GetPtr(time.Now().Add(-1*time.Hour)), ipu)
+	site5 := util.TestBuildSite(t, dbSession, ip, "test-site-5", cdbm.SiteStatusRegistered, nil, ipu)
 
 	tSiteClientPool := testTemporalSiteClientPool(t)
 	assert.NotNil(t, tSiteClientPool)
@@ -457,6 +464,11 @@ func TestManageSite_MonitorInventoryReceiptForAllSites(t *testing.T) {
 	cfg2 := config.NewConfig()
 	cfg2.SetNotificationsSlackWebhookURL("")
 
+	// One registry across both cases, so the second run proves the gauge drops
+	// the Sites the first run moved out of Registered.
+	reg := prometheus.NewRegistry()
+	siteInventoryMetrics := cwm.NewSiteInventoryMetrics(reg)
+
 	type fields struct {
 		dbSession      *cdb.Session
 		siteClientPool *sc.ClientPool
@@ -470,6 +482,7 @@ func TestManageSite_MonitorInventoryReceiptForAllSites(t *testing.T) {
 		fields     fields
 		args       args
 		wantStatus map[uuid.UUID]string
+		wantGauge  map[string]float64
 	}{
 		{
 			name: "test monitor inventory receipt for all sites with Slack notification",
@@ -486,6 +499,14 @@ func TestManageSite_MonitorInventoryReceiptForAllSites(t *testing.T) {
 				site2.ID: cdbm.SiteStatusError,
 				site3.ID: cdbm.SiteStatusRegistered,
 			},
+			// site1 is Pending so it is not published at all, and site5 has never
+			// reported, so it publishes 0 rather than going missing.
+			wantGauge: map[string]float64{
+				site2.Name: float64(site2.InventoryReceived.Unix()),
+				site3.Name: float64(site3.InventoryReceived.Unix()),
+				site4.Name: float64(site4.InventoryReceived.Unix()),
+				site5.Name: 0,
+			},
 		},
 		{
 			name: "test monitor inventory receipt for all sites without Slack notification",
@@ -500,14 +521,20 @@ func TestManageSite_MonitorInventoryReceiptForAllSites(t *testing.T) {
 			wantStatus: map[uuid.UUID]string{
 				site4.ID: cdbm.SiteStatusError,
 			},
+			// site2 and site4 went to Error in the case above, so they stop reporting.
+			wantGauge: map[string]float64{
+				site3.Name: float64(site3.InventoryReceived.Unix()),
+				site5.Name: 0,
+			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mst := ManageSite{
-				dbSession:      tt.fields.dbSession,
-				siteClientPool: tt.fields.siteClientPool,
-				cfg:            tt.fields.cfg,
+				dbSession:            tt.fields.dbSession,
+				siteClientPool:       tt.fields.siteClientPool,
+				cfg:                  tt.fields.cfg,
+				siteInventoryMetrics: siteInventoryMetrics,
 			}
 			err := mst.MonitorInventoryReceiptForAllSites(tt.args.ctx)
 			assert.NoError(t, err)
@@ -518,8 +545,33 @@ func TestManageSite_MonitorInventoryReceiptForAllSites(t *testing.T) {
 				assert.NoError(t, err)
 				assert.Equal(t, wantStatus, site.Status)
 			}
+
+			assert.Equal(t, tt.wantGauge, testSiteInventoryGauge(t, reg))
 		})
 	}
+}
+
+// testSiteInventoryGauge reads the Site inventory freshness gauge back as
+// Site name to published timestamp.
+func testSiteInventoryGauge(t *testing.T, reg *prometheus.Registry) map[string]float64 {
+	families, err := reg.Gather()
+	require.NoError(t, err)
+
+	values := map[string]float64{}
+	for _, family := range families {
+		if family.GetName() != "nico_rest_workflow_site_last_inventory_receipt_timestamp_seconds" {
+			continue
+		}
+		for _, metric := range family.GetMetric() {
+			for _, label := range metric.GetLabel() {
+				if label.GetName() == "site" {
+					values[label.GetValue()] = metric.GetGauge().GetValue()
+				}
+			}
+		}
+	}
+
+	return values
 }
 
 // MockTemporalClient is a mock for Temporal Client
@@ -1112,7 +1164,7 @@ func TestManageSite_DeleteSiteComponentsFromDB_NewResources(t *testing.T) {
 func TestManageSite_UpdateSiteInDB(t *testing.T) {
 	ctx := context.Background()
 	resources := setupSiteFabricIPBlockTest(t)
-	mst := NewManageSite(resources.dbSession, nil, nil, nil)
+	mst := NewManageSite(resources.dbSession, nil, nil, nil, nil)
 	siteDAO := cdbm.NewSiteDAO(resources.dbSession)
 
 	// The stored Site Agent version every case starts from, so a case that expects it untouched
@@ -1466,7 +1518,7 @@ func setupSiteFabricIPBlockTest(t *testing.T) siteFabricIPBlockTestResources {
 func TestManageSite_UpdateIPBlocksInDBFromFabricPrefixes_CreatesMissingBlocks(t *testing.T) {
 	ctx := context.Background()
 	resources := setupSiteFabricIPBlockTest(t)
-	mst := NewManageSite(resources.dbSession, nil, nil, nil)
+	mst := NewManageSite(resources.dbSession, nil, nil, nil, nil)
 
 	err := mst.UpdateIPBlocksInDBFromFabricPrefixes(ctx, resources.site.ID, []string{
 		"10.0.1.12/16",
@@ -1508,7 +1560,7 @@ func TestManageSite_UpdateIPBlocksInDBFromFabricPrefixes_CreatesMissingBlocks(t 
 func TestManageSite_UpdateIPBlocksInDBFromFabricPrefixes_IsIdempotent(t *testing.T) {
 	ctx := context.Background()
 	resources := setupSiteFabricIPBlockTest(t)
-	mst := NewManageSite(resources.dbSession, nil, nil, nil)
+	mst := NewManageSite(resources.dbSession, nil, nil, nil, nil)
 
 	prefixes := []string{"10.42.0.0/16", "2001:db8:42::/64"}
 	require.NoError(t, mst.UpdateIPBlocksInDBFromFabricPrefixes(ctx, resources.site.ID, prefixes))
@@ -1528,7 +1580,7 @@ func TestManageSite_UpdateIPBlocksInDBFromFabricPrefixes_IsIdempotent(t *testing
 func TestManageSite_UpdateIPBlocksInDBFromFabricPrefixes_LeavesExistingManualBlock(t *testing.T) {
 	ctx := context.Background()
 	resources := setupSiteFabricIPBlockTest(t)
-	mst := NewManageSite(resources.dbSession, nil, nil, nil)
+	mst := NewManageSite(resources.dbSession, nil, nil, nil, nil)
 
 	existing := util.TestBuildBuildIPBlock(
 		t,
@@ -1557,7 +1609,7 @@ func TestManageSite_UpdateIPBlocksInDBFromFabricPrefixes_LeavesExistingManualBlo
 func TestManageSite_UpdateIPBlocksInDBFromFabricPrefixes_CreatesDatacenterOnlyBlockWhenOtherRoutingTypeExists(t *testing.T) {
 	ctx := context.Background()
 	resources := setupSiteFabricIPBlockTest(t)
-	mst := NewManageSite(resources.dbSession, nil, nil, nil)
+	mst := NewManageSite(resources.dbSession, nil, nil, nil, nil)
 
 	existing := util.TestBuildBuildIPBlock(
 		t,
@@ -1599,7 +1651,7 @@ func TestManageSite_UpdateIPBlocksInDBFromFabricPrefixes_CreatesDatacenterOnlyBl
 func TestManageSite_UpdateIPBlocksInDBFromFabricPrefixes_ReturnsErrorWhenFabricBlockLockHeld(t *testing.T) {
 	ctx := context.Background()
 	resources := setupSiteFabricIPBlockTest(t)
-	mst := NewManageSite(resources.dbSession, nil, nil, nil)
+	mst := NewManageSite(resources.dbSession, nil, nil, nil, nil)
 
 	err := cdb.WithTx(ctx, resources.dbSession, func(tx *cdb.Tx) error {
 		require.NoError(t, tx.AcquireAdvisoryLock(ctx, getSiteFabricIPBlockLockID(resources.site), false))
@@ -1618,7 +1670,7 @@ func TestManageSite_UpdateIPBlocksInDBFromFabricPrefixes_ReturnsErrorWhenFabricB
 func TestManageSite_UpdateIPBlocksInDBFromFabricPrefixes_InvalidPrefixDoesNotCreateBlocks(t *testing.T) {
 	ctx := context.Background()
 	resources := setupSiteFabricIPBlockTest(t)
-	mst := NewManageSite(resources.dbSession, nil, nil, nil)
+	mst := NewManageSite(resources.dbSession, nil, nil, nil, nil)
 
 	err := mst.UpdateIPBlocksInDBFromFabricPrefixes(ctx, resources.site.ID, []string{"not-a-cidr"})
 	require.Error(t, err)
@@ -1630,7 +1682,7 @@ func TestManageSite_UpdateIPBlocksInDBFromFabricPrefixes_InvalidPrefixDoesNotCre
 func TestManageSite_UpdateIPBlocksInDBFromFabricPrefixes_NoPrefixesIsNoOp(t *testing.T) {
 	ctx := context.Background()
 	resources := setupSiteFabricIPBlockTest(t)
-	mst := NewManageSite(resources.dbSession, nil, nil, nil)
+	mst := NewManageSite(resources.dbSession, nil, nil, nil, nil)
 
 	require.NoError(t, mst.UpdateIPBlocksInDBFromFabricPrefixes(ctx, resources.site.ID, nil))
 
@@ -1641,7 +1693,7 @@ func TestManageSite_UpdateIPBlocksInDBFromFabricPrefixes_NoPrefixesIsNoOp(t *tes
 func TestManageSite_UpdateIPBlocksInDBFromFabricPrefixes_UnknownSiteReturnsError(t *testing.T) {
 	ctx := context.Background()
 	resources := setupSiteFabricIPBlockTest(t)
-	mst := NewManageSite(resources.dbSession, nil, nil, nil)
+	mst := NewManageSite(resources.dbSession, nil, nil, nil, nil)
 
 	err := mst.UpdateIPBlocksInDBFromFabricPrefixes(ctx, uuid.New(), []string{"10.0.0.0/16"})
 	require.ErrorIs(t, err, cdb.ErrDoesNotExist)

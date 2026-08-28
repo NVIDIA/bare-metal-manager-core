@@ -24,7 +24,7 @@ import (
 func UpdateInfiniBandPartitionInventory(ctx workflow.Context, siteID string, ibpInventory *corev1.InfiniBandPartitionInventory) (err error) {
 	logger := log.With().Str("Workflow", "UpdateInfiniBandPartitionInventory").Str("Site ID", siteID).Logger()
 
-	startTime := time.Now()
+	startTime := workflow.Now(ctx)
 
 	logger.Info().Msg("starting workflow")
 
@@ -60,7 +60,7 @@ func UpdateInfiniBandPartitionInventory(ctx workflow.Context, siteID string, ibp
 	// Record latency for this inventory call
 	var inventoryMetricsManager cwm.ManageInventoryMetrics
 
-	serr := workflow.ExecuteActivity(ctx, inventoryMetricsManager.RecordLatency, parsedSiteID, "UpdateInfiniBandPartitionInventory", err != nil, time.Since(startTime)).Get(ctx, nil)
+	serr := workflow.ExecuteActivity(ctx, inventoryMetricsManager.RecordLatency, parsedSiteID, "UpdateInfiniBandPartitionInventory", err != nil, workflow.Now(ctx).Sub(startTime)).Get(ctx, nil)
 	if serr != nil {
 		logger.Warn().Err(serr).Msg("failed to execute activity: RecordLatency")
 	}

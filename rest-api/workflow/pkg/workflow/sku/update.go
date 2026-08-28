@@ -23,7 +23,7 @@ import (
 func UpdateSkuInventory(ctx workflow.Context, siteID string, skuInventory *corev1.SkuInventory) (err error) {
 	logger := log.With().Str("Workflow", "UpdateSkuInventory").Str("Site ID", siteID).Logger()
 
-	startTime := time.Now()
+	startTime := workflow.Now(ctx)
 
 	logger.Info().Msg("starting workflow")
 
@@ -62,7 +62,7 @@ func UpdateSkuInventory(ctx workflow.Context, siteID string, skuInventory *corev
 	// Record latency for this inventory call
 	var inventoryMetricsManager cwm.ManageInventoryMetrics
 
-	err = workflow.ExecuteActivity(ctx, inventoryMetricsManager.RecordLatency, parsedSiteID, "UpdateSkuInventory", err != nil, time.Since(startTime)).Get(ctx, nil)
+	err = workflow.ExecuteActivity(ctx, inventoryMetricsManager.RecordLatency, parsedSiteID, "UpdateSkuInventory", err != nil, workflow.Now(ctx).Sub(startTime)).Get(ctx, nil)
 	if err != nil {
 		logger.Warn().Err(err).Msg("failed to execute activity: RecordLatency")
 	}

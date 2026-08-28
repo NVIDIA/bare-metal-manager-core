@@ -8,13 +8,13 @@ import (
 	"errors"
 	"time"
 
+	computils "github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/utils"
 	coregrpctypes "github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/datatypes/managertypes/coregrpc"
 	"github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
 const (
-	metricsNamespace         = "elektra_site_agent"
 	metricCarbideGrpcLatency = "carbide_grpc_client_latency_seconds"
 	metricWorkflowLatency    = "workflow_latency_seconds"
 )
@@ -27,7 +27,7 @@ func makeGrpcClientMetrics() client.Metrics {
 	metrics := &grpcClientMetrics{
 		responseLatency: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
-				Namespace: metricsNamespace,
+				Namespace: computils.MetricsNamespace,
 				Name:      metricCarbideGrpcLatency,
 				Help:      "Response latency of each RPC",
 				Buckets:   []float64{0.0005, 0.001, 0.005, 0.010, 0.025, 0.050, 0.100, 0.250, 0.500, 1.0, 2.5, 5.0, 10.0},
@@ -71,7 +71,7 @@ func newWorkflowMetrics() coregrpctypes.WorkflowMetrics {
 	metrics := &wflowMetrics{
 		latency: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
-				Namespace: metricsNamespace,
+				Namespace: computils.MetricsNamespace,
 				Name:      metricWorkflowLatency,
 				Help:      "Latency of each workflow",
 				Buckets:   []float64{0.0005, 0.001, 0.005, 0.010, 0.025, 0.050, 0.100, 0.250, 0.500, 1.0, 2.5, 5.0, 10.0},

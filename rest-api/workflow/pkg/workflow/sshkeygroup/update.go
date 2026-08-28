@@ -24,7 +24,7 @@ import (
 func UpdateSSHKeyGroupInventory(ctx workflow.Context, siteID string, sshKeyGroupInventory *corev1.SSHKeyGroupInventory) (err error) {
 	logger := log.With().Str("Workflow", "UpdateSSHKeyGroupInventory").Str("Site ID", siteID).Logger()
 
-	startTime := time.Now()
+	startTime := workflow.Now(ctx)
 
 	logger.Info().Msg("starting workflow")
 
@@ -70,7 +70,7 @@ func UpdateSSHKeyGroupInventory(ctx workflow.Context, siteID string, sshKeyGroup
 	// Record latency for this inventory call
 	var inventoryMetricsManager cwm.ManageInventoryMetrics
 
-	serr := workflow.ExecuteActivity(ctx, inventoryMetricsManager.RecordLatency, parsedSiteID, "UpdateSSHKeyGroupInventory", err != nil, time.Since(startTime)).Get(ctx, nil)
+	serr := workflow.ExecuteActivity(ctx, inventoryMetricsManager.RecordLatency, parsedSiteID, "UpdateSSHKeyGroupInventory", err != nil, workflow.Now(ctx).Sub(startTime)).Get(ctx, nil)
 	if serr != nil {
 		logger.Warn().Err(serr).Msg("failed to execute activity: RecordLatency")
 	}

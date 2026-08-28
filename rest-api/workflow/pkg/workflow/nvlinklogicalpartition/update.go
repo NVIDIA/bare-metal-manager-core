@@ -23,7 +23,7 @@ import (
 func UpdateNVLinkLogicalPartitionInventory(ctx workflow.Context, siteID string, nvlinklogicalpartitionInventory *corev1.NVLinkLogicalPartitionInventory) (err error) {
 	logger := log.With().Str("Workflow", "UpdateNVLinkLogicalPartitionInventory").Str("Site ID", siteID).Logger()
 
-	startTime := time.Now()
+	startTime := workflow.Now(ctx)
 
 	logger.Info().Msg("starting workflow")
 
@@ -60,7 +60,7 @@ func UpdateNVLinkLogicalPartitionInventory(ctx workflow.Context, siteID string, 
 	// Record latency for this inventory call
 	var inventoryMetricsManager cwm.ManageInventoryMetrics
 
-	serr := workflow.ExecuteActivity(ctx, inventoryMetricsManager.RecordLatency, parsedSiteID, "UpdateNVLinkLogicalPartitionInventory", err != nil, time.Since(startTime)).Get(ctx, nil)
+	serr := workflow.ExecuteActivity(ctx, inventoryMetricsManager.RecordLatency, parsedSiteID, "UpdateNVLinkLogicalPartitionInventory", err != nil, workflow.Now(ctx).Sub(startTime)).Get(ctx, nil)
 	if serr != nil {
 		logger.Warn().Err(serr).Msg("failed to execute activity: RecordLatency")
 	}

@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	MetricsNamespace = "cloud_workflow"
+	MetricsNamespace = "nico_rest_workflow"
 )
 
 type coreMetrics struct {

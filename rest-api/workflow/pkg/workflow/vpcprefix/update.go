@@ -25,7 +25,7 @@ func UpdateVpcPrefixInventory(ctx workflow.Context, siteID string, vpcPrefixInve
 
 	logger.Info().Msg("starting workflow")
 
-	startTime := time.Now()
+	startTime := workflow.Now(ctx)
 
 	parsedSiteID, err := uuid.Parse(siteID)
 	if err != nil {
@@ -60,7 +60,7 @@ func UpdateVpcPrefixInventory(ctx workflow.Context, siteID string, vpcPrefixInve
 	// Record latency for this inventory call
 	var inventoryMetricsManager cwm.ManageInventoryMetrics
 
-	serr := workflow.ExecuteActivity(ctx, inventoryMetricsManager.RecordLatency, parsedSiteID, "UpdateVpcPrefixInventory", err != nil, time.Since(startTime)).Get(ctx, nil)
+	serr := workflow.ExecuteActivity(ctx, inventoryMetricsManager.RecordLatency, parsedSiteID, "UpdateVpcPrefixInventory", err != nil, workflow.Now(ctx).Sub(startTime)).Get(ctx, nil)
 	if serr != nil {
 		logger.Warn().Err(serr).Msg("failed to execute activity: RecordLatency")
 	}

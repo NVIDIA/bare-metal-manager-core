@@ -22,7 +22,7 @@ import (
 func UpdateDpuExtensionServiceInventory(ctx workflow.Context, siteID string, dpuExtensionServiceInventory *corev1.DpuExtensionServiceInventory) error {
 	logger := log.With().Str("Workflow", "UpdateDpuExtensionServiceInventory").Str("Site ID", siteID).Logger()
 
-	startTime := time.Now()
+	startTime := workflow.Now(ctx)
 
 	logger.Info().Msg("starting workflow")
 
@@ -58,7 +58,7 @@ func UpdateDpuExtensionServiceInventory(ctx workflow.Context, siteID string, dpu
 	// Record latency for this inventory call
 	var inventoryMetricsManager cwm.ManageInventoryMetrics
 
-	serr := workflow.ExecuteActivity(ctx, inventoryMetricsManager.RecordLatency, parsedSiteID, "UpdateDpuExtensionServiceInventory", err != nil, time.Since(startTime)).Get(ctx, nil)
+	serr := workflow.ExecuteActivity(ctx, inventoryMetricsManager.RecordLatency, parsedSiteID, "UpdateDpuExtensionServiceInventory", err != nil, workflow.Now(ctx).Sub(startTime)).Get(ctx, nil)
 	if serr != nil {
 		logger.Warn().Err(serr).Msg("failed to execute activity: RecordLatency")
 	}

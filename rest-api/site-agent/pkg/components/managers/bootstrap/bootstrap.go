@@ -46,8 +46,9 @@ var (
 	ErrInvalidBootstrapSecret = errors.New("invalid bootstrap secret")
 	// CertExpirationMetric is a prometheus metric for Site Agent Temporal certificate expiration
 	CertExpirationMetric = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "temporal_cert_expiration",
-		Help: "The expiration date of the Temporal certificate",
+		Namespace: computils.MetricsNamespace,
+		Name:      "temporal_cert_expiration",
+		Help:      "The expiration date of the Temporal certificate",
 	})
 )
 
@@ -155,7 +156,7 @@ func (bs *BoostrapAPI) Init() {
 
 	prometheus.MustRegister(
 		prometheus.NewCounterFunc(prometheus.CounterOpts{
-			Namespace: "elektra_site_agent",
+			Namespace: computils.MetricsNamespace,
 			Name:      MetricCredDnloadAttempt,
 			Help:      "Credentials download attempted for Site Agent",
 		},
@@ -165,7 +166,7 @@ func (bs *BoostrapAPI) Init() {
 
 	prometheus.MustRegister(
 		prometheus.NewCounterFunc(prometheus.CounterOpts{
-			Namespace: "elektra_site_agent",
+			Namespace: computils.MetricsNamespace,
 			Name:      MetricCredDnloadSucc,
 			Help:      "Credentials download succeeded for Site Agent",
 		},

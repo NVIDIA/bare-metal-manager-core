@@ -23,7 +23,7 @@ import (
 func UpdateExpectedMachineInventory(ctx workflow.Context, siteID string, expectedMachineInventory *corev1.ExpectedMachineInventory) (err error) {
 	logger := log.With().Str("Workflow", "UpdateExpectedMachineInventory").Str("Site ID", siteID).Logger()
 
-	startTime := time.Now()
+	startTime := workflow.Now(ctx)
 
 	logger.Info().Msg("starting workflow")
 
@@ -62,7 +62,7 @@ func UpdateExpectedMachineInventory(ctx workflow.Context, siteID string, expecte
 	// Record latency for this inventory call
 	var inventoryMetricsManager cwm.ManageInventoryMetrics
 
-	err = workflow.ExecuteActivity(ctx, inventoryMetricsManager.RecordLatency, parsedSiteID, "UpdateExpectedMachineInventory", err != nil, time.Since(startTime)).Get(ctx, nil)
+	err = workflow.ExecuteActivity(ctx, inventoryMetricsManager.RecordLatency, parsedSiteID, "UpdateExpectedMachineInventory", err != nil, workflow.Now(ctx).Sub(startTime)).Get(ctx, nil)
 	if err != nil {
 		logger.Warn().Err(err).Msg("failed to execute activity: RecordLatency")
 	}

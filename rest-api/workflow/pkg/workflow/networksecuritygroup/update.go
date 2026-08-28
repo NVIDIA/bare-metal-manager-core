@@ -24,7 +24,7 @@ import (
 func UpdateNetworkSecurityGroupInventory(ctx workflow.Context, siteID string, networkSecurityGroupInventory *corev1.NetworkSecurityGroupInventory) (err error) {
 	logger := log.With().Str("Workflow", "UpdateNetworkSecurityGroupInventory").Str("Site ID", siteID).Logger()
 
-	startTime := time.Now()
+	startTime := workflow.Now(ctx)
 
 	logger.Info().Msg("starting workflow")
 
@@ -60,7 +60,7 @@ func UpdateNetworkSecurityGroupInventory(ctx workflow.Context, siteID string, ne
 	// Record latency for this inventory call
 	var inventoryMetricsManager cwm.ManageInventoryMetrics
 
-	serr := workflow.ExecuteActivity(ctx, inventoryMetricsManager.RecordLatency, parsedSiteID, "UpdateNetworkSecurityGroupInventory", err != nil, time.Since(startTime)).Get(ctx, nil)
+	serr := workflow.ExecuteActivity(ctx, inventoryMetricsManager.RecordLatency, parsedSiteID, "UpdateNetworkSecurityGroupInventory", err != nil, workflow.Now(ctx).Sub(startTime)).Get(ctx, nil)
 	if serr != nil {
 		logger.Warn().Err(serr).Msg("failed to execute activity: RecordLatency")
 	}

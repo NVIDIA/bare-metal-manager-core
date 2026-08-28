@@ -2877,7 +2877,7 @@ func Test_InstanceMetrics_Create_PendingToReady(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Verify metric was emitted with correct duration
-	util.TestAssertMetricExistsTimes(t, reg, "cloud_workflow_instance_operation_latency_seconds", 1, map[string]string{
+	util.TestAssertMetricExistsTimes(t, reg, "nico_rest_workflow_instance_operation_latency_seconds", 1, map[string]string{
 		"operation_type": "create",
 		"from_status":    cdbm.InstanceStatusPending,
 		"to_status":      cdbm.InstanceStatusReady,
@@ -2919,7 +2919,7 @@ func Test_InstanceMetrics_Create_PendingErrorReady(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Verify metric was emitted with correct duration
-	util.TestAssertMetricExistsTimes(t, reg, "cloud_workflow_instance_operation_latency_seconds", 1, map[string]string{
+	util.TestAssertMetricExistsTimes(t, reg, "nico_rest_workflow_instance_operation_latency_seconds", 1, map[string]string{
 		"operation_type": "create",
 		"from_status":    cdbm.InstanceStatusPending,
 		"to_status":      cdbm.InstanceStatusReady,
@@ -2964,7 +2964,7 @@ func Test_InstanceMetrics_Create_ReadyErrorReady(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Verify NO metric was emitted (duplicate ready status)
-	util.TestAssertMetricExistsTimes(t, reg, "cloud_workflow_instance_operation_latency_seconds", 0, nil, 0)
+	util.TestAssertMetricExistsTimes(t, reg, "nico_rest_workflow_instance_operation_latency_seconds", 0, nil, 0)
 }
 
 // Test Instance Metrics - DELETE operations
@@ -2996,7 +2996,7 @@ func Test_InstanceMetrics_Delete_TerminatingOnly(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Verify metric was emitted with correct duration
-	util.TestAssertMetricExistsTimes(t, reg, "cloud_workflow_instance_operation_latency_seconds", 1, map[string]string{
+	util.TestAssertMetricExistsTimes(t, reg, "nico_rest_workflow_instance_operation_latency_seconds", 1, map[string]string{
 		"operation_type": "delete",
 		"from_status":    cdbm.InstanceStatusTerminating,
 		"to_status":      cdbm.InstanceStatusTerminated,
@@ -3039,7 +3039,7 @@ func Test_InstanceMetrics_Delete_MultipleTerminating(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Verify metric was emitted (should use first terminating timestamp, duration 300ms)
-	util.TestAssertMetricExistsTimes(t, reg, "cloud_workflow_instance_operation_latency_seconds", 1, map[string]string{
+	util.TestAssertMetricExistsTimes(t, reg, "nico_rest_workflow_instance_operation_latency_seconds", 1, map[string]string{
 		"operation_type": "delete",
 		"from_status":    cdbm.InstanceStatusTerminating,
 		"to_status":      cdbm.InstanceStatusTerminated,
@@ -3073,5 +3073,5 @@ func Test_InstanceMetrics_Delete_NoTerminating(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Verify NO metric was emitted (no terminating status found)
-	util.TestAssertMetricExistsTimes(t, reg, "cloud_workflow_instance_operation_latency_seconds", 0, nil, 0)
+	util.TestAssertMetricExistsTimes(t, reg, "nico_rest_workflow_instance_operation_latency_seconds", 0, nil, 0)
 }
