@@ -133,6 +133,7 @@ mod host_boot_config;
 mod host_uefi_rotation;
 mod machine_validation;
 mod maintenance;
+mod nic_lockdown_rotation;
 mod power;
 mod rotation;
 mod sku;
@@ -1270,6 +1271,22 @@ impl MachineStateHandler {
                     ));
                 }
 
+                // Same lowest-precedence idle-only rule again, for the host's
+                // SuperNIC lockdown keys. A rekey unlocks and relocks each SVPC
+                // card via the DPA state machine + scout, so it must never run
+                // under active tenancy; the site flag / force-converge override
+                // live in `nic_lockdown_rotation::should_enter_nic_lockdown_rotation`.
+                if nic_lockdown_rotation::should_enter_nic_lockdown_rotation(
+                    ctx.services,
+                    mh_snapshot,
+                )
+                .await?
+                {
+                    return Ok(StateHandlerOutcome::transition(
+                        ManagedHostState::RotatingNicLockdown,
+                    ));
+                }
+
                 // Releasing a DPF maintenance hold restarts DPU services, so it
                 // belongs with the idle-only work above rather than ahead of it.
                 dpu_action_handler::handle_pending_dpu_actions(
@@ -1438,6 +1455,10 @@ impl MachineStateHandler {
 
             ManagedHostState::RotatingDpuUefi { dpu_machine_id } => {
                 dpu_uefi_rotation::handle_rotating_dpu_uefi(ctx, mh_snapshot, *dpu_machine_id).await
+            }
+
+            ManagedHostState::RotatingNicLockdown => {
+                nic_lockdown_rotation::handle_rotating_nic_lockdown(ctx, mh_snapshot).await
             }
 
             ManagedHostState::Assigned { instance_state: _ } => {

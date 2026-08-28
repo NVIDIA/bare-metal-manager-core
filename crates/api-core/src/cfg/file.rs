@@ -1276,6 +1276,7 @@ impl CarbideConfig {
             spdm_enabled: self.spdm.enabled,
             bmc_rotation_enabled: self.bmc_rotation_enabled,
             uefi_rotation_enabled: self.uefi_rotation_enabled,
+            lockdown_ikm_rotation_enabled: self.lockdown_ikm_rotation_enabled,
             bmc_factory_reset_on_instance_termination_enabled: self
                 .bmc_factory_reset_on_instance_termination_enabled,
 

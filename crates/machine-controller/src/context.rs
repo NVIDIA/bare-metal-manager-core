@@ -75,6 +75,11 @@ pub struct MachineStateHandlerServices {
     /// `RotatingBmc` state as BMC root (a single root-authenticated Redfish call
     /// with no host-power impact), so this gate only decides *entry*.
     pub dpu_bmc_service_rotation_gate: RotationGate,
+    /// Short-TTL cache of the site-wide SuperNIC lockdown IKM rekey aggregate,
+    /// shared across this replica's per-object ticks. Family-scoped to
+    /// `lockdown_ikm` and keyed by each SuperNIC's NIC MAC, so a rekey sweep
+    /// consults only lockdown counts.
+    pub nic_lockdown_rotation_gate: RotationGate,
     /// Shared registry backing the generic per-object health metrics.
     pub per_object_metrics_registry: Arc<PerObjectMetricsRegistry>,
     /// Trait/association info gauges for the per-object metrics endpoint,

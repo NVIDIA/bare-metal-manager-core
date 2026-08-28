@@ -74,6 +74,18 @@ pub enum DpaInterfaceControllerState {
     Locking,
     /// The Dpa Interface has been configured with a non-zero VNI
     Assigned,
+    /// Tenant-free NIC lockdown IKM rekey: unlock the card with the IKM version
+    /// it is currently locked under. Entered only from the idle-only
+    /// `ManagedHostState::RotatingNicLockdown` host state (never under active
+    /// tenancy). Distinct from the assignment `Unlocking` so its convergence
+    /// bookkeeping and next-state (`RotateKeyLocking`) can't be confused with the
+    /// VNI/tenant assignment flow.
+    RotateKeyUnlocking,
+    /// Tenant-free NIC lockdown IKM rekey: relock the card at the staged
+    /// site-wide target IKM version, completing the rekey and returning the card
+    /// to `Ready`. The lock side stages `rotating_to_version` and promotes it on
+    /// observed lock, exactly like the assignment `Locking`.
+    RotateKeyLocking,
 }
 
 #[derive(Default)]
@@ -184,6 +196,12 @@ pub fn state_sla(state: &DpaInterfaceControllerState, state_version: &ConfigVers
             StateSla::with_sla(slas::UNLOCKING, time_in_state)
         }
         DpaInterfaceControllerState::Assigned => StateSla::no_sla(),
+        DpaInterfaceControllerState::RotateKeyUnlocking => {
+            StateSla::with_sla(slas::ROTATE_KEY_UNLOCKING, time_in_state)
+        }
+        DpaInterfaceControllerState::RotateKeyLocking => {
+            StateSla::with_sla(slas::ROTATE_KEY_LOCKING, time_in_state)
+        }
     }
 }
 
@@ -591,6 +609,16 @@ mod tests {
                     input: DpaInterfaceControllerState::Assigned,
                     expect: Yields("{\"state\":\"assigned\"}".to_string()),
                 },
+                Case {
+                    scenario: "rotatekeyunlocking",
+                    input: DpaInterfaceControllerState::RotateKeyUnlocking,
+                    expect: Yields("{\"state\":\"rotatekeyunlocking\"}".to_string()),
+                },
+                Case {
+                    scenario: "rotatekeylocking",
+                    input: DpaInterfaceControllerState::RotateKeyLocking,
+                    expect: Yields("{\"state\":\"rotatekeylocking\"}".to_string()),
+                },
             ],
             |state| -> Result<String, ()> {
                 let serialized = serde_json::to_string(&state).map_err(|_| ())?;
@@ -672,6 +700,14 @@ mod tests {
 
             "assigned" {
                 DpaInterfaceControllerState::Assigned => "Assigned".to_string(),
+            }
+
+            "rotatekeyunlocking" {
+                DpaInterfaceControllerState::RotateKeyUnlocking => "RotateKeyUnlocking".to_string(),
+            }
+
+            "rotatekeylocking" {
+                DpaInterfaceControllerState::RotateKeyLocking => "RotateKeyLocking".to_string(),
             }
         );
     }

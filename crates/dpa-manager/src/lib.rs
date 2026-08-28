@@ -314,6 +314,14 @@ impl DpaMonitor {
             DpaInterfaceControllerState::Assigned => {
                 handler.handle_assigned(self, mh, idx, metrics).await
             }
+            DpaInterfaceControllerState::RotateKeyUnlocking => {
+                handler
+                    .handle_rotate_key_unlocking(self, mh, idx, metrics)
+                    .await
+            }
+            DpaInterfaceControllerState::RotateKeyLocking => {
+                handler.handle_rotate_key_locking(self, mh, idx, metrics).await
+            }
         }
     }
 

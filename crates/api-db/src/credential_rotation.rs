@@ -269,6 +269,51 @@ pub async fn promote_rotating_to_current(
     Ok(result.rows_affected() > 0)
 }
 
+/// Records that `device_mac` is now *unlocked* for `credential_type`: NULLs
+/// `current_version` (the truth column's "no credential established" value, per
+/// the `lockdown_ikm` unlock contract) and clears the in-flight `rotating_to_version`
+/// marker plus all failure bookkeeping. Returns `true` if a row was updated,
+/// `false` if no row existed.
+///
+/// This is the unlock-side counterpart of [`promote_rotating_to_current`]. It is
+/// used by the two version-aware unlock observers for `lockdown_ikm`: the
+/// tenant-free idle rekey cycle (`RotateKeyUnlocking` -> observed `Unlocked`)
+/// and the decommission `WaitForSuperNicLockdown` observation. Recording the
+/// unlock keeps the truth column honest -- a released or decommissioned card
+/// must not retain a stale `current_version`/`rotating_to_version` that the
+/// rotation status counts or a later derivation would act on.
+///
+/// Clearing the failure bookkeeping (`rotate_attempts`, `rotate_quarantined_until`,
+/// `rotate_last_error_redacted`, `rotate_job_id`) mirrors [`promote_rotating_to_current`]:
+/// an unlocked card is a clean slate for its next lock, so it carries no stale
+/// error text or backoff window into `GetCredentialRotationStatus`.
+///
+/// Idempotent: a re-observed unlock finds the row already NULLed and is a no-op
+/// (it still reports `true` while the row exists). Missing row is a no-op that
+/// reports `false`.
+pub async fn record_device_unlocked(
+    conn: &mut PgConnection,
+    device_mac: MacAddress,
+    credential_type: CredentialRotationType,
+) -> Result<bool, DatabaseError> {
+    let query = "UPDATE device_credential_rotation \
+                 SET current_version = NULL, \
+                     rotating_to_version = NULL, \
+                     rotate_attempts = 0, \
+                     rotate_quarantined_until = NULL, \
+                     rotate_last_error_redacted = NULL, \
+                     rotate_job_id = NULL \
+                 WHERE device_mac = $1 AND credential_type = $2";
+    let result = sqlx::query(query)
+        .bind(device_mac)
+        .bind(credential_type)
+        .execute(&mut *conn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(result.rows_affected() > 0)
+}
+
 /// Records a failed rotation attempt for `(device_mac, credential_type)`: bumps
 /// `rotate_attempts`, stamps `rotate_last_attempt_at = now()`, stores the
 /// already-redacted `error_redacted`, and sets the backoff window
@@ -1065,7 +1110,7 @@ mod tests {
         BACKOFF_CAP_SECS, CredentialRotationType, backoff_until, current_target_version,
         delete_device_converged, device_rotation_operation_state, device_rotation_status,
         increment_rotate_attempt, mark_device_rotating_to_version, promote_rotating_to_current,
-        record_device_converged, record_device_rotation_failed,
+        record_device_converged, record_device_rotation_failed, record_device_unlocked,
         record_device_rotation_retry_started, record_device_rotation_started,
         record_device_rotation_submitted, record_device_rotation_succeeded, rotation_status,
         set_initial_target_version, set_next_target_version,
@@ -1461,6 +1506,69 @@ mod tests {
         assert!(!status.quarantined);
         assert!(status.quarantined_until.is_none());
         assert!(status.rotate_last_error_redacted.is_none());
+    }
+
+    #[crate::sqlx_test]
+    async fn record_unlocked_nulls_version_and_clears_markers(pool: PgPool) {
+        let mac: MacAddress = "02:00:00:00:00:0d".parse().unwrap();
+        let mut conn = pool.acquire().await.unwrap();
+
+        // A card converged at v2 with an in-flight relock staged to v3 and a
+        // prior failed attempt (attempts bumped, error stored, backoff window).
+        sqlx::query(
+            "UPDATE sitewide_credential_rotation SET target_version = 3 \
+             WHERE credential_type = 'lockdown_ikm'",
+        )
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+        insert_device(&mut conn, "02:00:00:00:00:0d", "lockdown_ikm", Some(2)).await;
+        mark_device_rotating_to_version(&mut conn, mac, CredentialRotationType::LockdownIkm, 3)
+            .await
+            .unwrap();
+        increment_rotate_attempt(
+            &mut conn,
+            mac,
+            CredentialRotationType::LockdownIkm,
+            "transient boom",
+            backoff_until(0, Utc::now()),
+        )
+        .await
+        .unwrap();
+
+        // Observing the card unlocked resets the row to the clean "unlocked"
+        // baseline: no current version, no in-flight marker, no failure state.
+        let updated = record_device_unlocked(&mut conn, mac, CredentialRotationType::LockdownIkm)
+            .await
+            .unwrap();
+        assert!(updated, "an existing row must report as updated");
+
+        let status = device_rotation_status(
+            &mut conn,
+            CredentialRotationType::LockdownIkm,
+            "02:00:00:00:00:0d".parse().unwrap(),
+        )
+        .await
+        .unwrap()
+        .expect("the row still exists after unlock");
+        assert_eq!(status.current_version, None);
+        assert_eq!(status.rotating_to_version, None);
+        assert!(!status.converged, "a NULL current_version is not converged");
+        assert_eq!(status.rotate_attempts, 0);
+        assert!(!status.quarantined);
+        assert!(status.quarantined_until.is_none());
+        assert!(status.rotate_last_error_redacted.is_none());
+
+        // Idempotent while the row exists; false only when no row is present.
+        let again = record_device_unlocked(&mut conn, mac, CredentialRotationType::LockdownIkm)
+            .await
+            .unwrap();
+        assert!(again, "a re-observed unlock still reports the row as present");
+        let missing: MacAddress = "02:00:00:00:00:ff".parse().unwrap();
+        let absent = record_device_unlocked(&mut conn, missing, CredentialRotationType::LockdownIkm)
+            .await
+            .unwrap();
+        assert!(!absent, "a missing row reports as not updated");
     }
 
     #[crate::sqlx_test]

@@ -203,6 +203,7 @@ const (
 	Forge_ListHostsWaitingForReprovisioning_FullMethodName                  = "/forge.Forge/ListHostsWaitingForReprovisioning"
 	Forge_TriggerBmcCredentialRotation_FullMethodName                       = "/forge.Forge/TriggerBmcCredentialRotation"
 	Forge_TriggerUefiCredentialRotation_FullMethodName                      = "/forge.Forge/TriggerUefiCredentialRotation"
+	Forge_TriggerNicLockdownCredentialRotation_FullMethodName               = "/forge.Forge/TriggerNicLockdownCredentialRotation"
 	Forge_MarkManualFirmwareUpgradeComplete_FullMethodName                  = "/forge.Forge/MarkManualFirmwareUpgradeComplete"
 	Forge_ReportScoutFirmwareUpgradeStatus_FullMethodName                   = "/forge.Forge/ReportScoutFirmwareUpgradeStatus"
 	Forge_GetDpuInfoList_FullMethodName                                     = "/forge.Forge/GetDpuInfoList"
@@ -843,6 +844,20 @@ type ForgeClient interface {
 	// withdraws a not-yet-consumed request -- it does not undo or reset any UEFI
 	// credential that a prior sweep already rotated.
 	TriggerUefiCredentialRotation(ctx context.Context, in *UefiCredentialRotationRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// Operator "force-converge this host's SuperNIC lockdown keys now" escape hatch
+	// for a single host. This is asynchronous: the handler only persists (Set) or
+	// removes (Clear) the host machine's `lockdown_ikm_credential_rotation_requested`
+	// flag and returns; it performs no rekey itself. A later machine-controller
+	// sweep observes a set flag and, once the host is otherwise idle, rekeys every
+	// lagging SuperNIC (SVPC) card to the site-wide target IKM (unlock at the
+	// current IKM, relock at the target via scout), bypassing the passive site-wide
+	// gate and each card's backoff quarantine, then clears the flag once the host
+	// settles. Unlike the BMC/UEFI hatches, a lockdown rekey never runs under active
+	// tenancy (a card is never unlocked under a tenant): a request against a host
+	// that currently has an instance is recorded and honored on the host's next
+	// idle window, not immediately. Clear only withdraws a not-yet-consumed request
+	// -- it does not undo or reset any card that a prior sweep already rekeyed.
+	TriggerNicLockdownCredentialRotation(ctx context.Context, in *NicLockdownCredentialRotationRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// TODO: Remove when manual upgrade feature is removed
 	// Mark host as having completed manual firmware upgrade
 	MarkManualFirmwareUpgradeComplete(ctx context.Context, in *MachineId, opts ...grpc.CallOption) (*emptypb.Empty, error)
@@ -3195,6 +3210,16 @@ func (c *forgeClient) TriggerUefiCredentialRotation(ctx context.Context, in *Uef
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, Forge_TriggerUefiCredentialRotation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) TriggerNicLockdownCredentialRotation(ctx context.Context, in *NicLockdownCredentialRotationRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, Forge_TriggerNicLockdownCredentialRotation_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -6596,6 +6621,20 @@ type ForgeServer interface {
 	// withdraws a not-yet-consumed request -- it does not undo or reset any UEFI
 	// credential that a prior sweep already rotated.
 	TriggerUefiCredentialRotation(context.Context, *UefiCredentialRotationRequest) (*emptypb.Empty, error)
+	// Operator "force-converge this host's SuperNIC lockdown keys now" escape hatch
+	// for a single host. This is asynchronous: the handler only persists (Set) or
+	// removes (Clear) the host machine's `lockdown_ikm_credential_rotation_requested`
+	// flag and returns; it performs no rekey itself. A later machine-controller
+	// sweep observes a set flag and, once the host is otherwise idle, rekeys every
+	// lagging SuperNIC (SVPC) card to the site-wide target IKM (unlock at the
+	// current IKM, relock at the target via scout), bypassing the passive site-wide
+	// gate and each card's backoff quarantine, then clears the flag once the host
+	// settles. Unlike the BMC/UEFI hatches, a lockdown rekey never runs under active
+	// tenancy (a card is never unlocked under a tenant): a request against a host
+	// that currently has an instance is recorded and honored on the host's next
+	// idle window, not immediately. Clear only withdraws a not-yet-consumed request
+	// -- it does not undo or reset any card that a prior sweep already rekeyed.
+	TriggerNicLockdownCredentialRotation(context.Context, *NicLockdownCredentialRotationRequest) (*emptypb.Empty, error)
 	// TODO: Remove when manual upgrade feature is removed
 	// Mark host as having completed manual firmware upgrade
 	MarkManualFirmwareUpgradeComplete(context.Context, *MachineId) (*emptypb.Empty, error)
@@ -7685,6 +7724,9 @@ func (UnimplementedForgeServer) TriggerBmcCredentialRotation(context.Context, *B
 }
 func (UnimplementedForgeServer) TriggerUefiCredentialRotation(context.Context, *UefiCredentialRotationRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method TriggerUefiCredentialRotation not implemented")
+}
+func (UnimplementedForgeServer) TriggerNicLockdownCredentialRotation(context.Context, *NicLockdownCredentialRotationRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method TriggerNicLockdownCredentialRotation not implemented")
 }
 func (UnimplementedForgeServer) MarkManualFirmwareUpgradeComplete(context.Context, *MachineId) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method MarkManualFirmwareUpgradeComplete not implemented")
@@ -11860,6 +11902,24 @@ func _Forge_TriggerUefiCredentialRotation_Handler(srv interface{}, ctx context.C
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ForgeServer).TriggerUefiCredentialRotation(ctx, req.(*UefiCredentialRotationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_TriggerNicLockdownCredentialRotation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(NicLockdownCredentialRotationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).TriggerNicLockdownCredentialRotation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_TriggerNicLockdownCredentialRotation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).TriggerNicLockdownCredentialRotation(ctx, req.(*NicLockdownCredentialRotationRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -18087,6 +18147,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "TriggerUefiCredentialRotation",
 			Handler:    _Forge_TriggerUefiCredentialRotation_Handler,
+		},
+		{
+			MethodName: "TriggerNicLockdownCredentialRotation",
+			Handler:    _Forge_TriggerNicLockdownCredentialRotation_Handler,
 		},
 		{
 			MethodName: "MarkManualFirmwareUpgradeComplete",

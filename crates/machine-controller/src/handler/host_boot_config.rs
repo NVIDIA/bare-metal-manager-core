@@ -568,6 +568,9 @@ mod tests {
                 carbide_credential_rotation::RotationGate::new_for_family(
                     db::credential_rotation::CredentialRotationType::DpuBmcService,
                 ),
+            nic_lockdown_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
+                db::credential_rotation::CredentialRotationType::LockdownIkm,
+            ),
         };
         let mut metrics = MachineMetrics::default();
         let mut pending_db_writes = DbWriteBatch::new();

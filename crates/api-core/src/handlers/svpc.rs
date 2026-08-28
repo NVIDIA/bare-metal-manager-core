@@ -108,6 +108,15 @@ pub(super) async fn process_scout_req(
             DpaInterfaceControllerState::Locking => {
                 build_lock_command(api, sn, machine_id, pci_name).await?
             }
+            DpaInterfaceControllerState::RotateKeyUnlocking => {
+                // Tenant-free rekey unlock: unlock at the version the card is
+                // actually locked under (same resolver as the assignment unlock).
+                build_unlock_command(api, sn, machine_id, pci_name).await?
+            }
+            DpaInterfaceControllerState::RotateKeyLocking => {
+                // Tenant-free rekey relock: always derive at the site-wide target.
+                build_rotate_key_lock_command(api, sn, machine_id, pci_name).await?
+            }
         };
 
         match MlxDeviceAction::try_from(DpaDeviceCommand {
@@ -403,19 +412,71 @@ fn build_apply_profile_command(
     })
 }
 
-/// Build and return a command to lock the DPA.
+/// Build and return a command to lock the DPA on the assignment cycle.
+///
+/// Resolves the IKM version via [`resolve_lock_ikm_version`] (the site-wide
+/// target when rotation is enabled, else the card's current version), then
+/// stages + issues the lock via [`lock_command_for_target`].
 async fn build_lock_command(
     api: &Api,
     sn: &DpaInterface,
     machine_id: MachineId,
     pci_name: &str,
 ) -> CarbideResult<DpaCommand<'static>> {
-    // Resolve the IKM version to lock this card under: the site-wide target when
-    // rotation is enabled, else the card's current version (see
-    // `resolve_lock_ikm_version`). Kept as DB-native `i32` for the staging write
-    // below, and converted to `u32` for the derivation layer; the rotation
-    // columns carry a non-negative CHECK, so a negative is a corrupted invariant.
     let target_version = resolve_lock_ikm_version(api, sn.mac_address).await?;
+    lock_command_for_target(api, sn, machine_id, pci_name, target_version).await
+}
+
+/// Build and return a command to relock the DPA during a tenant-free rekey
+/// (`RotateKeyLocking`).
+///
+/// Unlike the assignment lock, this **always** derives at the site-wide target,
+/// independent of `lockdown_ikm_rotation_enabled`: the host only entered the
+/// `RotatingNicLockdown` cycle because a card lags the target (passive path) or
+/// an operator forced it (force path runs with the flag off), so the cycle's
+/// whole purpose is to converge that card to the target. The card was just
+/// unlocked (`record_device_unlocked` NULLed both `current_version` and
+/// `rotating_to_version`), so the gated assignment resolver would wrongly fall
+/// back to the seed here. A missing site-wide target is a corrupted invariant we
+/// surface rather than paper over (mirroring `resolve_lock_ikm_version`).
+async fn build_rotate_key_lock_command(
+    api: &Api,
+    sn: &DpaInterface,
+    machine_id: MachineId,
+    pci_name: &str,
+) -> CarbideResult<DpaCommand<'static>> {
+    let mut conn = api.database_connection.acquire().await.map_err(|e| {
+        CarbideError::GenericErrorFromReport(eyre!(
+            "failed to acquire connection to resolve rekey lock IKM version for DPA {pci_name}: {e}"
+        ))
+    })?;
+    let target_version = db::credential_rotation::current_target_version(
+        &mut conn,
+        db::credential_rotation::CredentialRotationType::LockdownIkm,
+    )
+    .await?
+    .ok_or(db::DatabaseError::MissingSitewideRotationTarget(
+        db::credential_rotation::CredentialRotationType::LockdownIkm,
+    ))?;
+    drop(conn);
+    lock_command_for_target(api, sn, machine_id, pci_name, target_version).await
+}
+
+/// Shared lock builder: derive the lock key at `target_version`, stage it as the
+/// in-flight `rotating_to_version` marker, and return the `OpCode::Lock`. Used by
+/// both the assignment lock ([`build_lock_command`]) and the rekey relock
+/// ([`build_rotate_key_lock_command`]); they differ only in how `target_version`
+/// is resolved.
+async fn lock_command_for_target(
+    api: &Api,
+    sn: &DpaInterface,
+    machine_id: MachineId,
+    pci_name: &str,
+    target_version: i32,
+) -> CarbideResult<DpaCommand<'static>> {
+    // Kept as DB-native `i32` for the staging write below, and converted to
+    // `u32` for the derivation layer; the rotation columns carry a non-negative
+    // CHECK, so a negative is a corrupted invariant.
     let ikm_version = u32::try_from(target_version).map_err(|e| CarbideError::Internal {
         message: format!(
             "lockdown IKM lock version {target_version} is negative for DPA {pci_name}: {e}"

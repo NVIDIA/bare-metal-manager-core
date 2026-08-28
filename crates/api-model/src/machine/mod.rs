@@ -874,6 +874,16 @@ pub struct Machine {
     /// bypassing the passive site-wide gate and the device's backoff quarantine.
     pub uefi_credential_rotation_requested: bool,
 
+    /// Operator "force-converge this host's SuperNIC lockdown keys now" request.
+    /// Set on the host machine that owns the SuperNICs. When `true`, the machine
+    /// state controller enters `RotatingNicLockdown` for the otherwise-idle host
+    /// and rekeys every lagging SVPC card to the site-wide target IKM on its next
+    /// idle sweep, bypassing the passive site-wide gate
+    /// (`lockdown_ikm_rotation_enabled`) and each card's backoff quarantine. The
+    /// rekey never runs under active tenancy, so a forced request against a busy
+    /// host is honored on its next idle window rather than immediately.
+    pub lockdown_ikm_credential_rotation_requested: bool,
+
     /// Does the forge-dpu-agent on this DPU need upgrading?
     pub dpu_agent_upgrade_requested: Option<UpgradeDecision>,
 
@@ -1375,6 +1385,22 @@ pub enum ManagedHostState {
     RotatingDpuUefi {
         dpu_machine_id: MachineId,
     },
+
+    /// The host is rekeying its SuperNIC (SVPC) lockdown keys to the staged
+    /// site-wide `lockdown_ikm` target. A pool-only, top-level state on the same
+    /// lowest-precedence, idle-only footing as `RotatingBmc` / `RotatingHostUefi`:
+    /// it blocks instance creation (which requires exact `Ready`) for the bounded
+    /// duration of the rekey, so a card is never rekeyed under active tenancy.
+    ///
+    /// Unlike the host/DPU credentials, a SuperNIC lockdown key is applied by the
+    /// DPA interface state machine (unlock at the current IKM, relock at the
+    /// target IKM via scout), not by a Redfish/BIOS job. This host state therefore
+    /// drives the cards through a tenant-free `RotateKeyUnlocking -> RotateKeyLocking`
+    /// cycle and waits for them to converge, rather than carrying its own
+    /// multi-tick sub-state; per-card backoff/quarantine is the rotation engine's
+    /// `device_credential_rotation` bookkeeping keyed by each card's NIC MAC.
+    /// Every terminal path returns the host to `Ready`, so it never wedges here.
+    RotatingNicLockdown,
 
     /// State used to indicate the API is currently waiting on the
     /// machine to send attestation measurements, or waiting for
@@ -2844,6 +2870,7 @@ impl Display for ManagedHostState {
             ManagedHostState::RotatingDpuUefi { dpu_machine_id } => {
                 write!(f, "RotatingDpuUefi/{dpu_machine_id}")
             }
+            ManagedHostState::RotatingNicLockdown => write!(f, "RotatingNicLockdown"),
             ManagedHostState::Measuring { measuring_state } => {
                 write!(f, "Measuring/{measuring_state}")
             }
@@ -2953,6 +2980,7 @@ impl ManagedHostState {
             ManagedHostState::RotatingBmc { .. } => "RotatingBmc".to_string(),
             ManagedHostState::RotatingHostUefi { .. } => "RotatingHostUefi".to_string(),
             ManagedHostState::RotatingDpuUefi { .. } => "RotatingDpuUefi".to_string(),
+            ManagedHostState::RotatingNicLockdown => "RotatingNicLockdown".to_string(),
             ManagedHostState::Measuring { measuring_state } => {
                 format!("Measuring/{measuring_state}")
             }
@@ -3210,6 +3238,9 @@ pub fn state_sla(
         }
         ManagedHostState::RotatingDpuUefi { .. } => {
             StateSla::with_sla(slas::ROTATING_DPU_UEFI, time_in_state)
+        }
+        ManagedHostState::RotatingNicLockdown => {
+            StateSla::with_sla(slas::ROTATING_NIC_LOCKDOWN, time_in_state)
         }
         ManagedHostState::Measuring { measuring_state } => match measuring_state {
             // The API shouldn't be waiting for measurements for long. As soon
@@ -5054,6 +5085,47 @@ mod tests {
         assert!(
             !sla.time_in_state_above_sla,
             "a freshly entered RotatingBmc state is within its SLA"
+        );
+    }
+
+    #[test]
+    fn rotating_nic_lockdown_state_serde_display_and_sla() {
+        // The unit variant pins to the bare `state` tag with no payload; the
+        // `parse -> serialize -> reparse` run pins serializer symmetry and the
+        // stable Display label.
+        scenarios!(
+            run = |s| {
+                let parsed = serde_json::from_str::<ManagedHostState>(s).map_err(drop)?;
+                let serialized = serde_json::to_string(&parsed).map_err(drop)?;
+                let roundtrip =
+                    serde_json::from_str::<ManagedHostState>(&serialized).map_err(drop)?;
+                Ok::<_, ()>((parsed.clone(), roundtrip, parsed.to_string()))
+            };
+            "bare tag round-trips" {
+                r#"{"state":"rotatingniclockdown"}"# => Yields((
+                    ManagedHostState::RotatingNicLockdown,
+                    ManagedHostState::RotatingNicLockdown,
+                    "RotatingNicLockdown".to_string(),
+                )),
+            }
+        );
+
+        // It carries the dedicated rekey SLA (not a default), and a freshly
+        // entered state is within it.
+        let machine_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
+        let sla = state_sla(
+            &machine_id,
+            &ManagedHostState::RotatingNicLockdown,
+            &ConfigVersion::initial(),
+            &health_report_with_alerts(vec![]),
+            &slas::MachineSlaConfig::default(),
+        );
+        assert_eq!(sla.sla, Some(slas::ROTATING_NIC_LOCKDOWN));
+        assert!(
+            !sla.time_in_state_above_sla,
+            "a freshly entered RotatingNicLockdown state is within its SLA"
         );
     }
 

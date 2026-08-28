@@ -87,6 +87,14 @@ pub const ROTATING_HOST_UEFI: Duration = Duration::from_secs(40 * 60);
 // retry.
 pub const ROTATING_DPU_UEFI: Duration = Duration::from_secs(40 * 60);
 
+// SuperNIC lockdown IKM rekey. The host drives every SVPC card through a
+// tenant-free unlock/relock cycle via the DPA state machine and scout, waiting
+// for each to converge. The budget mirrors the UEFI rotations: generous enough
+// to absorb several cards each completing a scout unlock/relock round-trip plus
+// the engine's short per-card backoff without tripping the SLA on the first
+// retry.
+pub const ROTATING_NIC_LOCKDOWN: Duration = Duration::from_secs(40 * 60);
+
 /// SLA for Site Explorer suppression acknowledgement during decommissioning.
 pub const DECOMMISSIONING_SUPPRESSING_SITE_EXPLORER: Duration = Duration::from_secs(5 * 60);
 

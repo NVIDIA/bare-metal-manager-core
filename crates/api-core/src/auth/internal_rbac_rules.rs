@@ -342,6 +342,7 @@ impl InternalRBACRules {
         x.perm("GetCredentialRotationStatus", vec![ForgeAdminCLI]);
         x.perm("TriggerBmcCredentialRotation", vec![ForgeAdminCLI]);
         x.perm("TriggerUefiCredentialRotation", vec![ForgeAdminCLI]);
+        x.perm("TriggerNicLockdownCredentialRotation", vec![ForgeAdminCLI]);
         x.perm("GetRouteServers", vec![ForgeAdminCLI]);
         x.perm("AddRouteServers", vec![ForgeAdminCLI]);
         x.perm("RemoveRouteServers", vec![ForgeAdminCLI]);
