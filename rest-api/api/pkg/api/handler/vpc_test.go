@@ -19,6 +19,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	dpsclient "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/dps"
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
@@ -52,6 +53,39 @@ func testVPCInitDB(t *testing.T) *cdb.Session {
 		bundebug.FromEnv(""),
 	))
 	return dbSession
+}
+
+func TestPowerResourceGroupAPIError(t *testing.T) {
+	tests := []struct {
+		name        string
+		err         error
+		fallback    string
+		wantCode    int
+		wantMessage string
+	}{
+		{
+			name:        "maps DPS name collision to conflict",
+			err:         fmt.Errorf("create replacement group: %w", dpsclient.ErrResourceGroupAlreadyExists),
+			fallback:    "Failed to change DPS resource group",
+			wantCode:    http.StatusConflict,
+			wantMessage: "Power resource group already exists",
+		},
+		{
+			name:        "preserves generic DPS failure mapping",
+			err:         errors.New("DPS unavailable"),
+			fallback:    "Failed to create DPS resource group",
+			wantCode:    http.StatusServiceUnavailable,
+			wantMessage: "Failed to create DPS resource group",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			apiErr := powerResourceGroupAPIError(test.err, test.fallback)
+			assert.Equal(t, test.wantCode, apiErr.Code)
+			assert.Equal(t, test.wantMessage, apiErr.Message)
+		})
+	}
 }
 
 // testVPCSetupSchema resets the tables required by VPC handler and
@@ -4138,9 +4172,8 @@ func TestNewCreateVPCHandler(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewCreateVPCHandler(tt.args.dbSession, tt.args.tc, scp, tt.args.cfg); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("NewCreateVPCHandler() = %v, want %v", got, tt.want)
-			}
+			got := NewCreateVPCHandler(tt.args.dbSession, tt.args.tc, scp, tt.args.cfg, nil)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -4185,9 +4218,8 @@ func TestNewUpdateVPCHandler(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewUpdateVPCHandler(tt.args.dbSession, tt.args.tc, scp, tt.args.cfg); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("NewUpdateVPCHandler() = %v, want %v", got, tt.want)
-			}
+			got := NewUpdateVPCHandler(tt.args.dbSession, tt.args.tc, scp, tt.args.cfg, nil)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -4314,9 +4346,8 @@ func TestNewDeleteVPCHandler(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewDeleteVPCHandler(tt.args.dbSession, tt.args.tc, scp, tt.args.cfg); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("NewDeleteVPCHandler() = %v, want %v", got, tt.want)
-			}
+			got := NewDeleteVPCHandler(tt.args.dbSession, tt.args.tc, scp, tt.args.cfg, nil)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }

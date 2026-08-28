@@ -3028,7 +3028,7 @@ paths:
         '403':
           $ref: '#/components/responses/ForbiddenError'
         '409':
-          description: A VPC with the requested `id` or `name` already exists. This can also occur when inventory reconciliation completes before an ambiguous create is retried.
+          description: A VPC with the requested `id` or `name` already exists, or the requested DPS power resource-group name is already in use. This can also occur when inventory reconciliation completes before an ambiguous create is retried. Existing DPS groups are not reused, and their ownership is not disclosed.
           content:
             application/json:
               schema:
@@ -3040,6 +3040,11 @@ paths:
                     message: A Vpc with specified ID already exists
                     data:
                       id: 497f6eca-6276-4993-bfeb-53cbbbba6f08
+                power-resource-group-conflict:
+                  value:
+                    source: nico
+                    message: Power resource group already exists
+                    data: null
         '412':
           description: The latest successfully stored configuration inventory for the selected Site does not report Core support for SLAAC, the Site's `dpsPowerManagement` capability is `false` while the request specifies a non-empty power resource group, or Core rejects another create prerequisite. Site capability checks fail before REST persistence or workflow dispatch; a Core rejection occurs after dispatch and the REST transaction is rolled back.
           content:
@@ -3252,6 +3257,18 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '409':
+          description: The requested DPS power resource-group name is already in use. Existing DPS groups are not reused, and their ownership is not disclosed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+              examples:
+                power-resource-group-conflict:
+                  value:
+                    source: nico
+                    message: Power resource group already exists
+                    data: null
         '412':
           description: The Site's `dpsPowerManagement` capability is `false`, so a non-empty power resource group cannot be accepted.
           $ref: '#/components/responses/GenericHttpError'
@@ -3384,8 +3401,9 @@ paths:
       description: |-
         Get all VPC peerings.
         Tenant Admin can get all peerings where the tenant owns at least one VPC.
-        Provider Admin can get all peerings in a site.
-        User must have authorization role with `TENANT_ADMIN` or `PROVIDER_ADMIN` suffix.
+        Provider Admin can retrieve all multi-Tenant VPC Peerings. It should be noted that
+        only Provider Admins can create multi-Tenant Peerings. User must have authorization role
+        with `TENANT_ADMIN` or `PROVIDER_ADMIN` suffix.
       parameters:
         - schema:
             type: string
@@ -21561,6 +21579,8 @@ components:
           labels:
             region: portland
             env: staging
+          machineLabelSelector:
+            custom-machine-label: required-value
           interfaces:
             - subnetId: 1f232bf0-7b90-456e-b9b0-38d9fea4171a
               isPhysical: false
@@ -21681,6 +21701,12 @@ components:
             - string
             - 'null'
           description: ID of of specific Machine to use for Instance. Requires Targeted Instance Creation capability enabled for Tenant
+        machineLabelSelector:
+          $ref: '#/components/schemas/MachineLabelSelector'
+          description: |-
+            Optional exact-match selector applied to Machine labels during placement. Property names are arbitrary Machine label keys rather than predefined selector fields. Every supplied key/value pair must match (AND semantics). An omitted or empty object does not restrict placement.
+
+            A non-empty object requires the Tenant to have effective `targetedInstanceCreation` capability for the selected Site; otherwise the request is rejected with 403. When `instanceTypeId` is supplied, NICo selects from Ready, unassigned Machines of that Instance Type that match the selector. When `machineId` is supplied, the specified Machine must match the selector or the request is rejected with 400. The selector constrains placement only; it is not persisted on the created Instance.
         vpcId:
           type: string
           format: uuid
@@ -21780,6 +21806,8 @@ components:
           labels:
             workload: training
             env: production
+          machineLabelSelector:
+            custom-machine-label: required-value
           interfaces:
             - subnetId: 1f232bf0-7b90-456e-b9b0-38d9fea4171a
               isPhysical: true
@@ -21836,6 +21864,12 @@ components:
           type: string
           format: uuid
           description: ID of the Instance Type to use for all Instances in the batch
+        machineLabelSelector:
+          $ref: '#/components/schemas/MachineLabelSelector'
+          description: |-
+            Optional exact-match selector applied to Machine labels during placement. Property names are arbitrary Machine label keys rather than predefined selector fields. Every supplied key/value pair must match (AND semantics). An omitted or empty object does not restrict placement. The selector constrains placement only; it is not persisted on the created Instances.
+
+            A non-empty object requires the Tenant to have effective `targetedInstanceCreation` capability for the selected Site; otherwise the request is rejected with 403. Selection occurs before topology optimization. When `topologyOptimized` is true, all selected Machines must both match the selector and belong to the same NVLink domain. If too few matching Machines are available, the request is rejected with 409.
         vpcId:
           type: string
           format: uuid
@@ -29119,6 +29153,22 @@ components:
       maxProperties: 10
       additionalProperties:
         type: string
+    MachineLabelSelector:
+      title: Machine Label Selector
+      type: object
+      maxProperties: 10
+      propertyNames:
+        minLength: 1
+        maxLength: 255
+        pattern: '^[^\u0000]*[^\s\u0000][^\u0000]*$'
+      additionalProperties:
+        type: string
+        maxLength: 255
+        pattern: '^[^\u0000]*$'
+      description: Property names are arbitrary Machine label keys supplied by the caller; there is no predefined set of selector fields. Every property must have a string value; an empty string is allowed, but JSON null is not. Keys must not be empty or whitespace-only. Keys and values may contain at most 255 characters and must not contain the Unicode NUL character (U+0000).
+      examples:
+        - custom-machine-label: required-value
+        - empty-value-label: ''
     MachineGPUStats:
       title: MachineGPUStats
       description: GPU summary stats for a single GPU type across machines at a site

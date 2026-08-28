@@ -214,6 +214,16 @@ async fn test_dpu_pxe_gets_correct_os_when_machine_is_not_created(
         instructions.pxe_script.contains("aarch64/carbide.efi"),
         "should PXE boot to carbide.efi for DPU agent OS"
     );
+    assert!(
+        instructions
+            .pxe_script
+            .contains("bfks=${dpu-cloudinit-url}/user-data"),
+        "DPU should fetch its kickstart from the dpu cloud-init prefix"
+    );
+    assert!(
+        !instructions.pxe_script.contains("scout-cloudinit-url"),
+        "the Scout snippet datasource is for hosts, not DPUs"
+    );
 
     Ok(())
 }
@@ -323,6 +333,12 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
     )
     .await;
     assert!(instructions.pxe_script.contains("x86_64/scout.efi"));
+    assert!(
+        instructions
+            .pxe_script
+            .contains("ds=nocloud;s=${scout-cloudinit-url}"),
+        "a host booting Scout should be given the discovery cloud-init datasource"
+    );
 
     move_machine_to_needed_state(
         host_id,

@@ -15,7 +15,11 @@
  * limitations under the License.
  */
 
-use std::borrow::Cow;
+//! The BlueField kickstart served to a DPU during provisioning.
+//!
+//! The DPU reaches this from `bfks=` on its kernel command line and fetches
+//! `user-data` and nothing else, so this prefix carries only that document.
+
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -33,8 +37,12 @@ use carbide_uuid::machine::MachineInterfaceId;
 use rpc::forge;
 use rpc::forge::PxeDomain;
 
+use super::log_and_generate_generic_error;
 use crate::common::{AppState, Machine};
-use crate::metrics::{BootEndpoint, OutcomeReason, PxeBootOutcome, PxeCloudInitRequestFailed};
+use crate::metrics::{BootEndpoint, CloudInitConsumer, OutcomeReason, PxeBootOutcome};
+
+/// Every outcome on this route carries the same endpoint label.
+const ENDPOINT: BootEndpoint = BootEndpoint::CloudInit(CloudInitConsumer::Dpu);
 
 const DEFAULT_NUM_OF_VFS: u32 = 16;
 const DEFAULT_HBN_BRIDGE: &str = "br-hbn";
@@ -82,29 +90,8 @@ fn generate_forge_agent_config(
     toml::to_string(&config).unwrap_or_else(|e| format!("# serialization error: {e}"))
 }
 
-/// The generic-failure funnel for the cloud-init routes: whatever data was
-/// missing, the client receives the same generic error template, and the
-/// caller says which missing data it was -- the reason label carries the
-/// per-site truth while the response stays generic.
-fn log_and_generate_generic_error(
-    error: String,
-    reason: OutcomeReason,
-) -> (String, HashMap<String, String>) {
-    emit(PxeCloudInitRequestFailed {
-        endpoint: BootEndpoint::CloudInit,
-        reason,
-        error,
-    });
-    let mut template_data: HashMap<String, String> = HashMap::new();
-    template_data.insert(
-        "error".to_string(),
-        "An error occurred while rendering the request".to_string(),
-    );
-    ("error".to_string(), template_data) // Send a generic error back
-}
-
 #[allow(clippy::too_many_arguments)]
-fn user_data_handler(
+fn render_user_data(
     machine_interface_id: MachineInterfaceId,
     machine_interface: forge::MachineInterface,
     domain: PxeDomain,
@@ -194,6 +181,13 @@ fn user_data_handler(
     ("user-data".to_string(), context)
 }
 
+/// Serves the DPU's kickstart: a per-machine boot override when one is set,
+/// otherwise the provisioning script rendered from the machine's discovery
+/// instructions.
+///
+/// The override is checked first and is not a tenant document despite sharing
+/// the `user-data-assigned` template: it is set per machine interface and
+/// exists to test one-off changes against a single DPU.
 async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoResponse {
     let (template_key, template_data) = match (
         machine.instructions.custom_cloud_init,
@@ -205,7 +199,7 @@ async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoRespons
             let mut template_data: HashMap<String, String> = HashMap::new();
             template_data.insert("user_data".to_string(), custom_cloud_init);
             emit(PxeBootOutcome {
-                endpoint: BootEndpoint::CloudInit,
+                endpoint: ENDPOINT,
                 reason: OutcomeReason::Ok,
             });
             ("user-data-assigned".to_string(), template_data)
@@ -225,10 +219,10 @@ async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoRespons
                         match (bootstrap_ca_source, dpu_nvconfig_profile) {
                             (Ok(bootstrap_ca_source), Ok(dpu_nvconfig_profile)) => {
                                 emit(PxeBootOutcome {
-                                    endpoint: BootEndpoint::CloudInit,
+                                    endpoint: ENDPOINT,
                                     reason: OutcomeReason::Ok,
                                 });
-                                user_data_handler(
+                                render_user_data(
                                     machine_interface_id,
                                     interface,
                                     domain,
@@ -246,149 +240,42 @@ async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoRespons
                             (Err(error), _) | (_, Err(error)) => log_and_generate_generic_error(
                                 error,
                                 OutcomeReason::InstructionsInvalid,
+                                ENDPOINT,
                             ),
                         }
                     }
                     None => log_and_generate_generic_error(
                         format!("The interface ID should not be null: {interface:?}"),
                         OutcomeReason::InterfaceNotFound,
+                        ENDPOINT,
                     ),
                 },
                 (interface, domain) => log_and_generate_generic_error(
                     format!("The interface and domain were not found: {interface:?}, {domain:?}"),
                     OutcomeReason::InterfaceNotFound,
+                    ENDPOINT,
                 ),
             }
         }
-        (None, None) => {
-            let mut template_data: HashMap<String, String> = HashMap::new();
-            template_data.insert("user_data".to_string(), "{}".to_string());
-            emit(PxeBootOutcome {
-                endpoint: BootEndpoint::CloudInit,
-                reason: OutcomeReason::Ok,
-            });
-            ("user-data-assigned".to_string(), template_data)
-        }
-    };
-
-    axum_template::Render(template_key, state.engine.clone(), template_data)
-}
-
-async fn meta_data(machine: Machine, state: State<AppState>) -> impl IntoResponse {
-    let (template_key, template_data) = match machine.instructions.metadata {
-        None => log_and_generate_generic_error(
-            format!("No metadata was found for machine {machine:?}"),
-            OutcomeReason::MetadataNotFound,
+        // Reaching this prefix at all means the machine booted as a DPU, so
+        // there is nothing sensible to serve without instructions -- unlike
+        // the tenant path, an empty document would leave it unprovisioned.
+        (None, None) => log_and_generate_generic_error(
+            "No discovery instructions were found for this DPU".to_string(),
+            OutcomeReason::InstructionsEmpty,
+            ENDPOINT,
         ),
-        Some(metadata) => {
-            let mut template_data = HashMap::from([
-                ("instance_id".to_string(), metadata.instance_id),
-                ("cloud_name".to_string(), metadata.cloud_name),
-                ("platform".to_string(), metadata.platform),
-            ]);
-            if let Some(local_hostname) = metadata.local_hostname {
-                template_data.insert("local_hostname".to_string(), local_hostname);
-            }
-
-            emit(PxeBootOutcome {
-                endpoint: BootEndpoint::CloudInit,
-                reason: OutcomeReason::Ok,
-            });
-            ("meta-data".to_string(), template_data)
-        }
     };
 
     axum_template::Render(template_key, state.engine.clone(), template_data)
 }
 
-/// Extracts the top-level `network:` key (if present) from a tenant's
-/// custom cloud-init document and returns it as its own standalone YAML
-/// document, suitable for seeding NoCloud's separate `network-config`
-/// file. A `network:` key inside `user-data` itself is not a recognized
-/// user-data format and is silently ignored by cloud-init.
-fn extract_network_config(custom_cloud_init: &str) -> Option<String> {
-    let value: serde_yaml::Value = serde_yaml::from_str(custom_cloud_init).ok()?;
-    serde_yaml::to_string(value.get("network")?).ok()
-}
-
-/// Default network-config served when a tenant hasn't provided a custom
-/// `network:` key in their cloud-init userdata. cloud-init's own default
-/// behavior (no network-config at all) only DHCPs the first network
-/// interface it finds; this instead DHCPs every matching interface, under
-/// both the predictable ("en*") and legacy ("eth*") naming conventions,
-/// so multi-NIC hosts come up with working networking on every port.
-const DEFAULT_NETWORK_CONFIG: &str = r#"version: 2
-ethernets:
-  predictable-names:
-    match:
-      name: "en*"
-    dhcp4: true
-    dhcp6: true
-  legacy-names:
-    match:
-      name: "eth*"
-    dhcp4: true
-    dhcp6: true
-"#;
-
-/// Resolves the network-config YAML to use for a machine: the `network:`
-/// key extracted from the tenant's custom cloud-init userdata if present,
-/// otherwise DEFAULT_NETWORK_CONFIG (DHCP on every interface), rather
-/// than an empty document that would fall back to cloud-init's own
-/// first-interface-only default.
-fn resolve_network_config(custom_cloud_init: Option<&str>) -> Cow<'static, str> {
-    custom_cloud_init
-        .and_then(extract_network_config)
-        .map(Cow::Owned)
-        .unwrap_or(Cow::Borrowed(DEFAULT_NETWORK_CONFIG))
-}
-
-/// Serves NoCloud's `network-config` document for a tenant's assigned
-/// machine, extracted from any `network:` key present in their custom
-/// cloud-init userdata. When no such key is present, serves
-/// DEFAULT_NETWORK_CONFIG instead of an empty document, so hosts get
-/// DHCP on every interface by default rather than cloud-init's own
-/// first-interface-only behavior.
-async fn network_config(machine: Machine, state: State<AppState>) -> impl IntoResponse {
-    let network_config_yaml =
-        resolve_network_config(machine.instructions.custom_cloud_init.as_deref());
-    let template_data = HashMap::from([("network_config", network_config_yaml)]);
-    axum_template::Render("network-config", state.engine.clone(), template_data)
-}
-
-async fn vendor_data(state: State<AppState>) -> impl IntoResponse {
-    emit(PxeBootOutcome {
-        endpoint: BootEndpoint::CloudInit,
-        reason: OutcomeReason::Ok,
-    });
-    axum_template::Render(
-        "printcontext",
-        state.engine.clone(),
-        HashMap::<String, String>::new(),
-    )
-}
-
-/// Builds the PXE service's route table for the cloud-init-related
-/// endpoints served under `path_prefix`: `user-data`, `meta-data`,
-/// `vendor-data`, and `network-config`.
+/// Builds the DPU's route table under `path_prefix`.
 pub(crate) fn get_router(path_prefix: &str) -> Router<AppState> {
-    Router::new()
-        .route(
-            format!("{}/{}", path_prefix, "user-data").as_str(),
-            get(user_data),
-        )
-        .route(
-            format!("{}/{}", path_prefix, "meta-data").as_str(),
-            get(meta_data),
-        )
-        .route(
-            format!("{}/{}", path_prefix, "vendor-data").as_str(),
-            get(vendor_data),
-        )
-        .route(
-            format!("{}/{}", path_prefix, "network-config").as_str(),
-            get(network_config),
-        )
+    Router::new().route(
+        format!("{}/{}", path_prefix, "user-data").as_str(),
+        get(user_data),
+    )
 }
 
 #[cfg(test)]
@@ -403,7 +290,8 @@ mod tests {
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../pxe/test_data");
 
-    fn render_user_data(
+    /// Renders the `user-data` template from a hand-built context.
+    fn render_user_data_test_template(
         bootstrap_ca_source: BootstrapCaSource,
         dpu_nvconfig_profile: Option<DpuNvConfigProfile>,
     ) -> String {
@@ -523,7 +411,7 @@ mod tests {
                 },
             ],
             |source| {
-                let rendered = render_user_data(source, None);
+                let rendered = render_user_data_test_template(source, None);
                 (
                     rendered.matches("ip vrf exec mgmt curl --retry 5 --retry-all-errors -v -o /opt/forge/forge_root.pem http://carbide-pxe.forge/api/v0/tls/root_ca").count(),
                     rendered.contains("validate_bootstrap_ca()"),
@@ -538,7 +426,8 @@ mod tests {
     #[test]
     fn user_data_template_applies_selected_dpu_nvconfig_profile_after_bfcfg() {
         let profile = DpuNvConfigProfile::Gb200B3240V1;
-        let rendered = render_user_data(BootstrapCaSource::LegacyDownload, Some(profile));
+        let rendered =
+            render_user_data_test_template(BootstrapCaSource::LegacyDownload, Some(profile));
         let command = format!(
             "/usr/bin/mlxconfig -y -d \"${{mst_device}}\" set {}",
             profile.parameters().join(" "),
@@ -561,7 +450,8 @@ mod tests {
         assert!(bfcfg_position < profile_position);
         assert!(rendered.contains("No mst pciconf device found for the DPU NVConfig profile"));
 
-        let rendered_without_profile = render_user_data(BootstrapCaSource::LegacyDownload, None);
+        let rendered_without_profile =
+            render_user_data_test_template(BootstrapCaSource::LegacyDownload, None);
         assert!(!rendered_without_profile.contains(command.as_str()));
     }
 
@@ -763,7 +653,7 @@ mod tests {
     }
 
     #[test]
-    fn user_data_handler_sets_fqdn_hostname() {
+    fn render_user_data_sets_fqdn_hostname() {
         let interface_id: MachineInterfaceId =
             "91609f10-c91d-470d-a260-6293ea0c1234".parse().unwrap();
         let machine_interface = forge::MachineInterface {
@@ -780,7 +670,7 @@ mod tests {
         };
         let state = State(test_app_state());
 
-        let (template_key, context) = user_data_handler(
+        let (template_key, context) = render_user_data(
             interface_id,
             machine_interface,
             domain,
@@ -807,7 +697,7 @@ mod tests {
     }
 
     #[test]
-    fn user_data_handler_sets_fqdn_hostname_with_new_domain() {
+    fn render_user_data_sets_fqdn_hostname_with_new_domain() {
         let interface_id: MachineInterfaceId =
             "91609f10-c91d-470d-a260-6293ea0c1234".parse().unwrap();
         let machine_interface = forge::MachineInterface {
@@ -824,7 +714,7 @@ mod tests {
         };
         let state = State(test_app_state());
 
-        let (_template_key, context) = user_data_handler(
+        let (_template_key, context) = render_user_data(
             interface_id,
             machine_interface,
             domain,
@@ -845,208 +735,14 @@ mod tests {
         );
     }
 
-    /// Table-driven coverage for `extract_network_config` across its three
-    /// input variants: a present `network:` key, a missing one, and
-    /// malformed YAML.
-    #[test]
-    fn extract_network_config_handles_various_inputs() {
-        struct Case {
-            name: &'static str,
-            input: &'static str,
-            expect_some: bool,
-        }
-
-        let cases = [
-            Case {
-                name: "network key present",
-                input: "#cloud-config\nnetwork:\n  version: 2\n  ethernets:\n    eth0:\n      addresses:\n        - 10.10.10.50/24\nwrite_files:\n  - path: /tmp/foo\n    content: bar\n",
-                expect_some: true,
-            },
-            Case {
-                name: "no network key",
-                input: "#cloud-config\nwrite_files:\n  - path: /tmp/foo\n    content: bar\n",
-                expect_some: false,
-            },
-            Case {
-                name: "invalid yaml",
-                input: "not: valid: yaml: at: all: :::",
-                expect_some: false,
-            },
-        ];
-
-        for case in cases {
-            let result = extract_network_config(case.input);
-            assert_eq!(
-                result.is_some(),
-                case.expect_some,
-                "case '{}' failed",
-                case.name
-            );
-
-            if case.expect_some {
-                let parsed: serde_yaml::Value = serde_yaml::from_str(&result.unwrap()).unwrap();
-                assert_eq!(parsed.get("version").unwrap().as_u64().unwrap(), 2);
-                assert!(
-                    parsed
-                        .get("ethernets")
-                        .and_then(|e| e.get("eth0"))
-                        .is_some(),
-                    "case '{}': expected eth0 config present",
-                    case.name
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn resolve_network_config_handles_various_inputs() {
-        struct Case {
-            name: &'static str,
-            custom_cloud_init: Option<&'static str>,
-            expect_default: bool,
-        }
-
-        let cases = [
-            Case {
-                name: "no network key in custom cloud-init",
-                custom_cloud_init: Some("#cloud-config\nwrite_files: []\n"),
-                expect_default: true,
-            },
-            Case {
-                name: "network key present in custom cloud-init",
-                custom_cloud_init: Some(
-                    "#cloud-config\nnetwork:\n  version: 2\n  ethernets:\n    eth0:\n      addresses:\n        - 10.10.10.50/24\n",
-                ),
-                expect_default: false,
-            },
-            Case {
-                name: "no custom cloud-init at all",
-                custom_cloud_init: None,
-                expect_default: true,
-            },
-        ];
-
-        for case in cases {
-            let result = resolve_network_config(case.custom_cloud_init);
-
-            if case.expect_default {
-                assert_eq!(
-                    result, DEFAULT_NETWORK_CONFIG,
-                    "case '{}' failed",
-                    case.name
-                );
-            } else {
-                let parsed: serde_yaml::Value = serde_yaml::from_str(&result).unwrap_or_else(|e| {
-                    panic!("case '{}': result was not valid YAML: {}", case.name, e)
-                });
-                assert_eq!(
-                    parsed.get("version").unwrap().as_u64().unwrap(),
-                    2,
-                    "case '{}' failed",
-                    case.name
-                );
-                let eth0_addresses = parsed
-                    .get("ethernets")
-                    .and_then(|e| e.get("eth0"))
-                    .and_then(|e| e.get("addresses"))
-                    .and_then(|a| a.as_sequence())
-                    .unwrap_or_else(|| {
-                        panic!("case '{}': expected ethernets.eth0.addresses", case.name)
-                    });
-                assert_eq!(
-                    eth0_addresses[0].as_str().unwrap(),
-                    "10.10.10.50/24",
-                    "case '{}' failed",
-                    case.name
-                );
-            }
-        }
-    }
-
-    fn test_app_state_with_templates() -> AppState {
-        use axum_template::engine::Engine;
-        use metrics_exporter_prometheus::PrometheusBuilder;
-        use tera::Tera;
-
-        let template_glob = concat!(env!("CARGO_MANIFEST_DIR"), "/../../pxe/templates/**/*");
-        let tera = Tera::new(template_glob).expect("failed to load pxe templates");
-        let mut state = test_app_state();
-        state.engine = Engine::from(tera);
-        state.prometheus_handle = PrometheusBuilder::new().build_recorder().handle();
-        state
-    }
-
-    /// When an instance has a name, meta-data includes local-hostname so
-    /// cloud-init sets the OS hostname via the NoCloud datasource.
+    /// A DPU that resolves to no instructions at all is an error rather than
+    /// an empty document: this prefix is only reached by a machine that booted
+    /// expecting a kickstart.
     #[tokio::test]
-    async fn meta_data_includes_local_hostname_when_instance_has_name() {
-        let response = meta_data(
-            Machine {
-                instructions: forge::CloudInitInstructions {
-                    metadata: Some(forge::CloudInitMetaData {
-                        instance_id: "test-instance-id".to_string(),
-                        cloud_name: "nvidia".to_string(),
-                        platform: "forge".to_string(),
-                        local_hostname: Some("my-node".to_string()),
-                    }),
-                    ..Default::default()
-                },
-            },
-            State(test_app_state_with_templates()),
-        )
-        .await
-        .into_response();
-
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let text = std::str::from_utf8(&body).unwrap();
-        assert!(
-            text.contains("local-hostname: \"my-node\""),
-            "meta-data should contain local-hostname, got: {text}"
-        );
-    }
-
-    /// When an instance has no name, meta-data must not include local-hostname
-    /// so cloud-init falls back to its default hostname derivation.
-    #[tokio::test]
-    async fn meta_data_omits_local_hostname_when_instance_has_no_name() {
-        let response = meta_data(
-            Machine {
-                instructions: forge::CloudInitInstructions {
-                    metadata: Some(forge::CloudInitMetaData {
-                        instance_id: "test-instance-id".to_string(),
-                        cloud_name: "nvidia".to_string(),
-                        platform: "forge".to_string(),
-                        local_hostname: None,
-                    }),
-                    ..Default::default()
-                },
-            },
-            State(test_app_state_with_templates()),
-        )
-        .await
-        .into_response();
-
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let text = std::str::from_utf8(&body).unwrap();
-        assert!(
-            !text.contains("local-hostname"),
-            "meta-data must not contain local-hostname when name is empty, got: {text}"
-        );
-    }
-
-    /// A meta-data request with no metadata lands in the generic-error
-    /// funnel, which serves the error template and moves the outcome
-    /// counter.
-    #[tokio::test]
-    async fn meta_data_without_metadata_counts_metadata_not_found() {
+    async fn user_data_without_instructions_counts_instructions_empty() {
         let metrics = MetricsCapture::start();
 
-        let _ = meta_data(
+        let _ = user_data(
             Machine {
                 instructions: Default::default(),
             },
@@ -1057,33 +753,10 @@ mod tests {
         assert_eq!(
             metrics.counter_delta(
                 "carbide_pxe_boot_outcomes_total",
-                &[("endpoint", "cloud_init"), ("reason", "metadata_not_found")],
-            ),
-            1.0,
-        );
-    }
-
-    /// A user-data request answered from the tenant's custom cloud-init
-    /// counts as a served outcome.
-    #[tokio::test]
-    async fn user_data_with_custom_cloud_init_counts_ok() {
-        let metrics = MetricsCapture::start();
-
-        let _ = user_data(
-            Machine {
-                instructions: forge::CloudInitInstructions {
-                    custom_cloud_init: Some("#cloud-config".to_string()),
-                    ..Default::default()
-                },
-            },
-            State(test_app_state()),
-        )
-        .await;
-
-        assert_eq!(
-            metrics.counter_delta(
-                "carbide_pxe_boot_outcomes_total",
-                &[("endpoint", "cloud_init"), ("reason", "ok")],
+                &[
+                    ("endpoint", "cloud_init_dpu"),
+                    ("reason", "instructions_empty"),
+                ],
             ),
             1.0,
         );
