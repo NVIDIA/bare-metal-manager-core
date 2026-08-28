@@ -54,10 +54,12 @@ use libredfish::model::oem::nvidia_dpu::HostPrivilegeLevel;
 use libredfish::model::task::TaskState;
 use libredfish::model::update_service::TransferProtocolType;
 use libredfish::{Boot, EnabledDisabled, Redfish, RedfishError, SystemPowerControl};
+use mac_address::MacAddress;
 use machine_validation::{handle_machine_validation_requested, handle_machine_validation_state};
 use measured_boot::records::MeasurementMachineState;
 use model::DpuModel;
-use model::dpa_interface::DpaInterfaceControllerState;
+use model::dpa_interface::{DpaInterfaceControllerState, DpaInterfaceType, NewDpaInterface};
+use model::expected_machine::ExpectedInterface;
 use model::firmware::{Firmware, FirmwareComponentType, FirmwareEntry};
 use model::instance::InstanceNetworkSyncStatus;
 use model::instance::config::network::{
@@ -71,10 +73,11 @@ use model::machine::infiniband::{IbConfigNotSyncedReason, ib_config_synced};
 use model::machine::nvlink::nvlink_config_synced;
 use model::machine::{
     AttestationMode, BomValidating, BomValidatingContext, CleanupContext, CleanupState,
-    CreateBossVolumeContext, CreateBossVolumeState, DecommissioningState, DpuDiscoveringState,
-    DpuInitNextStateResolver, DpuInitState, FactoryResetBmcState, FailureCause, FailureDetails,
-    FailureSource, HostPlatformConfigurationState, HostReprovisionState, InitialResetPhase,
-    InstallDpuOsState, InstanceNextStateResolver, InstanceState, LockdownInfo, LockdownState,
+    ConfigureAstraState, CreateBossVolumeContext, CreateBossVolumeState, DecommissioningState,
+    DpuDiscoveringState, DpuDiscoveringStates, DpuInitNextStateResolver, DpuInitState,
+    FactoryResetBmcState, FailureCause, FailureDetails, FailureSource,
+    HostPlatformConfigurationState, HostReprovisionState, InitialResetPhase, InstallDpuOsState,
+    InstanceNextStateResolver, InstanceState, LockdownInfo, LockdownState,
     MAX_FIRMWARE_UPGRADE_RETRIES, Machine, MachineLastRebootRequested,
     MachineLastRebootRequestedMode, MachineNextStateResolver, MachineState,
     MachineValidationContext, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
@@ -861,6 +864,109 @@ impl MachineStateHandler {
         }
 
         match &mh_state {
+            ManagedHostState::ConfigureAstra {
+                configure_astra_state,
+            } => {
+                match configure_astra_state {
+                    ConfigureAstraState::EnableNics => {
+                        let powercycle_needed =
+                            self.enable_astra_all_nics(mh_snapshot, ctx).await?;
+                        tracing::info!(
+                            machine_id = %mh_snapshot.host_snapshot.id,
+                            powercycle_needed,
+                            "ConfigureAstra state: EnableNics"
+                        );
+                        if powercycle_needed {
+                            if let Err(e) = handler_host_power_control(
+                                mh_snapshot,
+                                ctx,
+                                SystemPowerControl::ACPowercycle,
+                            )
+                            .await
+                            {
+                                tracing::error!(
+                                    machine_id = %mh_snapshot.host_snapshot.id,
+                                    error = %e,
+                                    "ConfigureAstra failed to ACPowercycle host"
+                                );
+                                return Err(e);
+                            }
+                            tracing::info!(
+                                "ConfigureAstra called handler_host_power_control with ACPowercycle"
+                            );
+                            return Ok(StateHandlerOutcome::transition(
+                                ManagedHostState::ConfigureAstra {
+                                    configure_astra_state:
+                                        ConfigureAstraState::WaitingForPowercycle,
+                                },
+                            ));
+                        }
+
+                        let dpu_ids = mh_snapshot.host_snapshot.associated_dpu_machine_ids();
+                        Ok(StateHandlerOutcome::transition(
+                            ManagedHostState::DpuDiscoveringState {
+                                dpu_states: DpuDiscoveringStates {
+                                    states: dpu_ids
+                                        .iter()
+                                        .map(|id| (*id, DpuDiscoveringState::Initializing))
+                                        .collect(),
+                                },
+                            },
+                        ))
+                    }
+                    ConfigureAstraState::WaitingForPowercycle => {
+                        let basetime = mh_snapshot
+                            .host_snapshot
+                            .status
+                            .last_reboot_requested
+                            .as_ref()
+                            .map(|x| x.time)
+                            .unwrap_or(mh_snapshot.host_snapshot.state.version.timestamp());
+
+                        if wait(&basetime, self.reachability_params.power_down_wait) {
+                            return Ok(StateHandlerOutcome::wait(format!(
+                                "Waiting for host {} AC power cycle grace period",
+                                mh_snapshot.host_snapshot.id
+                            )));
+                        }
+
+                        let redfish_client = ctx
+                            .services
+                            .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
+                            .await?;
+                        let power_state = host_power_state(redfish_client.as_ref()).await?;
+
+                        // ACPowercycle can fall back to ForceOff when unsupported; ensure On.
+                        if power_state != libredfish::PowerState::On
+                            && power_state != libredfish::PowerState::PoweringOn
+                        {
+                            tracing::info!(
+                                machine_id = %mh_snapshot.host_snapshot.id,
+                                %power_state,
+                                "Host not yet On after Astra AC power cycle; powering on"
+                            );
+                            handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::On)
+                                .await?;
+                            return Ok(StateHandlerOutcome::wait(format!(
+                                "Waiting for host {} to power on after Astra AC power cycle",
+                                mh_snapshot.host_snapshot.id
+                            )));
+                        }
+
+                        let dpu_ids = mh_snapshot.host_snapshot.associated_dpu_machine_ids();
+                        Ok(StateHandlerOutcome::transition(
+                            ManagedHostState::DpuDiscoveringState {
+                                dpu_states: DpuDiscoveringStates {
+                                    states: dpu_ids
+                                        .iter()
+                                        .map(|id| (*id, DpuDiscoveringState::Initializing))
+                                        .collect(),
+                                },
+                            },
+                        ))
+                    }
+                }
+            }
             ManagedHostState::DpuDiscoveringState { .. } => {
                 if mh_snapshot
                     .host_snapshot
@@ -2034,7 +2140,7 @@ impl MachineStateHandler {
                     instance_state: InstanceState::DpaProvisioning,
                 };
 
-                if !ctx.services.site_config.dpa_enabled {
+                if !ctx.services.site_config.ewethers_enabled {
                     // If DPA is not enabled, we don't need to do any DPA provisioning.
                     // So go directly to WaitingForDpaToBeReady state, where we will change
                     // the network status of our DPUs.
@@ -2067,6 +2173,211 @@ impl MachineStateHandler {
                 }
             },
         }
+    }
+
+    async fn enable_astra_nic(
+        &self,
+        nic_index: u8,
+        mh_snapshot: &ManagedHostStateSnapshot,
+        ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+        expected_nic: &ExpectedInterface,
+    ) -> Result<(), StateHandlerError> {
+        tracing::info!(
+            machine_id = %mh_snapshot.host_snapshot.id,
+            "Enabling Astra on NIC {nic_index}"
+        );
+
+        // Create the redfish client from the machine snapshot.
+        let redfish_client = ctx
+            .services
+            .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
+            .await?;
+
+        // Get the MAC address of the NIC at the given index and see if it matches
+        // the mac address in the passed in expected interface.
+        let mac_address = redfish_client
+            .get_spx_nic_mac_address(nic_index)
+            .await
+            .map_err(|e| redfish_error("get_spx_nic_mac_address", e))?
+            .ok_or_else(|| StateHandlerError::MissingData {
+                object_id: mh_snapshot.host_snapshot.id.to_string(),
+                missing: "spx_nic_mac_address",
+            })?;
+        let mac_address = MacAddress::from_str(&mac_address).map_err(|e| {
+            tracing::error!(
+                machine_id = %mh_snapshot.host_snapshot.id,
+                "Invalid SPX NIC MAC address {mac_address}: {e}"
+            );
+            StateHandlerError::GenericError(eyre!("invalid SPX NIC MAC address {mac_address}: {e}"))
+        })?;
+
+        let expected_mac_address = expected_nic.mac_address;
+        // Does this mac address match the mac address in the passed in expected interface?
+        if mac_address != expected_nic.mac_address {
+            tracing::error!(
+                "Actual MAC address {mac_address} does not match expected MAC address {expected_mac_address} for NIC {nic_index}"
+            );
+            return Err(StateHandlerError::GenericError(eyre!(
+                "mac address mismatch: expected {expected_mac_address}, got {mac_address}"
+            )));
+        }
+
+        // Now enable EastWestControlEnabled on this card.
+        redfish_client
+            .set_spx_nic_east_west_control_enabled(nic_index, true)
+            .await
+            .map_err(|e| redfish_error("set_spx_nic_east_west_control_enabled", e))?;
+
+        // We have successfully enabled EastWestControlEnabled on this card.
+        // Now add an entry for this NIC in the dpa_interface table.
+        // Note that this entry will be added with the predicted host id, and when we
+        // change the predicted host machine id to an actual machine id, we will have
+        // to fix up the dpa_interfaces table.
+
+        // Get the model and name of the NIC also, and we will use that information to create
+        // the dpa_interface object.
+        let nic_model_and_name = redfish_client
+            .get_spx_nic_model_and_name(nic_index)
+            .await
+            .map_err(|e| redfish_error("get_spx_nic_model_and_name", e))?
+            .ok_or_else(|| StateHandlerError::MissingData {
+                object_id: mh_snapshot.host_snapshot.id.to_string(),
+                missing: "spx_nic_model_and_name",
+            })?;
+
+        // Note that we are creating this dpa_interface object with a machine_id which is a predicted machine id.
+        // When we change the predicted machine id to an actual machine id, we will have to fix up the dpa_interfaces table.
+        let mut txn = ctx.services.db_pool.begin().await?;
+        let mut dpa_interface = db::dpa_interface::ensure(
+            NewDpaInterface {
+                machine_id: mh_snapshot.host_snapshot.id,
+                mac_address,
+                device_type: "Network Adapter Ethernet Interface".to_string(),
+                pci_name: nic_model_and_name.name,
+                device_description: Some(nic_model_and_name.model),
+                interface_type: DpaInterfaceType::Astra,
+            },
+            &mut txn,
+        )
+        .await?;
+
+        dpa_interface.underlay_ip = expected_nic.fixed_ip;
+
+        // Call the update_ip routine to update the underlay_ip address of this dpa object,
+        // obtaining the underlay ip from the fixed_ip field of the ExpectedInterface object.
+        db::dpa_interface::update_ip(dpa_interface, true, &mut txn).await?;
+
+        txn.commit().await?;
+
+        tracing::info!(
+            machine_id = %mh_snapshot.host_snapshot.id,
+            mac_address = %mac_address,
+            "Enabled Astra on NIC {nic_index} with MAC address {mac_address}"
+        );
+
+        Ok(())
+    }
+
+    /// Enables EastWestControl on every declared CX9 NIC.
+    ///
+    /// Returns `true` when at least one CX9 NIC was enabled and the caller
+    /// should AC-power-cycle the host for the change to take effect.
+    async fn enable_astra_all_nics(
+        &self,
+        mh_snapshot: &ManagedHostStateSnapshot,
+        ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    ) -> Result<bool, StateHandlerError> {
+        // Skip Astra enablement entirely when the site has not opted in.
+        if !ctx.services.site_config.astra_enabled || !ctx.services.site_config.ewethers_enabled {
+            tracing::debug!(
+                machine_id = %mh_snapshot.host_snapshot.id,
+                "Astra not enabled for this site, skipping NIC enablement"
+            );
+            return Ok(false);
+        }
+
+        // Enable Astra if necessary
+        // Look at the entry in the expected_machines table for this managed host, and retrieve the host_nics
+        // field. If the host_nics is empty, just return.
+
+        // its unlikely we got here without a bmc mac
+        let Some(bmc_mac_address) = mh_snapshot.host_snapshot.status.bmc_info.mac else {
+            tracing::debug!(
+                machine_id = %mh_snapshot.host_snapshot.id,
+                "No BMC MAC address configured"
+            );
+            return Err(StateHandlerError::MissingData {
+                object_id: mh_snapshot.host_snapshot.id.to_string(),
+                missing: "bmc_mac_address",
+            });
+        };
+
+        let mut txn = ctx.services.db_pool.begin().await?;
+
+        // Retrieve the expected_machines table entry for this managed host.
+        let expected_machine =
+            db::expected_machine::find_by_bmc_mac_address(txn.as_mut(), bmc_mac_address)
+                .await
+                .map_err(|err| {
+                    tracing::error!(
+                        machine_id = %mh_snapshot.host_snapshot.id,
+                        %bmc_mac_address,
+                        error = %err,
+                        "Failed to look up expected machine for Astra enablement"
+                    );
+                    StateHandlerError::DBError(Box::new(err))
+                })?;
+
+        txn.commit().await?;
+
+        // No expected-machine entry means there are no declared host NICs to act on.
+        let Some(expected_machine) = expected_machine else {
+            tracing::info!(
+                machine_id = %mh_snapshot.host_snapshot.id,
+                "No expected-machine entry found for Astra enablement"
+            );
+            return Ok(false);
+        };
+
+        let host_nics = expected_machine.data.interfaces;
+        if host_nics.is_empty() {
+            tracing::info!(
+                machine_id = %mh_snapshot.host_snapshot.id,
+                "No host NICs found for Astra enablement"
+            );
+            return Ok(false);
+        }
+
+        // At this point, we need to use Redfish to get all the CX cards in the host.
+        // The end point to explore is /redfish/v1/Chassis/CX_$i
+
+        let cx9_nics: Vec<_> = host_nics
+            .iter()
+            .filter(|nic| nic.nic_type.as_deref() == Some("CX9"))
+            .collect();
+        let enabled_any_cx9 = !cx9_nics.is_empty();
+
+        for (nic_index, expected_nic) in cx9_nics.into_iter().enumerate() {
+            if let Err(e) = self
+                .enable_astra_nic(nic_index as u8, mh_snapshot, ctx, expected_nic)
+                .await
+            {
+                tracing::error!(
+                    machine_id = %mh_snapshot.host_snapshot.id,
+                    nic_index,
+                    error = %e,
+                    "Failed to enable Astra on CX9 NIC"
+                );
+                return Err(e);
+            }
+        }
+
+        tracing::info!(
+            machine_id = %mh_snapshot.host_snapshot.id,
+            "Enabled Astra on CX9 NICs: {enabled_any_cx9}"
+        );
+
+        Ok(enabled_any_cx9)
     }
 
     async fn handle_scout_heartbeat_timeout(
@@ -7961,7 +8272,7 @@ impl StateHandler for InstanceStateHandler {
                     // This involves the DPA State Machine sending SetVNI commands to the NICs, and getting
                     // an ACK. If any of the interfaces has not yet heard back the ACk, we will continue to
                     // be in the current state.
-                    if ctx.services.site_config.dpa_enabled {
+                    if ctx.services.site_config.ewethers_enabled {
                         for dpa_interface in &mh_snapshot.dpa_interface_snapshots {
                             if !dpa_interface.managed_host_network_config_version_synced(
                                 &mh_snapshot.instance,
@@ -8711,7 +9022,7 @@ impl StateHandler for InstanceStateHandler {
 
                     // Check each DPA interface associated with the machine to make sure the DPA NIC has updated
                     // its network config (setting VNI to zero in this case).
-                    if ctx.services.site_config.dpa_enabled {
+                    if ctx.services.site_config.ewethers_enabled {
                         for dpa_interface in &mh_snapshot.dpa_interface_snapshots {
                             // We're heading back to admin and a DPA still in
                             // Provisioning has nothing to ack -- it never
@@ -8945,7 +9256,7 @@ impl StateHandler for InstanceStateHandler {
                     // no longer be able to interact with scout.
 
                     let mut txn = ctx.services.db_pool.begin().await?;
-                    if ctx.services.site_config.dpa_enabled {
+                    if ctx.services.site_config.ewethers_enabled {
                         for dpa_interface in &mh_snapshot.dpa_interface_snapshots {
                             let (mut netconf, version) =
                                 dpa_interface.network_config.clone().take();
@@ -8970,7 +9281,7 @@ impl StateHandler for InstanceStateHandler {
                     // an ACK. If any of the interfaces has not yet heard back the ACk, we will continue to
                     // be in the current state.
 
-                    if ctx.services.site_config.dpa_enabled {
+                    if ctx.services.site_config.ewethers_enabled {
                         for dpa_interface in &mh_snapshot.dpa_interface_snapshots {
                             if !dpa_interface.managed_host_network_config_version_synced(
                                 &mh_snapshot.instance,

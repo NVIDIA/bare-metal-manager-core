@@ -99,7 +99,7 @@ use crate::api::Api;
 use crate::api::metrics::ApiMetricsEmitter;
 use crate::cfg::file::{CarbideConfig, InitialObjectsConfig, ListenMode, VmaasConfig};
 use crate::cfg::load::all_configuration_files;
-use crate::dpa::handler::start_dpa_handler;
+use crate::dpa::handler::start_svpc_handler;
 use crate::dynamic_settings::DynamicSettings;
 use crate::handlers::machine_validation::apply_config_on_startup;
 use crate::listener::{AdminUiRoutesBuilder, ApiListenMode};
@@ -1483,6 +1483,10 @@ async fn initialize_and_start_controllers<'a>(
                 dpu_uefi_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
                     db::credential_rotation::CredentialRotationType::DpuUefi,
                 ),
+                dpu_bmc_service_rotation_gate:
+                    carbide_credential_rotation::RotationGate::new_for_family(
+                        db::credential_rotation::CredentialRotationType::DpuBmcService,
+                    ),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
                 per_object_info: machine_per_object_info,
             }
@@ -1792,34 +1796,53 @@ async fn initialize_and_start_controllers<'a>(
     })
     .start(join_set, cancel_token.clone())?;
 
-    if carbide_config.is_dpa_enabled() {
-        let dpa_mqtt_client =
-            start_dpa_handler(join_set, api_service.clone(), cancel_token.clone()).await?;
-        dpa_mqtt_client.register_metrics(&meter, "dpa");
-        let mqtt_client = Some(dpa_mqtt_client);
-
+    if carbide_config.is_ewethers_enabled() {
         let subnet_ip = carbide_config.get_dpa_subnet_ip()?;
 
         let subnet_mask = carbide_config.get_dpa_subnet_mask()?;
 
-        let info: DpaInfo = DpaInfo {
+        if !carbide_config.is_svpc_enabled() && !carbide_config.is_astra_enabled() {
+            tracing::info!(
+                "No EastWest Ethernets config is enabled but neither SVPC nor Astra is enabled. Skipping DPA setup."
+            );
+        }
+
+        let mut info: DpaInfo = DpaInfo {
             subnet_ip,
             subnet_mask,
-            mqtt_client,
+            mqtt_client: None,
         };
 
-        let dpa_info = Arc::new(info);
+        if carbide_config.is_svpc_enabled() {
+            let svpc_mqtt_client =
+                start_svpc_handler(join_set, api_service.clone(), cancel_token.clone()).await?;
+            svpc_mqtt_client.register_metrics(&meter, "dpa");
 
-        DpaMonitor::new(
-            db_pool.clone(),
-            db_pool.clone().into(),
-            dpa_info,
-            meter.clone(),
-            carbide_config.dpa_config.clone().unwrap_or_default(),
-            carbide_config.host_health,
-            work_lock_manager_handle.clone(),
-        )
-        .start(join_set, cancel_token.clone())?;
+            info.mqtt_client = Some(svpc_mqtt_client);
+
+            tracing::info!("SVPC MQTT client started for SVPC");
+        }
+
+        if carbide_config.is_svpc_enabled() || carbide_config.is_astra_enabled() {
+            let dpa_info = Arc::new(info);
+
+            DpaMonitor::new(
+                db_pool.clone(),
+                db_pool.clone().into(),
+                dpa_info,
+                meter.clone(),
+                carbide_config.ewethers_config.clone().unwrap_or_default(),
+                carbide_config.host_health,
+                work_lock_manager_handle.clone(),
+            )
+            .start(join_set, cancel_token.clone())?;
+
+            tracing::info!(
+                "EastWest Ethernets monitor started for fabrics: subnet_ip: {:#?} subnet_mask: {:#?}",
+                subnet_ip,
+                subnet_mask
+            );
+        }
     }
 
     let site_explorer_config = {

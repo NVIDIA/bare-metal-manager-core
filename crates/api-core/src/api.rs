@@ -962,6 +962,13 @@ impl Forge for Api {
         crate::handlers::rack::find_rack_state_histories(self, request).await
     }
 
+    async fn find_rack_health_histories(
+        &self,
+        request: Request<rpc::RackHealthHistoriesRequest>,
+    ) -> Result<Response<rpc::HealthHistories>, Status> {
+        crate::handlers::rack::find_rack_health_histories(self, request).await
+    }
+
     async fn find_switch_state_histories(
         &self,
         request: Request<rpc::SwitchStateHistoriesRequest>,

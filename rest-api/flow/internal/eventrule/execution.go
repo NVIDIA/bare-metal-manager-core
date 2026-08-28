@@ -22,7 +22,7 @@ func (k ExecutionKey) Validate() error {
 		return fmt.Errorf("execution event id is required")
 	}
 
-	return validateIdentifier("event rule action name", k.ActionName)
+	return ValidateIdentifier("event rule action name", k.ActionName)
 }
 
 // Execution records one immutable action plan and its mutable processing

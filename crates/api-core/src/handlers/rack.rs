@@ -181,6 +181,23 @@ pub(crate) async fn find_rack_state_histories(
     Ok(tonic::Response::new(response))
 }
 
+pub(crate) async fn find_rack_health_histories(
+    api: &Api,
+    request: Request<rpc::RackHealthHistoriesRequest>,
+) -> Result<Response<rpc::HealthHistories>, Status> {
+    log_request_data(&request);
+    let request = request.into_inner();
+
+    crate::handlers::health::find_health_histories(
+        api,
+        request.rack_ids,
+        db::health_history::HealthHistoryTableId::Rack,
+        request.start_time,
+        request.end_time,
+    )
+    .await
+}
+
 pub(crate) async fn delete_rack(
     api: &Api,
     request: Request<rpc::DeleteRackRequest>,

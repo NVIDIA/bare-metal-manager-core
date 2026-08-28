@@ -23,7 +23,6 @@ use model::machine::{
     FailureCause, FailureDetails, FailureSource, HostReprovisionState, InstanceState, MachineState,
     MachineValidatingState, ManagedHostState, MeasuringState, StateMachineArea, ValidationState,
 };
-use model::machine_validation::{MachineValidationState, MachineValidationStatus};
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -227,26 +226,25 @@ pub(crate) async fn forge_agent_control(
                     "Machine validation progress reported by scout",
                 );
                 if *is_enabled {
-                    db::machine_validation::update_status(
-                        &mut txn,
-                        id,
-                        MachineValidationStatus {
-                            state: MachineValidationState::InProgress,
-                            ..MachineValidationStatus::default()
-                        },
-                    )
-                    .await?;
-                    let machine_validation =
-                        db::machine_validation::find_by_id(&mut txn, id).await?;
-                    (
-                        Action::MachineValidation(fac::MachineValidation {
-                            is_enabled: true,
-                            context: context.clone(),
-                            validation_id: Some(*id),
-                            filter: Some(machine_validation.filter.unwrap_or_default().into()),
-                        }),
-                        Some(txn),
-                    )
+                    if let Some(machine_validation) =
+                        db::machine_validation::mark_in_progress_if_active(&mut txn, id).await?
+                    {
+                        (
+                            Action::MachineValidation(fac::MachineValidation {
+                                is_enabled: true,
+                                context: context.clone(),
+                                validation_id: Some(*id),
+                                filter: Some(machine_validation.filter.unwrap_or_default().into()),
+                            }),
+                            Some(txn),
+                        )
+                    } else {
+                        tracing::info!(
+                            machine_validation_id = %id,
+                            "Skipping machine validation dispatch because the run is no longer active"
+                        );
+                        (Action::noop(), Some(txn))
+                    }
                 } else {
                     // This avoids sending Machine validation command scout
                     tracing::info!("Skipped machine validation");

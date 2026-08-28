@@ -38,7 +38,7 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
-use crate::config::DpaConfig;
+use crate::config::EwEthersConfig;
 use crate::errors::{DpaManagerError, DpaManagerResult};
 
 mod card_handler;
@@ -52,7 +52,7 @@ pub(crate) use carbide_macros::sqlx_test;
 pub struct DpaMonitor {
     pub(crate) db_services: DbServices,
     pub(crate) dpa_info: Arc<DpaInfo>,
-    pub(crate) config: DpaConfig,
+    pub(crate) config: EwEthersConfig,
     host_health: HostHealthConfig,
     metric_holder: Arc<metrics::MetricHolder>,
     work_lock_manager_handle: WorkLockManagerHandle,
@@ -78,7 +78,7 @@ impl DpaMonitor {
         _db_reader: PgPoolReader,
         dpa_info: Arc<DpaInfo>,
         _meter: opentelemetry::metrics::Meter,
-        config: DpaConfig,
+        config: EwEthersConfig,
         host_health: HostHealthConfig,
         work_lock_manager_handle: WorkLockManagerHandle,
     ) -> Self {

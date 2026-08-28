@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
@@ -458,6 +459,10 @@ type APIInstanceCreateRequest struct {
 	NetworkSecurityGroupID *string `json:"networkSecurityGroupId"`
 	// MachineID is the ID of the Machine. Only MachineID or InstanceTypeID can be present
 	MachineID *string `json:"machineId"`
+	// MachineLabelSelector restricts automatic Machine selection, or validates a
+	// specifically requested Machine, by exact Machine label key/value matches.
+	// All entries must match.
+	MachineLabelSelector map[string]string `json:"machineLabelSelector"`
 	// AllowUnhealthyMachine is a flag that can be used to target Machines are in maintenance or have health alerts preventing regular provision flow.
 	AllowUnhealthyMachine *bool `json:"allowUnhealthyMachine"`
 	// PowerProfile is the external power provisioning profile for the Instance.
@@ -478,6 +483,9 @@ type APIBatchInstanceCreateRequest struct {
 	TenantID string `json:"tenantId"`
 	// InstanceTypeID is the ID of the Instance Type
 	InstanceTypeID string `json:"instanceTypeId"`
+	// MachineLabelSelector restricts Machine selection by exact Machine label
+	// key/value matches. All entries must match.
+	MachineLabelSelector map[string]string `json:"machineLabelSelector"`
 	// VpcID is the ID of the VPC containing the Instances
 	VpcID string `json:"vpcId"`
 	// SecondaryVpcIDs lists additional VPC UUIDs for non-primary interfaces on
@@ -625,7 +633,12 @@ func (icr APIInstanceCreateRequest) Validate() error {
 		}
 	}
 
-	if err := util.ValidateLabels(icr.Labels); err != nil {
+	err = util.ValidateLabels(icr.Labels)
+	if err != nil {
+		return err
+	}
+	err = validateMachineLabelSelector(icr.MachineLabelSelector)
+	if err != nil {
 		return err
 	}
 
@@ -998,12 +1011,45 @@ func (bicr APIBatchInstanceCreateRequest) Validate() error {
 		}
 	}
 
-	if err := util.ValidateLabels(bicr.Labels); err != nil {
+	err = util.ValidateLabels(bicr.Labels)
+	if err != nil {
+		return err
+	}
+	err = validateMachineLabelSelector(bicr.MachineLabelSelector)
+	if err != nil {
 		return err
 	}
 
 	// err should be nil at this point
 	return err
+}
+
+// validateMachineLabelSelector applies the shared label-map contract while
+// reporting validation errors against the public request field.
+func validateMachineLabelSelector(selector map[string]string) error {
+	err := util.ValidateLabels(selector)
+	if err == nil {
+		for key, value := range selector {
+			if strings.ContainsRune(key, '\x00') || strings.ContainsRune(value, '\x00') {
+				return validation.Errors{
+					"machineLabelSelector": errors.New("machine label selector keys and values must not contain NUL characters"),
+				}
+			}
+		}
+		return nil
+	}
+
+	labelErrors, ok := err.(validation.Errors)
+	if !ok {
+		return validation.Errors{"machineLabelSelector": err}
+	}
+
+	labelErr, found := labelErrors["labels"]
+	if !found {
+		return validation.Errors{"machineLabelSelector": err}
+	}
+
+	return validation.Errors{"machineLabelSelector": labelErr}
 }
 
 // ValidateForVpc validates request fields whose legality depends on the

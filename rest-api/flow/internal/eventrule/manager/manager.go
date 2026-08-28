@@ -32,8 +32,6 @@ type Manager struct {
 }
 
 // New constructs a fully assembled event-rule manager.
-// TODO(flow-service-integration): Connect the manager to the Flow service root
-// after the durable event-rule store is implemented.
 func New(config Config) (*Manager, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err

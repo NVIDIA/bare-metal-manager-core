@@ -70,6 +70,7 @@ Use `site_explorer.dpu_policy` instead.
 | `attestation_enabled` | `bool` | `false` | `security` | Enables TPM-based machine attestation (adds `Measuring` state before `Ready`). |
 | `bmc_rotation_enabled` | `bool` | `false` | `security` | Site-wide kill-switch for passive BMC credential rotation. When `false` (default), a Ready host never auto-enters `RotatingBmc`; the force-converge escape hatch bypasses it. |
 | `uefi_rotation_enabled` | `bool` | `false` | `security` | Site-wide kill-switch for passive UEFI credential rotation (host and DPU). When `false` (default), a Ready host never auto-enters `RotatingHostUefi` nor drives its DPUs into `RotatingDpuUefi`; the per-machine force-converge escape hatch bypasses it. |
+| `lockdown_ikm_rotation_enabled` | `bool` | `false` | `security` | Site-wide kill-switch for NIC lockdown IKM rotation. When `false` (default), the SuperNIC lock/unlock flow keeps deriving keys from each card's current tracked IKM version, so a staged `RotateCredential(lockdown_ikm)` bumps the site-wide target without migrating any card. When `true`, the assignment-cycle lock derives from the staged site-wide target, so cards migrate to the new IKM as tenants cycle. Unlock always derives from the version a card is actually locked under regardless of this flag, so flipping it off never bricks an already-migrated card. |
 | `bmc_factory_reset_on_instance_termination_enabled` | `bool` | `false` | `security` | Site-wide opt-in for factory-resetting the host BMC during tenant release. When `false` (default), tenant release proceeds directly to `PowerCycle`; when `true`, the release flow factory-resets the BMC, waits for it to return, restores the device's previous per-device credential, then continues with the existing power-cycle / boot-order repair. |
 | `tpm_required` | `bool` | `true` | `security` | Require TPM module for machine registration. **Testing only** when `false`. |
 | `machine_state_controller` | `MachineStateControllerConfig` | *(see below)* | `machines` | Machine state controller timing (see [MachineStateControllerConfig](#machinestatecontrollerconfig)). |
@@ -100,7 +101,7 @@ Use `site_explorer.dpu_policy` instead.
 | `bom_validation` | `BomValidationConfig` | *(see below)* | `machines` | BOM/SKU validation (see [BomValidationConfig](#bomvalidationconfig)). |
 | `bios_profiles` | `BiosProfileVendor` | *(default)* | `machines` | BIOS profiles by vendor/model for Redfish BIOS management. |
 | `selected_profile` | `BiosProfileType` | *(default)* | `machines` | Default BIOS profile type applied to machines. |
-| `dpa_config` | `Option<DpaConfig>` | — | `networking` | Cluster Interconnect (east-west Ethernet) config (see [DpaConfig](#dpaconfig)). |
+| `ewethers_config` | `Option<EwEthersConfig>` | — | `networking` | Cluster Interconnect (east-west Ethernet) config (see [EwEthersConfig](#ewethersconfig)). Accepts the legacy `dpa_config` section name; legacy inline `mqtt_endpoint`, `mqtt_broker_port`, `hb_interval`, and `auth` keys are migrated into `svpc` at load time with a deprecation warning. |
 | `dsx_exchange_event_bus` | `Option<DsxExchangeEventBusConfig>` | — | `integrations` | MQTT event bus for managed-host state publishing plus BMS metadata subscription and rack/isolation/heartbeat publishing (see [DsxExchangeEventBusConfig](#dsxexchangeeventbusconfig)). |
 | `datacenter_asn` | `u32` | `11414` | `networking` | Datacenter ASN used by FNN for DC-specific route targets. |
 | `nvlink_config` | `Option<NvLinkConfig>` | — | `hardware` | NvLink partitioning via NMX-C (see [NvLinkConfig](#nvlinkconfig)). |
@@ -731,18 +732,31 @@ override are combined, properties still unset use the effective defaults above.
 |-------|------|---------|-------------|
 | `prefix` | `IpNetwork` | **required** | IPv4 or IPv6 CIDR prefix accepted by a prefix-list policy. |
 
-### `DpaConfig`
+### `EwEthersConfig`
+
+Legacy site files may still name this section `[dpa_config]` (accepted as an
+alias) and may inline `mqtt_endpoint`, `mqtt_broker_port`, `hb_interval`, and
+`auth`; those keys are migrated into `svpc` at load time with a deprecation
+warning. Nest them under `[ewethers_config.svpc]` in new configurations.
 
 | Field | Type | Default | Description |
 | ------- | ------ | --------- | ------------- |
 | `enabled` | `bool` | `false` | Enable Cluster Interconnect Network. |
-| `mqtt_endpoint` | `String` | `"mqtt.nico"` | MQTT broker host for DPA. |
-| `mqtt_broker_port` | `u16` | `1884` | MQTT broker port. |
+| `svpc_enabled` | `bool` | `false` | Enable the SVPC path. Not mutually exclusive with `astra_enabled`. |
+| `astra_enabled` | `bool` | `false` | Enable the Astra path. Not mutually exclusive with `svpc_enabled`. |
 | `subnet_ip` | `Ipv4Addr` | `0.0.0.0` | Base IPv4 address of the DPA subnet. |
 | `subnet_mask` | `i32` | `0` | CIDR prefix length for the DPA subnet. |
+| `monitor_run_interval` | `Duration` | `60s` | The interval at which the DPA monitor runs. |
+| `svpc` | `SvpcConfig` | *(defaults)* | SVPC MQTT connection settings (see [SvpcConfig](#svpcconfig)). |
+
+### `SvpcConfig`
+
+| Field | Type | Default | Description |
+| ------- | ------ | --------- | ------------- |
+| `mqtt_endpoint` | `String` | `"mqtt.forge"` | MQTT broker host for the SVPC path. |
+| `mqtt_broker_port` | `u16` | `1884` | MQTT broker port. |
 | `hb_interval` | `Duration` | `2m` | Heartbeat interval for DPA health checks. |
 | `auth` | `MqttAuthConfig` | *(none)* | MQTT authentication settings. |
-| `monitor_run_interval` | `Duration` | `60s` | The interval at which the DPA monitor runs. |
 
 ### `DsxExchangeEventBusConfig`
 

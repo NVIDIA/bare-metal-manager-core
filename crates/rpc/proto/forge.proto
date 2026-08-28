@@ -254,6 +254,7 @@ service Forge {
   rpc FindPowerShelfStateHistories(PowerShelfStateHistoriesRequest) returns (StateHistories);
   rpc FindPowerShelfHealthHistories(PowerShelfHealthHistoriesRequest) returns (HealthHistories);
   rpc FindRackStateHistories(RackStateHistoriesRequest) returns (StateHistories);
+  rpc FindRackHealthHistories(RackHealthHistoriesRequest) returns (HealthHistories);
   rpc FindSwitchStateHistories(SwitchStateHistoriesRequest) returns (StateHistories);
   rpc FindSwitchHealthHistories(SwitchHealthHistoriesRequest) returns (HealthHistories);
   rpc FindNetworkSegmentStateHistories(NetworkSegmentStateHistoriesRequest) returns (StateHistories);
@@ -1463,6 +1464,10 @@ enum RotationCredentialType {
   ROTATION_DPU_UEFI = 3;
   ROTATION_NVOS = 4;
   ROTATION_LOCKDOWN_IKM = 5;
+  // BF4 DPU BMC `service` account password. Only BF4 DPUs expose this account;
+  // other devices are never enrolled, so a rotation converges just the BF4 DPU
+  // BMCs.
+  ROTATION_DPU_BMC_SERVICE = 6;
 }
 
 message RotateCredentialRequest {
@@ -1632,7 +1637,8 @@ message RuntimeConfig {
 
   repeated string dpu_nic_firmware_update_versions=37;
 
-  bool dpa_enabled = 38;
+  reserved 38;
+  reserved "dpa_enabled";
   string mqtt_endpoint = 39;
 
   optional string sitename = 40;
@@ -1657,6 +1663,10 @@ message RuntimeConfig {
   string compile_time_docker_version = 52;
   bool restart_ovs_on_use_admin_network_change = 53;
   uint32 max_site_prefixes_per_tenant = 54;
+
+  bool svpc_enabled = 55;
+  bool astra_enabled = 56;
+  bool ewethers_enabled = 57;
 }
 
 message EchoRequest {
@@ -8422,6 +8432,14 @@ message RackStatus {
 
 message RackStateHistoriesRequest {
   repeated common.RackId rack_ids = 1;
+}
+
+message RackHealthHistoriesRequest {
+  repeated common.RackId rack_ids = 1;
+  // Optional: Start time of the range (inclusive) for filtering health history
+  google.protobuf.Timestamp start_time = 2;
+  // Optional: End time of the range (inclusive) for filtering health history
+  google.protobuf.Timestamp end_time = 3;
 }
 
 message DeleteRackRequest {

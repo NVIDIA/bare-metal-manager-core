@@ -19,39 +19,37 @@
 
 use std::sync::Arc;
 
-use carbide_power_shelf_controller::context::{
-    PowerShelfStateHandlerContextObjects, PowerShelfStateHandlerServices,
-};
-use carbide_power_shelf_controller::handler::PowerShelfStateHandler;
-use carbide_power_shelf_controller::metrics::PowerShelfMetrics;
+use carbide_power_shelf_controller::context::PowerShelfStateHandlerServices;
 use carbide_secrets::test_support::credentials::TestCredentialManager;
+use carbide_test_harness::prelude::*;
 use carbide_uuid::power_shelf::PowerShelfId;
+use component_manager::compute_tray_manager::Backend as ComputeBackend;
+use component_manager::config::ComponentManagerConfig;
+use component_manager::nv_switch_manager::Backend as NvSwitchBackend;
+use component_manager::power_shelf_manager::Backend as PowerShelfBackend;
 use db::power_shelf as db_power_shelf;
-use model::power_shelf::{PowerShelf, PowerShelfControllerState, PowerShelfMaintenanceOperation};
+use model::power_shelf::{PowerShelfControllerState, PowerShelfMaintenanceOperation};
+use model::test_support::power_shelf_config;
 use sqlx::PgConnection;
-use state_controller::db_write_batch::DbWriteBatch;
-use state_controller::state_handler::{StateHandler, StateHandlerContext, StateHandlerOutcome};
+use state_controller::state_handler::StateHandlerOutcome;
 
-use crate::tests::common::api_fixtures::site_explorer::new_power_shelf;
-use crate::tests::common::api_fixtures::{create_test_env, get_config_with_rack_profiles};
-use crate::tests::power_shelf_state_controller::fixtures::power_shelf::{
-    mark_power_shelf_as_deleted, set_power_shelf_controller_state,
+use crate::common::{
+    ControllerEnv, extract_transition, load_power_shelf, mark_power_shelf_as_deleted, run_handler,
+    set_power_shelf_controller_state,
 };
 
 const TEST_ERROR_CAUSE: &str = "test error";
 
-async fn services(
-    env: &crate::tests::common::api_fixtures::TestEnv,
-) -> PowerShelfStateHandlerServices {
-    let config = component_manager::config::ComponentManagerConfig {
-        nv_switch_backend: component_manager::nv_switch_manager::Backend::Mock,
-        power_shelf_backend: component_manager::power_shelf_manager::Backend::Rms,
-        compute_tray_backend: component_manager::compute_tray_manager::Backend::Mock,
+async fn services(env: &ControllerEnv) -> PowerShelfStateHandlerServices {
+    let config = ComponentManagerConfig {
+        nv_switch_backend: NvSwitchBackend::Mock,
+        power_shelf_backend: PowerShelfBackend::Rms,
+        compute_tray_backend: ComputeBackend::Mock,
         ..Default::default()
     };
     let component_manager = component_manager::component_manager::build_component_manager(
         &config,
-        get_config_with_rack_profiles().rack_profiles,
+        env.rack_profiles.clone(),
         env.rms_sim.as_rms_client(),
         None,
         Some(env.pool.clone()),
@@ -65,7 +63,7 @@ async fn services(
         db_pool: env.pool.clone(),
         component_manager,
         credential_manager: Arc::new(TestCredentialManager::default()),
-        per_object_metrics_registry: env.per_object_metrics_registry(),
+        per_object_metrics_registry: env.per_object_metrics_registry.clone(),
         rack_firmware_reprovisioning_enabled: false,
         redfish_client_pool: env.redfish_sim.clone(),
         bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
@@ -73,14 +71,6 @@ async fn services(
         ),
         bmc_rotation_enabled: false,
     }
-}
-
-async fn load_power_shelf(pool: &sqlx::PgPool, id: &PowerShelfId) -> PowerShelf {
-    let mut conn = pool.acquire().await.unwrap();
-    db_power_shelf::find_by_id(conn.as_mut(), id)
-        .await
-        .unwrap()
-        .expect("power shelf should exist")
 }
 
 async fn park_in_error(txn: &mut PgConnection, power_shelf_id: &PowerShelfId) {
@@ -95,48 +85,16 @@ async fn park_in_error(txn: &mut PgConnection, power_shelf_id: &PowerShelfId) {
     .unwrap();
 }
 
-async fn run_handler(
-    services: &mut PowerShelfStateHandlerServices,
-    state: &mut PowerShelf,
-) -> StateHandlerOutcome<PowerShelfControllerState> {
-    let handler = PowerShelfStateHandler::default();
-    let mut metrics = PowerShelfMetrics::default();
-    let mut writes = DbWriteBatch::default();
-    let mut ctx = StateHandlerContext::<PowerShelfStateHandlerContextObjects> {
-        services,
-        metrics: &mut metrics,
-        pending_db_writes: &mut writes,
-    };
-    let controller_state = state.controller_state.value.clone();
-    let power_shelf_id = state.id;
-    handler
-        .handle_object_state(&power_shelf_id, state, &controller_state, &mut ctx)
-        .await
-        .expect("state handler should not return an error result")
-}
-
-fn extract_transition(
-    outcome: StateHandlerOutcome<PowerShelfControllerState>,
-) -> Option<PowerShelfControllerState> {
-    match outcome {
-        StateHandlerOutcome::Transition { next_state, .. } => Some(next_state),
-        _ => None,
-    }
-}
-
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn error_with_power_on_maintenance_request_transitions_to_maintenance(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-    let power_shelf_id = new_power_shelf(
-        &env,
-        Some("Error->Maintenance PowerOn".into()),
-        None,
-        None,
-        None,
-    )
-    .await?;
+    let env = ControllerEnv::new(pool.clone()).await;
+    let power_shelf_id = env
+        .harness
+        .create_power_shelf(power_shelf_config("Error->Maintenance PowerOn"))
+        .await
+        .id;
 
     {
         let mut txn = pool.acquire().await?;
@@ -168,19 +126,16 @@ async fn error_with_power_on_maintenance_request_transitions_to_maintenance(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn error_with_power_off_maintenance_request_transitions_to_maintenance(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-    let power_shelf_id = new_power_shelf(
-        &env,
-        Some("Error->Maintenance PowerOff".into()),
-        None,
-        None,
-        None,
-    )
-    .await?;
+    let env = ControllerEnv::new(pool.clone()).await;
+    let power_shelf_id = env
+        .harness
+        .create_power_shelf(power_shelf_config("Error->Maintenance PowerOff"))
+        .await
+        .id;
 
     {
         let mut txn = pool.acquire().await?;
@@ -212,13 +167,16 @@ async fn error_with_power_off_maintenance_request_transitions_to_maintenance(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn error_without_maintenance_request_holds_in_error(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-    let power_shelf_id =
-        new_power_shelf(&env, Some("Error stays in Error".into()), None, None, None).await?;
+    let env = ControllerEnv::new(pool.clone()).await;
+    let power_shelf_id = env
+        .harness
+        .create_power_shelf(power_shelf_config("Error stays in Error"))
+        .await
+        .id;
 
     {
         let mut txn = pool.acquire().await?;
@@ -236,19 +194,16 @@ async fn error_without_maintenance_request_holds_in_error(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn error_with_deletion_takes_precedence_over_maintenance(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-    let power_shelf_id = new_power_shelf(
-        &env,
-        Some("Error deletion wins over maintenance".into()),
-        None,
-        None,
-        None,
-    )
-    .await?;
+    let env = ControllerEnv::new(pool.clone()).await;
+    let power_shelf_id = env
+        .harness
+        .create_power_shelf(power_shelf_config("Error deletion wins over maintenance"))
+        .await
+        .id;
 
     {
         let mut txn = pool.acquire().await?;

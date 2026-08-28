@@ -1362,6 +1362,29 @@ fn get_bf4_astra_config_files(
                     "} > \"$NETPLAN_FILE\"\n",
                     "\n",
                     "netplan apply\n",
+                    "\n",
+                    "# Block until oob_net0 has an IP again, since netplan\n",
+                    "# apply can transiently drop it. Avoids a race with\n",
+                    "# dpuagent joining the cluster afterwards.\n",
+                    "OOB_IFACE=\"oob_net0\"\n",
+                    "OOB_WAIT_TIMEOUT=120\n",
+                    "SECONDS=0\n",
+                    "\n",
+                    "while :; do\n",
+                    "    if ip -4 -o addr show dev \"$OOB_IFACE\" scope global 2>/dev/null | grep -q \"inet \"; then\n",
+                    "        echo \"xplane-bridge.sh: ${OOB_IFACE} has an IP after ${SECONDS}s\"\n",
+                    "        break\n",
+                    "    fi\n",
+                    "\n",
+                    "    if [ \"$SECONDS\" -ge \"$OOB_WAIT_TIMEOUT\" ]; then\n",
+                    "        echo \"xplane-bridge.sh: timed out after ${OOB_WAIT_TIMEOUT}s waiting for ${OOB_IFACE} to have an IP\" >&2\n",
+                    "        exit 1\n",
+                    "    fi\n",
+                    "\n",
+                    "    echo \"xplane-bridge.sh: waiting for ${OOB_IFACE} to get an IP (${SECONDS}s elapsed)\"\n",
+                    "    sleep 2\n",
+                    "done\n",
+                    "\n",
                 )
                 .to_string(),
             ),
@@ -2439,6 +2462,27 @@ mod tests {
                     ) && xplane_script.contains(
                         "no rail address mapping for DPU serial ${LOCAL_SERIAL}; NODE_ADDR=${NODE_ADDR:-unset} GW_ADDR=${GW_ADDR:-unset}"
                     )
+                } => true,
+            }
+
+            "xplane bridge setup waits for OOB connectivity" {
+                {
+                    let xplane_script = flavor
+                        .spec
+                        .config_files
+                        .as_ref()
+                        .unwrap()
+                        .iter()
+                        .find(|file| file.path == "/etc/mellanox/xplane-bridge.sh")
+                        .and_then(|file| file.raw.as_ref())
+                        .unwrap();
+                    xplane_script.contains("OOB_WAIT_TIMEOUT=120")
+                        && xplane_script.contains(
+                            "ip -4 -o addr show dev \"$OOB_IFACE\" scope global",
+                        )
+                        && xplane_script.contains(
+                            "timed out after ${OOB_WAIT_TIMEOUT}s waiting for ${OOB_IFACE} to have an IP",
+                        )
                 } => true,
             }
 

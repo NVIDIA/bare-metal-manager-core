@@ -77,19 +77,28 @@ pub async fn find_by<'a, C: ColumnInfo<'a, TableType = MachineValidation>>(
     Ok(custom_results)
 }
 
-pub async fn update_status(
+/// Mark a run in progress only while it is still active.
+///
+/// Scout can poll after another request has completed the run. Keeping the
+/// active predicate in this update makes that race harmless: a terminal run
+/// remains terminal and is not dispatched again.
+pub async fn mark_in_progress_if_active(
     txn: &mut PgConnection,
     id: &MachineValidationId,
-    status: MachineValidationStatus,
-) -> DatabaseResult<()> {
-    let query = "UPDATE machine_validation SET state=$2 WHERE id=$1 RETURNING *";
-    let _id = sqlx::query_as::<_, MachineValidation>(query)
+) -> DatabaseResult<Option<MachineValidation>> {
+    let query = "
+        UPDATE machine_validation
+        SET state=$2
+        WHERE id=$1
+        AND end_time IS NULL
+        AND state IN ('Started', 'InProgress')
+        RETURNING *";
+    sqlx::query_as::<_, MachineValidation>(query)
         .bind(id)
-        .bind(status.state.to_string())
-        .fetch_one(txn)
+        .bind(MachineValidationState::InProgress.to_string())
+        .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::query(query, e))?;
-    Ok(())
+        .map_err(|e| DatabaseError::query(query, e))
 }
 pub async fn update_end_time(
     txn: &mut PgConnection,

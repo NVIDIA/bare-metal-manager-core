@@ -66,8 +66,8 @@ use libredfish::{
     Assembly, BiosProfileType, BiosProfileVendor, Boot, BootInterfaceRef, BootOptions,
     BootOverride, Chassis, Collection, EnabledDisabled, EthernetInterface, JobState,
     MachineSetupStatus, ManagerResetType, NetworkAdapter, NetworkDeviceFunction, NetworkPort,
-    PCIeDevice, PowerState, Redfish, RedfishError, RedfishFuture, Resource, RoleId, Status,
-    SystemPowerControl,
+    PCIeDevice, PowerState, Redfish, RedfishError, RedfishFuture, Resource, RoleId,
+    SpxNicModelAndName, Status, SystemPowerControl,
 };
 
 use super::redact_password;
@@ -341,6 +341,10 @@ impl Redfish for InstrumentedRedfish {
         fn set_host_privilege_level<'a>(&'a self, level: HostPrivilegeLevel) -> ();
         fn set_utc_timezone<'a>(&'a self) -> ();
         fn set_ntp_servers<'a>(&'a self, servers: &'a [String]) -> ();
+        fn get_spx_nic_east_west_control_enabled<'a>(&'a self, nic_index: u8) -> Option<bool>;
+        fn set_spx_nic_east_west_control_enabled<'a>(&'a self, nic_index: u8, enabled: bool) -> ();
+        fn get_spx_nic_mac_address<'a>(&'a self, nic_index: u8) -> Option<String>;
+        fn get_spx_nic_model_and_name<'a>(&'a self, nic_index: u8) -> Option<SpxNicModelAndName>;
     }
 
     // MARK: - Password-bearing operations

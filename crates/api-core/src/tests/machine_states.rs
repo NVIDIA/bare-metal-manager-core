@@ -555,9 +555,9 @@ async fn test_machine_creator_created_host_advances_through_dpu_discovery(
     assert!(
         matches!(
             dpu_machine.current_state(),
-            ManagedHostState::DpuDiscoveringState { .. }
+            ManagedHostState::ConfigureAstra { .. }
         ),
-        "expected DpuDiscoveringState, got {:?}",
+        "expected ConfigureAstra, got {:?}",
         dpu_machine.current_state(),
     );
     assert_eq!(
@@ -630,9 +630,9 @@ async fn test_machine_creator_created_host_advances_through_dpu_discovery(
     assert!(
         matches!(
             host_machine.current_state(),
-            ManagedHostState::DpuDiscoveringState { .. }
+            ManagedHostState::ConfigureAstra { .. }
         ),
-        "expected DpuDiscoveringState, got {:?}",
+        "expected ConfigureAstra, got {:?}",
         host_machine.current_state(),
     );
     assert!(host_machine.status.bmc_info.ip.is_some());
@@ -661,6 +661,7 @@ async fn test_machine_creator_created_host_advances_through_dpu_discovery(
     env.override_machine_state_controller_handler(handler).await;
 
     // DpuDiscovering/Initializing -> DpuDiscovering/Configuring
+    env.run_machine_state_controller_iteration().await;
     env.run_machine_state_controller_iteration().await;
 
     let mut txn = env.db_txn().await;

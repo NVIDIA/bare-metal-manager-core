@@ -210,7 +210,7 @@ async fn test_get_machine_boot_interfaces_gathers_all_four_stores(
 
     // The desired-state view names the boot target Site Explorer persisted for
     // this host. The fixture runs Site Explorer but no machine-controller
-    // iteration, so the generation is still pending in DPU discovery.
+    // iteration, so the host still sits in its initial ConfigureAstra state.
     let reconciliation = report
         .reconciliation
         .as_ref()
@@ -233,7 +233,7 @@ async fn test_get_machine_boot_interfaces_gathers_all_four_stores(
         "the unverified desired generation should still be pending"
     );
     assert_eq!(
-        reconciliation.machine_state, "DPUDiscovering/Initializing",
+        reconciliation.machine_state, "ConfigureAstra/EnableNics",
         "the managed-host state should explain where reconciliation is waiting"
     );
     assert_eq!(
