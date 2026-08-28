@@ -1076,6 +1076,22 @@ pub(crate) async fn admin_gpu_reset(
         // xtask:allow-error-case: HGX_Chassis_0 is a case-sensitive Redfish chassis id
         .ok_or_else(|| Status::invalid_argument("chassis_id is required (e.g. HGX_Chassis_0)"))?;
 
+    // Require the host to be in maintenance mode before an out-of-band GPU
+    // baseboard reset. This is the v1 coordination guard: an operator (or the
+    // break-fix automation) must claim the host first so the reset cannot race
+    // a concurrent NICo power op. Full serialization via ManagedHostState::
+    // Maintenance is tracked as follow-up work.
+    let (host_machine, txn) = api
+        .load_machine(&machine_id, MachineSearchConfig::default())
+        .await?;
+    if host_machine.health_reports.maintenance_override().is_none() {
+        return Err(Status::failed_precondition(
+            "host must be in maintenance mode before a GPU reset \
+             (nico-admin-cli managed-host maintenance on <machine-id>)",
+        ));
+    }
+    drop(txn);
+
     let mut txn = api.txn_begin().await?;
     let (bmc_endpoint_request, _) =
         validate_and_complete_bmc_endpoint_request(&mut txn, None, Some(machine_id)).await?;
