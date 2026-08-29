@@ -51,7 +51,7 @@ global:
 nico-api:
   hostname: ""   # REQUIRED: external nico-api hostname (e.g. api-<site>.<domain>)
 
-  # The lab installs NICo into nico-system while retaining compatibility
+  # The one-box setup installs NICo into nico-system while retaining compatibility
   # aliases in forge-system. Own the legacy namespace in the Core release so
   # the alias Services can be created on a fresh cluster.
   legacyAlias:
@@ -414,7 +414,7 @@ nico-dhcp:
   # apiServiceName: carbide-api
   config:
     kea:
-      # Debian multiarch path; DANTE rewrites this for ARM64 Spark labs.
+      # Debian AMD64 multiarch path; override this for an ARM64 one-box setup.
       hookLibraryPath: "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp.so"
       hookParameters:
         # DPUs need a resolver that serves the .forge zone (carbide-api.forge etc.).

@@ -25,6 +25,16 @@
 # =============================================================================
 
 repositories:
+  - name: jetstack
+    url: https://charts.jetstack.io
+  - name: hashicorp
+    url: https://helm.releases.hashicorp.com
+  - name: external-secrets
+    url: https://charts.external-secrets.io
+  - name: postgres-operator
+    url: https://opensource.zalando.com/postgres-operator/charts/postgres-operator
+  - name: metallb
+    url: https://metallb.github.io/metallb
   - name: argo
     url: https://argoproj.github.io/argo-helm
   - name: nfd
@@ -42,7 +52,7 @@ releases:
   - name: metallb
     namespace: metallb-system
     createNamespace: true
-    chart: https://github.com/metallb/metallb/releases/download/metallb-chart-0.14.5/metallb-0.14.5.tgz
+    chart: metallb/metallb
     version: "0.14.5"
     wait: true
     timeout: 600
@@ -58,8 +68,11 @@ releases:
   - name: postgres-operator
     namespace: postgres
     createNamespace: true
-    chart: https://opensource.zalando.com/postgres-operator/charts/postgres-operator/postgres-operator-1.15.1.tgz
-    version: "1.15.1"
+    chart: postgres-operator/postgres-operator
+    # NOTE: chart versions below 1.11.0 are no longer published in Zalando's chart
+    # repository. The CRD API (acid.zalan.do/v1) is unchanged across this bump, and
+    # nico-pg-cluster pins postgresql.version explicitly, so the database is unaffected.
+    version: "1.11.0"
     wait: true
     timeout: 600
     values:
@@ -73,7 +86,7 @@ releases:
   - name: cert-manager
     namespace: cert-manager
     createNamespace: true
-    chart: oci://quay.io/jetstack/charts/cert-manager
+    chart: jetstack/cert-manager
     version: "v1.17.1"
     wait: true
     timeout: 600
@@ -89,7 +102,7 @@ releases:
   - name: vault
     namespace: vault
     createNamespace: true
-    chart: https://helm.releases.hashicorp.com/vault-0.25.0.tgz
+    chart: hashicorp/vault
     version: "0.25.0"
     wait: true
     timeout: 600
@@ -103,7 +116,7 @@ releases:
   - name: external-secrets
     namespace: external-secrets
     createNamespace: true
-    chart: oci://ghcr.io/external-secrets/charts/external-secrets
+    chart: external-secrets/external-secrets
     version: "0.14.3"
     wait: true
     timeout: 600

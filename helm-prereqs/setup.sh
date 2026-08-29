@@ -473,7 +473,7 @@ fi
 
 # Recover only interrupted Helm transactions owned by this installer. A normal
 # deployed release is left untouched. This makes setup rerunnable after its SSH
-# client or local DANTE process is interrupted during a Helm upgrade.
+# client or local automation process is interrupted during a Helm upgrade.
 recover_pending_helm_release() {
     local release_name="$1"
     local release_namespace="$2"
