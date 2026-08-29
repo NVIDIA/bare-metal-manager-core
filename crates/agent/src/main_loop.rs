@@ -52,7 +52,7 @@ use crate::duppet::{SummaryFormat, SyncOptions};
 use crate::ethernet_virtualization::{
     InterfaceTranslationMode, NvueClientContext, NvueUpdateFlavor, ServiceAddresses,
 };
-use crate::fmds_client::FmdsUpdater;
+use crate::fmds_client::{FmdsUpdater, register_external_connection_metric};
 use crate::health::HealthCheckParams;
 use crate::host_machine_id::get_host_machine_id_retry;
 use crate::instrumentation::{
@@ -173,34 +173,13 @@ pub async fn setup_and_run(
             fmds_address = fmds_addr,
             "Using FmdsUpdater::External FMDS service"
         );
-        let updater = match crate::fmds_client::FmdsGrpcClient::connect(
-            fmds_addr,
-            agent_config.machine_identity.clone(),
-        )
-        .await
-        {
-            Ok(fmds_client) => FmdsUpdater::External(Box::new(fmds_client)),
-            Err(e) => {
-                tracing::warn!(
-                    error = format!("{e:#}"),
-                    "Failed to connect to external FMDS service, falling back to embedded"
-                );
-                FmdsUpdater::Embedded(instance_metadata_state.clone())
-            }
-        };
-        // External FMDS was configured: expose whether we reached it (1) or fell
-        // back to embedded (0). A gauge, not a counter -- the fallback is decided
-        // once at startup, so a single pre-scrape counter bump would be invisible
-        // to rate()/increase(); a gauge reports the state at every scrape.
-        let reached_external = matches!(updater, FmdsUpdater::External(_));
-        get_dpu_agent_meter()
-            .u64_observable_gauge("carbide_dpu_agent_fmds_external_connected")
-            .with_description(
-                "Whether the DPU agent reached its configured external FMDS (1) or fell back to embedded (0)",
-            )
-            .with_callback(move |observer| observer.observe(reached_external as u64, &[]))
-            .build();
-        updater
+        let last_connect_succeeded = register_external_connection_metric(&get_dpu_agent_meter());
+        FmdsUpdater::External {
+            address: fmds_addr.clone(),
+            machine_identity: agent_config.machine_identity.clone(),
+            connect_timeout: Duration::from_secs(options.fmds_connect_timeout_secs),
+            last_connect_succeeded,
+        }
     } else {
         if options.enable_metadata_service {
             crate::metadata_service::spawn_metadata_service(
