@@ -48,7 +48,6 @@ mod instance_ipxe_behaviors;
 mod instance_os;
 mod instance_type;
 mod ipxe;
-mod level_filter;
 mod lldp;
 mod machine_admin_force_delete;
 mod machine_boot_override;

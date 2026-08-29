@@ -17,22 +17,19 @@
 
 use std::time::Duration;
 
-use common::api_fixtures::create_test_env;
-use rpc::forge::forge_server::Forge;
+use carbide_api_core::test_support::dep_log_filter;
+use carbide_test_harness::prelude::*;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::filter::EnvFilter;
 
-use crate::logging::setup::dep_log_filter;
-use crate::tests::common;
-
-#[crate::sqlx_test]
-async fn test_dynamic_log_filter(db_pool: sqlx::PgPool) -> eyre::Result<()> {
-    let env = create_test_env(db_pool.clone()).await;
+#[sqlx_test]
+async fn test_dynamic_log_filter(db_pool: PgPool) -> eyre::Result<()> {
+    let env = TestHarness::builder(db_pool).build().await;
     let mut join_set = JoinSet::new();
     let cancel_token = CancellationToken::new();
     // Real env does this in api/lib.rs::run
-    env.api.dynamic_settings.start_reset_task(
+    env.api().start_dynamic_settings_reset_task(
         &mut join_set,
         Duration::from_millis(300),
         cancel_token.clone(),
@@ -44,7 +41,7 @@ async fn test_dynamic_log_filter(db_pool: sqlx::PgPool) -> eyre::Result<()> {
         .parse(std::env::var("RUST_LOG").unwrap_or("trace".to_string()))
         .unwrap()
         .to_string();
-    let base = env.api.log_filter_string();
+    let base = env.api().log_filter_string();
     assert_eq!(local, base, "Startup log filter does not match RUST_LOG");
 
     // 2. Apply default dep log levels (as in fn setup_logging(...))
@@ -56,8 +53,10 @@ async fn test_dynamic_log_filter(db_pool: sqlx::PgPool) -> eyre::Result<()> {
         value: "debug".to_string(),
         expiry: Some("500ms".to_string()),
     };
-    env.api.set_dynamic_config(tonic::Request::new(req)).await?;
-    let current = env.api.log_filter_string();
+    env.api()
+        .set_dynamic_config(tonic::Request::new(req))
+        .await?;
+    let current = env.api().log_filter_string();
     // it should be something like: "...,debug until 2024-03-27 18:20:33.723829221 UTC"
     assert!(
         current.contains("debug until "),
@@ -66,7 +65,7 @@ async fn test_dynamic_log_filter(db_pool: sqlx::PgPool) -> eyre::Result<()> {
 
     // 4. After 'expiry' it automatically reverts
     tokio::time::sleep(Duration::from_secs(1)).await;
-    let base = env.api.log_filter_string();
+    let base = env.api().log_filter_string();
     assert_eq!(
         local.to_string(),
         base,
