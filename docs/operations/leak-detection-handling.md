@@ -4,7 +4,7 @@
 
 In rack-scale system, there are two sets of leak sensors, with NICo and BMS each managing one set and detects leak based on them. Additionally, BMS controls the rack AC power breaker and coolant valve for rack isolation remediation, while NICo provides the infrastructure-management health reporting, allocation protection, and safe handling.
 
-NICo evaluates leak-related conditions from compute and NVSwitch tray sensors managed by it to detect leak events. NICo also listens via DSX Exchange (MQTT event bus) for BMS-issued leak events based on BMS-managed sensors such as CDU, rope, and dripping pan. A leak event results in tray and rack health warnings and alerts in NICo, which prevent the machines from being allocated. Depending on the leak type and severity, NICo takes automated handling actions based on configuration and policy.
+NICo evaluates leak-related conditions from compute and NVSwitch tray sensors managed by it to detect leak events. NICo also listens via DSX Exchange (MQTT event bus) for BMS-issued leak events based on BMS-managed sensors such as CDU, rope, and dripping pan. A leak event results in tray or rack health warnings and alerts in NICo, which prevent the machines from being allocated. Depending on the leak type and severity, NICo takes automated handling actions based on configuration and policy.
 
 ## Current capability: automated e2e leak detection, reporting, allocation protection, and handling
 
@@ -60,7 +60,7 @@ Without these prerequisites, BMS events do not create NICo rack health reports.
 
 ### Health Reporting and Allocation Protection
 
-NICo provides **health visibility and allocation protection** for leak-related conditions. Regardless of the source of leak detection and the path of health report creation, leak health alert comes with these classifications:
+NICo provides **health visibility and allocation protection** for leak-related conditions. For BMS-based leak detection, rack leak health alert comes with these classifications:
 
 - `PreventAllocations`
 - `SensorCritical`
@@ -78,24 +78,22 @@ NICo and BMS combined together automatically take leak handling actions in three
 
 Critical leakages are those detected by BMS based on BMS-managed sensors. Because these sensors are often at rack or even larger scope, any leaks detected from them may have very large and serious impact, and rack electric and liquid isolation often need to be performed ASAP, by BMS via its control of AC power breaker and coolant valve.
 
-After NICo received the leak event from BMS via DSX Exchange, if, for any reason, the rack still has AC power on and there are still trays on, NICo will turn them off through its general leakage handling automation.
-
 #### Severe Leakage Handling
 
 When multiple trays in a rack are detected to be leaking based on in-tray NICo-managed sensors, if it goes beyond a configured threshold (default to 2 for NVL72 racks currently), the rack is considered to have a severe leakage. To prevent more trays in the rack from being impacted by the leak, NICo will immediately request BMS, via DSX Exchange, to perform electric and liquid isolation to the rack.
 
-Upon receiving the isolation request, BMS will trigger the AC power breaker and shut off coolant valve, and broadcast the isolation result back to NICo via DSX Exchange, which NICo waits for.
+Upon receiving the isolation request, BMS will trigger the AC power breaker and shut off coolant valve, and broadcast the isolation result back DSX Exchange.
 
 #### General Leakage Handling
 
 When there are leaking trays but not enough to trigger a critical or severe leak, NICo handles the general leakage via policy-based automation.
 
-Currently, the default handling policy is to shut down all leaking trays. For a leaking tray that is still powered on, NICo will first gracefully and then forcefully shut it down.
+Currently, the default handling policy is to shut down all leaking trays. For a leaking tray that is still powered on, NICo will forcefully shut it down.
 
 To see the handling operation task status
 `GET /nico/tray/{id}/task`
 
-## Next phase: API-manageable, customizable, full lifecycle leak detection and handling
+## Next phase: API-manageable, customizable, full-lifecycle leak detection and handling
 
 The overall focus for the next phase of NICo leak detection and handling is to make the feature manageable from API, supporting customized polices, and cover the full lifecycle of liquid-cooled hardware.
 
@@ -127,13 +125,13 @@ Examples of potential customized policies in the future:
 - Turn off a rack based on combination of BMS sensor metrics + NICo tray detection (more sensitive yet robust detection)
 - Turn off racks in a coolant loop with 2+ leaking racks (site topology)
 
-### Full lifecycle leak detection and handling
+### Full-lifecycle leak detection and handling
 
 Currently, NICo only detects from in-tray BMC sensors of ingested machines and switches. This does not cover the full lifecycle of liquid-cooled hardware, which not only exposes risks but will eventually become blockers for the scaling of AI factory.
 
 For trays with BMC powered on and visible from NICo but have not yet been fully ingested, [issue #5391](https://github.com/NVIDIA/infra-controller/issues/5391) aims to expand the collection, detection, reporting, and handling of leakage to those trays, which not only expands the leak detection and handling coverage, but is also a dependency for the enhancement below.
 
-For hosts that were known to be leaking before previously turned off, and for hosts that belong to a previously known-leaking rack, [issue #5510](https://github.com/NVIDIA/infra-controller/issues/5510) aims to prevent them from being automatically turned on, until their BMC or the whole rack's BMCs can give a definitive clearance of leakage. This will complete the coverage of the full lifecycle of liquid-cooled hardware.
+For hosts that were known to be leaking before being previously turned off, and for hosts that belong to a previously known-leaking rack, [issue #5510](https://github.com/NVIDIA/infra-controller/issues/5510) aims to prevent them from being automatically turned on, until their BMC or the whole rack's BMCs can give a definitive clearance of leakage. This will complete the coverage of the full lifecycle of liquid-cooled hardware.
 
 ## Related documentation and implementation
 
