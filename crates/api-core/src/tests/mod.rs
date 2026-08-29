@@ -26,7 +26,6 @@ mod dpu_machine_update;
 mod dpu_nic_firmware;
 mod dpu_remediation;
 mod dpu_reprovisioning;
-mod dynamic_config;
 mod expected_machine;
 mod expected_switch;
 mod explored_endpoint_find;

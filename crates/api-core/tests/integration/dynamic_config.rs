@@ -14,35 +14,51 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
+use carbide_api_core::cfg::file::CarbideConfig;
+use carbide_api_core::cfg::load::parse_carbide_config;
+use carbide_api_core::test_support::default_config;
+use carbide_test_harness::prelude::*;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{ConfigSetting, SetDynamicConfigRequest};
 
-use crate::cfg::load::parse_carbide_config;
-use crate::tests::common::api_fixtures::{
-    TestEnv, TestEnvOverrides, create_test_env_with_overrides, get_config,
-};
+trait TestHarnessConfigExt {
+    fn config(&self) -> &CarbideConfig;
+}
+
+impl TestHarnessConfigExt for TestHarness {
+    fn config(&self) -> &CarbideConfig {
+        self.api().runtime_config.as_ref()
+    }
+}
+
+async fn init(db_pool: PgPool, config: CarbideConfig) -> TestHarness {
+    let config = Arc::new(config);
+    TestHarness::builder(db_pool)
+        .with_api_builder_fn(move |builder| builder.with_runtime_config(config))
+        .build()
+        .await
+}
 
 async fn create_env_with_tracing_config(
-    db_pool: sqlx::PgPool,
+    db_pool: PgPool,
     enabled: bool,
     allow_runtime_changes: bool,
-) -> TestEnv {
-    let mut config = get_config();
+) -> TestHarness {
+    let mut config = default_config::get();
     config.tracing.enabled = enabled;
     config.tracing.allow_runtime_changes = allow_runtime_changes;
 
-    let mut overrides = TestEnvOverrides::with_config(config);
-    overrides.create_network_segments = Some(false);
-    create_test_env_with_overrides(db_pool, overrides).await
+    init(db_pool, config).await
 }
 
 async fn set_tracing_enabled(
-    env: &TestEnv,
+    env: &TestHarness,
     enabled: bool,
 ) -> Result<tonic::Response<()>, tonic::Status> {
-    env.api
+    env.api()
         .set_dynamic_config(tonic::Request::new(SetDynamicConfigRequest {
             setting: ConfigSetting::TracingEnabled as i32,
             value: enabled.to_string(),
@@ -51,21 +67,21 @@ async fn set_tracing_enabled(
         .await
 }
 
-#[crate::sqlx_test]
-async fn test_bmc_proxy_setting_config_allowed(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
+#[sqlx_test]
+async fn test_bmc_proxy_setting_config_allowed(db_pool: PgPool) -> Result<(), eyre::Report> {
     let env = {
-        let mut config = get_config();
+        let mut config = default_config::get();
         config.site_explorer.allow_changing_bmc_proxy = Some(true);
-        create_test_env_with_overrides(db_pool, TestEnvOverrides::with_config(config)).await
+        init(db_pool, config).await
     };
 
     assert!(matches!(
-        env.config.site_explorer.allow_changing_bmc_proxy.as_ref(),
+        env.config().site_explorer.allow_changing_bmc_proxy.as_ref(),
         Some(true)
     ));
-    assert!(env.config.site_explorer.bmc_proxy.load().is_none());
+    assert!(env.config().site_explorer.bmc_proxy.load().is_none());
 
-    env.api
+    env.api()
         .set_dynamic_config(tonic::Request::new(SetDynamicConfigRequest {
             setting: ConfigSetting::BmcProxy as i32,
             value: "test-host:1234".to_string(),
@@ -73,7 +89,7 @@ async fn test_bmc_proxy_setting_config_allowed(db_pool: sqlx::PgPool) -> Result<
         }))
         .await?;
     assert_eq!(
-        env.config
+        env.config()
             .site_explorer
             .bmc_proxy
             .load()
@@ -88,15 +104,15 @@ async fn test_bmc_proxy_setting_config_allowed(db_pool: sqlx::PgPool) -> Result<
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_tracing_dynamic_config_runtime_changes_allowed(
-    db_pool: sqlx::PgPool,
+    db_pool: PgPool,
 ) -> Result<(), eyre::Report> {
     let env = create_env_with_tracing_config(db_pool, false, true).await;
-    assert!(!env.config.tracing.enabled);
-    assert!(env.config.tracing.allow_runtime_changes);
+    assert!(!env.config().tracing.enabled);
+    assert!(env.config().tracing.allow_runtime_changes);
     assert!(
-        !env.api
+        !env.api()
             .dynamic_settings
             .tracing_enabled
             .load(Ordering::Relaxed)
@@ -104,7 +120,7 @@ async fn test_tracing_dynamic_config_runtime_changes_allowed(
 
     set_tracing_enabled(&env, true).await?;
     assert!(
-        env.api
+        env.api()
             .dynamic_settings
             .tracing_enabled
             .load(Ordering::Relaxed)
@@ -112,7 +128,7 @@ async fn test_tracing_dynamic_config_runtime_changes_allowed(
 
     set_tracing_enabled(&env, false).await?;
     assert!(
-        !env.api
+        !env.api()
             .dynamic_settings
             .tracing_enabled
             .load(Ordering::Relaxed)
@@ -121,15 +137,15 @@ async fn test_tracing_dynamic_config_runtime_changes_allowed(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_tracing_config_enabled_can_be_disabled_when_runtime_changes_allowed(
-    db_pool: sqlx::PgPool,
+    db_pool: PgPool,
 ) -> Result<(), eyre::Report> {
     let env = create_env_with_tracing_config(db_pool, true, true).await;
-    assert!(env.config.tracing.enabled);
-    assert!(env.config.tracing.allow_runtime_changes);
+    assert!(env.config().tracing.enabled);
+    assert!(env.config().tracing.allow_runtime_changes);
     assert!(
-        env.api
+        env.api()
             .dynamic_settings
             .tracing_enabled
             .load(Ordering::Relaxed)
@@ -137,7 +153,7 @@ async fn test_tracing_config_enabled_can_be_disabled_when_runtime_changes_allowe
 
     set_tracing_enabled(&env, false).await?;
     assert!(
-        !env.api
+        !env.api()
             .dynamic_settings
             .tracing_enabled
             .load(Ordering::Relaxed)
@@ -146,15 +162,15 @@ async fn test_tracing_config_enabled_can_be_disabled_when_runtime_changes_allowe
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_tracing_dynamic_config_rejected_when_runtime_changes_disabled(
-    db_pool: sqlx::PgPool,
+    db_pool: PgPool,
 ) -> Result<(), eyre::Report> {
     let env = create_env_with_tracing_config(db_pool, true, false).await;
-    assert!(env.config.tracing.enabled);
-    assert!(!env.config.tracing.allow_runtime_changes);
+    assert!(env.config().tracing.enabled);
+    assert!(!env.config().tracing.allow_runtime_changes);
     assert!(
-        env.api
+        env.api()
             .dynamic_settings
             .tracing_enabled
             .load(Ordering::Relaxed)
@@ -165,7 +181,7 @@ async fn test_tracing_dynamic_config_rejected_when_runtime_changes_disabled(
         .expect_err("runtime tracing change should be rejected");
     assert_eq!(err.code(), tonic::Code::PermissionDenied);
     assert!(
-        env.api
+        env.api()
             .dynamic_settings
             .tracing_enabled
             .load(Ordering::Relaxed)
@@ -174,15 +190,15 @@ async fn test_tracing_dynamic_config_rejected_when_runtime_changes_disabled(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_tracing_dynamic_config_rejected_from_disabled_startup_config(
-    db_pool: sqlx::PgPool,
+    db_pool: PgPool,
 ) -> Result<(), eyre::Report> {
     let env = create_env_with_tracing_config(db_pool, false, false).await;
-    assert!(!env.config.tracing.enabled);
-    assert!(!env.config.tracing.allow_runtime_changes);
+    assert!(!env.config().tracing.enabled);
+    assert!(!env.config().tracing.allow_runtime_changes);
     assert!(
-        !env.api
+        !env.api()
             .dynamic_settings
             .tracing_enabled
             .load(Ordering::Relaxed)
@@ -193,7 +209,7 @@ async fn test_tracing_dynamic_config_rejected_from_disabled_startup_config(
         .expect_err("runtime tracing change should be rejected");
     assert_eq!(err.code(), tonic::Code::PermissionDenied);
     assert!(
-        !env.api
+        !env.api()
             .dynamic_settings
             .tracing_enabled
             .load(Ordering::Relaxed)
@@ -202,22 +218,25 @@ async fn test_tracing_dynamic_config_rejected_from_disabled_startup_config(
     Ok(())
 }
 
-#[crate::sqlx_test]
-async fn test_bmc_proxy_setting_config_unspecified(
-    db_pool: sqlx::PgPool,
-) -> Result<(), eyre::Report> {
+#[sqlx_test]
+async fn test_bmc_proxy_setting_config_unspecified(db_pool: PgPool) -> Result<(), eyre::Report> {
     let env = {
-        let mut config = get_config();
+        let mut config = default_config::get();
         // Leave allow_changing_bmc_proxy unspecified, it should behave as if false
         config.site_explorer.allow_changing_bmc_proxy = None;
-        create_test_env_with_overrides(db_pool, TestEnvOverrides::with_config(config)).await
+        init(db_pool, config).await
     };
 
-    assert!(env.config.site_explorer.allow_changing_bmc_proxy.is_none());
-    assert!(env.config.site_explorer.bmc_proxy.load().is_none());
+    assert!(
+        env.config()
+            .site_explorer
+            .allow_changing_bmc_proxy
+            .is_none()
+    );
+    assert!(env.config().site_explorer.bmc_proxy.load().is_none());
 
     match env
-        .api
+        .api()
         .set_dynamic_config(tonic::Request::new(SetDynamicConfigRequest {
             setting: ConfigSetting::BmcProxy as i32,
             value: "test-host:1234".to_string(),
@@ -231,30 +250,28 @@ async fn test_bmc_proxy_setting_config_unspecified(
         _ => panic!("Setting dynamic config should have failed with a permission_denied"),
     };
 
-    assert!(env.config.site_explorer.bmc_proxy.load().is_none());
+    assert!(env.config().site_explorer.bmc_proxy.load().is_none());
 
     Ok(())
 }
 
-#[crate::sqlx_test]
-async fn test_bmc_proxy_setting_config_not_allowed(
-    db_pool: sqlx::PgPool,
-) -> Result<(), eyre::Report> {
+#[sqlx_test]
+async fn test_bmc_proxy_setting_config_not_allowed(db_pool: PgPool) -> Result<(), eyre::Report> {
     let env = {
-        let mut config = get_config();
+        let mut config = default_config::get();
         config.site_explorer.allow_changing_bmc_proxy = Some(false);
-        create_test_env_with_overrides(db_pool, TestEnvOverrides::with_config(config)).await
+        init(db_pool, config).await
     };
 
     assert!(matches!(
-        env.config.site_explorer.allow_changing_bmc_proxy.as_ref(),
+        env.config().site_explorer.allow_changing_bmc_proxy.as_ref(),
         Some(false)
     ));
 
-    assert!(env.config.site_explorer.bmc_proxy.load().is_none());
+    assert!(env.config().site_explorer.bmc_proxy.load().is_none());
 
     match env
-        .api
+        .api()
         .set_dynamic_config(tonic::Request::new(SetDynamicConfigRequest {
             setting: ConfigSetting::BmcProxy as i32,
             value: "test-host:1234".to_string(),
@@ -268,19 +285,19 @@ async fn test_bmc_proxy_setting_config_not_allowed(
         _ => panic!("Setting dynamic config should have failed with a permission_denied"),
     };
 
-    assert!(env.config.site_explorer.bmc_proxy.load().is_none());
+    assert!(env.config().site_explorer.bmc_proxy.load().is_none());
 
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_bmc_proxy_setting_parsed_config_unspecified(
-    db_pool: sqlx::PgPool,
+    db_pool: PgPool,
 ) -> Result<(), eyre::Report> {
     let env = {
         // Create a config with allow_changing_bmc_proxy unset, then pass it to parse_carbide_config,
         // then use *that* config, and assert that it defaults to false
-        let mut config = get_config();
+        let mut config = default_config::get();
         // Leave allow_changing_bmc_proxy unspecified, it should behave as if false
         config.site_explorer.allow_changing_bmc_proxy = None;
         config.site_explorer.bmc_proxy = carbide_site_explorer::config::bmc_proxy(None);
@@ -290,18 +307,19 @@ async fn test_bmc_proxy_setting_parsed_config_unspecified(
         let mut tmp = tempfile::NamedTempFile::new()?;
         std::io::Write::write_all(&mut tmp, config_str.as_bytes())?;
         let parsed_config = parse_carbide_config(tmp.path(), None)?;
-        create_test_env_with_overrides(
-            db_pool,
-            TestEnvOverrides::with_config(parsed_config.as_ref().to_owned()),
-        )
-        .await
+        init(db_pool, parsed_config.as_ref().to_owned()).await
     };
 
-    assert!(env.config.site_explorer.allow_changing_bmc_proxy.is_none());
-    assert!(env.api.dynamic_settings.bmc_proxy.load().is_none());
+    assert!(
+        env.config()
+            .site_explorer
+            .allow_changing_bmc_proxy
+            .is_none()
+    );
+    assert!(env.api().dynamic_settings.bmc_proxy.load().is_none());
 
     match env
-        .api
+        .api()
         .set_dynamic_config(tonic::Request::new(SetDynamicConfigRequest {
             setting: ConfigSetting::BmcProxy as i32,
             value: "test-host:1234".to_string(),
@@ -315,19 +333,19 @@ async fn test_bmc_proxy_setting_parsed_config_unspecified(
         _ => panic!("Setting dynamic config should have failed with a permission_denied"),
     };
 
-    assert!(env.api.dynamic_settings.bmc_proxy.load().is_none());
+    assert!(env.api().dynamic_settings.bmc_proxy.load().is_none());
 
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_bmc_proxy_setting_parsed_config_unspecified_with_bmc_proxy_set(
-    db_pool: sqlx::PgPool,
+    db_pool: PgPool,
 ) -> Result<(), eyre::Report> {
     let env = {
         // Create a config with allow_changing_bmc_proxy unset, but with bmc_proxy set. This should
         // make allow_changing_bmc_proxy to default to true in parse_carbide_config.
-        let mut config = get_config();
+        let mut config = default_config::get();
         // Leave allow_changing_bmc_proxy unspecified, it should behave as if false
         config.site_explorer.allow_changing_bmc_proxy = None;
         config.site_explorer.bmc_proxy =
@@ -336,20 +354,16 @@ async fn test_bmc_proxy_setting_parsed_config_unspecified_with_bmc_proxy_set(
         let mut tmp = tempfile::NamedTempFile::new()?;
         std::io::Write::write_all(&mut tmp, config_str.as_bytes())?;
         let parsed_config = parse_carbide_config(tmp.path(), None)?;
-        create_test_env_with_overrides(
-            db_pool,
-            TestEnvOverrides::with_config(parsed_config.as_ref().to_owned()),
-        )
-        .await
+        init(db_pool, parsed_config.as_ref().to_owned()).await
     };
 
     assert!(matches!(
-        env.config.site_explorer.allow_changing_bmc_proxy.as_ref(),
+        env.config().site_explorer.allow_changing_bmc_proxy.as_ref(),
         Some(true),
     ));
 
     assert_eq!(
-        env.api
+        env.api()
             .dynamic_settings
             .bmc_proxy
             .load()
@@ -359,7 +373,7 @@ async fn test_bmc_proxy_setting_parsed_config_unspecified_with_bmc_proxy_set(
         Some("test:1234".parse().unwrap())
     );
 
-    env.api
+    env.api()
         .set_dynamic_config(tonic::Request::new(SetDynamicConfigRequest {
             setting: ConfigSetting::BmcProxy as i32,
             value: "other-host:5678".to_string(),
@@ -369,7 +383,7 @@ async fn test_bmc_proxy_setting_parsed_config_unspecified_with_bmc_proxy_set(
         .unwrap();
 
     assert_eq!(
-        env.api
+        env.api()
             .dynamic_settings
             .bmc_proxy
             .load()
