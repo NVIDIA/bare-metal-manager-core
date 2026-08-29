@@ -19,9 +19,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use nv_redfish::ServiceRoot;
-use nv_redfish::core::{Bmc, EntityTypeRef, ODataId, ToSnakeCase};
+use nv_redfish::core::{Bmc, EntityTypeRef, ODataETag, ODataId, ToSnakeCase};
 use nv_redfish::resource::State;
-use nv_redfish::schema::leak_detector::{DetectorState, LeakDetector};
+use nv_redfish::schema::leak_detector::DetectorState;
+use serde::Deserialize;
 
 use crate::HealthError;
 use crate::collectors::{IterationResult, PeriodicCollector};
@@ -47,6 +48,44 @@ pub struct LeakDetectorCollector<B: Bmc> {
 struct LeakDetectorCollectorState {
     detector_ids: Vec<ODataId>,
     last_detector_refresh: Instant,
+}
+
+/// Collector projection that ignores properties not used for health reporting.
+///
+/// The type name preserves the `LeakDetector` BMC latency `entity_type` label.
+#[derive(Debug, Deserialize)]
+struct LeakDetector {
+    #[serde(rename = "@odata.id")]
+    odata_id: ODataId,
+
+    #[serde(rename = "@odata.etag", default)]
+    etag: Option<ODataETag>,
+
+    #[serde(rename = "DetectorState", default)]
+    detector_state: Option<DetectorState>,
+
+    #[serde(rename = "Status", default)]
+    status: Option<LeakDetectorStatus>,
+
+    #[serde(rename = "UserLabel", default)]
+    user_label: Option<String>,
+}
+
+impl EntityTypeRef for LeakDetector {
+    fn odata_id(&self) -> &ODataId {
+        &self.odata_id
+    }
+
+    fn etag(&self) -> Option<&ODataETag> {
+        self.etag.as_ref()
+    }
+}
+
+/// Collector projection of the status field used to gate leak classification.
+#[derive(Debug, Deserialize)]
+struct LeakDetectorStatus {
+    #[serde(rename = "State", default)]
+    state: Option<State>,
 }
 
 impl<B> PeriodicCollector<B> for LeakDetectorCollector<B>
@@ -215,14 +254,12 @@ fn build_health_report(detectors: Vec<Arc<LeakDetector>>, context: &EventContext
 
     for detector in detectors {
         let target = detector_target(detector.as_ref());
-        let resource_state = detector
-            .status
-            .as_ref()
-            .and_then(|status| status.state.flatten());
+        let resource_state = detector.status.as_ref().and_then(|status| status.state);
+
         if resource_state != Some(State::Enabled) {
             tracing::warn!(
                 detector = %target,
-                leak_detector_state = ?detector.detector_state.flatten(),
+                leak_detector_state = ?detector.detector_state,
                 leak_detector_resource_state = ?resource_state,
                 rack_id = context.rack_id().map(tracing::field::display),
                 "Leak detector resource state does not permit leak classification"
@@ -230,7 +267,7 @@ fn build_health_report(detectors: Vec<Arc<LeakDetector>>, context: &EventContext
             continue;
         }
 
-        match detector.detector_state.flatten() {
+        match detector.detector_state {
             Some(DetectorState::Ok) => successes.push(HealthReportSuccess {
                 probe_id: Probe::LeakDetection,
                 target: Some(target),
@@ -244,7 +281,7 @@ fn build_health_report(detectors: Vec<Arc<LeakDetector>>, context: &EventContext
             | None => {
                 tracing::warn!(
                     detector = %target,
-                    leak_detector_state = ?detector.detector_state.flatten(),
+                    leak_detector_state = ?detector.detector_state,
                     rack_id = context.rack_id().map(tracing::field::display),
                     "Leak detector is not reporting an actionable leak state"
                 );
@@ -270,7 +307,7 @@ fn detector_target(detector: &LeakDetector) -> String {
 }
 
 fn leak_alert(detector: &LeakDetector, target: String) -> HealthReportAlert {
-    let state = detector.detector_state.flatten();
+    let state = detector.detector_state;
     HealthReportAlert {
         probe_id: Probe::LeakDetection,
         target: Some(target.clone()),
@@ -406,6 +443,7 @@ mod tests {
                             "Id": "OK",
                             "Name": "Healthy leak detector",
                             "DetectorState": "OK",
+                            "ReactionDelaySeconds": 0.0,
                             "Status": { "Health": "OK", "State": "Enabled" },
                             "UserLabel": "Rack floor"
                         }"#,
