@@ -2395,6 +2395,15 @@ fn astra_underlay_configuration(
     Ok(values)
 }
 
+/// Builds the per-DPU values consumed by the BF4 Astra `DPUFlavorTemplate`.
+///
+/// `underlay_ips` must contain eight unique IPv4 addresses in this order:
+/// rails 0 through 3 on switch plane 0, followed by rails 0 through 3 on
+/// switch plane 1. For each address, this creates `railX_swpY_ip` as a `/31`
+/// address, `railX_swpY_gw` as its `/31` peer, and `railX_swpY_route1` and
+/// `railX_swpY_route2` as the corresponding `/16` and `/13` route prefixes.
+/// The BF4 Astra template uses these exact values to replace its per-DPU
+/// placeholders when the `DPUDevice` is instantiated.
 fn astra_underlay_values_for_ips(
     underlay_ips: &[Ipv4Addr],
 ) -> Result<BTreeMap<String, serde_json::Value>, DpfError> {
@@ -2410,13 +2419,24 @@ fn astra_underlay_values_for_ips(
     ];
 
     if underlay_ips.len() != RAIL_SWITCH_PLANES.len() {
+        tracing::error!(
+            expected_underlay_ip_count = RAIL_SWITCH_PLANES.len(),
+            actual_underlay_ip_count = underlay_ips.len(),
+            "Astra requires exactly eight underlay IPs"
+        );
         return Err(DpfError::ConfigError(format!(
             "Astra requires exactly {} underlay IPs, got {}",
             RAIL_SWITCH_PLANES.len(),
             underlay_ips.len()
         )));
     }
-    if underlay_ips.iter().copied().collect::<BTreeSet<_>>().len() != underlay_ips.len() {
+    let unique_underlay_ip_count = underlay_ips.iter().copied().collect::<BTreeSet<_>>().len();
+    if unique_underlay_ip_count != underlay_ips.len() {
+        tracing::error!(
+            underlay_ip_count = underlay_ips.len(),
+            unique_underlay_ip_count,
+            "Astra underlay IPs must be unique"
+        );
         return Err(DpfError::ConfigError(
             "Astra underlay IPs must be unique".to_string(),
         ));
