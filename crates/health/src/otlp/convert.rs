@@ -931,7 +931,7 @@ mod tests {
             labels: Default::default(),
             metadata: Some(EndpointMetadata::PowerShelf(PowerShelfData {
                 id: Some(power_shelf_id),
-                serial: "SN-PS-001".to_string(),
+                serial: Some("SN-PS-001".to_string()),
             })),
             rack_id: Some(RackId::new("RACK_4")),
         };
@@ -948,6 +948,34 @@ mod tests {
             Some("SN-PS-001")
         );
         assert_eq!(attr_value(&attrs, "rack.id"), Some("RACK_4"));
+    }
+
+    #[test]
+    fn resource_attributes_omit_missing_power_shelf_serial() {
+        let context = EventContext {
+            endpoint_key: "33:44:55:66:77:88".to_string(),
+            addr: BmcAddr {
+                ip: IpAddr::V4(Ipv4Addr::new(10, 0, 3, 1)),
+                port: Some(443),
+                mac: MacAddress::from_str("33:44:55:66:77:88").expect("valid mac"),
+            },
+            collector_type: "sensor_collector",
+            labels: Default::default(),
+            metadata: Some(EndpointMetadata::PowerShelf(PowerShelfData {
+                id: Some(
+                    PowerShelfId::from_str(
+                        "ps100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg",
+                    )
+                    .expect("valid power shelf id"),
+                ),
+                serial: None,
+            })),
+            rack_id: Some(RackId::new("RACK_4")),
+        };
+
+        let attrs = otlp_resource_attributes(&context);
+
+        assert_eq!(attr_value(&attrs, "power_shelf.serial_number"), None);
     }
 
     #[test]
