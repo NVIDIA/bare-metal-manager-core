@@ -430,13 +430,22 @@ jobs:
           MAJOR_MINOR=$(echo "${VERSION}" | cut -d. -f1,2)
           echo "major_minor_version=${MAJOR_MINOR}" >> "$GITHUB_OUTPUT"
 
+          # `release/v2.1` integration tests still invoke `grpcurl`, which
+          # `main`'s build containers no longer include. Keep canonical v2.1
+          # checks on `v2.1-latest`; mirrors continue using the `latest` tag from
+          # their configured source registry.
+          build_container_fallback_version=latest
+          if [[ "${GITHUB_REPOSITORY}" == "NVIDIA/infra-controller" && "${MAJOR_MINOR}" == "v2.1" ]]; then
+            build_container_fallback_version="${MAJOR_MINOR}-latest"
+          fi
+
           if [[ "$build_container_x86_64_run" == "true" ]]; then
             echo "build_container_x86_64_version=${VERSION}" >> "$GITHUB_OUTPUT"
             echo "build_container_x86_64_ref=${TARGET_REGISTRY}/build-container-x86_64:${VERSION}" >> "$GITHUB_OUTPUT"
             echo "build_container_x86_64_version_latest=${TARGET_REGISTRY}/build-container-x86_64:${MAJOR_MINOR}-latest" >> "$GITHUB_OUTPUT"
           else
-            echo "build_container_x86_64_version=latest" >> "$GITHUB_OUTPUT"
-            echo "build_container_x86_64_ref=${SOURCE_REGISTRY}/build-container-x86_64:latest" >> "$GITHUB_OUTPUT"
+            echo "build_container_x86_64_version=${build_container_fallback_version}" >> "$GITHUB_OUTPUT"
+            echo "build_container_x86_64_ref=${SOURCE_REGISTRY}/build-container-x86_64:${build_container_fallback_version}" >> "$GITHUB_OUTPUT"
             echo "build_container_x86_64_version_latest=" >> "$GITHUB_OUTPUT"
           fi
 
@@ -455,8 +464,8 @@ jobs:
             echo "build_container_aarch64_ref=${TARGET_REGISTRY}/build-container-aarch64:${VERSION}" >> "$GITHUB_OUTPUT"
             echo "build_container_aarch64_version_latest=${TARGET_REGISTRY}/build-container-aarch64:${MAJOR_MINOR}-latest" >> "$GITHUB_OUTPUT"
           else
-            echo "build_container_aarch64_version=latest" >> "$GITHUB_OUTPUT"
-            echo "build_container_aarch64_ref=${SOURCE_REGISTRY}/build-container-aarch64:latest" >> "$GITHUB_OUTPUT"
+            echo "build_container_aarch64_version=${build_container_fallback_version}" >> "$GITHUB_OUTPUT"
+            echo "build_container_aarch64_ref=${SOURCE_REGISTRY}/build-container-aarch64:${build_container_fallback_version}" >> "$GITHUB_OUTPUT"
             echo "build_container_aarch64_version_latest=" >> "$GITHUB_OUTPUT"
           fi
 
