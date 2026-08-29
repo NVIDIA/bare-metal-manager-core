@@ -95,6 +95,10 @@ impl BmcEndpoint {
         )
     }
 
+    /// Returns the endpoint identity used for collector log state.
+    ///
+    /// Machines prefer their NICo ID, switches use their serial number, and PowerShelves prefer
+    /// their serial number followed by their NICo ID. Other cases use the BMC MAC address.
     pub fn log_identity(&self) -> Cow<'_, str> {
         match &self.metadata {
             Some(EndpointMetadata::Machine(MachineData {
@@ -167,6 +171,10 @@ impl EndpointMetadata {
         }
     }
 
+    /// Returns the hardware serial number when the endpoint metadata provides one.
+    ///
+    /// Machine and PowerShelf serial numbers may be absent; switch serial numbers are always
+    /// present.
     pub fn serial_number(&self) -> Option<&str> {
         match self {
             EndpointMetadata::Machine(machine) => machine.machine_serial.as_deref(),
