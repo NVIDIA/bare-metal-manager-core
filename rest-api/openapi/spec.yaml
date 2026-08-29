@@ -18166,7 +18166,7 @@ components:
                 - arches: [default]
                   uri: http://ports.ubuntu.com/ubuntu-ports
             phone_home:
-              url: http://169.254.169.254:7777/latest/meta-data/phone_home
+              url: http://169.254.169.254/latest/meta-data/phone_home
               post: all
           isCloudInit: true
           phoneHomeEnabled: true
@@ -18265,7 +18265,7 @@ components:
                 - arches: [default]
                   uri: http://ports.ubuntu.com/ubuntu-ports
             phone_home:
-              url: http://169.254.169.254:7777/latest/meta-data/phone_home
+              url: http://169.254.169.254/latest/meta-data/phone_home
               post: all
           isCloudInit: true
           phoneHomeEnabled: true
@@ -19603,7 +19603,7 @@ components:
                 - arches: [default]
                   uri: http://ports.ubuntu.com/ubuntu-ports
             phone_home:
-              url: http://169.254.169.254:7777/latest/meta-data/phone_home
+              url: http://169.254.169.254/latest/meta-data/phone_home
               post: all
           labels:
             region: portland
@@ -19656,7 +19656,7 @@ components:
                 - arches: [default]
                   uri: http://ports.ubuntu.com/ubuntu-ports
             phone_home:
-              url: http://169.254.169.254:7777/latest/meta-data/phone_home
+              url: http://169.254.169.254/latest/meta-data/phone_home
               post: all
           labels:
             region: portland
@@ -19986,7 +19986,7 @@ components:
                 - arches: [default]
                   uri: http://ports.ubuntu.com/ubuntu-ports
             phone_home:
-              url: http://169.254.169.254:7777/latest/meta-data/phone_home
+              url: http://169.254.169.254/latest/meta-data/phone_home
               post: all
           labels:
             region: portland
