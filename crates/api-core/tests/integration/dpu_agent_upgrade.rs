@@ -14,25 +14,49 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 use std::time::SystemTime;
 
 use ::rpc::forge as rpc;
 use ::rpc::forge::forge_server::Forge;
+use carbide_test_harness::prelude::*;
+use carbide_test_harness::test_support::fixture_config::{
+    FixtureDefault as _, ManagedHostConfigExt as _,
+};
 use carbide_uuid::machine::MachineId;
 use chrono::{Duration, Utc};
-use common::api_fixtures::create_test_env;
 use health_report::{HealthAlertClassification, HealthProbeAlert, HealthProbeId};
+use model::test_support::ManagedHostConfig;
 
-use crate::tests::common;
-use crate::tests::common::api_fixtures::{
-    TestEnv, TestEnvOverrides, TestManagedHost, create_managed_host, create_test_env_with_overrides,
-};
+async fn create_ready_managed_host(env: &TestHarness) -> TestManagedHost {
+    let network_controller = env.network_controller();
+    let domain = env.test_domain().await;
+    let admin_segment = network_controller.create_admin_segment(&domain).await;
+    let underlay_segment = network_controller.create_underlay_segment(&domain).await;
+    let site_explorer = env.default_test_site_explorer();
+    let (mut managed_host, _) = env
+        .managed_host_builder(&site_explorer, underlay_segment)
+        .with_config(ManagedHostConfig::default().with_dpu_count(1))
+        .with_dpu_network_status_reported()
+        .build()
+        .await;
+    managed_host
+        .host
+        .discover_primary_iface(admin_segment)
+        .await;
+    managed_host.advance_to_converged_ready().await;
+    managed_host
+}
 
-// ── DPF + agent upgrade interaction ──────────────────────────────────────────
+async fn init(pool: PgPool) -> (TestHarness, TestManagedHost) {
+    let env = TestHarness::builder(pool).build().await;
+    let managed_host = create_ready_managed_host(&env).await;
+    (env, managed_host)
+}
 
 /// Helper: call record_dpu_network_status with an old agent version.
-async fn report_old_agent_version(env: &TestEnv, dpu_machine_id: MachineId) {
-    env.api
+async fn report_old_agent_version(env: &TestHarness, dpu_machine_id: MachineId) {
+    env.api()
         .record_dpu_network_status(tonic::Request::new(rpc::DpuNetworkStatus {
             dpu_machine_id: dpu_machine_id.into(),
             dpu_agent_version: Some("v2023.06-rc2-1-gc5c05de3".to_string()),
@@ -61,8 +85,8 @@ async fn report_old_agent_version(env: &TestEnv, dpu_machine_id: MachineId) {
         .unwrap();
 }
 
-async fn upgrade_needed(env: &TestEnv, dpu_machine_id: MachineId) -> bool {
-    env.api
+async fn upgrade_needed(env: &TestHarness, dpu_machine_id: MachineId) -> bool {
+    env.api()
         .dpu_agent_upgrade_check(tonic::Request::new(rpc::DpuAgentUpgradeCheckRequest {
             machine_id: dpu_machine_id.to_string(),
             current_agent_version: "v2023.06-rc2-1-gc5c05de3".to_string(),
@@ -75,8 +99,8 @@ async fn upgrade_needed(env: &TestEnv, dpu_machine_id: MachineId) -> bool {
         .should_upgrade
 }
 
-async fn set_upgrade_policy(env: &TestEnv) {
-    env.api
+async fn set_upgrade_policy(env: &TestHarness) {
+    env.api()
         .dpu_agent_upgrade_policy_action(tonic::Request::new(rpc::DpuAgentUpgradePolicyRequest {
             new_policy: Some(rpc::AgentUpgradePolicy::UpOnly as i32),
         }))
@@ -84,19 +108,16 @@ async fn set_upgrade_policy(env: &TestEnv) {
         .unwrap();
 }
 
-#[crate::sqlx_test]
-async fn test_dpf_host_does_not_set_upgrade_flag(
-    db_pool: sqlx::PgPool,
-) -> Result<(), eyre::Report> {
-    let env = create_test_env(db_pool.clone()).await;
-    let mh = create_managed_host(&env).await;
-    let dpu_id = mh.dpu().id;
+#[sqlx_test]
+async fn test_dpf_host_does_not_set_upgrade_flag(db_pool: PgPool) -> Result<(), eyre::Report> {
+    let (env, mh) = init(db_pool).await;
+    let dpu_id = mh.first_dpu().id;
 
     set_upgrade_policy(&env).await;
 
     // Mark the host as DPF-managed (used_for_ingestion = true).
-    let mut txn = env.pool.begin().await?;
-    db::machine::mark_machine_ingestion_done_with_dpf(&mut txn, &mh.id).await?;
+    let mut txn = env.db_txn().await;
+    db::machine::mark_machine_ingestion_done_with_dpf(&mut txn, &mh.host.id).await?;
     txn.commit().await?;
 
     // Even with an old agent version reported, the upgrade flag must NOT be set.
@@ -109,13 +130,12 @@ async fn test_dpf_host_does_not_set_upgrade_flag(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_dpf_transition_clears_stale_upgrade_flag(
-    db_pool: sqlx::PgPool,
+    db_pool: PgPool,
 ) -> Result<(), eyre::Report> {
-    let env = create_test_env(db_pool.clone()).await;
-    let mh = create_managed_host(&env).await;
-    let dpu_id = mh.dpu().id;
+    let (env, mh) = init(db_pool).await;
+    let dpu_id = mh.first_dpu().id;
 
     set_upgrade_policy(&env).await;
 
@@ -127,8 +147,8 @@ async fn test_dpf_transition_clears_stale_upgrade_flag(
     );
 
     // Transition the host to DPF.
-    let mut txn = env.pool.begin().await?;
-    db::machine::mark_machine_ingestion_done_with_dpf(&mut txn, &mh.id).await?;
+    let mut txn = env.db_txn().await;
+    db::machine::mark_machine_ingestion_done_with_dpf(&mut txn, &mh.host.id).await?;
     txn.commit().await?;
 
     // The next status report should clear the stale flag.
@@ -147,15 +167,14 @@ async fn test_dpf_transition_clears_stale_upgrade_flag(
     Ok(())
 }
 
-#[crate::sqlx_test]
-async fn test_upgrade_check(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
-    let env = create_test_env(db_pool.clone()).await;
-
-    let dpu_machine_id = create_managed_host(&env).await.dpu().id;
+#[sqlx_test]
+async fn test_upgrade_check(db_pool: PgPool) -> Result<(), eyre::Report> {
+    let (env, managed_host) = init(db_pool).await;
+    let dpu_machine_id = managed_host.first_dpu().id;
 
     // Set the upgrade policy
     let response = env
-        .api
+        .api()
         .dpu_agent_upgrade_policy_action(tonic::Request::new(rpc::DpuAgentUpgradePolicyRequest {
             new_policy: Some(rpc::AgentUpgradePolicy::UpOnly as i32),
         }))
@@ -171,7 +190,7 @@ async fn test_upgrade_check(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // We'll need to know the current network config version in order to register our
     // forge-dpu-agent version
     let response = env
-        .api
+        .api()
         .get_managed_host_network_config(tonic::Request::new(
             rpc::ManagedHostNetworkConfigRequest {
                 dpu_machine_id: dpu_machine_id.into(),
@@ -183,7 +202,7 @@ async fn test_upgrade_check(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // Report that we're on an old version of the DPU
     // That should trigger marking us for upgrade
     let network_config_version = response.managed_host_config_version.clone();
-    env.api
+    env.api()
         .record_dpu_network_status(tonic::Request::new(rpc::DpuNetworkStatus {
             dpu_machine_id: dpu_machine_id.into(),
             // BEGIN This is the important line for this test
@@ -224,7 +243,7 @@ async fn test_upgrade_check(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 
     // Check if we need to upgrade - answer should be yes
     let response = env
-        .api
+        .api()
         .dpu_agent_upgrade_check(tonic::Request::new(rpc::DpuAgentUpgradeCheckRequest {
             machine_id: dpu_machine_id.to_string(),
             current_agent_version: "v2023.06-rc2-1-gc5c05de3".to_string(),
@@ -248,18 +267,20 @@ async fn test_upgrade_check(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     Ok(())
 }
 
-#[crate::sqlx_test]
-async fn test_dpu_agent_version_staleness(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
+#[sqlx_test]
+async fn test_dpu_agent_version_staleness(db_pool: PgPool) -> Result<(), eyre::Report> {
     // Set up a 1 day staleness threshold
-    let env = create_test_env_with_overrides(
-        db_pool.clone(),
-        TestEnvOverrides {
-            dpu_agent_version_staleness_threshold: Some(Duration::days(1)),
-            prevent_allocations_on_stale_dpu_agent_version: Some(true),
-            ..Default::default()
-        },
-    )
-    .await;
+    let mut runtime_config = carbide_test_harness::test_support::default_config::get();
+    runtime_config
+        .host_health
+        .dpu_agent_version_staleness_threshold = Duration::days(1);
+    runtime_config
+        .host_health
+        .prevent_allocations_on_stale_dpu_agent_version = true;
+    let env = TestHarness::builder(db_pool)
+        .with_api_builder_fn(move |builder| builder.with_runtime_config(runtime_config.into()))
+        .build()
+        .await;
 
     let stale_version = "stale_version";
     let recently_superseded_version = "recently_superseded_version";
@@ -268,7 +289,7 @@ async fn test_dpu_agent_version_staleness(db_pool: sqlx::PgPool) -> Result<(), e
     let recently_superseded_time = Utc::now() - Duration::hours(23);
 
     {
-        let mut txn = env.pool.begin().await?;
+        let mut txn = env.db_txn().await;
         db::carbide_version::make_mock_observation(&mut txn, stale_version, Some(stale_time))
             .await?;
         db::carbide_version::make_mock_observation(
@@ -281,15 +302,15 @@ async fn test_dpu_agent_version_staleness(db_pool: sqlx::PgPool) -> Result<(), e
         txn.commit().await?;
     }
 
-    let mh = create_managed_host(&env).await;
+    let mh = create_ready_managed_host(&env).await;
 
     // We'll need to know the current network config version in order to register our
     // forge-dpu-agent version
     let response = env
-        .api
+        .api()
         .get_managed_host_network_config(tonic::Request::new(
             rpc::ManagedHostNetworkConfigRequest {
-                dpu_machine_id: mh.dpu().id.into(),
+                dpu_machine_id: mh.first_dpu().id.into(),
             },
         ))
         .await?
@@ -311,7 +332,7 @@ async fn test_dpu_agent_version_staleness(db_pool: sqlx::PgPool) -> Result<(), e
             stale_time.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
         )
     );
-    assert_eq!(alert.target, Some(mh.dpu().id.to_string()));
+    assert_eq!(alert.target, Some(mh.first_dpu().id.to_string()));
     assert_eq!(
         alert.classifications,
         vec![HealthAlertClassification::prevent_allocations()]
@@ -339,7 +360,7 @@ async fn test_dpu_agent_version_staleness(db_pool: sqlx::PgPool) -> Result<(), e
         .await
         .expect("Should have caused a health alert");
     assert_eq!(alert.message, "Agent version is not known");
-    assert_eq!(alert.target, Some(mh.dpu().id.to_string()),);
+    assert_eq!(alert.target, Some(mh.first_dpu().id.to_string()),);
     assert_eq!(
         alert.classifications,
         vec![HealthAlertClassification::prevent_allocations()]
@@ -360,17 +381,26 @@ async fn test_dpu_agent_version_staleness(db_pool: sqlx::PgPool) -> Result<(), e
     Ok(())
 }
 
-impl TestManagedHost {
+trait TestManagedHostDpuAgentExt {
     async fn mock_observation_and_get_only_health_alert(
         &self,
-        test_env: &TestEnv,
+        test_env: &TestHarness,
+        agent_version: Option<&str>,
+        managed_host_config_version: &str,
+    ) -> Option<HealthProbeAlert>;
+}
+
+impl TestManagedHostDpuAgentExt for TestManagedHost {
+    async fn mock_observation_and_get_only_health_alert(
+        &self,
+        test_env: &TestHarness,
         agent_version: Option<&str>,
         managed_host_config_version: &str,
     ) -> Option<HealthProbeAlert> {
         test_env
-            .api
+            .api()
             .record_dpu_network_status(tonic::Request::new(rpc::DpuNetworkStatus {
-                dpu_machine_id: self.dpu().id.into(),
+                dpu_machine_id: self.first_dpu().id.into(),
                 dpu_agent_version: agent_version.map(Into::into),
                 observed_at: None,
                 dpu_health: Some(::rpc::health::HealthReport {
@@ -405,12 +435,10 @@ impl TestManagedHost {
             .await
             .unwrap();
 
-        test_env.run_machine_state_controller_iteration().await;
-
         let alerts = test_env
-            .api
+            .api()
             .find_machines_by_ids(tonic::Request::new(rpc::MachinesByIdsRequest {
-                machine_ids: vec![self.id],
+                machine_ids: vec![self.host.id],
                 include_history: false,
             }))
             .await

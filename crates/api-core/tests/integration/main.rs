@@ -21,6 +21,7 @@ mod credential_management;
 mod credential_rotation;
 mod dhcp_lease_expiration;
 mod dns_resolution;
+mod dpu_agent_upgrade;
 mod dpu_machine_inventory;
 mod expected_power_shelf;
 mod expected_power_shelf_crud;
