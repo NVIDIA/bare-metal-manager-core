@@ -18,7 +18,7 @@
 //! DPF SDK - High-level interface for DPF operations.
 
 use std::borrow::Cow;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use std::time::Duration;
@@ -2277,6 +2277,20 @@ impl<R: DpuDeviceRepository, L: ResourceLabeler> DpfSdk<R, L> {
                      cannot re-register until the old resource is fully removed"
                 )));
             }
+            if existing.spec.values.is_none()
+                && let Some(nics) = astra_nics.as_ref()
+            {
+                let values = astra_underlay_configuration(&cr_name, nics)?;
+                DpuDeviceRepository::patch(
+                    &*self.repo,
+                    &cr_name,
+                    &self.namespace,
+                    json!({ "spec": { "values": values } }),
+                )
+                .await?;
+                tracing::info!(device_name = %cr_name, "Backfilled Astra DPU device values");
+                return Ok(());
+            }
             tracing::debug!(device_name = %cr_name, "DPU device already exists");
             return Ok(());
         }
@@ -2401,6 +2415,11 @@ fn astra_underlay_values_for_ips(
             RAIL_SWITCH_PLANES.len(),
             underlay_ips.len()
         )));
+    }
+    if underlay_ips.iter().copied().collect::<BTreeSet<_>>().len() != underlay_ips.len() {
+        return Err(DpfError::ConfigError(
+            "Astra underlay IPs must be unique".to_string(),
+        ));
     }
 
     let mut values = BTreeMap::new();
@@ -4210,6 +4229,19 @@ mod tests {
                 .get_mut(&Self::ns_key(ns, name))
                 .ok_or_else(|| DpfError::not_found("DPUDevice", name))?;
 
+            if let Some(values) = patch
+                .pointer("/spec/values")
+                .and_then(serde_json::Value::as_object)
+            {
+                device.spec.values = Some(
+                    values
+                        .iter()
+                        .map(|(key, value)| (key.clone(), value.clone()))
+                        .collect(),
+                );
+                return Ok(());
+            }
+
             let Some(node_labels) = patch
                 .pointer("/spec/cluster/nodeLabels")
                 .and_then(serde_json::Value::as_object)
@@ -4518,6 +4550,13 @@ mod tests {
         assert_eq!(values["rail3_swp1_route1"].as_str(), Some("100.107.0.0/16"));
         assert_eq!(values["rail3_swp1_route2"].as_str(), Some("100.104.0.0/13"));
         assert!(astra_underlay_values_for_ips(&underlay_ips[..7]).is_err());
+
+        let mut duplicate_ips = underlay_ips;
+        duplicate_ips[7] = duplicate_ips[0];
+        let error = astra_underlay_values_for_ips(&duplicate_ips).unwrap_err();
+        assert!(
+            matches!(error, DpfError::ConfigError(message) if message == "Astra underlay IPs must be unique")
+        );
     }
 
     #[test]
@@ -5607,7 +5646,7 @@ mod tests {
                 bmc_credential_secret_name: None,
                 cluster: None,
                 nic_device_count: None,
-                values: None,
+                values: Some(BTreeMap::new()),
             },
             status: None,
         };
