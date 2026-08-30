@@ -4074,7 +4074,23 @@ async fn handle_dpu_reprovision(
                 .with_txn(txn),
             )
         }
-        ReprovisionState::NotUnderReprovision => Ok(StateHandlerOutcome::do_nothing()),
+        ReprovisionState::NotUnderReprovision => {
+            if !dpf::deployment_migration_is_parked(state) {
+                return Ok(StateHandlerOutcome::do_nothing());
+            }
+            // Deployment migration is host scoped, while this handler is
+            // called once per DPU. Run it only for the first snapshot so one
+            // controller iteration observes and changes the DPF graph once.
+            if state.dpu_snapshots.first().map(|dpu| &dpu.id) != Some(dpu_machine_id) {
+                return Ok(StateHandlerOutcome::do_nothing());
+            }
+            let dpf = dpf_sdk.ok_or_else(|| {
+                StateHandlerError::GenericError(eyre::eyre!(
+                    "DPF deployment migration reached but DPF is not configured"
+                ))
+            })?;
+            dpf::handle_dpf_deployment_migration(state, ctx, dpf).await
+        }
     }
 }
 
@@ -8535,6 +8551,41 @@ impl StateHandler for InstanceStateHandler {
                         return Ok(StateHandlerOutcome::transition(next_state));
                     }
 
+                    let reprov_can_be_started =
+                        if dpu_reprovisioning_needed(&mh_snapshot.dpu_snapshots) {
+                            // Usually all DPUs are updated with user_approval_received field as true
+                            // if `invoke_instance_power` is called.
+                            // TODO: multidpu: Move this field to `instances` table and unset on
+                            // reprovision is completed.
+                            mh_snapshot
+                                .dpu_snapshots
+                                .iter()
+                                .filter(|x| x.reprovision_requested.is_some())
+                                .all(|x| {
+                                    x.reprovision_requested
+                                        .as_ref()
+                                        .map(|x| x.user_approval_received || is_auto_approved)
+                                        .unwrap_or_default()
+                                })
+                        } else {
+                            false
+                        };
+                    let host_firmware_requested = if let Some(request) =
+                        &mh_snapshot.host_snapshot.host_reprovision_requested
+                    {
+                        request.user_approval_received || is_auto_approved
+                    } else {
+                        false
+                    };
+
+                    // Check if the instance needs to PXE boot. The
+                    // custom_pxe_reboot_requested flag is set by the API when the tenant calls
+                    // InvokeInstancePower with boot_with_custom_ipxe=true.
+                    // This triggers the HostPlatformConfiguration flow to verify BIOS boot order
+                    // before rebooting. The WaitingForRebootToReady handler will clear this flag
+                    // and set use_custom_pxe_on_boot, which the iPXE handler uses to serve the
+                    // tenant's script.
+                    let boot_with_custom_ipxe = instance.custom_pxe_reboot_requested;
                     // Run cleanup here so fully terminated extension services are
                     // removed from persisted instance config.
                     let mut txn_opt = None;
@@ -8581,45 +8632,9 @@ impl StateHandler for InstanceStateHandler {
                         }
                     }
 
-                    let reprov_can_be_started =
-                        if dpu_reprovisioning_needed(&mh_snapshot.dpu_snapshots) {
-                            // Usually all DPUs are updated with user_approval_received field as true
-                            // if `invoke_instance_power` is called.
-                            // TODO: multidpu: Move this field to `instances` table and unset on
-                            // reprovision is completed.
-                            mh_snapshot
-                                .dpu_snapshots
-                                .iter()
-                                .filter(|x| x.reprovision_requested.is_some())
-                                .all(|x| {
-                                    x.reprovision_requested
-                                        .as_ref()
-                                        .map(|x| x.user_approval_received || is_auto_approved)
-                                        .unwrap_or_default()
-                                })
-                        } else {
-                            false
-                        };
-                    let host_firmware_requested = if let Some(request) =
-                        &mh_snapshot.host_snapshot.host_reprovision_requested
-                    {
-                        request.user_approval_received || is_auto_approved
-                    } else {
-                        false
-                    };
-
                     if is_auto_approved && (reprov_can_be_started || host_firmware_requested) {
                         tracing::info!(machine_id = %host_machine_id, "Auto rebooting host for reprovision/upgrade due to being in approved time period");
                     }
-
-                    // Check if the instance needs to PXE boot. The custom_pxe_reboot_requested flag
-                    // is set by the API when the tenant calls InvokeInstancePower with boot_with_custom_ipxe=true
-                    //
-                    // This triggers the HostPlatformConfiguration flow to verify BIOS boot order
-                    // before rebooting. The WaitingForRebootToReady handler will clear this flag
-                    // and set use_custom_pxe_on_boot, which the iPXE handler uses to serve the
-                    // tenant's script.
-                    let boot_with_custom_ipxe = instance.custom_pxe_reboot_requested;
 
                     if instance.deleted.is_some()
                         || reprov_can_be_started

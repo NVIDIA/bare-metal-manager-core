@@ -124,6 +124,20 @@ impl DpuRepository for SnapshotMock {
     async fn delete(&self, _: &str, _: &str) -> Result<(), DpfError> {
         Ok(())
     }
+    async fn delete_if_uid(&self, name: &str, _ns: &str, uid: &str) -> Result<(), DpfError> {
+        let current_uid = self
+            .dpus
+            .get(name)
+            .map(|dpu| dpu.metadata.uid.clone())
+            .ok_or_else(|| DpfError::not_found("DPU", name))?;
+        if current_uid.as_deref() != Some(uid) {
+            return Err(DpfError::InvalidState(format!(
+                "DPU {name} no longer has UID {uid}"
+            )));
+        }
+        self.dpus.remove(name);
+        Ok(())
+    }
     fn watch<F, Fut>(
         &self,
         _namespace: &str,

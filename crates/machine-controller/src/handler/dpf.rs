@@ -20,6 +20,7 @@
 //! 2. Wait for watcher callbacks (DPU ready, reboot required)
 //! 3. Handle cleanup on error/reprovisioning
 
+use std::collections::HashSet;
 use std::net::IpAddr;
 
 use carbide_dpf::{DpfError, DpuDeploymentType, DpuPhase, dpu_node_cr_name};
@@ -28,9 +29,9 @@ use carbide_uuid::machine::MachineId;
 use libredfish::SystemPowerControl;
 use model::hardware_info::HardwareInfo;
 use model::machine::{
-    DpfState, DpuInitState, FailureCause, FailureDetails, FailureSource, InstanceState, Machine,
-    ManagedHostState, ManagedHostStateSnapshot, PerformPowerOperation, ReprovisionState,
-    StateMachineArea,
+    DpfState, DpuInitState, DpuReprovisionStates, FailureCause, FailureDetails, FailureSource,
+    InstanceState, Machine, ManagedHostState, ManagedHostStateSnapshot, PerformPowerOperation,
+    ReprovisionState, StateMachineArea,
 };
 use model::rack_type::{RackProductFamily, select_dpu_nvconfig_profile};
 use state_controller::state_handler::{
@@ -41,6 +42,11 @@ use super::helpers::{DpuInitStateHelper, ManagedHostStateHelper, ReprovisionStat
 use super::{handler_host_power_control, host_power_state};
 use crate::context::MachineStateHandlerContextObjects;
 use crate::dpf::DpfOperations;
+
+// `deployment_type_for_dpu_profile` currently refines exactly one deployment:
+// generic BF3 becomes GB200 BF3. Only that forward migration is supported.
+const DEPLOYMENT_MIGRATION_SOURCE: DpuDeploymentType = DpuDeploymentType::Bf3;
+const DEPLOYMENT_MIGRATION_TARGET: DpuDeploymentType = DpuDeploymentType::Bf3Gb200;
 
 fn dpf_error(error: DpfError) -> StateHandlerError {
     ExternalServiceError::with_source("dpf", "", error.to_string(), "dpf_error", error).into()
@@ -139,6 +145,105 @@ fn consistent_deployment_type(
     } else {
         Err("host has mixed DPF deployment types across attached DPUs".to_string())
     }
+}
+
+/// Returns whether any attached DPU reprovision request has started.
+fn any_dpu_reprovision_request_has_started(state: &ManagedHostStateSnapshot) -> bool {
+    state.dpu_snapshots.iter().any(|dpu| {
+        dpu.reprovision_requested
+            .as_ref()
+            .is_some_and(|request| request.started_at.is_some())
+    })
+}
+
+/// Returns whether every attached DPU has a started reprovision request.
+fn all_dpu_reprovision_requests_have_started(state: &ManagedHostStateSnapshot) -> bool {
+    state.dpu_snapshots.iter().all(|dpu| {
+        dpu.reprovision_requested
+            .as_ref()
+            .is_some_and(|request| request.started_at.is_some())
+    })
+}
+
+/// Returns whether inventory, snapshots, and reprovision state describe the
+/// same complete, nonempty set of attached DPUs.
+fn deployment_migration_has_complete_dpu_set(
+    state: &ManagedHostStateSnapshot,
+    dpu_states: &DpuReprovisionStates,
+) -> bool {
+    let expected_dpu_ids = state
+        .host_snapshot
+        .associated_dpu_machine_ids()
+        .into_iter()
+        .collect::<HashSet<_>>();
+    let snapshot_dpu_ids = state
+        .dpu_snapshots
+        .iter()
+        .map(|dpu| dpu.id)
+        .collect::<HashSet<_>>();
+    let state_dpu_ids = dpu_states.states.keys().copied().collect::<HashSet<_>>();
+
+    !expected_dpu_ids.is_empty()
+        && expected_dpu_ids == snapshot_dpu_ids
+        && expected_dpu_ids == state_dpu_ids
+}
+
+/// Returns whether the stored reprovision state may be a parked migration.
+///
+/// The migration handler validates the full DPU set before changing external
+/// resources. Keeping this detector broad turns damaged parked state into a
+/// visible failure instead of leaving every DPU idle indefinitely.
+pub(super) fn deployment_migration_is_parked(state: &ManagedHostStateSnapshot) -> bool {
+    let Some(dpu_states) = state.managed_state.dpu_reprovision_states() else {
+        return false;
+    };
+    !dpu_states.states.is_empty()
+        && dpu_states
+            .states
+            .values()
+            .all(|dpu_state| matches!(dpu_state, ReprovisionState::NotUnderReprovision))
+        && any_dpu_reprovision_request_has_started(state)
+}
+
+/// Returns whether every attached DPU has reached the migration handoff point.
+fn deployment_migration_can_start(state: &ManagedHostStateSnapshot) -> bool {
+    let Some(dpu_states) = state.managed_state.dpu_reprovision_states() else {
+        return false;
+    };
+
+    deployment_migration_has_complete_dpu_set(state, dpu_states)
+        && all_dpu_reprovision_requests_have_started(state)
+        && dpu_states.states.values().all(|dpu_state| {
+            matches!(
+                dpu_state,
+                ReprovisionState::DpfStates {
+                    substate: DpfState::Reprovisioning
+                }
+            )
+        })
+}
+
+/// Parks every attached DPU before changing its shared DPUNode selector.
+fn park_for_deployment_migration(
+    state: &ManagedHostStateSnapshot,
+) -> Result<ManagedHostState, StateHandlerError> {
+    // Reuse `NotUnderReprovision` so controllers from the same rollout can
+    // deserialize the state and leave it alone. Persisting it before the
+    // selector change also keeps retries out of ordinary handling for one DPU.
+    ReprovisionState::NotUnderReprovision.next_state_with_all_dpus_updated(
+        &state.managed_state,
+        &state.dpu_snapshots,
+        Vec::new(),
+    )
+}
+
+/// Returns the deterministic DPU names for every attached DPU snapshot.
+fn dpu_device_names(state: &ManagedHostStateSnapshot) -> Result<Vec<String>, StateHandlerError> {
+    state
+        .dpu_snapshots
+        .iter()
+        .map(dpf_id)
+        .collect::<Result<Vec<_>, _>>()
 }
 
 /// Transition all DPU sub-states to the given DPF state, preserving the
@@ -404,6 +509,25 @@ fn dpf_deployment_selection_failed(
     StateHandlerOutcome::transition(make_failure_state(state, details, state.host_snapshot.id))
 }
 
+/// Builds the terminal failure used when a deployment was selected but the
+/// host does not meet a migration precondition.
+fn dpf_deployment_migration_failed(
+    state: &ManagedHostStateSnapshot,
+    error: &str,
+) -> StateHandlerOutcome<ManagedHostState> {
+    let details = FailureDetails {
+        cause: FailureCause::DpfProvisioning {
+            err: format!(
+                "DPF deployment migration failed: {error}. Resolve the reported precondition \
+                 before retrying DPU reprovisioning"
+            ),
+        },
+        failed_at: chrono::Utc::now(),
+        source: FailureSource::StateMachineArea(StateMachineArea::MainFlow),
+    };
+    StateHandlerOutcome::transition(make_failure_state(state, details, state.host_snapshot.id))
+}
+
 /// Handle DpfState::Provisioning: register all DPU devices and the node, then
 /// transition all DPUs to WaitingForReady.
 async fn handle_dpf_provisioning(
@@ -549,17 +673,41 @@ async fn handle_dpf_waiting_for_ready(
     waiting_phase_detail: &Option<String>,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     dpf_sdk: &dyn DpfOperations,
+    deployment_type: DpuDeploymentType,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let node_name = dpu_node_cr_name(&dpf_id(&state.host_snapshot)?);
     let dpu_device_name = dpf_id(dpu_snapshot)?;
-    let current_phase = match dpf_sdk.get_dpu_phase(&dpu_device_name, &node_name).await {
-        Ok(phase) => phase,
+    // During a deployment migration the source and target DPUSet reuse the
+    // deterministic DPU name. Read ownership, phase, and Ready conformance from
+    // one observation scoped to the target so an old source DPU cannot release
+    // the hold, trigger a reboot, or satisfy target readiness.
+    let current_phase = match if deployment_type == DEPLOYMENT_MIGRATION_TARGET {
+        let dpu_device_names = dpu_device_names(state)?;
+        dpf_sdk
+            .get_dpu_phases_for_deployment_type(&dpu_device_names, &node_name, deployment_type)
+            .await
+            .map(|phases| phases.and_then(|phases| phases.get(&dpu_device_name).cloned()))
+    } else {
+        dpf_sdk
+            .get_dpu_phase(&dpu_device_name, &node_name)
+            .await
+            .map(Some)
+    } {
+        Ok(Some(phase)) => phase,
+        Ok(None) => {
+            return Ok(StateHandlerOutcome::wait(
+                "Waiting for DPF to recreate the DPU from the GB200 deployment".to_string(),
+            ));
+        }
         // The operator briefly removes the old DPU CR before recreating a fresh one
         // during reprovision; treat that window as "keep waiting" rather than erroring.
         Err(DpfError::NotFound { .. }) => {
             return Ok(StateHandlerOutcome::wait(
                 "DPU CR not yet recreated after reprovision".to_string(),
             ));
+        }
+        Err(DpfError::InvalidState(error)) if deployment_type == DEPLOYMENT_MIGRATION_TARGET => {
+            return Ok(dpf_deployment_migration_failed(state, &error));
         }
         Err(err) => return Err(dpf_error(err)),
     };
@@ -666,6 +814,96 @@ fn handle_dpf_device_ready(
     }
 
     let next = waiting_for_ready_exit_state(state)?;
+    Ok(StateHandlerOutcome::transition(next))
+}
+
+/// Moves one host's existing DPF resources from generic BF3 to the GB200
+/// deployment during an active DPU reprovision request.
+///
+/// The DPUNode and initialized DPUDevices stay in place. Parking every DPU in
+/// `NotUnderReprovision` makes the label transfer and DPU deletions retryable
+/// when the process restarts before or after the selector changes.
+pub(super) async fn handle_dpf_deployment_migration(
+    state: &ManagedHostStateSnapshot,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    dpf_sdk: &dyn DpfOperations,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    let Some(dpu_states) = state.managed_state.dpu_reprovision_states() else {
+        return Ok(dpf_deployment_migration_failed(
+            state,
+            "parked state does not contain DPU reprovision state",
+        ));
+    };
+    if !deployment_migration_has_complete_dpu_set(state, dpu_states)
+        || !all_dpu_reprovision_requests_have_started(state)
+    {
+        return Ok(dpf_deployment_migration_failed(
+            state,
+            "parked state does not contain a started request for every attached DPU",
+        ));
+    }
+
+    let astra_nics = machine_has_astra_nics(state, ctx).await?;
+    let deployment_types = deployment_types_for_host(state, ctx, dpf_sdk, astra_nics).await?;
+    let desired_deployment = match consistent_deployment_type(&deployment_types) {
+        Ok(deployment_type) => deployment_type,
+        Err(error) => return Ok(dpf_deployment_selection_failed(state, error.as_str())),
+    };
+    if desired_deployment != DEPLOYMENT_MIGRATION_TARGET {
+        let error = format!(
+            "parked DPF deployment migration now selects {desired_deployment:?}, expected \
+             {DEPLOYMENT_MIGRATION_TARGET:?}"
+        );
+        return Ok(dpf_deployment_migration_failed(state, &error));
+    }
+
+    let node_name = dpu_node_cr_name(&dpf_id(&state.host_snapshot)?);
+    let dpu_device_names = dpu_device_names(state)?;
+
+    dpf_sdk
+        .transfer_dpu_node_deployment_labels(
+            &node_name,
+            DEPLOYMENT_MIGRATION_SOURCE,
+            DEPLOYMENT_MIGRATION_TARGET,
+        )
+        .await
+        .map_err(dpf_error)?;
+
+    dpf_sdk
+        .delete_source_dpus_for_deployment_migration(
+            &dpu_device_names,
+            &node_name,
+            DEPLOYMENT_MIGRATION_SOURCE,
+            DEPLOYMENT_MIGRATION_TARGET,
+        )
+        .await
+        .map_err(dpf_error)?;
+
+    // Keep the durable parked state until one DPF observation contains every
+    // target DPU. Controllers from before migration support ignore this state,
+    // so they cannot accept a source DPU recreated during the selector handoff.
+    match dpf_sdk
+        .get_dpu_phases_for_deployment_type(
+            &dpu_device_names,
+            &node_name,
+            DEPLOYMENT_MIGRATION_TARGET,
+        )
+        .await
+    {
+        Ok(Some(_)) => {}
+        Ok(None) | Err(DpfError::NotFound { .. }) => {
+            return Ok(StateHandlerOutcome::wait(
+                "Waiting for DPF to recreate every DPU from the GB200 deployment".to_string(),
+            ));
+        }
+        Err(DpfError::InvalidState(error)) => {
+            return Ok(dpf_deployment_migration_failed(state, &error));
+        }
+        Err(error) => return Err(dpf_error(error)),
+    }
+
+    let next =
+        transition_all_dpus_to_dpf_state(DpfState::WaitingForReady { phase_detail: None }, state)?;
     Ok(StateHandlerOutcome::transition(next))
 }
 
@@ -806,7 +1044,7 @@ pub(super) async fn handle_dpf_state(
     let astra_nics = machine_has_astra_nics(state, ctx).await?;
 
     let deployment_types = deployment_types_for_host(state, ctx, dpf_sdk, astra_nics).await?;
-    let deployment_type = match consistent_deployment_type(&deployment_types) {
+    let mut deployment_type = match consistent_deployment_type(&deployment_types) {
         Ok(deployment_type) => deployment_type,
         Err(error) => {
             let selections = state
@@ -828,37 +1066,83 @@ pub(super) async fn handle_dpf_state(
             "selected DPF deployment type for host"
         );
     }
-    if !dpf_sdk
+    let node_has_desired_labels = dpf_sdk
         .verify_node_labels(&node_name, deployment_type)
         .await
-        .map_err(dpf_error)?
-    {
-        tracing::error!(
-            machine_id = %state.host_snapshot.id,
-            node = %node_name,
-            "DPUNode has stale labels, failing for reprovisioning"
-        );
-        let details = FailureDetails {
-            cause: FailureCause::DpfProvisioning {
-                err: format!(
-                    "DPUNode {node_name} has stale labels; \
-                     must be deleted and reprovisioned"
-                ),
-            },
-            failed_at: chrono::Utc::now(),
-            source: FailureSource::StateMachineArea(StateMachineArea::MainFlow),
+        .map_err(dpf_error)?;
+    if !node_has_desired_labels {
+        let node_has_migration_source_labels = if deployment_type == DEPLOYMENT_MIGRATION_TARGET {
+            dpf_sdk
+                .verify_node_labels(&node_name, DEPLOYMENT_MIGRATION_SOURCE)
+                .await
+                .map_err(dpf_error)?
+        } else {
+            false
         };
-        return Ok(StateHandlerOutcome::transition(make_failure_state(
-            state,
-            details,
-            state.host_snapshot.id,
-        )));
+
+        if node_has_migration_source_labels
+            && matches!(dpf_state, DpfState::Reprovisioning)
+            && deployment_migration_can_start(state)
+        {
+            tracing::info!(
+                machine_id = %state.host_snapshot.id,
+                node = %node_name,
+                from = ?DEPLOYMENT_MIGRATION_SOURCE,
+                to = ?deployment_type,
+                "parking DPF deployment selector migration"
+            );
+            let next = park_for_deployment_migration(state)?;
+            return Ok(StateHandlerOutcome::transition(next));
+        } else if node_has_migration_source_labels && any_dpu_reprovision_request_has_started(state)
+        {
+            // A controller from before deployment migration support may have
+            // started only part of the DPU set or advanced one DPU before the
+            // rollout completed. Finish that work under its current deployment;
+            // a later host request can migrate the complete DPU set.
+            tracing::warn!(
+                machine_id = %state.host_snapshot.id,
+                node = %node_name,
+                from = ?DEPLOYMENT_MIGRATION_SOURCE,
+                to = ?deployment_type,
+                "deferring DPF deployment migration for work already in progress"
+            );
+            deployment_type = DEPLOYMENT_MIGRATION_SOURCE;
+        } else {
+            tracing::error!(
+                machine_id = %state.host_snapshot.id,
+                node = %node_name,
+                "DPUNode has stale labels, failing for reprovisioning"
+            );
+            let details = FailureDetails {
+                cause: FailureCause::DpfProvisioning {
+                    err: format!(
+                        "DPUNode {node_name} has stale labels; \
+                         must be deleted and reprovisioned"
+                    ),
+                },
+                failed_at: chrono::Utc::now(),
+                source: FailureSource::StateMachineArea(StateMachineArea::MainFlow),
+            };
+            return Ok(StateHandlerOutcome::transition(make_failure_state(
+                state,
+                details,
+                state.host_snapshot.id,
+            )));
+        }
     }
 
     match dpf_state {
         DpfState::Provisioning => handle_dpf_provisioning(state, dpf_sdk, deployment_type).await,
         DpfState::WaitingForReady { phase_detail } => {
-            handle_dpf_waiting_for_ready(state, dpu_snapshot, phase_detail, ctx, dpf_sdk).await
+            handle_dpf_waiting_for_ready(
+                state,
+                dpu_snapshot,
+                phase_detail,
+                ctx,
+                dpf_sdk,
+                deployment_type,
+            )
+            .await
         }
         DpfState::HandleReboot { op, retry_count } => {
             handle_dpf_handle_reboot(

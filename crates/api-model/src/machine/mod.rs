@@ -1645,14 +1645,19 @@ impl ManagedHostState {
         Self::Maintenance { operation }
     }
 
-    pub fn as_reprovision_state(&self, dpu_id: &MachineId) -> Option<&ReprovisionState> {
+    /// Returns the DPU reprovision states embedded in either host allocation mode.
+    pub fn dpu_reprovision_states(&self) -> Option<&DpuReprovisionStates> {
         match self {
-            ManagedHostState::DPUReprovision { dpu_states } => dpu_states.states.get(dpu_id),
-            ManagedHostState::Assigned {
+            ManagedHostState::DPUReprovision { dpu_states }
+            | ManagedHostState::Assigned {
                 instance_state: InstanceState::DPUReprovision { dpu_states },
-            } => dpu_states.states.get(dpu_id),
+            } => Some(dpu_states),
             _ => None,
         }
+    }
+
+    pub fn as_reprovision_state(&self, dpu_id: &MachineId) -> Option<&ReprovisionState> {
+        self.dpu_reprovision_states()?.states.get(dpu_id)
     }
 
     pub fn suppress_dpu_alerts(&self) -> bool {

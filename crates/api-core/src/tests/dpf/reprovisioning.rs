@@ -20,21 +20,25 @@
 //! Verifies that DPF states (`Reprovisioning` -> `Provisioning` -> `WaitingForReady`)
 //! transition correctly when the outer state is `DPUReprovision`.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use carbide_dpf::types::{DpuDeviceSummary, DpuNodeSummary, HostDpfSnapshot};
-use carbide_dpf::{DpuDeploymentType, DpuPhase};
+use carbide_dpf::{DpfError, DpuDeploymentType, DpuPhase};
 use carbide_machine_controller::dpf::{DpfOperations, MockDpfOperations};
 use carbide_uuid::machine::MachineId;
 use model::machine::{
     DpfState, DpuReprovisionStates, FailureCause, InstanceState, ManagedHostState, ReprovisionState,
 };
+use rpc::forge::dpu_reprovisioning_request::Mode;
+use rpc::forge::forge_server::Forge;
+use tokio::sync::Notify;
 use tokio::time::timeout;
 
 use super::{dpf_config, get_host_state};
+use crate::test_support::builder::TestApiBuilder;
 use crate::tests::common::api_fixtures::site_explorer::TestRackDbBuilder;
 use crate::tests::common::api_fixtures::{
     TEST_RMS_RACK_PROFILE_ID, TestEnvOverrides, TestManagedHost, create_managed_host_with_dpf,
@@ -94,6 +98,120 @@ fn provisioning_mock_with_dpu_count(
         }
     });
     mock
+}
+
+/// Builds a DPF mock whose existing DPUNode still belongs to the generic BF3
+/// deployment while inventory now selects the GB200 deployment.
+fn source_deployment_mock(dpu_count: usize) -> MockDpfOperations {
+    source_deployment_mock_with_verification_observer(dpu_count, |_| {})
+}
+
+/// Builds a source deployment mock that reports each DPUNode label check to
+/// `observer`.
+fn source_deployment_mock_with_verification_observer(
+    dpu_count: usize,
+    observer: impl Fn(DpuDeploymentType) + Send + Sync + 'static,
+) -> MockDpfOperations {
+    let mut mock = MockDpfOperations::new();
+    mock.expect_register_dpu_device().returning(|_, _| Ok(()));
+    mock.expect_register_dpu_node().returning(|_| Ok(()));
+    mock.expect_release_maintenance_hold().returning(|_| Ok(()));
+    mock.expect_is_reboot_required().returning(|_| Ok(false));
+    mock.expect_deployment_type_for_dpu()
+        .returning(|_, _| Ok(DpuDeploymentType::Bf3));
+    mock.expect_verify_node_labels()
+        .returning(move |_, deployment| {
+            observer(deployment);
+            Ok(deployment == DpuDeploymentType::Bf3)
+        });
+    mock.expect_snapshot_host()
+        .returning(move |_| Ok(snapshot_with_crs_present(dpu_count)));
+    mock.expect_get_dpu_phase()
+        .returning(|_, _| Ok(DpuPhase::Ready));
+    mock
+}
+
+/// A GB200 deployment migration waits for Site Explorer attachment writes
+/// before it snapshots and updates the complete DPU set.
+#[crate::sqlx_test]
+async fn test_gb200_deployment_migration_waits_for_attachment_updates(pool: sqlx::PgPool) {
+    let observe_migration_check = Arc::new(AtomicBool::new(false));
+    let source_deployment_checked = Arc::new(Notify::new());
+    let observe_migration_check_for_mock = observe_migration_check.clone();
+    let source_deployment_checked_for_mock = source_deployment_checked.clone();
+    let mock = source_deployment_mock_with_verification_observer(2, move |deployment| {
+        if observe_migration_check_for_mock.load(Ordering::SeqCst)
+            && deployment == DpuDeploymentType::Bf3
+        {
+            source_deployment_checked_for_mock.notify_one();
+        }
+    });
+
+    let mut config = get_config_with_rack_profiles();
+    config.dpf = dpf_config();
+    let env = create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides::with_config(config).with_dpf_sdk(Arc::new(mock)),
+    )
+    .await;
+    let mh = timeout(TEST_TIMEOUT, create_managed_host_with_dpf_multi(&env, 2))
+        .await
+        .expect("timed out during initial provisioning");
+    configure_gb200_b3240_host(&pool, &mh).await;
+    mh.mark_machine_for_updates().await;
+
+    // Stand in for Site Explorer while it changes DPU attachments. The API
+    // must wait for this transaction before it chooses the request set.
+    let admin_lock_admission = db::machine_interface::admin_lock_admission().await;
+    let mut attachment_txn = pool.begin().await.unwrap();
+    db::machine_interface::lock_all_admin_segments(attachment_txn.as_mut())
+        .await
+        .unwrap();
+
+    observe_migration_check.store(true, Ordering::SeqCst);
+    let api = env.api.clone();
+    let host_id = mh.id;
+    let mut request_task = tokio::spawn(async move {
+        api.trigger_dpu_reprovisioning(tonic::Request::new(
+            ::rpc::forge::DpuReprovisioningRequest {
+                dpu_id: None,
+                machine_id: host_id.into(),
+                mode: Mode::Set as i32,
+                initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
+                update_firmware: true,
+            },
+        ))
+        .await
+    });
+
+    timeout(TEST_TIMEOUT, source_deployment_checked.notified())
+        .await
+        .expect("timed out waiting for the deployment check");
+    assert!(
+        timeout(Duration::from_millis(250), &mut request_task)
+            .await
+            .is_err(),
+        "the migration request must wait for attachment updates"
+    );
+
+    attachment_txn.commit().await.unwrap();
+    drop(admin_lock_admission);
+    timeout(TEST_TIMEOUT, request_task)
+        .await
+        .expect("timed out after releasing the attachment locks")
+        .expect("the migration request task panicked")
+        .expect("the migration request failed");
+
+    let mut txn = pool.begin().await.unwrap();
+    let dpu_machines = mh.dpu_db_machines(&mut txn).await;
+    assert_eq!(dpu_machines.len(), mh.dpu_ids.len());
+    assert!(
+        dpu_machines
+            .iter()
+            .all(|dpu| dpu.reprovision_requested.is_some()),
+        "the host request must update every attached DPU"
+    );
+    txn.commit().await.unwrap();
 }
 
 /// Build the DPU reprovision states map for the given DPF sub-state.
@@ -175,6 +293,131 @@ async fn dpu_device_names(pool: &sqlx::PgPool, mh: &TestManagedHost) -> HashSet<
         names.insert(dpu.dpf_id().unwrap());
     }
     names
+}
+
+/// Gives a DPF test host the rack and DPU inventory that select the GB200
+/// deployment.
+async fn configure_gb200_b3240_host(pool: &sqlx::PgPool, mh: &TestManagedHost) {
+    let mut txn = pool.begin().await.unwrap();
+    let rack_id = TestRackDbBuilder::new()
+        .with_rack_profile_id(TEST_RMS_RACK_PROFILE_ID)
+        .persist(txn.as_mut())
+        .await
+        .unwrap();
+    let rack_assignment = sqlx::query("UPDATE machines SET rack_id = $1 WHERE id = $2")
+        .bind(rack_id.as_str())
+        .bind(mh.id)
+        .execute(txn.as_mut())
+        .await
+        .unwrap();
+    assert_eq!(
+        rack_assignment.rows_affected(),
+        1,
+        "the test host must be attached to the GB200 rack profile"
+    );
+    for dpu_id in &mh.dpu_ids {
+        let dpu = db::machine::find_one(txn.as_mut(), dpu_id, Default::default())
+            .await
+            .unwrap()
+            .unwrap();
+        let mut hardware_info = dpu
+            .status
+            .hardware_info
+            .expect("fixture DPU should have hardware information");
+        hardware_info
+            .dpu_info
+            .as_mut()
+            .expect("fixture DPU should have DPU information")
+            .part_number = "900-9D3B6-00CN-PA0".to_string();
+        db::machine_topology::set_topology_update_needed(txn.as_mut(), dpu_id, true)
+            .await
+            .unwrap();
+        db::machine_topology::create_or_update(txn.as_mut(), dpu_id, &hardware_info)
+            .await
+            .unwrap();
+    }
+    txn.commit().await.unwrap();
+}
+
+/// Recreates the partial DPF reprovision state that a controller without
+/// deployment migration admission could persist during a rolling update.
+async fn set_started_partial_dpf_reprovision(
+    pool: &sqlx::PgPool,
+    mh: &TestManagedHost,
+    requested_dpu_index: usize,
+) {
+    let requested_dpu_id = mh.dpu_ids[requested_dpu_index];
+    let mut txn = pool.begin().await.unwrap();
+    db::machine::trigger_dpu_reprovisioning_request(&requested_dpu_id, txn.as_mut(), "test", true)
+        .await
+        .unwrap();
+    db::machine::update_dpu_reprovision_start_time(&requested_dpu_id, txn.as_mut())
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    let states = mh
+        .dpu_ids
+        .iter()
+        .map(|dpu_id| {
+            let state = if *dpu_id == requested_dpu_id {
+                ReprovisionState::DpfStates {
+                    substate: DpfState::Reprovisioning,
+                }
+            } else {
+                ReprovisionState::NotUnderReprovision
+            };
+            (*dpu_id, state)
+        })
+        .collect();
+    write_host_state(
+        pool,
+        &mh.id,
+        &ManagedHostState::DPUReprovision {
+            dpu_states: DpuReprovisionStates { states },
+        },
+    )
+    .await;
+}
+
+/// Recreates a complete request set that an older controller has already
+/// advanced unevenly during a rolling update.
+async fn set_started_complete_dpf_reprovision_with_progress(
+    pool: &sqlx::PgPool,
+    mh: &TestManagedHost,
+) {
+    let mut txn = pool.begin().await.unwrap();
+    for dpu_id in &mh.dpu_ids {
+        db::machine::trigger_dpu_reprovisioning_request(dpu_id, txn.as_mut(), "test", true)
+            .await
+            .unwrap();
+        db::machine::update_dpu_reprovision_start_time(dpu_id, txn.as_mut())
+            .await
+            .unwrap();
+    }
+    txn.commit().await.unwrap();
+
+    let states = mh
+        .dpu_ids
+        .iter()
+        .enumerate()
+        .map(|(index, dpu_id)| {
+            let substate = if index == 0 {
+                DpfState::WaitingForReady { phase_detail: None }
+            } else {
+                DpfState::Reprovisioning
+            };
+            (*dpu_id, ReprovisionState::DpfStates { substate })
+        })
+        .collect();
+    write_host_state(
+        pool,
+        &mh.id,
+        &ManagedHostState::DPUReprovision {
+            dpu_states: DpuReprovisionStates { states },
+        },
+    )
+    .await;
 }
 
 /// Reprovisioning handler: `DpfState::Reprovisioning` transitions the DPU
@@ -500,48 +743,12 @@ async fn test_gb200_b3240_pair_uses_specialized_deployment(pool: sqlx::PgPool) {
     )
     .await;
 
-    let mut txn = pool.begin().await.unwrap();
-    let rack_id = TestRackDbBuilder::new()
-        .with_rack_profile_id(TEST_RMS_RACK_PROFILE_ID)
-        .persist(txn.as_mut())
-        .await
-        .unwrap();
-    txn.commit().await.unwrap();
-
     let mh = timeout(TEST_TIMEOUT, create_managed_host_with_dpf_multi(&env, 2))
         .await
         .expect("timed out during initial provisioning");
 
     // Give the host a GB200 rack and both DPUs the supported B3240 identity.
-    let mut txn = pool.begin().await.unwrap();
-    sqlx::query("UPDATE machines SET rack_id = $1 WHERE id = $2")
-        .bind(rack_id.as_str())
-        .bind(mh.id)
-        .execute(txn.as_mut())
-        .await
-        .unwrap();
-    for dpu_id in &mh.dpu_ids {
-        let dpu = db::machine::find_one(txn.as_mut(), dpu_id, Default::default())
-            .await
-            .unwrap()
-            .unwrap();
-        let mut hardware_info = dpu
-            .status
-            .hardware_info
-            .expect("fixture DPU should have hardware information");
-        hardware_info
-            .dpu_info
-            .as_mut()
-            .expect("fixture DPU should have DPU information")
-            .part_number = "900-9D3B6-00CN-PA0".to_string();
-        db::machine_topology::set_topology_update_needed(txn.as_mut(), dpu_id, true)
-            .await
-            .unwrap();
-        db::machine_topology::create_or_update(txn.as_mut(), dpu_id, &hardware_info)
-            .await
-            .unwrap();
-    }
-    txn.commit().await.unwrap();
+    configure_gb200_b3240_host(&pool, &mh).await;
 
     // Ignore initial ingestion and observe one complete host deployment selection pass.
     classified_dpus.lock().unwrap().clear();
@@ -566,6 +773,556 @@ async fn test_gb200_b3240_pair_uses_specialized_deployment(pool: sqlx::PgPool) {
     assert_eq!(
         *registered_deployments.lock().unwrap(),
         vec![DpuDeploymentType::Bf3Gb200]
+    );
+}
+
+/// A DPF-ingested GB200 host remains reprovisionable when runtime DPF support
+/// is disabled and no SDK is installed.
+#[crate::sqlx_test]
+async fn test_runtime_dpf_disable_skips_deployment_migration_probe(pool: sqlx::PgPool) {
+    let mut config = get_config_with_rack_profiles();
+    config.dpf = dpf_config();
+    let env = create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides::with_config(config).with_dpf_sdk(Arc::new(source_deployment_mock(1))),
+    )
+    .await;
+    let mh = timeout(TEST_TIMEOUT, create_managed_host_with_dpf(&env))
+        .await
+        .expect("timed out during initial provisioning");
+    configure_gb200_b3240_host(&pool, &mh).await;
+    mh.mark_machine_for_updates().await;
+
+    let mut disabled_config = get_config_with_rack_profiles();
+    disabled_config.dpf.enabled = false;
+    let disabled_api = TestApiBuilder::new(
+        env.pool.clone(),
+        env.api.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
+    )
+    .with_runtime_config(Arc::new(disabled_config))
+    .build();
+    assert!(disabled_api.dpf_sdk.is_none());
+
+    disabled_api
+        .trigger_dpu_reprovisioning(tonic::Request::new(
+            ::rpc::forge::DpuReprovisioningRequest {
+                dpu_id: None,
+                machine_id: mh.id.into(),
+                mode: Mode::Set as i32,
+                initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
+                update_firmware: true,
+            },
+        ))
+        .await
+        .expect("runtime DPF disable must skip the deployment migration probe");
+
+    let mut txn = pool.begin().await.unwrap();
+    assert!(
+        mh.dpu_n(0)
+            .db_machine(&mut txn)
+            .await
+            .reprovision_requested
+            .is_some(),
+        "the request must persist without a DPF SDK"
+    );
+    txn.commit().await.unwrap();
+}
+
+/// A GB200 deployment migration rejects a request for one DPU, then proceeds
+/// when a host request includes every attached DPU.
+#[crate::sqlx_test]
+async fn test_gb200_deployment_migration_requires_every_dpu(pool: sqlx::PgPool) {
+    let node_uses_target_labels = Arc::new(AtomicBool::new(false));
+    let target_dpu_phase = Arc::new(AtomicUsize::new(0));
+    let released_holds = Arc::new(AtomicUsize::new(0));
+    let transferred_deployments = Arc::new(Mutex::new(Vec::new()));
+    let deleted_source_devices = Arc::new(Mutex::new(Vec::new()));
+
+    let mut mock = MockDpfOperations::new();
+    mock.expect_register_dpu_device().returning(|_, _| Ok(()));
+    mock.expect_register_dpu_node().returning(|_| Ok(()));
+    let released_holds_for_mock = released_holds.clone();
+    mock.expect_release_maintenance_hold().returning(move |_| {
+        released_holds_for_mock.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    });
+    mock.expect_is_reboot_required().returning(|_| Ok(false));
+    mock.expect_deployment_type_for_dpu()
+        .returning(|_, _| Ok(DpuDeploymentType::Bf3));
+    let node_uses_target_labels_for_verify = node_uses_target_labels.clone();
+    mock.expect_verify_node_labels()
+        .returning(move |_, deployment| {
+            let expected = if node_uses_target_labels_for_verify.load(Ordering::SeqCst) {
+                DpuDeploymentType::Bf3Gb200
+            } else {
+                DpuDeploymentType::Bf3
+            };
+            Ok(deployment == expected)
+        });
+    mock.expect_snapshot_host()
+        .returning(|_| Ok(snapshot_with_crs_present(2)));
+    mock.expect_get_dpu_phase()
+        .returning(|_, _| Ok(DpuPhase::Ready));
+    let target_dpu_phase_for_mock = target_dpu_phase.clone();
+    mock.expect_get_dpu_phases_for_deployment_type().returning(
+        move |device_names, _, deployment_type| {
+            assert_eq!(deployment_type, DpuDeploymentType::Bf3Gb200);
+            match target_dpu_phase_for_mock.load(Ordering::SeqCst) {
+                0 => Ok(None),
+                1 => Ok(Some(
+                    device_names
+                        .iter()
+                        .map(|name| {
+                            (
+                                name.clone(),
+                                DpuPhase::Provisioning("OsInstalling".to_string()),
+                            )
+                        })
+                        .collect::<BTreeMap<_, _>>(),
+                )),
+                2 => Ok(Some(
+                    device_names
+                        .iter()
+                        .map(|name| (name.clone(), DpuPhase::Ready))
+                        .collect::<BTreeMap<_, _>>(),
+                )),
+                _ => Err(DpfError::InvalidState(
+                    "target DPU has the wrong flavor".to_string(),
+                )),
+            }
+        },
+    );
+    let transferred_deployments_for_mock = transferred_deployments.clone();
+    mock.expect_transfer_dpu_node_deployment_labels()
+        .returning(move |_, source, target| {
+            let mut transfers = transferred_deployments_for_mock.lock().unwrap();
+            transfers.push((source, target));
+            node_uses_target_labels.store(true, Ordering::SeqCst);
+            Ok(())
+        });
+    let deleted_source_devices_for_mock = deleted_source_devices.clone();
+    mock.expect_delete_source_dpus_for_deployment_migration()
+        .returning(move |device_names, _, source, target| {
+            assert_eq!(source, DpuDeploymentType::Bf3);
+            assert_eq!(target, DpuDeploymentType::Bf3Gb200);
+            *deleted_source_devices_for_mock.lock().unwrap() = device_names.to_vec();
+            Ok(())
+        });
+
+    let mut config = get_config_with_rack_profiles();
+    config.dpf = dpf_config();
+    let env = create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides::with_config(config).with_dpf_sdk(Arc::new(mock)),
+    )
+    .await;
+    let mh = timeout(TEST_TIMEOUT, create_managed_host_with_dpf_multi(&env, 2))
+        .await
+        .expect("timed out during initial provisioning");
+    configure_gb200_b3240_host(&pool, &mh).await;
+    let released_holds_before_migration = released_holds.load(Ordering::SeqCst);
+
+    mh.mark_machine_for_updates().await;
+    let partial_request_error = env
+        .api
+        .trigger_dpu_reprovisioning(tonic::Request::new(
+            ::rpc::forge::DpuReprovisioningRequest {
+                dpu_id: None,
+                machine_id: mh.dpu_ids[0].into(),
+                mode: Mode::Set as i32,
+                initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
+                update_firmware: true,
+            },
+        ))
+        .await;
+    let partial_request_error =
+        partial_request_error.expect_err("a request for one DPU must be rejected");
+    assert_eq!(
+        partial_request_error.code(),
+        tonic::Code::FailedPrecondition
+    );
+    assert!(
+        partial_request_error.message().contains(&mh.id.to_string()),
+        "the rejection must identify the request using the host ID that can migrate the full DPU set"
+    );
+
+    assert!(
+        matches!(get_host_state(&env, &mh).await, ManagedHostState::Ready),
+        "a rejected partial request must not change the host state"
+    );
+    assert!(transferred_deployments.lock().unwrap().is_empty());
+    assert!(deleted_source_devices.lock().unwrap().is_empty());
+
+    let mut txn = pool.begin().await.unwrap();
+    let first_request = mh.dpu_n(0).db_machine(&mut txn).await.reprovision_requested;
+    assert!(first_request.is_none());
+    assert!(
+        mh.dpu_n(1)
+            .db_machine(&mut txn)
+            .await
+            .reprovision_requested
+            .is_none()
+    );
+    txn.commit().await.unwrap();
+
+    mh.host().trigger_dpu_reprovisioning(Mode::Set, true).await;
+
+    let partial_clear_error = env
+        .api
+        .trigger_dpu_reprovisioning(tonic::Request::new(
+            ::rpc::forge::DpuReprovisioningRequest {
+                dpu_id: None,
+                machine_id: mh.dpu_ids[0].into(),
+                mode: Mode::Clear as i32,
+                initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
+                update_firmware: true,
+            },
+        ))
+        .await
+        .expect_err("clearing one DPU from a complete migration request must be rejected");
+    assert_eq!(partial_clear_error.code(), tonic::Code::FailedPrecondition);
+
+    let mut txn = pool.begin().await.unwrap();
+    for dpu_index in 0..mh.dpu_ids.len() {
+        assert!(
+            mh.dpu_n(dpu_index)
+                .db_machine(&mut txn)
+                .await
+                .reprovision_requested
+                .is_some(),
+            "a rejected partial clear must preserve every migration request"
+        );
+    }
+    txn.commit().await.unwrap();
+
+    timeout(TEST_TIMEOUT, env.run_machine_state_controller_iteration())
+        .await
+        .expect("timed out while starting the complete DPU set");
+
+    let started_state = get_host_state(&env, &mh).await;
+    assert!(
+        matches!(
+            started_state,
+            ManagedHostState::DPUReprovision { ref dpu_states }
+                if dpu_states.states.values().all(|state| {
+                    matches!(
+                        state,
+                        ReprovisionState::DpfStates {
+                            substate: DpfState::Reprovisioning
+                        }
+                    )
+                })
+        ),
+        "the host request must start every DPU in the source deployment: {started_state:?}"
+    );
+
+    timeout(TEST_TIMEOUT, env.run_machine_state_controller_iteration())
+        .await
+        .expect("timed out while parking deployment migration");
+
+    let parked_state = get_host_state(&env, &mh).await;
+    assert!(
+        matches!(
+            &parked_state,
+            ManagedHostState::DPUReprovision { dpu_states }
+                if dpu_states.states.values().all(|state| {
+                    matches!(state, ReprovisionState::NotUnderReprovision)
+                })
+        ),
+        "the complete DPU set must be parked before changing selectors: {parked_state:?}"
+    );
+    assert!(transferred_deployments.lock().unwrap().is_empty());
+
+    timeout(TEST_TIMEOUT, env.run_machine_state_controller_iteration())
+        .await
+        .expect("timed out during deployment migration");
+
+    let migrated_state = get_host_state(&env, &mh).await;
+    assert!(
+        matches!(
+            migrated_state,
+            ManagedHostState::DPUReprovision { ref dpu_states }
+                if dpu_states.states.values().all(|state| {
+                    matches!(state, ReprovisionState::NotUnderReprovision)
+                })
+        ),
+        "the migration must remain parked until every target DPU is observed: {migrated_state:?}"
+    );
+    assert_eq!(
+        *transferred_deployments.lock().unwrap(),
+        vec![(DpuDeploymentType::Bf3, DpuDeploymentType::Bf3Gb200)]
+    );
+    let expected_devices = dpu_device_names(&pool, &mh).await;
+    assert_eq!(
+        deleted_source_devices
+            .lock()
+            .unwrap()
+            .iter()
+            .cloned()
+            .collect::<HashSet<_>>(),
+        expected_devices
+    );
+
+    // A source DPU can briefly retain the deterministic name after the
+    // selector changes. Keep the complete set parked until target ownership
+    // is observed for every DPU in one snapshot.
+    timeout(TEST_TIMEOUT, env.run_machine_state_controller_iteration())
+        .await
+        .expect("timed out while checking a stale source DPU");
+
+    let stale_source_state = get_host_state(&env, &mh).await;
+    assert!(
+        matches!(
+            stale_source_state,
+            ManagedHostState::DPUReprovision { ref dpu_states }
+                if dpu_states.states.values().all(|state| {
+                    matches!(state, ReprovisionState::NotUnderReprovision)
+                })
+        ),
+        "source ownership must keep every DPU parked: {stale_source_state:?}"
+    );
+    assert_eq!(
+        released_holds.load(Ordering::SeqCst),
+        released_holds_before_migration,
+        "a DPU owned by the source must not release the target deployment's hold"
+    );
+
+    target_dpu_phase.store(3, Ordering::SeqCst);
+    timeout(TEST_TIMEOUT, env.run_machine_state_controller_iteration())
+        .await
+        .expect("timed out while checking target deployment configuration drift");
+
+    let mismatched_target_state = get_host_state(&env, &mh).await;
+    assert!(
+        matches!(
+            &mismatched_target_state,
+            ManagedHostState::Failed { details, .. }
+                if matches!(
+                    &details.cause,
+                    FailureCause::DpfProvisioning { err }
+                        if err.contains("target DPU has the wrong flavor")
+                )
+        ),
+        "a Ready target DPU with configuration drift must fail visibly: {mismatched_target_state:?}"
+    );
+    assert_eq!(
+        released_holds.load(Ordering::SeqCst),
+        released_holds_before_migration,
+        "a mismatched target DPU must not release the maintenance hold"
+    );
+
+    // Restore the parked checkpoint to continue exercising the successful path.
+    write_host_state(&pool, &mh.id, &parked_state).await;
+
+    target_dpu_phase.store(1, Ordering::SeqCst);
+    timeout(TEST_TIMEOUT, env.run_machine_state_controller_iteration())
+        .await
+        .expect("timed out while checking target deployment provisioning");
+
+    let target_provisioning_state = get_host_state(&env, &mh).await;
+    assert!(
+        matches!(
+            target_provisioning_state,
+            ManagedHostState::DPUReprovision { ref dpu_states }
+                if dpu_states.states.values().all(|state| {
+                    matches!(
+                        state,
+                        ReprovisionState::DpfStates {
+                            substate: DpfState::WaitingForReady { .. }
+                        }
+                    )
+                })
+        ),
+        "observing the complete target set must move every DPU to WaitingForReady: {target_provisioning_state:?}"
+    );
+    assert_eq!(
+        released_holds.load(Ordering::SeqCst),
+        released_holds_before_migration,
+        "changing the durable migration marker must not release the maintenance hold"
+    );
+
+    timeout(TEST_TIMEOUT, env.run_machine_state_controller_iteration())
+        .await
+        .expect("timed out while processing target deployment provisioning");
+
+    let target_provisioning_state = get_host_state(&env, &mh).await;
+    assert!(
+        matches!(
+            target_provisioning_state,
+            ManagedHostState::DPUReprovision { ref dpu_states }
+                if dpu_states.states.values().all(|state| {
+                    matches!(
+                        state,
+                        ReprovisionState::DpfStates {
+                            substate: DpfState::WaitingForReady { .. }
+                        }
+                    )
+                })
+        ),
+        "target provisioning must remain in WaitingForReady: {target_provisioning_state:?}"
+    );
+    assert_eq!(
+        released_holds.load(Ordering::SeqCst),
+        released_holds_before_migration + 1,
+        "a target DPU may release the shared maintenance hold while provisioning"
+    );
+
+    target_dpu_phase.store(2, Ordering::SeqCst);
+    timeout(TEST_TIMEOUT, env.run_machine_state_controller_iteration())
+        .await
+        .expect("timed out while checking the target deployment");
+
+    let progressing_state = get_host_state(&env, &mh).await;
+    assert!(
+        matches!(
+            progressing_state,
+            ManagedHostState::DPUReprovision { ref dpu_states }
+                if dpu_states.states.values().any(|state| {
+                    matches!(
+                        state,
+                        ReprovisionState::DpfStates {
+                            substate: DpfState::DeviceReady
+                        }
+                    )
+                })
+        ),
+        "the target deployment labels must let reprovisioning continue: {progressing_state:?}"
+    );
+}
+
+/// A partial request started before the migration gate was rolled
+/// out continues under its current deployment instead of entering a terminal
+/// migration failure.
+#[crate::sqlx_test]
+async fn test_started_partial_migration_continues_under_source_deployment(pool: sqlx::PgPool) {
+    let reprovisioned_devices = Arc::new(Mutex::new(Vec::new()));
+    let mut mock = source_deployment_mock(2);
+    let reprovisioned_devices_for_mock = reprovisioned_devices.clone();
+    mock.expect_reprovision_dpu()
+        .times(1)
+        .returning(move |device_name, _| {
+            reprovisioned_devices_for_mock
+                .lock()
+                .unwrap()
+                .push(device_name.to_string());
+            Ok(())
+        });
+
+    let mut config = get_config_with_rack_profiles();
+    config.dpf = dpf_config();
+    let env = create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides::with_config(config).with_dpf_sdk(Arc::new(mock)),
+    )
+    .await;
+    let mh = timeout(TEST_TIMEOUT, create_managed_host_with_dpf_multi(&env, 2))
+        .await
+        .expect("timed out during initial provisioning");
+    configure_gb200_b3240_host(&pool, &mh).await;
+    set_started_partial_dpf_reprovision(&pool, &mh, 0).await;
+
+    timeout(TEST_TIMEOUT, env.run_machine_state_controller_iteration())
+        .await
+        .expect("timed out while continuing the source deployment");
+
+    let waiting_state = get_host_state(&env, &mh).await;
+    assert!(
+        matches!(
+            waiting_state,
+            ManagedHostState::DPUReprovision { ref dpu_states }
+                if matches!(
+                    dpu_states.states.get(&mh.dpu_ids[0]),
+                    Some(ReprovisionState::DpfStates {
+                        substate: DpfState::WaitingForReady { .. }
+                    })
+                ) && matches!(
+                    dpu_states.states.get(&mh.dpu_ids[1]),
+                    Some(ReprovisionState::NotUnderReprovision)
+                )
+        ),
+        "the DPU already being reprovisioned must continue without moving the shared selector: {waiting_state:?}"
+    );
+    assert_eq!(reprovisioned_devices.lock().unwrap().len(), 1);
+
+    timeout(TEST_TIMEOUT, env.run_machine_state_controller_iteration())
+        .await
+        .expect("timed out while accepting source deployment readiness");
+
+    let ready_state = get_host_state(&env, &mh).await;
+    assert!(
+        matches!(
+            ready_state,
+            ManagedHostState::DPUReprovision { ref dpu_states }
+                if matches!(
+                    dpu_states.states.get(&mh.dpu_ids[0]),
+                    Some(ReprovisionState::DpfStates {
+                        substate: DpfState::DeviceReady
+                    })
+                ) && matches!(
+                    dpu_states.states.get(&mh.dpu_ids[1]),
+                    Some(ReprovisionState::NotUnderReprovision)
+                )
+        ),
+        "source labels must remain valid until the existing request finishes: {ready_state:?}"
+    );
+}
+
+/// A complete request already advanced by an older controller finishes under
+/// BF3 instead of failing when its DPU states are no longer synchronized at the
+/// migration handoff.
+#[crate::sqlx_test]
+async fn test_started_complete_migration_with_progress_continues_under_source_deployment(
+    pool: sqlx::PgPool,
+) {
+    let mut mock = source_deployment_mock(2);
+    mock.expect_reprovision_dpu().returning(|_, _| Ok(()));
+
+    let mut config = get_config_with_rack_profiles();
+    config.dpf = dpf_config();
+    let env = create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides::with_config(config).with_dpf_sdk(Arc::new(mock)),
+    )
+    .await;
+    let mh = timeout(TEST_TIMEOUT, create_managed_host_with_dpf_multi(&env, 2))
+        .await
+        .expect("timed out during initial provisioning");
+    configure_gb200_b3240_host(&pool, &mh).await;
+    set_started_complete_dpf_reprovision_with_progress(&pool, &mh).await;
+
+    timeout(TEST_TIMEOUT, env.run_machine_state_controller_iteration())
+        .await
+        .expect("timed out while continuing the progressed request under BF3");
+
+    let state = get_host_state(&env, &mh).await;
+    let ManagedHostState::DPUReprovision { ref dpu_states } = state else {
+        panic!("an existing request must remain in DPUReprovision under BF3: {state:?}");
+    };
+    let stayed_in_dpf = dpu_states
+        .states
+        .values()
+        .all(|dpu_state| matches!(dpu_state, ReprovisionState::DpfStates { .. }));
+    let reached_device_ready = dpu_states.states.values().any(|dpu_state| {
+        matches!(
+            dpu_state,
+            ReprovisionState::DpfStates {
+                substate: DpfState::DeviceReady
+            }
+        )
+    });
+    let still_reprovisioning = dpu_states.states.values().any(|dpu_state| {
+        matches!(
+            dpu_state,
+            ReprovisionState::DpfStates {
+                substate: DpfState::Reprovisioning
+            }
+        )
+    });
+
+    assert!(
+        stayed_in_dpf && (reached_device_ready || !still_reprovisioning),
+        "an existing request must make progress under BF3 without entering the migration handoff: {state:?}"
     );
 }
 
