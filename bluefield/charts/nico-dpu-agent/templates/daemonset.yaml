@@ -220,6 +220,7 @@ spec:
               readOnly: true
             - name: host-grpc-socket-dir
               mountPath: /var/run/dpf/weave/grpc
+              readOnly: true
         - name: nico-lldp-sidecar
           securityContext:
             privileged: false
