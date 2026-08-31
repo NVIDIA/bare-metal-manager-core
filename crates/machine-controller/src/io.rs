@@ -343,6 +343,7 @@ impl StateControllerIO for MachineStateControllerIO {
                     ("decommissioning", "suppressingoobdhcp")
                 }
                 DecommissioningState::PowerCyclingHost => ("decommissioning", "powercyclinghost"),
+                DecommissioningState::PoweringOnHost => ("decommissioning", "poweringonhost"),
                 DecommissioningState::WaitingForOobDhcpAcknowledgement => {
                     ("decommissioning", "waitingforoobdhcpacknowledgement")
                 }

@@ -21,7 +21,7 @@ use carbide_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialW
 use carbide_uuid::machine::MachineId;
 use libredfish::model::task::TaskState;
 use libredfish::model::update_service::TransferProtocolType;
-use libredfish::{EnabledDisabled, JobState, RedfishError, SystemPowerControl};
+use libredfish::{EnabledDisabled, JobState, PowerState, RedfishError, SystemPowerControl};
 use model::bmc_suppression::{BmcSuppressionSubsystem, NewBmcSuppression};
 use model::dpa_interface::{DpaInterfaceControllerState, DpaInterfaceType, DpaLockMode};
 use model::machine::{
@@ -718,6 +718,53 @@ pub(super) async fn handle_power_cycling_host(
             "failed to power cycle host after suppressing OOB DHCP: {error}"
         ))
     })?;
+    Ok(StateHandlerOutcome::transition(
+        ManagedHostState::Decommissioning {
+            decommissioning_state: DecommissioningState::PoweringOnHost,
+        },
+    ))
+}
+
+pub(super) async fn handle_powering_on_host(
+    state: &ManagedHostStateSnapshot,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    power_down_wait: chrono::Duration,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    let host = &state.host_snapshot;
+    let basetime = host
+        .status
+        .last_reboot_requested
+        .as_ref()
+        .map(|reboot| reboot.time)
+        .unwrap_or(host.state.version.timestamp());
+
+    if super::wait(&basetime, power_down_wait) {
+        return Ok(StateHandlerOutcome::wait(format!(
+            "waiting for power-down grace period before powering on {host_id}; power_down_wait: {power_down_wait}",
+            host_id = host.id,
+        )));
+    }
+
+    let redfish_client = ctx
+        .services
+        .create_redfish_client_from_machine(host)
+        .await?;
+    let power_state = super::host_power_state(redfish_client.as_ref()).await?;
+    if power_state != PowerState::On && power_state != PowerState::PoweringOn {
+        tracing::info!(
+            machine_id = %host.id,
+            %power_state,
+            "Host not On after decommissioning power cycle; powering on"
+        );
+        host_power_control(redfish_client.as_ref(), host, SystemPowerControl::On, ctx)
+            .await
+            .map_err(|error| {
+                StateHandlerError::GenericError(eyre::eyre!(
+                    "failed to power on host after decommissioning power cycle: {error}"
+                ))
+            })?;
+    }
+
     Ok(StateHandlerOutcome::transition(
         ManagedHostState::Decommissioning {
             decommissioning_state: DecommissioningState::WaitingForOobDhcpAcknowledgement,

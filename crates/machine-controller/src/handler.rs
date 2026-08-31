@@ -1315,6 +1315,14 @@ impl MachineStateHandler {
                 DecommissioningState::PowerCyclingHost => {
                     decommissioning::handle_power_cycling_host(mh_snapshot, ctx).await
                 }
+                DecommissioningState::PoweringOnHost => {
+                    decommissioning::handle_powering_on_host(
+                        mh_snapshot,
+                        ctx,
+                        self.reachability_params.power_down_wait,
+                    )
+                    .await
+                }
                 DecommissioningState::WaitingForOobDhcpAcknowledgement => {
                     decommissioning::handle_waiting_for_oob_dhcp_acknowledgement(mh_snapshot, ctx)
                         .await

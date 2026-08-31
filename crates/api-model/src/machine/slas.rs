@@ -104,6 +104,9 @@ pub const DECOMMISSIONING_SUPPRESSING_OOB_DHCP: Duration = Duration::from_secs(5
 /// SLA for the host power cycle that forces OOB rediscovery during decommissioning.
 pub const DECOMMISSIONING_POWER_CYCLING_HOST: Duration = Duration::from_secs(5 * 60);
 
+/// SLA for powering the host back on after the decommissioning power cycle.
+pub const DECOMMISSIONING_POWERING_ON_HOST: Duration = Duration::from_secs(5 * 60);
+
 /// SLA for waiting for OOB DHCP suppression acknowledgement after the host power
 /// cycle.
 pub const DECOMMISSIONING_WAITING_FOR_OOB_DHCP_ACKNOWLEDGEMENT: Duration =
