@@ -44,7 +44,7 @@ The consumer supports these BMS event types:
 - Rack leak-sensor fault (`LeakSensorFaultRack`)
 - Rack-tray leak detection (`LeakDetectRackTray`)
 
-For an active supported BMS event, NICo creates rack health report with a leak alert. When BMS publishes a clear event, NICo removes the corresponding rack health report.
+For an active supported BMS event, NICo creates a rack health report with a leak alert. When the BMS publishes a clear event, NICo removes the corresponding rack health report.
 
 ### Deployment requirements for BMS event integration
 
