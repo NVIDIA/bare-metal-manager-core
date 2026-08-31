@@ -93,7 +93,7 @@ Use the `GET /nico/tray/{id}/task` [REST API endpoint](api:GET/v2/org/:org/nico/
 
 ## Future work: API-manageable, customizable, full-lifecycle leak detection and handling
 
-The overall focus for the next phase of NICo leak detection and handling is to make the feature manageable from API, supporting customized polices, and cover the full lifecycle of liquid-cooled hardware.
+The overall focus for the next phase of NICo leak detection and handling is to make the feature manageable using APIs, support customized polices, and cover the full lifecycle of liquid-cooled hardware.
 
 ### Dedicated leak status and leak handling status API
 
