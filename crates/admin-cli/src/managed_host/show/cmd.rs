@@ -209,7 +209,7 @@ fn convert_managed_hosts_to_nice_output(
     if is_dpf_not_used {
         warnings.push(
             "One or more DPUs are using a provisioning strategy (internal) which is \
-deprecated and will be removed in v2.1, see https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup for how to enable DPF management for DPUs"
+deprecated and will be removed in a future release, see https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup for how to enable DPF management for DPUs"
                 .to_string(),
         );
     }
@@ -396,7 +396,7 @@ fn show_managed_host_details_view(m: carbide_rpc_utils::ManagedHostOutput) -> Ca
     {
         dpf.push((
             "    WARN! One or more DPUs are using a provisioning strategy (internal) which is \
-deprecated and will be removed in v2.1, see https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup for how to enable DPF management for DPUs",
+deprecated and will be removed in a future release, see https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup for how to enable DPF management for DPUs",
             Some("".to_string()),
         ));
     }

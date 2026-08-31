@@ -556,7 +556,6 @@ async fn initialize_dpf_sdk(
 ) -> eyre::Result<Option<Arc<dyn DpfOperations>>> {
     if !carbide_config.dpf.enabled {
         tracing::warn!(
-            removed_in = "v2.1",
             docs = "https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup",
             "iPXE provisioning strategy (internally) is deprecated; enable DPF management for DPUs to migrate"
         );

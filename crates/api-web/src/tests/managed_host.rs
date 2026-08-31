@@ -313,6 +313,8 @@ async fn test_managed_host_html_includes_health_alert_details(
             "IntrusionSensorTriggered [Target: HostBMC]: Physical Chassis Intrusion Alert"
         )
     );
+    assert!(body_str.contains("will be removed in a future release"));
+    assert!(!body_str.contains("v2.1"));
 
     Ok(())
 }
