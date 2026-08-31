@@ -846,9 +846,8 @@ type ForgeClient interface {
 	TriggerUefiCredentialRotation(ctx context.Context, in *UefiCredentialRotationRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Operator "force-converge this host's NIC lockdown keys now" escape hatch
 	// for a single host. This is asynchronous: the handler only persists (Set) or
-	// removes (Clear) the host machine's `lockdown_ikm_credential_rotation_requested`
-	// flag and returns; it performs no rekey itself. A later machine-controller
-	// sweep observes a set flag and facilitates rotation.
+	// removes (Clear) a flag maintained per host to determine whether to initiate NIC lockdown key rotation.
+	// A later machine-controller sweep observes a set flag and facilitates rotation.
 	TriggerNicLockdownCredentialRotation(ctx context.Context, in *NicLockdownCredentialRotationRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// TODO: Remove when manual upgrade feature is removed
 	// Mark host as having completed manual firmware upgrade
@@ -6615,9 +6614,8 @@ type ForgeServer interface {
 	TriggerUefiCredentialRotation(context.Context, *UefiCredentialRotationRequest) (*emptypb.Empty, error)
 	// Operator "force-converge this host's NIC lockdown keys now" escape hatch
 	// for a single host. This is asynchronous: the handler only persists (Set) or
-	// removes (Clear) the host machine's `lockdown_ikm_credential_rotation_requested`
-	// flag and returns; it performs no rekey itself. A later machine-controller
-	// sweep observes a set flag and facilitates rotation.
+	// removes (Clear) a flag maintained per host to determine whether to initiate NIC lockdown key rotation.
+	// A later machine-controller sweep observes a set flag and facilitates rotation.
 	TriggerNicLockdownCredentialRotation(context.Context, *NicLockdownCredentialRotationRequest) (*emptypb.Empty, error)
 	// TODO: Remove when manual upgrade feature is removed
 	// Mark host as having completed manual firmware upgrade

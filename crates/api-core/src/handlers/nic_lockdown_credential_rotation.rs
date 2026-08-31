@@ -45,6 +45,14 @@ pub(crate) async fn trigger_nic_lockdown_credential_rotation(
         .ok_or_else(|| CarbideError::InvalidArgument("machine_id must be provided".to_string()))?;
     log_machine_id(&machine_id);
 
+    if !machine_id.machine_type().is_host() {
+        return Err(CarbideError::InvalidArgument(format!(
+            "machine_id must name a host machine; got {}",
+            machine_id.machine_type()
+        ))
+        .into());
+    }
+
     let mut txn = api.txn_begin().await?;
 
     match mode {

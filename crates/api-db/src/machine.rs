@@ -2854,6 +2854,7 @@ pub async fn set_lockdown_ikm_credential_rotation_requested(
     Ok(())
 }
 
+/// Clear the force NIC lockdown rotation flag for this host
 pub async fn clear_lockdown_ikm_credential_rotation_requested(
     txn: &mut PgConnection,
     machine_id: MachineId,

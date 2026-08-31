@@ -87,7 +87,7 @@ pub const ROTATING_HOST_UEFI: Duration = Duration::from_secs(40 * 60);
 // retry.
 pub const ROTATING_DPU_UEFI: Duration = Duration::from_secs(40 * 60);
 
-// SLA for NIC lockdown key rotation
+/// SLA for NIC lockdown key rotation
 pub const ROTATING_NIC_LOCKDOWN: Duration = Duration::from_secs(40 * 60);
 
 /// SLA for Site Explorer suppression acknowledgement during decommissioning.
