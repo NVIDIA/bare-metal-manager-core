@@ -17,7 +17,7 @@
 
 //! Managed-switch decommissioning.
 
-use carbide_redfish::libredfish::RedfishAuth;
+use carbide_redfish::libredfish::{RedfishAuth, VendorSelection};
 use carbide_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialWriter};
 use carbide_uuid::switch::SwitchId;
 use libredfish::model::service_root::RedfishVendor;
@@ -269,7 +269,7 @@ async fn handle_factory_reset_bmc(
             &bmc_ip_address.to_string(),
             bmc_info.port,
             RedfishAuth::for_bmc_mac(bmc_mac_address),
-            Some(RedfishVendor::NvidiaGBSwitch),
+            VendorSelection::Hint(RedfishVendor::NvidiaGBSwitch),
         )
         .await
         .map_err(|error| external_error("failed to create switch BMC Redfish client", error))?;

@@ -52,6 +52,7 @@ use crate::expected_machines::common::HostDpuPolicy;
 "bmc_ip_allocation",
 "dpf_enabled",
 "interfaces",
+"bmc_vendor_override",
 ])))]
 #[command(after_long_help = "\
 EXAMPLES:
@@ -85,6 +86,14 @@ fixed IP. The omitted role and allocation policy keep their stored values:
 Reset that role to Host and infer Fixed allocation from fixed_ip:
     $ nico-admin-cli expected-machine patch --bmc-mac-address 00:11:22:33:44:55 \
     --interfaces '[{\"mac_address\":\"02:00:00:00:20:01\",\"role\":\"unspecified\",\"ip_allocation\":\"unspecified\",\"fixed_ip\":\"192.0.2.10\"}]'
+
+Pin the Redfish BMC vendor for a host:
+    $ nico-admin-cli expected-machine patch --bmc-mac-address 00:11:22:33:44:55 \
+    --bmc-vendor-override Dell
+
+Clear the Redfish BMC vendor override (return to automatic detection):
+    $ nico-admin-cli expected-machine patch --bmc-mac-address 00:11:22:33:44:55 \
+    --bmc-vendor-override \"\"
 
 ")]
 pub(crate) struct Args {
@@ -229,6 +238,14 @@ pub(crate) struct Args {
         help = "If true, do not lock down the server as part of lifecycle management within the state machine. If unset or false, preserve the default behavior of locking down the server after configuring the BIOS."
     )]
     pub(super) disable_lockdown: Option<bool>,
+
+    #[clap(
+        long = "bmc-vendor-override",
+        value_name = "BMC_VENDOR_OVERRIDE",
+        group = "group",
+        help = "Pin the Redfish BMC vendor for this host. Once set it governs how NICo talks to this BMC. It picks which libredfish driver each Redfish client dispatches on, the vendor nv-redfish classifies the host by, the vendor recorded by Site Explorer, and therefore the firmware config lookup, the IPMI-vs-Redfish restart choice and the BMC console transport. The host's own DMI data is untouched, though where NICo would pick a Redfish client from that DMI vendor the pin outranks it. A RedfishVendor variant name, case-sensitive (e.g. Dell, Supermicro, NvidiaDpu, Hpe, Lenovo). Redfish clients pick it up within a minute, and the recorded vendor changes at the next successful exploration. Pass an empty string to clear the override (return to automatic detection). Only the vendor is asserted, and everything else the BMC reports is left alone, so each library classifies the host the way it normally would for that vendor. Because the pin replaces detection rather than supplementing it, a wrong value can fail exploration outright instead of being ignored, and the failure is reported as the host's last exploration error. It also selects which Redfish account change NICo issues when it changes this BMC's password on the initial factory bootstrap, on the site-wide rotation schedule, when restoring credentials after a factory reset, and for bmc-machine set-root-password. A wrong pin can therefore send the wrong account change to a factory BMC. Only that choice is pinned. The clients that probe a BMC, that bootstrap it from the factory, and that carry the password change itself are still built with no vendor at all, since they must reach a BMC before any vendor is usable. bmc-machine probe-vendor is unaffected and keeps reporting what the BMC says about itself. A pin asserts a vendor rather than a platform, so it also brings that vendor's behavior, including how BMC user accounts are created and deleted and which vendor workarounds apply. Because only the vendor field is asserted, a pin naming a sub-variant such as NvidiaGH200, VeraRubin, NvidiaDpu or a power shelf still needs the product and Redfish version the BMC reports to agree, and where they do not the host can end up classified as nothing rather than as the pinned platform."
+    )]
+    pub(super) bmc_vendor_override: Option<String>,
 }
 
 impl Args {
@@ -257,8 +274,9 @@ impl Args {
             && self.dpu_policy.is_none()
             && self.bmc_ip_allocation.is_none()
             && self.interfaces.is_none()
+            && self.bmc_vendor_override.is_none()
         {
-            return Err(CarbideCliError::GenericError("one of the following options must be specified: bmc-username and bmc-password or chassis-serial-number or fallback-dpu-serial-number or sku-id or rack-id or bmc-ip-address or dpu-policy or bmc-ip-allocation or dpf-enabled or interfaces".to_string()));
+            return Err(CarbideCliError::GenericError("one of the following options must be specified: bmc-username and bmc-password or chassis-serial-number or fallback-dpu-serial-number or sku-id or rack-id or bmc-ip-address or dpu-policy or bmc-ip-allocation or dpf-enabled or interfaces or bmc-vendor-override".to_string()));
         }
         if self
             .fallback_dpu_serial_numbers

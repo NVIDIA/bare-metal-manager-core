@@ -434,7 +434,7 @@ mod tests {
 
     use super::*;
     use crate::libredfish::test_support::RedfishSim;
-    use crate::libredfish::{RedfishAuth, RedfishClientPool};
+    use crate::libredfish::{RedfishAuth, RedfishClientPool, VendorSelection};
 
     async fn sim_client(sim: &RedfishSim) -> InstrumentedRedfish {
         let client = sim
@@ -444,7 +444,7 @@ mod tests {
                 RedfishAuth::Key(CredentialKey::HostRedfish {
                     credential_type: CredentialType::SiteDefault,
                 }),
-                None,
+                VendorSelection::Detect,
             )
             .await
             .expect("sim client");

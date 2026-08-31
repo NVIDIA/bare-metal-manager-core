@@ -75,12 +75,11 @@
 //!   rather than silently attempting a speculative unlock.
 
 use carbide_credential_rotation::site_explorer_pause::{self, GateDecision};
-use carbide_redfish::libredfish::RedfishAuth;
 use carbide_redfish::libredfish::error::state_handler_redfish_error as redfish_error;
+use carbide_redfish::libredfish::{RedfishAuth, VendorSelection};
 use carbide_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 use eyre::eyre;
 use libredfish::RedfishError;
-use libredfish::model::service_root::RedfishVendor;
 use mac_address::MacAddress;
 use model::machine::{
     FactoryResetBmcState, HostPlatformConfigurationState, InstanceState, ManagedHostState,
@@ -493,16 +492,15 @@ async fn wait_for_bmc(
 
     let (host, port) = bmc_host_port(mh_snapshot)?;
 
-    // Readiness = a successful anonymous service-root read. The `Unknown` path
-    // does no I/O at client creation and works against a just-reset BMC on its
-    // factory password without consuming an authenticated login attempt.
+    // Readiness is a successful anonymous service root read. The uninitialized
+    // path does no I/O and works on a reset BMC still at its factory password.
     let redfish = ctx.services.redfish_client_pool.clone();
     let ready = match redfish
         .create_client(
             &host,
             port,
             RedfishAuth::Anonymous,
-            Some(RedfishVendor::Unknown),
+            VendorSelection::Uninitialized,
         )
         .await
     {
@@ -634,7 +632,7 @@ async fn restore_credentials(
     // Resolve the exact dispatch vendor, then change the device from factory
     // default back to its previous per-device password.
     let vendor = redfish
-        .probe_bmc_vendor(&host, port, factory_creds.clone())
+        .dispatch_bmc_vendor(&host, port, factory_creds.clone())
         .await?;
 
     match redfish

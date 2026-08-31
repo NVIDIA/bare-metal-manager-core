@@ -17,8 +17,8 @@ nico-admin-cli-expected-machine-add - Add expected machine
 \[**--default_pause_ingestion_and_poweron**\] \[**--dpf-enabled**\]
 \[**--extended**\] \[**--bmc-ip-address**\]
 \[**--bmc-retain-credentials**\] \[**--dpu-policy**\]
-\[**--bmc-ip-allocation**\] \[**--disable-lockdown**\] \[**--sort-by**\]
-\[**-h**\|**--help**\]
+\[**--bmc-ip-allocation**\] \[**--disable-lockdown**\]
+\[**--bmc-vendor-override**\] \[**--sort-by**\] \[**-h**\|**--help**\]
 
 ## DESCRIPTION
 
@@ -177,6 +177,38 @@ behavior of locking down the server after configuring the BIOS.\
 - true
 
 - false
+
+**--bmc-vendor-override** *\<BMC_VENDOR_OVERRIDE\>*\
+Pin the Redfish BMC vendor for this host. Once set it governs how NICo
+talks to this BMC. It picks which libredfish driver each Redfish client
+dispatches on, the vendor nv-redfish classifies the host by, the vendor
+recorded by Site Explorer, and therefore the firmware config lookup, the
+IPMI-vs-Redfish restart choice and the BMC console transport. The hosts
+own DMI data is untouched, though where NICo would pick a Redfish client
+from that DMI vendor the pin outranks it. A RedfishVendor variant name,
+case-sensitive (e.g. Dell, Supermicro, NvidiaDpu, Hpe, Lenovo). Unset
+means automatic detection. Only the vendor is asserted, and everything
+else the BMC reports is left alone, so each library classifies the host
+the way it normally would for that vendor. Because the pin replaces
+detection rather than supplementing it, a wrong value can fail
+exploration outright instead of being ignored, and the failure is
+reported as the hosts last exploration error. It also selects which
+Redfish account change NICo issues when it changes this BMCs password on
+the initial factory bootstrap, on the site-wide rotation schedule, when
+restoring credentials after a factory reset, and for bmc-machine
+set-root-password. A wrong pin can therefore send the wrong account
+change to a factory BMC. Only that choice is pinned. The clients that
+probe a BMC, that bootstrap it from the factory, and that carry the
+password change itself are still built with no vendor at all, since they
+must reach a BMC before any vendor is usable. bmc-machine probe-vendor
+is unaffected and keeps reporting what the BMC says about itself. A pin
+asserts a vendor rather than a platform, so it also brings that vendors
+behavior, including how BMC user accounts are created and deleted and
+which vendor workarounds apply. Because only the vendor field is
+asserted, a pin naming a sub-variant such as NvidiaGH200, VeraRubin,
+NvidiaDpu or a power shelf still needs the product and Redfish version
+the BMC reports to agree, and where they do not the host can end up
+classified as nothing rather than as the pinned platform.
 
 **--sort-by** *\<SORT_BY\>* \[default: primary-id\]\
 Sort output by specified field\

@@ -21,6 +21,7 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use axum_server::tls_rustls::RustlsConfig;
 use carbide_redfish::nv_redfish::NvRedfishClientPool;
+use carbide_redfish::vendor_override::NoBmcVendorOverrides;
 use carbide_secrets::credentials::Credentials;
 
 // A full, healthy AMI service root including the `Chassis` navigation property.
@@ -129,7 +130,10 @@ async fn poisoned_service_root_cache_recovers_after_bmc_heals() {
     let root_hits = Arc::new(AtomicUsize::new(0));
     let addr = spawn_mock_bmc(root_hits.clone());
 
-    let pool = NvRedfishClientPool::new(Arc::new(ArcSwap::new(Arc::new(None))));
+    let pool = NvRedfishClientPool::new(
+        Arc::new(ArcSwap::new(Arc::new(None))),
+        Arc::new(NoBmcVendorOverrides),
+    );
     let creds = || Credentials::UsernamePassword {
         username: "root".to_string(),
         password: "placeholder".to_string(),
@@ -192,8 +196,11 @@ async fn expired_service_root_is_refetched_without_invalidating_existing_holders
     // Start at one so the mock serves a complete root on every request.
     let root_hits = Arc::new(AtomicUsize::new(1));
     let addr = spawn_mock_bmc(root_hits.clone());
-    let pool =
-        NvRedfishClientPool::with_cache_ttl(Arc::new(ArcSwap::new(Arc::new(None))), Duration::ZERO);
+    let pool = NvRedfishClientPool::with_cache_ttl(
+        Arc::new(ArcSwap::new(Arc::new(None))),
+        Duration::ZERO,
+        Arc::new(NoBmcVendorOverrides),
+    );
     let creds = || Credentials::UsernamePassword {
         username: "root".to_string(),
         password: "placeholder".to_string(),

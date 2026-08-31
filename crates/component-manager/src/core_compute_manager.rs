@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use carbide_redfish::libredfish::RedfishClientPool;
+use carbide_redfish::libredfish::{RedfishClientPool, VendorSelection};
 use carbide_secrets::credentials::Credentials;
 use model::component_manager::{ComputeTrayComponent, PowerAction};
 
@@ -31,14 +31,16 @@ impl CoreComputeTrayManager {
     }
 }
 
-fn map_vendor(vendor: ComputeTrayVendor) -> Option<libredfish::model::service_root::RedfishVendor> {
+/// Translate the tray recorded vendor into a client construction request.
+/// It comes from DMI, so it is a hint an operator pin outranks.
+fn map_vendor(vendor: ComputeTrayVendor) -> VendorSelection {
     use libredfish::model::service_root::RedfishVendor;
     match vendor {
-        ComputeTrayVendor::Dell => Some(RedfishVendor::Dell),
-        ComputeTrayVendor::Hpe => Some(RedfishVendor::Hpe),
-        ComputeTrayVendor::Lenovo => Some(RedfishVendor::Lenovo),
-        ComputeTrayVendor::Supermicro => Some(RedfishVendor::Supermicro),
-        ComputeTrayVendor::Nvidia | ComputeTrayVendor::Unknown => None,
+        ComputeTrayVendor::Dell => VendorSelection::Hint(RedfishVendor::Dell),
+        ComputeTrayVendor::Hpe => VendorSelection::Hint(RedfishVendor::Hpe),
+        ComputeTrayVendor::Lenovo => VendorSelection::Hint(RedfishVendor::Lenovo),
+        ComputeTrayVendor::Supermicro => VendorSelection::Hint(RedfishVendor::Supermicro),
+        ComputeTrayVendor::Nvidia | ComputeTrayVendor::Unknown => VendorSelection::Detect,
     }
 }
 
@@ -145,16 +147,16 @@ mod tests {
     #[test]
     fn compute_tray_vendor_maps_to_redfish_vendor() {
         value_scenarios!(map_vendor:
-            "supported Redfish vendors" {
-                ComputeTrayVendor::Dell => Some(RedfishVendor::Dell),
-                ComputeTrayVendor::Hpe => Some(RedfishVendor::Hpe),
-                ComputeTrayVendor::Lenovo => Some(RedfishVendor::Lenovo),
-                ComputeTrayVendor::Supermicro => Some(RedfishVendor::Supermicro),
+            "supported Redfish vendors become a hint an operator pin can outrank" {
+                ComputeTrayVendor::Dell => VendorSelection::Hint(RedfishVendor::Dell),
+                ComputeTrayVendor::Hpe => VendorSelection::Hint(RedfishVendor::Hpe),
+                ComputeTrayVendor::Lenovo => VendorSelection::Hint(RedfishVendor::Lenovo),
+                ComputeTrayVendor::Supermicro => VendorSelection::Hint(RedfishVendor::Supermicro),
             }
 
-            "vendors without a Redfish adapter" {
-                ComputeTrayVendor::Nvidia => None,
-                ComputeTrayVendor::Unknown => None,
+            "vendors without a Redfish adapter fall back to detection" {
+                ComputeTrayVendor::Nvidia => VendorSelection::Detect,
+                ComputeTrayVendor::Unknown => VendorSelection::Detect,
             }
         );
     }

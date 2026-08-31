@@ -67,7 +67,8 @@ pub struct EndpointExplorationReport {
     /// The time it took to explore the endpoint in the last site explorer run
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_exploration_latency: Option<std::time::Duration>,
-    /// Vendor as reported by Redfish
+    /// The BMC vendor, either what Redfish reported or the operator pin.
+    /// Selects the firmware key, restart path and console transport.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vendor: Option<bmc_vendor::BMCVendor>,
     /// `Managers` reported by Redfish

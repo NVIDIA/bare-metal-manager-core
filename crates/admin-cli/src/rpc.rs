@@ -1042,6 +1042,7 @@ impl ApiClient {
         bmc_ip_allocation: Option<::rpc::forge::BmcIpAllocationType>,
         host_lifecycle_profile: Option<::rpc::forge::HostLifecycleProfile>,
         interfaces: Option<String>,
+        bmc_vendor_override: Option<String>,
     ) -> Result<(), CarbideCliError> {
         let get_req = match (bmc_mac_address, id) {
             (Some(_), Some(_)) => {
@@ -1140,6 +1141,9 @@ impl ApiClient {
             replace_host_nics: replace_interfaces,
             host_lifecycle_profile: host_lifecycle_profile
                 .or(expected_machine.host_lifecycle_profile),
+            // Sent as given. The server resolves the tri state against the
+            // stored row, so an omitted flag keeps the pin without a fetch.
+            bmc_vendor_override,
         };
 
         Ok(self.0.update_expected_machine(request).await?)
@@ -1185,6 +1189,7 @@ impl ApiClient {
                             disable_lockdown: hlp.disable_lockdown,
                         }
                     }),
+                    bmc_vendor_override: machine.bmc_vendor_override,
                 })
                 .collect(),
         };

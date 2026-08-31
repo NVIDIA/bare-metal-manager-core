@@ -56,6 +56,7 @@ use carbide_rack_controller::context::RackStateHandlerServices;
 use carbide_rack_controller::handler::RackStateHandler;
 use carbide_rack_controller::io::RackStateControllerIO;
 use carbide_redfish::libredfish::RedfishClientPool;
+use carbide_redfish::vendor_override::BmcVendorOverrideResolver;
 use carbide_secrets::certificates::CertificateProvider;
 use carbide_secrets::credentials::{CredentialManager, CredentialReader};
 use carbide_site_explorer::{EndpointExplorationService, SiteExplorer};
@@ -113,6 +114,7 @@ use crate::mqtt_state_change_hook::hook::MqttStateChangeHook;
 use crate::mqtt_state_change_hook::republisher::{
     ManagedHostStateRepublisher, ManagedHostStateRepublisherParams,
 };
+use crate::redfish_vendor_override::DbBmcVendorOverrideResolver;
 use crate::scout_stream::ConnectionRegistry;
 use crate::{CarbideError, attestation, db_init, ethernet_virtualization, listener};
 
@@ -140,6 +142,7 @@ fn create_ipmi_tool(
 fn create_redfish_pool(
     carbide_config: &CarbideConfig,
     credential_manager: Arc<dyn CredentialManager>,
+    vendor_override_resolver: Arc<dyn BmcVendorOverrideResolver>,
 ) -> eyre::Result<Arc<dyn RedfishClientPool>> {
     let pool = libredfish::RedfishClientPool::builder()
         .danger_accept_invalid_certs()
@@ -188,6 +191,7 @@ fn create_redfish_pool(
         credential_manager,
         pool,
         carbide_config.site_explorer.bmc_proxy.clone(),
+        vendor_override_resolver,
     ))
 }
 
@@ -208,9 +212,19 @@ pub(crate) async fn start_runtime(
     admin_ui_routes_builder: Option<AdminUiRoutesBuilder>,
     cancel_token: CancellationToken,
 ) -> eyre::Result<SocketAddr> {
-    let shared_redfish_pool = create_redfish_pool(&carbide_config, credential_manager.clone())?;
-    let shared_nv_redfish_pool =
-        carbide_redfish::nv_redfish::new_pool(carbide_config.site_explorer.bmc_proxy.clone());
+    // One resolver for both backends, so its cache cannot hand them different
+    // answers for the same BMC while a pin is being changed.
+    let vendor_override_resolver: Arc<dyn BmcVendorOverrideResolver> =
+        Arc::new(DbBmcVendorOverrideResolver::new(db_pool.clone()));
+    let shared_redfish_pool = create_redfish_pool(
+        &carbide_config,
+        credential_manager.clone(),
+        vendor_override_resolver.clone(),
+    )?;
+    let shared_nv_redfish_pool = carbide_redfish::nv_redfish::new_pool(
+        carbide_config.site_explorer.bmc_proxy.clone(),
+        vendor_override_resolver,
+    );
 
     let ipmi_tool = create_ipmi_tool(
         credential_manager.clone(),

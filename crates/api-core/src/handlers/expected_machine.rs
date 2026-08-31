@@ -157,8 +157,20 @@ fn parse_expected_machine_for_insert(
     };
 
     normalize_host_bmc_configuration(&mut machine, previous, overrides)?;
+    resolve_bmc_vendor_override(&mut machine, previous);
     validate_expected_machine_for_insert(&machine)?;
     Ok(machine)
+}
+
+/// Resolve `bmc_vendor_override` against the stored row, where an absent field
+/// keeps the stored pin, an empty string clears it, and a value replaces it.
+fn resolve_bmc_vendor_override(machine: &mut ExpectedMachine, previous: Option<&ExpectedMachine>) {
+    let requested = machine.data.bmc_vendor_override.take();
+    machine.data.bmc_vendor_override = match requested {
+        None => previous.and_then(|previous| previous.data.bmc_vendor_override.clone()),
+        Some(requested) if requested.is_empty() => None,
+        Some(requested) => Some(requested),
+    };
 }
 
 /// `validate_expected_machine_for_insert` applies the validation shared by the
@@ -171,8 +183,43 @@ fn validate_expected_machine_for_insert(machine: &ExpectedMachine) -> Result<(),
         .bmc_ip_allocation
         .validate(machine.data.bmc_ip_address.is_some())
         .map_err(|msg| CarbideError::InvalidArgument(msg.to_string()))?;
+    validate_bmc_vendor_override(machine)?;
 
     Ok(())
+}
+
+/// Reject a `bmc_vendor_override` libredfish could not use, so a typo fails the
+/// write. `Unknown` names a client mode rather than a vendor, so it goes too.
+///
+/// `Sushy` parses but names a development emulator that nothing can pin to.
+/// It records as an unknown vendor, so accepting it would degrade the host.
+///
+/// An empty value reaches here only from the JSON import, since every RPC path
+/// resolves it to no pin before validating.
+fn validate_bmc_vendor_override(machine: &ExpectedMachine) -> Result<(), CarbideError> {
+    use libredfish::model::service_root::RedfishVendor;
+
+    let Some(name) = machine.data.bmc_vendor_override.as_deref() else {
+        return Ok(());
+    };
+
+    if name.is_empty() {
+        return Err(CarbideError::InvalidArgument(
+            "bmc_vendor_override must not be empty, omit the field to leave this \
+             host to automatic detection"
+                .to_string(),
+        ));
+    }
+
+    match carbide_redfish::libredfish::conv::redfish_vendor_from_str(name) {
+        Some(vendor) if !matches!(vendor, RedfishVendor::Unknown | RedfishVendor::Sushy) => Ok(()),
+        _ => Err(CarbideError::InvalidArgument(format!(
+            // xtask:allow-error-case vendor spellings keep their exact casing
+            "bmc_vendor_override {name:?} is not a usable Redfish vendor name, \
+             which is the exact case-sensitive variant spelling \
+             such as \"Dell\", \"Supermicro\" or \"NvidiaDpu\""
+        ))),
+    }
 }
 
 /// Create missing expected_machines that aren't already in the database,
@@ -295,6 +342,7 @@ pub(crate) async fn update(
         data,
     };
     normalize_host_bmc_configuration(&mut machine, existing.as_ref(), overrides)?;
+    resolve_bmc_vendor_override(&mut machine, existing.as_ref());
     validate_expected_machine_for_insert(&machine)?;
 
     let preallocations = update_preallocated_interfaces(
@@ -847,6 +895,7 @@ async fn create_expected_machine(
     };
 
     normalize_host_bmc_configuration(&mut expected_machine, None, overrides)?;
+    resolve_bmc_vendor_override(&mut expected_machine, None);
     validate_expected_machine_for_insert(&expected_machine)?;
     db::expected_machine::create(txn, expected_machine).await?;
 
@@ -884,6 +933,7 @@ async fn update_expected_machine(
         data,
     };
     normalize_host_bmc_configuration(&mut expected_machine, existing.as_ref(), overrides)?;
+    resolve_bmc_vendor_override(&mut expected_machine, existing.as_ref());
     validate_expected_machine_for_insert(&expected_machine)?;
     let preallocations =
         update_preallocated_interfaces(txn, &expected_machine, retained_window).await?;
@@ -1400,5 +1450,105 @@ mod tests {
         assert_eq!(replacement.host_nics[0].primary, Some(true));
         let parsed: ExpectedMachineData = replacement.try_into().unwrap();
         assert!(validate_expected_interface_role_and_allocation(&parsed.interfaces).is_err());
+    }
+
+    /// A pin libredfish cannot use has to fail the write. Storing it would leave
+    /// an operator believing the vendor is pinned while every client detects.
+    #[test]
+    fn bmc_vendor_override_rejects_names_libredfish_cannot_use() {
+        fn validate(stored: Option<&str>) -> Result<(), CarbideError> {
+            validate_bmc_vendor_override(&ExpectedMachine {
+                id: None,
+                bmc_mac_address: "02:00:00:00:00:01".parse().expect("valid test MAC"),
+                data: ExpectedMachineData {
+                    bmc_vendor_override: stored.map(str::to_string),
+                    ..Default::default()
+                },
+            })
+        }
+
+        assert!(validate(None).is_ok(), "no pin is always valid");
+        assert!(
+            validate(Some("")).is_err(),
+            "an empty string is not a pin; `resolve_bmc_vendor_override` maps a \
+             clear request to no pin before validation, so a literal empty value \
+             reaching here (the JSON import path) is malformed"
+        );
+        assert!(validate(Some("Dell")).is_ok(), "an exact variant name");
+        assert!(
+            validate(Some("NvidiaDpu")).is_ok(),
+            "a multi-word variant name"
+        );
+
+        // Case matters, so the near miss an operator is most likely to type has
+        // to be rejected rather than silently stored.
+        assert!(validate(Some("dell")).is_err(), "wrong case");
+        assert!(validate(Some("Del")).is_err(), "typo");
+        assert!(
+            validate(Some("Unknown")).is_err(),
+            "the uninitialized-client sentinel is not a pinnable vendor"
+        );
+        assert!(
+            validate(Some("Sushy")).is_err(),
+            "the emulator parses but records as an unknown vendor, so pinning it \
+             would degrade the host rather than pin anything"
+        );
+    }
+
+    /// The column is written unconditionally, so an omitted field has to keep
+    /// what is stored, or any client predating the field would clear the pin.
+    #[test]
+    fn bmc_vendor_override_absent_keeps_the_stored_pin_and_empty_clears_it() {
+        fn machine(value: Option<&str>) -> ExpectedMachine {
+            ExpectedMachine {
+                id: None,
+                bmc_mac_address: "02:00:00:00:00:01".parse().expect("valid test MAC"),
+                data: ExpectedMachineData {
+                    bmc_vendor_override: value.map(str::to_string),
+                    ..Default::default()
+                },
+            }
+        }
+
+        check_values(
+            [
+                Check {
+                    scenario: "an omitted field keeps the stored pin",
+                    input: (None, Some("Dell")),
+                    expect: Some("Dell".to_string()),
+                },
+                Check {
+                    scenario: "an omitted field on a row without a pin stays unpinned",
+                    input: (None, None),
+                    expect: None,
+                },
+                Check {
+                    scenario: "an empty string clears the stored pin",
+                    input: (Some(""), Some("Dell")),
+                    expect: None,
+                },
+                Check {
+                    scenario: "an empty string on a row without a pin is a no-op",
+                    input: (Some(""), None),
+                    expect: None,
+                },
+                Check {
+                    scenario: "a value replaces the stored pin",
+                    input: (Some("Hpe"), Some("Dell")),
+                    expect: Some("Hpe".to_string()),
+                },
+                Check {
+                    scenario: "a value sets a pin on a row without one",
+                    input: (Some("Hpe"), None),
+                    expect: Some("Hpe".to_string()),
+                },
+            ],
+            |(requested, stored): (Option<&str>, Option<&str>)| {
+                let previous = stored.map(|stored| machine(Some(stored)));
+                let mut incoming = machine(requested);
+                resolve_bmc_vendor_override(&mut incoming, previous.as_ref());
+                incoming.data.bmc_vendor_override
+            },
+        );
     }
 }

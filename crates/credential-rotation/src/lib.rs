@@ -363,8 +363,9 @@ pub enum DispatchVendor {
     /// probes it in its own controller layer before calling). Nothing persists
     /// it -- `Fixed` only means "resolved by the caller, not the engine".
     Fixed(RedfishVendor),
-    /// Resolve the vendor at rotation time by probing the BMC's Chassis
-    /// manufacturer ([`RedfishClientPool::probe_bmc_vendor`]) -- power-shelf
+    /// Resolve the vendor at rotation time from an operator pin, or failing
+    /// that by probing the BMC's Chassis
+    /// manufacturer ([`RedfishClientPool::dispatch_bmc_vendor`]) -- power-shelf
     /// PMCs (Lite-On/Delta), which do *not* expose a recognized vendor in their
     /// Redfish service root. The probe runs *inside* the engine's
     /// quarantine-on-failure envelope and reuses the same credential candidates
@@ -1363,6 +1364,9 @@ async fn change_or_recover(
 /// probe that never authenticates returns `Err`, which the caller records as a
 /// quarantine with backoff. Returns an already-`to_string`-ed error (still to be
 /// redacted by the caller); never returns a secret-bearing string itself.
+///
+/// An operator vendor pin answers a `Probe` target before any login.
+/// Without that, a BMC pinned for not identifying itself could never rotate.
 async fn resolve_dispatch_vendor(
     redfish_pool: &dyn RedfishClientPool,
     bmc: &BmcRotationTarget,
@@ -1375,7 +1379,7 @@ async fn resolve_dispatch_vendor(
             let mut last_err = None;
             for candidate in [rotate_from, rotate_to] {
                 match redfish_pool
-                    .probe_bmc_vendor(&bmc.host, bmc.port, candidate.clone())
+                    .dispatch_bmc_vendor(&bmc.host, bmc.port, candidate.clone())
                     .await
                 {
                     Ok(vendor) => return Ok(vendor),
@@ -1856,6 +1860,39 @@ mod tests {
             .expect("a Lite-On/Delta chassis must resolve a power-shelf vendor");
             assert_eq!(vendor, expected, "manufacturer {manufacturer:?}");
         }
+    }
+
+    /// A host is pinned because it cannot identify itself, so the pin has to
+    /// carry rotation too. Without it this device quarantines on every sweep.
+    #[tokio::test]
+    async fn resolve_dispatch_vendor_prefers_the_operator_pin_over_probing() {
+        let unidentifiable = || {
+            let sim = RedfishSim::default();
+            sim.set_service_root_vendor(Some("Unrecognized Vendor".to_string()));
+            sim.set_chassis_manufacturer(Some("Acme".to_string()));
+            sim
+        };
+        let resolve = async |sim| {
+            resolve_dispatch_vendor(
+                &sim,
+                &probe_target(),
+                &creds("root", "old"),
+                &creds("root", "new"),
+            )
+            .await
+        };
+
+        assert!(
+            resolve(unidentifiable()).await.is_err(),
+            "precondition, an unpinned BMC that identifies as nothing cannot rotate"
+        );
+
+        let pinned = unidentifiable();
+        pinned.set_vendor_override("127.0.0.1", RedfishVendor::Dell);
+        assert_eq!(
+            resolve(pinned).await.expect("a pinned BMC resolves"),
+            RedfishVendor::Dell
+        );
     }
 
     #[test]

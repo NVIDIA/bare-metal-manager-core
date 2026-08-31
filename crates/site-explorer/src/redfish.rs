@@ -25,7 +25,9 @@ use carbide_network::deserialize_input_mac_to_address;
 use carbide_redfish::boot_interface::BootInterfaceTarget;
 use carbide_redfish::libredfish::conv::{IntoModel, bmc_vendor};
 use carbide_redfish::libredfish::dpu_bios::is_dpu_bios_attributes_not_ready;
-use carbide_redfish::libredfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
+use carbide_redfish::libredfish::{
+    RedfishAuth, RedfishClientCreationError, RedfishClientPool, VendorSelection,
+};
 use carbide_redfish::nv_redfish::NvRedfishClientPool;
 use carbide_secrets::credentials::Credentials;
 use libredfish::model::ODataId;
@@ -45,6 +47,34 @@ use regex::Regex;
 
 const NOT_FOUND: u16 = 404;
 const BF4_NDF0_TO_BASE_MAC_OFFSET: u64 = 0x10;
+
+/// The vendor NICo resolved for a BMC, and how it got there.
+/// Both carry the same vendor, as the report records what the client used.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResolvedVendor {
+    /// Set by an operator via `bmc_vendor_override`. Authoritative for client
+    /// construction and for the persisted vendor, so detection cannot undo it.
+    Pinned(RedfishVendor),
+    /// Probed from the service root or the power shelf Chassis fallback.
+    Detected(RedfishVendor),
+}
+
+impl ResolvedVendor {
+    pub fn vendor(self) -> RedfishVendor {
+        match self {
+            Self::Pinned(vendor) | Self::Detected(vendor) => vendor,
+        }
+    }
+
+    /// `Some` only when an operator set this vendor, meaning it may overwrite
+    /// what the BMC reported.
+    pub fn pinned(self) -> Option<RedfishVendor> {
+        match self {
+            Self::Pinned(vendor) => Some(vendor),
+            Self::Detected(_) => None,
+        }
+    }
+}
 
 // RedfishClient is a wrapper around a redfish client pool and implements redfish utility functions that the site explorer utilizes.
 // TODO: In the future, we should refactor a lot of this client's work to api/src/redfish.rs because other components in carbide can utilize this functionality.
@@ -69,7 +99,7 @@ impl RedfishClient {
         &self,
         bmc_ip_address: SocketAddr,
         auth: RedfishAuth,
-        vendor: Option<RedfishVendor>,
+        vendor: VendorSelection,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
         self.redfish_client_pool
             .create_client(
@@ -85,15 +115,12 @@ impl RedfishClient {
         &self,
         bmc_ip_address: SocketAddr,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
-        // This currently uses a "standard" client without any vendor
-        // specific implementations. If we end up ever needing vendor
-        // specific support for a caller using this, we could simply
-        // just drop in vendor: Option<RedfishVendor> to support an
-        // override of using RedfishVendor::Unknown.
+        // A standard client with no vendor implementation, which is all the probes
+        // need and the only kind a factory BMC accepts before rotation. Not pinnable.
         self.create_redfish_client(
             bmc_ip_address,
             RedfishAuth::Anonymous,
-            Some(RedfishVendor::Unknown),
+            VendorSelection::Uninitialized,
         )
         .await
     }
@@ -102,7 +129,7 @@ impl RedfishClient {
         &self,
         bmc_ip_address: SocketAddr,
         Credentials::UsernamePassword { username, password }: Credentials,
-        vendor: Option<RedfishVendor>,
+        vendor: VendorSelection,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
         self.create_redfish_client(
             bmc_ip_address,
@@ -112,12 +139,25 @@ impl RedfishClient {
         .await
     }
 
+    /// The operator pinned vendor for this BMC, if it has one.
+    /// Read from the pool so it matches what `create_client` applies.
+    pub(crate) async fn pinned_bmc_vendor(
+        &self,
+        bmc_ip_address: SocketAddr,
+    ) -> Option<RedfishVendor> {
+        self.redfish_client_pool
+            .pinned_bmc_vendor(&bmc_ip_address.ip().to_string())
+            .await
+    }
+
+    /// The sole constructor for authenticated Site Explorer clients, and the one
+    /// place the vendor pin enters, so a new operation inherits it by calling this.
     async fn create_authenticated_redfish_client(
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
-        self.create_direct_redfish_client(bmc_ip_address, credentials, None)
+        self.create_direct_redfish_client(bmc_ip_address, credentials, VendorSelection::Detect)
             .await
     }
 
@@ -202,7 +242,11 @@ impl RedfishClient {
         credentials: Credentials,
     ) -> Result<(), EndpointExplorationError> {
         let client = self
-            .create_direct_redfish_client(bmc_ip_address, credentials, Some(RedfishVendor::Unknown))
+            .create_direct_redfish_client(
+                bmc_ip_address,
+                credentials,
+                VendorSelection::Uninitialized,
+            )
             .await
             .map_err(map_redfish_client_creation_error)?;
 
@@ -222,6 +266,23 @@ impl RedfishClient {
     ) -> Result<RedfishVendor, EndpointExplorationError> {
         self.redfish_client_pool
             .probe_bmc_vendor(
+                &bmc_ip_address.ip().to_string(),
+                Some(bmc_ip_address.port()),
+                credentials,
+            )
+            .await
+            .map_err(map_redfish_client_creation_error)
+    }
+
+    /// The vendor the BMC password change branches on, pin first.
+    /// Read through the pool, so it agrees with what `create_client` applies.
+    pub(super) async fn dispatch_bmc_vendor(
+        &self,
+        bmc_ip_address: SocketAddr,
+        credentials: Credentials,
+    ) -> Result<RedfishVendor, EndpointExplorationError> {
+        self.redfish_client_pool
+            .dispatch_bmc_vendor(
                 &bmc_ip_address.ip().to_string(),
                 Some(bmc_ip_address.port()),
                 credentials,
@@ -280,7 +341,11 @@ impl RedfishClient {
         vendor: Option<RedfishVendor>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         let client = self
-            .create_direct_redfish_client(bmc_ip_address, credentials, vendor)
+            .create_direct_redfish_client(
+                bmc_ip_address,
+                credentials,
+                vendor.map_or(VendorSelection::Detect, VendorSelection::Hint),
+            )
             .await
             .map_err(map_redfish_client_creation_error)?;
 
@@ -288,9 +353,13 @@ impl RedfishClient {
         let redfish_vendor = service_root.vendor();
         // Lenovo XCC is the platform where we have verified that adapter Ports
         // belong to the linked host chassis. Keep that policy here so the
-        // inventory path stays generic.
-        let supports_adapter_port_mac_inventory = redfish_vendor == Some(RedfishVendor::Lenovo);
-        let vendor = redfish_vendor.map(bmc_vendor);
+        // inventory path stays generic. Keyed on the vendor the client was built
+        // with rather than the reported one, so a pinned host stays consistent.
+        let supports_adapter_port_mac_inventory =
+            vendor.or(redfish_vendor) == Some(RedfishVendor::Lenovo);
+        // What the BMC reports about itself, which a pin overrides one layer up.
+        // The `vendor` parameter may be a probe result that disagrees with this.
+        let reported_vendor = redfish_vendor.map(bmc_vendor);
 
         let manager = fetch_manager(client.as_ref())
             .await
@@ -387,7 +456,7 @@ impl RedfishClient {
             systems: vec![system],
             chassis,
             service,
-            vendor,
+            vendor: reported_vendor,
             versions: HashMap::default(),
             model: None,
             power_shelf_id: None,
@@ -1701,6 +1770,7 @@ mod tests {
     use carbide_redfish::libredfish::test_support::{RedfishSim, RedfishSimBootInterfaceRef};
     use carbide_redfish::libredfish::{RedfishAuth, RedfishClientPool};
     use carbide_redfish::nv_redfish::NvRedfishClientPool;
+    use carbide_redfish::vendor_override::NoBmcVendorOverrides;
     use carbide_secrets::credentials::Credentials;
     use carbide_test_support::Outcome::*;
     use carbide_test_support::{Case, Check, check_cases_async, check_values, value_scenarios};
@@ -1710,8 +1780,8 @@ mod tests {
 
     use super::{
         BootInterfaceTarget, EndpointExplorationError, MachineSetupStatus, RedfishClient,
-        fetch_machine_setup_status, nv_bmc_explore_config, record_evaluated_boot_interface,
-        should_fetch_network_adapter_ports,
+        VendorSelection, fetch_machine_setup_status, nv_bmc_explore_config,
+        record_evaluated_boot_interface, should_fetch_network_adapter_ports,
     };
 
     fn test_addr() -> SocketAddr {
@@ -1720,7 +1790,10 @@ mod tests {
 
     fn build_redfish_client(sim: Arc<RedfishSim>) -> RedfishClient {
         let proxy_address = Arc::new(ArcSwap::new(Arc::new(None)));
-        let nv_pool = Arc::new(NvRedfishClientPool::new(proxy_address));
+        let nv_pool = Arc::new(NvRedfishClientPool::new(
+            proxy_address,
+            Arc::new(NoBmcVendorOverrides),
+        ));
         RedfishClient::new(sim, nv_pool)
     }
 
@@ -1773,7 +1846,12 @@ mod tests {
             0x94, 0x6d, 0xae, 0x53, 0xcb, 0x9b,
         ])]);
         let client = sim
-            .create_client("test-host", None, RedfishAuth::Anonymous, None)
+            .create_client(
+                "test-host",
+                None,
+                RedfishAuth::Anonymous,
+                VendorSelection::Detect,
+            )
             .await
             .unwrap();
 
@@ -1861,7 +1939,12 @@ mod tests {
     > {
         let sim = RedfishSim::default();
         let client = sim
-            .create_client("test-host", None, RedfishAuth::Anonymous, None)
+            .create_client(
+                "test-host",
+                None,
+                RedfishAuth::Anonymous,
+                VendorSelection::Detect,
+            )
             .await
             .map_err(|error| error.to_string())?;
         let status = fetch_machine_setup_status(client.as_ref(), target.as_ref())
@@ -2025,5 +2108,254 @@ mod tests {
             password_change_client_vendors,
         )
         .await;
+    }
+
+    /// Every authenticated operation must honor the pin and stay unaffected
+    /// without one. Driven twice, so the second half guards against regression.
+    #[tokio::test]
+    async fn every_authenticated_operation_honors_the_pin_and_is_unchanged_without_one() {
+        const PIN: RedfishVendor = RedfishVendor::Dell;
+
+        let boot_interface =
+            BootInterfaceTarget::MacOnly(MacAddress::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x01]));
+
+        // Each entry drives one operation and discards its result. Only the
+        // vendor the client was constructed with matters here.
+        #[allow(clippy::type_complexity)]
+        let operations: Vec<(
+            &str,
+            Box<
+                dyn for<'a> Fn(
+                    &'a RedfishClient,
+                    SocketAddr,
+                    Credentials,
+                )
+                    -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + 'a>>,
+            >,
+        )> = vec![
+            (
+                "reset_bmc",
+                Box::new(|c: &RedfishClient, a, k| {
+                    Box::pin(async move {
+                        let _ = c.reset_bmc(a, k, None).await;
+                    })
+                }),
+            ),
+            (
+                "get_power_state",
+                Box::new(|c: &RedfishClient, a, k| {
+                    Box::pin(async move {
+                        let _ = c.get_power_state(a, k).await;
+                    })
+                }),
+            ),
+            (
+                "power",
+                Box::new(|c: &RedfishClient, a, k| {
+                    Box::pin(async move {
+                        let _ = c.power(a, k, libredfish::SystemPowerControl::On).await;
+                    })
+                }),
+            ),
+            (
+                "disable_secure_boot",
+                Box::new(|c: &RedfishClient, a, k| {
+                    Box::pin(async move {
+                        let _ = c.disable_secure_boot(a, k).await;
+                    })
+                }),
+            ),
+            (
+                "lockdown",
+                Box::new(|c: &RedfishClient, a, k| {
+                    Box::pin(async move {
+                        let _ = c
+                            .lockdown(a, k, libredfish::EnabledDisabled::Disabled)
+                            .await;
+                    })
+                }),
+            ),
+            (
+                "lockdown_status",
+                Box::new(|c: &RedfishClient, a, k| {
+                    Box::pin(async move {
+                        let _ = c.lockdown_status(a, k).await;
+                    })
+                }),
+            ),
+            (
+                "enable_infinite_boot",
+                Box::new(|c: &RedfishClient, a, k| {
+                    Box::pin(async move {
+                        let _ = c.enable_infinite_boot(a, k).await;
+                    })
+                }),
+            ),
+            (
+                "is_infinite_boot_enabled",
+                Box::new(|c: &RedfishClient, a, k| {
+                    Box::pin(async move {
+                        let _ = c.is_infinite_boot_enabled(a, k).await;
+                    })
+                }),
+            ),
+            (
+                "machine_setup",
+                Box::new(|c: &RedfishClient, a, k| {
+                    Box::pin(async move {
+                        let _ = c.machine_setup(a, k, None).await;
+                    })
+                }),
+            ),
+            (
+                "is_viking",
+                Box::new(|c: &RedfishClient, a, k| {
+                    Box::pin(async move {
+                        let _ = c.is_viking(a, k).await;
+                    })
+                }),
+            ),
+            (
+                "clear_nvram",
+                Box::new(|c: &RedfishClient, a, k| {
+                    Box::pin(async move {
+                        let _ = c.clear_nvram(a, k).await;
+                    })
+                }),
+            ),
+            (
+                "set_nic_mode",
+                Box::new(|c: &RedfishClient, a, k| {
+                    Box::pin(async move {
+                        let _ = c.set_nic_mode(a, k, super::NicMode::Dpu).await;
+                    })
+                }),
+            ),
+            (
+                "create_bmc_user",
+                Box::new(|c: &RedfishClient, a, k| {
+                    Box::pin(async move {
+                        let _ = c
+                            .create_bmc_user(a, k, "u", "p", libredfish::RoleId::Administrator)
+                            .await;
+                    })
+                }),
+            ),
+            (
+                "delete_bmc_user",
+                Box::new(|c: &RedfishClient, a, k| {
+                    Box::pin(async move {
+                        let _ = c.delete_bmc_user(a, k, "u").await;
+                    })
+                }),
+            ),
+            (
+                "probe_vendor_name_from_chassis",
+                Box::new(|c: &RedfishClient, a, _k| {
+                    Box::pin(async move {
+                        let _ = c
+                            .probe_vendor_name_from_chassis(
+                                a,
+                                "root".to_string(),
+                                "pass".to_string(),
+                            )
+                            .await;
+                    })
+                }),
+            ),
+        ];
+
+        // Pin to seed, then the vendor every client must be built with. `None`
+        // is the behavior before pins existed, leaving the vendor to detection.
+        let expectations = [(Some(PIN), Some(PIN)), (None, None)];
+
+        for (name, drive) in operations {
+            for (pin, expected) in expectations {
+                let sim = Arc::new(RedfishSim::default());
+                if let Some(pin) = pin {
+                    sim.set_vendor_override(&test_addr().ip().to_string(), pin);
+                }
+                let client = build_redfish_client(sim.clone());
+
+                drive(&client, test_addr(), Credentials::new("root", "pass")).await;
+
+                let vendors: Vec<Option<RedfishVendor>> = sim
+                    .create_client_calls()
+                    .into_iter()
+                    .map(|call| call.vendor)
+                    .collect();
+                assert!(
+                    !vendors.is_empty(),
+                    "{name} built no Redfish client, so this row proves nothing"
+                );
+                assert!(
+                    vendors.iter().all(|vendor| *vendor == expected),
+                    "{name} with pin {pin:?} must build every client with {expected:?}, got {vendors:?}"
+                );
+            }
+        }
+
+        // `set_boot_order_dpu_first` takes its boot interface by reference and so
+        // does not fit the closure shape used above.
+        for (pin, expected) in expectations {
+            let sim = Arc::new(RedfishSim::default());
+            if let Some(pin) = pin {
+                sim.set_vendor_override(&test_addr().ip().to_string(), pin);
+            }
+            let client = build_redfish_client(sim.clone());
+            let _ = client
+                .set_boot_order_dpu_first(
+                    test_addr(),
+                    Credentials::new("root", "pass"),
+                    &boot_interface,
+                )
+                .await;
+            assert!(
+                sim.create_client_calls()
+                    .iter()
+                    .all(|call| call.vendor == expected),
+                "set_boot_order_dpu_first with pin {pin:?} must use {expected:?}"
+            );
+        }
+    }
+
+    /// The probe and credential bootstrap paths must stay unpinnable. They need an
+    /// uninitialized client, so a pin reaching them would deadlock rotation.
+    #[tokio::test]
+    async fn probe_paths_ignore_the_operator_pin() {
+        // Both directions matter. With a pin because it must not reach these,
+        // and without one because nothing about them changed.
+        for pin in [Some(RedfishVendor::Dell), None] {
+            probe_paths_stay_uninitialized(pin).await;
+        }
+    }
+
+    async fn probe_paths_stay_uninitialized(pin: Option<RedfishVendor>) {
+        let sim = Arc::new(RedfishSim::default());
+        if let Some(pin) = pin {
+            sim.set_vendor_override(&test_addr().ip().to_string(), pin);
+        }
+        let client = build_redfish_client(sim.clone());
+
+        let _ = client.get_redfish_product(test_addr()).await;
+        let _ = client.get_redfish_vendor(test_addr()).await;
+        let _ = client
+            .validate_bmc_credentials(test_addr(), Credentials::new("root", "pass"))
+            .await;
+
+        let calls = sim.create_client_calls();
+        assert!(!calls.is_empty(), "expected probe clients to be built");
+        for call in calls {
+            assert_eq!(
+                call.selection,
+                VendorSelection::Uninitialized,
+                "a probe path must ask for an uninitialized client"
+            );
+            assert_eq!(
+                call.vendor,
+                Some(RedfishVendor::Unknown),
+                "a probe client must stay uninitialized (pin {pin:?})"
+            );
+        }
     }
 }

@@ -21,7 +21,7 @@ use std::str::FromStr;
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge::{self as rpc, AdminForceDeleteMachineResponse};
 use ::rpc::model::RpcTryFrom;
-use carbide_redfish::libredfish::RedfishAuth;
+use carbide_redfish::libredfish::{RedfishAuth, VendorSelection};
 use carbide_secrets::credentials::{BmcCredentialType, CredentialKey};
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
@@ -1117,7 +1117,7 @@ pub(crate) async fn invoke_power(
             RedfishAuth::Key(CredentialKey::BmcCredentials {
                 credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
             }),
-            None,
+            VendorSelection::Detect,
         )
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?;

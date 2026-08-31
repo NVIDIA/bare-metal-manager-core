@@ -364,6 +364,7 @@ impl From<ExpectedMachine> for rpc::forge::ExpectedMachine {
                         .host_lifecycle_profile
                         .disable_lockdown,
                 }),
+            bmc_vendor_override: expected_machine.data.bmc_vendor_override,
         }
     }
 }
@@ -498,6 +499,9 @@ impl TryFrom<rpc::forge::ExpectedMachine> for ExpectedMachineData {
                     disable_lockdown: hlp.disable_lockdown,
                 })
                 .unwrap_or_default(),
+            // Carried through verbatim. Only the handler reads the stored row,
+            // so it is the one that tells absent apart from empty.
+            bmc_vendor_override: em.bmc_vendor_override,
         })
     }
 }

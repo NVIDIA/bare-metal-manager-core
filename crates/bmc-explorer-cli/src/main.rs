@@ -91,6 +91,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         credential_provider.clone(),
         rf_pool,
         proxy_address.clone(),
+        // This CLI explores a BMC straight from its arguments and has no expected
+        // machine store to read a vendor pin from, so it opts out.
+        Arc::new(carbide_redfish::vendor_override::NoBmcVendorOverrides),
     );
     let mode = match args.mode.as_str() {
         "libredfish" => SiteExplorerExploreMode::LibRedfish,
@@ -107,7 +110,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let explorer = BmcEndpointExplorer::new(
         redfish_client_pool,
-        Arc::new(NvRedfishClientPool::new(proxy_address)),
+        Arc::new(NvRedfishClientPool::new(
+            proxy_address,
+            Arc::new(carbide_redfish::vendor_override::NoBmcVendorOverrides),
+        )),
         carbide_ipmi::test_support(),
         credential_provider.clone(),
         rotate_switch_nvos_credentials,
