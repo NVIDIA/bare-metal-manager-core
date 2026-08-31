@@ -54,10 +54,14 @@ That is the whole procedure. The script exits after its bounded verification
 window while ingestion continues in-cluster; progress is visible with:
 
 ```bash
-kubectl exec -n postgres <patroni-primary> -- su postgres -c \
-  "psql -d nico_system_nico -tAc \"SELECT
+PG_PRIMARY="$(kubectl get pods -n postgres \
+  -l cnpg.io/cluster=nico-pg-cluster,cnpg.io/instanceRole=primary \
+  --field-selector=status.phase=Running \
+  -o jsonpath='{.items[0].metadata.name}')"
+kubectl exec -n postgres "${PG_PRIMARY}" -c postgres -- \
+  psql -U postgres -d nico_system_nico -tAc "SELECT
      (SELECT count(*) FROM explored_endpoints) || ' explored / ' ||
-     (SELECT count(*) FROM machines) || ' machines';\""
+     (SELECT count(*) FROM machines) || ' machines';"
 ```
 
 ### What to expect

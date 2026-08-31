@@ -111,18 +111,21 @@ trap cleanup_tmp EXIT
 PG_PRIMARY=""
 _pg_primary() {
     [[ -n "$PG_PRIMARY" ]] && { echo "$PG_PRIMARY"; return; }
-    PG_PRIMARY="$(kubectl get pods -n "$POSTGRES_NS" -l application=spilo \
-        -o jsonpath='{range .items[*]}{.metadata.name} {.metadata.labels.spilo-role}{"\n"}{end}' 2>/dev/null \
-        | awk '$2=="master"{print $1}' | head -1)"
+    PG_PRIMARY="$(kubectl get pods -n "$POSTGRES_NS" \
+        -l 'cnpg.io/cluster=nico-pg-cluster,cnpg.io/instanceRole=primary' \
+        --field-selector=status.phase=Running \
+        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)"
     echo "$PG_PRIMARY"
 }
 psql_run() {  # runs SQL, returns raw psql output (not -tAc, so NOTICEs show)
-    local pg; pg="$(_pg_primary)"; [[ -n "$pg" ]] || die "no Patroni primary in $POSTGRES_NS"
-    kubectl exec -n "$POSTGRES_NS" "$pg" -- su postgres -c "psql -d $NICO_DB -v ON_ERROR_STOP=1 -c \"$1\"" 2>&1
+    local pg; pg="$(_pg_primary)"; [[ -n "$pg" ]] || die "no CloudNativePG primary in $POSTGRES_NS"
+    kubectl exec -n "$POSTGRES_NS" "$pg" -c postgres -- \
+        psql -U postgres -d "$NICO_DB" -v ON_ERROR_STOP=1 -c "$1" 2>&1
 }
 psql_q() {
-    local pg; pg="$(_pg_primary)"; [[ -n "$pg" ]] || die "no Patroni primary in $POSTGRES_NS"
-    kubectl exec -n "$POSTGRES_NS" "$pg" -- su postgres -c "psql -d $NICO_DB -tAc \"$1\"" 2>/dev/null
+    local pg; pg="$(_pg_primary)"; [[ -n "$pg" ]] || die "no CloudNativePG primary in $POSTGRES_NS"
+    kubectl exec -n "$POSTGRES_NS" "$pg" -c postgres -- \
+        psql -U postgres -d "$NICO_DB" -tAc "$1" 2>/dev/null
 }
 _VAULT_TOKEN=""
 vault_cmd() {

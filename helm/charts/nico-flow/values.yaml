@@ -139,10 +139,9 @@ temporalCert:
 
 ## Database connection settings (shared host; per-container DB and secret).
 database:
-  host: nico-pg-cluster.postgres.svc.cluster.local
+  host: nico-pg-cluster-rw.postgres.svc.cluster.local
   port: 5432
-  ## CA cert that the containers use for the postgres TLS connection.
-  ## Mounted from the SPIFFE secret (same ca.crt the operator signs with).
+  ## The clients use sslmode=prefer, so this CA is not used to verify PostgreSQL.
   certPath: /var/run/secrets/spiffe.io/ca.crt
   flow:
     name: flow

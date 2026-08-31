@@ -25,56 +25,43 @@ if [[ -n "$KUBECTL_CONTEXT" ]]; then
   KUBECTL+=(--context "$KUBECTL_CONTEXT")
 fi
 
-# DB_NAME: from env if provided, otherwise from cloud-db-config, fallback to "nico"
-if [[ -z "${DB_NAME:-}" ]]; then
-  DB_NAME="$("${KUBECTL[@]}" -n cloud-db get configmap cloud-db-config \
-    -o jsonpath='{.data.dbName}' 2>/dev/null || true)"
-  DB_NAME="${DB_NAME:-nico}"
-fi
+DB_NAME="${DB_NAME:-nico_rest}"
 
 banner "📦 Using database name: ${DB_NAME}"
 
 # ------------------------------------------------------------------------------
-# Wait for Postgres StatefulSet to be Ready
+# Wait for the CloudNativePG Cluster to be Ready
 # ------------------------------------------------------------------------------
 
-banner "⏳  Waiting for StatefulSet postgres/nico-pg-cluster replicas to be Ready…"
+banner "⏳  Waiting for CloudNativePG Cluster postgres/nico-pg-cluster to be Ready…"
 
-for i in {1..120}; do
-  READY="$("${KUBECTL[@]}" -n postgres get sts nico-pg-cluster \
-    -o jsonpath='{.status.readyReplicas}' 2>/dev/null || true)"
-  TOTAL="$("${KUBECTL[@]}" -n postgres get sts nico-pg-cluster \
-    -o jsonpath='{.status.replicas}' 2>/dev/null || true)"
+if ! "${KUBECTL[@]}" -n postgres wait \
+  --for=condition=Ready \
+  cluster.postgresql.cnpg.io/nico-pg-cluster \
+  --timeout=10m; then
+  echo "❌  CloudNativePG Cluster not Ready after 10 minutes"
+  exit 2
+fi
 
-  if [[ -n "$TOTAL" && "$READY" == "$TOTAL" && "$TOTAL" -gt 0 ]]; then
-    banner "✅  Postgres StatefulSet is Ready (${READY}/${TOTAL})"
-    break
-  fi
-
-  if [[ "$i" == 120 ]]; then
-    echo "❌  StatefulSet not Ready after 10 minutes"
-    exit 2
-  fi
-
-  sleep 5
-done
+banner "✅  CloudNativePG Cluster is Ready"
 
 # ------------------------------------------------------------------------------
-# Find master pod and run CREATE EXTENSION inside it
+# Find the primary pod and run CREATE EXTENSION inside it
 # ------------------------------------------------------------------------------
 
 MASTER_POD="$("${KUBECTL[@]}" -n postgres get pods \
-  -l spilo-role=master \
+  -l cnpg.io/cluster=nico-pg-cluster,cnpg.io/instanceRole=primary \
+  --field-selector=status.phase=Running \
   -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
 
 if [[ -z "$MASTER_POD" ]]; then
-  echo "❌  Could not locate master pod (label spilo-role=master)"
+  echo "❌  Could not locate primary pod (labels cnpg.io/cluster=nico-pg-cluster,cnpg.io/instanceRole=primary)"
   exit 2
 fi
 
 echo "🔑  Running extension SQL inside pod ${MASTER_POD}"
 
-"${KUBECTL[@]}" -n postgres exec "${MASTER_POD}" -- \
+"${KUBECTL[@]}" -n postgres exec "${MASTER_POD}" -c postgres -- \
   psql -U postgres -d "${DB_NAME}" \
     -c 'CREATE EXTENSION IF NOT EXISTS btree_gin;' \
     -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm;'

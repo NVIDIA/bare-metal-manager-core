@@ -85,7 +85,7 @@ VAULT_ADDR=$(kc get configmap -n "${NICO_NS}" vault-cluster-info \
   printf 'https://vault.%s.svc.cluster.local:8200' "${VAULT_NS}")
 
 # postgres namespace: parse from DB_HOST in database configmap
-# e.g. nico-pg-cluster.postgres.svc.cluster.local → postgres
+# e.g. nico-pg-cluster-rw.postgres.svc.cluster.local → postgres
 if [[ -z "${POSTGRES_NS:-}" ]]; then
   _DB_HOST=$(kc get configmap -n "${NICO_NS}" nico-system-nico-database-config \
     -o jsonpath='{.data.DB_HOST}' || true)
@@ -142,6 +142,23 @@ _check_statefulset() {
     pass "statefulset/${name}: ${ready}/${desired} ready"
   else
     fail "statefulset/${name}: ${ready}/${desired} ready"
+  fi
+}
+
+_check_cnpg_cluster() {
+  local ns="$1" name="$2"
+  local desired ready condition
+  desired=$(kc get clusters.postgresql.cnpg.io -n "${ns}" "${name}" \
+    -o jsonpath='{.spec.instances}')
+  ready=$(kc get clusters.postgresql.cnpg.io -n "${ns}" "${name}" \
+    -o jsonpath='{.status.readyInstances}')
+  condition=$(kc get clusters.postgresql.cnpg.io -n "${ns}" "${name}" \
+    -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
+  desired="${desired:-0}"; ready="${ready:-0}"
+  if [[ "${condition}" == "True" && "${desired}" -gt 0 && "${ready}" -ge "${desired}" ]]; then
+    pass "cluster/${name}: Ready, ${ready}/${desired} instances ready"
+  else
+    fail "cluster/${name}: Ready=${condition:-unknown}, ${ready}/${desired} instances ready"
   fi
 }
 
@@ -352,21 +369,30 @@ fi
 # 3. PostgreSQL
 # --------------------------------------------------------------------------
 section "PostgreSQL"
-_check_statefulset "${POSTGRES_NS}" nico-pg-cluster
+_check_cnpg_cluster "${POSTGRES_NS}" nico-pg-cluster
 
-_PG_OP_READY=$(kc get deployment -n "${POSTGRES_NS}" postgres-operator \
-  -o jsonpath='{.status.readyReplicas}' || printf '0')
-if [[ "${_PG_OP_READY:-0}" -ge 1 ]]; then
-  pass "deployment/postgres-operator: running"
+_CNPG_OPERATOR=$(kc get deployment -A \
+  -l app.kubernetes.io/name=cloudnative-pg \
+  -o jsonpath='{range .items[*]}{.metadata.namespace}{"\t"}{.metadata.name}{"\n"}{end}' \
+  | head -1)
+if [[ "${_CNPG_OPERATOR}" == *$'\t'* ]]; then
+  _CNPG_NS="${_CNPG_OPERATOR%%$'\t'*}"
+  _CNPG_DEPLOYMENT="${_CNPG_OPERATOR#*$'\t'}"
+  _check_deployment "${_CNPG_NS}" "${_CNPG_DEPLOYMENT}"
 else
-  fail "deployment/postgres-operator: not ready"
+  fail "CloudNativePG operator deployment: not found"
 fi
 
 _DB_NAME=$(kc get configmap -n "${NICO_NS}" nico-system-nico-database-config \
   -o jsonpath='{.data.DB_NAME}' 2>/dev/null || printf 'nico_system_nico')
-_DB_EXISTS=$(kubectl exec -n "${POSTGRES_NS}" nico-pg-cluster-0 -c postgres -- \
-  psql -U postgres -lqt 2>/dev/null | grep -c "${_DB_NAME}" || printf '0')
-if [[ "${_DB_EXISTS}" -ge 1 ]]; then
+_PG_PRIMARY=$(kc get pod -n "${POSTGRES_NS}" \
+  -l 'cnpg.io/cluster=nico-pg-cluster,cnpg.io/instanceRole=primary' \
+  --field-selector=status.phase=Running \
+  -o jsonpath='{.items[0].metadata.name}')
+if [[ -z "${_PG_PRIMARY}" ]]; then
+  fail "cluster/nico-pg-cluster: no running primary pod found"
+elif kubectl exec -n "${POSTGRES_NS}" "${_PG_PRIMARY}" -c postgres -- \
+    psql -U postgres -lqt 2>/dev/null | grep -Fq "${_DB_NAME}"; then
   pass "postgres: database '${_DB_NAME}' exists"
 else
   fail "postgres: database '${_DB_NAME}' not found"

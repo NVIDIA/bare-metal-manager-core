@@ -485,13 +485,13 @@ Path: `deploy/nico-system/`
 - Components `../components/imagepullsecret` and `../components/boot-artifacts-containers`.
 - External `Service`s for DHCP, PXE (80/8080), API (443→1079), SSH console (22), DNS (per‑pod TCP/UDP 53), and NTP (per‑pod UDP 123).
 - ConfigMaps generated for `nico-dns`, `nico-system-nico-database-config`, and `vault-cluster-info` with default literals for this environment.
-- Certificate patches that add namespace‑specific DNSNames and SPIFFE URIs for all NICo cert-manager `Certificate`s, plus a patch targeting the `nico-pg-cluster` Postgres resource.
+- Certificate patches that add namespace-specific DNS names and SPIFFE URIs for all NICo cert-manager `Certificate` resources.
 - Name suffix hashing disabled to keep stable names.
 
 **External inputs you must provide**
 
 - Assign LoadBalancer IPs / addresses for the external Services (for example via the parent `deploy/kustomization.yaml` Metallb patches) or adapt to your cloud LB configuration.
-- Ensure the `nico-pg-cluster` Postgres instance and the secret referenced by `SECRET_REF` exist, or update the literals.
+- Ensure the `nico-pg-cluster` CloudNativePG `Cluster`, its `nico-pg-cluster-rw` writable service, and the Secret referenced by `SECRET_REF` exist, or update the literals.
 - Point the Vault settings (`VAULT_SERVICE`, mounts) at your Vault cluster, or patch the ConfigMap.
 - Provide the `imagepullsecret` Secret in `nico-system` and publish the boot artifact images referenced by the components.
 

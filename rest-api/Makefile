@@ -56,7 +56,7 @@ HELM_SET_KEYCLOAK := --set nico-rest-api.config.keycloak.enabled=true \
 
 # Point the DB-connecting sub-charts at the standalone `postgres.postgres`
 # StatefulSet that kind-reset-infra deploys (deploy/kustomize/base/postgres/).
-# The chart defaults target the Zalando-managed `nico-pg-cluster` used in
+# The chart defaults target the CloudNativePG-managed `nico-pg-cluster` used in
 # production/site deployments (see PR #3081), which does not exist in the local
 # kind cluster. Without these overrides the nico-rest-db migration Job's
 # wait-for-postgres init container never resolves the host and the Helm

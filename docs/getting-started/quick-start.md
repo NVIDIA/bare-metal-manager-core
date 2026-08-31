@@ -214,7 +214,11 @@ When `keycloak.enabled: false`, the Keycloak deployment is still created by `set
 
 ### 3f. Review site-agent Config
 
-The defaults in `helm-prereqs/values/nico-site-agent.yaml` point at the Zalando-managed `nico-pg-cluster` (`DB_ADDR: nico-pg-cluster.postgres.svc.cluster.local`, `DB_DATABASE: nico_rest`), which is the same cluster used by `nico-rest-api`. No changes are needed for a standard deployment.
+The defaults in `helm-prereqs/values/nico-site-agent.yaml` point at the
+CloudNativePG writable service (`DB_ADDR:
+nico-pg-cluster-rw.postgres.svc.cluster.local`, `DB_DATABASE: nico_rest`),
+which is the same cluster used by `nico-rest-api`. No changes are needed for a
+standard deployment.
 
 `DB_USER` and `DB_PASSWORD` are injected at runtime from the `db-creds` Kubernetes Secret (created by the `nico-rest-common` sub-chart during Phase 7g). The Secret is referenced via `secrets.dbCreds` in the site-agent values.
 
@@ -348,12 +352,12 @@ The `setup.sh` script installs all prerequisites and NICo components in sequenti
 |-------|-----------------|
 | 0 | DNS check (NodeLocal DNSCache or CoreDNS) |
 | 1 | local-path-provisioner + StorageClasses |
-| 1b | postgres-operator (Zalando) |
+| 1b | CloudNativePG operator (`cnpg/cloudnative-pg`) |
 | 1c | MetalLB + site BGP/L2 config |
 | 2 | cert-manager + Vault TLS bootstrap (PKI chain) |
 | 3 | HashiCorp Vault (3-node HA Raft) |
 | 4 | Vault init + unseal + SSH host key |
-| 5 | external-secrets + nico-prereqs + nico-pg-cluster |
+| 5 | external-secrets + nico-prereqs + CloudNativePG `Cluster` / `Database` resources |
 | 5b | DPF stack for DPU provisioning (default; `--skip-dpf` to opt out) |
 | 6 | **NICo Core** (nico helm release) |
 | 7a-7g | **NICo REST** base stack (source and CA setup, PostgreSQL, Keycloak, Temporal, REST services) |
@@ -365,7 +369,7 @@ The following components are deployed:
 ```text
 local-path-provisioner     (raw manifest - StorageClasses for Vault + PostgreSQL PVCs)
 metallb                    (metallb/metallb 0.14.5 - LoadBalancer IPs via BGP or L2)
-postgres-operator          (zalando/postgres-operator 1.10.1 - manages nico-pg-cluster)
+cloudnative-pg             (cnpg/cloudnative-pg 0.29.0 - operator 1.30.0)
 cert-manager               (jetstack/cert-manager v1.17.1)
 vault                      (hashicorp/vault 0.25.0, 3-node HA Raft, TLS)
 external-secrets           (external-secrets/external-secrets 0.14.3)
@@ -382,6 +386,13 @@ NICo REST                  (../helm/rest/nico-rest)
 NICo Flow                  (../helm/charts/nico-flow - Flow, PSM, and NSM)
 NICo REST site-agent       (../helm/rest/nico-rest-site-agent - StatefulSet, bootstrap via site-manager)
 ```
+
+The CloudNativePG `Cluster` and `Database` resources live in `postgres` and use
+the PostgreSQL `15.18` standard image. Roles and databases, including the
+`pg_trgm` extension for `nico_rest`, are declarative. ESO copies the source role
+Secrets (`nico-system-db-user`, `nico-rest-db-user`, `flow-db-user`,
+`psm-db-user`, and `nsm-db-user`) to the application-facing Secret names used by
+the charts.
 
 For manual phase-by-phase installation, re-running individual phases, or debugging failures, refer to the [Reference Installation](installation-options/reference-install.md) guide.
 
@@ -542,6 +553,8 @@ kubectl get clusterissuer
 kubectl get clustersecretstore
 kubectl get pods -n metallb-system
 kubectl get ipaddresspool,bgppeer -n metallb-system
+kubectl get pods -n cnpg-system
+kubectl get clusters.postgresql.cnpg.io,databases.postgresql.cnpg.io -n postgres
 kubectl get pods -n postgres
 kubectl get pods -n nico-system
 kubectl get jobs -n nico-system

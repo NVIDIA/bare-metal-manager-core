@@ -309,19 +309,21 @@ confirm() {
     [[ "$ans" == "y" || "$ans" == "Y" ]]
 }
 
-# psql against the consolidated NICo DB on the Patroni primary
+# psql against the consolidated NICo DB on the CloudNativePG primary
 PG_PRIMARY=""
 _pg_primary() {
     [[ -n "$PG_PRIMARY" ]] && { echo "$PG_PRIMARY"; return; }
-    PG_PRIMARY="$(kubectl get pods -n "$POSTGRES_NS" -l application=spilo \
-        -o jsonpath='{range .items[*]}{.metadata.name} {.metadata.labels.spilo-role}{"\n"}{end}' 2>/dev/null \
-        | awk '$2=="master"{print $1}' | head -1)"
+    PG_PRIMARY="$(kubectl get pods -n "$POSTGRES_NS" \
+        -l 'cnpg.io/cluster=nico-pg-cluster,cnpg.io/instanceRole=primary' \
+        --field-selector=status.phase=Running \
+        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)"
     echo "$PG_PRIMARY"
 }
 psql_q() {
     local pg; pg="$(_pg_primary)"
-    [[ -n "$pg" ]] || die "no Patroni primary found in namespace $POSTGRES_NS"
-    kubectl exec -n "$POSTGRES_NS" "$pg" -- su postgres -c "psql -d $NICO_DB -v ON_ERROR_STOP=1 -tAc \"$1\"" 2>/dev/null
+    [[ -n "$pg" ]] || die "no CloudNativePG primary found in namespace $POSTGRES_NS"
+    kubectl exec -n "$POSTGRES_NS" "$pg" -c postgres -- \
+        psql -U postgres -d "$NICO_DB" -v ON_ERROR_STOP=1 -tAc "$1" 2>/dev/null
 }
 # count query that always yields a number — a transient kubectl/psql failure
 # returns "0" instead of an empty string that would blow up (( )) arithmetic.
@@ -391,7 +393,7 @@ info "image: ${MAT_IMAGE_REPO}:${MAT_IMAGE_TAG}   hosts: ${HOST_COUNT}   dpus/ho
 # A 4,500-host run against the old 4Gi default logged 531 OOM kills and never
 # completed; the same run at 24Gi peaked at ~8.7GiB with zero kills. Warn here so
 # an undersized database is visible at minute zero rather than hour three.
-_pg_mem="$(kubectl get postgresql -n "${POSTGRES_NS:-postgres}" nico-pg-cluster \
+_pg_mem="$(kubectl get clusters.postgresql.cnpg.io -n "${POSTGRES_NS:-postgres}" nico-pg-cluster \
     -o jsonpath='{.spec.resources.limits.memory}' 2>/dev/null || true)"
 if [[ -n "$_pg_mem" ]]; then
     _pg_gib="${_pg_mem%Gi}"

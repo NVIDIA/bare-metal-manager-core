@@ -9,7 +9,7 @@ NICo namespace   : {{ .Values.namespace }}
 
 Components deployed:
 {{- if .Values.postgresql.enabled }}
-  ✓ PostgreSQL (nico-pg-cluster) — SSL enabled, emptyDir (dev/test only)
+  ✓ PostgreSQL (nico-pg-cluster) — CloudNativePG, TLS, persistent storage
 {{- end }}
 {{- if .Values.imagePullSecrets.ngcNicoPull }}
   ✓ Image pull secret: nvcr-nico-dev

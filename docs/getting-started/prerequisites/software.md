@@ -36,7 +36,8 @@ ESO syncs secrets from Vault into Kubernetes Secret objects.
 - A SecretStore or ClusterSecretStore pointing to Vault.
 - ExternalSecret objects for each NICo namespace:
   - `nico-roots-eso`: target secret `nico-roots` with keys `site-root`, `nico-root`
-  - DB credentials ExternalSecrets per namespace (e.g. `clouddb-db-eso : nico.nico-pg-cluster.credentials`)
+  - DB credentials ExternalSecrets per namespace (for example,
+    `nico-db-eso` targets `nico-system.nico.nico-pg-cluster.credentials`)
 - An image pull secret (e.g. `imagepullsecret`) in namespaces that pull from your registry
 
 ### cert-manager
@@ -66,10 +67,14 @@ ESO syncs secrets from Vault into Kubernetes Secret objects.
 
 | Component | Validated Version |
 |---|---|
-| Zalando Postgres Operator | v1.10.1 |
-| Spilo-15 image | 3.0-p1 (Postgres 15) |
+| CloudNativePG Helm chart | 0.29.0 |
+| CloudNativePG operator | 1.30.0 |
+| PostgreSQL standard image | 15.18 |
 
-PostgreSQL stores all NICo system state in the `nico_system_nico` database. Only the API Service reads from and writes to it.
+PostgreSQL stores NICo Core state in `nico_system_nico`; only the Core API
+Service reads from and writes to that database. The reference CloudNativePG
+cluster also hosts the isolated NICo REST and Flow databases when those
+components are enabled.
 
 **Configuration required:**
 - Database and role with password
@@ -87,15 +92,27 @@ psql "postgres://<POSTGRES_USER>:<POSTGRES_PASSWORD>@<POSTGRES_HOST>:<POSTGRES_P
     -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm;'
 ```
 
-- Make the DSN available to workloads via ESO targets (per-namespace credentials):
-  - `nico.nico-pg-cluster.credentials`
-  - `nico-system.nico.nico-pg-cluster.credentials`
-  - `elektra-site-agent.elektra.nico-pg-cluster.credentials`
+- Make the DSN available to workloads via ESO targets (per-namespace
+  credentials). The reference deployment preserves the application-facing
+  names `nico-system.nico.nico-pg-cluster.credentials`, `nico-rest-pg-creds`,
+  `flow.nico.nico-pg-cluster.credentials`,
+  `psm.nico.nico-pg-cluster.credentials`, and
+  `nsm.nico.nico-pg-cluster.credentials`.
 
 **If deploying the reference version:**
-- Deploy the Zalando operator and a Spilo-15 cluster sized for your SLOs
-- Expose a ClusterIP service on port `5432`
-- Surface credentials through ExternalSecrets to each namespace
+- Deploy the `cnpg/cloudnative-pg` chart `0.29.0` (operator `1.30.0`) in
+  `cnpg-system`.
+- Create the `Cluster` and `Database` resources in `postgres`. The reference
+  cluster uses the PostgreSQL `15.18` standard image and exposes its writable
+  endpoint as `nico-pg-cluster-rw.postgres.svc.cluster.local:5432`.
+- Declare the application roles and databases through CloudNativePG resources;
+  the reference `nico_rest` `Database` declares `btree_gin` and `pg_trgm`.
+- Store role credentials in `nico-system-db-user`, `nico-rest-db-user`,
+  `flow-db-user`, `psm-db-user`, and `nsm-db-user` in `postgres`; ESO projects
+  enabled components' credentials to the application-facing Secret names above.
+- Configure CloudNativePG object-store or volume-snapshot backups, or an
+  external PostgreSQL backup system. The reference chart does not configure
+  backups.
 
 ### Vault
 

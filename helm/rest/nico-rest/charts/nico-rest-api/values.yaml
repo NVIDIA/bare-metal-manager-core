@@ -53,7 +53,7 @@ config:
     sentry:
       dsn: ""
   db:
-    host: nico-pg-cluster.postgres.svc.cluster.local
+    host: nico-pg-cluster-rw.postgres.svc.cluster.local
     port: 5432
     name: nico_rest
     user: nico-rest.nico
