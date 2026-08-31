@@ -778,6 +778,7 @@ async fn test_gb200_b3240_pair_uses_specialized_deployment_from_report_or_rack(p
     // Site Explorer can identify a GB200 before discovery assigns its rack.
     // Repeat the same selection with only the persisted Redfish model present.
     let mut txn = pool.begin().await.unwrap();
+    let rack_id = mh.host().db_machine(&mut txn).await.rack_id.unwrap();
     sqlx::query("UPDATE machines SET rack_id = NULL WHERE id = $1")
         .bind(mh.id)
         .execute(txn.as_mut())
