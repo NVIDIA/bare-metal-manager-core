@@ -626,8 +626,8 @@ func cmdVPCCreate(s *Session, _ []string) error {
 
 	routingProfile := ""
 	siteRaw, _ := site.Raw.(map[string]interface{})
-	siteConfig, _ := siteRaw["config"].(map[string]interface{})
-	nativeNetworking, _ := siteConfig["nativeNetworking"].(bool)
+	siteCapabilities, _ := siteRaw["capabilities"].(map[string]interface{})
+	nativeNetworking, _ := siteCapabilities["nativeNetworking"].(bool)
 	if nativeNetworking {
 		profilesResponse, _, requestErr := s.Client.Do("GET", apiPath(s, "tenant/current/routing-profiles"), nil, map[string]string{"siteId": site.ID}, nil)
 		if requestErr != nil {

@@ -529,7 +529,7 @@ func TestCmdVPCCreate_SelectsPermittedRoutingProfile(t *testing.T) {
 	session.Cache.Set("site", []NamedItem{{
 		Name: "native-site",
 		ID:   "site-1",
-		Raw:  map[string]interface{}{"config": map[string]interface{}{"nativeNetworking": true}},
+		Raw:  map[string]interface{}{"capabilities": map[string]interface{}{"nativeNetworking": true}},
 	}})
 
 	output, runErr := runSpecializedCommandWithInput(t, "profile-vpc\n\ninternal\n", func() error {
