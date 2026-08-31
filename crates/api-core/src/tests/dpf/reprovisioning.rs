@@ -453,9 +453,9 @@ async fn test_multi_dpu_provisioning_registers_all_devices(pool: sqlx::PgPool) {
     );
 }
 
-/// GB200 rack identity and every attached B3240 DPU must select one shared deployment.
+/// GB200 host identity and every attached B3240 DPU must select one shared deployment.
 #[crate::sqlx_test]
-async fn test_gb200_b3240_pair_uses_specialized_deployment(pool: sqlx::PgPool) {
+async fn test_gb200_b3240_pair_uses_specialized_deployment_from_report_or_rack(pool: sqlx::PgPool) {
     let classified_dpus = Arc::new(Mutex::new(Vec::new()));
     let verified_deployments = Arc::new(Mutex::new(Vec::new()));
     let registered_deployments = Arc::new(Mutex::new(Vec::new()));
@@ -566,6 +566,66 @@ async fn test_gb200_b3240_pair_uses_specialized_deployment(pool: sqlx::PgPool) {
     assert_eq!(
         *registered_deployments.lock().unwrap(),
         vec![DpuDeploymentType::Bf3Gb200]
+    );
+
+    // Site Explorer can identify a GB200 before discovery assigns its rack.
+    // Repeat the same selection with only the persisted Redfish model present.
+    let mut txn = pool.begin().await.unwrap();
+    sqlx::query("UPDATE machines SET rack_id = NULL WHERE id = $1")
+        .bind(mh.id)
+        .execute(txn.as_mut())
+        .await
+        .unwrap();
+    mh.host().set_exploration_model(&mut txn, "GB200 NVL").await;
+    assert!(mh.host().db_machine(&mut txn).await.rack_id.is_none());
+    txn.commit().await.unwrap();
+
+    verified_deployments.lock().unwrap().clear();
+    registered_deployments.lock().unwrap().clear();
+    set_reprovision_dpf_state(&pool, &mh.id, &mh.dpu_ids, DpfState::Provisioning).await;
+
+    timeout(TEST_TIMEOUT, env.run_machine_state_controller_iteration())
+        .await
+        .expect("timed out during state controller iteration");
+
+    assert_eq!(
+        *verified_deployments.lock().unwrap(),
+        vec![DpuDeploymentType::Bf3Gb200]
+    );
+    assert_eq!(
+        *registered_deployments.lock().unwrap(),
+        vec![DpuDeploymentType::Bf3Gb200]
+    );
+
+    // A recognized report takes precedence over the rack fallback. Restore
+    // the GB200 rack and report GB300 so this pass selects generic BF3.
+    let mut txn = pool.begin().await.unwrap();
+    sqlx::query("UPDATE machines SET rack_id = $1 WHERE id = $2")
+        .bind(rack_id.as_str())
+        .bind(mh.id)
+        .execute(txn.as_mut())
+        .await
+        .unwrap();
+    mh.host()
+        .set_exploration_model(&mut txn, "DGX GB300 Compute Tray")
+        .await;
+    txn.commit().await.unwrap();
+
+    verified_deployments.lock().unwrap().clear();
+    registered_deployments.lock().unwrap().clear();
+    set_reprovision_dpf_state(&pool, &mh.id, &mh.dpu_ids, DpfState::Provisioning).await;
+
+    timeout(TEST_TIMEOUT, env.run_machine_state_controller_iteration())
+        .await
+        .expect("timed out during state controller iteration");
+
+    assert_eq!(
+        *verified_deployments.lock().unwrap(),
+        vec![DpuDeploymentType::Bf3]
+    );
+    assert_eq!(
+        *registered_deployments.lock().unwrap(),
+        vec![DpuDeploymentType::Bf3]
     );
 }
 

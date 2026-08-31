@@ -59,14 +59,30 @@ fn dpf_id(machine: &Machine) -> Result<String, StateHandlerError> {
     })
 }
 
-async fn host_rack_product_family(
+/// Returns the product family reported by Site Explorer, or falls back to the
+/// configured rack profile when that report does not name a known family.
+async fn host_product_family(
     state: &ManagedHostStateSnapshot,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
 ) -> Result<Option<RackProductFamily>, StateHandlerError> {
+    let mut conn = ctx.services.db_pool.acquire().await?;
+
+    if let Some(host_bmc_ip) = state.host_snapshot.status.bmc_info.ip {
+        let endpoints =
+            db::explored_endpoints::find_by_ips(conn.as_mut(), vec![host_bmc_ip]).await?;
+        if let Some(product_family) = endpoints
+            .first()
+            .and_then(|endpoint| endpoint.report.model())
+            .as_deref()
+            .and_then(RackProductFamily::from_hardware_model)
+        {
+            return Ok(Some(product_family));
+        }
+    }
+
     let Some(rack_id) = state.host_snapshot.rack_id.as_ref() else {
         return Ok(None);
     };
-    let mut conn = ctx.services.db_pool.acquire().await?;
     let Some(rack) = db::rack::find_by(
         conn.as_mut(),
         db::ObjectColumnFilter::One(db::rack::IdColumn, rack_id),
@@ -96,7 +112,7 @@ async fn deployment_types_for_host(
     dpf_sdk: &dyn DpfOperations,
     astra_nics: bool,
 ) -> Result<Vec<DpuDeploymentType>, StateHandlerError> {
-    let product_family = host_rack_product_family(state, ctx).await?;
+    let product_family = host_product_family(state, ctx).await?;
     state
         .dpu_snapshots
         .iter()
