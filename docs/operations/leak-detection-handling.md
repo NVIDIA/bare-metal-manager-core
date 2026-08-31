@@ -67,8 +67,7 @@ NICo provides **health visibility and allocation protection** for leak-related c
 
 `PreventAllocations` blocks new allocations for hosts affected by the active tray- or rack-health condition. When the health alert clears later, NICo recalculates aggregate health; allocation eligibility can recover when no other active health condition prevents allocation.
 
-Current operational visibility is provided through NICo's health data, health alert details, logs, and metrics. To obtain the current health reports of a machine:
-`GET /nico/machine/{id}/health-report`
+Current operational visibility is provided through NICo's health data, health alert details, logs, and metrics. To obtain a machine's current health reports, use the `GET /v2/org/{org}/nico/machine/{id}/health-report` [REST API endpoint](api:GET/v2/org/:org/nico/machine/:machineId/health-report).
 
 ### Three Tiers of Automated Leak Handling
 
