@@ -4,6 +4,18 @@ NICo keeps the credentials it manages (BMC logins, switch and UFM accounts, fact
 
 This page covers the `[secrets]` section of the `nico-api` config, the Vault-to-Postgres migration walk, and key rotation. If `[secrets]` is absent, nothing here applies: credentials flow through the classic environment, file, and Vault chain.
 
+Vault/OpenBao Transit is the available server-side KMS backend. The Integrated
+backend loads KEK material into the NICo process from an environment variable,
+file, or inline value. [#3253](https://github.com/NVIDIA/infra-controller/issues/3253)
+tracks qualification of a production non-Vault replacement and explicitly
+includes a hardened Integrated deployment backed by a CSI secrets-store or
+External-Secrets mount as a possible interim, alongside managed KMS, HSM, and
+KMIP providers. Inline Integrated keys remain for development and test; a
+mounted-key deployment is production-supported only if #3253 selects and
+qualifies that custody, availability, rotation, and recovery model. See the
+[Vault-free runtime high-level design](../design/eliminate-vault-dependency-design.md)
+for its place in the migration.
+
 ## How It Works
 
 The credentials store behaves as follows:
@@ -31,7 +43,7 @@ These are the `[secrets]` fields:
 | `import_from` | A source backend to import from, once, at startup. Only `"vault"` is supported. Unset means nothing to import. | unset |
 | `import_approach` | How the import treats paths that already exist in Postgres: `"missing_only"` skips them; `"all"` appends fresh journal entries. | `"missing_only"` |
 
-The following example reads Postgres first with Vault as the fallback, using a local integrated KEK:
+The following development/test example reads Postgres first with Vault as the fallback, using a local Integrated KEK. It is not a production custody recommendation:
 
 ```toml
 [secrets]
@@ -54,7 +66,7 @@ keys = { "site-kek-1" = { env = "NICO_SECRETS_KEK" } }
 
 Providers are named. The `active` provider wraps DEKs for new writes; every configured provider answers unwraps for the `kek_id`s it holds, which is what keeps old entries readable while keys move. Two provider types exist:
 
-- `integrated`: local key material. `keys` maps each `kek_id` to where its base64-encoded 256-bit key loads from: `{ env = "NAME" }`, `{ file = "/path" }`, or `{ value = "..." }`. Key material never appears in the config, only where to find it. Prefer `env` or `file` for real keys: the config file is debug-logged at startup and served on the web debug page, so an inline `value` lands in both.
+- `integrated`: local key material. `keys` maps each `kek_id` to where its base64-encoded 256-bit key loads from: `{ env = "NAME" }`, `{ file = "/path" }`, or `{ value = "..." }`. With `env` or `file`, the config contains only the locator. Inline `value` is development/test-only because the config is debug-logged at startup and served on the web debug page. A mounted `env` or `file` source is production-supported only if [#3253](https://github.com/NVIDIA/infra-controller/issues/3253) qualifies its custody, startup availability, controlled-restart rotation, and recovery model.
 - `transit`: Vault or OpenBao Transit, which wraps and unwraps DEKs server-side, so KEK material never leaves the KMS. `keys` lists the Transit key names this provider answers for, and `transit_mount` overrides the secrets-engine mount (default `"transit"`). Transit requires a static Vault token in the credential config; the Kubernetes service-account login flow is not supported for Transit yet.
 
 NICo validates all of this at startup, before any writes or imports: every routed `kek_id` must exist in the active provider (new writes all wrap there), a `kek_id` cannot appear in two providers, and a bad section fails the boot.
@@ -100,4 +112,4 @@ Rotation moves new writes immediately and existing entries on your schedule:
 
    The report counts `re_wrapped`, `already_current`, and `stale_remaining`. Only the DEK wrapping is redone (credential ciphertext is untouched), batches commit independently, and an advisory lock keeps it to one walk at a time, so the command is safe to re-run and resumes where it left off. `--batch-size` sets the rows scanned per batch; a smaller batch lightens the load on an external KMS.
 
-3. **Retire the old key.** `stale_remaining` counts entries wrapped by KEKs that no routing entry references. To retire a KEK: remove it from every routing entry, run `secrets re-wrap` again, and delete the key from its provider only after `stale_remaining` reports 0.
+3. **Retire the old key.** `stale_remaining` counts live entries wrapped by KEKs that no routing entry references; it does not inspect backups. Remove a KEK from every routing entry and run `secrets re-wrap` again. After `stale_remaining` reports 0, keep the old key and provider through the backup-retention and rollback windows: restoring a pre-re-wrap database backup still needs the old key. To roll the live site back to the old provider, keep both providers configured, set `[secrets.kms] active` back to the old provider, reverse routing to its KEK, restart, and run re-wrap again. Keep the new provider available to unwrap its rows until the reverse re-wrap reaches zero stale rows. Delete either key only after its backup-retention and rollback windows end.
