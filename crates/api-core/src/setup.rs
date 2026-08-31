@@ -720,7 +720,7 @@ async fn initialize_dpf_sdk(
         && !deployment.hbn_extra_interfaces.is_empty()
     {
         return Err(eyre::eyre!(
-            "BF4 Astra does not support dpf.deployments.bf4_astra.hbn_extra_interfaces"
+            "BF4 astra does not support dpf.deployments.bf4_astra.hbn_extra_interfaces"
         ));
     }
 

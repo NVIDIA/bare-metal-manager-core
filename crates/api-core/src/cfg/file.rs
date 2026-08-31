@@ -2240,6 +2240,7 @@ pub struct DpfDeploymentConfig {
     /// configuration. With intercept bridging, it also increases calculated `PF_TOTAL_SF`, changes
     /// the `DPUFlavor`, and requires controlled DPU reprovisioning. Without intercept bridging,
     /// `PF_TOTAL_SF` remains the unchanged legacy total and the added SF consumes that existing
+    /// pool; startup rejects the configuration if all generated and extra endpoints exceed the
     /// pool. NICo does not create the matching bridge, service interfaces, service chain, IPAM, or
     /// application service CRs; an external controller must own them.
     #[serde(default)]

@@ -810,6 +810,19 @@ events, so consumers handle them identically.
 | `proxy` | `Option<DpfProxyDetails>` | — | Proxy configuration for the DPU. When set, containerd on the DPU routes outbound HTTPS traffic through it. |
 | `deployments` | `DpfDeploymentsConfig` | *(default)* | Per-generation DPUDeployment configurations. BF3 is always present with defaults; BF4 variants are opt-in. A deployment can override individual fields of its supported extra services. |
 
+### `DpfDeploymentConfig`
+
+| Field | Type | Default | Description |
+| ------- | ------ | --------- | ------------- |
+| `bfb_url` | `Option<String>` | BF3 bf-bundle URL | BlueField firmware bundle used for BF3 provisioning. Mutually exclusive with `bluefield_software`; BF4 requires `bluefield_software` instead. |
+| `bluefield_software` | `Option<BlueFieldSoftwareConfig>` | — | BF4 OS ISO and PSID-to-PLDM firmware source. BF4 requires this field with exactly one `pldm_fw_bundle` entry. |
+| `flavor_name` | `String` | `carbide-dpu-flavor` | Base name for the generated BF3/generic-BF4 `DPUFlavor` or Astra `DPUFlavorTemplate`. |
+| `deployment_name` | `String` | `nico-deployment-v2` | Name of the generated `DPUDeployment`. |
+| `node_label_key` | `String` | `carbide.nvidia.com/controlled.node.v2` | Label key used to select DPU nodes for this deployment. |
+| `hbn_extra_interfaces` | `Vec<String>` | `[]` | Experimental BF3 and generic-BF4 escape hatch that appends externally managed interfaces to HBN. Names must be unique across generated and extra HBN interfaces, start with a lowercase ASCII letter, contain only lowercase ASCII letters, digits, `-`, or `_`, and contain 1–15 bytes. The combined HBN inventory is limited to 32 interfaces. BF4 Astra rejects a non-empty value. Each entry increases HBN's `nvidia.com/bf_sf` request and startup interface list. With intercept bridging it also increases `PF_TOTAL_SF`, changes the `DPUFlavor`, and requires controlled DPU reprovisioning. Without intercept bridging it consumes the unchanged legacy `pf_total_sf_reserved` pool, and startup rejects an overcommit. NICo does not create the matching bridge, ServiceInterfaces, service chain, IPAM, or application-service CRs; an external controller must own them. Changes are read at API startup. This experimental field may be removed without a compatibility period. |
+| `services` | `Option<Box<DpfMandatoryServicesConfig>>` | inherit `[dpf.services]` | Optional complete per-deployment mandatory-service override. Omitted service entries use built-in defaults rather than top-level values. |
+| `extra_services` | `BTreeMap<DpfExtraService, DpfServiceConfigOverride>` | `{}` | Deployment-local overlays for supported extra services. |
+
 Every active DPF deployment must use distinct `deployment_name`, `flavor_name`, and `node_label_key` values. A deployment `node_label_key` must not be `feature.node.kubernetes.io/dpu-enabled`, which marks every DPF-managed node, or `carbide.nvidia.com/host-bmc-ip`, whose per-node contextual value is the host BMC address. These checks use the local configuration and do not query or modify cluster resources.
 
 Each entry under `[dpf.services]` accepts a chart-native `extra_helm_values` table. NICo deep-merges it over generated `DPUServiceTemplate` values. Nested scalars and arrays replace generated values. DPF applies NICo's deployment-specific `DPUServiceConfiguration` values after the template values. Top-level and per-deployment service fields both overlay the service's built-in defaults.

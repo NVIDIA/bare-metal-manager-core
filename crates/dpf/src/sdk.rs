@@ -1514,21 +1514,17 @@ fn build_astra_patch_dpu_interfaces_vec() -> Vec<DpuServiceInterfaceTemplateDefi
         .collect()
 }
 
-/// Calculates BF3 or generic-BF4 SF capacity, preserving the legacy total without topology.
+/// Calculates BF3 or generic-BF4 SF capacity from generated and additional managed endpoints.
+///
+/// With intercept topology, `additional_managed_sf` increases the returned total. Without
+/// topology, generated and additional endpoints must fit inside `reserved`, which remains the
+/// returned legacy total.
 pub fn calculate_pf_total_sf(
     interfaces: &[DpuServiceInterfaceTemplateDefinition],
     intercept_bridging: Option<&DpfInterceptBridging>,
     reserved: u32,
     additional_managed_sf: u32,
 ) -> Result<u32, DpfError> {
-    // ROLLOUT COMPATIBILITY (DPU REPROVISIONING): inventory-free deployments must retain the
-    // historical behavior where the configured reserved value is the complete PF_TOTAL_SF pool.
-    // Adding the static endpoints here would change every existing BF3/BF4 flavor hash and force
-    // those DPUs through an unrequested re-ingestion.
-    if intercept_bridging.is_none() {
-        return Ok(reserved);
-    }
-
     // HBN's chart supports at most 32 attached interfaces. Validate the rendered topology rather
     // than relying only on the configured one-PF/VF15 limit so custom public-SDK inventories
     // cannot bypass the service boundary.
@@ -1559,6 +1555,21 @@ pub fn calculate_pf_total_sf(
         .ok_or_else(|| {
             DpfError::ConfigError("DPF managed SF endpoint count exceeds u32".to_string())
         })?;
+
+    // ROLLOUT COMPATIBILITY (DPU REPROVISIONING): inventory-free deployments must retain the
+    // historical behavior where the configured reserved value is the complete PF_TOTAL_SF pool.
+    // The static and additional endpoints consume that pool rather than changing the flavor, but
+    // must still fit inside it.
+    if intercept_bridging.is_none() {
+        if managed_endpoints > reserved {
+            return Err(DpfError::ConfigError(format!(
+                "configured DPF service endpoints ({managed_endpoints}) exceed the legacy \
+                 dpf.pf_total_sf_reserved pool ({reserved})"
+            )));
+        }
+        return Ok(reserved);
+    }
+
     managed_endpoints.checked_add(reserved).ok_or_else(|| {
         DpfError::ConfigError(format!(
             "configured DPF service endpoints ({managed_endpoints}) plus \
@@ -3419,7 +3430,8 @@ mod tests {
     use std::sync::{Arc, RwLock};
 
     use async_trait::async_trait;
-    use carbide_test_support::value_scenarios;
+    use carbide_test_support::Outcome::{Fails, Yields};
+    use carbide_test_support::{scenarios, value_scenarios};
     use kube::Resource;
 
     use super::*;
@@ -3719,6 +3731,32 @@ mod tests {
 
         // The maximum supported topology remains below HBN's 32-interface boundary.
         assert_eq!(interface_counts(&configured_interfaces), (0, 19, 19, 17, 1));
+    }
+
+    /// Verifies legacy managed endpoints cannot overcommit the unchanged SF pool.
+    #[test]
+    fn legacy_pf_total_sf_rejects_endpoint_overcommit() {
+        let interfaces = build_effective_dpu_interfaces(16, None);
+
+        scenarios!(
+            run = |additional_managed_sf: u32| {
+                calculate_pf_total_sf(
+                    &interfaces,
+                    None,
+                    DEFAULT_PF_TOTAL_SF_RESERVED,
+                    additional_managed_sf,
+                )
+                .map_err(drop)
+            };
+
+            "generated and additional endpoints fit" {
+                2 => Yields(DEFAULT_PF_TOTAL_SF_RESERVED),
+            }
+
+            "additional endpoints overcommit the pool" {
+                3 => Fails,
+            }
+        );
     }
 
     /// Verifies invalid SF arithmetic is rejected before it can become a wrapped NVConfig value.
