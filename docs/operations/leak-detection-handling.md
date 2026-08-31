@@ -71,7 +71,7 @@ Current operational visibility is provided through NICo's health data, health al
 
 ### Three Tiers of Automated Leak Handling
 
-NICo and BMS combined together automatically take leak handling actions in three tiers.
+NICo and the BMS together automatically take leak handling actions in three tiers.
 
 #### Critical Leakage Handling
 
