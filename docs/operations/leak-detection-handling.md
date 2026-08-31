@@ -50,11 +50,11 @@ For an active supported BMS event, NICo creates a rack health report with a leak
 
 The BMS event path is not enabled automatically in every NICo deployment. To use the BMS event path, a deployment must have all of the following:
 
-1. `nico-dsx-exchange-consumer` enabled. This Helm subchart is disabled by default.
-2. Connectivity and configuration for the BMS MQTT broker and event topics.
-3. BMS metadata and value events that use supported point types and identify the affected rack.
-4. The consumer configured to call the NICo API.
-5. Health aggregation configured for the relevant racks and hosts.
+1. `nico-dsx-exchange-consumer` enabled (this Helm subchart is disabled by default)
+1. Connectivity and configuration for the BMS MQTT broker and event topics
+1. BMS metadata and value events that use supported point types and identify the affected rack
+1. The consumer configured to call the NICo API
+1. Health aggregation configured for the relevant racks and hosts
 
 Without these prerequisites, BMS events do not create NICo rack health reports.
 
