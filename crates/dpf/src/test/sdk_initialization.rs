@@ -1001,10 +1001,15 @@ async fn scoped_bf3_gb200_bf4_and_astra_initialization_coexists() {
             .parameters
             .as_ref()
             .unwrap();
+        let expected_pf_total_sf = match deployment_type {
+            DpuDeploymentType::Bf3Gb200 => "PF_TOTAL_SF=128",
+            DpuDeploymentType::Bf3 | DpuDeploymentType::Bf4Generic => "PF_TOTAL_SF=37",
+            DpuDeploymentType::Bf4Astra => unreachable!("Astra is checked separately"),
+        };
         assert!(
             nvconfig
                 .iter()
-                .any(|parameter| parameter == "PF_TOTAL_SF=37")
+                .any(|parameter| parameter == expected_pf_total_sf)
         );
         assert_eq!(
             nvconfig
