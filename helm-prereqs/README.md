@@ -107,8 +107,8 @@ config it edits.
    vars only for your own/mirrored registry. See *DPF* below. Sites with no
    DPUs (or still on iPXE) run `./setup.sh -y --skip-dpf` and can ignore these.
 
-9. **RMS (Rack Manager Service) — opt-in.** On rack-management sites, pass
-   `--install-rms` and export `NICO_RMS_IMAGE_TAG` (required; the image tag
+9. **RMS (Rack Manager Service) — on by default.** Unless you pass
+   `--skip-rms`, export `NICO_RMS_IMAGE_TAG` (required; the image tag
    is decoupled from the chart). Phase 5c clones the open-source
    [nv-rms](https://github.com/dsx-ai-factory/nv-rms) repo at the pinned
    `NICO_RMS_VERSION`, installs the rack-manager chart with mTLS issued from
@@ -119,7 +119,7 @@ config it edits.
    self-built image (the default NGC image is entitlement-gated).
 
 Once the above is done, run `./setup.sh -y` (DPF installs by default; add
-`--skip-dpf` to opt out, and `--install-rms` to include RMS).
+`--skip-dpf` / `--skip-rms` to opt out of those stacks).
 
 ## Configuration reference
 
@@ -142,8 +142,8 @@ The tables below summarize the keys that must be set per site.
 | `NICO_STORAGE_CLASS` | No | StorageClass used by Vault data/audit PVCs. Defaults to `local-path-persistent`. |
 | `PREFLIGHT_CHECK_IMAGE` | No | Image used for preflight per-node checks. Defaults to `busybox:1.36`; set to a local mirror for air-gapped clusters. |
 | `NICO_SKIP_DPF` | No | Skip the DPF (DOCA Platform Framework) DPU provisioning stack, which installs **by default**. Same as `--skip-dpf`. Defaults to `false`. |
-| `NICO_INSTALL_RMS` | No | Install the Rack Manager Service (rack-manager chart, phase 5c). **Opt-in**; defaults to `false`. Same as `--install-rms`. |
-| `NICO_RMS_IMAGE_TAG` | With `--install-rms` | RMS API server image tag (git-describe style, e.g. `v0.8.0`). No default — the chart fails at render without one. See `setup.sh` header for the full `NICO_RMS_*` family (version pin, source dir, image repo, NGC key, namespace). |
+| `NICO_SKIP_RMS` | No | Skip the Rack Manager Service (rack-manager chart, phase 5c), which installs **by default**. Same as `--skip-rms`. Defaults to `false`. |
+| `NICO_RMS_IMAGE_TAG` | Unless `--skip-rms` | RMS API server image tag (git-describe style, e.g. `v0.8.0`). No default — the chart fails at render without one. See `setup.sh` header for the full `NICO_RMS_*` family (version pin, source dir, image repo, NGC key, namespace). |
 | `NICO_DPF_VERSION` | No | `NVIDIA/doca-platform` tag that setup.sh clones and installs. Defaults to `v26.4.0`. |
 | `NICO_DPF_SRC_DIR` | No | Cache directory for the doca-platform clone. Defaults to `helm-prereqs/.dpf-src`. |
 | `NICO_DPF_NGC_API_KEY` | No | NGC API key for `dpf-pull-secret` and the Argo CD helm repository secrets. Defaults to `REGISTRY_PULL_SECRET`. |

@@ -98,9 +98,9 @@ export NICO_DPF_DPU_CLUSTER_VIP=<free-routable-ip>    # DPU cluster control-plan
 read -r -s -p "Site-wide BMC root password (leave blank to set later): " NICO_DPF_BMC_ROOT_PASSWORD; echo
 export NICO_DPF_BMC_ROOT_PASSWORD
 
-# RMS (Rack Manager Service) is OPT-IN: pass --install-rms to setup.sh on
-# rack-management sites and set the image tag (there is no safe default):
-# export NICO_RMS_IMAGE_TAG=<rms-api image tag>
+# RMS (Rack Manager Service) installs by default. Set the image tag (there
+# is no safe default), or pass --skip-rms to setup.sh to opt out:
+export NICO_RMS_IMAGE_TAG=<rms-api image tag>
 # export NICO_RMS_IMAGE_REPO=<registry>/rms-api   # only for a mirror/self-built image
 ```
 

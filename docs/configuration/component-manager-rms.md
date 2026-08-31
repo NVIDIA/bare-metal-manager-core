@@ -18,12 +18,12 @@ the examples on this page cover the component-manager and rack-profile fields.
 The `nsm` and `psm` backend values require externally managed services; the
 NICo deployment charts do not install NSM or PSM.
 
-`setup.sh --install-rms` deploys RMS in-cluster (phase 5c): it installs the
+`setup.sh` deploys RMS in-cluster by default (phase 5c, opt out with `--skip-rms`): it installs the
 [nv-rms](https://github.com/dsx-ai-factory/nv-rms) rack-manager chart with an
 mTLS certificate issued from `vault-nico-issuer`, matching the `[rms]` defaults
 NICo Core's chart already renders (`rms-api-server.rack-manager.svc.cluster.local:8801`).
 An externally managed RMS remains supported — point `[rms] api_url` at it and
-skip the flag.
+pass `--skip-rms`.
 
 ---
 

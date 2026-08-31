@@ -19,7 +19,7 @@ After any required manual Flow overwrite, every installation phase is safe to re
 | **4 (SSH host key)** | `bootstrap_ssh_host_key.sh` detects an existing SSH host key Secret and skips re-generation. The cluster's SSH identity is preserved across upgrades. |
 | **5 — external-secrets + nico-prereqs** | `helmfile sync` upgrades both releases. Existing `ClusterSecretStore` and `ExternalSecret` objects are reconciled to their new definitions. The ESO controller re-syncs all secrets on the next poll cycle. |
 | **5b — DPF** | DPF components are upgraded via their Helm charts. The `DPFOperatorConfig`, `DPUCluster`, and `DPUService` objects are preserved. Refer to [DPF version update](#20--21-dpf-version-update). |
-| **5c — RMS** (opt-in) | On sites installed with `--install-rms`: the rack-manager release is upgraded via `helm upgrade --install` from the pinned nv-rms clone. The RMS database on `nico-pg-cluster`, the ESO-synced credentials, and the operator-edited state are preserved. Seeding is create-if-absent; re-runs never overwrite. RMS does not reload its TLS material — after a certificate renewal, restart with `kubectl rollout restart deployment/rms-api-server -n rack-manager`. |
+| **5c — RMS** | Unless `--skip-rms` is passed: the rack-manager release is upgraded via `helm upgrade --install` from the pinned nv-rms clone. The RMS database on `nico-pg-cluster`, the ESO-synced credentials, and the operator-edited state are preserved. Seeding is create-if-absent; re-runs never overwrite. RMS does not reload its TLS material — after a certificate renewal, restart with `kubectl rollout restart deployment/rms-api-server -n rack-manager`. |
 | **6 — NICo Core** | `helm upgrade --install nico` rolls out the new Core image tag. The PostgreSQL database schema is migrated by the pre-upgrade Job (uses the `imagepullsecret` Secret, which is upserted). NICo state (host records, machine state, firmware inventory) lives in PostgreSQL and is preserved. |
 | **6b — DPF enablement** | On DPF-enabled sites only: refreshes the BMC-root credential, then runs a **second** `helm upgrade` of Core with the `[dpf]` block enabled and restarts `nico-api`. Core therefore rolls out twice on a DPF site. |
 | **7a–7g — NICo REST** | REST components are upgraded via `helm upgrade --install`. The `nico_rest` PostgreSQL database is migrated in-place by the REST migration Job. Temporal workflow state is preserved. The Keycloak realm and client credentials are preserved. |
@@ -204,7 +204,7 @@ If a phase fails, `setup.sh` prints `SETUP FAILED` and offers: `Run clean.sh to 
 | `--skip-core` | Skip Phase 6 only. Prerequisites and the REST stack still upgrade; NICo Core is left on its current image. Useful when the Core image did not change. |
 | `--skip-rest` | Skip Phase 7 only. Prerequisites and NICo Core still upgrade; the REST stack is left untouched. |
 | `--skip-flow` | Skip the Flow upgrade (Phase 7h). It does not bypass the initial guard for bundled PSM/NSM containers or an incomplete Flow-only rollout. Follow the [preserve-or-overwrite guidance](../../helm-prereqs/README.md#upgrading-deployments-that-bundled-psm-and-nsm). |
-| `--install-rms` | Also upgrade (or install) the Rack Manager Service (Phase 5c). RMS is opt-in: pass this on every run at a site that uses it, along with `NICO_RMS_IMAGE_TAG`, or the phase is skipped and the existing RMS release is left untouched. |
+| `--skip-rms` | Skip the Rack Manager Service upgrade (Phase 5c). RMS installs **by default** (like DPF); `NICO_RMS_IMAGE_TAG` is required unless this flag is passed. Skipping leaves an existing RMS release untouched. |
 | `--skip-dpf` | Use **only** if DPF is not enabled at this site. This is not a pure skip: it clears `INSTALL_DPF`, which drops phases 5b and 6b *and* redeploys NICo Core with the `[dpf]` block disabled — on a DPF-enabled site that is a config change, not a skip. |
 | `--core-values <file>` | Use a per-site NICo Core values file (same as initial install). |
 | `--metallb-config <path>` | Use a site-specific MetalLB manifest or kustomize dir (same as initial install). |
@@ -217,7 +217,7 @@ If a phase fails, `setup.sh` prints `SETUP FAILED` and offers: `Run clean.sh to 
 | Phases 2–4 (cert-manager, Vault, unseal) | 1–3 min (Vault is already initialized; only rolling update time) |
 | Phase 5 (ESO + nico-prereqs) | 1–3 min |
 | Phase 5b (DPF) | 3–10 min (depends on DPF version delta) |
-| Phase 5c (RMS — opt-in sites only) | 1–3 min (certificate issuance + rollout) |
+| Phase 5c (RMS — unless `--skip-rms`) | 1–3 min (certificate issuance + rollout) |
 | Phase 6 (NICo Core) | 3–8 min (includes DB migration Job) |
 | Phase 6b (DPF enablement — DPF sites only) | 2–5 min (second Core rollout + nico-api restart) |
 | Phases 7a–7i (NICo REST + site-agent) | 5–15 min (Temporal and DB migrations are the slowest steps) |
