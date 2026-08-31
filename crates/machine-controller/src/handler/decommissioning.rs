@@ -751,13 +751,17 @@ pub(super) async fn handle_powering_on_host(
         .await?;
     let power_state = super::host_power_state(redfish_client.as_ref()).await?;
     match power_state {
-        PowerState::On | PowerState::PoweringOn => Ok(StateHandlerOutcome::transition(
+        PowerState::On => Ok(StateHandlerOutcome::transition(
             ManagedHostState::Decommissioning {
                 decommissioning_state: DecommissioningState::WaitingForOobDhcpAcknowledgement,
             },
         )),
         PowerState::PoweringOff => Ok(StateHandlerOutcome::wait(format!(
             "waiting for {host_id} to finish powering off before powering on; current power state: {power_state}",
+            host_id = host.id,
+        ))),
+        PowerState::PoweringOn => Ok(StateHandlerOutcome::wait(format!(
+            "waiting for {host_id} to finish powering on; current power state: {power_state}",
             host_id = host.id,
         ))),
         _ => {
