@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 
-mod client_ip;
 mod machine;
 pub(super) mod machine_architecture;
 mod machine_interface;

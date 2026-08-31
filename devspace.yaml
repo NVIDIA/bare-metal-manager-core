@@ -508,7 +508,14 @@ profiles:
               docker build -t ${runtime.images.nico-pxe.image}:${runtime.images.nico-pxe.tag} -f dev/deployment/devspace/Dockerfile.pxe .
             onChange:
               - .dockerignore
-              - dev/deployment/devspace/Dockerfile.core-artifacts
+              - Cargo.toml
+              - Cargo.lock
+              - rust-toolchain.toml
+              - .cargo
+              - crates
+              - include
+              - dev/docker/Dockerfile.build-container-x86_64
+              - dev/docker/Dockerfile.build-container-aarch64
               - dev/deployment/devspace/Dockerfile.pxe
               - dev/deployment/devspace/Dockerfile.pxe.dockerignore
               - pxe/scout-firmware-scripts
@@ -521,11 +528,6 @@ profiles:
             repository: ${runtime.images.nico-pxe.image}
             tag: ${runtime.images.nico-pxe.tag}
             pullPolicy: IfNotPresent
-          config:
-            extraEnvData:
-              # kubectl port-forward connects to the pod through loopback. Trust
-              # only that local hop for the metadata verification helper.
-              PXE_TRUSTED_PROXY_CIDRS: "127.0.0.0/8"
       - op: replace
         path: hooks.name=load-images-into-local-cluster.command
         value: |-

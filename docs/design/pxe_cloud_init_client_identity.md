@@ -1,7 +1,7 @@
 # PXE and Cloud-Init Client Identity
 
-NICo selects machine-specific iPXE scripts and cloud-init data from the client
-IP address selected by `nico-pxe`. That is a complete lookup key only while the
+NICo selects machine-specific iPXE scripts and cloud-init data from the source
+IP address observed by `nico-pxe`. That is a complete lookup key only while the
 address is unique in the lookup domain. This page records the repository-backed
 identity contract and the qualification required before separate VPCs may use
 the same overlay address.
@@ -34,10 +34,7 @@ sequenceDiagram
     F->>L: TCP connection
     L->>P: TCP connection to local PXE pod
     P->>P: Read socket peer IP
-    opt Peer is in PXE_TRUSTED_PROXY_CIDRS
-        P->>P: Validate X-Forwarded-For and select client IP
-    end
-    P->>C: mTLS gRPC request with the selected client IP
+    P->>C: mTLS gRPC request; observed IP is the only client identity
     C->>D: Resolve machine interface or instance by IP
     D-->>C: One selected client or an error
     C-->>P: iPXE or cloud-init instructions
@@ -51,16 +48,12 @@ manifests:
   `ClientIpSource::ConnectInfo`, and Axum supplies the accepted socket's
   `SocketAddr`. The [request logger](../../crates/pxe/src/middleware/logging.rs)
   records the same peer as `remote_ip`.
-- The [client-IP extractor](../../crates/pxe/src/extractors/client_ip.rs) uses
-  the accepted socket peer unless that peer belongs to an explicitly configured
-  `PXE_TRUSTED_PROXY_CIDRS` range. An untrusted peer cannot select a machine by
-  sending `X-Forwarded-For`. A trusted peer may send exactly one forwarding
-  header field. Its comma-separated chain is parsed in full and traversed from
-  right to left; the first address outside the trusted ranges becomes the
-  client identity. Duplicate header fields, malformed forwarding, and chains
-  made entirely of trusted addresses are rejected.
+- The [machine](../../crates/pxe/src/extractors/machine.rs) and
+  [machine-interface](../../crates/pxe/src/extractors/machine_interface.rs)
+  extractors deliberately ignore `X-Forwarded-For`. A client-provided
+  forwarding header cannot select a machine.
 - The [boot-instruction RPC](../../crates/pxe/src/routes/mod.rs) sends the
-  selected address as `PxeInstructionRequest.client_ip`. The
+  observed address as `PxeInstructionRequest.client_ip`. The
   [cloud-init RPC](../../crates/pxe/src/extractors/machine.rs) sends it as
   `CloudInitInstructionsRequest.ip`. Neither request carries a VPC, VNI,
   network-segment, circuit, interface, or authenticated boot-client identity.
@@ -74,11 +67,8 @@ manifests:
   use `LoadBalancer` with `externalTrafficPolicy: Local`. The
   [optional Helm external Services](../../helm/charts/nico-pxe/templates/external-service.yaml)
   default to `Local` when enabled, but the chart permits that value to be
-  cleared or changed. No production PXE ingress, forwarded-header trust, or
-  application-layer proxy is configured by these manifests. The local
-  DevSpace `full` profile is the exception: it trusts `127.0.0.0/8` solely so
-  its loopback `kubectl port-forward` verification path can name a simulated
-  client address.
+  cleared or changed. No PXE ingress, forwarded-header trust, or
+  application-layer proxy is configured by these manifests.
 
 The external Service setting does not prove which address reaches the socket.
 An off-box DPU, gateway, or load-balancer hop may preserve or translate the
@@ -88,26 +78,21 @@ source before Kubernetes receives it.
 
 | Input | Effect on identity |
 |---|---|
-| Accepted TCP socket peer | Used directly unless it matches an explicitly configured trusted-proxy CIDR. Its trust and uniqueness depend on the deployed network path. |
-| `PXE_TRUSTED_PROXY_CIDRS` | Optional comma-separated IPv4 or IPv6 CIDRs. The default is empty. A malformed CIDR prevents startup. A matching direct peer may supply `X-Forwarded-For`; configure only controlled proxies that sanitize or append the chain correctly. |
-| `X-Forwarded-For` | Ignored from untrusted peers. A trusted peer without the header retains its direct address. When present, exactly one header field is allowed, every list element must parse as an IP address, and the rightmost untrusted address is forwarded to Core. Duplicate fields and malformed or all-trusted chains are rejected. |
-| Other forwarding headers | Ignored for client identity. |
+| Accepted TCP socket peer | For requests accepted by `nico-pxe`, this is the only host identity input forwarded to Core. Its trust and uniqueness depend on the deployed network path. |
+| `X-Forwarded-For` and similar headers | Ignored for client identity. |
 | `buildarch`, `product`, and the other iPXE query values | Caller-provided boot characteristics. They can affect rendering after address resolution but do not select the database client. |
 | PXE service certificate | Authenticates the PXE service to Core, not the booting host or VPC. |
 | `machine-a-tron` service certificate and `client_ip` RPC field | Authorizes another internal caller to request iPXE instructions for a supplied address. It is not evidence about the source of a PXE socket. |
 | Deprecated `PxeInstructionRequest.interface_id` | Not populated by `nico-pxe` and not used by Core for client selection. |
 
-For the umbrella Helm chart, set the environment variable through
-`nico-pxe.config.extraEnvData.PXE_TRUSTED_PROXY_CIDRS`. Omitting that key is
-equivalent to an empty list and preserves direct-peer selection.
+The source address itself is therefore security-sensitive. Repository code
+does not prove that the DPU prevents source spoofing on this path, that a
+gateway gives each VPC a unique translated address, or that the translated
+address is one Core can map back to the correct instance.
 
-The selected address is therefore security-sensitive. Repository code does
-not prove that the DPU prevents source spoofing on a direct path, that a gateway
-gives each VPC a unique translated address, that a configured proxy constructs
-a trustworthy forwarding chain, or that the selected address is one Core can
-map back to the correct instance. The request logger's `remote_ip` remains the
-accepted socket peer; when proxy trust is enabled, operators must capture both
-that peer and the selected forwarded address.
+The protobuf and Core handler comments still describe reading a forwarded
+header when a proxy is present. That is not the implemented `nico-pxe` request
+path: both request extractors deliberately ignore forwarded headers.
 
 ## Core lookup behavior
 
@@ -123,7 +108,7 @@ machine metadata, and a configured boot override.
 
 The duplicate-safe contract applies across both address domains:
 
-| Matches for the selected address | Required resolution |
+| Matches for the observed address | Required resolution |
 |---|---|
 | No machine interface and no instance | Return a generic not-found or non-booting response. |
 | Exactly one machine interface and no instance | Use the machine-interface path. |
@@ -174,8 +159,7 @@ status or result at every hop. For each correlated request, also record:
 3. The source address, routing table, and any translation or connection state
    at each physical gateway hop.
 4. The deployed PXE Service type and `externalTrafficPolicy` value.
-5. The `remote_ip` recorded by `nico-pxe`, the complete forwarding chain when
-   proxy trust is enabled, and the selected value sent to Core.
+5. The `remote_ip` recorded by `nico-pxe` and the value sent to Core.
 6. The routing context used by the reply at the site controller node, gateway,
    and DPU.
 7. Which host receives the reply.
@@ -205,11 +189,9 @@ is necessary but is not, by itself, an enablement decision.
   that Core can already map to the correct assigned instance, and the reply is
   proven to return through the same VPC, the ambiguity rejection is sufficient
   and no new protocol is needed.
-- If the selected value is unique but Core cannot map it to the assigned
+- If the observed value is unique but Core cannot map it to the assigned
   instance, a follow-up implementation is still required.
 
-Do not enable forwarded-header trust or select a token, VNI field, proxy
-protocol, or source-NAT scheme for a production path before the capture
-identifies which component can provide and authenticate the smallest useful
-discriminator. The loopback-only DevSpace setting exercises application
-behavior; it is not evidence for a site's network path.
+Do not select a header, token, VNI field, proxy protocol, or source-NAT scheme
+before the capture identifies which component can provide and authenticate the
+smallest useful discriminator.

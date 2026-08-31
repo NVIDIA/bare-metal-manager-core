@@ -114,14 +114,14 @@ devspace deploy
 
 DevSpace will:
 
-- compile the Core binaries once with [`Dockerfile.core-artifacts`](Dockerfile.core-artifacts), then build the local runtime images from [`Dockerfile.api`](Dockerfile.api), [`Dockerfile.bmc-proxy`](Dockerfile.bmc-proxy), and [`Dockerfile.machine-a-tron`](Dockerfile.machine-a-tron); the `full` profile also builds [`Dockerfile.pxe`](Dockerfile.pxe)
+- compile the shared Core binaries once with [`Dockerfile.core-artifacts`](Dockerfile.core-artifacts), then build the local runtime images from [`Dockerfile.api`](Dockerfile.api), [`Dockerfile.bmc-proxy`](Dockerfile.bmc-proxy), and [`Dockerfile.machine-a-tron`](Dockerfile.machine-a-tron); the `full` profile also builds [`Dockerfile.pxe`](Dockerfile.pxe)
 - build the REST API, workflow, site-manager, site-agent, database migration, certificate-manager, and MCP images from [`rest-api/docker/local`](../../../rest-api/docker/local)
 - deploy the Helm chart in [`helm/`](../../../helm) (including `nico-machine-a-tron`)
 - deploy the REST umbrella, site-agent, and MCP charts in [`helm/rest`](../../../helm/rest)
 - inject the built image names and DevSpace-generated tags into both deployments at runtime
 - register a local REST site, configure its Temporal namespace, and confirm that the site agent establishes a Core gRPC connection
 
-The image builds are configured in [`devspace.yaml`](../../../devspace.yaml). DevSpace always invokes the native [`dev/docker/Dockerfile.build-container-x86_64`](../../../dev/docker/Dockerfile.build-container-x86_64) or [`dev/docker/Dockerfile.build-container-aarch64`](../../../dev/docker/Dockerfile.build-container-aarch64) build so Docker notices architecture and Dockerfile changes while reusing unchanged layers from its cache. In the first build stage, a single shared builder compiles the API, admin CLI, BMC proxy, PXE, and machine-a-tron binaries while the REST images build in parallel. The builder exports those binaries to the local `nico-devspace-core-artifacts` image. In the second stage, the runtime Dockerfiles copy their binaries from that image and add only their distinct runtime packages and assets. The default path invokes the three API, BMC proxy, and machine-a-tron runtime builds; `full` also invokes the PXE runtime build. DevSpace forces these inexpensive second-stage builds because its custom-build change cache can outlive the corresponding local Docker images; Docker still reuses unchanged layers. BuildKit cache mounts are used for Cargo registry, Cargo git checkouts, and Cargo target output so rebuilds stay fast without copying host build artifacts into the image.
+The image builds are configured in [`devspace.yaml`](../../../devspace.yaml). DevSpace always invokes the native [`dev/docker/Dockerfile.build-container-x86_64`](../../../dev/docker/Dockerfile.build-container-x86_64) or [`dev/docker/Dockerfile.build-container-aarch64`](../../../dev/docker/Dockerfile.build-container-aarch64) build so Docker notices architecture and Dockerfile changes while reusing unchanged layers from its cache. In the first build stage, a single shared builder compiles the API, admin CLI, BMC proxy, and machine-a-tron binaries while the REST images build in parallel. The builder exports those binaries to the local `nico-devspace-core-artifacts` image. In the second stage, the three Core runtime Dockerfiles copy their binaries from that image in parallel and add only their distinct runtime packages and assets. The `full` profile separately compiles and packages PXE while sharing the same BuildKit Cargo caches. DevSpace always invokes the enabled runtime builds because its custom-build change cache can outlive the corresponding local Docker images; Docker still reuses unchanged layers. BuildKit cache mounts are used for Cargo registry, Cargo git checkouts, and Cargo target output so rebuilds stay fast without copying host build artifacts into the image.
 
 Host setup preloads PostgreSQL 14.5 for the DevSpace REST migration wait container. It also aliases that cached image as 14.4 inside the kind node for the standalone REST local deployment path, avoiding a second PostgreSQL image pull.
 
@@ -138,11 +138,11 @@ The local Temporal server uses the absolute
 client. This avoids resolver search-domain expansion and works on both supported
 host architectures.
 
-The DevSpace images also use Dockerfile-specific ignore files. [`Dockerfile.core-artifacts.dockerignore`](Dockerfile.core-artifacts.dockerignore) provides the union of the source needed by the shared artifacts, while [`Dockerfile.api.dockerignore`](Dockerfile.api.dockerignore), [`Dockerfile.bmc-proxy.dockerignore`](Dockerfile.bmc-proxy.dockerignore), [`Dockerfile.machine-a-tron.dockerignore`](Dockerfile.machine-a-tron.dockerignore), and [`Dockerfile.pxe.dockerignore`](Dockerfile.pxe.dockerignore) limit the runtime-image contexts. This keeps the top-level [`.dockerignore`](../../../.dockerignore) aligned with the main branch for CI and release builds.
+The DevSpace images also use Dockerfile-specific ignore files. [`Dockerfile.core-artifacts.dockerignore`](Dockerfile.core-artifacts.dockerignore) provides the source needed by the shared artifacts, while [`Dockerfile.api.dockerignore`](Dockerfile.api.dockerignore), [`Dockerfile.bmc-proxy.dockerignore`](Dockerfile.bmc-proxy.dockerignore), [`Dockerfile.machine-a-tron.dockerignore`](Dockerfile.machine-a-tron.dockerignore), and [`Dockerfile.pxe.dockerignore`](Dockerfile.pxe.dockerignore) limit their build contexts. This keeps the top-level [`.dockerignore`](../../../.dockerignore) aligned with the main branch for CI and release builds.
 
 The local REST Dockerfiles inherit BuildKit's target operating system and architecture. Native AMD64 hosts therefore produce AMD64 binaries, while native ARM64 hosts produce ARM64 binaries for the corresponding runtime images.
 
-DevSpace watches the Rust workspace, toolchain metadata, and the runtime Dockerfiles to decide when the shared Core artifacts need rebuilding. It always runs the enabled second-stage Core runtime builds to guarantee their generated tags exist locally. On kind clusters, the pre-deploy hooks then load all enabled Core and REST images into the cluster selected by the current kube context.
+DevSpace watches the Rust workspace, toolchain metadata, and the runtime Dockerfiles to decide when the shared Core artifacts need rebuilding. It always runs the three second-stage Core runtime builds to guarantee their generated tags exist locally. On kind clusters, the pre-deploy hooks then load all Core and REST images into the cluster selected by the current kube context.
 
 The `nico-machine-a-tron` Helm subchart configuration is in [`values.base.yaml`](values.base.yaml). The post-deploy setup resolves the `nico-machine-a-tron-mat-0-bmc-mock` Service ClusterIP and sets Core's runtime BMC proxy to that literal address. After allowing earlier requests to drain, it clears cached lockout-protection errors and refreshes existing host and DPU BMC endpoint records reported by machine-a-tron; endpoints not yet recorded on a clean install are left for normal discovery. This avoids hostname connection failures on affected ARM64 hosts and works unchanged on AMD64.
 
@@ -190,52 +190,19 @@ dependencies. Later builds reuse the verified checkout under `.devspace/`.
 The `dsx-exchange` and `core-only` profiles are incompatible because the
 gateway requires the local REST API and Keycloak deployments.
 
-### Full Profile with PXE
+### Full Profile
 
-The `full` profile inherits `dsx-exchange` and additionally builds and deploys
-the dedicated `nico-pxe` image and HTTP service:
+The `full` profile inherits `dsx-exchange` and also builds and deploys the
+dedicated `nico-pxe` image and HTTP service:
 
 ```bash
 devspace deploy -n nico-system --profile full --build-sequential
 ```
 
-The default and `dsx-exchange` profiles leave `nico-pxe` disabled. The `full`
-profile enables it with the chart-managed SPIFFE identity and sets
-`PXE_TRUSTED_PROXY_CIDRS=127.0.0.0/8` so the loopback connection made by
-`kubectl port-forward` may supply a simulated client address. Other deployment
-paths default this variable to an empty list and identify clients directly from
-their TCP peer address.
-
-The local PXE image includes its request templates and Scout firmware scripts.
-It does not embed OS boot artifacts. The `nico-pxe.bootArtifactContainers`
-chart value remains empty in this profile, so configure appropriate artifact
-init containers before using it for an actual host or DPU boot.
-
-`PXE_TRUSTED_PROXY_CIDRS` accepts a comma-separated list of IPv4 or IPv6 CIDRs.
-When the direct peer is outside every configured range, `nico-pxe` ignores
-`X-Forwarded-For`. When the peer is trusted, exactly one header field may be
-present and every comma-separated value must be a valid IP address; `nico-pxe`
-walks the list from right to left and uses the first address outside the trusted
-ranges. A trusted peer that omits the header retains its direct address. A
-malformed configured CIDR prevents startup. Duplicate header fields, a
-malformed trusted forwarding header, or a chain containing only trusted
-addresses return HTTP 400. Configure this variable only when the listed peers
-are controlled proxies that remove untrusted forwarding values or append the
-actual client address correctly.
-
-After provisioning an instance, verify its NoCloud metadata through the live
-PXE endpoint. Pass an IP allocated to that instance and its expected name:
-
-```bash
-dev/deployment/devspace/verify-cloud-init-meta-data.sh \
-  <assigned-instance-ip> <expected-instance-name>
-```
-
-The helper uses namespace `nico-system` and loopback port `18081` by default.
-Override them with `LOCAL_DEV_NAMESPACE` and `LOCAL_DEV_PXE_FORWARD_PORT`. It
-waits up to five minutes for the PXE deployment and then up to one minute for a
-temporary `kubectl port-forward`. It fails unless the endpoint returns the
-exact quoted `local-hostname` for the supplied address.
+The default and `dsx-exchange` profiles leave `nico-pxe` disabled. The local
+PXE image includes its request templates and Scout firmware scripts, but it
+does not include OS boot artifacts. Configure `nico-pxe.bootArtifactContainers`
+before using the profile for an actual host or DPU boot.
 
 The post-deploy setup uses temporary port-forwards to register the site and verifies that machines from Core are visible through the REST API. To keep the REST API and Keycloak available on localhost after `devspace deploy` exits, run these in separate terminals:
 
@@ -340,7 +307,6 @@ devspace deploy -n nico-system
 - [`bootstrap-prereqs.sh`](bootstrap-prereqs.sh)
 - [`reset-kind-cluster.sh`](reset-kind-cluster.sh)
 - [`setup-rest-integration.sh`](setup-rest-integration.sh)
-- [`verify-cloud-init-meta-data.sh`](verify-cloud-init-meta-data.sh)
 - [`devspace.yaml`](../../../devspace.yaml)
 - [`values.base.yaml`](values.base.yaml)
 - [`values.generated.yaml`](values.generated.yaml)

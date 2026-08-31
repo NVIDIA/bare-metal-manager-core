@@ -205,9 +205,7 @@ unbound:
 
 ### Image Configuration
 
-The `global.image.repository` and `global.image.tag` values **must** be set -- they default to empty strings. Most subcharts use the global image reference. `nico-pxe` uses it by default, including `global.image.pullPolicy`; setting `nico-pxe.image.repository` switches that workload to `nico-pxe.image.repository` plus `nico-pxe.image.tag` (default `latest`) and `nico-pxe.image.pullPolicy` (default `IfNotPresent`). This override supports development builds that package PXE separately while leaving existing production values unchanged.
-
-The following subcharts use their own separate image references and do **not** inherit `global.image`:
+The `global.image.repository` and `global.image.tag` values **must** be set -- they default to empty strings. Most subcharts use the global image reference. The following subcharts use their own separate image references and do **not** inherit `global.image`:
 
 | Subchart | Image Parameter | Default |
 |----------|----------------|---------|

@@ -1,4 +1,17 @@
 **
+!.dockerignore
+!Cargo.toml
+!Cargo.lock
+!rust-toolchain.toml
+!.cargo
+!.cargo/
+!.cargo/**
+!crates
+!crates/
+!crates/**
+!include
+!include/
+!include/**
 !pxe
 !pxe/
 !pxe/templates

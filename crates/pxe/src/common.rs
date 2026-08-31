@@ -34,8 +34,8 @@ pub(crate) struct Machine {
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct MachineInterface {
     pub(super) architecture: Option<machine_architecture::MachineArchitecture>,
-    /// IP carbide-pxe resolved for the booting machine. This is the TCP peer
-    /// unless the peer belongs to an explicitly configured trusted proxy.
+    /// IP carbide-pxe observed for the booting machine: Does not support `X-Forwarded-For` for
+    /// proxying, it is the real IP of the connecting client.
     pub(super) client_ip: IpAddr,
     pub(super) platform: Option<String>,
     pub(super) manufacturer: Option<String>,
@@ -91,7 +91,6 @@ pub(crate) fn test_app_state() -> AppState {
             bind_address: "0.0.0.0".parse().unwrap(),
             bind_port: 8080,
             template_directory: String::new(),
-            trusted_proxy_cidrs: vec![],
         },
         prometheus_handle: PrometheusBuilder::new().build_recorder().handle(),
         otel_registry: prometheus::Registry::new(),

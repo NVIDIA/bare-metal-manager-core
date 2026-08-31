@@ -2800,7 +2800,6 @@ dependencies = [
  "carbide-version",
  "clap",
  "http-body",
- "ipnet",
  "logfmt",
  "metrics",
  "metrics-endpoint",
