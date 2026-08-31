@@ -85,6 +85,64 @@ lazy_static! {
     );
 }
 
+/// An item associated with a row in `machines`.
+pub trait MachineRowLockItem {
+    /// Returns the ID used to order machine-row lock acquisition.
+    fn machine_id(&self) -> MachineId;
+}
+
+impl MachineRowLockItem for MachineId {
+    fn machine_id(&self) -> MachineId {
+        *self
+    }
+}
+
+impl<T> MachineRowLockItem for (MachineId, T) {
+    fn machine_id(&self) -> MachineId {
+        self.0
+    }
+}
+
+/// An owning iterator in canonical `machines` row-lock acquisition order.
+///
+/// PostgreSQL holds row locks acquired by `UPDATE` until the transaction ends.
+/// If two transactions update overlapping machine batches in different orders,
+/// each can hold a row needed by the other, and PostgreSQL aborts one with
+/// SQLSTATE 40P01 (`deadlock_detected`). A common order prevents that cycle.
+///
+/// Construct this before the batch's first machine-row write so concurrent
+/// transactions acquire row locks in the same order.
+pub struct MachineRowLockOrderIter<T>(std::vec::IntoIter<T>);
+
+impl<T: MachineRowLockItem> MachineRowLockOrderIter<T> {
+    /// Orders machine-scoped batch items by their machine IDs.
+    pub fn new(mut items: Vec<T>) -> Self {
+        items.sort_unstable_by_key(MachineRowLockItem::machine_id);
+        Self(items.into_iter())
+    }
+}
+
+impl<T> MachineRowLockOrderIter<T> {
+    /// Returns the remaining ordered items as a slice.
+    pub fn as_slice(&self) -> &[T] {
+        self.0.as_slice()
+    }
+}
+
+impl<T> Iterator for MachineRowLockOrderIter<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+}
+
+impl<T> ExactSizeIterator for MachineRowLockOrderIter<T> {}
+
 /// Load a Machine object matching an interface, creating it if not already present.
 /// Returns a tuple of (Machine, bool did_we_just_create_it)
 ///

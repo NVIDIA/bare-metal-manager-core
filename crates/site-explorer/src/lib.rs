@@ -990,9 +990,14 @@ impl SiteExplorer {
         }
         metrics.record_phase_latency("audit_compute", audit_compute_start.elapsed());
 
+        // Match other multi-machine health-report writers' row-lock order to
+        // prevent PostgreSQL deadlocks when their batches overlap.
+        let pending_health_report_updates =
+            db::machine::MachineRowLockOrderIter::new(pending_health_report_updates);
         let audit_write_start = Instant::now();
-        for health_report_updates in
-            pending_health_report_updates.chunks(Self::SITE_EXPLORER_HEALTH_REPORT_WRITE_BATCH_SIZE)
+        for health_report_updates in pending_health_report_updates
+            .as_slice()
+            .chunks(Self::SITE_EXPLORER_HEALTH_REPORT_WRITE_BATCH_SIZE)
         {
             let mut txn = self.txn_begin().await?;
             for (id, health_report) in health_report_updates {
